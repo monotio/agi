@@ -169,3 +169,41 @@ test("conflict restoration preserves an entry appended while recovery awaits", a
   assert.match(raw, /newest/);
   assert.equal(raw.includes("true"), false);
 });
+
+test("a terminal recovery conflict is surfaced once with its original bytes", async () => {
+  const input = request("journal-terminal");
+  const key = projectSaveJournalKey(input.projectId, "retired");
+  writeProjectSaveJournal(cache, key, [{ request: input, attempted: false }]);
+  const raw = cache.getItem(key);
+  let attempts = 0;
+  const conflict = async () => {
+    attempts++;
+    throw Object.assign(new Error("Project lifetime ended"), { name: "ProjectDeletedError" });
+  };
+  await resumeProjectSaveJournals(cache, input.projectId, conflict);
+  await resumeProjectSaveJournals(cache, input.projectId, conflict);
+  assert.equal(attempts, 1);
+  assert.equal(cache.getItem(key), raw);
+});
+
+test("a recovery marker failure still opens the project and exposes retained edits", async () => {
+  const input = request("journal-marker-quota");
+  const key = projectSaveJournalKey(input.projectId, "ended");
+  writeProjectSaveJournal(cache, key, [{ request: input, attempted: false }]);
+  const raw = cache.getItem(key);
+  const setItem = cache.setItem;
+  cache.setItem = (key, value) => {
+    if (key.startsWith("monotio_agi.project-recovery.")) throw new Error("Recovery marker quota");
+    setItem(key, value);
+  };
+  try {
+    await resumeProjectSaveJournals(cache, input.projectId, async () => {
+      throw Object.assign(new Error("Removed project"), { name: "ProjectDeletedError" });
+    });
+    const { readProjectSaveRecoveries } = await import("../src/project/projectSaveJournal.ts");
+    assert.equal(readProjectSaveRecoveries(cache, input.projectId)[0]?.raw, raw);
+    assert.equal(cache.getItem(key), raw);
+  } finally {
+    cache.setItem = setItem;
+  }
+});

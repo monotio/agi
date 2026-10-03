@@ -532,8 +532,12 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
     // Commits already in flight settle first: one may be the refusal that
     // says the tape can never be stored.
     await options.drainHistoryCommits();
-    // A removed project's timeline can never be stored: nothing is owed.
-    if (state.historyBlocked || booted?.removed) return;
+    // A removed or stale project's timeline has no current write authority.
+    if (
+      state.historyBlocked ||
+      (booted !== null && (storageMovedPast(booted) || needsReload(booted)))
+    )
+      return;
     try {
       await link.query("historyEnd", {}, 10_000);
       await options.drainHistoryCommits();
@@ -594,7 +598,10 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
       // the interpreter cannot checkpoint (a live prompt, text mode, a text
       // window the game keeps up while it runs on) leaves with the last save
       // point, and the timeline sealed below holds the rest.
-      if (!ejectOptions?.abandonUnsaved && !(game !== null && storageMovedPast(game))) {
+      if (
+        !ejectOptions?.abandonUnsaved &&
+        !(game !== null && (storageMovedPast(game) || needsReload(game)))
+      ) {
         const flushResult = await autosave.flushAutosaveDetailed(2000);
         if (flushResult.status === "storage_failure") {
           throw new Error(
@@ -1203,12 +1210,24 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
     data: CachedGameData;
     progressKey: string;
     progressTarget: ProgressTarget | undefined;
+    notes: string[];
   }> {
     if (state.powerUp.busy || state.phase !== "running")
       throw new Error("Wait for the current authoring turn to finish before saving.");
     const game = booted;
     if (!game) throw new Error("No game is running.");
-    await options.flushProject?.();
+    const notes: string[] = [];
+    try {
+      await options.flushProject?.();
+    } catch {
+      notes.push(
+        "Latest editor changes could not be saved. This backup contains the last applied project changes. Keep this tab open to recover pending changes.",
+      );
+    }
+    if (game.removed || needsReload(game))
+      notes.push(
+        "This tab's project differs from browser storage; this backup contains the running version.",
+      );
     if (game !== booted) throw new Error("The game changed during download. Try again.");
     const progressTarget = game.progressTarget;
     const session = options.authoring?.getSession() ?? null;
@@ -1229,7 +1248,10 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
           files: game.files,
           words: game.words,
         }
-      : ((await loadAuthoredGame(game.projectId!).catch(() => null)) ?? game.authoredGame ?? null);
+      : ((notes.length > 0
+          ? game.authoredGame
+          : ((await loadAuthoredGame(game.projectId!).catch(() => null)) ?? game.authoredGame)) ??
+        null);
     if (!data) throw new Error("The current game metadata is unavailable.");
     const files = await link.query("exportFiles");
     // The binding captured before the storage and worker reads must still
@@ -1259,7 +1281,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
     const authoring = options.authoring ?? (await options.ensureAuthoring!());
     const assembled = authoring.assembleExportData(data, { ...game, words }, session, files);
     const progressKey = progressTarget?.locator ?? gameStorageKey(game);
-    return { data: assembled, progressKey, progressTarget };
+    return { data: assembled, progressKey, progressTarget, notes };
   }
 
   return {

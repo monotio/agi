@@ -261,7 +261,7 @@ test("Leaving a game behind storage saves nothing over the newer project, and is
     } as unknown as GameLifecycleOptions);
     lifecycle.setBootedGame(game);
     await lifecycle.ejectGame();
-    assert.deepEqual(calls, ["historyEnd", "terminate"], game.projectId);
+    assert.deepEqual(calls, ["terminate"], game.projectId);
     assert.equal(state.phase, "idle");
     assert.equal(lifecycle.getBootedGame(), null);
   }

@@ -2352,11 +2352,6 @@ async function classifyStoredProject(
           "This project History blob version is not supported by this app.",
         );
       }
-      data.projectHistory = (await import("./projectHistoryStorage.ts")).hydrateProjectHistory(
-        id,
-        history,
-        historyRecords,
-      );
     }
     return { state: "readable", data };
   } catch (error) {
@@ -2383,6 +2378,15 @@ async function unsupportedStoredProject(
   if (!id) return null;
   const classified = await classifyStoredProject(id, value, historyRecords);
   if (classified.state === "readable") return null;
+  let recoverable = classified.recoverable;
+  try {
+    const records =
+      historyRecords ??
+      new Map((await readRecoveryRecords(id)).records.map(({ key, value }) => [key, value]));
+    for (const value of records.values()) encodeJournalValue(value);
+  } catch {
+    recoverable = false;
+  }
   const record =
     value !== null && typeof value === "object" ? (value as Record<string, unknown>) : {};
   return {
@@ -2392,6 +2396,7 @@ async function unsupportedStoredProject(
         ? record["title"]
         : "Saved project",
     ...classified,
+    recoverable,
   };
 }
 
@@ -2403,26 +2408,38 @@ export async function listUnsupportedStoredProjects(): Promise<UnsupportedStored
   return entries.filter((entry): entry is UnsupportedStoredProject => entry !== null);
 }
 
-/** Recovery download: retain the raw envelope, additive fields and every resource byte. */
-export async function downloadUnsupportedStoredProject(id: ProjectId): Promise<string> {
+async function readRecoveryRecords(
+  id: ProjectId,
+): Promise<{ raw: unknown; records: CapturedRecord[] }> {
   const db = await openDatabase();
-  const { raw, records } = await new Promise<{ raw: unknown; records: CapturedRecord[] }>(
-    (resolve, reject) => {
-      const transaction = db.transaction("projects", "readonly");
-      const store = transaction.objectStore("projects");
-      const body = store.get(id);
-      const records: CapturedRecord[] = [];
-      // History's content lives beside the body. Capture every sibling layout,
-      // including future versions, in the same snapshot without interpreting it.
-      queuePrefixScan(store, `project-history/${id}/`, (key, cursor) => {
-        records.push({ key, value: cursor.value });
-      });
-      transaction.oncomplete = () => resolve({ raw: body.result, records });
-      transaction.onerror = () => reject(transaction.error ?? body.error);
-      transaction.onabort = () =>
-        reject(transaction.error ?? new Error("Project download was aborted."));
-    },
-  );
+  return new Promise<{ raw: unknown; records: CapturedRecord[] }>((resolve, reject) => {
+    const transaction = db.transaction("projects", "readonly");
+    const store = transaction.objectStore("projects");
+    const body = store.get(id);
+    const records: CapturedRecord[] = [];
+    // History's content lives beside the body. Capture every sibling layout,
+    // including future versions, in the same snapshot without interpreting it.
+    queuePrefixScan(store, `project-history/${id}/`, (key, cursor) => {
+      records.push({ key, value: cursor.value });
+    });
+    const creative = store.get(`creative/${id}`);
+    creative.onsuccess = () => {
+      if (creative.result !== undefined)
+        records.push({ key: `creative/${id}`, value: creative.result });
+    };
+    queuePrefixScan(store, `creative/${id}/`, (key, cursor) => {
+      records.push({ key, value: cursor.value });
+    });
+    transaction.oncomplete = () => resolve({ raw: body.result, records });
+    transaction.onerror = () => reject(transaction.error ?? body.error);
+    transaction.onabort = () =>
+      reject(transaction.error ?? new Error("Project download was aborted."));
+  });
+}
+
+/** Recovery download: retain the raw envelope, additive fields and every owned resource byte. */
+export async function downloadUnsupportedStoredProject(id: ProjectId): Promise<string> {
+  const { raw, records } = await readRecoveryRecords(id);
   const entry =
     raw === undefined
       ? null

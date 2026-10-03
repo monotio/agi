@@ -478,6 +478,7 @@ function liveEngine(opts: {
         data,
         progressKey: opts.target?.locator ?? projectId,
         progressTarget: "exportTarget" in opts ? opts.exportTarget : opts.target,
+        notes: [],
       }),
     pauseEngine: () => {},
     resumeEngine: () => {},
@@ -1098,7 +1099,7 @@ test("an unbound live export ships the in-memory game and says what it could not
   assert.equal(opened.backupWarning === undefined, false, "the report says it is incomplete");
   assert.match(
     lib.exportRefusal.value,
-    /stored body is gone/,
+    /Saved progress, map and stored history are omitted/,
     "the limitation names the omitted persistent components",
   );
 });

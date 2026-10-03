@@ -1,5 +1,5 @@
 import { test, expect } from "./test.ts";
-import { isolateStorage, configureAi, textHook } from "./engineProbe.ts";
+import { isolateStorage, configureAi, textHook, workspaceSaved } from "./engineProbe.ts";
 import { providerReply } from "../../test/provider-stream.ts";
 import { encodePngRgba } from "../../src/creative/composite.ts";
 import type { ProjectSession } from "../src/project/projectSession.ts";
@@ -74,6 +74,7 @@ test("agent image tools review PICTURE and VIEW previews before one saved commit
     buffer: Buffer.from(encodePngRgba(6, 4, pixels)),
   });
   await expect(page.getByTestId("trace-opacity")).toBeVisible();
+  await workspaceSaved(page);
   const before = await page.evaluate(() => {
     const session = (
       window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }

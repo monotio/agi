@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { ref } from "vue";
-import { VOCABULARY } from "../../../src/vocabulary.ts";
 import {
   downloadUnsupportedStoredProject,
   type UnsupportedStoredProject,
@@ -53,7 +52,9 @@ async function remove(): Promise<void> {
     <h2 v-if="heading">{{ game.title }}</h2>
     <p role="status">
       {{
-        game.state === "corrupt" ? "Saved project needs recovery" : VOCABULARY.savedByNewer.label
+        game.state === "corrupt"
+          ? "Saved project needs recovery"
+          : "Saved project format needs another app version"
       }}
     </p>
     <div class="unsupported-project__actions">

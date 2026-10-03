@@ -20,8 +20,7 @@ export function resetSession(ctx: WorkerContext): void {
   ctx.input.keyQueue = [];
   ctx.input.clickQueue = [];
   ctx.input.deferredMovement.length = 0;
-  if (ctx.recording.recording !== null) ctx.ports.control({ type: "recordingReset" });
-  ctx.recording.recording = null;
+  resetRecording(ctx);
   ctx.hostRequests.pendingReenter = false;
   const p = ctx.presentation;
   p.lastVisual = null;
@@ -69,4 +68,10 @@ export function resetSession(ctx: WorkerContext): void {
   ctx.journal.pending = [];
   ctx.fns.applyTraceChannel();
   ctx.fns.captureStateDiffs();
+}
+
+/** End the tape owned by a departing live engine without changing its successor's state. */
+export function resetRecording(ctx: WorkerContext): void {
+  if (ctx.recording.recording !== null) ctx.ports.control({ type: "recordingReset" });
+  ctx.recording.recording = null;
 }

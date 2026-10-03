@@ -7,6 +7,8 @@
  * session byte-identical: the scratch never touches it.
  */
 import { test } from "node:test";
+import { Engine } from "../../src/runtime/engine.ts";
+import { installProjectRestart } from "../src/worker/projectRestart.ts";
 import assert from "node:assert/strict";
 import type { GameContainer } from "../../src/types.ts";
 import {
@@ -1400,3 +1402,63 @@ test("a take adopts a parked key wait and the pack; a suspended prompt is not re
   tick(3);
   assert.equal(ctx.engine!.vars[65], 1, "the carried key survived the take");
 });
+
+for (const replacement of [
+  "boot",
+  "resetReplay",
+  "replayRestore",
+  "projectRestart",
+  "historyTake",
+  "historyRestore",
+] as const) {
+  test(`live engine replacement ends its recording (${replacement})`, () => {
+    const { h, recording } = playedSession();
+    const { ctx, send } = h;
+    send({ type: "historyRetain", id: 301 });
+    const retained = h.control.find((m) => m.type === "historyRetained" && m.id === 301);
+    assert.ok(retained?.type === "historyRetained" && retained.boot);
+    if (replacement === "replayRestore") ctx.replay.replay = { tick: 0, revision: 0, random: 1 };
+    send({ type: "startRecording", id: 302 });
+    assert.ok(ctx.recording.recording, "recording started on the live engine");
+    const departing = ctx.engine;
+    if (replacement === "boot")
+      send({ type: "boot", files: Object.fromEntries(ctx.engine!.containerFiles), words: [] });
+    else if (replacement === "resetReplay") send({ type: "resetReplay", seed: 1 });
+    else if (replacement === "replayRestore") send({ type: "replayRestore", id: 305, tick: 0 });
+    else if (replacement === "projectRestart")
+      installProjectRestart(
+        ctx,
+        new Engine(openContainer(ctx.engine!.containerFiles), ctx.host!, new Map()),
+      );
+    else if (replacement === "historyRestore")
+      send({ type: "historyViewRestore", id: 303, boot: retained.boot, from: retained.from });
+    else {
+      const roll = recording.segments[0]!.events.find(
+        (event) =>
+          event.cause.kind === "debugWrite" &&
+          event.cause.flags?.some(([number]) => number === 202),
+      )!;
+      send({
+        type: "historyViewStart",
+        id: 303,
+        recording,
+        segment: 0,
+        tick: Math.max(0, roll.tick - 1),
+      });
+      const opened = finalView(h.control, 303);
+      assert.equal(opened.canResume, true);
+      send({
+        type: "historyViewTake",
+        id: 304,
+        segment: 0,
+        tick: opened.tick,
+        seq: opened.seq,
+        generation: opened.generation,
+      });
+    }
+    ctx.fns.stopTimers();
+    assert.notEqual(ctx.engine, departing);
+    assert.equal(ctx.recording.recording, null);
+    assert.equal(h.control.filter((m) => m.type === "recordingReset").length, 1);
+  });
+}

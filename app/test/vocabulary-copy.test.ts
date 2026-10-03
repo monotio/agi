@@ -188,10 +188,9 @@ test("Words editor copy binds to the approved vocabulary", () => {
   );
 });
 
-test("future project recovery uses the approved note and plain actions", () => {
+test("unsupported project recovery uses version-neutral copy and plain actions", () => {
   const source = readFileSync("app/src/home/UnsupportedProject.vue", "utf8");
-  assert.ok(source.includes("VOCABULARY.savedByNewer.label"));
-  assert.equal(VOCABULARY.savedByNewer.label, "Saved by a newer version of AGI IS HERE");
+  assert.ok(source.includes("Saved project format needs another app version"));
   const copy = visibleCopy("app/src/home/UnsupportedProject.vue").map((text) => text.trim());
   for (const label of ["Download", "Remove"]) assert.ok(copy.includes(label));
 });

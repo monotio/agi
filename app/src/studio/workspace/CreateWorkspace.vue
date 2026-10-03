@@ -82,6 +82,7 @@ let session: ProjectSession | null = null;
 let unsubscribe: (() => void) | undefined;
 let retired = false;
 let recoveryError = "";
+const writeConflict = ref(false);
 const musicDrop = shallowRef<File>();
 const musicDropTarget = ref<string>();
 function musicDrag(event: DragEvent): void {
@@ -142,6 +143,8 @@ function refresh(): void {
     if (editor.error.value === recoveryError) editor.error.value = "";
     recoveryError = "";
   } else if (recoveryError) editor.error.value = recoveryError;
+  writeConflict.value = capture.save.state === "conflict";
+  if (writeConflict.value) editor.error.value = "";
   historyState.value = capture.history;
   editor.pendingAdmission.value = capture.pendingAdmission;
   editor.save.value =
@@ -349,7 +352,7 @@ const writes = createWorkspaceWrites({
   async durable() {
     await session?.flush();
   },
-  async write(key, value) {
+  async write(key, value, editorIntent) {
     if (retired || session === null || session !== engine.getProjectSession())
       throw new Error("Open this project again to retry the change.");
     const origin = (
@@ -359,6 +362,7 @@ const writes = createWorkspaceWrites({
     const result = await engine.submitProjectEdit({
       changes,
       origin,
+      ...(editorIntent === undefined ? {} : { editorIntent }),
       label: `Changed ${key === "inventory" ? "OBJECTS" : key === "words" ? "WORDS" : key.replace(":", " ").toUpperCase()}`,
       author: "creator",
     });
@@ -378,6 +382,7 @@ const writes = createWorkspaceWrites({
   },
 });
 async function flushWorkspace(): Promise<void> {
+  if (session?.saveStatus().state === "conflict") return;
   try {
     await writes.flush();
   } catch (cause) {
@@ -392,6 +397,7 @@ editor.discard.value = () => {
   session?.discard();
 };
 editor.retry.value = async () => {
+  if (session?.saveStatus().state === "conflict") return;
   try {
     await writes.retry();
     editor.error.value = "";
@@ -409,9 +415,10 @@ async function retrySave(): Promise<void> {
     /* The save notice keeps the cause and Retry. */
   }
 }
-function rememberEdit(key: string, value: ProjectContent): void {
+function rememberEdit(key: string, value: ProjectContent): number | undefined {
   const cause = session?.rememberEditorChanges(editorChanges(key, value));
   if (cause) editor.error.value = recoveryError = cause.message;
+  return session?.captureEditorIntent(key);
 }
 function edit(key: string, value: ProjectContent): void {
   const before = content(key);
@@ -425,16 +432,14 @@ function edit(key: string, value: ProjectContent): void {
     return;
   editor.error.value = "";
   editor.pin(key);
-  rememberEdit(key, value);
-  writes.edit(key, value);
+  writes.edit(key, value, rememberEdit(key, value));
 }
 function editSound(key: string, bytes: Uint8Array, tempo: number): void {
   soundTempos.set(bytes, tempo);
   if (soundTempo(key) === tempo) edit(key, bytes);
   else {
     editor.error.value = "";
-    rememberEdit(key, bytes);
-    writes.edit(key, bytes);
+    writes.edit(key, bytes, rememberEdit(key, bytes));
   }
 }
 function soundTempo(key: string): number {
@@ -513,10 +518,10 @@ async function wordsTask(task: WordsTask): Promise<void> {
 async function wordChange(
   action: { from: number; to: number; word?: string } | { remove: string },
 ): Promise<void> {
-  await writes.flush();
-  const captured = session?.model.capture();
-  if (!captured) return;
   try {
+    await writes.flush();
+    const captured = session?.model.capture();
+    if (!captured) return;
     const { changeMeaning, removeMeaningWord } = await import("./wordsAnalysis.ts");
     const document = captured.read("words")!.content;
     const words =
@@ -527,8 +532,13 @@ async function wordChange(
       "remove" in action
         ? removeMeaningWord(words, captured.documents(), action.remove, profile.value)
         : changeMeaning(words, captured.documents(), action, profile.value);
+    const recovery = session?.rememberEditorChanges(changes);
+    if (recovery) editor.error.value = recoveryError = recovery.message;
     const result = await engine.submitProjectEdit({
       changes,
+      ...(changes[0] === undefined
+        ? {}
+        : { editorIntent: session!.captureEditorIntent(changes[0].key)! }),
       origin: "words",
       author: "creator",
       label:
@@ -546,16 +556,21 @@ async function wordChange(
   }
 }
 async function guidedAction(action: WorkspaceAction): Promise<void> {
-  await writes.flush();
-  const capture = session?.model.capture();
-  if (!capture) return;
   editor.busy.value = true;
   try {
+    await writes.flush();
+    const capture = session?.model.capture();
+    if (!capture) return;
     const { prepareWorkspaceAction } = await import("./workspaceGuided.ts");
     const prepared = prepareWorkspaceAction(capture, profile.value.id, action);
     if (!prepared.ok) throw new Error(prepared.message);
+    const recovery = session?.rememberEditorChanges(prepared.changes);
+    if (recovery) editor.error.value = recoveryError = recovery.message;
     const result = await engine.submitProjectEdit({
       changes: prepared.changes,
+      ...(prepared.changes[0] === undefined
+        ? {}
+        : { editorIntent: session!.captureEditorIntent(prepared.changes[0].key)! }),
       label: prepared.label,
       origin: "logic",
       author: "creator",
@@ -851,8 +866,12 @@ onBeforeUnmount(() => {
     >
       The game keeps running the last working version. Fix the errors below.
     </p>
-    <p v-if="editor.error.value" class="workspace-error" role="alert">
-      {{ editor.error.value }} <UiButton @click="retrySave">Retry</UiButton>
+    <p
+      v-if="editor.error.value && !engine.state.leaving && !editor.exitRefusal.value"
+      class="workspace-error"
+      role="alert"
+    >
+      {{ editor.error.value }} <UiButton v-if="!writeConflict" @click="retrySave">Retry</UiButton>
     </p>
     <div
       v-for="key in editor.retained.value"

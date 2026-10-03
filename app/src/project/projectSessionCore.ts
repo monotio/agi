@@ -61,7 +61,6 @@ interface SessionSave {
   acknowledged?: true;
   operation: number;
   journal?: ProjectJournalCapture;
-  editorIntents: Record<string, number>;
 }
 export interface PendingProjectRestart {
   readonly action: "restart" | "reenter";
@@ -236,9 +235,12 @@ function createSession(
   function recordOperation(operation: ProjectJournalOperation) {
     operations.push({ index: ++operationSerial, operation });
   }
-  const editorIntents: Record<string, { content: ProjectContent; id: number }> = {};
+  const editorIntents: Record<
+    string,
+    { content: ProjectContent | null; id: number; primary: string }
+  > = {};
   let intentSerial = 0;
-  function sameContent(a: ProjectContent | undefined, b: ProjectContent): boolean {
+  function sameContent(a: ProjectContent | null | undefined, b: ProjectContent | null): boolean {
     return (
       a === b ||
       (a instanceof Uint8Array &&
@@ -320,7 +322,7 @@ function createSession(
           version: snapshot.version(key) + 1,
         }));
         const request = {
-          ...requestFor({ snapshot, data, operation: operationSerial, editorIntents: {} }),
+          ...requestFor({ snapshot, data, operation: operationSerial }),
           commitId: `editor-${input.admission.runToken}-${intentSerial}-${operationSerial}`,
         };
         const capture = captureProjectJournal({
@@ -420,8 +422,6 @@ function createSession(
         releaseJournal = claimProjectSaveJournal(journalKey);
         input.forked?.(structuredClone(data), receipt.saved.lifetime);
       }
-      for (const [key, id] of Object.entries(capture.editorIntents))
-        if (editorIntents[key]?.id === id) delete editorIntents[key];
       data.library = capture.request!.data.library;
       expected = { ...receipt.saved };
       journalExpected = { ...receipt.saved };
@@ -493,16 +493,10 @@ function createSession(
     if (next.files["WORDS.TOK"] !== undefined)
       next.words = parseWordsTok(next.files["WORDS.TOK"]).map(({ word, id }) => [word, id]);
     input.publish?.(snapshot, next, outcome, nativeInstalled);
-    const capturedIntents = Object.fromEntries(
-      Object.entries(editorIntents)
-        .filter(([key, intent]) => sameContent(snapshot.read(key)?.content, intent.content))
-        .map(([key, intent]) => [key, intent.id]),
-    );
     autosave.enqueue({
       snapshot,
       data: next,
       operation: operationSerial,
-      editorIntents: capturedIntents,
     });
   }
   async function apply(
@@ -511,6 +505,7 @@ function createSession(
     action?: ProjectHistoryAction,
     preparedRoom = false,
     beforeCommit?: () => void,
+    editorIntent?: number,
   ) {
     beforeCommit?.();
     if (!current() || autosave.status().state === "conflict")
@@ -522,6 +517,34 @@ function createSession(
       workerRunToken: input.admission.runToken,
       generation: expected.generation,
     };
+    // A gesture can derive companion metadata again at admission. Transfer its
+    // intent into the admitted capture by group, while preserving later gestures.
+    const written = proposal.changes();
+    const nextDocuments = proposal.documents();
+    const intentGroups = new Set(
+      Object.values(editorIntents)
+        .filter((intent) => {
+          if (action !== undefined) return true;
+          if (editorIntent !== undefined) return intent.id === editorIntent;
+          const primary = editorIntents[intent.primary];
+          return (
+            primary?.id === intent.id &&
+            sameContent(nextDocuments[intent.primary] ?? null, primary.content) &&
+            (written.some((change) => change.key === intent.primary) ||
+              Object.entries(editorIntents)
+                .filter(([, companion]) => companion.id === intent.id)
+                .every(([key, companion]) =>
+                  sameContent(nextDocuments[key] ?? null, companion.content),
+                ))
+          );
+        })
+        .map((intent) => intent.id),
+    );
+    const capturedIntents = Object.fromEntries(
+      Object.entries(editorIntents)
+        .filter(([, intent]) => intentGroups.has(intent.id))
+        .map(([key, intent]) => [key, intent.id]),
+    );
     const { prepared, outcome, changes } = await prepareAndAdmitProjectEdit({
       model,
       proposal,
@@ -580,6 +603,8 @@ function createSession(
         : { action: { direction: action.direction, target: action.target } }),
     });
     captureSave(snapshot, outcome, preparedRoom);
+    for (const [key, id] of Object.entries(capturedIntents))
+      if (editorIntents[key]?.id === id) delete editorIntents[key];
     if (pendingImage !== undefined) void retryAdmission();
     return {
       status:
@@ -687,14 +712,24 @@ function createSession(
     history,
     rememberEditorChanges(changes: readonly ProjectChange[]) {
       if (!current()) throw new Error("Project session is closed for writes.");
+      const primary = changes[0]?.key;
+      if (primary === undefined) return;
+      const previous = editorIntents[primary];
+      if (previous?.primary === primary)
+        for (const [key, intent] of Object.entries(editorIntents))
+          if (intent.id === previous.id) delete editorIntents[key];
+      const id = ++intentSerial;
       for (const change of changes) {
-        if (change.content === null) throw new Error("Editor recovery requires document content.");
         editorIntents[change.key] = {
           content: change.content instanceof Uint8Array ? change.content.slice() : change.content,
-          id: ++intentSerial,
+          id,
+          primary,
         };
       }
       return persistPending();
+    },
+    captureEditorIntent(key: string): number | undefined {
+      return editorIntents[key]?.id;
     },
     get closed() {
       return !current();
@@ -729,7 +764,7 @@ function createSession(
       return schedule(() => activate("reenter"));
     },
     submit(
-      edit: { proposal: ProjectProposal; beforeCommit?: () => void } & Omit<
+      edit: { proposal: ProjectProposal; beforeCommit?: () => void; editorIntent?: number } & Omit<
         ProjectCommitMetadata,
         "time"
       >,
@@ -749,6 +784,7 @@ function createSession(
           undefined,
           false,
           edit.beforeCommit,
+          edit.editorIntent,
         ),
       );
     },

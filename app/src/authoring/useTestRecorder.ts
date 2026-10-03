@@ -34,7 +34,7 @@ export interface TestRecorderOptions {
   readonly flushAutosave: (waitMs?: number) => Promise<unknown>;
 }
 
-type RecordingStopResult = RecordingSnapshot | { readonly endedBy: "restart" } | null;
+type RecordingStopResult = RecordingSnapshot | { readonly endedBy: "replacement" } | null;
 
 export interface TestRecorderController {
   startTestRecording(): Promise<void>;
@@ -122,7 +122,7 @@ export function useTestRecorder(options: TestRecorderOptions): TestRecorderContr
     const start = recordingStart;
     const stoppedGeneration = generation;
     const reply = await query("stopRecording");
-    if (generation !== stoppedGeneration) return { endedBy: "restart" };
+    if (generation !== stoppedGeneration) return { endedBy: "replacement" };
     if (recordingStart !== start) return null;
     state.recording.active = false;
     recordingStart = null;

@@ -330,7 +330,7 @@ test("a stop handled after a run replacement ends the recording without a snapsh
   assert.notEqual(r.ctx.engine, oldEngine, "the worker replaced the engine");
   assert.equal(r.recorderState.recording.active, false, "the reset reached the recorder");
   r.releaseStopRecording();
-  assert.deepEqual(await pending, { endedBy: "restart" });
+  assert.deepEqual(await pending, { endedBy: "replacement" });
   assert.equal(r.recorderState.recording.active, false);
   assert.equal(r.recorderState.recording.error, "");
 });

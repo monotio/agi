@@ -208,19 +208,27 @@ The workspace flush barrier drains editor submissions and awaits the session's
 IndexedDB acknowledgement. Edits arriving during either await are included until
 the queue and durable owner are both settled; continuous typing can extend that
 barrier. A refused edit identifies its document and retains its draft. Retry has
-the same success contract. Exit, project replacement, export and version naming
-await this barrier. Discard and exit deliberately retires pending editor work.
+the same success contract. Exit, project replacement and version naming await
+this barrier for writable sessions. Stale and removed sessions can reload or leave
+without writing. Download attempts the barrier and can offer the admitted project
+with a limitations report after a failure. Discard and exit deliberately retires
+pending editor work and stays disabled while Retry is pending.
 A named version contains the visible documents, including invalid source, while
 the playable image remains the last admissible build. Restore, Undo and Redo keep
 their busy guards.
 
-Before debounce or worker admission, each editor event synchronously journals
-its latest document content and session/project identity. SOUND bytes and tempo
+Before debounce or worker admission, workspace document edits, guided actions
+and WORDS meaning changes synchronously journal their latest content and
+session/project identity. SOUND bytes and tempo
 share that intent. The journal carries edited documents and operations since the
 durable base, rather than compiled files or serialized History per keystroke.
 Recovery validates the project lifetime and base, then replays preparation and
 History. Invalid LOGIC stays editable and retains the prior runnable image.
-Only durable acknowledgement retires the exact captured editor intents. Recovery
+Admission transfers each gesture's intent, including derived companion metadata,
+into the pending save capture. Durable acknowledgement retires that capture. Later
+Undo and Restore supersede those document operations. Journals whose base has ended
+retain their bytes and offer a recovery download; an unchanged terminal journal
+is excluded from later replay attempts. Recovery
 requires available browser storage; clearing site data or exhausting recovery
 storage can prevent immediate-close recovery. Saved confirms the IndexedDB
 project acknowledgement.
