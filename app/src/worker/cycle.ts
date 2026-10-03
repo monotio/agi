@@ -35,7 +35,9 @@ export function createCycle(ctx: WorkerContext) {
     observeSentence(
       ctx,
       undefined,
-      !engine.continuationPending && !engine.awaitingHostAnswer && engine.modalKind === null,
+      armedSerial === null
+        ? !engine.continuationPending && !engine.awaitingHostAnswer && engine.modalKind === null
+        : engine.completedCycleSerial !== armedSerial,
     );
     // Whatever the entry latched — a breakpoint, a watch, a pause — is
     // reported before the next atomic operation in the outer loop, and a
