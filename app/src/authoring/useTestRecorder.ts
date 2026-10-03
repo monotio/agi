@@ -34,9 +34,11 @@ export interface TestRecorderOptions {
   readonly flushAutosave: (waitMs?: number) => Promise<unknown>;
 }
 
+export type RecordingStopResult = RecordingSnapshot | { readonly endedBy: "restart" } | null;
+
 export interface TestRecorderController {
   startTestRecording(): Promise<void>;
-  stopTestRecording(): Promise<RecordingSnapshot | null>;
+  stopTestRecording(): Promise<RecordingStopResult>;
   cancelTestRecording(): void;
   saveRecordedTest(
     snapshot: RecordingSnapshot,
@@ -113,11 +115,12 @@ export function useTestRecorder(options: TestRecorderOptions): TestRecorderContr
   }
 
   /** Stop capturing and return everything the worker recorded, or null. */
-  async function stopTestRecording(): Promise<RecordingSnapshot | null> {
+  async function stopTestRecording(): Promise<RecordingStopResult> {
     if (!state.recording.active || !recordingStart) return null;
-    const reply = await query("stopRecording");
-    state.recording.active = false;
     const start = recordingStart;
+    const reply = await query("stopRecording");
+    if (recordingStart !== start) return { endedBy: "restart" };
+    state.recording.active = false;
     recordingStart = null;
     if (!reply.state || reply.cycle === undefined) return null;
     return {
