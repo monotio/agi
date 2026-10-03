@@ -37,6 +37,8 @@ Released notes are also available on [GitHub Releases](https://github.com/monoti
 
 ### Fixed
 
+- A sentence cut short by a debugger stop no longer appears in WORDS Players tried.
+- Restart with your changes ends the running Playtest recording, so a new one can start.
 - Projects saved by a newer version stay visible with Download and Remove
   actions, including when opened through a game link.
 - Saving shows while a change is pending, and an edit survives a reload or tab
