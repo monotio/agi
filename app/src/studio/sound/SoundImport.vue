@@ -6,7 +6,12 @@ import { importVgm } from "../../../../src/sound/vgm.ts";
 import type { SoundImport } from "../../../../src/sound/musicImport.ts";
 import { VOCABULARY } from "../../../../src/vocabulary.ts";
 import UiButton from "../../ui/UiButton.vue";
-const props = defineProps<{ file: File; profileId: ProfileId; replaceName?: string }>();
+const props = defineProps<{
+  readOnly?: boolean;
+  file: File;
+  profileId: ProfileId;
+  replaceName?: string;
+}>();
 const emit = defineEmits<{ apply: [bytes: Uint8Array, tempo: number, add: boolean]; cancel: [] }>();
 const result = shallowRef<SoundImport>(),
   error = ref("");
@@ -43,14 +48,18 @@ onBeforeUnmount(() => epoch++);
       <UiButton
         v-if="result && replaceName"
         size="sm"
-        @click="emit('apply', result.document.encode(), result.tempo, false)"
+        :disabled="readOnly"
+        :title="readOnly ? 'Editing is paused in this tab' : undefined"
+        @click="!readOnly && emit('apply', result.document.encode(), result.tempo, false)"
         >Replace {{ replaceName }}</UiButton
       >
       <UiButton
         v-if="result"
         size="sm"
         variant="ghost"
-        @click="emit('apply', result.document.encode(), result.tempo, true)"
+        :disabled="readOnly"
+        :title="readOnly ? 'Editing is paused in this tab' : undefined"
+        @click="!readOnly && emit('apply', result.document.encode(), result.tempo, true)"
         >{{ VOCABULARY.addSound.label }}</UiButton
       >
       <UiButton size="sm" variant="ghost" @click="emit('cancel')">Cancel</UiButton>

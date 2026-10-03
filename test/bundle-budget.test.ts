@@ -4,9 +4,8 @@ import {
   workerEntryImportBacks,
   workerStaticClosure,
   type GraphChunk,
-  isStudioModule,
-  isHomeDeferredModule,
 } from "../scripts/check-bundle-budget.ts";
+import { isStudioModule, isHomeDeferredModule } from "../scripts/deferred-modules.mjs";
 
 test("editor code under the studio folders counts as lazy Studio code", () => {
   assert.equal(isStudioModule("src/vocabulary.ts"), false);
@@ -22,6 +21,8 @@ test("Home excludes agent, debugger, editor, words analysis and sound preview co
     "app/src/agent/agentRun.ts",
     "app/src/agent/agentLog.ts",
     "app/src/agent/authoringLoader.ts",
+    "app/src/agent/AgentPanel.vue",
+    "app/src/agent/AgentResourceReview.vue?vue&type=script",
     "src/agent/agentState.ts",
     "src/agent/history.ts",
     "src/agent/roomPictures.ts",
@@ -43,6 +44,11 @@ test("Home excludes agent, debugger, editor, words analysis and sound preview co
     "app/src/studio/workspace/WordsEditor.vue",
     "src/runtime/engine.ts",
     "app/src/worker/engine.worker.ts",
+    "app/src/references/referenceHandles.ts",
+    "src/agent/roomTools.ts",
+    "app/node_modules/openai/index.mjs",
+    "app/node_modules/monaco-editor/editor.js",
+    "app/src/studio/workspace/WordsEditor.vue?vue&type=script",
   ])
     assert.equal(isHomeDeferredModule(module), true, module);
   for (const module of [

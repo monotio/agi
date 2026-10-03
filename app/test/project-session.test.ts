@@ -1,3 +1,4 @@
+import { installWebLocksFixture } from "./webLocksFixture.ts";
 import type { PreviewUpdateOutcome } from "../src/worker/workerProtocol.ts";
 import type { CachedGameData } from "../src/project/gameTypes.ts";
 import assert from "node:assert/strict";
@@ -8,6 +9,8 @@ import { compileProjectDocuments } from "../../src/authoring/projectDocuments.ts
 import { createContainer } from "../../src/container/container.ts";
 import { writeProjectWorkspace } from "../../src/authoring/projectWorkspace.ts";
 import { requireProjectId } from "../../src/gameIdentity.ts";
+
+installWebLocksFixture();
 
 test("session admits before saving, keeps invalid source and restores History on reopen", async () => {
   const documents = { "logic:0": "return;" };
@@ -98,6 +101,10 @@ test("a late admission after disposal leaves the old model and storage untouched
   });
   let release: ((outcome: PreviewUpdateOutcome) => void) | undefined;
   let saved = 0;
+  let entered!: () => void;
+  const admitted = new Promise<void>((resolve) => {
+    entered = resolve;
+  });
   const session = openProjectSession({
     data: {
       projectId: requireProjectId("late-session"),
@@ -112,6 +119,7 @@ test("a late admission after disposal leaves the old model and storage untouched
       admit: () =>
         new Promise((resolve) => {
           release = resolve;
+          entered();
         }),
     },
     write: async () => {
@@ -129,7 +137,7 @@ test("a late admission after disposal leaves the old model and storage untouched
     author: "creator",
   });
   assert.equal(session.saveStatus().state, "pending", "queued admission is unsaved work");
-  await Promise.resolve();
+  await admitted;
   assert.equal(session.saveStatus().state, "pending", "blocked admission cannot report Saved");
   session.dispose();
   release!({ status: "committed", expected: null, current: null, patchGeneration: 1 });
@@ -650,7 +658,7 @@ test("a catalog save can create its remix while the next edit awaits admission",
   session.dispose();
 });
 
-test("owned saves carry the admitted world into legacy room continuation", async () => {
+test("refused owned saves retain the admitted world and make Flush and Retry fail", async () => {
   const compiled = compileProjectDocuments({
     files: Object.fromEntries(createContainer().files),
     documents: { "logic:0": "return;" },
@@ -696,7 +704,8 @@ test("owned saves carry the admitted world into legacy room continuation", async
       origin: "agent",
       author: "creator",
     });
-    await session.flush();
+    await assert.rejects(session.flush(), /Could not save/);
+    await assert.rejects(session.retry(), /Could not save/);
     assert.equal(
       (world as { world: { rooms: Record<string, { title: string }> } })?.world?.rooms["2"]?.title,
       "Gallery",
@@ -853,5 +862,377 @@ test("saved source stays saved while a deferred preview admission awaits the wor
   } finally {
     session.dispose();
     releaseAdmission();
+  }
+});
+
+for (const state of ["clean", "pending", "failed", "stale", "removed", "closed"] as const) {
+  test(`save model: ${state} controls edits, names and flush`, async () => {
+    const compiled = compileProjectDocuments({
+      files: Object.fromEntries(createContainer().files),
+      documents: { "logic:0": "return;" },
+      profileId: "2.936",
+    });
+    let current = true;
+    let reject = state === "failed";
+    let writes = 0;
+    const session = openProjectSession({
+      data: {
+        projectId: requireProjectId(`model-${state}`),
+        title: "Model",
+        authoredAt: "",
+        files: Object.fromEntries(compiled.files()),
+        words: [],
+      },
+      lifetime: "model",
+      current: () => current,
+      admission: {
+        runToken: `model-${state}`,
+        admit: async () => ({
+          status: "committed",
+          expected: null,
+          current: null,
+          patchGeneration: 1,
+        }),
+      },
+      write: async (request) => {
+        writes++;
+        if (reject) throw new Error("Storage rejected write");
+        return {
+          commitId: request.commitId,
+          workspaceId: request.workspaceId,
+          candidateHash: "a",
+          documents: request.documents,
+          saved: {
+            ...request.expected!,
+            generation: request.expected!.generation + 1,
+            buildId: request.buildId,
+          },
+        };
+      },
+    });
+    try {
+      if (state === "pending" || state === "failed") {
+        await session.tag("Version");
+        if (state === "failed") await assert.rejects(session.flush());
+      }
+      if (state === "stale" || state === "removed") {
+        current = state === "stale";
+        session.stopWrites(state);
+      }
+      if (state === "closed") session.dispose();
+      const edit = () =>
+        session.submit({
+          proposal: session.model.propose(session.model.capture(), "WORDS", [
+            { key: "notes", content: "Coordinated edit" },
+            { key: "words", content: "[]" },
+          ]),
+          label: "WORDS",
+          origin: "words",
+          author: "creator",
+        });
+      if (["stale", "removed", "closed"].includes(state)) {
+        const before = session.model.capture().documentId;
+        await assert.rejects(edit());
+        assert.equal(session.model.capture().documentId, before);
+        await assert.rejects(session.tag("Refused"));
+        await assert.rejects(session.flush());
+        assert.equal(writes, 0);
+      } else {
+        assert.equal((await edit()).status, "committed");
+        reject = false;
+        await session.retry();
+        assert.equal(session.saveStatus().state, "saved");
+      }
+    } finally {
+      session.dispose();
+    }
+  });
+}
+
+test("becoming stale during admission refuses publication", async () => {
+  let finish!: () => void;
+  let entered!: () => void;
+  const waiting = new Promise<void>((resolve) => {
+    entered = resolve;
+  });
+  const session = openProjectSession({
+    data: {
+      projectId: requireProjectId("stale-during-admission"),
+      title: "Stale",
+      authoredAt: "",
+      files: Object.fromEntries(createContainer().files),
+      words: [],
+    },
+    lifetime: "stale",
+    admission: {
+      runToken: "stale",
+      async admit() {
+        entered();
+        await new Promise<void>((resolve) => {
+          finish = resolve;
+        });
+        return { status: "committed", expected: null, current: null, patchGeneration: 1 };
+      },
+    },
+    write: async () => {
+      throw new Error("Stale project must not write");
+    },
+  });
+  try {
+    const before = session.model.capture();
+    const changes = [{ key: "logic:0", content: "return;" }];
+    const editing = session.submit({
+      proposal: session.model.propose(before, "Changed", changes),
+      label: "Changed",
+      origin: "logic",
+      author: "creator",
+    });
+    await waiting;
+    session.stopWrites("stale");
+    finish();
+    await assert.rejects(editing, /superseded/);
+    assert.equal(session.model.capture().documentId, before.documentId);
+  } finally {
+    session.dispose();
+    finish?.();
+  }
+});
+
+test("a deferred admission publishes MAIN without queuing a second source save", async () => {
+  const compiled = compileProjectDocuments({
+    files: Object.fromEntries(createContainer().files),
+    documents: { "logic:0": "return;" },
+    profileId: "2.936",
+  });
+  let release!: () => void;
+  let admissions = 0;
+  let writes = 0;
+  let published = 0;
+  const session = openProjectSession({
+    data: {
+      projectId: requireProjectId("deferred-save-once"),
+      title: "Once",
+      authoredAt: "",
+      files: Object.fromEntries(compiled.files()),
+      words: [],
+    },
+    lifetime: "once",
+    admission: {
+      runToken: "once",
+      admit: async () => ({
+        status: ++admissions === 1 ? "deferred" : "committed",
+        expected: null,
+        current: null,
+        patchGeneration: 1,
+      }),
+    },
+    boundary: () =>
+      new Promise<void>((resolve) => {
+        release = resolve;
+      }),
+    publish: () => {
+      published++;
+    },
+    write: async (request) => {
+      writes++;
+      return {
+        commitId: request.commitId,
+        workspaceId: request.workspaceId,
+        candidateHash: "a",
+        documents: request.documents,
+        saved: {
+          ...request.expected!,
+          generation: request.expected!.generation + 1,
+          buildId: request.buildId,
+        },
+      };
+    },
+  });
+  try {
+    await session.submit({
+      proposal: session.model.propose(session.model.capture(), "Changed", [
+        { key: "logic:0", content: 'print("Changed"); return;' },
+      ]),
+      label: "Changed",
+      origin: "logic",
+      author: "creator",
+    });
+    await session.flush();
+    release();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    assert.equal(published, 2);
+    assert.equal(session.saveStatus().state, "saved");
+    await session.flush();
+    assert.equal(writes, 1);
+  } finally {
+    session.dispose();
+  }
+});
+
+test("checkpoint preparation returns not ready during an outstanding document write", async () => {
+  const compiled = compileProjectDocuments({
+    files: Object.fromEntries(createContainer().files),
+    documents: { "logic:0": "return;" },
+    profileId: "2.936",
+  });
+  let entered!: () => void;
+  let release!: () => void;
+  const writing = new Promise<void>((resolve) => {
+    entered = resolve;
+  });
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const session = openProjectSession({
+    data: {
+      projectId: requireProjectId("checkpoint-write"),
+      title: "Checkpoint",
+      authoredAt: "",
+      files: Object.fromEntries(compiled.files()),
+      words: [],
+    },
+    lifetime: "initial",
+    admission: {
+      runToken: "write",
+      admit: async () => ({
+        status: "committed",
+        expected: null,
+        current: null,
+        patchGeneration: 1,
+      }),
+    },
+    write: async (request) => {
+      entered();
+      await held;
+      return {
+        commitId: request.commitId,
+        workspaceId: request.workspaceId,
+        candidateHash: "a",
+        documents: request.documents,
+        saved: {
+          ...request.expected!,
+          generation: request.expected!.generation + 1,
+          buildId: request.buildId,
+        },
+      };
+    },
+  });
+  try {
+    await session.submit({
+      proposal: session.model.propose(session.model.capture(), "Note", [
+        { key: "notes", content: "Writing" },
+      ]),
+      label: "Note",
+      origin: "logic",
+      author: "creator",
+    });
+    const saving = session.flush();
+    await writing;
+    let result: unknown;
+    void session.prepareCheckpoint().then((outcome) => {
+      result = outcome;
+    });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    assert.equal(result, "not_ready");
+    release();
+    await saving;
+    assert.equal(await session.prepareCheckpoint(), "ready");
+  } finally {
+    release();
+    session.dispose();
+  }
+});
+
+test("checkpoint preparation returns not ready before a future admission boundary", async () => {
+  const compiled = compileProjectDocuments({
+    files: Object.fromEntries(createContainer().files),
+    documents: { "logic:0": "return;" },
+    profileId: "2.936",
+  });
+  let boundary!: () => void;
+  let finish!: () => void;
+  let entered!: () => void;
+  const waiting = new Promise<void>((resolve) => {
+    entered = resolve;
+  });
+  let admissions = 0;
+  let running = false;
+  let captures = 0;
+  const session = openProjectSession({
+    data: {
+      projectId: requireProjectId("checkpoint-admission"),
+      title: "Checkpoint",
+      authoredAt: "",
+      files: Object.fromEntries(compiled.files()),
+      words: [],
+    },
+    lifetime: "checkpoint",
+    admission: {
+      runToken: "checkpoint",
+      async admit() {
+        if (++admissions === 1)
+          return { status: "deferred", expected: null, current: null, patchGeneration: 0 };
+        entered();
+        await new Promise<void>((resolve) => {
+          finish = resolve;
+        });
+        return { status: "committed", expected: null, current: null, patchGeneration: 1 };
+      },
+    },
+    boundary: () =>
+      new Promise<void>((resolve) => {
+        boundary = resolve;
+      }),
+    checkpointReady() {
+      captures++;
+    },
+    publish: (_snapshot, _data, outcome) => {
+      running = outcome?.status === "committed";
+    },
+    write: async (request) => ({
+      commitId: request.commitId,
+      workspaceId: request.workspaceId,
+      candidateHash: "a",
+      documents: request.documents,
+      saved: {
+        ...request.expected!,
+        generation: request.expected!.generation + 1,
+        buildId: request.buildId,
+      },
+    }),
+  });
+  try {
+    const older = session.model.capture().lastAdmissibleBuild!.identity.revision;
+    await session.submit({
+      proposal: session.model.propose(session.model.capture(), "Changed", [
+        { key: "logic:0", content: 'print("Changed"); return;' },
+      ]),
+      label: "Changed",
+      origin: "logic",
+      author: "creator",
+    });
+    await session.flush();
+    const stored = session.model.capture().lastAdmissibleBuild!.identity.revision;
+    assert.notEqual(stored, older);
+    // The worker still runs the older bytes: their checkpoint cannot be
+    // published over the newer stored project while admission waits.
+    assert.equal(await session.prepareCheckpoint(older), "not_ready");
+    let result: unknown;
+    void session.prepareCheckpoint().then((outcome) => {
+      result = outcome;
+    });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    assert.equal(result, "not_ready");
+    boundary();
+    await waiting;
+    assert.equal(result, "not_ready");
+    finish();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    assert.equal(await session.prepareCheckpoint(), "ready");
+    assert.equal(running, true);
+    assert.equal(captures, 1, "completed admission requests a fresh capture");
+  } finally {
+    session.dispose();
+    finish?.();
   }
 });

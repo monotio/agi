@@ -1,5 +1,5 @@
 <script setup lang="ts">
-defineProps<{ source: string }>();
+defineProps<{ source: string; readOnly?: boolean }>();
 const emit = defineEmits<{ edit: [text: string] }>();
 </script>
 <template>
@@ -7,8 +7,9 @@ const emit = defineEmits<{ edit: [text: string] }>();
     class="workspace-notes"
     aria-label="Game notes"
     :value="source"
+    :readonly="readOnly"
     placeholder="Style, tone and rules for this game…"
-    @input="emit('edit', ($event.target as HTMLTextAreaElement).value)"
+    @input="!readOnly && emit('edit', ($event.target as HTMLTextAreaElement).value)"
   ></textarea>
 </template>
 <style scoped>

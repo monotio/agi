@@ -276,3 +276,38 @@
 .app-container:has(.empty-project) .shell > .header {
   display: none;
 }
+
+/* A phone opens parts over the game, then returns to Focus on selection. */
+@media (max-width: 600px) {
+  .in-game .shell-body.shell-body--workspace.shell-body--create {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+  .in-game .shell-body--workspace > .play-area {
+    grid-column: 1;
+  }
+  .in-game .shell-body--workspace > .parts-list {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: min(252px, 100%);
+    z-index: var(--z-dock);
+    background: var(--surface-1);
+  }
+  .in-game .shell-body--workspace > .parts-list:not(.parts-list--open),
+  .in-game .shell-body--workspace > .workspace-splitter,
+  .in-game .shell-body--workspace:not(.shell-body--focus) > .workspace-editor {
+    display: none;
+  }
+}
+
+/* Compact parts leave room for the game beside an editor or Agent. */
+@media (min-width: 601px) and (max-width: 1280px) {
+  .shell-body--workspace:not(.shell-body--no-editor),
+  .shell-body--workspace.shell-body--agent {
+    --workspace-parts: 180px;
+  }
+  .shell-body--workspace.shell-body--fold-left {
+    --workspace-parts: 0px;
+  }
+}

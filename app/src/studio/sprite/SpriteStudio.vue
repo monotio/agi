@@ -106,9 +106,11 @@ const {
   cyclers = [],
   priorityBase = undefined,
   stagedReference = undefined,
+  readOnly = false,
   embedded = false,
   workspaceFocus = false,
 } = defineProps<{
+  readOnly?: boolean;
   embedded?: boolean;
   workspaceFocus?: boolean;
   viewNumber: number;
@@ -150,6 +152,7 @@ const draft = useSpriteDraft({
 watch([draft.bytes, draft.gesturing], ([next, gesturing]) => {
   if (
     embedded &&
+    !readOnly &&
     !gesturing &&
     (next.length !== bytes.length || !next.every((value, index) => bytes[index] === value))
   )
@@ -362,7 +365,8 @@ async function keepView(revision: ResourceRevision): Promise<ResourceCommitResul
   return result;
 }
 /** Editing is blocked: view only, or a Keep that needs a reload first. */
-const frozen = (): boolean => draft.kept.value.revision === undefined || keeper.needsReload.value;
+const frozen = (): boolean =>
+  readOnly || draft.kept.value.revision === undefined || keeper.needsReload.value;
 /** Edits wait while an AI request runs or its proposal awaits a verdict; undo still runs. */
 const editsBlocked = (): boolean => frozen() || assist.holds.value;
 

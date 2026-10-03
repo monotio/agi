@@ -65,6 +65,7 @@ interface Options {
   ) => UnifiedConversation;
   readonly runtime?: () => AgentRuntimeDeps;
   readonly changed?: () => void;
+  readonly beforeApprove?: () => Promise<void>;
 }
 function conversation(
   config: LlmConfig,
@@ -213,13 +214,19 @@ function stubConversation(initial: unknown[]): UnifiedConversation {
   };
 }
 let sequence = 0;
-const owned = new WeakMap<ProjectSession, ReturnType<typeof createWorkspaceAgent>>();
+const owned = new WeakMap<
+  ProjectSession,
+  { agent: ReturnType<typeof createWorkspaceAgent>; options: Options }
+>();
 export function borrowWorkspaceAgent(options: Options) {
-  let agent = owned.get(options.session);
-  if (!agent) {
-    agent = createWorkspaceAgent(options);
-    owned.set(options.session, agent);
+  const existing = owned.get(options.session);
+  if (existing) {
+    if (options.beforeApprove)
+      Object.assign(existing.options, { beforeApprove: options.beforeApprove });
+    return existing.agent;
   }
+  const agent = createWorkspaceAgent(options);
+  owned.set(options.session, { agent, options });
   return agent;
 }
 export function createWorkspaceAgent(options: Options) {
@@ -274,6 +281,7 @@ export function createWorkspaceAgent(options: Options) {
   review = store.active === null ? null : (reviews.get(store.active) ?? null);
   let activeRun: AgentRun | null = null;
   let autoApprove = false;
+  const reviewOutcomes: Record<string, string> = {};
   let error = "";
   let busy = false;
   let applying = false;
@@ -360,12 +368,13 @@ export function createWorkspaceAgent(options: Options) {
     activeRun?.assertActive();
     if (session.closed) throw new Error("The project session was closed.");
   }
-  async function approve(keys?: readonly string[]) {
+  async function approve(keys?: readonly string[], automatic = false) {
     const approving = review;
     if (approving === null || applying) return;
     applying = true;
     notify();
     try {
+      await options.beforeApprove?.();
       if (approving.stale())
         throw new Error(
           "The project changed while the agent worked. Send a follow-up to revise these changes.",
@@ -406,6 +415,7 @@ export function createWorkspaceAgent(options: Options) {
       chat.messages = chat.messages.map((message) =>
         message.id === approving.messageId ? { ...message, beforeCommit: before, commit } : message,
       );
+      reviewOutcomes[approving.messageId] = automatic ? "Applied automatically" : "Approved";
       action(chat, "approve", {
         resources: changes.map((change) => change.key),
         outcome: result.status,
@@ -535,7 +545,13 @@ export function createWorkspaceAgent(options: Options) {
       notify();
       assertLive();
       if ((autoApprove || automatic) && !review.stale()) {
-        await approve();
+        try {
+          await approve(undefined, true);
+        } catch (cause) {
+          error = cause instanceof Error ? cause.message : String(cause);
+          notify();
+          return true;
+        }
         touched.clear();
         base = session.model.capture();
         workspace = captureAgentWorkspace({
@@ -873,6 +889,16 @@ export function createWorkspaceAgent(options: Options) {
   }
   return {
     current,
+    reviewOutcome(messageId: string): string | undefined {
+      return (
+        reviewOutcomes[messageId] ??
+        (store.chats.some((chat) =>
+          chat.messages.some((message) => message.id === messageId && message.commit),
+        )
+          ? "Approved"
+          : undefined)
+      );
+    },
     newChat,
     chats: () => readAgentChats(store).chats,
     pending: () => review,
@@ -955,6 +981,7 @@ export function createWorkspaceAgent(options: Options) {
       if (applying) return;
       if (review) {
         const chat = store.chats.find((chat) => chat.id === review!.chatId)!;
+        reviewOutcomes[review.messageId] = "Rejected";
         action(chat, "reject", {
           resources: review.changes().map((change) => change.key),
           outcome: "discarded",

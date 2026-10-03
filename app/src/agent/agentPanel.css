@@ -59,6 +59,9 @@
   color: var(--muted);
   line-height: 1.6;
 }
+.agent-panel__setup {
+  padding: var(--space-3) var(--space-4);
+}
 .agent-panel__message {
   padding: var(--space-3);
   font-size: var(--text-sm);
@@ -190,9 +193,11 @@
   box-shadow: none;
   min-width: 0;
 }
+.shell-body--workspace.shell-body--no-editor.shell-body--agent,
 .shell-body--workspace.shell-body--picture.shell-body--agent {
   grid-template-columns: var(--workspace-parts) minmax(0, 1fr) minmax(320px, 360px) !important;
 }
+.shell-body--workspace.shell-body--no-editor.shell-body--agent > .shell-side,
 .shell-body--workspace.shell-body--picture.shell-body--agent > .shell-side {
   grid-column: 3;
 }
@@ -219,4 +224,21 @@
 }
 .agent-panel__task-context summary {
   cursor: pointer;
+}
+
+/* On smaller desktops the Agent takes the editor's dock; closing it restores the editor. */
+@media (min-width: 601px) and (max-width: 1280px) {
+  .shell-body--workspace.shell-body--agent {
+    grid-template-columns: var(--workspace-parts) minmax(0, 1fr) minmax(320px, 360px) !important;
+  }
+  .shell-body--workspace.shell-body--agent > .shell-side {
+    grid-column: 3;
+  }
+  .shell-body--workspace.shell-body--agent > .play-area {
+    grid-column: 2;
+  }
+  .shell-body--workspace.shell-body--agent > .workspace-editor,
+  .shell-body--workspace.shell-body--agent > .workspace-splitter {
+    display: none;
+  }
 }

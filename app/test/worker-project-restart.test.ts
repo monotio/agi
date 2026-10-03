@@ -431,3 +431,25 @@ test("worker progress autosave leaves a saved pending candidate to the session a
     f.ctx.fns.stopTimers();
   }
 });
+
+test("acknowledged project restart ends Playtest recording and starts a fresh history segment", async () => {
+  const f = await fixture("restart-recording");
+  try {
+    onWorkerMessage(f.ctx, { type: "startRecording", id: 900 });
+    assert.ok(f.ctx.recording.recording);
+    const oldSegment = f.ctx.history.segment;
+    await f.edit("inventory", "[]");
+    assert.ok(f.ctx.recording.recording, "a pending candidate keeps recording the old run");
+    assert.equal((await f.session.restartWithChanges())?.status, "committed");
+    f.ctx.fns.stopTimers();
+    assert.equal(f.ctx.recording.recording, null);
+    assert.ok(f.messages.some((m) => m.type === "recordingReset"));
+    f.tick();
+    assert.notEqual(f.ctx.history.segment, oldSegment);
+    onWorkerMessage(f.ctx, { type: "startRecording", id: 901 });
+    assert.ok(f.ctx.recording.recording, "the replacement run can start a new Playtest");
+  } finally {
+    f.session.dispose();
+    f.ctx.fns.stopTimers();
+  }
+});

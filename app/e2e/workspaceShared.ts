@@ -15,6 +15,7 @@ export async function openStoredWorkspace(page: Page, title: string): Promise<vo
   await expect(page.getByRole("heading", { name: title, exact: true, level: 1 })).toBeVisible();
   await expect(page.getByTestId("input-line")).toBeEnabled();
   await expect(page.getByTestId("parts-list")).toBeVisible();
+  await workspaceSaved(page);
 }
 
 export async function openWorkspaceLogic(page: Page, num = 1): Promise<Locator> {

@@ -99,9 +99,7 @@ for (const failure of ["unsafe", "timeout", "storage"] as const) {
     const download = page.waitForEvent("download");
     await openGameOptions(page, "settings-menu");
     await page.getByTestId("btn-download-game").click();
-    await expect(page.getByTestId("export-refusal")).toContainText(
-      "Backup downloaded with limitations",
-    );
+    await expect(page.getByTestId("export-refusal")).toContainText("Downloaded the game.");
     if (failure === "unsafe")
       await page.screenshot({ path: testInfo.outputPath("checkpoint-limitations.png") });
     const path = (await (await download).path())!;

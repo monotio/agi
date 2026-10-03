@@ -143,7 +143,7 @@ test("test recorder starts and stops successfully through worker queries", async
   assert.equal(state.recording.error, "");
 
   const snapshot = await recorder.stopTestRecording();
-  assert.ok(snapshot);
+  assert.ok(snapshot && !("endedBy" in snapshot));
   assert.equal(state.recording.active, false);
   assert.equal(snapshot.start.cycle, 10);
   assert.equal(snapshot.endCycle, 15);

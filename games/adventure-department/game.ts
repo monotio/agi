@@ -1,3 +1,11 @@
+/**
+ * Adventure Department, the bundled tutorial. Its copy is written for a newcomer of
+ * about eleven: one idea per message box, the next command last and in capitals, and
+ * each term tied to what it does (a picture is a recipe, a view a flipbook, depth a
+ * secret number). HELP lists only the current room's verbs, natural wrong actions get
+ * a Sierra-style reply, and a typo reply names the unknown word and the room's next
+ * step. Messages are single-byte 40-column text.
+ */
 import type { OpenedGame } from "../../app/src/archive/gameZip.ts";
 import { serializeGameTests } from "../../src/agent/gameTestFormat.ts";
 import { TUTORIAL_GAME_TESTS } from "./tests.ts";

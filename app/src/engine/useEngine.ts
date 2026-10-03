@@ -83,7 +83,7 @@ export type { AutosaveRecord } from "../saves/useAutosaveController.ts";
  */
 export async function removeLibraryGame(projectId: ProjectId): Promise<void> {
   await clearCachedGame(projectId);
-  clearAutosave(projectId);
+  await clearAutosave(projectId);
   clearGameSaves(localStorage, projectId);
   removeMapSidecar(localStorage, projectId);
 }
@@ -97,7 +97,11 @@ export async function removeLibraryGame(projectId: ProjectId): Promise<void> {
  */
 export function useEngine(
   onFrame: (frame: Frame) => void,
-  engineOptions?: { onPromptType?: (text: string) => void },
+  engineOptions?: {
+    onPromptType?: (text: string) => void;
+    flushWorkspace?: () => Promise<void>;
+    pendingEditorChanges?: () => boolean;
+  },
 ) {
   let projectMode: "create" | "play" = "play";
   let projectSession: ProjectSession | null = null;
@@ -334,7 +338,7 @@ export function useEngine(
    * no longer store is not owed: its retry banner goes.
    */
   function tellRemoved(): void {
-    projectSession?.stopWrites();
+    projectSession?.stopWrites("removed");
     autosaveController.handleRecoveryError(PROJECT_REMOVED_MESSAGE);
     logAgent("error", PROJECT_REMOVED_MESSAGE);
     state.powerUp.error = PROJECT_REMOVED_MESSAGE;
@@ -346,12 +350,13 @@ export function useEngine(
 
   const autosaveController = useAutosaveController({
     state,
+    getRunScope: () => projectSession?.runToken,
     getBootedGame: () => lifecycle.getBootedGame(),
     getWorker: link.getWorker,
     async prepareCheckpoint(game, files, checkpointRevision) {
       const session = projectSession;
       if (session === null) return "legacy";
-      await session.flush();
+      if ((await session.prepareCheckpoint(checkpointRevision)) === "not_ready") return "not_ready";
       const revision = session.model.capture().lastAdmissibleBuild!.identity.revision;
       if (checkpointRevision !== undefined && checkpointRevision !== revision) return "refused";
       if (files !== undefined && computeResourceRevision(files) !== revision) return "refused";
@@ -423,7 +428,7 @@ export function useEngine(
       !game.behindStorage;
     projectSessionOpening = grant.runToken;
     await Promise.all([import("../project/projectSession.ts"), import("./mainProjectAdmission.ts")])
-      .then(([{ openProjectSession }, { createMainProjectAdmission }]) => {
+      .then(async ([{ openProjectSession }, { createMainProjectAdmission }]) => {
         if (!current()) return;
         const admission = createMainProjectAdmission({
           ...grant,
@@ -456,6 +461,13 @@ export function useEngine(
           },
           publish(snapshot, data, outcome, nativeInstalled) {
             if (!current()) return;
+            if (
+              computeResourceRevision(game.authoredGame!.files) !==
+              snapshot.lastAdmissibleBuild!.identity.revision
+            ) {
+              hook.autosave = -1;
+              link.publishHook();
+            }
             const running =
               nativeInstalled === true ||
               outcome?.status === "committed" ||
@@ -486,8 +498,15 @@ export function useEngine(
               if (frame !== null) roomMap.value?.observeFrame(frame);
             }
           },
-          saved(data) {
-            if (current()) advanceAuthoring(game, data.authoringState, data.workspace);
+          saved(data, _lifetime, generation) {
+            if (current()) {
+              advanceAuthoring(game, data.authoringState, data.workspace);
+              if (game.authoredGame) game.authoredGame.generation = generation;
+              void autosaveController.flushAutosave();
+            }
+          },
+          checkpointReady() {
+            if (current()) void autosaveController.flushAutosave();
           },
           changed() {
             if (current()) {
@@ -497,6 +516,7 @@ export function useEngine(
           },
         });
         state.patchTick++;
+        if ((await projectSession.ready) && current()) void autosaveController.flushAutosave();
       })
       .catch((error: unknown) => {
         if (current()) state.status = String(error instanceof Error ? error.message : error);
@@ -679,6 +699,11 @@ export function useEngine(
     flushAutosave: () => autosaveController.flushAutosave(),
   });
 
+  link.deps.recordingReset = () => {
+    testRecorder.reset();
+    state.recording.error = "Game run changed. Start Playtest to record the current run.";
+  };
+
   const lifecycle = useGameLifecycle({
     state,
     hook,
@@ -704,7 +729,12 @@ export function useEngine(
       startOverNote.hide();
     },
     stopHistoryWriter: () => historyController?.stopWriterRenewal(),
+    pendingEditorChanges: () =>
+      (engineOptions?.pendingEditorChanges?.() ?? false) ||
+      (projectSession?.pendingChanges ?? false),
     flushProject: async () => {
+      if (projectSession?.saveStatus().state === "conflict") return;
+      await engineOptions?.flushWorkspace?.();
       const session = projectSession;
       if (session === null) return;
       await session.flush();
@@ -1228,8 +1258,14 @@ export function useEngine(
     /** Boot the running project again from storage under its own AI settings. */
     reloadFromStorage: () => autosaveController.reloadFromStorage(activeLlmConfig),
     flushAutosave: async (timeoutMs?: number) => {
-      await projectSession?.flush();
-      return autosaveController.flushAutosave(timeoutMs);
+      const documents = projectSession?.flush().catch((cause: unknown) => {
+        logAgent("error", `Could not save project documents: ${String(cause)}`);
+      });
+      const [progress] = await Promise.all([
+        autosaveController.flushAutosave(timeoutMs),
+        documents,
+      ]);
+      return progress;
     },
     flushAutosaveDetailed: autosaveController.flushAutosaveDetailed,
     lastAutosaveRecord: autosaveController.lastAutosaveRecord,

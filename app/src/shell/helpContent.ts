@@ -138,7 +138,12 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
       {
         id: "studio-basics",
         title: "Editor basics",
-        body: [VOCABULARY.saved.help, VOCABULARY.undo.help, VOCABULARY.history.help],
+        body: [
+          VOCABULARY.saved.help,
+          "Keep this tab open until it says Saved. Unsaved edits may be lost if the tab closes abruptly. Download unsaved edits keeps your current buffers.",
+          VOCABULARY.undo.help,
+          VOCABULARY.history.help,
+        ],
       },
       {
         id: "studio-lenses",
@@ -233,7 +238,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         id: "studio-source",
         title: "Rebuilt pictures",
         body: [
-          "Imported pictures are rebuilt into editable steps and named items. Rebuilt identifies source recovered from bytes. Editing saves that source alongside the picture.",
+          "Imported pictures are rebuilt into editable steps and named items. Rebuilt identifies source recovered from bytes. Editing starts saving that source alongside the picture.",
         ],
       },
       {
@@ -323,7 +328,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         id: "share",
         title: "Export and share",
         body: [
-          "Both live in Settings → This game. Export game makes a ZIP of the playable game and its public details. Download game adds everything else: the authoring conversation, images, notes, tests, history and saves. Either one opens again with Add game, in any browser.",
+          "Both live in Settings → This game. Export game makes a ZIP of the playable game and its public details. Download game adds available conversation, images, notes, tests, history and saves. A backup reports its limitations. These downloads contain accepted content. Download unsaved edits keeps current editor buffers separately. Game and project downloads open with Add game.",
         ],
       },
       {

@@ -5,6 +5,7 @@ import {
   cacheGame,
   isolateStorage,
   openGameOptions,
+  surfaceBox,
   textHook,
   waitForAutosaveAfter,
   waitForCycles,
@@ -15,8 +16,7 @@ import { expect, test } from "./test.ts";
 /**
  * The 1.1 shell: a loaded game is shown in Play or Create, the URL names the
  * mode, Back and Forward move between them, and the stage gives the game the
- * largest whole multiple of its 320×200 frame that fills most of the space,
- * or else the largest fit (viewportLayout.ts).
+ * largest aspect-correct fit (viewportLayout.ts).
  */
 test.use({ viewport: { width: 1440, height: 900 } });
 
@@ -28,10 +28,7 @@ async function bootTutorial(page: Parameters<typeof textHook>[0]): Promise<void>
   await waitForCycles(page, 2);
 }
 
-const surfaceBox = async (page: Parameters<typeof textHook>[0]) =>
-  (await page.locator(".game-surface:visible").boundingBox())!;
-
-test("Play fits the game to a whole multiple of the frame and the Ask drawer resizes it", async ({
+test("Play fits the game at its selected aspect and the Ask drawer resizes it", async ({
   page,
 }) => {
   await bootTutorial(page);
@@ -43,14 +40,14 @@ test("Play fits the game to a whole multiple of the frame and the Ask drawer res
   await expect.poll(() => surfaceBox(page)).toMatchObject(original);
   await openGameOptions(page, "settings-menu");
   await page.getByTestId("toggle-original-aspect").click();
-  // 4:3 needs 240 rows per step: the stage holds 3× (960×720).
-  await expect.poll(async () => (await surfaceBox(page)).width).toBe(960);
-  expect((await surfaceBox(page)).height).toBe(720);
+  const originalFit = Math.floor(Math.min(available.width, (available.height * 4) / 3));
+  await expect.poll(async () => (await surfaceBox(page)).width).toBe(originalFit);
+  expect((await surfaceBox(page)).height).toBe((originalFit * 3) / 4);
   await page.getByTestId("toggle-original-aspect").click();
   await page.keyboard.press("Escape");
   await expect(page.getByTestId("settings-menu")).toBeFocused();
 
-  // Ask is a non-modal drawer: the game stays visible beside it at 3×, and
+  // Ask is a non-modal drawer: the game stays visible beside it, and
   // Play offers no Remix.
   const ask = page.getByTestId("menu-assistant");
   await ask.click();
@@ -63,7 +60,12 @@ test("Play fits the game to a whole multiple of the frame and the Ask drawer res
   // itself says how to get back.
   await expect(drawer.getByTestId("agent-bubble-esc")).toHaveText("Esc");
   await expect(drawer.getByTestId("agent-bubble-close")).toBeVisible();
-  await expect.poll(async () => (await surfaceBox(page)).width).toBe(960);
+  await expect
+    .poll(async () => {
+      const stage = (await page.locator(".stage:visible").boundingBox())!;
+      return (await surfaceBox(page)).width - Math.floor(Math.min(stage.width, stage.height * 1.6));
+    })
+    .toBe(0);
   const game = await surfaceBox(page);
   const side = (await drawer.boundingBox())!;
   expect(game.x + game.width).toBeLessThanOrEqual(side.x);
@@ -410,4 +412,78 @@ test("the strip's key hint never prints over the transport, and Create's stage f
   // The screen fills that column at its 320×200 aspect.
   await expect.poll(async () => (await surfaceBox(page)).width).toBe(1188);
   expect((await surfaceBox(page)).height).toBe(742.5);
+});
+
+test("the game surface stays mounted and visible through GPU startup and resize", async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    const probe = {
+      gaps: 0,
+      samples: 0,
+      started: false,
+      surfaces: new Set<Element>(),
+      backends: new Set<string>(),
+    };
+    Object.assign(window, { surfaceContinuity: probe });
+    const sample = () => {
+      const surfaces = [...document.querySelectorAll(".game-surface")];
+      const visible = surfaces.filter((surface) => {
+        const box = surface.getBoundingClientRect();
+        return box.width > 0 && box.height > 0;
+      });
+      if (visible.length > 0) probe.started = true;
+      if (probe.started) {
+        probe.samples++;
+        if (visible.length !== 1) probe.gaps++;
+        for (const surface of surfaces) probe.surfaces.add(surface);
+        for (const surface of visible) probe.backends.add(surface.getAttribute("data-testid")!);
+      }
+      requestAnimationFrame(sample);
+    };
+    requestAnimationFrame(sample);
+  });
+  let release!: () => void;
+  const ready = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route("**/three/AgiStage.ts", async (route) => {
+    await ready;
+    await route.continue();
+  });
+  await bootTutorial(page);
+  await expect(page.getByTestId("game-canvas")).toBeVisible();
+  release();
+  await expect(page.getByTestId("gpu-canvas")).toBeVisible();
+  for (const viewport of [
+    { width: 800, height: 600 },
+    { width: 844, height: 390 },
+    { width: 1440, height: 900 },
+  ]) {
+    await page.setViewportSize(viewport);
+    const box = await surfaceBox(page);
+    expect(box.width).toBeGreaterThan(0);
+    await waitForCycles(page, 1);
+  }
+  const measured = await page.evaluate(() => {
+    const probe = (
+      window as unknown as {
+        surfaceContinuity: {
+          gaps: number;
+          samples: number;
+          surfaces: Set<Element>;
+          backends: Set<string>;
+        };
+      }
+    ).surfaceContinuity;
+    return {
+      gaps: probe.gaps,
+      samples: probe.samples,
+      canvases: probe.surfaces.size,
+      backends: [...probe.backends].sort(),
+    };
+  });
+  expect(measured).toMatchObject({ gaps: 0, canvases: 2, backends: ["game-canvas", "gpu-canvas"] });
+  expect(measured.samples).toBeGreaterThan(2);
+  await page.screenshot({ path: test.info().outputPath("surface-after-resize.png") });
 });

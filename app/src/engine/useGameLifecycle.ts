@@ -86,6 +86,7 @@ export interface GameLifecycleOptions {
   /** The history transport's scratch session dies with the worker. */
   readonly resetHistoryView: () => void;
   readonly flushProject?: () => Promise<void>;
+  readonly pendingEditorChanges?: () => boolean;
   readonly getProjectMode?: () => "create" | "play";
   readonly getSessionId: () => number;
   readonly nextSessionId: () => number;
@@ -314,6 +315,9 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
               : {}),
           };
     if (opening !== undefined && !opening.isCurrent()) return;
+    const beforeFlush = ++lifecycleEpoch;
+    await options.flushProject?.();
+    if (beforeFlush !== lifecycleEpoch || (opening !== undefined && !opening.isCurrent())) return;
     const previousGame = booted;
     const previousSurface = { phase: state.phase, loading: state.loading, error: state.error };
     if (!autosave.beginResumeBoot(resumeCarrier)) return;
@@ -379,7 +383,6 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
       if (resumeCarrier !== undefined && !resumeCarrier.isCurrent()) return;
       // A successful remix is saved as its own local game before playback resumes.
       const activeReplaySeed = options.getActiveReplaySeed();
-      await options.flushProject?.();
       if (
         bootEpoch !== lifecycleEpoch ||
         (opening !== undefined && !opening.isCurrent()) ||
@@ -530,8 +533,12 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
     // Commits already in flight settle first: one may be the refusal that
     // says the tape can never be stored.
     await options.drainHistoryCommits();
-    // A removed project's timeline can never be stored: nothing is owed.
-    if (state.historyBlocked || booted?.removed) return;
+    // A removed or stale project's timeline has no current write authority.
+    if (
+      state.historyBlocked ||
+      (booted !== null && (storageMovedPast(booted) || needsReload(booted)))
+    )
+      return;
     try {
       await link.query("historyEnd", {}, 10_000);
       await options.drainHistoryCommits();
@@ -548,6 +555,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
    */
   async function ejectGame(ejectOptions?: {
     abandonUnsaved?: boolean;
+    abandonProject?: boolean;
     abandonHistory?: boolean;
   }): Promise<void> {
     if (state.leaving || state.powerUp.busy) return;
@@ -557,7 +565,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
     const ejectEpoch = lifecycleEpoch;
     autosave.beginResumeBoot();
     try {
-      await options.flushProject?.();
+      if (!ejectOptions?.abandonProject) await options.flushProject?.();
       if (ejectEpoch !== lifecycleEpoch) {
         state.leaving = false;
         return;
@@ -571,6 +579,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
       // authoring storage no longer holds. Nothing is saved over the newer
       // project — found now or by the save itself — and leaving is fine.
       if (
+        !ejectOptions?.abandonProject &&
         game &&
         session &&
         !storageMovedPast(game) &&
@@ -590,7 +599,10 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
       // the interpreter cannot checkpoint (a live prompt, text mode, a text
       // window the game keeps up while it runs on) leaves with the last save
       // point, and the timeline sealed below holds the rest.
-      if (!ejectOptions?.abandonUnsaved && !(game !== null && storageMovedPast(game))) {
+      if (
+        !ejectOptions?.abandonUnsaved &&
+        !(game !== null && (storageMovedPast(game) || needsReload(game)))
+      ) {
         const flushResult = await autosave.flushAutosaveDetailed(2000);
         if (flushResult.status === "storage_failure") {
           throw new Error(
@@ -832,6 +844,9 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
               : {}),
           };
     if (opening !== undefined && !opening.isCurrent()) return;
+    const beforeFlush = ++lifecycleEpoch;
+    await options.flushProject?.();
+    if (beforeFlush !== lifecycleEpoch || (opening !== undefined && !opening.isCurrent())) return;
     const previousGame = booted;
     const previousSurface = { phase: state.phase, loading: state.loading, error: state.error };
     const resumeCarrier = bootOptions?.resumeCarrier;
@@ -960,7 +975,6 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
             if (bootEpoch !== lifecycleEpoch) return;
           }
           options.authoring?.setSession(cachedSession);
-          await options.flushProject?.();
           if (
             bootEpoch !== lifecycleEpoch ||
             (opening !== undefined && !opening.isCurrent()) ||
@@ -1197,11 +1211,25 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
     data: CachedGameData;
     progressKey: string;
     progressTarget: ProgressTarget | undefined;
+    notes: string[];
   }> {
     if (state.powerUp.busy || state.phase !== "running")
       throw new Error("Wait for the current authoring turn to finish before saving.");
     const game = booted;
     if (!game) throw new Error("No game is running.");
+    const notes: string[] = [];
+    try {
+      await options.flushProject?.();
+    } catch {
+      notes.push(
+        "The ZIP holds the game and edits already added to it. Use Download unsaved edits to keep the rest.",
+      );
+    }
+    if (options.pendingEditorChanges?.())
+      notes.push("Your unsaved edits are not in it: use Download unsaved edits.");
+    if (game.removed) notes.push("The game is from this tab before the project was removed.");
+    else if (needsReload(game)) notes.push("The game is from before the changes in the other tab.");
+    if (game !== booted) throw new Error("The game changed during download. Try again.");
     const progressTarget = game.progressTarget;
     const session = options.authoring?.getSession() ?? null;
     const data: CachedGameData | null = game.installed
@@ -1221,7 +1249,10 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
           files: game.files,
           words: game.words,
         }
-      : ((await loadAuthoredGame(game.projectId!).catch(() => null)) ?? game.authoredGame ?? null);
+      : ((notes.length > 0
+          ? game.authoredGame
+          : ((await loadAuthoredGame(game.projectId!).catch(() => null)) ?? game.authoredGame)) ??
+        null);
     if (!data) throw new Error("The current game metadata is unavailable.");
     const files = await link.query("exportFiles");
     // The binding captured before the storage and worker reads must still
@@ -1251,7 +1282,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
     const authoring = options.authoring ?? (await options.ensureAuthoring!());
     const assembled = authoring.assembleExportData(data, { ...game, words }, session, files);
     const progressKey = progressTarget?.locator ?? gameStorageKey(game);
-    return { data: assembled, progressKey, progressTarget };
+    return { data: assembled, progressKey, progressTarget, notes };
   }
 
   return {

@@ -32,7 +32,6 @@ import { createGameLibrary, provideGameLibrary } from "./library/useGameLibrary.
 import { createPresentation, providePresentation } from "./play/usePresentation.ts";
 import SetupPanel from "./home/SetupPanel.vue";
 import { followEmptyProjectRoute } from "./home/emptyProjectRoute.ts";
-import StaleTabNote from "./play/StaleTabNote.vue";
 import StartOverNote from "./play/StartOverNote.vue";
 import { nextViewportLayout } from "./play/viewportLayout.ts";
 import { createShell, provideShell } from "./shell/useShell.ts";
@@ -101,6 +100,10 @@ const engine = useEngine(
     engine.observeMapFrame(frame);
   },
   {
+    pendingEditorChanges: () => workspaceEditor.pendingChanges.value,
+    flushWorkspace: async () => {
+      await workspaceEditor.flush.value?.();
+    },
     onPromptType: (text) => {
       playArea.value?.handlePromptType(text);
     },
@@ -196,6 +199,7 @@ const shell = createShell({
   librarySource: (projectId) =>
     lib.savedGames.value.find((game) => game.projectId === projectId)?.library?.source,
   initialMode: parseGameHash(location.hash)?.mode ?? "play",
+  awaitingLatest: () => lib.latestVersion.value !== undefined,
 });
 provideShell(shell);
 engine.setProjectMode(shell.mode.value);
@@ -210,6 +214,13 @@ const commands = createCommandRegistry(
 provideCommands(commands);
 const workspaceEditor = createWorkspaceEditor(engine);
 provideWorkspaceEditor(workspaceEditor);
+async function exportWorkspaceGame(project: boolean): Promise<void> {
+  try {
+    await lib.onExportAgiZip(true, project);
+  } catch (cause) {
+    exportRefusal.value = cause instanceof Error ? cause.message : String(cause);
+  }
+}
 watch(workspace.studio, (request) => {
   if (!request) return;
   workspaceEditor.open(
@@ -662,7 +673,7 @@ watch(
       return;
     }
     if (phase === "idle" || phase === "error") {
-      shell.reset();
+      if (phase !== "error" || lib.latestVersion.value === undefined) shell.reset();
       clearPlayHash();
       lib.syncMenuPhase();
     }
@@ -705,7 +716,7 @@ watch(
         @update:original-aspect="originalAspect = $event"
         @update:debug-open="debugOpen = $event"
         @trigger-key="(code) => playArea?.triggerKey(code)"
-        @export-zip="(project) => lib.onExportAgiZip(true, project)"
+        @export-zip="exportWorkspaceGame"
         @start-walkthrough="onStartWalkthrough"
         @developer-activity="openDeveloperActivity"
       >
@@ -804,7 +815,6 @@ watch(
                 }}</UiChip
               >
               <ProjectRestartNotice v-if="creating && engine.pendingProjectRestart.value" />
-              <StaleTabNote />
             </template>
             <template #screen-notes>
               <StartOverNote />
@@ -832,7 +842,7 @@ watch(
           </PlayArea>
         </Teleport>
         <aside
-          v-show="!creating || (state.powerUp.open && !workspaceEditor.focus.value)"
+          v-show="!creating || state.powerUp.open"
           class="shell-side"
           :class="{ 'shell-side--sheet': creating && phone, 'shell-side--open': sheetOpen }"
           aria-label="Agent"

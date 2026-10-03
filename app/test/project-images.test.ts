@@ -1,3 +1,4 @@
+import { installWebLocksFixture } from "./webLocksFixture.ts";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { openProjectSession } from "../src/project/projectSession.ts";
@@ -28,6 +29,8 @@ import { readGameZip } from "../src/archive/gameZip.ts";
 import { commitProject, loadAuthoredGame } from "../src/project/gameStorage.ts";
 import { installIndexedDbFixture } from "./indexedDbFixture.ts";
 import { testProjectId } from "./identity.ts";
+installWebLocksFixture();
+
 const rows = installIndexedDbFixture();
 Object.defineProperty(globalThis, "localStorage", {
   configurable: true,

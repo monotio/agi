@@ -30,6 +30,7 @@ interface WorkerLinkDeps {
   missedSentence?(msg: Extract<WorkerOutbound, { type: "missedSentence" }>): void;
   projectBooted?(msg: Extract<WorkerOutbound, { type: "booted" }>): void;
   projectClosed?(): void;
+  recordingReset?(): void;
   resetScreenState(): void;
   cancelPrompt(): void;
   handleAutosave(msg: Extract<WorkerOutbound, { type: "autosave" }>): void;
@@ -271,6 +272,7 @@ export function useWorkerLink(options: WorkerLinkOptions) {
       },
       recordingStarted: (msg) => workerQueries.resolveQuery(msg.id, msg),
       recordingStopped: (msg) => workerQueries.resolveQuery(msg.id, msg),
+      recordingReset: () => deps.recordingReset?.(),
       // The play-preview lane's protocol: each settles its pending query —
       // the result is the request's one terminal settlement, the status its
       // read-only reconciliation.
@@ -506,6 +508,8 @@ export function useWorkerLink(options: WorkerLinkOptions) {
         // The world map's raw observations. Superseded sessions are already
         // dropped by the sessionId ingress filter; a replaced worker's late
         // traffic never reaches this handler.
+        hook.room = msg.to;
+        publishHook();
         state.roomJournal.push(msg);
         deps.observeRoom?.(msg);
         if (state.roomJournal.length > 4000)

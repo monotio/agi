@@ -30,10 +30,15 @@ const emit = defineEmits<{
   "start-walkthrough": [alias: string];
 }>();
 
-const { state, currentGame, roomMap } = useEngineApi();
+const { state, currentGame, roomMap, closePowerUp } = useEngineApi();
 const shell = useShell();
 const commands = useOptionalCommands();
 const editor = useWorkspaceEditor();
+function toggleParts(): void {
+  if (state.powerUp.open) closePowerUp();
+  editor.focus.value = false;
+  editor.partsOpen.value = !editor.partsOpen.value;
+}
 
 function showMap(): void {
   roomMap.openMap({ experience: shell.mode.value });
@@ -93,19 +98,34 @@ const shortcutsBlocked = computed(
         size="sm"
         variant="ghost"
         data-testid="workspace-saved"
-        :title="VOCABULARY.saved.help"
+        :title="editor.readOnly.value ? editor.save.value : VOCABULARY.saved.help"
         @click="
           editor.save.value === 'Could not save. Retry'
-            ? editor.retry.value?.()
+            ? editor.retry.value?.().catch(() => {})
             : (editor.history.value = !editor.history.value)
         "
         ><UiChip :tone="editor.save.value === 'Saved' ? 'ok' : 'warn'" dot>{{
-          editor.save.value
+          state.projectRemoved || editor.save.value.startsWith("This project was removed")
+            ? "Project removed"
+            : state.staleTab || editor.save.value.startsWith("Changed in another tab")
+              ? "Changed in another tab"
+              : editor.readOnly.value
+                ? "Read-only"
+                : editor.save.value
         }}</UiChip></UiButton
       >
       <UiSegmented v-model="mode" class="play-bar__modes" label="Mode" :options="modes" />
       <div class="play-bar__actions">
         <template v-if="mode === 'create'">
+          <UiButton
+            size="sm"
+            variant="ghost"
+            class="play-bar__parts"
+            data-testid="workspace-parts"
+            :aria-pressed="editor.partsOpen.value"
+            @click="toggleParts"
+            >Parts</UiButton
+          >
           <UiIconButton
             icon="undo"
             label="Undo"
@@ -217,9 +237,12 @@ const shortcutsBlocked = computed(
   border-bottom: 1px solid var(--hairline);
   background: var(--surface-0);
 }
+.play-bar__parts {
+  display: none;
+}
 .play-bar__nav {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto auto minmax(0, 1fr);
+  grid-template-columns: auto minmax(0, 1fr) auto auto auto;
   align-items: center;
   gap: var(--space-3);
   height: 100%;
@@ -257,6 +280,11 @@ const shortcutsBlocked = computed(
     grid-template-columns: auto auto minmax(0, 1fr);
     row-gap: 0;
   }
+  [data-testid="workspace-saved"] {
+    grid-row: 3;
+    grid-column: 1 / -1;
+    justify-self: start;
+  }
   .play-bar__title {
     grid-row: 2;
     grid-column: 1 / -1;
@@ -264,7 +292,12 @@ const shortcutsBlocked = computed(
     gap: var(--space-3);
     padding: 0 var(--space-2) var(--space-1);
   }
+  .play-bar__parts {
+    display: inline-flex;
+  }
   .play-bar__actions {
+    flex-wrap: wrap;
+    min-width: 0;
     gap: 0;
   }
 }

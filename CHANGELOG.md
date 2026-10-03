@@ -37,10 +37,19 @@ Released notes are also available on [GitHub Releases](https://github.com/monoti
 
 ### Fixed
 
-- Projects saved by a newer version stay visible with Download and Remove
-  actions, including when opened through a game link.
-- Saving shows while a change is pending, and an edit survives a reload or tab
-  close right after it is made.
+- A sentence cut short by a debugger stop no longer appears in WORDS Players tried.
+- Replacing the game run ends its Playtest recording, including History and replay changes.
+- Projects with unsupported formats stay visible with recovery actions, including
+  when opened through a game link. Download is available for records it can preserve.
+- Saving… shows while a change is pending and Saved confirms the project reached
+  browser storage. Keep the tab open until Saved; unsaved edits may be lost on close.
+  Download unsaved edits keeps current buffers during save failures. Accepted
+  captures retain recovery after interrupted acknowledgement. A failed save keeps Retry.
+- Download game can produce a backup after a failed save or a change in another tab,
+  with a report of its limitations. Stale and removed tabs are read-only with Download, Reload and Exit.
+- Accepted or legacy recovery captures retain Download recovery data and Discard pending edits.
+- Earlier play positions stay intact and offer Start the latest version.
+- Name this version names what is on screen, including source with errors.
 - Opening a menu while the game screen loads keeps the menu open.
 
 ## [1.1.0]

@@ -1,4 +1,6 @@
 import type { Page } from "@playwright/test";
+import type { WorkerQueryFn } from "../src/worker/workerProtocol.ts";
+import type { EngineStateReport } from "../../src/runtime/engine.ts";
 import { expect, reviewShot, test } from "./test.ts";
 import {
   isolateStorage,
@@ -17,6 +19,26 @@ import {
 
 const note = (page: Page) => page.getByTestId("start-over-note");
 const startedOverMarks = (page: Page) => page.locator(".transport-marker--restart");
+
+/** Read the stopped worker state; a heartbeat can still precede the stop input. */
+async function stoppedState(page: Page): Promise<EngineStateReport> {
+  await expect
+    .poll(() =>
+      page.evaluate(async () => {
+        const probe = (window as unknown as { __AGI_PROJECT__: { query: WorkerQueryFn } })
+          .__AGI_PROJECT__;
+        return (await probe.query("state"))?.egoDirection;
+      }),
+    )
+    .toBe(0);
+  const stopped = await page.evaluate(() => {
+    const probe = (window as unknown as { __AGI_PROJECT__: { query: WorkerQueryFn } })
+      .__AGI_PROJECT__;
+    return probe.query("state");
+  });
+  if (!stopped) throw new Error("The worker has no running game");
+  return stopped;
+}
 
 /** Exit to Home and use Start over on the tutorial's saved card. */
 async function startOverFromHome(page: Page): Promise<void> {
@@ -48,7 +70,7 @@ test("Undo start over returns to the earlier session, and the timeline marks the
   await expect.poll(async () => (await textHook(page)).egoX).toBeGreaterThan(spawnX + 12);
   await page.keyboard.press("ArrowRight");
   await waitForCycles(page, 4);
-  const stopped = await textHook(page);
+  const stopped = await stoppedState(page);
   expect(stopped.room).toBe(1);
 
   await startOverFromHome(page);
@@ -130,7 +152,7 @@ test("Undo after the game's own Start over returns to the exact moment it was us
   await expect.poll(async () => (await textHook(page)).egoX).toBeGreaterThan(spawnX + 12);
   await page.keyboard.press("ArrowRight");
   await waitForCycles(page, 4);
-  const stopped = await textHook(page);
+  const stopped = await stoppedState(page);
   expect(stopped.room).toBe(1);
 
   await page.getByTestId("settings-menu").click();
@@ -177,7 +199,7 @@ test("the game's Start over waits for an unsaved timeline, and Start over anyway
     await expect.poll(async () => (await textHook(page)).egoX).toBeGreaterThan(spawnX + 12);
     await page.keyboard.press("ArrowRight");
     await waitForCycles(page, 4);
-    const stopped = await textHook(page);
+    const stopped = await stoppedState(page);
     expect(stopped.room).toBe(1);
     return stopped;
   };

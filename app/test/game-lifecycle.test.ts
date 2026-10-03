@@ -150,12 +150,14 @@ test("Download game from a tab behind storage downloads the running game and nev
     historyLifetime: await readHistoryLifetime(projectId),
   };
   bindProgressTarget(game);
+  game.authoredGame = (await loadAuthoredGame(projectId))!;
   // Another tab kept an edit after this game booted.
   const kept = createContainer();
   kept.putResource("logic", 0, Uint8Array.of(0));
   kept.putResource("logic", 1, Uint8Array.of(1));
   assert.equal(await updateAuthoredGameFiles(projectId, Object.fromEntries(kept.files)), true);
   const newer = (await loadAuthoredGame(projectId))!;
+  game.behindStorage = true;
 
   const lifecycle = useGameLifecycle({
     state: { phase: "running", powerUp: { busy: false } },
@@ -175,7 +177,8 @@ test("Download game from a tab behind storage downloads the running game and nev
     logAgent: () => {},
   } as unknown as GameLifecycleOptions);
   lifecycle.setBootedGame(game);
-  const { data, progressKey, progressTarget } = await lifecycle.exportCurrentGame();
+  const { data, progressKey, progressTarget, notes } = await lifecycle.exportCurrentGame();
+  assert.deepEqual(notes, ["The game is from before the changes in the other tab."]);
   assert.deepEqual(data.files, files, "the download is the running game");
   assert.equal(progressTarget?.kind, "project");
   assert.equal(progressKey, progressTarget?.locator, "the key is the bound locator");
@@ -261,7 +264,7 @@ test("Leaving a game behind storage saves nothing over the newer project, and is
     } as unknown as GameLifecycleOptions);
     lifecycle.setBootedGame(game);
     await lifecycle.ejectGame();
-    assert.deepEqual(calls, ["historyEnd", "terminate"], game.projectId);
+    assert.deepEqual(calls, ["terminate"], game.projectId);
     assert.equal(state.phase, "idle");
     assert.equal(lifecycle.getBootedGame(), null);
   }
@@ -595,3 +598,38 @@ test("a superseded creation's finish saves and boots nothing", async (t) => {
   );
   assert.equal(workers.length, 1);
 });
+
+for (const replacement of ["installed", "authored"] as const) {
+  test(`a refused editor barrier keeps the current workspace before ${replacement} replacement`, async () => {
+    const state = {
+      phase: "running",
+      loading: null,
+      error: "",
+      genesisStarter: null,
+      powerUp: { busy: false },
+    };
+    const lifecycle = useGameLifecycle({
+      state,
+      devFixtures: true,
+      autosave: { beginResumeBoot: () => true },
+      flushProject: async () => {
+        throw new Error("Could not save notes. Retry the save.");
+      },
+      prepareRun: async () => {
+        throw new Error("replacement began");
+      },
+    } as unknown as GameLifecycleOptions);
+    const replacing =
+      replacement === "installed"
+        ? lifecycle.bootGame("synthetic")
+        : lifecycle.bootAuthoredGame(
+            "",
+            { provider: "stub", model: "offline-stub", apiKey: "" },
+            { useCached: true, projectId: testProjectId("replacement") },
+          );
+    await assert.rejects(replacing, /Could not save notes/);
+    assert.equal(state.phase, "running");
+    assert.equal(state.loading, null);
+    assert.equal(state.error, "");
+  });
+}

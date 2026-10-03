@@ -112,11 +112,17 @@ test("folder and ZIP games with the same vocabulary keep separate content and pr
   for (const { name, data } of archiveFiles(ORIGINAL, "Origin Adventure"))
     await writeFile(join(folder, name), data);
   const folderInput = page.getByTestId("game-folder-input");
-  // Initialize the page context before Playwright installs its directory input listener.
   expect(await folderInput.evaluate((input: HTMLInputElement) => input.webkitdirectory)).toBe(true);
-  await folderInput.setInputFiles(folder);
+  const folderHandle = await folderInput.elementHandle();
+  if (!folderHandle) throw new Error("The folder input is missing.");
+  const uploading = folderHandle.setInputFiles(folder);
   const originalCard = savedGameCard(page, "Origin Adventure");
   await expect(originalCard).toBeVisible();
+  // WebKit can finish a directory import while the driver awaits its input event.
+  // Acknowledge the real import on its original input after the card is present.
+  await folderHandle.dispatchEvent("input");
+  await uploading;
+  await folderHandle.dispose();
   const originalId = (await originalCard.getAttribute("data-project-id"))!;
   const alteredId = await importZip(page, ALTERED, "Altered Adventure");
   expect(alteredId).not.toBe(originalId);

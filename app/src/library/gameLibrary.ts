@@ -4,7 +4,11 @@ import {
   isLocalGamePreview,
   type LibraryMetadata,
 } from "../project/gameMetadata.ts";
-import { storeImportedProgress, type ImportStorageReport } from "../saves/gameProgress.ts";
+import {
+  storeImportedProgress,
+  withCheckpointLock,
+  type ImportStorageReport,
+} from "../saves/gameProgress.ts";
 import { writeMapSidecar } from "../world/roomMapStore.ts";
 import { importGameHistory } from "../history/historyStorage.ts";
 import { bindSavedProgressTarget } from "../project/progressBinding.ts";
@@ -155,8 +159,15 @@ export async function addLibraryGame(
   let report: ImportStorageReport | undefined;
   if (game.progress) {
     if (target !== null) {
-      report = storeImportedProgress(localStorage, target, game.progress);
-    } else {
+      const progress = game.progress;
+      report = await withCheckpointLock(target.locator, async () => {
+        const live = await bindSavedProgressTarget(targetProjectId);
+        return live?.locator === target.locator && live.identity.revision === revision
+          ? storeImportedProgress(localStorage, live, progress)
+          : undefined;
+      });
+    }
+    if (report === undefined) {
       report = { slots: [], failedSlots: [], autosave: null };
       for (const slot of Object.keys(game.progress.saves)
         .map(Number)

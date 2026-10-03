@@ -1,5 +1,7 @@
 /** Presentation shared by the Create host, top bar and keyboard adapter. */
+import { buildZip } from "../archive/zip.ts";
 import { computed, inject, provide, ref, shallowRef, type InjectionKey } from "vue";
+import type { ProjectContent } from "../../../src/authoring/projectContent.ts";
 import type { EngineApi } from "../engine/engineContext.ts";
 import type { ChooserItem } from "./commands/chooserItems.ts";
 import type { ReplyFormatter } from "../agent/workspaceAgent.ts";
@@ -12,6 +14,7 @@ export function createWorkspaceEditor(engine: EngineApi) {
   const debugging = ref(false);
   const debugStatus = ref("");
   const flush = shallowRef<() => Promise<void>>();
+  const discard = shallowRef<() => void>();
   const retry = shallowRef<() => Promise<void>>();
   const pictureLive = ref(false);
   const gameHost = shallowRef<HTMLElement | null>(null);
@@ -35,14 +38,19 @@ export function createWorkspaceEditor(engine: EngineApi) {
   const pendingAdmission = ref(false);
   const retained = ref<string[]>([]);
   const focus = ref(false);
+  const partsOpen = ref(false);
   const panel = ref(false);
   const history = ref(false);
   const parts = shallowRef<readonly ChooserItem[]>([]);
   const save = ref("Saved");
+  const readOnly = ref(false);
+  const pendingChanges = ref(false);
+  const unsavedEdits = shallowRef<() => Readonly<Record<string, ProjectContent>>>();
   const canUndo = ref(false);
   const canRedo = ref(false);
   const busy = ref(false);
   const error = ref("");
+  const exitRefusal = ref(false);
   const split = ref(50);
   try {
     const stored = Number(localStorage.getItem("monotio_agi.workspaceSplit"));
@@ -109,7 +117,7 @@ export function createWorkspaceEditor(engine: EngineApi) {
   }
   async function step(direction: "undo" | "redo"): Promise<void> {
     const session = engine.getProjectSession();
-    if (!session || busy.value) return;
+    if (!session || busy.value || readOnly.value) return;
     busy.value = true;
     save.value = "Saving…";
     error.value = "";
@@ -123,6 +131,25 @@ export function createWorkspaceEditor(engine: EngineApi) {
       busy.value = false;
     }
   }
+  async function downloadUnsavedEdits(): Promise<void> {
+    error.value = "";
+    try {
+      const buffers = unsavedEdits.value?.() ?? {};
+      const files = Object.entries(buffers).map(([key, content]) => ({
+        name: `unsaved-edits/${key.replace(":", "-")}.${typeof content === "string" ? "txt" : "bin"}`,
+        data: typeof content === "string" ? new TextEncoder().encode(content) : content.slice(),
+      }));
+      const url = URL.createObjectURL(new Blob([buildZip(files)], { type: "application/zip" }));
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "agi-unsaved-edits.zip";
+      link.click();
+      URL.revokeObjectURL(url);
+    } catch (cause) {
+      const message = (cause instanceof Error ? cause.message : String(cause)).replace(/[.]+$/, "");
+      error.value = `Could not download unsaved edits: ${message}. Try Download unsaved edits again.`;
+    }
+  }
   function reset(): void {
     selected.value = undefined;
     agentContext.value = null;
@@ -134,6 +161,7 @@ export function createWorkspaceEditor(engine: EngineApi) {
     pendingAdmission.value = false;
     retained.value = [];
     focus.value = false;
+    partsOpen.value = false;
     panel.value = history.value = false;
     parts.value = [];
   }
@@ -142,6 +170,7 @@ export function createWorkspaceEditor(engine: EngineApi) {
     debugging,
     debugStatus,
     flush,
+    discard,
     retry,
     pictureLive,
     gameHost,
@@ -158,14 +187,20 @@ export function createWorkspaceEditor(engine: EngineApi) {
     effectiveSplit,
     retained,
     focus,
+    partsOpen,
     panel,
     history,
     parts,
     save,
+    readOnly,
+    pendingChanges,
+    unsavedEdits,
+    downloadUnsavedEdits,
     canUndo,
     canRedo,
     busy,
     error,
+    exitRefusal,
     split,
     kind,
     open,
