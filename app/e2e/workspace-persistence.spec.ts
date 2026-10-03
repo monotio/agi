@@ -299,3 +299,63 @@ test("Discard and exit retires a refused draft and keeps the previous durable no
   await page.getByTestId("part-notes").click();
   await expect(notes).toHaveValue("previous durable note");
 });
+
+test("Exit detaches LOGIC while code intelligence is pending @webkit-desktop", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await starter(page);
+  await openWorkspaceLogic(page);
+  await focusWorkspaceLogic(page);
+  await workspaceSaved(page);
+  await page.evaluate(async () => {
+    const { monaco, LOGIC_LANGUAGE_ID } = await import("/src/studio/logic/monacoLanguage.ts");
+    const editor = monaco.editor
+      .getEditors()
+      .find((editor) => editor.getModel()?.uri.scheme === "agi-workspace");
+    if (!editor) throw new Error("The LOGIC editor is missing.");
+    const state = { pending: 0, cancelled: 0, detached: 0 };
+    Object.assign(window, { __pendingLogicExit: state });
+    editor.onDidChangeModel(() => {
+      if (!editor.getModel()) state.detached++;
+    });
+    monaco.languages.registerFoldingRangeProvider(LOGIC_LANGUAGE_ID, {
+      provideFoldingRanges(_model, _context, token) {
+        state.pending++;
+        return new Promise<never[]>((resolve) => {
+          token.onCancellationRequested(() => {
+            state.cancelled++;
+            resolve([]);
+          });
+        });
+      },
+    });
+  });
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          (window as unknown as { __pendingLogicExit: { pending: number } }).__pendingLogicExit
+            .pending,
+      ),
+    )
+    .toBeGreaterThan(0);
+  await openGameOptions(page, "settings-menu");
+  await page.getByTestId("btn-exit").click();
+  await expect(page.getByTestId("saved-game-gallery")).toBeVisible();
+  expect(
+    await page.evaluate(async () => {
+      const { monaco } = await import("/src/studio/logic/monacoLanguage.ts");
+      return {
+        ...(
+          window as unknown as {
+            __pendingLogicExit: { pending: number; cancelled: number; detached: number };
+          }
+        ).__pendingLogicExit,
+        liveModels: monaco.editor
+          .getModels()
+          .filter((model) => model.uri.scheme === "agi-workspace").length,
+      };
+    }),
+  ).toEqual({ pending: 1, cancelled: 1, detached: 1, liveModels: 0 });
+  expect(errors).toEqual([]);
+});

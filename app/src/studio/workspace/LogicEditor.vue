@@ -275,8 +275,10 @@ watch(
 onBeforeUnmount(() => {
   cancelAnimationFrame(layoutFrame);
   observer?.disconnect();
-  language?.dispose();
+  // Model-change listeners cancel their work before markers and providers retire.
+  editor?.setModel(null);
   editor?.dispose();
+  language?.dispose();
   model?.dispose();
   client.dispose();
 });
