@@ -37,7 +37,7 @@ async function reload(): Promise<void> {
     @dismiss="state.projectRemoved = false"
   >
     {{ PROJECT_REMOVED_MESSAGE }}
-    <UiButton size="sm" @click="editor.downloadUnsavedEdits">Unsaved edits</UiButton>
+    <UiButton size="sm" @click="editor.downloadUnsavedEdits">Download unsaved edits</UiButton>
     <UiButton
       size="sm"
       data-testid="removed-tab-download"
@@ -59,7 +59,7 @@ async function reload(): Promise<void> {
     @dismiss="state.staleTab = false"
   >
     Changed in another tab. Editing is paused. Download your unsaved edits, then reload.
-    <UiButton size="sm" @click="editor.downloadUnsavedEdits">Unsaved edits</UiButton>
+    <UiButton size="sm" @click="editor.downloadUnsavedEdits">Download unsaved edits</UiButton>
     <UiButton size="sm" @click="onExportAgiZip(true, true)">Download game</UiButton>
     <UiButton size="sm" @click="reload">Reload</UiButton>
     <UiButton size="sm" @click="engine.ejectGame()">Exit</UiButton>

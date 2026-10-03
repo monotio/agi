@@ -9,7 +9,9 @@ export function installWebLocksFixture(): void {
           const run = typeof options === "function" ? (options as typeof callback) : callback;
           if ((options as { ifAvailable?: boolean })?.ifAvailable && tails.has(name))
             return Promise.resolve(run!(null));
-          const next = (tails.get(name) ?? Promise.resolve()).then(() => run!({ name }));
+          const next = (tails.get(name) ?? Promise.resolve())
+            .catch(() => {})
+            .then(() => run!({ name }));
           tails.set(name, next);
           void next
             .finally(() => {

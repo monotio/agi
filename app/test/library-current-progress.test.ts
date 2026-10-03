@@ -8,6 +8,8 @@
 import assert from "node:assert/strict";
 import { registerHooks } from "node:module";
 import { test } from "node:test";
+import { reactive } from "vue";
+import { createContainer } from "../../src/container/container.ts";
 import { bindSavedProgressTarget } from "../src/project/progressBinding.ts";
 import {
   installedProgressTarget,
@@ -192,7 +194,7 @@ function fakeEngine(installed: InstalledGameDescriptor[] = []): {
   };
   let audioHold: Promise<void> | null = null;
   let resumeAnswer = true;
-  const state = { installedGames: installed, powerUp: { busy: false } };
+  const state = reactive({ installedGames: installed, powerUp: { busy: false } });
   const api = {
     state,
     resumeAudio: () => audioHold ?? Promise.resolve(),
@@ -1297,6 +1299,71 @@ test("a same-epoch checkpoint from an earlier revision refuses opening and keeps
   assert.equal(engine.calls.bootAuthoredGame, 1);
   assert.equal(localStorage.getItem(autosaveKey(target.locator)), raw);
 });
+
+for (const change of ["save", "remove", "refuse", "read failure"] as const) {
+  test(`starting the latest version after ${change} keeps a usable library`, async (t) => {
+    const cleanup = cleanupAfter(t);
+    installLocalStorage(t);
+    const engine = fakeEngine();
+    const id = testProjectId(`latest-click-${change.replaceAll(" ", "-")}`);
+    const files = createContainer();
+    files.putResource("logic", 0, Uint8Array.of(0));
+    await saveAuthoredGame(id, savedProjectBody(Object.fromEntries(files.files)));
+    const target = (await bindSavedProgressTarget(id))!;
+    if (change !== "remove") cleanup.later(() => removeProjectWithProgress(target, []));
+    const record = autosaveFor(target, 4);
+    record.game = {
+      ...record.game,
+      identity: { ...record.game.identity, revision: testRevision("old-build") },
+    };
+    const raw = JSON.stringify(record);
+    localStorage.setItem(autosaveKey(target.locator), raw);
+    let bootTarget: ProgressTarget | undefined;
+    engine.api.bootAuthoredGame = async (_template, _config, options) => {
+      engine.calls.bootAuthoredGame++;
+      bootTarget = options?.opening?.target;
+      if (change === "refuse") throw new Error("Boot refused");
+      engine.api.state.phase = "running";
+    };
+    let failRead = false;
+    const lib = createGameLibrary(engine.api, ai, createShellBridge(), {
+      bindSavedProgressTarget: (project) =>
+        failRead
+          ? Promise.reject(new Error("Storage unavailable"))
+          : bindSavedProgressTarget(project),
+    });
+    await lib.onPlayLibraryGame(lib.savedGames.value.find((game) => game.projectId === id)!);
+    assert.ok(lib.latestVersion.value);
+    if (change === "save") {
+      files.putResource("logic", 0, Uint8Array.of(1, 0));
+      await saveAuthoredGame(id, savedProjectBody(Object.fromEntries(files.files)));
+    }
+    if (change === "remove") await removeProjectWithProgress(target, []);
+    const current = await bindSavedProgressTarget(id);
+    failRead = change === "read failure";
+    await lib.startLatestVersion();
+    if (change === "remove") {
+      assert.equal(engine.calls.bootAuthoredGame, 0);
+      assert.equal(engine.api.state.phase, "idle");
+      assert.equal(engine.api.state.error, "");
+      assert.ok(!lib.savedGames.value.some((game) => game.projectId === id));
+      assert.equal(lib.latestVersion.value, undefined);
+    } else if (change === "read failure") {
+      assert.equal(engine.calls.bootAuthoredGame, 0);
+      assert.ok(lib.latestVersion.value, "a failed read leaves the offer available");
+      assert.equal(engine.api.state.phase, "error");
+      assert.match(lib.libraryActionError.value, /Storage unavailable/);
+    } else if (change === "refuse") {
+      assert.ok(lib.latestVersion.value, "the offer remains available after a refused boot");
+      assert.match(lib.libraryActionError.value, /Boot refused/);
+    } else {
+      assert.equal(engine.calls.bootAuthoredGame, 1);
+      assert.deepEqual(bootTarget, current);
+      assert.equal(lib.latestVersion.value, undefined);
+      assert.equal(localStorage.getItem(autosaveKey(target.locator)), raw);
+    }
+  });
+}
 
 test("an incompatible checkpoint refused during opening offers the latest version with its bytes preserved", async (t) => {
   const cleanup = cleanupAfter(t);

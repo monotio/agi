@@ -51,6 +51,7 @@ test("agent image tools review PICTURE and VIEW previews before one saved commit
   await page.getByTestId("local-create-kind-starter").click();
   await page.getByRole("button", { name: "Start building", exact: true }).click();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  await workspaceSaved(page);
   await page.evaluate(async () => {
     const session = (
       window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }

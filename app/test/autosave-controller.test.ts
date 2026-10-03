@@ -296,6 +296,7 @@ test("useAutosaveController stores autosave and notifies lifecycle callbacks", a
     });
     await controller.getAutosaveWrite();
 
+    assert.equal(logs.length, 0, "routine checkpoint storage stays out of creator activity");
     assert.equal(storedCycle, 42);
     const last = controller.lastAutosaveRecord();
     assert.notEqual(last, null);

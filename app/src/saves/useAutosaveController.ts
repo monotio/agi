@@ -454,11 +454,6 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
     }
   }
   let preparationNotReady = false;
-  let checkpointTraceCount = 0;
-  function traceCheckpoint(stage: string, details: unknown) {
-    if (checkpointTraceCount++ < 32)
-      ctx.logAgent("log", `Checkpoint ${stage}: ${JSON.stringify(details)}`);
-  }
   let autosaveWrite: Promise<boolean> = Promise.resolve(true);
   const flushWaiters = new Map<number, (saved: boolean) => void>();
   const flushDetailedWaiters = new Map<number, (res: AutosaveFlushResult) => void>();
@@ -776,11 +771,6 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
       )
         return false;
       const stored = writeAutosave(localStorage, target, record);
-      traceCheckpoint("stored", {
-        cycle: msg.cycle,
-        identity: stored?.game.identity,
-        lifetime: expectedEpoch,
-      });
       if (!stored) {
         ctx.logAgent("log", "autosave failed: browser storage rejected the save record");
         return false;
@@ -841,12 +831,6 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
     invalidateOldCheckpoint();
     const revision = msg.revision ?? game?.revision;
     const captured = { game, worker: ctx.getWorker(), run: ctx.getRunScope?.() };
-    traceCheckpoint("captured", {
-      cycle: msg.cycle,
-      workerRevision: revision,
-      project: game?.projectId,
-      lifetime: game?.historyLifetime,
-    });
     autosaveWrite = autosaveWrite
       .then(async () => {
         if (
@@ -859,12 +843,6 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
         const ownership =
           (await ctx.prepareCheckpoint?.(game, msg.files, msg.revision)) ?? "legacy";
         preparationNotReady = ownership === "not_ready";
-        traceCheckpoint("prepared", {
-          cycle: msg.cycle,
-          ownership,
-          workerRevision: revision,
-          runningRevision: game.revision,
-        });
         if (ownership === "refused" || ownership === "not_ready" || ctx.getBootedGame() !== game)
           return false;
         if (ownership === "owned") {
@@ -1707,7 +1685,6 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
   function resetScreen(): void {
     lastAutosave = null;
     lastAutosaveScope = null;
-    checkpointTraceCount = 0;
     ctx.state.resumed = false;
     if (resumeCaptionTimer !== null) {
       clearTimeout(resumeCaptionTimer);

@@ -46,6 +46,7 @@ for (const mode of ["refusal", "storage", "stale", "removed"] as const) {
     await starter(page);
     if (mode === "stale" || mode === "removed") {
       await page.getByTestId("part-notes").click();
+      await expect(page.getByTestId("project-tab-notes")).toContainText("Missing");
       await page.evaluate(() => {
         const session = (
           window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }
@@ -64,10 +65,21 @@ for (const mode of ["refusal", "storage", "stale", "removed"] as const) {
         mode === "removed" ? "This project was removed" : "Changed in another tab",
       );
       await expect(page.getByTestId("pending-edit-recovery")).toHaveCount(0);
+      await expect(page.getByTestId("download-unsaved-edits")).toHaveCount(0);
+      await expect(
+        page.getByRole("button", { name: "Download unsaved edits", exact: true }),
+      ).toHaveCount(1);
+      await expect(page.getByTestId("project-tab-notes")).toContainText("Not saved");
+      await expect(page.getByTestId("project-tab-notes")).not.toContainText("Missing");
+      await expect(
+        page
+          .getByTestId(mode === "removed" ? "removed-tab-note" : "stale-tab-note")
+          .getByRole("button", { name: "Download unsaved edits", exact: true }),
+      ).toBeVisible();
       const unsaved = page.waitForEvent("download");
       await page
         .getByTestId(mode === "removed" ? "removed-tab-note" : "stale-tab-note")
-        .getByRole("button", { name: "Unsaved edits", exact: true })
+        .getByRole("button", { name: "Download unsaved edits", exact: true })
         .click();
       const downloaded = await unsaved;
       expect(downloaded.suggestedFilename()).toBe("agi-unsaved-edits.zip");
@@ -106,11 +118,11 @@ for (const mode of ["refusal", "storage", "stale", "removed"] as const) {
     const downloaded = downloads[0]!;
     const archive = await readGameZip(new Uint8Array(await readFile((await downloaded.path())!)));
     expect(archive.files["LOGDIR"]).toBeDefined();
-    await expect(page.getByTestId("export-refusal")).toContainText(
-      "Backup downloaded with limitations",
-    );
+    await expect(page.getByTestId("export-refusal")).toContainText("Downloaded the game.");
     if (mode === "stale" || mode === "removed") {
-      await expect(page.getByTestId("export-refusal")).toContainText("Pending editor changes");
+      await expect(page.getByTestId("export-refusal")).toContainText(
+        "Your unsaved edits are not in it",
+      );
       await expect(page.getByTestId("export-refusal")).not.toContainText(
         "Browser storage did not save",
       );
@@ -387,8 +399,10 @@ test("Export game reports a refused editor draft", async ({ page }) => {
     new Uint8Array(await readFile((await (await exported).path())!)),
   );
   expect(archive.files["LOGDIR"]).toBeDefined();
-  await expect(page.getByTestId("export-refusal")).toContainText("Game exported with limitations");
-  await expect(page.getByTestId("export-refusal")).toContainText("Pending editor changes");
+  await expect(page.getByTestId("export-refusal")).toContainText("Downloaded the game.");
+  await expect(page.getByTestId("export-refusal")).toContainText(
+    "Your unsaved edits are not in it",
+  );
   await page.screenshot({ path: test.info().outputPath("export-refused-draft.png") });
 });
 

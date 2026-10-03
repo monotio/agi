@@ -276,7 +276,9 @@ const tabRows = computed(() =>
           : key === "notes"
             ? "Notes"
             : key.replace(":", " ").toUpperCase(),
-    dirty: false,
+    dirty:
+      optimistic.value[key] !== undefined &&
+      (snapshot.value?.keys.includes(key) || optimistic.value[key]!.length > 0),
     preview: key === editor.preview.value,
     missing: !snapshot.value?.keys.includes(key),
   })),

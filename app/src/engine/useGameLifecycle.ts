@@ -1222,17 +1222,13 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
       await options.flushProject?.();
     } catch {
       notes.push(
-        "Latest editor changes could not be saved. The download contains the game and edits already accepted by this tab. Choose Retry to save pending edits.",
+        "The ZIP holds the game and edits already added to it. Use Download unsaved edits to keep the rest.",
       );
     }
     if (options.pendingEditorChanges?.())
-      notes.push("Pending editor changes remain in this tab and are omitted from the download.");
-    if (game.removed)
-      notes.push("This download contains this tab's running version of the removed project.");
-    else if (needsReload(game))
-      notes.push(
-        "This download contains this tab's running version from before the other tab's changes.",
-      );
+      notes.push("Your unsaved edits are not in it: use Download unsaved edits.");
+    if (game.removed) notes.push("The game is from this tab before the project was removed.");
+    else if (needsReload(game)) notes.push("The game is from before the changes in the other tab.");
     if (game !== booted) throw new Error("The game changed during download. Try again.");
     const progressTarget = game.progressTarget;
     const session = options.authoring?.getSession() ?? null;

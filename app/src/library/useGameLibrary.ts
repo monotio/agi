@@ -949,15 +949,29 @@ export function createGameLibrary(
   watch(
     () => state.phase,
     (phase) => {
-      if (phase !== "error") latestVersion.value = undefined;
+      if (phase === "running" || phase === "idle") latestVersion.value = undefined;
     },
   );
   async function startLatestVersion(): Promise<void> {
-    const target = latestVersion.value;
-    if (target?.kind !== "project") return;
-    latestVersion.value = undefined;
-    const game = getCachedGameMeta(target.project);
-    if (game === null) return;
+    const offer = latestVersion.value;
+    if (offer?.kind !== "project" || libraryActionBusy.value) return;
+    const context = selectionContext;
+    let target: ProjectProgressTarget | null;
+    try {
+      target = await bindSaved(offer.project);
+    } catch (error) {
+      if (selectionContext === context && latestVersion.value === offer)
+        libraryActionError.value = String(error).replace(/^Error: /, "");
+      return;
+    }
+    if (selectionContext !== context || latestVersion.value !== offer) return;
+    const game = getCachedGameMeta(offer.project);
+    if (target === null || game === null) {
+      refreshLibrary();
+      state.error = "";
+      state.phase = "idle";
+      return;
+    }
     selectLibraryGame(game);
     await onBootSavedGame(false, selectionContext, target);
   }
@@ -1467,7 +1481,7 @@ export function createGameLibrary(
         !(await flushAutosave(2000).catch(() => false))
       )
         notes.push(
-          "Browser storage did not save the latest progress; this backup uses a direct worker checkpoint when available.",
+          "The latest play position was not saved. The ZIP includes it if this tab could copy it.",
         );
       if (live && getBootedGame() !== game)
         throw new Error("The game changed during download. Try again.");
@@ -1576,10 +1590,14 @@ export function createGameLibrary(
         : undefined;
       if (progressReadFailed)
         notes.push(
-          "Some previously saved progress could not be read and may be missing from this backup.",
+          "Some saved play positions could not be read. Try downloading again to keep them.",
         );
       if (live && project && ownerTarget === undefined)
-        notes.push("Saved progress, map and stored history are omitted from this backup.");
+        notes.push(
+          liveRemoved
+            ? "Saved play positions, the map and saved play history were removed with the project."
+            : "This ZIP leaves out saved play positions, the map and play history. Download them from the tab with the latest game.",
+        );
       // The reply owns a current checkpoint independently of browser storage.
       const snapshot = recovery as Awaited<ReturnType<EngineApi["recoverHistory"]>> | null;
       // The runtime's actual interpreter choice is the override the archive
@@ -1617,12 +1635,12 @@ export function createGameLibrary(
           progress.autosave = record;
         } else {
           notes.push(
-            "The running game's checkpoint could not be verified against the exported resources and is not included.",
+            "This play position could not be matched to the game. Keep this tab open and try downloading again.",
           );
         }
       } else if (live && project) {
         notes.push(
-          "Current progress could not be captured; only previously saved progress is included.",
+          "The ZIP holds saved play positions. Keep this tab open and try downloading again for your current position.",
         );
       }
       // The map sidecar is read and detached before the remaining awaited
@@ -1710,9 +1728,9 @@ export function createGameLibrary(
       a.click();
       URL.revokeObjectURL(url);
       if (backup && !backup.report.complete)
-        exportRefusal.value = `Backup downloaded with limitations: ${backup.report.notes.join(" ")}`;
+        exportRefusal.value = `Downloaded the game. ${backup.report.notes.join(" ")}`;
       else if (!project && notes.length > 0)
-        exportRefusal.value = `Game exported with limitations: ${notes.join(" ")}`;
+        exportRefusal.value = `Downloaded the game. ${notes.join(" ")}`;
     } catch (error) {
       exportRefusal.value = `Download failed: ${String(error).replace(/^Error: /, "")}`;
     } finally {

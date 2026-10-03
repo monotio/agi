@@ -1099,7 +1099,7 @@ test("an unbound live export ships the in-memory game and says what it could not
   assert.equal(opened.backupWarning === undefined, false, "the report says it is incomplete");
   assert.match(
     lib.exportRefusal.value,
-    /Saved progress, map and stored history are omitted/,
+    /leaves out saved play positions, the map and play history/,
     "the limitation names the omitted persistent components",
   );
 });
@@ -1203,7 +1203,7 @@ test("a live checkpoint is omitted with a named cause when the runtime booted ot
     undefined,
     "a checkpoint that cannot restore under the export is not relabelled into it",
   );
-  assert.match(lib.exportRefusal.value, /checkpoint could not be verified/);
+  assert.match(lib.exportRefusal.value, /play position could not be matched/);
 });
 
 for (const change of ["native revision", "interpreter profile"] as const) {

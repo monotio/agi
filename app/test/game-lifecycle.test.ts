@@ -150,12 +150,14 @@ test("Download game from a tab behind storage downloads the running game and nev
     historyLifetime: await readHistoryLifetime(projectId),
   };
   bindProgressTarget(game);
+  game.authoredGame = (await loadAuthoredGame(projectId))!;
   // Another tab kept an edit after this game booted.
   const kept = createContainer();
   kept.putResource("logic", 0, Uint8Array.of(0));
   kept.putResource("logic", 1, Uint8Array.of(1));
   assert.equal(await updateAuthoredGameFiles(projectId, Object.fromEntries(kept.files)), true);
   const newer = (await loadAuthoredGame(projectId))!;
+  game.behindStorage = true;
 
   const lifecycle = useGameLifecycle({
     state: { phase: "running", powerUp: { busy: false } },
@@ -175,7 +177,8 @@ test("Download game from a tab behind storage downloads the running game and nev
     logAgent: () => {},
   } as unknown as GameLifecycleOptions);
   lifecycle.setBootedGame(game);
-  const { data, progressKey, progressTarget } = await lifecycle.exportCurrentGame();
+  const { data, progressKey, progressTarget, notes } = await lifecycle.exportCurrentGame();
+  assert.deepEqual(notes, ["The game is from before the changes in the other tab."]);
   assert.deepEqual(data.files, files, "the download is the running game");
   assert.equal(progressTarget?.kind, "project");
   assert.equal(progressKey, progressTarget?.locator, "the key is the bound locator");

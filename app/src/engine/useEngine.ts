@@ -38,7 +38,7 @@ import {
   useAutosaveController,
   writeAutosave,
 } from "../saves/useAutosaveController.ts";
-import { clearCachedGame, getCachedGameMeta } from "../project/gameStorage.ts";
+import { clearCachedGame } from "../project/gameStorage.ts";
 import { bindProgressTarget, resolveProgressTarget } from "../project/progressBinding.ts";
 import {
   advanceAuthoring,
@@ -348,7 +348,6 @@ export function useEngine(
     historyController?.forgetRemovedGame();
   }
 
-  let checkpointTraceCount = 0;
   const autosaveController = useAutosaveController({
     state,
     getRunScope: () => projectSession?.runToken,
@@ -357,20 +356,6 @@ export function useEngine(
     async prepareCheckpoint(game, files, checkpointRevision) {
       const session = projectSession;
       if (session === null) return "legacy";
-      if (checkpointTraceCount++ < 32)
-        logAgent(
-          "log",
-          `Checkpoint preparation: ${JSON.stringify({
-            runToken: session.runToken,
-            project: game.projectId,
-            lifetime: session.lifetime,
-            workerRevision: checkpointRevision,
-            runningRevision: game.revision,
-            sessionRevision: session.model.capture().lastAdmissibleBuild!.identity.revision,
-            durableRevision: getCachedGameMeta(game.projectId!)?.library?.revision,
-            pendingAdmission: session.capture().pendingAdmission,
-          })}`,
-        );
       if ((await session.prepareCheckpoint(checkpointRevision)) === "not_ready") return "not_ready";
       const revision = session.model.capture().lastAdmissibleBuild!.identity.revision;
       if (checkpointRevision !== undefined && checkpointRevision !== revision) return "refused";

@@ -84,9 +84,7 @@ test("blocked stores still download current game and checkpoint with explicit re
   expect(report.complete).toBe(false);
   expect(report.notes.join(" ")).toContain("could not be read");
   expect(result.opened.backupWarning).toContain("Keep the original ZIP");
-  await expect(page.getByTestId("export-refusal")).toContainText(
-    "Backup downloaded with limitations",
-  );
+  await expect(page.getByTestId("export-refusal")).toContainText("Downloaded the game.");
   // The download captures a worker checkpoint after the last displayed frame.
   const checkpoint = decodeSave(
     decodeHostImage(new Uint8Array(Buffer.from(result.opened.progress!.autosave!.image, "base64")))
@@ -125,7 +123,7 @@ test("an unreadable history manifest produces a visible incomplete-download noti
   expect(result.opened.history).toBeUndefined();
   expect(result.opened.progress?.autosave?.room).toBe(1);
   await expect(page.getByTestId("export-refusal")).toContainText(
-    "Stored session history could not be read",
+    "Saved play history could not be read",
   );
 });
 
@@ -269,6 +267,6 @@ test("unreadable saved slots are reported even when current checkpoint and histo
     false,
   );
   await expect(page.getByTestId("export-refusal")).toContainText(
-    "previously saved progress could not be read",
+    "saved play positions could not be read",
   );
 });

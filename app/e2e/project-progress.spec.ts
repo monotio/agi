@@ -400,9 +400,13 @@ test("a reload resumes the parked window in an agent-authored room @webkit-deskt
       )
       .toBe(true);
   } finally {
-    await test
-      .info()
-      .attach("checkpoint-trace", { body: await agentActivity(page), contentType: "text/plain" });
+    await test.info().attach("checkpoint-trace", {
+      body: JSON.stringify({
+        hook: await textHook(page),
+        stored: await storedAutosave(page, "custom"),
+      }),
+      contentType: "application/json",
+    });
   }
 
   const stored = await storedAutosave(page, "custom");

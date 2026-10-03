@@ -446,7 +446,11 @@ async function onRecordSave(): Promise<void> {
   />
   <div class="shell-notices">
     <div
-      v-if="state.phase === 'running' && workspaceEditor.save.value !== 'Saved'"
+      v-if="
+        state.phase === 'running' &&
+        !workspaceEditor.readOnly.value &&
+        workspaceEditor.save.value !== 'Saved'
+      "
       class="notice-actions"
     >
       <UiButton
