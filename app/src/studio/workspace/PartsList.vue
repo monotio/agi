@@ -5,6 +5,7 @@ import ViewThumbnail from "./ViewThumbnail.vue";
 import UiExplain from "../../ui/UiExplain.vue";
 import type { WorkspacePartGroup } from "../host/workspaceParts.ts";
 const props = defineProps<{
+  readOnly?: boolean;
   groups: readonly WorkspacePartGroup[];
   selected: string | undefined;
   thumbnails: Readonly<Record<string, string>>;
@@ -88,6 +89,8 @@ function onKey(event: KeyboardEvent): void {
           "
           type="button"
           class="parts-add"
+          :disabled="readOnly"
+          :title="readOnly ? 'Editing is paused. Download your unsaved edits, then reload.' : ''"
           :aria-label="`Add ${group.label === 'ROOMS' ? 'a room' : group.label === 'SHARED LOGIC' ? 'shared logic' : group.label === 'PICTURES' ? 'a picture' : group.label === 'VIEWS' ? 'a view' : group.label === 'OBJECTS' ? 'an object' : group.label === 'WORDS' ? 'a word' : 'a sound'}`"
           @click="emit('add', group.label)"
         >

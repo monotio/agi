@@ -14,6 +14,7 @@ import { useWorkspaceEditor } from "../../shell/workspaceEditor.ts";
 import { LogicAnalysisClient } from "../logic/analysisClient.ts";
 import { monaco, LOGIC_LANGUAGE_ID, registerLogicModel } from "../logic/monacoLanguage.ts";
 const props = defineProps<{
+  readOnly?: boolean;
   documentKey: string;
   source: string;
   snapshot: ProjectSnapshot;
@@ -187,6 +188,8 @@ onMounted(() => {
     applyProjectEdit,
   });
   editor = monaco.editor.create(root.value!, {
+    readOnly: props.readOnly,
+    domReadOnly: props.readOnly,
     model,
     theme: "vs-dark",
     "semanticHighlighting.enabled": true,
@@ -244,9 +247,18 @@ watch(
     analysis();
   },
 );
+watch(
+  () => props.readOnly,
+  (readOnly) => {
+    editor?.updateOptions({
+      readOnly: readOnly || showRunning.value,
+      domReadOnly: readOnly || showRunning.value,
+    });
+  },
+);
 watch(showRunning, (show) => {
   if (show) editView = editor?.saveViewState() ?? null;
-  editor?.updateOptions({ readOnly: show, domReadOnly: show });
+  editor?.updateOptions({ readOnly: show || props.readOnly, domReadOnly: show || props.readOnly });
   syncSource(show ? (props.runningSource ?? props.source) : props.source);
   if (show && props.stoppedLine) navigate(props.stoppedLine);
   else if (editView) editor?.restoreViewState(editView);

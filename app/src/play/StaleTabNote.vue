@@ -41,10 +41,11 @@ async function reload(): Promise<void> {
       :disabled="exportBusy"
       @click="onExportAgiZip(true, true)"
     >
-      Download game
+      Download
     </UiButton>
+    <UiButton size="sm" @click="reload">Reload</UiButton>
     <UiButton size="sm" data-testid="removed-tab-leave" @click="engine.ejectGame()">
-      Back to games
+      Exit
     </UiButton>
   </UiToast>
   <UiToast
@@ -54,7 +55,9 @@ async function reload(): Promise<void> {
     data-testid="stale-tab-note"
     @dismiss="state.staleTab = false"
   >
-    This game changed in another tab. Reload game to continue from the saved version.
-    <UiButton size="sm" @click="reload">Reload game</UiButton>
+    Changed in another tab. Editing is paused. Download your unsaved edits, then reload.
+    <UiButton size="sm" @click="onExportAgiZip(true, true)">Download</UiButton>
+    <UiButton size="sm" @click="reload">Reload</UiButton>
+    <UiButton size="sm" @click="engine.ejectGame()">Exit</UiButton>
   </UiToast>
 </template>

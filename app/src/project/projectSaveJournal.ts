@@ -28,7 +28,6 @@ function readEntries(storage: Storage, key: string): JournalEntry[] {
 }
 const PREFIX = "monotio_agi.project-writes.";
 const RECOVERY_PREFIX = "monotio_agi.project-recovery.";
-const RETIRED_PREFIX = "monotio_agi.project-write-retired.";
 export const PROJECT_SAVE_JOURNAL_EVENT = "project-save-journal";
 function belongsToProject(key: string | null, project: ProjectId, prefix = PREFIX): key is string {
   if (key === null || !key.startsWith(prefix)) return false;
@@ -38,35 +37,13 @@ function belongsToProject(key: string | null, project: ProjectId, prefix = PREFI
 function changed(): void {
   if (typeof dispatchEvent !== "undefined") dispatchEvent(new Event(PROJECT_SAVE_JOURNAL_EVENT));
 }
-function retiredEntry(storage: Storage, entry: JournalEntry): boolean {
-  const base = entry.capture?.base ?? entry.request?.expected;
-  return (
-    base != null &&
-    storage.getItem(`${RETIRED_PREFIX}lifetime.${base.projectId}.${base.lifetime}`) !== null
-  );
-}
-export function clearProjectSaveJournals(
-  storage: Storage,
-  project: ProjectId,
-  lifetime?: string | null,
-): void {
-  let refusal: unknown;
-  const retire = (key: string) => {
-    try {
-      storage.setItem(key, "1");
-    } catch (error) {
-      refusal ??= error;
-    }
-  };
-  if (lifetime != null) retire(`${RETIRED_PREFIX}lifetime.${project}.${lifetime}`);
+export function clearProjectSaveJournals(storage: Storage, project: ProjectId): void {
   const keys = Array.from({ length: storage.length }, (_, index) => storage.key(index));
   for (const key of keys)
     if (belongsToProject(key, project) || belongsToProject(key, project, RECOVERY_PREFIX)) {
-      if (key.startsWith(PREFIX)) retire(`${RETIRED_PREFIX}key.${key}`);
       storage.removeItem(key);
       delete terminal[key];
     }
-  if (refusal !== undefined) throw refusal;
 }
 
 export function discardProjectSaveRecoveries(
@@ -76,7 +53,6 @@ export function discardProjectSaveRecoveries(
 ): void {
   for (const { key, raw } of observed) {
     if (!belongsToProject(key, project) || storage.getItem(key) !== raw) continue;
-    storage.setItem(`${RETIRED_PREFIX}key.${key}`, "1");
     storage.removeItem(key);
     storage.removeItem(`${RECOVERY_PREFIX}${key.slice(PREFIX.length)}`);
     delete terminal[key];
@@ -121,23 +97,45 @@ const recovering = new Map<string, Promise<void>>();
 const live = new Set<string>();
 const releasing = new Map<string, Promise<void>>();
 
-export function claimProjectSaveJournal(key: string): () => void {
-  live.add(key);
+export function claimProjectSaveJournal(key: string): { ready: Promise<boolean>; release(): void } {
+  let settle!: (held: boolean) => void;
+  const ready = new Promise<boolean>((resolve) => {
+    settle = resolve;
+  });
   let release!: () => void;
+  let released = false;
   const held = new Promise<void>((resolve) => {
     release = resolve;
   });
   const locks = typeof navigator === "undefined" ? undefined : navigator.locks;
-  const ownership = locks?.request(key, () => held).catch(() => {});
-  return () => {
-    live.delete(key);
-    release();
-    if (ownership) {
-      releasing.set(key, ownership);
-      void ownership.finally(() => {
-        if (releasing.get(key) === ownership) releasing.delete(key);
-      });
-    }
+  if (!locks) settle(false);
+  const ownership = locks
+    ?.request(key, () => {
+      if (released) {
+        settle(false);
+        return;
+      }
+      live.add(key);
+      settle(true);
+      return held;
+    })
+    .catch(() => {
+      settle(false);
+    });
+  return {
+    ready,
+    release() {
+      released = true;
+      live.delete(key);
+      settle(false);
+      release();
+      if (ownership) {
+        releasing.set(key, ownership);
+        void ownership.finally(() => {
+          if (releasing.get(key) === ownership) releasing.delete(key);
+        });
+      }
+    },
   };
 }
 
@@ -149,13 +147,6 @@ export function writeProjectSaveJournal(
   key: string,
   entries: readonly JournalEntry[],
 ): void {
-  if (
-    storage.getItem(`${RETIRED_PREFIX}key.${key}`) !== null ||
-    entries.some((entry) => retiredEntry(storage, entry))
-  ) {
-    storage.removeItem(key);
-    return;
-  }
   if (entries.length === 0) storage.removeItem(key);
   else {
     const raw = JSON.stringify({
@@ -166,7 +157,7 @@ export function writeProjectSaveJournal(
   }
 }
 
-/** Surface a live stale owner's retained bytes before it closes. */
+/** Surface accepted captures that could not be stored against their base. */
 export function markProjectSaveRecovery(storage: Storage, key: string, reason: string): void {
   const raw = storage.getItem(key);
   if (raw === null) return;
@@ -187,6 +178,8 @@ export function resumeProjectSaveJournals(
   write: (request: ProjectCommitRequest) => Promise<{ receipt: ProjectCommitReceipt }>,
   rebuild?: (capture: ProjectJournalCapture) => Promise<{ receipt: ProjectCommitReceipt }>,
 ): Promise<void> | undefined {
+  const locks = typeof navigator === "undefined" ? undefined : navigator.locks;
+  if (!locks) return undefined;
   const active = recovering.get(project);
   if (active) return active;
   const retired = new Set(readProjectSaveRecoveries(storage, project).map(({ key }) => key));
@@ -200,13 +193,6 @@ export function resumeProjectSaveJournals(
     for (const key of keys.sort()) {
       const recover = async () => {
         let entries = readEntries(storage, key);
-        if (
-          storage.getItem(`${RETIRED_PREFIX}key.${key}`) !== null ||
-          entries.some((entry) => retiredEntry(storage, entry))
-        ) {
-          storage.removeItem(key);
-          return;
-        }
         const observed = new Set(entries.map(entryIdentity));
         let previous: ProjectCommitReceipt | undefined;
         while (entries.length > 0) {
@@ -230,12 +216,15 @@ export function resumeProjectSaveJournals(
             } else previous = (await write(entry.request!)).receipt;
           } catch (error) {
             if (error instanceof Error && error.name === "ProjectDeletedError") {
-              // Durable lifetime validation also retires an orphan after marker storage refused.
-              storage.removeItem(key);
-              storage.removeItem(`${RECOVERY_PREFIX}${key.slice(PREFIX.length)}`);
-              delete terminal[key];
-              changed();
-              break;
+              const current = readEntries(storage, key);
+              const index = current.findIndex(
+                (candidate) => entryIdentity(candidate) === entryIdentity(entry),
+              );
+              if (index < 0) break;
+              current.splice(index, 1);
+              writeProjectSaveJournal(storage, key, current);
+              entries = current.filter((candidate) => observed.has(entryIdentity(candidate)));
+              continue;
             }
             if (
               error instanceof Error &&
@@ -304,12 +293,9 @@ export function resumeProjectSaveJournals(
         }
       };
       await releasing.get(key);
-      const locks = typeof navigator === "undefined" ? undefined : navigator.locks;
-      if (locks)
-        await locks.request(key, { ifAvailable: true }, async (lock) => {
-          if (lock && !live.has(key)) await recover();
-        });
-      else if (!live.has(key)) await recover();
+      await locks.request(key, { ifAvailable: true }, async (lock) => {
+        if (lock && !live.has(key)) await recover();
+      });
     }
   })().finally(() => recovering.delete(project));
   recovering.set(project, run);

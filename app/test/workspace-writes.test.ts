@@ -143,21 +143,22 @@ test("a save refusal uses one period before the next action", async () => {
   writes.dispose();
 });
 
-test("queued gestures and Retry carry their own editor intent", async () => {
-  const calls: (number | undefined)[] = [];
+test("Retry carries the exact retained resource bytes", async () => {
+  const calls: Uint8Array[] = [];
   let fail = true;
   const writes = createWorkspaceWrites({
-    async write(_key, _content, intent) {
-      calls.push(intent);
+    async write(_key, content) {
+      calls.push(content as Uint8Array);
       if (fail) throw new Error("refused gesture");
     },
     changed() {},
     error() {},
   });
-  writes.edit("sound:1", Uint8Array.of(1), 41);
+  const bytes = Uint8Array.of(1);
+  writes.edit("sound:1", bytes);
   await assert.rejects(writes.flush(), /refused gesture/);
   fail = false;
   await writes.retry();
-  assert.deepEqual(calls, [41, 41]);
+  assert.deepEqual(calls, [bytes, bytes]);
   writes.dispose();
 });

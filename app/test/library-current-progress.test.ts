@@ -1291,6 +1291,32 @@ test("a same-epoch checkpoint from an earlier revision refuses opening and keeps
   await lib.onPlayLibraryGame(lib.savedGames.value.find((game) => game.projectId === id)!);
   assert.equal(engine.calls.bootAuthoredGame, 0);
   assert.equal(engine.calls.resumeFromRecord.length, 0);
-  assert.match(engine.api.state.error, /different revision/);
+  assert.match(engine.api.state.error, /earlier version/);
+  assert.equal(lib.latestVersion.value?.locator, target.locator);
+  await lib.startLatestVersion();
+  assert.equal(engine.calls.bootAuthoredGame, 1);
+  assert.equal(localStorage.getItem(autosaveKey(target.locator)), raw);
+});
+
+test("an incompatible checkpoint refused during opening offers the latest version with its bytes preserved", async (t) => {
+  const cleanup = cleanupAfter(t);
+  installLocalStorage(t);
+  const engine = fakeEngine();
+  const id = testProjectId("incompatible-checkpoint-profile");
+  await saveAuthoredGame(id, savedProjectBody({ "dir.vol": new Uint8Array([1, 2]) }));
+  const target = (await bindSavedProgressTarget(id))!;
+  cleanup.later(() => removeProjectWithProgress(target, []));
+  const raw = JSON.stringify(autosaveFor(target, 4));
+  localStorage.setItem(autosaveKey(target.locator), raw);
+  engine.api.resumeFromRecord = async () => {
+    engine.api.state.phase = "error";
+    engine.api.state.error = "The checkpoint uses another interpreter profile.";
+    return false;
+  };
+  const lib = library(engine.api);
+  await flush();
+  await lib.onPlayLibraryGame(lib.savedGames.value.find((game) => game.projectId === id)!);
+  assert.equal(lib.latestVersion.value?.locator, target.locator);
+  assert.match(engine.api.state.error, /interpreter profile/);
   assert.equal(localStorage.getItem(autosaveKey(target.locator)), raw);
 });

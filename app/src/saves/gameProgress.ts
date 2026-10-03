@@ -17,11 +17,26 @@ import {
 } from "../project/progressTarget.ts";
 import {
   gameIdentity,
+  projectId,
   type GameIdentity,
   type ResourceRevision,
 } from "../../../src/gameIdentity.ts";
 
 const AUTOSAVE_PREFIX = "monotio_agi.autosave.";
+
+/** Short publication lock; project document commits have a separate IndexedDB fence. */
+export function withCheckpointLock<T>(
+  targetKey: string,
+  operation: () => Promise<T> | T,
+): Promise<T> {
+  const locator = parseProgressLocator(targetKey);
+  const project =
+    locator?.kind === "project" ? locator.project : locator === null ? projectId(targetKey) : null;
+  const locks = typeof navigator === "undefined" ? undefined : navigator.locks;
+  return project !== null && locks
+    ? locks.request(`monotio_agi.checkpoint.${project}`, operation)
+    : Promise.resolve(operation());
+}
 
 /**
  * Which entry a stored autosave belongs to: `installed` selects the resume

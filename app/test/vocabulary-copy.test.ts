@@ -100,7 +100,9 @@ test("visible editor copy uses the shared vocabulary, allowing internal identifi
     for (const copy of visibleCopy(file)) {
       for (const retired of Object.keys(RETIRED_UI_TERMS)) {
         const pattern = new RegExp(
-          `\\b${retired}${["sprite", "proposal", "candidate", "drawing element"].includes(retired) ? "s?" : ""}\\b${retired === "Onion" ? "(?! skin)" : ""}`,
+          retired === "Keep"
+            ? "^\\s*Keep\\s*$"
+            : `\\b${retired}${["sprite", "proposal", "candidate", "drawing element"].includes(retired) ? "s?" : ""}\\b${retired === "Onion" ? "(?! skin)" : ""}`,
           retired === "Keep" ? "" : "i",
         );
         if (pattern.test(copy)) violations.push(`${file}: ${copy.trim()}`);

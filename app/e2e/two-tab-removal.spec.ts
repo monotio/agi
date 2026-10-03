@@ -10,6 +10,7 @@ import {
   openLibraryActions,
   savedGameCard,
   storedAutosave,
+  progressStorageKey,
   textHook,
 } from "./engineProbe.ts";
 import { expect, keepDetectedProfile, test } from "./test.ts";
@@ -22,10 +23,10 @@ import { expect, keepDetectedProfile, test } from "./test.ts";
  */
 test.use({ viewport: { width: 1440, height: 900 } });
 
-const PROJECT = testProjectId("two-tab-removal");
+const PROJECT = testProjectId("a");
+const SIBLING = testProjectId("a.b");
 const TITLE = "Removed elsewhere";
-const REMOVED =
-  "This game was removed in another tab. Download it to keep a copy, or go back to your games.";
+const REMOVED = "This project was removed. Download your unsaved edits to keep them.";
 const SOURCE = [
   '# @item occluder "Bench occluder" depth',
   "vis off",
@@ -57,17 +58,23 @@ function game(): Record<string, Uint8Array> {
   return Object.fromEntries(container.files);
 }
 
-/** Everything this browser holds for the project: its record and every key naming it. */
-function held(page: Page) {
-  return page.evaluate(async (id) => {
-    const path = "/src/project/gameStorage.ts";
-    const { loadAuthoredGame } = await import(path);
-    return {
-      record: (await loadAuthoredGame(id)) !== null,
-      keys: Object.keys(localStorage).filter((key) => key.includes(id)),
-      lastGame: localStorage.getItem("monotio_agi.lastGame"),
-    };
-  }, PROJECT);
+/** Observable data at the removed lifetime's exact addresses. */
+function held(page: Page, locator: string) {
+  return page.evaluate(
+    async ({ id, locator }) => {
+      const { loadAuthoredGame } = await import("/src/project/gameStorage.ts");
+      const { autosaveKey } = await import("/src/saves/gameProgress.ts");
+      const { readResumePointer } = await import("/src/saves/resumePointer.ts");
+      const { readProjectSaveRecoveries } = await import("/src/project/projectSaveJournal.ts");
+      return {
+        record: (await loadAuthoredGame(id)) !== null,
+        checkpoint: localStorage.getItem(autosaveKey(locator)) !== null,
+        recovery: readProjectSaveRecoveries(localStorage, id).length,
+        resume: readResumePointer(localStorage)?.value === locator,
+      };
+    },
+    { id: PROJECT, locator },
+  );
 }
 
 interface WorkerOffers {
@@ -129,14 +136,25 @@ test("a game removed in another tab stops storing, says so once, and never comes
     files: game(),
     words: [["look", 1]],
   });
+  await cacheGame(page, {
+    projectId: SIBLING,
+    title: "Dotted sibling",
+    files: game(),
+    words: [["look", 1]],
+  });
+  const siblingBytes = await page.evaluate(async (id) => {
+    const { loadAuthoredGame } = await import("/src/project/gameStorage.ts");
+    return JSON.stringify(await loadAuthoredGame(id));
+  }, SIBLING);
   await page.reload();
+  const locator = await progressStorageKey(page, PROJECT);
 
   // Tab B plays it until it has a checkpoint.
   const tabB = await page.context().newPage();
   await keepDetectedProfile(tabB);
   await countWorkerOffers(tabB);
   await tabB.goto("/");
-  await tabB.getByTestId("btn-resume-cached").click();
+  await savedGameCard(tabB, TITLE).getByTestId("btn-resume-cached").click();
   await expect.poll(async () => (await textHook(tabB)).room).toBe(1);
   await expect.poll(() => storedAutosave(tabB, PROJECT), { timeout: 20_000 }).not.toBeNull();
 
@@ -147,7 +165,12 @@ test("a game removed in another tab stops storing, says so once, and never comes
   await page.getByTestId("remove-library-game").click();
   await card.getByTestId("remove-game-confirm").click();
   await expect(card).toHaveCount(0);
-  expect(await held(page)).toEqual({ record: false, keys: [], lastGame: null });
+  expect(await held(page, locator)).toEqual({
+    record: false,
+    checkpoint: false,
+    recovery: 0,
+    resume: false,
+  });
 
   // B hears it at once: one plain note, not "changed in another tab".
   const note = tabB.getByTestId("removed-tab-note");
@@ -172,7 +195,12 @@ test("a game removed in another tab stops storing, says so once, and never comes
     )
     .toEqual({ checkpoints: true, timeline: true });
   expect((await textHook(tabB)).cycle).toBeGreaterThan(cycle);
-  expect(await held(tabB)).toEqual({ record: false, keys: [], lastGame: null });
+  expect(await held(tabB, locator)).toEqual({
+    record: false,
+    checkpoint: false,
+    recovery: 0,
+    resume: false,
+  });
   await expect(tabB.getByTestId("history-unsaved")).toHaveCount(0);
 
   // Home never offers to continue the removed game.
@@ -188,5 +216,32 @@ test("a game removed in another tab stops storing, says so once, and never comes
   await note.getByTestId("removed-tab-leave").click();
   await expect(tabB.getByTestId("saved-game-gallery")).toBeVisible();
   await expect(tabB.getByTestId("hero-primary")).toHaveText("Play the tutorial");
-  expect(await held(tabB)).toEqual({ record: false, keys: [], lastGame: null });
+  expect(await held(tabB, locator)).toEqual({
+    record: false,
+    checkpoint: false,
+    recovery: 0,
+    resume: false,
+  });
+  expect(
+    await page.evaluate(async (id) => {
+      const { loadAuthoredGame } = await import("/src/project/gameStorage.ts");
+      return JSON.stringify(await loadAuthoredGame(id));
+    }, SIBLING),
+  ).toBe(siblingBytes);
+  await cacheGame(page, {
+    projectId: PROJECT,
+    title: "Reimported",
+    files: game(),
+    words: [["look", 1]],
+  });
+  const replacement = await progressStorageKey(page, PROJECT);
+  expect(replacement).not.toBe(locator);
+  expect(await storedAutosave(page, PROJECT)).toBeNull();
+  await page.reload();
+  await expect(savedGameCard(page, "Reimported").getByTestId("pending-edit-recovery")).toHaveCount(
+    0,
+  );
+  await savedGameCard(page, "Reimported").getByTestId("btn-resume-cached").click();
+  await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  await expect(page.getByTestId("pending-edit-recovery")).toHaveCount(0);
 });

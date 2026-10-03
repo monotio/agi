@@ -745,6 +745,74 @@ test("an interpreter override travels with both exports and decodes the saves th
     );
 });
 
+test("imported checkpoints publish only after acquiring their project lock", async (t) => {
+  installLocalStorage(t);
+  const descriptor = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+  t.after(() => {
+    if (descriptor) Object.defineProperty(globalThis, "navigator", descriptor);
+    else Reflect.deleteProperty(globalThis, "navigator");
+  });
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let entered!: () => void;
+  const acquired = new Promise<void>((resolve) => {
+    entered = resolve;
+  });
+  const names: string[] = [];
+  Object.defineProperty(globalThis, "navigator", {
+    configurable: true,
+    value: {
+      locks: {
+        async request(name: string, callback: () => unknown) {
+          names.push(name);
+          entered();
+          await held;
+          return callback();
+        },
+      },
+    },
+  });
+  const files = { "VOL.0": Uint8Array.of(81, 82, 83, 84) };
+  const revision = await gameRevision(files);
+  const id = testProjectId(`imported-${revision}`);
+  const importing = addLibraryGame(
+    {
+      files,
+      words: [],
+      progress: {
+        saves: {},
+        autosave: {
+          format: "monotio.agi.autosave",
+          version: 1,
+          image: "imported",
+          cycle: 4,
+          room: 1,
+          savedAt: 1,
+          game: { installed: false, identity: { project: id, revision } },
+        },
+      },
+    },
+    "Locked import",
+    "zip",
+    opening,
+  );
+  try {
+    await acquired;
+    assert.deepEqual(names, [`monotio_agi.checkpoint.${id}`]);
+    const target = (await bindSavedProgressTarget(id))!;
+    assert.equal(readGameProgress(localStorage, target).autosave, null);
+    release();
+    await importing;
+    assert.equal(readGameProgress(localStorage, target).autosave?.image, "imported");
+  } finally {
+    release();
+    await importing;
+    await clearCachedGame(id);
+  }
+});
+
 test("import reports which progress entries browser storage refused", async (t) => {
   installLocalStorage(t);
   // A game the engine has played one cycle, saved as a slot and an autosave.

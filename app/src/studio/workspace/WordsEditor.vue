@@ -20,6 +20,7 @@ import {
 } from "./wordsAnalysis.ts";
 import { runWordsTask, type WordsTask } from "./wordsAgent.ts";
 const props = defineProps<{
+  readOnly?: boolean;
   source: string;
   documents: Readonly<Record<string, ProjectContent>>;
   room: number;
@@ -334,7 +335,12 @@ function dismissGhosts(event: KeyboardEvent): void {
 }
 </script>
 <template>
-  <div class="words-editor" data-testid="workspace-words-editor" @keydown.esc="dismissGhosts">
+  <div
+    :inert="readOnly"
+    class="words-editor"
+    data-testid="workspace-words-editor"
+    @keydown.esc="dismissGhosts"
+  >
     <header class="words-toolbar">
       <input
         v-model="find"

@@ -101,6 +101,7 @@ const engine = useEngine(
     engine.observeMapFrame(frame);
   },
   {
+    pendingEditorChanges: () => workspaceEditor.pendingChanges.value,
     flushWorkspace: async () => {
       await workspaceEditor.flush.value?.();
     },
@@ -199,6 +200,7 @@ const shell = createShell({
   librarySource: (projectId) =>
     lib.savedGames.value.find((game) => game.projectId === projectId)?.library?.source,
   initialMode: parseGameHash(location.hash)?.mode ?? "play",
+  awaitingLatest: () => lib.latestVersion.value !== undefined,
 });
 provideShell(shell);
 engine.setProjectMode(shell.mode.value);
@@ -672,7 +674,7 @@ watch(
       return;
     }
     if (phase === "idle" || phase === "error") {
-      shell.reset();
+      if (phase !== "error" || lib.latestVersion.value === undefined) shell.reset();
       clearPlayHash();
       lib.syncMenuPhase();
     }

@@ -673,7 +673,12 @@ export function createGameLibrary(
       return;
     const proof = readGameProgress(localStorage, target).autosave;
     if (proof === null || JSON.stringify(proof) !== JSON.stringify(record)) return;
-    await resumeFromRecord(record, llmConfig(), target.locator);
+    if (target.kind === "project" && record.game.identity.revision !== target.identity.revision) {
+      offerLatestVersion(target);
+      return;
+    }
+    if (!(await resumeFromRecord(record, llmConfig(), target.locator)) && state.phase === "error")
+      offerLatestVersion(target, state.error);
     refreshPendingAutosave();
   }
 
@@ -738,9 +743,16 @@ export function createGameLibrary(
   async function routedResume(key: string): Promise<"resumed" | "absent" | "refused"> {
     const offer = await routedResumeOffer(key);
     if (offer === null) return "absent";
-    return (await resumeFromRecord(offer.record, llmConfig(), offer.target.locator))
-      ? "resumed"
-      : "refused";
+    if (
+      offer.target.kind === "project" &&
+      offer.record.game.identity.revision !== offer.target.identity.revision
+    ) {
+      offerLatestVersion(offer.target);
+      return "refused";
+    }
+    const resumed = await resumeFromRecord(offer.record, llmConfig(), offer.target.locator);
+    if (!resumed && state.phase === "error") offerLatestVersion(offer.target, state.error);
+    return resumed ? "resumed" : "refused";
   }
 
   const currentCreationProjectId = ref<ProjectId>();
@@ -869,7 +881,7 @@ export function createGameLibrary(
         recoveryId = removed.recoveryId;
         for (const entry of observed)
           if (localStorage.getItem(entry.key) === entry.value) localStorage.removeItem(entry.key);
-        clearAutosave(removed.retiredLocator);
+        await clearAutosave(removed.retiredLocator);
         clearGameSaves(localStorage, removed.retiredLocator);
         removeMapSidecar(localStorage, removed.retiredLocator);
         clearPlayerSentences(localStorage, id);
@@ -925,6 +937,29 @@ export function createGameLibrary(
     }
   }
 
+  const latestVersion = shallowRef<ProgressTarget>();
+  function offerLatestVersion(target: ProgressTarget, cause?: string): void {
+    if (target.kind !== "project") return;
+    latestVersion.value = target;
+    state.phase = "error";
+    state.error = `${cause ?? "This play position belongs to an earlier version of the game. Your project is safe."} Start the latest version? The old position is replaced when the new run saves.`;
+  }
+  watch(
+    () => state.phase,
+    (phase) => {
+      if (phase !== "error") latestVersion.value = undefined;
+    },
+  );
+  async function startLatestVersion(): Promise<void> {
+    const target = latestVersion.value;
+    if (target?.kind !== "project") return;
+    latestVersion.value = undefined;
+    const game = getCachedGameMeta(target.project);
+    if (game === null) return;
+    selectLibraryGame(game);
+    await onBootSavedGame(false, selectionContext, target);
+  }
+
   async function onPlayLibraryGame(
     game: CachedGameMeta,
     expected?: ProgressTarget,
@@ -950,9 +985,7 @@ export function createGameLibrary(
       target !== null &&
       autosave.game.identity.revision !== target.identity.revision
     ) {
-      state.phase = "error";
-      state.error =
-        "This checkpoint belongs to a different revision. Restore its matching game resources or open Earlier progress.";
+      offerLatestVersion(target);
       return;
     }
     if (target === null || autosave === null) {
@@ -982,8 +1015,11 @@ export function createGameLibrary(
           target.locator,
           () => selectionContext === context && (isCurrent?.() ?? true),
         ))
-      )
+      ) {
+        if (state.phase === "error" && selectionContext === context && (isCurrent?.() ?? true))
+          offerLatestVersion(target, state.error);
         refreshLibrary();
+      }
     } catch (error) {
       libraryActionError.value = String(error).replace(/^Error: /, "");
     } finally {
@@ -1755,6 +1791,8 @@ export function createGameLibrary(
     onBootSavedGame,
     onClearSavedGame,
     onPlayLibraryGame,
+    latestVersion,
+    startLatestVersion,
     onStartLibraryGameOver,
     onCheckLibraryGame,
     onCopyLibraryGame,

@@ -154,10 +154,12 @@ const {
   files = undefined,
   walk = undefined,
   underlay = null,
+  readOnly = false,
   embedded = false,
   liveGame = false,
   workspaceFocus = false,
 } = defineProps<{
+  readOnly?: boolean;
   embedded?: boolean;
   liveGame?: boolean;
   workspaceFocus?: boolean;
@@ -1238,6 +1240,7 @@ function onKeyup(event: KeyboardEvent): void {
 
 <template>
   <div
+    :inert="readOnly"
     ref="root"
     class="studio"
     :class="{

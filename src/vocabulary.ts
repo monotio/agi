@@ -581,7 +581,7 @@ export const VOCABULARY = {
   saved: {
     id: "saved",
     label: "Saved",
-    help: "Saved means your edits are stored in this browser.",
+    help: "Your changes are stored in this browser.",
     technical: "",
   },
   undo: { id: "undo", label: "Undo", help: "Steps back or forward one change.", technical: "" },

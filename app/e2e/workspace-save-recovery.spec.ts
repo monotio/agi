@@ -45,15 +45,29 @@ for (const mode of ["refusal", "storage", "stale", "removed"] as const) {
     page.on("pageerror", (error) => errors.push(error.message));
     await starter(page);
     if (mode === "stale" || mode === "removed") {
+      await page.getByTestId("part-notes").click();
+      await page.evaluate(() => {
+        const session = (
+          window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }
+        ).__AGI_PROJECT__.getSession();
+        session.submit = () => Promise.reject(new Error("Retained buffer"));
+      });
+      await page.getByLabel("Game notes", { exact: true }).fill("LOCAL_TYPED_SENTINEL");
+      await expect(page.getByTestId("workspace-saved")).toContainText("Could not save");
       const other = await context.newPage();
       await moveStorage(page, other, mode === "removed");
-      await page.getByTestId("part-notes").click();
-      await page.getByLabel("Game notes", { exact: true }).fill("LOCAL_TYPED_SENTINEL");
-      await expect(page.getByTestId("workspace-saved")).toContainText(
-        mode === "removed" ? "Project removed" : "Changed in another tab",
+      await expect(page.getByLabel("Game notes", { exact: true })).toHaveAttribute("readonly", "");
+      await expect(page.getByLabel("Game notes", { exact: true })).toHaveValue(
+        "LOCAL_TYPED_SENTINEL",
       );
-      if (mode === "stale") await expect(page.getByTestId("pending-edit-recovery")).toBeVisible();
-      else await expect(page.getByTestId("pending-edit-recovery")).toHaveCount(0);
+      await expect(page.getByTestId("workspace-saved")).toContainText(
+        mode === "removed" ? "This project was removed" : "Changed in another tab",
+      );
+      await expect(page.getByTestId("pending-edit-recovery")).toHaveCount(0);
+      const unsaved = page.waitForEvent("download");
+      await page.getByTestId("download-unsaved-edits").click();
+      const bytes = await readFile((await (await unsaved).path())!);
+      expect(bytes.toString()).toContain("LOCAL_TYPED_SENTINEL");
     } else {
       await page.evaluate((mode) => {
         if (mode === "refusal") {
@@ -140,7 +154,7 @@ for (const removed of [false, true]) {
         if (action === "reload")
           await page
             .getByTestId("stale-tab-note")
-            .getByRole("button", { name: "Reload game" })
+            .getByRole("button", { name: "Reload", exact: true })
             .click();
         await expect
           .poll(() =>
@@ -210,7 +224,7 @@ for (const failure of ["flush", "admission", "journal"] as const) {
   test(
     failure === "journal"
       ? "guided changes save when recovery storage is unavailable"
-      : `guided changes report ${failure} and retain admission intent`,
+      : `guided changes report ${failure} and keep the action available`,
     async ({ page }) => {
       const errors: string[] = [];
       page.on("pageerror", (error) => errors.push(error.message));
@@ -258,10 +272,8 @@ for (const failure of ["flush", "admission", "journal"] as const) {
             .map((key) => localStorage.getItem(key))
             .join("\n"),
         );
-        expect(journal).toContain("Recovered room");
-        await page.reload();
-        await expect(page.getByTestId("parts-list")).toContainText("Recovered room");
-        await workspaceSaved(page);
+        expect(journal).not.toContain("Recovered room");
+        await expect(form).toBeVisible();
       }
     },
   );
@@ -271,7 +283,7 @@ for (const failure of ["flush", "admission", "journal"] as const) {
   test(
     failure === "journal"
       ? "WORDS meaning changes save when recovery storage is unavailable"
-      : `WORDS meaning changes report ${failure} and retain admission intent`,
+      : `WORDS meaning changes report ${failure} and keep the action available`,
     async ({ page }) => {
       const errors: string[] = [];
       page.on("pageerror", (error) => errors.push(error.message));
@@ -345,26 +357,8 @@ for (const failure of ["flush", "admission", "journal"] as const) {
             .map((key) => localStorage.getItem(key))
             .join("\n"),
         );
-        expect(pending).toContain("editorIntent");
-        // Recovery changes the resource revision; inspect the recovered project
-        // while its earlier checkpoint keeps its original revision.
-        await page.goto("/");
-        const recovered = await page.evaluate(async () => {
-          const { listCachedGames, loadAuthoredGame } = await import("/src/project/gameStorage.ts");
-          const id = listCachedGames().find((game) => game.title === "Recovery proof")!.projectId;
-          const data = (await loadAuthoredGame(id))!;
-          return {
-            words: data.workspace!.documents.find((doc) => doc.key === "words")!.content,
-            dictionary: data.words,
-            pending: Object.keys(localStorage).filter((key) =>
-              key.startsWith("monotio_agi.project-writes."),
-            ),
-          };
-        });
-        expect(recovered.words).toMatchObject({ type: "text" });
-        expect(JSON.stringify(recovered.words)).not.toContain("recoveryword");
-        expect(recovered.dictionary.some(([word]) => word === "recoveryword")).toBe(false);
-        expect(recovered.pending).toEqual([]);
+        expect(pending).not.toContain("editorIntent");
+        await expect(remove).toBeVisible();
       }
     },
   );
@@ -483,14 +477,6 @@ for (const mode of ["stale", "removed", "refusal"] as const) {
       await expect(page.getByLabel("Game notes", { exact: true })).toHaveValue(
         "FAILED_HISTORY_DRAFT",
       );
-      expect(
-        await page.evaluate(
-          () =>
-            (
-              window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }
-            ).__AGI_PROJECT__.getSession().hasEditorIntents,
-        ),
-      ).toBe(true);
     } else {
       await expect(restore).toBeDisabled();
       await expect(clear).toBeDisabled();
@@ -554,7 +540,7 @@ test("a guided action finishing keeps Saving while LOGIC typing is pending", asy
   await workspaceSaved(page);
 });
 
-test("removal retires another tab's open journal before the same project ID is reused", async ({
+test("removal freezes retained buffers before the same project ID is reused", async ({
   page,
   context,
 }) => {
@@ -568,15 +554,11 @@ test("removal retires another tab's open journal before the same project ID is r
   });
   await page.getByLabel("Game notes", { exact: true }).fill("REMOVED_OWNER_DRAFT");
   await expect(page.getByTestId("workspace-saved")).toContainText("Could not save");
-  await expect
-    .poll(() =>
-      page.evaluate(
-        () =>
-          Object.keys(localStorage).filter((key) => key.startsWith("monotio_agi.project-writes."))
-            .length,
-      ),
-    )
-    .toBe(1);
+  expect(
+    await page.evaluate(() =>
+      Object.keys(localStorage).filter((key) => key.startsWith("monotio_agi.project-writes.")),
+    ),
+  ).toEqual([]);
   const other = await context.newPage();
   await other.goto("/");
   await other.evaluate(async () => {
@@ -601,7 +583,8 @@ test("removal retires another tab's open journal before the same project ID is r
   });
   await page.bringToFront();
   await expect(page.getByTestId("removed-tab-note")).toBeVisible();
-  await page.getByLabel("Game notes", { exact: true }).fill("LATER_REMOVED_DRAFT");
+  await expect(page.getByLabel("Game notes", { exact: true })).toHaveAttribute("readonly", "");
+  await expect(page.getByLabel("Game notes", { exact: true })).toHaveValue("REMOVED_OWNER_DRAFT");
   const disposedJournals = await page.evaluate(() => {
     (window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }).__AGI_PROJECT__
       .getSession()
@@ -627,4 +610,38 @@ test("removal retires another tab's open journal before the same project ID is r
     "LATER_REMOVED_DRAFT",
   );
   await expect(page.getByTestId("pending-edit-recovery")).toHaveCount(0);
+});
+
+test("Unsaved edits downloads current buffers when IndexedDB writes are refused", async ({
+  page,
+}) => {
+  await starter(page);
+  await page.evaluate(() => {
+    const put = IDBObjectStore.prototype.put;
+    IDBObjectStore.prototype.put = function (...args) {
+      if (this.name === "projects") throw new DOMException("Writes refused", "QuotaExceededError");
+      return put.apply(this, args);
+    };
+  });
+  await page.getByTestId("part-notes").click();
+  await page.getByLabel("Game notes", { exact: true }).fill("UNSAVED_DOWNLOAD_SENTINEL");
+  await expect(page.getByTestId("workspace-saved")).toContainText("Could not save");
+  await page.evaluate(() => {
+    const session = (
+      window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }
+    ).__AGI_PROJECT__.getSession();
+    session.flush = () => Promise.reject(new Error("Download awaited saving"));
+  });
+  const download = page.waitForEvent("download");
+  await page.getByTestId("download-unsaved-edits").click();
+  const file = await download;
+  expect(file.suggestedFilename()).toBe("agi-unsaved-edits.zip");
+  const bytes = await readFile((await file.path())!);
+  expect(bytes.readUInt32LE(0)).toBe(0x04034b50);
+  expect(bytes.toString()).toContain("unsaved-edits/notes.txt");
+  expect(bytes.toString()).toContain("UNSAVED_DOWNLOAD_SENTINEL");
+  await expect(page.getByLabel("Game notes", { exact: true })).toHaveValue(
+    "UNSAVED_DOWNLOAD_SENTINEL",
+  );
+  await page.screenshot({ path: test.info().outputPath("unsaved-download.png") });
 });

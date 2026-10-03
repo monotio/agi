@@ -98,6 +98,10 @@ test("a late admission after disposal leaves the old model and storage untouched
   });
   let release: ((outcome: PreviewUpdateOutcome) => void) | undefined;
   let saved = 0;
+  let entered!: () => void;
+  const admitted = new Promise<void>((resolve) => {
+    entered = resolve;
+  });
   const session = openProjectSession({
     data: {
       projectId: requireProjectId("late-session"),
@@ -112,6 +116,7 @@ test("a late admission after disposal leaves the old model and storage untouched
       admit: () =>
         new Promise((resolve) => {
           release = resolve;
+          entered();
         }),
     },
     write: async () => {
@@ -129,7 +134,7 @@ test("a late admission after disposal leaves the old model and storage untouched
     author: "creator",
   });
   assert.equal(session.saveStatus().state, "pending", "queued admission is unsaved work");
-  await Promise.resolve();
+  await admitted;
   assert.equal(session.saveStatus().state, "pending", "blocked admission cannot report Saved");
   session.dispose();
   release!({ status: "committed", expected: null, current: null, patchGeneration: 1 });
@@ -928,13 +933,6 @@ for (const state of ["clean", "pending", "failed", "stale", "removed", "closed"]
         assert.equal(session.model.capture().documentId, before);
         await assert.rejects(session.tag("Refused"));
         await assert.rejects(session.flush());
-        if (state !== "closed") {
-          assert.doesNotThrow(() =>
-            session.rememberEditorChanges([{ key: "notes", content: "Pending draft" }]),
-          );
-          assert.equal(session.captureEditorIntent("notes") !== undefined, true);
-        } else
-          assert.throws(() => session.rememberEditorChanges([{ key: "notes", content: "Closed" }]));
         assert.equal(writes, 0);
       } else {
         assert.equal((await edit()).status, "committed");
@@ -948,7 +946,7 @@ for (const state of ["clean", "pending", "failed", "stale", "removed", "closed"]
   });
 }
 
-test("becoming stale during admission retains the draft and refuses publication", async () => {
+test("becoming stale during admission refuses publication", async () => {
   let finish!: () => void;
   let entered!: () => void;
   const waiting = new Promise<void>((resolve) => {
@@ -980,7 +978,6 @@ test("becoming stale during admission retains the draft and refuses publication"
   try {
     const before = session.model.capture();
     const changes = [{ key: "logic:0", content: "return;" }];
-    session.rememberEditorChanges(changes);
     const editing = session.submit({
       proposal: session.model.propose(before, "Changed", changes),
       label: "Changed",
@@ -992,7 +989,6 @@ test("becoming stale during admission retains the draft and refuses publication"
     finish();
     await assert.rejects(editing, /superseded/);
     assert.equal(session.model.capture().documentId, before.documentId);
-    assert.equal(session.hasEditorIntents, true);
   } finally {
     session.dispose();
     finish?.();
@@ -1070,7 +1066,81 @@ test("a deferred admission publishes MAIN without queuing a second source save",
   }
 });
 
-test("checkpoint preparation waits for the deferred boundary and admission to publish MAIN", async () => {
+test("checkpoint preparation returns not ready during an outstanding document write", async () => {
+  const compiled = compileProjectDocuments({
+    files: Object.fromEntries(createContainer().files),
+    documents: { "logic:0": "return;" },
+    profileId: "2.936",
+  });
+  let entered!: () => void;
+  let release!: () => void;
+  const writing = new Promise<void>((resolve) => {
+    entered = resolve;
+  });
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const session = openProjectSession({
+    data: {
+      projectId: requireProjectId("checkpoint-write"),
+      title: "Checkpoint",
+      authoredAt: "",
+      files: Object.fromEntries(compiled.files()),
+      words: [],
+    },
+    lifetime: "initial",
+    admission: {
+      runToken: "write",
+      admit: async () => ({
+        status: "committed",
+        expected: null,
+        current: null,
+        patchGeneration: 1,
+      }),
+    },
+    write: async (request) => {
+      entered();
+      await held;
+      return {
+        commitId: request.commitId,
+        workspaceId: request.workspaceId,
+        candidateHash: "a",
+        documents: request.documents,
+        saved: {
+          ...request.expected!,
+          generation: request.expected!.generation + 1,
+          buildId: request.buildId,
+        },
+      };
+    },
+  });
+  try {
+    await session.submit({
+      proposal: session.model.propose(session.model.capture(), "Note", [
+        { key: "notes", content: "Writing" },
+      ]),
+      label: "Note",
+      origin: "logic",
+      author: "creator",
+    });
+    const saving = session.flush();
+    await writing;
+    let result: unknown;
+    void session.prepareCheckpoint().then((outcome) => {
+      result = outcome;
+    });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    assert.equal(result, "not_ready");
+    release();
+    await saving;
+    assert.equal(await session.prepareCheckpoint(), "ready");
+  } finally {
+    release();
+    session.dispose();
+  }
+});
+
+test("checkpoint preparation returns not ready before a future admission boundary", async () => {
   const compiled = compileProjectDocuments({
     files: Object.fromEntries(createContainer().files),
     documents: { "logic:0": "return;" },
@@ -1084,6 +1154,7 @@ test("checkpoint preparation waits for the deferred boundary and admission to pu
   });
   let admissions = 0;
   let running = false;
+  let captures = 0;
   const session = openProjectSession({
     data: {
       projectId: requireProjectId("checkpoint-admission"),
@@ -1109,6 +1180,9 @@ test("checkpoint preparation waits for the deferred boundary and admission to pu
       new Promise<void>((resolve) => {
         boundary = resolve;
       }),
+    checkpointReady() {
+      captures++;
+    },
     publish: (_snapshot, _data, outcome) => {
       running = outcome?.status === "committed";
     },
@@ -1134,19 +1208,20 @@ test("checkpoint preparation waits for the deferred boundary and admission to pu
       author: "creator",
     });
     await session.flush();
-    let checkpointReady = false;
-    const preparing = (async () => {
-      await session.prepareCheckpoint();
-      checkpointReady = true;
-      assert.equal(running, true);
-    })();
+    let result: unknown;
+    void session.prepareCheckpoint().then((outcome) => {
+      result = outcome;
+    });
     await new Promise<void>((resolve) => setImmediate(resolve));
-    assert.equal(checkpointReady, false);
+    assert.equal(result, "not_ready");
     boundary();
     await waiting;
-    assert.equal(checkpointReady, false);
+    assert.equal(result, "not_ready");
     finish();
-    await preparing;
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    assert.equal(await session.prepareCheckpoint(), "ready");
+    assert.equal(running, true);
+    assert.equal(captures, 1, "completed admission requests a fresh capture");
   } finally {
     session.dispose();
     finish?.();

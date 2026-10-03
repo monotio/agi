@@ -293,3 +293,38 @@ test("Home discovery reads project bodies without any History blob I/O", async (
     records.get = get;
   }
 });
+
+test("History rejection is scoped to lifetime and successful validation clears it", async () => {
+  const { request } = capture("history-cache-lifetime");
+  await storage.commitProject(request);
+  const key = [...records.keys()].find((key) =>
+    String(key).startsWith(`project-history/${request.projectId}/blobs/`),
+  )!;
+  const original = structuredClone(records.get(key));
+  records.set(key, { ...(original as object), content: 42 });
+  await assert.rejects(storage.loadAuthoredGame(request.projectId));
+  assert.equal(
+    (await storage.listUnsupportedStoredProjects()).some(
+      (entry) => entry.projectId === request.projectId,
+    ),
+    true,
+  );
+  const lifetimeKey = `lifetime/${request.projectId}`;
+  const lifetime = records.get(lifetimeKey) as Record<string, unknown>;
+  records.set(lifetimeKey, { ...lifetime, epoch: "replacement-lifetime" });
+  assert.equal(
+    (await storage.listUnsupportedStoredProjects()).some(
+      (entry) => entry.projectId === request.projectId,
+    ),
+    false,
+  );
+  records.set(lifetimeKey, lifetime);
+  records.set(key, original);
+  assert.ok(await storage.loadAuthoredGame(request.projectId));
+  assert.equal(
+    (await storage.listUnsupportedStoredProjects()).some(
+      (entry) => entry.projectId === request.projectId,
+    ),
+    false,
+  );
+});

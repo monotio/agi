@@ -2,7 +2,7 @@ import { expect, test } from "./test.ts";
 import { isolateStorage } from "./engineProbe.ts";
 import type { ProjectCommitRequest } from "../src/project/gameStorage.ts";
 
-for (const mode of ["locks", "fallback-success", "fallback-conflict"] as const) {
+for (const mode of ["locks", "without-locks"] as const) {
   test(`two pages preserve a live writer's newest journal (${mode})`, async ({ page, context }) => {
     await isolateStorage(page);
     await page.goto("/");
@@ -25,7 +25,9 @@ for (const mode of ["locks", "fallback-success", "fallback-conflict"] as const) 
         data: { title: "First", files: { "VOL.0": Uint8Array.of(1) }, words: [] },
       };
       const key = projectSaveJournalKey(request.projectId, "owner");
-      const release = claimProjectSaveJournal(key);
+      const ownership = claimProjectSaveJournal(key);
+      await ownership.ready;
+      const release = ownership.release;
       (
         window as unknown as {
           journalWriter: { request: ProjectCommitRequest; key: string; release(): void };
@@ -36,41 +38,23 @@ for (const mode of ["locks", "fallback-success", "fallback-conflict"] as const) 
       await navigator.locks.query();
       return key;
     });
-    const begin = recovery.evaluate(
-      async ({ mode }) => {
-        const { resumeProjectSaveJournals } = await import("/src/project/projectSaveJournal.ts");
-        const { commitProject } = await import("/src/project/gameStorage.ts");
-        const surface = window as unknown as {
-          recoveryEntered?: boolean;
-          releaseRecovery?: () => void;
-        };
-        await resumeProjectSaveJournals(
-          localStorage,
-          "journal-two-pages" as never,
-          async (request) => {
-            surface.recoveryEntered = true;
-            if (mode !== "locks")
-              await new Promise<void>((resolve) => {
-                surface.releaseRecovery = resolve;
-              });
-            if (mode === "fallback-conflict")
-              throw Object.assign(new Error("conflict"), { name: "ConcurrencyConflictError" });
-            return commitProject(request);
-          },
-        );
-        return surface.recoveryEntered === true;
-      },
-      { mode },
-    );
-    if (mode === "locks") expect(await begin).toBe(false);
-    else
-      await expect
-        .poll(() =>
-          recovery.evaluate(
-            () => (window as unknown as { recoveryEntered?: boolean }).recoveryEntered,
-          ),
-        )
-        .toBe(true);
+    const begin = recovery.evaluate(async () => {
+      const { resumeProjectSaveJournals } = await import("/src/project/projectSaveJournal.ts");
+      const { commitProject } = await import("/src/project/gameStorage.ts");
+      const surface = window as unknown as {
+        recoveryEntered?: boolean;
+      };
+      await resumeProjectSaveJournals(
+        localStorage,
+        "journal-two-pages" as never,
+        async (request) => {
+          surface.recoveryEntered = true;
+          return commitProject(request);
+        },
+      );
+      return surface.recoveryEntered === true;
+    });
+    expect(await begin).toBe(false);
     await page.evaluate(async () => {
       const { writeProjectSaveJournal } = await import("/src/project/projectSaveJournal.ts");
       const writer = (
@@ -88,12 +72,6 @@ for (const mode of ["locks", "fallback-success", "fallback-conflict"] as const) 
         },
       ]);
     });
-    if (mode !== "locks") {
-      await recovery.evaluate(() =>
-        (window as unknown as { releaseRecovery(): void }).releaseRecovery(),
-      );
-      expect(await begin).toBe(true);
-    }
     await expect
       .poll(() => recovery.evaluate((key) => localStorage.getItem(key), key))
       .toContain("newest");
@@ -106,8 +84,13 @@ for (const mode of ["locks", "fallback-success", "fallback-conflict"] as const) 
       const saved = await loadAuthoredGame("journal-two-pages" as never);
       return { title: saved?.title, generation: saved?.generation };
     });
-    expect(reopened).toEqual({ title: "Newest", generation: 2 });
-    expect(await recovery.evaluate((key) => localStorage.getItem(key), key)).toBeNull();
+    if (mode === "locks") {
+      expect(reopened).toEqual({ title: "Newest", generation: 2 });
+      expect(await recovery.evaluate((key) => localStorage.getItem(key), key)).toBeNull();
+    } else {
+      expect(reopened.title).toBeUndefined();
+      expect(await recovery.evaluate((key) => localStorage.getItem(key), key)).toContain("newest");
+    }
   });
 }
 
@@ -139,7 +122,7 @@ test("removal clears ended journals before a recreated project opens", async ({
     ]);
     const pending = { ...request, commitId: "late-owner", expected: receipt.saved };
     const { claimProjectSaveJournal } = await import("/src/project/projectSaveJournal.ts");
-    const release = claimProjectSaveJournal(key);
+    const release = claimProjectSaveJournal(key).release;
     Object.assign(window, {
       rewriteRemovedJournal: () => {
         writeProjectSaveJournal(localStorage, key, [{ request: pending, attempted: false }]);
@@ -218,7 +201,7 @@ test("a stale journal in the live lifetime offers discard in Create and Home", a
   });
   await page.reload();
   const notice = page.getByTestId("pending-edit-recovery").filter({ visible: true });
-  await expect(notice).toContainText("Pending edits belong to an earlier project version");
+  await expect(notice).toContainText("Recovery data belongs to an earlier project version");
   await page.screenshot({ path: test.info().outputPath("pending-recovery.png") });
   await page.getByRole("button", { name: "Back to library", exact: true }).click();
   await expect(

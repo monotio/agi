@@ -38,7 +38,7 @@ import {
   useAutosaveController,
   writeAutosave,
 } from "../saves/useAutosaveController.ts";
-import { clearCachedGame } from "../project/gameStorage.ts";
+import { clearCachedGame, getCachedGameMeta } from "../project/gameStorage.ts";
 import { bindProgressTarget, resolveProgressTarget } from "../project/progressBinding.ts";
 import {
   advanceAuthoring,
@@ -83,7 +83,7 @@ export type { AutosaveRecord } from "../saves/useAutosaveController.ts";
  */
 export async function removeLibraryGame(projectId: ProjectId): Promise<void> {
   await clearCachedGame(projectId);
-  clearAutosave(projectId);
+  await clearAutosave(projectId);
   clearGameSaves(localStorage, projectId);
   removeMapSidecar(localStorage, projectId);
 }
@@ -97,7 +97,11 @@ export async function removeLibraryGame(projectId: ProjectId): Promise<void> {
  */
 export function useEngine(
   onFrame: (frame: Frame) => void,
-  engineOptions?: { onPromptType?: (text: string) => void; flushWorkspace?: () => Promise<void> },
+  engineOptions?: {
+    onPromptType?: (text: string) => void;
+    flushWorkspace?: () => Promise<void>;
+    pendingEditorChanges?: () => boolean;
+  },
 ) {
   let projectMode: "create" | "play" = "play";
   let projectSession: ProjectSession | null = null;
@@ -344,14 +348,30 @@ export function useEngine(
     historyController?.forgetRemovedGame();
   }
 
+  let checkpointTraceCount = 0;
   const autosaveController = useAutosaveController({
     state,
+    getRunScope: () => projectSession?.runToken,
     getBootedGame: () => lifecycle.getBootedGame(),
     getWorker: link.getWorker,
     async prepareCheckpoint(game, files, checkpointRevision) {
       const session = projectSession;
       if (session === null) return "legacy";
-      await session.prepareCheckpoint();
+      if (checkpointTraceCount++ < 32)
+        logAgent(
+          "log",
+          `Checkpoint preparation: ${JSON.stringify({
+            runToken: session.runToken,
+            project: game.projectId,
+            lifetime: session.lifetime,
+            workerRevision: checkpointRevision,
+            runningRevision: game.revision,
+            sessionRevision: session.model.capture().lastAdmissibleBuild!.identity.revision,
+            durableRevision: getCachedGameMeta(game.projectId!)?.library?.revision,
+            pendingAdmission: session.capture().pendingAdmission,
+          })}`,
+        );
+      if ((await session.prepareCheckpoint(checkpointRevision)) === "not_ready") return "not_ready";
       const revision = session.model.capture().lastAdmissibleBuild!.identity.revision;
       if (checkpointRevision !== undefined && checkpointRevision !== revision) return "refused";
       if (files !== undefined && computeResourceRevision(files) !== revision) return "refused";
@@ -423,7 +443,7 @@ export function useEngine(
       !game.behindStorage;
     projectSessionOpening = grant.runToken;
     await Promise.all([import("../project/projectSession.ts"), import("./mainProjectAdmission.ts")])
-      .then(([{ openProjectSession }, { createMainProjectAdmission }]) => {
+      .then(async ([{ openProjectSession }, { createMainProjectAdmission }]) => {
         if (!current()) return;
         const admission = createMainProjectAdmission({
           ...grant,
@@ -497,7 +517,11 @@ export function useEngine(
             if (current()) {
               advanceAuthoring(game, data.authoringState, data.workspace);
               if (game.authoredGame) game.authoredGame.generation = generation;
+              void autosaveController.flushAutosave();
             }
+          },
+          checkpointReady() {
+            if (current()) void autosaveController.flushAutosave();
           },
           changed() {
             if (current()) {
@@ -507,6 +531,7 @@ export function useEngine(
           },
         });
         state.patchTick++;
+        if ((await projectSession.ready) && current()) void autosaveController.flushAutosave();
       })
       .catch((error: unknown) => {
         if (current()) state.status = String(error instanceof Error ? error.message : error);
@@ -719,7 +744,9 @@ export function useEngine(
       startOverNote.hide();
     },
     stopHistoryWriter: () => historyController?.stopWriterRenewal(),
-    pendingEditorChanges: () => projectSession?.hasEditorIntents ?? false,
+    pendingEditorChanges: () =>
+      (engineOptions?.pendingEditorChanges?.() ?? false) ||
+      (projectSession?.pendingChanges ?? false),
     flushProject: async () => {
       if (projectSession?.saveStatus().state === "conflict") return;
       await engineOptions?.flushWorkspace?.();
@@ -1074,10 +1101,7 @@ export function useEngine(
       return projectSession?.reenterRoom();
     },
     submitProjectEdit(
-      edit: { changes: readonly ProjectChange[]; editorIntent?: number } & Omit<
-        ProjectCommitMetadata,
-        "time"
-      >,
+      edit: { changes: readonly ProjectChange[] } & Omit<ProjectCommitMetadata, "time">,
     ) {
       const session = projectSession;
       if (session === null) throw new Error("Open this game in Create to edit it.");
@@ -1087,7 +1111,6 @@ export function useEngine(
         origin: edit.origin,
         label: edit.label,
         author: edit.author,
-        ...(edit.editorIntent === undefined ? {} : { editorIntent: edit.editorIntent }),
       });
     },
     runStudioAssist: async (

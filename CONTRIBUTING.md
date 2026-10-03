@@ -225,40 +225,40 @@ A named version contains the visible documents, including invalid source, while
 the playable image remains the last admissible build. Restore, Undo and Redo keep
 their busy guards.
 
-Before debounce or worker admission, workspace document edits, guided actions
-and WORDS meaning changes synchronously journal their latest content and
-session/project identity. SOUND bytes and tempo
-share that intent. The journal carries edited documents and operations since the
-durable base, rather than compiled files or serialized History per keystroke.
-Compatible recovery validates the project lifetime and base, then replays preparation and
-History. Invalid LOGIC stays editable and retains the prior runnable image.
-Admission transfers each gesture's intent, including derived companion metadata,
-into the pending save capture. Durable acknowledgement retires that capture. Later
-Undo and Restore supersede admitted document operations and preserve unrelated
-unadmitted editor drafts. Journals behind a newer write in the same project lifetime
-retain their bytes and offer Discard pending edits; an unchanged terminal journal
-is excluded from later replay attempts. Recovery
-requires available browser storage; clearing site data or exhausting recovery
-storage can prevent immediate-close recovery. Saved confirms the IndexedDB
-project acknowledgement. Deferred MAIN admission publishes the accepted image without
-queuing another source write. Checkpoint preparation waits for active admission
-boundaries and attempts before proving its revision, and rechecks document ownership
-after storage awaits. Play and Create require a matching checkpoint. Removing a
-project retires its journal lifetime across tabs and clears pending edits and
-recovery notices. Recovery also removes journals whose durable project lifetime has
-ended when a retirement marker could not be stored. Home reads the body and lifetime to bind
-progress; History blobs load when the project opens. An open that rejects a blob
-returns the project to the recovery card with its raw Download, including after
-reload when browser storage accepts the rejection marker.
+Editor buffers stay in memory until accepted and saved, or explicitly discarded.
+Keep the tab open until it says Saved. Unsaved edits may be lost if the tab closes
+abruptly. A browser leave warning is registered while edits are unsaved or saving;
+hiding the page attempts a flush. Download unsaved edits reads current text,
+resource bytes and authoring metadata directly, including SOUND tempo, without
+compiling, saving or asking the worker. Download game contains accepted content.
 
-A writing session holds an exclusive Web Lock named by its journal key until
-it closes. Recovery requests that lock with `ifAvailable` and skips live owners.
-Acknowledgement re-reads under the lock and removes only processed commit IDs;
-conflict restoration likewise preserves entries appended during its await.
-Browsers without `navigator.locks` use identity-qualified acknowledgement on the
-latest read. They cannot atomically fence another tab between that localStorage
-read and write, so cross-tab racing recovery retains a residual risk. Conditional
-IndexedDB commits still fence project lifetimes and generations.
+The journal carries accepted project captures whose storage acknowledgement could
+be interrupted. Recovery validates lifetime and base, then rebuilds the accepted
+image and History with an idempotent commit identity. The v1/v2 readers also retain
+older captures. Journals behind a newer write retain their original bytes with
+Download recovery data and Discard pending edits. Stale and removed sessions are
+read-only; their existing buffers remain visible for Download unsaved edits.
+Journal-producing callbacks stop before ownership is released. The IndexedDB
+lifetime/deletion fence prevents old writers from recreating removed data; a
+same-ID reimport starts a new lifetime.
+
+A writing session publishes journals only after its exclusive Web Lock callback
+has acquired ownership. Recovery requests that lock with `ifAvailable`, skips
+live owners, and acknowledges only exact observed entries. Browsers without
+`navigator.locks` open projects read-only with Download. Conditional IndexedDB
+commits fence project lifetimes and generations.
+
+Saved confirms project document storage, independently of runtime admission and
+play progress. Checkpoint preparation checks stored documents and returns not ready
+during saving or admission. Each acknowledgement requests a fresh checkpoint;
+preparation never waits for a future boundary or player input. Publication and clearing use a short
+per-project lock. Resume requires the exact executable revision, lifetime and
+compatible profile. An older position stays intact; Play and Create offer Start
+the latest version, explaining that a new saved position replaces the old one.
+Home binds progress from the body and lifetime; History blobs load when opened.
+A rejected History read keeps the original data available through raw Download.
+Its advisory rejection cache is scoped to lifetime and generation and clears
+when validation succeeds.
 
 Restart and re-entry publish the running identity only after worker acknowledgement. Re-entry
 preserves global state through `new.room`; room LOGIC controls subsequent actor

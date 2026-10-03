@@ -1,3 +1,4 @@
+import { installWebLocksFixture } from "./webLocksFixture.ts";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { testProjectId } from "./identity.ts";
@@ -15,6 +16,7 @@ import {
 } from "../src/project/projectSaveJournal.ts";
 
 installIndexedDbFixture();
+installWebLocksFixture();
 const values = new Map<string, string>();
 const cache = {
   get length() {
@@ -232,31 +234,26 @@ test("discard removes only the observed recovery bytes and removal clears both j
   discardProjectSaveRecoveries(storage, project, [{ key, raw: "newer" }]);
   assert.equal(storage.getItem(key), null);
   assert.equal(storage.getItem(marker), null);
-  assert.equal(storage.getItem(`monotio_agi.project-write-retired.key.${key}`), "1");
+  assert.equal(storage.getItem(`monotio_agi.project-write-retired.key.${key}`), null);
   values.set(key, "pending");
   values.set(marker, "marker");
   values.set(projectSaveJournalKey("other" as never, "owner"), "other");
   clearProjectSaveJournals(storage, project);
   assert.equal(storage.getItem(key), null);
   assert.equal(storage.getItem(marker), null);
-  assert.equal(values.size, 2);
+  assert.equal(values.size, 1);
 });
 
-test("removal clears pending bytes when retirement-marker storage refuses the write", () => {
+test("removal clears observed journal bytes without writing retirement markers", () => {
   const input = request("journal-removal-quota");
   const key = projectSaveJournalKey(input.projectId, "owner");
   writeProjectSaveJournal(cache, key, [{ request: input, attempted: false }]);
   const setItem = cache.setItem;
-  cache.setItem = (key, value) => {
-    if (key.startsWith("monotio_agi.project-write-retired."))
-      throw new Error("Retirement marker quota");
-    setItem(key, value);
+  cache.setItem = () => {
+    throw new Error("Storage write refused");
   };
   try {
-    assert.throws(
-      () => clearProjectSaveJournals(cache, input.projectId, "removed"),
-      /Retirement marker quota/,
-    );
+    clearProjectSaveJournals(cache, input.projectId);
     assert.equal(cache.getItem(key), null);
   } finally {
     cache.setItem = setItem;
@@ -281,7 +278,7 @@ test("removal retires only the exact project namespace, including dotted IDs", a
   writeProjectSaveJournal(cache, parentKey, [{ request: parent, attempted: false }]);
   writeProjectSaveJournal(cache, childKey, [{ request: child, attempted: false }]);
   const childRaw = cache.getItem(childKey);
-  clearProjectSaveJournals(cache, parent.projectId, "parent-lifetime");
+  clearProjectSaveJournals(cache, parent.projectId);
   assert.equal(cache.getItem(parentKey), null);
   assert.equal(cache.getItem(childKey), childRaw);
   let writes = 0;
@@ -292,4 +289,65 @@ test("removal retires only the exact project namespace, including dotted IDs", a
   assert.equal(writes, 0);
   writeProjectSaveJournal(cache, childKey, [{ request: child, attempted: false }]);
   assert.equal(cache.getItem(childKey), childRaw);
+});
+
+test("journal ownership is ready only inside the acquired lock callback", async () => {
+  const { claimProjectSaveJournal } = await import("../src/project/projectSaveJournal.ts");
+  const navigatorDescriptor = Object.getOwnPropertyDescriptor(globalThis, "navigator")!;
+  let acquire!: () => Promise<void>;
+  Object.defineProperty(globalThis, "navigator", {
+    configurable: true,
+    value: {
+      locks: {
+        request(_key: string, callback: () => Promise<void>) {
+          return new Promise<void>((resolve) => {
+            acquire = async () => {
+              await callback();
+              resolve();
+            };
+          });
+        },
+      },
+    },
+  });
+  const owner = claimProjectSaveJournal("readiness");
+  try {
+    let ready = false;
+    void owner.ready.then((held) => {
+      ready = held;
+    });
+    await Promise.resolve();
+    assert.equal(ready, false);
+    const held = acquire();
+    assert.equal(await owner.ready, true);
+    owner.release();
+    await held;
+  } finally {
+    owner.release();
+    Object.defineProperty(globalThis, "navigator", navigatorDescriptor);
+  }
+});
+
+test("deletion acknowledgement preserves an unobserved successor entry", async () => {
+  const first = request("journal-deleted-successor");
+  const successor = {
+    ...first,
+    commitId: "successor",
+    data: { ...first.data, title: "Unobserved" },
+  };
+  const key = projectSaveJournalKey(first.projectId, "owner");
+  writeProjectSaveJournal(cache, key, [{ request: first, attempted: false }]);
+  await resumeProjectSaveJournals(cache, first.projectId, async () => {
+    writeProjectSaveJournal(cache, key, [
+      { request: first, attempted: true },
+      { request: successor, attempted: false },
+    ]);
+    throw Object.assign(new Error("Lifetime ended"), { name: "ProjectDeletedError" });
+  });
+  const remaining = cache.getItem(key)!;
+  assert.match(remaining, /Unobserved/);
+  const { decodeJournalValue } = await import("../src/project/projectJournalCapture.ts");
+  assert.deepEqual(decodeJournalValue(JSON.parse(remaining).entries), [
+    { request: successor, attempted: false },
+  ]);
 });

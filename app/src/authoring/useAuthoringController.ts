@@ -1027,7 +1027,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
       }
       const checkpointStored = await flushAutosave(2000);
       if (checkpointStored && owner !== booted && !booted.installed && booted.progressTarget)
-        options.clearAutosave(booted.progressTarget.locator);
+        await options.clearAutosave(booted.progressTarget.locator);
       state.powerUp.open = false;
       resumeEngine("powerUp");
     } catch (e) {

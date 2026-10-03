@@ -937,6 +937,7 @@ export function readStoredBody(raw: unknown, projectId: ProjectId): CachedGameDa
 }
 const READ_ERROR_PREFIX = "monotio_agi.project-read-error.";
 interface ProjectReadError {
+  readonly lifetime: string | null;
   readonly generation?: number;
   readonly reason: string;
   readonly unsupported: boolean;
@@ -953,6 +954,7 @@ function clearProjectReadError(projectId: ProjectId): void {
 function rememberedProjectReadError(
   projectId: ProjectId,
   generation: number | undefined,
+  lifetime: string | null,
 ): Error | undefined {
   let rejected = rejectedProjectReads.get(projectId);
   try {
@@ -969,7 +971,12 @@ function rememberedProjectReadError(
   } catch {
     /* The current page retains its rejected read when storage is unavailable. */
   }
-  if (rejected === undefined || rejected.generation !== generation) return;
+  if (
+    rejected === undefined ||
+    rejected.generation !== generation ||
+    rejected.lifetime !== lifetime
+  )
+    return;
   return rejected.unsupported
     ? new UnsupportedStoredFormatError(rejected.reason)
     : new Error(rejected.reason);
@@ -984,7 +991,8 @@ async function readBody(
     ...historyBlobKeys(projectId, (raw as StoredGameBody | undefined)?.editHistory),
   ]);
   const stored = snapshot.head as StoredGameBody | undefined;
-  onLifetime?.(liveLifetime(snapshot.records.get(`lifetime/${projectId}`) as HistoryLifetime));
+  const lifetime = liveLifetime(snapshot.records.get(`lifetime/${projectId}`) as HistoryLifetime);
+  onLifetime?.(lifetime);
   if (!stored && raw === null) return null;
   if (!stored)
     throw new Error(
@@ -1011,6 +1019,7 @@ async function readBody(
     clearProjectReadError(projectId);
   } catch (error) {
     const rejected: ProjectReadError = {
+      lifetime,
       ...(data.generation === undefined ? {} : { generation: data.generation }),
       reason: error instanceof Error ? error.message : String(error),
       unsupported: error instanceof UnsupportedStoredFormatError,
@@ -1585,7 +1594,11 @@ export async function loadProjectProgressIdentity(projectId: ProjectId) {
     const snapshot = await readBodyRecords(projectId, () => [`lifetime/${projectId}`]);
     if (snapshot.head === undefined) return null;
     const data = readStoredBody(snapshot.head, projectId);
-    const rejected = rememberedProjectReadError(projectId, data.generation);
+    const rejected = rememberedProjectReadError(
+      projectId,
+      data.generation,
+      liveLifetime(snapshot.records.get(`lifetime/${projectId}`) as HistoryLifetime),
+    );
     if (rejected !== undefined) throw rejected;
     return {
       revision: readLibrary(data).revision,
@@ -2067,7 +2080,7 @@ export function clearCachedGame(projectId: ProjectId): Promise<void> {
     // durable recovery record before any of it leaves.
     const removed = await removeProjectRecords(projectId);
     try {
-      clearProjectSaveJournals(localStorage, projectId, removed.removedLifetime);
+      clearProjectSaveJournals(localStorage, projectId);
       localStorage.removeItem(getStorageKey(projectId));
     } catch (error) {
       console.error("Project removal cleanup failed after the records left:", error);
@@ -2103,7 +2116,7 @@ export function removeProjectWithProgress(
     // metadata index is a disposable cache reconcileGameIndex rebuilds.
     try {
       localStorage.removeItem(getStorageKey(target.project));
-      clearProjectSaveJournals(localStorage, target.project, removed.removedLifetime);
+      clearProjectSaveJournals(localStorage, target.project);
     } catch (error) {
       console.error("Project removal cleanup failed after the records left:", error);
     }
@@ -2426,7 +2439,7 @@ async function classifyStoredProject(
     data.library = readLibrary(data);
     const history = (raw as StoredGameBody).editHistory;
     if (history !== undefined) historyBlobKeys(id, history);
-    const rejected = rememberedProjectReadError(id, data.generation);
+    const rejected = rememberedProjectReadError(id, data.generation, await readHistoryLifetime(id));
     if (rejected !== undefined) throw rejected;
     return { state: "readable", data };
   } catch (error) {
