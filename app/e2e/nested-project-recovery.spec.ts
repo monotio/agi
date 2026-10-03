@@ -84,3 +84,49 @@ for (const state of ["unsupported", "corrupt"] as const) {
     ).toBeVisible();
   });
 }
+
+for (const damage of ["hash", "content"] as const) {
+  test(`opening ${damage} damage in a History blob offers raw Download`, async ({ page }) => {
+    await isolateStorage(page);
+    await page.goto("/#create-adventure");
+    await page
+      .getByTestId("create-adventure-disclosure")
+      .getByLabel("Name", { exact: true })
+      .fill("Damaged History");
+    await page.getByTestId("local-create-kind-starter").click();
+    await page.getByRole("button", { name: "Start building", exact: true }).click();
+    await expect(page.getByTestId("parts-list")).toBeVisible();
+    await page.getByTestId("part-notes").click();
+    await page.getByLabel("Game notes", { exact: true }).fill("History entry");
+    await expect(page.getByTestId("workspace-saved")).toHaveText("Saved");
+    await page.getByRole("button", { name: "Back to library", exact: true }).click();
+    const id = await page.evaluate(async (damage) => {
+      const storage = await import("/src/project/gameStorage.ts");
+      const id = storage
+        .listCachedGames()
+        .find((game) => game.title === "Damaged History")!.projectId;
+      await storage.bodyTransaction("readwrite", (store) => {
+        const head = store.get(id);
+        head.onsuccess = () => {
+          const key = `project-history/${id}/blobs/${head.result.editHistory.blobs[0]}`;
+          const row = store.get(key);
+          row.onsuccess = () =>
+            store.put({ ...row.result, content: damage === "hash" ? "CORRUPT_CONTENT" : 42 });
+        };
+        return head;
+      });
+      return id;
+    }, damage);
+    await page.getByTestId(`saved-game-card-${id}`).getByTestId("btn-resume-cached").click();
+    const card = page.getByTestId(`unsupported-project-card-${id}`);
+    await expect(card).toContainText("Saved project needs recovery");
+    const pending = page.waitForEvent("download");
+    await card.getByRole("button", { name: "Download", exact: true }).click();
+    const body = JSON.parse(await readFile((await (await pending).path())!, "utf8"));
+    const records = decodeJournalValue(body.records) as { value: { content: unknown } }[];
+    expect(records.map(({ value }) => value.content)).toContain(
+      damage === "hash" ? "CORRUPT_CONTENT" : 42,
+    );
+    await page.screenshot({ path: test.info().outputPath(`damaged-history-${damage}.png`) });
+  });
+}

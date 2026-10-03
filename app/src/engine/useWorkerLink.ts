@@ -508,6 +508,8 @@ export function useWorkerLink(options: WorkerLinkOptions) {
         // The world map's raw observations. Superseded sessions are already
         // dropped by the sessionId ingress filter; a replaced worker's late
         // traffic never reaches this handler.
+        hook.room = msg.to;
+        publishHook();
         state.roomJournal.push(msg);
         deps.observeRoom?.(msg);
         if (state.roomJournal.length > 4000)

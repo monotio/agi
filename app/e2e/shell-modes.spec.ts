@@ -28,8 +28,14 @@ async function bootTutorial(page: Parameters<typeof textHook>[0]): Promise<void>
   await waitForCycles(page, 2);
 }
 
+// A resize can briefly leave no visible surface; polls read zero until it returns.
 const surfaceBox = async (page: Parameters<typeof textHook>[0]) =>
-  (await page.locator(".game-surface:visible").boundingBox())!;
+  (await page.locator(".game-surface:visible").boundingBox()) ?? {
+    x: 0,
+    y: 0,
+    width: 0,
+    height: 0,
+  };
 
 test("Play fits the game to a whole multiple of the frame and the Ask drawer resizes it", async ({
   page,
@@ -142,7 +148,13 @@ test("short windows fit the whole game under the bar and the top bar never overl
     await page.setViewportSize({ width, height });
     if (screenWidth)
       await expect.poll(async () => (await surfaceBox(page)).width).toBe(screenWidth);
-    else await expect.poll(async () => (await surfaceBox(page)).width).toBeLessThan(640);
+    else
+      await expect
+        .poll(async () => {
+          const { width } = await surfaceBox(page);
+          return width > 0 && width < 640;
+        })
+        .toBe(true);
     const layout = await page.evaluate(() => {
       const rect = (selector: string) => document.querySelector(selector)!.getBoundingClientRect();
       const body = document.querySelector(".shell-body")!;

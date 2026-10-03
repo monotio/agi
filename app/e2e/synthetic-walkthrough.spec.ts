@@ -58,21 +58,20 @@ test.describe("Synthetic Walkthrough", () => {
       )
       .toBe(2);
 
-    // Verify score reaches 50
-    await expect
-      .poll(
-        async () => {
-          const obs = await page.evaluate(() => window.__AGI_REPLAY__?.latest);
-          return obs?.state.vars[3] ?? 0;
-        },
-        { timeout: 15_000 },
-      )
-      .toBe(50);
+    // Observe the score and pause in the same browser turn. The tape has only
+    // 48 ticks left at score 50; a host-side poll followed by a click can arrive
+    // after completion at 4x.
+    await page.waitForFunction(() => {
+      if (window.__AGI_REPLAY__?.latest?.state.vars[3] !== 50) return false;
+      const pause = document.querySelector<HTMLButtonElement>(
+        '[data-testid="btn-walkthrough-pause"]',
+      );
+      if (!pause || pause.disabled) return false;
+      pause.click();
+      return true;
+    });
 
-    // Marker click seeks back to Start (marker 0). A seek keeps play or pause,
-    // and at 8x a playing replay passes tick 50 within a third of a second, so
-    // pause first: the paused seek holds where it lands.
-    await page.getByTestId("btn-walkthrough-pause").click();
+    // A paused seek holds at Start while we inspect its position.
     await expect
       .poll(() => page.evaluate(() => window.__AGI_STATE__?.walkthrough.status))
       .toBe("paused");

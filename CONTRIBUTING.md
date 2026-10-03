@@ -217,10 +217,10 @@ IndexedDB acknowledgement. Edits arriving during either await are included until
 the queue and durable owner are both settled; continuous typing can extend that
 barrier. A refused edit identifies its document and retains its draft. Retry has
 the same success contract. Exit, project replacement and version naming await
-this barrier for writable sessions. Stale and removed sessions can reload or leave
-without writing. Download attempts the barrier and can offer the admitted project
+this barrier for writable sessions. Stale sessions can reload or leave; removed
+sessions can leave without writing. Download attempts the barrier and can offer the admitted project
 with a limitations report after a failure. Discard and exit deliberately retires
-pending editor work and stays disabled while Retry is pending.
+pending editor work. Discard and exit and Back to game stay disabled while Retry is pending.
 A named version contains the visible documents, including invalid source, while
 the playable image remains the last admissible build. Restore, Undo and Redo keep
 their busy guards.
@@ -230,16 +230,23 @@ and WORDS meaning changes synchronously journal their latest content and
 session/project identity. SOUND bytes and tempo
 share that intent. The journal carries edited documents and operations since the
 durable base, rather than compiled files or serialized History per keystroke.
-Recovery validates the project lifetime and base, then replays preparation and
+Compatible recovery validates the project lifetime and base, then replays preparation and
 History. Invalid LOGIC stays editable and retains the prior runnable image.
 Admission transfers each gesture's intent, including derived companion metadata,
 into the pending save capture. Durable acknowledgement retires that capture. Later
 Undo and Restore supersede those document operations. Journals whose base has ended
-retain their bytes and offer a recovery download; an unchanged terminal journal
+retain their bytes and offer Discard pending edits; an unchanged terminal journal
 is excluded from later replay attempts. Recovery
 requires available browser storage; clearing site data or exhausting recovery
 storage can prevent immediate-close recovery. Saved confirms the IndexedDB
-project acknowledgement.
+project acknowledgement. Deferred MAIN admission publishes the accepted image without
+queuing another source write. Checkpoint preparation waits for active admission
+attempts before proving its revision. Create reload opens the current saved
+documents when MAIN's checkpoint belongs to an earlier build, preserving that
+checkpoint. Explicit Play requires a matching checkpoint. Removing a project
+clears its pending-edit journals and recovery notices. Home reads the body and lifetime to bind
+progress; History blobs load when the project opens. An open that rejects a blob
+returns the project to the recovery card with its raw Download.
 
 A writing session holds an exclusive Web Lock named by its journal key until
 it closes. Recovery requests that lock with `ifAvailable` and skips live owners.

@@ -345,7 +345,7 @@ async function openProjectPart(projectId: ProjectId, family: "logic" | "sound"):
     const stored = lib.savedGames.value.find((game) => game.projectId === projectId);
     if (!stored) return;
     shell.expectCreate(projectId);
-    await lib.onPlayLibraryGame(stored);
+    await lib.onPlayLibraryGame(stored, undefined, undefined, "create");
     shell.expectCreate(projectId);
   } else shell.setMode("create");
   const { loadAuthoredGame } = await import("./project/gameStorage.ts");
@@ -620,7 +620,13 @@ async function openRoutedGame(key: string): Promise<void> {
     parseGameHash(location.hash)?.mode !== "create"
   )
     return;
-  if (stored) return lib.onPlayLibraryGame(stored);
+  if (stored)
+    return lib.onPlayLibraryGame(
+      stored,
+      undefined,
+      undefined,
+      parseGameHash(location.hash)?.mode === "create" ? "create" : "play",
+    );
   try {
     await lib.onPlayLocalGame(key);
   } catch (error) {

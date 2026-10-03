@@ -549,6 +549,11 @@ test("every WorkerOutbound member reaches its handler once", async () => {
         });
         assert.equal(state.roomJournal.length, 1, "the journal collected the observation");
         assert.equal(state.roomJournal[0]!.to, 3);
+        assert.equal(
+          hook.room,
+          3,
+          "the room transition updates the player observation immediately",
+        );
         break;
       case "flushed":
         deliver(w, {

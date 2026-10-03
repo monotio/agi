@@ -181,7 +181,7 @@ test("binary History blobs use owned byte rows and hydrate exact portable conten
   assert.deepEqual((await storage.loadAuthoredGame(request.projectId))!.projectHistory, offered);
 });
 
-test("library classification checks History envelopes without reading content", async () => {
+test("library discovery reads the manifest; an open rejection offers raw recovery", async () => {
   const { request } = capture("history-envelope-only");
   await storage.commitProject(request);
   const key = [...records.keys()].find((key) =>
@@ -206,11 +206,35 @@ test("library classification checks History envelopes without reading content", 
       storage.loadAuthoredGame(request.projectId),
       /Full History content was read/,
     );
+    assert.equal(
+      (await storage.listUnsupportedStoredProjects()).find(
+        (entry) => entry.projectId === request.projectId,
+      )?.state,
+      "corrupt",
+    );
   } finally {
     Array.from = from;
     records.delete(key);
     records.delete(request.projectId);
   }
+});
+
+test("removing a corrupt project retires its rejected-open classification", async () => {
+  const { request } = capture("recreated-history");
+  await storage.commitProject(request);
+  const key = [...records.keys()].find((key) =>
+    String(key).startsWith(`project-history/${request.projectId}/blobs/`),
+  )!;
+  records.set(key, { ...(records.get(key) as object), content: 42 });
+  await assert.rejects(storage.loadAuthoredGame(request.projectId));
+  await storage.clearCachedGame(request.projectId);
+  await storage.commitProject({ ...request, commitId: "recreated" });
+  assert.equal(
+    (await storage.listUnsupportedStoredProjects()).some(
+      (entry) => entry.projectId === request.projectId,
+    ),
+    false,
+  );
 });
 
 test("recovery captures creative records and checks every record for encoding", async () => {
@@ -245,4 +269,27 @@ test("recovery disables Download for an unencodable sibling History record", asy
     (entry) => entry.projectId === request.projectId,
   )!;
   assert.equal(card.recoverable, false);
+});
+
+test("Home discovery reads project bodies without any History blob I/O", async () => {
+  const { request } = capture("home-history-io");
+  await storage.commitProject(request);
+  const get = records.get;
+  const reads: IDBValidKey[] = [];
+  records.get = function (key) {
+    reads.push(key);
+    return get.call(this, key);
+  };
+  try {
+    await storage.listUnsupportedStoredProjects();
+    await storage.reconcileGameIndex();
+    const { bindSavedProgressTarget } = await import("../src/project/progressBinding.ts");
+    await bindSavedProgressTarget(request.projectId);
+    assert.equal(
+      reads.some((key) => String(key).startsWith(`project-history/${request.projectId}/`)),
+      false,
+    );
+  } finally {
+    records.get = get;
+  }
 });

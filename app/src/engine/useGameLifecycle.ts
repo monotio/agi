@@ -86,6 +86,7 @@ export interface GameLifecycleOptions {
   /** The history transport's scratch session dies with the worker. */
   readonly resetHistoryView: () => void;
   readonly flushProject?: () => Promise<void>;
+  readonly pendingEditorChanges?: () => boolean;
   readonly getProjectMode?: () => "create" | "play";
   readonly getSessionId: () => number;
   readonly nextSessionId: () => number;
@@ -1221,13 +1222,15 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
       await options.flushProject?.();
     } catch {
       notes.push(
-        "Latest editor changes could not be saved. This backup contains the last applied project changes. Keep this tab open to recover pending changes.",
+        "Latest editor changes could not be saved. The download contains the game and edits already accepted by this tab. Choose Retry to save pending edits.",
       );
     }
-    if (game.removed || needsReload(game))
-      notes.push(
-        "This tab's project differs from browser storage; this backup contains the running version.",
-      );
+    if (options.pendingEditorChanges?.())
+      notes.push("Pending editor changes are omitted from this download. They remain in this tab.");
+    if (game.removed)
+      notes.push("This project was removed. The download contains this tab's running version.");
+    else if (needsReload(game))
+      notes.push("Changed in another tab. The download contains this tab's running version.");
     if (game !== booted) throw new Error("The game changed during download. Try again.");
     const progressTarget = game.progressTarget;
     const session = options.authoring?.getSession() ?? null;

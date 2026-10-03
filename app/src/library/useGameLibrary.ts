@@ -929,6 +929,7 @@ export function createGameLibrary(
     game: CachedGameMeta,
     expected?: ProgressTarget,
     isCurrent?: () => boolean,
+    mode: "play" | "create" = "play",
   ): Promise<void> {
     selectLibraryGame(game);
     const selected = game.projectId;
@@ -950,6 +951,12 @@ export function createGameLibrary(
       target !== null &&
       autosave.game.identity.revision !== target.identity.revision
     ) {
+      // Create opens durable documents even while MAIN's latest checkpoint
+      // still names the preceding image. Explicit Play retains its refusal.
+      if (mode === "create") {
+        await onBootSavedGame(false, context, expected ?? target, isCurrent);
+        return;
+      }
       state.phase = "error";
       state.error =
         "This checkpoint belongs to a different revision. Restore its matching game resources or open Earlier progress.";
@@ -1418,6 +1425,7 @@ export function createGameLibrary(
       const liveProfile = live ? state.profile : null;
       const liveRemoved = game?.removed;
       const liveBehindStorage = game?.behindStorage;
+      const liveStale = state.staleTab;
       const notes: string[] = [...(exportResult?.notes ?? [])];
       if (live && project && !(await flushAutosave(2000).catch(() => false)))
         notes.push(
@@ -1482,9 +1490,7 @@ export function createGameLibrary(
       // binding captured at entry, or the stored body's epoch target. No
       // bare legacy spelling or derived key ever reaches storage here.
       const ownerTarget: ProgressTarget | undefined = live
-        ? liveRemoved === true ||
-          liveBehindStorage === true ||
-          (exportResult?.notes.length ?? 0) > 0
+        ? liveRemoved === true || liveBehindStorage === true || liveStale
           ? undefined
           : liveTarget
         : (storedTarget ?? undefined);
@@ -1642,7 +1648,8 @@ export function createGameLibrary(
           (game !== null && computeResourceRevision(game.files) !== liveRevision) ||
           state.profile !== liveProfile ||
           game?.removed !== liveRemoved ||
-          game?.behindStorage !== liveBehindStorage
+          game?.behindStorage !== liveBehindStorage ||
+          state.staleTab !== liveStale
         )
           throw new Error("The game changed during download. Try again.");
       } else {
@@ -1666,6 +1673,8 @@ export function createGameLibrary(
       URL.revokeObjectURL(url);
       if (backup && !backup.report.complete)
         exportRefusal.value = `Backup downloaded with limitations: ${backup.report.notes.join(" ")}`;
+      else if (!project && notes.length > 0)
+        exportRefusal.value = `Game exported with limitations: ${notes.join(" ")}`;
     } catch (error) {
       exportRefusal.value = `Download failed: ${String(error).replace(/^Error: /, "")}`;
     } finally {

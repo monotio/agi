@@ -111,7 +111,7 @@ for (const mode of ["locks", "fallback-success", "fallback-conflict"] as const) 
   });
 }
 
-test("a journal from a deleted lifetime preserves its bytes beside a recreated project", async ({
+test("removal clears ended journals before a recreated project opens", async ({
   page,
   context,
 }) => {
@@ -159,10 +159,10 @@ test("a journal from a deleted lifetime preserves its bytes beside a recreated p
       raw: localStorage.getItem(key),
     };
   }, original.key);
-  expect(result).toEqual({ title: "Recreated", raw: original.raw });
+  expect(result).toEqual({ title: "Recreated", raw: null });
 });
 
-test("a terminal journal offers its exact pending bytes in Create and Home", async ({ page }) => {
+test("a terminal journal offers discard in Create and Home", async ({ page }) => {
   await isolateStorage(page);
   await page.goto("/#create-adventure");
   await page
@@ -206,16 +206,21 @@ test("a terminal journal offers its exact pending bytes in Create and Home", asy
   });
   await page.reload();
   const notice = page.getByTestId("pending-edit-recovery").filter({ visible: true });
-  await expect(notice).toContainText("Pending edits need recovery");
-  const pending = page.waitForEvent("download");
-  await notice.getByRole("button", { name: "Download edits" }).click();
-  const download = await pending;
-  const { readFile } = await import("node:fs/promises");
-  const body = JSON.parse(await readFile((await download.path())!, "utf8"));
-  expect(body.journals[0]).toMatchObject({ key: original.key, raw: original.raw });
+  await expect(notice).toContainText("Pending edits belong to an earlier project version");
   await page.screenshot({ path: test.info().outputPath("pending-recovery.png") });
   await page.getByRole("button", { name: "Back to library", exact: true }).click();
   await expect(
     page.getByTestId(`saved-game-card-${original.id}`).getByTestId("pending-edit-recovery"),
   ).toBeVisible();
+  await page
+    .getByTestId(`saved-game-card-${original.id}`)
+    .getByRole("button", { name: "Discard pending edits" })
+    .click();
+  await expect(page.getByTestId("pending-edit-recovery")).toBeHidden();
+  expect(await page.evaluate((key) => localStorage.getItem(key), original.key)).toBeNull();
+  expect(
+    await page.evaluate(() =>
+      Object.keys(localStorage).filter((key) => key.startsWith("monotio_agi.project-recovery.")),
+    ),
+  ).toEqual([]);
 });

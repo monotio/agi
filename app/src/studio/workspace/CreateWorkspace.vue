@@ -348,6 +348,7 @@ function editorChanges(key: string, value: ProjectContent): readonly ProjectChan
   }
   return [{ key, content: value }];
 }
+const actionBusy = ref(false);
 const writes = createWorkspaceWrites({
   async durable() {
     await session?.flush();
@@ -373,8 +374,8 @@ const writes = createWorkspaceWrites({
   },
   changed(drafts, busy) {
     optimistic.value = drafts;
-    editor.busy.value = busy;
-    if (busy) editor.save.value = "Saving…";
+    editor.busy.value = busy || actionBusy.value;
+    if (editor.busy.value) editor.save.value = "Saving…";
     else refresh();
   },
   error(cause) {
@@ -556,6 +557,7 @@ async function wordChange(
   }
 }
 async function guidedAction(action: WorkspaceAction): Promise<void> {
+  actionBusy.value = true;
   editor.busy.value = true;
   try {
     await writes.flush();
@@ -591,6 +593,7 @@ async function guidedAction(action: WorkspaceAction): Promise<void> {
   } catch (cause) {
     editor.error.value = String(cause instanceof Error ? cause.message : cause);
   } finally {
+    actionBusy.value = false;
     editor.busy.value = false;
     refresh();
   }
