@@ -323,7 +323,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         id: "share",
         title: "Export and share",
         body: [
-          "Both live in Settings → This game. Export game makes a ZIP of the playable game and its public details. Download game adds everything else: the authoring conversation, images, notes, tests, history and saves. Either one opens again with Add game, in any browser.",
+          "Both live in Settings → This game. Export game makes a ZIP of the playable game and its public details. Download game adds available conversation, images, notes, tests, history and saves. A backup reports its limitations. Either one opens again with Add game, in any browser.",
         ],
       },
       {
