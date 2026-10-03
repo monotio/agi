@@ -151,6 +151,8 @@ code, comments or documentation.
 
 ## Code conventions
 
+- Vue uses current idioms: reactive props destructure, `useTemplateRef`,
+  `onWatcherCleanup` and same-name `v-bind`; the `vue-*` ast-grep rules enforce them.
 - TypeScript strict with `noUncheckedIndexedAccess` and `exactOptionalPropertyTypes`;
   ESM with explicit `.ts` import specifiers.
 - Tests and scripts run under Node strip-types, so nothing they import may use
