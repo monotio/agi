@@ -1,7 +1,10 @@
 <script setup lang="ts">
 import { ref, watch, onMounted, onUnmounted } from "vue";
 import type { ProjectId } from "../../../src/gameIdentity.ts";
-import { readProjectSaveRecoveries } from "../project/projectSaveJournal.ts";
+import {
+  discardProjectSaveRecoveries,
+  readProjectSaveRecoveries,
+} from "../project/projectSaveJournal.ts";
 import UiButton from "../ui/UiButton.vue";
 
 const { projectId } = defineProps<{ projectId: ProjectId | undefined }>();
@@ -16,25 +19,15 @@ function refresh(): void {
 watch(() => projectId, refresh, { immediate: true });
 onMounted(() => window.addEventListener("storage", refresh));
 onUnmounted(() => window.removeEventListener("storage", refresh));
-function download(): void {
-  const content = JSON.stringify({
-    format: "monotio.agi.pending-edit-recovery",
-    version: 1,
-    projectId,
-    journals: recoveries.value,
-  });
-  const url = URL.createObjectURL(new Blob([content], { type: "application/json" }));
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = `${projectId}-pending-edits.json`;
-  link.click();
-  URL.revokeObjectURL(url);
+function discard(): void {
+  if (projectId) discardProjectSaveRecoveries(localStorage, projectId, recoveries.value);
+  refresh();
 }
 </script>
 
 <template>
   <div v-if="recoveries.length" data-testid="pending-edit-recovery" role="status">
-    <p>Pending edits need recovery. Download them before removing this game.</p>
-    <UiButton size="sm" @click="download">Download edits</UiButton>
+    <p>Pending edits belong to an earlier project version. Discard them to clear this notice.</p>
+    <UiButton size="sm" @click="discard">Discard pending edits</UiButton>
   </div>
 </template>

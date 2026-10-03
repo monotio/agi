@@ -12,8 +12,7 @@
  * resolves to null rather than to a shared legacy key.
  */
 import { projectId } from "../../../src/gameIdentity.ts";
-import { gameRevision } from "./gameMetadata.ts";
-import { loadAuthoredGameWithHistoryLifetime } from "./gameStorage.ts";
+import { loadProjectProgressIdentity } from "./gameStorage.ts";
 import {
   installedProgressTarget,
   parseProgressLocator,
@@ -115,8 +114,8 @@ export async function bindSavedProgressTarget(
 ): Promise<ProjectProgressTarget | null> {
   const id = projectId(project);
   if (id === null) return null;
-  const loaded = await loadAuthoredGameWithHistoryLifetime(id);
+  const loaded = await loadProjectProgressIdentity(id);
   if (loaded === null || loaded.lifetime === null) return null;
-  const revision = loaded.data.library?.revision ?? (await gameRevision(loaded.data.files));
+  const revision = loaded.revision;
   return projectProgressTarget(id, revision, loaded.lifetime);
 }

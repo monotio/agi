@@ -28,6 +28,30 @@ function readEntries(storage: Storage, key: string): JournalEntry[] {
 }
 const PREFIX = "monotio_agi.project-writes.";
 const RECOVERY_PREFIX = "monotio_agi.project-recovery.";
+export function clearProjectSaveJournals(storage: Storage, project: ProjectId): void {
+  const keys = Array.from({ length: storage.length }, (_, index) => storage.key(index));
+  for (const key of keys)
+    if (
+      key?.startsWith(`${PREFIX}${project}.`) ||
+      key?.startsWith(`${RECOVERY_PREFIX}${project}.`)
+    ) {
+      storage.removeItem(key);
+      delete terminal[key];
+    }
+}
+
+export function discardProjectSaveRecoveries(
+  storage: Storage,
+  project: ProjectId,
+  observed: readonly { key: string; raw: string }[],
+): void {
+  for (const { key, raw } of observed) {
+    if (!key.startsWith(`${PREFIX}${project}.`) || storage.getItem(key) !== raw) continue;
+    storage.removeItem(key);
+    storage.removeItem(`${RECOVERY_PREFIX}${key.slice(PREFIX.length)}`);
+    delete terminal[key];
+  }
+}
 interface RecoveryMarker {
   version: 1;
   hash: string;

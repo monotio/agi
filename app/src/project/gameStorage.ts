@@ -1,6 +1,6 @@
 import { readAgentChats, appendAgentTasks, type AgentChat } from "../../../src/agent/chats.ts";
 import { encodeJournalValue, type ProjectJournalCapture } from "./projectJournalCapture.ts";
-import { resumeProjectSaveJournals } from "./projectSaveJournal.ts";
+import { clearProjectSaveJournals, resumeProjectSaveJournals } from "./projectSaveJournal.ts";
 import { historyBlobKeys, type StoredProjectHistory } from "./projectHistoryStorageHeader.ts";
 import {
   readProjectWorkspace,
@@ -935,6 +935,10 @@ export function readStoredBody(raw: unknown, projectId: ProjectId): CachedGameDa
   if (normalized.library !== undefined) normalized.library = readLibrary(normalized);
   return normalized;
 }
+const rejectedProjectReads = new Map<
+  ProjectId,
+  { generation: number | undefined; error: unknown }
+>();
 async function readBody(
   projectId: ProjectId,
   onLifetime?: (lifetime: string | null) => void,
@@ -952,12 +956,28 @@ async function readBody(
       "The saved project data is unavailable. Open a downloaded project to recover it.",
     );
   const data = readStoredBody(stored, projectId);
-  if (stored.editHistory !== undefined)
-    data.projectHistory = (await import("./projectHistoryStorage.ts")).hydrateProjectHistory(
-      projectId,
-      stored.editHistory,
-      snapshot.records,
-    );
+  try {
+    if (stored.editHistory !== undefined) {
+      for (const key of historyBlobKeys(projectId, stored.editHistory)) {
+        const row = snapshot.records.get(key);
+        if (row === undefined) throw new Error("This project History blob is missing.");
+        readStoredFormat(
+          row,
+          "monotio.agi.project-history-blob",
+          "This project History blob version is not supported by this app.",
+        );
+      }
+      data.projectHistory = (await import("./projectHistoryStorage.ts")).hydrateProjectHistory(
+        projectId,
+        stored.editHistory,
+        snapshot.records,
+      );
+    }
+    rejectedProjectReads.delete(projectId);
+  } catch (error) {
+    rejectedProjectReads.set(projectId, { generation: data.generation, error });
+    throw error;
+  }
   data.library = readLibrary(data);
   return data;
 }
@@ -1509,6 +1529,26 @@ export async function loadAuthoredGame(projectId: ProjectId): Promise<CachedGame
   return serializeWrite(projectId, () => readBody(projectId));
 }
 
+/** Home binds progress from the body and lifetime without loading editor History blobs. */
+export async function loadProjectProgressIdentity(projectId: ProjectId) {
+  const recovery =
+    typeof localStorage === "undefined"
+      ? undefined
+      : resumeProjectSaveJournals(localStorage, projectId, commitProject, recoverProjectJournal);
+  if (recovery !== undefined) await recovery;
+  return serializeWrite(projectId, async () => {
+    const snapshot = await readBodyRecords(projectId, () => [`lifetime/${projectId}`]);
+    if (snapshot.head === undefined) return null;
+    const data = readStoredBody(snapshot.head, projectId);
+    const rejected = rejectedProjectReads.get(projectId);
+    if (rejected !== undefined && rejected.generation === data.generation) throw rejected.error;
+    return {
+      revision: readLibrary(data).revision,
+      lifetime: liveLifetime(snapshot.records.get(`lifetime/${projectId}`) as HistoryLifetime),
+    };
+  });
+}
+
 /** Body and lifetime are read from one snapshot before a worker can start. */
 export async function loadAuthoredGameWithHistoryLifetime(
   projectId: ProjectId,
@@ -1961,7 +2001,10 @@ async function removeProjectRecords(
     };
     transaction.oncomplete = () => {
       if (outcome === undefined) reject(new Error("Project storage transaction closed early."));
-      else resolve(outcome);
+      else {
+        rejectedProjectReads.delete(project);
+        resolve(outcome);
+      }
     };
     transaction.onerror = () => reject(contractError ?? transaction.error);
     transaction.onabort = () =>
@@ -1978,6 +2021,7 @@ export function clearCachedGame(projectId: ProjectId): Promise<void> {
     // history — and the legacy progress under its bare id is captured into a
     // durable recovery record before any of it leaves.
     const removed = await removeProjectRecords(projectId);
+    clearProjectSaveJournals(localStorage, projectId);
     localStorage.removeItem(getStorageKey(projectId));
     // A tab running the removed lifetime stops writing for it at once; one
     // already removed has no lifetime left to end.
@@ -2016,6 +2060,7 @@ export function removeProjectWithProgress(
     } catch (error) {
       console.error("Project removal cleanup failed after the records left:", error);
     }
+    clearProjectSaveJournals(localStorage, target.project);
     return { recoveryId: removed.recoveryId, retiredLocator: target.locator };
   });
 }
@@ -2327,32 +2372,14 @@ type StoredProjectClassification =
 async function classifyStoredProject(
   id: ProjectId,
   raw: unknown,
-  historyRecords?: ReadonlyMap<string, unknown>,
 ): Promise<StoredProjectClassification> {
   try {
     const data = readStoredBody(raw, id);
     data.library = readLibrary(data);
     const history = (raw as StoredGameBody).editHistory;
-    if (history !== undefined) {
-      if (historyRecords === undefined) {
-        // The body and every referenced blob must come from the same snapshot.
-        // Unrelated play timelines and orphan History blobs stay off this path.
-        const snapshot = await readBodyRecords(id, (head) => {
-          readStoredBody(head, id);
-          return historyBlobKeys(id, (head as StoredGameBody).editHistory);
-        });
-        return await classifyStoredProject(id, snapshot.head, snapshot.records);
-      }
-      for (const key of historyBlobKeys(id, history)) {
-        const row = historyRecords.get(key);
-        if (row === undefined) throw new Error("This project History blob is missing.");
-        readStoredFormat(
-          row,
-          "monotio.agi.project-history-blob",
-          "This project History blob version is not supported by this app.",
-        );
-      }
-    }
+    if (history !== undefined) historyBlobKeys(id, history);
+    const rejected = rejectedProjectReads.get(id);
+    if (rejected !== undefined && rejected.generation === data.generation) throw rejected.error;
     return { state: "readable", data };
   } catch (error) {
     let recoverable = true;
@@ -2376,7 +2403,7 @@ async function unsupportedStoredProject(
 ): Promise<UnsupportedStoredProject | null> {
   const id = projectId(key);
   if (!id) return null;
-  const classified = await classifyStoredProject(id, value, historyRecords);
+  const classified = await classifyStoredProject(id, value);
   if (classified.state === "readable") return null;
   let recoverable = classified.recoverable;
   try {

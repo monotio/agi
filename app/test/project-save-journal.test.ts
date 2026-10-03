@@ -207,3 +207,33 @@ test("a recovery marker failure still opens the project and exposes retained edi
     cache.setItem = setItem;
   }
 });
+
+test("discard removes only the observed recovery bytes and removal clears both journal namespaces", async () => {
+  const { discardProjectSaveRecoveries, clearProjectSaveJournals } =
+    await import("../src/project/projectSaveJournal.ts");
+  const values = new Map<string, string>();
+  const storage = {
+    clear: () => values.clear(),
+    get length() {
+      return values.size;
+    },
+    key: (i: number) => [...values.keys()][i] ?? null,
+    getItem: (key: string) => values.get(key) ?? null,
+    setItem: (key: string, value: string) => values.set(key, value),
+    removeItem: (key: string) => values.delete(key),
+  } as Storage;
+  const project = "discard-recovery" as never;
+  const key = projectSaveJournalKey(project, "owner");
+  const marker = key.replace("project-writes.", "project-recovery.");
+  values.set(key, "newer");
+  values.set(marker, "marker");
+  discardProjectSaveRecoveries(storage, project, [{ key, raw: "older" }]);
+  assert.equal(values.get(key), "newer");
+  discardProjectSaveRecoveries(storage, project, [{ key, raw: "newer" }]);
+  assert.equal(values.size, 0);
+  values.set(key, "pending");
+  values.set(marker, "marker");
+  values.set(projectSaveJournalKey("other" as never, "owner"), "other");
+  clearProjectSaveJournals(storage, project);
+  assert.equal(values.size, 1);
+});
