@@ -43,8 +43,13 @@ import {
   projectSaveJournalKey,
   writeProjectSaveJournal,
 } from "./projectSaveJournal.ts";
+import type { ProjectChange, ProjectContent } from "../../../src/authoring/projectContent.ts";
 import type { CachedGameData } from "./gameTypes.ts";
-import { captureProjectJournal, type ProjectJournalCapture } from "./projectJournalCapture.ts";
+import {
+  captureProjectJournal,
+  journalCandidate,
+  type ProjectJournalCapture,
+} from "./projectJournalCapture.ts";
 import type { ProjectJournalOperation } from "./projectJournalReplay.ts";
 import type { PreviewUpdateOutcome } from "../worker/workerProtocol.ts";
 
@@ -53,8 +58,10 @@ interface SessionSave {
   readonly data: ProjectCommitRequest["data"];
   request?: ProjectCommitRequest;
   attempted?: boolean;
+  acknowledged?: true;
   operation: number;
   journal?: ProjectJournalCapture;
+  editorIntents: Record<string, number>;
 }
 export interface PendingProjectRestart {
   readonly action: "restart" | "reenter";
@@ -229,6 +236,17 @@ function createSession(
   function recordOperation(operation: ProjectJournalOperation) {
     operations.push({ index: ++operationSerial, operation });
   }
+  const editorIntents: Record<string, { content: ProjectContent; id: number }> = {};
+  let intentSerial = 0;
+  function sameContent(a: ProjectContent | undefined, b: ProjectContent): boolean {
+    return (
+      a === b ||
+      (a instanceof Uint8Array &&
+        b instanceof Uint8Array &&
+        a.length === b.length &&
+        a.every((value, index) => value === b[index]))
+    );
+  }
   let journalFrame: number | undefined;
   let journalKey = projectSaveJournalKey(data.projectId, input.admission.runToken);
   let releaseJournal = claimProjectSaveJournal(journalKey);
@@ -265,38 +283,80 @@ function createSession(
     };
     return capture.request;
   }
-  function persistPending(): void {
+  function persistPending(): Error | undefined {
     if (journalFrame !== undefined) {
       if (typeof cancelAnimationFrame !== "undefined") cancelAnimationFrame(journalFrame);
       else clearTimeout(journalFrame);
       journalFrame = undefined;
     }
-    if (input.write !== undefined || typeof localStorage === "undefined") return;
+    if (input.write !== undefined) return;
     try {
-      const entries = autosave.captures().map((capture) => {
-        if (capture.journal === undefined || !capture.attempted)
-          capture.journal = captureProjectJournal({
-            request: requestFor(capture),
-            base: journalBase,
-            expected: journalExpected,
-            openedAt,
-            baseImage: journalImage,
-            image: capture.snapshot.lastAdmissibleBuild!.documentId,
-            operations: operations
-              .filter(({ index }) => index > operationBase && index <= capture.operation)
+      if (typeof localStorage === "undefined") throw new Error("Browser storage is unavailable.");
+      const entries = autosave
+        .captures()
+        .filter((capture) => !capture.acknowledged)
+        .map((capture) => {
+          if (capture.journal === undefined || !capture.attempted)
+            capture.journal = captureProjectJournal({
+              request: requestFor(capture),
+              base: journalBase,
+              expected: journalExpected,
+              openedAt,
+              baseImage: journalImage,
+              image: capture.snapshot.lastAdmissibleBuild!.documentId,
+              operations: operations
+                .filter(({ index }) => index > operationBase && index <= capture.operation)
+                .map(({ operation }) => operation),
+            });
+          return { capture: capture.journal, attempted: capture.attempted === true };
+        });
+      const intents = Object.entries(editorIntents);
+      if (intents.length > 0) {
+        const snapshot = model.capture();
+        const image = snapshot.lastAdmissibleBuild!;
+        const changes = intents.map(([key, intent]) => ({
+          key,
+          content: intent.content,
+          version: snapshot.version(key) + 1,
+        }));
+        const request = {
+          ...requestFor({ snapshot, data, operation: operationSerial, editorIntents: {} }),
+          commitId: `editor-${input.admission.runToken}-${intentSerial}-${operationSerial}`,
+        };
+        const capture = captureProjectJournal({
+          request,
+          base: journalBase,
+          expected: journalExpected,
+          openedAt,
+          baseImage: journalImage,
+          image: image.documentId,
+          operations: [
+            ...operations
+              .filter(({ index }) => index > operationBase)
               .map(({ operation }) => operation),
-          });
-        return { capture: capture.journal, attempted: capture.attempted === true };
-      });
+            {
+              kind: "edit",
+              changes,
+              metadata: {
+                label: "Recovered editor changes",
+                origin: "logic",
+                author: "creator",
+                time: openedAt,
+              },
+            },
+          ],
+          editorIntent: true,
+        });
+        entries.push({ capture, attempted: false });
+      }
       writeProjectSaveJournal(localStorage, journalKey, entries);
     } catch {
-      // A failed write must retire earlier work rather than replaying a stale capture.
-      try {
-        localStorage.removeItem(journalKey);
-      } catch {
-        /* IndexedDB still owns saving when local storage is unavailable. */
-      }
+      // The previous recovery intent remains until its durable acknowledgement.
+      return new Error(
+        "Browser recovery storage could not keep this edit. Keep this tab open until Saved.",
+      );
     }
+    return undefined;
   }
   function scheduleJournal() {
     if (
@@ -345,6 +405,8 @@ function createSession(
         : input.write(capture.request!);
     },
     saved: (receipt, capture) => {
+      let previousKey: string | undefined;
+      let releasePrevious: (() => void) | undefined;
       if (receipt.saved.projectId !== data.projectId) {
         owners.delete(data.projectId);
         Object.assign(data, capture.request!.data, {
@@ -352,14 +414,14 @@ function createSession(
           generation: receipt.saved.generation,
         });
         owners.set(data.projectId, session);
-        const previousKey = journalKey;
-        releaseJournal();
+        previousKey = journalKey;
+        releasePrevious = releaseJournal;
         journalKey = projectSaveJournalKey(data.projectId, input.admission.runToken);
         releaseJournal = claimProjectSaveJournal(journalKey);
-        if (input.write === undefined && typeof localStorage !== "undefined")
-          localStorage.removeItem(previousKey);
         input.forked?.(structuredClone(data), receipt.saved.lifetime);
       }
+      for (const [key, id] of Object.entries(capture.editorIntents))
+        if (editorIntents[key]?.id === id) delete editorIntents[key];
       data.library = capture.request!.data.library;
       expected = { ...receipt.saved };
       journalExpected = { ...receipt.saved };
@@ -372,6 +434,16 @@ function createSession(
       };
       operationBase = capture.operation;
       operations = operations.filter(({ index }) => index > operationBase);
+      capture.acknowledged = true;
+      const recoveryError = persistPending();
+      releasePrevious?.();
+      if (
+        previousKey !== undefined &&
+        recoveryError === undefined &&
+        input.write === undefined &&
+        typeof localStorage !== "undefined"
+      )
+        localStorage.removeItem(previousKey);
       input.saved?.(capture.request!.data, receipt.saved.lifetime);
     },
     conflict: (error) =>
@@ -421,7 +493,17 @@ function createSession(
     if (next.files["WORDS.TOK"] !== undefined)
       next.words = parseWordsTok(next.files["WORDS.TOK"]).map(({ word, id }) => [word, id]);
     input.publish?.(snapshot, next, outcome, nativeInstalled);
-    autosave.enqueue({ snapshot, data: next, operation: operationSerial });
+    const capturedIntents = Object.fromEntries(
+      Object.entries(editorIntents)
+        .filter(([key, intent]) => sameContent(snapshot.read(key)?.content, intent.content))
+        .map(([key, intent]) => [key, intent.id]),
+    );
+    autosave.enqueue({
+      snapshot,
+      data: next,
+      operation: operationSerial,
+      editorIntents: capturedIntents,
+    });
   }
   async function apply(
     proposal: ProjectProposal,
@@ -603,6 +685,17 @@ function createSession(
   const session = {
     model,
     history,
+    rememberEditorChanges(changes: readonly ProjectChange[]) {
+      if (!current()) throw new Error("Project session is closed for writes.");
+      for (const change of changes) {
+        if (change.content === null) throw new Error("Editor recovery requires document content.");
+        editorIntents[change.key] = {
+          content: change.content instanceof Uint8Array ? change.content.slice() : change.content,
+          id: ++intentSerial,
+        };
+      }
+      return persistPending();
+    },
     get closed() {
       return !current();
     },
@@ -719,9 +812,14 @@ function createSession(
         scheduled = documentTail;
         await scheduled;
         await autosave.flush();
+        const status = autosave.status();
+        if (status.state !== "saved")
+          throw new Error(status.message || "Project save is pending. Retry the save.");
       } while (scheduled !== documentTail);
     },
-    retry: autosave.retry,
+    retry() {
+      return session.flush();
+    },
     capture() {
       return {
         snapshot: model.capture(),
@@ -770,6 +868,11 @@ function createSession(
         action,
       );
     },
+    discard() {
+      for (const key of Object.keys(editorIntents)) delete editorIntents[key];
+      autosave.dispose();
+      session.dispose();
+    },
     dispose() {
       persistPending();
       if (input.write === undefined && typeof removeEventListener !== "undefined") {
@@ -800,7 +903,7 @@ export async function rebuildProjectJournal(
   data: CachedGameData,
   capture: ProjectJournalCapture,
   storage: SessionStorage,
-): Promise<ProjectCommitRequest["data"]> {
+): Promise<ProjectCommitRequest> {
   let rebuilt: ProjectCommitRequest["data"] | undefined;
   const session = createSession(
     {
@@ -830,12 +933,23 @@ export async function rebuildProjectJournal(
     for (const operation of capture.operations) await session.replay(operation);
     if (rebuilt === undefined) await session.replay({ kind: "capture" });
     if (
-      session.model.capture().lastAdmissibleBuild?.identity.buildId !== capture.identity.buildId ||
-      session.model.capture().lastAdmissibleBuild?.documentId !== capture.image
+      capture.editorIntent !== true &&
+      (session.model.capture().lastAdmissibleBuild?.identity.buildId !== capture.identity.buildId ||
+        session.model.capture().lastAdmissibleBuild?.documentId !== capture.image)
     )
       throw new Error("Project journal could not rebuild its exact accepted image.");
     if (rebuilt === undefined) throw new Error("Project journal has no accepted capture.");
-    return rebuilt;
+    const snapshot = session.model.capture();
+    return journalCandidate(
+      capture,
+      rebuilt,
+      capture.editorIntent
+        ? {
+            buildId: snapshot.lastAdmissibleBuild!.identity.buildId,
+            documents: snapshot.keys.map((key) => ({ key, version: snapshot.version(key) })),
+          }
+        : undefined,
+    );
   } finally {
     session.dispose();
   }

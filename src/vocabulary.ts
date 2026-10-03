@@ -187,7 +187,7 @@ export const VOCABULARY = {
   closeEditor: {
     id: "closeEditor",
     label: "Close editor",
-    help: "Closes the active tab. Your changes stay saved.",
+    help: "Closes the active tab. Edits keep saving in the workspace.",
     technical: "",
   },
   lens: {
@@ -211,7 +211,7 @@ export const VOCABULARY = {
   waitingUpdate: {
     id: "waitingUpdate",
     label: "Updates when the game continues",
-    help: "Your edits are saved. The game uses them when it continues.",
+    help: "The game uses your edits when it continues.",
     technical: "Admission waits for a safe interpreter boundary.",
   },
   objectColumn: {
@@ -578,18 +578,23 @@ export const VOCABULARY = {
     help: "Shown as a note name such as A4.",
     technical: "AGI stores a frequency divisor. Pitch names use the nearest musical note.",
   },
-  saved: { id: "saved", label: "Saved", help: "Every change is saved as you go.", technical: "" },
+  saved: {
+    id: "saved",
+    label: "Saved",
+    help: "Saved means your edits are stored in this browser.",
+    technical: "",
+  },
   undo: { id: "undo", label: "Undo", help: "Steps back or forward one change.", technical: "" },
   history: {
     id: "history",
     label: "History",
-    help: "Every version of your game. Restore brings back an earlier one; later versions stay in History.",
+    help: "Saved versions of your game. Restore brings back an earlier one; later versions stay in History.",
     technical: "",
   },
   nameVersion: {
     id: "nameVersion",
     label: "Name this version",
-    help: "Gives the current version a name you can find in History.",
+    help: "Saves the visible edits and names this version, including source with errors.",
     technical: "",
   },
   agent: {

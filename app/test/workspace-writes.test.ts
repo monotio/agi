@@ -44,11 +44,86 @@ test("a refused live edit retains its text and retries it without holding Undo b
     error() {},
   });
   writes.edit("logic:1", "print(m1);");
-  await writes.flush();
+  await assert.rejects(writes.flush(), /logic:1.*refused/);
+  await assert.rejects(writes.retry(), /logic:1.*refused/);
   assert.equal(latest["logic:1"], "print(m1);");
   assert.equal(busy, false);
   fail = false;
   await writes.retry();
   assert.deepEqual(latest, {});
+  writes.dispose();
+});
+
+test("flush includes arriving edits and refuses a failed second write", async () => {
+  let release!: () => void;
+  const started = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let entered!: () => void;
+  const entering = new Promise<void>((resolve) => {
+    entered = resolve;
+  });
+  let fail = true;
+  const writes = createWorkspaceWrites({
+    async write(_key, content) {
+      if (content === "first") {
+        entered();
+        await started;
+      } else if (fail) throw new Error("second refused");
+    },
+    changed() {},
+    error() {},
+  });
+  writes.edit("notes", "first");
+  const barrier = writes.flush();
+  await entering;
+  writes.edit("logic:1", "second");
+  release();
+  await assert.rejects(barrier, /logic:1.*second refused/);
+  fail = false;
+  await writes.retry();
+  await writes.flush();
+  writes.dispose();
+});
+
+test("the workspace barrier includes edits arriving during durable persistence and rejects its failure", async () => {
+  let release!: () => void;
+  let started!: () => void;
+  const entering = new Promise<void>((resolve) => {
+    started = resolve;
+  });
+  const waiting = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const calls: string[] = [];
+  let durableCalls = 0;
+  let fail = false;
+  const writes = createWorkspaceWrites({
+    async write(_key, content) {
+      calls.push(String(content));
+    },
+    async durable() {
+      if (++durableCalls === 1) {
+        started();
+        await waiting;
+      }
+      if (fail) throw new Error("durable storage refused");
+    },
+    changed() {},
+    error() {},
+  });
+  writes.edit("notes", "first");
+  const flush = writes.flush();
+  await entering;
+  writes.edit("logic:1", "arrived during save");
+  release();
+  await flush;
+  assert.deepEqual(calls, ["first", "arrived during save"]);
+  assert.equal(durableCalls, 2);
+  fail = true;
+  await assert.rejects(writes.flush(), /durable storage refused/);
+  await assert.rejects(writes.retry(), /durable storage refused/);
+  fail = false;
+  await writes.retry();
   writes.dispose();
 });

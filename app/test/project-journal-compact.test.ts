@@ -15,7 +15,6 @@ import { installIndexedDbFixture } from "./indexedDbFixture.ts";
 import {
   captureProjectJournal,
   decodeJournalValue,
-  journalCandidate,
   type ProjectJournalCapture,
 } from "../src/project/projectJournalCapture.ts";
 import { rebuildProjectJournal } from "../src/project/projectSessionCore.ts";
@@ -176,11 +175,12 @@ test("journal writes coalesce on a frame and omit unedited resources and documen
   assert.equal(reopened.projectHistory!.commits.length, 3);
   assert.equal(journals().length, 0);
 });
-test("a quota failure removes the owner's stale journal and Saving awaits IndexedDB", async () => {
+test("a quota failure retains the previous recovery journal and Saving awaits IndexedDB", async () => {
   const owner = await session("compact-quota");
   await edit(owner, 'print("first"); return;');
   paint();
   assert.equal(journals().length, 1);
+  const before = journals()[0]![1];
   const setItem = storage.setItem;
   storage.setItem = () => {
     throw new Error("QuotaExceededError");
@@ -188,7 +188,7 @@ test("a quota failure removes the owner's stale journal and Saving awaits Indexe
   try {
     await edit(owner, 'print("latest"); return;');
     paint();
-    assert.equal(journals().length, 0);
+    assert.equal(journals()[0]?.[1], before);
     assert.equal(owner.saveStatus().state, "pending");
   } finally {
     storage.setItem = setItem;
@@ -236,13 +236,10 @@ test("an interrupted compact receipt rebases only its unattempted successor and 
   await edit(owner, 'print("first"); return;');
   paint();
   const first = captured();
-  const firstRequest = journalCandidate(
-    first,
-    await rebuildProjectJournal(baseData, first, {
-      commit: commitProject,
-      fingerprint: authoringFingerprint,
-    }),
-  );
+  const firstRequest = await rebuildProjectJournal(baseData, first, {
+    commit: commitProject,
+    fingerprint: authoringFingerprint,
+  });
   const receipt = (await commitProject(firstRequest, first.hash)).receipt;
   await edit(owner, 'print("second"); return;');
   paint();
@@ -498,4 +495,80 @@ test("recovery uses native documents for initial source errors before History ex
     ).text,
     "if (isset(",
   );
+});
+
+test("editor intent restores notes and invalid LOGIC before debounce or admission", async () => {
+  const opened = await session("journal-editor-intent");
+  opened.rememberEditorChanges([
+    { key: "notes", content: "immediate note" },
+    { key: "logic:0", content: "invalid LOGIC !!!" },
+    { key: "words", content: '[["newword",42]]' },
+  ]);
+  const before = opened.model.capture().lastAdmissibleBuild!.identity.buildId;
+  assert.equal(opened.model.capture().read("notes")!.content, "UNEDITED_SENTINEL");
+  opened.dispose();
+  const recovered = (await loadAuthoredGame(baseData.projectId))!;
+  const documents = recovered.workspace!.documents;
+  assert.equal(documents.find(({ key }) => key === "notes")!.content.type, "text");
+  assert.deepEqual(documents.find(({ key }) => key === "notes")!.content, {
+    type: "text",
+    text: "immediate note",
+  });
+  assert.deepEqual(documents.find(({ key }) => key === "logic:0")!.content, {
+    type: "text",
+    text: "invalid LOGIC !!!",
+  });
+  assert.deepEqual(documents.find(({ key }) => key === "words")!.content, {
+    type: "text",
+    text: '[["newword",42]]',
+  });
+  const restarted = openProjectSession({
+    data: recovered,
+    lifetime: opened.lifetime,
+    admission: {
+      runToken: "restored-editor",
+      admit: async () => {
+        throw new Error("invalid source reached engine");
+      },
+    },
+  });
+  assert.equal(restarted.model.capture().lastAdmissibleBuild!.identity.buildId, before);
+  restarted.dispose();
+});
+
+test("SOUND intent keeps the captured bytes and tempo together before admission", async () => {
+  const owner = await session("journal-editor-sound");
+  const { soundProjectChanges } = await import("../src/studio/sound/soundEdits.ts");
+  const original = Uint8Array.of(8, 0, 10, 0, 12, 0, 14, 0, 255, 255, 255, 255, 255, 255, 255, 255);
+  const bytes = original.slice();
+  owner.rememberEditorChanges(soundProjectChanges("sound:7", bytes, 180));
+  // An editor may reuse its event buffer; recovery belongs to the captured gesture.
+  bytes.fill(0);
+  owner.dispose();
+  const recovered = (await loadAuthoredGame(baseData.projectId))!;
+  assert.deepEqual(recovered.workspace!.documents.find(({ key }) => key === "sound:7")!.content, {
+    type: "bytes",
+    bytes: [...original],
+  });
+  const music = recovered.workspace!.documents.find(({ key }) => key === "music")!.content;
+  assert.ok(music.type === "text");
+  assert.equal(JSON.parse(music.text)["7"].tempo, 180);
+});
+
+test("a catalog fork acknowledgement keeps a newer editor intent recoverable immediately", async () => {
+  const owner = await session("journal-fork-intent", false, false, true);
+  await edit(owner, 'print("first remix"); return;');
+  owner.rememberEditorChanges([{ key: "notes", content: "newer than the fork receipt" }]);
+  const projectId = captured().identity.projectId;
+  await owner.flush();
+  assert.notEqual(projectId, baseData.projectId);
+  assert.equal(journals().length, 1);
+  assert.ok(journals()[0]![0].startsWith(`monotio_agi.project-writes.${projectId}.`));
+  assert.match(journals()[0]![1], /newer than the fork receipt/);
+  owner.dispose();
+  const recovered = (await loadAuthoredGame(projectId))!;
+  assert.deepEqual(recovered.workspace!.documents.find(({ key }) => key === "notes")!.content, {
+    type: "text",
+    text: "newer than the fork receipt",
+  });
 });

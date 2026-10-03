@@ -108,8 +108,9 @@ first room. Every part of these starting games is editable.
 
 To edit a saved game, open its library card’s **Game actions → Create**.
 The workspace keeps the game running beside its editors. LOGIC has code completion,
-hover documentation, definition navigation and a Problems panel. Typing saves
-as you go; a source error keeps the game on its last working build. **Undo** and
+hover documentation, definition navigation and a Problems panel. Edits save
+automatically; **Saved** confirms they are stored in this browser. A source error
+keeps the game on its last working build. **Undo** and
 **Redo** step across edits to every part, and **Saved** opens **History**.
 Games from the shared catalog need a personal copy before editing.
 
@@ -193,8 +194,8 @@ their shared size. Click the link chip to adjust one frame separately. Drag the 
 cel thumbnails into order and choose the destination loop. One Size control sets the
 height and keeps the figure's proportions. Find frames again asks before replacing
 edited boxes; click the selected frame's dimensions to edit exact numbers. Try the
-animation on the running hero, then **Add cels** saves the frames and image in one
-History step.
+animation on the running hero, then **Add cels** adds the frames and image in one
+History step. **Saved** confirms browser storage.
 **Generate** uses your OpenAI key and shows the model, quality, size and estimated
 cost before sending. These images autosave with History and travel in private
 project downloads. Public game exports carry the resulting AGI resources.
@@ -202,8 +203,8 @@ project downloads. Public game exports carry the resulting AGI resources.
 Some Create edits need a fresh room or game start. **Re-enter room** runs the
 room's entry LOGIC with your changes; that LOGIC can reposition actors or change
 room state. **Restart with your changes** starts the game from the beginning,
-including its updated OBJECT list. The edit is saved while the current game
-continues, and earlier play stays on the rewind timeline.
+including its updated OBJECT list. The edit saves while the current game
+continues; **Saved** confirms browser storage, and earlier play stays on the rewind timeline.
 
 In Create, **⌘P** (Ctrl+P) opens the game’s parts and **⇧⌘P**
 (Ctrl+Shift+P) opens the command palette. Type **>** in quick open to find
@@ -246,11 +247,11 @@ shows WORDS, SOUND, History, Play with CRT and Make a new game._
   The tool rail draws lines, rectangles, polygons, fills and brush strokes at
   the selected point in the draw order, and a stand-in shows whether a
   character would stand in front of the scene or behind it.
-- Completed gestures save through the workspace and update the running game.
+- Completed gestures start saving through the workspace and update the running game.
   Each lens locks painting on the other planes until you unlock them, while
   a whole item moves with all its planes. **Undo** steps back across parts.
-- **LOGIC** uses code intelligence, completion and diagnostics. Typing saves
-  the source; errors leave the last working build running. **+ Add** guides
+- **LOGIC** uses code intelligence, completion and diagnostics. Typing starts saving
+  the source; **Saved** confirms browser storage. Errors leave the last working build running. **+ Add** guides
   room creation, hero placement, responses, doors and sounds.
 - **SOUND** opens beside the game. Draw the three voices and Drums on the **Grid**,
   or type notes, tick lengths and hex volumes in the **Tracker**. Start from a preset,

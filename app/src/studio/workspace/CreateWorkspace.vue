@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { soundProjectChanges } from "../sound/soundEdits.ts";
 import { VOCABULARY } from "../../../../src/vocabulary.ts";
 import "./workspace.css";
 import { computed, defineAsyncComponent, onBeforeUnmount, ref, shallowRef, watch } from "vue";
@@ -80,6 +81,7 @@ const optimistic = shallowRef<Readonly<Record<string, ProjectContent>>>({});
 let session: ProjectSession | null = null;
 let unsubscribe: (() => void) | undefined;
 let retired = false;
+let recoveryError = "";
 const musicDrop = shallowRef<File>();
 const musicDropTarget = ref<string>();
 function musicDrag(event: DragEvent): void {
@@ -132,6 +134,14 @@ function refresh(): void {
       );
     });
   } else traceUnderlays.value = {};
+  if (
+    capture.save.state === "saved" &&
+    !editor.busy.value &&
+    Object.keys(optimistic.value).length === 0
+  ) {
+    if (editor.error.value === recoveryError) editor.error.value = "";
+    recoveryError = "";
+  } else if (recoveryError) editor.error.value = recoveryError;
   historyState.value = capture.history;
   editor.pendingAdmission.value = capture.pendingAdmission;
   editor.save.value =
@@ -327,28 +337,25 @@ function native(key: string): Uint8Array | undefined {
   return bytes;
 }
 const soundTempos = new WeakMap<Uint8Array, number>();
+function editorChanges(key: string, value: ProjectContent): readonly ProjectChange[] {
+  const tempo = value instanceof Uint8Array ? soundTempos.get(value) : undefined;
+  if (key.startsWith("sound:") && value instanceof Uint8Array && tempo !== undefined) {
+    const music = content("music");
+    return soundProjectChanges(key, value, tempo, typeof music === "string" ? music : undefined);
+  }
+  return [{ key, content: value }];
+}
 const writes = createWorkspaceWrites({
+  async durable() {
+    await session?.flush();
+  },
   async write(key, value) {
     if (retired || session === null || session !== engine.getProjectSession())
       throw new Error("Open this project again to retry the change.");
-    const writingSession = session;
     const origin = (
       key === "notes" ? "logic" : (key.split(":")[0] ?? "logic")
     ) as ProjectEditOrigin;
-    const tempo = value instanceof Uint8Array ? soundTempos.get(value) : undefined;
-    let changes: readonly ProjectChange[] = [{ key, content: value }];
-    if (key.startsWith("sound:") && value instanceof Uint8Array && tempo !== undefined) {
-      const { soundProjectChanges } = await import("../sound/soundEdits.ts");
-      if (retired || session !== writingSession || writingSession !== engine.getProjectSession())
-        throw new Error("Open this project again to retry the change.");
-      const music = writingSession.model.capture().read("music")?.content;
-      changes = soundProjectChanges(
-        key,
-        value,
-        tempo,
-        typeof music === "string" ? music : undefined,
-      );
-    }
+    const changes = editorChanges(key, value);
     const result = await engine.submitProjectEdit({
       changes,
       origin,
@@ -357,7 +364,7 @@ const writes = createWorkspaceWrites({
     });
     if (!["committed", "diagnostics", "unchanged", "restartRequired"].includes(result.status))
       throw new Error("This change needs a fresh room. Return to the room and retry.");
-    editor.error.value = "";
+    if (!recoveryError) editor.error.value = "";
     refresh();
   },
   changed(drafts, busy) {
@@ -370,15 +377,42 @@ const writes = createWorkspaceWrites({
     editor.error.value = String(cause instanceof Error ? cause.message : cause);
   },
 });
-editor.flush.value = async () => {
-  await writes.flush();
-  await session?.flush();
+async function flushWorkspace(): Promise<void> {
+  try {
+    await writes.flush();
+  } catch (cause) {
+    editor.error.value = cause instanceof Error ? cause.message : String(cause);
+    editor.save.value = "Could not save. Retry";
+    throw cause;
+  }
+}
+editor.flush.value = flushWorkspace;
+editor.discard.value = () => {
+  writes.dispose();
+  session?.discard();
 };
 editor.retry.value = async () => {
-  await writes.retry();
-  await session?.retry();
-  await session?.flush();
+  try {
+    await writes.retry();
+    editor.error.value = "";
+    refresh();
+  } catch (cause) {
+    editor.error.value = cause instanceof Error ? cause.message : String(cause);
+    editor.save.value = "Could not save. Retry";
+    throw cause;
+  }
 };
+async function retrySave(): Promise<void> {
+  try {
+    await editor.retry.value?.();
+  } catch {
+    /* The save notice keeps the cause and Retry. */
+  }
+}
+function rememberEdit(key: string, value: ProjectContent): void {
+  const cause = session?.rememberEditorChanges(editorChanges(key, value));
+  if (cause) editor.error.value = recoveryError = cause.message;
+}
 function edit(key: string, value: ProjectContent): void {
   const before = content(key);
   if (typeof before === "string" && before === value) return;
@@ -391,6 +425,7 @@ function edit(key: string, value: ProjectContent): void {
     return;
   editor.error.value = "";
   editor.pin(key);
+  rememberEdit(key, value);
   writes.edit(key, value);
 }
 function editSound(key: string, bytes: Uint8Array, tempo: number): void {
@@ -398,6 +433,7 @@ function editSound(key: string, bytes: Uint8Array, tempo: number): void {
   if (soundTempo(key) === tempo) edit(key, bytes);
   else {
     editor.error.value = "";
+    rememberEdit(key, bytes);
     writes.edit(key, bytes);
   }
 }
@@ -558,8 +594,10 @@ async function restore(id: string): Promise<void> {
 async function nameVersion(): Promise<void> {
   if (!versionName.value.trim()) return;
   try {
+    await flushWorkspace();
     if (editingName.value === undefined) await session?.tag(versionName.value.trim());
     else await session?.renameTag(editingName.value, versionName.value.trim());
+    await session?.flush();
     versionName.value = "";
     editingName.value = undefined;
     editor.error.value = "";
@@ -687,6 +725,7 @@ onBeforeUnmount(() => {
   retired = true;
   writes.dispose();
   editor.flush.value = undefined;
+  editor.discard.value = undefined;
   editor.retry.value = undefined;
   unsubscribe?.();
   window.removeEventListener("keydown", escape, true);
@@ -813,7 +852,7 @@ onBeforeUnmount(() => {
       The game keeps running the last working version. Fix the errors below.
     </p>
     <p v-if="editor.error.value" class="workspace-error" role="alert">
-      {{ editor.error.value }} <UiButton @click="editor.retry.value?.()">Retry</UiButton>
+      {{ editor.error.value }} <UiButton @click="retrySave">Retry</UiButton>
     </p>
     <div
       v-for="key in editor.retained.value"
@@ -980,10 +1019,7 @@ onBeforeUnmount(() => {
       <h2>History</h2>
       <UiButton size="sm" variant="ghost" @click="editor.history.value = false">×</UiButton>
     </header>
-    <p>
-      Every version of your game. Restore brings back an earlier one; later versions stay in
-      History.
-    </p>
+    <p>{{ VOCABULARY.history.help }}</p>
     <form @submit.prevent="nameVersion">
       <input v-model="versionName" aria-label="Version name" placeholder="Opening scene" /><UiButton
         size="sm"

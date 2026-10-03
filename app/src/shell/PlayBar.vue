@@ -96,7 +96,7 @@ const shortcutsBlocked = computed(
         :title="VOCABULARY.saved.help"
         @click="
           editor.save.value === 'Could not save. Retry'
-            ? editor.retry.value?.()
+            ? editor.retry.value?.().catch(() => {})
             : (editor.history.value = !editor.history.value)
         "
         ><UiChip :tone="editor.save.value === 'Saved' ? 'ok' : 'warn'" dot>{{

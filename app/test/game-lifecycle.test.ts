@@ -595,3 +595,38 @@ test("a superseded creation's finish saves and boots nothing", async (t) => {
   );
   assert.equal(workers.length, 1);
 });
+
+for (const replacement of ["installed", "authored"] as const) {
+  test(`a refused editor barrier keeps the current workspace before ${replacement} replacement`, async () => {
+    const state = {
+      phase: "running",
+      loading: null,
+      error: "",
+      genesisStarter: null,
+      powerUp: { busy: false },
+    };
+    const lifecycle = useGameLifecycle({
+      state,
+      devFixtures: true,
+      autosave: { beginResumeBoot: () => true },
+      flushProject: async () => {
+        throw new Error("Could not save notes. Retry the save.");
+      },
+      prepareRun: async () => {
+        throw new Error("replacement began");
+      },
+    } as unknown as GameLifecycleOptions);
+    const replacing =
+      replacement === "installed"
+        ? lifecycle.bootGame("synthetic")
+        : lifecycle.bootAuthoredGame(
+            "",
+            { provider: "stub", model: "offline-stub", apiKey: "" },
+            { useCached: true, projectId: testProjectId("replacement") },
+          );
+    await assert.rejects(replacing, /Could not save notes/);
+    assert.equal(state.phase, "running");
+    assert.equal(state.loading, null);
+    assert.equal(state.error, "");
+  });
+}

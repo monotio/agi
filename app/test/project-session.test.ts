@@ -650,7 +650,7 @@ test("a catalog save can create its remix while the next edit awaits admission",
   session.dispose();
 });
 
-test("owned saves carry the admitted world into legacy room continuation", async () => {
+test("refused owned saves retain the admitted world and make Flush and Retry fail", async () => {
   const compiled = compileProjectDocuments({
     files: Object.fromEntries(createContainer().files),
     documents: { "logic:0": "return;" },
@@ -696,7 +696,8 @@ test("owned saves carry the admitted world into legacy room continuation", async
       origin: "agent",
       author: "creator",
     });
-    await session.flush();
+    await assert.rejects(session.flush(), /Could not save/);
+    await assert.rejects(session.retry(), /Could not save/);
     assert.equal(
       (world as { world: { rooms: Record<string, { title: string }> } })?.world?.rooms["2"]?.title,
       "Gallery",

@@ -97,7 +97,7 @@ export async function removeLibraryGame(projectId: ProjectId): Promise<void> {
  */
 export function useEngine(
   onFrame: (frame: Frame) => void,
-  engineOptions?: { onPromptType?: (text: string) => void },
+  engineOptions?: { onPromptType?: (text: string) => void; flushWorkspace?: () => Promise<void> },
 ) {
   let projectMode: "create" | "play" = "play";
   let projectSession: ProjectSession | null = null;
@@ -710,6 +710,7 @@ export function useEngine(
     },
     stopHistoryWriter: () => historyController?.stopWriterRenewal(),
     flushProject: async () => {
+      await engineOptions?.flushWorkspace?.();
       const session = projectSession;
       if (session === null) return;
       await session.flush();
