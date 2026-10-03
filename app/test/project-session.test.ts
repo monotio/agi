@@ -1202,6 +1202,7 @@ test("checkpoint preparation returns not ready before a future admission boundar
     }),
   });
   try {
+    const older = session.model.capture().lastAdmissibleBuild!.identity.revision;
     await session.submit({
       proposal: session.model.propose(session.model.capture(), "Changed", [
         { key: "logic:0", content: 'print("Changed"); return;' },
@@ -1211,6 +1212,11 @@ test("checkpoint preparation returns not ready before a future admission boundar
       author: "creator",
     });
     await session.flush();
+    const stored = session.model.capture().lastAdmissibleBuild!.identity.revision;
+    assert.notEqual(stored, older);
+    // The worker still runs the older bytes: their checkpoint cannot be
+    // published over the newer stored project while admission waits.
+    assert.equal(await session.prepareCheckpoint(older), "not_ready");
     let result: unknown;
     void session.prepareCheckpoint().then((outcome) => {
       result = outcome;
