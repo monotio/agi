@@ -21,6 +21,8 @@ test("Home excludes agent, debugger, editor, words analysis and sound preview co
     "app/src/agent/agentRun.ts",
     "app/src/agent/agentLog.ts",
     "app/src/agent/authoringLoader.ts",
+    "app/src/agent/AgentPanel.vue",
+    "app/src/agent/AgentResourceReview.vue?vue&type=script",
     "src/agent/agentState.ts",
     "src/agent/history.ts",
     "src/agent/roomPictures.ts",
