@@ -77,7 +77,8 @@ async function bootClickGame(
 
 /** A mouse click at frame pixel (x, y) — offset by half a pixel so the floor lands on it exactly. */
 async function clickFramePixel(page: Page, x: number, y: number): Promise<void> {
-  const surface = page.locator(".game-surface:visible");
+  // The screen stays mounted while GPU initialization replaces the visible canvas.
+  const surface = page.locator(".screen");
   const box = await surface.boundingBox();
   if (!box) throw new Error("no visible game surface");
   await page.mouse.click(
@@ -88,10 +89,10 @@ async function clickFramePixel(page: Page, x: number, y: number): Promise<void> 
 
 test("a mouse click walks ego on the Amiga profile", async ({ page, context }) => {
   const cdp = await context.newCDPSession(page);
-  await cdp.send("Emulation.setCPUThrottlingRate", { rate: 6 });
   await isolateStorage(page);
   await page.goto("/");
   await bootClickGame(page, "click-walk-amiga", "amiga-2.316");
+  await cdp.send("Emulation.setCPUThrottlingRate", { rate: 6 });
 
   await clickFramePixel(page, 161, 108);
   await expect.poll(async () => (await textHook(page)).egoX, { timeout: 20_000 }).toBe(78);
