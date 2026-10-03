@@ -926,6 +926,10 @@ function createSession(
     },
     discard() {
       writeBlock ??= "stale";
+      // An explicit discard retires this session's own journal while its lock
+      // is still held, so a later open never recovers the discarded edits.
+      if (input.write === undefined && journalReady && typeof localStorage !== "undefined")
+        localStorage.removeItem(journalKey);
       autosave.dispose();
       session.dispose();
     },

@@ -198,6 +198,16 @@ test("a quota failure retains the previous recovery journal and Saving awaits In
   }
 });
 
+test("Discard and exit removes the session's pending recovery journal", async () => {
+  const owner = await session("compact-discard");
+  await edit(owner, 'print("discarded"); return;');
+  paint();
+  assert.equal(journals().length, 1);
+  owner.discard();
+  paint();
+  assert.deepEqual(journals(), []);
+});
+
 function captured(): ProjectJournalCapture {
   const envelope = JSON.parse(journals()[0]![1]) as { entries: unknown };
   return (decodeJournalValue(envelope.entries) as { capture: ProjectJournalCapture }[])[0]!.capture;
