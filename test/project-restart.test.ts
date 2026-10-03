@@ -7,6 +7,40 @@ import { createContainer, openContainer } from "../src/container/container.ts";
 import { assembleLogic } from "../src/logic/assembler.ts";
 import { buildObjectFile } from "../src/authoring/inventory.ts";
 
+test("restart preserves an untouched malformed imported VIEW and runs the changed LOGIC", () => {
+  const previous = createContainer();
+  previous.putResource("logic", 0, assembleLogic("return;", { dictionary: new Map() }).payload);
+  previous.putResource("view", 255, new Uint8Array([0xff]));
+  const candidate = openContainer(previous.files);
+  candidate.putResource(
+    "logic",
+    0,
+    assembleLogic("assignn(v80,42); return;", { dictionary: new Map() }).payload,
+  );
+  const replacement = prepareProjectRestart(
+    { files: candidate.files },
+    {
+      print() {},
+      displayAt() {},
+      statusLine() {},
+      takeInputLine() {
+        return null;
+      },
+      takeKeys() {
+        return [];
+      },
+    },
+    PROFILES["2.936"]!,
+    previous.files,
+  );
+  replacement.tick();
+  assert.equal(replacement.vars[80], 42);
+  assert.deepEqual(
+    openContainer(replacement.containerFiles).getResource("view", 255),
+    new Uint8Array([0xff]),
+  );
+});
+
 test("complete restart validation rejects a malformed VIEW even alongside an OBJECT removal", () => {
   const container = createContainer();
   container.putResource("logic", 0, assembleLogic("return;", { dictionary: new Map() }).payload);
@@ -43,6 +77,7 @@ test("complete restart validation rejects a malformed VIEW even alongside an OBJ
           },
         },
         PROFILES["2.936"]!,
+        engine.containerFiles,
       ),
     /view resource 3 is invalid/,
   );
@@ -91,6 +126,7 @@ test("restart preparation owns its bytes, accepts resource removal and a selecte
       },
     },
     PROFILES["2.936"]!,
+    engine.containerFiles,
   );
   candidate.files.get("VOL.0")!.fill(0xff);
   assert.equal(replacement.profile.id, "3.002.149");

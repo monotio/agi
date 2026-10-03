@@ -2,7 +2,8 @@ import { replayHistorySegment } from "./worker-ctx.ts";
 import type { HistorySegment } from "../../src/agent/history.ts";
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { createContainer } from "../../src/container/container.ts";
+import { createContainer, openContainer } from "../../src/container/container.ts";
+import { decodeTextRows } from "../src/project/gameTypes.ts";
 import { compileProjectDocuments } from "../../src/authoring/projectDocuments.ts";
 import {
   writeProjectWorkspace,
@@ -23,8 +24,8 @@ import type {
   WorkerPresentation,
 } from "../src/worker/workerProtocol.ts";
 
-async function fixture(name: string, overrides: Record<string, string> = {}) {
-  const documents = {
+async function fixture(name: string, overrides: Record<string, string> = {}, opaqueView = false) {
+  const documents: Record<string, string | Uint8Array> = {
     "logic:0":
       'if (isset(f5)) { load.pic(0); draw.pic(0); show.pic(); accept.input(); } if (said("look")) { assignn(v80,42); } return;',
     "picture:0": "vis 1\nfill 1,1\nend\n",
@@ -32,11 +33,21 @@ async function fixture(name: string, overrides: Record<string, string> = {}) {
     words: '[["look",10]]',
     ...overrides,
   };
-  const compiled = compileProjectDocuments({
+  let compiled = compileProjectDocuments({
     files: Object.fromEntries(createContainer().files),
     documents,
     profileId: "2.936",
   });
+  if (opaqueView) {
+    const imported = openContainer(compiled.files());
+    imported.putResource("view", 255, new Uint8Array([0xff]));
+    documents["view:255"] = new Uint8Array([0xff]);
+    compiled = compileProjectDocuments({
+      files: Object.fromEntries(imported.files),
+      documents,
+      profileId: "2.936",
+    });
+  }
   const messages: WorkerControl[] = [];
   const presentations: WorkerPresentation[] = [];
   let now = 0;
@@ -159,6 +170,59 @@ async function fixture(name: string, overrides: Record<string, string> = {}) {
       tamper = true;
     },
   };
+}
+
+for (const restart of [false, true]) {
+  test(`Create saves and shows a LOGIC message beside an untouched malformed imported VIEW${restart ? " after restart" : " live"}`, async () => {
+    const source =
+      'if (isset(f5)) { load.pic(0); draw.pic(0); show.pic(); accept.input(); } if (said("look")) { print("Old room"); } return;';
+    const f = await fixture(`opaque-view-${restart}`, { "logic:0": source }, true);
+    try {
+      const old = f.ctx.engine!;
+      assert.equal(old.getPictureSurface().visual[161], 1);
+      const changed = source.replace("Old room", "Changed room");
+      const result = await f.session.submit({
+        proposal: f.session.model.propose(f.session.model.capture(), "Change message", [
+          { key: "logic:0", content: changed },
+          ...(restart ? [{ key: "inventory", content: "[]" }] : []),
+        ]),
+        label: "Change message",
+        origin: "logic",
+        author: "creator",
+      });
+      assert.equal(result.status, restart ? "restartRequired" : "committed");
+      await f.session.flush();
+      assert.equal(f.session.saveStatus().state, "saved");
+      const saved = f.writes.at(-1)!.data;
+      assert.equal(readProjectWorkspace(saved.workspace)["logic:0"], changed);
+      assert.deepEqual(
+        openContainer(new Map(Object.entries(saved.files))).getResource("view", 255),
+        new Uint8Array([0xff]),
+      );
+      if (restart) {
+        assert.equal((await f.session.restartWithChanges())?.status, "committed");
+        assert.notEqual(f.ctx.engine, old);
+        f.ctx.fns.stopTimers();
+        f.tick();
+        f.tick();
+      } else assert.equal(f.ctx.engine, old);
+      onWorkerMessage(f.ctx, { type: "input", text: "look" });
+      f.tick();
+      f.tick();
+      assert.ok(
+        decodeTextRows(f.ctx.engine!.getPresentation().text).some((row) =>
+          row.includes("Changed room"),
+        ),
+      );
+      assert.deepEqual(
+        openContainer(f.ctx.engine!.containerFiles).getResource("view", 255),
+        new Uint8Array([0xff]),
+      );
+    } finally {
+      f.session.dispose();
+      f.ctx.fns.stopTimers();
+    }
+  });
 }
 
 test("OBJECT removal is saved in History while the old run continues; acknowledged restart uses the complete candidate and a fresh token", async () => {

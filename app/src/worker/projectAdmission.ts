@@ -579,7 +579,12 @@ export function createProjectAdmission(ctx: WorkerContext, options: ProjectAdmis
     let inspection: ReturnType<typeof inspectProjectReferences>;
     try {
       const container = openStagedContainer(candidate.files, profile);
-      validateCompleteImage(container, profile, ctx.boot.selectedSoundDevice);
+      validateCompleteImage(
+        container,
+        profile,
+        ctx.boot.selectedSoundDevice,
+        openStagedContainer(engine.containerFiles, engine.profile),
+      );
       inspection = inspectProjectReferences({
         container,
         profile,
@@ -638,6 +643,7 @@ export function createProjectAdmission(ctx: WorkerContext, options: ProjectAdmis
           { files: candidate.files, profile: profile.id },
           ctx.host,
           engine.profile,
+          engine.containerFiles,
         );
       } catch (error) {
         settleRefused(error instanceof Error ? error.message : String(error));
