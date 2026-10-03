@@ -5,6 +5,9 @@ import { installIndexedDbFixture } from "./indexedDbFixture.ts";
 import { testProjectId } from "./identity.ts";
 import * as storage from "../src/project/gameStorage.ts";
 import { decodeJournalValue } from "../src/project/projectJournalCapture.ts";
+import { ProjectHistory } from "../../src/authoring/projectHistory.ts";
+import { writeProjectHistory } from "../../src/authoring/projectHistoryCodec.ts";
+import { sha256Hex } from "../../src/crypto.ts";
 
 const records = installIndexedDbFixture();
 const cache = new Map<string, string>();
@@ -120,6 +123,54 @@ for (const [name, patch] of [
     assert.deepEqual(decodeJournalValue(downloaded.record), before);
     assert.deepEqual(records.get(id), before);
     assert.equal(cache.get(storage.getStorageKey(id)), index);
+  });
+}
+
+for (const defect of ["future-blob", "missing-blob", "corrupt-manifest"] as const) {
+  test(`a supported History header with ${defect} stays recoverable`, async () => {
+    const id = testProjectId(defect);
+    const valid = testProjectId(`beside-${defect}`);
+    const history = new ProjectHistory(sha256Hex);
+    history.record(
+      { "logic:0": "return;" },
+      { label: "Start", origin: "template", author: "creator", time: 1 },
+    );
+    await storage.saveAuthoredGame(id, {
+      ...manual(),
+      projectHistory: writeProjectHistory(history.capture(), sha256Hex),
+    });
+    await storage.saveAuthoredGame(valid, manual());
+    assert.ok((await storage.listStoredProjects()).some((entry) => entry.projectId === id));
+    assert.ok(
+      (await storage.listUnsupportedStoredProjects()).every((entry) => entry.projectId !== id),
+    );
+    const body = records.get(id) as { editHistory: { blobs: string[]; commits: unknown } };
+    const key = `project-history/${id}/blobs/${body.editHistory.blobs[0]}`;
+    if (defect === "future-blob") (records.get(key) as { version: number }).version = 999;
+    if (defect === "missing-blob") records.delete(key);
+    if (defect === "corrupt-manifest") body.editHistory.commits = "broken";
+    const before = structuredClone([...records]);
+    const index = cache.get(storage.getStorageKey(id));
+    cache.delete(storage.getStorageKey(valid));
+    await assert.rejects(storage.loadAuthoredGame(id));
+    const entry = (await storage.listUnsupportedStoredProjects()).find(
+      (entry) => entry.projectId === id,
+    );
+    assert.ok(entry);
+    assert.equal(entry.state, defect === "future-blob" ? "unsupported" : "corrupt");
+    assert.ok((await storage.listStoredProjects()).every((entry) => entry.projectId !== id));
+    await storage.reconcileGameIndex();
+    assert.ok(cache.get(storage.getStorageKey(valid)));
+    assert.equal(cache.get(storage.getStorageKey(id)), index);
+    const downloaded = JSON.parse(await storage.downloadUnsupportedStoredProject(id));
+    assert.deepEqual(decodeJournalValue(downloaded.record), body);
+    assert.deepEqual(
+      decodeJournalValue(downloaded.records),
+      [...records]
+        .filter(([key]) => String(key).startsWith(`project-history/${id}/`))
+        .map(([key, value]) => ({ key, value })),
+    );
+    assert.deepEqual([...records], before);
   });
 }
 

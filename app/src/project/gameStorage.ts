@@ -2328,10 +2328,40 @@ type StoredProjectClassification =
     };
 
 /** Readers, discovery and index repair share the same refusal boundary. */
-function classifyStoredProject(id: ProjectId, raw: unknown): StoredProjectClassification {
+async function classifyStoredProject(
+  id: ProjectId,
+  raw: unknown,
+  historyRecords?: ReadonlyMap<string, unknown>,
+): Promise<StoredProjectClassification> {
   try {
     const data = readStoredBody(raw, id);
     data.library = readLibrary(data);
+    const history = (raw as StoredGameBody).editHistory;
+    if (history !== undefined) {
+      if (historyRecords === undefined) {
+        // The body and every referenced blob must come from the same snapshot.
+        // Unrelated play timelines and orphan History blobs stay off this path.
+        const snapshot = await readBodyRecords(id, (head) => {
+          readStoredBody(head, id);
+          return historyBlobKeys(id, (head as StoredGameBody).editHistory);
+        });
+        return await classifyStoredProject(id, snapshot.head, snapshot.records);
+      }
+      for (const key of historyBlobKeys(id, history)) {
+        const row = historyRecords.get(key);
+        if (row === undefined) throw new Error("This project History blob is missing.");
+        readStoredFormat(
+          row,
+          "monotio.agi.project-history-blob",
+          "This project History blob version is not supported by this app.",
+        );
+      }
+      data.projectHistory = (await import("./projectHistoryStorage.ts")).hydrateProjectHistory(
+        id,
+        history,
+        historyRecords,
+      );
+    }
     return { state: "readable", data };
   } catch (error) {
     let recoverable = true;
@@ -2348,10 +2378,14 @@ function classifyStoredProject(id: ProjectId, raw: unknown): StoredProjectClassi
   }
 }
 
-function unsupportedStoredProject(key: string, value: unknown): UnsupportedStoredProject | null {
+async function unsupportedStoredProject(
+  key: string,
+  value: unknown,
+  historyRecords?: ReadonlyMap<string, unknown>,
+): Promise<UnsupportedStoredProject | null> {
   const id = projectId(key);
   if (!id) return null;
-  const classified = classifyStoredProject(id, value);
+  const classified = await classifyStoredProject(id, value, historyRecords);
   if (classified.state === "readable") return null;
   const record =
     value !== null && typeof value === "object" ? (value as Record<string, unknown>) : {};
@@ -2367,10 +2401,10 @@ function unsupportedStoredProject(key: string, value: unknown): UnsupportedStore
 
 /** Unreadable bodies stay visible even when their resources and index cannot be read. */
 export async function listUnsupportedStoredProjects(): Promise<UnsupportedStoredProject[]> {
-  return (await storedProjectRecords()).flatMap(({ key, value }) => {
-    const entry = unsupportedStoredProject(key, value);
-    return entry ? [entry] : [];
-  });
+  const entries = await Promise.all(
+    (await storedProjectRecords()).map(({ key, value }) => unsupportedStoredProject(key, value)),
+  );
+  return entries.filter((entry): entry is UnsupportedStoredProject => entry !== null);
 }
 
 /** Recovery download: retain the raw envelope, additive fields and every resource byte. */
@@ -2393,7 +2427,14 @@ export async function downloadUnsupportedStoredProject(id: ProjectId): Promise<s
         reject(transaction.error ?? new Error("Project download was aborted."));
     },
   );
-  const entry = raw === undefined ? null : unsupportedStoredProject(id, raw);
+  const entry =
+    raw === undefined
+      ? null
+      : await unsupportedStoredProject(
+          id,
+          raw,
+          new Map(records.map(({ key, value }) => [key, value])),
+        );
   if (!entry)
     throw new Error("The saved project changed. Refresh the library before downloading it.");
   if (!entry.recoverable)
@@ -2413,7 +2454,7 @@ export async function listStoredProjects(): Promise<CachedGameMeta[]> {
   for (const { key, value } of await storedProjectRecords()) {
     const id = projectId(key);
     if (id === null) continue;
-    const classified = classifyStoredProject(id, value);
+    const classified = await classifyStoredProject(id, value);
     if (classified.state === "readable") entries.push(metadata(classified.data));
   }
   return entries.sort((a, b) => compareCodePoints(b.authoredAt, a.authoredAt));
@@ -2429,7 +2470,7 @@ export async function reconcileGameIndex(): Promise<void> {
         store.get(id),
       );
       if (stored === undefined) return;
-      const classified = classifyStoredProject(id, stored);
+      const classified = await classifyStoredProject(id, stored);
       if (classified.state !== "readable") return;
       const data = classified.data;
       const current = localStorage.getItem(getStorageKey(data.projectId));
