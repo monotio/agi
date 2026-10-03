@@ -45,7 +45,9 @@ const readOnly = ref(false);
 const taskContext = ref("");
 const formatReply = shallowRef<ReplyFormatter>();
 const composer = useTemplateRef("composer");
-onMounted(() => composer.value?.focus());
+onMounted(() => {
+  if (!document.querySelector("dialog[open]")) composer.value?.focus();
+});
 watch(
   editor.agentPrefill,
   async (prefill) => {
