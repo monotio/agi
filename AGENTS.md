@@ -208,9 +208,10 @@ code, comments or documentation.
   `npm --prefix app run build && npm run check:bundle` when imports move. CI is the
   browser verdict: push the branch and read failures with
   `gh run view <id> --log-failed` instead of replaying the matrix locally, since macOS
-  fonts, WebKit and CPU differ from the Linux runners. Doc-only changes need
-  consistency and formatting checks only. Keep README.md and CONTRIBUTING.md
-  consistent with shipped behavior; no gratuitous markdown files.
+  fonts, WebKit and CPU differ from the Linux runners. A failure on unchanged code
+  is a finding to fix or report, never a reason to rerun until green. Doc-only
+  changes need consistency and formatting checks only. Keep README.md and
+  CONTRIBUTING.md consistent with shipped behavior; no gratuitous markdown files.
 - Before a candidate is accepted, answer every automated review thread against the
   code, then review the whole change once for failure paths, a second tab and closing
   before commit; reviews of one push at a time miss properties of the whole system.
