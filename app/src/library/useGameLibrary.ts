@@ -1480,9 +1480,7 @@ export function createGameLibrary(
         !liveStale &&
         !(await flushAutosave(2000).catch(() => false))
       )
-        notes.push(
-          "The latest play position was not saved. The ZIP includes it if this tab could copy it.",
-        );
+        notes.push("Your newest play position could not be saved first.");
       if (live && getBootedGame() !== game)
         throw new Error("The game changed during download. Try again.");
       if (live && exportResult) {
@@ -1640,7 +1638,7 @@ export function createGameLibrary(
         }
       } else if (live && project) {
         notes.push(
-          "The ZIP holds saved play positions. Keep this tab open and try downloading again for your current position.",
+          "The ZIP has your last saved play position. Keep this tab open and download again to include the newest one.",
         );
       }
       // The map sidecar is read and detached before the remaining awaited
