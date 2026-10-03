@@ -273,7 +273,10 @@ const historyStartOver = ref(false);
 watch(
   () => state.phase,
   (phase) => {
-    if (phase !== "running") historyStartOver.value = false;
+    if (phase !== "running") {
+      historyStartOver.value = false;
+      ejectRefusal.value = "";
+    }
   },
 );
 

@@ -181,6 +181,8 @@ test("Discard and exit stays disabled through Retry's save barrier", async ({ pa
     (window as unknown as { releaseSave(): void }).releaseSave();
   });
   await expect(page.getByTestId("saved-game-gallery")).toBeVisible();
+  await expect(page.getByTestId("eject-refusal")).toBeHidden();
+  await page.screenshot({ path: test.info().outputPath("retry-saved.png") });
 });
 
 for (const failure of ["flush", "admission", "journal"] as const) {
