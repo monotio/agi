@@ -59,6 +59,9 @@
   color: var(--muted);
   line-height: 1.6;
 }
+.agent-panel__setup {
+  padding: var(--space-3) var(--space-4);
+}
 .agent-panel__message {
   padding: var(--space-3);
   font-size: var(--text-sm);

@@ -460,7 +460,7 @@ onBeforeUnmount(() => {
         <p v-for="(note, index) in progress" :key="index">{{ note }}</p>
       </details>
     </div>
-    <p v-if="!settings.aiConfigured.value" class="agent-panel__intro">
+    <p v-if="!settings.aiConfigured.value" class="agent-panel__intro agent-panel__setup">
       Connect your AI provider in Settings to start a task.
     </p>
     <p v-if="error" class="agent-panel__error" role="alert">{{ error }}</p>
