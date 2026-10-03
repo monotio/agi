@@ -143,7 +143,9 @@ class Port {
   onmessage: ((ev: { data: unknown }) => void) | null = null;
   terminated = false;
   wctx: WorkerContext | null = null;
-  constructor(workers: Port[]) {
+  readonly onRestored: (() => void) | undefined;
+  constructor(workers: Port[], onRestored?: () => void) {
+    this.onRestored = onRestored;
     workers.push(this);
   }
   postMessage(msg: WorkerInbound): void {
@@ -153,7 +155,10 @@ class Port {
     // own live context; its outbound traffic queues for FIFO delivery.
     this.wctx ??= (() => {
       const ctx = createWorkerContext({
-        control: (m) => this.out.push(m as WorkerOutbound),
+        control: (m) => {
+          this.out.push(m as WorkerOutbound);
+          if (m.type === "restored") this.onRestored?.();
+        },
         presentation: (m) => this.out.push(m as WorkerOutbound),
         now: () => 0,
         seedWord: () => 0x1234,
@@ -189,6 +194,7 @@ async function composed(
     ackTimeoutMs?: number;
     damageRestoreTransport?: boolean;
     departureGate?: Promise<void>;
+    onRestored?: () => void;
   },
 ) {
   const rig = await starterRig();
@@ -211,7 +217,7 @@ async function composed(
     configurable: true,
     value: class extends Port {
       constructor() {
-        super(workers);
+        super(workers, options?.onRestored);
       }
       override postMessage(msg: WorkerInbound): void {
         // Explicit wire fault after the main-thread validator accepted a real
@@ -715,7 +721,9 @@ test("a superseding boot settles a resume parked in preparation privately", asyn
 test("a posted resume whose acknowledgement never arrives times out truthfully", async (t) => {
   values.clear();
   db.clear();
-  const h = await composed(t, { ackTimeoutMs: 40 });
+  let restored!: () => void;
+  const posted = new Promise<void>((resolve) => (restored = resolve));
+  const h = await composed(t, { ackTimeoutMs: 40, onRestored: restored });
   const target = installedProgressTarget(h.descriptor, h.rig.revision);
   assert.ok(target);
   const { image, room } = starterCheckpoint(h.rig);
@@ -726,10 +734,8 @@ test("a posted resume whose acknowledgement never arrives times out truthfully",
 
   t.mock.timers.enable({ apis: ["setTimeout"] });
   const pending = h.controller.resumeFromRecord(record, STUB, target.locator);
-  // Let native hashing and preparation finish before advancing the deadline.
-  for (let turn = 0; turn < 400 && !h.workers[0]?.out.some((m) => m.type === "restored"); turn++) {
-    await new Promise<void>((resolve) => setImmediate(resolve));
-  }
+  // Native hashing and preparation must post the acknowledgement before the deadline advances.
+  await Promise.race([posted, pending.then(() => assert.fail("Resume settled before posting."))]);
   assert.ok(h.workers[0]?.out.some((m) => m.type === "restored"));
   t.mock.timers.tick(40);
   const port = h.workers[0]!;

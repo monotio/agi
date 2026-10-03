@@ -1351,7 +1351,12 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
             origin: "guided",
             author: "creator",
           });
-          await project.flush();
+          try {
+            await project.flush();
+          } catch (error) {
+            if (project.saveStatus().state === "failed") return false;
+            throw error;
+          }
           return project.saveStatus().state === "saved";
         })
       : saveSessionRecord(game, author);

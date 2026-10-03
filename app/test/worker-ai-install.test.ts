@@ -152,6 +152,8 @@ async function rig(
     debugChannels: {},
   } as unknown as EngineState;
   let behindNotices = 0;
+  let noticeBehind!: () => void;
+  const behindStorageNotice = new Promise<void>((resolve) => (noticeBehind = resolve));
   const link = useWorkerLink({
     state: linkState,
     hook: { rows: [] } as unknown as TextHook,
@@ -189,7 +191,10 @@ async function rig(
     clearAutosave: () => {},
     configForGame: (_project, config) => config,
     getLlmConfig: () => STUB,
-    onBehindStorage: () => behindNotices++,
+    onBehindStorage: () => {
+      behindNotices++;
+      noticeBehind();
+    },
   });
   const autosave = useAutosaveController({
     state: { resumed: false },
@@ -267,6 +272,7 @@ async function rig(
     tick,
     settle,
     behindNotices: () => behindNotices,
+    behindStorageNotice,
     oldEngineAutosave,
   };
 }
@@ -380,7 +386,7 @@ test("a room written mid-play that the worker declines is saved, never installed
   // Room 1 walks on into room 2: the worker asks for it, and waits.
   for (let i = 0; i < 20 && r.ctx.hostRequests.hostRequestOutstanding === null; i++) r.tick();
   assert.equal(r.ctx.hostRequests.hostRequestOutstanding?.op, "room");
-  for (let i = 0; i < 10; i++) await r.settle();
+  await r.behindStorageNotice;
 
   const saved = (await loadAuthoredGame(r.projectId))!;
   const savedRevision = await gameRevision(saved.files);

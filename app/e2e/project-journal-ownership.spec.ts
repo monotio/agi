@@ -98,6 +98,9 @@ for (const mode of ["locks", "fallback-success", "fallback-conflict"] as const) 
       .poll(() => recovery.evaluate((key) => localStorage.getItem(key), key))
       .toContain("newest");
     await page.close();
+    // Page close precedes the lock manager's lifetime cleanup; await that actual release.
+    if (mode === "locks")
+      await recovery.evaluate((key) => navigator.locks.request(key, () => {}), key);
     const reopened = await recovery.evaluate(async () => {
       const { loadAuthoredGame } = await import("/src/project/gameStorage.ts");
       const saved = await loadAuthoredGame("journal-two-pages" as never);

@@ -25,6 +25,7 @@ import {
   readHistoryLifetime,
   updateAuthoredGameFiles,
   updateGameConversation,
+  commitProject,
 } from "../src/project/gameStorage.ts";
 import { createContainer, openContainer } from "../../src/container/container.ts";
 import { createWorldDraft, draftAddRoom } from "../../src/agent/worldPlan.ts";
@@ -1674,6 +1675,87 @@ test("a stale tab's world-plan save refuses as stale and never saves over the ne
   const { controller, untouched } = await staleTab(t, "two-tab-plan");
   await assert.rejects(controller.persistSessionState(), staleSave);
   await untouched();
+});
+
+test("the plan's boolean save contract reports a refused project flush and Retry saves it", async (t) => {
+  installLocalStorageMock(t);
+  const projectId = testProjectId("plan-project-refusal");
+  const files = createTestFiles();
+  await saveAuthoredGame(projectId, { title: "Plan", files, words: [] });
+  t.after(() => void clearCachedGame(projectId));
+  const data = (await loadAuthoredGame(projectId))!;
+  const game: BootedGame = {
+    installed: false,
+    projectId,
+    title: data.title,
+    revision: computeResourceRevision(files),
+    files,
+    words: [],
+    authoredGame: data,
+    historyLifetime: await readHistoryLifetime(projectId),
+  };
+  let fail = true;
+  const project = openProjectSession({
+    data,
+    lifetime: game.historyLifetime!,
+    admission: {
+      runToken: "plan-refusal",
+      admit: async () => ({
+        status: "committed",
+        expected: null,
+        current: null,
+        patchGeneration: 1,
+      }),
+    },
+    write: async (request) => {
+      if (fail) throw new Error("quota");
+      return (await commitProject(request)).receipt;
+    },
+  });
+  t.after(() => project.dispose());
+  const ui = {
+    phase: "running" as const,
+    powerUp: createMockPowerUp(),
+    agentTask: null,
+    agentLog: [],
+    profile: "2.936",
+    worldTick: 0,
+    planDurableRev: "",
+  };
+  const controller = useAuthoringController({
+    state: ui,
+    getProjectSession: () => project,
+    getWorker: () => null,
+    query: async <T>() => null as T,
+    logAgent: () => {},
+    readFrames: async () => [],
+    pauseEngine: () => {},
+    resumeEngine: () => {},
+    getBootedGame: () => game,
+    setBootedGame: () => {},
+    flushAutosave: async () => {},
+    getAutosaveWrite: async () => true,
+    clearAutosave: () => {},
+    awaitPatched: ackPatch,
+  });
+  const author = AgentSession.fromAuthoredData(mockConfig, () => {}, files, []);
+  author.state.authoring.world.rooms["2"] = {
+    title: "Gallery",
+    description: "Portraits",
+    exits: {},
+  };
+  controller.setSession(author);
+  assert.equal(await controller.persistSessionState(), false);
+  assert.equal(project.saveStatus().state, "failed");
+  assert.equal(ui.planDurableRev, "");
+  fail = false;
+  assert.equal(await controller.persistSessionState(), true);
+  assert.notEqual(ui.planDurableRev, "");
+  const saved = (await loadAuthoredGame(projectId))!;
+  assert.equal(
+    (saved.authoringState?.["authoring"] as typeof author.state.authoring).world.rooms["2"]?.title,
+    "Gallery",
+  );
 });
 
 test("AI settings wait for the Assistant chat's catalog fork before loading its session", async (t) => {
