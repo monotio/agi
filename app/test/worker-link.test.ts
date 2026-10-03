@@ -50,6 +50,7 @@ const OUTBOUND_TYPES = [
   "checkpoint",
   "recordingStarted",
   "recordingStopped",
+  "recordingReset",
   "previewUpdateResult",
   "previewUpdateStatus",
   "exportFiles",
@@ -476,6 +477,11 @@ test("every WorkerOutbound member reaches its handler once", async () => {
         assert.equal(r, image);
         break;
       }
+      case "recordingReset":
+        link.deps.recordingReset = () => depCalls.push("recordingReset");
+        deliver(w, { type });
+        assert.ok(depCalls.includes("recordingReset"));
+        break;
       case "recordingStarted": {
         const r = await roundTrip(link, w, "startRecording", { type, id: 0, ok: true });
         assert.equal((r as { ok: boolean }).ok, true);

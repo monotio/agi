@@ -645,6 +645,8 @@ export type WorkerControl =
       cycle: number;
       state: EngineStateReport | null;
     }
+  /** Session replacement discarded the active Playtest tape. */
+  | { type: "recordingReset" }
   | { type: "exportFiles"; id: number; files: Record<string, Uint8Array> | null }
   | {
       type: "restored";

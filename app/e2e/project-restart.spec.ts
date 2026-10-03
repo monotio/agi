@@ -1,5 +1,5 @@
 import { test, expect, reviewShot } from "./test.ts";
-import { isolateStorage, textHook } from "./engineProbe.ts";
+import { isolateStorage, textHook, openWorkspaceAgent } from "./engineProbe.ts";
 import { requireProjectId } from "../../src/gameIdentity.ts";
 import { createContainer } from "../../src/container/container.ts";
 import { compileProjectDocuments } from "../../src/authoring/projectDocuments.ts";
@@ -211,6 +211,9 @@ test("Create saves OBJECT removal and restarts MAIN with the changed image", asy
     "This change needs the game to restart.",
   );
   await expect(page.getByTestId("project-restart-notice")).toContainText("OBJECT");
+  await openWorkspaceAgent(page);
+  await page.getByTestId("btn-record-test").click();
+  await expect(page.getByTestId("recording-bar")).toBeVisible();
   await reviewShot(page, "project-restart-offer");
   await page.getByRole("button", { name: "Restart with your changes", exact: true }).click();
   await expect(page.getByTestId("project-restart-notice")).toHaveCount(0);
@@ -223,6 +226,14 @@ test("Create saves OBJECT removal and restarts MAIN with the changed image", asy
       ),
     )
     .not.toBe(token);
+  await expect(page.getByTestId("recording-bar")).toHaveCount(0);
+  await expect(page.getByTestId("record-error")).toContainText("Game restarted");
+  await openWorkspaceAgent(page);
+  await page.getByTestId("btn-record-test").click();
+  await expect(page.getByTestId("recording-bar")).toBeVisible();
+  await page.getByTestId("record-stop").click();
+  await expect(page.getByTestId("record-dialog")).toBeVisible();
+  await page.getByTestId("record-save-cancel").click();
   const running = await page.evaluate(
     async ({ inventoryPath, profilePath }) => {
       const probe = (window as unknown as { __AGI_PROJECT__: ProjectProbe }).__AGI_PROJECT__;

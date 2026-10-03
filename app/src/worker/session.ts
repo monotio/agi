@@ -20,6 +20,7 @@ export function resetSession(ctx: WorkerContext): void {
   ctx.input.keyQueue = [];
   ctx.input.clickQueue = [];
   ctx.input.deferredMovement.length = 0;
+  if (ctx.recording.recording !== null) ctx.ports.control({ type: "recordingReset" });
   ctx.recording.recording = null;
   ctx.hostRequests.pendingReenter = false;
   const p = ctx.presentation;

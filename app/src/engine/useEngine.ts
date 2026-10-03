@@ -679,6 +679,11 @@ export function useEngine(
     flushAutosave: () => autosaveController.flushAutosave(),
   });
 
+  link.deps.recordingReset = () => {
+    testRecorder.reset();
+    state.recording.error = "Game restarted. Start Playtest to record the new run.";
+  };
+
   const lifecycle = useGameLifecycle({
     state,
     hook,
