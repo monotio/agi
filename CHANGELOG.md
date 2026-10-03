@@ -41,10 +41,12 @@ Released notes are also available on [GitHub Releases](https://github.com/monoti
 - Restart with your changes ends the running Playtest recording, so a new one can start.
 - Projects saved by a newer version stay visible with Download and Remove
   actions, including when opened through a game link.
-- Saving shows while a change is pending. Editor intents preserve edits across
-  immediate reloads and tab closes when browser recovery storage is available;
-  Saved confirms durable project storage. Failed saves keep the workspace open
-  with Retry. Version naming waits for the visible source, including errors.
+- Saving… shows while a change is pending and Saved once it is stored. An edit
+  you just made survives an immediate reload or closed tab, and a failed save keeps
+  the workspace open with Retry.
+- Name this version names what is on screen, including source with errors.
+- A project with History or other data from a newer version shows as a card with
+  Download and Remove instead of disappearing.
 - Opening a menu while the game screen loads keeps the menu open.
 
 ## [1.1.0]
