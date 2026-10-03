@@ -40,6 +40,7 @@ import type {
 import { createProjectAutosave } from "./projectAutosave.ts";
 import {
   claimProjectSaveJournal,
+  markProjectSaveRecovery,
   projectSaveJournalKey,
   writeProjectSaveJournal,
 } from "./projectSaveJournal.ts";
@@ -67,7 +68,8 @@ interface SessionSave {
  * writable-clean   | accept, queue save         | drain             | drain, leave / reopen
  * writable-pending | accept, replace pending    | drain             | drain, leave / reopen
  * writable-failed  | retain; action barrier    | exact retry       | hold; Retry or discard
- * stale / removed  | journal typing; refuse rest| refuse            | leave / reopen (stale)
+ * stale            | journal typing; refuse rest| refuse            | leave / reopen
+ * removed          | keep typing in memory      | refuse            | leave
  * recovering       | wait for journal replay    | wait              | wait
  * closed           | refuse                     | refuse            | already left
  * State            | Download project / Export game          | Chip; banner / notes
@@ -79,13 +81,16 @@ interface SessionSave {
  * Transitions: edit -> pending; acknowledgement -> clean; rejection -> failed;
  * external write -> stale; deletion -> removed; reopen -> recovering -> clean;
  * Exit/discard -> closed. Deferred admission publishes MAIN without another save.
- * Source saving never waits for a player interaction; checkpoints await active
- * admission attempts. Name, guided actions and WORDS drain before changing the
- * model. Compatible journals replay before open. Replaced versions
+ * Source saving never waits for a player interaction; checkpoints await deferred
+ * admission boundaries and attempts. Restore, Name, Clear, guided actions and WORDS
+ * drain before changing the model. Compatible journals replay before open. Stale versions
  * retain their journal with a discard banner. Backup/export notes name omitted
- * editor changes and Retry; stale notes name Reload, removed notes name Download.
- * Create reload opens saved documents and keeps an older MAIN checkpoint until
- * another checkpoint replaces it. Explicit Play requires a matching build.
+ * editor changes and Retry; stale banners name Reload, removed banners name Download.
+ * Saved names the document acknowledgement; Saving also includes editor and action
+ * work. Checkpoint acknowledgement re-proves the document revision after storage
+ * awaits. Play and Create reopen only matching builds. Removal retires the journal
+ * lifetime, including owners in other tabs; durable lifetime validation removes
+ * orphan journals after a marker refusal. Stale recovery notices update live.
  */
 export interface PendingProjectRestart {
   readonly action: "restart" | "reenter";
@@ -218,7 +223,7 @@ function createSession(
   let pendingRestart: PendingProjectRestart | null = null;
   let pendingImage: ProjectDocumentsCompile | undefined;
   let pendingPreparedRoom = false;
-  let retrying = false;
+  let admissionTail: Promise<void> | undefined;
   let disposed = false;
   let writeBlock: "stale" | "removed" | undefined;
   let epoch = 0;
@@ -321,7 +326,7 @@ function createSession(
       else clearTimeout(journalFrame);
       journalFrame = undefined;
     }
-    if (input.write !== undefined) return;
+    if (input.write !== undefined || writeBlock === "removed") return;
     try {
       if (typeof localStorage === "undefined") throw new Error("Browser storage is unavailable.");
       const entries = autosave
@@ -382,6 +387,8 @@ function createSession(
         entries.push({ capture, attempted: false });
       }
       writeProjectSaveJournal(localStorage, journalKey, entries);
+      if (writeBlock === "stale")
+        markProjectSaveRecovery(localStorage, journalKey, session.saveStatus().message);
     } catch {
       // The previous recovery intent remains until its durable acknowledgement.
       return new Error(
@@ -562,7 +569,6 @@ function createSession(
     const intentGroups = new Set(
       Object.values(editorIntents)
         .filter((intent) => {
-          if (action !== undefined) return true;
           if (editorIntent !== undefined) return intent.id === editorIntent;
           const primary = editorIntents[intent.primary];
           return (
@@ -669,9 +675,14 @@ function createSession(
     if (savesDocuments) documentTail = tail;
     return result;
   }
-  async function retryAdmission(): Promise<void> {
-    if (retrying) return;
-    retrying = true;
+  function retryAdmission(): Promise<void> {
+    if (admissionTail !== undefined) return admissionTail;
+    admissionTail = settleAdmission().finally(() => {
+      admissionTail = undefined;
+    });
+    return admissionTail;
+  }
+  async function settleAdmission(): Promise<void> {
     try {
       while (current() && writeBlock === undefined && pendingImage !== undefined) {
         await (input.boundary?.() ?? new Promise<void>((resolve) => setTimeout(resolve, 50)));
@@ -704,8 +715,6 @@ function createSession(
         };
         notify();
       }
-    } finally {
-      retrying = false;
     }
   }
   async function activate(mode: "restart" | "reenter") {
@@ -906,8 +915,9 @@ function createSession(
       do {
         scheduled = tail;
         await scheduled;
+        await admissionTail;
         await session.flush();
-      } while (scheduled !== tail);
+      } while (scheduled !== tail || admissionTail !== undefined);
     },
     retry() {
       return session.flush();
@@ -946,6 +956,7 @@ function createSession(
     stopWrites(reason: "stale" | "removed" = "stale") {
       writeBlock = reason;
       autosave.stop();
+      persistPending();
     },
     async replay(operation: ProjectJournalOperation) {
       if (operation.kind === "capture") {

@@ -1070,7 +1070,7 @@ test("a deferred admission publishes MAIN without queuing a second source save",
   }
 });
 
-test("checkpoint preparation waits for the active deferred attempt to publish MAIN", async () => {
+test("checkpoint preparation waits for the deferred boundary and admission to publish MAIN", async () => {
   const compiled = compileProjectDocuments({
     files: Object.fromEntries(createContainer().files),
     documents: { "logic:0": "return;" },
@@ -1134,8 +1134,6 @@ test("checkpoint preparation waits for the active deferred attempt to publish MA
       author: "creator",
     });
     await session.flush();
-    boundary();
-    await waiting;
     let checkpointReady = false;
     const preparing = (async () => {
       await session.prepareCheckpoint();
@@ -1143,6 +1141,9 @@ test("checkpoint preparation waits for the active deferred attempt to publish MA
       assert.equal(running, true);
     })();
     await new Promise<void>((resolve) => setImmediate(resolve));
+    assert.equal(checkpointReady, false);
+    boundary();
+    await waiting;
     assert.equal(checkpointReady, false);
     finish();
     await preparing;

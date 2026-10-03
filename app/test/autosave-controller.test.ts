@@ -977,6 +977,14 @@ test("flushAutosaveDetailed reports not_checkpointable, timeout, already_durable
   const res4 = await flush4;
   assert.equal(res4.status, "already_durable");
 
+  const savedRevision = bootedGame.revision;
+  bootedGame.revision = testRevision("changed-build");
+  const changedFlush = controller.flushAutosaveDetailed(2000);
+  const changedMessage = postedMessages.at(-1) as { id: number };
+  controller.handleFlushed({ id: changedMessage.id, taken: false, cycle: 50 });
+  assert.equal((await changedFlush).status, "not_checkpointable");
+  bootedGame.revision = savedRevision;
+
   // 5. When flush succeeds and writes new autosave, reports saved
   const flush5 = controller.flushAutosaveDetailed(2000);
   const flushMsg5 = postedMessages[postedMessages.length - 1] as { type: string; id: number };
@@ -1149,4 +1157,87 @@ test("a queued checkpoint cannot adopt a revision installed while its save waits
   release();
   assert.equal(await controller.getAutosaveWrite(), false);
   assert.equal(controller.lastAutosaveRecord(), null);
+});
+
+test("a checkpoint finishing after a new image lands does not acknowledge the old cycle", async (t) => {
+  installLocalStorageMock(t);
+  const id = testProjectId("checkpoint-revision-race");
+  const files = { "VOL.0": Uint8Array.of(1) };
+  await saveAuthoredGame(id, { title: "Checkpoint race", files, words: [] });
+  const lifetime = await readHistoryLifetime(id);
+  const game: BootedGame = {
+    installed: false,
+    projectId: id,
+    title: "Checkpoint race",
+    files,
+    words: [],
+    revision: await gameRevision(files),
+    historyLifetime: lifetime,
+  };
+  const acknowledged: number[] = [];
+  const controller = useAutosaveController({
+    state: { resumed: false },
+    getBootedGame: () => game,
+    getWorker: () => null,
+    onAutosaveStored: (cycle) => {
+      acknowledged.push(cycle);
+    },
+    logAgent: () => {},
+    isInstalledGame: () => false,
+    bootGame: async () => {},
+    bootAuthoredGame: async () => {},
+    configForGame: (_project, config) => config,
+    prepareCheckpoint: async () => "owned",
+    retireFailedRecovery: async () => {},
+  });
+  const revision = game.revision!;
+  const setItem = localStorage.setItem;
+  localStorage.setItem = (key, raw) => {
+    setItem(key, raw);
+    if (key.startsWith("monotio_agi.autosave.")) game.revision = testRevision("next-image");
+  };
+  controller.handleAutosave({ image: "old checkpoint", revision, cycle: 90, room: 1 });
+  assert.equal(await controller.getAutosaveWrite(), false);
+  assert.deepEqual(acknowledged, []);
+});
+
+test("an older running checkpoint is refused after the document owner moves during storage", async (t) => {
+  installLocalStorageMock(t);
+  const id = testProjectId("checkpoint-document-race");
+  const files = { "VOL.0": Uint8Array.of(1) };
+  await saveAuthoredGame(id, { title: "Document race", files, words: [] });
+  const game: BootedGame = {
+    installed: false,
+    projectId: id,
+    title: "Document race",
+    files,
+    words: [],
+    revision: await gameRevision(files),
+    historyLifetime: await readHistoryLifetime(id),
+  };
+  let latest = true;
+  const acknowledged: number[] = [];
+  const controller = useAutosaveController({
+    state: { resumed: false },
+    getBootedGame: () => game,
+    getWorker: () => null,
+    onAutosaveStored: (cycle) => {
+      acknowledged.push(cycle);
+    },
+    logAgent: () => {},
+    isInstalledGame: () => false,
+    bootGame: async () => {},
+    bootAuthoredGame: async () => {},
+    configForGame: (_project, config) => config,
+    prepareCheckpoint: async () => (latest ? "owned" : "refused"),
+    retireFailedRecovery: async () => {},
+  });
+  const setItem = localStorage.setItem;
+  localStorage.setItem = (key, raw) => {
+    setItem(key, raw);
+    if (key.startsWith("monotio_agi.autosave.")) latest = false;
+  };
+  controller.handleAutosave({ image: "old", revision: game.revision!, cycle: 90, room: 1 });
+  assert.equal(await controller.getAutosaveWrite(), false);
+  assert.deepEqual(acknowledged, []);
 });

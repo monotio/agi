@@ -349,6 +349,14 @@ function editorChanges(key: string, value: ProjectContent): readonly ProjectChan
   return [{ key, content: value }];
 }
 const actionBusy = ref(false);
+const writerBusy = ref(false);
+watch(
+  [actionBusy, writerBusy],
+  ([action, writer]) => {
+    editor.busy.value = action || writer;
+  },
+  { flush: "sync" },
+);
 const writes = createWorkspaceWrites({
   async durable() {
     await session?.flush();
@@ -374,7 +382,7 @@ const writes = createWorkspaceWrites({
   },
   changed(drafts, busy) {
     optimistic.value = drafts;
-    editor.busy.value = busy || actionBusy.value;
+    writerBusy.value = busy;
     if (editor.busy.value) editor.save.value = "Saving…";
     else refresh();
   },
@@ -558,7 +566,6 @@ async function wordChange(
 }
 async function guidedAction(action: WorkspaceAction): Promise<void> {
   actionBusy.value = true;
-  editor.busy.value = true;
   try {
     await writes.flush();
     const capture = session?.model.capture();
@@ -594,7 +601,6 @@ async function guidedAction(action: WorkspaceAction): Promise<void> {
     editor.error.value = String(cause instanceof Error ? cause.message : cause);
   } finally {
     actionBusy.value = false;
-    editor.busy.value = false;
     refresh();
   }
 }
@@ -606,29 +612,41 @@ const versionNames = computed(() => {
     (names[id] ??= []).push(name);
   return names;
 });
-async function restore(id: string): Promise<void> {
-  await session?.restore(id);
-}
-async function nameVersion(): Promise<void> {
-  if (!versionName.value.trim()) return;
+async function historyAction(action: () => Promise<unknown>): Promise<void> {
+  actionBusy.value = true;
   try {
-    await flushWorkspace();
-    if (editingName.value === undefined) await session?.tag(versionName.value.trim());
-    else await session?.renameTag(editingName.value, versionName.value.trim());
+    if (writeConflict.value) throw new Error(session!.saveStatus().message);
+    await writes.flush();
+    await action();
     await session?.flush();
-    versionName.value = "";
-    editingName.value = undefined;
     editor.error.value = "";
   } catch (cause) {
     editor.error.value = cause instanceof Error ? cause.message : String(cause);
+  } finally {
+    actionBusy.value = false;
+    refresh();
   }
 }
-async function clearName(name: string): Promise<void> {
-  await session?.renameTag(name, null);
-  if (editingName.value === name) {
-    editingName.value = undefined;
+async function restore(id: string): Promise<void> {
+  await historyAction(async () => session?.restore(id));
+}
+async function nameVersion(): Promise<void> {
+  if (!versionName.value.trim()) return;
+  await historyAction(async () => {
+    if (editingName.value === undefined) await session?.tag(versionName.value.trim());
+    else await session?.renameTag(editingName.value, versionName.value.trim());
     versionName.value = "";
-  }
+    editingName.value = undefined;
+  });
+}
+async function clearName(name: string): Promise<void> {
+  await historyAction(async () => {
+    await session?.renameTag(name, null);
+    if (editingName.value === name) {
+      editingName.value = undefined;
+      versionName.value = "";
+    }
+  });
 }
 async function add(group: string): Promise<void> {
   if (group === "WORDS" || group === "OBJECTS") {
@@ -1046,6 +1064,7 @@ onBeforeUnmount(() => {
       <input v-model="versionName" aria-label="Version name" placeholder="Opening scene" /><UiButton
         size="sm"
         type="submit"
+        :disabled="writeConflict || editor.busy.value"
         >{{ editingName === undefined ? "Name this version" : "Save name" }}</UiButton
       >
       <UiButton
@@ -1075,6 +1094,7 @@ onBeforeUnmount(() => {
             <UiButton
               size="sm"
               variant="ghost"
+              :disabled="writeConflict || editor.busy.value"
               :aria-label="`Rename ${name}`"
               @click="
                 editingName = name;
@@ -1085,6 +1105,7 @@ onBeforeUnmount(() => {
             <UiButton
               size="sm"
               variant="ghost"
+              :disabled="writeConflict || editor.busy.value"
               :aria-label="`Clear ${name}`"
               @click="clearName(name)"
               >Clear</UiButton
@@ -1099,7 +1120,7 @@ onBeforeUnmount(() => {
       </div>
       <UiButton
         size="sm"
-        :disabled="commit.id === historyState?.cursor || editor.busy.value"
+        :disabled="writeConflict || commit.id === historyState?.cursor || editor.busy.value"
         @click="restore(commit.id)"
         >Restore</UiButton
       >

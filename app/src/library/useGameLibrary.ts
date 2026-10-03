@@ -929,7 +929,6 @@ export function createGameLibrary(
     game: CachedGameMeta,
     expected?: ProgressTarget,
     isCurrent?: () => boolean,
-    mode: "play" | "create" = "play",
   ): Promise<void> {
     selectLibraryGame(game);
     const selected = game.projectId;
@@ -951,12 +950,6 @@ export function createGameLibrary(
       target !== null &&
       autosave.game.identity.revision !== target.identity.revision
     ) {
-      // Create opens durable documents even while MAIN's latest checkpoint
-      // still names the preceding image. Explicit Play retains its refusal.
-      if (mode === "create") {
-        await onBootSavedGame(false, context, expected ?? target, isCurrent);
-        return;
-      }
       state.phase = "error";
       state.error =
         "This checkpoint belongs to a different revision. Restore its matching game resources or open Earlier progress.";
@@ -1427,7 +1420,14 @@ export function createGameLibrary(
       const liveBehindStorage = game?.behindStorage;
       const liveStale = state.staleTab;
       const notes: string[] = [...(exportResult?.notes ?? [])];
-      if (live && project && !(await flushAutosave(2000).catch(() => false)))
+      if (
+        live &&
+        project &&
+        !liveRemoved &&
+        !liveBehindStorage &&
+        !liveStale &&
+        !(await flushAutosave(2000).catch(() => false))
+      )
         notes.push(
           "Browser storage did not save the latest progress; this backup uses a direct worker checkpoint when available.",
         );

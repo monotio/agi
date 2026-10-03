@@ -1268,34 +1268,6 @@ for (const checkpoint of [false, true]) {
   }
 }
 
-test("Create opens saved documents while preserving an earlier revision checkpoint", async (t) => {
-  const cleanup = cleanupAfter(t);
-  installLocalStorage(t);
-  const engine = fakeEngine();
-  const id = testProjectId("create-earlier-checkpoint");
-  await saveAuthoredGame(id, savedProjectBody({ "dir.vol": new Uint8Array([1, 2]) }));
-  const target = (await bindSavedProgressTarget(id))!;
-  cleanup.later(() => removeProjectWithProgress(target, []));
-  const record = autosaveFor(target, 4);
-  record.game = {
-    ...record.game,
-    identity: { ...record.game.identity, revision: testRevision("earlier-native-build") },
-  };
-  const raw = JSON.stringify(record);
-  localStorage.setItem(autosaveKey(target.locator), raw);
-  const lib = library(engine.api);
-  await flush();
-  await lib.onPlayLibraryGame(
-    lib.savedGames.value.find((game) => game.projectId === id)!,
-    undefined,
-    undefined,
-    "create",
-  );
-  assert.equal(engine.calls.bootAuthoredGame, 1);
-  assert.equal(engine.calls.resumeFromRecord.length, 0);
-  assert.equal(localStorage.getItem(autosaveKey(target.locator)), raw);
-});
-
 test("a same-epoch checkpoint from an earlier revision refuses opening and keeps its bytes", async (t) => {
   const cleanup = cleanupAfter(t);
   installLocalStorage(t);

@@ -626,7 +626,7 @@ test("an unchanged accepted document retires its editor intent", async () => {
 });
 
 for (const action of ["undo", "restore"] as const) {
-  test(`${action} supersedes an older unadmitted intent on another document`, async () => {
+  test(`${action} preserves an unadmitted intent on another document`, async () => {
     const owner = await session(`pending-intent-${action}`);
     const initial = owner.history.capture().cursor!;
     await edit(owner, 'print("Committed"); return;');
@@ -638,7 +638,7 @@ for (const action of ["undo", "restore"] as const) {
     const reopened = await loadAuthoredGame(testProjectId(`pending-intent-${action}`));
     assert.deepEqual(reopened!.workspace!.documents.find((doc) => doc.key === "notes")!.content, {
       type: "text",
-      text: "UNEDITED_SENTINEL",
+      text: "Older pending notes",
     });
     assert.equal(journals().length, 0);
   });
@@ -692,4 +692,36 @@ test("two SOUND gestures retire only their admitted intent, including tempo-only
   assert.equal(JSON.parse(music.text)["1"].tempo, 120);
   assert.equal(JSON.parse(music.text)["2"].tempo, 180);
   assert.equal(journals().length, 0);
+});
+
+test("removal retires a live journal through frames, further typing and dispose", async () => {
+  const owner = await session("removed-journal-owner");
+  owner.rememberEditorChanges([{ key: "notes", content: "Before removal" }]);
+  assert.equal(journals().length, 1);
+  const { clearCachedGame } = await import("../src/project/gameStorage.ts");
+  await clearCachedGame(baseData.projectId);
+  owner.stopWrites("removed");
+  paint();
+  owner.rememberEditorChanges([{ key: "notes", content: "After removal" }]);
+  owner.dispose();
+  assert.equal(journals().length, 0);
+});
+
+test("Restore preserves a failed editor intent until its own edit is admitted", async () => {
+  const owner = await session("restore-failed-intent");
+  const opened = owner.history.capture().cursor!;
+  await edit(owner, 'print("Accepted"); return;');
+  await owner.flush();
+  owner.rememberEditorChanges([{ key: "notes", content: "Failed editor draft" }]);
+  await owner.restore(opened);
+  await owner.flush();
+  assert.equal(owner.hasEditorIntents, true);
+  owner.dispose();
+  assert.equal(journals().length, 1);
+  assert.match(journals()[0]![1], /Failed editor draft/);
+  const reopened = (await loadAuthoredGame(baseData.projectId))!;
+  assert.deepEqual(reopened.workspace!.documents.find((entry) => entry.key === "notes")!.content, {
+    type: "text",
+    text: "Failed editor draft",
+  });
 });

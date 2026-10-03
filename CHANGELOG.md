@@ -46,7 +46,7 @@ Released notes are also available on [GitHub Releases](https://github.com/monoti
   recovery storage is available. A failed save keeps the workspace open with Retry.
 - Download game can produce a backup after a failed save or a change in another tab,
   with a report of its limitations. Stale and removed tabs can leave without saving.
-- Pending edits from an earlier project version stay available as a recovery download.
+- Pending edits from an earlier project version show a notice with Discard pending edits.
 - Name this version names what is on screen, including source with errors.
 - Opening a menu while the game screen loads keeps the menu open.
 

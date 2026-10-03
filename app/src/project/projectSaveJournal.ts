@@ -28,16 +28,43 @@ function readEntries(storage: Storage, key: string): JournalEntry[] {
 }
 const PREFIX = "monotio_agi.project-writes.";
 const RECOVERY_PREFIX = "monotio_agi.project-recovery.";
-export function clearProjectSaveJournals(storage: Storage, project: ProjectId): void {
+const RETIRED_PREFIX = "monotio_agi.project-write-retired.";
+export const PROJECT_SAVE_JOURNAL_EVENT = "project-save-journal";
+function changed(): void {
+  if (typeof dispatchEvent !== "undefined") dispatchEvent(new Event(PROJECT_SAVE_JOURNAL_EVENT));
+}
+function retiredEntry(storage: Storage, entry: JournalEntry): boolean {
+  const base = entry.capture?.base ?? entry.request?.expected;
+  return (
+    base != null &&
+    storage.getItem(`${RETIRED_PREFIX}lifetime.${base.projectId}.${base.lifetime}`) !== null
+  );
+}
+export function clearProjectSaveJournals(
+  storage: Storage,
+  project: ProjectId,
+  lifetime?: string | null,
+): void {
+  let refusal: unknown;
+  const retire = (key: string) => {
+    try {
+      storage.setItem(key, "1");
+    } catch (error) {
+      refusal ??= error;
+    }
+  };
+  if (lifetime != null) retire(`${RETIRED_PREFIX}lifetime.${project}.${lifetime}`);
   const keys = Array.from({ length: storage.length }, (_, index) => storage.key(index));
   for (const key of keys)
     if (
       key?.startsWith(`${PREFIX}${project}.`) ||
       key?.startsWith(`${RECOVERY_PREFIX}${project}.`)
     ) {
+      if (key.startsWith(PREFIX)) retire(`${RETIRED_PREFIX}key.${key}`);
       storage.removeItem(key);
       delete terminal[key];
     }
+  if (refusal !== undefined) throw refusal;
 }
 
 export function discardProjectSaveRecoveries(
@@ -47,6 +74,7 @@ export function discardProjectSaveRecoveries(
 ): void {
   for (const { key, raw } of observed) {
     if (!key.startsWith(`${PREFIX}${project}.`) || storage.getItem(key) !== raw) continue;
+    storage.setItem(`${RETIRED_PREFIX}key.${key}`, "1");
     storage.removeItem(key);
     storage.removeItem(`${RECOVERY_PREFIX}${key.slice(PREFIX.length)}`);
     delete terminal[key];
@@ -119,6 +147,13 @@ export function writeProjectSaveJournal(
   key: string,
   entries: readonly JournalEntry[],
 ): void {
+  if (
+    storage.getItem(`${RETIRED_PREFIX}key.${key}`) !== null ||
+    entries.some((entry) => retiredEntry(storage, entry))
+  ) {
+    storage.removeItem(key);
+    return;
+  }
   if (entries.length === 0) storage.removeItem(key);
   else {
     const raw = JSON.stringify({
@@ -127,6 +162,20 @@ export function writeProjectSaveJournal(
     });
     storage.setItem(key, raw);
   }
+}
+
+/** Surface a live stale owner's retained bytes before it closes. */
+export function markProjectSaveRecovery(storage: Storage, key: string, reason: string): void {
+  const raw = storage.getItem(key);
+  if (raw === null) return;
+  const marker: RecoveryMarker = {
+    version: 1,
+    hash: sha256Hex(new TextEncoder().encode(raw)),
+    reason,
+  };
+  terminal[key] = marker;
+  storage.setItem(`${RECOVERY_PREFIX}${key.slice(PREFIX.length)}`, JSON.stringify(marker));
+  changed();
 }
 
 /** Replay exact attempted requests; only an unattempted successor takes its predecessor's receipt. */
@@ -150,6 +199,13 @@ export function resumeProjectSaveJournals(
     for (const key of keys.sort()) {
       const recover = async () => {
         let entries = readEntries(storage, key);
+        if (
+          storage.getItem(`${RETIRED_PREFIX}key.${key}`) !== null ||
+          entries.some((entry) => retiredEntry(storage, entry))
+        ) {
+          storage.removeItem(key);
+          return;
+        }
         const observed = new Set(entries.map(entryIdentity));
         let previous: ProjectCommitReceipt | undefined;
         while (entries.length > 0) {
@@ -172,11 +228,17 @@ export function resumeProjectSaveJournals(
               previous = (await rebuild(entry.capture)).receipt;
             } else previous = (await write(entry.request!)).receipt;
           } catch (error) {
+            if (error instanceof Error && error.name === "ProjectDeletedError") {
+              // Durable lifetime validation also retires an orphan after marker storage refused.
+              storage.removeItem(key);
+              storage.removeItem(`${RECOVERY_PREFIX}${key.slice(PREFIX.length)}`);
+              delete terminal[key];
+              changed();
+              break;
+            }
             if (
               error instanceof Error &&
-              ["ConcurrencyConflictError", "ProjectDeletedError", "ProjectExistsError"].includes(
-                error.name,
-              )
+              ["ConcurrencyConflictError", "ProjectExistsError"].includes(error.name)
             ) {
               const current = readEntries(storage, key);
               const index = current.findIndex(

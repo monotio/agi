@@ -2,6 +2,7 @@
 import { ref, watch, onMounted, onUnmounted } from "vue";
 import type { ProjectId } from "../../../src/gameIdentity.ts";
 import {
+  PROJECT_SAVE_JOURNAL_EVENT,
   discardProjectSaveRecoveries,
   readProjectSaveRecoveries,
 } from "../project/projectSaveJournal.ts";
@@ -17,8 +18,14 @@ function refresh(): void {
   }
 }
 watch(() => projectId, refresh, { immediate: true });
-onMounted(() => window.addEventListener("storage", refresh));
-onUnmounted(() => window.removeEventListener("storage", refresh));
+onMounted(() => {
+  window.addEventListener("storage", refresh);
+  window.addEventListener(PROJECT_SAVE_JOURNAL_EVENT, refresh);
+});
+onUnmounted(() => {
+  window.removeEventListener("storage", refresh);
+  window.removeEventListener(PROJECT_SAVE_JOURNAL_EVENT, refresh);
+});
 function discard(): void {
   if (projectId) discardProjectSaveRecoveries(localStorage, projectId, recoveries.value);
   refresh();

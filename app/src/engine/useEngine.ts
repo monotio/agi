@@ -456,6 +456,13 @@ export function useEngine(
           },
           publish(snapshot, data, outcome, nativeInstalled) {
             if (!current()) return;
+            if (
+              computeResourceRevision(game.authoredGame!.files) !==
+              snapshot.lastAdmissibleBuild!.identity.revision
+            ) {
+              hook.autosave = -1;
+              link.publishHook();
+            }
             const running =
               nativeInstalled === true ||
               outcome?.status === "committed" ||

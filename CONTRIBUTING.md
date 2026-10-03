@@ -234,19 +234,22 @@ Compatible recovery validates the project lifetime and base, then replays prepar
 History. Invalid LOGIC stays editable and retains the prior runnable image.
 Admission transfers each gesture's intent, including derived companion metadata,
 into the pending save capture. Durable acknowledgement retires that capture. Later
-Undo and Restore supersede those document operations. Journals whose base has ended
+Undo and Restore supersede admitted document operations and preserve unrelated
+unadmitted editor drafts. Journals behind a newer write in the same project lifetime
 retain their bytes and offer Discard pending edits; an unchanged terminal journal
 is excluded from later replay attempts. Recovery
 requires available browser storage; clearing site data or exhausting recovery
 storage can prevent immediate-close recovery. Saved confirms the IndexedDB
 project acknowledgement. Deferred MAIN admission publishes the accepted image without
 queuing another source write. Checkpoint preparation waits for active admission
-attempts before proving its revision. Create reload opens the current saved
-documents when MAIN's checkpoint belongs to an earlier build, preserving that
-checkpoint. Explicit Play requires a matching checkpoint. Removing a project
-clears its pending-edit journals and recovery notices. Home reads the body and lifetime to bind
+boundaries and attempts before proving its revision, and rechecks document ownership
+after storage awaits. Play and Create require a matching checkpoint. Removing a
+project retires its journal lifetime across tabs and clears pending edits and
+recovery notices. Recovery also removes journals whose durable project lifetime has
+ended when a retirement marker could not be stored. Home reads the body and lifetime to bind
 progress; History blobs load when the project opens. An open that rejects a blob
-returns the project to the recovery card with its raw Download.
+returns the project to the recovery card with its raw Download, including after
+reload when browser storage accepts the rejection marker.
 
 A writing session holds an exclusive Web Lock named by its journal key until
 it closes. Recovery requests that lock with `ifAvailable` and skips live owners.

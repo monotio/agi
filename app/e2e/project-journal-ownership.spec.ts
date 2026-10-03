@@ -137,6 +137,15 @@ test("removal clears ended journals before a recreated project opens", async ({
     writeProjectSaveJournal(localStorage, key, [
       { request: { ...request, commitId: "unsaved", expected: receipt.saved }, attempted: false },
     ]);
+    const pending = { ...request, commitId: "late-owner", expected: receipt.saved };
+    const { claimProjectSaveJournal } = await import("/src/project/projectSaveJournal.ts");
+    const release = claimProjectSaveJournal(key);
+    Object.assign(window, {
+      rewriteRemovedJournal: () => {
+        writeProjectSaveJournal(localStorage, key, [{ request: pending, attempted: false }]);
+        release();
+      },
+    });
     return { key, raw: localStorage.getItem(key) };
   });
   await other.evaluate(async () => {
@@ -152,6 +161,9 @@ test("removal clears ended journals before a recreated project opens", async ({
       data: { title: "Recreated", files: {}, words: [] },
     });
   });
+  await page.evaluate(() =>
+    (window as unknown as { rewriteRemovedJournal(): void }).rewriteRemovedJournal(),
+  );
   const result = await page.evaluate(async (key) => {
     const { loadAuthoredGame } = await import("/src/project/gameStorage.ts");
     return {

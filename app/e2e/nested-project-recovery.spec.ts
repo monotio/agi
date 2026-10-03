@@ -120,6 +120,8 @@ for (const damage of ["hash", "content"] as const) {
     await page.getByTestId(`saved-game-card-${id}`).getByTestId("btn-resume-cached").click();
     const card = page.getByTestId(`unsupported-project-card-${id}`);
     await expect(card).toContainText("Saved project needs recovery");
+    await page.reload();
+    await expect(card).toContainText("Saved project needs recovery");
     const pending = page.waitForEvent("download");
     await card.getByRole("button", { name: "Download", exact: true }).click();
     const body = JSON.parse(await readFile((await (await pending).path())!, "utf8"));

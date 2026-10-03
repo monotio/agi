@@ -703,7 +703,12 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
       // A checkpoint names the revision this game runs. Once storage holds
       // another one (a Keep in another tab, which took its own checkpoint),
       // this one could never resume and would bury that tab's: skip it.
-      if (storageMovedPast(game)) return false;
+      if (
+        storageMovedPast(game) ||
+        (msg.revision !== undefined &&
+          (game.revision !== msg.revision || target.identity.revision !== msg.revision))
+      )
+        return false;
       // A snapshot without its own picture (the worker sends none for a black
       // screen) keeps the card's previous one — only this game's own
       // physical record supplies it.
@@ -739,7 +744,19 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
         clearAutosave(target.locator);
         return false;
       }
-      if (ctx.getBootedGame() !== game) return false;
+      // A document edit can land while the lifetime read waits. Re-prove its
+      // owner before acknowledging a cycle as durable for the current project.
+      const ownership = await ctx.prepareCheckpoint?.(
+        game,
+        undefined,
+        stored.game.identity.revision,
+      );
+      if (
+        ownership === "refused" ||
+        ctx.getBootedGame() !== game ||
+        game.revision !== stored.game.identity.revision
+      )
+        return false;
       ctx.onAutosaveStored?.(stored.cycle);
       lastAutosave = stored;
       return true;
@@ -796,7 +813,14 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
 
     const lastCycle = lastAutosave?.cycle;
     const isCleanOpening = cycle === 0;
-    const isUnchanged = lastCycle !== undefined && cycle <= lastCycle;
+    const game = ctx.getBootedGame();
+    const target = game === null ? null : resolveProgressTarget(game);
+    const isUnchanged =
+      lastCycle !== undefined &&
+      cycle <= lastCycle &&
+      target !== null &&
+      lastAutosave !== null &&
+      autosaveMatches(lastAutosave.game, target.locator);
 
     if (isCleanOpening || isUnchanged) {
       simpleResolve?.(true);

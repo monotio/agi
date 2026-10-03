@@ -8,6 +8,7 @@ import {
   type ProjectCommitRequest,
 } from "../src/project/gameStorage.ts";
 import {
+  clearProjectSaveJournals,
   projectSaveJournalKey,
   resumeProjectSaveJournals,
   writeProjectSaveJournal,
@@ -178,7 +179,7 @@ test("a terminal recovery conflict is surfaced once with its original bytes", as
   let attempts = 0;
   const conflict = async () => {
     attempts++;
-    throw Object.assign(new Error("Project lifetime ended"), { name: "ProjectDeletedError" });
+    throw Object.assign(new Error("Project changed"), { name: "ConcurrencyConflictError" });
   };
   await resumeProjectSaveJournals(cache, input.projectId, conflict);
   await resumeProjectSaveJournals(cache, input.projectId, conflict);
@@ -198,7 +199,7 @@ test("a recovery marker failure still opens the project and exposes retained edi
   };
   try {
     await resumeProjectSaveJournals(cache, input.projectId, async () => {
-      throw Object.assign(new Error("Removed project"), { name: "ProjectDeletedError" });
+      throw Object.assign(new Error("Project changed"), { name: "ConcurrencyConflictError" });
     });
     const { readProjectSaveRecoveries } = await import("../src/project/projectSaveJournal.ts");
     assert.equal(readProjectSaveRecoveries(cache, input.projectId)[0]?.raw, raw);
@@ -209,8 +210,7 @@ test("a recovery marker failure still opens the project and exposes retained edi
 });
 
 test("discard removes only the observed recovery bytes and removal clears both journal namespaces", async () => {
-  const { discardProjectSaveRecoveries, clearProjectSaveJournals } =
-    await import("../src/project/projectSaveJournal.ts");
+  const { discardProjectSaveRecoveries } = await import("../src/project/projectSaveJournal.ts");
   const values = new Map<string, string>();
   const storage = {
     clear: () => values.clear(),
@@ -230,10 +230,45 @@ test("discard removes only the observed recovery bytes and removal clears both j
   discardProjectSaveRecoveries(storage, project, [{ key, raw: "older" }]);
   assert.equal(values.get(key), "newer");
   discardProjectSaveRecoveries(storage, project, [{ key, raw: "newer" }]);
-  assert.equal(values.size, 0);
+  assert.equal(storage.getItem(key), null);
+  assert.equal(storage.getItem(marker), null);
+  assert.equal(storage.getItem(`monotio_agi.project-write-retired.key.${key}`), "1");
   values.set(key, "pending");
   values.set(marker, "marker");
   values.set(projectSaveJournalKey("other" as never, "owner"), "other");
   clearProjectSaveJournals(storage, project);
-  assert.equal(values.size, 1);
+  assert.equal(storage.getItem(key), null);
+  assert.equal(storage.getItem(marker), null);
+  assert.equal(values.size, 2);
+});
+
+test("removal clears pending bytes when retirement-marker storage refuses the write", () => {
+  const input = request("journal-removal-quota");
+  const key = projectSaveJournalKey(input.projectId, "owner");
+  writeProjectSaveJournal(cache, key, [{ request: input, attempted: false }]);
+  const setItem = cache.setItem;
+  cache.setItem = (key, value) => {
+    if (key.startsWith("monotio_agi.project-write-retired."))
+      throw new Error("Retirement marker quota");
+    setItem(key, value);
+  };
+  try {
+    assert.throws(
+      () => clearProjectSaveJournals(cache, input.projectId, "removed"),
+      /Retirement marker quota/,
+    );
+    assert.equal(cache.getItem(key), null);
+  } finally {
+    cache.setItem = setItem;
+  }
+});
+
+test("recovery removes an ended lifetime's journal even when no retirement marker was stored", async () => {
+  const input = request("journal-ended-without-marker");
+  const key = projectSaveJournalKey(input.projectId, "owner");
+  writeProjectSaveJournal(cache, key, [{ request: input, attempted: false }]);
+  await resumeProjectSaveJournals(cache, input.projectId, async () => {
+    throw Object.assign(new Error("Project lifetime ended"), { name: "ProjectDeletedError" });
+  });
+  assert.equal(cache.getItem(key), null);
 });
