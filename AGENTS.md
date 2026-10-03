@@ -75,10 +75,11 @@ only for released formats and keep their original fixtures.
   point, never by locale.
 
 Release candidates use `rc/X.Y-rc.N` pull requests into `release/X.Y`, with both
-package versions set to `X.Y.0-rc.N`. Squash-merge a candidate only after CI passes
-and the owner accepts it. After release QA, bump both versions to `X.Y.0` and open
-`release/X.Y` into `main`, which deploys. Tag and publish the release only after
-deployment verification (docs/hosting.md, "Release branches").
+package versions set to `X.Y.0-rc.N`. Each candidate branches from `release/X.Y`, and
+fixes found after one merges go into the next. Squash-merge a candidate only after CI
+passes and the owner accepts it. After the final candidate's release QA, bump both
+versions to `X.Y.0` and open `release/X.Y` into `main`, which deploys. Tag and publish
+the release only after deployment verification (docs/hosting.md, "Release branches").
 
 Local release plans stay uncommitted and must not be referenced by committed
 code, comments or documentation.
@@ -129,6 +130,9 @@ code, comments or documentation.
   never the reverse.
 - No runtime import cycles in `src/` or `app/src/`; `.dependency-cruiser.mjs` pins
   the few older ones as warnings, and a new cycle fails `npm run lint:deps`.
+- The app uses the interfaces it ships: the LOGIC editor runs on the same
+  language-server core as `agi-language-server`. A new integration surface (protocol,
+  format or engine API) carries the app's own feature rather than a private twin.
 - Studio editor code (`src/studio/`, `app/src/studio/`) stays off the Play boot path: the
   shell loads it through dynamic `import()`, and `npm run check:bundle` fails a
   build that pulls it in.
@@ -189,9 +193,25 @@ code, comments or documentation.
   Correction rounds are a ceiling, not a target.
 - Authority lives in code: tools are deny-by-default, the assembler and container
   are the validators of last resort, destructive actions are previewed.
-- Run the affected tests and `npm run check` before integration. Doc-only changes
-  need consistency and formatting checks only. Keep README.md and CONTRIBUTING.md
+- Save, sync and recovery guarantees need tests on their failure paths: a rejected
+  write, a second page on the same storage, and closing before the write commits. A
+  test that waits for Saved proves only success; state the narrower guarantee when a
+  path is untested.
+- Code that replaces the worker's engine moves every per-engine piece with it (edit
+  admission, debugger session, recorder) on every replacement path.
+- Explain a proposal in plain words (problem, who it serves, origin, cost and benefit)
+  before showing a mockup or asking for a scope decision. Limits on agents (rounds,
+  reads, tokens) follow evidence about the task, never round numbers.
+- Run the affected tests and `npm run check` before integration, plus
+  `npm --prefix app run build && npm run check:bundle` when imports move. CI is the
+  browser verdict: push the branch and read failures with
+  `gh run view <id> --log-failed` instead of replaying the matrix locally, since macOS
+  fonts, WebKit and CPU differ from the Linux runners. Doc-only changes need
+  consistency and formatting checks only. Keep README.md and CONTRIBUTING.md
   consistent with shipped behavior; no gratuitous markdown files.
+- Before a candidate is accepted, answer every automated review thread against the
+  code, then review the whole change once for failure paths, a second tab and closing
+  before commit; reviews of one push at a time miss properties of the whole system.
 
 ## Working with others
 
@@ -201,3 +221,7 @@ code, comments or documentation.
 - Delegation: explicit file scope per contributor, a fresh agent for unrelated
   work, review delegated output and run the relevant checks before integrating.
   Do not require a particular agent vendor or model.
+- A delegated task works in its own worktree and branch, pushes only that branch for
+  CI, and opens its report with at most 150 words: verdict, commits, gates with the CI
+  run link, open questions. Integrate only on green CI for that branch; then delete
+  its worktree and branches.
