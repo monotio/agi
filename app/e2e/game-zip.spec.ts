@@ -30,10 +30,13 @@ test("a friend opens an exported world in a fresh browser without a key @webkit-
   await expect(page.getByTestId("input-line")).toBeVisible();
   await expect.poll(async () => (await textHook(page)).frame).toBeGreaterThan(0);
   await expect.poll(async () => (await textHook(page)).cycle).toBeGreaterThan(0);
-  if ((await textHook(page)).modal) {
-    await page.keyboard.press("Enter");
-    await expect.poll(async () => (await textHook(page)).modal).toBeNull();
-  }
+  // Room 1's entry LOGIC opens a print window; finish it so "east" reaches the parser.
+  await expect.poll(async () => (await textHook(page)).modal).toBe("print");
+  await expect
+    .poll(async () => (await textHook(page)).rows.join(" "))
+    .toContain("generated room 1.");
+  await page.keyboard.press("Enter");
+  await expect.poll(async () => (await textHook(page)).modal).toBeNull();
   await page.getByTestId("input-line").fill("east");
   await page.getByTestId("input-line").press("Enter");
   await expect
@@ -58,10 +61,13 @@ test("a friend opens an exported world in a fresh browser without a key @webkit-
     await friend.getByTestId("btn-resume-cached").click();
     await expect(friend.getByTestId("input-line")).toBeVisible();
     await expect.poll(async () => (await textHook(friend)).room).toBe(1);
-    if ((await textHook(friend)).modal) {
-      await friend.keyboard.press("Enter");
-      await expect.poll(async () => (await textHook(friend)).modal).toBeNull();
-    }
+    // new.room posts its room before the entry LOGIC opens its print window.
+    await expect.poll(async () => (await textHook(friend)).modal).toBe("print");
+    await expect
+      .poll(async () => (await textHook(friend)).rows.join(" "))
+      .toContain("generated room 1.");
+    await friend.keyboard.press("Enter");
+    await expect.poll(async () => (await textHook(friend)).modal).toBeNull();
     await friend.getByTestId("input-line").fill("east");
     await friend.getByTestId("input-line").press("Enter");
     await expect

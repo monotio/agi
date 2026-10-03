@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { isolateStorage, textHook } from "./engineProbe.ts";
+import type { WorkerQueryFn } from "../src/worker/workerProtocol.ts";
 
 interface TutorialAudioProbe {
   started: number[];
@@ -21,9 +22,40 @@ async function audioState(page: Page) {
   });
 }
 
+/** Query the worker directly: room text can arrive before the position heartbeat. */
+async function tutorialState(page: Page) {
+  return page.evaluate(async () => {
+    const api = (window as unknown as { __AGI_PROJECT__: { query: WorkerQueryFn } })
+      .__AGI_PROJECT__;
+    const state = await api.query("state");
+    if (!state) throw new Error("The tutorial is not running");
+    const objects = await api.query("objects");
+    const lever = objects.find((object) => object.num === 2);
+    return {
+      room: state.room,
+      x: state.egoX,
+      y: state.egoY,
+      direction: state.egoDirection,
+      stopped: state.egoDirection === 0,
+      inReach: state.egoX >= 26 && state.egoX <= 56 && state.egoY >= 112 && state.egoY <= 167,
+      parsedWords: state.parsedWords,
+      parsedCommand: state.parsedWordTexts,
+      lastInputLine: state.lastInputLine,
+      repaired: state.flags[31],
+      leverCel: lever?.cel,
+      leverCycling: lever?.cycling,
+    };
+  });
+}
+
 test("tutorial plays its opening and earned cues through the real sound worker and Web Audio", async ({
   page,
-}) => {
+}, testInfo) => {
+  const cpuRate = Number(process.env["AGI_TUTORIAL_CPU_RATE"] ?? 1);
+  if (cpuRate !== 1) {
+    const cdp = await page.context().newCDPSession(page);
+    await cdp.send("Emulation.setCPUThrottlingRate", { rate: cpuRate });
+  }
   await isolateStorage(page);
   await page.addInitScript(() => {
     const probe: TutorialAudioProbe = { started: [], active: null, outputs: 0, contexts: [] };
@@ -90,13 +122,34 @@ test("tutorial plays its opening and earned cues through the real sound worker a
 
   await command("east");
   await expect.poll(async () => (await textHook(page)).room).toBe(2);
-  // The lever works within its plate's reach (x 26-56): step over from the doorway.
+  // Wait for the lab's doorway in worker state before starting the walk.
+  await expect
+    .poll(() => tutorialState(page))
+    .toMatchObject({ room: 2, x: 18, y: 151, stopped: true });
   await page.keyboard.press("ArrowRight");
   await expect
-    .poll(async () => (await textHook(page)).egoX, { intervals: [20] })
+    .poll(async () => (await tutorialState(page)).x, { intervals: [20] })
     .toBeGreaterThanOrEqual(28);
   await page.keyboard.press("ArrowRight");
+  // The queued stop must take effect inside the lever's reach (x 26-56).
+  await expect
+    .poll(() => tutorialState(page), { intervals: [20] })
+    .toMatchObject({ room: 2, stopped: true, inReach: true });
+  const beforeLever = await tutorialState(page);
+  expect(beforeLever).toMatchObject({ room: 2, stopped: true, inReach: true });
   await command("pull lever");
+  await expect.poll(async () => (await textHook(page)).modal).not.toBeNull();
+  const evidence = {
+    cpuRate,
+    beforeLever,
+    afterLever: await tutorialState(page),
+    text: await textHook(page),
+    audio: await audioState(page),
+  };
+  await testInfo.attach("lever-evidence", {
+    body: JSON.stringify(evidence, null, 2),
+    contentType: "application/json",
+  });
   await expect.poll(async () => (await audioState(page)).started).toEqual([1, 2, 3]);
   await dismiss();
   await command("pull lever");
