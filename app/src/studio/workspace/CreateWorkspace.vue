@@ -59,6 +59,14 @@ const DebugControls = defineAsyncComponent(() => import("./WorkspaceDebugControl
 const engine = useEngineApi();
 const workspace = useCreateWorkspace();
 const editor = useWorkspaceEditor();
+function openPart(key: string, pinned = false): void {
+  if (window.innerWidth <= 1280 && engine.state.powerUp.open) engine.closePowerUp();
+  editor.open(key, pinned);
+  if (window.innerWidth <= 600) {
+    editor.focus.value = true;
+    editor.partsOpen.value = false;
+  }
+}
 function openAgent(): void {
   engine.state.powerUp.mode = "remix";
   engine.state.powerUp.open = true;
@@ -113,7 +121,7 @@ function addImportedSound(bytes: Uint8Array, tempo: number): void {
   }
   const key = `sound:${number}`;
   editSound(key, bytes, tempo);
-  editor.open(key);
+  openPart(key);
   musicDrop.value = undefined;
 }
 window.addEventListener("dragover", musicDrag, true);
@@ -260,7 +268,7 @@ watch(
     editor.parts.value = workspaceOpenParts(next).map((row) => ({
       id: row.key,
       title: row.label,
-      run: () => editor.open(row.key),
+      run: () => openPart(row.key),
     }));
   },
   { immediate: true },
@@ -280,7 +288,9 @@ const tabRows = computed(() =>
       optimistic.value[key] !== undefined &&
       (snapshot.value?.keys.includes(key) || optimistic.value[key]!.length > 0),
     preview: key === editor.preview.value,
-    missing: !snapshot.value?.keys.includes(key),
+    missing:
+      !snapshot.value?.keys.includes(key) &&
+      (key !== "notes" || (optimistic.value[key]?.length ?? 0) > 0),
   })),
 );
 const profile = computed(() => engine.roomMap.resources.value.profile!);
@@ -488,10 +498,10 @@ const logicLocation = ref<{ key: string; line: number; serial: number }>();
 function openWordLogic(logic: number, line: number): void {
   const key = `logic:${logic}`;
   logicLocation.value = { key, line, serial: (logicLocation.value?.serial ?? 0) + 1 };
-  editor.open(key);
+  openPart(key);
 }
 function wordResponse(room: number, command: string): void {
-  editor.open(`logic:${room}`);
+  openPart(`logic:${room}`);
   guidedCommand.value = command;
   guidedKind.value = "response";
 }
@@ -583,7 +593,7 @@ async function guidedAction(action: WorkspaceAction): Promise<void> {
     }
     if (action.kind === "add-room") {
       const key = prepared.changes.find((change) => change.key.startsWith("logic:"))?.key;
-      if (key) editor.open(key);
+      if (key) openPart(key);
     }
     guidedKind.value = undefined;
     editor.error.value = "";
@@ -649,7 +659,7 @@ async function add(group: string): Promise<void> {
       rows.push(["word", nextWordGroup(rows as [string, number][])]);
     } else rows.push({ name: "Object", startingRoom: 255 });
     edit(key, JSON.stringify(rows));
-    editor.open(key);
+    openPart(key);
     return;
   }
   if (group === "SHARED LOGIC") {
@@ -660,7 +670,7 @@ async function add(group: string): Promise<void> {
       return;
     }
     edit(`logic:${num}`, "return;\n");
-    editor.open(`logic:${num}`);
+    openPart(`logic:${num}`);
     return;
   }
   const kind =
@@ -679,7 +689,7 @@ async function add(group: string): Promise<void> {
     return;
   }
   if (kind === "logic") {
-    editor.open(`logic:${engine.roomMap.currentRoom.value ?? 0}`);
+    openPart(`logic:${engine.roomMap.currentRoom.value ?? 0}`);
     guidedKind.value = "add-room";
     return;
   }
@@ -706,7 +716,7 @@ async function add(group: string): Promise<void> {
       applySoundPreset(createSoundDocument({ profileId: profile.value.id }), "discovery").encode(),
     );
   }
-  editor.open(`${kind}:${num}`);
+  openPart(`${kind}:${num}`);
 }
 function resize(event: PointerEvent): void {
   const target = event.currentTarget as HTMLElement;
@@ -801,14 +811,17 @@ onBeforeUnmount(() => {
 <template>
   <PartsList
     :read-only="writeConflict || actionBusy"
-    v-show="creating && !workspace.collapsed.left && !editor.focus.value"
+    :class="{ 'parts-list--open': editor.partsOpen.value }"
+    v-show="
+      creating && !editor.focus.value && (!workspace.collapsed.left || editor.partsOpen.value)
+    "
     :groups="groups"
     :selected="editor.selected.value"
     :thumbnails="thumbnails"
     :views="viewThumbnails"
     :profile="profile"
-    @open="editor.open"
-    @pin="(key) => editor.open(key, true)"
+    @open="openPart"
+    @pin="(key) => openPart(key, true)"
     @add="add"
   />
   <div
@@ -836,7 +849,7 @@ onBeforeUnmount(() => {
       <ProjectTabs
         :tabs="tabRows"
         :selected-key="editor.selected.value ?? null"
-        @select="(key) => editor.open(key)"
+        @select="(key) => openPart(key)"
         @pin="editor.pin"
         @close="editor.close"
       />

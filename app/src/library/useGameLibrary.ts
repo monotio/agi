@@ -938,8 +938,16 @@ export function createGameLibrary(
   }
 
   const latestVersion = shallowRef<ProgressTarget>();
+  const latestVersionAtHero = shallowRef(false);
+  function dismissLatestVersion(): void {
+    latestVersion.value = undefined;
+    state.error = "";
+    state.phase = "idle";
+  }
   function offerLatestVersion(target: ProgressTarget, cause?: string): void {
     if (target.kind !== "project") return;
+    latestVersionAtHero.value =
+      typeof document !== "undefined" && !!document.activeElement?.closest(".hero");
     latestVersion.value = target;
     state.phase = "error";
     state.error = cause?.includes("Start the latest version?")
@@ -1810,6 +1818,8 @@ export function createGameLibrary(
     onClearSavedGame,
     onPlayLibraryGame,
     latestVersion,
+    latestVersionAtHero,
+    dismissLatestVersion,
     startLatestVersion,
     onStartLibraryGameOver,
     onCheckLibraryGame,

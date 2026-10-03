@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import StaleTabNote from "../play/StaleTabNote.vue";
 /**
  * The top chrome. At the menu screen: the brand, Help, GitHub and Settings.
  * While a game runs: the PlayBar, then the notices that belong above the
@@ -445,11 +446,12 @@ async function onRecordSave(): Promise<void> {
     @start-walkthrough="onStartWalkthrough"
   />
   <div class="shell-notices">
+    <StaleTabNote />
     <div
       v-if="
         state.phase === 'running' &&
         !workspaceEditor.readOnly.value &&
-        workspaceEditor.save.value !== 'Saved'
+        workspaceEditor.save.value === 'Could not save. Retry'
       "
       class="notice-actions"
     >
@@ -830,6 +832,8 @@ a.publisher:hover > span {
 
 /* Notices sit between the bar and the stage; the stage re-fits around them. */
 .shell-notices {
+  position: relative;
+  z-index: var(--z-toast);
   display: flex;
   flex-direction: column;
   align-items: center;

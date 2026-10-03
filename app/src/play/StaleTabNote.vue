@@ -1,13 +1,7 @@
 <script setup lang="ts">
 /**
- * The stage's note that storage moved past the running game — another tab
- * kept an edit or asked the assistant — shown once per stale event while the
- * Assistant (which says the same) may be closed. Never modal: the player can
- * keep playing; nothing writes the game's files until it reloads.
- *
- * When another tab removed the game, no reload brings it back: the note says
- * so instead, with Download game (the running game, from memory) and Back to
- * games. Nothing is stored for the game from then on.
+ * Read-only actions live in the shell so Focus and phone layouts keep them
+ * visible while the game stage is hidden.
  */
 import { useWorkspaceEditor } from "../shell/workspaceEditor.ts";
 import UiButton from "../ui/UiButton.vue";
@@ -36,7 +30,7 @@ async function reload(): Promise<void> {
     data-testid="removed-tab-note"
     @dismiss="state.projectRemoved = false"
   >
-    {{ PROJECT_REMOVED_MESSAGE }}
+    <span class="read-only-message">{{ PROJECT_REMOVED_MESSAGE }}</span>
     <UiButton size="sm" @click="editor.downloadUnsavedEdits">Download unsaved edits</UiButton>
     <UiButton
       size="sm"
@@ -58,10 +52,23 @@ async function reload(): Promise<void> {
     data-testid="stale-tab-note"
     @dismiss="state.staleTab = false"
   >
-    Changed in another tab. Editing is paused. Download your unsaved edits, then reload.
+    <span class="read-only-message">
+      Changed in another tab. Editing is paused. Download your unsaved edits, then reload.
+    </span>
     <UiButton size="sm" @click="editor.downloadUnsavedEdits">Download unsaved edits</UiButton>
     <UiButton size="sm" @click="onExportAgiZip(true, true)">Download game</UiButton>
     <UiButton size="sm" @click="reload">Reload</UiButton>
     <UiButton size="sm" @click="engine.ejectGame()">Exit</UiButton>
   </UiToast>
 </template>
+
+<style scoped>
+.ui-toast {
+  max-width: 100%;
+  box-sizing: border-box;
+  margin: 0;
+}
+.read-only-message {
+  flex-basis: 100%;
+}
+</style>

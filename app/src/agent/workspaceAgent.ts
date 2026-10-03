@@ -281,6 +281,7 @@ export function createWorkspaceAgent(options: Options) {
   review = store.active === null ? null : (reviews.get(store.active) ?? null);
   let activeRun: AgentRun | null = null;
   let autoApprove = false;
+  const reviewOutcomes: Record<string, string> = {};
   let error = "";
   let busy = false;
   let applying = false;
@@ -367,7 +368,7 @@ export function createWorkspaceAgent(options: Options) {
     activeRun?.assertActive();
     if (session.closed) throw new Error("The project session was closed.");
   }
-  async function approve(keys?: readonly string[]) {
+  async function approve(keys?: readonly string[], automatic = false) {
     const approving = review;
     if (approving === null || applying) return;
     applying = true;
@@ -414,6 +415,7 @@ export function createWorkspaceAgent(options: Options) {
       chat.messages = chat.messages.map((message) =>
         message.id === approving.messageId ? { ...message, beforeCommit: before, commit } : message,
       );
+      reviewOutcomes[approving.messageId] = automatic ? "Applied automatically" : "Approved";
       action(chat, "approve", {
         resources: changes.map((change) => change.key),
         outcome: result.status,
@@ -544,7 +546,7 @@ export function createWorkspaceAgent(options: Options) {
       assertLive();
       if ((autoApprove || automatic) && !review.stale()) {
         try {
-          await approve();
+          await approve(undefined, true);
         } catch (cause) {
           error = cause instanceof Error ? cause.message : String(cause);
           notify();
@@ -887,6 +889,16 @@ export function createWorkspaceAgent(options: Options) {
   }
   return {
     current,
+    reviewOutcome(messageId: string): string | undefined {
+      return (
+        reviewOutcomes[messageId] ??
+        (store.chats.some((chat) =>
+          chat.messages.some((message) => message.id === messageId && message.commit),
+        )
+          ? "Approved"
+          : undefined)
+      );
+    },
     newChat,
     chats: () => readAgentChats(store).chats,
     pending: () => review,
@@ -969,6 +981,7 @@ export function createWorkspaceAgent(options: Options) {
       if (applying) return;
       if (review) {
         const chat = store.chats.find((chat) => chat.id === review!.chatId)!;
+        reviewOutcomes[review.messageId] = "Rejected";
         action(chat, "reject", {
           resources: review.changes().map((change) => change.key),
           outcome: "discarded",

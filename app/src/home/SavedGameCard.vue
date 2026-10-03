@@ -12,6 +12,7 @@ import UiButton from "../ui/UiButton.vue";
 import GameCard, { type CardImage } from "./GameCard.vue";
 import RemoveGameDialog from "./RemoveGameDialog.vue";
 import ProjectJournalRecovery from "./ProjectJournalRecovery.vue";
+import OlderPositionChoice from "./OlderPositionChoice.vue";
 import StartFresh from "./StartFresh.vue";
 import { libraryDetails, showDetails } from "./cardDetails.ts";
 import { shelfTitle } from "./shelfIdentity.ts";
@@ -203,6 +204,7 @@ function openDetails(): void {
       </div>
       <p v-if="renameError" role="alert" class="game-card__alert">{{ renameError }}</p>
     </form>
+    <OlderPositionChoice :project-id="game.projectId" />
     <ProjectJournalRecovery :project-id="game.projectId" />
     <StartFresh v-if="isUnreadable(game.projectId)" :project-id="game.projectId" :title />
     <template v-if="!isUnreadable(game.projectId)" #actions>

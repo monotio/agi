@@ -21,6 +21,7 @@ import { VOCABULARY } from "../../../src/vocabulary.ts";
 import { PROFILES } from "../../../src/runtime/profile.ts";
 import { compileProjectDocuments } from "../../../src/authoring/projectDocuments.ts";
 import { openContainer } from "../../../src/container/container.ts";
+import UiChip from "../ui/UiChip.vue";
 import UiButton from "../ui/UiButton.vue";
 import UiSegmented from "../ui/UiSegmented.vue";
 import AgentTaskControls from "../authoring/AgentTaskControls.vue";
@@ -381,6 +382,12 @@ onBeforeUnmount(() => {
           <summary>Context</summary>
           <pre>{{ message.context }}</pre>
         </details>
+        <UiChip
+          v-if="agent?.reviewOutcome(message.id)"
+          :tone="message.commit ? 'ok' : 'neutral'"
+          data-testid="agent-review-outcome"
+          >{{ agent.reviewOutcome(message.id) }}</UiChip
+        >
         <div v-if="message.commit" class="agent-panel__checkpoints">
           <UiButton
             size="sm"

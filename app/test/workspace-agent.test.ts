@@ -192,7 +192,9 @@ test("one coordinated review selects resources, records a chat checkpoint and un
       .map((c) => c.key),
     ["logic:0", "picture:1", "words"],
   );
+  const messageId = agent.pending()!.messageId;
   await agent.approve(["logic:0", "picture:1"]);
+  assert.equal(agent.reviewOutcome(messageId), "Approved");
   const commit = session.history.capture().commits.at(-1)!;
   assert.equal(commit.author, "agent");
   assert.equal(commit.label, "AI: Welcome sign");
@@ -207,11 +209,15 @@ test("one coordinated review selects resources, records a chat checkpoint and un
 test("reject, auto-approve and stale proposals preserve the manual base", async () => {
   const { session, agent } = fixture();
   await agent.send("Add sign");
-  agent.reject();
+  const rejected = agent.pending()!.messageId;
+  await agent.reject();
+  assert.equal(agent.reviewOutcome(rejected), "Rejected");
   assert.equal(session.history.capture().commits.length, 1);
   agent.autoApprove = true;
   await agent.send("Add sign");
   assert.equal(session.history.capture().commits.length, 2);
+  const applied = agent.current().messages.find((message) => message.commit)!;
+  assert.equal(agent.reviewOutcome(applied.id), "Applied automatically");
   agent.autoApprove = false;
   await agent.send("Make a sign");
   await session.submit({

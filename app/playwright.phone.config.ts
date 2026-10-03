@@ -10,6 +10,8 @@ import base from "./playwright.config.ts";
 export default defineConfig({
   ...base,
   testMatch: [
+    "workspace-layout.spec.ts",
+    "project-progress.spec.ts",
     "phone-input.spec.ts",
     "phone-landscape.spec.ts",
     "history-transport.spec.ts",

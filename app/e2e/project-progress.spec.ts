@@ -14,6 +14,7 @@ import {
   openDeveloperActivity,
   openGameOptions,
   openLibraryActions,
+  progressStorageKey,
   savedGameCard,
   storedAutosave,
   textHook,
@@ -23,70 +24,111 @@ import {
 
 const TUTORIAL_PROJECT_ID = "catalog-adventure-department-1.2.0";
 
-for (const destination of ["Play", "Create"] as const) {
-  test(`${destination} preserves an older checkpoint and offers the latest version`, async ({
-    page,
-  }) => {
-    const game = createContainer();
-    game.putResource(
-      "logic",
-      0,
-      assembleLogic('display(20,2,"Latest opening"); return;', { dictionary: new Map() }).payload,
-    );
-    const archive = buildZip(
-      [...game.files]
-        .map(([name, data]) => ({ name, data }))
-        .concat([{ name: "WORDS.TOK", data: buildWordsTok([]) }]),
-    );
-    await isolateStorage(page);
-    await page.goto("/");
-    await page.getByTestId("game-zip-input").setInputFiles({
-      name: "older-position.zip",
-      mimeType: "application/zip",
-      buffer: Buffer.from(archive),
-    });
-    await expect(savedGameCard(page, "older-position")).toBeVisible();
-    const original = await page.evaluate(async () => {
-      const { listCachedGames } = await import("/src/project/gameStorage.ts");
-      const { bindSavedProgressTarget } = await import("/src/project/progressBinding.ts");
-      const { autosaveKey } = await import("/src/saves/useAutosaveController.ts");
-      const project = listCachedGames().find((game) => game.title === "older-position")!.projectId;
-      const target = (await bindSavedProgressTarget(project))!;
-      const key = autosaveKey(target.locator);
-      const raw = JSON.stringify({
-        format: "monotio.agi.autosave",
-        version: 1,
-        image: "b2xk",
-        cycle: 17,
-        room: 99,
-        savedAt: 1,
-        game: { installed: false, identity: { project, revision: "a".repeat(64) } },
+for (const size of [
+  { width: 1063, height: 815 },
+  { width: 1280, height: 800 },
+  { width: 1440, height: 900 },
+  { width: 390, height: 844 },
+]) {
+  for (const destination of ["Play", "Create"] as const) {
+    test(`${destination} preserves an older checkpoint and offers the latest version ${size.width}`, async ({
+      page,
+    }) => {
+      await page.setViewportSize(size);
+      const game = createContainer();
+      game.putResource(
+        "logic",
+        0,
+        assembleLogic('display(20,2,"Latest opening"); return;', { dictionary: new Map() }).payload,
+      );
+      const archive = buildZip(
+        [...game.files]
+          .map(([name, data]) => ({ name, data }))
+          .concat([{ name: "WORDS.TOK", data: buildWordsTok([]) }]),
+      );
+      await isolateStorage(page);
+      await page.goto("/");
+      await page.getByTestId("game-zip-input").setInputFiles({
+        name: "older-position.zip",
+        mimeType: "application/zip",
+        buffer: Buffer.from(archive),
       });
-      localStorage.setItem(key, raw);
-      return { project, key, raw };
+      await expect(savedGameCard(page, "older-position")).toBeVisible();
+      const original = await page.evaluate(async () => {
+        const { listCachedGames } = await import("/src/project/gameStorage.ts");
+        const { bindSavedProgressTarget } = await import("/src/project/progressBinding.ts");
+        const { autosaveKey } = await import("/src/saves/useAutosaveController.ts");
+        const project = listCachedGames().find(
+          (game) => game.title === "older-position",
+        )!.projectId;
+        const target = (await bindSavedProgressTarget(project))!;
+        const key = autosaveKey(target.locator);
+        const raw = JSON.stringify({
+          format: "monotio.agi.autosave",
+          version: 1,
+          image: "b2xk",
+          cycle: 17,
+          room: 99,
+          savedAt: 1,
+          game: { installed: false, identity: { project, revision: "a".repeat(64) } },
+        });
+        localStorage.setItem(key, raw);
+        return { project, key, raw };
+      });
+      if (destination === "Create") {
+        await openLibraryActions(page, savedGameCard(page, "older-position"));
+        await page.getByTestId("edit-library-game").click();
+      } else await savedGameCard(page, "older-position").getByTestId("btn-resume-cached").click();
+      await expect(page.getByTestId("start-latest-version")).toBeVisible();
+      await expect(page.getByTestId("older-position-choice")).toContainText(
+        "The old position is replaced when the new run saves.",
+      );
+      const refusal = await page.getByTestId("older-position-choice").innerText();
+      expect(refusal.match(/Start the latest version\?/g)).toHaveLength(1);
+      expect(refusal.match(/The old position is replaced when the new run saves\./g)).toHaveLength(
+        1,
+      );
+      expect(await page.evaluate((key) => localStorage.getItem(key), original.key)).toBe(
+        original.raw,
+      );
+      await page.screenshot({
+        path: test.info().outputPath(`older-position-${destination}-${size.width}.png`),
+      });
+      const choice = page.getByTestId("older-position-choice");
+      await expect.soft(choice).not.toContainText("ERROR");
+      await expect.soft(choice).toHaveCSS("font-family", /sans/);
+      await expect
+        .soft(savedGameCard(page, "older-position").getByTestId("older-position-choice"))
+        .toBeVisible();
+      if (await choice.getByRole("button", { name: "Not now", exact: true }).count()) {
+        await choice.getByRole("button", { name: "Not now", exact: true }).click();
+        await expect(choice).toHaveCount(0);
+        expect(await page.evaluate((key) => localStorage.getItem(key), original.key)).toBe(
+          original.raw,
+        );
+        if (destination === "Create") {
+          await openLibraryActions(page, savedGameCard(page, "older-position"));
+          await page.getByTestId("edit-library-game").click();
+        } else await savedGameCard(page, "older-position").getByTestId("btn-resume-cached").click();
+      }
+      const choiceBox = (await choice.boundingBox())!;
+      for (const label of ["Start the latest version", "Not now"]) {
+        const button = choice.getByRole("button", { name: label, exact: true });
+        const box = (await button.boundingBox())!;
+        expect.soft(box.x + box.width).toBeLessThanOrEqual(choiceBox.x + choiceBox.width);
+      }
+      await page.getByTestId("start-latest-version").click();
+      await expect
+        .poll(async () => (await textHook(page)).rows.join(" "))
+        .toContain("Latest opening");
+      expect((await textHook(page)).room).toBe(0);
+      if (destination === "Create")
+        await expect(page.getByRole("radio", { name: "Create", exact: true })).toHaveAttribute(
+          "aria-checked",
+          "true",
+        );
     });
-    if (destination === "Create") {
-      await openLibraryActions(page, savedGameCard(page, "older-position"));
-      await page.getByTestId("edit-library-game").click();
-    } else await savedGameCard(page, "older-position").getByTestId("btn-resume-cached").click();
-    await expect(page.getByTestId("start-latest-version")).toBeVisible();
-    await expect(page.getByTestId("error-panel")).toContainText(
-      "The old position is replaced when the new run saves.",
-    );
-    const refusal = await page.getByTestId("error-panel").innerText();
-    expect(refusal.match(/Start the latest version\?/g)).toHaveLength(1);
-    expect(refusal.match(/The old position is replaced when the new run saves\./g)).toHaveLength(1);
-    expect(await page.evaluate((key) => localStorage.getItem(key), original.key)).toBe(
-      original.raw,
-    );
-    await page.screenshot({ path: test.info().outputPath(`older-position-${destination}.png`) });
-    await page.getByTestId("start-latest-version").click();
-    await expect
-      .poll(async () => (await textHook(page)).rows.join(" "))
-      .toContain("Latest opening");
-    expect((await textHook(page)).room).toBe(0);
-    if (destination === "Create") await expect(page.getByTestId("parts-list")).toBeVisible();
-  });
+  }
 }
 
 test("project import names each stored and refused progress entry", async ({ page }, testInfo) => {
@@ -507,7 +549,22 @@ test("Exit leaves a moment it cannot checkpoint and keeps the last save point", 
   await expect(page.getByTestId("eject-refusal")).toHaveCount(0);
   const kept = (await storedAutosave(page, projectId))?.cycle ?? 0;
   expect(kept, "the save point from before the window is kept").toBeGreaterThan(0);
-  expect(kept).toBeLessThan(windowUp.cycle);
+  // Frame rows and the cycle heartbeat arrive separately. Read the saved
+  // image's own flag to prove it predates the key that opened the window.
+  const locator = await progressStorageKey(page, projectId);
+  const image = await page.evaluate((key) => {
+    const stored = JSON.parse(localStorage.getItem(`monotio_agi.autosave.${key}`)!);
+    return [...atob(stored.image)].map((char) => char.charCodeAt(0));
+  }, locator);
+  const restored = new Engine(game, {
+    print() {},
+    displayAt() {},
+    statusLine() {},
+    takeInputLine: () => null,
+    takeKeys: () => [],
+  });
+  restored.restoreImage(Uint8Array.from(image));
+  expect(restored.flags[201], "the stored game predates the window-opening key").toBe(0);
 });
 
 test("page hide stores play progress when the document flush fails", async ({ page }) => {

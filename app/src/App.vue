@@ -32,7 +32,6 @@ import { createGameLibrary, provideGameLibrary } from "./library/useGameLibrary.
 import { createPresentation, providePresentation } from "./play/usePresentation.ts";
 import SetupPanel from "./home/SetupPanel.vue";
 import { followEmptyProjectRoute } from "./home/emptyProjectRoute.ts";
-import StaleTabNote from "./play/StaleTabNote.vue";
 import StartOverNote from "./play/StartOverNote.vue";
 import { nextViewportLayout } from "./play/viewportLayout.ts";
 import { createShell, provideShell } from "./shell/useShell.ts";
@@ -816,7 +815,6 @@ watch(
                 }}</UiChip
               >
               <ProjectRestartNotice v-if="creating && engine.pendingProjectRestart.value" />
-              <StaleTabNote />
             </template>
             <template #screen-notes>
               <StartOverNote />
@@ -844,7 +842,7 @@ watch(
           </PlayArea>
         </Teleport>
         <aside
-          v-show="!creating || (state.powerUp.open && !workspaceEditor.focus.value)"
+          v-show="!creating || state.powerUp.open"
           class="shell-side"
           :class="{ 'shell-side--sheet': creating && phone, 'shell-side--open': sheetOpen }"
           aria-label="Agent"

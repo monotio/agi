@@ -16,8 +16,7 @@ import { expect, test } from "./test.ts";
 /**
  * The 1.1 shell: a loaded game is shown in Play or Create, the URL names the
  * mode, Back and Forward move between them, and the stage gives the game the
- * largest whole multiple of its 320×200 frame that fills most of the space,
- * or else the largest fit (viewportLayout.ts).
+ * largest aspect-correct fit (viewportLayout.ts).
  */
 test.use({ viewport: { width: 1440, height: 900 } });
 
@@ -29,7 +28,7 @@ async function bootTutorial(page: Parameters<typeof textHook>[0]): Promise<void>
   await waitForCycles(page, 2);
 }
 
-test("Play fits the game to a whole multiple of the frame and the Ask drawer resizes it", async ({
+test("Play fits the game at its selected aspect and the Ask drawer resizes it", async ({
   page,
 }) => {
   await bootTutorial(page);
@@ -41,14 +40,14 @@ test("Play fits the game to a whole multiple of the frame and the Ask drawer res
   await expect.poll(() => surfaceBox(page)).toMatchObject(original);
   await openGameOptions(page, "settings-menu");
   await page.getByTestId("toggle-original-aspect").click();
-  // 4:3 needs 240 rows per step: the stage holds 3× (960×720).
-  await expect.poll(async () => (await surfaceBox(page)).width).toBe(960);
-  expect((await surfaceBox(page)).height).toBe(720);
+  const originalFit = Math.floor(Math.min(available.width, (available.height * 4) / 3));
+  await expect.poll(async () => (await surfaceBox(page)).width).toBe(originalFit);
+  expect((await surfaceBox(page)).height).toBe((originalFit * 3) / 4);
   await page.getByTestId("toggle-original-aspect").click();
   await page.keyboard.press("Escape");
   await expect(page.getByTestId("settings-menu")).toBeFocused();
 
-  // Ask is a non-modal drawer: the game stays visible beside it at 3×, and
+  // Ask is a non-modal drawer: the game stays visible beside it, and
   // Play offers no Remix.
   const ask = page.getByTestId("menu-assistant");
   await ask.click();
@@ -61,7 +60,12 @@ test("Play fits the game to a whole multiple of the frame and the Ask drawer res
   // itself says how to get back.
   await expect(drawer.getByTestId("agent-bubble-esc")).toHaveText("Esc");
   await expect(drawer.getByTestId("agent-bubble-close")).toBeVisible();
-  await expect.poll(async () => (await surfaceBox(page)).width).toBe(960);
+  await expect
+    .poll(async () => {
+      const stage = (await page.locator(".stage:visible").boundingBox())!;
+      return (await surfaceBox(page)).width - Math.floor(Math.min(stage.width, stage.height * 1.6));
+    })
+    .toBe(0);
   const game = await surfaceBox(page);
   const side = (await drawer.boundingBox())!;
   expect(game.x + game.width).toBeLessThanOrEqual(side.x);

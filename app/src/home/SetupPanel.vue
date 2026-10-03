@@ -48,7 +48,7 @@ async function openStarter(): Promise<void> {
   const projectId = currentGame()?.projectId;
   if (projectId) shell.expectCreate(projectId);
 }
-const { activeTemplate, onGameDrop, latestVersion, startLatestVersion } = useGameLibrary();
+const { activeTemplate, onGameDrop, latestVersion } = useGameLibrary();
 const createOpen = ref(false);
 watch(emptyProject, (project) => {
   if (project) createOpen.value = false;
@@ -91,20 +91,13 @@ function onDrop(event: DragEvent): void {
     <EmptyProjectStage v-if="emptyProject" :project="emptyProject" />
     <HomeHero v-if="!emptyProject" v-show="!createOpen" :create-open="createOpen" />
     <div
-      v-if="state.phase === 'error' && !emptyProject"
+      v-if="state.phase === 'error' && !emptyProject && !latestVersion"
       class="error-banner"
       data-testid="error-panel"
       role="alert"
     >
       <span class="error-badge">ERROR</span>
       <span class="error-msg">{{ state.error }}</span>
-      <UiButton
-        v-if="latestVersion"
-        size="sm"
-        data-testid="start-latest-version"
-        @click="startLatestVersion"
-        >Start the latest version</UiButton
-      >
       <UiButton
         v-if="state.genesisStarter"
         size="sm"

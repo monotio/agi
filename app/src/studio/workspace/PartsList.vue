@@ -125,7 +125,7 @@ function onKey(event: KeyboardEvent): void {
 </template>
 <style scoped>
 .parts-list {
-  width: 252px;
+  width: 100%;
   min-width: 0;
   overflow: auto;
   border-right: 1px solid var(--hairline);

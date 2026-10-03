@@ -46,7 +46,7 @@ for (const mode of ["refusal", "storage", "stale", "removed"] as const) {
     await starter(page);
     if (mode === "stale" || mode === "removed") {
       await page.getByTestId("part-notes").click();
-      await expect(page.getByTestId("project-tab-notes")).toContainText("Missing");
+      await expect(page.getByTestId("project-tab-notes")).not.toContainText("Missing");
       await page.evaluate(() => {
         const session = (
           window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }
@@ -62,7 +62,7 @@ for (const mode of ["refusal", "storage", "stale", "removed"] as const) {
         "LOCAL_TYPED_SENTINEL",
       );
       await expect(page.getByTestId("workspace-saved")).toContainText(
-        mode === "removed" ? "This project was removed" : "Changed in another tab",
+        mode === "removed" ? "Project removed" : "Changed in another tab",
       );
       await expect(page.getByTestId("pending-edit-recovery")).toHaveCount(0);
       await expect(page.getByTestId("download-unsaved-edits")).toHaveCount(0);

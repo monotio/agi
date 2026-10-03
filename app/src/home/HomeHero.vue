@@ -15,6 +15,7 @@ import UiButton from "../ui/UiButton.vue";
 import UiChip from "../ui/UiChip.vue";
 import { useEngineApi } from "../engine/engineContext.ts";
 import { useAiSettings } from "../settings/useAiSettings.ts";
+import OlderPositionChoice from "./OlderPositionChoice.vue";
 import { useGameLibrary, type LibraryProgress } from "../library/useGameLibrary.ts";
 import { useShellBridge } from "../shell/shellBridge.ts";
 import { gameStorageKey, type InstalledGameDescriptor } from "../project/gameTypes.ts";
@@ -298,6 +299,7 @@ function onPrimary(): void {
           Make a new game
         </UiButton>
       </div>
+      <OlderPositionChoice hero />
       <p v-if="ended" class="hero-ended" role="status" data-testid="game-ended">
         <span
           ><strong>{{ ended.title }}</strong> · The game ended (it quit).</span

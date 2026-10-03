@@ -38,6 +38,7 @@ export function createWorkspaceEditor(engine: EngineApi) {
   const pendingAdmission = ref(false);
   const retained = ref<string[]>([]);
   const focus = ref(false);
+  const partsOpen = ref(false);
   const panel = ref(false);
   const history = ref(false);
   const parts = shallowRef<readonly ChooserItem[]>([]);
@@ -160,6 +161,7 @@ export function createWorkspaceEditor(engine: EngineApi) {
     pendingAdmission.value = false;
     retained.value = [];
     focus.value = false;
+    partsOpen.value = false;
     panel.value = history.value = false;
     parts.value = [];
   }
@@ -185,6 +187,7 @@ export function createWorkspaceEditor(engine: EngineApi) {
     effectiveSplit,
     retained,
     focus,
+    partsOpen,
     panel,
     history,
     parts,
