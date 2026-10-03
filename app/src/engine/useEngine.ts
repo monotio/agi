@@ -334,7 +334,7 @@ export function useEngine(
    * no longer store is not owed: its retry banner goes.
    */
   function tellRemoved(): void {
-    projectSession?.stopWrites();
+    projectSession?.stopWrites("removed");
     autosaveController.handleRecoveryError(PROJECT_REMOVED_MESSAGE);
     logAgent("error", PROJECT_REMOVED_MESSAGE);
     state.powerUp.error = PROJECT_REMOVED_MESSAGE;
@@ -351,7 +351,7 @@ export function useEngine(
     async prepareCheckpoint(game, files, checkpointRevision) {
       const session = projectSession;
       if (session === null) return "legacy";
-      await session.flush();
+      await session.prepareCheckpoint();
       const revision = session.model.capture().lastAdmissibleBuild!.identity.revision;
       if (checkpointRevision !== undefined && checkpointRevision !== revision) return "refused";
       if (files !== undefined && computeResourceRevision(files) !== revision) return "refused";
@@ -486,8 +486,11 @@ export function useEngine(
               if (frame !== null) roomMap.value?.observeFrame(frame);
             }
           },
-          saved(data) {
-            if (current()) advanceAuthoring(game, data.authoringState, data.workspace);
+          saved(data, _lifetime, generation) {
+            if (current()) {
+              advanceAuthoring(game, data.authoringState, data.workspace);
+              if (game.authoredGame) game.authoredGame.generation = generation;
+            }
           },
           changed() {
             if (current()) {
@@ -709,6 +712,7 @@ export function useEngine(
       startOverNote.hide();
     },
     stopHistoryWriter: () => historyController?.stopWriterRenewal(),
+    pendingEditorChanges: () => projectSession?.hasEditorIntents ?? false,
     flushProject: async () => {
       if (projectSession?.saveStatus().state === "conflict") return;
       await engineOptions?.flushWorkspace?.();

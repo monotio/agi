@@ -47,6 +47,11 @@ for (const mode of ["refusal", "storage", "stale", "removed"] as const) {
     if (mode === "stale" || mode === "removed") {
       const other = await context.newPage();
       await moveStorage(page, other, mode === "removed");
+      await page.getByTestId("part-notes").click();
+      await page.getByLabel("Game notes", { exact: true }).fill("LOCAL_TYPED_SENTINEL");
+      await expect(page.getByTestId("workspace-saved")).toContainText(
+        mode === "removed" ? "Project removed" : "Changed in another tab",
+      );
     } else {
       await page.evaluate((mode) => {
         if (mode === "refusal") {
@@ -83,6 +88,12 @@ for (const mode of ["refusal", "storage", "stale", "removed"] as const) {
     await expect(page.getByTestId("export-refusal")).toContainText(
       "Backup downloaded with limitations",
     );
+    if (mode === "stale" || mode === "removed")
+      await expect(page.getByTestId("export-refusal")).toContainText("Pending editor changes");
+    if (mode === "refusal") {
+      expect(archive.history).toBeDefined();
+      expect(archive.map).toBeDefined();
+    }
     expect(errors).toEqual([]);
     await page.screenshot({ path: test.info().outputPath(`backup-${mode}.png`) });
   });
@@ -176,6 +187,7 @@ test("Discard and exit stays disabled through Retry's save barrier", async ({ pa
     .poll(() => page.evaluate(() => (window as unknown as { saveEntered?: boolean }).saveEntered))
     .toBe(true);
   await expect(page.getByTestId("eject-leave-anyway")).toBeDisabled();
+  await expect(page.getByTestId("eject-dismiss")).toBeDisabled();
   await page.screenshot({ path: test.info().outputPath("retry-pending.png") });
   await page.evaluate(() => {
     (window as unknown as { releaseSave(): void }).releaseSave();
@@ -348,3 +360,74 @@ for (const failure of ["flush", "admission", "journal"] as const) {
     },
   );
 }
+
+test("Export game reports a refused editor draft", async ({ page }) => {
+  await starter(page);
+  await page.evaluate(() => {
+    const session = (
+      window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }
+    ).__AGI_PROJECT__.getSession();
+    session.submit = () => Promise.reject(new Error("Injected export refusal"));
+  });
+  await page.getByTestId("part-notes").click();
+  await page.getByLabel("Game notes", { exact: true }).fill("Unaccepted export note");
+  await expect(page.getByTestId("workspace-saved")).toContainText("Could not save");
+  await openGameOptions(page, "settings-menu");
+  const exported = page.waitForEvent("download");
+  await page.getByTestId("btn-export-game").click();
+  const archive = await readGameZip(
+    new Uint8Array(await readFile((await (await exported).path())!)),
+  );
+  expect(archive.files["LOGDIR"]).toBeDefined();
+  await expect(page.getByTestId("export-refusal")).toContainText("Game exported with limitations");
+  await expect(page.getByTestId("export-refusal")).toContainText("Pending editor changes");
+  await page.screenshot({ path: test.info().outputPath("export-refused-draft.png") });
+});
+
+test("closing before the queued write commits recovers the exact editor changes", async ({
+  page,
+  context,
+}) => {
+  await starter(page);
+  await page.evaluate(async () => {
+    const { serializeWrite } = await import("/src/project/gameStorage.ts");
+    const id = (await import("/src/project/gameStorage.ts"))
+      .listCachedGames()
+      .find((game) => game.title === "Recovery proof")!.projectId;
+    void serializeWrite(id, () => new Promise<void>(() => {}));
+  });
+  await page.getByTestId("part-notes").click();
+  await page.getByLabel("Game notes", { exact: true }).fill("CLOSE_BEFORE_COMMIT_SENTINEL");
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        Object.keys(localStorage)
+          .filter((key) => key.startsWith("monotio_agi.project-writes."))
+          .map((key) => localStorage.getItem(key))
+          .join("\n"),
+      ),
+    )
+    .toContain("CLOSE_BEFORE_COMMIT_SENTINEL");
+  const recovered = await context.newPage();
+  const journalKeys = await page.evaluate(() =>
+    Object.keys(localStorage).filter((key) => key.startsWith("monotio_agi.project-writes.")),
+  );
+  await page.close();
+  await recovered.goto("/");
+  await recovered.evaluate(
+    (keys) => Promise.all(keys.map((key) => navigator.locks.request(key, () => {}))),
+    journalKeys,
+  );
+  await openStoredWorkspace(recovered, "Recovery proof");
+  await recovered.getByTestId("part-notes").click();
+  await expect(recovered.getByLabel("Game notes", { exact: true })).toHaveValue(
+    "CLOSE_BEFORE_COMMIT_SENTINEL",
+  );
+  await workspaceSaved(recovered);
+  expect(
+    await recovered.evaluate(() =>
+      Object.keys(localStorage).filter((key) => key.startsWith("monotio_agi.project-writes.")),
+    ),
+  ).toEqual([]);
+  await recovered.screenshot({ path: test.info().outputPath("close-before-commit-recovered.png") });
+});

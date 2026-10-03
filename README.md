@@ -277,10 +277,10 @@ Games, saves and history live in your browser. The game's own Save and Restore
 use the authentic AGI save format, with twelve named slots per game, and the
 app saves as you play, so **Resume** picks up where you left off.
 
-| Settings → This game | What you get                                                                                                                                                                 |
-| -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Export game…**     | A ZIP of the playable resources and public metadata: description, author, license and remix provenance.                                                                      |
-| **Download game…**   | A ZIP of the project with available conversation, images, source descriptions, world notes, tests, map, history, saved games and autosave. A backup reports its limitations. |
+| Settings → This game | What you get                                                                                                                                                                                                                       |
+| -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Export game…**     | A ZIP of the playable resources and public metadata: description, author, license and remix provenance.                                                                                                                            |
+| **Download game…**   | A ZIP of the project with available conversation, images, source descriptions, world notes, tests, map, history, saved games and autosave. A backup reports limitations, including omitted pending edits and unavailable progress. |
 
 Either ZIP opens again with **Add game**, in any browser. A game without a
 declared license keeps an unknown license in its exports; the MIT license covers

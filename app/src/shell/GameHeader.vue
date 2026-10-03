@@ -481,7 +481,12 @@ async function onRecordSave(): Promise<void> {
         >
           Discard and exit
         </UiButton>
-        <UiButton size="sm" data-testid="eject-dismiss" @click="ejectRefusal = ''">
+        <UiButton
+          size="sm"
+          data-testid="eject-dismiss"
+          :disabled="state.leaving || ejectBusy"
+          @click="ejectRefusal = ''"
+        >
           Back to game
         </UiButton>
       </div>
