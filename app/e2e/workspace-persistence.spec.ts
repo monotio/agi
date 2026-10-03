@@ -10,6 +10,17 @@ import {
   workspaceDocument,
 } from "./workspaceShared.ts";
 
+async function downloadPendingEditsFromReadOnlyTab(page: Page): Promise<void> {
+  await expect(page.getByTestId("download-unsaved-edits")).toHaveCount(0);
+  await page.evaluate(() => {
+    (window as unknown as { __AGI_STATE__: { staleTab: boolean } }).__AGI_STATE__.staleTab = true;
+  });
+  await page
+    .getByTestId("stale-tab-note")
+    .getByRole("button", { name: "Download unsaved edits", exact: true })
+    .click();
+}
+
 async function starter(page: Page) {
   await isolateStorage(page);
   await page.goto("/#create-adventure");
@@ -103,7 +114,9 @@ test("Name this version drains pending LOGIC and names visible invalid source", 
 
 for (const key of ["notes", "logic", "words", "sound"] as const) {
   for (const stage of ["before submission", "worker admission"] as const) {
-    test(`${key} stays visible and downloads before acceptance (${stage})`, async ({ page }) => {
+    test(`${key} stays visible and downloads before acceptance when read-only (${stage})`, async ({
+      page,
+    }) => {
       await starter(page);
       if (key === "logic") {
         await openWorkspaceLogic(page);
@@ -199,7 +212,7 @@ for (const key of ["notes", "logic", "words", "sound"] as const) {
       );
       await expect(page.getByTestId("workspace-saved")).toContainText("Saving");
       const downloading = page.waitForEvent("download");
-      await page.getByTestId("download-unsaved-edits").click();
+      await downloadPendingEditsFromReadOnlyTab(page);
       const downloaded = await downloading;
       expect(downloaded.suggestedFilename()).toBe("agi-unsaved-edits.zip");
       const bytes = await readFile((await downloaded.path())!);
@@ -255,7 +268,9 @@ for (const key of ["notes", "logic", "words", "sound"] as const) {
   }
 }
 
-test("Unsaved edits keeps tempo metadata for both retained SOUND buffers", async ({ page }) => {
+test("Read-only unsaved edits keeps tempo metadata for both retained SOUND buffers", async ({
+  page,
+}) => {
   await starter(page);
   await page.evaluate(() => {
     const session = (
@@ -276,7 +291,7 @@ test("Unsaved edits keeps tempo metadata for both retained SOUND buffers", async
     await field.dispatchEvent("change");
   }
   const downloading = page.waitForEvent("download");
-  await page.getByTestId("download-unsaved-edits").click();
+  await downloadPendingEditsFromReadOnlyTab(page);
   const bytes = await readFile((await (await downloading).path())!);
   const name = "unsaved-edits/music.txt";
   const at = bytes.indexOf(name);
