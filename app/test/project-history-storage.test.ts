@@ -180,3 +180,69 @@ test("binary History blobs use owned byte rows and hydrate exact portable conten
   assert.deepEqual(row.content, Uint8Array.of(0, 255, 7));
   assert.deepEqual((await storage.loadAuthoredGame(request.projectId))!.projectHistory, offered);
 });
+
+test("library classification checks History envelopes without reading content", async () => {
+  const { request } = capture("history-envelope-only");
+  await storage.commitProject(request);
+  const key = [...records.keys()].find((key) =>
+    String(key).startsWith(`project-history/${request.projectId}/blobs/`),
+  )!;
+  const row = records.get(key) as Record<string, unknown>;
+  records.set(key, { ...row, content: Uint8Array.of(213, 214, 215) });
+  const from = Array.from;
+  Array.from = ((value: unknown, ...args: unknown[]) => {
+    if (value instanceof Uint8Array && value[0] === 213)
+      throw new Error("Full History content was read");
+    return Reflect.apply(from, Array, [value, ...args]);
+  }) as typeof Array.from;
+  try {
+    assert.equal(
+      (await storage.listUnsupportedStoredProjects()).some(
+        (entry) => entry.projectId === request.projectId,
+      ),
+      false,
+    );
+    await assert.rejects(
+      storage.loadAuthoredGame(request.projectId),
+      /Full History content was read/,
+    );
+  } finally {
+    Array.from = from;
+    records.delete(key);
+    records.delete(request.projectId);
+  }
+});
+
+test("recovery captures creative records and checks every record for encoding", async () => {
+  const { request } = capture("creative-recovery");
+  await storage.commitProject(request);
+  const body = records.get(request.projectId) as Record<string, unknown>;
+  records.set(request.projectId, { ...body, creative: { version: 1 } });
+  const keys = [`creative/${request.projectId}`, `creative/${request.projectId}/images/a`];
+  for (const key of keys) records.set(key, { projectId: key, bytes: Uint8Array.of(1, 255) });
+  const downloaded = JSON.parse(await storage.downloadUnsupportedStoredProject(request.projectId));
+  for (const key of keys) assert.match(JSON.stringify(downloaded.records), new RegExp(key));
+  records.set(keys[1]!, { projectId: keys[1], image: new Blob(["image"]) });
+  const card = (await storage.listUnsupportedStoredProjects()).find(
+    (entry) => entry.projectId === request.projectId,
+  )!;
+  assert.equal(card.recoverable, false);
+  await assert.rejects(
+    storage.downloadUnsupportedStoredProject(request.projectId),
+    /cannot preserve/,
+  );
+});
+
+test("recovery disables Download for an unencodable sibling History record", async () => {
+  const { request } = capture("unencodable-recovery");
+  await storage.commitProject(request);
+  records.set(request.projectId, { ...(records.get(request.projectId) as object), version: 999 });
+  records.set(`project-history/${request.projectId}/unknown`, {
+    projectId: `project-history/${request.projectId}/unknown`,
+    content: new Blob(["data"]),
+  });
+  const card = (await storage.listUnsupportedStoredProjects()).find(
+    (entry) => entry.projectId === request.projectId,
+  )!;
+  assert.equal(card.recoverable, false);
+});

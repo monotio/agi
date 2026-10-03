@@ -139,7 +139,7 @@ test("a saved game whose stored body predates 1.0 offers raw recovery on its own
   await page.reload();
   const card = page.getByTestId("unsupported-project-card-old-adventure");
   await expect(card.getByRole("heading")).toHaveText("Old Adventure");
-  await expect(card).toContainText("Saved by a newer version of AGI IS HERE");
+  await expect(card).toContainText("Saved project format needs another app version");
   const pending = page.waitForEvent("download");
   await card.getByRole("button", { name: "Download", exact: true }).click();
   const download = await pending;

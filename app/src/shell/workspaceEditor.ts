@@ -44,6 +44,7 @@ export function createWorkspaceEditor(engine: EngineApi) {
   const canRedo = ref(false);
   const busy = ref(false);
   const error = ref("");
+  const exitRefusal = ref(false);
   const split = ref(50);
   try {
     const stored = Number(localStorage.getItem("monotio_agi.workspaceSplit"));
@@ -168,6 +169,7 @@ export function createWorkspaceEditor(engine: EngineApi) {
     canRedo,
     busy,
     error,
+    exitRefusal,
     split,
     kind,
     open,

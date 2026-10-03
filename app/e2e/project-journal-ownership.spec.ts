@@ -161,3 +161,61 @@ test("a journal from a deleted lifetime preserves its bytes beside a recreated p
   }, original.key);
   expect(result).toEqual({ title: "Recreated", raw: original.raw });
 });
+
+test("a terminal journal offers its exact pending bytes in Create and Home", async ({ page }) => {
+  await isolateStorage(page);
+  await page.goto("/#create-adventure");
+  await page
+    .getByTestId("create-adventure-disclosure")
+    .getByLabel("Name", { exact: true })
+    .fill("Pending recovery");
+  await page.getByTestId("local-create-kind-starter").click();
+  await page.getByRole("button", { name: "Start building", exact: true }).click();
+  await expect(page.getByTestId("parts-list")).toBeVisible();
+  const original = await page.evaluate(async () => {
+    const { listCachedGames, loadAuthoredGameWithHistoryLifetime, authoringFingerprint } =
+      await import("/src/project/gameStorage.ts");
+    const { projectSaveJournalKey, writeProjectSaveJournal } =
+      await import("/src/project/projectSaveJournal.ts");
+
+    const id = listCachedGames().find((game) => game.title === "Pending recovery")!.projectId;
+    const stored = (await loadAuthoredGameWithHistoryLifetime(id))!;
+    const key = projectSaveJournalKey(id, "ended-owner");
+    writeProjectSaveJournal(localStorage, key, [
+      {
+        attempted: false,
+        request: {
+          projectId: id,
+          commitId: "pending",
+          workspaceId: "ended",
+          buildId: "a".repeat(64),
+          documents: [],
+          expected: {
+            projectId: id,
+            lifetime: "ended-lifetime",
+            generation: stored.data.generation!,
+            revision: stored.data.library!.revision,
+            authoring: authoringFingerprint(stored.data.authoringState, stored.data.workspace),
+            buildId: "a".repeat(64),
+          },
+          data: { title: "PENDING_SENTINEL", files: stored.data.files, words: stored.data.words },
+        },
+      },
+    ]);
+    return { key, raw: localStorage.getItem(key), id };
+  });
+  await page.reload();
+  const notice = page.getByTestId("pending-edit-recovery").filter({ visible: true });
+  await expect(notice).toContainText("Pending edits need recovery");
+  const pending = page.waitForEvent("download");
+  await notice.getByRole("button", { name: "Download edits" }).click();
+  const download = await pending;
+  const { readFile } = await import("node:fs/promises");
+  const body = JSON.parse(await readFile((await download.path())!, "utf8"));
+  expect(body.journals[0]).toMatchObject({ key: original.key, raw: original.raw });
+  await page.screenshot({ path: test.info().outputPath("pending-recovery.png") });
+  await page.getByRole("button", { name: "Back to library", exact: true }).click();
+  await expect(
+    page.getByTestId(`saved-game-card-${original.id}`).getByTestId("pending-edit-recovery"),
+  ).toBeVisible();
+});

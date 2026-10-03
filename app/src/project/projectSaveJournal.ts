@@ -27,6 +27,42 @@ function readEntries(storage: Storage, key: string): JournalEntry[] {
   return entries;
 }
 const PREFIX = "monotio_agi.project-writes.";
+const RECOVERY_PREFIX = "monotio_agi.project-recovery.";
+interface RecoveryMarker {
+  version: 1;
+  hash: string;
+  reason: string;
+}
+const terminal: Record<string, RecoveryMarker> = {};
+
+/** Retained journals whose original project lifetime or generation has ended. */
+export function readProjectSaveRecoveries(
+  storage: Storage,
+  project: ProjectId,
+): { key: string; raw: string; reason: string }[] {
+  const found: { key: string; raw: string; reason: string }[] = [];
+  for (let index = 0; index < storage.length; index++) {
+    const key = storage.key(index);
+    if (!key?.startsWith(`${PREFIX}${project}.`)) continue;
+    try {
+      const stored = storage.getItem(`${RECOVERY_PREFIX}${key.slice(PREFIX.length)}`);
+      const marker = stored === null ? terminal[key] : (JSON.parse(stored) as RecoveryMarker);
+      if (marker === undefined) continue;
+      const source = key;
+      const raw = storage.getItem(source);
+      if (
+        marker.version === 1 &&
+        raw !== null &&
+        marker.hash === sha256Hex(new TextEncoder().encode(raw))
+      )
+        found.push({ key: source, raw, reason: marker.reason });
+    } catch {
+      // An unreadable marker grants no authority to suppress recovery.
+    }
+  }
+  return found;
+}
+
 const recovering = new Map<string, Promise<void>>();
 const live = new Set<string>();
 const releasing = new Map<string, Promise<void>>();
@@ -78,10 +114,12 @@ export function resumeProjectSaveJournals(
 ): Promise<void> | undefined {
   const active = recovering.get(project);
   if (active) return active;
+  const retired = new Set(readProjectSaveRecoveries(storage, project).map(({ key }) => key));
   const keys: string[] = [];
   for (let index = 0; index < storage.length; index++) {
     const key = storage.key(index);
-    if (key?.startsWith(`${PREFIX}${project}.`) && !live.has(key)) keys.push(key);
+    if (key?.startsWith(`${PREFIX}${project}.`) && !live.has(key) && !retired.has(key))
+      keys.push(key);
   }
   if (keys.length === 0) return undefined;
   const run = (async () => {
@@ -122,6 +160,26 @@ export function resumeProjectSaveJournals(
               );
               if (index >= 0) current[index] = beforeAttempt;
               writeProjectSaveJournal(storage, key, current);
+              const raw = storage.getItem(key);
+              if (
+                raw !== null &&
+                current.every((candidate) => observed.has(entryIdentity(candidate)))
+              ) {
+                const marker: RecoveryMarker = {
+                  version: 1,
+                  hash: sha256Hex(new TextEncoder().encode(raw)),
+                  reason: error.message,
+                };
+                terminal[key] = marker;
+                try {
+                  storage.setItem(
+                    `${RECOVERY_PREFIX}${key.slice(PREFIX.length)}`,
+                    JSON.stringify(marker),
+                  );
+                } catch {
+                  // Original bytes remain in the journal; this page can still surface recovery.
+                }
+              }
               break;
             }
             throw error;

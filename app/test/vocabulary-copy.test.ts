@@ -188,10 +188,24 @@ test("Words editor copy binds to the approved vocabulary", () => {
   );
 });
 
-test("future project recovery uses the approved note and plain actions", () => {
+test("download descriptions qualify available data and report limitations", () => {
+  const help = visibleCopy("app/src/shell/helpContent.ts").find((copy) =>
+    copy.includes("Download game adds"),
+  );
+  assert.ok(help);
+  assert.match(help, /\bavailable\b/);
+  assert.match(help, /\blimitations\b/);
+  const readme = readFileSync("README.md", "utf8")
+    .split("\n")
+    .find((line) => line.includes("**Download game…**"));
+  assert.ok(readme);
+  assert.match(readme, /\bavailable\b/);
+  assert.match(readme, /\blimitations\b/);
+});
+
+test("unsupported project recovery uses version-neutral copy and plain actions", () => {
   const source = readFileSync("app/src/home/UnsupportedProject.vue", "utf8");
-  assert.ok(source.includes("VOCABULARY.savedByNewer.label"));
-  assert.equal(VOCABULARY.savedByNewer.label, "Saved by a newer version of AGI IS HERE");
+  assert.ok(source.includes("Saved project format needs another app version"));
   const copy = visibleCopy("app/src/home/UnsupportedProject.vue").map((text) => text.trim());
   for (const label of ["Download", "Remove"]) assert.ok(copy.includes(label));
 });

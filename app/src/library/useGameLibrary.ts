@@ -1403,12 +1403,6 @@ export function createGameLibrary(
     // The live capture is the runtime's own boot object — its immutable
     // progress binding and the interpreter it runs under — never a fresh
     // CurrentGame DTO, whose object identity says nothing.
-    const game = live ? getBootedGame() : null;
-    const liveTarget = game?.progressTarget;
-    const liveRevision = game?.revision;
-    const liveProfile = live ? state.profile : null;
-    const liveRemoved = game?.removed;
-    const liveBehindStorage = game?.behindStorage;
     exportRefusal.value = "";
     if (exportBusy.value) {
       exportRefusal.value = "A download is already in progress.";
@@ -1417,14 +1411,20 @@ export function createGameLibrary(
     exportBusy.value = true;
     if (live && project) engine.pauseEngine("backup");
     try {
-      const notes: string[] = [];
-      if (live && project && !(await flushAutosave(2000)))
+      const exportResult = live ? await exportCurrentGame() : null;
+      const game = live ? getBootedGame() : null;
+      const liveTarget = game?.progressTarget;
+      const liveRevision = game?.revision;
+      const liveProfile = live ? state.profile : null;
+      const liveRemoved = game?.removed;
+      const liveBehindStorage = game?.behindStorage;
+      const notes: string[] = [...(exportResult?.notes ?? [])];
+      if (live && project && !(await flushAutosave(2000).catch(() => false)))
         notes.push(
           "Browser storage did not save the latest progress; this backup uses a direct worker checkpoint when available.",
         );
       if (live && getBootedGame() !== game)
         throw new Error("The game changed during download. Try again.");
-      const exportResult = live ? await exportCurrentGame() : null;
       if (live && exportResult) {
         // The assembled offer must be the captured runtime's own: the same
         // binding object it resolved at entry and the same full native
@@ -1482,7 +1482,9 @@ export function createGameLibrary(
       // binding captured at entry, or the stored body's epoch target. No
       // bare legacy spelling or derived key ever reaches storage here.
       const ownerTarget: ProgressTarget | undefined = live
-        ? liveRemoved === true
+        ? liveRemoved === true ||
+          liveBehindStorage === true ||
+          (exportResult?.notes.length ?? 0) > 0
           ? undefined
           : liveTarget
         : (storedTarget ?? undefined);
@@ -1533,9 +1535,7 @@ export function createGameLibrary(
           "Some previously saved progress could not be read and may be missing from this backup.",
         );
       if (live && project && ownerTarget === undefined)
-        notes.push(
-          "The running game's stored body is gone; its saved progress, map and history are not included.",
-        );
+        notes.push("Saved progress, map and stored history are omitted from this backup.");
       // The reply owns a current checkpoint independently of browser storage.
       const snapshot = recovery as Awaited<ReturnType<EngineApi["recoverHistory"]>> | null;
       // The runtime's actual interpreter choice is the override the archive

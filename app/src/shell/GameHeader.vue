@@ -7,6 +7,7 @@
  * those controls open: the settings sheet, the Help guide, Game controls and
  * the recorded-test save dialog. The engine API is injected, never passed.
  */
+import ProjectJournalRecovery from "../home/ProjectJournalRecovery.vue";
 import HelpGuide from "./HelpGuide.vue";
 import BrandMark from "../ui/BrandMark.vue";
 import { useWorkspaceEditor } from "./workspaceEditor.ts";
@@ -216,13 +217,18 @@ function onExportAgiZip(project: boolean): void {
   emit("export-zip", project);
 }
 
+const ejectBusy = ref(false);
 async function onEjectGame(
   leave: "save" | "abandonUnsaved" | "abandonHistory" = "save",
+  retry = false,
 ): Promise<void> {
-  ejectRefusal.value = "";
+  if (ejectBusy.value) return;
+  ejectBusy.value = true;
+  if (!retry) ejectRefusal.value = "";
   historyExit.value = false;
   closeNavMenus();
   try {
+    if (retry) await workspaceEditor.retry.value?.();
     if (leave === "abandonUnsaved") workspaceEditor.discard.value?.();
     else await workspaceEditor.flush.value?.();
     await ejectGame(
@@ -236,17 +242,14 @@ async function onEjectGame(
     // Only the timeline is still owed: its own question, not a refusal.
     if (error instanceof HistoryUnsavedError) historyExit.value = true;
     else ejectRefusal.value = String(error).replace(/^Error: /, "");
-  }
-}
-async function retryExit(): Promise<void> {
-  try {
-    await workspaceEditor.retry.value?.();
-    await onEjectGame();
-  } catch (cause) {
-    ejectRefusal.value = cause instanceof Error ? cause.message : String(cause);
+  } finally {
+    ejectBusy.value = false;
   }
 }
 const ejectRefusal = ref<string>("");
+watch(ejectRefusal, (message) => {
+  workspaceEditor.exitRefusal.value = message.length > 0;
+});
 /** Exit waits on this session's timeline: leave without it, or stay. */
 const historyExit = ref(false);
 
@@ -270,7 +273,10 @@ const historyStartOver = ref(false);
 watch(
   () => state.phase,
   (phase) => {
-    if (phase !== "running") historyStartOver.value = false;
+    if (phase !== "running") {
+      historyStartOver.value = false;
+      ejectRefusal.value = "";
+    }
   },
 );
 
@@ -325,7 +331,8 @@ async function onRecordStop(): Promise<void> {
   if (!snapshot) return;
   if ("endedBy" in snapshot) {
     state.recording.error = "";
-    recordResult.value = "Recording ended by restart. Start Playtest to record the new run.";
+    recordResult.value =
+      "Recording ended because the game run changed. Start Playtest to record the current run.";
     return;
   }
   if (snapshot.tainted) {
@@ -438,6 +445,10 @@ async function onRecordSave(): Promise<void> {
     @start-walkthrough="onStartWalkthrough"
   />
   <div class="shell-notices">
+    <ProjectJournalRecovery
+      v-if="state.phase === 'running'"
+      :project-id="currentGame()?.projectId"
+    />
     <div v-if="exportRefusal" class="export-refusal" data-testid="export-refusal" role="alert">
       <p>{{ exportRefusal }}</p>
     </div>
@@ -449,10 +460,10 @@ async function onRecordSave(): Promise<void> {
           variant="primary"
           size="sm"
           data-testid="eject-retry"
-          :disabled="state.leaving"
-          @click="retryExit"
+          :disabled="state.leaving || ejectBusy"
+          @click="onEjectGame('save', true)"
         >
-          Retry
+          {{ ejectBusy ? "Saving…" : "Retry" }}
         </UiButton>
         <UiButton
           size="sm"
@@ -465,7 +476,7 @@ async function onRecordSave(): Promise<void> {
         <UiButton
           size="sm"
           data-testid="eject-leave-anyway"
-          :disabled="state.leaving"
+          :disabled="state.leaving || ejectBusy"
           @click="onEjectGame('abandonUnsaved')"
         >
           Discard and exit
@@ -481,7 +492,7 @@ async function onRecordSave(): Promise<void> {
         <UiButton
           size="sm"
           data-testid="eject-leave-without-timeline"
-          :disabled="state.leaving"
+          :disabled="state.leaving || ejectBusy"
           @click="onEjectGame('abandonHistory')"
         >
           Leave anyway

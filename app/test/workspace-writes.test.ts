@@ -127,3 +127,37 @@ test("the workspace barrier includes edits arriving during durable persistence a
   await writes.retry();
   writes.dispose();
 });
+
+test("a save refusal uses one period before the next action", async () => {
+  const writes = createWorkspaceWrites({
+    async write() {
+      throw new Error("Project session is closed for writes.");
+    },
+    changed() {},
+    error() {},
+  });
+  writes.edit("notes", "local");
+  await assert.rejects(writes.flush(), {
+    message: "Could not save notes: Project session is closed for writes. Retry the save.",
+  });
+  writes.dispose();
+});
+
+test("queued gestures and Retry carry their own editor intent", async () => {
+  const calls: (number | undefined)[] = [];
+  let fail = true;
+  const writes = createWorkspaceWrites({
+    async write(_key, _content, intent) {
+      calls.push(intent);
+      if (fail) throw new Error("refused gesture");
+    },
+    changed() {},
+    error() {},
+  });
+  writes.edit("sound:1", Uint8Array.of(1), 41);
+  await assert.rejects(writes.flush(), /refused gesture/);
+  fail = false;
+  await writes.retry();
+  assert.deepEqual(calls, [41, 41]);
+  writes.dispose();
+});

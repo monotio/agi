@@ -1,3 +1,5 @@
+import { decodeHostImage, decodeSave } from "../../src/runtime/persistence.ts";
+import { PROFILES } from "../../src/runtime/profile.ts";
 import type { Page } from "@playwright/test";
 import { expect, test } from "./test.ts";
 import { readFile } from "node:fs/promises";
@@ -85,6 +87,13 @@ test("blocked stores still download current game and checkpoint with explicit re
   await expect(page.getByTestId("export-refusal")).toContainText(
     "Backup downloaded with limitations",
   );
+  // The download captures a worker checkpoint after the last displayed frame.
+  const checkpoint = decodeSave(
+    decodeHostImage(new Uint8Array(Buffer.from(result.opened.progress!.autosave!.image, "base64")))
+      .image,
+    PROFILES[result.opened.profile ?? "2.936"],
+  );
+  const downloadedX = checkpoint.objects[0]!.x;
   const fresh = await browser.newContext();
   try {
     const imported = await fresh.newPage();
@@ -93,7 +102,7 @@ test("blocked stores still download current game and checkpoint with explicit re
     await expect(imported.getByText(/added to your library.*Keep the original ZIP/)).toBeVisible();
     await imported.getByTestId("btn-resume-cached").click();
     await expect.poll(async () => (await textHook(imported)).room).toBe(1);
-    await expect.poll(async () => (await textHook(imported)).egoX).toBe(before.egoX);
+    await expect.poll(async () => (await textHook(imported)).egoX).toBe(downloadedX);
   } finally {
     await fresh.close();
   }

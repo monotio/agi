@@ -247,11 +247,13 @@ test("Create saves OBJECT removal and restarts MAIN with the changed image", asy
     )
     .not.toBe(token);
   await expect(page.getByTestId("recording-bar")).toHaveCount(0);
-  await expect(page.getByTestId("record-error")).toContainText("Game restarted");
+  await expect(page.getByTestId("record-error")).toContainText("Game run changed");
   await page.evaluate(() =>
     (window as unknown as { releaseRecordingStop(): void }).releaseRecordingStop(),
   );
-  await expect(page.getByTestId("record-result")).toContainText("Recording ended by restart");
+  await expect(page.getByTestId("record-result")).toContainText(
+    "Recording ended because the game run changed",
+  );
   await expect(page.getByTestId("record-dialog")).toBeHidden();
   await expect(page.getByTestId("record-error")).toHaveCount(0);
   await page.screenshot({ path: test.info().outputPath("recording-ended-by-restart.png") });

@@ -50,7 +50,7 @@ for (const state of ["unsupported", "corrupt"] as const) {
     await expect(card.getByRole("heading")).toHaveText("History adventure");
     await expect(card).toContainText(
       state === "unsupported"
-        ? "Saved by a newer version of AGI IS HERE"
+        ? "Saved project format needs another app version"
         : "Saved project needs recovery",
     );
     await expect(

@@ -215,7 +215,6 @@ const workspaceEditor = createWorkspaceEditor(engine);
 provideWorkspaceEditor(workspaceEditor);
 async function exportWorkspaceGame(project: boolean): Promise<void> {
   try {
-    await workspaceEditor.flush.value?.();
     await lib.onExportAgiZip(true, project);
   } catch (cause) {
     exportRefusal.value = cause instanceof Error ? cause.message : String(cause);

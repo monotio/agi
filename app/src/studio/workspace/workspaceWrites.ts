@@ -2,7 +2,7 @@ import type { ProjectContent } from "../../../../src/authoring/projectContent.ts
 
 /** Completed gestures serialize; a typing burst submits its latest complete source. */
 export function createWorkspaceWrites(input: {
-  write(key: string, content: ProjectContent): Promise<void>;
+  write(key: string, content: ProjectContent, editorIntent?: number): Promise<void>;
   durable?(): Promise<void>;
   changed(drafts: Readonly<Record<string, ProjectContent>>, busy: boolean): void;
   error(cause: unknown): void;
@@ -11,6 +11,7 @@ export function createWorkspaceWrites(input: {
 }) {
   let drafts: Record<string, ProjectContent> = {};
   const pending: Record<string, ProjectContent> = {};
+  const intents: Record<string, number> = {};
   const failures: Record<string, unknown> = {};
   let tail = Promise.resolve();
   let active = 0;
@@ -25,17 +26,16 @@ export function createWorkspaceWrites(input: {
   }
   function saveError(key: string): Error {
     const cause = failures[key];
-    return new Error(
-      `Could not save ${key}: ${cause instanceof Error ? cause.message : String(cause)}. Retry the save.`,
-    );
+    const message = (cause instanceof Error ? cause.message : String(cause)).replace(/[.]+$/, "");
+    return new Error(`Could not save ${key}: ${message}. Retry the save.`);
   }
-  function submit(key: string, content: ProjectContent): void {
+  function submit(key: string, content: ProjectContent, editorIntent?: number): void {
     active++;
     let succeeded = false;
     tail = tail
       .then(async () => {
         if (!disposed) {
-          await input.write(key, content);
+          await input.write(key, content, editorIntent);
           succeeded = true;
           delete failures[key];
         }
@@ -46,7 +46,10 @@ export function createWorkspaceWrites(input: {
       })
       .finally(() => {
         active--;
-        if (succeeded && drafts[key] === content) delete drafts[key];
+        if (succeeded && drafts[key] === content && intents[key] === editorIntent) {
+          delete drafts[key];
+          delete intents[key];
+        }
         notify();
       });
   }
@@ -56,7 +59,7 @@ export function createWorkspaceWrites(input: {
     delay = maximum = undefined;
     for (const [key, content] of Object.entries(pending)) {
       delete pending[key];
-      submit(key, content);
+      submit(key, content, intents[key]);
     }
     notify();
   }
@@ -76,15 +79,17 @@ export function createWorkspaceWrites(input: {
     } while (captured !== tail || Object.keys(pending).length > 0);
   }
   return {
-    edit(key: string, content: ProjectContent): void {
+    edit(key: string, content: ProjectContent, editorIntent?: number): void {
       if (disposed) return;
       drafts[key] = content;
+      if (editorIntent === undefined) delete intents[key];
+      else intents[key] = editorIntent;
       if (key.startsWith("logic:")) {
         pending[key] = content;
         clearTimeout(delay);
         delay = setTimeout(drain, input.delay ?? 250);
         maximum ??= setTimeout(drain, input.maximum ?? 1000);
-      } else submit(key, content);
+      } else submit(key, content, editorIntent);
       notify();
     },
     flush,

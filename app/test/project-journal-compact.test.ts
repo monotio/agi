@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import type { ProjectChange } from "../../src/authoring/projectContent.ts";
 import { test } from "node:test";
 import { createContainer } from "../../src/container/container.ts";
 import { compileProjectDocuments } from "../../src/authoring/projectDocuments.ts";
@@ -571,4 +572,124 @@ test("a catalog fork acknowledgement keeps a newer editor intent recoverable imm
     type: "text",
     text: "newer than the fork receipt",
   });
+});
+
+for (const action of ["undo", "restore"] as const) {
+  test(`written editor intent stays retired after ${action} and reopen`, async () => {
+    const owner = await session(`intent-${action}`);
+    const initial = owner.history.capture().cursor!;
+    // A derived companion changes between the gesture and admission.
+    owner.rememberEditorChanges([
+      { key: "notes", content: "Edited" },
+      { key: "music", content: '{"1":90}' },
+    ]);
+    await owner.submit({
+      proposal: owner.model.propose(owner.model.capture(), "Derived metadata", [
+        { key: "notes", content: "Edited" },
+        { key: "music", content: '{"1":90,"2":120}' },
+      ]),
+      label: "Derived metadata",
+      origin: "sound",
+      author: "creator",
+    });
+    await owner.flush();
+    await (action === "undo" ? owner.undo() : owner.restore(initial));
+    await owner.flush();
+    owner.dispose();
+    const saved = await loadAuthoredGame(testProjectId(`intent-${action}`));
+    assert.equal(
+      saved!.workspace!.documents.find((doc) => doc.key === "music"),
+      undefined,
+    );
+    assert.equal(journals().length, 0);
+  });
+}
+
+test("a coordinated intent recovers a document removal before admission", async () => {
+  const owner = await session("intent-removal");
+  assert.equal(owner.rememberEditorChanges([{ key: "notes", content: null }]), undefined);
+  owner.dispose();
+  const reopened = await loadAuthoredGame(testProjectId("intent-removal"));
+  assert.equal(
+    reopened!.workspace!.documents.find((doc) => doc.key === "notes"),
+    undefined,
+  );
+});
+
+test("an unchanged accepted document retires its editor intent", async () => {
+  const owner = await session("intent-unchanged");
+  owner.rememberEditorChanges([{ key: "notes", content: "UNEDITED_SENTINEL" }]);
+  await edit(owner, "UNEDITED_SENTINEL", "notes");
+  await owner.flush();
+  owner.dispose();
+  assert.equal(journals().length, 0);
+});
+
+for (const action of ["undo", "restore"] as const) {
+  test(`${action} supersedes an older unadmitted intent on another document`, async () => {
+    const owner = await session(`pending-intent-${action}`);
+    const initial = owner.history.capture().cursor!;
+    await edit(owner, 'print("Committed"); return;');
+    await owner.flush();
+    owner.rememberEditorChanges([{ key: "notes", content: "Older pending notes" }]);
+    await (action === "undo" ? owner.undo() : owner.restore(initial));
+    await owner.flush();
+    owner.dispose();
+    const reopened = await loadAuthoredGame(testProjectId(`pending-intent-${action}`));
+    assert.deepEqual(reopened!.workspace!.documents.find((doc) => doc.key === "notes")!.content, {
+      type: "text",
+      text: "UNEDITED_SENTINEL",
+    });
+    assert.equal(journals().length, 0);
+  });
+}
+
+test("two SOUND gestures retire only their admitted intent, including tempo-only edits", async () => {
+  const owner = await session("intent-two-sounds");
+  const { soundProjectChanges } = await import("../src/studio/sound/soundEdits.ts");
+  const bytes = Uint8Array.of(8, 0, 10, 0, 12, 0, 14, 0, 255, 255, 255, 255, 255, 255, 255, 255);
+  const submit = async (changes: readonly ProjectChange[], intent?: number) =>
+    owner.submit({
+      proposal: owner.model.propose(owner.model.capture(), "Sound", changes),
+      label: "Sound",
+      origin: "sound",
+      author: "creator",
+      ...(intent === undefined ? {} : { editorIntent: intent }),
+    });
+  await submit([...soundProjectChanges("sound:1", bytes, 90), { key: "sound:2", content: bytes }]);
+  await owner.flush();
+  const first = soundProjectChanges(
+    "sound:1",
+    bytes,
+    120,
+    String(owner.model.capture().read("music")!.content),
+  );
+  owner.rememberEditorChanges(first);
+  const intent1 = owner.captureEditorIntent("sound:1");
+  const second = soundProjectChanges("sound:2", bytes, 180, String(first[1]!.content));
+  owner.rememberEditorChanges(second);
+  const intent2 = owner.captureEditorIntent("sound:2");
+  // The first write derives the shared metadata after the second gesture.
+  const actual = soundProjectChanges("sound:1", bytes, 120, String(second[1]!.content));
+  await submit(actual, intent1);
+  await owner.flush();
+  assert.match(journals()[0]![1], /editorIntent/);
+  assert.equal(owner.captureEditorIntent("sound:2"), intent2);
+  await submit(
+    soundProjectChanges(
+      "sound:2",
+      bytes,
+      180,
+      String(owner.model.capture().read("music")!.content),
+    ),
+    intent2,
+  );
+  await owner.flush();
+  owner.dispose();
+  const reopened = await loadAuthoredGame(testProjectId("intent-two-sounds"));
+  const music = reopened!.workspace!.documents.find((doc) => doc.key === "music")!.content;
+  assert.ok(music.type === "text");
+  assert.equal(JSON.parse(music.text)["1"].tempo, 120);
+  assert.equal(JSON.parse(music.text)["2"].tempo, 180);
+  assert.equal(journals().length, 0);
 });

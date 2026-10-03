@@ -681,7 +681,7 @@ export function useEngine(
 
   link.deps.recordingReset = () => {
     testRecorder.reset();
-    state.recording.error = "Game restarted. Start Playtest to record the new run.";
+    state.recording.error = "Game run changed. Start Playtest to record the current run.";
   };
 
   const lifecycle = useGameLifecycle({
@@ -710,6 +710,7 @@ export function useEngine(
     },
     stopHistoryWriter: () => historyController?.stopWriterRenewal(),
     flushProject: async () => {
+      if (projectSession?.saveStatus().state === "conflict") return;
       await engineOptions?.flushWorkspace?.();
       const session = projectSession;
       if (session === null) return;
@@ -1062,7 +1063,10 @@ export function useEngine(
       return projectSession?.reenterRoom();
     },
     submitProjectEdit(
-      edit: { changes: readonly ProjectChange[] } & Omit<ProjectCommitMetadata, "time">,
+      edit: { changes: readonly ProjectChange[]; editorIntent?: number } & Omit<
+        ProjectCommitMetadata,
+        "time"
+      >,
     ) {
       const session = projectSession;
       if (session === null) throw new Error("Open this game in Create to edit it.");
@@ -1072,6 +1076,7 @@ export function useEngine(
         origin: edit.origin,
         label: edit.label,
         author: edit.author,
+        ...(edit.editorIntent === undefined ? {} : { editorIntent: edit.editorIntent }),
       });
     },
     runStudioAssist: async (
