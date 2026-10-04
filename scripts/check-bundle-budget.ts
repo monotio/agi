@@ -156,7 +156,9 @@ const BUDGETS: Record<Group, { readonly gzip: number; readonly brotli: number }>
   // run without a reboot, through a message gate and frozen-run denial. Together
   // they bring this closure to 167.5 kB gzip, 140.5 kB brotli; restart
   // validation and the admission controller still load only for Create.
-  workers: { gzip: 168_000, brotli: 141_000 },
+  // Executable-only recording boots and the oversize rotation guard bring
+  // the closure to 168.1 kB gzip and 141.1 kB brotli.
+  workers: { gzip: 169_000, brotli: 142_000 },
 };
 
 const GROUP_LABELS: Record<Group, string> = {

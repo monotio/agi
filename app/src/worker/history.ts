@@ -20,6 +20,12 @@
  *
  * Pure functions of the worker context — importable under Node.
  */
+import {
+  readProjectWorkspace,
+  writeProjectWorkspace,
+} from "../../../src/authoring/projectWorkspace.ts";
+import { projectDocumentId } from "../../../src/authoring/projectContent.ts";
+import { sha256Hex } from "../../../src/crypto.ts";
 import { bytesToBase64 } from "../project/bytes.ts";
 import { OperationRecorder } from "../../../src/agent/recordedReplay.ts";
 import { recordedEventFromCause } from "../authoring/gameRecording.ts";
@@ -60,6 +66,7 @@ const RESEND_MAX_MS = 60_000;
 let nonceCounter = 0;
 
 export function createHistory(ctx: WorkerContext) {
+  let bootOverBudget = false;
   /** A live segment records; scratch replay traffic never does. */
   function live(): boolean {
     return ctx.history.segment !== null && ctx.replay.replay === null && ctx.engine !== null;
@@ -137,6 +144,23 @@ export function createHistory(ctx: WorkerContext) {
    * segments (an overflow gap), so the projection precedes the live check.
    */
   function historyRecord(cause: HistoryEventCause): void {
+    if (cause.kind === "projectImage") {
+      // Replay retains executable resource documents; authoring attachments and
+      // display metadata belong to the project archive, outside the play tape.
+      const documents = Object.fromEntries(
+        Object.entries(readProjectWorkspace(cause.documents)).filter(
+          ([key]) =>
+            (/^(logic|picture|view|sound):(0|[1-9]\d{0,2})$/.test(key) &&
+              Number(key.slice(key.indexOf(":") + 1)) <= 255) ||
+            ["words", "inventory", "bindings"].includes(key),
+        ),
+      );
+      cause = {
+        ...cause,
+        documents: writeProjectWorkspace(documents),
+        documentId: projectDocumentId(documents, sha256Hex),
+      };
+    }
     const rec = ctx.recording.recording;
     if (rec !== null) {
       if (rec.events.length >= 5000) {
@@ -514,6 +538,7 @@ export function createHistory(ctx: WorkerContext) {
   function historyBoot(msg: BootMessage): void {
     const h = ctx.history;
     historyEnd("boot");
+    bootOverBudget = false;
     disarmResend();
     h.epoch++;
     h.session = newSessionId();
@@ -539,7 +564,6 @@ export function createHistory(ctx: WorkerContext) {
     if (ctx.replay.replay) return; // a seeded boot is a scratch replay session
     const boot = stampBoot({
       files: bootFiles(),
-      ...(ctx.boot.project !== undefined ? { project: ctx.boot.project } : {}),
       dictionary: [...ctx.boot.liveDictionary.entries()],
       authorRooms: ctx.boot.authorRooms,
       ...(ctx.boot.profile ? { profile: ctx.boot.profile } : {}),
@@ -567,10 +591,20 @@ export function createHistory(ctx: WorkerContext) {
     h.open = { events: [], marks: [], sync: [], clock: [] };
     h.openBytes = 0;
     closeBatch({ boot });
+    if (h.segmentBytes >= HISTORY_SEGMENT_BYTE_LIMIT) {
+      bootOverBudget = true;
+      historyEnd("budget");
+      h.resumePending = false;
+      ctx.ports.presentation({
+        type: "status",
+        text: "Recording paused. This game's starting state is too large. Play can continue.",
+      });
+    }
   }
 
   /** A segment continues live play — after replay exit or a budget rollover. */
   function historyResume(): void {
+    if (bootOverBudget) return;
     ctx.history.resumePending = true;
     maybeResume();
   }
@@ -598,7 +632,6 @@ export function createHistory(ctx: WorkerContext) {
     const h = ctx.history;
     const boot = stampBoot({
       files: bootFiles(),
-      ...(ctx.boot.project !== undefined ? { project: ctx.boot.project } : {}),
       dictionary: [...ctx.boot.liveDictionary.entries()],
       authorRooms: ctx.boot.authorRooms,
       ...(ctx.boot.profile ? { profile: ctx.boot.profile } : {}),
@@ -630,6 +663,7 @@ export function createHistory(ctx: WorkerContext) {
     // A debugger attach holds normal recording in hiatus: the pending resume
     // stays pending until detach's explicit historyResume, even across a gap.
     if (
+      bootOverBudget ||
       !h.resumePending ||
       h.segment !== null ||
       ctx.replay.replay ||
