@@ -25,6 +25,15 @@ async function start(page: Page) {
   await waitForRoom(page, 1);
   await workspaceSaved(page);
 }
+async function findWord(page: Page, word: string): Promise<void> {
+  await focusWorkspaceLogic(page);
+  await page.keyboard.press("ControlOrMeta+f");
+  const find = page.getByRole("textbox", { name: "Find", exact: true });
+  await expect(find).toBeVisible();
+  await find.fill(word);
+  await find.press("Escape");
+  await page.keyboard.press("ArrowLeft");
+}
 test("names open resources, peek game state and rename all authored uses @webkit-desktop", async ({
   page,
 }) => {
@@ -47,20 +56,12 @@ test("names open resources, peek game state and rename all authored uses @webkit
     "logic:1",
     "load.sound(chime_sound);\nif (isset(birdsong_done)) { reset(birdsong_done); }\nreturn;",
   );
-  await focusWorkspaceLogic(page);
-  await page.keyboard.press("ControlOrMeta+f");
-  await page.keyboard.type("chime_sound");
-  await page.keyboard.press("Escape");
-  await page.keyboard.press("ArrowLeft");
+  await findWord(page, "chime_sound");
   await page.keyboard.press("F12");
   await expect(page.getByTestId("workspace-sound")).toBeVisible();
   await expect(page.getByTestId("project-tab-sound:1")).toHaveAttribute("aria-selected", "true");
   await openWorkspaceLogic(page);
-  await focusWorkspaceLogic(page);
-  await page.keyboard.press("ControlOrMeta+f");
-  await page.keyboard.type("birdsong_done");
-  await page.keyboard.press("Escape");
-  await page.keyboard.press("ArrowLeft");
+  await findWord(page, "birdsong_done");
   await page.keyboard.press("F12");
   await expect(details).toBeVisible();
   await expect(details).toContainText("birdsong_done · Flag 204");
@@ -80,6 +81,12 @@ test("names open resources, peek game state and rename all authored uses @webkit
     }
     await expect(details).toBeVisible();
     await expect(page.getByTestId("workspace-logic-editor").locator(".view-lines")).toBeVisible();
+    const sourceLine = page
+      .getByTestId("workspace-logic-editor")
+      .locator(".view-lines")
+      .getByText("load.sound", { exact: true });
+    await expect(sourceLine).toBeVisible();
+    await expect(sourceLine).toBeInViewport();
     await page.screenshot({
       path: test.info().outputPath(`names-peek-${viewport.width}.png`),
       scale: "css",
@@ -190,11 +197,7 @@ test("name hover opens resources and message actions keep readable text @webkit-
     });
   }
   await page.setViewportSize({ width: 1440, height: 900 });
-  await focusWorkspaceLogic(page);
-  await page.keyboard.press("ControlOrMeta+f");
-  await page.keyboard.type("m1");
-  await page.keyboard.press("Escape");
-  await page.keyboard.press("ArrowLeft");
+  await findWord(page, "m1");
   await page.keyboard.press("ControlOrMeta+.");
   const inline = page.getByText("Put text inline", { exact: true });
   await expect(inline).toBeVisible();

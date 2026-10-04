@@ -99,7 +99,7 @@ export function projectBindingInfos(project: LogicLanguageProject): BindingInfo[
       const call = frames.at(-1);
       const role =
         syntax.tokens[index + 1]?.text === "=" ||
-        (call && WRITES[call.name]?.includes(call.parameter))
+        (call && Object.hasOwn(WRITES, call.name) && WRITES[call.name]!.includes(call.parameter))
           ? "Set"
           : (call && commands[call.name]?.kind === "condition") ||
               [syntax.tokens[index - 1]?.text, syntax.tokens[index + 1]?.text].some((text) =>

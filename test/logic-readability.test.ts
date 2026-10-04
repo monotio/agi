@@ -118,3 +118,16 @@ test("both sides of a variable comparison are checked", () => {
     ["Checked", "Set"],
   );
 });
+
+test("name uses remain available while an unknown command is being edited", () => {
+  const server = createLogicLspServer({
+    project: { ...project, documents: { "logic:1": { source: "toString(count);\nreturn;" } } },
+  });
+  const response = server.handle({ jsonrpc: "2.0", id: 1, method: "agi/bindings" });
+  assert.equal(response?.error, undefined);
+  const infos = response?.result as { name: string; uses: { role: string }[] }[];
+  assert.deepEqual(
+    infos.find((info) => info.name === "count")?.uses.map((use) => use.role),
+    ["Used"],
+  );
+});
