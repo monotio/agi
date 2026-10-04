@@ -194,6 +194,15 @@ function commitName(event: Event): void {
                 writer(plane).head
               }}</span>
               <button
+                v-if="plane.entry !== null"
+                type="button"
+                class="inspector__link"
+                title="Scrub to this step"
+                @click="emit('seek', plane.entry + 1)"
+              >
+                Show step {{ plane.entry + 1 }}
+              </button>
+              <button
                 v-if="plane.rowId"
                 type="button"
                 class="inspector__link"

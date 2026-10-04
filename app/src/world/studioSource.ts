@@ -235,7 +235,7 @@ interface ViewScan {
 }
 
 /** One VIEW as the Resources tab and the World panel list it. */
-export interface ViewSummary {
+interface ViewSummary {
   readonly view: number;
   readonly description?: string | undefined;
   /** Loop 0, cel 0 as displayed; undefined when the view does not decode. */
@@ -247,7 +247,7 @@ export interface ViewSummary {
 const viewScans = new WeakMap<object, ViewScan>();
 
 /** Which logics name which VIEWs, and which rooms draw which pictures, in the booted files. */
-export function viewScan(resources: Pick<ScannedResources, "files" | "profile">): ViewScan {
+function viewScan(resources: Pick<ScannedResources, "files" | "profile">): ViewScan {
   const cached = viewScans.get(resources.files);
   if (cached) return cached;
   const files = new Map(Object.entries(resources.files));
@@ -281,14 +281,6 @@ export function viewScan(resources: Pick<ScannedResources, "files" | "profile">)
   const scan = { index, scans, shared, pictures, views };
   viewScans.set(resources.files, scan);
   return scan;
-}
-
-/** The VIEWs a room's logic (or a logic it calls) names as constants and the game holds, ascending. */
-export function roomViews(
-  resources: Pick<ScannedResources, "files" | "profile">,
-  room: number,
-): ViewSummary[] {
-  return viewScan(resources).views.filter((summary) => summary.usage.rooms.includes(room));
 }
 
 /** What Sprite Studio opens on: one VIEW's stored bytes, where it is used, and rooms to stand it in. */

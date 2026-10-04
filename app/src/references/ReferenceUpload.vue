@@ -12,20 +12,18 @@ import { viewFeedback } from "../../../src/agent/viewFeedback.ts";
 import { DEFAULT_V2_PROFILE } from "../../../src/runtime/profile.ts";
 import { bytesToBase64 } from "../project/bytes.ts";
 import { useAiSettings } from "../settings/useAiSettings.ts";
-import { useCreateWorkspace } from "../shell/useCreateWorkspace.ts";
 import { useShell } from "../shell/useShell.ts";
 import { useSpriteStudio } from "../world/useSpriteStudio.ts";
 
 /**
  * Reference-art upload: attach a picture the player supplies — a room plate
  * the agent hand-encodes with write_picture, or a character sheet that
- * converts to a staged VIEW the player keeps, repairs in Sprite Studio, or
+ * converts to a staged VIEW the player keeps, repairs in the VIEW editor, or
  * revises. Raised from the chat bubble or the world map's room detail via
  * referenceUploadState.
  */
 const engine = useEngineApi();
 const { llmConfig } = useAiSettings();
-const workspace = useCreateWorkspace();
 const shell = useShell();
 const sprites = useSpriteStudio();
 
@@ -143,33 +141,20 @@ async function onAttach(): Promise<void> {
   }
 }
 
-async function onKeep(): Promise<void> {
-  const id = attached.value?.id;
-  if (!id || busy.value) return;
-  busy.value = true;
-  error.value = "";
-  try {
-    await engine.keepStagedView(id);
-    attached.value = { ...attached.value!, staged: undefined };
-  } catch (e) {
-    error.value = String(e instanceof Error ? e.message : e);
-  } finally {
-    busy.value = false;
-  }
-}
-
 /**
- * Repair the staged candidate in Sprite Studio before keeping it: Create
- * takes the page, and Studio's Keep spends the staged offer with the
- * repaired bytes (resourceCommit.ts stagedViewEdit).
+ * Open the staged candidate in Create for repairs. Edits use the workspace save pipeline.
  */
 async function onOpenInStudio(): Promise<void> {
   const reference = attached.value;
   if (!reference?.staged) return;
   shell.setMode("create");
   if (shell.mode.value !== "create") return;
-  referenceUpload.open = false;
-  await sprites.openStaged(reference);
+  try {
+    await sprites.openStaged(reference);
+    referenceUpload.open = false;
+  } catch (cause) {
+    error.value = cause instanceof Error ? cause.message : String(cause);
+  }
 }
 
 /** Revise / send: the note plus this reference's images reach the agent. */
@@ -237,7 +222,7 @@ async function onDetachExisting(reference: StoredReference): Promise<void> {
 }
 
 /**
- * Reopen a stored staged candidate: the attach view's preview, Keep and
+ * Reopen a stored staged candidate: the attach view's preview and
  * Send controls work on `attached`, so reopening is selecting the stored
  * record — its staged spec is validated storage, not a rebuild.
  */
@@ -432,21 +417,12 @@ function onReopenStaged(reference: StoredReference): void {
         </ul>
         <footer class="reference-upload-foot">
           <UiButton
-            variant="primary"
-            data-testid="reference-keep"
-            :disabled="busy || sending"
-            @click="onKeep"
-          >
-            Keep
-          </UiButton>
-          <UiButton
             icon="pencil"
             data-testid="reference-open-sprite"
-            :disabled="busy || sending || !workspace.studioFits.value"
-            :title="workspace.studioFits.value ? undefined : 'Sprite Studio needs a larger screen'"
+            :disabled="busy || sending"
             @click="onOpenInStudio"
           >
-            Open in Sprite Studio
+            Open VIEW editor
           </UiButton>
           <UiButton data-testid="reference-send" :disabled="busy || sending" @click="onSendToAgent">
             {{ sending ? "Sending…" : "Use in edit" }}

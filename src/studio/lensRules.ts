@@ -71,7 +71,8 @@ export function editOperationUnlocks(
         op.plane === "visual" && document.items.some((item) => item.id === op.itemId && item.depth)
       );
     }
-    if (op.type !== "setPoint" && op.type !== "insertPoint") return false;
+    if (op.type !== "setPoint" && op.type !== "insertPoint" && op.type !== "removePoint")
+      return false;
     const item = pictureItemAtLine(document, op.line);
     return (
       item?.depth !== undefined && (op.line < item.depth.openLine || op.line > item.depth.closeLine)

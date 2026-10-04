@@ -29,10 +29,8 @@ export function useStudioLauncher() {
   const shell = useShell();
   const workspace = useCreateWorkspace();
 
-  /** A Studio can open now: Create is available and the screen fits one. */
-  const available = computed(
-    () => shell.createAvailable.value && workspace.studioFits.value && !state.powerUp.busy,
-  );
+  /** A Studio can open now: Create is available and the agent is ready. */
+  const available = computed(() => shell.createAvailable.value && !state.powerUp.busy);
 
   /** Open `target` (for `lesson`, when given); resolves whether a Studio opened on it. */
   async function open(target: LessonTarget, lesson?: StudioLesson): Promise<boolean> {

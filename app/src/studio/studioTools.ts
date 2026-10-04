@@ -137,7 +137,7 @@ export function clickPath(draft: PathDraft, point: Point): PathClick {
   const { points } = draft;
   if (draft.tool === "polygon" && points.length >= 3 && samePoint(points[0], point))
     return { draft, closed: true };
-  if (samePoint(points.at(-1), point)) return { draft, closed: false };
+  if (samePoint(points.at(-1), point)) return { draft, closed: finishPath(draft) !== null };
   return { draft: { ...draft, points: [...points, point] }, closed: false };
 }
 

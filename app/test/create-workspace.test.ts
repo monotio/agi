@@ -144,7 +144,7 @@ test("reopening from storage keeps the old game paused until the reload is done"
   assert.deepEqual(lost.calls, ["pause:studio", "resume:studio", "focus"]);
 });
 
-test("Studio never opens where it does not fit, and holds no pause there", () => {
+test("editor requests are delivered at phone widths and release their temporary pause", () => {
   const calls: string[] = [];
   const fits = ref(false);
   const ws = createCreateWorkspace({
@@ -157,8 +157,10 @@ test("Studio never opens where it does not fit, and holds no pause there", () =>
   const request = studioRequest(1);
   assert.equal(ws.studioFits.value, false);
   ws.openStudio(request);
-  assert.equal(ws.studio.value, null);
-  assert.deepEqual(calls, []);
+  assert.equal(ws.studio.value, request);
+  ws.closeStudio();
+  assert.deepEqual(calls, ["pause:studio", "resume:studio", "focus"]);
+  calls.length = 0;
   fits.value = true;
   ws.openStudio(request);
   assert.equal(ws.studio.value, request);
@@ -211,4 +213,14 @@ test("unsaved edits download reports a browser download failure and retains buff
     "Could not download unsaved edits: Browser refused the download. Try Download unsaved edits again.",
   );
   assert.equal(editor.unsavedEdits.value()["notes"], "Pending typing");
+});
+
+test("a chosen splitter width applies to VIEW and SOUND editors", () => {
+  const editor = createWorkspaceEditor({} as EngineApi);
+  editor.selected.value = "view:0";
+  editor.resize(65);
+  assert.equal(editor.effectiveSplit.value, 65);
+  editor.selected.value = "sound:1";
+  editor.resize(35);
+  assert.equal(editor.effectiveSplit.value, 35);
 });

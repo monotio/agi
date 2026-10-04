@@ -19,6 +19,8 @@
  * scaling can beat against it into moiré, and beams merge into a flat field
  * when a scanline gets too few device pixels to resolve.
  */
+import { watch } from "vue";
+import { layoutDragging } from "../play/layoutDrag.ts";
 import * as THREE from "three";
 import { MeshBasicNodeMaterial, WebGPURenderer, type Node } from "three/webgpu";
 import {
@@ -181,6 +183,8 @@ export class AgiStage {
   private readonly vec2Tmp = new THREE.Vector2();
   private parallaxRaf: number | null = null;
 
+  private readonly stopLayoutWatch: () => void;
+
   private constructor(renderer: WebGPURenderer, isWebGpu: boolean, canvas: HTMLCanvasElement) {
     this.renderer = renderer;
     this.isWebGpu = isWebGpu;
@@ -188,6 +192,13 @@ export class AgiStage {
     this.observer =
       typeof ResizeObserver === "undefined" ? null : new ResizeObserver(() => this.fit(canvas));
     this.observer?.observe(canvas);
+    this.stopLayoutWatch = watch(
+      layoutDragging,
+      (dragging) => {
+        if (!dragging) this.fit(canvas);
+      },
+      { flush: "post" },
+    );
     this.texture = new THREE.DataTexture(this.rgba, FRAME_WIDTH, FRAME_HEIGHT);
     this.texture.magFilter = THREE.NearestFilter;
     this.texture.minFilter = THREE.NearestFilter;
@@ -766,11 +777,13 @@ export class AgiStage {
 
   /** Match the backing store to the displayed size in device pixels with a max DPR cap. */
   private fit(canvas: HTMLCanvasElement): void {
-    if (this.disposed) return;
+    if (this.disposed || layoutDragging.value) return;
     const rawDpr = typeof devicePixelRatio === "number" ? devicePixelRatio : 1;
     const dpr = Math.min(Math.max(1, rawDpr), 2);
     const width = Math.max(1, Math.round((canvas.clientWidth || FRAME_WIDTH * 2) * dpr));
     const height = Math.max(1, Math.round((canvas.clientHeight || FRAME_HEIGHT * 2) * dpr));
+    if (this.outSize.value.x === width && this.outSize.value.y === height && this.dpr.value === dpr)
+      return;
     this.renderer.setSize(width, height, false);
     this.outSize.value.set(width, height);
     this.dpr.value = dpr;
@@ -864,6 +877,7 @@ export class AgiStage {
       this.pendingRaf = null;
     }
     this.observer?.disconnect();
+    this.stopLayoutWatch();
     this.scene.remove(this.quad);
     if (this.explodedGroup) this.scene.remove(this.explodedGroup);
     this.explodedGeometry?.dispose();

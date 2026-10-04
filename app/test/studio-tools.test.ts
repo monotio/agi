@@ -274,8 +274,8 @@ describe("useStudioTools", () => {
     tools.press(press(60, 140));
     flush();
     assert.equal(draft.gesturing.value, true);
-    tools.press(press(60, 140)); // the double-click's second press
-    assert.equal(tools.finish(), true);
+    tools.press(press(60, 140)); // Clicking the last point finishes the line.
+    assert.equal(tools.path.value, null);
     assert.equal(draft.gesturing.value, false);
     assert.equal(draft.history.value.past.length, 1);
     const item = draft.document.value.items.at(-1)!;

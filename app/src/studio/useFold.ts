@@ -1,4 +1,5 @@
 import { nextTick, onWatcherCleanup, shallowRef, watch, type Ref, type ShallowRef } from "vue";
+import { layoutDragging } from "../play/layoutDrag.ts";
 import { TARGET_PROPERTY } from "../ui/explain.ts";
 
 /**
@@ -39,7 +40,11 @@ export function useFold(
       }
     } while (again);
   }
+  watch(layoutDragging, (dragging) => {
+    if (!dragging) void refit();
+  });
   function refit(): Promise<void> {
+    if (layoutDragging.value) return Promise.resolve();
     if (fitting) {
       again = true;
       return fitting;

@@ -223,9 +223,13 @@ async function exportWorkspaceGame(project: boolean): Promise<void> {
 }
 watch(workspace.studio, (request) => {
   if (!request) return;
-  workspaceEditor.open(
-    request.kind === "picture" ? `picture:${request.pictureNumber}` : `view:${request.viewNumber}`,
-  );
+  const key =
+    request.kind === "picture" ? `picture:${request.pictureNumber}` : `view:${request.viewNumber}`;
+  workspaceEditor.studioRequests.value = {
+    ...workspaceEditor.studioRequests.value,
+    [key]: request,
+  };
+  workspaceEditor.open(key);
   workspace.closeStudio();
 });
 watch(

@@ -43,6 +43,7 @@ import {
 import { itemVisualFootprint, type PicturePlane } from "./pictureQuery.ts";
 import { clearItemDepth, addDepth } from "./pictureDepth.ts";
 import { shapeSource, validateSimplePolygon, type Point, type SceneShape } from "./shapes.ts";
+import { linePoints } from "./editPoints.ts";
 import { commandHead, registerLine, registersRead } from "./editState.ts";
 import {
   commandTokens,
@@ -105,6 +106,12 @@ export type EditOperation =
       readonly pointIndex: number;
       readonly x: number;
       readonly y: number;
+    }
+  | {
+      readonly type: "removePoint";
+      readonly itemId: string;
+      readonly line: number;
+      readonly pointIndex: number;
     }
   | {
       readonly type: "setItemColor";
@@ -303,6 +310,44 @@ function insertPoint(
       : entry,
   );
   return finish(slots, ctx);
+}
+
+function removePoint(
+  ctx: Context,
+  op: Extract<EditOperation, { type: "removePoint" }>,
+): EditResult {
+  requireIntegers({ line: op.line, pointIndex: op.pointIndex });
+  const item = editableItem(ctx, op.itemId);
+  if (!inItem(item, op.line)) throw new EditRefusal(`line ${op.line} is not in item '${item.id}'`);
+  refuseCopiesOf(ctx, item, "removing a point from");
+  const text = ctx.lines[op.line - 1]!;
+  const head = commandHead(text);
+  if (!["line", "polyline", "polygon", "rel", "xcorner", "ycorner"].includes(head))
+    throw new EditRefusal(`line ${op.line} has no removable vertices`);
+  const points = linePoints(text);
+  if (op.pointIndex < 0 || op.pointIndex >= points.length)
+    throw new EditRefusal(`line ${op.line} has no point ${op.pointIndex}`);
+  if (points.length <= (head === "polygon" ? 3 : 2)) {
+    const otherLines = ctx.lines
+      .slice(item.openLine, item.closeLine - 1)
+      .filter((line) =>
+        ["line", "polyline", "polygon", "rel", "xcorner", "ycorner"].includes(commandHead(line)),
+      );
+    if (head === "polygon" || otherLines.length === 1) return deleteItem(ctx, item.id);
+    return finish(
+      inputLines(ctx, 1, ctx.lines.length).filter((entry) => entry.from !== op.line),
+      ctx,
+    );
+  }
+  points.splice(op.pointIndex, 1);
+  // Removing a corner may create a diagonal. Absolute lines preserve the remaining vertices.
+  const replacement = `${/^\s*/.exec(text)![0]}${head === "polygon" ? "polygon" : "line"} ${points.map(({ x, y }) => `${x},${y}`).join(" ")}${/\s*#.*$/.exec(text)?.[0] ?? ""}`;
+  return finish(
+    inputLines(ctx, 1, ctx.lines.length).map((entry) =>
+      entry.from === op.line ? { ...entry, text: replacement } : entry,
+    ),
+    ctx,
+  );
 }
 
 const PLANE_HEADS: Record<PicturePlane, readonly string[]> = {
@@ -723,6 +768,8 @@ function dispatch(ctx: Context, op: EditOperation, options?: EditOptions): EditR
       return setPoint(ctx, op.line, op.pointIndex, op.x, op.y);
     case "insertPoint":
       return insertPoint(ctx, op);
+    case "removePoint":
+      return removePoint(ctx, op);
     case "setItemColor":
       return setItemColor(ctx, op.itemId, op.plane, op.value);
     case "deleteItem":
@@ -762,9 +809,15 @@ function maintainDepth(
         : "itemId" in op
           ? ctx.document.items.find((item) => item.id === op.itemId)
           : undefined;
-    if (!oldItem?.depth) continue;
+    if (
+      !oldItem?.depth ||
+      !result.document.items.some(
+        (item) => item.id === oldItem.id || (op.type === "duplicateItem" && item.id === op.newId),
+      )
+    )
+      continue;
     const depth = oldItem.depth;
-    const point = op.type === "setPoint" || op.type === "insertPoint";
+    const point = op.type === "setPoint" || op.type === "insertPoint" || op.type === "removePoint";
     const manual =
       (op.type === "setItemColor" && op.plane === "priority") ||
       (point &&

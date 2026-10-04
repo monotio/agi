@@ -4,6 +4,7 @@ import { computed, inject, provide, ref, shallowRef, type InjectionKey } from "v
 import type { ProjectContent } from "../../../src/authoring/projectContent.ts";
 import type { EngineApi } from "../engine/engineContext.ts";
 import type { ChooserItem } from "./commands/chooserItems.ts";
+import type { StudioRequest } from "./useCreateWorkspace.ts";
 import type { ReplyFormatter } from "../agent/workspaceAgent.ts";
 
 export function createWorkspaceEditor(engine: EngineApi) {
@@ -18,6 +19,7 @@ export function createWorkspaceEditor(engine: EngineApi) {
   const retry = shallowRef<() => Promise<void>>();
   const pictureLive = ref(false);
   const gameHost = shallowRef<HTMLElement | null>(null);
+  const studioRequests = shallowRef<Readonly<Record<string, StudioRequest>>>({});
   const selected = ref<string>();
   const agentPrefill = shallowRef<{
     text: string;
@@ -52,18 +54,24 @@ export function createWorkspaceEditor(engine: EngineApi) {
   const error = ref("");
   const exitRefusal = ref(false);
   const split = ref(50);
+  const chosenSplit = ref(false);
   try {
     const stored = Number(localStorage.getItem("monotio_agi.workspaceSplit"));
-    if (stored >= 25 && stored <= 75) split.value = stored;
+    if (stored >= 25 && stored <= 75) {
+      split.value = stored;
+      chosenSplit.value = true;
+    }
   } catch {
     /* Use the default split. */
   }
   const effectiveSplit = computed(() =>
-    kind.value === "view"
-      ? Math.min(split.value, 30)
-      : kind.value === "sound"
-        ? Math.max(split.value, 60)
-        : split.value,
+    chosenSplit.value
+      ? split.value
+      : kind.value === "view"
+        ? Math.min(split.value, 30)
+        : kind.value === "sound"
+          ? Math.max(split.value, 60)
+          : split.value,
   );
   const kind = computed(() => selected.value?.split(":")[0] ?? "");
   function pin(key: string): void {
@@ -108,6 +116,7 @@ export function createWorkspaceEditor(engine: EngineApi) {
     }
   }
   function resize(value: number): void {
+    chosenSplit.value = true;
     split.value = Math.min(75, Math.max(25, value));
     try {
       localStorage.setItem("monotio_agi.workspaceSplit", String(split.value));
@@ -151,6 +160,7 @@ export function createWorkspaceEditor(engine: EngineApi) {
     }
   }
   function reset(): void {
+    studioRequests.value = {};
     selected.value = undefined;
     agentContext.value = null;
     agentPrefill.value = null;
@@ -166,6 +176,7 @@ export function createWorkspaceEditor(engine: EngineApi) {
     parts.value = [];
   }
   return {
+    studioRequests,
     debugCommand,
     debugging,
     debugStatus,
