@@ -11,6 +11,8 @@ import {
 import {
   traceImageChanges,
   traceOptionsChanges,
+  prepareTracePixels,
+  type TraceTransform,
   readImageReferences,
   readProjectImage,
   makeCelsChanges,
@@ -31,7 +33,7 @@ import { readBindingsDocument } from "../../../../src/authoring/projectDocuments
 import { buildView } from "../../../../src/view/view.ts";
 import { nearestEgaIndex } from "../../../../src/view/spritesheet.ts";
 import { EGA_PALETTE } from "../../render/palette.ts";
-import { previewTrace } from "./tracePresentation.ts";
+import { presentTrace, previewTrace } from "./tracePresentation.ts";
 import ImageFrameSheet from "./ImageFrameSheet.vue";
 import UiButton from "../../ui/UiButton.vue";
 import UiSwitch from "../../ui/UiSwitch.vue";
@@ -52,6 +54,7 @@ const image = shallowRef<ProjectImageInput>();
 const frames = ref<ImageFrame[]>([]);
 const opacity = ref(0.4);
 const behindArt = ref(false);
+const transform = ref<TraceTransform>({ x: 0, y: 0, scale: 1 });
 const error = ref("");
 const status = ref("");
 const previewing = ref(false);
@@ -132,6 +135,8 @@ watch(
     image.value = trace ? readProjectImage(documents, trace.image) : undefined;
     opacity.value = trace?.opacity ?? 0.4;
     behindArt.value = trace?.behindArt ?? false;
+    transform.value = trace?.transform ?? { x: 0, y: 0, scale: 1 };
+    previewPlacement();
   },
   { immediate: true },
 );
@@ -180,6 +185,8 @@ async function commit(changes: Parameters<typeof props.session.model.propose>[2]
 }
 async function useImage(value: ProjectImageInput) {
   image.value = value;
+  transform.value = { x: 0, y: 0, scale: 1 };
+  previewPlacement();
   status.value = "";
   if (isPicture.value)
     await commit(
@@ -241,6 +248,25 @@ function paste(event: ClipboardEvent) {
   }
 }
 let traceWrites = Promise.resolve();
+function adjustTrace(next: TraceTransform, release: boolean) {
+  if (!current()) return;
+  transform.value = next;
+  previewPlacement();
+  if (release) changeTrace("Trace position");
+}
+function previewPlacement() {
+  if (!image.value || !isPicture.value) return;
+  presentTrace(props.session, props.target, {
+    pixels: prepareTracePixels(image.value, transform.value),
+    opacity: opacity.value,
+    behindArt: behindArt.value,
+    transform: transform.value,
+    adjust: adjustTrace,
+  });
+}
+function resetTrace() {
+  adjustTrace({ x: 0, y: 0, scale: 1 }, true);
+}
 function previewOpacity() {
   previewTrace(props.session, props.target, opacity.value, behindArt.value);
 }
@@ -249,6 +275,7 @@ function changeTrace(label: string) {
   const target = props.target;
   const nextOpacity = opacity.value;
   const nextBehind = behindArt.value;
+  const nextTransform = { ...transform.value };
   previewOpacity();
   traceWrites = traceWrites
     .then(async () => {
@@ -258,7 +285,13 @@ function changeTrace(label: string) {
         const capture = props.session.model.capture();
         try {
           await commit(
-            traceOptionsChanges(capture.documents(), target, nextOpacity, nextBehind),
+            traceOptionsChanges(
+              capture.documents(),
+              target,
+              nextOpacity,
+              nextBehind,
+              nextTransform,
+            ),
             label,
           );
           break;
@@ -345,6 +378,7 @@ watch(
 window.addEventListener("paste", paste);
 onBeforeUnmount(() => {
   window.removeEventListener("paste", paste);
+  previewTrace(props.session, props.target, opacity.value, behindArt.value, { adjust: undefined });
   closed = true;
   intakeEpoch++;
   generation.value?.dispose();
@@ -374,7 +408,6 @@ onBeforeUnmount(() => {
     </header>
     <div v-if="isPicture || !image" class="image-reference__actions">
       <UiButton size="sm" :disabled="busy" @click="file?.click()">Bring in an image</UiButton>
-      <UiButton size="sm" @click="generateOpen = !generateOpen">Generate</UiButton>
       <span>Drop, paste or choose an image.</span>
     </div>
     <div v-if="image && !isPicture" class="image-source">
@@ -397,14 +430,6 @@ onBeforeUnmount(() => {
               replaceOpen = false;
             "
             >Bring in an image</UiButton
-          >
-          <UiButton
-            size="sm"
-            @click="
-              generateOpen = !generateOpen;
-              replaceOpen = false;
-            "
-            >Generate</UiButton
           >
         </div>
       </div>
@@ -482,6 +507,10 @@ onBeforeUnmount(() => {
       <input v-model="behindArt" type="checkbox" @change="changeTrace('Trace placement')" />
       Behind art
     </label>
+    <template v-if="image && isPicture">
+      <UiButton size="sm" aria-label="Reset trace" @click="resetTrace">Reset</UiButton>
+      <span>Drag the centre to move. Drag the corner to scale.</span>
+    </template>
     <template v-if="image && !isPicture">
       <ImageFrameSheet
         v-show="!generateOpen"
@@ -660,12 +689,5 @@ onBeforeUnmount(() => {
 .image-reference--cels > .generate {
   flex: 1;
   overflow: auto;
-}
-:global(
-  .workspace-editor:has(.image-reference--cels.image-reference--active)
-    > .workspace-editor__header
-    > button:not([data-testid])
-) {
-  display: none;
 }
 </style>

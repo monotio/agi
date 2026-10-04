@@ -188,15 +188,16 @@ test("PICTURE review draws an image traced over the art across every pixel, as t
   for (const change of traceImageChanges(documents, "picture:2", image, 0.6))
     documents[change.key] = change.content!;
   const visual = new Uint8Array(160 * 168).fill(15);
-  visual[84 * 160 + 40] = 1;
+  visual[84 * 160 + 30] = 1;
   const after = pictureReviewPixels(visual, documents, "picture:2");
+  // Cover samples the red source pixel at native x=30.
   // 60% EGA red over the blue mark: (0, 0, 170) * 0.4 + (170, 0, 0) * 0.6.
   assert.deepEqual(
-    Array.from(after.slice((84 * 320 + 80) * 4, (84 * 320 + 80) * 4 + 4)),
+    Array.from(after.slice((84 * 320 + 60) * 4, (84 * 320 + 60) * 4 + 4)),
     [102, 0, 68, 255],
   );
   assert.deepEqual(
-    Array.from(after.slice((84 * 320 + 82) * 4, (84 * 320 + 82) * 4 + 4)),
+    Array.from(after.slice((84 * 320 + 62) * 4, (84 * 320 + 62) * 4 + 4)),
     [204, 102, 102, 255],
   );
 });
@@ -208,22 +209,23 @@ test("PICTURE review shows a changed tracing layer below native marks", async ()
   for (const change of traceImageChanges(documents, "picture:2", image, 0.6, true))
     documents[change.key] = change.content!;
   const visual = new Uint8Array(160 * 168).fill(15);
-  visual[84 * 160 + 40] = 1;
+  visual[84 * 160 + 30] = 1;
   const before = pictureReviewPixels(visual, {}, "picture:2");
   const after = pictureReviewPixels(visual, documents, "picture:2");
   assert.deepEqual(
-    Array.from(after.slice((84 * 320 + 80) * 4, (84 * 320 + 80) * 4 + 4)),
+    Array.from(after.slice((84 * 320 + 60) * 4, (84 * 320 + 60) * 4 + 4)),
     [0, 0, 170, 255],
   );
   assert.deepEqual(
-    Array.from(before.slice((84 * 320 + 82) * 4, (84 * 320 + 82) * 4 + 4)),
+    Array.from(before.slice((84 * 320 + 62) * 4, (84 * 320 + 62) * 4 + 4)),
     [255, 255, 255, 255],
   );
   assert.deepEqual(
-    Array.from(after.slice((84 * 320 + 82) * 4, (84 * 320 + 82) * 4 + 4)),
+    Array.from(after.slice((84 * 320 + 62) * 4, (84 * 320 + 62) * 4 + 4)),
     [204, 102, 102, 255],
   );
-  assert.deepEqual(Array.from(after.slice(0, 4)), [255, 255, 255, 255]);
+  // Cover samples source pixel 0 at the frame's top left, so the red trace reaches the corner.
+  assert.deepEqual(Array.from(after.slice(0, 4)), [204, 102, 102, 255]);
   assert.deepEqual(imageReviewTargets({}, documents), ["picture:2"]);
   assert.deepEqual(imageReviewTargets(documents, documents), []);
 });

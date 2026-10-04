@@ -130,7 +130,15 @@ watch(
     const caps = capability.value;
     if (caps === undefined) return;
     if (!caps.sizes.includes(size.value) && !(caps.customSizes && size.value === "custom"))
-      size.value = caps.sizes[0] ?? "";
+      size.value =
+        (initialRole === "room"
+          ? caps.sizes.find((entry) => {
+              const [width, height] = entry.split("x").map(Number);
+              return width! > height!;
+            })
+          : undefined) ??
+        caps.sizes[0] ??
+        "";
     if (!caps.qualities.includes(quality.value as OpenAiImageQuality))
       quality.value = caps.qualities[0] ?? "";
     if (!caps.backgrounds.includes(background.value as OpenAiImageBackground))
@@ -346,11 +354,15 @@ const noKey = computed(() => !credentialReady.value || failure.value?.reason ===
       @submit.prevent="prepareReview"
     >
       <label class="generate__field">
-        <span>Prompt</span>
+        <span>{{
+          role === "character" ? "What should the character look like?" : "What should it show?"
+        }}</span>
         <textarea
           v-model="prompt"
           rows="4"
-          aria-label="Prompt"
+          :aria-label="
+            role === 'character' ? 'What should the character look like?' : 'What should it show?'
+          "
           :disabled="formDisabled"
           data-testid="generate-prompt"
         />

@@ -19,6 +19,11 @@ interface ProjectImageReference {
   readonly width: number;
   readonly height: number;
 }
+export interface TraceTransform {
+  readonly x: number;
+  readonly y: number;
+  readonly scale: number;
+}
 export interface ImageReferences {
   readonly format: "agi.image-references";
   readonly version: 1;
@@ -26,7 +31,12 @@ export interface ImageReferences {
   readonly traces: Readonly<
     Record<
       string,
-      { readonly image: string; readonly opacity: number; readonly behindArt?: boolean }
+      {
+        readonly image: string;
+        readonly opacity: number;
+        readonly behindArt?: boolean;
+        readonly transform?: TraceTransform;
+      }
     >
   >;
 }
@@ -103,7 +113,22 @@ export function readImageReferences(documents: Documents): ImageReferences {
       "image",
       "opacity",
       ...(Object.hasOwn(trace, "behindArt") ? ["behindArt"] : []),
+      ...(Object.hasOwn(trace, "transform") ? ["transform"] : []),
     ]);
+    if (trace.transform !== undefined) {
+      exactFields(trace.transform, ["x", "y", "scale"]);
+      const { x, y, scale } = trace.transform;
+      if (
+        !Number.isFinite(x) ||
+        Math.abs(x) > 160 ||
+        !Number.isFinite(y) ||
+        Math.abs(y) > 168 ||
+        !Number.isFinite(scale) ||
+        scale < 0.25 ||
+        scale > 4
+      )
+        throw new Error("Invalid image trace transform.");
+    }
     if (trace.behindArt !== undefined && typeof trace.behindArt !== "boolean")
       throw new Error("Invalid image trace placement.");
     if (
