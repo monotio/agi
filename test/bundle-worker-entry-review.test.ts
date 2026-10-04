@@ -15,7 +15,7 @@ function chunk(
   return { file, isEntry: file === entry, imports, dynamicImports, css: [], modules: [] };
 }
 
-function runGate(startup: boolean, unsafe: boolean) {
+function runGate(startup: boolean, unsafe: boolean, homeEntry = true) {
   const directory = realpathSync(mkdtempSync(join(tmpdir(), "agi-worker-entry-gate-")));
   const scripts = join(directory, "scripts");
   const app = join(directory, "app");
@@ -35,6 +35,10 @@ function runGate(startup: boolean, unsafe: boolean) {
       readFileSync(new URL("../scripts/check-bundle-budget.ts", import.meta.url)),
     );
     writeFileSync(
+      join(scripts, "deferred-modules.mjs"),
+      readFileSync(new URL("../scripts/deferred-modules.mjs", import.meta.url)),
+    );
+    writeFileSync(
       join(app, "bundle-graph.config.ts"),
       readFileSync(new URL("../app/bundle-graph.config.ts", import.meta.url)),
     );
@@ -42,7 +46,11 @@ function runGate(startup: boolean, unsafe: boolean) {
       join(app, "devKeys.config.ts"),
       readFileSync(new URL("../app/devKeys.config.ts", import.meta.url)),
     );
-    const main = { ...chunk("assets/index.js", [], [home]), isEntry: true };
+    const main = {
+      ...chunk("assets/index.js", [], [home]),
+      isEntry: true,
+      modules: homeEntry ? ["app/src/main.ts"] : [],
+    };
     const starter = {
       ...chunk(home),
       modules: [
@@ -112,4 +120,11 @@ test("the complete safe worker build passes the full gate", () => {
   assert.equal(result.error, undefined);
   assert.match(result.stdout, /startup JavaScript:/, "the fixture must execute the actual gate");
   assert.equal(result.status, 0, result.stdout + result.stderr);
+});
+
+test("the bundle gate refuses a Home entry that differs from the static check", () => {
+  const result = runGate(true, false, false);
+  assert.equal(result.error, undefined);
+  assert.equal(result.status, 1, result.stdout + result.stderr);
+  assert.match(result.stderr, /Home entry chunk is missing app\/src\/main\.ts/);
 });

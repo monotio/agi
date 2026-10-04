@@ -55,4 +55,9 @@ test("the guide fits a phone without sideways scrolling", async ({ page }) => {
   expect(box.x + box.width).toBeLessThanOrEqual(390);
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
   await page.screenshot({ path: test.info().outputPath("help-phone.png") });
+  await guide.getByTestId("help-section-games").click();
+  const sharing = guide.locator('[data-topic="share"]');
+  await sharing.evaluate((topic) => topic.scrollIntoView({ block: "center" }));
+  await expect(sharing).toContainText("A backup reports its limitations.");
+  await page.screenshot({ path: test.info().outputPath("help-backup-phone.png") });
 });

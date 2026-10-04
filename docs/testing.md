@@ -318,6 +318,21 @@ Tag a desktop scenario by ending its title with `@webkit-desktop`; the config
 selects it from its existing spec. Use the tag for visible workspace behavior
 that needs a WebKit check, including editors, keyboard controls and agent review.
 
+CI runs WebKit on Linux, and its result is the one that counts. WebKit on macOS
+reports a Mac platform and uses Mac fonts, so results can differ, and it cannot
+launch while the display sleeps or the session is locked. To reproduce a Linux
+failure locally, run the suite in the Playwright image whose version matches
+`@playwright/test` in `app/package.json` (`npm ci` inside the container replaces any
+copied `node_modules`):
+
+```bash
+docker run --rm --init --ipc=host -v "$PWD:/src:ro" mcr.microsoft.com/playwright:v<version>-noble \
+  bash -lc 'cp -r /src /w && cd /w && npm ci && npm --prefix app ci &&
+    CI=1 xvfb-run -a npm --prefix app run e2e:webkit-desktop -- e2e/<file>.spec.ts'
+```
+
+`--init` lets `xvfb-run` receive its ready signal; without it the run hangs.
+
 The manual HMR proof in `app/e2e/manual/hmr-resume.mjs` temporarily edits
 source; run it in an isolated checkout as described in the script.
 

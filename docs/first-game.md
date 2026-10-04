@@ -5,7 +5,7 @@ Enter a name, select **Starter**, then choose **Start building**. Your hero star
 in the Meadow, with the game running beside the parts list.
 
 1. Open the room's **PICTURE**. Select an item or draw a line. The completed
-   gesture saves and appears in the running game. Use **Undo** to bring it back.
+   gesture starts saving and appears in the running game. Use **Undo** to bring it back.
 2. Open the room's **LOGIC**. Find a printed message and change its text. Give
    the game focus and try its matching command. A source error appears in
    **Problems** while the game continues on its last working build.
@@ -14,8 +14,8 @@ in the Meadow, with the game running beside the parts list.
    pressing Escape twice returns to the workspace.
 4. Open **WORDS** and test a sentence to see its word meanings. New responses
    can use those groups in `said()`; **+ Add** in LOGIC guides response creation.
-5. Click **Saved** to open **History** and name a checkpoint. Each completed edit
-   has a saved version, and Undo and Redo work across all the editors.
+5. Click **Saved** to open **History** and name a checkpoint. Naming waits for the visible edits to save, including source with errors.
+   Undo and Redo work across all the editors.
 6. Switch to **Play** for the game at full size. **Settings → This game →
    Download game…** keeps a project backup; **Export game…** produces playable
    AGI resources. Either ZIP can be added to the library again.

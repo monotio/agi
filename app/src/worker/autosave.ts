@@ -14,7 +14,7 @@ import type { Inbound, WorkerContext } from "./context.ts";
  * a few kilobytes plus a base64 pass, well under a millisecond, and the
  * usual maximum a player can lose to a browser reload is
  * five seconds of walking. Tightening it further buys nothing a player would
- * notice; the flush on page-hide covers the tail.
+ * notice. Hiding the page requests a checkpoint; closing can interrupt storage.
  */
 export const AUTOSAVE_INTERVAL_MS = 5_000;
 

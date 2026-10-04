@@ -68,7 +68,6 @@ function add(): void {
       });
       break;
   }
-  kind.value = undefined;
 }
 </script>
 <template>

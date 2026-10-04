@@ -99,8 +99,7 @@ const stageEl = useTemplateRef("stageEl");
 
 /**
  * The desktop stage, in Play and in Create's centre column, fits the screen to
- * a whole multiple of the frame, or to the largest fit when a whole step would
- * leave much of the stage empty (viewportLayout.ts). Touch layouts keep the
+ * the largest aspect-correct fit (viewportLayout.ts). Touch layouts keep the
  * phone rules in app.css, which size the screen from the viewport instead.
  */
 const stageBox = ref<{ width: number; height: number }>();

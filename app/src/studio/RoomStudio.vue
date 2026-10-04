@@ -154,10 +154,12 @@ const {
   files = undefined,
   walk = undefined,
   underlay = null,
+  readOnly = false,
   embedded = false,
   liveGame = false,
   workspaceFocus = false,
 } = defineProps<{
+  readOnly?: boolean;
   embedded?: boolean;
   liveGame?: boolean;
   workspaceFocus?: boolean;
@@ -373,10 +375,11 @@ const keeper = useStudioKeep({
   },
 });
 watch([draft.source, draft.gesturing], ([source, gesturing]) => {
-  if (embedded && !gesturing && source !== resolved.value.source) emit("edit", source);
+  if (embedded && !readOnly && !gesturing && source !== resolved.value.source) emit("edit", source);
 });
 /** Editing is blocked: view only, or a Keep that needs a reload first. */
-const frozen = (): boolean => draft.kept.value.revision === undefined || keeper.needsReload.value;
+const frozen = (): boolean =>
+  readOnly || draft.kept.value.revision === undefined || keeper.needsReload.value;
 
 // ---- Ask -------------------------------------------------------------------
 const aiSettings = inject(aiSettingsKey, null);
@@ -632,6 +635,13 @@ const drag = useStudioDrag({
   movesItems: () => tools.tool.value !== "point",
   insertAt: insertionNear,
 });
+watch(
+  () => readOnly,
+  (paused) => {
+    if (paused) drag.abort();
+  },
+  { flush: "sync" },
+);
 /** The canvas cursor is a crosshair for the tools that place points; Select and Point show the arrow. */
 const drawsOnCanvas = computed(() => !["select", "point", "hand"].includes(tools.tool.value));
 /** The move cursor: over the selection's pixels with Select, and while it is dragged. */

@@ -2,7 +2,7 @@
 import { VOCABULARY } from "../../../../src/vocabulary.ts";
 import { computed } from "vue";
 import UiButton from "../../ui/UiButton.vue";
-const props = defineProps<{ kind: "inventory"; source: string }>();
+const props = defineProps<{ kind: "inventory"; source: string; readOnly?: boolean }>();
 const emit = defineEmits<{ edit: [source: string] }>();
 const rows = computed<readonly (readonly [string, number])[]>(() => {
   try {
@@ -50,6 +50,7 @@ function add(): void {
         <tr v-for="(row, index) in rows" :key="index">
           <td>
             <input
+              :readonly="readOnly"
               :aria-label="`${VOCABULARY.objectColumn.label} ${index}`"
               :value="row[0]"
               @change="update(index, 0, ($event.target as HTMLInputElement).value)"
@@ -57,6 +58,7 @@ function add(): void {
           </td>
           <td>
             <input
+              :readonly="readOnly"
               type="number"
               :aria-label="`${VOCABULARY.roomColumn.label} ${index}`"
               :value="row[1]"
@@ -65,6 +67,10 @@ function add(): void {
           </td>
           <td>
             <UiButton
+              :disabled="readOnly"
+              :title="
+                readOnly ? 'Editing is paused. Download your unsaved edits, then reload.' : ''
+              "
               size="sm"
               :aria-label="`Remove ${row[0]}`"
               @click="
@@ -76,7 +82,14 @@ function add(): void {
         </tr>
       </tbody>
     </table>
-    <UiButton v-if="kind === 'inventory'" size="sm" @click="add">+ Add</UiButton>
+    <UiButton
+      :disabled="readOnly"
+      :title="readOnly ? 'Editing is paused. Download your unsaved edits, then reload.' : ''"
+      v-if="kind === 'inventory'"
+      size="sm"
+      @click="add"
+      >+ Add</UiButton
+    >
   </div>
 </template>
 <style scoped>

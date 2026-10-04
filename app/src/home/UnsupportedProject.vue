@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { ref } from "vue";
-import { VOCABULARY } from "../../../src/vocabulary.ts";
 import {
   downloadUnsupportedStoredProject,
   type UnsupportedStoredProject,
@@ -51,9 +50,17 @@ async function remove(): Promise<void> {
 <template>
   <div class="unsupported-project">
     <h2 v-if="heading">{{ game.title }}</h2>
-    <p role="status">{{ VOCABULARY.savedByNewer.label }}</p>
+    <p role="status">
+      {{
+        game.state === "corrupt"
+          ? "Saved project needs recovery"
+          : "Saved project format needs another app version"
+      }}
+    </p>
     <div class="unsupported-project__actions">
-      <UiButton size="sm" :disabled="busy" @click="download">Download</UiButton>
+      <UiButton size="sm" :disabled="busy || !game.recoverable" @click="download"
+        >Download</UiButton
+      >
       <UiButton size="sm" variant="ghost" :disabled="busy" @click="confirmRemove = true"
         >Remove</UiButton
       >
@@ -62,7 +69,7 @@ async function remove(): Promise<void> {
     <RemoveGameDialog
       v-model:open="confirmRemove"
       :title="game.title"
-      :download-disabled="busy"
+      :download-disabled="busy || !game.recoverable"
       @download="download"
       @remove="remove"
     />

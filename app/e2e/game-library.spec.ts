@@ -51,7 +51,7 @@ for (const mode of ["create", "play"]) {
     await page.goto("/");
     const card = page.getByTestId(`unsupported-project-card-${id}`);
     await expect(card.getByRole("heading")).toHaveText("Tomorrow's adventure");
-    await expect(card).toContainText("Saved by a newer version of AGI IS HERE");
+    await expect(card).toContainText("Saved project format needs another app version");
     const before = await page.evaluate(async (id) => {
       const storage = await import("/src/project/gameStorage.ts");
       const codec = await import("/src/project/projectJournalCapture.ts");
@@ -68,7 +68,7 @@ for (const mode of ["create", "play"]) {
     expect(decoded.files["WORDS.TOK"]).toEqual(new Uint8Array([0, 128, 255]));
     await page.goto(`/#${mode}/${id}`);
     const note = page.getByTestId("unsupported-project-route");
-    await expect(note).toContainText("Saved by a newer version of AGI IS HERE");
+    await expect(note).toContainText("Saved project format needs another app version");
     await expect(note.getByRole("button", { name: "Download", exact: true })).toBeVisible();
     await expect(page.getByTestId("input-line")).toBeHidden();
     await note.getByRole("button", { name: "Remove", exact: true }).click();
@@ -575,4 +575,28 @@ test("removing a game forgets its progress, so the same bytes come back fresh", 
   await expect(readded).toHaveAttribute("data-project-id", projectId);
   await expect(readded.getByTestId("btn-resume-cached")).toHaveText("Play");
   await expect(readded.getByText("IN PROGRESS", { exact: true })).toHaveCount(0);
+});
+
+test("a late Agent panel keeps Settings open @webkit-desktop", async ({ page }) => {
+  await isolateStorage(page);
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route("**/agent/AgentPanel.vue", async (route) => {
+    await held;
+    await route.continue();
+  });
+  await page.goto("/");
+  await page.getByTestId("catalog-play-adventure-department").click();
+  await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  await enterCreateMode(page);
+  await page.getByTestId("workspace-agent").click();
+  await page.getByTestId("settings-menu").click();
+  await expect(page.getByTestId("settings-menu-menu")).toBeVisible();
+  release();
+  await expect(page.getByTestId("workspace-agent-panel")).toBeVisible();
+  await expect(page.getByTestId("open-ai-settings")).toBeVisible();
+  await page.getByTestId("open-ai-settings").click();
+  await expect(page.getByTestId("ai-settings-dialog")).toBeVisible();
 });

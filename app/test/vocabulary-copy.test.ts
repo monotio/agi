@@ -94,15 +94,21 @@ function files(directory: string): string[] {
   });
 }
 
+function retiredPattern(retired: string): RegExp {
+  return new RegExp(
+    retired === "Keep"
+      ? "\\bKeep\\b(?! this tab open(?: until it says Saved)?(?:[.!?]|\\s*$))"
+      : `\\b${retired}${["sprite", "proposal", "candidate", "drawing element"].includes(retired) ? "s?" : ""}\\b${retired === "Onion" ? "(?! skin)" : ""}`,
+    retired === "Keep" ? "" : "i",
+  );
+}
+
 test("visible editor copy uses the shared vocabulary, allowing internal identifiers", () => {
   const violations: string[] = [];
   for (const file of [...files("app/src/studio"), "app/src/shell/helpContent.ts"]) {
     for (const copy of visibleCopy(file)) {
       for (const retired of Object.keys(RETIRED_UI_TERMS)) {
-        const pattern = new RegExp(
-          `\\b${retired}${["sprite", "proposal", "candidate", "drawing element"].includes(retired) ? "s?" : ""}\\b${retired === "Onion" ? "(?! skin)" : ""}`,
-          retired === "Keep" ? "" : "i",
-        );
+        const pattern = retiredPattern(retired);
         if (pattern.test(copy)) violations.push(`${file}: ${copy.trim()}`);
       }
     }
@@ -188,10 +194,37 @@ test("Words editor copy binds to the approved vocabulary", () => {
   );
 });
 
-test("future project recovery uses the approved note and plain actions", () => {
+test("download descriptions qualify available data and report limitations", () => {
+  const help = visibleCopy("app/src/shell/helpContent.ts").find((copy) =>
+    copy.includes("Download game adds"),
+  );
+  assert.ok(help);
+  assert.match(help, /\bavailable\b/);
+  assert.match(help, /\blimitations\b/);
+  const readme = readFileSync("README.md", "utf8")
+    .split("\n")
+    .find((line) => line.includes("**Download game…**"));
+  assert.ok(readme);
+  assert.match(readme, /\bavailable\b/);
+  assert.match(readme, /\blimitations\b/);
+});
+
+test("unsupported project recovery uses version-neutral copy and plain actions", () => {
   const source = readFileSync("app/src/home/UnsupportedProject.vue", "utf8");
-  assert.ok(source.includes("VOCABULARY.savedByNewer.label"));
-  assert.equal(VOCABULARY.savedByNewer.label, "Saved by a newer version of AGI IS HERE");
+  assert.ok(source.includes("Saved project format needs another app version"));
   const copy = visibleCopy("app/src/home/UnsupportedProject.vue").map((text) => text.trim());
   for (const label of ["Download", "Remove"]) assert.ok(copy.includes(label));
+});
+
+test("Keep action labels are retired while tab-open sentences remain allowed", () => {
+  const pattern = retiredPattern("Keep");
+  for (const label of ["Keep", "Keep changes", "Keep edits", "Keep this tab open changes"])
+    assert.ok(pattern.test(label), label);
+  for (const copy of [
+    "Keep this tab open",
+    "Keep this tab open.",
+    "Keep this tab open until it says Saved.",
+    "Could not save. Keep this tab open until it says Saved.",
+  ])
+    assert.equal(pattern.test(copy), false, copy);
 });

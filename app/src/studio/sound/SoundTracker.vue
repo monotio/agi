@@ -10,7 +10,12 @@ import {
 } from "../../../../src/sound/sequencer.ts";
 import { VOCABULARY } from "../../../../src/vocabulary.ts";
 import { divisorNoteLabel } from "./soundEdits.ts";
-const props = defineProps<{ document: SoundDocument; stepTicks: number; position: number }>();
+const props = defineProps<{
+  readOnly?: boolean;
+  document: SoundDocument;
+  stepTicks: number;
+  position: number;
+}>();
 const emit = defineEmits<{
   edit: [document: SoundDocument];
   select: [id: string | undefined];
@@ -60,9 +65,11 @@ function fieldValue(tick: number, lane: number, field: Field): string {
         : "";
 }
 function input(event: Event, tick: number, lane: number, field: Field): void {
+  if (props.readOnly) return;
   drafts.value[`${tick}:${lane}:${field}`] = (event.target as HTMLInputElement).value;
 }
 function commit(tick: number, lane: number, field: Field): void {
+  if (props.readOnly) return;
   const key = `${tick}:${lane}:${field}`,
     text = drafts.value[key];
   if (text === undefined) return;
@@ -119,7 +126,7 @@ function key(event: KeyboardEvent, tick: number, lane: number, field: Field): vo
     event.preventDefault();
     return;
   }
-  if (event.key === "Delete" && !(event.target as HTMLInputElement).value) {
+  if (!props.readOnly && event.key === "Delete" && !(event.target as HTMLInputElement).value) {
     const note = entry(tick, lane);
     if (note) emit("edit", silenceSoundEvent(props.document, note.event.id));
     return;
@@ -177,6 +184,8 @@ function key(event: KeyboardEvent, tick: number, lane: number, field: Field): vo
                 :aria-label="`${names[lane]}, tick ${tick}, ${field === 'ticks' ? 'length in ticks' : field === 'volume' ? 'volume in hex' : 'note'}`"
                 :value="fieldValue(tick, lane, field)"
                 :placeholder="field === 'note' ? '···' : field === 'ticks' ? '··' : '·'"
+                :readonly="readOnly"
+                :title="readOnly ? 'Editing is paused in this tab' : undefined"
                 spellcheck="false"
                 autocomplete="off"
                 @focus="emit('select', entry(tick, lane)?.event.id)"

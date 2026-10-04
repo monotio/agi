@@ -5,6 +5,9 @@ import { installIndexedDbFixture } from "./indexedDbFixture.ts";
 import { testProjectId } from "./identity.ts";
 import * as storage from "../src/project/gameStorage.ts";
 import { decodeJournalValue } from "../src/project/projectJournalCapture.ts";
+import { ProjectHistory } from "../../src/authoring/projectHistory.ts";
+import { writeProjectHistory } from "../../src/authoring/projectHistoryCodec.ts";
+import { sha256Hex } from "../../src/crypto.ts";
 
 const records = installIndexedDbFixture();
 const cache = new Map<string, string>();
@@ -20,6 +23,176 @@ const manual = () => ({
   title: "Manual adventure",
   files: { "WORDS.TOK": new Uint8Array(52) },
   words: [] as [string, number][],
+});
+
+test("unsupported nested History stays recoverable beside a readable project", async () => {
+  const id = testProjectId("nested-history");
+  const valid = testProjectId("beside-history");
+  await storage.saveAuthoredGame(id, manual());
+  await storage.saveAuthoredGame(valid, manual());
+  const body = records.get(id) as Record<string, unknown>;
+  body["editHistory"] = { format: "monotio.agi.project-history", version: 2 };
+  const siblingKey = `project-history/${id}/future/entry`;
+  const sibling = { projectId: siblingKey, bytes: new Uint8Array([0, 128, 255]) };
+  records.set(siblingKey, sibling);
+  const before = structuredClone(body);
+  const index = cache.get(storage.getStorageKey(id));
+  cache.delete(storage.getStorageKey(valid));
+  assert.throws(() => storage.readStoredBody(body, id), /history version/);
+  assert.ok(
+    (await storage.listUnsupportedStoredProjects()).some((entry) => entry.projectId === id),
+  );
+  assert.ok((await storage.listStoredProjects()).some((entry) => entry.projectId === valid));
+  assert.ok((await storage.listStoredProjects()).every((entry) => entry.projectId !== id));
+  await storage.reconcileGameIndex();
+  assert.ok(cache.get(storage.getStorageKey(valid)));
+  const downloaded = JSON.parse(await storage.downloadUnsupportedStoredProject(id));
+  assert.deepEqual(decodeJournalValue(downloaded.record), before);
+  assert.deepEqual(decodeJournalValue(downloaded.records), [{ key: siblingKey, value: sibling }]);
+  assert.deepEqual(records.get(id), before);
+  assert.equal(cache.get(storage.getStorageKey(id)), index);
+});
+
+for (const [field, format] of [
+  ["workspace", "monotio.agi.project-workspace"],
+  ["chats", "monotio.agi.chats"],
+  ["recoveryDraft", "monotio.agi.recovery-draft"],
+  ["library", undefined],
+] as const) {
+  test(`unsupported nested ${field} stays on the recovery shelf without writes`, async () => {
+    const id = testProjectId(`nested-${field}`);
+    await storage.saveAuthoredGame(id, manual());
+    const body = records.get(id) as Record<string, unknown>;
+    body[field] = {
+      ...(body[field] as object),
+      ...(format ? { format } : {}),
+      version: 999,
+      future: new Uint8Array([255, 0]),
+    };
+    const before = structuredClone(body);
+    const index = cache.get(storage.getStorageKey(id));
+    const entry = (await storage.listUnsupportedStoredProjects()).find(
+      (entry) => entry.projectId === id,
+    );
+    assert.ok(entry);
+    assert.equal(entry.state, "unsupported");
+    assert.ok(entry.reason);
+    assert.equal(entry.recoverable, true);
+    await storage.reconcileGameIndex();
+    const downloaded = JSON.parse(await storage.downloadUnsupportedStoredProject(id));
+    assert.deepEqual(decodeJournalValue(downloaded.record), before);
+    assert.deepEqual(records.get(id), before);
+    assert.equal(cache.get(storage.getStorageKey(id)), index);
+    assert.equal(await storage.saveAuthoredGame(id, manual()), false);
+  });
+}
+
+for (const [name, patch] of [
+  [
+    "workspace",
+    { workspace: { format: "monotio.agi.project-workspace", version: 1, documents: "broken" } },
+  ],
+  [
+    "history",
+    { editHistory: { format: "monotio.agi.project-history", version: 1, blobs: "broken" } },
+  ],
+  ["files", { files: null }],
+  ["identity", { projectId: "different-project" }],
+] as const) {
+  test(`corrupt ${name} is downloadable and cannot interrupt index repair`, async () => {
+    const id = testProjectId(`corrupt-${name}`);
+    const valid = testProjectId(`beside-corrupt-${name}`);
+    await storage.saveAuthoredGame(id, manual());
+    await storage.saveAuthoredGame(valid, manual());
+    Object.assign(records.get(id) as object, patch);
+    const before = structuredClone(records.get(id));
+    const index = cache.get(storage.getStorageKey(id));
+    cache.delete(storage.getStorageKey(valid));
+    const entry = (await storage.listUnsupportedStoredProjects()).find(
+      (entry) => entry.projectId === id,
+    );
+    assert.ok(entry);
+    assert.equal(entry.state, "corrupt");
+    assert.ok(entry.reason);
+    assert.equal(entry.recoverable, true);
+    await storage.reconcileGameIndex();
+    assert.ok(cache.get(storage.getStorageKey(valid)));
+    assert.ok((await storage.listStoredProjects()).some((entry) => entry.projectId === valid));
+    assert.ok((await storage.listStoredProjects()).every((entry) => entry.projectId !== id));
+    const downloaded = JSON.parse(await storage.downloadUnsupportedStoredProject(id));
+    assert.deepEqual(decodeJournalValue(downloaded.record), before);
+    assert.deepEqual(records.get(id), before);
+    assert.equal(cache.get(storage.getStorageKey(id)), index);
+  });
+}
+
+for (const defect of ["future-blob", "missing-blob", "corrupt-manifest"] as const) {
+  test(`a supported History header with ${defect} stays recoverable`, async () => {
+    const id = testProjectId(defect);
+    const valid = testProjectId(`beside-${defect}`);
+    const history = new ProjectHistory(sha256Hex);
+    history.record(
+      { "logic:0": "return;" },
+      { label: "Start", origin: "template", author: "creator", time: 1 },
+    );
+    await storage.saveAuthoredGame(id, {
+      ...manual(),
+      projectHistory: writeProjectHistory(history.capture(), sha256Hex),
+    });
+    await storage.saveAuthoredGame(valid, manual());
+    assert.ok((await storage.listStoredProjects()).some((entry) => entry.projectId === id));
+    assert.ok(
+      (await storage.listUnsupportedStoredProjects()).every((entry) => entry.projectId !== id),
+    );
+    const body = records.get(id) as { editHistory: { blobs: string[]; commits: unknown } };
+    const key = `project-history/${id}/blobs/${body.editHistory.blobs[0]}`;
+    if (defect === "future-blob") (records.get(key) as { version: number }).version = 999;
+    if (defect === "missing-blob") records.delete(key);
+    if (defect === "corrupt-manifest") body.editHistory.commits = "broken";
+    const before = structuredClone([...records]);
+    const index = cache.get(storage.getStorageKey(id));
+    cache.delete(storage.getStorageKey(valid));
+    await assert.rejects(storage.loadAuthoredGame(id));
+    const entry = (await storage.listUnsupportedStoredProjects()).find(
+      (entry) => entry.projectId === id,
+    );
+    assert.ok(entry);
+    assert.equal(entry.state, defect === "future-blob" ? "unsupported" : "corrupt");
+    assert.ok((await storage.listStoredProjects()).every((entry) => entry.projectId !== id));
+    await storage.reconcileGameIndex();
+    assert.ok(cache.get(storage.getStorageKey(valid)));
+    assert.equal(cache.get(storage.getStorageKey(id)), index);
+    const downloaded = JSON.parse(await storage.downloadUnsupportedStoredProject(id));
+    assert.deepEqual(decodeJournalValue(downloaded.record), body);
+    assert.deepEqual(
+      decodeJournalValue(downloaded.records),
+      [...records]
+        .filter(([key]) => String(key).startsWith(`project-history/${id}/`))
+        .map(([key, value]) => ({ key, value })),
+    );
+    assert.deepEqual([...records], before);
+  });
+}
+
+test("a corrupt null body preserves its index and remains downloadable", async (t) => {
+  const id = testProjectId("corrupt-null");
+  await storage.saveAuthoredGame(id, manual());
+  records.set(id, null);
+  const index = cache.get(storage.getStorageKey(id));
+  const key = storage.getStorageKey(id);
+  // Native Storage exposes saved keys to Object.keys during stale-index repair.
+  Object.defineProperty(localStorage, key, { configurable: true, enumerable: true, value: index });
+  t.after(() => Reflect.deleteProperty(localStorage, key));
+  const entry = (await storage.listUnsupportedStoredProjects()).find(
+    (entry) => entry.projectId === id,
+  );
+  assert.ok(entry);
+  assert.equal(entry.state, "corrupt");
+  const downloaded = JSON.parse(await storage.downloadUnsupportedStoredProject(id));
+  assert.equal(decodeJournalValue(downloaded.record), null);
+  await storage.reconcileGameIndex();
+  assert.equal(cache.get(storage.getStorageKey(id)), index);
+  assert.equal(records.get(id), null);
 });
 
 test("future stored projects remain discoverable and download their untouched record", async () => {
@@ -65,7 +238,13 @@ test("future stored projects need neither readable resources nor a title to stay
   const entries = await storage.listUnsupportedStoredProjects();
   assert.deepEqual(
     entries.find((entry) => entry.projectId === id),
-    { projectId: id, title: "Saved project" },
+    {
+      projectId: id,
+      title: "Saved project",
+      state: "unsupported",
+      reason: storage.UNREADABLE_PROJECT_MESSAGE,
+      recoverable: true,
+    },
   );
   assert.ok(entries.every((entry) => !entry.projectId.includes("/")));
   assert.deepEqual(records.get(id), body);

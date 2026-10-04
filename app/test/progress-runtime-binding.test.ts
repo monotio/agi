@@ -338,7 +338,7 @@ test("an old tab's lastGame write never moves the resume pointer", async (t) => 
 
   // Once the physical pointer is cleared by its own checkpoint's removal,
   // the released value reads as legacy context again.
-  clearAutosave(locator);
+  await clearAutosave(locator);
   assert.equal(lastGameKey(), "old-tab-pick");
 
   // A stored physical pointer that names a folder nothing serves refuses;

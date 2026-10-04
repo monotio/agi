@@ -1,9 +1,11 @@
+import type { ProjectContent } from "../../src/authoring/projectContent.ts";
+import { createWorkspaceWrites } from "../src/studio/workspace/workspaceWrites.ts";
 import { AgentRun } from "../src/agent/agentRun.ts";
 import { MODEL_CAPABILITIES } from "../../src/agent/modelEffort.ts";
 import { providerSse } from "../../test/provider-stream.ts";
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { createWorkspaceAgent } from "../src/agent/workspaceAgent.ts";
+import { borrowWorkspaceAgent, createWorkspaceAgent } from "../src/agent/workspaceAgent.ts";
 import { useAuthoringController } from "../src/authoring/useAuthoringController.ts";
 import { AgentSession } from "../src/agent/agentSession.ts";
 import { buildProjectZip } from "../src/archive/projectArchive.ts";
@@ -67,6 +69,7 @@ function fixture(
   roomGeneration = true,
   admissionGate?: () => Promise<void>,
   initial?: CachedGameData,
+  beforeApprove?: () => Promise<void>,
 ) {
   let savedData: CachedGameData | undefined;
   const documents = {
@@ -123,6 +126,7 @@ function fixture(
     session,
     profileId: "2.936",
     config: () => ({ provider: "stub", model: "stub", apiKey: "" }),
+    ...(beforeApprove ? { beforeApprove } : {}),
     conversation(_config, transcript): UnifiedConversation {
       resumed.push(structuredClone(transcript));
       const history = [...transcript];
@@ -188,7 +192,9 @@ test("one coordinated review selects resources, records a chat checkpoint and un
       .map((c) => c.key),
     ["logic:0", "picture:1", "words"],
   );
+  const messageId = agent.pending()!.messageId;
   await agent.approve(["logic:0", "picture:1"]);
+  assert.equal(agent.reviewOutcome(messageId), "Approved");
   const commit = session.history.capture().commits.at(-1)!;
   assert.equal(commit.author, "agent");
   assert.equal(commit.label, "AI: Welcome sign");
@@ -203,11 +209,15 @@ test("one coordinated review selects resources, records a chat checkpoint and un
 test("reject, auto-approve and stale proposals preserve the manual base", async () => {
   const { session, agent } = fixture();
   await agent.send("Add sign");
-  agent.reject();
+  const rejected = agent.pending()!.messageId;
+  await agent.reject();
+  assert.equal(agent.reviewOutcome(rejected), "Rejected");
   assert.equal(session.history.capture().commits.length, 1);
   agent.autoApprove = true;
   await agent.send("Add sign");
   assert.equal(session.history.capture().commits.length, 2);
+  const applied = agent.current().messages.find((message) => message.commit)!;
+  assert.equal(agent.reviewOutcome(applied.id), "Applied automatically");
   agent.autoApprove = false;
   await agent.send("Make a sign");
   await session.submit({
@@ -224,6 +234,55 @@ test("reject, auto-approve and stale proposals preserve the manual base", async 
   assert.ok(agent.pending());
   session.dispose();
 });
+for (const mode of ["review", "auto"] as const) {
+  for (const refused of [false, true]) {
+    test(`${mode} approval drains pending typing and holds the review when ${refused ? "saving fails" : "the edit changes its base"}`, async () => {
+      const { session, agent } = fixture(undefined, true, undefined, undefined, () =>
+        writes.flush(),
+      );
+      let buffers: Readonly<Record<string, ProjectContent>> = {};
+      const writes = createWorkspaceWrites({
+        async write(key, content) {
+          if (refused) throw new Error("storage refused");
+          await session.submit({
+            proposal: session.model.propose(session.model.capture(), "Typing", [{ key, content }]),
+            label: "Typing",
+            origin: "logic",
+            author: "creator",
+          });
+        },
+        changed(drafts) {
+          buffers = drafts;
+        },
+        error() {},
+      });
+      let typed = false;
+      agent.subscribe(() => {
+        if (agent.pending() && !typed) {
+          typed = true;
+          writes.edit("logic:0", 'print("Creator typing"); return;');
+        }
+      });
+      agent.autoApprove = mode === "auto";
+      await agent.send("Add sign");
+      if (mode === "review")
+        await assert.rejects(agent.approve(), refused ? /storage refused/ : /changed/);
+      assert.ok(agent.pending(), "the review remains available for manual approval");
+      assert.equal(
+        session.history.capture().commits.some((commit) => commit.author === "agent"),
+        false,
+      );
+      if (refused) assert.equal(buffers["logic:0"], 'print("Creator typing"); return;');
+      else
+        assert.equal(
+          session.model.capture().read("logic:0")!.content,
+          'print("Creator typing"); return;',
+        );
+      writes.dispose();
+      session.dispose();
+    });
+  }
+}
 test("New chat isolates requests, resume retains transcript and background tasks keep the active chat", async () => {
   const { session, agent, resumed } = fixture();
   await agent.send("First secret task");
@@ -1565,4 +1624,37 @@ test("a completed $0.402 reply fits a $0.60 budget without reserving another req
   } finally {
     session.dispose();
   }
+});
+
+test("a shared agent first opened for questions adopts the editor approval drain", async () => {
+  const { session } = fixture();
+  await session.submit({
+    proposal: session.model.propose(session.model.capture(), "Room", [
+      { key: "logic:1", content: 'print("Room"); return;' },
+    ]),
+    label: "Room",
+    origin: "logic",
+    author: "creator",
+  });
+  const options = {
+    session,
+    profileId: "2.936" as const,
+    config: () => ({ provider: "stub" as const, model: "stub", apiKey: "" }),
+  };
+  const first = borrowWorkspaceAgent(options);
+  let drains = 0;
+  const panel = borrowWorkspaceAgent({
+    ...options,
+    beforeApprove: async () => {
+      drains++;
+      throw new Error("Pending editor buffer");
+    },
+  });
+  assert.equal(panel, first);
+  await panel.send("Add sign");
+  assert.ok(panel.pending());
+  await assert.rejects(panel.approve(), /Pending editor buffer/);
+  assert.equal(drains, 1);
+  assert.ok(panel.pending());
+  session.dispose();
 });

@@ -14,6 +14,7 @@
  * session's segment ends with reason "resume" — the tape is never
  * rewritten, only continued.
  */
+import { resetRecording } from "./session.ts";
 import { Engine } from "../../../src/runtime/engine.ts";
 import { openContainer } from "../../../src/container/container.ts";
 import { base64ToBytes, bytesToBase64 } from "../project/bytes.ts";
@@ -350,6 +351,7 @@ export function createHistoryView(
     ctx.input.deferredMovement = [...(boot.directionQueue ?? [])];
     ctx.input.inputBuffer = [...(boot.inputLines ?? [])];
     ctx.input.clickQueue = (boot.clickQueue ?? []).map(([x, y]): [number, number] => [x, y]);
+    resetRecording(ctx);
     ctx.engine = candidate;
     ctx.projectAdmission = admission?.lane ?? null;
     if (admission !== null) ctx.boot.project = admission.project;

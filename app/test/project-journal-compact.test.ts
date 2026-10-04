@@ -1,3 +1,4 @@
+import { installWebLocksFixture } from "./webLocksFixture.ts";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createContainer } from "../../src/container/container.ts";
@@ -15,7 +16,6 @@ import { installIndexedDbFixture } from "./indexedDbFixture.ts";
 import {
   captureProjectJournal,
   decodeJournalValue,
-  journalCandidate,
   type ProjectJournalCapture,
 } from "../src/project/projectJournalCapture.ts";
 import { rebuildProjectJournal } from "../src/project/projectSessionCore.ts";
@@ -25,6 +25,7 @@ import type { ProjectCommitRequest } from "../src/project/gameStorage.ts";
 import { testProjectId } from "./identity.ts";
 
 installIndexedDbFixture();
+installWebLocksFixture();
 let baseData: CachedGameData;
 let published: ProjectCommitRequest["data"];
 const values = new Map<string, string>();
@@ -176,11 +177,12 @@ test("journal writes coalesce on a frame and omit unedited resources and documen
   assert.equal(reopened.projectHistory!.commits.length, 3);
   assert.equal(journals().length, 0);
 });
-test("a quota failure removes the owner's stale journal and Saving awaits IndexedDB", async () => {
+test("a quota failure retains the previous recovery journal and Saving awaits IndexedDB", async () => {
   const owner = await session("compact-quota");
   await edit(owner, 'print("first"); return;');
   paint();
   assert.equal(journals().length, 1);
+  const before = journals()[0]![1];
   const setItem = storage.setItem;
   storage.setItem = () => {
     throw new Error("QuotaExceededError");
@@ -188,12 +190,22 @@ test("a quota failure removes the owner's stale journal and Saving awaits Indexe
   try {
     await edit(owner, 'print("latest"); return;');
     paint();
-    assert.equal(journals().length, 0);
+    assert.equal(journals()[0]?.[1], before);
     assert.equal(owner.saveStatus().state, "pending");
   } finally {
     storage.setItem = setItem;
     owner.dispose();
   }
+});
+
+test("Discard and exit removes the session's pending recovery journal", async () => {
+  const owner = await session("compact-discard");
+  await edit(owner, 'print("discarded"); return;');
+  paint();
+  assert.equal(journals().length, 1);
+  owner.discard();
+  paint();
+  assert.deepEqual(journals(), []);
 });
 
 function captured(): ProjectJournalCapture {
@@ -236,13 +248,10 @@ test("an interrupted compact receipt rebases only its unattempted successor and 
   await edit(owner, 'print("first"); return;');
   paint();
   const first = captured();
-  const firstRequest = journalCandidate(
-    first,
-    await rebuildProjectJournal(baseData, first, {
-      commit: commitProject,
-      fingerprint: authoringFingerprint,
-    }),
-  );
+  const firstRequest = await rebuildProjectJournal(baseData, first, {
+    commit: commitProject,
+    fingerprint: authoringFingerprint,
+  });
   const receipt = (await commitProject(firstRequest, first.hash)).receipt;
   await edit(owner, 'print("second"); return;');
   paint();
@@ -498,4 +507,61 @@ test("recovery uses native documents for initial source errors before History ex
     ).text,
     "if (isset(",
   );
+});
+
+test("a session publishes no journal or accepted image before its lock is acquired", async () => {
+  const descriptor = Object.getOwnPropertyDescriptor(globalThis, "navigator")!;
+  let acquire!: () => Promise<void>;
+  Object.defineProperty(globalThis, "navigator", {
+    configurable: true,
+    value: {
+      locks: {
+        request(_name: string, callback: () => Promise<void>) {
+          return new Promise<void>((resolve) => {
+            acquire = async () => {
+              await callback();
+              resolve();
+            };
+          });
+        },
+      },
+    },
+  });
+  const owner = await session("session-lock-ready");
+  const before = owner.model.capture().documentId;
+  const editing = edit(owner, 'print("Acquired"); return;');
+  try {
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    paint();
+    assert.equal(journals().length, 0);
+    assert.equal(owner.model.capture().documentId, before);
+    const holding = acquire();
+    assert.equal(await owner.ready, true);
+    await editing;
+    paint();
+    assert.equal(journals().length, 1);
+    owner.dispose();
+    await holding;
+  } finally {
+    owner.dispose();
+    Object.defineProperty(globalThis, "navigator", descriptor);
+  }
+});
+
+test("a project without Web Locks opens read-only and retains accepted content", async () => {
+  const descriptor = Object.getOwnPropertyDescriptor(globalThis, "navigator")!;
+  Object.defineProperty(globalThis, "navigator", { configurable: true, value: {} });
+  const owner = await session("locks-unavailable");
+  try {
+    assert.equal(await owner.ready, false);
+    await assert.rejects(edit(owner, "Changed"));
+    assert.equal(owner.saveStatus().state, "conflict");
+    assert.equal(owner.model.capture().read("notes")!.content, "UNEDITED_SENTINEL");
+    paint();
+    owner.dispose();
+    assert.equal(journals().length, 0);
+  } finally {
+    owner.dispose();
+    Object.defineProperty(globalThis, "navigator", descriptor);
+  }
 });

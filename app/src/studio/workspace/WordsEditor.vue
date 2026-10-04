@@ -20,6 +20,7 @@ import {
 } from "./wordsAnalysis.ts";
 import { runWordsTask, type WordsTask } from "./wordsAgent.ts";
 const props = defineProps<{
+  readOnly?: boolean;
   source: string;
   documents: Readonly<Record<string, ProjectContent>>;
   room: number;
@@ -150,6 +151,7 @@ function label(id: number | undefined): string {
   return groups.value.find((group) => group.id === id)?.words[0] ?? String(id ?? "");
 }
 function write(next: WordRows): void {
+  if (props.readOnly) return;
   try {
     buildWordsTok(next.map(([word, id]) => ({ word, id })));
     error.value = "";
@@ -159,6 +161,7 @@ function write(next: WordRows): void {
   }
 }
 function addWord(id: number, value?: string): void {
+  if (props.readOnly) return;
   const word = (value ?? drafts.value[String(id)] ?? "")
     .trim()
     .replace(/[A-Z]/g, (letter) => letter.toLowerCase());
@@ -172,6 +175,7 @@ function addWord(id: number, value?: string): void {
   ghosts.value[String(id)] = (ghosts.value[String(id)] ?? []).filter((ghost) => ghost !== word);
 }
 function wordKey(event: KeyboardEvent, id: number, words: readonly string[]): void {
+  if (props.readOnly) return;
   if (event.key === "Enter") {
     event.preventDefault();
     addWord(id);
@@ -181,6 +185,7 @@ function wordKey(event: KeyboardEvent, id: number, words: readonly string[]): vo
   }
 }
 async function addMeaning(word?: string): Promise<void> {
+  if (props.readOnly) return;
   const id = nextWordGroup([...entries.value, ...empty.value.map((group) => ["", group] as const)]);
   empty.value.push(id);
   adding.value = id;
@@ -190,11 +195,13 @@ async function addMeaning(word?: string): Promise<void> {
   document.querySelector<HTMLInputElement>(`[data-word-group="${id}"] input`)?.focus();
 }
 async function openAdd(id: number): Promise<void> {
+  if (props.readOnly) return;
   adding.value = id;
   await nextTick();
   document.querySelector<HTMLInputElement>(`[data-word-group="${id}"] .add-word`)?.focus();
 }
 function addAll(id: number): void {
+  if (props.readOnly) return;
   const words = (ghosts.value[String(id)] ?? []).filter(
     (word) => !entries.value.some(([existing]) => existing === word),
   );
@@ -202,6 +209,7 @@ function addAll(id: number): void {
   if (!error.value) ghosts.value[String(id)] = [];
 }
 function drop(event: DragEvent, to: number): void {
+  if (props.readOnly) return;
   const value = event.dataTransfer?.getData("application/x-agi-word");
   if (!value) return;
   try {
@@ -212,9 +220,11 @@ function drop(event: DragEvent, to: number): void {
   }
 }
 function drag(event: DragEvent, from: number, word: string): void {
+  if (props.readOnly) return;
   event.dataTransfer?.setData("application/x-agi-word", JSON.stringify({ from, word }));
 }
 function move(): void {
+  if (props.readOnly) return;
   const value = moving.value;
   if (!value || value.from === value.to) return;
   emit("move", { from: value.from, to: value.to, ...(value.merge ? {} : { word: value.word }) });
@@ -239,15 +249,18 @@ function closest(word: string): number {
   );
 }
 function sameAs(word: string, entry?: PlayerSentence): void {
+  if (props.readOnly) return;
   same.value = { word, id: closest(word), ...(entry ? { entry } : {}) };
 }
 function acceptSame(): void {
+  if (props.readOnly) return;
   if (!same.value) return;
   addWord(same.value.id, same.value.word);
   if (!error.value && same.value.entry) engine.resolvePlayerSentence(same.value.entry);
   if (!error.value) same.value = undefined;
 }
 async function task(value: WordsTask): Promise<void> {
+  if (props.readOnly) return;
   if (value.kind !== "suggest") value = { ...value, roomName: roomName.value };
   if (value.kind === "review") {
     emit("task", value);
@@ -344,12 +357,24 @@ function dismissGhosts(event: KeyboardEvent): void {
       />
       <UiButton
         size="sm"
-        :disabled="!!pendingTask"
-        :title="pendingTask ? copy.suggesting : VOCABULARY.predictCommands.help"
+        :disabled="readOnly || !!pendingTask"
+        :title="
+          readOnly
+            ? 'Editing is paused in this tab'
+            : pendingTask
+              ? copy.suggesting
+              : VOCABULARY.predictCommands.help
+        "
         @click="task({ kind: 'predict', room })"
         >{{ VOCABULARY.predictCommands.label }}</UiButton
       >
-      <UiButton size="sm" @click="addMeaning()">{{ VOCABULARY.meaningButton.label }}</UiButton>
+      <UiButton
+        size="sm"
+        @click="addMeaning()"
+        :disabled="readOnly"
+        :title="readOnly ? 'Editing is paused in this tab' : undefined"
+        >{{ VOCABULARY.meaningButton.label }}</UiButton
+      >
     </header>
     <div v-if="toast" class="words-toast" role="status">
       {{ toast }} · <button class="words-link" @click="emit('chat')">{{ copy.openChat }}</button>
@@ -358,7 +383,12 @@ function dismissGhosts(event: KeyboardEvent): void {
     <p v-if="error" class="words-error" role="alert">{{ error }}</p>
     <form v-if="moving" class="words-choice" @submit.prevent="move" aria-label="Move to…">
       <strong>{{ VOCABULARY.moveWord.label }} {{ moving.word }}</strong>
-      <select v-model.number="moving.to" aria-label="Destination meaning">
+      <select
+        v-model.number="moving.to"
+        :disabled="readOnly"
+        :title="readOnly ? 'Editing is paused in this tab' : undefined"
+        aria-label="Destination meaning"
+      >
         <option
           v-for="group in groups.filter(
             (row) => row.id !== moving!.from && ![1, 9999].includes(row.id),
@@ -369,14 +399,31 @@ function dismissGhosts(event: KeyboardEvent): void {
           {{ label(group.id) }} · {{ group.id }}
         </option>
       </select>
-      <label><input v-model="moving.merge" type="checkbox" />Merge the whole meaning</label>
+      <label
+        ><input
+          v-model="moving.merge"
+          :disabled="readOnly"
+          :title="readOnly ? 'Editing is paused in this tab' : undefined"
+          type="checkbox"
+        />Merge the whole meaning</label
+      >
       <p>LOGIC references keep the surviving meaning.</p>
-      <UiButton type="submit" size="sm">{{ moving.merge ? "Merge" : "Move" }}</UiButton
+      <UiButton
+        type="submit"
+        size="sm"
+        :disabled="readOnly"
+        :title="readOnly ? 'Editing is paused in this tab' : undefined"
+        >{{ moving.merge ? "Merge" : "Move" }}</UiButton
       ><UiButton size="sm" variant="ghost" @click="moving = undefined">Cancel</UiButton>
     </form>
     <form v-if="same" class="words-choice" @submit.prevent="acceptSame" aria-label="Same as…">
       <strong>{{ same.word }} · {{ VOCABULARY.sameAs.label }}</strong>
-      <select v-model.number="same.id" aria-label="Same meaning">
+      <select
+        v-model.number="same.id"
+        :disabled="readOnly"
+        :title="readOnly ? 'Editing is paused in this tab' : undefined"
+        aria-label="Same meaning"
+      >
         <option
           v-for="group in groups.filter((row) => ![1, 9999].includes(row.id))"
           :key="group.id"
@@ -385,7 +432,12 @@ function dismissGhosts(event: KeyboardEvent): void {
           {{ group.id === 0 ? VOCABULARY.skippedWords.label : label(group.id) }} · {{ group.id }}
         </option>
       </select>
-      <UiButton size="sm" type="submit">Add word</UiButton
+      <UiButton
+        size="sm"
+        type="submit"
+        :disabled="readOnly"
+        :title="readOnly ? 'Editing is paused in this tab' : undefined"
+        >Add word</UiButton
       ><UiButton size="sm" variant="ghost" @click="same = undefined">Cancel</UiButton>
     </form>
     <div class="words-body">
@@ -440,9 +492,14 @@ function dismissGhosts(event: KeyboardEvent): void {
                 {{ copy.unknown.replace("{word}", unknown) }}
               </p>
               <div class="words-actions">
-                <UiButton size="sm" variant="primary" @click="sameAs(unknown)">{{
-                  copy.teach.replace("{word}", unknown)
-                }}</UiButton>
+                <UiButton
+                  size="sm"
+                  variant="primary"
+                  @click="sameAs(unknown)"
+                  :disabled="readOnly"
+                  :title="readOnly ? 'Editing is paused in this tab' : undefined"
+                  >{{ copy.teach.replace("{word}", unknown) }}</UiButton
+                >
                 <div class="tester-more">
                   <UiButton size="sm" variant="ghost" :aria-expanded="more" @click="more = !more">{{
                     copy.more
@@ -455,6 +512,8 @@ function dismissGhosts(event: KeyboardEvent): void {
                         addMeaning(unknown);
                         more = false;
                       "
+                      :disabled="readOnly"
+                      :title="readOnly ? 'Editing is paused in this tab' : undefined"
                       >{{ copy.newMeaning }}</UiButton
                     >
                     <UiButton
@@ -464,6 +523,8 @@ function dismissGhosts(event: KeyboardEvent): void {
                         addWord(0, unknown);
                         more = false;
                       "
+                      :disabled="readOnly"
+                      :title="readOnly ? 'Editing is paused in this tab' : undefined"
                       >{{ copy.skip }}</UiButton
                     >
                   </div>
@@ -483,9 +544,13 @@ function dismissGhosts(event: KeyboardEvent): void {
             </template>
             <template v-else-if="!unknown"
               ><p>{{ VOCABULARY.noResponse.label }}</p>
-              <UiButton size="sm" @click="emit('response', room, sentence)">{{
-                VOCABULARY.addResponse.label
-              }}</UiButton></template
+              <UiButton
+                size="sm"
+                @click="!readOnly && emit('response', room, sentence)"
+                :disabled="readOnly"
+                :title="readOnly ? 'Editing is paused in this tab' : undefined"
+                >{{ VOCABULARY.addResponse.label }}</UiButton
+              ></template
             >
           </div>
         </div>
@@ -508,8 +573,14 @@ function dismissGhosts(event: KeyboardEvent): void {
           {{ taskProblems["predict"] }}
           <button
             class="words-link"
-            :disabled="!!pendingTask"
-            :title="pendingTask ? copy.suggesting : copy.retry"
+            :disabled="readOnly || !!pendingTask"
+            :title="
+              readOnly
+                ? 'Editing is paused in this tab'
+                : pendingTask
+                  ? copy.suggesting
+                  : copy.retry
+            "
             @click="task(taskRequests['predict']!)"
           >
             {{ copy.retry }}
@@ -521,15 +592,21 @@ function dismissGhosts(event: KeyboardEvent): void {
           <UiButton
             v-if="!prediction.answered"
             size="sm"
-            @click="emit('response', room, prediction.command)"
+            @click="!readOnly && emit('response', room, prediction.command)"
+            :disabled="readOnly"
+            :title="readOnly ? 'Editing is paused in this tab' : undefined"
             >{{ VOCABULARY.addResponse.label }}</UiButton
           >
         </div>
         <UiButton
           v-if="predictions.length"
           size="sm"
-          :disabled="predictionRows.every((row) => row.answered)"
-          title="Choose commands with a response gap to review"
+          :disabled="readOnly || predictionRows.every((row) => row.answered)"
+          :title="
+            readOnly
+              ? 'Editing is paused in this tab'
+              : 'Choose commands with a response gap to review'
+          "
           @click="
             task({
               kind: 'review',
@@ -566,15 +643,25 @@ function dismissGhosts(event: KeyboardEvent): void {
               </p>
             </div>
             <div class="words-actions">
-              <UiButton v-if="entry.unknown" size="sm" @click="sameAs(entry.unknown, entry)"
+              <UiButton
+                v-if="entry.unknown"
+                size="sm"
+                @click="sameAs(entry.unknown, entry)"
+                :disabled="readOnly"
+                :title="readOnly ? 'Editing is paused in this tab' : undefined"
                 >{{ VOCABULARY.sameAs.label }} {{ label(closest(entry.unknown)) }}</UiButton
-              ><UiButton size="sm" @click="emit('response', entry.room, entry.text)">{{
-                VOCABULARY.addResponse.label
-              }}</UiButton
+              ><UiButton
+                size="sm"
+                @click="!readOnly && emit('response', entry.room, entry.text)"
+                :disabled="readOnly"
+                :title="readOnly ? 'Editing is paused in this tab' : undefined"
+                >{{ VOCABULARY.addResponse.label }}</UiButton
               ><button
                 class="chip-remove"
                 :aria-label="`Dismiss ${entry.text}`"
-                @click="engine.resolvePlayerSentence(entry)"
+                @click="!readOnly && engine.resolvePlayerSentence(entry)"
+                :disabled="readOnly"
+                :title="readOnly ? 'Editing is paused in this tab' : undefined"
               >
                 ×
               </button>
@@ -611,7 +698,7 @@ function dismissGhosts(event: KeyboardEvent): void {
               :key="word"
               class="word-chip"
               :class="{ head: index === 0 }"
-              draggable="true"
+              :draggable="!readOnly"
               @dragstart="drag($event, group.id, word)"
               ><span>{{ word }}</span
               ><button
@@ -627,12 +714,16 @@ function dismissGhosts(event: KeyboardEvent): void {
                     merge: false,
                   }
                 "
+                :disabled="readOnly"
+                :title="readOnly ? 'Editing is paused in this tab' : undefined"
               >
                 ↗</button
               ><button
                 class="chip-remove"
                 :aria-label="`Remove ${word}`"
-                @click="emit('remove', word)"
+                @click="!readOnly && emit('remove', word)"
+                :disabled="readOnly"
+                :title="readOnly ? 'Editing is paused in this tab' : undefined"
               >
                 ×
               </button></span
@@ -642,11 +733,20 @@ function dismissGhosts(event: KeyboardEvent): void {
               :key="word"
               class="word-chip word-suggestion"
               @click="addWord(group.id, word)"
+              :disabled="readOnly"
+              :title="readOnly ? 'Editing is paused in this tab' : undefined"
             >
               ✦ {{ word }}
             </button>
             <template v-if="ghosts[String(group.id)]?.length">
-              <button class="words-link" @click="addAll(group.id)">{{ copy.addAll }}</button>
+              <button
+                class="words-link"
+                @click="addAll(group.id)"
+                :disabled="readOnly"
+                :title="readOnly ? 'Editing is paused in this tab' : undefined"
+              >
+                {{ copy.addAll }}
+              </button>
               <button class="words-link" @click="ghosts[String(group.id)] = []">
                 {{ copy.dismiss }}
               </button>
@@ -656,12 +756,16 @@ function dismissGhosts(event: KeyboardEvent): void {
               class="word-chip row-action"
               :aria-label="VOCABULARY.addWord.label"
               @click="openAdd(group.id)"
+              :disabled="readOnly"
+              :title="readOnly ? 'Editing is paused in this tab' : undefined"
             >
               +
             </button>
             <input
               v-if="adding === group.id"
               v-model="drafts[String(group.id)]"
+              :disabled="readOnly"
+              :title="readOnly ? 'Editing is paused in this tab' : undefined"
               class="add-word row-action"
               :aria-label="`${VOCABULARY.addWord.label}: ${group.words.join(', ') || VOCABULARY.wordGroup.label}`"
               :placeholder="VOCABULARY.addWord.label"
@@ -670,8 +774,14 @@ function dismissGhosts(event: KeyboardEvent): void {
             <button
               v-if="pendingTask?.kind !== 'suggest' || pendingTask.group !== group.id"
               class="words-link suggest row-action"
-              :disabled="!!pendingTask"
-              :title="pendingTask ? copy.suggesting : VOCABULARY.suggestWords.help"
+              :disabled="readOnly || !!pendingTask"
+              :title="
+                readOnly
+                  ? 'Editing is paused in this tab'
+                  : pendingTask
+                    ? copy.suggesting
+                    : VOCABULARY.suggestWords.help
+              "
               @click="task({ kind: 'suggest', group: group.id, words: group.words })"
             >
               {{ VOCABULARY.suggestWords.label }}
@@ -681,8 +791,14 @@ function dismissGhosts(event: KeyboardEvent): void {
               {{ taskProblems[String(group.id)] }}
               <button
                 class="words-link"
-                :disabled="!!pendingTask"
-                :title="pendingTask ? copy.suggesting : copy.retry"
+                :disabled="readOnly || !!pendingTask"
+                :title="
+                  readOnly
+                    ? 'Editing is paused in this tab'
+                    : pendingTask
+                      ? copy.suggesting
+                      : copy.retry
+                "
                 @click="task(taskRequests[String(group.id)]!)"
               >
                 {{ copy.retry }}
@@ -707,9 +823,13 @@ function dismissGhosts(event: KeyboardEvent): void {
               </span> </template
             ><template v-else
               ><small>{{ VOCABULARY.readyResponse.label }}</small
-              ><UiButton size="sm" @click="emit('response', room, group.words[0] ?? '')">{{
-                VOCABULARY.addResponse.label
-              }}</UiButton></template
+              ><UiButton
+                size="sm"
+                @click="!readOnly && emit('response', room, group.words[0] ?? '')"
+                :disabled="readOnly"
+                :title="readOnly ? 'Editing is paused in this tab' : undefined"
+                >{{ VOCABULARY.addResponse.label }}</UiButton
+              ></template
             >
           </div>
         </div>
@@ -727,19 +847,23 @@ function dismissGhosts(event: KeyboardEvent): void {
             v-for="word in skipped.words"
             :key="word"
             class="word-chip"
-            draggable="true"
+            :draggable="!readOnly"
             @dragstart="drag($event, 0, word)"
             >{{ word
             }}<button
               class="chip-move"
               :aria-label="`${VOCABULARY.moveWord.label} ${word}`"
               @click="moving = { from: 0, word, to: meanings[0]?.id ?? 2, merge: false }"
+              :disabled="readOnly"
+              :title="readOnly ? 'Editing is paused in this tab' : undefined"
             >
               ↗</button
             ><button
               class="chip-remove"
               :aria-label="`Remove ${word}`"
-              @click="emit('remove', word)"
+              @click="!readOnly && emit('remove', word)"
+              :disabled="readOnly"
+              :title="readOnly ? 'Editing is paused in this tab' : undefined"
             >
               ×
             </button></span
@@ -748,11 +872,15 @@ function dismissGhosts(event: KeyboardEvent): void {
             class="word-chip row-action"
             :aria-label="VOCABULARY.addWord.label"
             @click="openAdd(0)"
+            :disabled="readOnly"
+            :title="readOnly ? 'Editing is paused in this tab' : undefined"
           >
             +</button
           ><input
             v-if="adding === 0"
             v-model="drafts['0']"
+            :disabled="readOnly"
+            :title="readOnly ? 'Editing is paused in this tab' : undefined"
             class="add-word row-action"
             :aria-label="`${VOCABULARY.addWord.label}: Skipped`"
             :placeholder="VOCABULARY.addWord.label"

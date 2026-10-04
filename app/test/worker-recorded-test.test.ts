@@ -113,11 +113,14 @@ async function rig(t: TestContext, name: string) {
 
   const posted: WorkerInbound[] = [];
   let now = 0;
+  let heldStop: WorkerInbound | null = null;
+  let holdStop = false;
   const worker = {
     onmessage: null as ((ev: { data: unknown }) => void) | null,
     postMessage(msg: WorkerInbound) {
       posted.push(msg);
-      onWorkerMessage(ctx, msg);
+      if (holdStop && msg.type === "stopRecording") heldStop = msg;
+      else onWorkerMessage(ctx, msg);
     },
     terminate() {},
   };
@@ -221,13 +224,15 @@ async function rig(t: TestContext, name: string) {
     flushAutosave: async () => {},
   });
 
+  link.deps.recordingReset = recorder.reset;
+
   /** Record a few idle cycles in room 1 and return the snapshot. */
   async function record() {
     await recorder.startTestRecording();
     assert.equal(recorderState.recording.error, "");
     tick(3);
     const snapshot = await recorder.stopTestRecording();
-    assert.ok(snapshot, "the worker returned a recording");
+    assert.ok(snapshot && !("endedBy" in snapshot), "the worker returned a recording");
     return snapshot;
   }
   const workerTests = () => ctx.engine!.containerFiles.get("TESTS.JSON");
@@ -238,6 +243,18 @@ async function rig(t: TestContext, name: string) {
     posted,
     controller,
     recorder,
+    recorderState,
+    worker,
+    tick,
+    holdStopRecording() {
+      holdStop = true;
+    },
+    releaseStopRecording() {
+      assert.ok(heldStop, "a stop request is waiting");
+      onWorkerMessage(ctx, heldStop);
+      heldStop = null;
+      holdStop = false;
+    },
     record,
     workerTests,
     game: () => game,
@@ -297,4 +314,34 @@ test("a recorded test is stored, then held by the session and installed in the r
   assert.deepEqual(author.state.testsPayload, stored, "the session holds the stored file");
   assert.deepEqual(r.workerTests(), stored, "the running game holds the stored file");
   assert.equal(r.game().revision, await gameRevision((await loadAuthoredGame(r.projectId))!.files));
+});
+
+test("a stop handled after a run replacement ends the recording without a snapshot", async (t) => {
+  const r = await rig(t, "recorded-restarted");
+  await r.recorder.startTestRecording();
+  assert.equal(r.recorderState.recording.active, true);
+  r.holdStopRecording();
+  const pending = r.recorder.stopTestRecording();
+  const oldEngine = r.ctx.engine;
+  r.worker.postMessage({ type: "boot", files: r.files, words: [] });
+  r.ctx.fns.stopTimers();
+  r.tick(6);
+  await Promise.resolve();
+  assert.notEqual(r.ctx.engine, oldEngine, "the worker replaced the engine");
+  assert.equal(r.recorderState.recording.active, false, "the reset reached the recorder");
+  r.releaseStopRecording();
+  assert.deepEqual(await pending, { endedBy: "replacement" });
+  assert.equal(r.recorderState.recording.active, false);
+  assert.equal(r.recorderState.recording.error, "");
+});
+
+test("cancelling a pending stop discards it without reporting a restart", async (t) => {
+  const r = await rig(t, "recorded-cancelled-stop");
+  await r.recorder.startTestRecording();
+  r.holdStopRecording();
+  const pending = r.recorder.stopTestRecording();
+  r.recorder.cancelTestRecording();
+  r.releaseStopRecording();
+  assert.equal(await pending, null);
+  assert.equal(r.recorderState.recording.active, false);
 });

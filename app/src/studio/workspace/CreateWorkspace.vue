@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { soundProjectChanges } from "../sound/soundEdits.ts";
 import { VOCABULARY } from "../../../../src/vocabulary.ts";
 import "./workspace.css";
 import { computed, defineAsyncComponent, onBeforeUnmount, ref, shallowRef, watch } from "vue";
@@ -58,6 +59,14 @@ const DebugControls = defineAsyncComponent(() => import("./WorkspaceDebugControl
 const engine = useEngineApi();
 const workspace = useCreateWorkspace();
 const editor = useWorkspaceEditor();
+function openPart(key: string, pinned = false): void {
+  if (window.innerWidth <= 1280 && engine.state.powerUp.open) engine.closePowerUp();
+  editor.open(key, pinned);
+  if (window.innerWidth <= 600) {
+    editor.focus.value = true;
+    editor.partsOpen.value = false;
+  }
+}
 function openAgent(): void {
   engine.state.powerUp.mode = "remix";
   engine.state.powerUp.open = true;
@@ -80,6 +89,7 @@ const optimistic = shallowRef<Readonly<Record<string, ProjectContent>>>({});
 let session: ProjectSession | null = null;
 let unsubscribe: (() => void) | undefined;
 let retired = false;
+const writeConflict = ref(false);
 const musicDrop = shallowRef<File>();
 const musicDropTarget = ref<string>();
 function musicDrag(event: DragEvent): void {
@@ -111,7 +121,7 @@ function addImportedSound(bytes: Uint8Array, tempo: number): void {
   }
   const key = `sound:${number}`;
   editSound(key, bytes, tempo);
-  editor.open(key);
+  openPart(key);
   musicDrop.value = undefined;
 }
 window.addEventListener("dragover", musicDrag, true);
@@ -132,6 +142,11 @@ function refresh(): void {
       );
     });
   } else traceUnderlays.value = {};
+  writeConflict.value = capture.save.state === "conflict";
+  editor.readOnly.value = writeConflict.value;
+  editor.pendingChanges.value =
+    session.pendingChanges || editor.busy.value || Object.keys(optimistic.value).length > 0;
+  if (writeConflict.value) editor.error.value = "";
   historyState.value = capture.history;
   editor.pendingAdmission.value = capture.pendingAdmission;
   editor.save.value =
@@ -253,7 +268,7 @@ watch(
     editor.parts.value = workspaceOpenParts(next).map((row) => ({
       id: row.key,
       title: row.label,
-      run: () => editor.open(row.key),
+      run: () => openPart(row.key),
     }));
   },
   { immediate: true },
@@ -269,9 +284,13 @@ const tabRows = computed(() =>
           : key === "notes"
             ? "Notes"
             : key.replace(":", " ").toUpperCase(),
-    dirty: false,
+    dirty:
+      optimistic.value[key] !== undefined &&
+      (snapshot.value?.keys.includes(key) || optimistic.value[key]!.length > 0),
     preview: key === editor.preview.value,
-    missing: !snapshot.value?.keys.includes(key),
+    missing:
+      !snapshot.value?.keys.includes(key) &&
+      (key !== "notes" || (optimistic.value[key]?.length ?? 0) > 0),
   })),
 );
 const profile = computed(() => engine.roomMap.resources.value.profile!);
@@ -327,28 +346,37 @@ function native(key: string): Uint8Array | undefined {
   return bytes;
 }
 const soundTempos = new WeakMap<Uint8Array, number>();
+function editorChanges(
+  key: string,
+  value: ProjectContent,
+  music = content("music"),
+): readonly ProjectChange[] {
+  const tempo = value instanceof Uint8Array ? soundTempos.get(value) : undefined;
+  if (key.startsWith("sound:") && value instanceof Uint8Array && tempo !== undefined) {
+    return soundProjectChanges(key, value, tempo, typeof music === "string" ? music : undefined);
+  }
+  return [{ key, content: value }];
+}
+const actionBusy = ref(false);
+const writerBusy = ref(false);
+watch(
+  [actionBusy, writerBusy],
+  ([action, writer]) => {
+    editor.busy.value = action || writer;
+  },
+  { flush: "sync" },
+);
 const writes = createWorkspaceWrites({
+  async durable() {
+    await session?.flush();
+  },
   async write(key, value) {
     if (retired || session === null || session !== engine.getProjectSession())
       throw new Error("Open this project again to retry the change.");
-    const writingSession = session;
     const origin = (
       key === "notes" ? "logic" : (key.split(":")[0] ?? "logic")
     ) as ProjectEditOrigin;
-    const tempo = value instanceof Uint8Array ? soundTempos.get(value) : undefined;
-    let changes: readonly ProjectChange[] = [{ key, content: value }];
-    if (key.startsWith("sound:") && value instanceof Uint8Array && tempo !== undefined) {
-      const { soundProjectChanges } = await import("../sound/soundEdits.ts");
-      if (retired || session !== writingSession || writingSession !== engine.getProjectSession())
-        throw new Error("Open this project again to retry the change.");
-      const music = writingSession.model.capture().read("music")?.content;
-      changes = soundProjectChanges(
-        key,
-        value,
-        tempo,
-        typeof music === "string" ? music : undefined,
-      );
-    }
+    const changes = editorChanges(key, value);
     const result = await engine.submitProjectEdit({
       changes,
       origin,
@@ -362,24 +390,52 @@ const writes = createWorkspaceWrites({
   },
   changed(drafts, busy) {
     optimistic.value = drafts;
-    editor.busy.value = busy;
-    if (busy) editor.save.value = "Saving…";
+    writerBusy.value = busy;
+    editor.pendingChanges.value =
+      busy || (session?.pendingChanges ?? false) || Object.keys(drafts).length > 0;
+    if (editor.busy.value) editor.save.value = "Saving…";
     else refresh();
   },
   error(cause) {
     editor.error.value = String(cause instanceof Error ? cause.message : cause);
   },
 });
-editor.flush.value = async () => {
-  await writes.flush();
-  await session?.flush();
+async function flushWorkspace(): Promise<void> {
+  if (session?.saveStatus().state === "conflict") return;
+  try {
+    await writes.flush();
+  } catch (cause) {
+    editor.error.value = cause instanceof Error ? cause.message : String(cause);
+    editor.save.value = "Could not save. Retry";
+    throw cause;
+  }
+}
+editor.flush.value = flushWorkspace;
+editor.discard.value = () => {
+  writes.dispose();
+  session?.discard();
 };
 editor.retry.value = async () => {
-  await writes.retry();
-  await session?.retry();
-  await session?.flush();
+  if (session?.saveStatus().state === "conflict") return;
+  try {
+    await writes.retry();
+    editor.error.value = "";
+    refresh();
+  } catch (cause) {
+    editor.error.value = cause instanceof Error ? cause.message : String(cause);
+    editor.save.value = "Could not save. Retry";
+    throw cause;
+  }
 };
+async function retrySave(): Promise<void> {
+  try {
+    await editor.retry.value?.();
+  } catch {
+    /* The save notice keeps the cause and Retry. */
+  }
+}
 function edit(key: string, value: ProjectContent): void {
+  if (writeConflict.value) return;
   const before = content(key);
   if (typeof before === "string" && before === value) return;
   if (
@@ -394,6 +450,7 @@ function edit(key: string, value: ProjectContent): void {
   writes.edit(key, value);
 }
 function editSound(key: string, bytes: Uint8Array, tempo: number): void {
+  if (writeConflict.value) return;
   soundTempos.set(bytes, tempo);
   if (soundTempo(key) === tempo) edit(key, bytes);
   else {
@@ -441,10 +498,10 @@ const logicLocation = ref<{ key: string; line: number; serial: number }>();
 function openWordLogic(logic: number, line: number): void {
   const key = `logic:${logic}`;
   logicLocation.value = { key, line, serial: (logicLocation.value?.serial ?? 0) + 1 };
-  editor.open(key);
+  openPart(key);
 }
 function wordResponse(room: number, command: string): void {
-  editor.open(`logic:${room}`);
+  openPart(`logic:${room}`);
   guidedCommand.value = command;
   guidedKind.value = "response";
 }
@@ -477,10 +534,11 @@ async function wordsTask(task: WordsTask): Promise<void> {
 async function wordChange(
   action: { from: number; to: number; word?: string } | { remove: string },
 ): Promise<void> {
-  await writes.flush();
-  const captured = session?.model.capture();
-  if (!captured) return;
   try {
+    if (writeConflict.value) throw new Error(session!.saveStatus().message);
+    await writes.flush();
+    const captured = session?.model.capture();
+    if (!captured) return;
     const { changeMeaning, removeMeaningWord } = await import("./wordsAnalysis.ts");
     const document = captured.read("words")!.content;
     const words =
@@ -510,11 +568,12 @@ async function wordChange(
   }
 }
 async function guidedAction(action: WorkspaceAction): Promise<void> {
-  await writes.flush();
-  const capture = session?.model.capture();
-  if (!capture) return;
-  editor.busy.value = true;
+  if (writeConflict.value || actionBusy.value) return;
+  actionBusy.value = true;
   try {
+    await writes.flush();
+    const capture = session?.model.capture();
+    if (!capture) return;
     const { prepareWorkspaceAction } = await import("./workspaceGuided.ts");
     const prepared = prepareWorkspaceAction(capture, profile.value.id, action);
     if (!prepared.ok) throw new Error(prepared.message);
@@ -534,13 +593,14 @@ async function guidedAction(action: WorkspaceAction): Promise<void> {
     }
     if (action.kind === "add-room") {
       const key = prepared.changes.find((change) => change.key.startsWith("logic:"))?.key;
-      if (key) editor.open(key);
+      if (key) openPart(key);
     }
+    guidedKind.value = undefined;
     editor.error.value = "";
   } catch (cause) {
     editor.error.value = String(cause instanceof Error ? cause.message : cause);
   } finally {
-    editor.busy.value = false;
+    actionBusy.value = false;
     refresh();
   }
 }
@@ -552,29 +612,44 @@ const versionNames = computed(() => {
     (names[id] ??= []).push(name);
   return names;
 });
+async function historyAction(action: () => Promise<unknown>): Promise<void> {
+  actionBusy.value = true;
+  try {
+    if (writeConflict.value) throw new Error(session!.saveStatus().message);
+    await writes.flush();
+    await action();
+    await session?.flush();
+    editor.error.value = "";
+  } catch (cause) {
+    editor.error.value = cause instanceof Error ? cause.message : String(cause);
+  } finally {
+    actionBusy.value = false;
+    refresh();
+  }
+}
 async function restore(id: string): Promise<void> {
-  await session?.restore(id);
+  await historyAction(async () => session?.restore(id));
 }
 async function nameVersion(): Promise<void> {
   if (!versionName.value.trim()) return;
-  try {
+  await historyAction(async () => {
     if (editingName.value === undefined) await session?.tag(versionName.value.trim());
     else await session?.renameTag(editingName.value, versionName.value.trim());
     versionName.value = "";
     editingName.value = undefined;
-    editor.error.value = "";
-  } catch (cause) {
-    editor.error.value = cause instanceof Error ? cause.message : String(cause);
-  }
+  });
 }
 async function clearName(name: string): Promise<void> {
-  await session?.renameTag(name, null);
-  if (editingName.value === name) {
-    editingName.value = undefined;
-    versionName.value = "";
-  }
+  await historyAction(async () => {
+    await session?.renameTag(name, null);
+    if (editingName.value === name) {
+      editingName.value = undefined;
+      versionName.value = "";
+    }
+  });
 }
 async function add(group: string): Promise<void> {
+  if (writeConflict.value || actionBusy.value) return;
   if (group === "WORDS" || group === "OBJECTS") {
     const key = group === "WORDS" ? "words" : "inventory";
     const source = text(key);
@@ -584,7 +659,7 @@ async function add(group: string): Promise<void> {
       rows.push(["word", nextWordGroup(rows as [string, number][])]);
     } else rows.push({ name: "Object", startingRoom: 255 });
     edit(key, JSON.stringify(rows));
-    editor.open(key);
+    openPart(key);
     return;
   }
   if (group === "SHARED LOGIC") {
@@ -595,7 +670,7 @@ async function add(group: string): Promise<void> {
       return;
     }
     edit(`logic:${num}`, "return;\n");
-    editor.open(`logic:${num}`);
+    openPart(`logic:${num}`);
     return;
   }
   const kind =
@@ -614,7 +689,7 @@ async function add(group: string): Promise<void> {
     return;
   }
   if (kind === "logic") {
-    editor.open(`logic:${engine.roomMap.currentRoom.value ?? 0}`);
+    openPart(`logic:${engine.roomMap.currentRoom.value ?? 0}`);
     guidedKind.value = "add-room";
     return;
   }
@@ -641,7 +716,7 @@ async function add(group: string): Promise<void> {
       applySoundPreset(createSoundDocument({ profileId: profile.value.id }), "discovery").encode(),
     );
   }
-  editor.open(`${kind}:${num}`);
+  openPart(`${kind}:${num}`);
 }
 function resize(event: PointerEvent): void {
   const target = event.currentTarget as HTMLElement;
@@ -683,10 +758,47 @@ function escape(event: KeyboardEvent): void {
   } else lastEscape = now;
 }
 window.addEventListener("keydown", escape, true);
+function warnBeforeUnload(event: BeforeUnloadEvent): void {
+  event.preventDefault();
+  event.returnValue = "";
+}
+watch(
+  () => editor.pendingChanges.value,
+  (unsaved) => {
+    if (unsaved) window.addEventListener("beforeunload", warnBeforeUnload);
+    else window.removeEventListener("beforeunload", warnBeforeUnload);
+  },
+  { immediate: true, flush: "sync" },
+);
+function flushHidden(): void {
+  if (!writeConflict.value) void flushWorkspace().catch(() => {});
+}
+function visibilityChanged(): void {
+  if (document.visibilityState === "hidden") flushHidden();
+}
+window.addEventListener("pagehide", flushHidden);
+document.addEventListener("visibilitychange", visibilityChanged);
+editor.unsavedEdits.value = () => {
+  const buffers = {
+    ...(session?.saveStatus().state === "saved" ? {} : snapshot.value?.documents()),
+    ...optimistic.value,
+  };
+  for (const [key, value] of Object.entries(buffers))
+    if (key.startsWith("sound:"))
+      for (const change of editorChanges(key, value, buffers["music"]))
+        buffers[change.key] = change.content!;
+  return buffers;
+};
 onBeforeUnmount(() => {
   retired = true;
+  window.removeEventListener("beforeunload", warnBeforeUnload);
+  window.removeEventListener("pagehide", flushHidden);
+  document.removeEventListener("visibilitychange", visibilityChanged);
+  editor.unsavedEdits.value = undefined;
+  editor.pendingChanges.value = false;
   writes.dispose();
   editor.flush.value = undefined;
+  editor.discard.value = undefined;
   editor.retry.value = undefined;
   unsubscribe?.();
   window.removeEventListener("keydown", escape, true);
@@ -698,14 +810,18 @@ onBeforeUnmount(() => {
 </script>
 <template>
   <PartsList
-    v-show="creating && !workspace.collapsed.left && !editor.focus.value"
+    :read-only="writeConflict || actionBusy"
+    :class="{ 'parts-list--open': editor.partsOpen.value }"
+    v-show="
+      creating && !editor.focus.value && (!workspace.collapsed.left || editor.partsOpen.value)
+    "
     :groups="groups"
     :selected="editor.selected.value"
     :thumbnails="thumbnails"
     :views="viewThumbnails"
     :profile="profile"
-    @open="editor.open"
-    @pin="(key) => editor.open(key, true)"
+    @open="openPart"
+    @pin="(key) => openPart(key, true)"
     @add="add"
   />
   <div
@@ -733,7 +849,7 @@ onBeforeUnmount(() => {
       <ProjectTabs
         :tabs="tabRows"
         :selected-key="editor.selected.value ?? null"
-        @select="(key) => editor.open(key)"
+        @select="(key) => openPart(key)"
         @pin="editor.pin"
         @close="editor.close"
       />
@@ -741,6 +857,10 @@ onBeforeUnmount(() => {
         <UiButton
           size="sm"
           variant="ghost"
+          :disabled="writeConflict || actionBusy"
+          :title="
+            writeConflict ? 'Editing is paused. Download your unsaved edits, then reload.' : ''
+          "
           @click="
             imagePanel = editor.selected.value;
             imageGenerate = false;
@@ -754,6 +874,10 @@ onBeforeUnmount(() => {
         <UiButton
           size="sm"
           variant="ghost"
+          :disabled="writeConflict || actionBusy"
+          :title="
+            writeConflict ? 'Editing is paused. Download your unsaved edits, then reload.' : ''
+          "
           @click="
             imagePanel = editor.selected.value;
             imageGenerate = true;
@@ -777,7 +901,7 @@ onBeforeUnmount(() => {
         v-model:action="guidedKind"
         :room="Number(editor.selected.value?.split(':')[1] ?? 0)"
         :initial-command="guidedCommand"
-        :busy="editor.busy.value"
+        :busy="editor.busy.value || writeConflict"
         @add="guidedAction"
       />
       <UiButton
@@ -790,7 +914,12 @@ onBeforeUnmount(() => {
         >Focus</UiButton
       >
       <ImageReferencePanel
-        v-if="imagePanel === editor.selected.value && imagePanel?.startsWith('picture:') && session"
+        v-if="
+          !writeConflict &&
+          imagePanel === editor.selected.value &&
+          imagePanel?.startsWith('picture:') &&
+          session
+        "
         :key="imagePanel"
         :session="session"
         :target="imagePanel"
@@ -812,8 +941,12 @@ onBeforeUnmount(() => {
     >
       The game keeps running the last working version. Fix the errors below.
     </p>
-    <p v-if="editor.error.value" class="workspace-error" role="alert">
-      {{ editor.error.value }} <UiButton @click="editor.retry.value?.()">Retry</UiButton>
+    <p
+      v-if="editor.error.value && !engine.state.leaving && !editor.exitRefusal.value"
+      class="workspace-error"
+      role="alert"
+    >
+      {{ editor.error.value }} <UiButton v-if="!writeConflict" @click="retrySave">Retry</UiButton>
     </p>
     <div
       v-for="key in editor.retained.value"
@@ -822,7 +955,7 @@ onBeforeUnmount(() => {
       class="workspace-editor__surface"
     >
       <ImageReferencePanel
-        v-if="imagePanel === key && session && key.startsWith('view:')"
+        v-if="!writeConflict && imagePanel === key && session && key.startsWith('view:')"
         :session="session"
         :target="key"
         :profile="profile"
@@ -834,6 +967,7 @@ onBeforeUnmount(() => {
         @changed="refresh"
       />
       <RoomStudio
+        :read-only="writeConflict || actionBusy"
         v-if="key.startsWith('picture:') && native(key) && profile"
         :live-game="
           creating &&
@@ -857,6 +991,7 @@ onBeforeUnmount(() => {
         @edit="edit(key, $event)"
       />
       <SpriteStudio
+        :read-only="writeConflict || actionBusy"
         v-else-if="key.startsWith('view:') && native(key) && profile"
         v-show="imagePanel !== key"
         :workspace-focus="editor.focus.value"
@@ -871,6 +1006,7 @@ onBeforeUnmount(() => {
         @edit="edit(key, $event)"
       />
       <LogicEditor
+        :read-only="writeConflict || actionBusy"
         v-else-if="key.startsWith('logic:') && text(key) !== undefined && snapshot"
         :ref="
           (instance) => {
@@ -900,6 +1036,7 @@ onBeforeUnmount(() => {
         @selection="editor.setAgentContext(key, $event)"
       />
       <WordsEditor
+        :read-only="writeConflict || actionBusy"
         v-else-if="key === 'words' && text(key) !== undefined && snapshot"
         :source="text(key)!"
         :documents="snapshot.documents()"
@@ -915,12 +1052,14 @@ onBeforeUnmount(() => {
         @chat="openWordsChat"
       />
       <TableEditor
+        :read-only="writeConflict || actionBusy"
         v-else-if="key === 'inventory' && text(key) !== undefined"
         :kind="key"
         :source="text(key)!"
         @edit="edit(key, $event)"
       />
       <SoundPanel
+        :read-only="writeConflict || actionBusy"
         v-else-if="key.startsWith('sound:') && native(key)"
         :document-key="key"
         :bytes="soundBytes(key)"
@@ -933,6 +1072,7 @@ onBeforeUnmount(() => {
         @add="addImportedSound"
       />
       <NotesEditor
+        :read-only="writeConflict || actionBusy"
         v-else-if="key === 'notes'"
         :source="text(key) ?? ''"
         @edit="edit(key, $event)"
@@ -980,14 +1120,12 @@ onBeforeUnmount(() => {
       <h2>History</h2>
       <UiButton size="sm" variant="ghost" @click="editor.history.value = false">×</UiButton>
     </header>
-    <p>
-      Every version of your game. Restore brings back an earlier one; later versions stay in
-      History.
-    </p>
+    <p>{{ VOCABULARY.history.help }}</p>
     <form @submit.prevent="nameVersion">
       <input v-model="versionName" aria-label="Version name" placeholder="Opening scene" /><UiButton
         size="sm"
         type="submit"
+        :disabled="writeConflict || editor.busy.value"
         >{{ editingName === undefined ? "Name this version" : "Save name" }}</UiButton
       >
       <UiButton
@@ -1017,6 +1155,7 @@ onBeforeUnmount(() => {
             <UiButton
               size="sm"
               variant="ghost"
+              :disabled="writeConflict || editor.busy.value"
               :aria-label="`Rename ${name}`"
               @click="
                 editingName = name;
@@ -1027,6 +1166,7 @@ onBeforeUnmount(() => {
             <UiButton
               size="sm"
               variant="ghost"
+              :disabled="writeConflict || editor.busy.value"
               :aria-label="`Clear ${name}`"
               @click="clearName(name)"
               >Clear</UiButton
@@ -1041,7 +1181,7 @@ onBeforeUnmount(() => {
       </div>
       <UiButton
         size="sm"
-        :disabled="commit.id === historyState?.cursor || editor.busy.value"
+        :disabled="writeConflict || commit.id === historyState?.cursor || editor.busy.value"
         @click="restore(commit.id)"
         >Restore</UiButton
       >

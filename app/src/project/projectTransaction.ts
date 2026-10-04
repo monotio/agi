@@ -55,7 +55,7 @@ import type { AwaitPatchedFn } from "../engine/workerQueries.ts";
 
 /** A stale conversation is kept in this tab until the saved project reloads. */
 export const STALE_SAVE_MESSAGE =
-  "The game was changed elsewhere, so this conversation was not saved over it. Reload the game to continue from the saved project.";
+  "Changed in another tab. Editing is paused. Download your unsaved edits, then reload.";
 
 /** Why a project transaction refused or failed; `code` picks the UI's wording. */
 export type ResourceCommitErrorCode =
@@ -350,7 +350,7 @@ export function markBehindStorage(game: BootedGame): boolean {
 
 /** What a tab running a removed project tells the player, wherever it says it. */
 export const PROJECT_REMOVED_MESSAGE =
-  "This game was removed in another tab. Download it to keep a copy, or go back to your games.";
+  "This project was removed. Download your unsaved edits to keep them.";
 
 /**
  * The running game's stored project was removed: it is behind storage for

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import StaleTabNote from "../play/StaleTabNote.vue";
 /**
  * The top chrome. At the menu screen: the brand, Help, GitHub and Settings.
  * While a game runs: the PlayBar, then the notices that belong above the
@@ -7,6 +8,7 @@
  * those controls open: the settings sheet, the Help guide, Game controls and
  * the recorded-test save dialog. The engine API is injected, never passed.
  */
+import ProjectJournalRecovery from "../home/ProjectJournalRecovery.vue";
 import HelpGuide from "./HelpGuide.vue";
 import BrandMark from "../ui/BrandMark.vue";
 import { useWorkspaceEditor } from "./workspaceEditor.ts";
@@ -216,17 +218,23 @@ function onExportAgiZip(project: boolean): void {
   emit("export-zip", project);
 }
 
+const ejectBusy = ref(false);
 async function onEjectGame(
   leave: "save" | "abandonUnsaved" | "abandonHistory" = "save",
+  retry = false,
 ): Promise<void> {
-  ejectRefusal.value = "";
+  if (ejectBusy.value) return;
+  ejectBusy.value = true;
+  if (!retry) ejectRefusal.value = "";
   historyExit.value = false;
   closeNavMenus();
   try {
-    await workspaceEditor.flush.value?.();
+    if (retry) await workspaceEditor.retry.value?.();
+    if (leave === "abandonUnsaved") workspaceEditor.discard.value?.();
+    else await workspaceEditor.flush.value?.();
     await ejectGame(
       leave === "abandonUnsaved"
-        ? { abandonUnsaved: true }
+        ? { abandonUnsaved: true, abandonProject: true, abandonHistory: true }
         : leave === "abandonHistory"
           ? { abandonHistory: true }
           : undefined,
@@ -235,9 +243,14 @@ async function onEjectGame(
     // Only the timeline is still owed: its own question, not a refusal.
     if (error instanceof HistoryUnsavedError) historyExit.value = true;
     else ejectRefusal.value = String(error).replace(/^Error: /, "");
+  } finally {
+    ejectBusy.value = false;
   }
 }
 const ejectRefusal = ref<string>("");
+watch(ejectRefusal, (message) => {
+  workspaceEditor.exitRefusal.value = message.length > 0;
+});
 /** Exit waits on this session's timeline: leave without it, or stay. */
 const historyExit = ref(false);
 
@@ -261,7 +274,10 @@ const historyStartOver = ref(false);
 watch(
   () => state.phase,
   (phase) => {
-    if (phase !== "running") historyStartOver.value = false;
+    if (phase !== "running") {
+      historyStartOver.value = false;
+      ejectRefusal.value = "";
+    }
   },
 );
 
@@ -314,6 +330,12 @@ bridge.startPlaytest = () => void onRecordStart();
 async function onRecordStop(): Promise<void> {
   const snapshot = await stopTestRecording();
   if (!snapshot) return;
+  if ("endedBy" in snapshot) {
+    state.recording.error = "";
+    recordResult.value =
+      "Recording ended because the game run changed. Start Playtest to record the current run.";
+    return;
+  }
   if (snapshot.tainted) {
     recordResult.value = "";
     state.recording.error = `Recording discarded. ${snapshot.tainted}`;
@@ -424,20 +446,43 @@ async function onRecordSave(): Promise<void> {
     @start-walkthrough="onStartWalkthrough"
   />
   <div class="shell-notices">
+    <StaleTabNote />
+    <div
+      v-if="
+        state.phase === 'running' &&
+        !workspaceEditor.readOnly.value &&
+        workspaceEditor.save.value === 'Could not save. Retry'
+      "
+      class="notice-actions"
+    >
+      <UiButton
+        size="sm"
+        data-testid="download-unsaved-edits"
+        :disabled="state.leaving || ejectBusy"
+        @click="workspaceEditor.downloadUnsavedEdits"
+      >
+        Download unsaved edits
+      </UiButton>
+    </div>
+    <ProjectJournalRecovery
+      v-if="state.phase === 'running'"
+      :project-id="currentGame()?.projectId"
+    />
     <div v-if="exportRefusal" class="export-refusal" data-testid="export-refusal" role="alert">
       <p>{{ exportRefusal }}</p>
     </div>
     <div v-if="ejectRefusal" class="export-refusal" data-testid="eject-refusal" role="alert">
       <p>{{ ejectRefusal }}</p>
+      <p>Discard and exit removes pending edits and unsaved play progress.</p>
       <div class="notice-actions">
         <UiButton
           variant="primary"
           size="sm"
           data-testid="eject-retry"
-          :disabled="state.leaving"
-          @click="onEjectGame()"
+          :disabled="state.leaving || ejectBusy"
+          @click="onEjectGame('save', true)"
         >
-          Try again
+          {{ ejectBusy ? "Saving…" : "Retry" }}
         </UiButton>
         <UiButton
           size="sm"
@@ -450,12 +495,17 @@ async function onRecordSave(): Promise<void> {
         <UiButton
           size="sm"
           data-testid="eject-leave-anyway"
-          :disabled="state.leaving"
+          :disabled="state.leaving || ejectBusy"
           @click="onEjectGame('abandonUnsaved')"
         >
-          Leave anyway
+          Discard and exit
         </UiButton>
-        <UiButton size="sm" data-testid="eject-dismiss" @click="ejectRefusal = ''">
+        <UiButton
+          size="sm"
+          data-testid="eject-dismiss"
+          :disabled="state.leaving || ejectBusy"
+          @click="ejectRefusal = ''"
+        >
           Back to game
         </UiButton>
       </div>
@@ -466,7 +516,7 @@ async function onRecordSave(): Promise<void> {
         <UiButton
           size="sm"
           data-testid="eject-leave-without-timeline"
-          :disabled="state.leaving"
+          :disabled="state.leaving || ejectBusy"
           @click="onEjectGame('abandonHistory')"
         >
           Leave anyway
@@ -782,6 +832,8 @@ a.publisher:hover > span {
 
 /* Notices sit between the bar and the stage; the stage re-fits around them. */
 .shell-notices {
+  position: relative;
+  z-index: var(--z-toast);
   display: flex;
   flex-direction: column;
   align-items: center;

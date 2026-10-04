@@ -1,4 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
+import { readFile } from "node:fs/promises";
+import { decodeJournalValue } from "../src/project/projectJournalCapture.ts";
 import { isolateStorage, textHook } from "./engineProbe.ts";
 
 const TUTORIAL_PROJECT_ID = "catalog-adventure-department-1.2.0";
@@ -86,7 +88,7 @@ test("an unreadable stored tutorial offers Start fresh, which removes only that 
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
 });
 
-test("a saved game whose stored body predates 1.0 offers Start fresh on its own card", async ({
+test("a saved game whose stored body predates 1.0 offers raw recovery on its own card", async ({
   page,
 }) => {
   await isolateStorage(page);
@@ -94,7 +96,7 @@ test("a saved game whose stored body predates 1.0 offers Start fresh on its own 
   await page.goto("/");
   // A release candidate's project: a current index over a body in the
   // pre-1.0 stored format.
-  await page.evaluate(async () => {
+  const before = await page.evaluate(async () => {
     const db = await new Promise<IDBDatabase>((resolve, reject) => {
       const request = indexedDB.open("monotio-agi-projects");
       request.onsuccess = () => resolve(request.result);
@@ -128,19 +130,36 @@ test("a saved game whose stored body predates 1.0 offers Start fresh on its own 
         imported: true,
       }),
     );
+    const storage = await import("/src/project/gameStorage.ts");
+    return {
+      body: await storage.bodyTransaction("readonly", (store) => store.get("old-adventure")),
+      index: localStorage.getItem("monotio_agi.authored.old-adventure"),
+    };
   });
   await page.reload();
-  const card = page.getByTestId("saved-game-card-old-adventure");
-  await card.getByTestId("btn-resume-cached").click();
-  await expect(page.getByTestId("error-panel")).toContainText(
-    "This saved project version is not supported by this app.",
-  );
-  await expect(card.getByRole("alert")).toContainText("not supported");
-  await card.getByRole("button", { name: "Start fresh…", exact: true }).click();
-  await page
-    .getByRole("dialog", { name: "Start fresh?" })
-    .getByRole("button", { name: "Start fresh", exact: true })
-    .click();
+  const card = page.getByTestId("unsupported-project-card-old-adventure");
+  await expect(card.getByRole("heading")).toHaveText("Old Adventure");
+  await expect(card).toContainText("Saved project format needs another app version");
+  const pending = page.waitForEvent("download");
+  await card.getByRole("button", { name: "Download", exact: true }).click();
+  const download = await pending;
+  const exported = JSON.parse(await readFile((await download.path())!, "utf8"));
+  expect(decodeJournalValue(exported.record)).toEqual(before.body);
+  expect(exported.index).toBe(before.index);
+  await card.getByRole("button", { name: "Remove", exact: true }).click();
+  const dialog = card.getByTestId("remove-game-dialog");
+  await dialog.getByTestId("remove-game-cancel").click();
+  expect(
+    await page.evaluate(async () => {
+      const storage = await import("/src/project/gameStorage.ts");
+      return {
+        body: await storage.bodyTransaction("readonly", (store) => store.get("old-adventure")),
+        index: localStorage.getItem("monotio_agi.authored.old-adventure"),
+      };
+    }),
+  ).toEqual(before);
+  await card.getByRole("button", { name: "Remove", exact: true }).click();
+  await dialog.getByTestId("remove-game-confirm").click();
   await expect(card).toHaveCount(0);
   expect(await storedKeys(page)).not.toContain("old-adventure");
   expect(

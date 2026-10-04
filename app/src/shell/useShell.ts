@@ -66,6 +66,7 @@ export function createShell(deps: {
   /** Library source of a stored project ("catalog", "remix", …), if known. */
   librarySource: (projectId: string) => string | undefined;
   initialMode?: ShellMode;
+  awaitingLatest?: () => boolean;
   /** Room Studio's unkept changes, settled before Create is left. */
   createGuard?: StudioLeaveGuard;
 }): Shell {
@@ -151,7 +152,12 @@ export function createShell(deps: {
   let pendingCreate: ProjectId | null = null;
 
   function settlePendingCreate(): void {
-    if (pendingCreate === null || state.phase === "loading") return;
+    if (
+      pendingCreate === null ||
+      state.phase === "loading" ||
+      (state.phase === "error" && deps.awaitingLatest?.())
+    )
+      return;
     const project = pendingCreate;
     pendingCreate = null;
     if (state.phase === "running" && currentGame()?.projectId === project) setMode("create");

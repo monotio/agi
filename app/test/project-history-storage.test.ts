@@ -180,3 +180,151 @@ test("binary History blobs use owned byte rows and hydrate exact portable conten
   assert.deepEqual(row.content, Uint8Array.of(0, 255, 7));
   assert.deepEqual((await storage.loadAuthoredGame(request.projectId))!.projectHistory, offered);
 });
+
+test("library discovery reads the manifest; an open rejection offers raw recovery", async () => {
+  const { request } = capture("history-envelope-only");
+  await storage.commitProject(request);
+  const key = [...records.keys()].find((key) =>
+    String(key).startsWith(`project-history/${request.projectId}/blobs/`),
+  )!;
+  const row = records.get(key) as Record<string, unknown>;
+  records.set(key, { ...row, content: Uint8Array.of(213, 214, 215) });
+  const from = Array.from;
+  Array.from = ((value: unknown, ...args: unknown[]) => {
+    if (value instanceof Uint8Array && value[0] === 213)
+      throw new Error("Full History content was read");
+    return Reflect.apply(from, Array, [value, ...args]);
+  }) as typeof Array.from;
+  try {
+    assert.equal(
+      (await storage.listUnsupportedStoredProjects()).some(
+        (entry) => entry.projectId === request.projectId,
+      ),
+      false,
+    );
+    await assert.rejects(
+      storage.loadAuthoredGame(request.projectId),
+      /Full History content was read/,
+    );
+    assert.equal(
+      (await storage.listUnsupportedStoredProjects()).find(
+        (entry) => entry.projectId === request.projectId,
+      )?.state,
+      "corrupt",
+    );
+  } finally {
+    Array.from = from;
+    records.delete(key);
+    records.delete(request.projectId);
+  }
+});
+
+test("removing a corrupt project retires its rejected-open classification", async () => {
+  const { request } = capture("recreated-history");
+  await storage.commitProject(request);
+  const key = [...records.keys()].find((key) =>
+    String(key).startsWith(`project-history/${request.projectId}/blobs/`),
+  )!;
+  records.set(key, { ...(records.get(key) as object), content: 42 });
+  await assert.rejects(storage.loadAuthoredGame(request.projectId));
+  await storage.clearCachedGame(request.projectId);
+  await storage.commitProject({ ...request, commitId: "recreated" });
+  assert.equal(
+    (await storage.listUnsupportedStoredProjects()).some(
+      (entry) => entry.projectId === request.projectId,
+    ),
+    false,
+  );
+});
+
+test("recovery captures creative records and checks every record for encoding", async () => {
+  const { request } = capture("creative-recovery");
+  await storage.commitProject(request);
+  const body = records.get(request.projectId) as Record<string, unknown>;
+  records.set(request.projectId, { ...body, creative: { version: 1 } });
+  const keys = [`creative/${request.projectId}`, `creative/${request.projectId}/images/a`];
+  for (const key of keys) records.set(key, { projectId: key, bytes: Uint8Array.of(1, 255) });
+  const downloaded = JSON.parse(await storage.downloadUnsupportedStoredProject(request.projectId));
+  for (const key of keys) assert.match(JSON.stringify(downloaded.records), new RegExp(key));
+  records.set(keys[1]!, { projectId: keys[1], image: new Blob(["image"]) });
+  const card = (await storage.listUnsupportedStoredProjects()).find(
+    (entry) => entry.projectId === request.projectId,
+  )!;
+  assert.equal(card.recoverable, false);
+  await assert.rejects(
+    storage.downloadUnsupportedStoredProject(request.projectId),
+    /cannot preserve/,
+  );
+});
+
+test("recovery disables Download for an unencodable sibling History record", async () => {
+  const { request } = capture("unencodable-recovery");
+  await storage.commitProject(request);
+  records.set(request.projectId, { ...(records.get(request.projectId) as object), version: 999 });
+  records.set(`project-history/${request.projectId}/unknown`, {
+    projectId: `project-history/${request.projectId}/unknown`,
+    content: new Blob(["data"]),
+  });
+  const card = (await storage.listUnsupportedStoredProjects()).find(
+    (entry) => entry.projectId === request.projectId,
+  )!;
+  assert.equal(card.recoverable, false);
+});
+
+test("Home discovery reads project bodies without any History blob I/O", async () => {
+  const { request } = capture("home-history-io");
+  await storage.commitProject(request);
+  const get = records.get;
+  const reads: IDBValidKey[] = [];
+  records.get = function (key) {
+    reads.push(key);
+    return get.call(this, key);
+  };
+  try {
+    await storage.listUnsupportedStoredProjects();
+    await storage.reconcileGameIndex();
+    const { bindSavedProgressTarget } = await import("../src/project/progressBinding.ts");
+    await bindSavedProgressTarget(request.projectId);
+    assert.equal(
+      reads.some((key) => String(key).startsWith(`project-history/${request.projectId}/`)),
+      false,
+    );
+  } finally {
+    records.get = get;
+  }
+});
+
+test("History rejection is scoped to lifetime and successful validation clears it", async () => {
+  const { request } = capture("history-cache-lifetime");
+  await storage.commitProject(request);
+  const key = [...records.keys()].find((key) =>
+    String(key).startsWith(`project-history/${request.projectId}/blobs/`),
+  )!;
+  const original = structuredClone(records.get(key));
+  records.set(key, { ...(original as object), content: 42 });
+  await assert.rejects(storage.loadAuthoredGame(request.projectId));
+  assert.equal(
+    (await storage.listUnsupportedStoredProjects()).some(
+      (entry) => entry.projectId === request.projectId,
+    ),
+    true,
+  );
+  const lifetimeKey = `lifetime/${request.projectId}`;
+  const lifetime = records.get(lifetimeKey) as Record<string, unknown>;
+  records.set(lifetimeKey, { ...lifetime, epoch: "replacement-lifetime" });
+  assert.equal(
+    (await storage.listUnsupportedStoredProjects()).some(
+      (entry) => entry.projectId === request.projectId,
+    ),
+    false,
+  );
+  records.set(lifetimeKey, lifetime);
+  records.set(key, original);
+  assert.ok(await storage.loadAuthoredGame(request.projectId));
+  assert.equal(
+    (await storage.listUnsupportedStoredProjects()).some(
+      (entry) => entry.projectId === request.projectId,
+    ),
+    false,
+  );
+});

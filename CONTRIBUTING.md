@@ -72,7 +72,7 @@ server is already running, give the browser tests their own port:
 | `npm run language-server`                                    | LOGIC stdio language server; see docs/editor-setup.md                 |
 | `npm run lint`                                               | ESLint with zero warnings                                             |
 | `npm run lint:dead`                                          | Find unused files, exports and dependencies with knip                 |
-| `npm run lint:deps`                                          | Check import boundaries and cycles                                    |
+| `npm run lint:deps`                                          | Check import boundaries, Home static imports and cycles               |
 | `npm run mutation`                                           | Stryker mutation report for picture and editor kernels                |
 | `npm run mutation:test`                                      | Run the picture and editor tests used by mutation testing             |
 | `npm run lint:fix`                                           | Apply ESLint fixes                                                    |
@@ -104,6 +104,14 @@ deterministic stub provider, so browser tests run offline. Live
 model evaluations are described in [evals](evals/README.md). A paid run takes
 both `--live` and `--budget-usd` on the command line (`EVAL_LIVE=1` and a budget
 variable for the promptfoo comparisons).
+
+`npm run check` catches static imports of deferred Home modules in `lint:deps`,
+using the existing dependency graph. It follows imports and re-exports from the
+Home entry and earlier-progress activity; dynamic and type-only edges end a path.
+The source patterns and activity roots live in `scripts/deferred-modules.mjs`,
+shared with the bundle check. Failures show the import path; the step reports its
+elapsed time. `npm run check:bundle` remains the authority for emitted chunks
+after a production build.
 
 `npm run check:bundle` runs after `npm run build` and fails, in CI too, when the
 compressed JavaScript, CSS, fonts or workers loaded from opening Home to a catalog
@@ -204,7 +212,55 @@ the model and History while MAIN runs the previous image. `pendingRestart` names
 the reason and action; `restartWithChanges()` validates the complete current
 image before replacing the Engine, and `reenterRoom()` admits it at the same
 strict idle boundary as live edits before running real room-entry semantics.
-Both publish the running identity only after worker acknowledgement. Re-entry
+The workspace flush barrier drains editor submissions and awaits the session's
+IndexedDB acknowledgement. Edits arriving during either await are included until
+the queue and durable owner are both settled; continuous typing can extend that
+barrier. A refused edit identifies its document and retains its draft. Retry has
+the same success contract. Exit, project replacement and version naming await
+this barrier for writable sessions. Stale sessions can reload or leave; removed
+sessions can leave without writing. Download attempts the barrier and can offer the admitted project
+with a limitations report after a failure. Discard and exit deliberately retires
+pending editor work. Discard and exit and Back to game stay disabled while Retry is pending.
+A named version contains the visible documents, including invalid source, while
+the playable image remains the last admissible build. Restore, Undo and Redo keep
+their busy guards.
+
+Editor buffers stay in memory until accepted and saved, or explicitly discarded.
+Keep the tab open until it says Saved. Unsaved edits may be lost if the tab closes
+abruptly. A browser leave warning is registered while edits are unsaved or saving;
+hiding the page attempts a flush. Download unsaved edits reads current text,
+resource bytes and authoring metadata directly, including SOUND tempo, without
+compiling, saving or asking the worker. Download game contains accepted content.
+
+The journal carries accepted project captures whose storage acknowledgement could
+be interrupted. Recovery validates lifetime and base, then rebuilds the accepted
+image and History with an idempotent commit identity. The v1/v2 readers also retain
+older captures. Journals behind a newer write retain their original bytes with
+Download recovery data and Discard pending edits. Stale and removed sessions are
+read-only; their existing buffers remain visible for Download unsaved edits.
+Journal-producing callbacks stop before ownership is released. The IndexedDB
+lifetime/deletion fence prevents old writers from recreating removed data; a
+same-ID reimport starts a new lifetime.
+
+A writing session publishes journals only after its exclusive Web Lock callback
+has acquired ownership. Recovery requests that lock with `ifAvailable`, skips
+live owners, and acknowledges only exact observed entries. Browsers without
+`navigator.locks` open projects read-only with Download. Conditional IndexedDB
+commits fence project lifetimes and generations.
+
+Saved confirms project document storage, independently of runtime admission and
+play progress. Checkpoint preparation checks stored documents and returns not ready
+during saving or admission. Each acknowledgement requests a fresh checkpoint;
+preparation never waits for a future boundary or player input. Publication and clearing use a short
+per-project lock. Resume requires the exact executable revision, lifetime and
+compatible profile. An older position stays intact; Play and Create offer Start
+the latest version, explaining that a new saved position replaces the old one.
+Home binds progress from the body and lifetime; History blobs load when opened.
+A rejected History read keeps the original data available through raw Download.
+Its advisory rejection cache is scoped to lifetime and generation and clears
+when validation succeeds.
+
+Restart and re-entry publish the running identity only after worker acknowledgement. Re-entry
 preserves global state through `new.room`; room LOGIC controls subsequent actor
 placement and side effects. Each action opens a rewind segment with the admitted
 image, retaining the preceding run and its queued recording batches.

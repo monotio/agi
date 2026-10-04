@@ -14,6 +14,7 @@ import { PIT_BASE_FREQ } from "../../../../src/sound/sound.ts";
 import { VOCABULARY } from "../../../../src/vocabulary.ts";
 import { ref } from "vue";
 const props = defineProps<{
+  readOnly?: boolean;
   document: SoundDocument;
   tempo: number;
   division: number;
@@ -246,6 +247,10 @@ function down(event: PointerEvent): void {
         n.end > cell.tick,
     )
     .sort((a, b) => Number(b.event.lane === props.voice) - Number(a.event.lane === props.voice))[0];
+  if (props.readOnly) {
+    describe(hit);
+    return;
+  }
   if (event.button === 2) {
     if (hit) emit("edit", silenceSoundEvent(props.document, hit.event.id));
     return;
@@ -296,6 +301,7 @@ function finishEdit(event: PointerEvent): void {
   cursorTick.value = edit.start;
   drag = undefined;
   (event.currentTarget as HTMLCanvasElement).releasePointerCapture(event.pointerId);
+  if (props.readOnly) return;
   if (edit.hit && !edit.moving) emit("edit", silenceSoundEvent(props.document, edit.hit.event.id));
   else if (edit.row < pitchRows.value + drums.value.length || edit.hit) {
     const doc = edit.hit ? silenceSoundEvent(props.document, edit.hit.event.id) : props.document;
@@ -324,6 +330,11 @@ function key(event: KeyboardEvent): void {
   }
 }
 function keyEdit(event: KeyboardEvent): void {
+  if (props.readOnly && ["Enter", "Delete", "Backspace"].includes(event.key)) {
+    event.preventDefault();
+    event.stopPropagation();
+    return;
+  }
   const { step, row } = cursor.value,
     note = hitAt(step, row, cursorTick.value);
   if (event.key === "Enter") {
@@ -344,7 +355,7 @@ function keyEdit(event: KeyboardEvent): void {
     if (note) emit("edit", silenceSoundEvent(props.document, note.event.id));
   } else if (["ArrowLeft", "ArrowRight"].includes(event.key)) {
     const direction = event.key === "ArrowLeft" ? -1 : 1;
-    if (event.shiftKey && note) {
+    if (event.shiftKey && note && !props.readOnly) {
       const length = Math.max(
         1,
         note.event.durationTicks +

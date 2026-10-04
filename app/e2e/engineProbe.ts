@@ -632,3 +632,18 @@ export async function cacheGame(
   // page's module loads outright, so callers reload only once they settle.
   await page.waitForLoadState("networkidle");
 }
+
+/** Visibility selection and measurement share one DOM read across the GPU handoff. */
+export async function surfaceBox(
+  page: Page,
+): Promise<{ x: number; y: number; width: number; height: number }> {
+  return page.locator(".game-surface").evaluateAll((surfaces) => {
+    const boxes = surfaces
+      .map((surface) => surface.getBoundingClientRect())
+      .filter((box) => box.width > 0 && box.height > 0);
+    if (boxes.length !== 1)
+      throw new Error(`Expected one visible game surface; found ${boxes.length}.`);
+    const { x, y, width, height } = boxes[0]!;
+    return { x, y, width, height };
+  });
+}

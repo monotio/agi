@@ -26,7 +26,10 @@ Run TypeScript scripts with Node.js 22.22 or newer and
 ## Check tools
 
 `lint-deps.mjs`, `dependency-report.mjs`, `check-ast-grep-suppressions.mjs` and
-`check-design-tokens.mjs` run through the `lint:*` scripts. `check-bundle-budget.ts`
-reads built output after `npm run build`. Use `npm run lint:tokens -- --update`
+`check-design-tokens.mjs` run through the `lint:*` scripts. `lint-deps.mjs` also
+checks Home's static import closure during `npm run check`, sharing source
+boundaries with `check-bundle-budget.ts` through `deferred-modules.mjs`.
+`check-bundle-budget.ts` verifies emitted chunks after `npm run build`.
+Use `npm run lint:tokens -- --update`
 to record a reviewed token cleanup. Mutation testing uses `mutation:test` as its
 test command and writes its report under `reports/mutation/`.

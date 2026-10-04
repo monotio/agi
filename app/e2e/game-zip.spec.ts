@@ -30,10 +30,13 @@ test("a friend opens an exported world in a fresh browser without a key @webkit-
   await expect(page.getByTestId("input-line")).toBeVisible();
   await expect.poll(async () => (await textHook(page)).frame).toBeGreaterThan(0);
   await expect.poll(async () => (await textHook(page)).cycle).toBeGreaterThan(0);
-  if ((await textHook(page)).modal) {
-    await page.keyboard.press("Enter");
-    await expect.poll(async () => (await textHook(page)).modal).toBeNull();
-  }
+  // Room 1's entry LOGIC opens a print window; finish it so "east" reaches the parser.
+  await expect.poll(async () => (await textHook(page)).modal).toBe("print");
+  await expect
+    .poll(async () => (await textHook(page)).rows.join(" "))
+    .toContain("generated room 1.");
+  await page.keyboard.press("Enter");
+  await expect.poll(async () => (await textHook(page)).modal).toBeNull();
   await page.getByTestId("input-line").fill("east");
   await page.getByTestId("input-line").press("Enter");
   await expect
@@ -58,10 +61,13 @@ test("a friend opens an exported world in a fresh browser without a key @webkit-
     await friend.getByTestId("btn-resume-cached").click();
     await expect(friend.getByTestId("input-line")).toBeVisible();
     await expect.poll(async () => (await textHook(friend)).room).toBe(1);
-    if ((await textHook(friend)).modal) {
-      await friend.keyboard.press("Enter");
-      await expect.poll(async () => (await textHook(friend)).modal).toBeNull();
-    }
+    // new.room posts its room before the entry LOGIC opens its print window.
+    await expect.poll(async () => (await textHook(friend)).modal).toBe("print");
+    await expect
+      .poll(async () => (await textHook(friend)).rows.join(" "))
+      .toContain("generated room 1.");
+    await friend.keyboard.press("Enter");
+    await expect.poll(async () => (await textHook(friend)).modal).toBeNull();
     await friend.getByTestId("input-line").fill("east");
     await friend.getByTestId("input-line").press("Enter");
     await expect
@@ -118,10 +124,14 @@ test("a friend opens an exported world in a fresh browser without a key @webkit-
     await friend.getByTestId("input-line").fill("west");
     await friend.getByTestId("input-line").press("Enter");
     await expect.poll(async () => (await textHook(friend)).room).toBe(1);
-    if ((await textHook(friend)).modal) {
-      await friend.keyboard.press("Enter");
-      await expect.poll(async () => (await textHook(friend)).modal).toBeNull();
-    }
+    // new.room posts its room before the entry LOGIC opens its print window.
+    // Finish that interaction before the agent can defer its image behind it.
+    await expect.poll(async () => (await textHook(friend)).modal).toBe("print");
+    await expect
+      .poll(async () => (await textHook(friend)).rows.join(" "))
+      .toContain("generated room 1.");
+    await friend.keyboard.press("Enter");
+    await expect.poll(async () => (await textHook(friend)).modal).toBeNull();
     const exported = await readGameZip(bytes);
     const originalSource = disassembleLogic(
       openContainer(new Map(Object.entries(exported.files))).getResource("logic", 1)!,
@@ -184,6 +194,34 @@ test("a friend opens an exported world in a fresh browser without a key @webkit-
       .toContain("Remixed room one.");
     expect(remixRequests).toHaveLength(2);
     await friend.screenshot({ path: test.info().outputPath("shared-zip-remixed.png") });
+    await friend.keyboard.press("Enter");
+    await expect.poll(async () => (await textHook(friend)).modal).toBeNull();
+    const remixDownloading = friend.waitForEvent("download");
+    await openGameOptions(friend, "settings-menu");
+    await friend.getByTestId("btn-export-game").click();
+    const remixedZip = await remixDownloading;
+    const remixedArchive = await readGameZip(await readFile((await remixedZip.path())!));
+    const remixedLogic = openContainer(new Map(Object.entries(remixedArchive.files))).getResource(
+      "logic",
+      1,
+    )!;
+    expect(Array.from(remixedLogic)).toEqual(
+      Array.from(assembleLogic(patchedSource, { dictionary: new Map(exported.words) }).payload),
+    );
+    const remixedBrowser = await browser.newContext();
+    try {
+      const recipient = await remixedBrowser.newPage();
+      await keepDetectedProfile(recipient);
+      await recipient.goto(page.url());
+      await recipient.getByTestId("game-zip-input").setInputFiles((await remixedZip.path())!);
+      await recipient.getByTestId("btn-resume-cached").click();
+      await expect
+        .poll(async () => (await textHook(recipient)).rows.join(" "))
+        .toContain("Remixed room one.");
+      await recipient.screenshot({ path: test.info().outputPath("remixed-zip-fresh-browser.png") });
+    } finally {
+      await remixedBrowser.close();
+    }
   } finally {
     await context.close();
   }

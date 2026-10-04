@@ -18,5 +18,15 @@ export function historyBlobKeys(id: string, history: StoredProjectHistory | unde
     new Set(history.blobs).size !== history.blobs.length
   )
     throw new Error("Invalid stored project History blob list.");
+  if (
+    !Array.isArray(history.commits) ||
+    !Array.isArray(history.future) ||
+    (history.cursor !== null && typeof history.cursor !== "string") ||
+    history.tags === null ||
+    typeof history.tags !== "object" ||
+    Array.isArray(history.tags) ||
+    (history.prunedParents !== undefined && !Array.isArray(history.prunedParents))
+  )
+    throw new Error("Invalid stored project History manifest.");
   return history.blobs.map((hash) => projectHistoryBlobKey(id, hash));
 }

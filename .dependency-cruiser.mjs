@@ -1,3 +1,5 @@
+import { STUDIO_MODULES } from "./scripts/deferred-modules.mjs";
+
 // Modules of the AI authoring stack that reach Studio kernels. The app loads
 // the stack through one dynamic import (app/src/agent/authoringLoader.ts), and
 // scripts/check-bundle-budget.ts fails a build that puts these on the Play
@@ -53,7 +55,7 @@ export default {
         ],
       },
       to: {
-        path: "^(?:app/src/studio/|src/studio/)",
+        path: STUDIO_MODULES.map((pattern) => pattern.source),
         dependencyTypesNot: ["dynamic-import", "type-only"],
       },
     },

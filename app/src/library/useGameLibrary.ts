@@ -673,7 +673,12 @@ export function createGameLibrary(
       return;
     const proof = readGameProgress(localStorage, target).autosave;
     if (proof === null || JSON.stringify(proof) !== JSON.stringify(record)) return;
-    await resumeFromRecord(record, llmConfig(), target.locator);
+    if (target.kind === "project" && record.game.identity.revision !== target.identity.revision) {
+      offerLatestVersion(target);
+      return;
+    }
+    if (!(await resumeFromRecord(record, llmConfig(), target.locator)) && state.phase === "error")
+      offerLatestVersion(target, state.error);
     refreshPendingAutosave();
   }
 
@@ -738,9 +743,16 @@ export function createGameLibrary(
   async function routedResume(key: string): Promise<"resumed" | "absent" | "refused"> {
     const offer = await routedResumeOffer(key);
     if (offer === null) return "absent";
-    return (await resumeFromRecord(offer.record, llmConfig(), offer.target.locator))
-      ? "resumed"
-      : "refused";
+    if (
+      offer.target.kind === "project" &&
+      offer.record.game.identity.revision !== offer.target.identity.revision
+    ) {
+      offerLatestVersion(offer.target);
+      return "refused";
+    }
+    const resumed = await resumeFromRecord(offer.record, llmConfig(), offer.target.locator);
+    if (!resumed && state.phase === "error") offerLatestVersion(offer.target, state.error);
+    return resumed ? "resumed" : "refused";
   }
 
   const currentCreationProjectId = ref<ProjectId>();
@@ -869,7 +881,7 @@ export function createGameLibrary(
         recoveryId = removed.recoveryId;
         for (const entry of observed)
           if (localStorage.getItem(entry.key) === entry.value) localStorage.removeItem(entry.key);
-        clearAutosave(removed.retiredLocator);
+        await clearAutosave(removed.retiredLocator);
         clearGameSaves(localStorage, removed.retiredLocator);
         removeMapSidecar(localStorage, removed.retiredLocator);
         clearPlayerSentences(localStorage, id);
@@ -925,6 +937,53 @@ export function createGameLibrary(
     }
   }
 
+  const latestVersion = shallowRef<ProgressTarget>();
+  const latestVersionAtHero = shallowRef(false);
+  function dismissLatestVersion(): void {
+    latestVersion.value = undefined;
+    state.error = "";
+    state.phase = "idle";
+  }
+  function offerLatestVersion(target: ProgressTarget, cause?: string): void {
+    if (target.kind !== "project") return;
+    latestVersionAtHero.value =
+      typeof document !== "undefined" && !!document.activeElement?.closest(".hero");
+    latestVersion.value = target;
+    state.phase = "error";
+    state.error = cause?.includes("Start the latest version?")
+      ? cause
+      : `${cause ?? "This play position belongs to an earlier version of the game. Your project is safe."} Start the latest version? The old position is replaced when the new run saves.`;
+  }
+  watch(
+    () => state.phase,
+    (phase) => {
+      if (phase === "running" || phase === "idle") latestVersion.value = undefined;
+    },
+  );
+  async function startLatestVersion(): Promise<void> {
+    const offer = latestVersion.value;
+    if (offer?.kind !== "project" || libraryActionBusy.value) return;
+    const context = selectionContext;
+    let target: ProjectProgressTarget | null;
+    try {
+      target = await bindSaved(offer.project);
+    } catch (error) {
+      if (selectionContext === context && latestVersion.value === offer)
+        libraryActionError.value = String(error).replace(/^Error: /, "");
+      return;
+    }
+    if (selectionContext !== context || latestVersion.value !== offer) return;
+    const game = getCachedGameMeta(offer.project);
+    if (target === null || game === null) {
+      refreshLibrary();
+      state.error = "";
+      state.phase = "idle";
+      return;
+    }
+    selectLibraryGame(game);
+    await onBootSavedGame(false, selectionContext, target);
+  }
+
   async function onPlayLibraryGame(
     game: CachedGameMeta,
     expected?: ProgressTarget,
@@ -950,9 +1009,7 @@ export function createGameLibrary(
       target !== null &&
       autosave.game.identity.revision !== target.identity.revision
     ) {
-      state.phase = "error";
-      state.error =
-        "This checkpoint belongs to a different revision. Restore its matching game resources or open Earlier progress.";
+      offerLatestVersion(target);
       return;
     }
     if (target === null || autosave === null) {
@@ -982,8 +1039,11 @@ export function createGameLibrary(
           target.locator,
           () => selectionContext === context && (isCurrent?.() ?? true),
         ))
-      )
+      ) {
+        if (state.phase === "error" && selectionContext === context && (isCurrent?.() ?? true))
+          offerLatestVersion(target, state.error);
         refreshLibrary();
+      }
     } catch (error) {
       libraryActionError.value = String(error).replace(/^Error: /, "");
     } finally {
@@ -1403,12 +1463,6 @@ export function createGameLibrary(
     // The live capture is the runtime's own boot object — its immutable
     // progress binding and the interpreter it runs under — never a fresh
     // CurrentGame DTO, whose object identity says nothing.
-    const game = live ? getBootedGame() : null;
-    const liveTarget = game?.progressTarget;
-    const liveRevision = game?.revision;
-    const liveProfile = live ? state.profile : null;
-    const liveRemoved = game?.removed;
-    const liveBehindStorage = game?.behindStorage;
     exportRefusal.value = "";
     if (exportBusy.value) {
       exportRefusal.value = "A download is already in progress.";
@@ -1417,14 +1471,26 @@ export function createGameLibrary(
     exportBusy.value = true;
     if (live && project) engine.pauseEngine("backup");
     try {
-      const notes: string[] = [];
-      if (live && project && !(await flushAutosave(2000)))
-        notes.push(
-          "Browser storage did not save the latest progress; this backup uses a direct worker checkpoint when available.",
-        );
+      const exportResult = live ? await exportCurrentGame() : null;
+      const game = live ? getBootedGame() : null;
+      const liveTarget = game?.progressTarget;
+      const liveRevision = game?.revision;
+      const liveProfile = live ? state.profile : null;
+      const liveRemoved = game?.removed;
+      const liveBehindStorage = game?.behindStorage;
+      const liveStale = state.staleTab;
+      const notes: string[] = [...(exportResult?.notes ?? [])];
+      if (
+        live &&
+        project &&
+        !liveRemoved &&
+        !liveBehindStorage &&
+        !liveStale &&
+        !(await flushAutosave(2000).catch(() => false))
+      )
+        notes.push("Your newest play position could not be saved first.");
       if (live && getBootedGame() !== game)
         throw new Error("The game changed during download. Try again.");
-      const exportResult = live ? await exportCurrentGame() : null;
       if (live && exportResult) {
         // The assembled offer must be the captured runtime's own: the same
         // binding object it resolved at entry and the same full native
@@ -1482,7 +1548,7 @@ export function createGameLibrary(
       // binding captured at entry, or the stored body's epoch target. No
       // bare legacy spelling or derived key ever reaches storage here.
       const ownerTarget: ProgressTarget | undefined = live
-        ? liveRemoved === true
+        ? liveRemoved === true || liveBehindStorage === true || liveStale
           ? undefined
           : liveTarget
         : (storedTarget ?? undefined);
@@ -1530,11 +1596,13 @@ export function createGameLibrary(
         : undefined;
       if (progressReadFailed)
         notes.push(
-          "Some previously saved progress could not be read and may be missing from this backup.",
+          "Some saved play positions could not be read. Try downloading again to keep them.",
         );
       if (live && project && ownerTarget === undefined)
         notes.push(
-          "The running game's stored body is gone; its saved progress, map and history are not included.",
+          liveRemoved
+            ? "Saved play positions, the map and saved play history were removed with the project."
+            : "This ZIP leaves out saved play positions, the map and play history. Download them from the tab with the latest game.",
         );
       // The reply owns a current checkpoint independently of browser storage.
       const snapshot = recovery as Awaited<ReturnType<EngineApi["recoverHistory"]>> | null;
@@ -1573,12 +1641,12 @@ export function createGameLibrary(
           progress.autosave = record;
         } else {
           notes.push(
-            "The running game's checkpoint could not be verified against the exported resources and is not included.",
+            "This play position could not be matched to the game. Keep this tab open and try downloading again.",
           );
         }
       } else if (live && project) {
         notes.push(
-          "Current progress could not be captured; only previously saved progress is included.",
+          "The ZIP has your last saved play position. Keep this tab open and download again to include the newest one.",
         );
       }
       // The map sidecar is read and detached before the remaining awaited
@@ -1642,7 +1710,8 @@ export function createGameLibrary(
           (game !== null && computeResourceRevision(game.files) !== liveRevision) ||
           state.profile !== liveProfile ||
           game?.removed !== liveRemoved ||
-          game?.behindStorage !== liveBehindStorage
+          game?.behindStorage !== liveBehindStorage ||
+          state.staleTab !== liveStale
         )
           throw new Error("The game changed during download. Try again.");
       } else {
@@ -1665,7 +1734,9 @@ export function createGameLibrary(
       a.click();
       URL.revokeObjectURL(url);
       if (backup && !backup.report.complete)
-        exportRefusal.value = `Backup downloaded with limitations: ${backup.report.notes.join(" ")}`;
+        exportRefusal.value = `Downloaded the game. ${backup.report.notes.join(" ")}`;
+      else if (!project && notes.length > 0)
+        exportRefusal.value = `Downloaded the game. ${notes.join(" ")}`;
     } catch (error) {
       exportRefusal.value = `Download failed: ${String(error).replace(/^Error: /, "")}`;
     } finally {
@@ -1746,6 +1817,10 @@ export function createGameLibrary(
     onBootSavedGame,
     onClearSavedGame,
     onPlayLibraryGame,
+    latestVersion,
+    latestVersionAtHero,
+    dismissLatestVersion,
+    startLatestVersion,
     onStartLibraryGameOver,
     onCheckLibraryGame,
     onCopyLibraryGame,

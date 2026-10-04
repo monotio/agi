@@ -252,7 +252,7 @@ defineExpose({ toggle, close, open });
           :disabled="exportBusy || state.powerUp.busy"
           @click="act(() => emit('export-zip', true))"
         >
-          <span>Download game…<small>The whole project: edits, saves and history</small></span>
+          <span>Download game…<small>Project files and available saves and history</small></span>
         </button>
         <button
           type="button"
