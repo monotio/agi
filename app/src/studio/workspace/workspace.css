@@ -38,6 +38,28 @@
 .shell-body--workspace.shell-body--picture {
   grid-template-columns: var(--workspace-parts) minmax(0, 1fr) !important;
 }
+.workspace-inspector {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 5;
+  width: min(360px, 100%);
+  padding: var(--space-5);
+  box-sizing: border-box;
+  overflow: auto;
+  background: var(--surface-1);
+  border-left: 1px solid var(--hairline);
+  box-shadow: var(--shadow-pop);
+}
+.workspace-inspector > header {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: var(--space-5);
+}
+.shell-body.is-resizing .play-area .game-surface {
+  max-width: 100%;
+}
 .shell-body--workspace.shell-body--picture > .workspace-editor {
   grid-column: 2;
 }

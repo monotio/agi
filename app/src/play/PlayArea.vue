@@ -10,6 +10,7 @@ import {
   useTemplateRef,
   watch,
 } from "vue";
+import { layoutDragging } from "./layoutDrag.ts";
 import { PAGE_CONTROLS } from "./useGameKeys.ts";
 
 import TouchControls from "./TouchControls.vue";
@@ -106,11 +107,15 @@ const stageBox = ref<{ width: number; height: number }>();
 watch(stageEl, (el) => {
   if (!el) return;
   const observer = new ResizeObserver(([entry]) => {
-    if (entry)
+    if (entry && !layoutDragging.value)
       stageBox.value = { width: entry.contentRect.width, height: entry.contentRect.height };
   });
   observer.observe(el);
   onWatcherCleanup(() => observer.disconnect());
+});
+watch(layoutDragging, (dragging) => {
+  const el = stageEl.value;
+  if (!dragging && el) stageBox.value = { width: el.clientWidth, height: el.clientHeight };
 });
 const stageStyle = computed(() => {
   const box = stageBox.value;

@@ -203,6 +203,13 @@ export function useStudioEditing(options: {
     return outcome.ok;
   }
 
+  function removePoint(line: number, pointIndex: number): boolean {
+    return run(
+      (target) => ({ type: "removePoint", itemId: target.id, line, pointIndex }),
+      "Delete point",
+    );
+  }
+
   function remove(): boolean {
     const done = several.value
       ? runAll((target) => ({ type: "deleteItem", itemId: target.id }), "Delete")
@@ -346,6 +353,7 @@ export function useStudioEditing(options: {
     report,
     nudge,
     duplicate,
+    removePoint,
     remove,
     reorder,
     setColour,

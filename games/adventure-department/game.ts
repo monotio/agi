@@ -158,9 +158,9 @@ function hint(text: string): string {
 
 /** The line each repair ends with: where to see how it works. */
 const STUDIO_LINE: Readonly<Record<number, string>> = {
-  1: "Curious how it works? Switch to CREATE and open this room in Room Studio.",
-  2: "Curious how it works? Switch to CREATE and open the robot in Sprite Studio.",
-  3: "Curious how it works? Switch to CREATE, open this room in Room Studio and try the Depth lens.",
+  1: "Curious how it works? Choose Create, then open this room's PICTURE editor.",
+  2: "Curious how it works? Choose Create, then open the robot's VIEW editor.",
+  3: "Curious how it works? Choose Create, open this room's PICTURE editor and try Depth.",
 };
 
 /**
@@ -566,7 +566,7 @@ return;
 #message 18 "You see nothing special about that."
 #message 19 "Felix would rather you didn't. Everything here is filed exactly where it belongs."
 #message 20 "Felix, busy behind his counter. Priority 10: one step behind the counter's 11."
-#message 21 "A tall ledger stand with a paper tag on it: DEPTH PENDING. It has no depth number of its own yet, so if you walk behind it you float in front! Fixing that is a job for Room Studio."
+#message 21 "A tall ledger stand with a paper tag on it: DEPTH PENDING. Give it depth in Create, in the PICTURE editor, so you walk behind it."
 #message 22 "The depth chart: every priority from 4 (far away, at the top) to 15 (right in front). SHOW PRIORITY paints the room in these colours."
 #message 23 "A globe of a world where every adventure is still waiting to be written."
 #message 24 "A map of the Adventure Department: the red gallery, the blue lab and the green archive. You are here."
@@ -583,7 +583,7 @@ return;
 #message 35 "Felix's priority is fixed already. He's exactly where he belongs."
 #message 36 "A thick red carpet. It muffles footsteps, and Felix likes it quiet."
 #message 37 "Wait: you're BEHIND the ledger stand, yet you float in front of it! The tag on it says DEPTH PENDING. Nobody has given the stand a depth number yet."
-#message 38 "The stand's depth isn't a typed fix. It's a Room Studio job: LOOK STAND explains."
+#message 38 "Change the stand's depth in Create, in the PICTURE editor. LOOK STAND explains."
 #message 39 "You're too far away. Walk up to Felix's counter, then FIX PRIORITY."
 
 if (isset(f5)) {

@@ -311,7 +311,7 @@ test("every tutorial picture fill seed lands on a white interior", () => {
 test("tutorial resources are pinned to the released catalog version", async () => {
   assert.equal(
     await gameRevision(buildTutorial().files),
-    "d501d87b3f00fa1e31615dae3cb29b138d4b509d7a10cc1d88778f2f3e3c834e",
+    "0461fc576fd342733d9a3484d8135e40c9b2ae0d46a43d7e7ea89e6adbbf8137",
     "tutorial resources changed: re-pin this revision (the version stays 1.2.0 until the release; bump it in app/src/library/gameCatalog.ts only for a published release)",
   );
 });
@@ -1003,9 +1003,9 @@ test("the parser answers hugs, questions and the exhibits' other names", () => {
   enter(engine, host, "east");
   assert.equal(
     reply("fix stand"),
-    "The stand's depth isn't a typed fix. It's a Room Studio job: LOOK STAND explains.",
+    "Change the stand's depth in Create, in the PICTURE editor. LOOK STAND explains.",
   );
-  assert.match(reply("fix ledger"), /Room Studio job/);
+  assert.match(reply("fix ledger"), /PICTURE editor/);
   assert.equal(engine.flags[32], 0);
   walkToCounter(engine, host);
   assert.match(reply("give felix priority"), /You change Felix from priority 15 to 10/);

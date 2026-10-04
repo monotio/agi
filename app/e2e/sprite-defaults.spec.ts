@@ -11,7 +11,7 @@ import { expect, reviewShot, test } from "./test.ts";
 /**
  * Sprite Studio's defaults: the side panel opens at its essentials (Palette,
  * the cel with its mirror chip, Details closed, Preview, In room, Ask folded)
- * and fits the window without a scroll at 1440×900 and 1024×600; Details is
+ * and keeps both previews reachable at 1440×900 and 1024×600; Details is
  * remembered per viewer; the Onion menu holds Before, After and how many
  * cels; and the mirror chip's Edit both edits the pair.
  */
@@ -46,36 +46,50 @@ for (const [width, height] of [
   [1440, 900],
   [1024, 600],
 ] as const)
-  test(`at ${width}×${height} the side panel opens at its essentials and fits`, async ({
+  test(`at ${width}×${height} the side panel opens its essentials and keeps both previews reachable`, async ({
     page,
   }) => {
     await page.setViewportSize({ width, height });
     await playTutorial(page);
     const studio = await openApprentice(page);
     const panel = studio.getByRole("complementary", { name: "Cel, previews and linked loops" });
+    await expect(panel).toBeVisible();
     expect(await sections(panel)).toEqual([
       "sprite-palette",
       "sprite-cel-panel",
       "sprite-cel-details",
       "sprite-preview",
+      "sprite-room-preview",
     ]);
+    await expect(studio.getByTestId("sprite-palette").locator("h3")).toBeVisible();
     await expect(studio.getByTestId("sprite-palette").locator("h3")).toHaveText("Palette");
+    await expect(studio.getByTestId("sprite-transparent")).toBeVisible();
     await expect(studio.getByTestId("sprite-transparent")).toHaveText("Transparent colour");
+    await expect(studio.getByTestId("sprite-cel-summary")).toBeVisible();
     await expect(studio.getByTestId("sprite-cel-summary")).toHaveText("Cel 0 · Loop 0");
+    await expect(studio.getByTestId("sprite-cel-size")).toBeVisible();
     await expect(studio.getByTestId("sprite-cel-size")).toHaveText("10 × 32");
+    await expect(studio.getByTestId("sprite-mirror-text")).toBeVisible();
     await expect(studio.getByTestId("sprite-mirror-text")).toHaveText("Loop 1 mirrors this");
+    await expect(studio.getByTestId("sprite-propagate")).toBeVisible();
     await expect(studio.getByTestId("sprite-propagate")).toHaveText("Edit both");
     await expect(studio.getByTestId("sprite-cel-details")).toHaveAttribute(
       "aria-expanded",
       "false",
     );
     await expect(studio.getByTestId("sprite-cel-details-body")).toHaveCount(0);
+    await expect(studio.getByTestId("sprite-tool-options")).toBeVisible();
     await expect(studio.getByTestId("sprite-tool-options")).toHaveText(/^Pencil\s*11 light cyan/);
+    await expect(studio.locator('[data-testid="sprite-bytes"]')).toBeVisible();
     await expect(studio.locator('[data-testid="sprite-bytes"]')).toHaveText(/^[\d,]+ bytes$/);
 
-    // Nothing to scroll: the panel shows every section, the page nothing sideways.
-    const fits = await panel.evaluate((element) => element.scrollHeight <= element.clientHeight);
-    expect(fits, "the side panel has no vertical overflow").toBe(true);
+    // Both previews remain reachable in the shared panel at each height.
+    for (const id of ["sprite-preview", "sprite-room-preview"]) {
+      const preview = studio.getByTestId(id);
+      await expect(preview).toBeVisible();
+      await preview.scrollIntoViewIfNeeded();
+      await expect(preview).toBeInViewport();
+    }
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
       width,
     );

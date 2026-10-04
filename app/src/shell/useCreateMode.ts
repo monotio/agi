@@ -1,11 +1,5 @@
-/**
- * Create mode's wiring in the shell root: the real panels behind the dock
- * placeholders and the Resources tab, the inspector and the assistant following their tabs, Room
- * Studio closing whenever the live stage has to come back, and the `[` / `]`
- * dock keys. App.vue calls it once, beside the workspace it provides.
- */
-import { defineAsyncComponent, onScopeDispose, watch, type ComputedRef, type Ref } from "vue";
-import { registerCreatePanel } from "./createDocks.ts";
+/** Create mode follows the room and hands studio requests back to play on exit. */
+import { watch, type ComputedRef, type Ref } from "vue";
 import type { CreateWorkspace } from "./useCreateWorkspace.ts";
 import type { EngineState } from "../engine/useEngineTypes.ts";
 import type { RoomMap } from "../world/useRoomMap.ts";
@@ -31,82 +25,12 @@ export function useCreateMode(deps: {
   debugOpen: Ref<boolean>;
   gameInput: () => Element | null | undefined;
 }) {
-  const { state, workspace, creating, phone, debugOpen } = deps;
+  const { state, workspace, creating, phone } = deps;
 
-  // Each entry to Create opens the World panel on the room the player is in.
+  // Each entry to Create follows the room the player is in.
   watch(creating, (inCreate) => {
     const map = deps.roomMap();
     if (inCreate && map) map.followsPlayer.value = true;
-  });
-
-  // Create's World tab loads the map panel when it first opens.
-  const loadWorldPanel = () => import("../world/WorldPanel.vue");
-  const world = {
-    id: "world",
-    dock: "left",
-    title: "World",
-    icon: "map",
-    order: 0,
-    component: defineAsyncComponent(loadWorldPanel),
-  } as const;
-  const offWorld = registerCreatePanel(world);
-  const offs = [
-    registerCreatePanel({
-      id: "resources",
-      dock: "left",
-      title: "Resources",
-      icon: "image",
-      order: 1,
-      component: defineAsyncComponent(() => import("../world/ResourcesPanel.vue")),
-    }),
-    registerCreatePanel({
-      id: "inspect",
-      dock: "right",
-      title: "Inspect",
-      icon: "inspect",
-      order: 1,
-      component: defineAsyncComponent(() => import("../inspector/InspectPanel.vue")),
-    }),
-    registerCreatePanel({
-      id: "activity",
-      dock: "right",
-      title: "Activity",
-      icon: "history",
-      order: 2,
-      component: defineAsyncComponent(() => import("./ActivityPanel.vue")),
-    }),
-  ];
-  onScopeDispose(() => {
-    offWorld();
-    offs.forEach((off) => off());
-  });
-
-  /** The Inspect tab is showing: its controls are docked, not floating. */
-  const inspectShown = (): boolean =>
-    creating.value &&
-    (phone.value
-      ? workspace.active.sheet === "inspect"
-      : workspace.active.right === "inspect" && !workspace.collapsed.right);
-
-  // In Create the inspector is on exactly while its tab shows; entering
-  // Create with it on opens the tab, leaving Create turns it off.
-  watch(
-    () => [creating.value, inspectShown()] as const,
-    ([inCreate, shown], previous) => {
-      if (inCreate && !previous?.[0] && debugOpen.value && !shown) {
-        workspace.showPanel("inspect");
-        return;
-      }
-      if (inCreate) debugOpen.value = shown;
-      else if (previous?.[0]) debugOpen.value = false;
-    },
-  );
-
-  // Switching the inspector on or off elsewhere (Settings → Inspector)
-  // moves to or away from its tab in Create.
-  watch(debugOpen, (on) => {
-    if (!creating.value || on === inspectShown()) return;
-    workspace.showPanel(on ? "inspect" : "assistant");
   });
 
   // An assistant turn that opens in Create shows its tab.
@@ -117,16 +41,11 @@ export function useCreateMode(deps: {
     },
   );
 
-  // The live stage comes back whenever Create is left, the game stops, or
-  // the window turns too small for Studio (a rotated phone) while it holds
-  // nothing unkept. With unkept changes Studio stays mounted under its
-  // small-screen notice until the layout fits again or they are settled.
+  // Leave a pending studio request when play or a walkthrough takes over.
   watch(
-    () =>
-      [creating.value, state.phase, state.walkthrough.active, workspace.studioFits.value] as const,
-    ([inCreate, phase, watching, fits]) => {
+    () => [creating.value, state.phase, state.walkthrough.active] as const,
+    ([inCreate, phase, watching]) => {
       if (!inCreate || phase !== "running" || watching) workspace.closeStudio();
-      else if (!fits && !workspace.studioUnkept()) workspace.closeStudio();
     },
   );
 

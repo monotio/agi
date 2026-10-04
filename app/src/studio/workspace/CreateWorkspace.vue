@@ -16,6 +16,12 @@ import type {
   ProjectHistoryState,
 } from "../../../../src/authoring/projectHistoryData.ts";
 import type { ProjectSession } from "../../project/projectSession.ts";
+import { layoutDragging } from "../../play/layoutDrag.ts";
+import { usePresentation } from "../../play/usePresentation.ts";
+import { workspaceStudioContext } from "./studioContext.ts";
+import type { PlayHereTarget } from "../../../../src/runtime/playHere.ts";
+import type { BindingKind } from "../../../../src/agent/authoringState.ts";
+import type { EngineStateReport, ScreenObjectState } from "../../../../src/runtime/engine.ts";
 import { useEngineApi } from "../../engine/engineContext.ts";
 import { useCreateWorkspace } from "../../shell/useCreateWorkspace.ts";
 import { useWorkspaceEditor } from "../../shell/workspaceEditor.ts";
@@ -59,6 +65,8 @@ const DebugControls = defineAsyncComponent(() => import("./WorkspaceDebugControl
 const engine = useEngineApi();
 const workspace = useCreateWorkspace();
 const editor = useWorkspaceEditor();
+const presentation = usePresentation();
+const InspectPanel = defineAsyncComponent(() => import("../../inspector/InspectPanel.vue"));
 function openPart(key: string, pinned = false): void {
   if (window.innerWidth <= 1280 && engine.state.powerUp.open) engine.closePowerUp();
   editor.open(key, pinned);
@@ -301,6 +309,121 @@ const revision = computed(() => snapshot.value?.lastAdmissibleBuild?.identity.re
 const files = computed(
   () => snapshot.value?.lastAdmissibleBuild?.files() ?? new Map<string, Uint8Array>(),
 );
+const livePreview = shallowRef<{
+  state: EngineStateReport | null;
+  objects: readonly ScreenObjectState[];
+}>({ state: null, objects: [] });
+let previewRead = 0;
+watch(
+  [editor.selected, revision, engine.roomMap.currentRoom],
+  async () => {
+    const ticket = ++previewRead;
+    const [state, objects] = await Promise.all([
+      engine.readEngineState().catch(() => null),
+      engine.readObjects().catch(() => []),
+    ]);
+    if (ticket === previewRead && !retired) livePreview.value = { state, objects };
+  },
+  { immediate: true },
+);
+const studioContext = computed(() =>
+  workspaceStudioContext(
+    files.value,
+    snapshot.value?.lastAdmissibleBuild?.documents() ?? {},
+    profile.value,
+    engine.roomMap.graph.value.nodes.map((node) => ({ room: node.room, title: node.title ?? "" })),
+  ),
+);
+const pictureWalks = computed(() =>
+  Object.fromEntries(
+    editor.retained.value
+      .filter((key) => key.startsWith("picture:"))
+      .map((key) => {
+        const request = editor.studioRequests.value[key];
+        const uses = groups.value
+          .flatMap((group) => group.entries)
+          .filter((row) => row.key === key && row.room !== undefined);
+        const room =
+          request?.kind === "picture"
+            ? request.room
+            : (uses.find((row) => row.room === engine.roomMap.currentRoom.value)?.room ??
+              uses[0]?.room);
+        return [key, room === undefined || room < 1 ? null : studioContext.value.room(room)];
+      }),
+  ),
+);
+const spriteContexts = computed(() =>
+  Object.fromEntries(
+    editor.retained.value
+      .filter((key) => key.startsWith("view:"))
+      .map((key) => [
+        key,
+        studioContext.value.sprite(
+          Number(key.slice(5)),
+          engine.roomMap.currentRoom.value ?? undefined,
+        ),
+      ]),
+  ),
+);
+const previewCyclers = computed(() =>
+  livePreview.value.objects.map(({ num, view, loop, cycling, cycleTime }) => ({
+    num,
+    view,
+    loop,
+    cycling,
+    cycleTime,
+  })),
+);
+async function playHere(target: PlayHereTarget): Promise<void> {
+  try {
+    await flushWorkspace();
+    const result = await engine.playHere(target);
+    if (!result.ok) throw new Error(result.reason);
+    editor.focus.value = false;
+    document.querySelector<HTMLInputElement>('[data-testid="input-line"]')?.focus();
+  } catch (cause) {
+    editor.error.value = cause instanceof Error ? cause.message : String(cause);
+  }
+}
+function spriteRequest(key: string) {
+  const request = editor.studioRequests.value[key];
+  return request?.kind === "sprite" ? request : undefined;
+}
+const coordinatedChanges = new Map<string, readonly ProjectChange[]>();
+function editRoom(
+  pictureKey: string,
+  room: number,
+  source: string,
+  bindings: Readonly<Record<string, { kind: BindingKind; num: number }>>,
+  pictureSource: string | undefined,
+): void {
+  const key = pictureSource === undefined ? `logic:${room}` : pictureKey;
+  const value = pictureSource ?? source;
+  const changes: ProjectChange[] = [{ key: `logic:${room}`, content: source }];
+  if (pictureSource !== undefined) changes.push({ key, content: pictureSource });
+  if (Object.keys(bindings).length) {
+    const current = text("bindings");
+    changes.push({
+      key: "bindings",
+      content: JSON.stringify({ ...(current ? readBindingsDocument(current) : {}), ...bindings }),
+    });
+  }
+  coordinatedChanges.set(`${key}\0${value}`, changes);
+  edit(key, value);
+}
+function editView(key: string, bytes: Uint8Array): void {
+  const request = spriteRequest(key);
+  if (request?.stagedReference && request.baseRevision !== revision.value) {
+    editor.error.value = "The game changed since this sheet was staged. Attach the sheet again.";
+    return;
+  }
+  edit(key, bytes);
+  if (request?.stagedReference)
+    editor.studioRequests.value = {
+      ...editor.studioRequests.value,
+      [key]: { ...request, stagedReference: undefined },
+    };
+}
 const nativeCache = new Map<string, Uint8Array>();
 const viewThumbnails = computed(() =>
   Object.fromEntries(
@@ -354,6 +477,10 @@ function editorChanges(
   value: ProjectContent,
   music = content("music"),
 ): readonly ProjectChange[] {
+  if (typeof value === "string") {
+    const coordinated = coordinatedChanges.get(`${key}\0${value}`);
+    if (coordinated) return coordinated;
+  }
   const tempo = value instanceof Uint8Array ? soundTempos.get(value) : undefined;
   if (key.startsWith("sound:") && value instanceof Uint8Array && tempo !== undefined) {
     return soundProjectChanges(key, value, tempo, typeof music === "string" ? music : undefined);
@@ -388,6 +515,7 @@ const writes = createWorkspaceWrites({
     });
     if (!["committed", "diagnostics", "unchanged", "restartRequired"].includes(result.status))
       throw new Error("This change needs a fresh room. Return to the room and retry.");
+    if (typeof value === "string") coordinatedChanges.delete(`${key}\0${value}`);
     editor.error.value = "";
     refresh();
   },
@@ -721,22 +849,46 @@ async function add(group: string): Promise<void> {
   }
   openPart(`${kind}:${num}`);
 }
+let endResize: (() => void) | undefined;
 function resize(event: PointerEvent): void {
+  endResize?.();
   const target = event.currentTarget as HTMLElement;
+  const host = target.parentElement!;
   target.setPointerCapture(event.pointerId);
-  const area = target.parentElement!.getBoundingClientRect();
-  const left =
-    target.parentElement!.querySelector(".parts-list")?.getBoundingClientRect().width ?? 0;
-  const move = (e: PointerEvent) =>
-    editor.resize((100 * (e.clientX - area.left - left)) / (area.width - left));
+  const area = host.getBoundingClientRect();
+  const left = host.querySelector(".parts-list")?.getBoundingClientRect().width ?? 0;
+  let value = editor.effectiveSplit.value;
+  let frame = 0;
+  layoutDragging.value = true;
+  host.classList.add("is-resizing");
+  const paint = () => {
+    frame = 0;
+    host.style.setProperty("--workspace-game", `minmax(0, ${value}fr)`);
+    host.style.setProperty("--workspace-edit", `minmax(0, ${100 - value}fr)`);
+  };
+  const move = (e: PointerEvent) => {
+    value = Math.min(
+      75,
+      Math.max(25, (100 * (e.clientX - area.left - left)) / (area.width - left)),
+    );
+    if (!frame) frame = requestAnimationFrame(paint);
+  };
   const end = () => {
+    cancelAnimationFrame(frame);
+    editor.resize(value);
+    host.classList.remove("is-resizing");
+    layoutDragging.value = false;
     target.removeEventListener("pointermove", move);
     target.removeEventListener("pointerup", end);
     target.removeEventListener("pointercancel", end);
+    target.removeEventListener("lostpointercapture", end);
+    endResize = undefined;
   };
+  endResize = end;
   target.addEventListener("pointermove", move);
   target.addEventListener("pointerup", end);
   target.addEventListener("pointercancel", end);
+  target.addEventListener("lostpointercapture", end);
 }
 let lastEscape = 0;
 function escape(event: KeyboardEvent): void {
@@ -793,6 +945,7 @@ editor.unsavedEdits.value = () => {
   return buffers;
 };
 onBeforeUnmount(() => {
+  endResize?.();
   retired = true;
   window.removeEventListener("beforeunload", warnBeforeUnload);
   window.removeEventListener("pagehide", flushHidden);
@@ -812,6 +965,19 @@ onBeforeUnmount(() => {
 });
 </script>
 <template>
+  <aside
+    v-if="creating && presentation.debugOpen.value"
+    class="workspace-inspector"
+    aria-label="Game inspector"
+  >
+    <header>
+      <strong>Inspector</strong
+      ><UiButton size="sm" variant="ghost" @click="presentation.debugOpen.value = false"
+        >Close</UiButton
+      >
+    </header>
+    <InspectPanel />
+  </aside>
   <PartsList
     :read-only="writeConflict || actionBusy"
     :class="{ 'parts-list--open': editor.partsOpen.value }"
@@ -984,6 +1150,14 @@ onBeforeUnmount(() => {
         @agent-context="editor.setAgentContext(key, $event)"
         @agent-ask="openAgent"
         :underlay="traceUnderlays[key] ?? null"
+        :walk="pictureWalks[key]"
+        :priority-base="livePreview.state?.priorityBase"
+        :lesson-session="editor.studioRequests.value[key]?.lesson"
+        @room-edit="
+          (room, source, bindings, pictureSource) =>
+            editRoom(key, room, source, bindings, pictureSource)
+        "
+        @play-here="playHere"
         :picture-number="Number(key.split(':')[1])"
         :bytes="native(key)!"
         :authored-source="text(key)"
@@ -995,18 +1169,28 @@ onBeforeUnmount(() => {
       />
       <SpriteStudio
         :read-only="writeConflict || actionBusy"
-        v-else-if="key.startsWith('view:') && native(key) && profile"
+        v-else-if="
+          key.startsWith('view:') && (native(key) || spriteRequest(key)?.stagedReference) && profile
+        "
         v-show="imagePanel !== key"
         :workspace-focus="editor.focus.value"
         embedded
+        :usage="spriteContexts[key]?.usage ?? { rooms: [], logics: [], dynamic: false }"
+        :rooms="spriteContexts[key]?.rooms ?? []"
+        :speed="livePreview.state?.vars[10] ?? 2"
+        :cyclers="previewCyclers"
+        :priority-base="livePreview.state?.priorityBase"
+        :staged-reference="spriteRequest(key)?.stagedReference"
+        :lesson-session="editor.studioRequests.value[key]?.lesson"
         :view-number="Number(key.split(':')[1])"
         @agent-context="editor.setAgentContext(key, $event)"
         @agent-ask="openAgent"
-        :bytes="native(key)!"
+        @use-staged="editView(key, $event)"
+        :bytes="spriteRequest(key)?.stagedReference ? spriteRequest(key)!.bytes : native(key)!"
         :profile="profile"
         :base-revision="revision"
         :files="files"
-        @edit="edit(key, $event)"
+        @edit="editView(key, $event)"
       />
       <LogicEditor
         :read-only="writeConflict || actionBusy"

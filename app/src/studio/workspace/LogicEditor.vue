@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { layoutDragging } from "../../play/layoutDrag.ts";
 import { onMounted, onBeforeUnmount, useTemplateRef, watch, ref, computed } from "vue";
 import type { BindingInfo } from "../../../../src/logic/projectNames.ts";
 import BindingDetails from "../../shell/BindingDetails.vue";
@@ -95,7 +96,11 @@ function syncSource(source: string): void {
   syncing = false;
   decorate();
 }
+watch(layoutDragging, (dragging) => {
+  if (!dragging) layout();
+});
 function layout(): void {
+  if (layoutDragging.value) return;
   cancelAnimationFrame(layoutFrame);
   layoutFrame = requestAnimationFrame(() => {
     editor?.layout();

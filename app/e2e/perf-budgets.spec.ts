@@ -290,3 +290,20 @@ test("pencil strokes in Sprite Studio keep frames responsive", PERF, async ({ pa
   expect(sample.frameP95, "p95 frame interval while drawing (ms)").toBeLessThan(50);
   expectInputResponsive(sample, 75, "slowest input event while drawing (ms)");
 });
+
+test("workspace splitter keeps frames responsive during a LOGIC resize", PERF, async ({ page }) => {
+  await playTutorial(page);
+  await openWorkspacePicture(page, 1);
+  await page.getByTestId("part-room:1:logic").click();
+  await expect(page.getByTestId("workspace-logic-editor").locator(".monaco-editor")).toBeVisible();
+  const splitter = page.getByRole("separator", { name: "Editor width" });
+  await expect(splitter).toBeVisible();
+  const box = (await splitter.boundingBox())!;
+  await startWindow(page);
+  await dragPerFrame(page, [box.x + box.width / 2, box.y + 40], [box.x + 160, box.y + 40], 60);
+  const sample = await endWindow(page);
+  report("workspace-splitter", sample);
+  expect(sample.frames).toBeGreaterThanOrEqual(30);
+  expect(sample.frameP95, "p95 frame interval while resizing (ms)").toBeLessThan(50);
+  expectInputResponsive(sample, 100, "workspace resize input (ms)");
+});

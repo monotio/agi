@@ -67,6 +67,7 @@ export interface DraftBase {
 export interface StudioDraftOptions {
   readonly base: MaybeRefOrGetter<DraftBase>;
   readonly profile: MaybeRefOrGetter<AgiProfile>;
+  readonly priorityBase?: MaybeRefOrGetter<number | undefined>;
   readonly lens: MaybeRefOrGetter<StudioLens>;
   readonly unlocks: MaybeRefOrGetter<LensUnlocks>;
   /** The most undo steps the history keeps; DEFAULT_HISTORY_DEPTH when omitted. */
@@ -239,7 +240,12 @@ export function useStudioDraft(options: StudioDraftOptions) {
    * preview frames leave to the gesture's end.
    */
   function evaluate(op: DraftEdit, report = true): DraftCandidate | DraftRefusal {
-    const result = applyEdits(document.value, batchOf(op), { profile: profile() });
+    const result = applyEdits(document.value, batchOf(op), {
+      profile: profile(),
+      ...(toValue(options.priorityBase) === undefined
+        ? {}
+        : { priorityBase: toValue(options.priorityBase)! }),
+    });
     if ("error" in result)
       return {
         kind: "kernel",

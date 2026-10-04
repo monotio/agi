@@ -199,7 +199,6 @@ export function createCreateWorkspace(deps: {
   }
 
   function openStudio(request: StudioRequest): void {
-    if (!studioFits.value) return;
     if (!studio.value) deps.pauseEngine("studio");
     studio.value = request;
   }

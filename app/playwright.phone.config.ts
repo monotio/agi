@@ -11,6 +11,7 @@ export default defineConfig({
   ...base,
   testMatch: [
     "workspace-layout.spec.ts",
+    "workspace-parity.spec.ts",
     "workspace-readonly.spec.ts",
     "project-progress.spec.ts",
     "phone-input.spec.ts",

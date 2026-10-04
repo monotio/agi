@@ -7,6 +7,7 @@
  */
 import { base64ToBytes } from "../project/bytes.ts";
 import { type EngineApi, useEngineApi } from "../engine/engineContext.ts";
+import { stagedRefusal } from "../references/referenceArt.ts";
 import type { StoredReference } from "../references/referenceArt.ts";
 import { useCreateWorkspace, type SpriteStudioRequest } from "../shell/useCreateWorkspace.ts";
 import type { EngineStateReport, ScreenObjectState } from "../../../src/runtime/engine.ts";
@@ -108,11 +109,16 @@ export function useSpriteStudio(
   async function openStaged(reference: StoredReference): Promise<void> {
     const staged = reference.staged;
     if (!staged) return;
+    const game = engine.getBootedGame();
+    if (!game) throw new Error("Open a game before repairing this sheet.");
+    const refusal = stagedRefusal(reference, { project: game.projectId!, revision: game.revision });
+    if (refusal) throw new Error(refusal);
     const next = await request(staged.num, {
       id: reference.id,
       bytes: new Uint8Array(base64ToBytes(staged.payload)),
     });
-    if (next) workspace.openStudio(next);
+    if (!next) throw new Error("This sheet could not open. Attach the sheet again.");
+    workspace.openStudio(next);
   }
 
   return { request, open, openStaged };

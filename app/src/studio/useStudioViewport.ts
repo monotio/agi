@@ -15,6 +15,7 @@ import {
   watchEffect,
   type MaybeRefOrGetter,
 } from "vue";
+import { layoutDragging } from "../play/layoutDrag.ts";
 import { fitZoom, type Viewport } from "../../../src/studio/viewport.ts";
 
 const MAX_ZOOM = 12;
@@ -66,13 +67,24 @@ export function useStudioViewport(
     (element) => {
       if (!element) return;
       const measure = (): void => {
+        if (layoutDragging.value) return;
         size.value = { width: element.clientWidth, height: element.clientHeight };
         dpr.value = globalThis.devicePixelRatio || 1;
       };
+      const stop = watch(
+        layoutDragging,
+        (dragging) => {
+          if (!dragging) measure();
+        },
+        { flush: "post" },
+      );
       measure();
       const observer = new ResizeObserver(measure);
       observer.observe(element);
-      onWatcherCleanup(() => observer.disconnect());
+      onWatcherCleanup(() => {
+        observer.disconnect();
+        stop();
+      });
     },
     { immediate: true },
   );
