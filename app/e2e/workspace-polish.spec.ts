@@ -96,14 +96,14 @@ test("Rename lives in a keyboard reachable row menu", async ({ page }) => {
   await rename.click();
   await expect(page.getByTestId("binding-details")).toBeVisible();
 });
-test("unused game state says Not checked yet", async ({ page }) => {
+test("unused game state says nowhere yet", async ({ page }) => {
   await start(page);
   const row = page
     .getByTestId("parts-list")
     .getByRole("button", { name: "chime_done · Flag 204", exact: true })
     .locator("..");
   await expect(row).toBeVisible();
-  await expect(row).toContainText("Not checked yet");
+  await expect(row).toContainText("Checked: nowhere yet");
   await expect(row).toContainText("Set: LOGIC 1");
 });
 for (const width of [1063, 1440])

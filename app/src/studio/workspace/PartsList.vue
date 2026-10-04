@@ -210,7 +210,7 @@ function onKey(event: KeyboardEvent): void {
                     .filter((use) => use.role === role)
                     .map((use) => use.key.replace(":", " ").toUpperCase()),
                 ),
-              ].join(", ") || (role === "Checked" ? "Not checked yet" : "Not set yet")
+              ].join(", ") || "nowhere yet"
             }}</small
           >
           <details class="part-menu">
