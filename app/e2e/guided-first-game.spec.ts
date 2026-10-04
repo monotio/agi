@@ -257,7 +257,12 @@ test("the first guided game: starter, editors, five actions, play both ways and 
     "logic:1",
   );
   const beforeCue = await workspaceDocument(page, "logic:1");
-  await addWorkspaceAction(page, "Play sound", { SOUND: "1", Command: "sing" }, "logic:1");
+  await addWorkspaceAction(
+    page,
+    "Play a sound when…",
+    { SOUND: "1", "When the player types…": "sing" },
+    "logic:1",
+  );
   const withCue = await workspaceDocument(page, "logic:1");
   expect(withCue).toContain("sound(");
   await page.getByTestId("workspace-undo").click();
@@ -393,6 +398,8 @@ test("custom code stays precise: a rewritten entry block refuses Custom code, gu
   await page.getByTestId("workspace-add").click();
   await page.getByRole("menuitem", { name: "Place hero", exact: true }).click();
   const form = page.getByTestId("workspace-guided-form");
+  await expect(form).toBeVisible();
+  await form.getByText("Exact numbers", { exact: true }).click();
   await form.getByLabel("X", { exact: true }).fill("60");
   await form.getByLabel("Y", { exact: true }).fill("140");
   await form.getByRole("button", { name: "Add", exact: true }).click();

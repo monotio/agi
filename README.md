@@ -257,8 +257,9 @@ shows WORDS, SOUND, History, Play with CRT and Make a new game._
   the source; **Saved** confirms browser storage. Errors leave the last working build running. **+ Add** guides
   room creation, hero placement, responses, doors and sounds.
 - **SOUND** opens beside the game. Draw the three voices and Drums on the **Grid**,
-  or type notes, tick lengths and hex volumes in the **Tracker**. Start from a preset,
-  set tempo and snap, and play a private audition with **Space**. Import MIDI type 0/1
+  or type notes, tick lengths and hex volumes in the **Tracker**. **Choose preset**
+  previews recipes and adds a new SOUND. Set tempo and snap, and play a private audition
+  with **Space**. Import MIDI type 0/1
   or SN76489 VGM 1.50/1.51 after reviewing the conversion summary; export type 1 MIDI.
   Drop music onto the editor or game to import it. **Details** exposes native ticks,
   divisors and attenuation. Musical views retain exact native values until edited.

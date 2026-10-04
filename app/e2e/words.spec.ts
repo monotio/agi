@@ -39,14 +39,16 @@ for (const width of [1440, 1280])
     await expect.poll(async () => (await textHook(page)).modal).toBeNull();
     await page
       .getByTestId("player-sentence")
-      .getByRole("button", { name: /Same as/ })
+      .getByRole("button", { name: "Teach “inspect”…", exact: true })
       .click();
-    const choose = editor.getByRole("combobox", { name: "Same meaning" });
+    const teaching = editor.getByRole("form", { name: "Teach inspect", exact: true });
+    await expect(teaching).toBeVisible();
+    await teaching.getByLabel("Same as…", { exact: true }).check();
+    const choose = teaching.getByRole("combobox", { name: "Same meaning" });
+    await expect(choose).toHaveValue("");
     await choose.selectOption("100");
-    await editor
-      .getByRole("form", { name: "Same as…" })
-      .getByRole("button", { name: "Add word", exact: true })
-      .click();
+    await teaching.getByLabel("The game says…", { exact: true }).fill("You look around.");
+    await teaching.getByRole("button", { name: "Add", exact: true }).click();
     await expect(page.getByTestId("player-sentence")).toHaveCount(0);
     await sentence.fill("inspect");
     await expect(page.getByTestId("sentence-parse")).toContainText("· 100");
@@ -156,9 +158,13 @@ test("WORDS row actions, in-place stub suggestions and tester choices", async ({
   await expect(verdict).toContainText("“climb” is a new word, so the game stops reading there.");
   await expect(verdict.getByRole("button", { name: "New meaning", exact: true })).toBeHidden();
   await verdict.getByRole("button", { name: "Teach “climb”…", exact: true }).click();
-  await expect(words.getByRole("combobox", { name: "Same meaning" })).toBeVisible();
+  const teaching = words.getByRole("form", { name: "Teach climb", exact: true });
+  await expect(teaching).toBeVisible();
+  await expect(teaching.getByLabel("A new thing", { exact: true })).toBeChecked();
+  await teaching.getByLabel("Same as…", { exact: true }).check();
+  await expect(teaching.getByRole("combobox", { name: "Same meaning" })).toHaveValue("");
   await words
-    .getByRole("form", { name: "Same as…" })
+    .getByRole("form", { name: "Teach climb", exact: true })
     .getByRole("button", { name: "Cancel" })
     .click();
   await verdict.getByRole("button", { name: "More ▾", exact: true }).click();

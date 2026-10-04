@@ -791,12 +791,17 @@ export class AgiStage {
     if (this.scene.children.length) this.renderPass();
   }
 
-  static async create(canvas: HTMLCanvasElement): Promise<AgiStage | null> {
-    const attempts: { forceWebGL: boolean }[] = [{ forceWebGL: false }, { forceWebGL: true }];
+  static async create(
+    canvas: HTMLCanvasElement,
+    context?: WebGL2RenderingContext,
+  ): Promise<AgiStage | null> {
+    const attempts: { forceWebGL: boolean }[] = context
+      ? [{ forceWebGL: true }]
+      : [{ forceWebGL: false }, { forceWebGL: true }];
     for (const { forceWebGL } of attempts) {
       let renderer: WebGPURenderer | null = null;
       try {
-        renderer = new WebGPURenderer({ canvas, antialias: false, forceWebGL });
+        renderer = new WebGPURenderer({ canvas, antialias: false, forceWebGL, context });
         await renderer.init();
         const gpu =
           !forceWebGL &&

@@ -432,6 +432,13 @@ const viewThumbnails = computed(() =>
       .map((key) => [key, native(key)!]),
   ),
 );
+const guidedSounds = computed(() =>
+  (groups.value.find((group) => group.label === "SOUNDS")?.entries ?? []).map((row) => ({
+    sound: Number(row.key.split(":")[1]),
+    name: row.label,
+    bytes: soundBytes(row.key),
+  })),
+);
 const gameHosts = new Map<string, HTMLElement>();
 function gameHost(key: string, host: HTMLElement): void {
   gameHosts.set(key, host);
@@ -1066,11 +1073,17 @@ onBeforeUnmount(() => {
       >
       <DebugControls v-if="debug?.state.epoch" :debug="debug" />
       <GuidedAdd
-        v-if="editor.kind.value === 'logic'"
+        v-if="editor.kind.value === 'logic' && snapshot"
         v-model:action="guidedKind"
         :room="Number(editor.selected.value?.split(':')[1] ?? 0)"
         :initial-command="guidedCommand"
         :busy="editor.busy.value || writeConflict"
+        :snapshot
+        :profile-id="profile.id"
+        :groups
+        :thumbnails
+        :views="viewThumbnails"
+        :sounds="guidedSounds"
         @add="guidedAction"
       />
       <UiButton
@@ -1227,6 +1240,7 @@ onBeforeUnmount(() => {
         v-else-if="key === 'words' && text(key) !== undefined && snapshot"
         :source="text(key)!"
         :documents="snapshot.documents()"
+        :snapshot
         :profile="profile"
         :room="engine.roomMap.currentRoom.value ?? 0"
         :active="creating && key === editor.selected.value"
@@ -1235,6 +1249,7 @@ onBeforeUnmount(() => {
         @remove="wordChange({ remove: $event })"
         @open-logic="openWordLogic"
         @response="wordResponse"
+        @guided="guidedAction"
         @task="wordsTask"
         @chat="openWordsChat"
       />
@@ -1251,12 +1266,14 @@ onBeforeUnmount(() => {
         :document-key="key"
         :bytes="soundBytes(key)"
         :tempo="soundTempo(key)"
+        :sounds="guidedSounds"
         :profile-id="profile.id"
         :active="creating && key === editor.selected.value"
         @edit="(bytes, tempo) => editSound(key, bytes, tempo)"
         :import-file="musicDropTarget === key ? musicDrop : undefined"
         @imported="musicDrop = undefined"
         @add="addImportedSound"
+        @open="openPart(`sound:${$event}`)"
       />
       <NotesEditor
         :read-only="writeConflict || actionBusy"

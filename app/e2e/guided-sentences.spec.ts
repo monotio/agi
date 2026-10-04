@@ -1,0 +1,128 @@
+import { test, expect } from "./test.ts";
+import type { Page } from "@playwright/test";
+import {
+  isolateStorage,
+  openLibraryActions,
+  savedGameCard,
+  workspaceSaved,
+  textHook,
+} from "./engineProbe.ts";
+import { workspaceDocument } from "./workspaceShared.ts";
+
+async function start(page: Page) {
+  await isolateStorage(page);
+  await page.goto("/");
+  await page.evaluate(async () => {
+    const { prepareLocalProject } = await import("/src/project/localProject.ts");
+    await prepareLocalProject({ title: "Sunny clearing", kind: "starter" }).save();
+  });
+  await page.reload();
+  await openLibraryActions(page, savedGameCard(page, "Sunny clearing"));
+  await page.getByTestId("edit-library-game").click();
+  await expect(page.getByTestId("workspace-add")).toBeVisible();
+}
+
+test("visual actions keep exact controls and preview their LOGIC", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await start(page);
+  await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  const startX = (await textHook(page)).egoX;
+  await page.keyboard.press("Control+`");
+  await page.keyboard.press("ArrowRight");
+  await expect.poll(async () => (await textHook(page)).egoX).toBeGreaterThan(startX + 6);
+  await page.keyboard.press("ArrowRight");
+  const position = await textHook(page);
+  await page.getByTestId("workspace-add").click();
+  await page.getByRole("menuitem", { name: "Place hero", exact: true }).click();
+  const form = page.getByTestId("workspace-guided-form");
+  await expect(form).toBeVisible();
+  await expect(form.getByRole("button", { name: "Start here", exact: true })).toBeVisible();
+  await expect(form.getByRole("button", { name: "Drag to place", exact: true })).toBeVisible();
+  await form.getByRole("button", { name: "Start here", exact: true }).click();
+  const code = form.getByTestId("guided-code-preview");
+  await expect(code).toBeVisible();
+  await expect(code).toContainText(`position(o0, ${position.egoX}, ${position.egoY})`);
+  await expect(form.getByLabel("X", { exact: true })).toBeHidden();
+  await form.getByText("Exact numbers", { exact: true }).click();
+  await form.getByLabel("X", { exact: true }).fill("90");
+  await form.getByLabel("Y", { exact: true }).fill("140");
+  await expect(code).toContainText("position(o0, 90, 140)");
+});
+
+test("responses check the whole sentence and show a live game message", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await start(page);
+  await page.getByTestId("workspace-add").click();
+  await expect(
+    page.getByRole("menuitem", { name: "Answer a sentence", exact: true }),
+  ).toBeVisible();
+  await page.getByRole("menuitem", { name: "Answer a sentence", exact: true }).click();
+  const form = page.getByTestId("workspace-guided-form");
+  await expect(form).toBeVisible();
+  await form.getByLabel("When the player types…", { exact: true }).fill("look at sun");
+  await form.getByLabel("The game says…", { exact: true }).fill("The sun shines.");
+  const check = form.getByTestId("guided-parser-check");
+  await expect(check).toBeVisible();
+  await expect(check).toContainText("look at sun");
+  await expect(check).toContainText("look sun");
+  await expect(form.getByRole("img", { name: "Game message preview" })).toBeVisible();
+  const code = form.getByTestId("guided-code-preview");
+  await expect(code).toBeVisible();
+  await expect(code).toContainText('said("look", "sun")');
+  await form.getByRole("button", { name: "Also answer inspect sun", exact: true }).click();
+  await expect(code).toContainText('said("inspect", "sun")');
+  await form.getByLabel("When the player types…", { exact: true }).fill("look at moon");
+  await expect(code).not.toContainText('said("inspect", "sun")');
+  await form.getByRole("button", { name: "Add", exact: true }).click();
+  await expect(form).toBeHidden();
+  await workspaceSaved(page);
+  expect(await workspaceDocument(page, "logic:1")).toContain('print("The sun shines.")');
+});
+
+test("WORDS teaches a new thing and its sentence reply in one Undo", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await start(page);
+  const beforeWords = await workspaceDocument(page, "words");
+  const beforeLogic = await workspaceDocument(page, "logic:1");
+  await page.getByTestId("part-words").click();
+  const words = page.getByTestId("workspace-words-editor").filter({ visible: true });
+  await expect(words).toBeVisible();
+  await words.getByLabel("A sentence a player might type").fill("look at sun");
+  await words.getByRole("button", { name: "Teach “sun”…", exact: true }).click();
+  const teach = words.getByRole("form", { name: "Teach sun", exact: true });
+  await expect(teach).toBeVisible();
+  await expect(teach.getByLabel("A new thing", { exact: true })).toBeChecked();
+  await teach.getByLabel("The game says…", { exact: true }).fill("The sun shines.");
+  await teach.getByRole("button", { name: "Add", exact: true }).click();
+  await expect(teach).toBeHidden();
+  await workspaceSaved(page);
+  expect(await workspaceDocument(page, "logic:1")).toContain('said("look", "sun")');
+  await page.getByTestId("workspace-undo").click();
+  await workspaceSaved(page);
+  expect(await workspaceDocument(page, "words")).toBe(beforeWords);
+  expect(await workspaceDocument(page, "logic:1")).toBe(beforeLogic);
+});
+
+test("sound recipes explain and audition before adding a new sentence trigger", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await start(page);
+  await page.getByTestId("workspace-add").click();
+  await expect(
+    page.getByRole("menuitem", { name: "Play a sound when…", exact: true }),
+  ).toBeVisible();
+  await page.getByRole("menuitem", { name: "Play a sound when…", exact: true }).click();
+  const form = page.getByTestId("workspace-guided-form");
+  await expect(form).toBeVisible();
+  await form.getByLabel("When the player types…", { exact: true }).fill("ring the bell");
+  const recipes = form.getByRole("group", { name: "New sound from a recipe", exact: true });
+  await expect(recipes).toBeVisible();
+  await expect(recipes).toContainText("Adds a new SOUND to your game");
+  await recipes.getByRole("button", { name: "Play Discovery", exact: true }).click();
+  await recipes.getByRole("button", { name: "Discovery", exact: true }).click();
+  await form.getByRole("button", { name: "Add", exact: true }).click();
+  await expect(form).toBeHidden();
+  await workspaceSaved(page);
+  expect(await workspaceDocument(page, "logic:1")).toContain('said("ring", "bell")');
+});
