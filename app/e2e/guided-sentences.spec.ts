@@ -1,5 +1,6 @@
 import { test, expect } from "./test.ts";
 import type { Page } from "@playwright/test";
+import type { WorkerQueryFn } from "../src/worker/workerProtocol.ts";
 import {
   isolateStorage,
   openLibraryActions,
@@ -28,10 +29,25 @@ test("visual actions keep exact controls and preview their LOGIC", async ({ page
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
   const startX = (await textHook(page)).egoX;
   await page.keyboard.press("Control+`");
-  await page.keyboard.press("ArrowRight");
+  await page.keyboard.down("ArrowRight");
   await expect.poll(async () => (await textHook(page)).egoX).toBeGreaterThan(startX + 6);
+  await page.keyboard.up("ArrowRight");
   await page.keyboard.press("ArrowRight");
-  const position = await textHook(page);
+  await expect
+    .poll(() =>
+      page.evaluate(async () => {
+        const probe = (window as unknown as { __AGI_PROJECT__: { query: WorkerQueryFn } })
+          .__AGI_PROJECT__;
+        return (await probe.query("state"))?.egoDirection;
+      }),
+    )
+    .toBe(0);
+  const position = await page.evaluate(() =>
+    (window as unknown as { __AGI_PROJECT__: { query: WorkerQueryFn } }).__AGI_PROJECT__.query(
+      "state",
+    ),
+  );
+  expect(position).not.toBeNull();
   await page.getByTestId("workspace-add").click();
   await page.getByRole("menuitem", { name: "Place hero", exact: true }).click();
   const form = page.getByTestId("workspace-guided-form");
@@ -41,7 +57,7 @@ test("visual actions keep exact controls and preview their LOGIC", async ({ page
   await form.getByRole("button", { name: "Start here", exact: true }).click();
   const code = form.getByTestId("guided-code-preview");
   await expect(code).toBeVisible();
-  await expect(code).toContainText(`position(o0, ${position.egoX}, ${position.egoY})`);
+  await expect(code).toContainText(`position(o0, ${position!.egoX}, ${position!.egoY})`);
   await expect(form.getByLabel("X", { exact: true })).toBeHidden();
   await form.getByText("Exact numbers", { exact: true }).click();
   await form.getByLabel("X", { exact: true }).fill("90");
@@ -120,7 +136,22 @@ test("sound recipes explain and audition before adding a new sentence trigger", 
   await expect(recipes).toBeVisible();
   await expect(recipes).toContainText("Adds a new SOUND to your game");
   await recipes.getByRole("button", { name: "Play Discovery", exact: true }).click();
-  await recipes.getByRole("button", { name: "Discovery", exact: true }).click();
+  const discovery = recipes.getByRole("button", { name: "Discovery", exact: true });
+  await discovery.click();
+  const danger = recipes.getByRole("button", { name: "Danger", exact: true });
+  await expect(discovery).toBeVisible();
+  await expect(danger).toBeVisible();
+  await expect
+    .poll(async () => {
+      const selectedBorder = await discovery.evaluate(
+        (button) => getComputedStyle(button).borderTopColor,
+      );
+      return (
+        selectedBorder !==
+        (await danger.evaluate((button) => getComputedStyle(button).borderTopColor))
+      );
+    })
+    .toBe(true);
   await form.getByRole("button", { name: "Add", exact: true }).click();
   await expect(form).toBeHidden();
   await workspaceSaved(page);

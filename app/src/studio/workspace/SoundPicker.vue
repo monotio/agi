@@ -69,7 +69,7 @@ onBeforeUnmount(() => {
       <div v-for="entry in sounds" :key="entry.sound" class="sound-choice">
         <UiButton
           size="sm"
-          variant="ghost"
+          :variant="choice.sound === entry.sound && !choice.preset ? 'secondary' : 'ghost'"
           :aria-pressed="choice.sound === entry.sound && !choice.preset"
           :disabled
           :title="disabled ? 'Finish the current change, then choose a sound' : undefined"
@@ -92,7 +92,7 @@ onBeforeUnmount(() => {
         <div>
           <UiButton
             size="sm"
-            variant="ghost"
+            :variant="choice.preset === entry.id ? 'secondary' : 'ghost'"
             :aria-pressed="choice.preset === entry.id"
             :disabled
             :title="disabled ? 'Finish the current change, then choose a sound' : undefined"
