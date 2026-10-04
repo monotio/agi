@@ -73,8 +73,8 @@ const STARTER_PROFILE_ID: ProfileId = "2.936";
 const STARTER_PROFILE: AgiProfile = PROFILES[STARTER_PROFILE_ID]!;
 /** Bump the revision of each template whose contents change. */
 const STARTER_TEMPLATE_REVISION: Record<StarterKind, number> = {
-  starter: 4,
-  boilerplate: 1,
+  starter: 5,
+  boilerplate: 2,
   blank: 2,
 };
 
@@ -87,14 +87,13 @@ const STARTER_CHIME_FLAG = 204;
 // ---------- boilerplate ----------
 
 const BOILERPLATE_ROOM1_SOURCE = `// Show the first room and let the player type commands.
-#message 1 "Your game starts here."
 if (isset(f5)) {
   assignn(v50, first_pic);
   load.pic(v50);
   draw.pic(v50);
   show.pic();
   accept.input();
-  print(m1);
+  print("Your game starts here.");
 }
 return;
 `;
@@ -120,13 +119,6 @@ const BOILERPLATE_BINDINGS: Record<string, StarterBinding> = {
 // ---------- starter ----------
 
 const STARTER_ROOM1_SOURCE = `// On room entry, draw the clearing and place the hero.
-#message 1 "You stand in a sunny clearing. A path leads past a grey cottage and a big leafy tree."
-#message 2 "Type a command and press ENTER. The arrow keys walk. ESC opens the menu; F1 shows this help."
-#message 3 "The ground gives way under you. It was lava all along."
-#message 4 "A meadowlark answers from the trees."
-#message 5 "The grey cottage has a red roof, green shutters and a red door."
-#message 6 "A big leafy tree spreads its branches above a sturdy trunk."
-#message 7 "The cottage door is locked. Perhaps you will add a key."
 if (isset(f5)) {
   assignn(v50, clearing_pic);
   load.pic(v50);
@@ -150,18 +142,18 @@ if (equaln(v6, 0)) {
   start.cycling(o0);
 }
 // Reply to the commands the player types.
-if (said("look")) { print(m1); }
-if (said("look", "cottage")) { print(m5); }
-if (said("look", "tree")) { print(m6); }
-if (said("open", "door")) { print(m7); }
-if (said("help")) { print(m2); }
+if (said("look")) { print("You stand in a sunny clearing. A path leads past a grey cottage and a big leafy tree."); }
+if (said("look", "cottage")) { print("The grey cottage has a red roof, green shutters and a red door."); }
+if (said("look", "tree")) { print("A big leafy tree spreads its branches above a sturdy trunk."); }
+if (said("open", "door")) { print("The cottage door is locked. Perhaps you will add a key."); }
+if (said("help")) { print("Type a command and press ENTER. The arrow keys walk. ESC opens the menu; F1 shows this help."); }
 // Play a short birdsong and describe it.
 if (said("listen")) {
   load.sound(chime_sound);
   sound(chime_sound, chime_done);
-  print(m4);
+  print("A meadowlark answers from the trees.");
 }
-if (said("die")) { print(m3); call(death_logic); }
+if (said("die")) { print("The ground gives way under you. It was lava all along."); call(death_logic); }
 return;
 `;
 

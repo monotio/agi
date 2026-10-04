@@ -23,8 +23,8 @@ export const NEW_GAME_CHOICES: readonly {
 ];
 
 /** Selection and roving focus share the same card, including keyboard wrapping. */
-export function createNewGameChoice(initial: NewGameChoice = "starter") {
-  const selected = ref<NewGameChoice>(initial);
+export function createNewGameChoice(initial?: NewGameChoice) {
+  const selected = ref<NewGameChoice | undefined>(initial);
   const aiVisible = computed(() => selected.value === "ai");
   function select(choice: NewGameChoice): void {
     selected.value = choice;

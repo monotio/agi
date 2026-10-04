@@ -154,7 +154,7 @@ const shortcutsBlocked = computed(
           >
         </template>
         <UiIconButton icon="map" label="World map" data-testid="btn-world-map" @click="showMap" />
-        <ActionMenu v-if="mode === 'play'" label="Save or restore" icon-only icon="save">
+        <ActionMenu label="Save or restore" icon-only icon="save">
           <button
             v-for="shortcut in saveShortcuts"
             :key="shortcut.key"
@@ -270,34 +270,35 @@ const shortcutsBlocked = computed(
   justify-content: flex-end;
   gap: var(--space-1);
 }
-/* A phone keeps the switch and tools on the first row; the title drops under. */
+/* Two rows: game identity and mode, then tools. */
 @media (max-width: 600px) {
   .play-bar {
     height: auto;
     padding: var(--space-1) var(--space-2);
   }
   .play-bar__nav {
-    grid-template-columns: auto auto minmax(0, 1fr);
-    row-gap: 0;
-  }
-  [data-testid="workspace-saved"] {
-    grid-row: 3;
-    grid-column: 1 / -1;
-    justify-self: start;
+    grid-template-columns: auto minmax(0, 1fr) auto auto;
+    gap: var(--space-1);
   }
   .play-bar__title {
-    grid-row: 2;
-    grid-column: 1 / -1;
-    flex-direction: row;
-    gap: var(--space-3);
-    padding: 0 var(--space-2) var(--space-1);
+    grid-column: 2;
+  }
+  .play-bar__modes {
+    grid-column: 4;
+    grid-row: 1;
+  }
+  [data-testid="workspace-saved"] {
+    grid-column: 3;
+    grid-row: 1;
+    padding-inline: 0;
   }
   .play-bar__parts {
     display: inline-flex;
   }
   .play-bar__actions {
-    flex-wrap: wrap;
-    min-width: 0;
+    grid-column: 1 / -1;
+    grid-row: 2;
+    justify-content: flex-end;
     gap: 0;
   }
 }

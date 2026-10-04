@@ -643,14 +643,12 @@ test("KQ1 orientation accompanies the first question, Escape resumes", async ({ 
   await advanceToCourtyard(page);
   await expect.poll(async () => (await textHook(page)).cycle).toBeGreaterThan(0);
 
-  await enterCreateMode(page);
-  await page.getByTestId("power-up").click();
+  await page.getByTestId("menu-assistant").click();
   await expect(page.getByTestId("agent-bubble")).toBeVisible();
   await expect.poll(async () => (await textHook(page)).paused).toBe(true);
 
   await expect(page.getByTestId("agent-bubble-input")).toBeEnabled();
   await expect.poll(() => agentActivity(page)).not.toContain("[Orientation]");
-  await page.getByTestId("agent-mode-ask").click();
   await page.getByTestId("agent-bubble-input").fill("Where am I?");
   await page.getByTestId("agent-bubble-send").click();
   await expect(page.getByTestId("agent-bubble-input")).toBeEnabled();
@@ -707,23 +705,26 @@ test("a locally loaded patched game can be downloaded and imported", async ({ pa
 
   // Patch a real local game through the UI, then verify the downloaded bytes.
   await enterCreateMode(page);
-  await page.getByTestId("power-up").click();
-  await expect(page.getByTestId("agent-bubble")).toBeVisible();
-  await expect(page.getByTestId("agent-bubble-input")).toBeEnabled();
-  await page.getByTestId("agent-bubble-input").fill("put up a sign by the road");
-  await page.getByTestId("agent-bubble-send").click();
-  await expect(page.getByTestId("agent-bubble")).toBeHidden();
-  await openGameOptions(page, "settings-menu");
-  await expect(page.getByTestId("btn-export-game")).toBeVisible();
+  await page.getByTestId("workspace-agent").click();
+  const panel = page.getByTestId("workspace-agent-panel");
+  await expect(panel).toBeVisible();
+  await expect(page.getByTestId("agent-message")).toBeEnabled();
+  await page.getByTestId("agent-message").fill("Add a welcome sign that answers look at sign");
+  await panel.getByRole("button", { name: "Send", exact: true }).click();
+  await expect(page.getByTestId("agent-review")).toBeVisible();
+  await page.getByTestId("agent-approve").click();
+  await expect(page.getByTestId("agent-review")).toBeHidden();
+  await page.getByTestId("workspace-agent").click();
   const downloading = page.waitForEvent("download");
   await openGameOptions(page, "settings-menu");
+  await expect(page.getByTestId("btn-export-game")).toBeVisible();
   await page.getByTestId("btn-export-game").click();
   const download = await downloading;
   expect(download.suggestedFilename()).toMatch(/^agi-remix-[a-f0-9-]+-game\.zip$/);
   expect(await download.failure()).toBeNull();
   const imported = await readGameZip(await readFile((await download.path())!));
   const container = openContainer(new Map(Object.entries(imported.files)));
-  expect(disassembleLogic(container.getResource("logic", 1)!)).toContain("weathered sign");
+  expect(disassembleLogic(container.getResource("logic", 1)!)).toContain("Welcome sign");
   expect(await page.evaluate(() => localStorage.getItem("monotio_agi.authored.kq1"))).toBeNull();
   // The remix resumes into queued print windows ("press enter"). Exit leaves
   // with or without a fresh checkpoint of that moment: the remix project is

@@ -629,7 +629,7 @@ function emitStmt(
     }
     case "action": {
       const spec = actionSpec(stmt.name, profile);
-      if (!spec) {
+      if (!spec || !Object.hasOwn(spec, "operands")) {
         throw new AssemblerError(
           `unknown action '${stmt.name}' or action not available in profile ${profile.id} (check spelling and the selected profile)`,
           stmt.tok.line,

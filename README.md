@@ -108,7 +108,9 @@ first room. Every part of these starting games is editable.
 
 To edit a saved game, open its library card’s **Game actions → Create**.
 The workspace keeps the game running beside its editors. LOGIC has code completion,
-hover documentation, definition navigation and a Problems panel. Edits save
+hover documentation, definition navigation and a Problems panel. Resource names
+open their editors; flags and variables show where they are set and checked.
+**Game state** in the parts list shows these names with Rename. Edits save
 automatically; **Saved** confirms they are stored in this browser. A source error
 keeps the game on its last working build. **Undo** and
 **Redo** step across edits to every part, and **Saved** opens **History**.
@@ -208,13 +210,15 @@ continues; **Saved** confirms browser storage, and earlier play stays on the rew
 In Create, **⌘P** (Ctrl+P) opens the game’s parts and **⇧⌘P**
 (Ctrl+Shift+P) opens the command palette. Type **>** in quick open to find
 commands. **⌘B** toggles the parts list, **⌘I** opens the agent, and **⌘Enter**
-shows Play full size (use Ctrl in place of ⌘ elsewhere). **F6** and **Shift+F6**
-move between visible focus zones; **Ctrl+backtick** focuses the game. The game takes
+shows Play full size (use Ctrl in place of ⌘ elsewhere). **F6** moves between
+visible focus zones from the editor; **Shift+F6** also leaves the game;
+**Ctrl+backtick** focuses the game. The game takes
 keys while its zone has focus. **Escape** closes the chooser and returns focus. **⌘K Z** toggles Focus; press
 **Escape** twice to return. Focus is remembered for each editor type.
 **⌘J** toggles the bottom panel: Problems, Variables, Watch, Call stack and
-Breakpoints. **F5** or **Debug** attaches to the running game and continues a
-stopped run. **F9** or a LOGIC gutter click toggles a breakpoint; **F10**, **F11**
+Breakpoints. **F5** in the editor or **Run** attaches to the running game and continues a
+stopped run. With the game focused, **F5** saves and **F6** belongs to the game.
+**F9** or a LOGIC gutter click toggles a breakpoint; **F10**, **F11**
 and **Shift+F11** step over, into and out. **Shift+F5** stops debugging and leaves
 the game running. Stopped runs show their exact running source; live edits wait
 until Continue. **Help → Keyboard shortcuts** lists the registered commands and keys.

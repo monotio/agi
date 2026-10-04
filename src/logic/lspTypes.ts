@@ -1,3 +1,5 @@
+import type { BindingInfo } from "./projectNames.ts";
+
 /** Structural LSP 3.17 types used by the transport-free LOGIC server. */
 export const SEMANTIC_LEGEND = {
   tokenTypes: ["keyword", "function", "variable", "number", "string", "operator", "comment"],
@@ -68,7 +70,7 @@ export interface SemanticTokens {
 }
 interface CodeAction {
   title: string;
-  kind: "quickfix";
+  kind: "quickfix" | "refactor.rewrite";
   diagnostics: Diagnostic[];
   edit: WorkspaceEdit;
 }
@@ -78,6 +80,10 @@ interface DiagnosticReport {
   items: Diagnostic[];
 }
 export interface LspOperations {
+  "agi/bindings": BindingInfo[];
+  "agi/renameBinding": WorkspaceEdit;
+  "agi/bindingInfo": BindingInfo | null;
+  "textDocument/inlayHint": { position: Position; label: string; paddingLeft: boolean }[];
   "textDocument/completion": CompletionItem[] | null;
   "textDocument/signatureHelp": SignatureHelp | null;
   "textDocument/hover": Hover | null;

@@ -1867,7 +1867,7 @@ export function prepareGuidedRespondToCommand(
       const span = stmtTokens(room, print).find((t) => t.type === "string") ?? null;
       if (!span)
         return refuse(kind, label, "custom-code", "The reply text is not a plain string.", key);
-      edit = { ...span, text: quoted };
+      edit = { start: span.start - room.base, end: span.end - room.base, text: quoted };
     } else {
       const num = arg.kind === "m" ? arg.index : numRef(arg);
       if (num === null)

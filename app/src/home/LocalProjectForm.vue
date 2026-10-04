@@ -20,12 +20,12 @@ const {
   aiReady,
   aiUnavailable,
   aiValid,
-  initialChoice = "starter",
+  initialChoice = undefined,
 } = defineProps<{
   aiReady: boolean;
   aiUnavailable: boolean;
   aiValid: boolean;
-  initialChoice?: NewGameChoice;
+  initialChoice?: NewGameChoice | undefined;
 }>();
 const emit = defineEmits<{
   created: [projectId: ProjectId, kind: StarterKind];
@@ -41,7 +41,9 @@ type PreparedProject = ReturnType<typeof prepareLocalProject>;
 const title = ref("My adventure");
 const choice = createNewGameChoice(initialChoice);
 const { selected: kind, aiVisible } = choice;
-watch(kind, (value) => emit("choice", value));
+watch(kind, (value) => {
+  if (value) emit("choice", value);
+});
 const saving = ref(false);
 const titleError = ref("");
 const error = ref("");
@@ -62,7 +64,7 @@ watch(title, () => {
 });
 
 async function createGame(): Promise<void> {
-  if (saving.value) return;
+  if (saving.value || !kind.value) return;
   const name = title.value.trim();
   if (!name) {
     titleError.value = "Enter a game title.";
@@ -154,7 +156,7 @@ defineExpose({ focus, select: choice.select });
         class="tpl"
         :class="{ 'tpl-ai': option.value === 'ai' }"
         :aria-checked="kind === option.value"
-        :tabindex="kind === option.value ? 0 : -1"
+        :tabindex="kind === option.value || (!kind && option.value === 'starter') ? 0 : -1"
         :disabled="saving"
         :data-choice="option.value"
         :data-testid="`local-create-kind-${option.value}`"
@@ -188,7 +190,7 @@ defineExpose({ focus, select: choice.select });
     <p v-if="error" class="local-create__error" role="alert" data-testid="local-create-error">
       {{ error }}
     </p>
-    <div class="start-row">
+    <div v-if="kind" class="start-row">
       <UiButton
         type="submit"
         variant="primary"

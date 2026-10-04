@@ -284,11 +284,11 @@ function startCreating(templateId: string): void {
         @select="startCreating(tmpl.id)"
       />
       <TemplateCard
-        title="Your own premise"
-        detail="Describe it, AI builds it"
+        title="New game"
+        detail="Starter, Boilerplate, Blank or AI"
         blank
         test-id="shelf-template-custom"
-        @select="startCreating('custom')"
+        @select="startCreating('')"
       />
     </div>
 

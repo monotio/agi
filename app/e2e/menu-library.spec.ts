@@ -43,7 +43,9 @@ test("a first visit leads with tutorial and creation while keeping import availa
   await expect(create).not.toHaveAttribute("open");
   await gallery.getByTestId("shelf-template-custom").click();
   await expect(create).toHaveAttribute("open");
-  await expect(page.getByTestId("template-custom")).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByRole("radiogroup", { name: "Starting point" })).toBeVisible();
+  await expect(page.getByRole("radio", { checked: true })).toHaveCount(0);
+  await expect(page.getByTestId("local-create-submit")).toBeHidden();
   expect(
     await create.evaluate((element) => {
       const importer = document.getElementById("open-game")!;

@@ -306,3 +306,65 @@ for (const size of sizes) {
     });
   });
 }
+
+for (const size of [sizes[0]!, sizes[2]!, sizes[3]!]) {
+  test(`entry and header boxes ${size.width}`, async ({ page }) => {
+    await page.setViewportSize(size);
+    await isolateStorage(page);
+    await page.goto("/");
+    await configureAi(page, { provider: "stub" });
+    await shot(page, `home-${size.width}`);
+    await page.getByTestId("shelf-template-custom").scrollIntoViewIfNeeded();
+    await shot(page, `home-cards-${size.width}`);
+    await page.getByTestId("create-adventure-toggle").click();
+    const choices = page.getByRole("radiogroup", { name: "Starting point" });
+    await expect(choices).toBeVisible();
+    await shot(page, `new-game-${size.width}`);
+    await expect.soft(choices.locator('[aria-checked="true"]')).toHaveCount(0);
+    await expect.soft(page.getByTestId("local-create-submit")).toBeHidden();
+    await page.getByTestId("local-create-kind-starter").click();
+    await page.getByTestId("local-create-submit").click();
+    await expect(page.getByTestId("input-line")).toBeEnabled();
+    await workspaceSaved(page);
+    await waitForRoom(page, 1);
+    await shot(page, `header-${size.width}`);
+    await header(page);
+    if (size.width === 390) {
+      const boxes = await page.locator(".play-bar button:visible").evaluateAll((nodes) =>
+        nodes.map((node) => {
+          const box = node.getBoundingClientRect();
+          return {
+            name: node.getAttribute("aria-label"),
+            y: Math.round(box.y + box.height / 2),
+            right: box.right,
+          };
+        }),
+      );
+      const rows: number[] = [];
+      for (const box of boxes) if (!rows.some((y) => Math.abs(y - box.y) <= 2)) rows.push(box.y);
+      expect.soft(rows.length).toBeLessThanOrEqual(2);
+      expect.soft(boxes.every((box) => box.right <= 390)).toBe(true);
+      const settings = boxes.find((box) => box.name === "Settings")!;
+      expect
+        .soft(boxes.filter((box) => Math.abs(box.y - settings.y) <= 2).length)
+        .toBeGreaterThan(1);
+      await page.getByTestId("workspace-parts").click();
+    }
+    await shot(page, `parts-${size.width}`);
+    await page.getByTestId("workspace-agent").click();
+    const panel = page.getByTestId("workspace-agent-panel");
+    await expect(panel).toBeVisible();
+    for (let index = 0; index < 3; index++) {
+      await page.getByTestId("agent-message").fill("Add a welcome sign");
+      await panel.getByRole("button", { name: "Send", exact: true }).click();
+      await expect(page.getByTestId("agent-review")).toBeVisible();
+      await page.getByTestId("agent-reject").click();
+      await expect(page.getByTestId("agent-review")).toBeHidden();
+    }
+    await panel.locator(".agent-panel__feed").evaluate((node) => {
+      node.scrollTop = 0;
+      node.dispatchEvent(new Event("scroll"));
+    });
+    await shot(page, `agent-reading-${size.width}`);
+  });
+}

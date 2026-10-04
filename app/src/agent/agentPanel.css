@@ -50,6 +50,7 @@
   color: var(--muted);
 }
 .agent-panel__feed {
+  overflow-anchor: none;
   flex: 1;
   overflow: auto;
   min-height: 0;

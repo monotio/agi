@@ -66,7 +66,7 @@ async function createStarter(page: Page, title: string): Promise<string> {
   await page.goto("/");
   await page.getByTestId("create-adventure-toggle").click();
   const form = page.locator(".local-create");
-  await expect(form.getByRole("button", { name: "Start building", exact: true })).toBeEnabled();
+  await expect(form.getByRole("button", { name: "Start building", exact: true })).toBeHidden();
   await form.getByRole("textbox").fill(title);
   await form.getByRole("radio", { name: /starter/i }).check();
   await form.getByRole("button", { name: "Start building", exact: true }).click();

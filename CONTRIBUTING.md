@@ -268,32 +268,32 @@ image, retaining the preceding run and its queued recording batches.
 Inside `app/src/`, `main.ts` mounts `App.vue`, the shell's root component, and
 each folder holds one responsibility:
 
-| Folder           | Responsibility                                                                          |
-| ---------------- | --------------------------------------------------------------------------------------- |
-| `engine/`        | The main thread's side of the engine: worker link, queries, lifecycle, `useEngine.ts`   |
-| `worker/`        | The engine worker: its entry, the message protocol, dispatch, clock and host            |
-| `play/`          | The Play screen: stage, keyboard and touch input, prompts and presentation              |
-| `render/`        | Frame composition: the EGA palette, the 8×8 font and the 320×200 compositor             |
-| `three/`         | GPU presentation and CRT effects                                                        |
-| `audio/`         | Sound output on the main thread                                                         |
-| `inspector/`     | The AGI inspector: its dock, overlay, coordinate mapping and layer picking              |
-| `history/`       | The always-on recording, its storage and the transport bar under the stage              |
-| `walkthrough/`   | Walkthrough playback and the replay driver the browser tests use                        |
-| `saves/`         | A player's progress: save slots, autosaves and their thumbnails                         |
-| `project/`       | The stored project: bodies, identities, metadata and the transactions every write takes |
-| `archive/`       | ZIP formats: project archives, published games and `HISTORY.JSON`                       |
-| `library/`       | The game library: imports, the hosted catalog, discovery, previews and profile choice   |
-| `home/`          | The Home screen: the shelf, its cards and the create panel                              |
-| `shell/`         | Page chrome, modes, commands, keyboard focus, Create docks, Settings, Help and routing  |
-| `settings/`      | AI provider, model and key settings                                                     |
-| `authoring/`     | The assistant's panels, the controller that runs AI turns, and recorded game tests      |
-| `agent/`         | Provider sessions, conversation transport and worker bridge; the stack loads on AI use  |
-| `references/`    | Reference art the player supplies for the agent to encode                               |
-| `world/`         | The world map, its room graph and plan, and the editor launchers                        |
-| `studio/`        | Workspace editors, loaded on first use in Create                                        |
-| `lessons/`       | Workspace lessons tied to catalog releases                                              |
-| `ui/`, `styles/` | Base controls, design tokens and global stylesheets                                     |
-| `types/`         | Ambient declarations                                                                    |
+| Folder           | Responsibility                                                                             |
+| ---------------- | ------------------------------------------------------------------------------------------ |
+| `engine/`        | The main thread's side of the engine: worker link, queries, lifecycle, `useEngine.ts`      |
+| `worker/`        | The engine worker: its entry, the message protocol, dispatch, clock and host               |
+| `play/`          | The Play screen: stage, keyboard and touch input, prompts and presentation                 |
+| `render/`        | Frame composition: the EGA palette, the 8×8 font and the 320×200 compositor                |
+| `three/`         | GPU presentation and CRT effects                                                           |
+| `audio/`         | Sound output on the main thread                                                            |
+| `inspector/`     | The AGI inspector: its dock, overlay, coordinate mapping and layer picking                 |
+| `history/`       | The always-on recording, its storage and the transport bar under the stage                 |
+| `walkthrough/`   | Walkthrough playback and the replay driver the browser tests use                           |
+| `saves/`         | A player's progress: save slots, autosaves and their thumbnails                            |
+| `project/`       | The stored project: bodies, identities, metadata and the transactions every write takes    |
+| `archive/`       | ZIP formats: project archives, published games and `HISTORY.JSON`                          |
+| `library/`       | The game library: imports, the hosted catalog, discovery, previews and profile choice      |
+| `home/`          | The Home screen: the shelf, its cards and the create panel                                 |
+| `shell/`         | Page chrome, modes, commands, keyboard focus, Create workspace, Settings, Help and routing |
+| `settings/`      | AI provider, model and key settings                                                        |
+| `authoring/`     | The assistant's panels, the controller that runs AI turns, and recorded game tests         |
+| `agent/`         | Provider sessions, conversation transport and worker bridge; the stack loads on AI use     |
+| `references/`    | Reference art the player supplies for the agent to encode                                  |
+| `world/`         | The world map, its room graph and plan, and the editor launchers                           |
+| `studio/`        | Workspace editors, loaded on first use in Create                                           |
+| `lessons/`       | Workspace lessons tied to catalog releases                                                 |
+| `ui/`, `styles/` | Base controls, design tokens and global stylesheets                                        |
+| `types/`         | Ambient declarations                                                                       |
 
 ## How it fits together
 

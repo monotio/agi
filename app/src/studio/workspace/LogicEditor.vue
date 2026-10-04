@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { onMounted, onBeforeUnmount, useTemplateRef, watch, ref, computed } from "vue";
+import type { BindingInfo } from "../../../../src/logic/projectNames.ts";
+import BindingDetails from "../../shell/BindingDetails.vue";
 import { parseWordsTok } from "../../../../src/logic/words.ts";
 import { VOCABULARY } from "../../../../src/vocabulary.ts";
 import { readInventoryObjects } from "../../../../src/authoring/inventory.ts";
@@ -30,6 +32,16 @@ const emit = defineEmits<{
   breakpoint: [line: number];
   selection: [context: { label: string; text: string } | null];
 }>();
+const binding = ref<BindingInfo>();
+const renameBinding = ref(false);
+function onBinding(info: BindingInfo, action: "open" | "rename"): void {
+  if (action === "open" && ["sound", "picture", "view", "logic"].includes(info.kind)) {
+    workspace.open(`${info.kind}:${info.num}`, true);
+    return;
+  }
+  renameBinding.value = action === "rename";
+  binding.value = info;
+}
 const showRunning = ref(false);
 const differs = computed(
   () => props.runningSource !== undefined && props.runningSource !== props.source,
@@ -189,6 +201,7 @@ onMounted(() => {
     client,
     documentKey: props.documentKey,
     applyProjectEdit,
+    onBinding,
   });
   editor = monaco.editor.create(root.value!, {
     readOnly: props.readOnly,
@@ -239,6 +252,7 @@ onMounted(() => {
   analysis();
   decorate();
   revealLocation();
+  revealName();
 });
 watch(
   () => props.source,
@@ -281,6 +295,13 @@ function revealLocation(): void {
   editor.focus();
 }
 watch(() => props.location, revealLocation);
+function revealName(): void {
+  const location = workspace.nameLocation.value;
+  if (!props.active || location?.key !== props.documentKey) return;
+  navigate(location.line);
+  editor?.focus();
+}
+watch(() => [workspace.nameLocation.value, props.active], revealName, { flush: "post" });
 watch(
   () => props.active,
   (active) => {
@@ -311,6 +332,16 @@ defineExpose({
       <button v-if="!showRunning" @click="showRunning = true">Show running source</button>
       <button v-else @click="showRunning = false">Return to editing</button>
     </div>
+    <BindingDetails
+      v-if="binding"
+      :info="binding"
+      :rename="renameBinding"
+      @close="binding = undefined"
+      @renamed="
+        binding = $event;
+        renameBinding = false;
+      "
+    />
     <div ref="root" class="workspace-monaco" data-testid="workspace-logic-editor"></div>
   </div>
 </template>
