@@ -336,7 +336,7 @@ test("restart recompiles current documents before replacing the run; invalid sou
   }
 });
 
-test("session offers room re-entry for a loaded VIEW layout, keeps its token and global state, and records the candidate on rewind", async () => {
+test("session offers room re-entry for a loaded VIEW layout, keeps its token and global state, and records executable candidate files", async () => {
   const cel = { width: 2, height: 2, pixels: [14, 14, 14, 14] };
   const f = await fixture("reenter-view", {
     "logic:0":
@@ -363,11 +363,22 @@ test("session offers room re-entry for a loaded VIEW layout, keeps its token and
     assert.equal(old.itemLocation(1), 2);
     old.tick();
     assert.equal(old.getPresentation().visual[100 * 160 + 40], 4);
-    assert.ok(
-      f.messages.some(
-        (m) =>
-          m.type === "historyBatch" &&
-          m.batch.boot?.project?.documentId === f.session.model.capture().documentId,
+    const recorded = f.messages
+      .filter((m) => m.type === "historyBatch")
+      .findLast((m) => m.batch.boot)?.batch.boot;
+    assert.ok(recorded);
+    assert.ok(recorded.project);
+    assert.deepEqual(
+      readProjectWorkspace(recorded.project.documents),
+      f.session.model.capture().documents(),
+    );
+    assert.deepEqual(
+      recorded.files,
+      Object.fromEntries(
+        [...old.containerFiles].map(([name, bytes]) => [
+          name,
+          Buffer.from(bytes).toString("base64"),
+        ]),
       ),
     );
     await f.session.flush();

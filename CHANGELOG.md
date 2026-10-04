@@ -15,7 +15,7 @@ Released notes are also available on [GitHub Releases](https://github.com/monoti
 - WORDS meanings, sentence testing and missed-command collection.
 - SOUND grid, tracker, presets, MIDI and VGM import, and MIDI export.
 - Agent Review and Auto-approve across resource types, task chats and optional
-  image generation with a cost preview.
+  image generation with Sierra EGA style and a shared task budget.
 - Starter, Boilerplate and Blank projects, plus Create with AI from a brief.
 - LOGIC language server shared with the LOGIC editor: project-aware diagnostics,
   navigation and rename across the game, references for numbered operands,

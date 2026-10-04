@@ -222,8 +222,7 @@ export function useLogicProjectAssist(options: LogicAssistOptions) {
   const budget = computed(() => {
     const run = state.value.run;
     if (!run) return "";
-    if (!run.priceKnown) return `Spend unknown · ${run.requests} requests`;
-    return `$${Math.max(0, run.budget - run.spent).toFixed(2)} of $${run.budget.toFixed(2)} left`;
+    return `Budget $${run.budget.toFixed(2)}`;
   });
   /** One status line for the live region and the running block. */
   const status = computed(() => {

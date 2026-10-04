@@ -163,11 +163,10 @@ it, and ask for revisions when something is off.
 **Your key and provider.** The app talks to your provider directly
 from the browser. Your key is saved in browser storage and sent only to the
 provider you choose, along with the game content each request needs. Requests
-are billed to your account; each task starts with an estimated $5 budget that
+are billed to your account; each task starts with a $5 budget that
 you can change. The agent pauses between requests when the remaining allowance
 is too small for another productive turn; one response may cross that allowance.
-Models with unverified prices ask for an allowance in requests and show spend
-as unknown. Long conversations compact their request context while keeping the
+Models with unverified prices ask for an allowance in requests. Long conversations compact their request context while keeping the
 full audit transcript. The provider's prompt cache reuses prior context at its
 lower cache-read price. What
 the agent writes comes from your provider's model. Review the story, puzzles and artwork before
@@ -196,8 +195,8 @@ height and keeps the figure's proportions. Find frames again asks before replaci
 edited boxes; click the selected frame's dimensions to edit exact numbers. Try the
 animation on the running hero, then **Add cels** adds the frames and image in one
 History step. **Saved** confirms browser storage.
-**Generate** uses your OpenAI key and shows the model, quality, size and estimated
-cost before sending. These images autosave with History and travel in private
+**Generate** uses your OpenAI key to draw from your words in Sierra EGA style.
+Details holds the model, quality and size. One budget covers agent requests and images. These images autosave with History and travel in private
 project downloads. Public game exports carry the resulting AGI resources.
 
 Some Create edits need a fresh room or game start. **Re-enter room** runs the

@@ -64,18 +64,10 @@ const quiet = computed(() =>
       </p>
     </div>
     <div class="task-row">
-      <span
-        title="Estimated from reported tokens and standard API rates. A response may cross the budget; interrupted requests may still be billed."
+      <span>Budget ${{ task.budget.toFixed(2) }}</span>
+      <a :href="task.usageUrl ?? 'https://platform.openai.com/usage'" target="_blank" rel="noopener"
+        >See your usage</a
       >
-        {{
-          task.priceKnown
-            ? task.status === "idle"
-              ? `Last task: $${task.spent.toFixed(2)} est.`
-              : `$${task.spent.toFixed(2)} est. / $${task.budget.toFixed(2)}`
-            : `Spend unknown · ${task.requests} requests`
-        }}
-        <span v-if="task.usageIncomplete"> · partial usage</span>
-      </span>
       <UiButton v-if="task.status === 'running'" data-testid="agent-stop" @click="$emit('stop')">
         Stop
       </UiButton>
@@ -85,11 +77,7 @@ const quiet = computed(() =>
         data-testid="agent-continue"
         @click="$emit('resume', task.priceKnown ? undefined : requestLimit)"
       >
-        {{
-          task.reason.startsWith("Budget")
-            ? `Add $${task.allowance.toFixed(2)} & continue`
-            : "Continue"
-        }}
+        Continue
       </UiButton>
     </div>
     <template v-if="task.status === 'paused'">
@@ -122,6 +110,9 @@ const quiet = computed(() =>
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+}
+.task-row a {
+  color: var(--action);
 }
 .stream-progress {
   margin-bottom: 10px;

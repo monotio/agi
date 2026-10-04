@@ -18,6 +18,7 @@ import {
 } from "../src/studio/creative/openaiImageProvider.ts";
 import {
   createCreativeGeneration,
+  GenerationRefusal,
   savedOpenAiCredential,
   type CreativeGenerationContext,
   type CreativeGenerationController,
@@ -312,6 +313,20 @@ test("review freezes the detached summary, titles and consulted context; inputs 
   assert.equal(review.context.workspaceId, "ws-1");
   // No credential was consulted while composing or reviewing.
   assert.equal(calls.credential, 0);
+  controller.dispose();
+});
+
+test("generated image titles retain the user's words separately from the style prompt", async () => {
+  const { host } = makeHost({});
+  const { provider } = makeProvider();
+  const controller = createCreativeGeneration({ provider, host });
+  await reviewed(controller, {
+    ...BASE_INPUT,
+    title: "A friendly fox",
+    prompt: "Style instructions. Draw a friendly fox.",
+  });
+  assert.equal(controller.review?.title, "A friendly fox");
+  assert.equal(controller.review?.summary.prompt, "Style instructions. Draw a friendly fox.");
   controller.dispose();
 });
 
@@ -992,5 +1007,27 @@ test("dispose aborts the flight and refuses later work", async () => {
   await controller.prepareReview(BASE_INPUT);
   assert.equal(controller.phase, "compose");
   assert.equal(controller.failure?.reason, "closed");
+  controller.dispose();
+});
+
+test("a budget pause keeps the request and approval sends it once", async () => {
+  const { host } = makeHost({});
+  const { provider, sent, answer } = makeProvider();
+  const settled: (OpenAiImageOffer | null)[] = [];
+  host.reserveRequest = (_summary, approved) => {
+    if (!approved)
+      throw new GenerationRefusal("budget", "This request may pass your budget. Continue?");
+    return (result) => settled.push(result);
+  };
+  const controller = createCreativeGeneration({ provider, host });
+  await reviewed(controller);
+  answer(async (prepared) => offer(prepared));
+  await controller.submit();
+  assert.equal(sent.length, 0);
+  assert.equal(controller.failure!.reason, "budget");
+  assert.equal(controller.phase, "review");
+  await controller.submit(true);
+  assert.equal(sent.length, 1);
+  assert.equal(settled[0], controller.offer);
   controller.dispose();
 });

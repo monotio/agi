@@ -84,7 +84,7 @@ test("unpriced models require an explicit request allowance before a paid reques
   run.cancel();
   await work.catch(() => {});
   assert.equal(paused.status, "paused");
-  assert.match(paused.reason, /spend unknown.*request/i);
+  assert.equal(paused.reason, "Choose how many requests to allow, then Continue.");
   assert.equal(sends, 0);
 });
 
@@ -201,7 +201,7 @@ test("an unpriced task consumes exactly the user's request allowance", async () 
   await work.catch(() => {});
   assert.equal(sends, 2);
   assert.equal(state.status, "paused");
-  assert.match(state.reason, /Spend unknown/);
+  assert.match(state.reason, /Choose how many requests/);
 });
 
 test("a final Anthropic refusal ends the active task with a distinct cause", async (t) => {

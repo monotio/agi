@@ -76,22 +76,27 @@ test("mark, resize and paint frames before one exact VIEW commit", async ({ page
   await page.mouse.up();
   await page.getByRole("button", { name: "Frame 2", exact: true }).focus();
   await page.keyboard.press("1");
+  await expect(page.getByTestId("frame-summary")).toBeVisible();
   await expect(page.getByTestId("frame-summary")).toHaveText("Frame 2 · 8 × 8 at 18, 2");
   await expect(
     page.getByRole("option", { name: "Walk left · loop 1 (mirrors walk right)", exact: true }),
   ).toHaveCount(1);
   await page.getByRole("button", { name: "Frame 1", exact: true }).click();
+  await expect(page.getByTestId("frame-summary")).toBeVisible();
   await expect(page.getByTestId("frame-summary")).toHaveText("Frame 1 · 6 × 8 at 2, 2");
   await page.keyboard.press("ArrowRight");
   await page.keyboard.press("Shift+ArrowRight");
+  await expect(page.getByTestId("frame-summary")).toBeVisible();
   await expect(page.getByTestId("frame-summary")).toHaveText("Frame 1 · 6 × 8 at 9, 2");
   await page.keyboard.press("Shift+ArrowLeft");
   await page.keyboard.press("ArrowLeft");
   await page.keyboard.press("Alt+ArrowRight");
+  await expect(page.getByTestId("frame-summary")).toBeVisible();
   await expect(page.getByTestId("frame-summary")).toHaveText("Frame 1 · 7 × 8 at 2, 2");
   await page.keyboard.press("Alt+ArrowLeft");
   await page.keyboard.press("0");
   await drag(5, 6, 7, 6);
+  await expect(page.getByTestId("frame-summary")).toBeVisible();
   await expect(page.getByTestId("frame-summary")).toHaveText("Frame 1 · 6 × 8 at 4, 2");
   await page.keyboard.press("ArrowLeft");
   await page.keyboard.press("ArrowLeft");
@@ -102,10 +107,12 @@ test("mark, resize and paint frames before one exact VIEW commit", async ({ page
   await strip
     .getByRole("button", { name: "Select frame 2 in order strip", exact: true })
     .dragTo(strip.getByRole("button", { name: "Select frame 1 in order strip", exact: true }));
+  await expect(page.getByTestId("frame-summary")).toBeVisible();
   await expect(page.getByTestId("frame-summary")).toHaveText("Frame 1 · 8 × 8 at 18, 2");
   await strip
     .getByRole("button", { name: "Select frame 1 in order strip", exact: true })
     .dragTo(strip.getByRole("button", { name: "Select frame 2 in order strip", exact: true }));
+  await expect(page.getByTestId("frame-summary")).toBeVisible();
   await expect(page.getByTestId("frame-summary")).toHaveText("Frame 2 · 8 × 8 at 18, 2");
   await page.getByRole("button", { name: "Frame 1", exact: true }).click();
   await page.getByLabel("Cel height", { exact: true }).fill("8");
@@ -124,7 +131,9 @@ test("mark, resize and paint frames before one exact VIEW commit", async ({ page
   await page.screenshot({ path: test.info().outputPath("cels-1280.png"), animations: "disabled" });
   const before = await projectView(page);
   await page.getByTestId("image-add-cels").click();
+  await expect(page.getByTestId("image-status")).toBeVisible();
   await expect(page.getByTestId("image-status")).toHaveText("Added 2 cels");
+  await expect(page.getByTestId("workspace-saved")).toBeVisible();
   await expect(page.getByTestId("workspace-saved")).toContainText("Saved");
   const after = await projectView(page);
   expect(after.commits).toBe(before.commits + 1);
@@ -181,6 +190,7 @@ test("mark, resize and paint frames before one exact VIEW commit", async ({ page
   page.once("dialog", (dialog) => void dialog.accept());
   await page.getByRole("button", { name: "Find frames again", exact: true }).click();
   await expect(page.getByTestId("image-frame")).toHaveCount(2);
+  await expect(page.getByTestId("frame-summary")).toBeVisible();
   await expect(page.getByTestId("frame-summary")).toHaveText("Frame 1 · 16 × 16 at 0, 0");
   expect((await projectView(page)).commits).toBe(after.commits);
 });
@@ -213,6 +223,7 @@ test("white sheet finds tight linked figures and adds exact prepared cels", asyn
     buffer: Buffer.from(encodePngRgba(width, height, rgba)),
   });
   await expect(page.getByTestId("image-frame")).toHaveCount(4);
+  await expect(page.getByTestId("frame-summary")).toBeVisible();
   await expect(page.getByTestId("frame-summary")).toHaveText("Frame 1 · 12 × 48 at 12, 24");
   await expect(
     page.getByRole("switch", { name: "Background is see-through", exact: true }),
@@ -220,6 +231,7 @@ test("white sheet finds tight linked figures and adds exact prepared cels", asyn
   await expect(
     page.getByRole("button", { name: "See-through colour", exact: true }),
   ).toHaveAttribute("title", "White is see-through");
+  await expect(page.getByRole("button", { name: "Link selected frame" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Link selected frame" })).toHaveText(
     "⛓ 4 frames · same size",
   );
@@ -227,6 +239,7 @@ test("white sheet finds tight linked figures and adds exact prepared cels", asyn
   await page.keyboard.press("Alt+ArrowRight");
   for (let i = 0; i < 4; i++) {
     await page.getByRole("button", { name: `Frame ${i + 1}`, exact: true }).focus();
+    await expect(page.getByTestId("frame-summary")).toBeVisible();
     await expect(page.getByTestId("frame-summary")).toHaveText(
       `Frame ${i + 1} · 13 × 48 at ${xs[i]}, 24`,
     );
@@ -247,24 +260,29 @@ test("white sheet finds tight linked figures and adds exact prepared cels", asyn
   await page.mouse.up();
   for (let i = 0; i < 4; i++) {
     await page.getByRole("button", { name: `Frame ${i + 1}`, exact: true }).focus();
+    await expect(page.getByTestId("frame-summary")).toBeVisible();
     await expect(page.getByTestId("frame-summary")).toHaveText(
       `Frame ${i + 1} · 16 × 48 at ${xs[i]}, 24`,
     );
   }
   await page.getByRole("button", { name: "Link selected frame" }).click();
+  await expect(page.getByRole("button", { name: "Link selected frame" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Link selected frame" })).toHaveText(
     "Frame 4 unlinked",
   );
   await page.getByRole("button", { name: "Frame 4", exact: true }).focus();
   await page.keyboard.press("Alt+ArrowRight");
+  await expect(page.getByTestId("frame-summary")).toBeVisible();
   await expect(page.getByTestId("frame-summary")).toHaveText("Frame 4 · 17 × 48 at 221, 24");
   await page.getByRole("button", { name: "Link selected frame" }).click();
   await page.getByLabel("Cel height", { exact: true }).fill("24");
   await page.getByLabel("Cel height", { exact: true }).press("Tab");
   await page.getByRole("button", { name: "Select frame 4 in order strip", exact: true }).focus();
   await page.keyboard.press("Alt+ArrowLeft");
+  await expect(page.getByTestId("frame-summary")).toBeVisible();
   await expect(page.getByTestId("frame-summary")).toHaveText("Frame 3 · 16 × 48 at 221, 24");
   await page.keyboard.press("Alt+ArrowLeft");
+  await expect(page.getByTestId("frame-summary")).toBeVisible();
   await expect(page.getByTestId("frame-summary")).toHaveText("Frame 2 · 16 × 48 at 221, 24");
   await page.keyboard.press("Alt+ArrowRight");
   await page.keyboard.press("Alt+ArrowRight");
@@ -298,6 +316,7 @@ test("white sheet finds tight linked figures and adds exact prepared cels", asyn
   });
   const before = await projectView(page);
   await page.getByTestId("image-add-cels").click();
+  await expect(page.getByTestId("image-status")).toBeVisible();
   await expect(page.getByTestId("image-status")).toHaveText("Added 4 cels");
   const after = await projectView(page);
   expect(after.commits).toBe(before.commits + 1);
@@ -345,16 +364,24 @@ test("white sheet finds tight linked figures and adds exact prepared cels", asyn
     ]);
   }
   await page.getByRole("button", { name: "Replace ▾", exact: true }).click();
-  await page.getByRole("button", { name: "Generate", exact: true }).click();
+  await page
+    .locator(".image-source__popover")
+    .getByRole("button", { name: "Generate", exact: true })
+    .click();
   await page.getByTestId("generate-prompt").fill("Four walk frames on white");
   await expect(page.getByTestId("frame-sheet")).toBeHidden();
   await expect(page.getByTestId("generate-model")).toBeHidden();
-  await expect(page.getByTestId("generate-review")).toHaveText("Generate · about $0.01");
+  await expect(page.getByTestId("generate-review")).toBeVisible();
+  await expect(page.getByTestId("generate-review")).toHaveText("Generate");
   await page.getByTestId("generate-options").click();
   await expect(page.getByTestId("generate-model")).toBeVisible();
   await page.getByRole("button", { name: "Replace ▾", exact: true }).click();
-  await page.getByRole("button", { name: "Generate", exact: true }).click();
+  await page
+    .locator(".image-source__popover")
+    .getByRole("button", { name: "Generate", exact: true })
+    .click();
   await expect(page.getByTestId("frame-sheet")).toBeVisible();
+  await expect(page.getByTestId("frame-summary")).toBeVisible();
   await expect(page.getByTestId("frame-summary")).toHaveText("Frame 4 · 16 × 48 at 221, 24");
   expect((await projectView(page)).commits).toBe(after.commits);
   await page.getByTestId("part-room:1:picture:1").click();

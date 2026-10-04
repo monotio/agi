@@ -190,14 +190,14 @@ test("PICTURE review draws an image traced over the art across every pixel, as t
   const visual = new Uint8Array(160 * 168).fill(15);
   visual[84 * 160 + 40] = 1;
   const after = pictureReviewPixels(visual, documents, "picture:2");
-  // 60% red over the blue mark: (0, 0, 170) * 0.4 + (255, 0, 0) * 0.6.
+  // 60% EGA red over the blue mark: (0, 0, 170) * 0.4 + (170, 0, 0) * 0.6.
   assert.deepEqual(
     Array.from(after.slice((84 * 320 + 80) * 4, (84 * 320 + 80) * 4 + 4)),
-    [153, 0, 68, 255],
+    [102, 0, 68, 255],
   );
   assert.deepEqual(
     Array.from(after.slice((84 * 320 + 82) * 4, (84 * 320 + 82) * 4 + 4)),
-    [255, 102, 102, 255],
+    [204, 102, 102, 255],
   );
 });
 
@@ -221,7 +221,7 @@ test("PICTURE review shows a changed tracing layer below native marks", async ()
   );
   assert.deepEqual(
     Array.from(after.slice((84 * 320 + 82) * 4, (84 * 320 + 82) * 4 + 4)),
-    [255, 102, 102, 255],
+    [204, 102, 102, 255],
   );
   assert.deepEqual(Array.from(after.slice(0, 4)), [255, 255, 255, 255]);
   assert.deepEqual(imageReviewTargets({}, documents), ["picture:2"]);

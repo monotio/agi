@@ -1,4 +1,6 @@
 /** Image attachments and art operations shared by editors and agent tools. */
+import { snapImageToEga } from "./imageStyle.ts";
+import { encodePngRgba } from "./composite.ts";
 import { sha256Hex } from "../crypto.ts";
 import type { ProjectChange, ProjectContent } from "../authoring/projectContent.ts";
 import type { AgiProfile } from "../runtime/profile.ts";
@@ -6,7 +8,11 @@ import { buildView, parseView, type BuildViewInput } from "../view/view.ts";
 import { prepareView, type ViewRecipeFrame } from "../view/preparation.ts";
 import { derivePicturePlacement, preparePictureUnderlay } from "../picture/preparation.ts";
 import type { Rect } from "./catalog.ts";
-import { readImageReferences, type ProjectImageInput } from "./imageAttachments.ts";
+import {
+  readImageReferences,
+  readProjectImage,
+  type ProjectImageInput,
+} from "./imageAttachments.ts";
 export {
   readImageReferences,
   readProjectImage,
@@ -22,21 +28,21 @@ export interface ImageFrame {
 }
 function attach(documents: Documents, image: ProjectImageInput) {
   const encoded = sha256Hex(image.encoded);
-  const raster = sha256Hex(image.rgba);
+  const png = encodePngRgba(image.width, image.height, image.rgba);
+  const raster = sha256Hex(png);
   const references = readImageReferences(documents);
   const record = {
     title: image.title,
     mime: image.mime,
     encoded,
     raster,
+    rasterEncoding: "png" as const,
     width: image.width,
     height: image.height,
   };
   const changes: ProjectChange[] = [
     { key: `attachment:${encoded}`, content: new Uint8Array(image.encoded) },
-    ...(raster === encoded
-      ? []
-      : [{ key: `attachment:${raster}`, content: new Uint8Array(image.rgba) }]),
+    ...(raster === encoded ? [] : [{ key: `attachment:${raster}`, content: png }]),
   ];
   const next = { ...references, images: { ...references.images, [encoded]: record } };
   readImageReferences({
@@ -69,6 +75,24 @@ export function traceImageChanges(
   });
   return changes;
 }
+/** Change display options while reusing immutable image attachments. */
+export function traceOptionsChanges(
+  documents: Documents,
+  target: string,
+  opacity: number,
+  behindArt: boolean,
+): readonly ProjectChange[] {
+  const references = readImageReferences(documents);
+  const trace = references.traces[target];
+  if (!trace) throw new Error("Choose an image to trace first.");
+  const next = {
+    ...references,
+    traces: { ...references.traces, [target]: { ...trace, opacity, behindArt } },
+  };
+  readImageReferences({ ...documents, images: JSON.stringify(next) });
+  return [{ key: "images", content: JSON.stringify(next) }];
+}
+
 /** Transparent sheets use alpha; opaque sheets use the most common corner colour. */
 export function detectImageBackground(
   image: Pick<ProjectImageInput, "width" | "height" | "rgba">,
@@ -341,7 +365,7 @@ export function imageTraceUnderlay(
       identity,
       width: image.width,
       height: image.height,
-      rgba: documents[`attachment:${image.raster}`] as Uint8Array,
+      rgba: readProjectImage(documents, trace.image).rgba,
     },
     {
       format: "agi.preparation",
@@ -364,5 +388,9 @@ export function imageTraceUnderlay(
       destination: { kind: "picture", resourceId: Number(target.slice(8)) },
     },
   );
-  return { pixels: underlay.rgba, opacity: trace.opacity, behindArt: trace.behindArt ?? false };
+  return {
+    pixels: snapImageToEga(underlay.rgba),
+    opacity: trace.opacity,
+    behindArt: trace.behindArt ?? false,
+  };
 }

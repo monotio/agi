@@ -13,6 +13,14 @@ import {
   type HistoryBatch,
   type HistorySegment,
 } from "../../src/agent/history.ts";
+import { traceImageChanges } from "../../src/creative/imageOperations.ts";
+import { encodePngRgba } from "../../src/creative/composite.ts";
+import {
+  readProjectWorkspace,
+  writeProjectWorkspace,
+} from "../../src/authoring/projectWorkspace.ts";
+import { projectDocumentId } from "../../src/authoring/projectContent.ts";
+import { sha256Hex } from "../../src/crypto.ts";
 import { resourceSetHint } from "../../src/agent/authoringState.ts";
 import { rngDraw } from "../../src/runtime/rng.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
@@ -1351,4 +1359,99 @@ test("a refused Exit can resume recording while preserving the unacknowledged ta
       (batch) => batch.segment !== original && batch.events.some((e) => e.cause.kind === "key"),
     ),
   );
+});
+
+test("recording boots retain executable source and omit authoring documents after a large image", () => {
+  const h = historyHarness(historyGame());
+  h.ctx.boot.project = {
+    documents: {
+      format: "monotio.agi.project-workspace",
+      version: 1,
+      documents: [
+        { key: "logic:1", content: { type: "text", text: "return; // Keep authored source" } },
+        { key: "notes", content: { type: "text", text: "x".repeat(12 * 1024 * 1024) } },
+      ],
+    },
+    documentId: "a".repeat(64),
+  };
+  h.ctx.fns.historyBoot({
+    type: "boot",
+    files: Object.fromEntries(h.ctx.engine!.containerFiles),
+    words: [],
+  });
+  h.tick(1800);
+  h.ctx.fns.historyFlush();
+  const segments = collectSegments(h.control);
+  assert.equal(segments.length, 2);
+  assert.equal(segments[0]!.boot.project, undefined);
+  const recorded = segments[1]!.boot.project;
+  assert.ok(recorded);
+  assert.deepEqual(readProjectWorkspace(recorded.documents), {
+    "logic:1": "return; // Keep authored source",
+  });
+  for (const message of h.control) {
+    if (message.type === "historyBatch")
+      assert.ok(JSON.stringify(message.batch).length < 256 * 1024);
+  }
+});
+
+test("an oversized boot is posted once and pauses recording across later boundaries", () => {
+  const game = historyGame();
+  const h = historyHarness(game, {
+    files: { ...Object.fromEntries(game.files), LARGE: new Uint8Array(7 * 1024 * 1024) },
+  });
+  h.tick(1800);
+  h.ctx.fns.historyResume();
+  h.tick(20);
+  assert.equal(collectSegments(h.control).length, 1);
+  assert.equal(h.ctx.history.segment, null);
+  assert.equal(h.ctx.history.resumePending, false);
+  assert.ok(h.presentation.some((m) => m.type === "status" && m.text.includes("Recording paused")));
+});
+
+test("tracing a 1024-square attachment never copies its pixels into recording batches", () => {
+  const rgba = new Uint8Array(1024 * 1024 * 4).fill(255);
+  const image = {
+    title: "Large trace",
+    mime: "image/png",
+    encoded: encodePngRgba(1024, 1024, rgba),
+    rgba,
+    width: 1024,
+    height: 1024,
+  };
+  const documents = {
+    ...Object.fromEntries(
+      traceImageChanges({}, "picture:1", image).map((c) => [c.key, c.content!]),
+    ),
+    words: "[]",
+    inventory: '[{"name":"key","startingRoom":1}]',
+    bindings: "{}",
+    notes: "Authoring notes",
+  };
+  const h = historyHarness(historyGame());
+  h.ctx.fns.historyRecord({
+    kind: "projectImage",
+    documents: writeProjectWorkspace(documents),
+    documentId: projectDocumentId(documents, sha256Hex),
+    files: Object.fromEntries(
+      [...h.ctx.engine!.containerFiles].map(([key, bytes]) => [
+        key,
+        Buffer.from(bytes).toString("base64"),
+      ]),
+    ),
+    nativeChanged: false,
+  });
+  h.tick(1800);
+  h.ctx.fns.historyFlush();
+  assert.equal(collectSegments(h.control).length, 1);
+  for (const message of h.control)
+    if (message.type === "historyBatch") {
+      assert.ok(JSON.stringify(message.batch).length < 256 * 1024);
+      for (const event of message.batch.events)
+        if (event.cause.kind === "projectImage")
+          assert.deepEqual(
+            event.cause.documents.documents.map((document) => document.key),
+            ["bindings", "inventory", "words"],
+          );
+    }
 });
