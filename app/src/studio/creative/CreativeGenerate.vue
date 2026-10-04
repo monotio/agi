@@ -663,6 +663,9 @@ const noKey = computed(() => !credentialReady.value || failure.value?.reason ===
 </template>
 
 <style scoped>
+.generate a {
+  color: var(--action);
+}
 .generate__placeholder {
   min-height: 180px;
   display: grid;

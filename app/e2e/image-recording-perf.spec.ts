@@ -37,7 +37,12 @@ test(
             probe.__IMAGE_BATCHES__.push({
               segment: batch.segment,
               size: JSON.stringify(batch).length,
-              documents: batch.boot?.project !== undefined,
+              documents:
+                batch.boot?.project?.documents.documents.some(
+                  ({ key }) =>
+                    !/^(logic|picture|view|sound):\d+$/.test(key) &&
+                    !["words", "inventory", "bindings"].includes(key),
+                ) ?? false,
             });
           },
         );

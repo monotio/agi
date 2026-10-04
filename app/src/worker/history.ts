@@ -65,6 +65,23 @@ const RESEND_MAX_MS = 60_000;
  */
 let nonceCounter = 0;
 
+/** Native source keeps Create editable after rewind; attachments stay in the project archive. */
+function executableProject(project: NonNullable<HistoryBoot["project"]>) {
+  const documents = readProjectWorkspace({
+    ...project.documents,
+    documents: project.documents.documents.filter(
+      ({ key }) =>
+        (/^(logic|picture|view|sound):(0|[1-9]\d{0,2})$/.test(key) &&
+          Number(key.slice(key.indexOf(":") + 1)) <= 255) ||
+        ["words", "inventory", "bindings"].includes(key),
+    ),
+  });
+  return {
+    documents: writeProjectWorkspace(documents),
+    documentId: projectDocumentId(documents, sha256Hex),
+  };
+}
+
 export function createHistory(ctx: WorkerContext) {
   let bootOverBudget = false;
   /** A live segment records; scratch replay traffic never does. */
@@ -145,20 +162,9 @@ export function createHistory(ctx: WorkerContext) {
    */
   function historyRecord(cause: HistoryEventCause): void {
     if (cause.kind === "projectImage") {
-      // Replay retains executable resource documents; authoring attachments and
-      // display metadata belong to the project archive, outside the play tape.
-      const documents = Object.fromEntries(
-        Object.entries(readProjectWorkspace(cause.documents)).filter(
-          ([key]) =>
-            (/^(logic|picture|view|sound):(0|[1-9]\d{0,2})$/.test(key) &&
-              Number(key.slice(key.indexOf(":") + 1)) <= 255) ||
-            ["words", "inventory", "bindings"].includes(key),
-        ),
-      );
       cause = {
         ...cause,
-        documents: writeProjectWorkspace(documents),
-        documentId: projectDocumentId(documents, sha256Hex),
+        ...executableProject({ documents: cause.documents, documentId: cause.documentId }),
       };
     }
     const rec = ctx.recording.recording;
@@ -562,8 +568,10 @@ export function createHistory(ctx: WorkerContext) {
     h.pendingEndReply = null;
     h.rng = (typeof msg.rngSeed === "number" ? msg.rngSeed : 1) & 0xffff;
     if (ctx.replay.replay) return; // a seeded boot is a scratch replay session
+    const project = ctx.boot.project ? executableProject(ctx.boot.project) : undefined;
     const boot = stampBoot({
       files: bootFiles(),
+      ...(project ? { project } : {}),
       dictionary: [...ctx.boot.liveDictionary.entries()],
       authorRooms: ctx.boot.authorRooms,
       ...(ctx.boot.profile ? { profile: ctx.boot.profile } : {}),
@@ -630,8 +638,10 @@ export function createHistory(ctx: WorkerContext) {
     }
     if (!image) return null;
     const h = ctx.history;
+    const project = ctx.boot.project ? executableProject(ctx.boot.project) : undefined;
     const boot = stampBoot({
       files: bootFiles(),
+      ...(project ? { project } : {}),
       dictionary: [...ctx.boot.liveDictionary.entries()],
       authorRooms: ctx.boot.authorRooms,
       ...(ctx.boot.profile ? { profile: ctx.boot.profile } : {}),

@@ -178,6 +178,10 @@ test("unknown spend waits for a request allowance in the real assistant", async 
   await page.getByRole("button", { name: "Send", exact: true }).click();
   await expect(page.getByTestId("agent-pause-reason")).toBeVisible();
   await expect(page.getByTestId("agent-pause-reason")).toContainText("Choose how many requests");
+  const usage = page.getByRole("link", { name: "See your usage", exact: true });
+  await expect(usage).toBeVisible();
+  await expect(usage).toHaveCSS("color", "rgb(121, 229, 230)");
+  await expect(usage).toHaveAttribute("href", "https://platform.openai.com/usage");
   expect(requests).toBe(0);
   await page.getByTestId("agent-request-limit").fill("2");
   await page.screenshot({ path: test.info().outputPath("request-allowance.png") });

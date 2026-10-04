@@ -46,6 +46,7 @@ async function upload(page: Page) {
       .getByTestId("image-reference")
       .getByRole("button", { name: "Bring in an image", exact: true }),
   ).toBeEnabled();
+  await expect(page.getByTestId("workspace-saved")).toBeVisible();
   await expect(page.getByTestId("workspace-saved")).toContainText("Saved");
 }
 function pixel(page: Page) {
@@ -66,7 +67,7 @@ function pixel(page: Page) {
 function shot(page: Page, name: string) {
   return page.screenshot({ path: test.info().outputPath(`${name}.png`), animations: "disabled" });
 }
-test("reference blends above painted Starter art and placement follows Undo and History", async ({
+test("reference snaps to EGA and blends above Starter art while placement follows Undo and History", async ({
   page,
 }) => {
   await start(page);
@@ -76,9 +77,10 @@ test("reference blends above painted Starter art and placement follows Undo and 
   await upload(page);
   await shot(page, "picture-trace");
   await page.getByTestId("trace-opacity").fill("1");
-  await expect.poll(() => pixel(page)).toEqual([255, 0, 0, 255]);
+  await expect.poll(() => pixel(page)).toEqual([170, 0, 0, 255]);
   await page.getByTestId("trace-opacity").fill("0.6");
-  await expect.poll(() => pixel(page)).toEqual([187, 34, 102, 255]);
+  // EGA red at 60% over sky blue: 170*.6 + 85*.4 = 136.
+  await expect.poll(() => pixel(page)).toEqual([136, 34, 102, 255]);
   const front = await page.evaluate(
     () =>
       (window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }).__AGI_PROJECT__
@@ -89,7 +91,7 @@ test("reference blends above painted Starter art and placement follows Undo and 
   await expect.poll(() => pixel(page)).toEqual([85, 85, 255, 255]);
   await page.getByRole("button", { name: "Undo", exact: true }).click();
   await expect(page.getByRole("checkbox", { name: "Behind art", exact: true })).not.toBeChecked();
-  await expect.poll(() => pixel(page)).toEqual([187, 34, 102, 255]);
+  await expect.poll(() => pixel(page)).toEqual([136, 34, 102, 255]);
   await page.getByRole("button", { name: "Undo", exact: true }).click();
   await expect(page.getByTestId("trace-opacity")).toHaveValue("1");
   await page.getByRole("button", { name: "Redo", exact: true }).click();
@@ -104,7 +106,7 @@ test("reference blends above painted Starter art and placement follows Undo and 
   }, front);
   await expect(page.getByRole("checkbox", { name: "Behind art", exact: true })).not.toBeChecked();
   await expect(page.getByTestId("trace-opacity")).toHaveValue("0.6");
-  await expect.poll(() => pixel(page)).toEqual([187, 34, 102, 255]);
+  await expect.poll(() => pixel(page)).toEqual([136, 34, 102, 255]);
   await page
     .getByTestId("image-reference")
     .getByRole("button", { name: "Close", exact: true })

@@ -392,6 +392,53 @@ for (const viewport of [
   });
 }
 
+test("rewind preserves saved PNG attachments and trace settings", async ({ page }) => {
+  await start(page);
+  await blankRoom(page);
+  await page.getByTestId("part-room:1:picture:1").click();
+  await page.getByRole("button", { name: "Trace an image", exact: true }).click();
+  await upload(page);
+  const images = () =>
+    page.evaluate(() => {
+      const session = (
+        window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }
+      ).__AGI_PROJECT__.getSession();
+      return session.model.capture().read("images")?.content;
+    });
+  await expect.poll(images).toContain('"opacity":0.4');
+  await page.evaluate(() =>
+    (window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }).__AGI_PROJECT__
+      .getSession()
+      .flush(),
+  );
+  const saved = await images();
+  await page.getByRole("radio", { name: "Play", exact: true }).click();
+  await page.getByTestId("btn-transport-pause").click();
+  const timeline = page.getByTestId("history-timeline");
+  await expect(timeline).toBeVisible();
+  await expect(timeline).toHaveAttribute("aria-valuenow", "100");
+  const box = (await timeline.boundingBox())!;
+  await timeline.click({ position: { x: box.width * 0.2, y: box.height / 2 } });
+  await expect(page.getByTestId("btn-history-resume")).toBeEnabled();
+  await page.getByTestId("btn-history-resume").click();
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const state = window.__AGI_STATE__;
+        return (
+          state?.powerUp.busy === false &&
+          !state.historyView.parked &&
+          !state.historyView.loading &&
+          !state.historyView.active
+        );
+      }),
+    )
+    .toBe(true);
+  await page.getByRole("radio", { name: "Create", exact: true }).click();
+  await expect(page.getByTestId("parts-list")).toBeVisible();
+  await expect.poll(images).toBe(saved);
+});
+
 test("trace opacity previews during input and serializes quick releases", async ({ page }) => {
   await start(page);
   await blankRoom(page);

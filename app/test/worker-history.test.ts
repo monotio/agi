@@ -15,7 +15,10 @@ import {
 } from "../../src/agent/history.ts";
 import { traceImageChanges } from "../../src/creative/imageOperations.ts";
 import { encodePngRgba } from "../../src/creative/composite.ts";
-import { writeProjectWorkspace } from "../../src/authoring/projectWorkspace.ts";
+import {
+  readProjectWorkspace,
+  writeProjectWorkspace,
+} from "../../src/authoring/projectWorkspace.ts";
 import { projectDocumentId } from "../../src/authoring/projectContent.ts";
 import { sha256Hex } from "../../src/crypto.ts";
 import { resourceSetHint } from "../../src/agent/authoringState.ts";
@@ -1358,13 +1361,16 @@ test("a refused Exit can resume recording while preserving the unacknowledged ta
   );
 });
 
-test("recording boots omit authoring documents and stay bounded after a large image", () => {
+test("recording boots retain executable source and omit authoring documents after a large image", () => {
   const h = historyHarness(historyGame());
   h.ctx.boot.project = {
     documents: {
       format: "monotio.agi.project-workspace",
       version: 1,
-      documents: [{ key: "notes", content: { type: "text", text: "x".repeat(12 * 1024 * 1024) } }],
+      documents: [
+        { key: "logic:1", content: { type: "text", text: "return; // Keep authored source" } },
+        { key: "notes", content: { type: "text", text: "x".repeat(12 * 1024 * 1024) } },
+      ],
     },
     documentId: "a".repeat(64),
   };
@@ -1377,7 +1383,12 @@ test("recording boots omit authoring documents and stay bounded after a large im
   h.ctx.fns.historyFlush();
   const segments = collectSegments(h.control);
   assert.equal(segments.length, 2);
-  for (const segment of segments) assert.equal(segment.boot.project, undefined);
+  assert.equal(segments[0]!.boot.project, undefined);
+  const recorded = segments[1]!.boot.project;
+  assert.ok(recorded);
+  assert.deepEqual(readProjectWorkspace(recorded.documents), {
+    "logic:1": "return; // Keep authored source",
+  });
   for (const message of h.control) {
     if (message.type === "historyBatch")
       assert.ok(JSON.stringify(message.batch).length < 256 * 1024);

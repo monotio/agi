@@ -547,11 +547,13 @@ export function useEngine(
     if (data === null) throw new Error("The saved project is missing. Reopen the game.");
     const [
       { readProjectWorkspace },
+      { historyProjectDocuments },
       { readProjectDocuments },
       { diffProjectDocuments },
       { detectProfile },
     ] = await Promise.all([
       import("../../../src/authoring/projectWorkspace.ts"),
+      import("../history/historyProject.ts"),
       import("../../../src/authoring/projectDocuments.ts"),
       import("../../../src/authoring/projectContent.ts"),
       import("../../../src/runtime/profile.ts"),
@@ -559,12 +561,16 @@ export function useEngine(
     const files = Object.fromEntries(
       Object.entries(boot.files).map(([name, bytes]) => [name, base64ToBytes(bytes)]),
     );
-    const documents = boot.project
+    const recordedDocuments = boot.project
       ? readProjectWorkspace(boot.project.documents)
       : readProjectDocuments({
           files,
           profileId: detectProfile(new Map(Object.entries(files)), boot.profile).id,
         }).documents;
+    const documents = historyProjectDocuments(
+      recordedDocuments,
+      data.workspace ? readProjectWorkspace(data.workspace) : {},
+    );
     if (lifecycle.getBootedGame() !== game || link.getWorker() !== worker) return;
     const reply = await link.query("projectCreate");
     if (lifecycle.getBootedGame() !== game || link.getWorker() !== worker) return;

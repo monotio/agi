@@ -367,7 +367,11 @@ test("session offers room re-entry for a loaded VIEW layout, keeps its token and
       .filter((m) => m.type === "historyBatch")
       .findLast((m) => m.batch.boot)?.batch.boot;
     assert.ok(recorded);
-    assert.equal(recorded.project, undefined);
+    assert.ok(recorded.project);
+    assert.deepEqual(
+      readProjectWorkspace(recorded.project.documents),
+      f.session.model.capture().documents(),
+    );
     assert.deepEqual(
       recorded.files,
       Object.fromEntries(

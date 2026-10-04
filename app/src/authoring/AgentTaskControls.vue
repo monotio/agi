@@ -111,6 +111,9 @@ const quiet = computed(() =>
   justify-content: space-between;
   gap: 12px;
 }
+.task-row a {
+  color: var(--action);
+}
 .stream-progress {
   margin-bottom: 10px;
 }

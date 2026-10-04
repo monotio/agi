@@ -180,6 +180,7 @@ function viewHarness(
       presentation.push(message);
     },
     now: () => now,
+    seedWord: () => 0xbeef,
   } satisfies WorkerPorts);
   ctx.host = createEngineHost(ctx);
   // The host commits each batch and acks it; resent duplicates get acked
@@ -861,6 +862,17 @@ test("a take adopts the unknown-word slot said() still matches", () => {
   send({ type: "debugWrite", id: 4, flags: [[223, 1]] });
   tick(3);
   assert.equal(ctx.engine!.vars[102], 1, "said(1) matches in the adopted session");
+});
+
+test("worker history fixtures reseed independently of platform entropy", (t) => {
+  const h = viewHarness(viewGame(), { rngSeed: 0 });
+  t.mock.method(crypto, "getRandomValues", () => {
+    throw new Error("Fixture used live entropy");
+  });
+  h.tick(4);
+  h.send({ type: "debugWrite", id: 0, flags: [[202, 1]] });
+  h.tick(3);
+  assert.equal(h.ctx.history.rng, (0xbeef * 31821 + 1) & 0xffff);
 });
 
 test("restart at RNG zero consumes no clock read; the next draw records one", () => {
