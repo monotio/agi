@@ -135,11 +135,14 @@ function refresh(): void {
     void import("../../../../src/creative/imageOperations.ts").then(({ imageTraceUnderlay }) => {
       if (ticket !== imageRefresh || retired) return;
       const documents = capture.snapshot.documents();
-      traceUnderlays.value = Object.fromEntries(
-        capture.snapshot.keys
-          .filter((key) => key.startsWith("picture:"))
-          .map((key) => [key, imageTraceUnderlay(documents, key)]),
-      );
+      void import("../creative/tracePresentation.ts").then(({ presentTrace }) => {
+        if (ticket !== imageRefresh || retired) return;
+        traceUnderlays.value = Object.fromEntries(
+          capture.snapshot.keys
+            .filter((key) => key.startsWith("picture:"))
+            .map((key) => [key, presentTrace(session!, key, imageTraceUnderlay(documents, key))]),
+        );
+      });
     });
   } else traceUnderlays.value = {};
   writeConflict.value = capture.save.state === "conflict";

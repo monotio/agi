@@ -44,6 +44,7 @@
     "check:dependencies": "npm ls --depth=0 && npm --prefix app ls --depth=0",
     "check": "run-s check:dependencies typecheck typecheck:app lint lint:ast lint:dead lint:deps lint:tokens format:check test test:app eval:replay",
     "eval:genesis": "node --experimental-strip-types evals/genesis-cli.ts",
+    "eval:image-style": "node --experimental-strip-types evals/image-style.ts",
     "eval:picture": "node --experimental-strip-types evals/picture-fidelity.ts",
     "eval:remix": "node --experimental-strip-types evals/remix-benchmark.ts",
     "eval:studio": "node --experimental-strip-types evals/studio-assist-benchmark.ts",

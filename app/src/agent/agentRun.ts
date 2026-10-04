@@ -1,8 +1,10 @@
+import { beginProviderBudget, type ProviderBudget } from "./providerBudget.ts";
 import type { LlmUsage } from "./llmClient.ts";
 import type { AgentToolResult } from "../../../src/agent/agentState.ts";
 import { sha256Hex } from "../../../src/crypto.ts";
 import { MODEL_CAPABILITIES, modelCapability } from "../../../src/agent/modelEffort.ts";
 export interface AgentRunState {
+  usageUrl?: string;
   progress: AgentProgress | null;
   status: "idle" | "running" | "paused";
   reason: string;
@@ -32,6 +34,7 @@ import { DEFAULT_TASK_BUDGET_USD } from "../settings/aiSettings.ts";
 
 export class AgentRun {
   private state: AgentRunState;
+  private account: ProviderBudget | null = null;
   private readonly model: string;
   private readonly changed: (state: AgentRunState) => void;
   private readonly allowance: number;
@@ -61,6 +64,10 @@ export class AgentRun {
     this.changed = changed;
     this.allowance = budget;
     this.state = {
+      usageUrl:
+        MODEL_CAPABILITIES[model]?.provider === "anthropic"
+          ? "https://console.anthropic.com/settings/usage"
+          : "https://platform.openai.com/usage",
       progress: null,
       status: "idle",
       reason: "",
@@ -76,7 +83,11 @@ export class AgentRun {
     this.outputReserve = MODEL_CAPABILITIES[model]?.provider === "anthropic" ? 64000 : 25000;
   }
   snapshot(): AgentRunState {
-    return { ...this.state, progress: this.state.progress ? { ...this.state.progress } : null };
+    return {
+      ...this.state,
+      ...(this.account ? { spent: this.account.spent, budget: this.account.limit } : {}),
+      progress: this.state.progress ? { ...this.state.progress } : null,
+    };
   }
   private publish(): void {
     this.changed(this.snapshot());
@@ -113,6 +124,7 @@ export class AgentRun {
       usageIncomplete: false,
       cacheHitShare: null,
     };
+    this.account = beginProviderBudget(this.allowance);
     this.taskInput = 0;
     this.taskCachedInput = 0;
     this.stopped = false;
@@ -155,7 +167,15 @@ export class AgentRun {
       this.requestAllowance = this.state.requests + requestLimit;
     }
     if (this.state.reason.startsWith("Budget"))
-      this.state.budget = Math.max(this.state.budget, this.state.spent) + this.allowance;
+      this.state.budget =
+        Math.max(
+          this.account?.limit ?? this.state.budget,
+          this.account?.spent ?? this.state.spent,
+        ) + this.allowance;
+    if (this.account) {
+      this.account.limit = Math.max(this.account.limit, this.state.budget);
+      this.state.budget = this.account.limit;
+    }
     this.stopped = false;
     this.state.reason = "";
     this.signatures = [];
@@ -203,7 +223,9 @@ export class AgentRun {
         ? inputCost * Math.min(2, Math.max(1, inputCost / this.lastInputCost))
         : inputCost;
     this.lastInputCost = inputCost;
-    this.state.spent += inputCost + (usage.output * this.outputRate) / 1e6;
+    const charge = inputCost + (usage.output * this.outputRate) / 1e6;
+    this.state.spent += charge;
+    if (this.account) this.account.spent += charge;
     this.publish();
   }
   recordTool(
@@ -233,8 +255,10 @@ export class AgentRun {
     if (
       billable &&
       this.state.priceKnown &&
-      this.state.spent + this.expectedInputCost + (this.outputReserve * this.outputRate) / 1e6 >
-        this.state.budget
+      (this.account ? this.account.spent + this.account.reserved : this.state.spent) +
+        this.expectedInputCost +
+        (this.outputReserve * this.outputRate) / 1e6 >
+        (this.account?.limit ?? this.state.budget)
     ) {
       this.stopped = true;
       this.state.reason =
@@ -267,12 +291,14 @@ export class AgentRun {
         this.outputRate = rate.output * (long ? 1.5 : 1);
       }
       if (!this.state.priceKnown && this.state.requests >= this.requestAllowance)
-        this.pause(`Spend unknown. Enter a spend limit in requests to continue.`);
+        this.pause(`Choose how many requests to allow, then Continue.`);
       await this.checkpoint();
       if (
         rate &&
-        this.state.spent + this.expectedInputCost + (this.outputReserve * this.outputRate) / 1e6 >
-          this.state.budget
+        (this.account ? this.account.spent + this.account.reserved : this.state.spent) +
+          this.expectedInputCost +
+          (this.outputReserve * this.outputRate) / 1e6 >
+          (this.account?.limit ?? this.state.budget)
       )
         continue;
       // No wall-clock cut: a long turn at high effort is normal, and the SDKs
@@ -281,6 +307,11 @@ export class AgentRun {
       const controller = new AbortController();
       this.controller = controller;
       const maxTokens = modelCapability(this.model).maxOutputTokens;
+      const account = this.account;
+      const reservation = rate
+        ? this.expectedInputCost + (this.outputReserve * this.outputRate) / 1e6
+        : (account?.allowance ?? this.allowance);
+      if (account) account.reserved += reservation;
       this.state.requests++;
       this.state.progress = {
         phase: "waiting",
@@ -299,6 +330,7 @@ export class AgentRun {
         this.state.usageIncomplete = true;
         continue;
       } finally {
+        if (account) account.reserved -= reservation;
         clearTimeout(this.progressTimer);
         this.progressTimer = undefined;
         this.state.progress = null;

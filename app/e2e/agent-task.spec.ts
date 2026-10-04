@@ -100,11 +100,13 @@ test("GPT-6.1 Sol is the new-user default; Stop and budget pauses retain a stage
     // the pointer:coarse media query.
     expect((await page.getByTestId("agent-stop").boundingBox())!.height).toBeGreaterThanOrEqual(40);
     await page.getByTestId("agent-stop").click();
+    await expect(page.getByTestId("agent-pause-reason")).toBeVisible();
     await expect(page.getByTestId("agent-pause-reason")).toContainText("Stopped");
     expect((await textHook(page)).paused).toBe(false);
     await page.screenshot({ path: test.info().outputPath("agent-stopped.png") });
     release();
     await page.getByTestId("agent-continue").click();
+    await expect(page.getByTestId("agent-pause-reason")).toBeVisible();
     await expect(page.getByTestId("agent-pause-reason")).toContainText("Budget");
     expect(requests).toBe(3);
     expect(
@@ -174,7 +176,8 @@ test("unknown spend waits for a request allowance in the real assistant", async 
   await configureAi(page, { provider: "openai", model: "gpt-6-sol", key: "placeholder" });
   await page.getByTestId("agent-message").fill("Inspect this room.");
   await page.getByRole("button", { name: "Send", exact: true }).click();
-  await expect(page.getByTestId("agent-pause-reason")).toContainText("Spend unknown");
+  await expect(page.getByTestId("agent-pause-reason")).toBeVisible();
+  await expect(page.getByTestId("agent-pause-reason")).toContainText("Choose how many requests");
   expect(requests).toBe(0);
   await page.getByTestId("agent-request-limit").fill("2");
   await page.screenshot({ path: test.info().outputPath("request-allowance.png") });

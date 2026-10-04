@@ -951,3 +951,58 @@ test("paid request estimates use the documented image output calculator", async 
   assert.equal(estimateImageOutputCost("gpt-image-2.5-flare", "high", "1024x1024"), 0.05268);
   assert.equal(estimateImageOutputCost("unknown", "low", "1024x1024"), null);
 });
+
+test("streaming publishes a bounded partial before accepting the final image", async () => {
+  const b64 = Buffer.from(PNG_1x1).toString("base64");
+  const partial = `data: ${JSON.stringify({ type: "image_generation.partial_image", partial_image_index: 0, b64_json: b64 })}\r\n\r\n`;
+  const final = `data: ${JSON.stringify({ type: "image_generation.completed", b64_json: b64, output_format: "png", usage: { input_tokens: 1, output_tokens: 2 } })}\n\n`;
+  const events: string[] = [];
+  const provider = createOpenAiImageProvider({
+    credentials: () => "test-key",
+    models: { [TINY.id]: { ...TINY, streaming: true } },
+    fetch: async (_url, init) => {
+      const wire = JSON.parse(init!.body as string);
+      assert.equal(wire.stream, true);
+      assert.equal(wire.partial_images, 2);
+      return new Response(
+        new ReadableStream({
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode(partial.slice(0, 19)));
+            controller.enqueue(new TextEncoder().encode(partial.slice(19)));
+            controller.enqueue(new TextEncoder().encode(final));
+            controller.close();
+          },
+        }),
+        { headers: { "content-type": "text/event-stream" } },
+      );
+    },
+  });
+  const offer = await provider.submit(provider.prepare(request()), {
+    onPartial(bytes) {
+      assert.deepEqual(bytes, PNG_1x1);
+      events.push("partial");
+    },
+  });
+  events.push("final");
+  assert.deepEqual(events, ["partial", "final"]);
+  assert.equal(offer.usage!.outputTokens, 2);
+});
+
+test("a streaming request accepts a provider's ordinary JSON response without another request", async () => {
+  let requests = 0;
+  const provider = createOpenAiImageProvider({
+    credentials: () => "test-key",
+    models: { [TINY.id]: { ...TINY, streaming: true } },
+    fetch: async () => {
+      requests++;
+      return jsonResponse(imageBody(PNG_1x1));
+    },
+  });
+  const offer = await provider.submit(provider.prepare(request()), {
+    onPartial() {
+      assert.fail("JSON has no partials");
+    },
+  });
+  assert.deepEqual(offer.encodedBytes, PNG_1x1);
+  assert.equal(requests, 1);
+});

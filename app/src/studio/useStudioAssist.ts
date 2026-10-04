@@ -222,8 +222,7 @@ export function useStudioAssist(options: StudioAssistOptions) {
   const budget = computed(() => {
     const state = task.value;
     if (!state) return "";
-    if (!state.priceKnown) return `Spend unknown · ${state.requests} requests`;
-    return `$${Math.max(0, state.budget - state.spent).toFixed(2)} of $${state.budget.toFixed(2)} left`;
+    return `Budget $${state.budget.toFixed(2)}`;
   });
 
   /**

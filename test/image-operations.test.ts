@@ -90,15 +90,16 @@ test("four suggested frames become four appended cels in one detached operation"
   assert.equal(parseView(existing).loops[0]!.cels.length, 1);
 });
 
-test("saved image references restore detached pixels and refuse unknown metadata", () => {
+test("saved PNG image references restore detached pixels and refuse unknown metadata", () => {
   const changes = traceImageChanges({}, "picture:1", image, 0.7);
   const documents = Object.fromEntries(changes.map((c) => [c.key, c.content!]));
   const restored = readProjectImage(documents, sha256Hex(image.encoded));
   assert.deepEqual(restored, image);
   restored.rgba[0] = 99;
-  assert.notEqual((documents[`attachment:${sha256Hex(image.rgba)}`] as Uint8Array)[0], 99);
+  assert.deepEqual(readProjectImage(documents, sha256Hex(image.encoded)).rgba, image.rgba);
   assert.equal(imageTraceUnderlay(documents, "picture:1")!.opacity, 0.7);
   const metadata = JSON.parse(documents["images"] as string);
+  const raster = readImageReferences(documents).images[sha256Hex(image.encoded)]!.raster;
   assert.throws(
     () =>
       readImageReferences({ ...documents, images: JSON.stringify({ ...metadata, future: true }) }),
@@ -113,7 +114,7 @@ test("saved image references restore detached pixels and refuse unknown metadata
     () =>
       readImageReferences({
         ...documents,
-        [`attachment:${sha256Hex(image.rgba)}`]: new Uint8Array(1),
+        [`attachment:${raster}`]: new Uint8Array(1),
       }),
     /hash/,
   );

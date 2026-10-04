@@ -10,6 +10,7 @@ import {
 } from "vue";
 import {
   traceImageChanges,
+  traceOptionsChanges,
   readImageReferences,
   readProjectImage,
   makeCelsChanges,
@@ -30,6 +31,7 @@ import { readBindingsDocument } from "../../../../src/authoring/projectDocuments
 import { buildView } from "../../../../src/view/view.ts";
 import { nearestEgaIndex } from "../../../../src/view/spritesheet.ts";
 import { EGA_PALETTE } from "../../render/palette.ts";
+import { previewTrace } from "./tracePresentation.ts";
 import ImageFrameSheet from "./ImageFrameSheet.vue";
 import UiButton from "../../ui/UiButton.vue";
 import UiSwitch from "../../ui/UiSwitch.vue";
@@ -238,22 +240,38 @@ function paste(event: ClipboardEvent) {
     void intake(selected, "Pasted image");
   }
 }
-async function changeTrace(label: string) {
+let traceWrites = Promise.resolve();
+function previewOpacity() {
+  previewTrace(props.session, props.target, opacity.value, behindArt.value);
+}
+function changeTrace(label: string) {
   if (!image.value) return;
-  try {
-    await commit(
-      traceImageChanges(
-        props.session.model.capture().documents(),
-        props.target,
-        image.value,
-        opacity.value,
-        behindArt.value,
-      ),
-      label,
-    );
-  } catch (cause) {
-    error.value = String(cause);
-  }
+  const target = props.target;
+  const nextOpacity = opacity.value;
+  const nextBehind = behindArt.value;
+  previewOpacity();
+  traceWrites = traceWrites
+    .then(async () => {
+      if (!current()) return;
+      error.value = "";
+      while (current()) {
+        const capture = props.session.model.capture();
+        try {
+          await commit(
+            traceOptionsChanges(capture.documents(), target, nextOpacity, nextBehind),
+            label,
+          );
+          break;
+        } catch (cause) {
+          if (capture.documentId === props.session.model.capture().documentId) throw cause;
+        }
+      }
+      previewOpacity();
+    })
+    .catch(() => {
+      if (current())
+        error.value = "The trace settings could not be saved. Move the slider again to retry.";
+    });
 }
 const prepared = computed(() => {
   if (!image.value || isPicture.value) return null;
@@ -457,6 +475,7 @@ onBeforeUnmount(() => {
         max="1"
         step="0.05"
         data-testid="trace-opacity"
+        @input="previewOpacity"
         @change="changeTrace('Trace opacity')"
     /></label>
     <label v-if="image && isPicture">
