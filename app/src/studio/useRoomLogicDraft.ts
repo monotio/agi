@@ -100,6 +100,27 @@ export function useRoomLogicDraft(options: RoomLogicDraftOptions) {
     () => toValue(options.base),
     (base, old) => {
       if (base?.source === old?.source) return;
+      if (base && current.value) {
+        const { past, future } = stacks.value;
+        const acknowledged = past.findLastIndex((state) => state.source === base.source);
+        const undone = future.findLastIndex((state) => state.source === base.source);
+        // Embedded Studio writes asynchronously. An acknowledgement of an
+        // earlier draft advances the base without replacing later edits.
+        if (
+          current.value.source === base.source ||
+          (current.value.source !== kept.value?.source && acknowledged >= 0) ||
+          undone >= 0
+        ) {
+          kept.value = base;
+          keptDepth.value =
+            current.value.source === base.source
+              ? past.length
+              : undone >= 0
+                ? past.length + future.length - undone
+                : acknowledged;
+          return;
+        }
+      }
       kept.value = base;
       current.value = base && { ...base, label: "" };
       setStacks([], []);

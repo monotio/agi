@@ -8,7 +8,7 @@
  */
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { effectScope, shallowRef } from "vue";
+import { effectScope, nextTick, shallowRef } from "vue";
 import { buildTutorial } from "../../games/adventure-department/game.ts";
 import { createAgentSessionState } from "../../src/agent/agentState.ts";
 import { createContainer, openContainer } from "../../src/container/container.ts";
@@ -28,7 +28,9 @@ import {
   toStored,
   unfollowedText,
   useRoomLogicDraft,
+  type LogicDraftBase,
 } from "../src/studio/useRoomLogicDraft.ts";
+import { createWorkspaceWrites } from "../src/studio/workspace/workspaceWrites.ts";
 import {
   DEFAULT_EGO,
   useStudioWalk,
@@ -519,6 +521,9 @@ function walkRig(
   const notices: StudioNotice[] = [];
   const runs: RouteWorkerInbound[] = [];
   const scope = effectScope();
+  const base = shallowRef<LogicDraftBase | null>(
+    source.logicSource ? { source: source.logicSource, bytes: source.logicBytes! } : null,
+  );
   const made = scope.run(() => {
     const session = () => {
       const state = createAgentSessionState(openContainer(new Map(files)), DEFAULT_V2_PROFILE);
@@ -526,8 +531,7 @@ function walkRig(
       return state;
     };
     const logic = useRoomLogicDraft({
-      base: () =>
-        source.logicSource ? { source: source.logicSource, bytes: source.logicBytes! } : null,
+      base,
       session,
     });
     const ego: EgoShape = { ...DEFAULT_EGO, width: 3, height: 6 };
@@ -556,10 +560,86 @@ function walkRig(
     });
     return { logic, walk };
   })!;
-  return { ...made, source, files, kept, shown, notices, runs, stop: () => scope.stop() };
+  return { ...made, base, source, files, kept, shown, notices, runs, stop: () => scope.stop() };
 }
 
 describe("the room logic draft", () => {
+  it("preserves Undo when the undone draft is acknowledged later", async () => {
+    const rig = walkRig();
+    try {
+      assert.equal(rig.walk.addDoor({ x1: 120, y1: 130, x2: 145, y2: 150 }), true);
+      const submitted = { source: rig.logic.source.value, bytes: rig.logic.bytes.value! };
+      assert.equal(rig.logic.undo(), true);
+      rig.base.value = submitted;
+      await nextTick();
+      assert.equal(rig.logic.source.value, ROOM_1);
+      assert.equal(
+        rig.logic.dirty.value,
+        true,
+        "Undo still needs to be saved against the new base",
+      );
+      assert.equal(rig.logic.redo(), true);
+      assert.equal(rig.logic.source.value, submitted.source);
+      assert.equal(rig.logic.dirty.value, false);
+    } finally {
+      rig.stop();
+    }
+  });
+
+  it("keeps a door field edit made while its creation commit is on the wire", async () => {
+    const rig = walkRig();
+    const { logic, walk } = rig;
+    let release!: () => void;
+    let entered!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    const started = new Promise<void>((resolve) => (entered = resolve));
+    let first = true;
+    const writes = createWorkspaceWrites({
+      async write(_key, content) {
+        if (first) {
+          first = false;
+          entered();
+          await gate;
+        }
+        const source = String(content);
+        rig.base.value = {
+          source,
+          bytes: assembleLogic(source, { dictionary: new Map() }).payload,
+        };
+        await nextTick();
+      },
+      changed() {},
+      error(cause) {
+        throw cause;
+      },
+    });
+    try {
+      assert.equal(walk.addDoor({ x1: 120, y1: 130, x2: 145, y2: 150 }), true);
+      writes.edit("logic:1", logic.source.value);
+      const saving = writes.flush();
+      await started;
+      assert.equal(walk.moveDoor("door-1", { x1: 121, y1: 130, x2: 145, y2: 150 }), true);
+      const edited = logic.source.value;
+      writes.edit("logic:1", edited);
+      release();
+      // The older commit lands before the field edit's commit can start.
+      await nextTick();
+      await nextTick();
+      assert.equal(
+        logic.source.value,
+        edited,
+        "the creation acknowledgement preserves newer input",
+      );
+      await saving;
+      assert.equal(logic.source.value, edited);
+      assert.equal(logic.dirty.value, false);
+    } finally {
+      release();
+      writes.dispose();
+      rig.stop();
+    }
+  });
+
   it("trusts the room's authored text and edits it one rule at a time, with undo", () => {
     const rig = walkRig();
     const { logic, walk } = rig;
