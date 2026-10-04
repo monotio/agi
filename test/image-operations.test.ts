@@ -5,6 +5,7 @@ import assert from "node:assert/strict";
 import { sha256Hex } from "../src/crypto.ts";
 import {
   traceImageChanges,
+  traceOptionsChanges,
   makeCelsChanges,
   prepareImageCels,
   suggestImageFrames,
@@ -199,4 +200,53 @@ test("assigning loop 7 fills new intervening loops with a transparent cel", () =
     assert.deepEqual([...loop.cels[0]!.pixels], [0]);
   }
   assert.deepEqual([...view.loops[7]!.cels[0]!.pixels], [0, 4, 0, 4]);
+});
+
+test("trace covers the frame with centred aspect-preserving samples", () => {
+  const square = {
+    ...image,
+    width: 8,
+    height: 8,
+    rgba: Uint8Array.from(
+      Array.from({ length: 64 }, (_, i) => [i < 8 ? 255 : 0, 0, 0, 255]).flat(),
+    ),
+  };
+  const documents = Object.fromEntries(
+    traceImageChanges({}, "picture:1", square).map((c) => [c.key, c.content!]),
+  );
+  const pixels = imageTraceUnderlay(documents, "picture:1")!.pixels;
+  assert.equal(pixels[3], 255, "cover reaches the top left corner");
+  assert.equal(pixels[(160 * 168 - 1) * 4 + 3], 255, "cover reaches the bottom right corner");
+  assert.equal(pixels[0], 0, "centred square cover crops the red top band");
+});
+test("trace transform options reuse attachments and old references centre by default", () => {
+  const documents = Object.fromEntries(
+    traceImageChanges({}, "picture:1", image).map((c) => [c.key, c.content!]),
+  );
+  const transform = { x: 12, y: -8, scale: 1.5 };
+  const changes = traceOptionsChanges(documents, "picture:1", 0.6, false, transform);
+  assert.equal(changes.length, 1);
+  const next = { ...documents, images: changes[0]!.content! };
+  assert.deepEqual(readImageReferences(next).traces["picture:1"]!.transform, transform);
+  assert.deepEqual(imageTraceUnderlay(documents, "picture:1")!.transform, { x: 0, y: 0, scale: 1 });
+  assert.deepEqual(imageTraceUnderlay(next, "picture:1")!.transform, transform);
+  // At native (90,84), cover samples source x=4; the moved, enlarged trace samples x=3.
+  const offset = (84 * 160 + 90) * 4;
+  assert.deepEqual(
+    [...imageTraceUnderlay(documents, "picture:1")!.pixels.slice(offset, offset + 4)],
+    [0, 0, 0, 255],
+  );
+  assert.deepEqual(
+    [...imageTraceUnderlay(next, "picture:1")!.pixels.slice(offset, offset + 4)],
+    [170, 0, 0, 255],
+  );
+  for (const invalid of [
+    { ...transform, scale: 0 },
+    { ...transform, x: Infinity },
+    { ...transform, y: 169 },
+  ])
+    assert.throws(
+      () => traceOptionsChanges(documents, "picture:1", 0.6, false, invalid),
+      /transform/i,
+    );
 });

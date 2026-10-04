@@ -52,6 +52,10 @@ watch(
 function resourceName(key: string): BindingInfo | undefined {
   return names.value.find((info) => `${info.kind}:${info.num}` === key);
 }
+function closePartMenu(event: MouseEvent): void {
+  const button = event.currentTarget as HTMLButtonElement;
+  button.closest("details")?.removeAttribute("open");
+}
 function renamePart(key: string): void {
   details.value = resourceName(key);
   editingName.value = true;
@@ -165,20 +169,25 @@ function onKey(event: KeyboardEvent): void {
           }}</span
           ><i v-if="row.live" class="live-dot" aria-label="Hero here"></i>
         </button>
-        <button
-          v-if="resourceName(row.key)"
-          class="part-rename"
-          :title="
-            readOnly
-              ? 'Editing is paused. Download your unsaved edits, then reload.'
-              : 'Rename this part'
-          "
-          :disabled="readOnly"
-          :aria-label="`Rename ${resourceName(row.key)!.name}`"
-          @click="renamePart(row.key)"
-        >
-          Rename
-        </button>
+        <details v-if="resourceName(row.key)" class="part-menu">
+          <summary :aria-label="`Actions for ${resourceName(row.key)!.name}`">⋯</summary>
+          <button
+            class="part-rename"
+            :title="
+              readOnly
+                ? 'Editing is paused. Download your unsaved edits, then reload.'
+                : 'Rename this part'
+            "
+            :disabled="readOnly"
+            :aria-label="`Rename ${resourceName(row.key)!.name}`"
+            @click="
+              closePartMenu($event);
+              renamePart(row.key);
+            "
+          >
+            Rename
+          </button>
+        </details>
       </div>
       <section v-if="group.label === 'SHARED LOGIC' && stateNames.length" class="game-state">
         <h2>Game state</h2>
@@ -201,25 +210,29 @@ function onKey(event: KeyboardEvent): void {
                     .filter((use) => use.role === role)
                     .map((use) => use.key.replace(":", " ").toUpperCase()),
                 ),
-              ].join(", ") || "Ready to use"
+              ].join(", ") || (role === "Checked" ? "Not checked yet" : "Not set yet")
             }}</small
           >
-          <button
-            class="part-rename"
-            :title="
-              readOnly
-                ? 'Editing is paused. Download your unsaved edits, then reload.'
-                : 'Rename this name'
-            "
-            :disabled="readOnly"
-            :aria-label="`Rename ${info.name}`"
-            @click="
-              details = info;
-              editingName = true;
-            "
-          >
-            Rename
-          </button>
+          <details class="part-menu">
+            <summary :aria-label="`Actions for ${info.name}`">⋯</summary>
+            <button
+              class="part-rename"
+              :title="
+                readOnly
+                  ? 'Editing is paused. Download your unsaved edits, then reload.'
+                  : 'Rename this name'
+              "
+              :disabled="readOnly"
+              :aria-label="`Rename ${info.name}`"
+              @click="
+                closePartMenu($event);
+                details = info;
+                editingName = true;
+              "
+            >
+              Rename
+            </button>
+          </details>
         </div>
       </section>
     </section>
@@ -250,7 +263,7 @@ function onKey(event: KeyboardEvent): void {
   font-size: var(--text-2xs);
   padding-inline: var(--space-3);
 }
-.state-row .part-rename {
+.state-row .part-menu {
   grid-column: 2;
   grid-row: 2 / 4;
 }
@@ -269,6 +282,30 @@ function onKey(event: KeyboardEvent): void {
   font: var(--text-2xs) var(--font-sans);
   cursor: pointer;
   padding: var(--space-1);
+}
+.part-menu {
+  position: relative;
+  flex: none;
+}
+.part-menu summary {
+  list-style: none;
+  cursor: pointer;
+  padding: var(--space-1) var(--space-2);
+  color: var(--ink-3);
+}
+.part-menu summary::-webkit-details-marker {
+  display: none;
+}
+.part-menu[open] .part-rename {
+  position: absolute;
+  z-index: 4;
+  right: 0;
+  top: 100%;
+  padding: var(--space-2) var(--space-3);
+  background: var(--surface-3);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  color: var(--ink);
 }
 .game-state {
   margin-top: var(--space-3);

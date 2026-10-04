@@ -182,9 +182,14 @@ test("Walk shows doors and runs a real test with Play here", async ({ page }) =>
   await expect(studio.getByTestId("walk-result")).toBeVisible();
   await expect(studio.getByTestId("walk-result-title")).toBeVisible();
   await expect(studio.getByTestId("walk-result-title")).toHaveText("Reached");
+  const status = studio.locator(".studio__status");
+  await expect(status).toBeVisible();
+  await expect(status).toContainText("Reached");
   await expect(studio.getByTestId("walk-play-here")).toBeVisible();
   await studio.getByTestId("walk-play-here").click();
   await expect(page.getByTestId("input-line")).toBeEnabled();
+  await studio.getByRole("button", { name: "Clear", exact: true }).click();
+  await expect(status).not.toContainText("Now click the goal");
 });
 test("Create Inspector opens screen, state and timeline controls", async ({ page }) => {
   await picture(page);

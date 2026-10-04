@@ -363,11 +363,11 @@ test("white sheet finds tight linked figures and adds exact prepared cels", asyn
       ...Array.from({ length: 24 }, () => [0x46, 0]).flat(),
     ]);
   }
-  await page.getByRole("button", { name: "Replace ▾", exact: true }).click();
-  await page
-    .locator(".image-source__popover")
-    .getByRole("button", { name: "Generate", exact: true })
-    .click();
+  const generate = page
+    .getByTestId("workspace-editor")
+    .getByRole("button", { name: "Generate", exact: true });
+  await expect(generate).toBeVisible();
+  await generate.click();
   await page.getByTestId("generate-prompt").fill("Four walk frames on white");
   await expect(page.getByTestId("frame-sheet")).toBeHidden();
   await expect(page.getByTestId("generate-model")).toBeHidden();
@@ -375,11 +375,7 @@ test("white sheet finds tight linked figures and adds exact prepared cels", asyn
   await expect(page.getByTestId("generate-review")).toHaveText("Generate");
   await page.getByTestId("generate-options").click();
   await expect(page.getByTestId("generate-model")).toBeVisible();
-  await page.getByRole("button", { name: "Replace ▾", exact: true }).click();
-  await page
-    .locator(".image-source__popover")
-    .getByRole("button", { name: "Generate", exact: true })
-    .click();
+  await page.getByRole("button", { name: "Make cels from an image", exact: true }).click();
   await expect(page.getByTestId("frame-sheet")).toBeVisible();
   await expect(page.getByTestId("frame-summary")).toBeVisible();
   await expect(page.getByTestId("frame-summary")).toHaveText("Frame 4 · 16 × 48 at 221, 24");

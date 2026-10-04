@@ -190,7 +190,18 @@ const {
    * A prepared reference underlay (160x168 RGBA) from its project attachment,
    * blended over the art pane as a tracing guide — never a runtime bitmap.
    */
-  underlay?: { pixels: Uint8Array; opacity: number; behindArt?: boolean } | null;
+  underlay?: {
+    pixels: Uint8Array;
+    opacity: number;
+    behindArt?: boolean;
+    transform?: import("../../../src/creative/imageAttachments.ts").TraceTransform;
+    adjust?:
+      | ((
+          transform: import("../../../src/creative/imageAttachments.ts").TraceTransform,
+          release: boolean,
+        ) => void)
+      | undefined;
+  } | null;
 }>();
 /**
  * `reopen` asks for Studio again; `fromStorage` reloads the game from storage
@@ -1284,6 +1295,76 @@ const toolHint = computed(() => {
   if (tool === "select" && editing.editableItems.value.length > 0) return ROOM_EDIT_HINT;
   return ROOM_TOOL_HINTS[tool];
 });
+type TraceTransform = import("../../../src/creative/imageAttachments.ts").TraceTransform;
+let traceDrag: {
+  pointer: number;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  from: TraceTransform;
+  kind: "move" | "scale";
+} | null = null;
+function grabTrace(event: PointerEvent, kind: "move" | "scale") {
+  const button = event.currentTarget as HTMLButtonElement;
+  const bounds = button.parentElement!.getBoundingClientRect();
+  traceDrag = {
+    pointer: event.pointerId,
+    x: event.clientX,
+    y: event.clientY,
+    width: bounds.width,
+    height: bounds.height,
+    from: { ...(underlay?.transform ?? { x: 0, y: 0, scale: 1 }) },
+    kind,
+  };
+  button.setPointerCapture(event.pointerId);
+}
+function moveTrace(event: PointerEvent) {
+  if (!traceDrag || traceDrag.pointer !== event.pointerId) return;
+  const { x, y, width, height, from, kind } = traceDrag;
+  const dx = (event.clientX - x) / width;
+  const dy = (event.clientY - y) / height;
+  const next =
+    kind === "move"
+      ? {
+          ...from,
+          x: Math.max(-160, Math.min(160, from.x + dx * 160)),
+          y: Math.max(-168, Math.min(168, from.y + dy * 168)),
+        }
+      : { ...from, scale: Math.max(0.25, Math.min(4, from.scale + (dx + dy) * 2)) };
+  underlay?.adjust?.(next, false);
+}
+function releaseTrace(event: PointerEvent, cancel = false) {
+  if (!traceDrag || traceDrag.pointer !== event.pointerId) return;
+  if (cancel) underlay?.adjust?.(traceDrag.from, false);
+  else {
+    moveTrace(event);
+    underlay?.adjust?.(underlay.transform ?? traceDrag.from, true);
+  }
+  traceDrag = null;
+}
+function traceKey(event: KeyboardEvent, kind: "move" | "scale") {
+  const direction: Record<string, readonly [number, number]> = {
+    ArrowLeft: [-1, 0],
+    ArrowRight: [1, 0],
+    ArrowUp: [0, -1],
+    ArrowDown: [0, 1],
+  };
+  const step = direction[event.key];
+  if (!step) return;
+  event.preventDefault();
+  event.stopPropagation();
+  const from = underlay?.transform ?? { x: 0, y: 0, scale: 1 };
+  const next =
+    kind === "move"
+      ? {
+          ...from,
+          x: Math.max(-160, Math.min(160, from.x + step[0])),
+          y: Math.max(-168, Math.min(168, from.y + step[1])),
+        }
+      : { ...from, scale: Math.max(0.25, Math.min(4, from.scale + (step[0] - step[1]) * 0.05)) };
+  underlay?.adjust?.(next, true);
+}
 const notesOnly = computed(() => draft.notesOnly.value && !logic.dirty.value);
 /** A tool change hands the status line back to the tool's hint (before anything it says). */
 watch(tools.tool, () => editing.say(null), { flush: "sync" });
@@ -1569,6 +1650,30 @@ function onKeyup(event: KeyboardEvent): void {
             @dblclick="tools.finish()"
             @menu="openMenu"
           >
+            <template v-if="layer === 'art' && underlay?.adjust && lens === 'art'">
+              <button
+                v-for="kind in ['move', 'scale'] as const"
+                :key="kind"
+                type="button"
+                class="studio__trace-handle"
+                :class="`studio__trace-handle--${kind}`"
+                :aria-label="kind === 'move' ? 'Move trace' : 'Scale trace'"
+                :title="
+                  kind === 'move'
+                    ? 'Drag to move the trace. Arrow keys move it too.'
+                    : 'Drag to scale the trace. Arrow keys resize it too.'
+                "
+                @pointerdown.stop.prevent="grabTrace($event, kind)"
+                @pointermove.stop="moveTrace"
+                @pointerup.stop="releaseTrace($event)"
+                @pointercancel.stop="releaseTrace($event, true)"
+                @lostpointercapture="releaseTrace($event, true)"
+                @keydown="traceKey($event, kind)"
+                @click.stop
+              >
+                {{ kind === "move" ? "✥" : "↗" }}
+              </button>
+            </template>
             <StudioWalkOverlay
               v-if="lens === 'walk' && index === panes.length - 1"
               :walk="walker"
@@ -1658,6 +1763,7 @@ function onKeyup(event: KeyboardEvent): void {
       />
       <PixelInspector
         class="studio__inspector"
+        :class="{ 'is-compact': !selectedRow && lens !== 'walk' && !lesson.session.value }"
         :row="selectedRow"
         :commands="readout.commands.value"
         :colours="drawn('visual')"
@@ -2091,6 +2197,28 @@ function onKeyup(event: KeyboardEvent): void {
   pointer-events: none;
   white-space: nowrap;
 }
+.studio__trace-handle {
+  position: absolute;
+  z-index: 2;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--action);
+  border-radius: var(--radius);
+  background: var(--surface-1);
+  color: var(--action);
+  touch-action: none;
+}
+.studio__trace-handle--move {
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  cursor: move;
+}
+.studio__trace-handle--scale {
+  right: 4px;
+  bottom: 4px;
+  cursor: nwse-resize;
+}
 .studio__meta-bar {
   grid-column: 1 / -1;
   display: flex;
@@ -2127,9 +2255,12 @@ function onKeyup(event: KeyboardEvent): void {
   height: 0;
 }
 .studio.is-embedded .studio__side > .scene-list {
-  flex: 0 1 35%;
-  min-height: 120px;
-  height: 35%;
+  flex: 2;
+  min-height: 300px;
+}
+.studio.is-embedded .studio__side > .inspector.is-compact {
+  flex: 0 0 auto;
+  height: auto;
 }
 .studio.is-embedded.is-focus {
   grid-template-columns: 0 44px minmax(0, 1fr) 0;

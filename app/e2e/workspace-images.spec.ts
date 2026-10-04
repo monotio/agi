@@ -87,7 +87,7 @@ test("trace an attachment and draw over it with normal tools", async ({ page }) 
       ...canvas
         .getContext("2d")!
         .getImageData(
-          Math.floor((canvas.width * 20) / 160),
+          Math.floor((canvas.width * 32) / 160),
           Math.floor((canvas.height * 80) / 168),
           1,
           1,
@@ -95,8 +95,9 @@ test("trace an attachment and draw over it with normal tools", async ({ page }) 
     ];
   });
   expect(Math.abs(referencePixel[0]! - (170 * 0.7 + 255 * 0.3))).toBeLessThanOrEqual(1);
-  expect(referencePixel[1]).toBeLessThan(100);
-  expect(referencePixel[2]).toBe(referencePixel[1]);
+  // Cover samples the second figure, whose orange snaps to EGA brown (170, 85, 0).
+  expect(Math.abs(referencePixel[1]! - (85 * 0.7 + 255 * 0.3))).toBeLessThanOrEqual(1);
+  expect(Math.abs(referencePixel[2]! - 255 * 0.3)).toBeLessThanOrEqual(1);
   const commits = await page.evaluate(
     () =>
       (window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }).__AGI_PROJECT__
@@ -326,11 +327,12 @@ test("Generate sends one styled request and Use this opens tracing", async ({ pa
     expect(request.n).toBe(1);
     expect(request.prompt).toContain("Sierra AGI");
     expect(request.prompt).toContain("A tree reference");
-    const pixels = new Uint8Array(1024 * 1024 * 4);
+    expect(request.size).toBe("1536x1024");
+    const pixels = new Uint8Array(1536 * 1024 * 4);
     for (let i = 0; i < pixels.length; i += 4) pixels.set([255, 0, 0, 255], i);
     await route.fulfill({
       json: {
-        data: [{ b64_json: Buffer.from(encodePngRgba(1024, 1024, pixels)).toString("base64") }],
+        data: [{ b64_json: Buffer.from(encodePngRgba(1536, 1024, pixels)).toString("base64") }],
       },
     });
   });
@@ -471,7 +473,7 @@ test("trace opacity previews during input and serializes quick releases", async 
         return canvas
           .getContext("2d")!
           .getImageData(
-            Math.floor((canvas.width * 20) / 160),
+            Math.floor((canvas.width * 32) / 160),
             Math.floor((canvas.height * 80) / 168),
             1,
             1,

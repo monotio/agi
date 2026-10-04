@@ -1,9 +1,20 @@
 /** Live display options share the editor's underlay while a slider is moving. */
 import { shallowReactive } from "vue";
 import type { ProjectSession } from "../../project/projectSession.ts";
-type Underlay = { pixels: Uint8Array; opacity: number; behindArt: boolean };
-const presentations = new WeakMap<ProjectSession, Record<string, Underlay>>();
-export function presentTrace(session: ProjectSession, target: string, underlay: Underlay | null) {
+import type { TraceTransform } from "../../../../src/creative/imageAttachments.ts";
+export type TraceUnderlay = {
+  pixels: Uint8Array;
+  opacity: number;
+  behindArt: boolean;
+  transform?: TraceTransform;
+  adjust?: ((transform: TraceTransform, release: boolean) => void) | undefined;
+};
+const presentations = new WeakMap<ProjectSession, Record<string, TraceUnderlay>>();
+export function presentTrace(
+  session: ProjectSession,
+  target: string,
+  underlay: TraceUnderlay | null,
+) {
   if (!underlay) return null;
   let targets = presentations.get(session);
   if (!targets) {
@@ -22,7 +33,8 @@ export function previewTrace(
   target: string,
   opacity: number,
   behindArt: boolean,
+  options: Partial<TraceUnderlay> = {},
 ) {
   const underlay = presentations.get(session)?.[target];
-  if (underlay) Object.assign(underlay, { opacity, behindArt });
+  if (underlay) Object.assign(underlay, { opacity, behindArt, ...options });
 }
