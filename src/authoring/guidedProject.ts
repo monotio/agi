@@ -2338,6 +2338,8 @@ export interface GuidedPlaySoundInput {
   /** An existing SOUND resource (number or sound binding name). */
   readonly sound: number | string;
   readonly on: GuidedCueTarget;
+  /** Teach a new command and create its handler when it has no earlier answer. */
+  readonly createCommand?: boolean;
   /** Optional message printed when the sound completes. */
   readonly completionMessage?: string;
   /** Completion flag binding name; defaults to a free `cue_done` variant. */
@@ -2427,13 +2429,25 @@ export function prepareGuidedPlaySound(
 
   const edits: TextEdit[] = [];
 
+  const entries = env.words.map((entry) => ({ ...entry }));
+  const dictionary = new Map(env.dictionary);
+  let newCommand: string[] = [];
+
   if (input.on.type === "command") {
     const tokens = typeof input.on.command === "string" ? normalizeCommand(input.on.command) : null;
     if (!tokens)
       return refuse(kind, label, "invalid-input", "The cue command must be 1 to 10 simple words.");
+    if (input.createCommand) {
+      const resolved = commandWordIds(tokens, entries, dictionary);
+      if (resolved === "ignored")
+        return refuse(kind, label, "invalid-input", "Type a sentence with a word the game keeps.");
+      if (resolved === "exhausted")
+        return refuse(kind, label, "occupied", "The dictionary has no free word ids left.");
+    }
     const seq: number[] = [];
+    const retainedWords: string[] = [];
     for (let index = 0; index < tokens.length;) {
-      const match = matchDictionaryPhrase(tokens, index, env.dictionary);
+      const match = matchDictionaryPhrase(tokens, index, dictionary);
       index += match.length;
       if (match.id === undefined)
         return refuse(
@@ -2443,14 +2457,18 @@ export function prepareGuidedPlaySound(
           `The room's dictionary does not know '${match.text}'.`,
           "words",
         );
-      if (match.id !== 0) seq.push(match.id);
+      if (match.id !== 0) {
+        seq.push(match.id);
+        retainedWords.push(match.text);
+      }
     }
     if (seq.length === 0)
       return refuse(kind, label, "invalid-input", "The cue command is only filler words.");
-    const matches = commandHandlers(room, env.dictionary).filter((handler) =>
+    const handlers = commandHandlers(room, dictionary);
+    const matches = handlers.filter((handler) =>
       handler.seqs.some((s) => s.length === seq.length && s.every((v, i) => v === seq[i])),
     );
-    if (matches.length === 0)
+    if (matches.length === 0 && !input.createCommand)
       return refuse(
         kind,
         label,
@@ -2466,33 +2484,56 @@ export function prepareGuidedPlaySound(
         `More than one handler answers '${tokens.join(" ")}'; pick one by hand.`,
         key,
       );
-    const handler = matches[0]!.stmt;
-    if (actionsNamed(handler.then, "sound").length > 0)
-      return refuse(
-        kind,
-        label,
-        "conflict",
-        `The handler for '${tokens.join(" ")}' already plays a sound; one cue owns the channel.`,
-        key,
-        {
-          start: lineOf(source, handler.tok.start - room.base),
-          end: lineOf(source, handler.end - room.base),
-        },
-      );
-    // The cue starts before any modal print window in the handler opens.
-    const trigger = insertAtThenStart(room, handler, [
-      `load.sound(${ref.text});`,
-      `sound(${ref.text}, ${done.name});`,
-    ]);
-    if (trigger === "shared-line")
-      return refuse(
-        kind,
-        label,
-        "custom-code",
-        "The handler's body is not a plain braced block; place the cue by hand.",
-        key,
-      );
-    edits.push(trigger);
+    if (matches.length === 0) {
+      if (
+        handlers.some((handler) =>
+          handler.seqs.some((pattern) =>
+            saidSeqConsumes(pattern, seq, env.profile.wordSequenceTailTerminator),
+          ),
+        )
+      )
+        return refuse(
+          kind,
+          label,
+          "conflict",
+          "An earlier answer uses that sentence. Choose another sentence or edit its LOGIC.",
+          key,
+        );
+      newCommand = [
+        `if (said(${retainedWords.map(quoteLogicString).join(", ")})) {`,
+        `  load.sound(${ref.text});`,
+        `  sound(${ref.text}, ${done.name});`,
+        `}`,
+      ];
+    } else {
+      const handler = matches[0]!.stmt;
+      if (actionsNamed(handler.then, "sound").length > 0)
+        return refuse(
+          kind,
+          label,
+          "conflict",
+          `The handler for '${tokens.join(" ")}' already plays a sound; one cue owns the channel.`,
+          key,
+          {
+            start: lineOf(source, handler.tok.start - room.base),
+            end: lineOf(source, handler.end - room.base),
+          },
+        );
+      // The cue starts before any modal print window in the handler opens.
+      const trigger = insertAtThenStart(room, handler, [
+        `load.sound(${ref.text});`,
+        `sound(${ref.text}, ${done.name});`,
+      ]);
+      if (trigger === "shared-line")
+        return refuse(
+          kind,
+          label,
+          "custom-code",
+          "The handler's body is not a plain braced block; place the cue by hand.",
+          key,
+        );
+      edits.push(trigger);
+    }
   } else {
     const wanted = input.on.rule;
     const scan = scanRules(source);
@@ -2587,6 +2628,7 @@ export function prepareGuidedPlaySound(
   }
 
   const completion = [
+    ...newCommand,
     `if (isset(${done.name})) {`,
     ...(message !== undefined ? [`  print(${quoteLogicString(message)});`] : []),
     `  reset(${done.name});`,
@@ -2605,6 +2647,8 @@ export function prepareGuidedPlaySound(
 
   const result = spliceText(source, edits);
   const changes: GuidedChange[] = [{ key, content: result.text }];
+  if (entries.length !== env.words.length)
+    changes.push({ key: "words", content: wordsDocument(entries) });
   if (bindingsDocument(bindings) !== bindingsDocument(env.bindings))
     changes.push({ key: "bindings", content: bindingsDocument(bindings) });
   const previews = new Map([

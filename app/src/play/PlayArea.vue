@@ -11,6 +11,7 @@ import {
   watch,
 } from "vue";
 import { layoutDragging } from "./layoutDrag.ts";
+import { guidedPlacement } from "./guidedPlacement.ts";
 import { PAGE_CONTROLS } from "./useGameKeys.ts";
 
 import TouchControls from "./TouchControls.vue";
@@ -35,6 +36,7 @@ const props = defineProps<{
 }>();
 
 const DebugDock = defineAsyncComponent(() => import("../inspector/DebugDock.vue"));
+const GuidedPlacement = defineAsyncComponent(() => import("./GuidedPlacement.vue"));
 const InspectorOverlay = defineAsyncComponent(() => import("../inspector/InspectorOverlay.vue"));
 
 const engine = useEngineApi();
@@ -723,7 +725,11 @@ defineExpose({
           <span class="split-grip">◂▸</span>
         </div>
 
-        <InspectorOverlay v-if="debugOpen && state.phase === 'running'" />
+        <GuidedPlacement
+          v-if="inspectorDocked && guidedPlacement"
+          :pic-row="presentation.lastFrame.value?.picRow ?? 1"
+        />
+        <InspectorOverlay v-if="debugOpen && state.phase === 'running' && !guidedPlacement" />
         <DebugDock
           v-if="debugOpen && state.phase === 'running' && !inspectorDocked"
           @close="debugOpen = false"

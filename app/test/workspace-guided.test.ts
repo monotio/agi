@@ -7,6 +7,70 @@ import { sha256Hex } from "../../src/crypto.ts";
 import { prepareWorkspaceAction } from "../src/studio/workspace/workspaceGuided.ts";
 import { compileProjectDocuments } from "../../src/authoring/projectDocuments.ts";
 import { emptyWorkspaceChanges } from "../src/studio/workspace/emptyWorkspace.ts";
+import { readProjectDocuments } from "../../src/authoring/projectDocuments.ts";
+
+function starterModel(): ProjectModel {
+  const starter = createStarterProject("starter");
+  const files = Object.fromEntries(starter.files());
+  const sources = Object.fromEntries(
+    [...starter.sources.logics].map(([id, text]) => [`logic:${id}`, text]),
+  );
+  const { documents } = readProjectDocuments({
+    files,
+    sources,
+    bindings: starter.bindings,
+    profileId: starter.profileId,
+  });
+  return new ProjectModel({
+    documents,
+    build: compileProjectDocuments({ files, documents, profileId: starter.profileId }),
+    digest: sha256Hex,
+  });
+}
+
+test("teach a new thing and its full sentence reply together, with explicit same meanings", () => {
+  const model = starterModel();
+  for (const sameAs of [undefined, 101]) {
+    const snapshot = model.capture();
+    const result = prepareWorkspaceAction(snapshot, "2.936", {
+      kind: "response",
+      room: 1,
+      command: "look at sun",
+      response: "The sun shines.",
+      teach: { word: "sun", ...(sameAs === undefined ? {} : { sameAs }) },
+      alsoCommands: ["inspect sun"],
+    });
+    assert.ok(result.ok, JSON.stringify(result));
+    const words = JSON.parse(
+      result.changes.find((change) => change.key === "words")!.content as string,
+    ) as [string, number][];
+    const sun = words.find(([word]) => word === "sun")![1];
+    assert.equal(sameAs === undefined ? sun !== 100 && sun !== 101 : sun === sameAs, true);
+    const logic = result.changes.find((change) => change.key === "logic:1")!.content as string;
+    assert.match(logic, /said\("look", "sun"\)/);
+    assert.match(logic, /said\("inspect", "sun"\)/);
+    assert.match(logic, /print\("The sun shines\."\)/);
+    assert.equal(snapshot.read("logic:1")!.content, model.capture().read("logic:1")!.content);
+  }
+});
+
+test("a sound can answer a new whole sentence and teach its words in the same change", () => {
+  const snapshot = starterModel().capture();
+  const result = prepareWorkspaceAction(snapshot, "2.936", {
+    kind: "play-sound",
+    room: 1,
+    command: "ring the bell",
+    sound: 1,
+    preset: "discovery",
+  });
+  assert.ok(result.ok, JSON.stringify(result));
+  const logic = result.changes.find((change) => change.key === "logic:1")!.content as string;
+  assert.match(logic, /said\("ring", "bell"\)/);
+  assert.match(logic, /load\.sound\(2\)/);
+  assert.ok(result.changes.some((change) => change.key === "sound:2"));
+  assert.ok(result.changes.some((change) => change.key === "words"));
+  assert.ok(result.showCode.some((preview) => preview.text.includes('said("ring", "bell")')));
+});
 
 test("guided room creation reads a detached snapshot and returns one coordinated change", () => {
   const documents = Object.fromEntries(

@@ -154,10 +154,11 @@ export async function addWorkspaceResponse(
   response: string,
 ): Promise<void> {
   await page.getByTestId("workspace-add").click();
-  await page.getByRole("menuitem", { name: "Response", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Answer a sentence", exact: true }).click();
   const form = page.getByTestId("workspace-guided-form");
-  await form.getByLabel("Command", { exact: true }).fill(command);
-  await form.getByLabel("Response", { exact: true }).fill(response);
+  await expect(form).toBeVisible();
+  await form.getByLabel("When the player types…", { exact: true }).fill(command);
+  await form.getByLabel("The game says…", { exact: true }).fill(response);
   await form.getByRole("button", { name: "Add", exact: true }).click();
   await expect(form).toBeHidden();
   await workspaceSaved(page);
@@ -174,6 +175,13 @@ export async function addWorkspaceAction(
   await page.getByTestId("workspace-add").click();
   await page.getByRole("menuitem", { name: label, exact: true }).click();
   const form = page.getByTestId("workspace-guided-form");
+  await expect(form).toBeVisible();
+  if (
+    Object.keys(fields).some((name) =>
+      ["VIEW", "SOUND", "X", "Y", "Destination ROOM", "Right", "Bottom"].includes(name),
+    )
+  )
+    await form.getByText("Exact numbers", { exact: true }).click();
   for (const [name, value] of Object.entries(fields))
     await form.getByLabel(name, { exact: true }).fill(value);
   await form.getByRole("button", { name: "Add", exact: true }).click();

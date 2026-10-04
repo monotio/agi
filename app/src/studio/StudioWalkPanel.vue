@@ -111,6 +111,13 @@ const BOX_FIELDS = [
   ["x2", "Right"],
   ["y2", "Bottom"],
 ] as const;
+const boxInput = ref<{ door: string; field: string; value: string }>();
+watch(
+  () => selected.value?.id,
+  () => {
+    boxInput.value = undefined;
+  },
+);
 function onBox(event: Event, field: "x1" | "y1" | "x2" | "y2"): void {
   const door = selected.value;
   const input = event.target as HTMLInputElement;
@@ -118,6 +125,7 @@ function onBox(event: Event, field: "x1" | "y1" | "x2" | "y2"): void {
   const value = Number(input.value);
   if (!Number.isInteger(value) || !walk.moveDoor(door.id, { ...door.box, [field]: value }))
     input.value = String(door.box[field]);
+  boxInput.value = undefined;
 }
 const roomChoices = computed(() => {
   const list = [...walk.rooms.value];
@@ -378,9 +386,20 @@ const roomChoices = computed(() => {
                   type="number"
                   min="0"
                   :max="field[0] === 'x' ? 159 : 167"
-                  :value="selected.box[field]"
+                  :value="
+                    boxInput?.door === selected.id && boxInput.field === field
+                      ? boxInput.value
+                      : selected.box[field]
+                  "
                   :data-testid="`door-box-${field}`"
                   :disabled="!walk.canEditDoors.value"
+                  @input="
+                    boxInput = {
+                      door: selected.id,
+                      field,
+                      value: ($event.target as HTMLInputElement).value,
+                    }
+                  "
                   @change="onBox($event, field)"
                 />
               </label>

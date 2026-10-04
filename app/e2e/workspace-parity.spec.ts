@@ -397,6 +397,41 @@ test("Walk edits a door box and an edge exit and shows drawing errors beside the
   await page.screenshot({ path: test.info().outputPath("walk-doors.png") });
 });
 
+test("Walk keeps an unfinished box number when its saved LOGIC refreshes", async ({ page }) => {
+  const studio = await picture(page);
+  await studio.getByRole("radio", { name: "Walk", exact: true }).click();
+  await studio.locator('button[data-tool="door"]').click();
+  const from = await cell(page, 120, 130),
+    to = await cell(page, 145, 150);
+  await page.mouse.move(from.x, from.y);
+  await page.mouse.down();
+  await page.mouse.move(to.x, to.y, { steps: 4 });
+  await page.mouse.up();
+  const box = studio.getByTestId("door-box-x1");
+  await expect(box).toBeVisible();
+  await workspaceSaved(page);
+  await box.fill("121");
+  await page.evaluate(async () => {
+    const session = (
+      window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }
+    ).__AGI_PROJECT__.getSession();
+    const snapshot = session.model.capture();
+    await session.submit({
+      proposal: session.model.propose(snapshot, "Add a room note", [
+        { key: "logic:1", content: `${snapshot.read("logic:1")!.content}\n// A room note\n` },
+      ]),
+      label: "Add a room note",
+      origin: "logic",
+      author: "creator",
+    });
+  });
+  await workspaceSaved(page);
+  await expect(box).toHaveValue("121");
+  await box.press("Tab");
+  await workspaceSaved(page);
+  await expect(box).toHaveValue("121");
+});
+
 test("stand-in readout and an item's depth controls are reachable", async ({ page }) => {
   const studio = await picture(page);
   await studio.getByRole("searchbox", { name: "Filter items" }).fill("Marble bust");

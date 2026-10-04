@@ -539,6 +539,8 @@ test("a guided action finishing keeps Saving while LOGIC typing is pending", asy
   await page.getByTestId("workspace-add").click();
   await page.getByRole("menuitem", { name: "Place hero", exact: true }).click();
   const form = page.getByTestId("workspace-guided-form");
+  await expect(form).toBeVisible();
+  await form.getByText("Exact numbers", { exact: true }).click();
   await form.getByLabel("VIEW", { exact: true }).fill("0");
   await form.getByLabel("X", { exact: true }).fill("40");
   await form.getByLabel("Y", { exact: true }).fill("140");
