@@ -146,7 +146,7 @@ for (const [width, height] of [
 
 // The labels follow the viewer's platform; both chords work on either.
 for (const { platform } of [{ platform: "MacIntel" }, { platform: "Linux x86_64" }]) {
-  test(`Focus hides the side panels and brings them back on ${platform}; Tab and Shift+Tab only move focus`, async ({
+  test(`Hide side panel works by shortcut and pointer on ${platform}; Tab and Shift+Tab move focus`, async ({
     page,
   }) => {
     await page.addInitScript((reported) => {
@@ -158,17 +158,16 @@ for (const { platform } of [{ platform: "MacIntel" }, { platform: "Linux x86_64"
     const studio = await openRoomStudio(page, 2);
     const canvas = studio.getByRole("group", { name: /^Canvas/ });
     const scene = studio.locator(".studio__scene");
-    const toggle = page.getByTestId("workspace-focus");
-    const pane = studio.locator(".studio-pane").last();
+    const toggle = studio.getByRole("button", { name: /^(Hide|Show) side panel/ });
+    const pane = studio.locator(".studio__stage");
     const before = (await pane.boundingBox())!.width;
     await canvas.focus();
-    await page.keyboard.press(platform === "MacIntel" ? "Meta+k" : "Control+k");
-    await page.keyboard.press("z");
+    const shortcut = platform === "MacIntel" ? "Meta+Backslash" : "Control+Backslash";
+    await page.keyboard.press(shortcut);
     await expect(scene).toBeHidden();
     await expect(toggle).toHaveAttribute("aria-pressed", "true");
     await expect.poll(async () => (await pane.boundingBox())!.width).toBeGreaterThan(before);
-    await page.keyboard.press("Escape");
-    await page.keyboard.press("Escape");
+    await page.keyboard.press(shortcut);
     await expect(scene).toBeVisible();
     await expect(toggle).toHaveAttribute("aria-pressed", "false");
     await canvas.focus();

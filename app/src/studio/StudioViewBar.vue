@@ -43,7 +43,7 @@ const MODES = [
         <UiIcon name="check" :size="16" class="view-more__check" />Depth bands
       </button>
     </ActionMenu>
-    <UiSegmented v-else v-model="mode" size="sm" label="Lens" :options="MODES" />
+    <UiSegmented v-else v-model="mode" size="sm" label="Picture view" :options="MODES" />
     <template v-if="fold < 3">
       <UiButton
         variant="ghost"

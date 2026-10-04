@@ -54,6 +54,24 @@ for (const width of [1063, 1440, 390]) {
     });
   });
 }
+test.describe("phone Items", () => {
+  test.use({ viewport: { width: 390, height: 844 }, hasTouch: true });
+  test("Items rows remain visible and select an item on a phone", async ({ page }) => {
+    const studio = await picture(page);
+    const row = studio.locator('[role="treeitem"][data-row]').first();
+    await expect(row).toBeVisible();
+    await expect(row).toBeInViewport({ ratio: 1 });
+    await studio.getByRole("searchbox", { name: "Filter items" }).fill("Marble bust");
+    const bust = studio.locator('[role="treeitem"][data-row]').first();
+    await expect(bust).toBeVisible();
+    await bust.click();
+    await studio.getByRole("radio", { name: "Inspector", exact: true }).click();
+    await expect(studio.getByTestId("item-label")).toBeVisible();
+    await expect(studio.getByTestId("item-label")).toHaveValue("Marble bust");
+    await expect(studio.getByTestId("studio-status")).toBeInViewport();
+    await page.screenshot({ path: test.info().outputPath("phone-selected-item.png") });
+  });
+});
 test("a native picture explains its Rebuilt source in the workspace", async ({ page }) => {
   const studio = await picture(page);
   const bytes = openContainer(new Map(Object.entries(buildTutorial().files))).getResource(

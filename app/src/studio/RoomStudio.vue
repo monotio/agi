@@ -2140,7 +2140,8 @@ function onKeyup(event: KeyboardEvent): void {
 @media (max-width: 600px) {
   .studio.is-embedded {
     grid-template-columns: 0 44px minmax(0, 1fr) 0;
-    grid-template-rows: auto auto minmax(180px, 1fr) auto minmax(180px, 0.8fr) 28px;
+    grid-template-rows: auto auto minmax(180px, 1fr) auto minmax(240px, 0.8fr) 28px;
+    overflow-y: auto;
   }
   .studio.is-embedded .studio__side {
     grid-column: 2 / 4;
@@ -2149,6 +2150,9 @@ function onKeyup(event: KeyboardEvent): void {
   }
   .studio.is-embedded .studio__status {
     grid-row: 6;
+    position: sticky;
+    bottom: 0;
+    z-index: 3;
   }
   .studio.is-embedded .studio__side > .scene-list {
     flex: 1;

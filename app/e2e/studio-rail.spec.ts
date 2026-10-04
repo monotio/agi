@@ -138,6 +138,7 @@ test("at 1024×600 nothing in Room Studio's top bar or stage bars overlaps, in e
   }
   await page.screenshot({ path: test.info().outputPath("studio-walk-1024x600.png") });
   await page.keyboard.press("1");
+  await studio.getByRole("radio", { name: "Items", exact: true }).click();
   await studio.locator('[data-row="west-wall"]').click();
   await page.screenshot({ path: test.info().outputPath("studio-art-selected-1024x600.png") });
 });
