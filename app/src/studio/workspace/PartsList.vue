@@ -1,5 +1,9 @@
 <script setup lang="ts">
-import { computed, ref, useTemplateRef } from "vue";
+import { computed, ref, shallowRef, useTemplateRef, watch, onWatcherCleanup } from "vue";
+import { useEngineApi } from "../../engine/engineContext.ts";
+import BindingDetails from "../../shell/BindingDetails.vue";
+import { workspaceBindingInfos } from "../../shell/workspaceNames.ts";
+import type { BindingInfo } from "../../../../src/logic/projectNames.ts";
 import type { AgiProfile } from "../../../../src/runtime/profile.ts";
 import ViewThumbnail from "./ViewThumbnail.vue";
 import UiExplain from "../../ui/UiExplain.vue";
@@ -14,6 +18,44 @@ const props = defineProps<{
   addGroups?: readonly string[];
 }>();
 const emit = defineEmits<{ open: [key: string]; pin: [key: string]; add: [group: string] }>();
+const engine = useEngineApi();
+const names = shallowRef<BindingInfo[]>([]);
+const details = ref<BindingInfo>();
+const editingName = ref(false);
+const selectedName = computed(
+  () =>
+    details.value &&
+    (names.value.find((info) => info.name === details.value!.name) ?? details.value),
+);
+const stateNames = computed(() =>
+  names.value.filter((info) => ["flag", "variable"].includes(info.kind)),
+);
+watch(
+  () => [engine.state.phase, engine.state.patchTick],
+  () => {
+    const session = engine.getProjectSession();
+    function refresh(): void {
+      try {
+        names.value = session
+          ? workspaceBindingInfos(session.model.capture(), props.profile?.id ?? "2.936")
+          : [];
+      } catch {
+        names.value = [];
+      }
+    }
+    refresh();
+    const off = session?.subscribe(refresh);
+    onWatcherCleanup(() => off?.());
+  },
+  { immediate: true },
+);
+function resourceName(key: string): BindingInfo | undefined {
+  return names.value.find((info) => `${info.kind}:${info.num}` === key);
+}
+function renamePart(key: string): void {
+  details.value = resourceName(key);
+  editingName.value = true;
+}
 const root = useTemplateRef("root");
 const focused = ref("");
 const rows = computed(() => props.groups.flatMap((group) => group.entries));
@@ -97,33 +139,140 @@ function onKey(event: KeyboardEvent): void {
           +
         </button>
       </header>
-      <button
-        v-for="row in group.entries"
-        :key="row.id"
-        type="button"
-        class="part"
-        :class="{ 'part--child': row.child, 'part--selected': row.key === selected }"
-        :tabindex="roving === row.id ? 0 : -1"
-        :aria-current="row.key === selected ? 'true' : undefined"
-        :data-part-row="row.id"
-        :data-testid="`part-${row.id}`"
-        @focus="focused = row.id"
-        @click="emit('open', row.key)"
-        @dblclick="emit('pin', row.key)"
-      >
-        <img v-if="thumbnails[row.id]" :src="thumbnails[row.id]" alt="" />
-        <ViewThumbnail
-          v-if="views?.[row.key] && profile"
-          :bytes="views[row.key]!"
-          :profile="profile"
-        />
-        <span>{{ row.label }}</span
-        ><i v-if="row.live" class="live-dot" aria-label="Hero here"></i>
-      </button>
+      <div v-for="row in group.entries" :key="row.id" class="part-row">
+        <button
+          type="button"
+          class="part"
+          :class="{ 'part--child': row.child, 'part--selected': row.key === selected }"
+          :tabindex="roving === row.id ? 0 : -1"
+          :aria-current="row.key === selected ? 'true' : undefined"
+          :data-part-row="row.id"
+          :data-testid="`part-${row.id}`"
+          @focus="focused = row.id"
+          @click="emit('open', row.key)"
+          @dblclick="emit('pin', row.key)"
+        >
+          <img v-if="thumbnails[row.id]" :src="thumbnails[row.id]" alt="" />
+          <ViewThumbnail
+            v-if="views?.[row.key] && profile"
+            :bytes="views[row.key]!"
+            :profile="profile"
+          />
+          <span>{{
+            row.child && resourceName(row.key)
+              ? `${resourceName(row.key)!.name.replaceAll("_", " ")} · ${row.key.replace(":", " ").toUpperCase()}`
+              : row.label
+          }}</span
+          ><i v-if="row.live" class="live-dot" aria-label="Hero here"></i>
+        </button>
+        <button
+          v-if="resourceName(row.key)"
+          class="part-rename"
+          :title="
+            readOnly
+              ? 'Editing is paused. Download your unsaved edits, then reload.'
+              : 'Rename this part'
+          "
+          :disabled="readOnly"
+          :aria-label="`Rename ${resourceName(row.key)!.name}`"
+          @click="renamePart(row.key)"
+        >
+          Rename
+        </button>
+      </div>
+      <section v-if="group.label === 'SHARED LOGIC' && stateNames.length" class="game-state">
+        <h2>Game state</h2>
+        <div v-for="info in stateNames" :key="info.name" class="state-row">
+          <button
+            class="part"
+            @click="
+              details = info;
+              editingName = false;
+            "
+          >
+            {{ info.name }} · {{ info.kind === "flag" ? "Flag" : "Variable" }} {{ info.num }}
+          </button>
+          <small v-for="role in ['Set', 'Checked'] as const" :key="role"
+            >{{ role }}:
+            {{
+              [
+                ...new Set(
+                  info.uses
+                    .filter((use) => use.role === role)
+                    .map((use) => use.key.replace(":", " ").toUpperCase()),
+                ),
+              ].join(", ") || "Ready to use"
+            }}</small
+          >
+          <button
+            class="part-rename"
+            :title="
+              readOnly
+                ? 'Editing is paused. Download your unsaved edits, then reload.'
+                : 'Rename this name'
+            "
+            :disabled="readOnly"
+            :aria-label="`Rename ${info.name}`"
+            @click="
+              details = info;
+              editingName = true;
+            "
+          >
+            Rename
+          </button>
+        </div>
+      </section>
     </section>
+    <BindingDetails
+      v-if="selectedName"
+      :info="selectedName"
+      :rename="editingName"
+      @close="details = undefined"
+      @renamed="
+        details = $event;
+        editingName = false;
+      "
+    />
   </nav>
 </template>
 <style scoped>
+.state-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  margin-block: var(--space-2);
+}
+.state-row .part {
+  grid-column: 1 / -1;
+}
+.state-row small {
+  grid-column: 1;
+  color: var(--ink-3);
+  font-size: var(--text-2xs);
+  padding-inline: var(--space-3);
+}
+.state-row .part-rename {
+  grid-column: 2;
+  grid-row: 2 / 4;
+}
+.part-row {
+  display: flex;
+  align-items: center;
+}
+.part-row .part {
+  flex: 1;
+  min-width: 0;
+}
+.part-rename {
+  border: 0;
+  background: transparent;
+  color: var(--ink-3);
+  font: var(--text-2xs) var(--font-sans);
+  cursor: pointer;
+  padding: var(--space-1);
+}
+.game-state {
+  margin-top: var(--space-3);
+}
 .parts-list {
   width: 100%;
   min-width: 0;

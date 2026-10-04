@@ -37,6 +37,10 @@ Variables, flags, screen objects, messages and strings use `v5`, `f5`, `o5`,
 an alias. Byte operands range from 0 to 255; messages are numbered 1 to 255.
 Commands validate operands against their declared kinds and the active profile.
 
+New Starter and Boilerplate projects put printed text beside its rule with
+`print("text")`. Message hints show the text beside classic `print(mN)` calls.
+The editor offers **Move text to #message** and **Put text inline**.
+
 `#message N "text"` sets a message slot. Inline strings in message operands
 allocate slots automatically. `#message N` declares an absent slot;
 `#message N ""` declares a present empty message. Message characters represent

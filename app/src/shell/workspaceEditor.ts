@@ -19,6 +19,7 @@ export function createWorkspaceEditor(engine: EngineApi) {
   const pictureLive = ref(false);
   const gameHost = shallowRef<HTMLElement | null>(null);
   const selected = ref<string>();
+  const nameLocation = shallowRef<{ key: string; line: number; serial: number }>();
   const agentPrefill = shallowRef<{
     text: string;
     context?: string;
@@ -151,6 +152,7 @@ export function createWorkspaceEditor(engine: EngineApi) {
     }
   }
   function reset(): void {
+    nameLocation.value = undefined;
     selected.value = undefined;
     agentContext.value = null;
     agentPrefill.value = null;
@@ -175,6 +177,7 @@ export function createWorkspaceEditor(engine: EngineApi) {
     pictureLive,
     gameHost,
     selected,
+    nameLocation,
     agentContext,
     agentPrefill,
     returnFromAgent,

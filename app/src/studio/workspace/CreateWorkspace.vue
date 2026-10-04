@@ -891,9 +891,9 @@ onBeforeUnmount(() => {
         variant="ghost"
         :disabled="debug?.state.busy"
         data-testid="debug-start"
-        title="Start or continue debugging (F5)"
+        title="Run or continue (F5 in the editor)"
         @click="editor.debugCommand.value?.('start')"
-        >Debug</UiButton
+        >Run</UiButton
       >
       <DebugControls v-if="debug?.state.epoch" :debug="debug" />
       <GuidedAdd

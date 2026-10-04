@@ -54,15 +54,10 @@ function room1Key(project: StarterProject): string {
 function grumbleChanges(project: StarterProject): { key: string; content: string }[] {
   const room1num = project.bindings["first_room"]!.num;
   const room1 = project.sources.logics.get(room1num)!;
-  const edited = room1
-    .replace(
-      '#message 3 "The ground gives way',
-      '#message 8 "The clearing grumbles back."\n#message 3 "The ground gives way',
-    )
-    .replace(
-      'if (said("die")) { print(m3); call(death_logic); }',
-      'if (said("grumble")) { print(m8); }\nif (said("die")) { print(m3); call(death_logic); }',
-    );
+  const edited = room1.replace(
+    'if (said("die"))',
+    'if (said("grumble")) { print("The clearing grumbles back."); }\nif (said("die"))',
+  );
   assert.notEqual(edited, room1);
   const nextId = Math.max(...project.sources.words.values()) + 1;
   const words = JSON.stringify([...project.sources.words, ["grumble", nextId]]);

@@ -33,6 +33,7 @@ const { llmConfig } = useAiSettings();
 const {
   pendingAutosave,
   pendingProgressTarget,
+  selectedTemplateId,
   savedGames,
   savedProgress,
   installedProgress,
@@ -294,7 +295,10 @@ function onPrimary(): void {
           data-testid="create-adventure-toggle"
           aria-controls="create-adventure"
           :aria-expanded="createOpen"
-          @click="bridge.openCreateSection()"
+          @click="
+            selectedTemplateId = '';
+            bridge.openCreateSection();
+          "
         >
           Make a new game
         </UiButton>

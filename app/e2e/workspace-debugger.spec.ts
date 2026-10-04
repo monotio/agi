@@ -52,7 +52,7 @@ for (const size of [
     await tabTo(page, editor.getByRole("textbox", { name: "Editor content", exact: true }));
     await page.keyboard.press("Escape");
     await page.keyboard.press("ControlOrMeta+f");
-    await page.keyboard.type("print(m1);");
+    await page.keyboard.type('print("You stand');
     await page.keyboard.press("Escape");
     await page.keyboard.press("F9");
     await expect(editor.locator(".workspace-breakpoint")).toHaveCount(1);
@@ -64,7 +64,7 @@ for (const size of [
     await expect(page.getByTestId("workspace-debug-status")).toHaveText(
       `Paused at LOGIC 1, line ${line}`,
     );
-    await expect(editor.locator(".workspace-stopped-line")).toBeVisible();
+    await expect(editor.locator(".workspace-stopped-line").first()).toBeVisible();
     await expect(page.getByRole("tab", { name: "Variables", exact: true })).toBeVisible();
     const panel = page.getByTestId("workspace-debug-panel");
     await expect(panel.getByRole("heading", { name: "Used here", exact: true })).toBeVisible();
@@ -137,7 +137,7 @@ test("stopped edits keep the running source, value edits and watches inspect MAI
   );
   await editor.getByRole("textbox", { name: "Editor content", exact: true }).focus();
   await page.keyboard.press("ControlOrMeta+f");
-  await page.keyboard.type("print(m1);");
+  await page.keyboard.type('print("You stand');
   await page.keyboard.press("Escape");
   await page.keyboard.press("F9");
   await expect(editor.locator(".workspace-breakpoint")).toHaveCount(1);
@@ -183,11 +183,12 @@ test("stopped edits keep the running source, value edits and watches inspect MAI
   ).toBeVisible();
   await expect(editor.locator(".workspace-stopped-line")).toHaveCount(0);
   await page.getByRole("button", { name: "Show running source", exact: true }).click();
-  await expect(editor.locator(".workspace-stopped-line")).toBeVisible();
+  await expect(editor.locator(".workspace-stopped-line").first()).toBeVisible();
   await expect(
     editor.getByRole("textbox", { name: "Editor content", exact: true }),
   ).toHaveAttribute("readonly");
   await page.getByRole("button", { name: "Return to editing", exact: true }).click();
+  await editor.getByRole("textbox", { name: "Editor content", exact: true }).focus();
   await page.keyboard.press("F5");
   await expect.poll(async () => (await textHook(page)).rows.join("\n")).toContain("sunny clearing");
   await page.keyboard.press("Control+`");

@@ -172,7 +172,7 @@ test("history-1.2", async ({ page }) => {
   await replaceWorkspaceDocument(
     page,
     "logic:1",
-    source.replace(/#message 1 "[^"]*"/, '#message 1 "Welcome to my adventure."'),
+    source.replace(/print\("[^"\n]*"\)/, 'print("Welcome to my adventure.")'),
   );
   await workspaceSaved(page);
   await page.getByTestId("workspace-saved").click();

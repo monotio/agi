@@ -187,7 +187,9 @@ function stubConversation(initial: unknown[]): UnifiedConversation {
           return {
             key,
             content: key.startsWith("logic:")
-              ? text.replace(/#message (\d+) "[^"]*"/, '#message $1 "Welcome sign"')
+              ? /#message/.test(text)
+                ? text.replace(/#message (\d+) "[^"]*"/, '#message $1 "Welcome sign"')
+                : text.replace(/print\("(?:[^"\\]|\\.)*"\)/, 'print("Welcome sign")')
               : text.replace(/vis \d+/, "vis 4"),
           };
         });

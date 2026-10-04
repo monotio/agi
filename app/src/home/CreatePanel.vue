@@ -173,7 +173,7 @@ async function onAiCreated(title: string): Promise<void> {
     <LocalProjectForm
       v-if="open"
       ref="form"
-      :initial-choice="selectedTemplateId ? 'ai' : 'starter'"
+      :initial-choice="selectedTemplateId ? 'ai' : undefined"
       :ai-ready="aiConfigured"
       :ai-unavailable="aiSettingsUnavailable"
       :ai-valid="Boolean(adventureDraft.brief.trim())"

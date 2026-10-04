@@ -75,7 +75,7 @@ for (const size of [
         .click();
       await page.keyboard.press("Home");
       for (let line = 0; line < 6; line++) await page.keyboard.press("Shift+ArrowDown");
-      await expect(panel.locator(".agent-panel__context")).toContainText("LOGIC 1 lines 12–18");
+      await expect(panel.locator(".agent-panel__context")).toContainText("LOGIC 1 lines 5–11");
     }
     const before = await documents(page);
     const cycle = (await textHook(page)).cycle;

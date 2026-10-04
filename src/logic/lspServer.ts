@@ -5,6 +5,8 @@ import { PROFILES } from "../runtime/profile.ts";
 import type { ProfileId } from "../runtime/profile.ts";
 import { analyzeLogicSyntax, scanLogicTokens } from "./syntax.ts";
 import { createLogicLanguageStructure } from "./languageStructure.ts";
+import { projectBindingInfos } from "./projectNames.ts";
+import { messageCodeActions, messageInlayHints } from "./messageReadability.ts";
 import { OPERAND_NAMES, type NumberedOperand } from "./languageOperands.ts";
 import { offsetAt, positionAt, rangeAt, SEMANTIC_LEGEND } from "./lspTypes.ts";
 import type {
@@ -38,6 +40,7 @@ interface Params {
   context?: { includeDeclaration?: boolean; only?: string[] };
   query?: string;
   newName: string;
+  name?: string;
   range?: Range;
   contentChanges: { text: string; range?: Range; rangeLength?: number }[];
   settings?: { agiLogic?: { project: LogicLanguageProject } };
@@ -268,6 +271,10 @@ export function createLogicLspServer(
           },
         ],
       };
+    return renameBinding(definition.name, name);
+  }
+  function renameBinding(bindingName: string, name: string): WorkspaceEdit {
+    if (!Object.hasOwn(project.bindings, bindingName)) throw new Error("Choose an existing name.");
     const tokens = scanLogicTokens(name);
     if (
       tokens.length !== 2 ||
@@ -277,7 +284,7 @@ export function createLogicLspServer(
     )
       throw new Error("The new name is not a safe source identifier.");
     if (
-      name !== definition.name &&
+      name !== bindingName &&
       (Object.hasOwn(project.bindings, name) ||
         allDocuments().some((candidate) =>
           analyzeLogicSyntax(candidate.source).definitions.some((entry) => entry.name === name),
@@ -286,14 +293,14 @@ export function createLogicLspServer(
       throw new Error(`The name '${name}' already has a definition.`);
     // Rename follows the selected name's ownership, not its numbered identity.
     const targets: Location[] = [];
-    const declaration = bindingLocation(definition.name);
+    const declaration = bindingLocation(bindingName);
     if (declaration) targets.push(declaration);
     for (const candidate of allDocuments()) {
       const snapshot = language(candidate);
       for (const token of analyzeLogicSyntax(candidate.source).tokens) {
         if (
           token.type === "ident" &&
-          token.text === definition.name &&
+          token.text === bindingName &&
           snapshot.definitionAt(token.start)?.kind === "binding"
         )
           targets.push(location(candidate, token.start, token.end));
@@ -302,8 +309,8 @@ export function createLogicLspServer(
     if (!targets.some((target) => target.uri === bindingDocument.uri))
       throw new Error("The binding definition cannot be edited.");
     const bindings = { ...project.bindings };
-    const binding = bindings[definition.name]!;
-    delete bindings[definition.name];
+    const binding = bindings[bindingName]!;
+    delete bindings[bindingName];
     bindings[name] = binding;
     const changes: WorkspaceEdit["documentChanges"] = [];
     for (const uri of new Set(targets.map((target) => target.uri))) {
@@ -334,6 +341,22 @@ export function createLogicLspServer(
     }
     return { documentChanges: changes };
   }
+  function bindingInfos() {
+    return projectBindingInfos({
+      ...project,
+      documents: Object.fromEntries(
+        allDocuments().map((candidate) => {
+          const key =
+            Object.keys(project.documents).find(
+              (key) =>
+                (project.documents[key]!.uri ?? `agi-project:///logic.${key.slice(6)}.lgc`) ===
+                candidate.uri,
+            ) ?? candidate.uri;
+          return [key, { source: candidate.source, uri: candidate.uri }];
+        }),
+      ),
+    });
+  }
   function dispatch(method: string, params: Params): unknown {
     if (method === "initialize") {
       hierarchicalSymbols =
@@ -345,6 +368,7 @@ export function createLogicLspServer(
           textDocumentSync: { openClose: true, change: 2 },
           completionProvider: { triggerCharacters: [".", '"', "#", "("] },
           signatureHelpProvider: { triggerCharacters: ["(", ","], retriggerCharacters: [","] },
+          inlayHintProvider: true,
           hoverProvider: true,
           definitionProvider: true,
           referencesProvider: true,
@@ -354,13 +378,15 @@ export function createLogicLspServer(
           semanticTokensProvider: { legend: SEMANTIC_LEGEND, full: true, range: true },
           documentHighlightProvider: true,
           foldingRangeProvider: true,
-          codeActionProvider: { codeActionKinds: ["quickfix"] },
+          codeActionProvider: { codeActionKinds: ["quickfix", "refactor.rewrite"] },
           diagnosticProvider: { interFileDependencies: true, workspaceDiagnostics: false },
         },
         serverInfo: { name: "agi-logic-language-server", version: options.version ?? "unknown" },
       };
     }
     if (method === "shutdown") return null;
+    if (method === "agi/bindings") return bindingInfos();
+    if (method === "agi/renameBinding") return renameBinding(params.name ?? "", params.newName);
     if (method === "workspace/symbol")
       return [
         ...Object.keys(project.bindings).flatMap((name) => {
@@ -392,6 +418,8 @@ export function createLogicLspServer(
         "textDocument/codeAction",
         "textDocument/diagnostic",
         "agi/compile",
+        "agi/bindingInfo",
+        "textDocument/inlayHint",
       ].includes(method)
     )
       throw new MethodError(method);
@@ -400,6 +428,13 @@ export function createLogicLspServer(
     const snapshot = language(doc);
     const offset = params.position ? offsetAt(doc.source, params.position) : 0;
     switch (method) {
+      case "textDocument/inlayHint":
+        return messageInlayHints(doc.source, params.range);
+      case "agi/bindingInfo": {
+        const definition = snapshot.definitionAt(offset);
+        if (definition?.kind !== "binding") return null;
+        return bindingInfos().find((info) => info.name === definition.name) ?? null;
+      }
       case "textDocument/completion":
         return snapshot.completeAt(offset).map((item) => ({
           label: item.label,
@@ -510,14 +545,9 @@ export function createLogicLspServer(
       case "textDocument/semanticTokens/range":
         return createLogicLanguageStructure(doc.source).semanticTokens(params.range);
       case "textDocument/codeAction": {
-        if (
-          params.context?.only &&
-          !params.context.only.some((kind) => kind === "" || kind === "quickfix")
-        )
-          return [];
         const start = params.range ? offsetAt(doc.source, params.range.start) : 0;
         const end = params.range ? offsetAt(doc.source, params.range.end) : doc.source.length;
-        return snapshot
+        const fixes = snapshot
           .quickFixes()
           .filter((fix) => fix.diagnostic.start <= end && fix.diagnostic.end >= start)
           .map((fix) => ({
@@ -543,6 +573,16 @@ export function createLogicLspServer(
               ],
             },
           }));
+        return [
+          ...fixes,
+          ...messageCodeActions(doc.source, doc.uri, doc.version, start, end),
+        ].filter(
+          (action) =>
+            !params.context?.only ||
+            params.context.only.some(
+              (kind) => kind === "" || action.kind === kind || action.kind.startsWith(`${kind}.`),
+            ),
+        );
       }
       case "textDocument/diagnostic": {
         const resultId = `${revision}:${doc.version}`;

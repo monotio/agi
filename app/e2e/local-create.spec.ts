@@ -14,7 +14,7 @@ for (const kind of ["starter", "boilerplate"] as const) {
     await page.goto("/");
     await page.getByTestId("create-adventure-toggle").click();
     const form = page.locator(".local-create");
-    await expect(form.getByRole("button", { name: "Start building", exact: true })).toBeEnabled();
+    await expect(form.getByRole("button", { name: "Start building", exact: true })).toBeHidden();
     await form.getByRole("textbox").fill(`My ${kind} game`);
     await form.getByRole("radio", { name: new RegExp(kind, "i") }).click();
     await reviewShot(page, `local-${kind}-creation`);

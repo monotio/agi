@@ -31,7 +31,7 @@ async function createLocal(
 ): Promise<string> {
   await page.getByTestId("create-adventure-toggle").click();
   const form = page.locator(".local-create");
-  await expect(form.getByRole("button", { name: "Start building", exact: true })).toBeEnabled();
+  await expect(form.getByRole("button", { name: "Start building", exact: true })).toBeHidden();
   await form.getByRole("textbox").fill(title);
   await form.getByRole("radio", { name: new RegExp(kind, "i") }).click();
   await form.getByRole("button", { name: "Start building", exact: true }).click();

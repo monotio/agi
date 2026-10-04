@@ -105,14 +105,17 @@ standalone context. `--help` lists the supported profiles.
 | Semantic tokens           | Full and range colouring from the compiler lexer                                    |
 | Folding                   | Multiline brace blocks                                                              |
 | Quick fixes               | Define an unknown name as `0`; add a missing semicolon when analysis confirms it    |
+| Message hints and actions | Show text beside `print(mN)`; move text to `#message` or put it inline              |
 | Cancellation              | Standard `$/cancelRequest`; stale browser replies lose authority                    |
 
 Review the value introduced by a define quick fix before compiling. Rename
 returns proposed versioned edits for the client to apply. Project renames also
 edit `bindings.json` and reject conflicting names or changes to compiled bytes.
 The browser applies coordinated renames through project History, so Undo restores
-the affected documents together. Project declarations and closed-file references
-open in read-only source previews. Formatting is omitted: the project has no
+the affected documents together. In the app, a resource name opens its editor. A flag or variable opens a list of
+LOGIC lines where it is set and checked. Hover offers Open and Rename, and the
+parts list includes Game state. External editors navigate to `bindings.json`.
+Closed-file references open in read-only source previews. Formatting is omitted: the project has no
 canonical LOGIC formatter, and preserving authored message text matters.
 
 Numbered operands identify variables (`vN`), flags (`fN`), screen objects (`oN`),

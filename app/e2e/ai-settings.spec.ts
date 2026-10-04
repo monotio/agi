@@ -15,6 +15,8 @@ test("one shared AI setup preserves the brief and keeps provider keys separate",
   const create = page.getByTestId("create-adventure-disclosure");
   await expect(create.getByTestId("api-key-input")).toHaveCount(0);
   await page.getByTestId("shelf-template-custom").click();
+  await page.getByTestId("local-create-kind-ai").click();
+  await page.getByTestId("template-custom").click();
   await expect(page.getByTestId("template-custom")).toHaveAttribute("aria-selected", "true");
   await page.getByTestId("local-create-title").fill("The Quiet Observatory");
   await page.getByTestId("custom-adventure-input").fill("Find the missing moon chart.");
