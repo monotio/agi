@@ -50,6 +50,7 @@ import { useStudioLesson } from "../lessons/useStudioLesson.ts";
 import UiChip from "../ui/UiChip.vue";
 import UiSegmented from "../ui/UiSegmented.vue";
 import PaletteStrip from "./workspace/PaletteStrip.vue";
+import { useStudioPalette } from "./useStudioPalette.ts";
 import DrawOrderScrubber from "./DrawOrderScrubber.vue";
 import GhostProbe from "./GhostProbe.vue";
 import GhostReadout from "./GhostReadout.vue";
@@ -1079,6 +1080,17 @@ watch(
 
 // ---- The Walk view ----------------------------------------------------------
 const walkTint = ref(true);
+const palette = useStudioPalette({
+  tool: tools.tool,
+  lens,
+  selected: () => selection.selectedIds.value.length > 0,
+  timeline: () => model.value.timeline,
+  editing,
+  current: tools.current,
+  setValues: tools.setValues,
+  frozen,
+});
+
 /** A walk tool in another lens hands back to Select. */
 watch(lens, (next) => {
   if (next !== "walk" && isWalkTool(tools.tool.value)) tools.setTool("select");
@@ -1538,6 +1550,12 @@ function onKeyup(event: KeyboardEvent): void {
     </StudioTopBar>
 
     <div v-if="embedded" class="studio__scrubber studio__palette-row">
+      <PaletteStrip
+        :context="palette.context.value"
+        :value="lens === 'art' ? palette.values.value.visual : palette.values.value.priority"
+        :disabled="frozen()"
+        @choose="palette.choose(lens === 'art' ? { visual: $event } : { priority: $event })"
+      />
       <DrawOrderScrubber
         v-if="drawOrder"
         v-model="playhead"
@@ -1545,16 +1563,6 @@ function onKeyup(event: KeyboardEvent): void {
         :ticks
         :marked="selectedRow?.entries ?? []"
         :command="current"
-      />
-      <PaletteStrip
-        :value="
-          lens === 'art'
-            ? (tools.current.value.visual ?? 0)
-            : typeof tools.current.value.priority === 'number'
-              ? tools.current.value.priority
-              : 4
-        "
-        @choose="tools.setValues(lens === 'art' ? { visual: $event } : { priority: $event })"
       />
     </div>
 
@@ -1629,12 +1637,13 @@ function onKeyup(event: KeyboardEvent): void {
       :probe-available="views.length > 0"
       :lens
       :unlocks
-      :values="tools.current.value"
+      :values="palette.values.value"
+      :palette-action="palette.context.value.action"
       :cursor-y="tools.cursor.value?.y"
       :doors-editable="logic.editable.value"
       @update:tool="pickTool"
       @probe="ghost.toggle()"
-      @values="tools.setValues"
+      @values="palette.choose"
       @unlocks="(next) => !assist.holds.value && (unlocks = next)"
     />
     <main class="studio__frame">
@@ -2268,6 +2277,7 @@ function onKeyup(event: KeyboardEvent): void {
 }
 .studio__palette-row {
   display: grid;
+  min-width: 0;
 }
 .studio__side {
   display: contents;
@@ -2309,6 +2319,14 @@ function onKeyup(event: KeyboardEvent): void {
     grid-template-columns: 0 44px minmax(0, 1fr) 0;
     grid-template-rows: auto auto minmax(180px, 1fr) auto minmax(240px, 0.8fr) 28px;
     overflow-y: auto;
+  }
+  .studio.is-embedded .studio__palette-row {
+    grid-column: 1 / 4;
+  }
+  .studio.is-embedded .studio__palette-row :deep(.scrubber) {
+    grid-template-columns: auto minmax(0, 1fr) minmax(64px, 100px);
+    gap: var(--space-2);
+    padding-inline: var(--space-2);
   }
   .studio.is-embedded .studio__side {
     grid-column: 2 / 4;

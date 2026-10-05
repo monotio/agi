@@ -712,7 +712,9 @@ for (const size of [
     const footer = (await studio.locator(".studio__status").boundingBox())!;
     const palette = (await studio.locator(".workspace-palette").boundingBox())!;
     expect(footer.y).toBeGreaterThanOrEqual(palette.y + palette.height);
+    await expect(studio.getByTestId("studio-value-priority")).toBeVisible();
     await expect(studio.getByTestId("studio-value-priority")).toHaveText("None");
+    await expect(studio.getByTestId("studio-value-priority")).toBeDisabled();
     await studio.getByTestId("explain-drawing-depth").click();
     await expect(page.getByTestId("explain-pop")).toContainText("drawing tools");
     await page.keyboard.press("Escape");
