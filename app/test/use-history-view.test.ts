@@ -1660,14 +1660,14 @@ test("a game replaced during the Undo rewind branch read restores and stages not
   const v = h.state.historyView;
 
   // The real manifest read of A's kept branches is held: the replacement
-  // lands while it is outstanding — before the swap's busy hold exists.
+  // lands while it is outstanding, under the Undo rewind reservation.
   const nativeGet = RECORDS.get.bind(RECORDS);
   let switched = false;
   RECORDS.get = function (key: IDBValidKey) {
     const result = nativeGet(key);
     if (!switched && key === `history/${targetA.locator}`) {
       switched = true;
-      assert.equal(h.state.powerUp.busy, false, "the branch read precedes the busy hold");
+      assert.equal(h.state.powerUp.busy, true, "Undo rewind reserves before reading its branch");
       h.replaceGame(b.game, freshWorker());
     }
     return result;

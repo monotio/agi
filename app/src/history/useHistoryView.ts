@@ -1034,8 +1034,9 @@ export function useHistoryView(deps: HistoryViewDeps) {
      * lands. It is staged either way, so an uncertain swap keeps its copy.
      */
     keepDeparting = true,
+    reservationOwned = false,
   ): Promise<boolean> {
-    if (deps.state.powerUp.busy)
+    if (deps.state.powerUp.busy && !reservationOwned)
       throw new Error("Wait for the current authoring operation before changing sessions.");
     const { game, target } = owner;
     // The swap answers only to the session that asked: its captured game,
@@ -1201,7 +1202,7 @@ export function useHistoryView(deps: HistoryViewDeps) {
       // The reservation releases only while the operation still owns the
       // surface: a session replacement already cleared it in resetScreenState,
       // and clearing it again could undo a hold the replacement took since.
-      if (stillOwned(owner)) powerUp.busy = false;
+      if (stillOwned(owner) && !reservationOwned) powerUp.busy = false;
     }
   }
 
@@ -1270,33 +1271,29 @@ export function useHistoryView(deps: HistoryViewDeps) {
     const game = deps.getBootedGame();
     if (!game) return;
     const target = resolveProgressTarget(game);
-    // The read's owner is captured before it: the session generation, the
-    // game object and its worker. A replacement while the branches load —
-    // another project, or a reboot at the same tape address — must not have
-    // the branch it reads restored, adopted or staged under itself.
-    const owner: SwapOwner | null =
-      target === null ? null : { game, target, worker: deps.getWorker(), session: sessionSerial };
-    const branches = target === null ? [] : await loadRetainedBranches(target.locator);
     if (target === null) {
       v.error = "No earlier session is kept.";
       return;
     }
-    if (
-      owner === null ||
-      sessionSerial !== owner.session ||
-      deps.getBootedGame() !== game ||
-      deps.getWorker() !== owner.worker
-    )
-      return;
-    const branch = branches[branches.length - 1];
-    if (branch === undefined) {
-      v.error = "No earlier session is kept.";
-      return;
-    }
-    v.error = "";
-    stopWatch();
-    if (!v.active) pauseAtLive();
+    // The read's owner is captured before it: the session generation, the
+    // game object and its worker. A replacement while the branches load —
+    // another project, or a reboot at the same tape address — must not have
+    // the branch it reads restored, adopted or staged under itself.
+    const owner: SwapOwner = { game, target, worker: deps.getWorker(), session: sessionSerial };
+    if (deps.state.powerUp.busy) return;
+    const powerUp = deps.state.powerUp;
+    powerUp.busy = true;
     try {
+      const branches = await loadRetainedBranches(target.locator);
+      if (!stillOwned(owner)) return;
+      const branch = branches[branches.length - 1];
+      if (branch === undefined) {
+        v.error = "No earlier session is kept.";
+        return;
+      }
+      v.error = "";
+      stopWatch();
+      if (!v.active) pauseAtLive();
       const done = await swapSessions(
         owner,
         async () => {
@@ -1323,12 +1320,16 @@ export function useHistoryView(deps: HistoryViewDeps) {
         },
         "Undo rewind",
         branch.id,
+        true,
+        true,
       );
       if (done && stillOwned(owner)) deps.logAgent("log", "history: rewound to the kept session");
     } catch (error) {
       // Same gate as Resume from here: a stale swap's failure never lands
       // on the replacement's surface.
       if (stillOwned(owner)) view().error = error instanceof Error ? error.message : String(error);
+    } finally {
+      if (stillOwned(owner)) powerUp.busy = false;
     }
   }
 
@@ -1647,6 +1648,7 @@ export function useHistoryView(deps: HistoryViewDeps) {
           title: "Restore the session the last rewind kept; the current one is kept in its place",
           label: "Undo rewind",
           variant: "secondary",
+          disabled: deps.state.powerUp.busy,
           run: () => void undoRewind(),
         });
       return buttons;
