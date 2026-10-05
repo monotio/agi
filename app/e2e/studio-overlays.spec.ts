@@ -68,7 +68,7 @@ for (const [width, height] of [
     await openWorkspacePicture(page, 2);
     const studio = page.getByTestId("room-studio");
     await expect(studio).toBeVisible();
-    const pictures = ".studio-pane__pixels";
+    const pictures = ".studio-pane__pixels, .game-surface";
     /** Every stray, by the step that showed it: all of them are reported at once. */
     const seen: string[] = [];
     const look = async (step: string, root: Locator, over: string) =>

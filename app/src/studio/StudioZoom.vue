@@ -10,7 +10,7 @@ const emit = defineEmits<{ zoom: [step: 1 | -1 | "fit"] }>();
   <div class="studio-zoom" role="group" aria-label="Zoom">
     <UiIconButton icon="zoom-out" label="Zoom out" shortcut="-" @click="emit('zoom', -1)" />
     <span class="studio-zoom__level" title="Pixels are 2:1, as the game shows them"
-      >{{ zoom * 100 }}%</span
+      >{{ Math.round(zoom * 100) }}%</span
     >
     <UiIconButton icon="zoom-in" label="Zoom in" shortcut="+" @click="emit('zoom', 1)" />
     <UiIconButton

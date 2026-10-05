@@ -17,14 +17,19 @@ test.use({ viewport: { width: 1440, height: 900 } });
 
 const FRAME = ["frame", "canvas", "sketch", "picture-light", "plaque"];
 
-async function openGallery(page: Page): Promise<Locator> {
+async function openGallery(page: Page, fixedZoom = false): Promise<Locator> {
   await page.goto("/");
   await page.getByTestId("catalog-play-adventure-department").click();
   await expect.poll(async () => (await textHook(page)).room, { timeout: 30_000 }).toBe(1);
   await enterCreateMode(page);
   await openWorkspacePicture(page, 1);
   const studio = page.getByTestId("room-studio");
+  await expect(studio).toBeVisible();
   await expect(studio.locator('[data-row="frame"]')).toHaveCount(1);
+  if (fixedZoom) {
+    await studio.getByRole("button", { name: "Zoom out", exact: true }).click();
+    await expect(studio.locator(".studio-zoom__level")).toHaveText("200%");
+  }
   return studio;
 }
 
@@ -115,7 +120,7 @@ test("dragging the selection moves it as one step, and the cursor says which dra
 test("at 200% a drag on the small plaque in Select moves the whole item, not a point", async ({
   page,
 }) => {
-  const studio = await openGallery(page);
+  const studio = await openGallery(page, true);
   // 640 CSS px across 160 columns: 200%, where the plaque's point handles would cover it.
   expect((await pane(page).boundingBox())!.width).toBe(640);
   await page.mouse.click(...(await cell(page, 76, 82)));
@@ -153,7 +158,7 @@ test("a drag toward the edge stops at it and is kept; one past the edge says whi
 test("the margin around the picture is empty canvas: a click clears, a drag draws a box @webkit-desktop", async ({
   page,
 }) => {
-  const studio = await openGallery(page);
+  const studio = await openGallery(page, true);
   const box = (await pane(page).boundingBox())!;
   await page.mouse.click(...(await cell(page, 40, 20)));
   expect(await selectedRows(studio)).toEqual(["walls"]);

@@ -55,6 +55,8 @@ export function useStudioViewport(
   panes: MaybeRefOrGetter<number>,
   /** One pane of other content than the picture (Sprite Studio's cel), and its largest zoom. */
   content?: { readonly size: MaybeRefOrGetter<PaneContent>; readonly max: number },
+  /** A live game fits its complete 320×200 surface, with tools on the same scale. */
+  liveGame?: MaybeRefOrGetter<boolean>,
 ) {
   const maxZoom = content?.max ?? MAX_ZOOM;
   const size = ref({ width: 0, height: 0 });
@@ -101,9 +103,11 @@ export function useStudioViewport(
   });
 
   const fit = computed(() =>
-    content
-      ? contentFitZoom(size.value.width, size.value.height, toValue(content.size), maxZoom)
-      : paneFitZoom(size.value.width, size.value.height, toValue(panes)),
+    toValue(liveGame)
+      ? Math.max(0.1, Math.min(maxZoom, size.value.width / 320, size.value.height / 200))
+      : content
+        ? contentFitZoom(size.value.width, size.value.height, toValue(content.size), maxZoom)
+        : paneFitZoom(size.value.width, size.value.height, toValue(panes)),
   );
   const zoom = computed(() => override.value ?? fit.value);
   const viewport = computed<Viewport>(() => ({
@@ -114,7 +118,8 @@ export function useStudioViewport(
   }));
 
   function zoomBy(step: 1 | -1): void {
-    override.value = Math.min(maxZoom, Math.max(1, zoom.value + step));
+    const current = step === 1 ? Math.floor(zoom.value) : Math.ceil(zoom.value);
+    override.value = Math.min(maxZoom, Math.max(1, current + step));
   }
   function zoomToFit(): void {
     override.value = undefined;

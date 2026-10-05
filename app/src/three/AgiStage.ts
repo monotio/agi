@@ -810,6 +810,13 @@ export class AgiStage {
     canvas: HTMLCanvasElement,
     context?: WebGL2RenderingContext,
   ): Promise<AgiStage | null> {
+    // The stage moves between Play and picture tools. Keep a stationary
+    // WebGL frame readable after that move, including WebKit's compositor.
+    context ??=
+      typeof navigator !== "undefined" && !navigator.gpu
+        ? (canvas.getContext("webgl2", { antialias: false, preserveDrawingBuffer: true }) ??
+          undefined)
+        : undefined;
     const attempts: { forceWebGL: boolean }[] = context
       ? [{ forceWebGL: true }]
       : [{ forceWebGL: false }, { forceWebGL: true }];

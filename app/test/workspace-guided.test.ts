@@ -28,6 +28,37 @@ function starterModel(): ProjectModel {
   });
 }
 
+test("making an unused picture a room keeps the art and returns one coordinated change", () => {
+  const snapshot = starterModel().capture();
+  const result = prepareWorkspaceAction(snapshot, "2.936", { kind: "make-room", key: "picture:1" });
+  assert.ok(result.ok, JSON.stringify(result));
+  const logic = result.changes.find((change) => change.key.startsWith("logic:"))!;
+  assert.match(logic.content as string, /assignn\([^,]+, 1\)/);
+  assert.equal(
+    result.changes.some((change) => change.key.startsWith("picture:")),
+    false,
+  );
+  assert.ok(result.changes.some((change) => change.key === "world"));
+  const built = compileProjectDocuments({
+    files: Object.fromEntries(snapshot.lastAdmissibleBuild!.files()),
+    documents: {
+      ...snapshot.documents(),
+      ...Object.fromEntries(result.changes.map((c) => [c.key, c.content!])),
+    },
+    profileId: "2.936",
+  });
+  assert.ok(built.files().size > 0);
+});
+
+test("making an unused view a room creates a picture and places that view", () => {
+  const snapshot = starterModel().capture();
+  const result = prepareWorkspaceAction(snapshot, "2.936", { kind: "make-room", key: "view:0" });
+  assert.ok(result.ok, JSON.stringify(result));
+  const logic = result.changes.find((change) => change.key.startsWith("logic:"))!;
+  assert.match(logic.content as string, /set\.view\(o0, 0\)/);
+  assert.ok(result.changes.some((change) => change.key.startsWith("picture:")));
+});
+
 test("teach a new thing and its full sentence reply together, with explicit same meanings", () => {
   const model = starterModel();
   for (const sameAs of [undefined, 101]) {

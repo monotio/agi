@@ -615,6 +615,8 @@ const panes = computed(() => panesFor(lens.value, mode.value));
 const { viewport, zoom, dpr, fitted, zoomBy, zoomToFit } = useStudioViewport(
   stage,
   () => panes.value.length,
+  undefined,
+  () => liveGame && panes.value.length === 1,
 );
 const size = computed(() => pictureSize(draft.compiled.value.bytes.length, total.value));
 
@@ -2401,6 +2403,9 @@ function onKeyup(event: KeyboardEvent): void {
   --game-ratio: 1.6;
 }
 .studio__live-game :deep(.play-strip) {
+  display: none;
+}
+.studio__live-game :deep(.touch-controls) {
   display: none;
 }
 .studio.is-live-game .studio__live-game :deep(.play-area .screen) {

@@ -29,7 +29,11 @@ const props = defineProps<{
   profile?: AgiProfile;
   addGroups?: readonly string[];
 }>();
-const emit = defineEmits<{ open: [key: string]; pin: [key: string]; add: [group: string] }>();
+const emit = defineEmits<{
+  open: [key: string, room?: number];
+  pin: [key: string, room?: number];
+  add: [group: string];
+}>();
 const engine = useEngineApi();
 const workspace = useWorkspaceEditor();
 const names = shallowRef<BindingInfo[]>([]);
@@ -182,8 +186,8 @@ function onKey(event: KeyboardEvent): void {
           :data-part-row="row.id"
           :data-testid="`part-${row.id}`"
           @focus="focused = row.id"
-          @click="emit('open', row.key)"
-          @dblclick="emit('pin', row.key)"
+          @click="emit('open', row.key, row.room)"
+          @dblclick="emit('pin', row.key, row.room)"
         >
           <img v-if="thumbnails[row.id]" :src="thumbnails[row.id]" alt="" />
           <ViewThumbnail

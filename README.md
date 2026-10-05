@@ -107,7 +107,11 @@ your own rooms and artwork. **Blank** opens an empty workspace. Choose
 first room. Every part of these starting games is editable.
 
 To edit a saved game, open its library card’s **Game actions → Create**.
-The workspace keeps the game running beside its editors. LOGIC has code completion,
+The workspace keeps the game running on the stage. PICTURE tools frame the game;
+opening another room’s PICTURE, LOGIC or VIEW visits that room. **Back to Room**
+returns to the saved moment. Unused art opens with **Make it a room**.
+Other editors sit beside the stage or below it with **Stacked**. Phones stack their panels.
+LOGIC has code completion,
 hover documentation, definition navigation and a Problems panel. Resource names
 open their editors; flags and variables show where they are set and checked.
 **Game state** in the parts list shows these names with Rename. Edits save
@@ -179,7 +183,7 @@ sharing the game, especially with children. [Security](SECURITY.md) covers stora
 
 A running game has two modes, switched in the top bar. **Play** is the game as
 its players see it, with the rewind timeline. **Create** shows the parts list on
-the left and the same running game beside its editors. Open a PICTURE to draw
+the left and the same running game on the stage. Open a PICTURE to draw
 with the PICTURE editor’s tools, a LOGIC to edit its instructions, or a VIEW to edit its
 loops and cels. WORDS groups words by meaning, tests sentences with the game’s parser and
 keeps a local list of missed playtest commands. OBJECTS has a table editor; SOUND has a step

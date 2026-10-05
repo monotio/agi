@@ -58,6 +58,7 @@ const SoundImport = defineAsyncComponent(() => import("../sound/SoundImport.vue"
 const WordsEditor = defineAsyncComponent(() => import("./WordsEditor.vue"));
 const TableEditor = defineAsyncComponent(() => import("./TableEditor.vue"));
 const RoomStudio = defineAsyncComponent(() => import("../RoomStudio.vue"));
+const PausedPicture = defineAsyncComponent(() => import("./PausedPicture.vue"));
 const SpriteStudio = defineAsyncComponent(() => import("../sprite/SpriteStudio.vue"));
 const LogicEditor = defineAsyncComponent(() => import("./LogicEditor.vue"));
 const DebugPanel = defineAsyncComponent(() => import("./WorkspaceDebugPanel.vue"));
@@ -67,11 +68,19 @@ const workspace = useCreateWorkspace();
 const editor = useWorkspaceEditor();
 const presentation = usePresentation();
 const InspectPanel = defineAsyncComponent(() => import("../../inspector/InspectPanel.vue"));
-function openPart(key: string, pinned = false): void {
+const phoneQuery = window.matchMedia("(max-width: 600px)");
+const phoneWidth = ref(phoneQuery.matches);
+function phoneLayout(event: MediaQueryListEvent): void {
+  phoneWidth.value = event.matches;
+}
+phoneQuery.addEventListener("change", phoneLayout);
+const stacked = computed(() => phoneWidth.value || editor.splitAxis.value === "vertical");
+const roomHint = shallowRef<{ key: string; room: number }>();
+function openPart(key: string, pinned = false, room?: number): void {
+  roomHint.value = room === undefined ? undefined : { key, room };
   if (window.innerWidth <= 1280 && engine.state.powerUp.open) engine.closePowerUp();
   editor.open(key, pinned);
   if (window.innerWidth <= 600) {
-    editor.focus.value = true;
     editor.partsOpen.value = false;
   }
 }
@@ -253,15 +262,6 @@ const groups = computed(() => {
   }
   return workspaceParts({ keys, rooms, names, currentRoom: engine.roomMap.currentRoom.value });
 });
-watch(
-  [editor.selected, groups, engine.roomMap.currentRoom],
-  ([selected, rows, room]) => {
-    editor.pictureLive.value =
-      !!selected?.startsWith("picture:") &&
-      rows.some((group) => group.entries.some((row) => row.key === selected && row.room === room));
-  },
-  { immediate: true },
-);
 const roomThumbs = useNodeThumbs(engine.roomMap, () => engine.roomMap.graph.value.nodes);
 const thumbnails = computed<Readonly<Record<string, string>>>(() => {
   void engine.roomMap.thumbVersion.value;
@@ -354,10 +354,12 @@ const pictureWalks = computed(() =>
           .flatMap((group) => group.entries)
           .filter((row) => row.key === key && row.room !== undefined);
         const room =
-          request?.kind === "picture"
-            ? request.room
-            : (uses.find((row) => row.room === engine.roomMap.currentRoom.value)?.room ??
-              uses[0]?.room);
+          roomHint.value?.key === key
+            ? roomHint.value.room
+            : request?.kind === "picture"
+              ? request.room
+              : (uses.find((row) => row.room === engine.roomMap.currentRoom.value)?.room ??
+                uses[0]?.room);
         return [key, room === undefined || room < 1 ? null : studioContext.value.room(room)];
       }),
   ),
@@ -375,6 +377,166 @@ const spriteContexts = computed(() =>
       ]),
   ),
 );
+const selectedRoom = computed(() => {
+  const key = editor.selected.value;
+  if (!key) return undefined;
+  const uses = key.startsWith("view:")
+    ? (spriteContexts.value[key]?.usage.rooms ?? [])
+    : groups.value
+        .flatMap((group) => group.entries)
+        .filter((row) => row.key === key && row.room !== undefined)
+        .map((row) => row.room!);
+  if (roomHint.value?.key === key && uses.includes(roomHint.value.room)) return roomHint.value.room;
+  const current = engine.roomMap.currentRoom.value;
+  if (
+    key.startsWith("view:") &&
+    current !== null &&
+    (spriteContexts.value[key]?.usage.logics.includes(0) ||
+      (livePreview.value.state?.vars[0] === current &&
+        livePreview.value.objects.some((object) => object.view === Number(key.slice(5)))))
+  )
+    return current;
+  return uses.find((room) => room === current) ?? uses[0];
+});
+const unusedArt = computed(
+  () =>
+    (editor.kind.value === "picture" || editor.kind.value === "view") &&
+    selectedRoom.value === undefined,
+);
+let makingRoom = false;
+const returnRoom = ref<number>();
+const visitingRoom = ref<number>();
+const stageNote = ref("");
+const visitBusy = ref(false);
+const pausedPicture = computed(() => {
+  const row = groups.value
+    .flatMap((group) => group.entries)
+    .find((entry) => entry.room === visitingRoom.value && entry.key.startsWith("picture:"));
+  return row ? native(row.key) : undefined;
+});
+let visitQueue = Promise.resolve();
+let selectionSerial = 0;
+watch(
+  [editor.selected, roomHint, () => props.creating, selectedRoom],
+  ([, , creating], [, , wasCreating]) => {
+    const serial = ++selectionSerial;
+    if (!creating || makingRoom) return;
+    if (
+      !wasCreating &&
+      selectedRoom.value !== undefined &&
+      selectedRoom.value !== engine.roomMap.currentRoom.value
+    ) {
+      stageNote.value = "";
+      const room = engine.roomMap.currentRoom.value;
+      const part = groups.value
+        .flatMap((group) => group.entries)
+        .find(
+          (row) =>
+            row.room === room &&
+            row.key.startsWith(editor.kind.value === "logic" ? "logic:" : "picture:"),
+        );
+      if (part) openPart(part.key);
+      else editor.selected.value = undefined;
+      if (returnRoom.value !== undefined) visitingRoom.value = room ?? undefined;
+      return;
+    }
+    visitQueue = visitQueue.then(async () => {
+      if (serial !== selectionSerial || retired) return;
+      const room = selectedRoom.value;
+      stageNote.value = "";
+      if (room === undefined || room === engine.roomMap.currentRoom.value) return;
+      visitBusy.value = true;
+      try {
+        await flushWorkspace();
+        if (serial !== selectionSerial || retired) return;
+        const result = await engine.visitRoom(room);
+        returnRoom.value = result.returnRoom;
+        visitingRoom.value = room;
+        if (!result.ok)
+          stageNote.value = `Room ${room} needs more game state. The picture is paused for editing.`;
+      } catch {
+        stageNote.value = `Room ${room} could not open. The picture is paused for editing.`;
+      } finally {
+        visitBusy.value = false;
+      }
+    });
+  },
+);
+watch(engine.roomMap.currentRoom, (room) => {
+  if (
+    !props.creating ||
+    visitBusy.value ||
+    makingRoom ||
+    stageNote.value ||
+    room === null ||
+    selectedRoom.value === undefined ||
+    selectedRoom.value === room
+  )
+    return;
+  const part = groups.value
+    .flatMap((group) => group.entries)
+    .find(
+      (row) =>
+        row.room === room &&
+        row.key.startsWith(editor.kind.value === "logic" ? "logic:" : "picture:"),
+    );
+  if (part) openPart(part.key, false, room);
+  else editor.selected.value = undefined;
+  if (returnRoom.value !== undefined) visitingRoom.value = room;
+});
+watch(
+  [editor.selected, unusedArt, () => props.creating, stageNote],
+  () => {
+    editor.pictureLive.value = editor.kind.value === "picture";
+    editor.stageSolo.value = unusedArt.value;
+    editor.stagePaused.value = unusedArt.value || !!stageNote.value;
+    if (props.creating && editor.stagePaused.value) engine.pauseEngine("stageArt");
+    else engine.resumeEngine("stageArt");
+  },
+  { immediate: true },
+);
+let returningRemovedRoom = false;
+watch(snapshot, async (current) => {
+  const room = engine.roomMap.currentRoom.value;
+  if (
+    !props.creating ||
+    returningRemovedRoom ||
+    returnRoom.value === undefined ||
+    room === null ||
+    !current ||
+    current.keys.includes(`logic:${room}`)
+  )
+    return;
+  returningRemovedRoom = true;
+  try {
+    await backToGame(false);
+  } finally {
+    returningRemovedRoom = false;
+  }
+});
+async function backToGame(openRoom = true): Promise<void> {
+  ++selectionSerial;
+  await visitQueue;
+  visitBusy.value = true;
+  try {
+    await flushWorkspace();
+    const result = await engine.visitRoom("back");
+    if (!result.ok) throw new Error(result.reason);
+    returnRoom.value = visitingRoom.value = undefined;
+    stageNote.value = "";
+    if (openRoom) {
+      const picture = groups.value
+        .flatMap((group) => group.entries)
+        .find((row) => row.room === result.room && row.key.startsWith("picture:"));
+      if (picture) openPart(picture.key);
+      else editor.selected.value = undefined;
+    }
+  } catch (cause) {
+    editor.error.value = cause instanceof Error ? cause.message : String(cause);
+  } finally {
+    visitBusy.value = false;
+  }
+}
 const previewCyclers = computed(() =>
   livePreview.value.objects.map(({ num, view, loop, cycling, cycleTime }) => ({
     num,
@@ -723,6 +885,7 @@ async function wordChange(
 async function guidedAction(action: WorkspaceAction): Promise<void> {
   if (writeConflict.value || actionBusy.value) return;
   actionBusy.value = true;
+  makingRoom = action.kind === "make-room";
   try {
     await writes.flush();
     const capture = session?.model.capture();
@@ -744,6 +907,18 @@ async function guidedAction(action: WorkspaceAction): Promise<void> {
       );
       if (entry) engine.resolvePlayerSentence(entry);
     }
+    if (action.kind === "make-room") {
+      refresh();
+      const key = prepared.changes.find((change) => change.key.startsWith("logic:"))?.key;
+      if (key && props.creating) {
+        const room = Number(key.slice(6));
+        const result = await engine.visitRoom(room);
+        returnRoom.value = result.returnRoom;
+        visitingRoom.value = room;
+        if (!result.ok)
+          stageNote.value = `Room ${room} needs more game state. The picture is paused for editing.`;
+      }
+    }
     if (action.kind === "add-room") {
       const key = prepared.changes.find((change) => change.key.startsWith("logic:"))?.key;
       if (key) openPart(key);
@@ -753,6 +928,7 @@ async function guidedAction(action: WorkspaceAction): Promise<void> {
   } catch (cause) {
     editor.error.value = String(cause instanceof Error ? cause.message : cause);
   } finally {
+    makingRoom = false;
     actionBusy.value = false;
     refresh();
   }
@@ -891,7 +1067,12 @@ function resize(event: PointerEvent): void {
   const move = (e: PointerEvent) => {
     value = Math.min(
       75,
-      Math.max(25, (100 * (e.clientX - area.left - left)) / (area.width - left)),
+      Math.max(
+        25,
+        stacked.value
+          ? (100 * (e.clientY - area.top)) / area.height
+          : (100 * (e.clientX - area.left - left)) / (area.width - left),
+      ),
     );
     if (!frame) frame = requestAnimationFrame(paint);
   };
@@ -967,6 +1148,7 @@ editor.unsavedEdits.value = () => {
   return buffers;
 };
 onBeforeUnmount(() => {
+  phoneQuery.removeEventListener("change", phoneLayout);
   endResize?.();
   retired = true;
   window.removeEventListener("beforeunload", warnBeforeUnload);
@@ -984,9 +1166,23 @@ onBeforeUnmount(() => {
   window.removeEventListener("drop", dropMusic, true);
   editor.gameHost.value = null;
   editor.pictureLive.value = false;
+  editor.stageSolo.value = false;
+  editor.stagePaused.value = false;
+  engine.resumeEngine("stageArt");
 });
 </script>
 <template>
+  <PausedPicture
+    v-if="
+      creating &&
+      stageNote &&
+      editor.kind.value !== 'picture' &&
+      !editor.focus.value &&
+      pausedPicture
+    "
+    :bytes="pausedPicture"
+    :profile
+  />
   <aside
     v-if="creating && presentation.debugOpen.value"
     class="workspace-inspector"
@@ -1019,16 +1215,16 @@ onBeforeUnmount(() => {
     :thumbnails="thumbnails"
     :views="viewThumbnails"
     :profile="profile"
-    @open="openPart"
-    @pin="(key) => openPart(key, true)"
+    @open="(key, room) => openPart(key, false, room)"
+    @pin="(key, room) => openPart(key, true, room)"
     @add="add"
   />
   <div
     v-show="creating && editor.selected.value && !editor.focus.value"
     class="workspace-splitter"
     role="separator"
-    aria-label="Editor width"
-    aria-orientation="vertical"
+    :aria-label="stacked ? 'Editor height' : 'Editor width'"
+    :aria-orientation="stacked ? 'horizontal' : 'vertical'"
     tabindex="0"
     :aria-valuenow="editor.split.value"
     aria-valuemin="25"
@@ -1036,6 +1232,8 @@ onBeforeUnmount(() => {
     @pointerdown="resize"
     @keydown.left.prevent="editor.resize(editor.split.value - 2)"
     @keydown.right.prevent="editor.resize(editor.split.value + 2)"
+    @keydown.up.prevent="editor.resize(editor.split.value - 2)"
+    @keydown.down.prevent="editor.resize(editor.split.value + 2)"
   ></div>
   <Teleport defer to=".play-area"
     ><UiButton
@@ -1062,6 +1260,30 @@ onBeforeUnmount(() => {
         @pin="editor.pin"
         @close="editor.close"
       />
+      <div
+        v-if="editor.kind.value !== 'picture' && !unusedArt"
+        class="workspace-axis"
+        aria-label="Editor layout"
+      >
+        <UiButton
+          size="sm"
+          variant="ghost"
+          aria-label="Side by side"
+          title="Side by side"
+          :aria-pressed="editor.splitAxis.value === 'horizontal'"
+          @click="editor.setSplitAxis('horizontal')"
+          >▥</UiButton
+        >
+        <UiButton
+          size="sm"
+          variant="ghost"
+          aria-label="Stacked"
+          title="Stacked"
+          :aria-pressed="editor.splitAxis.value === 'vertical'"
+          @click="editor.setSplitAxis('vertical')"
+          >▤</UiButton
+        >
+      </div>
       <template v-if="editor.kind.value === 'picture' || editor.kind.value === 'view'">
         <UiButton
           size="sm"
@@ -1153,6 +1375,56 @@ onBeforeUnmount(() => {
         @changed="refresh"
       />
     </header>
+    <div v-if="unusedArt" class="workspace-stage-note" data-testid="workspace-unused">
+      <span>Not used by a room yet</span>
+      <UiButton
+        size="sm"
+        variant="ghost"
+        :disabled="actionBusy || writeConflict"
+        :title="
+          writeConflict ? 'Resolve the project conflict first' : actionBusy ? 'Saving the room' : ''
+        "
+        @click="guidedAction({ kind: 'make-room', key: editor.selected.value! })"
+        >Make it a room</UiButton
+      >
+      <UiButton
+        v-if="returnRoom !== undefined"
+        size="sm"
+        variant="ghost"
+        :disabled="visitBusy"
+        :title="visitBusy ? 'Entering the room' : ''"
+        @click="backToGame()"
+        >Back to Room {{ returnRoom }}</UiButton
+      >
+    </div>
+    <div
+      v-else-if="visitingRoom !== undefined && returnRoom !== undefined"
+      class="workspace-stage-note"
+      data-testid="workspace-visit"
+    >
+      <span>Visiting Room {{ visitingRoom }}</span>
+      <span v-if="editor.kind.value === 'picture' && !stageNote">· changes show live</span>
+      <UiButton
+        size="sm"
+        variant="ghost"
+        :disabled="visitBusy"
+        :title="visitBusy ? 'Entering the room' : ''"
+        @click="backToGame()"
+        >Back to Room {{ returnRoom }}</UiButton
+      >
+    </div>
+    <p v-if="stageNote" class="workspace-stage-note" data-testid="workspace-stage-note">
+      {{ stageNote }}
+    </p>
+    <div
+      v-else-if="
+        editor.kind.value === 'picture' && selectedRoom !== undefined && returnRoom === undefined
+      "
+      class="workspace-stage-note"
+      data-testid="workspace-room-live"
+    >
+      Room {{ selectedRoom }} · changes show live
+    </div>
     <p
       v-if="
         diagnostics.some((entry) => entry.severity === 'error') && editor.kind.value === 'logic'
@@ -1162,13 +1434,16 @@ onBeforeUnmount(() => {
     >
       The game keeps running the last working version. Fix the errors below.
     </p>
-    <p
-      v-if="editor.error.value && !engine.state.leaving && !editor.exitRefusal.value"
-      class="workspace-error"
-      role="alert"
+    <Teleport
+      v-if="creating && editor.error.value && !engine.state.leaving && !editor.exitRefusal.value"
+      defer
+      :to="editor.history.value ? '#workspace-history-errors' : undefined"
+      :disabled="!editor.history.value"
     >
-      {{ editor.error.value }} <UiButton v-if="!writeConflict" @click="retrySave">Retry</UiButton>
-    </p>
+      <p class="workspace-error" role="alert">
+        {{ editor.error.value }} <UiButton v-if="!writeConflict" @click="retrySave">Retry</UiButton>
+      </p>
+    </Teleport>
     <div
       v-for="key in editor.retained.value"
       :key="key"
@@ -1194,7 +1469,8 @@ onBeforeUnmount(() => {
           creating &&
           key === editor.selected.value &&
           editor.pictureLive.value &&
-          !editor.focus.value
+          !editor.stagePaused.value &&
+          selectedRoom === engine.roomMap.currentRoom.value
         "
         :workspace-focus="editor.focus.value"
         embedded
@@ -1228,7 +1504,7 @@ onBeforeUnmount(() => {
           key.startsWith('view:') && (native(key) || spriteRequest(key)?.stagedReference) && profile
         "
         v-show="imagePanel !== key"
-        :workspace-focus="editor.focus.value"
+        :workspace-focus="editor.focus.value || phoneWidth"
         embedded
         :usage="spriteContexts[key]?.usage ?? { rooms: [], logics: [], dynamic: false }"
         :rooms="spriteContexts[key]?.rooms ?? []"
@@ -1331,7 +1607,9 @@ onBeforeUnmount(() => {
       data-testid="workspace-show-game"
       @click="editor.toggleFocus"
     >
-      {{ editor.debugStatus.value || "Game running" }} · Show
+      {{
+        editor.stagePaused.value ? "Done" : `${editor.debugStatus.value || "Game running"} · Show`
+      }}
     </button>
   </section>
   <section
@@ -1372,6 +1650,7 @@ onBeforeUnmount(() => {
         >×</UiButton
       >
     </header>
+    <div id="workspace-history-errors"></div>
     <p>{{ VOCABULARY.history.help }}</p>
     <form @submit.prevent="nameVersion">
       <input v-model="versionName" aria-label="Version name" placeholder="Opening scene" /><UiButton

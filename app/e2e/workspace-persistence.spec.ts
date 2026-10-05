@@ -30,6 +30,7 @@ async function starter(page: Page) {
     .fill("Save boundaries");
   await page.getByTestId("local-create-kind-starter").click();
   await page.getByRole("button", { name: "Start building", exact: true }).click();
+  if (page.viewportSize()!.width <= 600) await page.getByTestId("workspace-parts").click();
   await expect(page.getByTestId("parts-list")).toBeVisible();
   await workspaceSaved(page);
 }
@@ -302,50 +303,72 @@ test("Read-only unsaved edits keeps tempo metadata for both retained SOUND buffe
   expect(music["255"].tempo).toBe(180);
 });
 
-test("a failed flush refuses a version name and Retry names the visible source", async ({
-  page,
-}) => {
-  await starter(page);
-  await openWorkspaceLogic(page);
-  await page.getByTestId("workspace-saved").click();
-  const history = page.getByTestId("workspace-history");
-  await history.getByLabel("Version name", { exact: true }).fill("Failed first");
-  await page.evaluate(async () => {
-    const session = (
-      window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }
-    ).__AGI_PROJECT__.getSession();
-    const submit = session.submit;
-    let fail = true;
-    session.submit = (...args) => {
-      if (fail) {
-        fail = false;
-        return Promise.reject(new Error("Injected LOGIC admission failure"));
-      }
-      return submit(...args);
-    };
-    const { monaco } = await import("/src/studio/logic/monacoLanguage.ts");
-    monaco.editor
-      .getModels()
-      .find((model) => model.uri.toString().includes("logic"))!
-      .setValue("invalid named draft !!!");
-    document
-      .querySelector<HTMLFormElement>("[data-testid='workspace-history'] form")!
-      .requestSubmit();
+for (const size of [
+  { width: 1440, height: 900 },
+  { width: 1063, height: 815 },
+  { width: 390, height: 844 },
+]) {
+  test(`a failed flush refuses a version name and Retry names the visible source at ${size.width}`, async ({
+    page,
+  }) => {
+    await page.setViewportSize(size);
+    await starter(page);
+    await openWorkspaceLogic(page);
+    await page.getByTestId("workspace-saved").click();
+    const history = page.getByTestId("workspace-history");
+    await expect(history).toBeVisible();
+    await history.getByLabel("Version name", { exact: true }).fill("Failed first");
+    await page.evaluate(async () => {
+      const session = (
+        window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }
+      ).__AGI_PROJECT__.getSession();
+      const submit = session.submit;
+      let fail = true;
+      session.submit = (...args) => {
+        if (fail) {
+          fail = false;
+          return Promise.reject(new Error("Injected LOGIC admission failure"));
+        }
+        return submit(...args);
+      };
+      const { monaco } = await import("/src/studio/logic/monacoLanguage.ts");
+      monaco.editor
+        .getModels()
+        .find((model) => model.uri.toString().includes("logic"))!
+        .setValue("invalid named draft !!!");
+      document
+        .querySelector<HTMLFormElement>("[data-testid='workspace-history'] form")!
+        .requestSubmit();
+    });
+    const error = page.locator(".workspace-error[role=alert]");
+    await expect(error).toBeVisible();
+    await expect(error).toContainText("Injected LOGIC admission failure");
+    await expect(history.locator(".workspace-history__name")).toHaveCount(0);
+    await expect(page.locator(".monaco-editor")).toBeVisible();
+    await expect(page.locator(".monaco-editor")).toContainText("invalid named draft !!!");
+    const retry = error.getByRole("button", { name: "Retry", exact: true });
+    await expect(retry).toBeVisible();
+    await page.screenshot({ path: test.info().outputPath(`history-error-${size.width}.png`) });
+    expect(
+      await retry.evaluate((button) => {
+        const box = button.getBoundingClientRect();
+        const top = document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2);
+        return top === button || button.contains(top);
+      }),
+    ).toBe(true);
+    await history.getByRole("button", { name: "Close", exact: true }).click();
+    await expect(history).toBeHidden();
+    await expect(error).toBeVisible();
+    await retry.click();
+    await workspaceSaved(page);
+    await page.getByTestId("workspace-saved").click();
+    await expect(history).toBeVisible();
+    await history.getByRole("button", { name: "Name this version", exact: true }).click();
+    await expect(history.locator(".workspace-history__name")).toBeVisible();
+    await expect(history.locator(".workspace-history__name")).toHaveText("Failed first");
+    expect(await workspaceDocument(page, "logic:1")).toBe("invalid named draft !!!");
   });
-  await expect(page.locator(".workspace-error[role=alert]")).toContainText(
-    "Injected LOGIC admission failure",
-  );
-  await expect(history.locator(".workspace-history__name")).toHaveCount(0);
-  await expect(page.locator(".monaco-editor")).toContainText("invalid named draft !!!");
-  await page
-    .locator(".workspace-error[role=alert]")
-    .getByRole("button", { name: "Retry", exact: true })
-    .click();
-  await workspaceSaved(page);
-  await history.getByRole("button", { name: "Name this version", exact: true }).click();
-  await expect(history.locator(".workspace-history__name")).toHaveText("Failed first");
-  expect(await workspaceDocument(page, "logic:1")).toBe("invalid named draft !!!");
-});
+}
 
 test("Discard and exit retires a refused draft and keeps the previous durable note", async ({
   page,
