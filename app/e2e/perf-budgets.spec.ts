@@ -150,6 +150,7 @@ const nextFrame = (page: Page): Promise<void> =>
 
 async function playTutorial(page: Page): Promise<void> {
   await isolateStorage(page);
+  await page.addInitScript(() => localStorage.setItem("monotio_agi.crtAmount", "1"));
   await installProbe(page);
   await page.goto("/");
   await page.getByTestId("catalog-play-adventure-department").click();

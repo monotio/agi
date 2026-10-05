@@ -55,7 +55,7 @@ async function start(): Promise<void> {
     return;
   }
   stage = created;
-  if (stage) stage.crt = false;
+  if (stage) stage.crtAmount = 0;
   else fallback = target.getContext("2d");
   render();
 }

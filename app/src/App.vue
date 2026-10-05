@@ -30,6 +30,7 @@ import { createShellBridge, provideShellBridge } from "./shell/shellBridge.ts";
 import { createAiSettings, provideAiSettings } from "./settings/useAiSettings.ts";
 import { createGameLibrary, provideGameLibrary } from "./library/useGameLibrary.ts";
 import { createPresentation, providePresentation } from "./play/usePresentation.ts";
+import { readCrtAmount } from "./settings/crtPreference.ts";
 import SetupPanel from "./home/SetupPanel.vue";
 import { followEmptyProjectRoute } from "./home/emptyProjectRoute.ts";
 import StartOverNote from "./play/StartOverNote.vue";
@@ -65,11 +66,8 @@ const viewport = ref(
 watch(touchControls, (enabled) =>
   localStorage.setItem("monotio_agi.touchControls", enabled ? "on" : "off"),
 );
-const crtEnabled = ref<boolean>(
-  testMode
-    ? localStorage.getItem("monotio_agi.crt") === "on"
-    : localStorage.getItem("monotio_agi.crt") !== "off",
-);
+// Display fixtures start crisp; an explicit preference also exercises CRT.
+const crtAmount = ref(readCrtAmount(localStorage, testMode ? 0 : 1));
 
 // A 320×200 frame filled a 4:3 monitor, so its pixels stood taller than
 // wide; square pixels are the other choice. Display only: the frame, clicks
@@ -88,7 +86,7 @@ providePresentation(presentation);
 const { gpuBackend, debugOpen } = presentation;
 const playArea = useTemplateRef("playArea");
 
-watch(crtEnabled, (on) => localStorage.setItem("monotio_agi.crt", on ? "on" : "off"));
+watch(crtAmount, (amount) => localStorage.setItem("monotio_agi.crtAmount", String(amount)));
 
 function onMenuHashChange(): void {
   if (location.hash === "#create-adventure") shellBridge.openCreateSection(false);
@@ -205,8 +203,8 @@ provideShell(shell);
 engine.setProjectMode(shell.mode.value);
 const creating = computed(() => state.phase === "running" && shell.mode.value === "create");
 /** CRT is a Play presentation; editing always shows the crisp frame. */
-const crtShown = computed(() => crtEnabled.value && !creating.value);
-watch(crtShown, (on) => presentation.setCrt(on));
+const crtShown = computed(() => (creating.value ? 0 : crtAmount.value));
+watch(crtShown, (amount) => presentation.setCrtAmount(amount));
 const createKeyboard = useTemplateRef("createKeyboard");
 const commands = createCommandRegistry(
   () => createKeyboard.value?.context() ?? emptyCommandContext(),
@@ -709,14 +707,14 @@ watch(
       />
       <GameHeader
         :touch-controls="touchControls"
-        :crt-enabled="crtEnabled"
+        :crt-amount="crtAmount"
         :original-aspect="originalAspect"
         :gpu-backend="gpuBackend"
         :debug-open="debugOpen"
         :export-busy="exportBusy"
         :export-refusal="exportRefusal"
         @update:touch-controls="touchControls = $event"
-        @update:crt-enabled="crtEnabled = $event"
+        @update:crt-amount="crtAmount = $event"
         @update:original-aspect="originalAspect = $event"
         @update:debug-open="debugOpen = $event"
         @trigger-key="(code) => playArea?.triggerKey(code)"
@@ -789,7 +787,7 @@ watch(
             v-show="!creating || !workspaceEditor.focus.value || !workspaceEditor.selected.value"
             ref="playArea"
             :touch-controls="touchControls"
-            :crt-enabled="crtShown"
+            :crt-amount="crtShown"
             :original-aspect="originalAspect"
             :inspector-docked="creating"
           >

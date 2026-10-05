@@ -90,6 +90,7 @@ async function clickFramePixel(page: Page, x: number, y: number): Promise<void> 
 test("a mouse click walks ego on the Amiga profile", async ({ page, context }) => {
   const cdp = await context.newCDPSession(page);
   await isolateStorage(page);
+  await page.addInitScript(() => localStorage.setItem("monotio_agi.crtAmount", "0"));
   await page.goto("/");
   await bootClickGame(page, "click-walk-amiga", "amiga-2.316");
   await cdp.send("Emulation.setCPUThrottlingRate", { rate: 6 });
@@ -101,6 +102,7 @@ test("a mouse click walks ego on the Amiga profile", async ({ page, context }) =
 
 test("the same click leaves ego still on a PC profile", async ({ page }) => {
   await isolateStorage(page);
+  await page.addInitScript(() => localStorage.setItem("monotio_agi.crtAmount", "0"));
   await page.goto("/");
   await bootClickGame(page, "click-walk-pc", "2.936");
 
@@ -118,6 +120,7 @@ for (const target of [
     page,
   }) => {
     await isolateStorage(page);
+    await page.addInitScript(() => localStorage.setItem("monotio_agi.crtAmount", "0"));
     await page.goto("/");
     await bootClickGame(page, `click-repeat-${target.name}`, "amiga-2.310", true);
     await clickFramePixel(page, target.x, target.y);
@@ -138,5 +141,37 @@ for (const target of [
     const settled = await textHook(page);
     expect([settled.egoX, settled.egoY]).toEqual([target.egoX, target.egoY]);
     await page.screenshot({ path: test.info().outputPath(`${target.name}-arrival.png`) });
+  });
+}
+
+for (const amount of [0, 0.5, 1]) {
+  test(`CRT amount ${amount} clicks the displayed frame point`, async ({ page }) => {
+    await isolateStorage(page);
+    await page.addInitScript(
+      (value) => localStorage.setItem("monotio_agi.crtAmount", String(value)),
+      amount,
+    );
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto("/");
+    await bootClickGame(page, `crt-click-${amount}`, "amiga-2.316");
+    const canvas = page.getByTestId("gpu-canvas");
+    await expect(canvas).toBeVisible();
+    const box = (await canvas.boundingBox())!;
+    // Independently invert Full's documented warp to display frame pixel
+    // (241, 138). Half has no glass yet; the beam cannot move its centre.
+    let cx = (2 * 241.5) / 320 - 1;
+    let cy = (2 * 138.5) / 200 - 1;
+    if (amount === 1) {
+      const tx = cx / (1.04 * 1.08),
+        ty = cy / (1.04 * 1.08);
+      for (let i = 0; i < 10; i++) {
+        cx = tx / (1 + 0.035 * cy * cy);
+        cy = ty / (1 + 0.045 * cx * cx);
+      }
+    }
+    await page.mouse.click(box.x + ((cx + 1) * box.width) / 2, box.y + ((cy + 1) * box.height) / 2);
+    await expect
+      .poll(async () => [(await textHook(page)).egoX, (await textHook(page)).egoY])
+      .toEqual([118, 130]);
   });
 }

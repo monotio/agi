@@ -1,9 +1,6 @@
 import { expect, test } from "./test.ts";
 import { decodePng } from "../../scripts/png.ts";
 
-// Match the presentation tests: native WebGPU on macOS, WebGL2 on CI.
-test.use({ headless: process.platform !== "darwin" });
-
 test("CRT preserves every frame edge and all four corner cells", async ({ page }) => {
   await page.goto("/");
   await page.evaluate(async () => {
@@ -35,7 +32,7 @@ test("CRT preserves every frame edge and all four corner cells", async ({ page }
               : [255, 255, 255];
         frame.set([...colour, 255], (y * 320 + x) * 4);
       }
-    stage.crt = true;
+    stage.crtAmount = 1;
     stage.render(frame, true);
   });
   const canvas = page.getByTestId("crt-frame");
