@@ -1,15 +1,16 @@
 /** Editor structure and colouring from the compiler's recoverable lexer. */
 import { analyzeLogicSyntax } from "./syntax.ts";
-import { offsetAt, positionAt, rangeAt } from "./lspTypes.ts";
+import { createTextCoordinates } from "./lspTypes.ts";
 import type { DocumentSymbol, FoldingRange, Range, SemanticTokens } from "./lspTypes.ts";
 
 export function createLogicLanguageStructure(source: string) {
   const syntax = analyzeLogicSyntax(source);
+  const { offsetAt, positionAt, rangeAt } = createTextCoordinates(source);
   const symbols: DocumentSymbol[] = syntax.definitions.map((entry) => ({
     name: entry.name,
     kind: entry.kind === "label" ? 12 : 14,
-    range: rangeAt(source, entry.start, entry.end),
-    selectionRange: rangeAt(source, entry.start, entry.end),
+    range: rangeAt(entry.start, entry.end),
+    selectionRange: rangeAt(entry.start, entry.end),
   }));
   for (let i = 0; i < syntax.tokens.length; i++) {
     const token = syntax.tokens[i]!;
@@ -19,8 +20,8 @@ export function createLogicLanguageStructure(source: string) {
         symbols.push({
           name: `Message ${number.text}`,
           kind: 15,
-          range: rangeAt(source, token.start, syntax.tokens[i + 2]?.end ?? number.end),
-          selectionRange: rangeAt(source, number.start, number.end),
+          range: rangeAt(token.start, syntax.tokens[i + 2]?.end ?? number.end),
+          selectionRange: rangeAt(number.start, number.end),
         });
     }
     if (token.type === "ident" && token.text === "said" && syntax.tokens[i + 1]?.text === "(") {
@@ -31,22 +32,20 @@ export function createLogicLanguageStructure(source: string) {
         symbols.push({
           name: source.slice(token.start, last.end),
           kind: 12,
-          range: rangeAt(source, token.start, last.end),
-          selectionRange: rangeAt(source, token.start, token.end),
+          range: rangeAt(token.start, last.end),
+          selectionRange: rangeAt(token.start, token.end),
         });
     }
   }
-  symbols.sort(
-    (a, b) => offsetAt(source, a.selectionRange.start) - offsetAt(source, b.selectionRange.start),
-  );
+  symbols.sort((a, b) => offsetAt(a.selectionRange.start) - offsetAt(b.selectionRange.start));
   const folding: FoldingRange[] = [];
   const stack: number[] = [];
   for (const token of syntax.tokens) {
     if (token.type !== "punct") continue;
-    if (token.text === "{") stack.push(positionAt(source, token.start).line);
+    if (token.text === "{") stack.push(positionAt(token.start).line);
     else if (token.text === "}") {
       const startLine = stack.pop();
-      const endLine = positionAt(source, token.start).line - 1;
+      const endLine = positionAt(token.start).line - 1;
       if (startLine !== undefined && endLine > startLine)
         folding.push({ startLine, endLine, kind: "region" });
     }
@@ -80,8 +79,8 @@ export function createLogicLanguageStructure(source: string) {
       else if (token.type === "punct" && !/[{}();,:]/.test(token.text)) type = 5;
       if (type !== undefined) spans.push({ start: token.start, end: token.end, type });
     }
-    const start = range ? offsetAt(source, range.start) : 0;
-    const end = range ? offsetAt(source, range.end) : source.length;
+    const start = range ? offsetAt(range.start) : 0;
+    const end = range ? offsetAt(range.end) : source.length;
     const data: number[] = [];
     let previousLine = 0;
     let previousCharacter = 0;
@@ -92,7 +91,7 @@ export function createLogicLanguageStructure(source: string) {
         let to = at;
         while (to < limit && source[to] !== "\r" && source[to] !== "\n") to++;
         if (to > at) {
-          const position = positionAt(source, at);
+          const position = positionAt(at);
           const delta = position.line - previousLine;
           data.push(
             delta,

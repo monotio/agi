@@ -18,7 +18,7 @@ class FakeWorker {
       this.onmessage?.({ data } as MessageEvent<LspResponse | LspNotification>),
   };
   constructor() {
-    attachLogicLanguageServer(this.port);
+    attachLogicLanguageServer(this.port, { schedule: (run) => run() });
   }
   postMessage(request: LspMessage) {
     if (request.id === undefined || request.id === 0)

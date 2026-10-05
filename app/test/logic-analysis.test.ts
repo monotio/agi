@@ -10,6 +10,7 @@ class FakeWorker {
   onerror: ((event: ErrorEvent) => void) | null = null;
   onmessageerror: ((event: MessageEvent) => void) | null = null;
   requests: LspMessage[] = [];
+  notifications: LspMessage[] = [];
   terminated = false;
   port = {
     onmessage: null as ((event: { data: LspMessage }) => void) | null,
@@ -17,9 +18,10 @@ class FakeWorker {
       this.onmessage?.({ data } as MessageEvent<LspResponse | LspNotification>),
   };
   constructor() {
-    attachLogicLanguageServer(this.port);
+    attachLogicLanguageServer(this.port, { schedule: (run) => run() });
   }
   postMessage(request: LspMessage) {
+    if (request.id === undefined) this.notifications.push(structuredClone(request));
     if (request.id === undefined || request.id === 0)
       this.port.onmessage!({ data: structuredClone(request) });
     else this.requests.push(structuredClone(request));
@@ -182,4 +184,69 @@ test("opening a project stays lazy and invalid document keys cannot reach the wo
   );
   assert.equal(created, 0);
   client.dispose();
+});
+
+test("typing sends only the edited document and keeps closed sources available", async () => {
+  const worker = new FakeWorker();
+  const client = new LogicAnalysisClient(() => worker);
+  client.setProject({
+    ...project(),
+    documents: {
+      ...project().documents,
+      "logic:2": { version: 1, source: "reset(door); return;" },
+    },
+  });
+  const initial = client.request("logic:1", "textDocument/diagnostic");
+  worker.reply();
+  await initial;
+  worker.notifications.length = 0;
+  client.changeDocument("logic:1", 2, "set(door); reset(door); return;");
+  assert.deepEqual(
+    worker.notifications.map((entry) => entry.method),
+    ["textDocument/didChange"],
+  );
+  assert.deepEqual(worker.notifications[0]?.params, {
+    textDocument: { uri: "agi-project:///logic.1.lgc", version: 2 },
+    contentChanges: [{ text: "set(door); reset(door); return;" }],
+  });
+  const references = client.request("logic:1", "textDocument/references", {
+    position: { line: 0, character: 5 },
+  });
+  worker.reply(1);
+  assert.equal((await references)?.filter((entry) => entry.uri.endsWith("logic.2.lgc")).length, 1);
+  client.dispose();
+});
+
+test("a request cancelled before its worker turn performs no analysis", () => {
+  const queued: (() => void)[] = [];
+  const replies: (LspResponse | LspNotification)[] = [];
+  const port = {
+    onmessage: null as ((event: { data: LspMessage }) => void) | null,
+    postMessage: (reply: LspResponse | LspNotification) => replies.push(reply),
+  };
+  attachLogicLanguageServer(port, {
+    schedule: (run) => {
+      queued.push(run);
+    },
+  });
+  port.onmessage!({
+    data: {
+      jsonrpc: "2.0",
+      method: "workspace/didChangeConfiguration",
+      params: { settings: { agiLogic: { project: project() } } },
+    },
+  });
+  port.onmessage!({
+    data: {
+      jsonrpc: "2.0",
+      id: 4,
+      method: "agi/compile",
+      params: { textDocument: { uri: "agi-project:///logic.1.lgc" } },
+    },
+  });
+  port.onmessage!({ data: { jsonrpc: "2.0", method: "$/cancelRequest", params: { id: 4 } } });
+  for (const run of queued) run();
+  assert.deepEqual(replies, [
+    { jsonrpc: "2.0", id: 4, error: { code: -32800, message: "Request cancelled." } },
+  ]);
 });

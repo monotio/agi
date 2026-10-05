@@ -138,7 +138,8 @@ export function createLogicLspServer(
     }));
   }
   function publish(doc: Document) {
-    options.publish?.({
+    if (!options.publish) return;
+    options.publish({
       jsonrpc: "2.0",
       method: "textDocument/publishDiagnostics",
       params: {
@@ -425,6 +426,25 @@ export function createLogicLspServer(
       throw new MethodError(method);
     const doc = document(params.textDocument?.uri);
     if (!doc) return null;
+    // Structure and colour use the recoverable lexer independently of checking.
+    switch (method) {
+      case "textDocument/semanticTokens/full":
+        return createLogicLanguageStructure(doc.source).semanticTokens();
+      case "textDocument/semanticTokens/range":
+        return createLogicLanguageStructure(doc.source).semanticTokens(params.range);
+      case "textDocument/foldingRange":
+        return createLogicLanguageStructure(doc.source).folding;
+      case "textDocument/documentSymbol": {
+        const symbols = createLogicLanguageStructure(doc.source).symbols;
+        return hierarchicalSymbols
+          ? symbols
+          : symbols.map((symbol) => ({
+              name: symbol.name,
+              kind: symbol.kind,
+              location: { uri: doc.uri, range: symbol.selectionRange },
+            }));
+      }
+    }
     const snapshot = language(doc);
     const offset = params.position ? offsetAt(doc.source, params.position) : 0;
     switch (method) {
@@ -524,26 +544,10 @@ export function createLogicLspServer(
       }
       case "textDocument/rename":
         return rename(doc, offset, params.newName);
-      case "textDocument/documentSymbol": {
-        const symbols = createLogicLanguageStructure(doc.source).symbols;
-        return hierarchicalSymbols
-          ? symbols
-          : symbols.map((symbol) => ({
-              name: symbol.name,
-              kind: symbol.kind,
-              location: { uri: doc.uri, range: symbol.selectionRange },
-            }));
-      }
       case "textDocument/documentHighlight":
         return references(doc, offset)
           .filter((entry) => entry.uri === doc.uri)
           .map((entry) => ({ range: entry.range, kind: 1 }));
-      case "textDocument/foldingRange":
-        return createLogicLanguageStructure(doc.source).folding;
-      case "textDocument/semanticTokens/full":
-        return createLogicLanguageStructure(doc.source).semanticTokens();
-      case "textDocument/semanticTokens/range":
-        return createLogicLanguageStructure(doc.source).semanticTokens(params.range);
       case "textDocument/codeAction": {
         const start = params.range ? offsetAt(doc.source, params.range.start) : 0;
         const end = params.range ? offsetAt(doc.source, params.range.end) : doc.source.length;
@@ -630,11 +634,11 @@ export function createLogicLspServer(
       cache.delete(item.uri);
       publish(doc);
     } else if (method === "textDocument/didChange") {
-      const doc = open.get(params.textDocument?.uri);
+      const doc = document(params.textDocument?.uri);
       if (
         !doc ||
         !Number.isSafeInteger(params.textDocument.version) ||
-        params.textDocument.version <= (doc.version ?? -1) ||
+        (open.has(doc.uri) && params.textDocument.version <= (doc.version ?? -1)) ||
         !Array.isArray(params.contentChanges)
       )
         return;
