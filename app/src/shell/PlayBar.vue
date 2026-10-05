@@ -6,7 +6,8 @@ import { VOCABULARY } from "../../../src/vocabulary.ts";
  * save and restore, help and the settings sheet. Dialogs live in GameHeader;
  * this bar only asks for them.
  */
-import { computed } from "vue";
+import { computed, ref } from "vue";
+import UiDialog from "../ui/UiDialog.vue";
 import ActionMenu from "../ui/ActionMenu.vue";
 import UiButton from "../ui/UiButton.vue";
 import UiChip from "../ui/UiChip.vue";
@@ -36,6 +37,15 @@ const { identityTitle } = useGameLibrary();
 const shell = useShell();
 const commands = useOptionalCommands();
 const editor = useWorkspaceEditor();
+const discardOpen = ref(false);
+async function discardChanges(): Promise<void> {
+  try {
+    await editor.discardDrafts.value?.();
+    discardOpen.value = false;
+  } catch (cause) {
+    editor.error.value = cause instanceof Error ? cause.message : String(cause);
+  }
+}
 function toggleParts(): void {
   if (state.powerUp.open) closePowerUp();
   editor.focus.value = false;
@@ -54,7 +64,9 @@ const game = computed(() => {
 });
 const roomLabel = computed(() => {
   const room = roomMap.currentRoom.value;
-  return room !== null && room > 0 ? `Room ${room}` : "";
+  return room !== null && room > 0
+    ? `Room ${room}${shell.mode.value === "create" ? " · running your last update" : ""}`
+    : "";
 });
 const originLabel = computed(() => {
   void state.patchTick;
@@ -93,6 +105,18 @@ const shortcutsBlocked = computed(
 </script>
 
 <template>
+  <UiDialog
+    v-model:open="discardOpen"
+    title="Discard changes?"
+    description="Your parts return to the game's last update."
+  >
+    <template #footer
+      ><UiButton variant="ghost" @click="discardOpen = false">Cancel</UiButton
+      ><UiButton :disabled="editor.busy.value" @click="discardChanges"
+        >Discard changes</UiButton
+      ></template
+    >
+  </UiDialog>
   <header class="play-bar" data-shell-keys>
     <nav class="play-bar__nav" aria-label="App options">
       <UiIconButton
@@ -132,6 +156,61 @@ const shortcutsBlocked = computed(
                 : editor.save.value
         }}</UiChip></UiButton
       >
+      <span
+        v-if="editor.changeCount.value"
+        class="play-bar__pending"
+        data-testid="workspace-pending"
+        >{{ editor.changeCount.value }}
+        {{ editor.changeCount.value === 1 ? "change" : "changes" }} not in the game yet</span
+      >
+      <span
+        v-else-if="editor.updatedParts.value && mode === 'create'"
+        class="play-bar__pending"
+        data-testid="workspace-updated"
+        >Updated · {{ editor.updatedParts.value }}
+        {{ editor.updatedParts.value === 1 ? "part" : "parts" }} ·
+        <button type="button" aria-label="Undo update" @click="editor.step('undo')">
+          Undo
+        </button></span
+      >
+      <div v-if="mode === 'create' || editor.changeCount.value" class="play-bar__update">
+        <UiButton
+          size="sm"
+          data-testid="workspace-update"
+          :disabled="
+            editor.busy.value ||
+            editor.readOnly.value ||
+            (!editor.changeCount.value && !editor.problemCount.value)
+          "
+          title="Update game (⌘↵ / Ctrl+Enter)"
+          @click="editor.update.value?.()"
+          >{{
+            editor.problemCount.value
+              ? `${editor.problemCount.value} ${editor.problemCount.value === 1 ? "problem" : "problems"}`
+              : "Update game"
+          }}</UiButton
+        >
+        <ActionMenu
+          v-if="mode === 'create'"
+          label="Update options"
+          test-id="workspace-update-menu"
+          icon-only
+          size="sm"
+          :disabled="editor.busy.value || editor.readOnly.value"
+        >
+          <button type="button" role="menuitem" @click="editor.update.value?.(true)">
+            Update and restart this room
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            :disabled="!editor.changeCount.value"
+            @click="discardOpen = true"
+          >
+            Discard changes…
+          </button>
+        </ActionMenu>
+      </div>
       <UiSegmented v-model="mode" class="play-bar__modes" label="Mode" :options="modes" />
       <div class="play-bar__actions">
         <template v-if="mode === 'create'">
@@ -247,6 +326,34 @@ const shortcutsBlocked = computed(
 </template>
 
 <style scoped>
+.play-bar__pending {
+  color: var(--ink-3);
+  font: var(--text-xs) var(--font-sans);
+}
+.play-bar__pending button {
+  color: var(--action);
+  border: 0;
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+}
+.play-bar__update {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+@media (max-width: 600px) {
+  .play-bar__pending {
+    grid-column: 1 / -1;
+    grid-row: 3;
+    justify-self: end;
+    max-width: 65%;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+}
+
 .play-bar {
   flex: none;
   height: var(--shell-bar-h);
@@ -259,8 +366,7 @@ const shortcutsBlocked = computed(
   display: none;
 }
 .play-bar__nav {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto auto auto;
+  display: flex;
   align-items: center;
   gap: var(--space-3);
   height: 100%;
@@ -268,6 +374,7 @@ const shortcutsBlocked = computed(
 .play-bar__title {
   display: flex;
   flex-direction: column;
+  flex: 1;
   min-width: 0;
   line-height: var(--leading-tight);
 }
@@ -291,27 +398,37 @@ const shortcutsBlocked = computed(
   justify-content: flex-end;
   gap: var(--space-1);
 }
-/* Two rows: game identity and mode, then tools. */
+/* Identity and Update, tools, then draft status. */
 @media (max-width: 600px) {
   .play-bar {
     height: auto;
     padding: var(--space-1) var(--space-2);
   }
   .play-bar__nav {
+    display: grid;
     grid-template-columns: auto minmax(0, 1fr) auto auto;
     gap: var(--space-1);
   }
   .play-bar__title {
     grid-column: 2;
   }
+  .play-bar__nav:has([data-testid="workspace-saved"]) {
+    grid-template-rows: auto auto minmax(var(--control-h-touch), auto);
+  }
   .play-bar__modes {
     grid-column: 4;
     grid-row: 1;
   }
   [data-testid="workspace-saved"] {
+    grid-column: 1 / -1;
+    grid-row: 3;
+    justify-self: start;
+    max-width: 35%;
+    overflow: hidden;
+  }
+  .play-bar__update {
     grid-column: 3;
     grid-row: 1;
-    padding-inline: 0;
   }
   .play-bar__parts {
     display: inline-flex;

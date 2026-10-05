@@ -1160,6 +1160,7 @@ export function useEngine(
     ) {
       const session = projectSession;
       if (session === null) throw new Error("Open this game in Create to edit it.");
+      if (edit.author === "creator") return session.stage(edit.changes);
       const proposal = session.model.propose(session.model.capture(), edit.label, edit.changes);
       return session.submit({
         proposal,

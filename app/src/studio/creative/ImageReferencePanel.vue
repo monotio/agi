@@ -91,7 +91,7 @@ const colourNames = [
   "White",
 ];
 const name = computed(() => {
-  const bindings = props.session.model.capture().read("bindings")?.content;
+  const bindings = props.session.workingSnapshot().read("bindings")?.content;
   if (typeof bindings === "string") {
     const entry = Object.entries(readBindingsDocument(bindings)).find(
       ([, binding]) => `${binding.kind}:${binding.num}` === props.target,
@@ -118,7 +118,7 @@ const sourceUrl = computed(() => {
 watch(
   () => props.resourceRevision,
   () => {
-    const content = props.session.model.capture().read(props.target)?.content;
+    const content = props.session.workingSnapshot().read(props.target)?.content;
     if (!isPicture.value && content !== undefined) {
       const sprite = openSprite(
         typeof content === "string" ? buildView(JSON.parse(content), props.profile) : content,
@@ -134,7 +134,7 @@ watch(
   () => props.imageRevision,
   () => {
     if (!props.target.startsWith("picture:") || pendingTraceWrites > 0) return;
-    const documents = props.session.model.capture().documents();
+    const documents = props.session.workingSnapshot().documents();
     const trace = readImageReferences(documents).traces[props.target];
     image.value = trace ? readProjectImage(documents, trace.image) : undefined;
     opacity.value = trace?.opacity ?? 0.4;
@@ -182,15 +182,10 @@ watch(
     generateOpen.value = value;
   },
 );
-async function commit(changes: Parameters<typeof props.session.model.propose>[2], label: string) {
+async function commit(changes: Parameters<typeof props.session.model.propose>[2], _label: string) {
   if (!currentProject()) throw new Error("Open this project again to use the image.");
-  const result = await props.session.submit({
-    proposal: props.session.model.propose(props.session.model.capture(), label, changes),
-    label,
-    origin: isPicture.value ? "picture" : "view",
-    author: "creator",
-  });
-  if (!["committed", "restartRequired"].includes(result.status))
+  const result = await props.session.stage(changes);
+  if (!["draft", "committed", "restartRequired"].includes(result.status))
     throw new Error("The image could not be added. Check the frames and try again.");
   emit("changed");
 }
@@ -206,7 +201,7 @@ async function useImage(value: ProjectImageInput) {
     await queueTraceWrite(async () => {
       await commit(
         traceImageChanges(
-          props.session.model.capture().documents(),
+          props.session.workingSnapshot().documents(),
           target,
           value,
           nextOpacity,
@@ -306,7 +301,7 @@ function changeTrace(label: string) {
     if (!currentProject()) return;
     error.value = "";
     while (currentProject()) {
-      const capture = props.session.model.capture();
+      const capture = props.session.workingSnapshot();
       try {
         await commit(
           traceOptionsChanges(capture.documents(), target, nextOpacity, nextBehind, nextTransform),
@@ -314,7 +309,7 @@ function changeTrace(label: string) {
         );
         break;
       } catch (cause) {
-        if (capture.documentId === props.session.model.capture().documentId) throw cause;
+        if (capture.documentId === props.session.workingSnapshot().documentId) throw cause;
       }
     }
     if (current()) previewOpacity();
@@ -345,7 +340,7 @@ async function addCels() {
     stopPreview();
     await commit(
       makeCelsChanges(
-        props.session.model.capture().documents(),
+        props.session.workingSnapshot().documents(),
         props.target,
         image.value,
         frames.value,

@@ -5,7 +5,7 @@ import {
   textHook,
   configureAi,
   waitForAutosaveAfter,
-  workspaceSaved,
+  workspaceUpdated,
 } from "./engineProbe.ts";
 
 for (const width of [1440, 1280])
@@ -63,6 +63,7 @@ for (const width of [1440, 1280])
     await expect(page.getByTestId("sentence-outcome")).toContainText(
       "when the game's state allows it",
     );
+    await workspaceUpdated(page);
     await sentence.focus();
     await page.mouse.move(0, 0);
     const move = meaning.getByRole("button", { name: "Move to… inspect", exact: true });
@@ -137,6 +138,7 @@ test("WORDS row actions, in-place stub suggestions and tester choices", async ({
   const sentence = words.getByRole("textbox", { name: "A sentence a player might type" });
   await sentence.fill("inspect");
   await expect(page.getByTestId("sentence-parse")).toContainText("· 100");
+  await workspaceUpdated(page);
   await page.getByRole("button", { name: "Undo", exact: true }).click();
   await expect(row).not.toContainText("inspect");
   await expect(row).not.toContainText("check");
@@ -192,7 +194,7 @@ test("WORDS row actions, in-place stub suggestions and tester choices", async ({
   await verdict.getByRole("button", { name: "New meaning", exact: true }).click();
   await expect(page.getByTestId("sentence-parse")).not.toContainText("new word");
   await expect(words.locator(".meaning-row").filter({ hasText: "wander" })).toHaveCount(1);
-  await workspaceSaved(page);
+  await workspaceUpdated(page);
   await waitForAutosaveAfter(page, (await textHook(page)).cycle);
   await words.getByRole("button", { name: "Open chat", exact: true }).click();
   await expect(panel).toBeVisible();

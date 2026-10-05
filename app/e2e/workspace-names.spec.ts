@@ -5,7 +5,7 @@ import {
   configureAi,
   isolateStorage,
   waitForRoom,
-  workspaceSaved,
+  workspaceUpdated,
 } from "./engineProbe.ts";
 import {
   focusWorkspaceLogic,
@@ -23,7 +23,7 @@ async function start(page: Page) {
   await page.getByTestId("local-create-kind-starter").click();
   await page.getByTestId("local-create-submit").click();
   await waitForRoom(page, 1);
-  await workspaceSaved(page);
+  await workspaceUpdated(page);
 }
 async function findWord(page: Page, word: string): Promise<void> {
   await focusWorkspaceLogic(page);
@@ -47,7 +47,7 @@ test("names open resources, peek game state and rename all authored uses @webkit
   await details.getByRole("button", { name: "Rename", exact: true }).click();
   await details.getByLabel("Name", { exact: true }).fill("birdsong_done");
   await details.getByRole("button", { name: "Save name", exact: true }).click();
-  await workspaceSaved(page);
+  await workspaceUpdated(page);
   expect(await workspaceDocument(page, "bindings")).toContain("birdsong_done");
   expect(await workspaceDocument(page, "logic:1")).toContain("sound(chime_sound, birdsong_done)");
   await details.getByRole("button", { name: "Close", exact: true }).click();
@@ -191,7 +191,7 @@ test("switching chats opens the latest messages", async ({ page }) => {
   }
 });
 
-test("Create game owns F5 and F6 while the editor owns Run", async ({ page }) => {
+test("Create game owns F5 and F6 while the editor owns debugger F5", async ({ page }) => {
   await start(page);
   await openWorkspaceLogic(page);
   const input = page.getByTestId("input-line");
@@ -208,8 +208,9 @@ test("Create game owns F5 and F6 while the editor owns Run", async ({ page }) =>
   await expect(page.locator(".workspace-editor__header").getByTestId("debug-stop")).toBeEnabled();
   await page.keyboard.press("Shift+F5");
   await expect(page.getByTestId("debug-stop")).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Run", exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "Run", exact: true }).click();
+  await expect(page.getByTestId("workspace-update")).toBeVisible();
+  await focusWorkspaceLogic(page);
+  await page.keyboard.press("F5");
   await expect(page.locator(".workspace-editor__header").getByTestId("debug-stop")).toBeVisible();
 });
 
@@ -236,7 +237,7 @@ test("name hover opens resources and message actions keep readable text @webkit-
   await expect(details.getByLabel("Name", { exact: true })).toBeFocused();
   await expect(details.getByLabel("Name", { exact: true })).toHaveValue("birdsong");
   await details.getByRole("button", { name: "Save name", exact: true }).click();
-  await workspaceSaved(page);
+  await workspaceUpdated(page);
   await expect(details).toContainText("load.sound(birdsong);");
   await expect(details.getByRole("button", { name: "Rename", exact: true })).toBeVisible();
   await details.getByRole("button", { name: "Close", exact: true }).click();
@@ -272,14 +273,14 @@ test("name hover opens resources and message actions keep readable text @webkit-
   const inline = page.getByText("Put text inline", { exact: true });
   await expect(inline).toBeVisible();
   await inline.click();
-  await workspaceSaved(page);
+  await workspaceUpdated(page);
   expect(await workspaceDocument(page, "logic:1")).toContain('print("Hello there")');
   await focusWorkspaceLogic(page);
   await page.keyboard.press("ControlOrMeta+.");
   const numbered = page.getByText("Move text to #message", { exact: true });
   await expect(numbered).toBeVisible();
   await numbered.click();
-  await workspaceSaved(page);
+  await workspaceUpdated(page);
   expect(await workspaceDocument(page, "logic:1")).toContain('#message 2 "Hello there"');
   expect(await workspaceDocument(page, "logic:1")).toContain("print(m2)");
 });

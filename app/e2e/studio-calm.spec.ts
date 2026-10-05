@@ -7,7 +7,7 @@ import {
   openWorkspacePicture,
   openWorkspaceView,
   textHook,
-  workspaceSaved,
+  workspaceUpdated,
 } from "./engineProbe.ts";
 import { expect, test } from "./test.ts";
 
@@ -259,7 +259,7 @@ test("the drawing backdrop is view only: it never changes the view's bytes, and 
   for (const choice of ["checker-light", "colour-14", "colour-1", "checker-dark"]) {
     await backdrop.selectOption(choice);
     seen.push((await corner()).join(","));
-    await workspaceSaved(page);
+    await workspaceUpdated(page);
     expect(await bytes()).toEqual(original);
   }
   // Each backdrop shows behind the transparent pixel: yellow (14) is 255,255,85.

@@ -58,7 +58,7 @@ export async function renameWorkspaceBinding(
   if (response.error) throw new Error(response.error.message);
   const edit = response.result as WorkspaceEdit;
   const session = engine.getProjectSession();
-  if (!session || session.model.capture().revision !== base.revision)
+  if (!session || session.workingSnapshot().revision !== base.revision)
     throw new Error("The project changed. Try Rename again.");
   const changes = edit.documentChanges.map((change) => {
     const key =
@@ -79,15 +79,9 @@ export async function renameWorkspaceBinding(
     }
     return { key, content };
   });
-  const label = `Rename ${name} to ${newName}`;
-  const outcome = await session.submit({
-    proposal: session.model.propose(base, label, changes),
-    label,
-    origin: "logic",
-    author: "creator",
-  });
+  const outcome = await session.stage(changes);
   if (
-    !["committed", "unchanged", "diagnostics", "restartRequired", "deferred"].includes(
+    !["draft", "committed", "unchanged", "diagnostics", "restartRequired", "deferred"].includes(
       outcome.status,
     )
   )

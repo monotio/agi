@@ -10,7 +10,6 @@ import {
   onMounted,
 } from "vue";
 import { useEngineApi } from "../../engine/engineContext.ts";
-import WorkspaceTip from "../../shell/WorkspaceTip.vue";
 import { useWorkspaceEditor } from "../../shell/workspaceEditor.ts";
 import BindingDetails from "../../shell/BindingDetails.vue";
 import { workspaceBindingInfos } from "../../shell/workspaceNames.ts";
@@ -19,11 +18,14 @@ import type { AgiProfile } from "../../../../src/runtime/profile.ts";
 import ViewThumbnail from "./ViewThumbnail.vue";
 import UiExplain from "../../ui/UiExplain.vue";
 import type { WorkspacePartGroup } from "../host/workspaceParts.ts";
+import { readBindingsDocument } from "../../../../src/authoring/projectDocuments.ts";
 const props = defineProps<{
   active?: boolean;
   readOnly?: boolean;
   groups: readonly WorkspacePartGroup[];
   selected: string | undefined;
+  pending?: readonly string[];
+  bindings?: string | undefined;
   thumbnails: Readonly<Record<string, string>>;
   views?: Readonly<Record<string, Uint8Array>>;
   profile?: AgiProfile;
@@ -36,7 +38,19 @@ const emit = defineEmits<{
 }>();
 const engine = useEngineApi();
 const workspace = useWorkspaceEditor();
-const names = shallowRef<BindingInfo[]>([]);
+const acceptedNames = shallowRef<BindingInfo[]>([]);
+const names = computed(() => {
+  if (props.bindings === undefined) return acceptedNames.value;
+  return Object.entries(readBindingsDocument(props.bindings))
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+    .map(([name, binding]) => ({
+      name,
+      ...binding,
+      uses:
+        acceptedNames.value.find((info) => info.kind === binding.kind && info.num === binding.num)
+          ?.uses ?? [],
+    }));
+});
 const details = ref<BindingInfo>();
 const editingName = ref(false);
 const selectedName = computed(
@@ -53,11 +67,11 @@ watch(
     const session = engine.getProjectSession();
     function refresh(): void {
       try {
-        names.value = session
+        acceptedNames.value = session
           ? workspaceBindingInfos(session.model.capture(), props.profile?.id ?? "2.936")
           : [];
       } catch {
-        names.value = [];
+        acceptedNames.value = [];
       }
     }
     refresh();
@@ -141,7 +155,6 @@ function onKey(event: KeyboardEvent): void {
     @keydown="onKey"
     @scroll="rememberScroll"
   >
-    <WorkspaceTip id="workspace" text="Your changes show up in the running game right away." />
     <section v-for="group in groups" :key="group.label">
       <header>
         <h2>
@@ -200,6 +213,7 @@ function onKey(event: KeyboardEvent): void {
               ? `${resourceName(row.key)!.name.replaceAll("_", " ")} · ${row.key.replace(":", " ").toUpperCase()}`
               : row.label
           }}</span
+          ><i v-if="pending?.includes(row.key)" class="draft-dot" aria-label="Pending change"></i
           ><i v-if="row.live" class="live-dot" aria-label="Hero here"></i>
         </button>
         <details v-if="resourceName(row.key)" class="part-menu">
@@ -417,6 +431,13 @@ h2 {
 .part > span:not(.view-thumbnail) {
   flex: 1;
   min-width: 0;
+}
+.draft-dot {
+  width: 6px;
+  height: 6px;
+  flex: none;
+  border-radius: var(--radius-pill);
+  background: var(--action);
 }
 .live-dot {
   width: 6px;

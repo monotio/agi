@@ -100,6 +100,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         body: [
           VOCABULARY.playCreate.help,
           "Choose a part from the list to edit it beside the running game. Focus gives the editor the whole screen. The agent, debugger and History open beside your work.",
+          "Your drafts save automatically. Update game puts the changed parts in the game together. You can also press ⌘Enter or Ctrl+Enter.",
         ],
         action: { kind: "remix", label: "Switch to Create" },
       },

@@ -9,6 +9,7 @@ import {
   openGameOptions,
   isolateStorage,
   waitForRoom,
+  workspaceUpdated,
   workspaceSaved,
 } from "./engineProbe.ts";
 
@@ -138,7 +139,7 @@ test("a line offers Done and finishes by clicking its last point", async ({ page
   const p = await cell(page, 70, 120);
   await page.mouse.click(p.x, p.y);
   await expect(studio.getByRole("button", { name: "✓ Done", exact: true })).toHaveCount(0);
-  await workspaceSaved(page);
+  await workspaceUpdated(page);
 });
 test("a polygon offers Done and its point menu names Delete shape", async ({ page }) => {
   const studio = await picture(page);
@@ -155,7 +156,7 @@ test("a polygon offers Done and its point menu names Delete shape", async ({ pag
   const done = studio.getByRole("button", { name: "✓ Done", exact: true });
   await expect(done).toBeVisible();
   await done.click();
-  await workspaceSaved(page);
+  await workspaceUpdated(page);
   await studio.locator('button[data-tool="point"]').click();
   const handles = studio.locator("[data-point]");
   await expect(handles).toHaveCount(4);
@@ -165,7 +166,7 @@ test("a polygon offers Done and its point menu names Delete shape", async ({ pag
   await expect(remove).toBeVisible();
   await remove.click();
   await expect(handles).toHaveCount(3);
-  await workspaceSaved(page);
+  await workspaceUpdated(page);
 });
 test("Walk shows doors and runs a real test with Play here", async ({ page }) => {
   const studio = await picture(page);
@@ -260,7 +261,7 @@ async function drawLine(page: Page) {
   }
   await expect(studio.getByRole("button", { name: "✓ Done", exact: true })).toBeVisible();
   await studio.getByRole("button", { name: "✓ Done", exact: true }).click();
-  await workspaceSaved(page);
+  await workspaceUpdated(page);
   return studio;
 }
 
@@ -298,7 +299,7 @@ test("item inspector saves name, colour, Lock and points and seeks a pixel's ste
   await expect(writer).toBeVisible();
   await page.screenshot({ path: test.info().outputPath("item-inspector.png") });
   await writer.click();
-  await workspaceSaved(page);
+  await workspaceUpdated(page);
 });
 
 for (const key of ["Delete", "Backspace"] as const) {
@@ -310,7 +311,7 @@ for (const key of ["Delete", "Backspace"] as const) {
     await handles.nth(1).click();
     await page.keyboard.press(key);
     await expect(handles).toHaveCount(2);
-    await workspaceSaved(page);
+    await workspaceUpdated(page);
   });
 }
 test("a point's context menu offers Delete point and Delete line", async ({ page }) => {
@@ -376,23 +377,6 @@ test("Walk edits a door box and an edge exit and shows drawing errors beside the
   await expect(door).toBeVisible();
   await expect(door).toBeEnabled();
   await door.click();
-  await page.evaluate(() => {
-    const session = (
-      window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }
-    ).__AGI_PROJECT__.getSession();
-    const submit = session.submit.bind(session);
-    let release!: () => void;
-    const gate = new Promise<void>((resolve) => (release = resolve));
-    let first = true;
-    session.submit = async (request) => {
-      if (first) {
-        first = false;
-        await gate;
-      }
-      return submit(request);
-    };
-    Object.assign(window, { releaseDoorCreation: release });
-  });
   const from = await cell(page, 120, 130),
     to = await cell(page, 145, 150);
   await page.mouse.move(from.x, from.y);
@@ -403,23 +387,20 @@ test("Walk edits a door box and an edge exit and shows drawing errors beside the
   const box = studio.getByTestId("door-box-x1");
   await expect(box).toBeVisible();
   await box.fill("121");
-  await page.evaluate(() => {
-    (window as unknown as { releaseDoorCreation(): void }).releaseDoorCreation();
-  });
   await expect
     .poll(() =>
       page.evaluate(() => {
         const session = (
           window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }
         ).__AGI_PROJECT__.getSession();
-        return session.capture().snapshot.lastAdmissibleBuild?.documents()["logic:1"];
+        return session.workingSnapshot().read("logic:1")?.content;
       }),
     )
     .toContain("posn(o0, 120, 130, 145, 150)");
-  await expect(box, "a landing creation commit preserves text before blur").toHaveValue("121");
+  await expect(box, "the saved draft preserves text before blur").toHaveValue("121");
   await box.press("Tab");
   await expect(box).toHaveValue("121");
-  await workspaceSaved(page);
+  await workspaceUpdated(page);
   await expect
     .poll(() =>
       page.evaluate(() => {
@@ -437,7 +418,7 @@ test("Walk edits a door box and an edge exit and shows drawing errors beside the
   await expect(right, "a refused field keeps the text for correction").toHaveValue("999");
   await right.fill("144");
   await right.press("Tab");
-  await workspaceSaved(page);
+  await workspaceUpdated(page);
   await expect(box).toHaveValue("121");
   await expect(right).toHaveValue("144");
   const edge = studio.locator('button[data-tool="edge"]');
@@ -446,7 +427,7 @@ test("Walk edits a door box and an edge exit and shows drawing errors beside the
   const left = await cell(page, 0, 140);
   await page.mouse.click(left.x, left.y);
   await expect(studio.locator('[data-testid="walk-door"][data-door="exit-west-1"]')).toBeVisible();
-  await workspaceSaved(page);
+  await workspaceUpdated(page);
   await door.click();
   await page.mouse.click(from.x, from.y);
   const notice = studio.getByTestId("studio-notice");
@@ -470,7 +451,7 @@ test("Walk keeps an unfinished box number when its saved LOGIC refreshes", async
   await page.mouse.up();
   const box = studio.getByTestId("door-box-x1");
   await expect(box).toBeVisible();
-  await workspaceSaved(page);
+  await workspaceUpdated(page);
   await box.fill("121");
   await page.evaluate(async () => {
     const session = (
@@ -486,10 +467,10 @@ test("Walk keeps an unfinished box number when its saved LOGIC refreshes", async
       author: "creator",
     });
   });
-  await workspaceSaved(page);
+  await workspaceUpdated(page);
   await expect(box).toHaveValue("121");
   await box.press("Tab");
-  await workspaceSaved(page);
+  await workspaceUpdated(page);
   await expect(box).toHaveValue("121");
 });
 
@@ -517,7 +498,7 @@ test("an empty picture names the next drawing action", async ({ page }) => {
   await page.goto("/#create-adventure");
   await page.getByTestId("local-create-kind-starter").click();
   await page.getByRole("button", { name: "Start building", exact: true }).click();
-  await workspaceSaved(page);
+  await workspaceUpdated(page);
   await page.evaluate(async () => {
     const session = (
       window as unknown as {
@@ -549,15 +530,8 @@ test("drawing preserves invalid room LOGIC and Walk refuses to overwrite it", as
     const session = (
       window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }
     ).__AGI_PROJECT__.getSession();
-    await session.submit({
-      proposal: session.model.propose(session.model.capture(), "Invalid room LOGIC", [
-        { key: "logic:1", content: source },
-      ]),
-      label: "Invalid room LOGIC",
-      origin: "logic",
-      author: "creator",
-    });
-    await session.flush();
+    await session.stage([{ key: "logic:1", content: source }]);
+    await session.drafts().flush();
   }, source);
   await page.getByTestId("part-room:1:picture:1").click();
   const studio = page.getByTestId("room-studio");
@@ -590,48 +564,13 @@ test("drawing preserves invalid room LOGIC and Walk refuses to overwrite it", as
   expect(await workspaceDocument(page, "logic:1")).toBe(source);
 });
 
-test("workspace tips dismiss and Help replays them", async ({ page }) => {
-  await page.setViewportSize({ width: 1440, height: 900 });
-  await picture(page);
-  const tip = page.getByTestId("workspace-tip");
-  await expect(tip).toBeVisible();
-  await tip.getByRole("button", { name: "Got it", exact: true }).click();
-  await expect(tip).toBeHidden();
-  // Editors carry no tip of their own: tools and Undo explain themselves.
-  await expect(page.getByTestId("editor-tip")).toHaveCount(0);
-  await openGameOptions(page, "help-menu");
-  await page.getByTestId("btn-help-guide").click();
-  const help = page.getByTestId("help-guide");
-  await expect(help).toBeVisible();
-  await help.getByRole("button", { name: "Show tips", exact: true }).click();
-  await expect(help).toBeHidden();
-  await expect(tip).toBeVisible();
-});
+// The retired live-edit tip is replaced by the Update game count, dots and
+// private stage overlay assertions in workspace-update.spec.ts.
 
 test("drawing cannot resubmit a Walk edit over a newer pending LOGIC draft", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   const studio = await picture(page);
   const source = "// Newer pending room text.\nreturn;\nunknown.opcode();";
-  await page.evaluate(() => {
-    const session = (
-      window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }
-    ).__AGI_PROJECT__.getSession();
-    const submit = session.submit.bind(session);
-    let release!: () => void;
-    const gate = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    let first = true;
-    Object.assign(window, { releaseWalk: release, walkEntered: false });
-    session.submit = async (request) => {
-      if (first) {
-        first = false;
-        Object.assign(window, { walkEntered: true });
-        await gate;
-      }
-      return submit(request);
-    };
-  });
   await studio
     .getByRole("radiogroup", { name: "Lens", exact: true })
     .getByRole("radio", { name: "Walk", exact: true })
@@ -643,7 +582,7 @@ test("drawing cannot resubmit a Walk edit over a newer pending LOGIC draft", asy
   await page.mouse.down();
   await page.mouse.move(to.x, to.y, { steps: 4 });
   await page.mouse.up();
-  await expect.poll(() => page.evaluate(() => Reflect.get(window, "walkEntered"))).toBe(true);
+  await workspaceSaved(page);
   const logicEditor = await openWorkspaceLogic(page);
   // WebKit needs Monaco's rendered surface to own the keyboard before selection.
   await logicEditor.locator(".view-lines").click();
@@ -674,7 +613,6 @@ test("drawing cannot resubmit a Walk edit over a newer pending LOGIC draft", asy
     await page.mouse.click(p.x, p.y);
   }
   await studio.getByRole("button", { name: "✓ Done", exact: true }).click();
-  await page.evaluate(() => (window as unknown as { releaseWalk(): void }).releaseWalk());
   await workspaceSaved(page);
   expect(await workspaceDocument(page, "logic:1")).toBe(source);
 });

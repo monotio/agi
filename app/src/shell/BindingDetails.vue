@@ -31,7 +31,7 @@ async function save(): Promise<void> {
     const newName = name.value.trim();
     const original = { name: info.name, kind: info.kind, num: info.num };
     await workspace.flush.value?.();
-    const snapshot = engine.getProjectSession()?.model.capture();
+    const snapshot = engine.getProjectSession()?.workingSnapshot();
     if (!snapshot) throw new Error("Open a project to rename its parts.");
     await renameWorkspaceBinding(
       engine,
@@ -40,7 +40,7 @@ async function save(): Promise<void> {
       original.name,
       newName,
     );
-    const updated = engine.getProjectSession()!.model.capture();
+    const updated = engine.getProjectSession()!.workingSnapshot();
     const renamed = workspaceBindingInfos(
       updated,
       engine.roomMap.resources.value.profile?.id ?? "2.936",

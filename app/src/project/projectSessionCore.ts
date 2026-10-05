@@ -51,6 +51,8 @@ import {
   type ProjectJournalCapture,
 } from "./projectJournalCapture.ts";
 import type { ProjectJournalOperation } from "./projectJournalReplay.ts";
+import type { ProjectChange } from "../../../src/authoring/projectContent.ts";
+import { openProjectDrafts } from "./projectPartDrafts.ts";
 import type { PreviewUpdateOutcome } from "../worker/workerProtocol.ts";
 
 interface SessionSave {
@@ -517,12 +519,16 @@ function createSession(
       operation: operationSerial,
     });
   }
+  let partDrafts: ReturnType<typeof openProjectDrafts> | undefined;
+  let draftProjectId: string | undefined;
+  const draftObservers = new Set<() => void>();
   async function apply(
     proposal: ProjectProposal,
     metadata: ProjectCommitMetadata,
     action?: ProjectHistoryAction,
     preparedRoom = false,
     beforeCommit?: () => void,
+    updateMode?: "keep" | "reenter",
   ) {
     await ready;
     beforeCommit?.();
@@ -557,12 +563,38 @@ function createSession(
       },
       admit: (compiled, documents) => {
         beforeCommit?.();
+        if (updateMode !== undefined) {
+          const admit = updateMode === "reenter" ? input.admission.reenter : input.admission.admit;
+          if (admit === undefined)
+            throw new Error("This game cannot restart its room. Use Update game.");
+          return (async () => {
+            let outcome: PreviewUpdateOutcome;
+            do {
+              if (!current() || writeBlock !== undefined)
+                throw new Error("Reopen this game before updating.");
+              outcome = await admit(compiled, documents);
+              if (outcome.status === "deferred")
+                await (input.boundary?.() ??
+                  new Promise<void>((resolve) => setTimeout(resolve, 50)));
+            } while (outcome.status === "deferred");
+            return outcome;
+          })();
+        }
         return preparedRoom && input.admission.admitPreparedRoom
           ? input.admission.admitPreparedRoom(compiled, documents)
           : input.admission.admit(compiled, documents);
       },
     });
     beforeCommit?.();
+    if (
+      updateMode !== undefined &&
+      (prepared.compiled === undefined ||
+        (outcome !== undefined && !["committed", "unchanged"].includes(outcome.status)))
+    ) {
+      diagnostics = prepared.diagnostics;
+      notify();
+      return { ...(outcome ?? { status: "diagnostics" as const }), diagnostics };
+    }
     if (
       outcome !== undefined &&
       outcome.status !== "committed" &&
@@ -715,6 +747,79 @@ function createSession(
     model,
     history,
     ready,
+    drafts() {
+      if (draftProjectId !== data.projectId && partDrafts?.changes().length === 0) {
+        partDrafts.dispose();
+        partDrafts = undefined;
+      }
+      if (partDrafts === undefined) {
+        draftProjectId = data.projectId;
+        partDrafts = openProjectDrafts({
+          projectId: data.projectId,
+          lifetime: expected.lifetime,
+          currentImage: () => model.capture().documentId,
+          canWrite: () => current() && writeBlock === undefined,
+          changed() {
+            for (const observer of draftObservers) observer();
+          },
+        });
+      }
+      return partDrafts;
+    },
+    subscribeDrafts(observer: () => void) {
+      draftObservers.add(observer);
+      return () => {
+        draftObservers.delete(observer);
+      };
+    },
+    workingSnapshot(): ProjectSnapshot {
+      const base = model.capture();
+      const changes = Object.fromEntries(
+        (partDrafts?.changes() ?? []).map(({ key, content }) => [key, content]),
+      );
+      const keys = new Set(base.keys);
+      for (const [key, content] of Object.entries(changes)) {
+        if (content === null) keys.delete(key);
+        else keys.add(key);
+      }
+      return {
+        ...base,
+        keys: [...keys],
+        read(key) {
+          if (!Object.hasOwn(changes, key)) return base.read(key);
+          const content = changes[key];
+          return content == null ? undefined : { key, version: base.version(key) + 1, content };
+        },
+        documents() {
+          const documents = { ...base.documents() };
+          for (const [key, content] of Object.entries(changes)) {
+            if (content === null) delete documents[key];
+            else if (content !== undefined) documents[key] = content;
+          }
+          return documents;
+        },
+      };
+    },
+    async stage(changes: readonly ProjectChange[]) {
+      const drafts = session.drafts();
+      await drafts.ready;
+      if (!current() || writeBlock !== undefined)
+        throw new Error(session.saveStatus().message || "Reopen this game before editing.");
+      drafts.stage(changes);
+      return { status: "draft" as const, diagnostics: [] };
+    },
+    update(changes: readonly ProjectChange[], restartRoom = false) {
+      return schedule(() =>
+        apply(
+          model.propose(model.capture(), "Update game", changes),
+          { label: "Update game", origin: "logic", author: "creator", time: Date.now() },
+          undefined,
+          false,
+          undefined,
+          restartRoom ? "reenter" : "keep",
+        ),
+      );
+    },
     get closed() {
       return !current();
     },
@@ -893,6 +998,7 @@ function createSession(
     },
     stopWrites(reason: "stale" | "removed" = "stale") {
       writeBlock = reason;
+      partDrafts?.dispose();
       if (journalFrame !== undefined) {
         if (typeof cancelAnimationFrame !== "undefined") cancelAnimationFrame(journalFrame);
         else clearTimeout(journalFrame);
@@ -949,6 +1055,8 @@ function createSession(
         removeEventListener("pagehide", persistPending);
         document.removeEventListener("visibilitychange", hiddenJournal);
       }
+      partDrafts?.dispose();
+      draftObservers.clear();
       disposed = true;
       epoch++;
       autosave.dispose();

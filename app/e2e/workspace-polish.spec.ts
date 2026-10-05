@@ -1,6 +1,6 @@
 import type { Page } from "@playwright/test";
 import { test, expect } from "./test.ts";
-import { isolateStorage, waitForRoom, workspaceSaved } from "./engineProbe.ts";
+import { isolateStorage, waitForRoom, workspaceUpdated } from "./engineProbe.ts";
 import { encodePngRgba } from "../../src/creative/composite.ts";
 import type { ProjectSession } from "../src/project/projectSession.ts";
 
@@ -11,7 +11,7 @@ async function start(page: Page, width = 1440) {
   await page.getByTestId("local-create-kind-starter").click();
   await page.getByTestId("local-create-submit").click();
   await waitForRoom(page, 1);
-  await workspaceSaved(page);
+  await workspaceUpdated(page);
   if (width === 390) await page.getByTestId("workspace-parts").click();
 }
 async function picture(page: Page) {
@@ -37,7 +37,7 @@ async function upload(page: Page) {
       .getByTestId("image-reference")
       .getByRole("button", { name: "Bring in an image", exact: true }),
   ).toBeEnabled();
-  await workspaceSaved(page);
+  await workspaceUpdated(page);
 }
 async function shot(page: Page, name: string) {
   await page.screenshot({ path: test.info().outputPath(`${name}.png`), animations: "disabled" });
@@ -144,7 +144,7 @@ async function cursor(page: Page) {
         .capture().history.cursor,
   );
 }
-test("trace handles preview live and commit once on release with Reset and Undo", async ({
+test("trace handles preview privately and Update makes each chosen History step with Reset and Undo", async ({
   page,
 }) => {
   await start(page);
@@ -179,6 +179,9 @@ test("trace handles preview live and commit once on release with Reset and Undo"
   expect(await cursor(page)).toBe(before);
   await expect.poll(sample).not.toEqual(beforePixel);
   await page.mouse.up();
+  expect(await cursor(page)).toBe(before);
+  await expect(page.getByTestId("workspace-pending")).toBeVisible();
+  await workspaceUpdated(page);
   await expect.poll(() => cursor(page)).not.toBe(before);
   const moved = await cursor(page);
   const corner = (await scale.boundingBox())!;
@@ -189,13 +192,19 @@ test("trace handles preview live and commit once on release with Reset and Undo"
   });
   expect(await cursor(page)).toBe(moved);
   await page.mouse.up();
+  expect(await cursor(page)).toBe(moved);
+  await expect(page.getByTestId("workspace-pending")).toBeVisible();
+  await workspaceUpdated(page);
   await expect.poll(() => cursor(page)).not.toBe(moved);
   const scaled = await cursor(page);
   await scale.press("ArrowUp");
+  expect(await cursor(page)).toBe(scaled);
+  await expect(page.getByTestId("workspace-pending")).toBeVisible();
+  await workspaceUpdated(page);
   await expect.poll(() => cursor(page)).not.toBe(scaled);
   const keyed = await cursor(page);
   await page.getByRole("button", { name: "Reset trace", exact: true }).click();
-  await workspaceSaved(page);
+  await workspaceUpdated(page);
   await page.getByRole("button", { name: "Undo", exact: true }).click();
   await expect.poll(() => cursor(page)).toBe(keyed);
   await page.getByRole("button", { name: "Undo", exact: true }).click();

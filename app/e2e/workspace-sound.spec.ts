@@ -1,5 +1,5 @@
 import { expect, reviewShot, test } from "./test.ts";
-import { isolateStorage, textHook, waitForAutosaveAfter } from "./engineProbe.ts";
+import { isolateStorage, textHook, waitForAutosaveAfter, workspaceUpdated } from "./engineProbe.ts";
 import type { Page } from "@playwright/test";
 import type { ProjectSession } from "../src/project/projectSession.ts";
 
@@ -16,7 +16,7 @@ async function starter(page: Page): Promise<void> {
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
 }
 
-test("SOUND edits autosave, audition privately and play in MAIN on listen @webkit-desktop", async ({
+test("SOUND drafts audition privately and play in MAIN after Update game @webkit-desktop", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -46,11 +46,11 @@ test("SOUND edits autosave, audition privately and play in MAIN on listen @webki
     const session = (
       window as unknown as {
         __AGI_PROJECT__: {
-          getSession(): { model: { capture(): { read(key: string): { content: Uint8Array } } } };
+          getSession(): ProjectSession;
         };
       }
     ).__AGI_PROJECT__.getSession();
-    return [...session.model.capture().read("sound:1").content.slice(8, 13)];
+    return [...(session.workingSnapshot().read("sound:1")!.content as Uint8Array).slice(8, 13)];
   });
   expect(stored).toEqual([120, 0, 15, 142, 147]);
   await panel.getByLabel("Ticks", { exact: true }).scrollIntoViewIfNeeded();
@@ -78,6 +78,7 @@ test("SOUND edits autosave, audition privately and play in MAIN on listen @webki
   await reviewShot(page, "sound-playing");
   await panel.getByTestId("sound-play").press("Space");
   await expect(panel.getByTestId("sound-play")).toHaveAttribute("aria-label", "Play");
+  await workspaceUpdated(page);
   await page.keyboard.press("Control+`");
   await page.keyboard.type("listen");
   await page.keyboard.press("Enter");
@@ -172,12 +173,14 @@ test("sound presets, note keyboard edits and guided cue creation share the works
   await page.getByTestId("part-sound:3").click();
   const retained = page.getByTestId("workspace-sound").filter({ visible: true });
   await expect(retained.getByLabel("Note", { exact: true })).toHaveValue("A4");
+  await workspaceUpdated(page);
   await retained.getByLabel("Tempo", { exact: true }).fill("240");
   await retained.getByLabel("Tempo", { exact: true }).press("Tab");
   await expect(page.getByTestId("workspace-saved")).toContainText("Saved");
   await retained.locator("td.voice-0[data-note-id] input.note").last().focus();
 
   await expect(retained.getByLabel("Ticks", { exact: true })).toHaveValue("15");
+  await workspaceUpdated(page);
   await page.getByTestId("workspace-undo").click();
   await expect(page.getByTestId("workspace-saved")).toContainText("Saved");
   await retained.locator("td.voice-0[data-note-id] input.note").last().focus();

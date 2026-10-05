@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { createPictureSurface } from "../../../src/types.ts";
+import { renderPicture } from "../../../src/picture/renderer.ts";
 import { VOCABULARY } from "../../../src/vocabulary.ts";
 import {
   computed,
@@ -173,6 +175,7 @@ const {
   priorityBase = undefined,
   embedded = false,
   liveGame = false,
+  runningBytes = undefined,
   workspaceFocus = false,
 } = defineProps<{
   readOnly?: boolean;
@@ -180,6 +183,7 @@ const {
   priorityBase?: number | undefined;
   embedded?: boolean;
   liveGame?: boolean;
+  runningBytes?: Uint8Array | undefined;
   workspaceFocus?: boolean;
   pictureNumber: number;
   bytes: Uint8Array;
@@ -653,6 +657,19 @@ const shown = computed(() =>
       ? proposal.value.compiled
       : draft.compiled.value
     : (draft.preview.value?.compiled ?? surface.value),
+);
+const runningPicture = computed(() => {
+  if (!runningBytes) return null;
+  const surface = createPictureSurface();
+  renderPicture(runningBytes, surface, { profile });
+  return surface;
+});
+const draftMask = computed(() =>
+  liveGame && runningPicture.value ? changedCells(runningPicture.value, shown.value) : null,
+);
+const hasStageDraft = computed(() => draftMask.value?.some((cell) => cell !== 0) ?? false);
+const stageDraftPaths = computed(() =>
+  hasStageDraft.value && draftMask.value ? pathsOf(draftMask.value) : null,
 );
 const assistChanges = computed(() => {
   const next = proposal.value;
@@ -1650,6 +1667,9 @@ function onKeyup(event: KeyboardEvent): void {
     />
     <main class="studio__frame">
       <div v-if="embedded" ref="gameHost" class="studio__live-game"></div>
+      <span v-if="liveGame && hasStageDraft" class="studio__draft-label" data-testid="stage-draft"
+        >Draft · ⌘↵ puts it in the game</span
+      >
       <div
         ref="stage"
         class="studio__stage"
@@ -1682,7 +1702,8 @@ function onKeyup(event: KeyboardEvent): void {
             :handles
             :ghost="insertGhost"
             :flash="flashPaths"
-            :changed="changedPaths"
+            :changed="stageDraftPaths ?? changedPaths"
+            :transparent-mask="lens === 'art' && !underlay ? draftMask : null"
             :spilled="spilledPaths"
             :movable="movable"
             :marquee="drag.marqueeBox.value ?? null"
@@ -2380,6 +2401,19 @@ function onKeyup(event: KeyboardEvent): void {
   display: none;
 }
 
+.studio__draft-label {
+  position: absolute;
+  z-index: 3;
+  top: var(--space-2);
+  left: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  border: 1px dashed var(--action);
+  border-radius: var(--radius-sm);
+  color: var(--ink);
+  background: var(--surface-2);
+  font: var(--text-xs) var(--font-sans);
+  pointer-events: none;
+}
 .studio__live-game {
   position: absolute;
   inset: 0;
@@ -2389,7 +2423,7 @@ function onKeyup(event: KeyboardEvent): void {
   transform: translateY(calc(-8px * var(--picture-zoom)));
 }
 .studio.is-live-game.is-art-idle:not(.has-reference) :deep(.studio-pane canvas) {
-  opacity: 0;
+  opacity: 1;
 }
 .studio.is-live-game .studio__frame {
   background: var(--agi-0);

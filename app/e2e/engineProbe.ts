@@ -1,6 +1,21 @@
 import { expect, type Locator, type Page } from "@playwright/test";
 import type { CachedGameData } from "../src/project/gameTypes.ts";
 
+/** Reject the draft's actual background transaction, leaving its recovery journal available. */
+export async function refuseDraftWrites(page: Page, message: string): Promise<void> {
+  await page.evaluate((message) => {
+    const put = IDBObjectStore.prototype.put;
+    IDBObjectStore.prototype.put = function (...args) {
+      if (
+        this.name === "projects" &&
+        String((args[0] as { projectId?: string }).projectId).startsWith("part-drafts/")
+      )
+        throw new Error(message);
+      return put.apply(this, args);
+    };
+  }, message);
+}
+
 export interface AiConfiguration {
   provider: "anthropic" | "openai" | "stub";
   key?: string;
@@ -558,7 +573,7 @@ export async function closeWorkspaceEditor(page: Page): Promise<void> {
     .click();
 }
 
-/** Observe completed gesture publication and durable autosave. */
+/** Observe durable editor drafts and accepted project writes. */
 export async function workspaceSaved(page: Page): Promise<void> {
   await expect
     .poll(
@@ -585,6 +600,24 @@ export async function workspaceSaved(page: Page): Promise<void> {
     await probe.__AGI_PROJECT__.getSession().flush();
   });
   await expect(page.getByTestId("workspace-saved")).toHaveText("Saved");
+}
+
+/** The approved storyboard replaces gesture publication with an explicit Update game. */
+export async function workspaceUpdated(page: Page, keyboard = false): Promise<void> {
+  await workspaceSaved(page);
+  const update = page.getByTestId("workspace-update");
+  if ((await update.isVisible()) && (await update.isEnabled())) {
+    const previousFocus = await page.evaluateHandle(() => document.activeElement);
+    await expect(update).toBeVisible();
+    if (keyboard) await page.keyboard.press("ControlOrMeta+Enter");
+    else await update.click();
+    await expect(page.getByTestId("workspace-updated")).toBeVisible();
+    await workspaceSaved(page);
+    await previousFocus.evaluate((element) => {
+      if (element instanceof HTMLElement && element.isConnected) element.focus();
+    });
+    await previousFocus.dispose();
+  }
 }
 
 export async function enterCreateMode(page: Page): Promise<void> {

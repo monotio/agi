@@ -47,7 +47,7 @@ const DEFAULTS = {
   },
   play: {
     id: "game.play",
-    title: "Play full size",
+    title: "Update game",
     key: "Mod+Enter",
     textInput: true,
     game: true,

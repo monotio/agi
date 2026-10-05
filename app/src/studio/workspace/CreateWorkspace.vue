@@ -12,10 +12,7 @@ import {
 } from "../../../../src/authoring/projectDocuments.ts";
 import type { ProjectChange, ProjectContent } from "../../../../src/authoring/projectContent.ts";
 import type { ProjectSnapshot } from "../../../../src/authoring/projectModel.ts";
-import type {
-  ProjectEditOrigin,
-  ProjectHistoryState,
-} from "../../../../src/authoring/projectHistoryData.ts";
+import type { ProjectHistoryState } from "../../../../src/authoring/projectHistoryData.ts";
 import type { ProjectSession } from "../../project/projectSession.ts";
 import { layoutDragging } from "../../play/layoutDrag.ts";
 import { usePresentation } from "../../play/usePresentation.ts";
@@ -39,7 +36,7 @@ import { parseWordsTok } from "../../../../src/logic/words.ts";
 import { readInventoryObjects } from "../../../../src/authoring/inventory.ts";
 import { derivedLogicSource } from "../logic/logicWorkspace.ts";
 import { roomPictureNumber } from "../logic/guided/guidedPreview.ts";
-import { createWorkspaceWrites } from "./workspaceWrites.ts";
+import { createWorkspacePending } from "./workspacePending.ts";
 import type { WorkspaceAction } from "./workspaceGuided.ts";
 import { useWorkspaceDebug, type LogicEditorHandle } from "./useWorkspaceDebug.ts";
 const props = defineProps<{ creating: boolean }>();
@@ -89,6 +86,11 @@ function openAgent(): void {
   engine.state.powerUp.open = true;
 }
 const snapshot = shallowRef<ProjectSnapshot>();
+const languageSnapshot = shallowRef<ProjectSnapshot>();
+let languageInputs: readonly (ProjectContent | undefined)[] = [];
+const languageBase = computed(() =>
+  ["words", "inventory", "bindings"].map((key) => snapshot.value?.read(key)?.content),
+);
 const {
   debug,
   logicEditors,
@@ -102,7 +104,16 @@ const {
   profile: () => profile.value.id,
 });
 const historyState = shallowRef<ProjectHistoryState>();
-const optimistic = shallowRef<Readonly<Record<string, ProjectContent>>>({});
+const optimistic = shallowRef<Record<string, ProjectContent>>({});
+let offDrafts: (() => void) | undefined;
+let draftKeys = "";
+let draftError = "";
+const draftMembership = shallowRef<readonly string[]>([]);
+const groupMetadata = shallowRef<{
+  world: ProjectContent | undefined;
+  bindings: ProjectContent | undefined;
+}>({ world: undefined, bindings: undefined });
+const editorEpoch = ref(0);
 let session: ProjectSession | null = null;
 let unsubscribe: (() => void) | undefined;
 let retired = false;
@@ -148,10 +159,10 @@ function refresh(): void {
   const capture = session.capture();
   snapshot.value = capture.snapshot;
   const ticket = ++imageRefresh;
-  if (capture.snapshot.keys.includes("images")) {
+  if (session.workingSnapshot().keys.includes("images")) {
     void import("../../../../src/creative/imageOperations.ts").then(({ imageTraceUnderlay }) => {
       if (ticket !== imageRefresh || retired) return;
-      const documents = capture.snapshot.documents();
+      const documents = session!.workingSnapshot().documents();
       void import("../creative/tracePresentation.ts").then(({ presentTrace }) => {
         if (ticket !== imageRefresh || retired) return;
         traceUnderlays.value = Object.fromEntries(
@@ -162,19 +173,21 @@ function refresh(): void {
       });
     });
   } else traceUnderlays.value = {};
-  writeConflict.value = capture.save.state === "conflict";
+  const draftStatus = session.drafts().status();
+  writeConflict.value =
+    capture.save.state === "conflict" || draftStatus.error.includes("another tab");
   editor.readOnly.value = writeConflict.value;
   editor.pendingChanges.value =
-    session.pendingChanges || editor.busy.value || Object.keys(optimistic.value).length > 0;
+    session.pendingChanges || editor.busy.value || draftStatus.pending || !!draftStatus.error;
   if (writeConflict.value) editor.error.value = "";
   historyState.value = capture.history;
   editor.pendingAdmission.value = capture.pendingAdmission;
   editor.save.value =
     capture.save.state === "saved"
-      ? editor.busy.value
-        ? "Saving…"
-        : editor.error.value && Object.keys(optimistic.value).length > 0
-          ? "Could not save. Retry"
+      ? draftStatus.error
+        ? "Could not save. Retry"
+        : editor.busy.value || draftStatus.pending
+          ? "Saving…"
           : "Saved"
       : capture.save.state === "pending" || capture.save.state === "saving"
         ? "Saving…"
@@ -189,7 +202,23 @@ function attach(): void {
   if (next !== session) {
     unsubscribe?.();
     session = next;
-    if (session) unsubscribe = session.subscribe(refresh);
+    offDrafts?.();
+    optimistic.value = {};
+    groupMetadata.value = { world: undefined, bindings: undefined };
+    draftKeys = "";
+    if (session) {
+      unsubscribe = session.subscribe(refresh);
+      const drafts = session.drafts();
+      offDrafts = session.subscribeDrafts(draftChanged);
+      void drafts.ready
+        .then(() => {
+          draftChanged(true);
+        })
+        .catch((cause: unknown) => {
+          editor.error.value = cause instanceof Error ? cause.message : String(cause);
+          editor.readOnly.value = writeConflict.value = true;
+        });
+    }
   }
   refresh();
 }
@@ -207,11 +236,12 @@ const container = computed(() => {
   );
 });
 const groups = computed(() => {
-  const keys = snapshot.value?.keys ?? [];
+  const keys = [...new Set([...(snapshot.value?.keys ?? []), ...draftMembership.value])];
   const scan = engine.roomMap.resources.value;
+  const admitted = snapshot.value?.lastAdmissibleBuild?.documents() ?? {};
   let plan: Record<string, { title?: string }> = {};
   try {
-    const world = content("world");
+    const world = groupMetadata.value.world ?? snapshot.value?.read("world")?.content;
     if (typeof world === "string") plan = (JSON.parse(world) as { rooms: typeof plan }).rooms;
   } catch {
     /* Native room relationships remain available. */
@@ -235,19 +265,22 @@ const groups = computed(() => {
       })
         .pictures.filter((use) => use.exists)
         .map((use) => use.picture);
-      const logic = snapshot.value?.lastAdmissibleBuild?.documents()[`logic:${room}`];
-      const bound = content("bindings");
+      const logic = admitted[`logic:${room}`];
+      const bound = snapshot.value?.read("bindings")?.content;
       if (pictures.length === 0 && typeof logic === "string") {
         const picture = roomPictureNumber(logic, typeof bound === "string" ? bound : undefined);
         if (picture !== null) pictures.push(picture);
       }
-      const art = pictures[0] === undefined ? undefined : content(`picture:${pictures[0]}`);
+      const art =
+        pictures[0] === undefined
+          ? undefined
+          : snapshot.value?.read(`picture:${pictures[0]}`)?.content;
       const heading = typeof art === "string" ? /^# ([^:\n]+):/.exec(art)?.[1] : undefined;
       const title = plan[String(room)]?.title || heading || node?.title;
       return { room, ...(title ? { title } : {}), pictures };
     });
   const names: Record<string, string> = {};
-  const bound = content("bindings");
+  const bound = groupMetadata.value.bindings ?? snapshot.value?.read("bindings")?.content;
   if (typeof bound === "string") {
     try {
       for (const [name, binding] of Object.entries(readBindingsDocument(bound)))
@@ -298,9 +331,7 @@ const tabRows = computed(() =>
           : key === "notes"
             ? "Notes"
             : key.replace(":", " ").toUpperCase(),
-    dirty:
-      optimistic.value[key] !== undefined &&
-      (snapshot.value?.keys.includes(key) || optimistic.value[key]!.length > 0),
+    dirty: draftMembership.value.includes(key),
     preview: key === editor.preview.value,
     missing:
       !snapshot.value?.keys.includes(key) &&
@@ -419,52 +450,53 @@ const pausedPicture = computed(() => {
 });
 let visitQueue = Promise.resolve();
 let selectionSerial = 0;
-watch(
-  [editor.selected, roomHint, () => props.creating, selectedRoom],
-  ([, , creating], [, , wasCreating]) => {
-    const serial = ++selectionSerial;
-    if (!creating || makingRoom) return;
-    if (
-      !wasCreating &&
-      selectedRoom.value !== undefined &&
-      selectedRoom.value !== engine.roomMap.currentRoom.value
-    ) {
-      stageNote.value = "";
-      const room = engine.roomMap.currentRoom.value;
-      const part = groups.value
-        .flatMap((group) => group.entries)
-        .find(
-          (row) =>
-            row.room === room &&
-            row.key.startsWith(editor.kind.value === "logic" ? "logic:" : "picture:"),
-        );
-      if (part) openPart(part.key);
-      else editor.selected.value = undefined;
-      if (returnRoom.value !== undefined) visitingRoom.value = room ?? undefined;
+watch([editor.selected, roomHint, () => props.creating], ([, , creating], [, , wasCreating]) => {
+  const serial = ++selectionSerial;
+  if (!creating || makingRoom) return;
+  if (
+    !wasCreating &&
+    selectedRoom.value !== undefined &&
+    selectedRoom.value !== engine.roomMap.currentRoom.value
+  ) {
+    stageNote.value = "";
+    const room = engine.roomMap.currentRoom.value;
+    const part = groups.value
+      .flatMap((group) => group.entries)
+      .find(
+        (row) =>
+          row.room === room &&
+          row.key.startsWith(editor.kind.value === "logic" ? "logic:" : "picture:"),
+      );
+    if (part) openPart(part.key);
+    else editor.selected.value = undefined;
+    if (returnRoom.value !== undefined) visitingRoom.value = room ?? undefined;
+    return;
+  }
+  visitQueue = visitQueue.then(async () => {
+    if (serial !== selectionSerial || retired) return;
+    const room = selectedRoom.value;
+    stageNote.value = "";
+    if (room === undefined || room === engine.roomMap.currentRoom.value) return;
+    if (!snapshot.value?.keys.includes(`logic:${room}`)) {
+      stageNote.value = "Update game to open this room.";
       return;
     }
-    visitQueue = visitQueue.then(async () => {
+    visitBusy.value = true;
+    try {
+      await flushWorkspace();
       if (serial !== selectionSerial || retired) return;
-      const room = selectedRoom.value;
-      stageNote.value = "";
-      if (room === undefined || room === engine.roomMap.currentRoom.value) return;
-      visitBusy.value = true;
-      try {
-        await flushWorkspace();
-        if (serial !== selectionSerial || retired) return;
-        const result = await engine.visitRoom(room);
-        returnRoom.value = result.returnRoom;
-        visitingRoom.value = room;
-        if (!result.ok)
-          stageNote.value = `Room ${room} needs more game state. The picture is paused for editing.`;
-      } catch {
-        stageNote.value = `Room ${room} could not open. The picture is paused for editing.`;
-      } finally {
-        visitBusy.value = false;
-      }
-    });
-  },
-);
+      const result = await engine.visitRoom(room);
+      returnRoom.value = result.returnRoom;
+      visitingRoom.value = room;
+      if (!result.ok)
+        stageNote.value = `Room ${room} needs more game state. The picture is paused for editing.`;
+    } catch {
+      stageNote.value = `Room ${room} could not open. The picture is paused for editing.`;
+    } finally {
+      visitBusy.value = false;
+    }
+  });
+});
 watch(engine.roomMap.currentRoom, (room) => {
   if (
     !props.creating ||
@@ -622,25 +654,23 @@ function gameHost(key: string, host: HTMLElement): void {
 watch(editor.selected, (key) => {
   editor.gameHost.value = key ? (gameHosts.get(key) ?? null) : null;
 });
-const pendingResources = computed(() => {
-  const resources: Record<string, Uint8Array> = {};
-  for (const [key, value] of Object.entries(optimistic.value)) {
-    if (value instanceof Uint8Array) resources[key] = value;
-    else if (key.startsWith("picture:")) {
-      try {
-        resources[key] = compilePictureSource(value, { profile: profile.value }).bytes;
-      } catch {
-        /* The last working image remains available beside invalid source. */
-      }
-    }
-  }
-  return resources;
-});
+const pendingNative: Record<string, { content: ProjectContent; bytes: Uint8Array }> = {};
 function native(key: string): Uint8Array | undefined {
   const [kind, num] = key.split(":");
   if (kind !== "picture" && kind !== "view" && kind !== "sound") return undefined;
-  const pending = pendingResources.value[key];
-  if (pending) return pending;
+  const pending = optimistic.value[key];
+  if (pending instanceof Uint8Array) return pending;
+  if (typeof pending === "string" && kind === "picture") {
+    const cached = pendingNative[key];
+    if (cached?.content === pending) return cached.bytes;
+    try {
+      const bytes = compilePictureSource(pending, { profile: profile.value }).bytes;
+      pendingNative[key] = { content: pending, bytes };
+      return bytes;
+    } catch {
+      /* The editor keeps the last rendered picture beside invalid source. */
+    }
+  }
   const bytes = container.value?.getResource(kind, Number(num)) ?? undefined;
   const prior = nativeCache.get(key);
   if (
@@ -671,6 +701,53 @@ function editorChanges(
 }
 const actionBusy = ref(false);
 const writerBusy = ref(false);
+function changedPartKeys(changes: readonly ProjectChange[], fallback = true): string[] {
+  const parts = new Set<string>();
+  for (const change of changes) {
+    if (
+      /^(logic|picture|view|sound):/.test(change.key) ||
+      ["words", "inventory", "notes"].includes(change.key)
+    )
+      parts.add(change.key);
+    else if (change.key === "images" && typeof change.content === "string") {
+      const before = JSON.parse(
+        String(snapshot.value?.read("images")?.content ?? '{"traces":{}}'),
+      ) as { traces?: Record<string, unknown> };
+      const after = JSON.parse(change.content) as { traces?: Record<string, unknown> };
+      for (const key of new Set([
+        ...Object.keys(before.traces ?? {}),
+        ...Object.keys(after.traces ?? {}),
+      ]))
+        if (JSON.stringify(before.traces?.[key]) !== JSON.stringify(after.traces?.[key]))
+          parts.add(key);
+    } else if (change.key === "bindings" && typeof change.content === "string") {
+      const before = readBindingsDocument(
+        String(snapshot.value?.read("bindings")?.content ?? "{}"),
+      );
+      const after = readBindingsDocument(change.content);
+      for (const name of new Set([...Object.keys(before), ...Object.keys(after)])) {
+        if (JSON.stringify(before[name]) === JSON.stringify(after[name])) continue;
+        const binding = after[name] ?? before[name];
+        if (binding && ["logic", "picture", "view", "sound"].includes(binding.kind))
+          parts.add(`${binding.kind}:${binding.num}`);
+      }
+    } else if (change.key === "world" && typeof change.content === "string") {
+      const before = JSON.parse(
+        String(snapshot.value?.read("world")?.content ?? '{"rooms":{}}'),
+      ) as { rooms?: Record<string, unknown> };
+      const after = JSON.parse(change.content) as { rooms?: Record<string, unknown> };
+      for (const room of new Set([
+        ...Object.keys(before.rooms ?? {}),
+        ...Object.keys(after.rooms ?? {}),
+      ]))
+        if (JSON.stringify(before.rooms?.[room]) !== JSON.stringify(after.rooms?.[room]))
+          parts.add(`logic:${room}`);
+    }
+  }
+  if (fallback && !parts.size && changes.length) parts.add(changes[0]!.key);
+  return [...parts];
+}
+const pendingParts = createWorkspacePending((change) => changedPartKeys([change], false));
 watch(
   [actionBusy, writerBusy],
   ([action, writer]) => {
@@ -678,41 +755,149 @@ watch(
   },
   { flush: "sync" },
 );
-const writes = createWorkspaceWrites({
-  async durable() {
+function draftChanged(force = false): void {
+  if (!session || retired) return;
+  const drafts = session.drafts();
+  const changes = pendingParts.changes(snapshot.value, drafts.changes());
+  const next: Record<string, ProjectContent> = {};
+  for (const { key, content: value } of changes) if (value !== null) next[key] = value;
+  const metadata = { world: next["world"], bindings: next["bindings"] };
+  if (
+    metadata.world !== groupMetadata.value.world ||
+    metadata.bindings !== groupMetadata.value.bindings
+  )
+    groupMetadata.value = metadata;
+  const keys = Object.keys(next).sort().join("\0");
+  const parts = pendingParts.parts(snapshot.value, changes);
+  if (parts.slice().sort().join("\0") !== draftMembership.value.slice().sort().join("\0"))
+    draftMembership.value = parts;
+  if (force || keys !== draftKeys) {
+    optimistic.value = next;
+    draftKeys = keys;
+  } else Object.assign(optimistic.value, next);
+  const state = drafts.status();
+  if (!state.error && editor.error.value === draftError) editor.error.value = "";
+  draftError = state.error;
+  writerBusy.value = state.busy;
+  editor.changeCount.value = parts.length;
+  const context = ["words", "inventory", "bindings"].map(
+    (key, index) => next[key] ?? languageBase.value[index],
+  );
+  if (
+    languageSnapshot.value?.revision !== snapshot.value?.revision ||
+    context.some((value, index) => value !== languageInputs[index])
+  ) {
+    languageInputs = context;
+    languageSnapshot.value = session.workingSnapshot();
+  }
+  editor.pendingChanges.value =
+    state.pending || state.busy || !!state.error || (session.pendingChanges ?? false);
+  editor.save.value = state.error
+    ? "Could not save. Retry"
+    : state.pending || state.busy
+      ? "Saving…"
+      : "Saved";
+  if (state.error) {
+    editor.error.value = state.error;
+    if (state.error.includes("another tab")) {
+      editor.readOnly.value = writeConflict.value = true;
+    }
+  }
+}
+const writes = {
+  flush: async () => {
+    await session?.drafts().flush();
     await session?.flush();
+    draftChanged();
   },
-  async write(key, value) {
-    if (retired || session === null || session !== engine.getProjectSession())
-      throw new Error("Open this project again to retry the change.");
-    const origin = (
-      key === "notes" ? "logic" : (key.split(":")[0] ?? "logic")
-    ) as ProjectEditOrigin;
-    const changes = editorChanges(key, value);
-    const result = await engine.submitProjectEdit({
-      changes,
-      origin,
-      label: `Changed ${key === "inventory" ? "OBJECTS" : key === "words" ? "WORDS" : key.replace(":", " ").toUpperCase()}`,
-      author: "creator",
-    });
-    if (!["committed", "diagnostics", "unchanged", "restartRequired"].includes(result.status))
-      throw new Error("This change needs a fresh room. Return to the room and retry.");
-    if (typeof value === "string") coordinatedChanges.delete(`${key}\0${value}`);
+  retry: async () => {
+    await session?.drafts().flush();
+    draftChanged();
+  },
+  dispose: () => {},
+};
+const updateProblems = shallowRef<ReturnType<ProjectSession["capture"]>["diagnostics"]>([]);
+const typingProblems: Record<string, readonly { message: string; line: number }[]> = {};
+function reportProblems(key: string, entries: readonly { message: string; line: number }[]): void {
+  typingProblems[key] = entries;
+  editor.problemCount.value = Object.values(typingProblems).reduce(
+    (count, rows) => count + rows.length,
+    0,
+  );
+}
+async function updateGame(restartRoom = false): Promise<void> {
+  if (!session || actionBusy.value || writeConflict.value) return;
+  if (editor.problemCount.value && !restartRoom) {
+    const first = updateProblems.value.find((entry) => entry.severity === "error");
+    const typed = Object.entries(typingProblems).find(([, entries]) => entries.length);
+    if (typed) openWordLogic(Number(typed[0].slice(6)), typed[1][0]!.line);
+    else if (first) openPart(first.document, true);
+    editor.panel.value = true;
+    editor.error.value =
+      typed || first
+        ? `${(typed?.[1][0]?.message ?? first!.message).replace(/[.]+$/, "")}. Fix this part, then Update game.`
+        : editor.error.value;
+    return;
+  }
+  actionBusy.value = true;
+  try {
+    await writes.flush();
+    const changes = pendingParts.changes(snapshot.value, session.drafts().changes());
+    if (!changes.length && !restartRoom) return;
+    const updatedParts = pendingParts.parts(snapshot.value, changes).length;
+    const result = await session.update(changes, restartRoom);
+    updateProblems.value = result.diagnostics;
+    if (!["committed", "unchanged", "draft"].includes(result.status)) {
+      editor.problemCount.value = Math.max(
+        1,
+        result.diagnostics.filter((entry) => entry.severity === "error").length,
+      );
+      const first = result.diagnostics.find((entry) => entry.severity === "error");
+      editor.error.value = first
+        ? `${first.message.replace(/[.]+$/, "")}. Fix this part, then Update game.`
+        : "reason" in result && typeof result.reason === "string"
+          ? `${result.reason.replace(/[.]+$/, "")}. Choose Update and restart this room.`
+          : "The game needs a fresh room. Choose Update and restart this room.";
+      return;
+    }
+    await session.flush();
+    await session.drafts().clear();
+    optimistic.value = {};
+    draftKeys = "";
+    editor.updatedParts.value = updatedParts;
+    editor.problemCount.value = 0;
     editor.error.value = "";
+    if (stageNote.value === "Update game to open this room.")
+      stageNote.value = "Choose this room in Parts to play it.";
     refresh();
-  },
-  changed(drafts, busy) {
-    optimistic.value = drafts;
-    writerBusy.value = busy;
-    editor.pendingChanges.value =
-      busy || (session?.pendingChanges ?? false) || Object.keys(drafts).length > 0;
-    if (editor.busy.value) editor.save.value = "Saving…";
-    else refresh();
-  },
-  error(cause) {
-    editor.error.value = String(cause instanceof Error ? cause.message : cause);
-  },
-});
+    draftChanged(true);
+  } catch (cause) {
+    editor.error.value = cause instanceof Error ? cause.message : String(cause);
+  } finally {
+    actionBusy.value = false;
+  }
+}
+async function discardChanges(): Promise<void> {
+  if (!session) return;
+  actionBusy.value = true;
+  try {
+    await session.drafts().clear();
+    optimistic.value = {};
+    draftKeys = "";
+    coordinatedChanges.clear();
+    editorEpoch.value++;
+    updateProblems.value = [];
+    for (const key of Object.keys(typingProblems)) delete typingProblems[key];
+    editor.problemCount.value = 0;
+    editor.error.value = "";
+    draftChanged(true);
+  } finally {
+    actionBusy.value = false;
+  }
+}
+watch(snapshot, () => draftChanged());
+editor.update.value = updateGame;
+editor.discardDrafts.value = discardChanges;
 async function flushWorkspace(): Promise<void> {
   if (session?.saveStatus().state === "conflict") return;
   try {
@@ -724,7 +909,8 @@ async function flushWorkspace(): Promise<void> {
   }
 }
 editor.flush.value = flushWorkspace;
-editor.discard.value = () => {
+editor.discard.value = async () => {
+  await discardChanges();
   writes.dispose();
   session?.discard();
 };
@@ -760,7 +946,17 @@ function edit(key: string, value: ProjectContent): void {
     return;
   editor.error.value = "";
   editor.pin(key);
-  writes.edit(key, value);
+  const changes = editorChanges(key, value);
+  session?.drafts().stage(changes);
+  for (const change of changes)
+    if (change.content !== null) optimistic.value[change.key] = change.content;
+  delete typingProblems[key];
+  editor.problemCount.value = Object.values(typingProblems).reduce(
+    (count, rows) => count + rows.length,
+    0,
+  );
+  editor.updatedParts.value = 0;
+  draftChanged(!key.startsWith("logic:") && key !== "notes");
 }
 function editSound(key: string, bytes: Uint8Array, tempo: number): void {
   if (writeConflict.value) return;
@@ -768,7 +964,8 @@ function editSound(key: string, bytes: Uint8Array, tempo: number): void {
   if (soundTempo(key) === tempo) edit(key, bytes);
   else {
     editor.error.value = "";
-    writes.edit(key, bytes);
+    session?.drafts().stage(editorChanges(key, bytes));
+    draftChanged(true);
   }
 }
 function soundTempo(key: string): number {
@@ -788,6 +985,14 @@ function soundBytes(key: string): Uint8Array {
   return value instanceof Uint8Array ? value : native(key)!;
 }
 function text(key: string): string | undefined {
+  const version = snapshot.value?.version(key) ?? 0;
+  const cached = derivedText.get(key);
+  if (
+    optimistic.value[key] === undefined &&
+    cached?.version === version &&
+    cached.wordsVersion === snapshot.value?.version("words")
+  )
+    return cached.text;
   const value = content(key);
   if (typeof value === "string") return value;
   if (!(value instanceof Uint8Array)) return undefined;
@@ -797,14 +1002,58 @@ function text(key: string): string | undefined {
   if (key.startsWith("logic:")) {
     const source = text("words");
     const words = source ? (JSON.parse(source) as [string, number][]) : [];
-    return derivedLogicSource(value, profile.value.id, words).source;
+    const cached = derivedText.get(key);
+    if (cached?.value === value && cached.words === source) return cached.text;
+    const derived = derivedLogicSource(value, profile.value.id, words).source;
+    derivedText.set(key, {
+      value,
+      version,
+      wordsVersion: snapshot.value?.version("words") ?? 0,
+      words: source,
+      text: derived,
+    });
+    return derived;
   }
   return undefined;
 }
+function workingSnapshot(): ProjectSnapshot | undefined {
+  if (session) return session.workingSnapshot();
+  const base = snapshot.value;
+  if (!base) return undefined;
+  const documents = { ...base.documents(), ...optimistic.value };
+  return {
+    ...base,
+    keys: Object.keys(documents),
+    read(key) {
+      const value = documents[key];
+      return value === undefined ? undefined : { key, version: base.version(key), content: value };
+    },
+    documents: () => documents,
+  };
+}
+const derivedText = new Map<
+  string,
+  {
+    value: ProjectContent;
+    version: number;
+    wordsVersion: number;
+    words: string | undefined;
+    text: string;
+  }
+>();
 const diagnostics = computed(() => {
   void snapshot.value;
-  return session?.capture().diagnostics ?? [];
+  void editor.problemCount.value;
+  const typed = Object.entries(typingProblems).flatMap(([document, entries]) =>
+    entries.map((entry) => ({ document, severity: "error" as const, message: entry.message })),
+  );
+  if (typed.length) return typed;
+  return updateProblems.value.length
+    ? updateProblems.value
+    : (session?.capture().diagnostics ?? []);
 });
+const acceptedDocuments = computed(() => snapshot.value?.documents() ?? {});
+const workingDocuments = computed(() => ({ ...acceptedDocuments.value, ...optimistic.value }));
 const guidedKind = ref<WorkspaceAction["kind"]>();
 const guidedCommand = ref("");
 const unknownSentence = computed(() =>
@@ -855,7 +1104,7 @@ async function wordChange(
   try {
     if (writeConflict.value) throw new Error(session!.saveStatus().message);
     await writes.flush();
-    const captured = session?.model.capture();
+    const captured = workingSnapshot();
     if (!captured) return;
     const { changeMeaning, removeMeaningWord } = await import("./wordsAnalysis.ts");
     const document = captured.read("words")!.content;
@@ -876,8 +1125,9 @@ async function wordChange(
           ? `Removed word ${action.remove}`
           : `Changed meaning ${action.from} to ${action.to}`,
     });
-    if (!["committed", "unchanged"].includes(result.status))
+    if (!["committed", "unchanged", "draft"].includes(result.status))
       throw new Error("Check Problems before changing this meaning.");
+    draftChanged(true);
     editor.pin("words");
     editor.error.value = "";
     refresh();
@@ -891,7 +1141,7 @@ async function guidedAction(action: WorkspaceAction): Promise<void> {
   makingRoom = action.kind === "make-room";
   try {
     await writes.flush();
-    const capture = session?.model.capture();
+    const capture = workingSnapshot();
     if (!capture) return;
     const { prepareWorkspaceAction } = await import("./workspaceGuided.ts");
     const prepared = prepareWorkspaceAction(capture, profile.value.id, action);
@@ -902,7 +1152,7 @@ async function guidedAction(action: WorkspaceAction): Promise<void> {
       origin: "logic",
       author: "creator",
     });
-    if (!["committed", "unchanged"].includes(result.status))
+    if (!["committed", "unchanged", "draft"].includes(result.status))
       throw new Error("The action could not build. Check Problems and retry.");
     if (action.kind === "response") {
       const entry = engine.playerSentences.value.find(
@@ -913,7 +1163,7 @@ async function guidedAction(action: WorkspaceAction): Promise<void> {
     if (action.kind === "make-room") {
       refresh();
       const key = prepared.changes.find((change) => change.key.startsWith("logic:"))?.key;
-      if (key && props.creating) {
+      if (key && props.creating && result.status !== "draft") {
         const room = Number(key.slice(6));
         const result = await engine.visitRoom(room);
         returnRoom.value = result.returnRoom;
@@ -926,6 +1176,7 @@ async function guidedAction(action: WorkspaceAction): Promise<void> {
       const key = prepared.changes.find((change) => change.key.startsWith("logic:"))?.key;
       if (key) openPart(key);
     }
+    draftChanged(true);
     guidedKind.value = undefined;
     editor.error.value = "";
   } catch (cause) {
@@ -1151,6 +1402,10 @@ editor.unsavedEdits.value = () => {
   return buffers;
 };
 onBeforeUnmount(() => {
+  offDrafts?.();
+  editor.update.value = undefined;
+  editor.discardDrafts.value = undefined;
+  editor.changeCount.value = 0;
   phoneQuery.removeEventListener("change", phoneLayout);
   endResize?.();
   retired = true;
@@ -1214,6 +1469,8 @@ onBeforeUnmount(() => {
     v-show="
       creating && !editor.focus.value && (!workspace.collapsed.left || editor.partsOpen.value)
     "
+    :pending="draftMembership"
+    :bindings="typeof content('bindings') === 'string' ? String(content('bindings')) : undefined"
     :groups="groups"
     :selected="editor.selected.value"
     :thumbnails="thumbnails"
@@ -1258,6 +1515,7 @@ onBeforeUnmount(() => {
   >
     <header class="workspace-editor__header">
       <ProjectTabs
+        pending
         :tabs="tabRows"
         :selected-key="editor.selected.value ?? null"
         @select="(key) => openPart(key)"
@@ -1320,16 +1578,6 @@ onBeforeUnmount(() => {
           >Generate</UiButton
         >
       </template>
-      <UiButton
-        v-if="editor.kind.value === 'logic' && !debug?.state.epoch"
-        size="sm"
-        variant="ghost"
-        :disabled="debug?.state.busy"
-        data-testid="debug-start"
-        title="Run or continue (F5 in the editor)"
-        @click="editor.debugCommand.value?.('start')"
-        >Run</UiButton
-      >
       <DebugControls
         v-if="
           debug?.state.epoch &&
@@ -1376,7 +1624,10 @@ onBeforeUnmount(() => {
         :image-revision="snapshot?.version('images') ?? 0"
         :resource-revision="snapshot?.version(imagePanel) ?? 0"
         @close="imagePanel = undefined"
-        @changed="refresh"
+        @changed="
+          draftChanged(true);
+          refresh();
+        "
       />
     </header>
     <div v-if="unusedArt" class="workspace-stage-note" data-testid="workspace-unused">
@@ -1407,7 +1658,7 @@ onBeforeUnmount(() => {
       data-testid="workspace-visit"
     >
       <span>Visiting Room {{ visitingRoom }}</span>
-      <span v-if="editor.kind.value === 'picture' && !stageNote">· changes show live</span>
+      <span v-if="editor.kind.value === 'picture' && !stageNote">· running your last update</span>
       <UiButton
         size="sm"
         variant="ghost"
@@ -1427,7 +1678,7 @@ onBeforeUnmount(() => {
       class="workspace-stage-note"
       data-testid="workspace-room-live"
     >
-      Room {{ selectedRoom }} · changes show live
+      Room {{ selectedRoom }} · running your last update
     </div>
     <p
       v-if="
@@ -1450,7 +1701,7 @@ onBeforeUnmount(() => {
     </Teleport>
     <div
       v-for="key in editor.retained.value"
-      :key="key"
+      :key="`${key}:${editorEpoch}`"
       v-show="key === editor.selected.value"
       class="workspace-editor__surface"
     >
@@ -1464,7 +1715,10 @@ onBeforeUnmount(() => {
         :image-revision="snapshot?.version('images') ?? 0"
         :resource-revision="snapshot?.version(key) ?? 0"
         @close="imagePanel = undefined"
-        @changed="refresh"
+        @changed="
+          draftChanged(true);
+          refresh();
+        "
       />
       <RoomStudio
         :read-only="writeConflict || actionBusy"
@@ -1493,6 +1747,7 @@ onBeforeUnmount(() => {
             editRoom(key, room, source, bindings, pictureSource)
         "
         @play-here="playHere"
+        :running-bytes="container?.getResource('picture', Number(key.split(':')[1])) ?? undefined"
         :picture-number="Number(key.split(':')[1])"
         :bytes="native(key)!"
         :authored-source="text(key)"
@@ -1551,17 +1806,18 @@ onBeforeUnmount(() => {
         @breakpoint="toggleBreakpoint(key, $event)"
         :location="logicLocation?.key === key ? logicLocation : undefined"
         :source="text(key)!"
-        :snapshot="snapshot"
+        :snapshot="languageSnapshot ?? snapshot"
         :profile-id="profile.id"
         :active="creating && key === editor.selected.value"
         @edit="edit(key, $event)"
         @selection="editor.setAgentContext(key, $event)"
+        @problems="reportProblems(key, $event)"
       />
       <WordsEditor
         :read-only="writeConflict || actionBusy"
         v-else-if="key === 'words' && text(key) !== undefined && snapshot"
         :source="text(key)!"
-        :documents="snapshot.documents()"
+        :documents="workingDocuments"
         :snapshot
         :profile="profile"
         :room="engine.roomMap.currentRoom.value ?? 0"

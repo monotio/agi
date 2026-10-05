@@ -6,7 +6,7 @@ import {
   isolateStorage,
   openLibraryActions,
   savedGameCard,
-  workspaceSaved,
+  workspaceUpdated,
   textHook,
 } from "./engineProbe.ts";
 import { workspaceDocument } from "./workspaceShared.ts";
@@ -94,7 +94,7 @@ test("responses check the whole sentence and show a live game message", async ({
   await expect(code).not.toContainText('said("inspect", "sun")');
   await form.getByRole("button", { name: "Add", exact: true }).click();
   await expect(form).toBeHidden();
-  await workspaceSaved(page);
+  await workspaceUpdated(page);
   expect(await workspaceDocument(page, "logic:1")).toContain('print("The sun shines.")');
 });
 
@@ -114,10 +114,10 @@ test("WORDS teaches a new thing and its sentence reply in one Undo", async ({ pa
   await teach.getByLabel("The game says…", { exact: true }).fill("The sun shines.");
   await teach.getByRole("button", { name: "Add", exact: true }).click();
   await expect(teach).toBeHidden();
-  await workspaceSaved(page);
+  await workspaceUpdated(page);
   expect(await workspaceDocument(page, "logic:1")).toContain('said("look", "sun")');
   await page.getByTestId("workspace-undo").click();
-  await workspaceSaved(page);
+  await workspaceUpdated(page);
   expect(await workspaceDocument(page, "words")).toBe(beforeWords);
   expect(await workspaceDocument(page, "logic:1")).toBe(beforeLogic);
 });
@@ -157,7 +157,7 @@ test("sound recipes explain and audition before adding a new sentence trigger", 
     .toBe(true);
   await form.getByRole("button", { name: "Add", exact: true }).click();
   await expect(form).toBeHidden();
-  await workspaceSaved(page);
+  await workspaceUpdated(page);
   expect(await workspaceDocument(page, "logic:1")).toContain('said("ring", "bell")');
 });
 

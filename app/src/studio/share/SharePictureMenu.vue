@@ -132,9 +132,7 @@ onBeforeUnmount(close);
 <template>
   <ActionMenu label="Share picture" test-id="studio-share" icon-only icon="share" size="sm">
     <div role="group" :aria-labelledby="noteId">
-      <p :id="noteId" class="share-menu__note">
-        Shares this draft as you see it, unkept changes included.
-      </p>
+      <p :id="noteId" class="share-menu__note">Shares the current draft.</p>
       <button
         type="button"
         role="menuitem"

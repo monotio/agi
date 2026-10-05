@@ -15,7 +15,7 @@ import {
   savedGameCard,
   screenText,
   textHook,
-  workspaceSaved,
+  workspaceUpdated,
 } from "./engineProbe.ts";
 import { expect, reviewShot, test } from "./test.ts";
 import {
@@ -217,7 +217,7 @@ test("the first guided game: starter, editors, five actions, play both ways and 
   await roomStudio.locator("[data-row]").first().click();
   await roomStudio.getByRole("group", { name: /^Canvas/ }).focus();
   await page.keyboard.press("ArrowDown");
-  await workspaceSaved(page);
+  await workspaceUpdated(page);
   await closeWorkspaceEditor(page);
 
   const sprite = await openWorkspaceView(page, 0);
@@ -228,7 +228,7 @@ test("the first guided game: starter, editors, five actions, play both ways and 
   await page.keyboard.press("Space");
   await recolor.getByRole("radio", { name: "To colour 2, green" }).click();
   await recolor.getByTestId("sprite-recolor-apply").click();
-  await workspaceSaved(page);
+  await workspaceUpdated(page);
   await closeWorkspaceEditor(page);
 
   await openWorkspaceLogic(page, 1);
@@ -270,7 +270,7 @@ test("the first guided game: starter, editors, five actions, play both ways and 
   await expect.poll(() => workspaceDocument(page, "logic:1"), { intervals: [100] }).toBe(beforeCue);
   await page.getByTestId("workspace-redo").click();
   await expect.poll(() => workspaceDocument(page, "logic:1"), { intervals: [100] }).toBe(withCue);
-  await workspaceSaved(page);
+  await workspaceUpdated(page);
   await reviewShot(page, "guided-workspace-saved");
 
   // Play for real: cross the door both directions, type the command, hear it.

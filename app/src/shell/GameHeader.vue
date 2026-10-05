@@ -248,7 +248,7 @@ async function onEjectGame(
   closeNavMenus();
   try {
     if (retry) await workspaceEditor.retry.value?.();
-    if (leave === "abandonUnsaved") workspaceEditor.discard.value?.();
+    if (leave === "abandonUnsaved") await workspaceEditor.discard.value?.();
     else await workspaceEditor.flush.value?.();
     await ejectGame(
       leave === "abandonUnsaved"

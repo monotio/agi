@@ -32,7 +32,6 @@ import {
   useRoomLogicDraft,
   type LogicDraftBase,
 } from "../src/studio/useRoomLogicDraft.ts";
-import { createWorkspaceWrites } from "../src/studio/workspace/workspaceWrites.ts";
 import {
   DEFAULT_EGO,
   useStudioWalk,
@@ -590,56 +589,25 @@ describe("the room logic draft", () => {
     }
   });
 
-  it("keeps a door field edit made while its creation commit is on the wire", async () => {
+  it("keeps door edits private until their complete source is updated", async () => {
     const rig = walkRig();
     const { logic, walk } = rig;
-    let release!: () => void;
-    let entered!: () => void;
-    const gate = new Promise<void>((resolve) => (release = resolve));
-    const started = new Promise<void>((resolve) => (entered = resolve));
-    let first = true;
-    const writes = createWorkspaceWrites({
-      async write(_key, content) {
-        if (first) {
-          first = false;
-          entered();
-          await gate;
-        }
-        const source = String(content);
-        rig.base.value = {
-          source,
-          bytes: assembleLogic(source, { dictionary: new Map() }).payload,
-        };
-        await nextTick();
-      },
-      changed() {},
-      error(cause) {
-        throw cause;
-      },
-    });
+    const accepted = rig.base.value;
     try {
       assert.equal(walk.addDoor({ x1: 120, y1: 130, x2: 145, y2: 150 }), true);
-      writes.edit("logic:1", logic.source.value);
-      const saving = writes.flush();
-      await started;
       assert.equal(walk.moveDoor("door-1", { x1: 121, y1: 130, x2: 145, y2: 150 }), true);
       const edited = logic.source.value;
-      writes.edit("logic:1", edited);
-      release();
-      // The older commit lands before the field edit's commit can start.
       await nextTick();
+      assert.equal(rig.base.value, accepted);
+      assert.equal(logic.dirty.value, true);
+      rig.base.value = {
+        source: edited,
+        bytes: assembleLogic(edited, { dictionary: new Map() }).payload,
+      };
       await nextTick();
-      assert.equal(
-        logic.source.value,
-        edited,
-        "the creation acknowledgement preserves newer input",
-      );
-      await saving;
       assert.equal(logic.source.value, edited);
       assert.equal(logic.dirty.value, false);
     } finally {
-      release();
-      writes.dispose();
       rig.stop();
     }
   });

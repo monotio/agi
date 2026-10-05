@@ -5,9 +5,7 @@ import { readGameZip } from "../src/archive/gameZip.ts";
 import { isolateStorage, openGameOptions, workspaceSaved } from "./engineProbe.ts";
 import { openWorkspaceLogic } from "./workspaceShared.ts";
 
-test("project download drains visible LOGIC before capturing its running identity", async ({
-  page,
-}) => {
+test("project download preserves the last update while LOGIC stays a draft", async ({ page }) => {
   await isolateStorage(page);
   await page.goto("/#create-adventure");
   await page
@@ -49,5 +47,5 @@ test("project download drains visible LOGIC before capturing its running identit
     ({ key }) => key === "logic:1",
   )?.content;
   expect(logic?.type).toBe("text");
-  if (logic?.type === "text") expect(logic.text).toContain("exported clearing");
+  if (logic?.type === "text") expect(logic.text).toContain("sunny clearing");
 });

@@ -211,3 +211,109 @@ test("one MAIN run admits PICTURE, LOGIC, WORDS and Undo; autosave reopens exact
   );
   again.dispose();
 });
+
+test("Update waits for the worker safe point and installs all parts with one Undo", async () => {
+  const documents = {
+    "logic:0":
+      'if (v40 == 0) { load.pic(0); draw.pic(0); show.pic(); assignn(v40,1); print("Wait"); } return;',
+    "picture:0": "vis 1\nfill 1,1\nend\n",
+    words: '[["look",10]]',
+  };
+  const compiled = compileProjectDocuments({
+    files: Object.fromEntries(createContainer().files),
+    documents,
+    profileId: "2.936",
+  });
+  const messages: WorkerControl[] = [];
+  const ctx = createWorkerContext({
+    control: (message) => messages.push(message),
+    presentation: () => {},
+    now: () => 100,
+    seedWord: () => 1,
+  });
+  ctx.host = createEngineHost(ctx);
+  onWorkerMessage(ctx, {
+    type: "boot",
+    files: Object.fromEntries(compiled.files()),
+    words: [["look", 10]],
+    profile: "2.936",
+    projectMode: "create",
+  });
+  await ctx.projectLoader.loading;
+  ctx.fns.stopTimers();
+  ctx.fns.hostTick();
+  const engine = ctx.engine!;
+  const boot = messages.find((message) => message.type === "booted");
+  assert.ok(boot?.type === "booted" && boot.projectAdmission);
+  let queryId = 0;
+  const query = (async (type: string, fields = {}) => {
+    onWorkerMessage(ctx, { type, id: ++queryId, ...fields } as WorkerInbound);
+    return messages.at(-1);
+  }) as WorkerQueryFn;
+  const admission = createMainProjectAdmission({
+    ...boot.projectAdmission,
+    query,
+    current: () => ctx.engine === engine,
+  });
+  let boundaries = 0;
+  const session = openProjectSession({
+    data: {
+      projectId: requireProjectId("update-worker"),
+      title: "Worker update",
+      authoredAt: "",
+      files: Object.fromEntries(compiled.files()),
+      words: [["look", 10]],
+      workspace: writeProjectWorkspace(documents),
+    },
+    lifetime: "initial",
+    admission,
+    boundary: async () => {
+      boundaries++;
+      assert.equal(engine.getPictureSurface().visual[161], 1);
+      onWorkerMessage(ctx, { type: "dismissPrint" });
+      ctx.fns.hostTick();
+    },
+    write: async (request) => ({
+      commitId: request.commitId,
+      workspaceId: request.workspaceId,
+      candidateHash: "a",
+      documents: request.documents,
+      saved: {
+        ...request.expected!,
+        generation: request.expected!.generation + 1,
+        buildId: request.buildId,
+      },
+    }),
+  });
+  const originalHistory = session.history.capture().commits.length;
+  assert.equal(
+    (
+      await session.update([
+        { key: "picture:0", content: "vis 4\nfill 1,1\nend\n" },
+        { key: "logic:0", content: "if (" },
+      ])
+    ).status,
+    "diagnostics",
+  );
+  assert.equal(engine.getPictureSurface().visual[161], 1);
+  assert.equal(session.history.capture().commits.length, originalHistory);
+  assert.equal(
+    (
+      await session.update([
+        { key: "picture:0", content: "vis 4\nfill 1,1\nend\n" },
+        { key: "words", content: '[["look",10],["inspect",10]]' },
+      ])
+    ).status,
+    "committed",
+  );
+  assert.ok(boundaries > 0);
+  assert.equal(ctx.engine, engine);
+  assert.equal(engine.getPictureSurface().visual[161], 4);
+  assert.equal(ctx.boot.liveDictionary.get("inspect"), 10);
+  assert.equal(session.history.capture().commits.length, originalHistory + 1);
+  assert.equal((await session.undo())?.status, "committed");
+  assert.equal(engine.getPictureSurface().visual[161], 1);
+  assert.equal(ctx.boot.liveDictionary.has("inspect"), false);
+  session.dispose();
+  ctx.fns.stopTimers();
+});

@@ -2028,6 +2028,8 @@ async function removeProjectRecords(
         for (const entry of captured) store.delete(entry.key);
         store.delete(`conversation/${project}`);
         store.delete(`draft/${project}`);
+        store.delete(`part-drafts/${project}`);
+        queuePrefixScan(store, `part-drafts/${project}/`, (_key, cursor) => cursor.delete());
         // Obsolete creative storage rows belong to this
         // lifetime: a reimport under the same id must not inherit them.
         store.delete(`creative/${project}`);

@@ -1,5 +1,5 @@
 import { test, expect } from "./test.ts";
-import { isolateStorage, textHook } from "./engineProbe.ts";
+import { isolateStorage, workspaceUpdated, textHook } from "./engineProbe.ts";
 import { encodePngRgba } from "../../src/creative/composite.ts";
 import type { Page } from "@playwright/test";
 import type { ProjectSession } from "../src/project/projectSession.ts";
@@ -65,6 +65,7 @@ test("trace an attachment and draw over it with normal tools", async ({ page }) 
   await page.getByRole("button", { name: "Trace an image", exact: true }).click({ timeout: 8000 });
   await upload(page);
   await expect(page.getByTestId("trace-opacity")).toBeVisible();
+  await workspaceUpdated(page);
   await page.getByTestId("trace-opacity").fill("0.7");
   await expect
     .poll(() =>
@@ -74,7 +75,7 @@ test("trace an attachment and draw over it with normal tools", async ({ page }) 
             window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }
           ).__AGI_PROJECT__
             .getSession()
-            .model.capture()
+            .workingSnapshot()
             .read("images")?.content,
       ),
     )
@@ -98,6 +99,7 @@ test("trace an attachment and draw over it with normal tools", async ({ page }) 
   // Cover samples the second figure, whose orange snaps to EGA brown (170, 85, 0).
   expect(Math.abs(referencePixel[1]! - (85 * 0.7 + 255 * 0.3))).toBeLessThanOrEqual(1);
   expect(Math.abs(referencePixel[2]! - 255 * 0.3)).toBeLessThanOrEqual(1);
+  await workspaceUpdated(page);
   const commits = await page.evaluate(
     () =>
       (window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }).__AGI_PROJECT__
@@ -114,6 +116,7 @@ test("trace an attachment and draw over it with normal tools", async ({ page }) 
   await page.mouse.down();
   await page.mouse.move(box.x + 40.5 * 2 * zoom, box.y + 130.5 * zoom, { steps: 4 });
   await page.mouse.up();
+  await workspaceUpdated(page);
   await expect
     .poll(() => page.evaluate(() => window.__AGI_FRAME__?.()?.visual[120 * 160 + 30]))
     .toBe(4);
@@ -138,14 +141,12 @@ test("trace an attachment and draw over it with normal tools", async ({ page }) 
           (
             window as unknown as {
               __AGI_PROJECT__: {
-                getSession(): {
-                  model: { capture(): { read(key: string): { content: string } | undefined } };
-                };
+                getSession(): ProjectSession;
               };
             }
           ).__AGI_PROJECT__
             .getSession()
-            .model.capture()
+            .workingSnapshot()
             .read("images")?.content,
       ),
     )
@@ -159,6 +160,7 @@ test("trace an attachment and draw over it with normal tools", async ({ page }) 
   await expect(page.getByTestId("trace-opacity")).toHaveValue("0.7");
   await page.getByRole("button", { name: "Undo", exact: true }).click();
   await page.getByRole("button", { name: "Undo", exact: true }).click();
+  await expect(page.getByTestId("trace-opacity")).toBeVisible();
   await expect(page.getByTestId("trace-opacity")).toHaveValue("0.4");
   await page.getByRole("button", { name: "Redo", exact: true }).click();
   await expect(page.getByTestId("trace-opacity")).toHaveValue("0.7");
@@ -180,7 +182,7 @@ test("trace an attachment and draw over it with normal tools", async ({ page }) 
             window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }
           ).__AGI_PROJECT__
             .getSession()
-            .model.capture()
+            .workingSnapshot()
             .read("images")?.content,
       ),
     )
@@ -284,6 +286,9 @@ test("make a four-cel walk loop and preview it on the running hero", async ({ pa
         .capture().history.commits.length,
   );
   await page.getByTestId("image-add-cels").click();
+  await page.getByTestId("workspace-update-menu").click();
+  await page.getByRole("menuitem", { name: "Update and restart this room", exact: true }).click();
+  await expect(page.getByTestId("workspace-updated")).toBeVisible();
   await expect(page.getByTestId("workspace-saved")).toBeVisible();
   await expect(page.getByTestId("workspace-saved")).toContainText("Saved");
   await expect(page.getByTestId("image-status")).toBeVisible();
@@ -338,6 +343,8 @@ test("Generate sends one styled request and Use this opens tracing", async ({ pa
   });
   await page.getByTestId("part-room:1:picture:1").click();
   await expect(page.getByTestId("room-studio")).toHaveClass(/is-live-game/);
+  await page.evaluate(() => document.fonts.ready);
+  await page.locator('[data-layer="art"] canvas').hover();
   const normalCanvas = (await page.locator('[data-layer="art"] canvas').boundingBox())!;
   const normalEditor = (await page.getByTestId("workspace-editor").boundingBox())!;
   await page.getByRole("button", { name: "Generate", exact: true }).click({ timeout: 8000 });
@@ -359,7 +366,7 @@ test("Generate sends one styled request and Use this opens tracing", async ({ pa
       () =>
         (window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }).__AGI_PROJECT__
           .getSession()
-          .model.capture()
+          .workingSnapshot()
           .read("images")?.content,
     ),
   ).toContain("A tree reference");
@@ -405,9 +412,10 @@ test("rewind preserves saved PNG attachments and trace settings", async ({ page 
       const session = (
         window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }
       ).__AGI_PROJECT__.getSession();
-      return session.model.capture().read("images")?.content;
+      return session.workingSnapshot().read("images")?.content;
     });
   await expect.poll(images).toContain('"opacity":0.4');
+  await workspaceUpdated(page);
   await page.evaluate(() =>
     (window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }).__AGI_PROJECT__
       .getSession()
@@ -454,13 +462,13 @@ for (const close of [false, true]) {
       const session = (
         window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }
       ).__AGI_PROJECT__.getSession();
-      const submit = session.submit.bind(session);
+      const stage = session.stage.bind(session);
       const admitted = new Promise<void>((resolve) =>
         window.addEventListener("admit-trace-upload", () => resolve(), { once: true }),
       );
-      session.submit = async (edit) => {
-        if (edit.label === "Trace an image") await admitted;
-        return submit(edit);
+      session.stage = async (changes) => {
+        if (changes.some(({ key }) => key.startsWith("attachment:"))) await admitted;
+        return stage(changes);
       };
     });
     await upload(page);
@@ -482,7 +490,7 @@ for (const close of [false, true]) {
               window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }
             ).__AGI_PROJECT__
               .getSession()
-              .model.capture()
+              .workingSnapshot()
               .read("images")?.content,
         ),
       )
@@ -509,7 +517,7 @@ test("trace opacity previews during input and serializes quick releases", async 
         window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }
       ).__AGI_PROJECT__.getSession();
       return {
-        images: session.model.capture().read("images")?.content,
+        images: session.workingSnapshot().read("images")?.content,
         commits: session.capture().history.commits.length,
       };
     });
@@ -549,7 +557,7 @@ test("trace opacity previews during input and serializes quick releases", async 
   await expect(slider).toHaveValue("0.8");
 });
 
-test("trace arrow keys make one History step for a typing burst", async ({ page }) => {
+test("trace arrow keys stay draft until Update makes one History step", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await start(page);
   await page.getByTestId("part-room:1:picture:1").click();
@@ -575,7 +583,7 @@ test("trace arrow keys make one History step for a typing burst", async ({ page 
           window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }
         ).__AGI_PROJECT__
           .getSession()
-          .model.capture()
+          .workingSnapshot()
           .read("images")?.content;
         return typeof content === "string"
           ? JSON.parse(content).traces["picture:1"].transform.x
@@ -583,5 +591,8 @@ test("trace arrow keys make one History step for a typing burst", async ({ page 
       }),
     )
     .toBe(4);
+  expect(await count()).toBe(before);
+  await expect(page.getByTestId("workspace-pending")).toBeVisible();
+  await workspaceUpdated(page);
   expect(await count()).toBe(before + 1);
 });

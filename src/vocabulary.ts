@@ -594,7 +594,7 @@ export const VOCABULARY = {
   nameVersion: {
     id: "nameVersion",
     label: "Name this version",
-    help: "Saves the visible edits and names this version, including source with errors.",
+    help: "Names the game's last update so you can find it in History.",
     technical: "",
   },
   agent: {

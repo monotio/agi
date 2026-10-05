@@ -1,5 +1,5 @@
-import type { ProjectContent } from "../../src/authoring/projectContent.ts";
-import { createWorkspaceWrites } from "../src/studio/workspace/workspaceWrites.ts";
+import { installIndexedDbFixture } from "./indexedDbFixture.ts";
+const draftRecords = installIndexedDbFixture();
 import { AgentRun } from "../src/agent/agentRun.ts";
 import { MODEL_CAPABILITIES } from "../../src/agent/modelEffort.ts";
 import { providerSse } from "../../test/provider-stream.ts";
@@ -72,6 +72,7 @@ function fixture(
   beforeApprove?: () => Promise<void>,
 ) {
   let savedData: CachedGameData | undefined;
+  const projectId = initial?.projectId ?? requireProjectId(`agent-test-${++seq}`);
   const documents = {
     "logic:0": "return;",
     "picture:1": "vis 1\nfill 0,0\nend\n",
@@ -84,7 +85,7 @@ function fixture(
   });
   const session = openProjectSession({
     data: initial ?? {
-      projectId: requireProjectId(`agent-test-${++seq}`),
+      projectId,
       title: "Test",
       roomGeneration,
       ...(chats ? { chats } : {}),
@@ -179,7 +180,7 @@ function fixture(
       };
     },
   });
-  return { session, agent, sent, resumed, documents, saved: () => savedData! };
+  return { session, agent, sent, resumed, documents, projectId, saved: () => savedData! };
 }
 test("one coordinated review selects resources, records a chat checkpoint and undoes all admitted changes", async () => {
   const { session, agent, documents } = fixture();
@@ -236,51 +237,59 @@ test("reject, auto-approve and stale proposals preserve the manual base", async 
 });
 for (const mode of ["review", "auto"] as const) {
   for (const refused of [false, true]) {
-    test(`${mode} approval drains pending typing and holds the review when ${refused ? "saving fails" : "the edit changes its base"}`, async () => {
-      const { session, agent } = fixture(undefined, true, undefined, undefined, () =>
-        writes.flush(),
-      );
-      let buffers: Readonly<Record<string, ProjectContent>> = {};
-      const writes = createWorkspaceWrites({
-        async write(key, content) {
-          if (refused) throw new Error("storage refused");
-          await session.submit({
-            proposal: session.model.propose(session.model.capture(), "Typing", [{ key, content }]),
-            label: "Typing",
-            origin: "logic",
-            author: "creator",
-          });
-        },
-        changed(drafts) {
-          buffers = drafts;
-        },
-        error() {},
-      });
-      let typed = false;
-      agent.subscribe(() => {
-        if (agent.pending() && !typed) {
-          typed = true;
-          writes.edit("logic:0", 'print("Creator typing"); return;');
-        }
-      });
-      agent.autoApprove = mode === "auto";
-      await agent.send("Add sign");
-      if (mode === "review")
-        await assert.rejects(agent.approve(), refused ? /storage refused/ : /changed/);
-      assert.ok(agent.pending(), "the review remains available for manual approval");
-      assert.equal(
-        session.history.capture().commits.some((commit) => commit.author === "agent"),
-        false,
-      );
-      if (refused) assert.equal(buffers["logic:0"], 'print("Creator typing"); return;');
-      else
-        assert.equal(
-          session.model.capture().read("logic:0")!.content,
-          'print("Creator typing"); return;',
+    test(
+      mode +
+        " approval saves creator drafts " +
+        (refused ? "and holds review on a refused write" : "and updates approved agent changes"),
+      async () => {
+        const { session, agent, projectId } = fixture(undefined, true, undefined, undefined, () =>
+          session.drafts().flush(),
         );
-      writes.dispose();
-      session.dispose();
-    });
+        const id = projectId;
+        draftRecords.set(`lifetime/${id}`, {
+          projectId: `lifetime/${id}`,
+          epoch: "test",
+          deleted: false,
+        });
+        await session.drafts().ready;
+        let typed = false;
+        agent.subscribe(() => {
+          if (agent.pending() && !typed) {
+            typed = true;
+            session
+              .drafts()
+              .stage([{ key: "logic:0", content: 'print("Creator typing"); return;' }]);
+          }
+        });
+        const set = draftRecords.set.bind(draftRecords);
+        draftRecords.set = (key, value) => {
+          if (refused && typeof key === "string" && key.startsWith("part-drafts/"))
+            throw new Error("storage refused");
+          return set(key, value);
+        };
+        try {
+          agent.autoApprove = mode === "auto";
+          await agent.send("Add sign");
+          if (mode === "review") {
+            if (refused) await assert.rejects(agent.approve(), /storage refused/);
+            else await agent.approve();
+          }
+          assert.equal(Boolean(agent.pending()), refused);
+          assert.equal(
+            session.history.capture().commits.some((commit) => commit.author === "agent"),
+            !refused,
+          );
+          assert.equal(session.drafts().changes()[0]?.content, 'print("Creator typing"); return;');
+          assert.notEqual(
+            session.model.capture().read("logic:0")!.content,
+            'print("Creator typing"); return;',
+          );
+        } finally {
+          draftRecords.set = set;
+          session.dispose();
+        }
+      },
+    );
   }
 }
 test("New chat isolates requests, resume retains transcript and background tasks keep the active chat", async () => {

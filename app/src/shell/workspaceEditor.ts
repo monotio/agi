@@ -15,8 +15,13 @@ export function createWorkspaceEditor(engine: EngineApi) {
   const debugging = ref(false);
   const debugStatus = ref("");
   const flush = shallowRef<() => Promise<void>>();
-  const discard = shallowRef<() => void>();
+  const discard = shallowRef<() => Promise<void>>();
   const retry = shallowRef<() => Promise<void>>();
+  const update = shallowRef<(restartRoom?: boolean) => Promise<void>>();
+  const discardDrafts = shallowRef<() => Promise<void>>();
+  const changeCount = ref(0);
+  const problemCount = ref(0);
+  const updatedParts = ref(0);
   const pictureLive = ref(false);
   const stageSolo = ref(false);
   const stagePaused = ref(false);
@@ -147,6 +152,7 @@ export function createWorkspaceEditor(engine: EngineApi) {
     const session = engine.getProjectSession();
     if (!session || busy.value || readOnly.value) return;
     busy.value = true;
+    updatedParts.value = 0;
     save.value = "Saving…";
     error.value = "";
     try {
@@ -179,6 +185,7 @@ export function createWorkspaceEditor(engine: EngineApi) {
     }
   }
   function reset(): void {
+    changeCount.value = problemCount.value = updatedParts.value = 0;
     nameLocation.value = undefined;
     studioRequests.value = {};
     selected.value = undefined;
@@ -204,6 +211,11 @@ export function createWorkspaceEditor(engine: EngineApi) {
     flush,
     discard,
     retry,
+    update,
+    discardDrafts,
+    changeCount,
+    problemCount,
+    updatedParts,
     pictureLive,
     stageSolo,
     stagePaused,

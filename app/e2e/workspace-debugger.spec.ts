@@ -1,3 +1,4 @@
+import { workspaceUpdated } from "./engineProbe.ts";
 import { test, expect, reviewShot } from "./test.ts";
 import { isolateStorage, textHook } from "./engineProbe.ts";
 import type { Page, Locator } from "@playwright/test";
@@ -192,7 +193,7 @@ test("stopped edits keep the running source, value edits and watches inspect MAI
   await expect.poll(async () => (await textHook(page)).rows.join("\n")).toContain("sunny clearing");
   await page.keyboard.press("Control+`");
   await page.keyboard.press("Enter");
-  await expect(page.getByTestId("workspace-saved")).toContainText("Saved");
+  await workspaceUpdated(page);
   await expect(page.getByRole("button", { name: "Show running source", exact: true })).toHaveCount(
     0,
   );
@@ -204,6 +205,7 @@ test("stopped edits keep the running source, value edits and watches inspect MAI
         ).__AGI_PROJECT__.getSession().runToken,
     ),
   ).toBe(token);
+  await page.keyboard.press("Control+`");
   await page.keyboard.type("look");
   await page.keyboard.press("Enter");
   await expect(page.getByTestId("workspace-debug-status")).toContainText("Paused at LOGIC 1");

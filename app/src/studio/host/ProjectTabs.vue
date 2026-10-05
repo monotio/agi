@@ -11,7 +11,12 @@ import { computed, nextTick, ref, useTemplateRef, watch } from "vue";
 import UiChip from "../../ui/UiChip.vue";
 import type { ProjectStudioTab } from "./projectStudioDocuments.ts";
 
-const { tabs, selectedKey = null } = defineProps<{
+const {
+  tabs,
+  selectedKey = null,
+  pending = false,
+} = defineProps<{
+  readonly pending?: boolean;
   /** The open document rows, in the host's tab order. */
   readonly tabs: readonly ProjectStudioTab[];
   /** The selected document key, or null on the overview. */
@@ -116,7 +121,7 @@ watch(
 
 function tabLabel(tab: ProjectStudioTab): string {
   const base = tab.name ?? tab.label;
-  const state = `${tab.missing && !tab.dirty ? ", missing" : ""}${tab.dirty ? ", unsaved changes" : ""}`;
+  const state = `${tab.missing && !tab.dirty ? ", missing" : ""}${tab.dirty ? (pending ? ", pending change" : ", unsaved changes") : ""}`;
   return `${base}${state}`;
 }
 </script>
@@ -161,10 +166,13 @@ function tabLabel(tab: ProjectStudioTab): string {
         <span
           class="project-tabs__dot"
           :class="{ 'project-tabs__dot--dirty': tab.dirty }"
-          aria-hidden="true"
+          :aria-hidden="!pending || !tab.dirty"
+          :aria-label="pending && tab.dirty ? 'Pending change' : undefined"
         ></span>
         <span class="project-tabs__text">{{ tab.name ?? tab.label }}</span>
-        <UiChip v-if="tab.missing" tone="warn">{{ tab.dirty ? "Not saved" : "Missing" }}</UiChip>
+        <UiChip v-if="tab.missing" tone="warn">{{
+          tab.dirty ? (pending ? "Draft" : "Not saved") : "Missing"
+        }}</UiChip>
       </button>
       <button
         type="button"
