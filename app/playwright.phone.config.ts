@@ -12,6 +12,7 @@ export default defineConfig({
   testMatch: [
     "workspace-stage.spec.ts",
     "workspace-layout.spec.ts",
+    "workspace-phone-controls.spec.ts",
     "workspace-polish.spec.ts",
     "workspace-parity.spec.ts",
     "picture-palette.spec.ts",

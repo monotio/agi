@@ -348,6 +348,7 @@
   }
   .in-game .shell-body--workspace > .play-area {
     grid-column: 1;
+    overflow: auto;
   }
   .in-game
     .shell-body--workspace:not(.shell-body--picture):not(.shell-body--solo):not(
