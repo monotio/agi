@@ -52,30 +52,31 @@ for (const successfulFirst of [false, true]) {
       await workspaceSaved(page);
     }
     await page.evaluate(() => {
-      const session = (
-        window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }
-      ).__AGI_PROJECT__.getSession();
-      const drafts = session.drafts();
-      const flush = drafts.flush;
-      let fail = true;
-      drafts.flush = () => {
-        if (fail) {
-          fail = false;
-          return Promise.reject(new Error("Injected note draft write failure"));
-        }
-        return flush();
+      const put = IDBObjectStore.prototype.put;
+      IDBObjectStore.prototype.put = function (...args) {
+        if (String((args[0] as { projectId?: string }).projectId).startsWith("part-drafts/"))
+          throw new Error("Injected note draft write failure");
+        return put.apply(this, args);
       };
+      Object.assign(window, {
+        allowNoteWrites: () => {
+          IDBObjectStore.prototype.put = put;
+        },
+      });
     });
     await notes.fill("note kept after refusal");
     await openGameOptions(page, "settings-menu");
     await page.getByTestId("btn-exit").click();
+    await expect(page.getByTestId("eject-refusal")).toBeVisible();
     await expect(page.getByTestId("eject-refusal")).toContainText(
       "Injected note draft write failure",
     );
     await expect(page.getByTestId("parts-list")).toBeVisible();
     await expect(notes).toHaveValue("note kept after refusal");
+    await expect(page.getByTestId("workspace-saved")).toBeVisible();
     await expect(page.getByTestId("workspace-saved")).toHaveText("Could not save. Retry");
     await page.screenshot({ path: test.info().outputPath("failed-save.png") });
+    await page.evaluate(() => (window as unknown as { allowNoteWrites(): void }).allowNoteWrites());
     await page.getByTestId("eject-retry").click();
     await expect(page.getByTestId("saved-game-gallery")).toBeVisible();
     await openStoredWorkspace(page, "Save boundaries");

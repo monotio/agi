@@ -121,10 +121,14 @@ for (const [width, height] of [
           [
             {
               key: "logic:1",
-              content: source.replace(
-                "player.control();",
-                "program.control(); move.obj(o0, 140, 140, 1, f180);",
-              ),
+              content: source
+                .replace("player.control();", "program.control(); move.obj(o0, 140, 140, 1, f180);")
+                .replace(
+                  /return;\s*$/,
+                  "if(isset(f180)){reset(f180);move.obj(o0,110,140,1,f181);}" +
+                    "if(isset(f181)){reset(f181);move.obj(o0,140,140,1,f180);}" +
+                    "return;\n",
+                ),
             },
           ],
           true,
@@ -189,7 +193,7 @@ for (const [width, height] of [
       const cycle = (await textHook(page)).cycle;
       const egoX = (await textHook(page)).egoX;
       await expect.poll(async () => (await textHook(page)).cycle).toBeGreaterThan(cycle);
-      await expect.poll(async () => (await textHook(page)).egoX).toBeGreaterThan(egoX);
+      await expect.poll(async () => (await textHook(page)).egoX).not.toBe(egoX);
       const shot = await page.screenshot({
         path: test.info().outputPath(`update-${width}.png`),
         animations: "disabled",

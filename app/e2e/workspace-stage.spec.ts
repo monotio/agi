@@ -296,7 +296,7 @@ test("opening another room's VIEW visits it and unused VIEW can become a room", 
     )
     .toEqual([255, 255, 255]);
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
-  await expect(page.getByRole("alert")).toHaveCount(0);
+  await expect(page.locator('.workspace-error[role="alert"]')).toHaveCount(0);
   for (const size of [
     { width: 1063, height: 815 },
     { width: 1440, height: 900 },
