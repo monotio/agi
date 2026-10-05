@@ -264,6 +264,7 @@ onUnmounted(() => {
               }"
               :data-testid="`${model.speedTestid}${s}`"
               :title="model.speedTitle(s)"
+              :aria-pressed="model.speed === s"
               @click="
                 model.setSpeed(s);
                 releaseFocus($event);
@@ -631,7 +632,8 @@ onUnmounted(() => {
   font-size: var(--text-xs);
   line-height: 1;
 }
-.transport-speed-btn--active {
+.transport-speed-btn--active,
+.transport-speed-btn--active:hover:not(:disabled) {
   color: var(--action-ink);
   background: var(--action);
 }

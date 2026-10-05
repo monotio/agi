@@ -188,16 +188,55 @@ export function createHistoryView(
       if (!opened) endView(false);
       return;
     }
-    view.request = null;
     ctx.replay.isSeeking = false;
     scratch.replay.isSeeking = false;
-    scratch.fns.postFrame();
-    postReport(requestId, true);
-    // A start that could not open the tape leaves no half-open session.
-    if (!opened) {
-      if (drive.error !== null) endView(false);
-      else opened = true;
+    const finish = (): void => {
+      view.request = null;
+      postReport(requestId, true);
+      // A start that could not open the tape leaves no half-open session.
+      if (!opened) {
+        if (drive.error !== null) endView(false);
+        else opened = true;
+      }
+    };
+    if (scratch.cycle.initialLogicStarted || drive.error !== null) {
+      scratch.fns.postFrame();
+      finish();
+      return;
     }
+    // Before LOGIC 0 runs, the picture allocation is white. Present the
+    // first frame from a separate replay; the selected drive stays exact,
+    // including its tick, queues and eligibility for Resume from here.
+    const preview = openDrive(view.recording!.segments[view.segment]!, drive.tick);
+    preview.ctx.replay.isSeeking = true;
+    const presentStart = (): void => {
+      if (view.request !== requestId) return;
+      const start = ctx.ports.now();
+      let presented = false;
+      while (!preview.halted && !presented) {
+        preview.step();
+        const engine = preview.ctx.engine;
+        presented =
+          engine !== null &&
+          (engine.readLeanState().pictureShown ||
+            engine.textModeActive ||
+            engine.modalKind !== null);
+        if (!presented && ctx.ports.now() - start > CHUNK_BUDGET_MS) {
+          view.timer = setTimeout(() => {
+            view.timer = null;
+            presentStart();
+          }, 0);
+          return;
+        }
+      }
+      if (presented && preview.error === null) {
+        preview.ctx.replay.isSeeking = false;
+        preview.ctx.fns.postFrame();
+      }
+      // An empty tape has no presented frame: retain the current surface.
+      finish();
+    };
+    presentStart();
   }
 
   /**
