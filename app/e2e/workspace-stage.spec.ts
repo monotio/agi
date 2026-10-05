@@ -233,6 +233,17 @@ test("unused picture becomes a room in one Undo step", async ({ page }) => {
   await page.getByTestId("workspace-undo").click();
   await expect(page.getByTestId("workspace-unused")).toBeVisible();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const session = (
+          window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }
+        ).__AGI_PROJECT__.getSession();
+        const build = session.model.capture().lastAdmissibleBuild!;
+        return [...build.files().get("LOGDIR")!.slice(6, 9)];
+      }),
+    )
+    .toEqual([255, 255, 255]);
   await page.getByTestId("workspace-redo").click();
   await expect.poll(async () => (await textHook(page)).room).toBe(2);
   await expect(page.getByTestId("room-studio").filter({ visible: true })).toHaveClass(
@@ -240,6 +251,9 @@ test("unused picture becomes a room in one Undo step", async ({ page }) => {
   );
   await page.getByTestId("workspace-undo").click();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  await expect(page.getByTestId("workspace-unused")).toBeVisible();
+  await page.getByRole("button", { name: "Make it a room", exact: true }).click();
+  await expect.poll(async () => (await textHook(page)).room).toBe(2);
 });
 
 test("opening another room's VIEW visits it and unused VIEW can become a room", async ({
@@ -257,6 +271,20 @@ test("opening another room's VIEW visits it and unused VIEW can become a room", 
   await page.getByRole("button", { name: "Make it a room", exact: true }).click();
   await expect.poll(async () => (await textHook(page)).room).toBe(2);
   await expect(page.getByTestId("workspace-unused")).toHaveCount(0);
+  await page.getByTestId("workspace-undo").click();
+  await expect(page.getByTestId("workspace-unused")).toBeVisible();
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const session = (
+          window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }
+        ).__AGI_PROJECT__.getSession();
+        return [...session.model.capture().lastAdmissibleBuild!.files().get("LOGDIR")!.slice(6, 9)];
+      }),
+    )
+    .toEqual([255, 255, 255]);
+  await page.getByRole("button", { name: "Make it a room", exact: true }).click();
+  await expect.poll(async () => (await textHook(page)).room).toBe(2);
 });
 
 for (const size of [

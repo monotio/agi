@@ -97,11 +97,14 @@ export function inspectProjectReferences(input: {
   readonly dependencies: Readonly<Record<string, readonly string[]>>;
   /** Damaged inputs prevent a complete inventory of their uses. */
   readonly unknownDocuments: readonly string[];
+  /** Native LOGIC bytes for the removal review's contextual target analysis. */
+  readonly logics: ReadonlyMap<number, Uint8Array>;
 } {
   const { container, profile } = input;
   const references: Reference[] = [];
   const diagnostics: Diagnostic[] = [];
   const unknown = new Set<string>();
+  const logics = new Map<number, Uint8Array>();
   const dependencies: Record<string, Set<string>> = Object.create(null);
   const unreadable = (document: string, error: unknown): void => {
     unknown.add(document);
@@ -145,6 +148,7 @@ export function inspectProjectReferences(input: {
     try {
       const payload = container.getResource("logic", num);
       if (!payload) continue;
+      logics.set(num, payload);
       const decoded = inspectLogicResource(payload, { profile, dictionary });
       for (const message of decoded.warnings) {
         unknown.add(document);
@@ -249,5 +253,6 @@ export function inspectProjectReferences(input: {
       Object.entries(dependencies).map(([key, values]) => [key, [...values].sort()]),
     ),
     unknownDocuments: [...unknown].sort(),
+    logics,
   };
 }

@@ -8,6 +8,9 @@ import { prepareWorkspaceAction } from "../src/studio/workspace/workspaceGuided.
 import { compileProjectDocuments } from "../../src/authoring/projectDocuments.ts";
 import { emptyWorkspaceChanges } from "../src/studio/workspace/emptyWorkspace.ts";
 import { readProjectDocuments } from "../../src/authoring/projectDocuments.ts";
+import { prepareProjectEdit } from "../../src/authoring/projectEdit.ts";
+import { ProjectHistory } from "../../src/authoring/projectHistory.ts";
+import { openContainer } from "../../src/container/container.ts";
 
 function starterModel(): ProjectModel {
   const starter = createStarterProject("starter");
@@ -25,6 +28,73 @@ function starterModel(): ProjectModel {
     documents,
     build: compileProjectDocuments({ files, documents, profileId: starter.profileId }),
     digest: sha256Hex,
+  });
+}
+
+for (const key of ["picture:9", "view:9"]) {
+  test(`Make it a room, Undo and Make it a room again rebuild native resources for ${key}`, () => {
+    const model = starterModel();
+    const art = key.startsWith("picture:")
+      ? "vis 5\nfill 0,0\nend\n"
+      : model.capture().read("view:0")!.content;
+    const added = prepareProjectEdit({
+      model,
+      proposal: model.propose(model.capture(), "Add art", [{ key, content: art }]),
+      profileId: "2.936",
+      policy: {},
+    });
+    assert.equal(added.status, "ready");
+    model.apply(added.application);
+    const history = new ProjectHistory(sha256Hex);
+    history.record(model.capture().documents(), {
+      label: "Art",
+      origin: "template",
+      author: "creator",
+      time: 0,
+    });
+    const makeRoom = () => {
+      const prepared = prepareWorkspaceAction(model.capture(), "2.936", { kind: "make-room", key });
+      assert.ok(prepared.ok, JSON.stringify(prepared));
+      const edit = prepareProjectEdit({
+        model,
+        proposal: model.propose(model.capture(), prepared.label, prepared.changes),
+        profileId: "2.936",
+        policy: {},
+      });
+      assert.equal(edit.status, "ready", JSON.stringify(edit.diagnostics));
+      model.apply(edit.application);
+      return prepared.changes.find(({ key }) => key.startsWith("logic:"))!.key;
+    };
+    const logicKey = makeRoom();
+    const room = Number(logicKey.slice(6));
+    assert.ok(
+      openContainer(model.capture().lastAdmissibleBuild!.files()).getResource("logic", room),
+    );
+    history.record(model.capture().documents(), {
+      label: "Make it a room",
+      origin: "guided",
+      author: "creator",
+      time: 1,
+    });
+    const undo = history.undo(model)!;
+    const reverted = prepareProjectEdit({
+      model,
+      proposal: undo.proposal,
+      profileId: "2.936",
+      policy: {},
+    });
+    model.apply(reverted.application);
+    history.accept(undo);
+    assert.equal(model.capture().read(logicKey), undefined);
+    assert.equal(
+      openContainer(model.capture().lastAdmissibleBuild!.files()).getResource("logic", room),
+      null,
+      JSON.stringify(reverted.diagnostics),
+    );
+    assert.equal(makeRoom(), logicKey);
+    assert.ok(
+      openContainer(model.capture().lastAdmissibleBuild!.files()).getResource("logic", room),
+    );
   });
 }
 

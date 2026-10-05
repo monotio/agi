@@ -8,14 +8,15 @@
  * associations) and every unselected open draft that could still name a
  * removed ID.
  *
- * This is an inventory of uses, not data-flow proof: a variable-operand target
- * stays unresolved and blocks only same-family removal, and input a checker
+ * LOGIC and PICTURE targets use room-flow analysis; other variable resource operands
+ * block same-family removal. Input a checker
  * cannot enumerate — an unreadable document, damaged draft source, an opaque
  * test save image or an unrecognized references entry — refuses rather than
  * guesses. Approval matching, storage CAS and the durable write belong to the
  * calling service.
  */
 import { parseGameTests, type GameTestsDocument } from "../agent/gameTestFormat.ts";
+import { createRoomFlow, VAR_WRITES } from "../agent/roomFlow.ts";
 import { openContainer } from "../container/container.ts";
 import type { AgiProfile } from "../runtime/profile.ts";
 import { validateAuthoringState, type AuthoringState } from "./authoringState.ts";
@@ -75,6 +76,70 @@ function reason(error: unknown): string {
 }
 
 type Report = (document: string, message: string) => void;
+
+function inspectFlowTargets(
+  input: ProjectRemovalInput,
+  removed: readonly RemovedResource[],
+  report: Report,
+): void {
+  const resources = removed.filter(({ kind }) => kind === "logic" || kind === "picture");
+  if (!resources.length) return;
+  const flow = createRoomFlow(input.image.logics, input.profile, { admission: true });
+  const rooms = new Set<number>();
+  let currentRoomKnown = true;
+  // Between invocations v0 holds boot's 0, a literal authored write, or a
+  // new.room target. Close that set over the analyzed transitions rather than
+  // assuming every existing LOGIC (including a newly created room) is reachable.
+  // A computed write to v0 or an indirect write defeats this invariant. All
+  // other entry variables retain the analysis' unknown bit across invocations.
+  for (const insns of flow.instructions.values())
+    for (const insn of insns) {
+      if (insn.name === "assignn" && insn.args?.[0] === 0) rooms.add(insn.args[1]!);
+      else if (
+        ["lindirectn", "lindirectv"].includes(insn.name ?? "") ||
+        (VAR_WRITES[insn.name ?? ""] ?? []).some((pos) => insn.args?.[pos] === 0)
+      )
+        currentRoomKnown = false;
+    }
+  const called = new Set<number>();
+  const scannedRooms = new Set<number>();
+  const inspect = (scan: ReturnType<typeof flow.scan>): void => {
+    for (const callee of scan.calls) called.add(callee);
+    for (const target of scan.targets) rooms.add(target.to);
+    for (const use of scan.resourceUses)
+      for (const { key, kind, num } of resources) {
+        const document = `logic:${use.logic}`;
+        if (use.kind === kind && use.targets.includes(num))
+          report(
+            document,
+            `${key} is still used by ${document} at offset ${use.offset} (${use.command}).`,
+          );
+        if (use.unknown && (use.kind === kind || use.kind === "logic"))
+          report(
+            document,
+            `${key} may still be used: ${document} at offset ${use.offset} (${use.command}) has a computed or unresolved ${use.kind.toUpperCase()} target.`,
+          );
+      }
+  };
+  const inspectRooms = (): void => {
+    if (!currentRoomKnown || !input.image.logics.has(0)) return;
+    // Set iteration visits newly resolved destinations as the closure grows.
+    for (const room of rooms) {
+      if (scannedRooms.has(room)) continue;
+      scannedRooms.add(room);
+      inspect(flow.scan(0, room, true));
+    }
+  };
+  if (input.image.logics.has(0)) {
+    inspect(currentRoomKnown ? flow.scan(0, 0, true, true) : flow.scan(0));
+    inspectRooms();
+  }
+  // An uncalled resource can be an editor entry point. Analyze its targets as
+  // well, while helpers already visited through callers keep those bindings.
+  for (const num of input.image.logics.keys())
+    if (num !== 0 && !called.has(num)) inspect(flow.scan(num));
+  inspectRooms();
+}
 
 function inspectWorldPlan(
   document: string,
@@ -293,6 +358,7 @@ export function inspectProjectRemoval(input: ProjectRemovalInput): readonly Remo
   for (const reference of input.image.references) {
     const target = reference.target;
     if ("variable" in target) {
+      if (target.kind === "logic" || target.kind === "picture") continue;
       for (const { key, kind } of removed)
         if (kind === target.kind)
           report(
@@ -310,6 +376,8 @@ export function inspectProjectRemoval(input: ProjectRemovalInput): readonly Remo
         `${key} is still used by ${reference.document} (${reference.command}).`,
       );
   }
+
+  inspectFlowTargets(input, removed, report);
 
   inspectBindingReservations("bindings", input.authoring.bindings, removedKeys, report);
   inspectWorldPlan("world", input.authoring.world, removedKeys, report);

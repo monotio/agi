@@ -86,6 +86,58 @@ test("a variable-operand target blocks only its own family's removal", () => {
   );
 });
 
+test("resolved variable room, call and load targets allow an unrelated LOGIC removal", () => {
+  const image = imageFor({
+    "0": "assignn(v60,1);load.logics.v(v60);call.v(v60);return;",
+    "1": "assignn(v61,7);new.room.v(v61);return;",
+    "7": "return;",
+  });
+  assert.deepEqual(review({ removals: ["logic:42"], image }), []);
+  assert.ok(review({ removals: ["logic:7"], image }).length > 0);
+});
+
+test("boot and resolved transitions bound the current-room dispatch across shared calls", () => {
+  const image = imageFor({
+    "0": "if(v0==0){assignn(v0,1);new.room.v(v0);}assignn(v60,7);call.v(v0);return;",
+    "1": "call(9);return;",
+    "9": "new.room.v(v60);return;",
+    "7": "return;",
+  });
+  assert.deepEqual(review({ removals: ["logic:42"], image }), []);
+  assert.ok(review({ removals: ["logic:7"], image }).length > 0);
+});
+
+test("a computed target refuses removal with its LOGIC and code offset", () => {
+  const image = imageFor({ "0": "call(1);return;", "1": "get.num(1,v60);new.room.v(v60);return;" });
+  const findings = review({ removals: ["logic:42"], image });
+  assert.ok(
+    findings.some(({ message }) => /logic:1 at offset 3.*new.room.v.*computed/.test(message)),
+  );
+});
+
+for (const write of ["get.num(1,v0);", "assignn(v60,0);lindirectn(v60,42);"]) {
+  test(`a current-room clobber keeps dispatch uncertain: ${write}`, () => {
+    const image = imageFor({
+      "0": "if(v0==0){new.room(1);}call.v(v0);return;",
+      "1": `${write}return;`,
+    });
+    const findings = review({ removals: ["logic:42"], image });
+    assert.ok(findings.some(({ message }) => /offset.*call.v.*computed/.test(message)));
+  });
+}
+
+test("a saved scan start keeps a skipped target assignment uncertain", () => {
+  const image = imageFor({
+    "0": "call(1);return;",
+    "1": "assignn(v60,7);set.scan.start();new.room.v(v60);return;",
+  });
+  assert.ok(
+    review({ removals: ["logic:42"], image }).some(({ message }) =>
+      /offset 4.*new.room.v.*computed/.test(message),
+    ),
+  );
+});
+
 test("a binding reservation blocks removal until removed or reassigned", () => {
   const bindings = { theme: { kind: "sound" as const, num: 42 } };
   const findings = review({ removals: ["sound:42"], authoring: authoring({ bindings }) });

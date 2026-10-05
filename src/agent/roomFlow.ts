@@ -51,7 +51,18 @@ export interface FlowScan {
   calls: number[];
   unresolvedCall: boolean;
   roomEvidence: boolean;
+  resourceUses: {
+    kind: "logic" | "picture";
+    logic: number;
+    offset: number;
+    command: string;
+    targets: readonly number[];
+    unknown: boolean;
+  }[];
 }
+const LOGIC_VARIABLE_TARGETS = ["new.room.v", "call.v", "load.logics.v"];
+const LOGIC_TARGETS = ["new.room", "call", "load.logics", "trace.info", ...LOGIC_VARIABLE_TARGETS];
+const PICTURE_TARGETS = ["load.pic", "draw.pic", "discard.pic", "overlay.pic"];
 const SIDES = [undefined, "top", "right", "bottom", "left"] as const;
 type Side = NonNullable<(typeof SIDES)[number]>;
 
@@ -118,6 +129,14 @@ function guards(text: string, relevant: ReadonlySet<number>): { clauses: number;
         comparison: match[2]!,
         negated: match[1] === "!",
       });
+    const flag = /^(!?)isset\(f(\d+)\)$/.exec(clause);
+    if (flag && relevant.has(256 + Number(flag[2])))
+      guards.push({
+        variable: 256 + Number(flag[2]),
+        constant: 1,
+        comparison: "equaln",
+        negated: flag[1] === "!",
+      });
   }
   return { clauses: clauses.length, guards };
 }
@@ -135,7 +154,7 @@ function branch(state: State, conditions: ReturnType<typeof guards>, truth: bool
           : n < constant) === positive;
     const value = next.get(variable) ?? UNKNOWN;
     const numbers = value.numbers.filter(accepts);
-    if (variable !== 0 && value.unknown && comparison === "equaln" && positive)
+    if (variable !== 0 && variable < 256 && value.unknown && comparison === "equaln" && positive)
       next.set(variable, literal(constant));
     else {
       if (!numbers.length && !value.unknown) return null;
@@ -181,8 +200,9 @@ function evidence(insn: Insn, insns: readonly Insn[]): boolean {
 export function createRoomFlow(
   logics: ReadonlyMap<number, Uint8Array>,
   profile?: AgiProfile,
+  options: { readonly admission?: boolean } = {},
 ): {
-  scan: (logic: number, room?: number, main?: boolean) => FlowScan;
+  scan: (logic: number, room?: number, main?: boolean, boot?: boolean) => FlowScan;
   instructions: ReadonlyMap<number, readonly Insn[]>;
   work: Readonly<{ steps: number; summaries: number; hits: number }>;
 } {
@@ -195,9 +215,20 @@ export function createRoomFlow(
     }
   }
   const relevant = new Set<number>([0]);
+  const variableTargets = options.admission
+    ? [...LOGIC_VARIABLE_TARGETS, ...PICTURE_TARGETS]
+    : ["new.room.v", "call.v"];
+  const targetCommands = options.admission
+    ? [...LOGIC_TARGETS, ...PICTURE_TARGETS]
+    : ["new.room", "new.room.v", "call", "call.v"];
+  if (options.admission)
+    for (const insns of instructions.values())
+      for (const insn of insns)
+        for (const match of (insn.text ?? "").matchAll(/f(\d+)/g))
+          relevant.add(256 + Number(match[1]));
   for (const insns of instructions.values())
     for (const insn of insns) {
-      if (["new.room.v", "call.v"].includes(insn.name ?? "")) relevant.add(insn.args![0]!);
+      if (variableTargets.includes(insn.name ?? "")) relevant.add(insn.args![0]!);
     }
   let expanded = true;
   while (expanded) {
@@ -253,10 +284,12 @@ export function createRoomFlow(
     for (const insn of insns) {
       for (const match of (insn.text ?? "").matchAll(/v(\d+)/g))
         if (relevant.has(Number(match[1]))) vars.add(Number(match[1]));
+      if (options.admission)
+        for (const match of (insn.text ?? "").matchAll(/f(\d+)/g)) vars.add(256 + Number(match[1]));
       for (const pos of VAR_WRITES[insn.name ?? ""] ?? [])
         if (relevant.has(insn.args![pos]!)) vars.add(insn.args![pos]!);
       if (insn.name === "assignv" && relevant.has(insn.args![0]!)) vars.add(insn.args![1]!);
-      if (["new.room.v", "call.v"].includes(insn.name ?? "")) vars.add(insn.args![0]!);
+      if (variableTargets.includes(insn.name ?? "")) vars.add(insn.args![0]!);
       if (["lindirectn", "lindirectv", "call.v"].includes(insn.name ?? ""))
         for (const variable of relevant) vars.add(variable);
     }
@@ -283,6 +316,7 @@ export function createRoomFlow(
   const opaque = new Set<number>();
   for (const [num, insns] of instructions)
     if (
+      !options.admission &&
       !insns.some(
         (i) =>
           ["new.room", "new.room.v", "call.v"].includes(i.name ?? "") ||
@@ -320,10 +354,14 @@ export function createRoomFlow(
       let nextAt = -1;
       for (const insn of [...insns].reverse()) {
         if (
+          options.admission ||
           insn.kind !== "action" ||
-          ["new.room", "new.room.v", "call", "call.v", "lindirectn", "lindirectv"].includes(
-            insn.name ?? "",
-          ) ||
+          [
+            ...targetCommands,
+            "lindirectn",
+            "lindirectv",
+            ...(options.admission ? ["set.scan.start"] : []),
+          ].includes(insn.name ?? "") ||
           entries.get(insn.at)!.evidence ||
           (VAR_WRITES[insn.name ?? ""] ?? []).some((pos) => relevant.has(insn.args![pos]!))
         )
@@ -346,9 +384,10 @@ export function createRoomFlow(
       calls: [],
       unresolvedCall: false,
       roomEvidence: false,
+      resourceUses: [],
     };
   }
-  function scan(logic: number, room?: number, main = false): FlowScan {
+  function scan(logic: number, room?: number, main = false, boot = false): FlowScan {
     let result = emptyScan();
     let targets = new Set<string>();
     let calls = new Set<number>();
@@ -356,6 +395,7 @@ export function createRoomFlow(
       result.variableTarget ||= saved.variableTarget;
       result.unresolvedCall ||= saved.unresolvedCall;
       result.roomEvidence ||= saved.roomEvidence;
+      result.resourceUses.push(...saved.resourceUses);
       for (const call of saved.calls) calls.add(call);
       for (const target of saved.targets) {
         const id = `${target.to}:${target.edge ?? ""}`;
@@ -436,6 +476,14 @@ export function createRoomFlow(
         if (++processed > limit) {
           result.variableTarget = true;
           result.unresolvedCall = true;
+          result.resourceUses.push({
+            kind: "logic",
+            logic: num,
+            offset: queue[0]!,
+            command: "analysis limit",
+            targets: [],
+            unknown: true,
+          });
           const output = new Map(input);
           clear(output);
           return output;
@@ -462,10 +510,34 @@ export function createRoomFlow(
           continue;
         }
         const state = new Map(entryState);
+        // Flag completions and host waits can change authored flags. Boot
+        // knowledge lasts through the initial guards; after the first action
+        // flags stay conservative, including set/reset and indirect writes.
+        if (options.admission)
+          for (const variable of state.keys()) if (variable >= 256) state.set(variable, UNKNOWN);
         const name = insn.name;
         const args = insn.args ?? [];
         result.roomEvidence ||= entry.evidence;
         const side = entry.side ?? inherited;
+        if (options.admission && targetCommands.includes(name ?? "")) {
+          const value = variableTargets.includes(name!)
+            ? (state.get(args[0]!) ?? UNKNOWN)
+            : literal(args[0]!);
+          result.resourceUses.push({
+            kind: PICTURE_TARGETS.includes(name!) ? "picture" : "logic",
+            logic: num,
+            offset: insn.at,
+            command: name!,
+            targets: value.numbers,
+            unknown: value.unknown,
+          });
+        }
+        // A saved scan start can bypass assignments on later invocations.
+        // Admission joins an unknown continuation state here; map candidates
+        // still scan the original entry. Later assignments can resolve it.
+        if (options.admission && name === "set.scan.start") {
+          clear(state);
+        }
         if (name === "new.room" || name === "new.room.v") {
           const value = name === "new.room" ? literal(args[0]!) : (state.get(args[0]!) ?? UNKNOWN);
           if (name === "new.room.v") result.variableTarget ||= value.unknown;
@@ -491,6 +563,18 @@ export function createRoomFlow(
           }
           for (const callee of value.numbers) {
             calls.add(callee);
+            if (
+              options.admission &&
+              (stack.has(callee) || callee === num || !instructions.has(callee))
+            )
+              result.resourceUses.push({
+                kind: "logic",
+                logic: num,
+                offset: insn.at,
+                command: name,
+                targets: [],
+                unknown: true,
+              });
             const answer = run(callee, state, path, side);
             if (answer) {
               if (returned) join(returned, answer);
@@ -574,6 +658,11 @@ export function createRoomFlow(
       }
     }
     if (room !== undefined) initial.set(0, literal(room));
+    // Boot clears authored flags. Interpreter-owned flags can change before
+    // execution (input, restart, sound), so their startup values stay unknown.
+    if (options.admission && boot)
+      for (const variable of relevant)
+        if (variable >= 256) initial.set(variable, variable <= 276 ? UNKNOWN : literal(0));
     if (main && instructions.has(0)) run(0, initial, new Set());
     else run(logic, initial, new Set());
     result.calls = [...calls].sort((a, b) => a - b);
