@@ -20,4 +20,5 @@ step in your report.
 - Report status only when it changes and define a term the first time it appears. Let
   a subagent read long reports and return a short verdict.
 - Screenshots for evidence come from headless Playwright; use the browser extension
-  for interactive QA only.
+  for interactive QA only, and not while the owner is typing on the same machine. Never
+  run test browsers headed on a shared workstation; they take focus.

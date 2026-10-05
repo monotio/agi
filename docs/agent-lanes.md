@@ -157,6 +157,9 @@ and verification evidence determine whether the task succeeded.
   fail-first evidence, test replacements, screenshot evidence, failures and
   uncertainties. Keep private reports out of git.
 
+- Run browsers headless. A headed browser on a shared workstation takes
+  keyboard focus from whoever is working there; use a container or ask first.
+
 ## Orchestrate
 
 The orchestrator chooses task boundaries, assigns ownership, tracks dependencies
