@@ -237,7 +237,8 @@ code, comments or documentation.
 - Delegation: explicit file scope per contributor, a fresh agent for unrelated
   work, review delegated output and run the relevant checks before integrating.
   Do not require a particular agent vendor or model.
-- A delegated task works in its own worktree and branch, pushes only that branch for
-  CI, and opens its report with at most 150 words: verdict, commits, gates with the CI
+- A delegated task works in its own worktree and branch, runs selective gates (affected
+  tests, touched-file typecheck, lint and format; the integrator alone runs the full
+  gate), pushes only that branch for CI, and opens its report with at most 150 words: verdict, commits, gates with the CI
   run link, open questions. Integrate only on green CI for that branch; then delete
   its worktree and branches.

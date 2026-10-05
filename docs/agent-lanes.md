@@ -70,7 +70,7 @@ Acceptance:
 Verification:
 
 - <affected tests; observe new tests fail first>
-- npm run check
+- typecheck, lint and format for the touched files
 - <build and bundle checks if imports move>
 - <browser checks and screenshot sizes for UI changes>
 - Push only lane/<name>; inspect one full Linux CI run.
@@ -139,9 +139,13 @@ and verification evidence determine whether the task succeeded.
   wait for observable conditions. Never rerun CI to obtain green. Read each
   failure, fix its cause with fail-first evidence, or report the failing test,
   first failing line and run link. A failure on unchanged code is a finding.
-- Run affected tests and `npm run check`. When imports move, also run
+- Run selective gates only: the affected unit and browser tests, and typecheck,
+  lint and format for the touched files. When imports move, also run
   `npm --prefix app run build` and `npm run check:bundle`. Follow the repository's
   additional gates for rendering, transport, save, sync and recovery changes.
+  Leave `npm run check` and the full browser suite to the orchestrator and CI:
+  parallel full runs on one machine compete for it, and the load they create makes
+  every lane's timing evidence unreliable.
   Search existing tests for changed selectors and copy before pushing.
 - Push the lane branch and inspect one full Linux CI run. CI supplies the Linux
   browser verdict; use `gh run view <id> --log-failed` to read failures. Report
@@ -169,7 +173,10 @@ A green report requires review before integration.
 
 Integrate only a lane with green CI. Merge its reviewed change into the shared
 integration branch, resolve conflicts, and run the affected checks and the full
-gate against the combined result. After merging several lanes, also run the
+gate (`npm run check`, build and bundle, the full browser suite) against the
+combined result; this is the only place the full gate runs locally. Run no more
+lanes at once than the machine can test without slowing them down; on a laptop
+that is about four. After merging several lanes, also run the
 complete browser suite on the combined head before pushing: lanes that pass on
 their own can collide, and the specs each lane touched will not show it. Review the whole change for failure paths,
 a second page sharing storage, and closing before a write commits where those
