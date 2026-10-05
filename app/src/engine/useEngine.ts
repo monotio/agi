@@ -18,6 +18,7 @@ import {
   reactive,
   shallowReactive,
   shallowRef,
+  watch,
 } from "vue";
 import type { createAgentLogger } from "../agent/agentLog.ts";
 import type { ReplayObservation } from "../walkthrough/replay.ts";
@@ -30,6 +31,7 @@ import { useInputController } from "../play/useInputController.ts";
 import { useTestRecorder } from "../authoring/useTestRecorder.ts";
 import type { useAuthoringController } from "../authoring/useAuthoringController.ts";
 import type { LlmConfig } from "../agent/llmClient.ts";
+import { useAmigaRegion } from "../settings/amigaRegion.ts";
 import type { AgiAudio, AudioMode } from "../audio/AgiAudio.ts";
 import {
   autosaveKey,
@@ -110,6 +112,8 @@ export function useEngine(
   const pendingProjectRestart = shallowRef<PendingProjectRestart | null>(null);
   let projectOpenEpoch = 0;
   let audio: AgiAudio | null = null;
+  const amigaSettings = useAmigaRegion();
+  watch(amigaSettings.region, (region) => audio?.setAmigaRegion(region));
   let audioLoading: Promise<AgiAudio> | undefined;
 
   const state = reactive<EngineState>({
@@ -897,7 +901,11 @@ export function useEngine(
   function loadAudio(): Promise<AgiAudio> {
     audioLoading ??= import("../audio/AgiAudio.ts")
       .then(({ AgiAudio }) => {
-        audio = new AgiAudio({ mode: state.soundMode, muted: state.soundMuted });
+        audio = new AgiAudio({
+          mode: state.soundMode,
+          muted: state.soundMuted,
+          amigaRegion: amigaSettings.region.value,
+        });
         audio.setPaused(state.paused);
         if (import.meta.env?.DEV)
           (window as unknown as { __AGI_AUDIO__: AgiAudio }).__AGI_AUDIO__ = audio;

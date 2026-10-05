@@ -12,7 +12,9 @@ export function paulaReference(
   packets: readonly SoundTick[],
   sampleRate = 48000,
   seconds = 30,
+  region: "ntsc" | "pal" = "ntsc",
 ): Float32Array[] {
+  const colourClock = region === "pal" ? 3546895 : 3579545;
   const early = packets.some((packet) =>
     packet.outputs.some((event) => event.kind === "paula" && event.driver === "2.082"),
   );
@@ -23,7 +25,7 @@ export function paulaReference(
     pcm: new Float32Array(Math.round(seconds * sampleRate)),
     enabled: false,
     byte: 0,
-    period: 65536 / 3546895,
+    period: 65536 / colourClock,
     next: Infinity,
     stop: Infinity,
     volume: 0,
@@ -54,7 +56,7 @@ export function paulaReference(
             if (lane.enabled && lane.stop === Infinity)
               lane.stop = lane.next + ((lane.byte + 1) & 1 ? lane.period : 0);
           } else {
-            lane.period = (event.period === 0 ? 65536 : Math.max(124, event.period)) / 3546895;
+            lane.period = (event.period === 0 ? 65536 : Math.max(124, event.period)) / colourClock;
             lane.volume = (Math.min(64, event.volume) / 64) * 0.4;
             lane.stop = Infinity;
             if (!lane.enabled) {

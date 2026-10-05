@@ -20,7 +20,8 @@ import {
 } from "../../../src/sound/sound.ts";
 import {
   PaulaClock,
-  PAULA_CLOCK,
+  PAULA_CLOCKS,
+  type AmigaRegion,
   PAULA_MIN_PERIOD,
   PAULA_HOLD_FRAMES,
   PAULA_LED_FILTER,
@@ -60,6 +61,7 @@ export class AgiAudio {
   private paulaBuffers: AudioBuffer[] = [];
   private paulaPendingStops: (AudioBufferSourceNode | undefined)[] = [];
   private paulaClocks: PaulaClock[] = [];
+  private amigaRegion: AmigaRegion = "ntsc";
   private readonly dormantPaula = new WeakSet<object>();
   private paulaPeriods: (number | null)[] = [];
   /** The game's DOC RAM and instrument bank, when its files carry them. */
@@ -99,14 +101,34 @@ export class AgiAudio {
 
   constructor(options?: {
     mode?: AudioMode;
+    amigaRegion?: AmigaRegion;
     volume?: number;
     muted?: boolean;
     contextFactory?: () => AudioContext;
   }) {
     this.contextFactory = options?.contextFactory;
+    this.amigaRegion = options?.amigaRegion ?? "ntsc";
     if (options?.mode) this.mode = options.mode;
     if (options?.volume !== undefined) this.volume = Math.max(0, Math.min(1, options.volume));
     if (options?.muted !== undefined) this.muted = options.muted;
+  }
+
+  /** Change the colour clock on active voices, keeping DMA and game state. */
+  setAmigaRegion(region: AmigaRegion): void {
+    if (region === this.amigaRegion) return;
+    this.amigaRegion = region;
+    const ctx = this.ctx;
+    if (!ctx) return;
+    for (const [channel, clock] of this.paulaClocks.entries()) {
+      clock.setRegion(region, ctx.currentTime);
+      const period = this.paulaPeriods[channel];
+      if (period === null || period === undefined) continue;
+      const effectivePeriod = period === 0 ? 65536 : Math.max(PAULA_MIN_PERIOD, period);
+      this.paulaSources[channel]!.playbackRate.setValueAtTime(
+        ((PAULA_CLOCKS[region] / effectivePeriod) * PAULA_HOLD_FRAMES) / ctx.sampleRate,
+        ctx.currentTime,
+      );
+    }
   }
 
   get isMuted(): boolean {
@@ -438,7 +460,7 @@ export class AgiAudio {
         // DMA phase, as documented in "Paula onset and A500 output".
         const period = event.period === 0 ? 65536 : Math.max(PAULA_MIN_PERIOD, event.period);
         source.playbackRate.setValueAtTime(
-          ((PAULA_CLOCK / period) * PAULA_HOLD_FRAMES) / ctx.sampleRate,
+          ((PAULA_CLOCKS[this.amigaRegion] / period) * PAULA_HOLD_FRAMES) / ctx.sampleRate,
           ctx.currentTime,
         );
         this.dormantPaula.delete(source);
@@ -744,7 +766,7 @@ export class AgiAudio {
       source.loop = true;
       source.connect(gain);
       this.dormantPaula.add(source);
-      this.paulaClocks.push(new PaulaClock());
+      this.paulaClocks.push(new PaulaClock(this.amigaRegion));
       this.paulaSources.push(source);
       this.activeNodes.push(source);
     }

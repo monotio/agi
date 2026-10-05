@@ -220,8 +220,9 @@ describe("audio command backend", () => {
     );
     assert.deepEqual(bufferSources.at(-1)!.starts, [[12 + 4 / 60, 0]]);
   });
-  it("retains Paula volume and the low byte after DMA off, with AC coupling on the output", () => {
+  it("retains PAL Paula volume and the low byte after DMA off, with AC coupling on the output", () => {
     const { audio, gains, bufferSources, ctx, iirs } = context();
+    audio.setAmigaRegion("pal");
     audio.output({ kind: "paula", channel: 0, period: 3546.895, volume: 32 });
     ctx.currentTime = 12.0042;
     audio.output({ kind: "paula", channel: 0, period: null, volume: 0 });
@@ -294,12 +295,29 @@ describe("audio command backend", () => {
     audio.stop();
     assert.ok(bufferSources.every((source) => source.stopped));
   });
+  it("uses NTSC by default and switches active Paula voices to PAL without restarting", () => {
+    const { audio, bufferSources } = context();
+    audio.output({ kind: "paula", channel: 0, period: 1000, volume: 32 });
+    // 3,579.545 bytes/s, eight bytes per tone: 447.443125 Hz.
+    assert.equal(bufferSources[0]!.playbackRate.value, 14.31818);
+    const source = bufferSources[0]!;
+    audio.setAmigaRegion("pal");
+    // 3,546.895 bytes/s: 443.361875 Hz; the same source keeps playing.
+    assert.equal(source.playbackRate.value, 14.18758);
+    assert.equal(source.stopped, false);
+    assert.equal(source.starts.length, 1);
+    audio.output({ kind: "paula", channel: 1, period: 2000, volume: 32 });
+    assert.equal(bufferSources[1]!.playbackRate.value, 7.09379);
+    audio.setAmigaRegion("ntsc");
+    assert.equal(source.playbackRate.value, 14.31818);
+    assert.equal(bufferSources[1]!.playbackRate.value, 7.15909);
+  });
   it("renders paula events with the driver's tone sample and per-voice gains", () => {
     const { audio, gains, bufferSources } = context();
     audio.output({ kind: "paula", channel: 0, period: 760, volume: 55 });
-    // PAL Paula clock / period is the byte rate; the source replays its
+    // NTSC Paula clock / period is the byte rate; the source replays its
     // buffer against the context rate.
-    assert.equal(bufferSources[0]!.playbackRate.value, ((3546895 / 760) * 32) / 8000);
+    assert.equal(bufferSources[0]!.playbackRate.value, ((3579545 / 760) * 32) / 8000);
     assert.equal(bufferSources[0]!.loop, true);
     assert.equal(gains[1]!.gain.value, (55 / 64) * 0.4);
     // The tone voices loop the 8-byte h198 sample as signed PCM.
@@ -320,13 +338,13 @@ describe("audio command backend", () => {
       [noise.data[0], noise.data[32], noise.data[64], noise.data[96]],
       [-0x60 / 128, 0x50 / 128, 0x28 / 128, -0x6c / 128],
     );
-    assert.equal(bufferSources[3]!.playbackRate.value, ((3546895 / 0x800) * 32) / 8000);
+    assert.equal(bufferSources[3]!.playbackRate.value, ((3579545 / 0x800) * 32) / 8000);
     assert.equal(gains[4]!.gain.value, 0.4);
     // A rest writes AUDxPER 0 with a nonzero volume (KQ2's attack gives 8):
     // the voice keeps its volume while its zero period counts 65536 clocks.
     audio.output({ kind: "paula", channel: 1, period: 0, volume: 8 });
     assert.equal(gains[2]!.gain.value, (8 / 64) * 0.4);
-    assert.equal(bufferSources.at(-1)!.playbackRate.value, ((3546895 / 65536) * 32) / 8000);
+    assert.equal(bufferSources.at(-1)!.playbackRate.value, ((3579545 / 65536) * 32) / 8000);
     // The engine's terminator and stop() events carry no noise flag; the
     // noise voice keeps its buffer (Web Audio cannot reassign one).
     audio.output({ kind: "paula", channel: 3, period: null, volume: 0 });
@@ -353,7 +371,7 @@ describe("audio command backend", () => {
     );
     assert.equal(bufferSources[7]!.buffer!.data.length, 0x400 * 32);
     // Periods below Paula's DMA minimum render at the 124-clock limit.
-    assert.equal(bufferSources[7]!.playbackRate.value, ((3546895 / 124) * 32) / 8000);
+    assert.equal(bufferSources[7]!.playbackRate.value, ((3579545 / 124) * 32) / 8000);
     assert.equal(gains[8]!.gain.value, 0.4);
     // The terminator keeps the 2.082 voices.
     audio.output({ kind: "paula", channel: 3, period: null, volume: 0, driver: "2.082" });
