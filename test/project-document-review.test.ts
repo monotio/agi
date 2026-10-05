@@ -8,12 +8,13 @@ import { createStarterProject } from "../src/authoring/starterProject.ts";
 import { buildObjectFile } from "../src/authoring/inventory.ts";
 import { decodeInventoryFile } from "../src/runtime/inventoryFile.ts";
 import { PROFILES } from "../src/runtime/profile.ts";
+import { openContainer } from "../src/container/container.ts";
 
 function blank() {
   return Object.fromEntries(createStarterProject("blank").files());
 }
 
-test("opening an unreadable indexed picture never turns its absence into implicit deletion", () => {
+test("opening and editing beside an unreadable indexed picture preserves its indexed slot", () => {
   const files = blank();
   const directory = new Uint8Array(files["PICDIR"]!);
   directory.set([0x30, 0, 0], 15); // PIC 5 points to missing VOL.3.
@@ -21,10 +22,15 @@ test("opening an unreadable indexed picture never turns its absence into implici
   const before = structuredClone(files);
   const read = readProjectDocuments({ files, profileId: "2.936" });
   assert.ok(read.diagnostics.some(({ key }) => key === "picture:5"));
-  assert.throws(
-    () => compileProjectDocuments({ files, profileId: "2.936", documents: read.documents }),
-    /unreadable|corrupt/i,
-  );
+  const opened = compileProjectDocuments({ files, profileId: "2.936", documents: read.documents });
+  assert.deepEqual(Object.fromEntries(opened.files()), before);
+  const edited = compileProjectDocuments({
+    files,
+    profileId: "2.936",
+    documents: { ...read.documents, "logic:0": "assignn(v80,42); return;" },
+  });
+  assert.throws(() => openContainer(edited.files()).getResource("picture", 5), /corrupt/i);
+  assert.notDeepEqual(edited.files().get("LOGDIR"), before["LOGDIR"]);
   assert.deepEqual(files, before);
 });
 

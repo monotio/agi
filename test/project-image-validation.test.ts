@@ -7,6 +7,26 @@ import { PROFILES } from "../src/runtime/profile.ts";
 
 const profile = PROFILES["2.936"]!;
 
+test("complete image preserves an unreadable indexed SOUND during an unrelated LOGIC edit", () => {
+  const files = new Map(createContainer().files);
+  const directory = new Uint8Array(files.get("SNDDIR")!);
+  directory.set([0x30, 0, 0], 34 * 3); // SOUND 34 points to missing VOL.3.
+  files.set("SNDDIR", directory);
+  const previous = openContainer(files);
+  const candidate = openContainer(files);
+  candidate.putResource(
+    "logic",
+    0,
+    assembleLogic("assignn(v80,42); return;", { dictionary: new Map() }).payload,
+  );
+  assert.doesNotThrow(() => validateCompleteImage(candidate, profile, 1, previous));
+  assert.throws(() => candidate.getResource("sound", 34), /corrupt/i);
+  assert.throws(
+    () => validateCompleteImage(candidate, profile, 1, createContainer()),
+    /sound resource 34 cannot be read/,
+  );
+});
+
 for (const kind of ["logic", "view"] as const) {
   test(`complete image preserves an unchanged opaque ${kind} during an unrelated LOGIC edit`, () => {
     const previous = createContainer();

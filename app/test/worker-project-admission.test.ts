@@ -9,7 +9,7 @@ import {
 } from "../src/worker/projectAdmission.ts";
 import { newProjectAdmissionState } from "../src/worker/projectAdmissionState.ts";
 import { compileProjectDocuments } from "../../src/authoring/projectDocuments.ts";
-import { createContainer } from "../../src/container/container.ts";
+import { createContainer, openContainer } from "../../src/container/container.ts";
 import { projectDocumentId } from "../../src/authoring/projectContent.ts";
 import { writeProjectWorkspace } from "../../src/authoring/projectWorkspace.ts";
 import { sha256Hex } from "../../src/crypto.ts";
@@ -56,10 +56,55 @@ test("walkthrough rebuilds revoke Create admission; taking control can grant the
   ctx.fns.stopTimers();
 });
 
-function candidate(source = "return;", world = "{}"): PreviewUpdateCandidateMessage {
+test("an installed game with an unreadable SOUND can enter Create and run an unrelated LOGIC edit", async (t) => {
+  const control: WorkerControl[] = [];
+  const ctx = createWorkerContext({
+    control: (msg) => control.push(msg),
+    presentation: () => {},
+    now: () => 0,
+  });
+  ctx.host = createEngineHost(ctx);
+  t.after(() => ctx.fns.stopTimers());
+  const files = candidate().files;
+  const directory = new Uint8Array(files["SNDDIR"]!);
+  directory.set([0x30, 0, 0], 34 * 3);
+  files["SNDDIR"] = directory;
+  onWorkerMessage(ctx, { type: "boot", files, words: [], profile: "2.936" });
+  await ctx.projectLoader.loading;
+  ctx.fns.stopTimers();
+  onWorkerMessage(ctx, { type: "projectCreate", id: 1 });
+  await ctx.projectLoader.loading;
+  const created = control.at(-1);
+  assert.ok(created?.type === "projectCreated" && created.grant, JSON.stringify(created));
+  const edited = candidate("assignn(v80,42); return;", "{}", files);
+  onWorkerMessage(ctx, {
+    type: "previewUpdate",
+    id: 2,
+    runToken: created.grant.runToken,
+    expected: created.grant.identity,
+    candidate: edited,
+  });
+  const result = control.at(-1);
+  assert.ok(
+    result?.type === "previewUpdateResult" && result.status === "committed",
+    JSON.stringify(result),
+  );
+  ctx.engine!.tick();
+  assert.equal(ctx.engine!.vars[80], 42);
+  assert.throws(
+    () => openContainer(ctx.engine!.containerFiles).getResource("sound", 34),
+    /corrupt/i,
+  );
+});
+
+function candidate(
+  source = "return;",
+  world = "{}",
+  files = Object.fromEntries(createContainer().files),
+): PreviewUpdateCandidateMessage {
   const documents = { "logic:0": source, world };
   const compiled = compileProjectDocuments({
-    files: Object.fromEntries(createContainer().files),
+    files,
     documents,
     profileId: "2.936",
   });
