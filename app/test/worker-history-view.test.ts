@@ -8,6 +8,8 @@
  */
 import { test } from "node:test";
 import { Engine } from "../../src/runtime/engine.ts";
+import { createHistoryView } from "../src/worker/historyView.ts";
+import { openHistoryDrive } from "../src/worker/historyDrive.ts";
 import { installProjectRestart } from "../src/worker/projectRestart.ts";
 import assert from "node:assert/strict";
 import type { GameContainer } from "../../src/types.ts";
@@ -448,6 +450,62 @@ for (const delay of [0, 3]) {
     assert.equal(Buffer.compare(shown.visual, firstFrame.visual), 0);
     assert.deepEqual(h.ctx.view.drive!.ctx.engine!.getPresentation(), state);
     assert.equal(h.ctx.view.drive!.ctx.cycle.cycleCount, 0);
+  });
+}
+
+for (const deferred of [false, true]) {
+  test(`a throwing first-frame drive settles and closes the view (${deferred ? "next chunk" : "first chunk"})`, (t) => {
+    const { h, recording } = playedSession();
+    const live = h.ctx.engine;
+    const state = live!.captureReplayState();
+    t.after(() => h.ctx.fns.stopTimers());
+    t.mock.timers.enable({ apis: ["setTimeout"] });
+    let now = 0;
+    t.mock.method(h.ctx.ports, "now", () => (now += 13));
+    let drives = 0;
+    let previewContext: WorkerContext | null = null;
+    const view = createHistoryView(h.ctx, createWorkerContext, (...args) => {
+      const drive = openHistoryDrive(...args);
+      if (++drives === 2) {
+        previewContext = drive.ctx;
+        const step = drive.step.bind(drive);
+        let steps = 0;
+        t.mock.method(drive, "step", () => {
+          if (deferred && steps++ === 0) return step();
+          throw new Error("Injected first-frame failure");
+        });
+      }
+      return drive;
+    });
+    assert.doesNotThrow(() =>
+      view.onHistoryViewStart({
+        type: "historyViewStart",
+        id: 500,
+        recording,
+        segment: 0,
+        tick: 0,
+      }),
+    );
+    if (deferred) {
+      assert.equal(h.ctx.view.request, 500);
+      assert.doesNotThrow(() => t.mock.timers.tick(0));
+    }
+    const report = finalView(h.control, 500);
+    assert.match(report.error ?? "", /Injected first-frame failure/);
+    assert.equal(report.canResume, false);
+    assert.equal(
+      h.control.filter((m) => m.type === "historyView" && m.id === 500 && m.final).length,
+      1,
+    );
+    assert.equal(h.ctx.view.request, null);
+    assert.equal(h.ctx.view.timer, null);
+    assert.equal(h.ctx.view.drive, null);
+    assert.equal(h.ctx.view.recording, null);
+    assert.equal(h.ctx.replay.isSeeking, false);
+    assert.ok(previewContext);
+    assert.equal((previewContext as WorkerContext).replay.isSeeking, false);
+    assert.equal(h.ctx.engine, live);
+    assert.deepEqual(live!.captureReplayState(), state);
   });
 }
 
