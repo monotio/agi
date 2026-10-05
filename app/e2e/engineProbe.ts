@@ -61,6 +61,39 @@ export async function textHook(page: Page): Promise<TextHook> {
   return page.evaluate((empty) => ({ ...empty, ...(window.__AGI_TEXT__ ?? {}) }), EMPTY_HOOK);
 }
 
+/** The async play surface has mounted and owns the player's keyboard. */
+export async function waitForGameInput(page: Page): Promise<void> {
+  const command = page.getByRole("textbox", { name: "Game command", exact: true });
+  await expect(command).toBeVisible();
+  await expect(command).toBeEnabled();
+  await expect(command).toBeFocused();
+  await expect.poll(async () => page.evaluate(() => window.__AGI_STATE__?.inputReady)).toBe(true);
+}
+
+/** Keyboard ownership and host activity alongside the worker heartbeat. */
+export async function gameInputProbe(page: Page) {
+  return page.evaluate(() => {
+    const state = window.__AGI_STATE__;
+    const active = document.activeElement;
+    return {
+      engine: window.__AGI_TEXT__,
+      focused: active
+        ? { tag: active.tagName, label: active.getAttribute("aria-label"), id: active.id }
+        : null,
+      phase: state?.phase,
+      inputReady: state?.inputReady,
+      inputEnabled: state?.inputEnabled,
+      waitingForKey: state?.waitingForKey,
+      prompt: state?.prompt,
+      paused: state?.paused,
+      hostRequests: state?.agentLog.filter(
+        (entry) => entry.kind === "request" || entry.kind === "response",
+      ),
+      agentTask: state?.agentTask,
+    };
+  });
+}
+
 export async function screenText(page: Page): Promise<string> {
   return (await textHook(page)).rows.join("\n");
 }
