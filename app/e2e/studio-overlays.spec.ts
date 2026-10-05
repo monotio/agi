@@ -50,8 +50,7 @@ function strays(root: Locator, pictures: string): Promise<string[]> {
       );
       if (!over) continue;
       if (element.closest('[role="menu"], [role="dialog"]')) continue;
-      if (element.querySelector('[data-role="drag-handle"], button[aria-label^="Dismiss"]'))
-        continue;
+      if (element.querySelector('[data-role="drag-handle"], button[aria-label="Close"]')) continue;
       found.push(`${element.className || element.tagName}: ${text.slice(0, 48)}`);
     }
     return found;

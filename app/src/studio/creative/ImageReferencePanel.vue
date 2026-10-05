@@ -407,9 +407,7 @@ onBeforeUnmount(() => {
       <strong>{{
         isPicture ? "Trace an image" : `${name} VIEW ${target.slice(5)} · Cels from an image`
       }}</strong>
-      <UiButton size="sm" variant="ghost" @click="emit('close')">{{
-        isPicture ? "Close" : "Done"
-      }}</UiButton>
+      <UiButton size="sm" variant="ghost" @click="emit('close')">Done</UiButton>
     </header>
     <div v-if="isPicture || !image" class="image-reference__actions">
       <UiButton size="sm" :disabled="busy" @click="file?.click()">Bring in an image</UiButton>

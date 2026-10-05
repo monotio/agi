@@ -307,7 +307,7 @@ async function onBubbleReload(): Promise<void> {
         <UiIconButton
           v-if="!creatingRoom || !state.powerUp.busy"
           icon="x"
-          label="Back to game"
+          label="Close"
           shortcut="Esc"
           class="bubble-close remix-close"
           data-testid="agent-bubble-close"

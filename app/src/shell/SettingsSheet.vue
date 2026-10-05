@@ -170,7 +170,7 @@ defineExpose({ toggle, close, open });
     <template v-if="open">
       <header class="settings-sheet__head">
         <h2 id="settings-sheet-title">Settings</h2>
-        <UiIconButton icon="x" label="Close settings" size="sm" @click="close('game')" />
+        <UiIconButton icon="x" label="Close" size="sm" @click="close('game')" />
       </header>
 
       <section class="settings-sheet__group" aria-labelledby="settings-sound-display">

@@ -109,7 +109,6 @@ function addStandaloneRoom(): void {
     flush
     class="world-map"
     close-testid="map-close"
-    close-label="Close map"
     data-testid="world-map"
   >
     <template #actions>

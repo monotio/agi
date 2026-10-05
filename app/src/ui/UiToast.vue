@@ -20,7 +20,7 @@ defineEmits<{ dismiss: [] }>();
     <UiIconButton
       v-if="dismissible"
       icon="x"
-      label="Dismiss"
+      label="Close"
       size="sm"
       class="ui-toast__dismiss"
       @click="$emit('dismiss')"

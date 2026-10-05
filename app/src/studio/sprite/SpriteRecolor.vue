@@ -133,7 +133,7 @@ const tabStop = (chosen: number | null | undefined): number =>
   >
     <header class="recolor__head">
       <h3 id="sprite-recolor-title">Recolour</h3>
-      <UiIconButton icon="x" label="Close recolour (Esc)" size="sm" @click="emit('close')" />
+      <UiIconButton icon="x" label="Close" size="sm" @click="emit('close')" />
     </header>
     <div v-for="row in ['from', 'to'] as const" :key="row" class="recolor__row">
       <span :id="`sprite-recolor-${row}`" class="recolor__label">{{

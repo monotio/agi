@@ -98,9 +98,7 @@ function tabKey(event: KeyboardEvent): void {
           {{ name }}
         </button>
       </div>
-      <UiButton size="sm" variant="ghost" aria-label="Close panel" @click="emit('close')"
-        >×</UiButton
-      >
+      <UiButton size="sm" variant="ghost" aria-label="Close" @click="emit('close')">×</UiButton>
     </header>
     <p v-if="debug.state.error" role="alert">{{ debug.state.error }}</p>
     <div role="tabpanel" :aria-label="tab" class="workspace-debug-content">
