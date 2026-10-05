@@ -1,6 +1,8 @@
 import { test, expect } from "./test.ts";
 import { enterCreateMode, isolateStorage, waitForRoom } from "./engineProbe.ts";
 
+test.use({ hasTouch: true });
+
 test("phone game controls stay in the play pane while LOGIC is open", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await isolateStorage(page);
