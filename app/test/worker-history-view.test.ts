@@ -451,6 +451,31 @@ for (const delay of [0, 3]) {
   });
 }
 
+test("an existing anchor shows its exact moving-object frame", () => {
+  const h = viewHarness(
+    gameContainer(
+      [
+        `if (!isset(f230)) { set(f230); assignn(v10, 0); set(f218); } ${VIEW_LOGICS[0]}`,
+        ...VIEW_LOGICS.slice(1),
+      ],
+      populateViewResources,
+    ),
+    { rngSeed: 9 },
+  );
+  h.tick(6);
+  h.send({ type: "pause", paused: true });
+  const recording = asRecording(collectSegments(h.control));
+  const anchor = recording.segments[0]!.anchors[0]!;
+  assert.ok(anchor);
+  h.send({ type: "historyViewStart", id: 1, recording, segment: 0, tick: anchor.tick });
+  const shown = h.presentation.at(-1);
+  assert.ok(shown?.type === "frame");
+  assert.equal(
+    Buffer.compare(shown.visual, h.ctx.view.drive!.ctx.engine!.getPresentation().visual),
+    0,
+  );
+});
+
 test("viewing the tape replays it in a scratch session the live engine never feels", () => {
   const { h, recording, lastTick } = playedSession();
   const { ctx, send, tick } = h;

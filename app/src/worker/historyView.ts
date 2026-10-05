@@ -199,7 +199,16 @@ export function createHistoryView(
         else opened = true;
       }
     };
-    if (scratch.cycle.initialLogicStarted || drive.error !== null) {
+    const engine = scratch.engine;
+    if (
+      engine === null ||
+      drive.tick !== 0 ||
+      scratch.cycle.initialLogicStarted ||
+      engine.readLeanState().pictureShown ||
+      engine.textModeActive ||
+      engine.modalKind !== null ||
+      drive.error !== null
+    ) {
       scratch.fns.postFrame();
       finish();
       return;

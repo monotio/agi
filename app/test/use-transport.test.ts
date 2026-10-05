@@ -85,3 +85,12 @@ test("scrubDown far from any mark seeks the raw position", () => {
   assert.deepEqual(calls.marks, []);
   assert.deepEqual(calls.seeks, [2000]);
 });
+
+test("the left endpoint seeks tick zero even beside the first room marker", () => {
+  const { source, calls } = makeSource([{ key: 1, percent: 0.1, label: "Room 1" }]);
+  const model = useTransport(source, extras);
+  model.scrubDown(0);
+  assert.deepEqual(calls.seeks, [0]);
+  assert.deepEqual(calls.marks, []);
+  assert.equal(model.scrubPercent, 0);
+});

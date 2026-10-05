@@ -226,7 +226,9 @@ export function useTransport(source: TransportSource, extras: TransportExtras): 
     // Markers are visual-only: dense checkpoint clusters overlap beyond DOM
     // hit-testing's reach, so the pointer resolves the nearest mark itself —
     // the same mark the hover tooltip already named.
-    const mark = markNear(pct);
+    // The left endpoint names the exact boot moment, even when the first
+    // room marker sits inside the snap radius.
+    const mark = pct === 0 ? undefined : markNear(pct);
     ui.scrubPercent = mark ? mark.percent : pct;
     showHover(pct);
     if (mark) source.clickMark(mark);

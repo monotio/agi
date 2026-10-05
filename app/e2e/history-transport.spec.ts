@@ -184,13 +184,17 @@ for (const viewport of [
       };
     });
     await bootTapeGame(page);
-    await waitForCycles(page, 30);
+    // Enough tape for the largest step (48 ticks) plus the initial 2× step (12).
+    await waitForCycles(page, 6 * (8 + 2));
     await pauseLive(page);
     await scrubToTape(page, 0);
     for (const speed of [2, 4, 8, 1]) {
       const box = (await page.getByTestId("history-timeline").boundingBox())!;
       await page.getByTestId("history-timeline").click({ position: { x: 0, y: box.height / 2 } });
       await expect.poll(async () => (await viewState(page))?.seeking).toBe(false);
+      // Begin with a short step so the preceding 8× choice cannot finish
+      // the fixture before the next button receives its click.
+      if (speed !== 2) await page.getByTestId(`history-speed-${speed === 1 ? 2 : 1}`).click();
       await page.getByTestId("btn-history-watch").click();
       const button = page.getByTestId(`history-speed-${speed}`);
       await expect(button).toBeVisible();
