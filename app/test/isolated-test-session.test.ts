@@ -1,3 +1,4 @@
+import { scheduler as testScheduler } from "node:timers/promises";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createWorkerContext, type WorkerContext } from "../src/worker/context.ts";
@@ -145,7 +146,7 @@ function expectedBuildId(game: IsolatedTestGame): string {
 
 /** Microtask-drain: host answers resolve through the session's async turn. */
 async function flush(): Promise<void> {
-  await new Promise((resolve) => setTimeout(resolve, 0));
+  await testScheduler.yield();
 }
 
 function makeSession(extra: Partial<Parameters<typeof createTestSession>[0]> = {}): {

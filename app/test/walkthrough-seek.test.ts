@@ -1,3 +1,4 @@
+import { scheduler as testScheduler } from "node:timers/promises";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
@@ -151,7 +152,7 @@ const ARTIFACT = {
 };
 
 async function flush(): Promise<void> {
-  for (let i = 0; i < 4; i++) await new Promise((resolve) => setTimeout(resolve, 0));
+  await testScheduler.yield();
 }
 
 test("a retarget ahead of the live replay head retunes the seek instead of restarting", async () => {

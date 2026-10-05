@@ -1,3 +1,4 @@
+import { useTestClock, waitUntil } from "./async.ts";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { writeProjectRecovery } from "../../src/authoring/projectRecovery.ts";
@@ -73,13 +74,7 @@ function dirtyPayload(ws: EditableProject) {
   return captured;
 }
 
-async function waitFor(check: () => Promise<boolean>, message: string): Promise<void> {
-  for (let attempt = 0; attempt < 200; attempt++) {
-    if (await check()) return;
-    await new Promise((resolve) => setTimeout(resolve, 5));
-  }
-  assert.fail(message);
-}
+const clock = useTestClock();
 
 test("undoing a dirty draft back to its saved baseline retires its own recovery record", async () => {
   const { projectId, ws } = await seedWorkspace("clean-flush");
@@ -122,7 +117,8 @@ test("the debounced write also retires a clean draft's record", async () => {
 
     editSource(ws, "logic:1", original);
     persister.schedule();
-    await waitFor(
+    await clock.advance(10);
+    await waitUntil(
       async () => (await listProjectDrafts(projectId)).length === 0,
       "the debounced clean write did not retire the recovery record",
     );

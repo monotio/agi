@@ -1,3 +1,4 @@
+import { scheduler as testScheduler } from "node:timers/promises";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createContainer } from "../../src/container/container.ts";
@@ -71,7 +72,7 @@ test("Test captures nested breakpoint and watchpoint options before awaiting its
     segment.text = "changed after start";
     target.index = 41;
     grant({ release() {} });
-    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    await testScheduler.yield();
     const boot = posted.find((message) => message.type === "boot");
     assert.ok(boot?.type === "boot" && boot.frozenTest);
     assert.deepEqual(

@@ -1,3 +1,4 @@
+import { scheduler as testScheduler } from "node:timers/promises";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
@@ -397,7 +398,7 @@ test("a second submit while one is in flight refuses busy and sends once", async
       }),
   );
   const first = controller.submit();
-  await new Promise((resolve) => setTimeout(resolve, 0));
+  await testScheduler.yield();
   const second = controller.submit();
   await second;
   assert.equal(controller.failure?.reason, "busy");
@@ -421,14 +422,14 @@ test("cancel returns to composing; a late-settling transport result is dropped",
       }),
   );
   const pending = controller.submit();
-  await new Promise((resolve) => setTimeout(resolve, 0));
+  await testScheduler.yield();
   controller.cancel();
   await pending;
   assert.equal(controller.phase, "compose");
   assert.equal(controller.offer, null);
   // The transport answers after the local cancel: consumed, never surfaced.
   late!();
-  await new Promise((resolve) => setTimeout(resolve, 0));
+  await testScheduler.yield();
   assert.equal(controller.phase, "compose");
   assert.equal(controller.offer, null);
   assert.equal(sent.length, 1, "the request did leave; cancel is a local abort");
@@ -491,7 +492,7 @@ test("a result landing after the workspace moved is dropped entirely", async () 
       }),
   );
   const pending = controller.submit();
-  await new Promise((resolve) => setTimeout(resolve, 0));
+  await testScheduler.yield();
   current = context({ workspaceId: "ws-2" });
   release();
   await pending;
@@ -515,7 +516,7 @@ test("a same-workspace change during flight keeps the result as a labelled compa
       }),
   );
   const pending = controller.submit();
-  await new Promise((resolve) => setTimeout(resolve, 0));
+  await testScheduler.yield();
   current = context({ draftRevision: 12 });
   release();
   await pending;
@@ -713,7 +714,7 @@ test("a context change during the consulted check refuses before the request lea
     asset: asset.record.identity,
   });
   const pending = controller.submit();
-  await new Promise((resolve) => setTimeout(resolve, 0));
+  await testScheduler.yield();
   // The workspace moves while the consulted material read is in flight.
   current = { ...current, workspaceVersion: current.workspaceVersion + 1 };
   release({ record: asset.record, encoded: asset.encoded });
@@ -749,7 +750,7 @@ test("an earlier preparation that resolves late cannot replace the newer review"
     prompt: "Earlier request",
   });
   // The earlier job parks on its deferred material read first.
-  await new Promise((resolve) => setTimeout(resolve, 0));
+  await testScheduler.yield();
   await controller.prepareReview({ ...BASE_INPUT, prompt: "Newer request" });
   release({ record: asset.record, encoded: asset.encoded });
   await earlier;
@@ -778,7 +779,7 @@ test("dispose during a pending material read publishes no late review", async ()
     kind: "variation",
     asset: asset.record.identity,
   });
-  await new Promise((resolve) => setTimeout(resolve, 0));
+  await testScheduler.yield();
   assert.equal(controller.phase, "preparing");
   controller.dispose();
   release({ record: asset.record, encoded: asset.encoded });
@@ -804,7 +805,7 @@ test("discarding while a review still prepares cannot publish it", async () => {
     kind: "variation",
     asset: asset.record.identity,
   });
-  await new Promise((resolve) => setTimeout(resolve, 0));
+  await testScheduler.yield();
   controller.discardReview();
   assert.equal(controller.phase, "compose");
   release({ record: asset.record, encoded: asset.encoded });
@@ -940,7 +941,7 @@ test("dispose while the post-stage status read is pending keeps the write consum
   answer(async (prepared) => offer(prepared));
   await controller.submit();
   const pending = controller.useImage();
-  await new Promise((resolve) => setTimeout(resolve, 0));
+  await testScheduler.yield();
   assert.equal(staged.generated.length, 1, "the write already landed");
   assert.equal(controller.offer, null, "the receipt consumed the offer synchronously");
   controller.dispose();
@@ -999,7 +1000,7 @@ test("dispose aborts the flight and refuses later work", async () => {
       }),
   );
   const pending = controller.submit();
-  await new Promise((resolve) => setTimeout(resolve, 0));
+  await testScheduler.yield();
   controller.dispose();
   release();
   await pending;

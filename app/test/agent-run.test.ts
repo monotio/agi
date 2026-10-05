@@ -1,3 +1,4 @@
+import { waitUntil } from "./async.ts";
 import { beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
 import { AgentRun } from "../src/agent/agentRun.ts";
@@ -111,13 +112,17 @@ test("a long task and a long request run on without a wall-clock stop", async (t
   });
   // Resume any later pause so the old behaviour fails instead of hanging.
   let pausedLater = false;
-  for (let turn = 0; turn < 100; turn++) {
-    await Promise.resolve();
+  let finished = false;
+  void result.finally(() => {
+    finished = true;
+  });
+  await waitUntil(() => {
     if (run.snapshot().status === "paused") {
       pausedLater = true;
       run.resume();
     }
-  }
+    return finished;
+  }, "the long request did not settle");
   const answer = await result;
   assert.equal(pausedAfter16Minutes, false, "no pause at 15 minutes");
   assert.equal(pausedLater, false, "no pause after a long request");

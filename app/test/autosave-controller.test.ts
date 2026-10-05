@@ -1,3 +1,4 @@
+import { waitUntil } from "./async.ts";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
@@ -1093,7 +1094,7 @@ test("an owned project checkpoint waits for session saving and never republishes
     },
   });
   controller.handleAutosave({ image: "owned-state", cycle: 10, room: 1, files: rig.files });
-  await new Promise((resolve) => setTimeout(resolve, 10));
+  await waitUntil(() => prepared, "checkpoint preparation did not start");
   assert.equal(prepared, true);
   assert.equal(readAutosave(id), null);
   release!();

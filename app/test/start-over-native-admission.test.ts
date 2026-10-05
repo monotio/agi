@@ -1,3 +1,4 @@
+import { waitUntil } from "./async.ts";
 import { test, type TestContext } from "node:test";
 import assert from "node:assert/strict";
 import { useGameLifecycle, type GameLifecycleOptions } from "../src/engine/useGameLifecycle.ts";
@@ -286,7 +287,7 @@ function harness(
 
 /** Poll a recorded effect until it lands, so the parked await is genuinely held. */
 async function until(took: () => boolean): Promise<void> {
-  for (let i = 0; i < 50 && !took(); i++) await new Promise((resolve) => setImmediate(resolve));
+  await waitUntil(took, "the awaited step did not run");
   assert.ok(took(), "the awaited step ran");
 }
 

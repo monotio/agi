@@ -1,3 +1,4 @@
+import { waitUntil } from "./async.ts";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { providerSse } from "../../test/provider-stream.ts";
@@ -85,8 +86,7 @@ test("cancelling Genesis mid-request keeps the installed Boilerplate intact", as
   const session = new AgentSession(OPENAI, () => {});
   const work = session.startGenesis("A quiet garden.");
   const rejected = assert.rejects(work);
-  for (let i = 0; i < 100 && requests === 0; i++)
-    await new Promise((resolve) => setImmediate(resolve));
+  await waitUntil(() => requests > 0, "the genesis request did not start");
   session.task.cancel();
   await rejected;
   assert.equal(requests, 1);

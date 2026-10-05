@@ -1,3 +1,4 @@
+import { scheduler as testScheduler } from "node:timers/promises";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { LogicAnalysisClient } from "../src/studio/logic/analysisClient.ts";
@@ -83,7 +84,7 @@ test("a reply captured before invalidation cannot resolve a newer request", asyn
   );
   // The old request's reply arriving late must not resolve the new request.
   worker.reply(0);
-  await new Promise((resolve) => setTimeout(resolve, 10));
+  await testScheduler.yield();
   assert.equal(settled, false);
   worker.reply(1);
   assert.match((await current)?.contents.value ?? "", /#define door 50/);

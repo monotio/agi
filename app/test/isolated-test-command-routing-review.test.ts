@@ -1,3 +1,4 @@
+import { scheduler as testScheduler } from "node:timers/promises";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createContainer } from "../../src/container/container.ts";
@@ -116,10 +117,10 @@ test("an engine host request cannot consume a pending debugger command with the 
     assert.ok(worker.heldPause);
     const pauseId = worker.heldPause.id;
     answer("First");
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await testScheduler.yield();
     assert.ok(worker.hostIds.includes(pauseId), "the engine minted an overlapping host id");
     worker.dispatch(worker.heldPause);
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await testScheduler.yield();
     assert.equal(acknowledged, true, "only the debugger reply may settle its pending command");
   } finally {
     session.close();

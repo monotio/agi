@@ -1,3 +1,4 @@
+import { scheduler as testScheduler } from "node:timers/promises";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { useWorkerLink, type WorkerOutboundHandlers } from "../src/engine/useWorkerLink.ts";
@@ -259,7 +260,7 @@ test("every WorkerOutbound member reaches its handler once", async () => {
         break;
       case "hostRequest": {
         deliver(w, { type, id: 9, op: "getnum", context: {} });
-        await new Promise((r) => setTimeout(r, 0));
+        await testScheduler.yield();
         const answer = w.posted.find((m) => (m as { type: string }).type === "hostAnswer");
         assert.ok(answer, "hostRequest must post a hostAnswer");
         break;
@@ -652,7 +653,7 @@ test("every WorkerOutbound member reaches its handler once", async () => {
             sync: [],
           },
         });
-        await new Promise((r) => setTimeout(r, 0));
+        await testScheduler.yield();
         assert.ok(depCalls.includes("historyBatch"));
         assert.ok(
           w.posted.some(
@@ -688,7 +689,7 @@ test("every WorkerOutbound member reaches its handler once", async () => {
           diverged: null,
           error: null,
         });
-        await new Promise((r) => setTimeout(r, 0));
+        await testScheduler.yield();
         assert.equal(settled, false, "progress must not resolve the query");
         assert.ok(depCalls.includes("historyView"));
         deliver(w, {
@@ -828,7 +829,8 @@ test("every WorkerOutbound member reaches its handler once", async () => {
   }
 });
 
-test("a stale-session replay observation cannot settle a current query", async () => {
+test("a stale-session replay observation cannot settle a current query", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
   const { link } = makeLink();
   const w = fakeWorker();
   link.wireWorker(w as unknown as Worker);
@@ -846,7 +848,7 @@ test("a stale-session replay observation cannot settle a current query", async (
     id: sent.id,
     observation: fakeObservation({ sessionId: 99 }),
   });
-  await new Promise((r) => setTimeout(r, 20));
+  await testScheduler.yield();
   assert.equal(settled, "pending");
   // The current session's reply does settle it.
   deliver(w, {
@@ -855,11 +857,12 @@ test("a stale-session replay observation cannot settle a current query", async (
     id: sent.id,
     observation: fakeObservation({ sessionId: 7 }),
   });
-  await new Promise((r) => setTimeout(r, 20));
+  await testScheduler.yield();
   assert.ok(typeof settled === "object" && settled !== null, "current-session reply settles");
 });
 
-test("a replaced worker's replies are dropped before dispatch", async () => {
+test("a replaced worker's replies are dropped before dispatch", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
   const { link, state } = makeLink();
   const w1 = fakeWorker();
   link.wireWorker(w1 as unknown as Worker);
@@ -868,7 +871,7 @@ test("a replaced worker's replies are dropped before dispatch", async () => {
   const w2 = fakeWorker();
   link.wireWorker(w2 as unknown as Worker);
   deliver(w1, { type: "objects", id: 1, objects: [] });
-  await new Promise((r) => setTimeout(r, 20));
+  await testScheduler.yield();
   // w1's message never reached its handler; the query stays pending.
   state.debugObjects = [];
   deliver(w2, { type: "objects", id: 1, objects: [{ num: 1 }] as never });

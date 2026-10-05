@@ -1,0 +1,91 @@
+id: no-test-wall-clock
+snapshots:
+  ? |
+    // a plain comment
+    await sleep(100);
+  : labels:
+    - source: sleep(100)
+      style: primary
+      start: 25
+      end: 35
+  ? |
+    // wall-clock: the native callback runs outside the process
+    work();
+    await sleep(100);
+  : labels:
+    - source: sleep(100)
+      style: primary
+      start: 74
+      end: 84
+  await clock.sleep(100);:
+    labels:
+    - source: clock.sleep(100)
+      style: primary
+      start: 6
+      end: 22
+  await new Promise((resolve) => setTimeout(resolve, 100));:
+    labels:
+    - source: setTimeout(resolve, 100)
+      style: primary
+      start: 31
+      end: 55
+    - source: Promise
+      style: secondary
+      start: 10
+      end: 17
+    - source: new Promise((resolve) => setTimeout(resolve, 100))
+      style: secondary
+      start: 6
+      end: 56
+  ? |
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, 100);
+    });
+  : labels:
+    - source: setTimeout(resolve, 100)
+      style: primary
+      start: 41
+      end: 65
+    - source: Promise
+      style: secondary
+      start: 10
+      end: 17
+    - source: |-
+        new Promise<void>((resolve) => {
+          setTimeout(resolve, 100);
+        })
+      style: secondary
+      start: 6
+      end: 69
+  await page.waitForTimeout(100);:
+    labels:
+    - source: page.waitForTimeout(100)
+      style: primary
+      start: 6
+      end: 30
+  await sleep(100);:
+    labels:
+    - source: sleep(100)
+      style: primary
+      start: 6
+      end: 16
+  await waitForTimeout(100);:
+    labels:
+    - source: waitForTimeout(100)
+      style: primary
+      start: 6
+      end: 25
+  const settle = () => new Promise<void>((resolve) => setTimeout(resolve, 0));:
+    labels:
+    - source: setTimeout(resolve, 0)
+      style: primary
+      start: 52
+      end: 74
+    - source: Promise
+      style: secondary
+      start: 25
+      end: 32
+    - source: new Promise<void>((resolve) => setTimeout(resolve, 0))
+      style: secondary
+      start: 21
+      end: 75

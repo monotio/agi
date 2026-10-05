@@ -1,3 +1,4 @@
+import { scheduler as testScheduler } from "node:timers/promises";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createContainer } from "../../src/container/container.ts";
@@ -87,7 +88,7 @@ test("Test waits for the live-game park before creating its worker or publishing
     return run;
   });
   try {
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await testScheduler.yield();
     assert.equal(workers, 0, "a pending park must precede the isolated worker");
     assert.equal(ready, false, "ready must not authorize Test while the live game is unparked");
     grant({ release() {} });

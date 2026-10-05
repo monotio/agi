@@ -1,8 +1,9 @@
+import { scheduler as testScheduler } from "node:timers/promises";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { AgiAudio } from "../src/audio/AgiAudio.ts";
 
-const settle = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
+const settle = () => testScheduler.yield();
 
 test("a pause arriving during a user-gesture unlock freezes the context after unlock settles", async () => {
   let finishUnlock: (() => void) | undefined;

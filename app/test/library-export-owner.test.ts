@@ -1,3 +1,4 @@
+import { waitUntil } from "./async.ts";
 /**
  * Project download ownership: a card's private archive must come from one
  * physical owner — the saved body's exact incarnation (project id + body
@@ -105,8 +106,7 @@ function holdArchiveWriter(): { held(): Promise<void>; release(): void } {
   (globalThis as { __exportOwnerHeldWriter?: typeof gate }).__exportOwnerHeldWriter = gate;
   return {
     async held() {
-      for (let i = 0; i < 10_000 && !gate.entered; i += 1)
-        await new Promise((resolve) => setTimeout(resolve, 0));
+      await waitUntil(() => gate.entered, "the export never reached the writer");
       assert.ok(gate.entered, "the export reached the real writer boundary");
     },
     release: () => {

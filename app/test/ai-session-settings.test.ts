@@ -1,3 +1,4 @@
+import { waitUntil } from "./async.ts";
 import { providerSse } from "../../test/provider-stream.ts";
 import assert from "node:assert/strict";
 import { test } from "node:test";
@@ -157,8 +158,7 @@ test("a running or paused session cannot be reconfigured", async () => {
     /finish.*AI settings/i,
   );
   reachCheckpoint!();
-  for (let attempt = 0; attempt < 20 && session.task.snapshot().status !== "paused"; attempt++)
-    await new Promise((resolve) => setImmediate(resolve));
+  await waitUntil(() => session.task.snapshot().status === "paused", "the agent did not pause");
   assert.equal(session.task.snapshot().status, "paused");
   assert.throws(
     () => session.reconfigure({ provider: "stub", apiKey: "", model: "other" }),

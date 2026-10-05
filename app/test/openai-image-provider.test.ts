@@ -1,3 +1,4 @@
+import { scheduler as testScheduler } from "node:timers/promises";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { crc32, deflateSync } from "node:zlib";
@@ -601,20 +602,24 @@ test("one active job per provider; the second waits without consuming its handle
 });
 
 test("cancel and a late-arriving result stay contained", async () => {
-  const { provider } = harness(
-    () =>
-      new Promise<Response>((resolve) => {
-        // The mock ignores the abort and still answers late; submit must
-        // consume that answer quietly and still reject cancelled.
-        setTimeout(() => resolve(jsonResponse(imageBody(PNG_1x1))), 30);
-      }),
-  );
+  let release!: (response: Response) => void;
+  const late = new Promise<Response>((resolve) => {
+    release = resolve;
+  });
+  let first = true;
+  const { provider } = harness(() => {
+    if (!first) return Promise.resolve(jsonResponse(imageBody(PNG_1x1)));
+    first = false;
+    return late;
+  });
   const controller = new AbortController();
   const pending = provider.submit(provider.prepare(request()), { signal: controller.signal });
   controller.abort();
   const error = await errorOf(pending);
   assert.equal(error.reason, "cancelled");
-  await new Promise((resolve) => setTimeout(resolve, 60));
+  release(jsonResponse(imageBody(PNG_1x1)));
+  await late;
+  await testScheduler.yield();
   assert.equal(provider.busy, false);
   // The instance still works afterwards.
   await provider.submit(provider.prepare(request()));
@@ -935,7 +940,7 @@ test("image quality and pixel count extend the whole-job timeout", async (t) => 
         provider.prepare(request({ model: "gpt-image-2.5-sunburst", quality, size })),
       ),
     );
-    for (let i = 0; i < 10; i++) await Promise.resolve();
+    await testScheduler.yield();
     t.mock.timers.tick(180000);
     await Promise.resolve();
     assert.equal(provider.busy, true, "the baseline deadline allows long generation to continue");

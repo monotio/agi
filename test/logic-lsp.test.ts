@@ -1,3 +1,4 @@
+import { scheduler } from "node:timers/promises";
 /**
  * Wire tests for the local logic language server: each case launches the real
  * CLI as a child process and talks to it through the official protocol client
@@ -152,7 +153,7 @@ async function waitFor<T>(label: string, pick: () => T | undefined, server?: Run
         : "";
       throw new Error(`timed out waiting for ${label}${seen}`);
     }
-    await new Promise((resolvePromise) => setTimeout(resolvePromise, 20));
+    await scheduler.yield();
   }
 }
 
@@ -705,7 +706,10 @@ test("close clears diagnostics, stale versions are ignored, reopen restarts clea
     // A change for a closed document is a protocol violation; the server must
     // stay alive and silent rather than publish for it.
     await change(server, uri, "return;", 5);
-    await new Promise((resolvePromise) => setTimeout(resolvePromise, 150));
+    await server.connection.sendRequest(HoverRequest.type, {
+      textDocument: { uri },
+      position: { line: 0, character: 0 },
+    });
     assert.equal(
       server.diagnostics.filter((p) => p.uri === uri && p.version === 5).length,
       0,
@@ -721,7 +725,10 @@ test("close clears diagnostics, stale versions are ignored, reopen restarts clea
 
     // An out-of-order older version must not publish over the current one.
     await change(server, uri, "not.a.command();", 0).catch(() => undefined);
-    await new Promise((resolvePromise) => setTimeout(resolvePromise, 150));
+    await server.connection.sendRequest(HoverRequest.type, {
+      textDocument: { uri },
+      position: { line: 0, character: 0 },
+    });
     assert.equal(
       server.diagnostics.filter((p) => p.uri === uri && p.version === 0).length,
       0,
@@ -746,7 +753,10 @@ test("non-AGI documents stay silent and unknown methods are rejected", async () 
     await server.connection.sendNotification(DidOpenTextDocumentNotification.type, {
       textDocument: { uri, languageId: "plaintext", version: 1, text: "not.a.command();" },
     });
-    await new Promise((resolvePromise) => setTimeout(resolvePromise, 150));
+    await server.connection.sendRequest(HoverRequest.type, {
+      textDocument: { uri },
+      position: { line: 0, character: 0 },
+    });
     assert.equal(
       server.diagnostics.filter((p) => p.uri === uri).length,
       0,

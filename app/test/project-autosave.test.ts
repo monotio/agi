@@ -1,3 +1,4 @@
+import { scheduler as testScheduler } from "node:timers/promises";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createProjectAutosave } from "../src/project/projectAutosave.ts";
@@ -25,10 +26,10 @@ test("autosave serializes captures, retries the exact failed request, and fences
   saver.enqueue(2);
   fail = false;
   const retry = saver.retry();
-  await new Promise((r) => setTimeout(r, 0));
+  await testScheduler.yield();
   assert.deepEqual(calls, [1, 1]);
   release!();
-  await new Promise((r) => setTimeout(r, 0));
+  await testScheduler.yield();
   assert.deepEqual(calls, [1, 1, 2]);
   assert.equal(saver.status().state, "saving");
   release!();

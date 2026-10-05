@@ -1,3 +1,5 @@
+import { waitUntil } from "./async.ts";
+import { scheduler as testScheduler } from "node:timers/promises";
 import { onWorkerMessage } from "../src/worker/dispatch.ts";
 import { newProjectAdmissionState } from "../src/worker/projectAdmissionState.ts";
 import { test } from "node:test";
@@ -63,11 +65,11 @@ test("worker image preview requires the current Create run, cancels pending load
   assert.equal(ctx.imagePreviewSerial, undefined);
   onWorkerMessage(ctx, { type: "imageHeroPreview", runToken: "create", bytes });
   onWorkerMessage(ctx, { type: "imageHeroPreview", runToken: "create", bytes: null });
-  await new Promise((resolve) => setTimeout(resolve, 10));
+  await import("../src/worker/imageHeroPreview.ts");
+  await testScheduler.yield();
   assert.equal(ctx.imageHeroPreview, undefined);
   onWorkerMessage(ctx, { type: "imageHeroPreview", runToken: "create", bytes });
-  for (let i = 0; i < 100 && !ctx.imageHeroPreview; i++)
-    await new Promise((resolve) => setTimeout(resolve, 1));
+  await waitUntil(() => ctx.imageHeroPreview !== undefined, "the image preview did not load");
   assert.ok(ctx.imageHeroPreview);
   ctx.fns.postFrame(true);
   const shown = presentation.filter((message) => message.type === "frame").at(-1)!;

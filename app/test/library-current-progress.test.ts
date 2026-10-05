@@ -1,3 +1,4 @@
+import { scheduler as testScheduler } from "node:timers/promises";
 /**
  * Home's pending-progress offer: the strict physical resume pointer, the
  * saved/installed target caches, and the record+target pair the Resume
@@ -90,7 +91,7 @@ function installLocalStorage(t: { after(callback: () => void): void }): Map<stri
   return values;
 }
 
-const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
+const flush = () => testScheduler.yield();
 
 /**
  * This test's stored-body teardown. The callbacks run with an inert

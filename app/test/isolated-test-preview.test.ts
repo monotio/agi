@@ -1,3 +1,5 @@
+import { useTestClock } from "./async.ts";
+import { scheduler as testScheduler } from "node:timers/promises";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createWorkerContext, type WorkerContext } from "../src/worker/context.ts";
@@ -205,12 +207,10 @@ function makeCandidate(game: IsolatedTestGame): PreviewUpdateCandidateMessage {
 }
 
 async function flush(): Promise<void> {
-  await new Promise((resolve) => setTimeout(resolve, 0));
+  await testScheduler.yield();
 }
 
-async function sleep(ms: number): Promise<void> {
-  await new Promise((resolve) => setTimeout(resolve, ms));
-}
+const clock = useTestClock();
 
 function makeSession(extra: Partial<Parameters<typeof createTestSession>[0]> = {}): {
   session: TestSession;
@@ -379,7 +379,9 @@ test("a lost update ack reconciles through the retained result on the same run",
     [{ num: 0, source: "increment(count);\nassignn(v42, 9);\nreturn;" }],
     COUNT_BINDINGS,
   );
-  const verdict = await session.previewUpdate(makeCandidate(updated));
+  const updating = session.previewUpdate(makeCandidate(updated));
+  await clock.advance(60);
+  const verdict = await updating;
   assert.equal(verdict.kind, "settled");
   assert.ok(verdict.kind === "settled" && verdict.outcome.status === "committed");
 
@@ -410,7 +412,9 @@ test("a lost request reconciles as indeterminate — nothing committed, nothing 
     [{ num: 0, source: "increment(count);\nassignn(v42, 3);\nreturn;" }],
     COUNT_BINDINGS,
   );
-  const verdict = await session.previewUpdate(makeCandidate(updated));
+  const updating = session.previewUpdate(makeCandidate(updated));
+  await clock.advance(60);
+  const verdict = await updating;
   assert.equal(verdict.kind, "indeterminate");
   const current = verdict.kind === "indeterminate" ? verdict.current : null;
   // The live identity proves the request never ran: the lane stayed put.
@@ -616,7 +620,9 @@ test("a lost request and a lost status answer report no fresh evidence", async (
     [{ num: 0, source: "increment(count);\nassignn(v42, 3);\nreturn;" }],
     COUNT_BINDINGS,
   );
-  const verdict = await session.previewUpdate(makeCandidate(updated));
+  const updating = session.previewUpdate(makeCandidate(updated));
+  await clock.advance(60);
+  const verdict = await updating;
   assert.equal(verdict.kind, "indeterminate");
   assert.ok(
     verdict.kind === "indeterminate" && verdict.current === null,
@@ -657,7 +663,9 @@ test("a late-correlated result repins the run and publishes the settlement", asy
     [{ num: 0, source: "increment(count);\nassignn(v42, 5);\nreturn;" }],
     COUNT_BINDINGS,
   );
-  const verdict = await session.previewUpdate(makeCandidate(updated));
+  const updating = session.previewUpdate(makeCandidate(updated));
+  await clock.advance(60);
+  const verdict = await updating;
   assert.equal(verdict.kind, "indeterminate");
   assert.ok(verdict.kind === "indeterminate" && verdict.current === null);
 
@@ -724,7 +732,7 @@ test("a retained-attempt identity proof repins run and restart authority togethe
   // The ACK watchdog's status query posts; the answer carries no retained
   // outcome ("unavailable") but the lane's recomputed identity proves the
   // retained candidate installed — the strongest evidence that exists.
-  await sleep(50);
+  await clock.advance(50);
   const statusQuery = worker.posts.find((m) => m.type === "previewUpdateStatus") as
     { id: number; transactionId?: number } | undefined;
   assert.ok(statusQuery !== undefined);
