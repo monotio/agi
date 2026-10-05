@@ -3,6 +3,7 @@ import { computed, ref } from "vue";
 import { VOCABULARY } from "../../../../src/vocabulary.ts";
 import type { WorkspaceDebug } from "./workspaceDebug.ts";
 import UiButton from "../../ui/UiButton.vue";
+import WorkspaceDebugControls from "./WorkspaceDebugControls.vue";
 import { reservedValues } from "./debugValues.ts";
 const props = defineProps<{ debug: WorkspaceDebug; problems: readonly { message: string }[] }>();
 const emit = defineEmits<{ close: []; reveal: [logic: number, line: number] }>();
@@ -84,6 +85,7 @@ function tabKey(event: KeyboardEvent): void {
 </script>
 <template>
   <div class="workspace-debug-panel" data-testid="workspace-debug-panel">
+    <WorkspaceDebugControls v-if="debug.state.epoch" :debug="debug" />
     <header>
       <div role="tablist" aria-label="Debug panels" @keydown="tabKey">
         <button
