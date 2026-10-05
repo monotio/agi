@@ -263,6 +263,7 @@ async function onStartOver(anyway = false): Promise<void> {
   historyStartOver.value = false;
   // Room Studio's unkept changes are kept or thrown away before the game restarts.
   if (!(await workspace.confirmStudioLeave())) return;
+  if (!touchControls) bridge.focusGameInput();
   try {
     await startGameOver(anyway ? { abandonHistory: true } : undefined);
   } catch (error) {

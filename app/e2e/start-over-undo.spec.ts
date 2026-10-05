@@ -1,6 +1,9 @@
 import type { Page } from "@playwright/test";
 import type { WorkerQueryFn } from "../src/worker/workerProtocol.ts";
 import type { EngineStateReport } from "../../src/runtime/engine.ts";
+import { createContainer } from "../../src/container/container.ts";
+import { assembleLogic } from "../../src/logic/assembler.ts";
+import { gameRevision } from "../src/project/gameMetadata.ts";
 import { expect, reviewShot, test } from "./test.ts";
 import {
   isolateStorage,
@@ -164,6 +167,44 @@ test("Undo after the game's own Start over returns to the exact moment it was us
   await expect.poll(async () => (await textHook(page)).egoX).toBe(stopped.egoX);
   const back = await textHook(page);
   expect([back.room, back.egoX, back.egoY]).toEqual([stopped.room, stopped.egoX, stopped.egoY]);
+});
+
+test("Start over hands an installed game's title screen the keyboard", async ({ page }) => {
+  const game = createContainer();
+  for (const [num, source] of [
+    [0, "if (v0 == 0) { new.room(1); } call.v(v0); return;"],
+    [1, 'display(10,4,"Press any key"); if (have.key()) { new.room(2); } return;'],
+    [2, 'accept.input(); display(0,0,"Playing"); return;'],
+  ] as const)
+    game.putResource("logic", num, assembleLogic(source, { dictionary: new Map() }).payload);
+  game.putFile("WORDS.TOK", new Uint8Array(52));
+  const revision = await gameRevision(Object.fromEntries(game.files));
+  await page.route("**/fixtures/**", (route) => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === "/fixtures/") return route.fulfill({ json: [{ folder: "title-game", revision }] });
+    if (path === "/fixtures/title-game/") return route.fulfill({ json: [...game.files.keys()] });
+    const bytes = game.files.get(path.split("/").at(-1)!);
+    return route.fulfill(bytes ? { body: Buffer.from(bytes) } : { status: 404 });
+  });
+  await isolateStorage(page);
+  await page.goto("/");
+  await page.getByTestId("boot-title-game").click();
+  const input = page.getByTestId("input-line");
+  await expect(input).toBeVisible();
+  await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  await page.keyboard.press("Enter");
+  await expect.poll(async () => (await textHook(page)).room).toBe(2);
+  await openGameOptions(page, "settings-menu");
+  await page.getByTestId("btn-start-over").click();
+  await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  const keys = page.getByTestId("game-keys");
+  await expect(keys).toBeVisible();
+  await expect(keys).toHaveText("Keys go to the game");
+  await page.keyboard.press("Enter");
+  await expect.poll(async () => (await textHook(page)).room).toBe(2);
+  await page.keyboard.type("look");
+  await expect(input).toHaveValue("look");
+  await expect(page.getByTestId("settings-menu-menu")).toBeHidden();
 });
 
 /** Storage refuses (true) or takes (false) this game's timeline writes. */
