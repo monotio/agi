@@ -277,7 +277,7 @@ test("one roomy library reflows across desktop, tablet and phone with accessible
     await page.getByTestId("hero-primary").evaluate(typography),
   );
 
-  for (const width of [1440, 1024, 768, 390]) {
+  for (const width of [1440, 1024, 768, 390] as const) {
     await page.setViewportSize({ width, height: 1000 });
     await gallery.scrollIntoViewIfNeeded();
     const bounds = await gallery.boundingBox();

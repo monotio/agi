@@ -73,8 +73,8 @@ test("guards that do not pin a single edge leave the exit unlabeled", () => {
   assert.deepEqual(conjunct.targets, [{ to: 2, edge: "left" }]);
 });
 
-test("a computed room target is a variable exit, never an asserted route", () => {
-  const scan = scanStaticExits(logic("assignn(v10, 7); new.room.v(v10); return;"));
+test("an unbound room target remains a computed exit", () => {
+  const scan = scanStaticExits(logic("new.room.v(v10); return;"));
   assert.deepEqual(scan.targets, []);
   assert.equal(scan.variableTarget, true);
   const graph = mergeRoomGraph({
@@ -100,7 +100,7 @@ test("a shared logic's transitions are not attributed to its number", () => {
     scans,
     shared,
   });
-  assert.deepEqual(graph.edges, []);
+  assert.deepEqual(graph.edges, [{ from: 1, to: 5, provenance: "static" }]);
   const five = graph.nodes.find((n) => n.room === 5);
   assert.equal(five?.staticTarget, true);
   assert.equal(five?.unknownSource, true);
@@ -111,7 +111,10 @@ test("a shared logic's transitions are not attributed to its number", () => {
     scans,
     shared: new Set(),
   });
-  assert.deepEqual(direct.edges, [{ from: 9, to: 5, provenance: "static" }]);
+  assert.deepEqual(direct.edges, [
+    { from: 1, to: 5, provenance: "static" },
+    { from: 9, to: 5, provenance: "static" },
+  ]);
 });
 
 test("picture use is a literal var binding, not a guess", () => {
@@ -561,8 +564,8 @@ test("verifyPlanConnections verifies reachable exits and reports the rest", () =
     [2, logic("if (v2 == 2) { call(40); } return;")],
     // Room 3 declares an exit its logic never implements.
     [3, logic("new.room(5); return;")],
-    // Room 5's transition is computed — undecidable, never guessed.
-    [5, logic("assignn(v9, 6); new.room.v(v9); return;")],
+    // Room 5 reads its transition from player input.
+    [5, logic("get.num(1, v9); new.room.v(v9); return;")],
     [40, logic("new.room(7); return;")],
   ]);
   const plan = {

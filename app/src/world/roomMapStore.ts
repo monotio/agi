@@ -8,11 +8,8 @@
  * stays in the authoring state; journal observations are append-only facts;
  * the static graph is derived from the resources and never stored.
  */
-import {
-  serializeMapSidecar,
-  validateMapSidecar,
-  type RoomMapSidecar,
-} from "../../../src/agent/roomMap.ts";
+import { serializeMapSidecar, validateMapSidecar } from "../../../src/agent/roomSidecar.ts";
+import type { RoomMapSidecar } from "../../../src/agent/roomMap.ts";
 import type { ProgressTarget } from "../project/progressTarget.ts";
 
 const MAP_PREFIX = "monotio_agi.map.";

@@ -142,7 +142,9 @@ const BUDGETS: Record<Group, { readonly gzip: number; readonly brotli: number }>
   // the agent, debugger, editor and preview boundaries, plus the shared dismiss
   // control, first-run tip and reported-spend line in the shell. Home's GPU
   // stage and tutorial build wait for Play.
-  js: { gzip: 575_000, brotli: 474_000 },
+  // Constant room targets and shared LOGIC flow add static map analysis to Play.
+  // Storage stays separate so Home does not load the analyzer; Play is 474.3 kB.
+  js: { gzip: 575_000, brotli: 475_000 },
   // The stylesheets of those chunks: 16.4 kB gzip, 14.3 kB brotli.
   css: { gzip: 16_500, brotli: 14_500 },
   // The 1.2 engine and catalog workers share Engine's synchronous native

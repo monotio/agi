@@ -16,13 +16,13 @@
 import { computed, reactive, ref, watch, type ComputedRef, type Ref } from "vue";
 import {
   mergeRoomGraph,
-  scanContainerExits,
   type MapExperience,
   type RoomGraph,
   type RoomMapSidecar,
   type RoomObservation,
   type StaticRoomScan,
-} from "../../../src/agent/roomMap.ts";
+} from "../../../src/agent/roomGraph.ts";
+import { scanContainerExits } from "../../../src/agent/roomMap.ts";
 import {
   createWorldDraft,
   draftAddExit,
@@ -458,7 +458,7 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
       };
       return scanned;
     }
-    const { scans, shared } = scanContainerExits(logicPayloads, profile);
+    const { scans, shared } = scanContainerExits(logicPayloads, profile, { main: true });
     scanned = {
       key,
       scans,

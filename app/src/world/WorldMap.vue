@@ -150,6 +150,17 @@ function addStandaloneRoom(): void {
         </UiButton>
       </span>
     </div>
+    <p
+      v-if="
+        [...map.resources.value.scans.values()].some(
+          (scan) => scan.variableTarget || scan.unresolvedCall,
+        )
+      "
+      class="map-runtime"
+      data-testid="map-runtime-exits"
+    >
+      Some exits are worked out while you play.
+    </p>
     <div class="map-body">
       <section ref="sideEl" class="map-side" aria-label="Rooms">
         <div v-show="!selectedNode">
@@ -214,6 +225,12 @@ function addStandaloneRoom(): void {
   gap: var(--space-2);
   color: var(--danger);
   font-size: var(--text-xs);
+}
+.map-runtime {
+  margin: 0;
+  padding: 0 var(--space-6) var(--space-3);
+  color: var(--ink-3);
+  font-size: var(--text-sm);
 }
 .map-body {
   display: grid;
