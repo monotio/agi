@@ -32,6 +32,7 @@ const emit = defineEmits<{
   edit: [source: string];
   breakpoint: [line: number];
   selection: [context: { label: string; text: string } | null];
+  problems: [entries: readonly { message: string; line: number }[]];
 }>();
 const binding = ref<BindingInfo>();
 const renameBinding = ref(false);
@@ -65,6 +66,7 @@ let syncing = false;
 let layoutFrame = 0;
 let decorations: monaco.editor.IEditorDecorationsCollection | undefined;
 let editView: monaco.editor.ICodeEditorViewState | null = null;
+let markerSubscription: monaco.IDisposable | undefined;
 function decorate(): void {
   if (!editor || !model) return;
   const exact = props.runningSource === undefined || model.getValue() === props.runningSource;
@@ -178,11 +180,11 @@ function analysis(): void {
     documents,
   });
 }
-async function applyProjectEdit(edit: WorkspaceEdit, label: string): Promise<void> {
+async function applyProjectEdit(edit: WorkspaceEdit, _label: string): Promise<void> {
   const revision = props.snapshot.revision;
   await workspace.flush.value?.();
   const session = engine.getProjectSession();
-  const base = session?.model.capture();
+  const base = session?.workingSnapshot();
   if (!session || !base || base.revision !== revision)
     throw new Error("The project changed. Retry the rename.");
   const changes = edit.documentChanges.map((change) => {
@@ -209,14 +211,9 @@ async function applyProjectEdit(edit: WorkspaceEdit, label: string): Promise<voi
       content = content.slice(0, entry.start) + entry.text + content.slice(entry.end);
     return { key, content };
   });
-  const outcome = await session.submit({
-    proposal: session.model.propose(base, label, changes),
-    label,
-    origin: "logic",
-    author: "creator",
-  });
+  const outcome = await session.stage(changes);
   if (
-    !["committed", "unchanged", "diagnostics", "restartRequired", "deferred"].includes(
+    !["committed", "unchanged", "draft", "diagnostics", "restartRequired", "deferred"].includes(
       outcome.status,
     )
   )
@@ -253,6 +250,16 @@ onMounted(() => {
     padding: { top: 16, bottom: 16 },
   });
   decorations = editor.createDecorationsCollection();
+  markerSubscription = monaco.editor.onDidChangeMarkers((uris) => {
+    if (!model || !uris.some((uri) => uri.toString() === model!.uri.toString())) return;
+    emit(
+      "problems",
+      monaco.editor
+        .getModelMarkers({ resource: model.uri })
+        .filter((entry) => entry.severity === monaco.MarkerSeverity.Error)
+        .map((entry) => ({ message: entry.message, line: entry.startLineNumber })),
+    );
+  });
   editor.onMouseDown((event) => {
     if (
       event.target.type === monaco.editor.MouseTargetType.GUTTER_GLYPH_MARGIN &&
@@ -349,6 +356,7 @@ onBeforeUnmount(() => {
   // Model-change listeners cancel their work before markers and providers retire.
   editor?.setModel(null);
   editor?.dispose();
+  markerSubscription?.dispose();
   language?.dispose();
   model?.dispose();
   client.dispose();

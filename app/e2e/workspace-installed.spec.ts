@@ -6,7 +6,7 @@ import {
   enterCreateMode,
   isolateStorage,
   waitForRoom,
-  workspaceSaved,
+  workspaceUpdated,
 } from "./engineProbe.ts";
 import type { ProjectSession } from "../src/project/projectSession.ts";
 
@@ -50,7 +50,7 @@ test("a host-served edition opens in Create and the first picture edit forks a c
   ])
     await page.mouse.click(box.x + (x! * box.width) / 160, box.y + (y! * box.height) / 168);
   await studio.getByRole("button", { name: "✓ Done", exact: true }).click();
-  await workspaceSaved(page);
+  await workspaceUpdated(page);
   const copies = await stored();
   expect(copies).toHaveLength(1);
   expect(copies[0]!.library?.source).toBe("remix");
@@ -88,7 +88,7 @@ test("a host-served edition opens in Create and the first picture edit forks a c
   await page.setViewportSize({ width: 1440, height: 900 });
   await studio.getByRole("group", { name: /^Canvas/ }).focus();
   await page.keyboard.press("ArrowUp");
-  await workspaceSaved(page);
+  await workspaceUpdated(page);
   await expect(note).toHaveCount(0);
   await page.getByTestId("workspace-agent").click();
   const panel = page.getByTestId("workspace-agent-panel");

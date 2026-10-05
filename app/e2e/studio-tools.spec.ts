@@ -15,7 +15,7 @@ import {
   openWorkspacePicture,
   textHook,
   waitForCycles,
-  workspaceSaved,
+  workspaceUpdated,
 } from "./engineProbe.ts";
 import { expect, test } from "./test.ts";
 
@@ -183,11 +183,11 @@ test("a filled rect drawn in the Art lens keeps as those pixels and leaves prior
   await studio.getByTestId("studio-tool-filled").check();
   await pickColour(studio, 4);
   await dragCells(page, [20, 120], [40, 140]);
-  await workspaceSaved(page);
+  await workspaceUpdated(page);
   await expect(studio.locator('[data-row="rect-1"]')).toHaveAttribute("aria-selected", "true");
   expect(await order(studio)).toEqual(["wall", "floor", "bench", "occluder", "rect-1"]);
 
-  await workspaceSaved(page);
+  await workspaceUpdated(page);
   const kept = await storedPicture(page);
   expect(kept).toEqual(await draftBytes(page));
   const before = planes(PIC_5);
@@ -229,7 +229,7 @@ test("a barrier line clicked out in the Walk lens writes priority 0 and not one 
   await clickCell(page, 20, 150);
   await clickCell(page, 100, 150);
   await page.keyboard.press("Enter");
-  await workspaceSaved(page);
+  await workspaceUpdated(page);
   const row = studio.locator('[data-row="wall-line-1"]');
   await expect(row).toContainText("Wall line 1");
   await expect(row).toContainText("Wall");
@@ -250,7 +250,7 @@ test("the fill tool on a seed that is not white explains the AGI rule and insert
   await expect(studio.getByTestId("bar-notice-summary")).toHaveText(
     "Fill stops here: this spot is already light grey.",
   );
-  await workspaceSaved(page);
+  await workspaceUpdated(page);
   expect(await draftBytes(page)).toEqual(PIC_5);
 });
 
@@ -293,7 +293,7 @@ test("a fill drawn last on painted ground says why, and Draw before moves the dr
   await page.keyboard.press("r");
   await expect(studio.getByTestId("studio-tool-filled")).toBeChecked();
   await dragCells(page, [30, 30], [50, 50]);
-  await workspaceSaved(page);
+  await workspaceUpdated(page);
   expect(await order(studio)).toEqual(["rect-1", "wall", "floor", "bench", "occluder"]);
   const after = planes(await draftBytes(page));
   const before = planes(PIC_5);
@@ -340,7 +340,7 @@ test("an insert at a mid playhead lands at that draw-order position under later 
   await studio.getByTestId("studio-tool-filled").check();
   await pickColour(studio, 1);
   await dragCells(page, [50, 88], [70, 100]);
-  await workspaceSaved(page);
+  await workspaceUpdated(page);
   expect(await order(studio)).toEqual(["wall", "floor", "rect-1", "bench", "occluder"]);
   const drawn = planes(await draftBytes(page));
   // The bench outline, drawn later, is still on top of the new rect.
@@ -384,7 +384,7 @@ test("G stands the ghost actor on the draft; dragged behind the occluder it read
   );
   await expect(studio.locator('[data-role="ghost-band"]')).toContainText("y 97 → depth band 9");
   // Dragging the ghost edited nothing.
-  await workspaceSaved(page);
+  await workspaceUpdated(page);
   await page.keyboard.press("g");
   await expect(ghost).toHaveCount(0);
 });
@@ -395,23 +395,23 @@ async function nudgeOccluder(page: Page, studio: Locator) {
   await studio.locator('[data-row="occluder"]').click();
   await studio.getByRole("group", { name: /^Canvas/ }).focus();
   await page.keyboard.press("ArrowDown");
-  await workspaceSaved(page);
+  await workspaceUpdated(page);
 }
 
 test("Undo and Redo autosave the restored picture bytes", async ({ page }) => {
   const studio = await openStudio(page);
   await nudgeOccluder(page, studio);
   const edited = await draftBytes(page);
-  await workspaceSaved(page);
+  await workspaceUpdated(page);
   expect(await storedPicture(page)).toEqual(edited);
   await expect(page.getByTestId("workspace-undo")).toBeEnabled();
   await page.keyboard.press("ControlOrMeta+z");
-  await workspaceSaved(page);
+  await workspaceUpdated(page);
   expect(await draftBytes(page)).toEqual(PIC_5);
-  await workspaceSaved(page);
+  await workspaceUpdated(page);
   expect(await storedPicture(page)).toEqual(PIC_5);
   // Redo walks forward again across both saved versions.
   await page.keyboard.press("ControlOrMeta+Shift+z");
-  await workspaceSaved(page);
+  await workspaceUpdated(page);
   expect(await draftBytes(page)).toEqual(edited);
 });

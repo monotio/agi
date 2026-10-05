@@ -9,7 +9,7 @@ import {
   isolateStorage,
   textHook,
   configureAi,
-  workspaceSaved,
+  workspaceUpdated,
   openWorkspaceAgent,
 } from "./engineProbe.ts";
 import type { Page } from "@playwright/test";
@@ -260,7 +260,7 @@ test("saved reviews reopen with previews and detect a changed base", async ({ pa
   await page.getByTestId("agent-message").fill("Add a welcome sign");
   await page.getByRole("button", { name: "Send", exact: true }).click();
   await expect(page.getByTestId("agent-review")).toBeVisible();
-  await workspaceSaved(page);
+  await workspaceUpdated(page);
   async function reopen() {
     await page.goto("/");
     await page.reload();
@@ -283,7 +283,7 @@ test("saved reviews reopen with previews and detect a changed base", async ({ pa
   await page.screenshot({ path: test.info().outputPath("stale-review.png") });
   await page.getByTestId("agent-reject").click();
   await expect(page.getByTestId("agent-review")).toHaveCount(0);
-  await workspaceSaved(page);
+  await workspaceUpdated(page);
   await reopen();
   await expect(page.getByTestId("agent-review")).toHaveCount(0);
 });

@@ -2,7 +2,13 @@ import { readFile } from "node:fs/promises";
 import type { Page, Download } from "@playwright/test";
 import type { ProjectSession } from "../src/project/projectSession.ts";
 import { test, expect } from "./test.ts";
-import { isolateStorage, openGameOptions, workspaceSaved } from "./engineProbe.ts";
+import {
+  isolateStorage,
+  openGameOptions,
+  workspaceSaved,
+  workspaceUpdated,
+  refuseDraftWrites,
+} from "./engineProbe.ts";
 import { openWorkspaceLogic, openStoredWorkspace } from "./workspaceShared.ts";
 import { readGameZip } from "../src/archive/gameZip.ts";
 
@@ -33,7 +39,7 @@ async function moveStorage(page: Page, other: Page, removed: boolean): Promise<v
   } else {
     await other.getByTestId("part-notes").click();
     await other.getByLabel("Game notes", { exact: true }).fill("From the other tab");
-    await workspaceSaved(other);
+    await workspaceUpdated(other);
   }
   await page.bringToFront();
   await expect(page.getByTestId(removed ? "removed-tab-note" : "stale-tab-note")).toBeVisible();
@@ -51,8 +57,9 @@ for (const mode of ["refusal", "storage", "stale", "removed"] as const) {
         const session = (
           window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }
         ).__AGI_PROJECT__.getSession();
-        session.submit = () => Promise.reject(new Error("Retained buffer"));
+        session.drafts().flush = () => Promise.reject(new Error("Retained buffer"));
       });
+      await refuseDraftWrites(page, "Retained buffer");
       await page.getByLabel("Game notes", { exact: true }).fill("LOCAL_TYPED_SENTINEL");
       await expect(page.getByTestId("workspace-saved")).toContainText("Could not save");
       const other = await context.newPage();
@@ -69,7 +76,7 @@ for (const mode of ["refusal", "storage", "stale", "removed"] as const) {
       await expect(
         page.getByRole("button", { name: "Download unsaved edits", exact: true }),
       ).toHaveCount(1);
-      await expect(page.getByTestId("project-tab-notes")).toContainText("Not saved");
+      await expect(page.getByTestId("project-tab-notes")).toContainText("Draft");
       await expect(page.getByTestId("project-tab-notes")).not.toContainText("Missing");
       await expect(
         page
@@ -91,7 +98,7 @@ for (const mode of ["refusal", "storage", "stale", "removed"] as const) {
           const session = (
             window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }
           ).__AGI_PROJECT__.getSession();
-          session.submit = () => Promise.reject(new Error("Injected admission refusal"));
+          session.drafts().flush = () => Promise.reject(new Error("Injected draft write refusal"));
         } else {
           const put = IDBObjectStore.prototype.put;
           IDBObjectStore.prototype.put = function (...args) {
@@ -101,6 +108,7 @@ for (const mode of ["refusal", "storage", "stale", "removed"] as const) {
           };
         }
       }, mode);
+      if (mode === "refusal") await refuseDraftWrites(page, "Injected draft write refusal");
       await page.getByTestId("part-notes").click();
       await page.getByLabel("Game notes", { exact: true }).fill("Local recovery note");
       await expect(page.getByTestId("workspace-saved")).toContainText("Could not save");
@@ -258,11 +266,11 @@ for (const failure of ["flush", "admission", "journal"] as const) {
         if (failure === "flush")
           session.flush = () => Promise.reject(new Error("Injected flush failure"));
         else if (failure === "admission")
-          session.submit = () => Promise.reject(new Error("Injected admission failure"));
+          session.drafts().flush = () => Promise.reject(new Error("Injected admission failure"));
         else {
           const set = Storage.prototype.setItem;
           Storage.prototype.setItem = function (key, value) {
-            if (key.startsWith("monotio_agi.project-writes.")) {
+            if (key.startsWith("monotio_agi.part-drafts/")) {
               Object.assign(window, { journalFailed: true });
               throw new DOMException("Injected journal quota", "QuotaExceededError");
             }
@@ -285,7 +293,7 @@ for (const failure of ["flush", "admission", "journal"] as const) {
       if (failure === "admission") {
         const journal = await page.evaluate(() =>
           Object.keys(localStorage)
-            .filter((key) => key.startsWith("monotio_agi.project-writes."))
+            .filter((key) => key.startsWith("monotio_agi.part-drafts/"))
             .map((key) => localStorage.getItem(key))
             .join("\n"),
         );
@@ -333,11 +341,11 @@ for (const failure of ["flush", "admission", "journal"] as const) {
         if (failure === "flush")
           session.flush = () => Promise.reject(new Error("Injected flush failure"));
         else if (failure === "admission")
-          session.submit = () => Promise.reject(new Error("Injected admission failure"));
+          session.drafts().flush = () => Promise.reject(new Error("Injected admission failure"));
         else {
           const set = Storage.prototype.setItem;
           Storage.prototype.setItem = function (key, value) {
-            if (key.startsWith("monotio_agi.project-writes.")) {
+            if (key.startsWith("monotio_agi.part-drafts/")) {
               Object.assign(window, { journalFailed: true });
               throw new DOMException("Injected journal quota", "QuotaExceededError");
             }
@@ -354,7 +362,7 @@ for (const failure of ["flush", "admission", "journal"] as const) {
               const session = (
                 window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }
               ).__AGI_PROJECT__.getSession();
-              return String(session.model.capture().read("words")!.content);
+              return String(session.workingSnapshot().read("words")!.content);
             }),
           )
           .not.toContain("recoveryword");
@@ -370,7 +378,7 @@ for (const failure of ["flush", "admission", "journal"] as const) {
       if (failure === "admission") {
         const pending = await page.evaluate(() =>
           Object.keys(localStorage)
-            .filter((key) => key.startsWith("monotio_agi.project-writes."))
+            .filter((key) => key.startsWith("monotio_agi.part-drafts/"))
             .map((key) => localStorage.getItem(key))
             .join("\n"),
         );
@@ -387,9 +395,10 @@ test("Export game reports a refused editor draft", async ({ page }) => {
     const session = (
       window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }
     ).__AGI_PROJECT__.getSession();
-    session.submit = () => Promise.reject(new Error("Injected export refusal"));
+    session.drafts().flush = () => Promise.reject(new Error("Injected export refusal"));
   });
   await page.getByTestId("part-notes").click();
+  await refuseDraftWrites(page, "Injected export refusal");
   await page.getByLabel("Game notes", { exact: true }).fill("Unaccepted export note");
   await expect(page.getByTestId("workspace-saved")).toContainText("Could not save");
   await openGameOptions(page, "settings-menu");
@@ -412,11 +421,22 @@ test("closing before the queued write commits recovers the exact editor changes"
 }) => {
   await starter(page);
   await page.evaluate(async () => {
-    const { serializeWrite } = await import("/src/project/gameStorage.ts");
-    const id = (await import("/src/project/gameStorage.ts"))
-      .listCachedGames()
-      .find((game) => game.title === "Recovery proof")!.projectId;
-    void serializeWrite(id, () => new Promise<void>(() => {}));
+    const put = IDBObjectStore.prototype.put;
+    const held = new WeakSet<IDBTransaction>();
+    IDBObjectStore.prototype.put = function (...args) {
+      if (
+        String((args[0] as { projectId?: string }).projectId).startsWith("part-drafts/") &&
+        !held.has(this.transaction)
+      ) {
+        held.add(this.transaction);
+        Object.assign(window, { draftWriteHeld: true });
+        const pump = () => {
+          this.get("__hold_draft_write__").onsuccess = pump;
+        };
+        pump();
+      }
+      return put.apply(this, args);
+    };
   });
   await page.getByTestId("part-notes").click();
   await page.getByLabel("Game notes", { exact: true }).fill("CLOSE_BEFORE_COMMIT_SENTINEL");
@@ -424,15 +444,20 @@ test("closing before the queued write commits recovers the exact editor changes"
     .poll(() =>
       page.evaluate(() =>
         Object.keys(localStorage)
-          .filter((key) => key.startsWith("monotio_agi.project-writes."))
+          .filter((key) => key.startsWith("monotio_agi.part-drafts/"))
           .map((key) => localStorage.getItem(key))
           .join("\n"),
       ),
     )
     .toContain("CLOSE_BEFORE_COMMIT_SENTINEL");
+  await expect
+    .poll(() =>
+      page.evaluate(() => (window as unknown as { draftWriteHeld?: boolean }).draftWriteHeld),
+    )
+    .toBe(true);
   const recovered = await context.newPage();
   const journalKeys = await page.evaluate(() =>
-    Object.keys(localStorage).filter((key) => key.startsWith("monotio_agi.project-writes.")),
+    Object.keys(localStorage).filter((key) => key.startsWith("monotio_agi.part-drafts/")),
   );
   await page.close();
   await recovered.goto("/");
@@ -448,7 +473,7 @@ test("closing before the queued write commits recovers the exact editor changes"
   await workspaceSaved(recovered);
   expect(
     await recovered.evaluate(() =>
-      Object.keys(localStorage).filter((key) => key.startsWith("monotio_agi.project-writes.")),
+      Object.keys(localStorage).filter((key) => key.startsWith("monotio_agi.part-drafts/")),
     ),
   ).toEqual([]);
   await recovered.screenshot({ path: test.info().outputPath("close-before-commit-recovered.png") });
@@ -467,14 +492,15 @@ for (const mode of ["stale", "removed", "refusal"] as const) {
     await workspaceSaved(page);
     await page.getByTestId("part-notes").click();
     await page.getByLabel("Game notes", { exact: true }).fill("Accepted note");
-    await workspaceSaved(page);
+    await workspaceUpdated(page);
     if (mode === "refusal") {
       await page.evaluate(() => {
         const session = (
           window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }
         ).__AGI_PROJECT__.getSession();
-        session.submit = () => Promise.reject(new Error("Injected admission refusal"));
+        session.drafts().flush = () => Promise.reject(new Error("Injected draft write refusal"));
       });
+      await refuseDraftWrites(page, "Injected draft write refusal");
       await page.getByLabel("Game notes", { exact: true }).fill("FAILED_HISTORY_DRAFT");
       await expect(page.getByTestId("workspace-saved")).toContainText("Could not save");
     } else {
@@ -512,28 +538,37 @@ test("a guided action finishing keeps Saving while LOGIC typing is pending", asy
     const session = (
       window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }
     ).__AGI_PROJECT__.getSession();
-    const submit = session.submit.bind(session);
+    const stage = session.stage.bind(session);
     const surface = window as unknown as {
       releaseGuided?: () => void;
       releaseTyping?: () => void;
       guidedHeld?: boolean;
+      allowDraftCommit?: boolean;
     };
-    let release!: () => void;
     const held = new Promise<void>((resolve) => {
-      release = resolve;
+      surface.releaseGuided = resolve;
     });
-    surface.releaseGuided = release;
-    const typing = new Promise<void>((resolve) => {
-      surface.releaseTyping = resolve;
-    });
-    session.submit = async (edit) => {
-      if (edit.label === "Changed LOGIC 1") await typing;
-      const result = await submit(edit);
-      if (edit.label === "Place hero") {
-        surface.guidedHeld = true;
-        await held;
-      }
+    session.stage = async (changes) => {
+      const result = await stage(changes);
+      surface.guidedHeld = true;
+      await held;
       return result;
+    };
+    surface.releaseTyping = () => {
+      surface.allowDraftCommit = true;
+    };
+    const put = IDBObjectStore.prototype.put;
+    IDBObjectStore.prototype.put = function (...args) {
+      if (
+        !surface.allowDraftCommit &&
+        String((args[0] as { projectId?: string }).projectId).startsWith("part-drafts/")
+      ) {
+        const pump = () => {
+          if (!surface.allowDraftCommit) this.get("__hold_typing__").onsuccess = pump;
+        };
+        pump();
+      }
+      return put.apply(this, args);
     };
   });
   await page.getByTestId("workspace-add").click();
@@ -571,15 +606,16 @@ test("removal freezes retained buffers before the same project ID is reused", as
     const session = (
       window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }
     ).__AGI_PROJECT__.getSession();
-    session.submit = () => Promise.reject(new Error("Injected pending admission"));
+    session.drafts().flush = () => Promise.reject(new Error("Injected pending admission"));
   });
+  await refuseDraftWrites(page, "Injected pending admission");
   await page.getByLabel("Game notes", { exact: true }).fill("REMOVED_OWNER_DRAFT");
   await expect(page.getByTestId("workspace-saved")).toContainText("Could not save");
   expect(
     await page.evaluate(() =>
-      Object.keys(localStorage).filter((key) => key.startsWith("monotio_agi.project-writes.")),
+      Object.keys(localStorage).filter((key) => key.startsWith("monotio_agi.part-drafts/")),
     ),
-  ).toEqual([]);
+  ).not.toEqual([]);
   const other = await context.newPage();
   await other.goto("/");
   await other.evaluate(async () => {
@@ -610,17 +646,17 @@ test("removal freezes retained buffers before the same project ID is reused", as
     (window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }).__AGI_PROJECT__
       .getSession()
       .dispose();
-    return Object.keys(localStorage).filter((key) => key.startsWith("monotio_agi.project-writes."));
+    return Object.keys(localStorage).filter((key) => key.startsWith("monotio_agi.part-drafts/"));
   });
-  expect(disposedJournals).toEqual([]);
+  expect(disposedJournals.length).toBeGreaterThan(0);
   await openGameOptions(page, "settings-menu");
   await page.getByTestId("btn-exit").click();
   await expect(page.getByTestId("saved-game-gallery")).toBeVisible();
   expect(
     await page.evaluate(() =>
-      Object.keys(localStorage).filter((key) => key.startsWith("monotio_agi.project-writes.")),
+      Object.keys(localStorage).filter((key) => key.startsWith("monotio_agi.part-drafts/")),
     ),
-  ).toEqual([]);
+  ).not.toEqual([]);
   await page.reload();
   await openStoredWorkspace(page, "Recreated proof");
   await page.getByTestId("part-notes").click();

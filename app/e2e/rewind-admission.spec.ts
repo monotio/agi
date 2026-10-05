@@ -1,6 +1,12 @@
 import type { Page } from "@playwright/test";
 import { test, expect } from "./test.ts";
-import { isolateStorage, openGameOptions, textHook, waitForCycles } from "./engineProbe.ts";
+import {
+  isolateStorage,
+  openGameOptions,
+  textHook,
+  waitForCycles,
+  workspaceUpdated,
+} from "./engineProbe.ts";
 import type { ProjectSession } from "../src/project/projectSession.ts";
 
 async function projectState(page: Page) {
@@ -59,8 +65,11 @@ for (const action of ["Resume from here", "Undo rewind", "Undo start over"] as c
       await page.locator(".monaco-editor").click();
       await page.keyboard.press("ControlOrMeta+a");
       await page.keyboard.insertText(original.source + "\n// Before rewind");
+      expect((await projectState(page)).commits).toBe(original.commits);
+      await workspaceUpdated(page);
       await expect.poll(async () => (await projectState(page)).commits).toBe(original.commits + 1);
-      await expect(page.getByTestId("workspace-saved")).toContainText("Saved");
+      await expect(page.getByTestId("workspace-saved")).toBeVisible();
+      await expect(page.getByTestId("workspace-saved")).toHaveText(/^(?:Saved|Draft saved)$/);
       await page.getByTestId("workspace-show-game").click();
     }
     // The timeline is in Play; switching modes retains the Create session.
@@ -156,8 +165,11 @@ for (const action of ["Resume from here", "Undo rewind", "Undo start over"] as c
     await page.locator(".monaco-editor").click();
     await page.keyboard.press("ControlOrMeta+a");
     await page.keyboard.insertText(source);
+    expect((await projectState(page)).commits).toBe(before.commits);
+    await workspaceUpdated(page);
     await expect.poll(async () => (await projectState(page)).commits).toBe(before.commits + 1);
-    await expect(page.getByTestId("workspace-saved")).toContainText("Saved");
+    await expect(page.getByTestId("workspace-saved")).toBeVisible();
+    await expect(page.getByTestId("workspace-saved")).toHaveText(/^(?:Saved|Draft saved)$/);
     await page.getByTestId("workspace-show-game").click();
     await page.keyboard.press("Control+`");
     await page.keyboard.type("look");

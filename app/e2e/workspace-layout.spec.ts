@@ -1,10 +1,10 @@
 import type { Locator, Page } from "@playwright/test";
-import type { ProjectSession } from "../src/project/projectSession.ts";
 import { test, expect } from "./test.ts";
 import {
   configureAi,
   isolateStorage,
   workspaceSaved,
+  workspaceUpdated,
   textHook,
   openGameOptions,
   waitForRoom,
@@ -224,7 +224,7 @@ for (const size of sizes) {
           await openStoredWorkspace(other, "My adventure");
           await other.getByTestId("part-notes").click();
           await other.getByLabel("Game notes", { exact: true }).fill("From the other tab");
-          await workspaceSaved(other);
+          await workspaceUpdated(other);
         }
         await page.bringToFront();
         const note = page.getByTestId(removed ? "removed-tab-note" : "stale-tab-note");
@@ -279,16 +279,28 @@ for (const size of sizes) {
       await page.getByTestId("part-notes").click();
       const before = await page.getByLabel("Game notes", { exact: true }).boundingBox();
       await page.evaluate(() => {
-        const session = (
-          window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }
-        ).__AGI_PROJECT__.getSession();
-        session.submit = () =>
-          new Promise((_, reject) =>
-            Object.assign(window, { refuseSave: () => reject(new Error("Writes refused")) }),
-          );
+        const put = IDBObjectStore.prototype.put;
+        const surface = window as unknown as { refuseSave?: () => void; draftRefused?: boolean };
+        surface.refuseSave = () => {
+          surface.draftRefused = true;
+        };
+        IDBObjectStore.prototype.put = function (...args) {
+          if (String((args[0] as { projectId?: string }).projectId).startsWith("part-drafts/")) {
+            const pump = () => {
+              if (surface.draftRefused) {
+                this.transaction.abort();
+                return;
+              }
+              this.get("__hold_draft__").onsuccess = pump;
+            };
+            pump();
+          }
+          return put.apply(this, args);
+        };
       });
       await page.getByLabel("Game notes", { exact: true }).fill("Current buffer");
-      await expect(page.getByTestId("workspace-saved")).toContainText("Saving");
+      await expect(page.getByTestId("workspace-saved")).toBeVisible();
+      await expect(page.getByTestId("workspace-saved")).toHaveText("Draft saving…");
       await shot(page, `saving-${size.width}`);
       await expect.soft(page.getByTestId("download-unsaved-edits")).toHaveCount(0);
       expect
@@ -342,7 +354,8 @@ for (const size of [sizes[0]!, sizes[2]!, sizes[3]!]) {
       );
       const rows: number[] = [];
       for (const box of boxes) if (!rows.some((y) => Math.abs(y - box.y) <= 2)) rows.push(box.y);
-      expect.soft(rows.length).toBeLessThanOrEqual(2);
+      // The approved Update game storyboard adds a steady draft-status row.
+      expect.soft(rows.length).toBeLessThanOrEqual(3);
       expect.soft(boxes.every((box) => box.right <= 390)).toBe(true);
       const settings = boxes.find((box) => box.name === "Settings")!;
       expect

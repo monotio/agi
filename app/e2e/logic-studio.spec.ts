@@ -7,6 +7,7 @@ import {
   savedGameCard,
   textHook,
   workspaceSaved,
+  workspaceUpdated,
 } from "./engineProbe.ts";
 import { expect, reviewShot, test } from "./test.ts";
 import {
@@ -107,6 +108,7 @@ test("workspace binding rename updates closed LOGIC and names in one History edi
     kind: "flag",
     num: 90,
   });
+  await workspaceUpdated(page);
   await page.evaluate(async () => {
     await (
       window as unknown as {
@@ -148,7 +150,8 @@ test("library Edit opens LOGIC: completion, hover, definition, diagnostics and a
     .click();
   const studio = page.getByTestId("workspace-editor");
   await expect(studio).toBeVisible();
-  await expect(page.getByTestId("workspace-saved")).toContainText("Saved");
+  await expect(page.getByTestId("workspace-saved")).toBeVisible();
+  await expect(page.getByTestId("workspace-saved")).toHaveText(/^(?:Saved|Draft saved)$/);
   await reviewShot(page, "logic-studio-open");
 
   // Every authored LOGIC is in the explorer, including LOGIC 0.

@@ -6,6 +6,7 @@ import {
   openLibraryActions,
   savedGameCard,
   workspaceSaved,
+  workspaceUpdated,
 } from "./engineProbe.ts";
 import { expect } from "./test.ts";
 
@@ -33,6 +34,15 @@ export async function openWorkspaceLogic(page: Page, num = 1): Promise<Locator> 
 }
 
 export async function workspaceDocument(page: Page, key: string): Promise<string> {
+  return page.evaluate((key) => {
+    const probe = window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } };
+    const content = probe.__AGI_PROJECT__.getSession().workingSnapshot().read(key)?.content;
+    if (typeof content !== "string") throw new Error(`Missing text document ${key}`);
+    return content;
+  }, key);
+}
+
+export async function runningWorkspaceDocument(page: Page, key: string): Promise<string> {
   return page.evaluate((key) => {
     const probe = window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } };
     const content = probe.__AGI_PROJECT__.getSession().model.capture().read(key)?.content;
@@ -142,6 +152,7 @@ export async function replaceWorkspaceDocument(
       }
     }
   }
+  await workspaceUpdated(page);
   await expect
     .poll(() => workspaceDocument(page, key))
     .toBe(key.startsWith("logic:") ? text : JSON.stringify(JSON.parse(text)));
@@ -161,7 +172,7 @@ export async function addWorkspaceResponse(
   await form.getByLabel("The game says…", { exact: true }).fill(response);
   await form.getByRole("button", { name: "Add", exact: true }).click();
   await expect(form).toBeHidden();
-  await workspaceSaved(page);
+  await workspaceUpdated(page);
 }
 
 /** Apply a guided operation through its workspace form and observe the changed documents. */
@@ -186,5 +197,5 @@ export async function addWorkspaceAction(
     await form.getByLabel(name, { exact: true }).fill(value);
   await form.getByRole("button", { name: "Add", exact: true }).click();
   await expect.poll(() => workspaceDocument(page, changedKey)).not.toBe(before);
-  await workspaceSaved(page);
+  await workspaceUpdated(page);
 }

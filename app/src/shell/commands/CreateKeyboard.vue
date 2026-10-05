@@ -3,8 +3,8 @@
 import { VOCABULARY } from "../../../../src/vocabulary.ts";
 import { nextTick, onMounted, onScopeDispose, shallowRef, ref, watch } from "vue";
 import { useEngineApi } from "../../engine/engineContext.ts";
-import { useCreateWorkspace } from "../useCreateWorkspace.ts";
 import { useShell } from "../useShell.ts";
+import { useCreateWorkspace } from "../useCreateWorkspace.ts";
 import { useShellBridge } from "../shellBridge.ts";
 import { useWorkspaceEditor } from "../workspaceEditor.ts";
 import { openExplainer } from "../../ui/explain.ts";
@@ -81,8 +81,7 @@ function showChooser(mode: "palette" | "parts"): void {
   quickOpen.value = mode === "parts";
 }
 async function play(): Promise<void> {
-  if (!(await workspace.confirmStudioLeave())) return;
-  shell.setMode("play");
+  await editor.update.value?.();
 }
 let agentOrigin: HTMLElement | null = null;
 function returnFromAgent(): void {
@@ -128,6 +127,14 @@ const offDefaults = registerDefaultCommands(props.registry, {
   focusGame,
   nextZone: () => zones.cycle(),
   previousZone: () => zones.cycle(-1),
+});
+const offUpdateRestart = props.registry.register({
+  id: "game.update-restart",
+  title: "Update and restart this room",
+  category: "Game",
+  keys: [{ key: "Mod+Shift+Enter", textInput: true, game: true }],
+  when: (c) => !c.dialogOpen,
+  run: () => editor.update.value?.(true),
 });
 const offMap = props.registry.register({
   id: "map.open",
@@ -197,6 +204,7 @@ onScopeDispose(() => {
   offDispatcher?.();
   document.removeEventListener("focusin", onFocus);
   offDefaults();
+  offUpdateRestart();
   offHelp();
   offMap();
   offFocus();

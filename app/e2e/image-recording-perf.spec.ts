@@ -61,7 +61,8 @@ test(
         .flush(),
     );
     await expect(page.getByTestId("workspace-saved")).toBeVisible();
-    await expect(page.getByTestId("workspace-saved")).toContainText("Saved");
+    await expect(page.getByTestId("workspace-saved")).toBeVisible();
+    await expect(page.getByTestId("workspace-saved")).toHaveText(/^(?:Saved|Draft saved)$/);
     const batches = () =>
       page.evaluate(
         () =>

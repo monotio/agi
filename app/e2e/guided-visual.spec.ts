@@ -4,7 +4,7 @@ import {
   isolateStorage,
   openLibraryActions,
   savedGameCard,
-  workspaceSaved,
+  workspaceUpdated,
   textHook,
 } from "./engineProbe.ts";
 import { workspaceDocument } from "./workspaceShared.ts";
@@ -92,10 +92,10 @@ for (const [width, height] of [
     await expect(code).toContainText("position(o0, 90, 140)");
     await form.getByRole("button", { name: "Add", exact: true }).click();
     await expect(form).toBeHidden();
-    await workspaceSaved(page);
+    await workspaceUpdated(page);
     expect(await workspaceDocument(page, "logic:1")).toContain("position(o0, 90, 140)");
     await page.getByTestId("workspace-undo").click();
-    await workspaceSaved(page);
+    await workspaceUpdated(page);
     expect(await workspaceDocument(page, "logic:1")).toBe(before);
 
     form = await open(page, "Answer a sentence");
@@ -113,7 +113,7 @@ for (const [width, height] of [
     await form.getByLabel("Room name", { exact: true }).fill("Moonlit grove");
     await form.getByRole("button", { name: "Add", exact: true }).click();
     await expect(form).toBeHidden();
-    await workspaceSaved(page);
+    await workspaceUpdated(page);
     await parts(page);
     await page.getByTestId("part-room:1:logic").click();
     form = await open(page, "Door");
@@ -150,11 +150,11 @@ for (const [width, height] of [
     await expect(doorPreview).toContainText("new.room(2)");
     await form.getByRole("button", { name: "Add", exact: true }).click();
     await expect(form).toBeHidden();
-    await workspaceSaved(page);
+    await workspaceUpdated(page);
     // Arrival starts at its own position (80,140); ArrowLeft moves it one cell.
     expect(await workspaceDocument(page, "logic:2")).toContain("position(o0, 79, 140)");
     await page.getByTestId("workspace-undo").click();
-    await workspaceSaved(page);
+    await workspaceUpdated(page);
     expect(await workspaceDocument(page, "logic:1")).toBe(before);
 
     form = await open(page, "Play a sound when…");

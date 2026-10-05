@@ -829,8 +829,14 @@ watch(
                 :tone="workspaceEditor.pendingAdmission.value ? 'warn' : 'ok'"
                 dot
                 data-testid="workspace-live"
+                :title="
+                  workspaceEditor.pendingAdmission.value ? undefined : 'Timeline: present moment'
+                "
+                :aria-label="
+                  workspaceEditor.pendingAdmission.value ? undefined : 'Timeline: present moment'
+                "
                 >{{
-                  workspaceEditor.pendingAdmission.value ? VOCABULARY.waitingUpdate.label : "LIVE"
+                  workspaceEditor.pendingAdmission.value ? VOCABULARY.waitingUpdate.label : "Now"
                 }}</UiChip
               >
               <ProjectRestartNotice v-if="creating && engine.pendingProjectRestart.value" />

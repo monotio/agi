@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { createPictureSurface } from "../../../src/types.ts";
+import { renderPicture } from "../../../src/picture/renderer.ts";
 import { VOCABULARY } from "../../../src/vocabulary.ts";
 import {
   computed,
@@ -173,6 +175,7 @@ const {
   priorityBase = undefined,
   embedded = false,
   liveGame = false,
+  runningBytes = undefined,
   workspaceFocus = false,
 } = defineProps<{
   readOnly?: boolean;
@@ -180,6 +183,7 @@ const {
   priorityBase?: number | undefined;
   embedded?: boolean;
   liveGame?: boolean;
+  runningBytes?: Uint8Array | undefined;
   workspaceFocus?: boolean;
   pictureNumber: number;
   bytes: Uint8Array;
@@ -654,6 +658,49 @@ const shown = computed(() =>
       : draft.compiled.value
     : (draft.preview.value?.compiled ?? surface.value),
 );
+const runningPicture = computed(() => {
+  if (!runningBytes) return null;
+  const surface = createPictureSurface();
+  renderPicture(runningBytes, surface, { profile });
+  return surface;
+});
+const draftMask = computed(() =>
+  liveGame && runningPicture.value ? changedCells(runningPicture.value, shown.value) : null,
+);
+const hasStageDraft = computed(() => draftMask.value?.some((cell) => cell !== 0) ?? false);
+const stageDraftPaths = computed(() =>
+  hasStageDraft.value && draftMask.value ? pathsOf(draftMask.value) : null,
+);
+/** Keep the callout beside the changed cells, within the picture's text-free rows. */
+const stageDraftLabel = computed(() => {
+  const mask = draftMask.value;
+  if (!mask || !hasStageDraft.value) return null;
+  let left = 160;
+  let right = 0;
+  let top = 168;
+  let bottom = 0;
+  for (let i = 0; i < mask.length; i++) {
+    if (!mask[i]) continue;
+    left = Math.min(left, i % 160);
+    right = Math.max(right, (i % 160) + 1);
+    top = Math.min(top, Math.floor(i / 160));
+    bottom = Math.max(bottom, Math.floor(i / 160) + 1);
+  }
+  const width = 320 * zoom.value;
+  const height = 168 * zoom.value;
+  const labelWidth = Math.min(240, width - 8);
+  const anchor = (left + right) * zoom.value;
+  const x = Math.max(4, Math.min(width - labelWidth - 4, anchor - labelWidth / 2));
+  const above = bottom * zoom.value + 6 + 26 > height - 4;
+  const y = Math.max(
+    4,
+    Math.min(height - 30, above ? top * zoom.value - 32 : bottom * zoom.value + 6),
+  );
+  return {
+    above,
+    style: { left: `${x}px`, top: `${y}px`, "--draft-pointer": `${anchor - x}px` },
+  };
+});
 const assistChanges = computed(() => {
   const next = proposal.value;
   const scope = assist.asked.value?.scope;
@@ -1682,7 +1729,8 @@ function onKeyup(event: KeyboardEvent): void {
             :handles
             :ghost="insertGhost"
             :flash="flashPaths"
-            :changed="changedPaths"
+            :changed="stageDraftPaths ?? changedPaths"
+            :transparent-mask="lens === 'art' && !underlay ? draftMask : null"
             :spilled="spilledPaths"
             :movable="movable"
             :marquee="drag.marqueeBox.value ?? null"
@@ -1695,6 +1743,14 @@ function onKeyup(event: KeyboardEvent): void {
             @dblclick="tools.finish()"
             @menu="openMenu"
           >
+            <span
+              v-if="liveGame && stageDraftLabel && layer === 'art'"
+              class="studio__draft-label"
+              :class="{ 'is-above': stageDraftLabel.above }"
+              :style="stageDraftLabel.style"
+              data-testid="stage-draft"
+              >Draft · ⌘↵ puts it in the game</span
+            >
             <template v-if="layer === 'art' && underlay?.adjust && lens === 'art'">
               <button
                 v-for="kind in ['move', 'scale'] as const"
@@ -2380,6 +2436,34 @@ function onKeyup(event: KeyboardEvent): void {
   display: none;
 }
 
+.studio__draft-label {
+  position: absolute;
+  z-index: 3;
+  box-sizing: border-box;
+  width: 240px;
+  max-width: calc(100% - 8px);
+  height: 26px;
+  padding: 4px 8px;
+  border: 1px dashed var(--action);
+  border-radius: var(--radius-sm);
+  color: var(--ink);
+  background: var(--surface-2);
+  font: var(--text-xs) / 16px var(--font-sans);
+  white-space: nowrap;
+  pointer-events: none;
+}
+.studio__draft-label::before {
+  content: "";
+  position: absolute;
+  left: clamp(4px, var(--draft-pointer), calc(100% - 4px));
+  bottom: 100%;
+  height: 6px;
+  border-left: 1px dashed var(--action);
+}
+.studio__draft-label.is-above::before {
+  top: 100%;
+  bottom: auto;
+}
 .studio__live-game {
   position: absolute;
   inset: 0;
@@ -2389,7 +2473,7 @@ function onKeyup(event: KeyboardEvent): void {
   transform: translateY(calc(-8px * var(--picture-zoom)));
 }
 .studio.is-live-game.is-art-idle:not(.has-reference) :deep(.studio-pane canvas) {
-  opacity: 0;
+  opacity: 1;
 }
 .studio.is-live-game .studio__frame {
   background: var(--agi-0);

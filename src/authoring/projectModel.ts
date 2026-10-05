@@ -5,6 +5,7 @@ import {
   copyProjectDocuments,
   diffProjectDocuments,
   projectDocumentId,
+  projectContentHash,
   type ProjectChange,
   type ProjectContent,
   type ProjectDigest,
@@ -65,6 +66,8 @@ export class ProjectModel {
   private documents: Readonly<Record<string, ProjectContent>>;
   private versions: Record<string, number>;
   private revision = 0;
+  private captured: ProjectSnapshot | undefined;
+  private readonly hashes: Record<string, { version: number; hash: string }> = {};
   private image: ProjectImage | undefined;
   private readonly snapshots = new WeakSet<ProjectSnapshot>();
   private readonly proposals = new WeakSet<ProjectProposal>();
@@ -83,11 +86,26 @@ export class ProjectModel {
   }
 
   capture(): ProjectSnapshot {
+    if (this.captured !== undefined) return this.captured;
     const documents = this.documents;
+    const manifest = Object.keys(documents)
+      .sort()
+      .map((key) => {
+        let cached = this.hashes[key];
+        if (cached === undefined || cached.version !== this.versions[key]) {
+          cached = {
+            version: this.versions[key]!,
+            hash: projectContentHash(documents[key]!, this.digest),
+          };
+          this.hashes[key] = cached;
+        }
+        return [key, typeof documents[key] === "string" ? "text" : "bytes", cached.hash];
+      });
+    const documentId = projectContentHash(JSON.stringify(manifest), this.digest);
     const versions = Object.freeze({ ...this.versions });
     const snapshot: ProjectSnapshot = Object.freeze({
       revision: this.revision,
-      documentId: projectDocumentId(documents, this.digest),
+      documentId,
       keys: Object.freeze(Object.keys(documents)),
       lastAdmissibleBuild: this.image,
       read(key: string) {
@@ -108,6 +126,7 @@ export class ProjectModel {
       documents: () => copyProjectDocuments(documents),
     });
     this.snapshots.add(snapshot);
+    this.captured = snapshot;
     return snapshot;
   }
 
@@ -168,6 +187,7 @@ export class ProjectModel {
       this.revision++;
     }
     if (state.image !== undefined) this.image = state.image;
+    this.captured = undefined;
     state.consumed = true;
     this.appliedProposals.add(state.proposal);
     return this.capture();

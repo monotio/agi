@@ -12,7 +12,7 @@ import {
   openWorkspacePicture,
   textHook,
   waitForCycles,
-  workspaceSaved,
+  workspaceUpdated,
 } from "./engineProbe.ts";
 import { expect, test } from "./test.ts";
 
@@ -178,9 +178,9 @@ test("an outline and its fill, selected together, move as one and keep exactly t
   await expect(studio.getByTestId("studio-notice")).toHaveText(
     /^Element 1 part 2 flows differently: [\d,]+ cells changed\. (⌘|Ctrl\+)Z undoes it\.$/,
   );
-  await workspaceSaved(page);
+  await workspaceUpdated(page);
   await page.keyboard.press("ControlOrMeta+z");
-  await workspaceSaved(page);
+  await workspaceUpdated(page);
   await expect.poll(() => draftBytes(page)).toEqual(original);
 
   // Shift+click on the fill adds its item (the bush's fill, seeded after the trunk).
@@ -195,11 +195,11 @@ test("an outline and its fill, selected together, move as one and keep exactly t
   await canvas.focus();
   for (const key of ["ArrowRight", "ArrowRight", "ArrowRight", "ArrowRight", "ArrowUp", "ArrowUp"])
     await page.keyboard.press(key);
-  await workspaceSaved(page);
+  await workspaceUpdated(page);
   await expect(studio.getByTestId("studio-notice")).toHaveCount(0);
   await page.screenshot({ path: test.info().outputPath("group-move-selection.png") });
 
-  await workspaceSaved(page);
+  await workspaceUpdated(page);
   const kept = await storedPicture(page);
   expect(kept).toEqual(await draftBytes(page));
   // Hand-shifted: the outline and the seed 4 right and 2 up; the trunk and stripe stay.
@@ -231,15 +231,13 @@ test("from the keyboard alone: step to an item, grow the run with Shift+Alt+arro
   await page.keyboard.press("Shift+Alt+ArrowDown");
   await page.keyboard.press("Shift+ArrowRight");
   await page.keyboard.press("ArrowDown");
-  await workspaceSaved(page);
+  await workspaceUpdated(page);
   const moved = planes(await draftBytes(page));
   const expected = planes(compilePictureSource(bush(8, 1, [8, 1])).bytes);
   expect(moved.visual).toEqual(expected.visual);
-  // Undo takes back one nudge of all three at a time.
+  // The approved Update game storyboard gives both nudges one History step.
   await page.getByTestId("workspace-undo").click();
-  await workspaceSaved(page);
-  await expect(page.getByTestId("workspace-undo")).toBeEnabled();
-  await page.getByTestId("workspace-undo").click();
+  await workspaceUpdated(page);
   await expect.poll(() => draftBytes(page)).toEqual(PIC_5);
 });
 
@@ -285,12 +283,12 @@ test("Group names the bush, keeps the bytes, stays one item after a reload, and 
   expect(await rows(studio)).toEqual(["bush", "el-3"]);
   await expect(studio.locator('[data-row="bush"]')).toContainText("Bush");
   await expect(studio.locator('[data-row="bush"]')).toHaveAttribute("aria-selected", "true");
-  await workspaceSaved(page);
+  await workspaceUpdated(page);
   expect(await draftBytes(page)).toEqual(PIC_5);
   expect(await page.evaluate(() => window.__AGI_STUDIO__!.source())).toContain(
     '# @item bush "Bush" art',
   );
-  await workspaceSaved(page);
+  await workspaceUpdated(page);
   expect(await storedPicture(page)).toEqual(PIC_5);
 
   await page.reload();
@@ -307,7 +305,7 @@ test("Group names the bush, keeps the bytes, stays one item after a reload, and 
   expect(await rows(studio)).toEqual(["el-1", "el-2", "el-1-2", "el-3"]);
   expect(await selectedRows(studio)).toEqual(["el-1", "el-2", "el-1-2"]);
   expect(await draftBytes(page)).toEqual(PIC_5);
-  await workspaceSaved(page);
+  await workspaceUpdated(page);
   // ⌘G (Ctrl+G) groups them again, through the dialog, and ⇧⌘G ungroups.
   await studio.getByRole("group", { name: /^Canvas/ }).focus();
   await page.keyboard.press("ControlOrMeta+g");

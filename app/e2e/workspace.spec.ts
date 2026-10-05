@@ -1,3 +1,4 @@
+import { workspaceUpdated, workspaceSaved } from "./engineProbe.ts";
 import { test, expect, reviewShot } from "./test.ts";
 import { isolateStorage, textHook } from "./engineProbe.ts";
 import type { Page, Locator } from "@playwright/test";
@@ -51,7 +52,8 @@ test("one running workspace retains editors and opens Focus with a chord @webkit
   await page.keyboard.insertText(
     logicSource + "\n" + Array.from({ length: 60 }, (_, index) => `// Line ${index}\n`).join(""),
   );
-  await expect(page.getByTestId("workspace-saved")).toContainText("Saved");
+  await workspaceUpdated(page);
+  await page.locator(".monaco-editor textarea").focus();
   await page.keyboard.press("ControlOrMeta+End");
   await page.keyboard.press("ArrowUp");
   await page.keyboard.press("End");
@@ -93,7 +95,7 @@ test("one running workspace retains editors and opens Focus with a chord @webkit
   await page.keyboard.press("ControlOrMeta+a");
   await page.keyboard.insertText("if (");
   await expect(page.getByTestId("workspace-last-good")).toBeVisible();
-  await expect(page.getByTestId("workspace-saved")).toContainText("Saved");
+  await workspaceSaved(page);
   // Start the workspace chord outside Monaco's completion popup. Escape in
   // the editor dismisses that popup before the workspace's two-key sequence.
   await page.getByTestId("workspace-focus").focus();
@@ -159,10 +161,10 @@ test("drawing, LOGIC and VIEW edit MAIN, Undo spans editors, reload keeps edits 
   await page.mouse.down();
   await page.mouse.move(box.x + 24.5 * 2 * zoom, box.y + 114.5 * zoom, { steps: 4 });
   await page.mouse.up();
+  await workspaceUpdated(page);
   await expect
     .poll(() => page.evaluate(() => window.__AGI_FRAME__?.()?.visual[112 * 160 + 22]))
     .toBe(4);
-  await expect(page.getByTestId("workspace-saved")).toContainText("Saved");
   await reviewShot(page, "workspace-picture");
   await page.getByTestId("workspace-focus").click();
   await studio.locator('[data-tool="brush"]').click();
@@ -171,6 +173,7 @@ test("drawing, LOGIC and VIEW edit MAIN, Undo spans editors, reload keeps edits 
     focusBox.x + 30.5 * 2 * (focusBox.height / 168),
     focusBox.y + 110.5 * (focusBox.height / 168),
   );
+  await workspaceUpdated(page);
   await page.getByTestId("workspace-show-game").click();
   await expect
     .poll(() => page.evaluate(() => window.__AGI_FRAME__?.()?.visual[110 * 160 + 30]))
@@ -198,7 +201,7 @@ test("drawing, LOGIC and VIEW edit MAIN, Undo spans editors, reload keeps edits 
       "A red flower grows.",
     ),
   );
-  await expect(page.getByTestId("workspace-saved")).toContainText("Saved");
+  await workspaceUpdated(page);
   await page.getByTestId("workspace-show-game").click();
   await page.keyboard.press("Control+`");
   await page.keyboard.type("look");
@@ -245,10 +248,10 @@ test("drawing, LOGIC and VIEW edit MAIN, Undo spans editors, reload keeps edits 
   );
   expect(previousHeroPixel).not.toBe(4);
   await page.mouse.click(cel.x + cel.width * 0.45, cel.y + cel.height * 0.45);
+  await workspaceUpdated(page);
   await expect
     .poll(() => page.evaluate((index) => window.__AGI_FRAME__?.()?.visual[index], pixel))
     .toBe(4);
-  await expect(page.getByTestId("workspace-saved")).toContainText("Saved");
   await expect.poll(async () => (await probe())?.commits).toBe((original?.commits ?? 0) + 4);
   expect((await probe())?.token).toBe(original?.token);
   await reviewShot(page, "workspace-view");
@@ -263,10 +266,10 @@ test("drawing, LOGIC and VIEW edit MAIN, Undo spans editors, reload keeps edits 
     .poll(() => page.evaluate(() => window.__AGI_FRAME__?.()?.visual[112 * 160 + 22]))
     .not.toBe(4);
   for (let i = 0; i < 4; i++) await page.getByTestId("workspace-redo").click();
+  await workspaceUpdated(page);
   await expect
     .poll(() => page.evaluate(() => window.__AGI_FRAME__?.()?.visual[112 * 160 + 22]))
     .toBe(4);
-  await expect(page.getByTestId("workspace-saved")).toContainText("Saved");
   // Saved covers the documents; this reload also needs progress for the current image.
   const checkpointCycle = (await textHook(page)).cycle;
   await expect
@@ -320,7 +323,7 @@ for (const size of [
     await page.keyboard.press("ControlOrMeta+a");
     await page.keyboard.insertText("if (");
     await expect(page.getByTestId("workspace-last-good")).toBeVisible();
-    await expect(page.getByTestId("workspace-saved")).toContainText("Saved");
+    await workspaceSaved(page);
     await page.keyboard.press("ControlOrMeta+j");
     await expect(page.getByTestId("workspace-problems")).toBeVisible();
     await shot("logic-error");
@@ -413,10 +416,10 @@ test("keyboard authors all three parts, undoes across them and reloads @webkit-d
   await page.keyboard.press("b");
   await page.keyboard.press("Space");
   await page.keyboard.press("Space");
+  await workspaceUpdated(page);
   await expect
     .poll(() => page.evaluate(() => window.__AGI_FRAME__?.()?.visual[84 * 160 + 80]))
     .toBe(4);
-  await expect(page.getByTestId("workspace-saved")).toContainText("Saved");
   await keyboardOpen(page, "LOGIC 1");
   await expect(page.getByTestId("workspace-logic-editor")).toBeVisible();
   const source = await page.evaluate(
@@ -440,7 +443,7 @@ test("keyboard authors all three parts, undoes across them and reloads @webkit-d
       "Keyboard flower.",
     ),
   );
-  await expect(page.getByTestId("workspace-saved")).toContainText("Saved");
+  await workspaceUpdated(page);
   await page.keyboard.press("Control+`");
   await page.keyboard.type("look");
   await page.keyboard.press("Enter");
@@ -498,7 +501,7 @@ test("keyboard authors all three parts, undoes across them and reloads @webkit-d
   await page.keyboard.press("b");
   await page.keyboard.press("Space");
   await page.keyboard.press("Space");
-  await expect(page.getByTestId("workspace-saved")).toContainText("Saved");
+  await workspaceUpdated(page);
   await expect
     .poll(() => page.evaluate((index) => window.__AGI_FRAME__?.()?.visual[index], pixel))
     .toBe(4);
@@ -513,7 +516,7 @@ test("keyboard authors all three parts, undoes across them and reloads @webkit-d
     await page.keyboard.press("ControlOrMeta+Shift+z");
     await expect(page.getByTestId("workspace-undo")).toBeEnabled();
   }
-  await expect(page.getByTestId("workspace-saved")).toContainText("Saved");
+  await workspaceUpdated(page);
   // Saved covers the documents; this reload also needs progress for the current image.
   const checkpointCycle = (await textHook(page)).cycle;
   await expect
@@ -552,7 +555,9 @@ test("keyboard authors all three parts, undoes across them and reloads @webkit-d
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
 });
 
-test("adding a room opens its PICTURE on the visited stage @webkit-desktop", async ({ page }) => {
+test("adding a room waits for Update before its PICTURE opens on the visited stage @webkit-desktop", async ({
+  page,
+}) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await starter(page);
   await page
@@ -565,6 +570,7 @@ test("adding a room opens its PICTURE on the visited stage @webkit-desktop", asy
     .getByTestId("workspace-guided-form")
     .getByRole("button", { name: "Add", exact: true })
     .click();
+  await workspaceUpdated(page);
   await expect(page.getByTestId("part-room:2:picture:2")).toBeVisible();
   await page.getByTestId("part-room:2:picture:2").click();
   await expect(page.getByTestId("room-studio").locator(".studio-pane")).toBeVisible();
@@ -575,7 +581,7 @@ test("adding a room opens its PICTURE on the visited stage @webkit-desktop", asy
   await expect.poll(async () => (await textHook(page)).room).toBe(2);
   await expect(page.getByTestId("workspace-visit")).toBeVisible();
   await expect(page.getByRole("button", { name: "Back to Room 1", exact: true })).toBeVisible();
-  await expect(page.getByTestId("workspace-saved")).toContainText("Saved");
+  await workspaceUpdated(page);
 });
 
 test("Tab opens the Starter's inventory and keeps the keyboard in the game", async ({ page }) => {
@@ -651,7 +657,7 @@ test("Undo and History restore update the editor while a game message waits", as
   await page.locator(".monaco-editor").click();
   await page.keyboard.press("ControlOrMeta+End");
   await page.keyboard.insertText("\n// Instant Undo");
-  await expect(page.getByTestId("workspace-saved")).toContainText("Saved");
+  await workspaceUpdated(page);
   await page.keyboard.press("Control+`");
   await page.keyboard.type("look");
   await page.keyboard.press("Enter");
@@ -678,10 +684,14 @@ test("Undo and History restore update the editor while a game message waits", as
   await page.locator(".monaco-editor").click();
   await page.keyboard.press("ControlOrMeta+End");
   await page.keyboard.insertText("\n// Latest while waiting");
-  await expect(page.getByTestId("workspace-saved")).toContainText("Saved");
+  await workspaceSaved(page);
+  await page.getByTestId("workspace-update").click();
+  await expect(page.getByTestId("workspace-update")).toBeDisabled();
   await page.keyboard.press("Control+`");
   await page.keyboard.press("Enter");
-  await expect(page.getByTestId("workspace-live")).toHaveText("LIVE");
+  await expect(page.getByTestId("workspace-updated")).toBeVisible();
+  await expect(page.getByTestId("workspace-live")).toBeVisible();
+  await expect(page.getByTestId("workspace-live")).toHaveText("Now");
   await expect(page.locator(".monaco-editor")).toContainText("Latest while waiting");
 });
 
@@ -748,7 +758,7 @@ for (const size of [
     await expect(group.getByRole("button", { name: "Remove inspect", exact: true })).toBeVisible();
     await input.press("Backspace");
     await expect(group.getByRole("button", { name: "Remove inspect", exact: true })).toHaveCount(0);
-    await expect(page.getByTestId("workspace-saved")).toContainText("Saved");
+    await workspaceUpdated(page);
     await shot("words");
     await page.getByTestId("part-inventory").click();
     await expect(page.getByRole("columnheader", { name: "Object", exact: true })).toBeVisible();

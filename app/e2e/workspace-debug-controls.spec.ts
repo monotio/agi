@@ -27,9 +27,9 @@ test("debug controls follow LOGIC and a paused session @webkit-desktop", async (
   await expect(header.getByRole("group", { name: "Debug controls" })).toHaveCount(0);
   await page.getByTestId("part-room:1:logic").click();
   await expect(page.getByTestId("workspace-logic-editor")).toBeVisible();
-  await expect(header.getByTestId("debug-start")).toBeVisible();
-  await expect(header.getByTestId("debug-start")).toHaveText("Run");
-  await header.getByTestId("debug-start").click();
+  await expect(page.getByTestId("workspace-update")).toBeVisible();
+  await page.getByTestId("workspace-logic-editor").locator("textarea.inputarea").focus();
+  await page.keyboard.press("F5");
   await expect(header.getByRole("button", { name: "Pause", exact: true })).toBeVisible();
   await page.getByTestId("part-room:1:picture:1").click();
   await expect(page.getByTestId("room-studio")).toBeVisible();
@@ -62,7 +62,8 @@ for (const [width, height] of [
     await parts(page);
     await page.getByTestId("part-room:1:logic").click();
     await expect(page.getByTestId("workspace-logic-editor")).toBeVisible();
-    await page.getByTestId("debug-start").click();
+    await page.getByTestId("workspace-logic-editor").locator("textarea.inputarea").focus();
+    await page.keyboard.press("F5");
     await expect(page.locator(".workspace-editor__header").getByTestId("debug-stop")).toBeVisible();
     await parts(page);
     await page.getByTestId("part-room:1:picture:1").click();

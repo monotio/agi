@@ -3,7 +3,7 @@ import { createSoundDocument } from "../../src/sound/document.ts";
 import { exportMidi } from "../../src/sound/midi.ts";
 import type { ProjectSession } from "../src/project/projectSession.ts";
 import { test, expect } from "./test.ts";
-import { isolateStorage, workspaceSaved } from "./engineProbe.ts";
+import { isolateStorage, workspaceSaved, workspaceUpdated } from "./engineProbe.ts";
 import { openStoredWorkspace } from "./workspaceShared.ts";
 
 async function documents(page: Page): Promise<unknown> {
@@ -55,7 +55,7 @@ for (const size of [
       await openStoredWorkspace(other, "My adventure");
       await other.getByTestId("part-notes").click();
       await other.getByLabel("Game notes", { exact: true }).fill("Other tab's version");
-      await workspaceSaved(other);
+      await workspaceUpdated(other);
       await page.bringToFront();
       const note = page.getByTestId("stale-tab-note");
       await expect(note).toBeVisible();

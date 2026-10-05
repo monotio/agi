@@ -17,7 +17,7 @@ import {
   openWorkspacePicture,
   textHook,
   waitForCycles,
-  workspaceSaved,
+  workspaceUpdated,
 } from "./engineProbe.ts";
 import { expect, test } from "./test.ts";
 
@@ -179,7 +179,7 @@ test("a depth drag changes only the priority plane, undoes, keeps, reloads, expo
 }) => {
   await bootStudioGame(page);
   const studio = await openStudio(page);
-  await workspaceSaved(page);
+  await workspaceUpdated(page);
   const original = await draftBytes(page);
   expect(original).toEqual(PIC_5);
 
@@ -192,7 +192,7 @@ test("a depth drag changes only the priority plane, undoes, keeps, reloads, expo
   await page.keyboard.press("a");
   await expect(studio.locator("[data-handle]")).toHaveCount(6);
   await dragHandle(page, POLYGON_LINE, 2, 10, 0);
-  await workspaceSaved(page);
+  await workspaceUpdated(page);
   const dragged = await draftBytes(page);
   const before = planes(original);
   const after = planes(dragged);
@@ -203,18 +203,19 @@ test("a depth drag changes only the priority plane, undoes, keeps, reloads, expo
 
   // One drag, one undo step: back to the stored bytes exactly.
   await page.keyboard.press("ControlOrMeta+z");
-  await workspaceSaved(page);
+  await workspaceUpdated(page);
   await expect.poll(() => draftBytes(page)).toEqual(original);
 
   // Another edit from the keyboard: the occluder one row down.
   await studio.getByRole("group", { name: /^Canvas/ }).focus();
   await page.keyboard.press("ArrowDown");
-  await workspaceSaved(page);
+  await workspaceUpdated(page);
   const kept = await draftBytes(page);
   expect(planes(kept).priority[at(80, 106)]).toBe(10);
   expect(planes(kept).visual).toEqual(before.visual);
-  await workspaceSaved(page);
-  await expect(page.getByTestId("workspace-saved")).toHaveText("Saved");
+  await workspaceUpdated(page);
+  await expect(page.getByTestId("workspace-saved")).toBeVisible();
+  await expect(page.getByTestId("workspace-saved")).toHaveText(/^(?:Saved|Draft saved)$/);
   expect(await storedPicture(page, 5)).toEqual(kept);
 
   // Room 1 draws PIC 5, so the live room re-enters and shows the new depth.
@@ -277,7 +278,7 @@ test("Alt shows where a point goes on the selected line; Alt+click adds it and I
   await page.mouse.up();
   await page.keyboard.up("Alt");
   await expect(ghost).toHaveCount(0);
-  await workspaceSaved(page);
+  await workspaceUpdated(page);
   // The Point tool shows the new point's handle.
   await studio.getByRole("group", { name: /^Canvas/ }).focus();
   await page.keyboard.press("a");
@@ -289,13 +290,13 @@ test("Alt shows where a point goes on the selected line; Alt+click adds it and I
   );
   await page.screenshot({ path: test.info().outputPath("studio-insert-point-result.png") });
   await page.keyboard.press("ControlOrMeta+z");
-  await workspaceSaved(page);
+  await workspaceUpdated(page);
   expect(await draftBytes(page)).toEqual(PIC_5);
 
   // Insert: the cursor stands where the pointer last hovered, 80,89.
   await studio.getByRole("group", { name: /^Canvas/ }).focus();
   await page.keyboard.press("Insert");
-  await workspaceSaved(page);
+  await workspaceUpdated(page);
   expect(await page.evaluate(() => window.__AGI_STUDIO__!.source())).toBe(
     polygon("40,90 80,90 119,90 126,98 119,105 40,105"),
   );
@@ -319,9 +320,9 @@ test("a lock refusal, keyboard nudges, Delete with undo, and draw-order keys sta
   await canvas.focus();
   await page.keyboard.press("ArrowUp");
   await expect(studio.getByTestId("studio-notice")).toHaveText("Moved Bench with its art.");
-  await workspaceSaved(page);
+  await workspaceUpdated(page);
   await page.keyboard.press("ControlOrMeta+z");
-  await workspaceSaved(page);
+  await workspaceUpdated(page);
   // Art is locked in the Depth lens for editing within it: with the Point
   // tool, a corner of the frame dragged up a row is refused, with the count and box of the art
   // cells it would change (row 91 gains 44..116, row 92 loses 45..115), and
@@ -333,14 +334,14 @@ test("a lock refusal, keyboard nudges, Delete with undo, and draw-order keys sta
     "Art is locked in the Depth lens: 144 cells at 44,91..116,92 would change.",
   );
   await expect(studio.locator('[data-role="refused"]')).toHaveCount(1);
-  await workspaceSaved(page);
+  await workspaceUpdated(page);
   // The refusal offers the way out: unlocked for the session, the same drag goes through.
   await studio.getByTestId("studio-notice-action").click();
   await expect(studio.getByTestId("studio-notice")).toHaveText(
     "Unlocked until you close Studio. Try it again.",
   );
   await dragHandle(page, BENCH_LINE, 0, 0, -1);
-  await workspaceSaved(page);
+  await workspaceUpdated(page);
   await canvas.focus();
   await page.keyboard.press("ControlOrMeta+z");
   await page.keyboard.press("v");
@@ -349,12 +350,12 @@ test("a lock refusal, keyboard nudges, Delete with undo, and draw-order keys sta
   await canvas.focus();
   await page.keyboard.press("ArrowRight");
   await page.keyboard.press("Shift+ArrowDown");
-  await workspaceSaved(page);
+  await workspaceUpdated(page);
   expect(await page.evaluate(() => window.__AGI_STUDIO__!.source())).toContain(
     "polygon 41,98 120,98 127,106 120,113 41,113",
   );
   await page.keyboard.press("ControlOrMeta+z");
-  await workspaceSaved(page);
+  await workspaceUpdated(page);
   await page.keyboard.press("ControlOrMeta+z");
   await expect.poll(() => draftBytes(page)).toEqual(original);
 
@@ -362,7 +363,7 @@ test("a lock refusal, keyboard nudges, Delete with undo, and draw-order keys sta
   await page.keyboard.press("Delete");
   await expect(studio.locator('[data-row="occluder"]')).toHaveCount(0);
   expect(planes(await draftBytes(page)).priority.every((value) => value === 4)).toBe(true);
-  await workspaceSaved(page);
+  await workspaceUpdated(page);
   await page.keyboard.press("ControlOrMeta+z");
   await expect(studio.locator('[data-row="occluder"]')).toHaveCount(1);
   await expect.poll(() => draftBytes(page)).toEqual(original);
@@ -418,7 +419,7 @@ test("the first autosaved edit on a catalog game forks a remix", async ({ page }
   await studio.locator('[role="treeitem"][data-row]').first().click();
   await studio.getByRole("group", { name: /^Canvas/ }).focus();
   await page.keyboard.press("ArrowUp");
-  await workspaceSaved(page);
+  await workspaceUpdated(page);
   const copyNote = page.getByTestId("copy-created-note");
   await expect(copyNote).toBeVisible();
   await expect(copyNote).toContainText(

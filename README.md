@@ -207,27 +207,26 @@ History step. **Saved** confirms browser storage.
 Details holds the model, quality and size. One budget covers agent requests and images. These images autosave with History and travel in private
 project downloads. Public game exports carry the resulting AGI resources.
 
-Some Create edits need a fresh room or game start. **Re-enter room** runs the
-room's entry LOGIC with your changes; that LOGIC can reposition actors or change
-room state. **Restart with your changes** starts the game from the beginning,
-including its updated OBJECT list. The edit saves while the current game
-continues; **Saved** confirms browser storage, and earlier play stays on the rewind timeline.
+Editor changes save as drafts in the background. Dots mark parts waiting for
+**Update game**, which applies all changed parts together and adds one Undo step.
+The game keeps running your last update while you edit. **Update and restart this room**
+runs the room's entry LOGIC with your changes. **Discard changes…** returns parts to
+that last update. **Saved** confirms browser storage for drafts; it keeps their dots.
 
 In Create, **⌘P** (Ctrl+P) opens the game’s parts and **⇧⌘P**
 (Ctrl+Shift+P) opens the command palette. Type **>** in quick open to find
 commands. **⌘B** toggles the parts list, **⌘I** opens the agent, and **⌘Enter**
-shows Play full size (use Ctrl in place of ⌘ elsewhere). **F6** moves between
+updates the game (use Ctrl in place of ⌘ elsewhere). **⇧⌘Enter** updates and restarts the current room. **F6** moves between
 visible focus zones from the editor; **Shift+F6** also leaves the game;
 **Ctrl+backtick** focuses the game. The game takes
 keys while its zone has focus. **Escape** closes the chooser and returns focus. **⌘K Z** toggles Focus; press
 **Escape** twice to return. Focus is remembered for each editor type.
 **⌘J** toggles the bottom panel: Problems, Variables, Watch, Call stack and
-Breakpoints. **F5** in the editor or **Run** attaches to the running game and continues a
+Breakpoints. **F5** in the editor attaches to the running game and continues a
 stopped run. With the game focused, **F5** saves and **F6** belongs to the game.
 **F9** or a LOGIC gutter click toggles a breakpoint; **F10**, **F11**
 and **Shift+F11** step over, into and out. **Shift+F5** stops debugging and leaves
-the game running. Stopped runs show their exact running source; live edits wait
-until Continue. **Help → Keyboard shortcuts** lists the registered commands and keys.
+the game running. Stopped runs show their exact running source; **Update game** waits for the next safe continuation point. **Help → Keyboard shortcuts** lists the registered commands and keys.
 
 <p align="center">
   <a href="docs/media/workspace-picture-1.2.png"><img src="docs/media/workspace-picture-1.2.png" width="49%" alt="Create workspace with the parts list, running Starter game and PICTURE editor"></a>

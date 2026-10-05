@@ -1,5 +1,5 @@
 import type { Page } from "@playwright/test";
-import { workspaceSaved } from "./engineProbe.ts";
+import { workspaceUpdated } from "./engineProbe.ts";
 import { blockProviders, prepareIsolatedPage, seedLocalProject } from "./logicDebugShared.ts";
 import { expect, reviewShot, test } from "./test.ts";
 import {
@@ -38,7 +38,7 @@ test("LOGIC to SOUND and back preserves autosaved source and caret @webkit-deskt
   await expect
     .poll(() => workspaceDocument(page, "logic:1"))
     .toContain("source across sibling navigation");
-  await workspaceSaved(page);
+  await workspaceUpdated(page);
 
   await page.getByTestId("part-sound:1").click();
   await expect(page.getByTestId("workspace-sound")).toBeVisible();
