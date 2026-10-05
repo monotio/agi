@@ -486,6 +486,9 @@ export default defineConfig({
   // This prebundles dependencies on the server; Play still loads no editor code.
   optimizeDeps: { entries: ["index.html", "src/studio/logic/monacoLanguage.ts"] },
   server: {
+    // The app imports the engine from ../src; serve it before the page has
+    // reached a module, so browser tests can import engine code on a fresh server.
+    fs: { allow: [import.meta.dirname, join(import.meta.dirname, "../src")] },
     proxy: {
       "/api/openai": {
         target: "https://api.openai.com",
