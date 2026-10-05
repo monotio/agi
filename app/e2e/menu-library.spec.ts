@@ -301,7 +301,7 @@ test("one roomy library reflows across desktop, tablet and phone with accessible
       }),
     );
     // Count the grid's own tracks: the shelf may hold fewer cards than columns.
-    const columns = { 1440: 5, 1024: 5, 768: 3, 390: 2 }[width];
+    const columns = { 1440: 5, 1024: 5, 768: 3, 390: 2 }[width] ?? 0;
     const tracks = await gallery.evaluate(
       (element) => getComputedStyle(element).gridTemplateColumns.split(" ").filter(Boolean).length,
     );
