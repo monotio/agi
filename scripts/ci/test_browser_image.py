@@ -1,4 +1,6 @@
 import json
+import subprocess
+import sys
 from pathlib import Path
 import tempfile
 import unittest
@@ -14,26 +16,48 @@ class BrowserImage(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'versioned Noble image pinned by digest'):
                 image_ref(ref)
 
-    def test_checks_installed_package_and_actual_image(self):
-        with tempfile.TemporaryDirectory() as directory:
-            package = Path(directory, 'package.json')
-            marker = Path(directory, '.docker-info')
-            package.write_text(json.dumps({'version': '1.63.0'}))
-            ref = 'mcr.microsoft.com/playwright:v1.63.0-noble@sha256:' + 'a' * 64
-            marker.write_text(json.dumps({'driverVersion': '1.63.0',
-                                         'dockerImageName': ref.split('@')[0]}))
-            check_version(ref, package, marker)
-            package.write_text(json.dumps({'version': '1.64.0'}))
-            with self.assertRaisesRegex(ValueError, 'installed playwright-core is 1.64.0.*Update scripts/ci/playwright-image.txt'):
-                check_version(ref, package, marker)
-            package.write_text(json.dumps({'version': '1.63.0'}))
-            marker.write_text(json.dumps({'driverVersion': '1.62.0',
-                                         'dockerImageName': 'mcr.microsoft.com/playwright:v1.62.0-noble'}))
-            with self.assertRaisesRegex(ValueError, 'actual container'):
-                check_version(ref, package, marker)
-            marker.unlink()
-            with self.assertRaisesRegex(ValueError, 'Playwright container metadata is missing'):
-                check_version(ref, package, marker)
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.root = Path(directory.name)
+        self.package = self.root / 'app/node_modules/playwright-core/package.json'
+        self.package.parent.mkdir(parents=True)
+        self.marker = self.root / '.docker-info'
+        self.ref = 'mcr.microsoft.com/playwright:v1.63.0-noble@sha256:' + 'a' * 64
+        self.package.write_text(json.dumps({'version': '1.63.0'}))
+        self.marker.write_text(json.dumps({'driverVersion': '1.63.0',
+                                          'dockerImageName': self.ref.split('@')[0]}))
+
+    def test_accepts_matching_package_and_actual_image(self):
+        check_version(self.ref, self.package, self.marker)
+
+    def test_rejects_package_upgrade_with_an_update_instruction(self):
+        self.package.write_text(json.dumps({'version': '1.64.0'}))
+        with self.assertRaisesRegex(ValueError, 'installed playwright-core is 1.64.0.*Update scripts/ci/playwright-image.txt'):
+            check_version(self.ref, self.package, self.marker)
+
+    def test_rejects_actual_container_drift(self):
+        self.marker.write_text(json.dumps({'driverVersion': '1.62.0',
+                                          'dockerImageName': 'mcr.microsoft.com/playwright:v1.62.0-noble'}))
+        with self.assertRaisesRegex(ValueError, 'actual container'):
+            check_version(self.ref, self.package, self.marker)
+
+    def test_rejects_missing_container_metadata(self):
+        self.marker.unlink()
+        with self.assertRaisesRegex(ValueError, 'Playwright container metadata is missing'):
+            check_version(self.ref, self.package, self.marker)
+
+    def test_cli_fails_the_job_on_package_upgrade(self):
+        self.package.write_text(json.dumps({'version': '1.64.0'}))
+        pin = self.root / 'scripts/ci/playwright-image.txt'
+        pin.parent.mkdir(parents=True)
+        pin.write_text(self.ref)
+        result = subprocess.run([sys.executable, str(Path(__file__).with_name('browser_image.py').resolve())],
+                                cwd=self.root, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(result.stdout, '')
+        self.assertIn('::error::Playwright image is 1.63.0; installed playwright-core is 1.64.0.', result.stderr)
+        self.assertIn('Update scripts/ci/playwright-image.txt', result.stderr)
 
 
 if __name__ == '__main__':
