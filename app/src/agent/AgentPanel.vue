@@ -436,57 +436,59 @@ onBeforeUnmount(() => {
           <summary>{{ busy ? "Working…" : "Steps" }}</summary>
           <p v-for="(note, index) in progress" :key="index">{{ note }}</p>
         </details>
-        <section v-if="review && images" class="agent-panel__review" data-testid="agent-review">
-          <header>
-            <h3>{{ review.proposal.label }}</h3>
-            <span class="agent-panel__preview" title="Approve applies this preview to the game."
-              >Card preview</span
+        <Suspense v-if="review && images" :key="review.messageId">
+          <section class="agent-panel__review" data-testid="agent-review">
+            <header>
+              <h3>{{ review.proposal.label }}</h3>
+              <span class="agent-panel__preview" title="Approve applies this preview to the game."
+                >Card preview</span
+              >
+            </header>
+            <p v-if="review.stale()" role="alert" data-testid="agent-conflict">
+              The project changed while the agent worked. Send a follow-up to revise these changes.
+            </p>
+            <article
+              v-for="change in review.changes()"
+              :key="change.key"
+              class="agent-panel__resource"
             >
-          </header>
-          <p v-if="review.stale()" role="alert" data-testid="agent-conflict">
-            The project changed while the agent worked. Send a follow-up to revise these changes.
-          </p>
-          <article
-            v-for="change in review.changes()"
-            :key="change.key"
-            class="agent-panel__resource"
-          >
-            <label
-              ><input type="checkbox" :value="change.key" v-model="selected" />{{
-                change.key === "inventory" ? "OBJECT" : change.key.replace(":", " ").toUpperCase()
-              }}</label
-            ><AgentResourceReview
-              :document-key="change.key"
-              :before="review.proposal.base.read(change.key)?.content"
-              :before-documents="images.beforeDocuments"
-              :after-documents="images.afterDocuments"
-              :after="change.content"
-              :before-image="images.before"
-              :after-image="images.after"
-              :profile="profile"
-            />
-          </article>
-          <footer>
-            <UiButton
-              size="sm"
-              :disabled="editor.readOnly.value || busy || review.stale() || !selected.length"
-              variant="primary"
-              data-testid="agent-approve"
-              @click="approve"
-              >Approve <kbd>⌘↵</kbd></UiButton
-            ><UiButton
-              size="sm"
-              variant="ghost"
-              :disabled="busy || editor.readOnly.value"
-              data-testid="agent-reject"
-              @click="
-                agent?.reject();
-                tick++;
-              "
-              >Reject</UiButton
-            >
-          </footer>
-        </section>
+              <label
+                ><input type="checkbox" :value="change.key" v-model="selected" />{{
+                  change.key === "inventory" ? "OBJECT" : change.key.replace(":", " ").toUpperCase()
+                }}</label
+              ><AgentResourceReview
+                :document-key="change.key"
+                :before="review.proposal.base.read(change.key)?.content"
+                :before-documents="images.beforeDocuments"
+                :after-documents="images.afterDocuments"
+                :after="change.content"
+                :before-image="images.before"
+                :after-image="images.after"
+                :profile="profile"
+              />
+            </article>
+            <footer>
+              <UiButton
+                size="sm"
+                :disabled="editor.readOnly.value || busy || review.stale() || !selected.length"
+                variant="primary"
+                data-testid="agent-approve"
+                @click="approve"
+                >Approve <kbd>⌘↵</kbd></UiButton
+              ><UiButton
+                size="sm"
+                variant="ghost"
+                :disabled="busy || editor.readOnly.value"
+                data-testid="agent-reject"
+                @click="
+                  agent?.reject();
+                  tick++;
+                "
+                >Reject</UiButton
+              >
+            </footer>
+          </section>
+        </Suspense>
         <details v-if="review && progress.length" class="agent-panel__progress">
           <summary>Steps</summary>
           <p v-for="(note, index) in progress" :key="index">{{ note }}</p>
