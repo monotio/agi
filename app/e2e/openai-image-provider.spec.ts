@@ -628,32 +628,34 @@ test("no-key, preparation and plain file intake never touch the provider @webkit
 
 test("cancel, timeout and late answers stay contained @webkit-desktop", async ({ page }) => {
   const requests: RecordedRequest[] = [];
-  // First responder stalls past both deadlines; the second answers fast so
-  // the instance can prove it still works afterwards.
+  await page.clock.install();
+  await page.clock.pauseAt(new Date());
+  const onWire = Promise.withResolvers<void>();
+  const timeoutOnWire = Promise.withResolvers<void>();
+  const cancelledAnswer = Promise.withResolvers<void>();
+  const timeoutAnswer = Promise.withResolvers<void>();
+  const lateReplies = [Promise.withResolvers<void>(), Promise.withResolvers<void>()];
+  await page.exposeFunction("imageRequestOnWire", () => onWire.promise);
   await mockApi(
     page,
     [
       async (route) => {
-        await new Promise((resolve) => setTimeout(resolve, 600));
-        try {
-          await route.fulfill({ json: imageBody(PNG_1x1) });
-        } catch {
-          /* the browser already cancelled this request */
-        }
+        onWire.resolve();
+        await cancelledAnswer.promise;
+        await route.fulfill({ json: imageBody(PNG_1x1) }).catch(() => {});
+        lateReplies[0]!.resolve();
       },
       async (route) => {
-        await new Promise((resolve) => setTimeout(resolve, 400));
-        try {
-          await route.fulfill({ json: imageBody(PNG_1x1) });
-        } catch {
-          /* timed-out request */
-        }
+        timeoutOnWire.resolve();
+        await timeoutAnswer.promise;
+        await route.fulfill({ json: imageBody(PNG_1x1) }).catch(() => {});
+        lateReplies[1]!.resolve();
       },
       fulfillImage(PNG_1x1),
     ],
     requests,
   );
-  const outcome = await page.evaluate(
+  const pendingOutcome = page.evaluate(
     async (args) => {
       const provider_mod = await import("/src/studio/creative/openaiImageProvider.ts");
       const models = { ...provider_mod.OPENAI_IMAGE_MODELS, ...args.models };
@@ -665,22 +667,16 @@ test("cancel, timeout and late answers stay contained @webkit-desktop", async ({
       });
       const reasonOf = (error: unknown) =>
         error instanceof provider_mod.OpenAiImageError ? error.reason : "foreign";
-      // In-flight cancel: the request is on the wire when the signal fires.
       const controller = new AbortController();
       const pending = provider.submit(provider.prepare(args.request), {
         signal: controller.signal,
       });
-      await new Promise((resolve) => setTimeout(resolve, 40));
+      await (Reflect.get(window, "imageRequestOnWire") as () => Promise<void>)();
       controller.abort();
-      const cancelled = await pending.then(
-        () => "resolved",
-        (error) => reasonOf(error),
-      );
-      // Measured timeout: no signal, the adapter's own deadline trips.
+      const cancelled = await pending.then(() => "resolved", reasonOf);
       const timedOut = await provider
         .submit(provider.prepare(args.request))
         .then(() => "resolved", reasonOf);
-      // Both stale requests were consumed quietly; the instance still works.
       const after = await provider
         .submit(provider.prepare(args.request))
         .then((offer) => `ok:${offer.width}`, reasonOf);
@@ -688,6 +684,12 @@ test("cancel, timeout and late answers stay contained @webkit-desktop", async ({
     },
     { key: "sk-e2e-secret", models: modelsArg, request: generateRequest },
   );
+  await timeoutOnWire.promise;
+  await page.clock.runFor(120);
+  const outcome = await pendingOutcome;
+  cancelledAnswer.resolve();
+  timeoutAnswer.resolve();
+  await Promise.all(lateReplies.map((reply) => reply.promise));
   expect(outcome.cancelled).toBe("cancelled");
   expect(outcome.timedOut).toBe("timeout");
   expect(outcome.after).toBe("ok:1");

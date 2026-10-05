@@ -1,4 +1,5 @@
-import { expect, test } from "@playwright/test";
+import type * as BrowserSignals from "./browserSignals.ts";
+import { expect, test } from "./test.ts";
 
 // This exercises the real Web Audio adapter. Autoplay admission is a separate
 // browser policy; these checks measure the app's own pause contract.
@@ -26,38 +27,24 @@ for (const lateOutput of [false, true]) {
         return node;
       };
       const audio = new AgiAudio({ contextFactory: () => context });
-      // Real elapsed intervals are the input under test, not a readiness shortcut.
-      const elapse = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
-      const waitForState = async (state: "running" | "suspended") => {
-        if (context.state === state) return;
-        await new Promise<void>((resolve, reject) => {
-          const changed = () => {
-            if (context.state !== state) return;
-            clearTimeout(timer);
-            context.removeEventListener("statechange", changed);
-            resolve();
-          };
-          const timer = setTimeout(() => {
-            context.removeEventListener("statechange", changed);
-            reject(new Error(`Audio context did not become ${state}.`));
-          }, 10_000);
-          context.addEventListener("statechange", changed);
-        });
-      };
+      const signalsPath = "/e2e/browserSignals.ts";
+      const { audioElapsed, audioState, audioWitness }: typeof BrowserSignals = await import(
+        /* @vite-ignore */ signalsPath
+      );
       try {
         audio.output({ kind: "speaker", divisor: 2712 });
         await context.resume();
         const started = context.currentTime;
-        await elapse(100);
+        await audioElapsed(context, 0.1);
         const playingAdvance = context.currentTime - started;
         audio.setPaused(true);
-        await waitForState("suspended");
+        await audioState(context, "suspended", 10_000);
         if (late) {
           audio.output({ kind: "speaker", divisor: 1356 });
           await audio.resume();
         }
         const pausedAt = context.currentTime;
-        await elapse(200);
+        await audioWitness(0.2);
         const paused = {
           state: context.state,
           advance: context.currentTime - pausedAt,
@@ -65,9 +52,9 @@ for (const lateOutput of [false, true]) {
           playing: audio.isPlaying,
         };
         audio.setPaused(false);
-        await waitForState("running");
+        await audioState(context, "running", 10_000);
         const resumedAt = context.currentTime;
-        await elapse(100);
+        await audioElapsed(context, 0.1);
         const resumed = {
           state: context.state,
           advance: context.currentTime - resumedAt,

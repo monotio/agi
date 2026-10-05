@@ -94,6 +94,7 @@ interface EgoFrame {
   /** The pixels object 0 owns (ownership 1), as "x,y=colour". */
   readonly pixels: string[];
   readonly room: number;
+  readonly cycle: number;
   readonly ego: {
     view: number;
     loop: number;
@@ -122,6 +123,7 @@ function egoFrame(page: Page): Promise<EgoFrame | null> {
     return {
       pixels: pixels.sort(),
       room,
+      cycle: window.__AGI_TEXT__!.cycle,
       ego: {
         view: ego.view,
         loop: ego.loop,
@@ -183,7 +185,7 @@ async function walkAndSample(page: Page, key: "ArrowLeft" | "ArrowRight", sample
     )
       break;
     frames.push(frame);
-    await page.waitForTimeout(35);
+    await expect.poll(async () => (await egoFrame(page))?.cycle).toBeGreaterThan(frame.cycle);
   }
   // The same arrow stops the walk; the west wall may already have.
   if ((await egoFrame(page))?.ego.direction === direction) await page.keyboard.press(key);

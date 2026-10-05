@@ -142,6 +142,7 @@ test("logic Monaco adapter serves shared-worker completion, signature, hover, de
     h.editor.setPosition(h.model.getPositionAt(h.model.getValueLength()));
     h.editor.trigger("spec", "editor.action.triggerParameterHints", {});
   });
+  await expect(page.locator(".parameter-hints-widget.visible")).toBeVisible();
   await expect(page.locator(".parameter-hints-widget.visible")).toContainText("said(word, ...)");
   await reviewShot(page, "logic-monaco-signature");
 
@@ -152,6 +153,7 @@ test("logic Monaco adapter serves shared-worker completion, signature, hover, de
     h.editor.setPosition(h.model.getPositionAt(5));
     h.editor.trigger("spec", "editor.action.showHover", {});
   });
+  await expect(page.locator(".monaco-hover")).toBeVisible();
   await expect(page.locator(".monaco-hover")).toContainText("#define door 50");
 
   // A project declaration opens in a source preview while the main caret stays put.
@@ -160,7 +162,14 @@ test("logic Monaco adapter serves shared-worker completion, signature, hover, de
     h.editor.setPosition(h.model.getPositionAt(5));
     h.editor.trigger("spec", "editor.action.revealDefinition", {});
   });
-  await page.waitForTimeout(400);
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const h = (window as unknown as { __monacoHost: MonacoHost }).__monacoHost;
+        return h.monaco.editor.getModels().some((model) => model.uri.scheme === "agi-preview");
+      }),
+    )
+    .toBe(true);
   const bindingCaret = await page.evaluate(
     () =>
       (window as unknown as { __monacoHost: MonacoHost }).__monacoHost.editor.getPosition()
@@ -233,6 +242,7 @@ test("logic Monaco adapter serves shared-worker completion, signature, hover, de
 test("logic Monaco adapter multiplexes workspaces, ignores foreign models and drops stale replies", async ({
   page,
 }) => {
+  await page.clock.install();
   const pageErrors: string[] = [];
   page.on("pageerror", (error) => pageErrors.push(String(error)));
 
@@ -264,12 +274,12 @@ test("logic Monaco adapter multiplexes workspaces, ignores foreign models and dr
     });
   });
 
-  const suggestRows = async (): Promise<string> =>
-    page.evaluate(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 600));
-      const rows = document.querySelector(".suggest-widget.visible .monaco-list-rows");
-      return rows?.textContent ?? "";
-    });
+  const suggestRows = async (word: string): Promise<string> => {
+    const rows = page.locator(".suggest-widget.visible .monaco-list-rows");
+    await expect(rows).toBeVisible();
+    await expect(rows).toContainText(word);
+    return rows.textContent().then((text) => text ?? "");
+  };
 
   // Each workspace's suggestions come from its own project.
   await page.evaluate(() => {
@@ -279,7 +289,7 @@ test("logic Monaco adapter multiplexes workspaces, ignores foreign models and dr
     h.editor.focus();
     h.editor.trigger("spec", "editor.action.triggerSuggest", {});
   });
-  const secondSuggestions = await suggestRows();
+  const secondSuggestions = await suggestRows("jump");
   expect(secondSuggestions).toContain("jump");
   expect(secondSuggestions).not.toContain("open");
 
@@ -289,7 +299,7 @@ test("logic Monaco adapter multiplexes workspaces, ignores foreign models and dr
     h.editor.setPosition(h.model.getPositionAt(h.model.getValueLength()));
     h.editor.trigger("spec", "editor.action.triggerSuggest", {});
   });
-  const firstSuggestions = await suggestRows();
+  const firstSuggestions = await suggestRows("open");
   expect(firstSuggestions).toContain("open");
   expect(firstSuggestions).not.toContain("jump");
 
@@ -306,7 +316,7 @@ test("logic Monaco adapter multiplexes workspaces, ignores foreign models and dr
     h.editor.setPosition(foreign.getPositionAt(foreign.getValueLength()));
     h.editor.trigger("spec", "editor.action.triggerSuggest", {});
   });
-  await page.waitForTimeout(400);
+  await page.clock.runFor(400);
   // No project data may surface for an unregistered model: either the widget
   // stays closed or it shows only its empty state.
   await expect(page.locator(".suggest-widget.visible .monaco-list-row:visible")).toHaveCount(0);
@@ -368,12 +378,10 @@ test("logic Monaco adapter multiplexes workspaces, ignores foreign models and dr
     h.editor.setModel(h.model2!);
     h.editor.setPosition(h.model2!.getPositionAt(h.model2!.getValueLength()));
     h.editor.trigger("spec", "editor.action.triggerSuggest", {});
-    await new Promise((resolve) => setTimeout(resolve, 600));
-    const rows = document.querySelector(".suggest-widget.visible .monaco-list-rows");
-    return { cleared, second: rows?.textContent ?? "" };
+    return { cleared };
   });
   expect(afterDispose.cleared).toBe(0);
-  expect(afterDispose.second).toContain("jump");
+  expect(await suggestRows("jump")).toContain("jump");
 
   // Reopen registers a fresh handle on a fresh model for the same document.
   const reopened = await page.evaluate(async () => {
@@ -398,14 +406,11 @@ test("logic Monaco adapter multiplexes workspaces, ignores foreign models and dr
     await h.handle.refreshDiagnostics();
     h.editor.setPosition(model.getPositionAt(5));
     h.editor.trigger("spec", "editor.action.showHover", {});
-    await new Promise((resolve) => setTimeout(resolve, 600));
-    return {
-      markers: h.monaco.editor.getModelMarkers({ resource: model.uri }).length,
-      hover: document.querySelector(".monaco-hover")?.textContent ?? "",
-    };
+    return { markers: h.monaco.editor.getModelMarkers({ resource: model.uri }).length };
   });
   expect(reopened.markers).toBe(0);
-  expect(reopened.hover).toContain("#define door 50");
+  await expect(page.locator(".monaco-hover")).toBeVisible();
+  await expect(page.locator(".monaco-hover")).toContainText("#define door 50");
   expect(pageErrors).toEqual([]);
 
   await unmountEditor(page);
@@ -440,13 +445,12 @@ test("logic Monaco adapter keeps a full 256-document project off live editor mod
     const markers = h.monaco.editor.getModelMarkers({ resource: h.model.uri }).length;
     h.editor.setPosition(h.model.getPositionAt(5));
     h.editor.trigger("spec", "editor.action.showHover", {});
-    await new Promise((resolve) => setTimeout(resolve, 600));
-    const hover = document.querySelector(".monaco-hover")?.textContent ?? "";
-    return { markers, hover, models: h.monaco.editor.getModels().length };
+    return { markers, models: h.monaco.editor.getModels().length };
   });
   expect(result.models).toBe(1);
   expect(result.markers).toBe(0);
-  expect(result.hover).toContain("#define door 50");
+  await expect(page.locator(".monaco-hover")).toBeVisible();
+  await expect(page.locator(".monaco-hover")).toContainText("#define door 50");
   expect(pageErrors).toEqual([]);
   expect(consoleErrors.filter((text) => text.includes("LEAK"))).toEqual([]);
 
@@ -460,6 +464,8 @@ test("logic Monaco registration replacement retires listeners and markers withou
   const result = await page.evaluate(async () => {
     const h = (window as unknown as { __monacoHost: MonacoHost }).__monacoHost;
     h.handle.dispose();
+    // Measure registration listeners on a model detached from editor contributions.
+    h.editor.setModel(null);
     const subscribe = h.model.onWillDispose;
     let registering = false;
     let editorListeners = 0;

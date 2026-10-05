@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./test.ts";
 import { buildSyntheticGame } from "../../src/games/syntheticGame.ts";
 import { KNOWN_GAME_HASH } from "../../test/fixtures.ts";
 import { BrowserReplay } from "./speedrunReplay.ts";
@@ -22,9 +22,12 @@ test("replay selects the named fixture after discovery when a copy shares its vo
       Reflect.apply(originalPost, this, args);
     };
   });
+  const requested = Promise.withResolvers<void>();
+  const discovery = Promise.withResolvers<void>();
   await page.route("**/fixtures/", async (route) => {
     // Discovery lands after the helper has started resolving its boot control.
-    await new Promise((resolve) => setTimeout(resolve, 500));
+    requested.resolve();
+    await discovery.promise;
     await route.fulfill({
       json: [
         {
@@ -52,7 +55,11 @@ test("replay selects the named fixture after discovery when a copy shares its vo
     }
   });
   const replay = new BrowserReplay(page, false);
-  await replay.boot(KNOWN_GAME_HASH.SYNTHETIC, 1);
+  const booting = replay.boot(KNOWN_GAME_HASH.SYNTHETIC, 1);
+  await requested.promise;
+  await expect(page.locator('[data-alias="synthetic"]')).toHaveCount(0);
+  discovery.resolve();
+  await booting;
   const bootVolumes = await page.evaluate(
     () => Reflect.get(window, "__fixtureBootVolumes") as number[],
   );

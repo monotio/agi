@@ -1,6 +1,6 @@
 import type { EngineStateReport } from "../../src/runtime/engine.ts";
 import type { SoundTick } from "../src/audio/soundTiming.ts";
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./test.ts";
 import { fileURLToPath } from "node:url";
 
 /** The worker replies this test reads (engine.worker.ts, "Messages out"). */
@@ -53,6 +53,7 @@ test("sound ticks and completion continue during a blocking host prompt", async 
       const wait = <T extends WorkerReply>(
         predicate: (message: WorkerReply) => message is T,
       ): Promise<T> =>
+        // wall-clock: bounds a missing worker reply; success resolves on the reply event.
         new Promise((resolve, reject) => {
           const timeout = setTimeout(() => {
             waiters.delete(check);

@@ -82,6 +82,7 @@ test("production origin, worker and provider policy", async ({ page, request }) 
     async ({ url, files }) => {
       const worker = new Worker(url, { type: "module" });
       try {
+        // wall-clock: bounds worker startup failure; success resolves on boot and render events.
         return await new Promise<string>((resolve, reject) => {
           const timeout = setTimeout(
             () => reject(new Error("Worker did not boot and render")),

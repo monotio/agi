@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./test.ts";
 import { readFile } from "node:fs/promises";
 import { createContainer, openContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
@@ -97,17 +97,24 @@ test("an installed-game remix survives immediate Menu, Resume, reload and projec
   await expect.poll(async () => (await textHook(page)).rows.join(" ")).toContain("ALLIGATOR REMIX");
   // Delay actual IndexedDB completion callbacks: Menu must await storage, not just the worker reply.
   await page.evaluate(() => {
+    const gate = Promise.withResolvers<void>();
+    Reflect.set(window, "releaseCompletions", gate.resolve);
+    Reflect.set(window, "completionPending", false);
     const descriptor = Object.getOwnPropertyDescriptor(IDBTransaction.prototype, "oncomplete")!;
     Object.defineProperty(IDBTransaction.prototype, "oncomplete", {
       ...descriptor,
       set(this: IDBTransaction, handler: (event: Event) => void) {
         descriptor.set!.call(this, function (this: IDBTransaction, event: Event) {
-          setTimeout(() => handler.call(this, event), 250);
+          Reflect.set(window, "completionPending", true);
+          void gate.promise.then(() => handler.call(this, event));
         });
       },
     });
   });
   await page.getByTestId("btn-exit").click();
+  await page.waitForFunction(() => Reflect.get(window, "completionPending") === true);
+  await expect(page.getByTestId("btn-exit")).toBeVisible();
+  await page.evaluate(() => (Reflect.get(window, "releaseCompletions") as () => void)());
   const card = savedGameCard(page, "SAMPLE Remix");
   await expect(card.getByRole("button", { name: "Resume", exact: true })).toBeVisible();
   const record = await page.evaluate(() => {
