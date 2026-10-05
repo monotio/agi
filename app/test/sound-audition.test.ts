@@ -661,7 +661,7 @@ describe("sound audition seek", () => {
     assert.equal(sought.status, "paused");
     assert.equal(sought.positionTicks, 3);
     // AUDxPER is the note's divisor times four.
-    assert.equal(context.sources[0]!.playbackRate.value, 3546895 / (4 * 226) / 48000);
+    assert.equal(context.sources[0]!.playbackRate.value, ((3546895 / (4 * 226)) * 32) / 48000);
     // The 2.176 attack envelope (-2, -3, -2, …) leaves attenuation 2 at
     // tick 3: AUDxVOL ((15 - 2) << 6) / 15 = 55, rendered (55 / 64) * 0.4.
     assert.equal(context.gains[1]!.gain.value, (55 / 64) * 0.4);

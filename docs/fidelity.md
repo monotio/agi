@@ -2946,6 +2946,10 @@ order, rather than a measured bus-cycle delay. Between notes DMA remains enabled
 The positive `2, 1, 0` envelope entries are the attack values described above.
 A terminator or stop clears DMA. Consequently a new note on an enabled channel
 continues phase; a new DMA activation reloads the sample start.
+The terminator at h197+0x5a6..0x5ba (`0xf4e6..0xf4fa`) tests and clears
+the channel's software active field, then writes its mask to DMACON. It
+writes no AUDxVOL. The emitted null-period event's zero volume is therefore
+a software stop marker, rather than a hardware volume write.
 
 No instruction in h197 accesses CIA-A PRA or its direction register.
 A literal-address census of all hunks in both executables finds no operands
@@ -2978,38 +2982,103 @@ stage uses 10 kohm resistors and 6,800/3,900 pF capacitors: nominal
 frequency 3,091 Hz and Q 0.6602, with a 12 dB/octave roll-off.
 Component tolerances and board revisions affect these frequencies.
 
+The schematic also places C324/C325 (22 uF + 0.33 uF in parallel) between
+the left filter output and R324 (1 kohm), with R325 (390 ohm) to ground;
+C334/C335 and R334/R335 mirror this on the right. **Circuit inference:**
+an unloaded jack has a 31.0387 ms high-pass time constant, a 5.128 Hz pole,
+and passband gain 390/1390. An external load changes both. The presentation
+normalizes that passband gain into the existing host volume scale.
+
+The manual's non-DMA section states that an idle DAC retains its last
+value. [Figure 5-8 in the third edition, printed page 166](https://www.ikod.se/wp-content/uploads/2020/08/Amiga_Hardware_Reference_Manual_3rd_Edition.pdf)
+shows exit from the low-byte state 011 without a data or volume clear.
+The model finishes the current word and retains its low byte and volume;
+a re-enable before that exit keeps phase. Interrupt service and horizontal
+DMA slot timing remain unmeasured.
+
 **Presentation model and limits.** The app selects this A500 analogue path
 with the LED bright, since the inspected driver leaves the filter control alone.
 This is an explicit boot-state assumption; OS LED state was not captured.
 A first-order IIR models the RC stage and a Web Audio lowpass biquad models
 the LED stage. [Web Audio's lowpass Q](https://www.w3.org/TR/webaudio-1.0/#dom-biquadfilternode-q)
-uses decibels, so the circuit's dimensionless Q is converted with `20 * log10(Q)`. Both filters preserve state across notes.
+uses decibels, so the circuit's dimensionless Q is converted with `20 * log10(Q)`. The two low-pass filters and output coupling preserve state across notes.
 The four voices route to the hardware's stereo sides.
 
 DMA starts at sample byte zero with the playback rate installed **before**
 its start quantum. On period changes, a replacement source starts at the next
-byte boundary and the current sample offset. Volume writes use that same
-boundary. This avoids Web Audio's k-rate `playbackRate` transition, which
+byte boundary and the current sample offset. Volume writes land at the
+register tick independently of that boundary. This avoids Web Audio's k-rate `playbackRate` transition, which
 otherwise emits several fast cycles at onset before the intended period takes
-effect. The browser's sample reconstruction remains an approximation; this
+effect. Each signed DAC byte occupies 32 identical buffer frames, so browser
+reconstruction approximates a held sample rather than interpolating across
+the entire byte period. The browser's sample reconstruction remains an approximation; this
 model does not claim bus-cycle accuracy, DAC PWM emulation or measured analogue
-component tolerances. Period 0 retains the existing silent rest presentation;
-the phase clock treats its counter as 65,536 clocks.
+component tolerances. Period 0 counts 65,536 clocks while keeping volume;
+it can emit slow changes. A DMA clear retains output through the coupling
+stage. Natural SOUND completion preserves that graph for the next sound;
+explicit host disposal releases its nodes.
+
+**Click cause and limits.** The later tone bytes
+`0, 64, 127, 64, 0, -64, -127, -64` have exact mean zero and first byte zero.
+The older 2.082 tone `0, -128, 0, -128` has mean -64. Volume changes scale
+the currently held byte immediately; a retrigger restarts the positive
+`2, 1, 0` attack while DMA continues. These finite gain steps can click on
+hardware. DMA stop holds a level, and the coupling circuit turns that level
+into a decaying transient. Its 5.128 Hz pole barely changes the click band
+above 20 Hz. This establishes a physical mechanism, rather than a measured
+A500 recording or a guarantee of quieter playback. No added attack ramp
+or sample recentering conceals the original driver behavior.
 
 **Regression evidence.** [paula-offline.test.ts](../app/test/paula-offline.test.ts)
 boots PQ's original LOGIC and captures 1,800 sound heartbeats through the real
 `AgiAudio` graph in headless Chromium's `OfflineAudioContext`. It covers SOUND
 36, repeated SOUND 19, then SOUND 37 and the intro music in SOUND 30.
 The harness advances the game clock and uses the shipped `CycleClock` for
-`v10` pacing, with a controlled injected RNG seeded at 1. Tests measure the first 4 ms at 133 tone onsets:
-maximum adjacent-sample jump, jumps above 0.08, and Hann-window DFT energy above
-8 kHz. The original graph fails the jump and wideband bounds. The changed
-render removes the initial rapid cycles and passes both bounds. Optional
-`AGI_AUDIO_RENDER_DIR` output writes a WAV, fixed-scale spectrogram PNG and
-metrics for private A/B inspection. The test explicitly skips when the
-content-identified fixture is absent. [paula.test.ts](../app/test/paula.test.ts)
-checks phase and RC coefficients with hand-computed expectations, and
-[audio.test.ts](../app/test/audio.test.ts) checks DMA start/stop scheduling.
+`v10` pacing, with controlled game and presentation RNG seeds of 1.
+The same harness boots PQ PC/Amiga and SQ2 PC/Amiga/IIgs, using each edition's
+own LOGIC and scheduler. IIgs loads the original wave RAM and instrument bank.
+Per-voice renders measure starts, ends, rests, DMA clears and IIgs source
+halts. Metrics include adjacent jumps in 4 ms, the difference of signed
+2 ms means, 20 ms local means and whole-capture voice DC, and DC-removed
+20–800 Hz energy in 10 ms against a nearby tone window. The periodogram
+integrates on a 20 Hz grid; its actual resolution is about 100 Hz. These
+finite windows include carrier phase, pitch, envelope and leakage, so their
+energy and mean differences are proxies rather than isolated click energy.
+
+An independent held-byte DAC reference follows the documented register
+sequence through the nominal filters. PQ's baseline fails the DMA-off step
+comparison by 0.06680 full scale; corrected DMA-off errors stay below one
+output DAC LSB (`0.4 / 128 / 2`), and rests below two. The earlier high-band
+bound is replaced by these step comparisons: held bytes have legitimate
+harmonics which whole-byte interpolation removed. The 0.08 adjacent-jump
+bound remains, and high-band energy remains reported.
+Optional `AGI_AUDIO_RENDER_DIR` writes float WAVs, fixed-scale spectrograms
+and per-boundary JSON, preserving over-range IIgs samples for analysis.
+Each fixture explicitly skips with content-identified setup instructions.
+[paula.test.ts](../app/test/paula.test.ts) checks phase, signed DAC output,
+coupling and measurements with hand-computed expectations;
+[audio.test.ts](../app/test/audio.test.ts) checks register scheduling,
+held output and filter-state survival across completed streams.
+
+**Backend comparison.** TI's [SN76489 family data sheet](https://ftp.whtech.com/datasheets%20and%20manuals/Datasheets%20-%20TI/SN76489.pdf)
+describes separate frequency counters and attenuation registers. The app
+keeps its bipolar square oscillators running while an attenuation latch
+gates their gain; a rest reaches zero gain without a persistent signed DAC
+level. Abrupt gain changes still have carrier-dependent steps. Exact NCR
+8496/SN76496 phase behavior remains the hardware evidence gap described in
+[SN76489 attenuation latching](#sn76489-attenuation-latching-and-rest-notes).
+Apple's [IIgs hardware reference](https://downloads.reactivemicro.com/Apple%20II%20Items/Documentation/Manuals/IIgs/IIgs%20Hardware%20Reference.pdf)
+defines DOC halt on zero data or the halt bit. The Note Synthesizer's
+instrument attack/release envelope can reduce a tone before its oscillators
+halt; a halt itself is abrupt. See the instrument and driver evidence under
+[IIgs sound](#sound-format-fact-except-where-marked). Apple's
+[technical note 11](https://apple2.gs/technotes/tn-iigs-011/) also documents
+physical DOC swap clicks, which this presentation does not model.
+The captures do not establish that Tandy and IIgs have smaller raw step
+metrics: their carrier, arrangement and presentation levels differ, and
+the IIgs mix can exceed full scale at master volume 1. Synthesis for those
+backends is unchanged; listener preference cannot be inferred from these
+raw maxima.
 
 #### Engine/app mapping
 
@@ -3017,7 +3086,8 @@ checks phase and RC coefficients with hand-computed expectations, and
 per voice on the same 60 Hz clock: the 2.176+ family every tick for every
 live voice, the 2.082 family (`driver: "2.082"`) on decode ticks only.
 `period` is the value written to AUDxPER (null when the voice's DMA is
-off) and `volume` the value written to AUDxVOL, always 0..64
+off) and `volume` the value written to AUDxVOL while DMA is on, always 0..64.
+With a null period its zero volume is a software stop marker
 (`AMIGA_ENVELOPE_TABLE`, `AMIGA_2176_ENVELOPE_TABLE`,
 `AMIGA_2082_NOISE_PERIODS`, `AMIGA_TONE_SAMPLE`,
 `AMIGA_2082_TONE_SAMPLE`, `amigaNoisePcm` in `src/sound/sound.ts`).
@@ -3026,7 +3096,7 @@ off) and `volume` the value written to AUDxVOL, always 0..64
 A driver change rebuilds the voices. Phase, register boundaries and the LED
 model are described in [Paula onset and A500 output](#paula-onset-and-a500-output).
 Periods below 124 colour clocks retain the DMA-limit approximation, and period 0
-retains silent rest presentation. The `soundDevice` operand stays a PC-family
+counts 65,536 clocks at the programmed volume. The `soundDevice` operand stays a PC-family
 selection. PC and IIgs graphs keep their own synthesis paths.
 
 ### Original Amiga and IIgs pattern brushes

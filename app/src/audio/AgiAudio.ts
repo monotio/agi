@@ -22,8 +22,10 @@ import {
   PaulaClock,
   PAULA_CLOCK,
   PAULA_MIN_PERIOD,
+  PAULA_HOLD_FRAMES,
   PAULA_LED_FILTER,
   paulaRcCoefficients,
+  paulaCouplingCoefficients,
 } from "./paula.ts";
 import { IigsSynth, iigsSources, type IigsSources } from "./iigsSynth.ts";
 
@@ -55,6 +57,8 @@ export class AgiAudio {
   private readonly divisors = [0, 0, 0];
   private latchedRegister = 0;
   private paulaSources: AudioBufferSourceNode[] = [];
+  private paulaBuffers: AudioBuffer[] = [];
+  private paulaPendingStops: (AudioBufferSourceNode | undefined)[] = [];
   private paulaClocks: PaulaClock[] = [];
   private readonly dormantPaula = new WeakSet<object>();
   private paulaPeriods: (number | null)[] = [];
@@ -297,7 +301,9 @@ export class AgiAudio {
     if (packet.complete) {
       this.retiredStreams.add(packet.stream);
       this.timing = null;
-      this.releaseGraph(at);
+      // The chip's DAC and analogue capacitors survive a SOUND terminator.
+      if (this.family !== "paula" && this.family !== "paula-2.082") this.releaseGraph(at);
+      else this.playing = false;
     }
   }
 
@@ -373,15 +379,46 @@ export class AgiAudio {
       const clock = this.paulaClocks[channel]!;
       let source = this.paulaSources[channel]!;
       if (event.period === null) {
-        this.stopSource(source, at);
-        clock.disable();
+        const held = clock.disable(at);
+        if (held) {
+          this.stopSource(source, held.at);
+          this.paulaPendingStops[channel] = source;
+          const retired = source;
+          retired.onended = () => {
+            retired.disconnect();
+            this.activeNodes = this.activeNodes.filter((node) => node !== retired);
+          };
+          const buffer = ctx.createBuffer(1, 1, ctx.sampleRate);
+          const waveform = this.paulaBuffers[channel]!;
+          const byte =
+            held.byte === null
+              ? null
+              : ((held.byte % (waveform.length / PAULA_HOLD_FRAMES)) +
+                  waveform.length / PAULA_HOLD_FRAMES) %
+                (waveform.length / PAULA_HOLD_FRAMES);
+          buffer.getChannelData(0)[0] =
+            byte === null ? 0 : waveform.getChannelData(0)[byte * PAULA_HOLD_FRAMES]!;
+          const hold = ctx.createBufferSource();
+          hold.buffer = buffer;
+          hold.loop = true;
+          hold.connect(this.channelGains[channel]!);
+          hold.start(held.at);
+          this.paulaSources[channel] = hold;
+          this.activeNodes.push(hold);
+        }
         this.paulaPeriods[channel] = null;
-        this.setLaneGain(channel, 0, at);
+        // Null period describes a DMACON clear, not an AUDxVOL write.
+        // docs/fidelity.md, "Paula onset and A500 output".
         return;
       }
       const position = clock.write(event.period, at);
       const previous = this.paulaPeriods[channel];
       if (position.restart || previous !== event.period) {
+        const pending = this.paulaPendingStops[channel];
+        if (pending) {
+          this.stopSource(pending, position.at);
+          this.paulaPendingStops[channel] = undefined;
+        }
         if (previous !== undefined) {
           this.stopSource(source, position.at);
           const replaced = source;
@@ -390,7 +427,7 @@ export class AgiAudio {
             this.activeNodes = this.activeNodes.filter((node) => node !== replaced);
           };
           source = ctx.createBufferSource();
-          source.buffer = replaced.buffer;
+          source.buffer = this.paulaBuffers[channel]!;
           source.loop = true;
           source.connect(this.channelGains[channel]!);
           this.paulaSources[channel] = source;
@@ -400,17 +437,19 @@ export class AgiAudio {
         // transition at a render quantum. Reload at a byte boundary and keep
         // DMA phase, as documented in "Paula onset and A500 output".
         const period = event.period === 0 ? 65536 : Math.max(PAULA_MIN_PERIOD, event.period);
-        source.playbackRate.setValueAtTime(PAULA_CLOCK / period / ctx.sampleRate, ctx.currentTime);
+        source.playbackRate.setValueAtTime(
+          ((PAULA_CLOCK / period) * PAULA_HOLD_FRAMES) / ctx.sampleRate,
+          ctx.currentTime,
+        );
         this.dormantPaula.delete(source);
-        source.start(position.at, (position.byte % source.buffer!.length) / ctx.sampleRate);
+        source.start(
+          position.at,
+          ((position.byte * PAULA_HOLD_FRAMES) % source.buffer!.length) / ctx.sampleRate,
+        );
         this.paulaPeriods[channel] = event.period;
       }
-      // Retain the established silent presentation for AUDxPER 0 rests.
-      this.setLaneGain(
-        channel,
-        event.period === 0 ? 0 : (Math.min(64, event.volume) / 64) * 0.4,
-        position.at,
-      );
+      // PER zero counts 65536 clocks; VOL still scales the held DAC byte.
+      this.setLaneGain(channel, (Math.min(64, event.volume) / 64) * 0.4, at);
       return;
     }
     if (!this.channelGains.length) this.createChannels(ctx, event.kind === "speaker" ? 1 : 4);
@@ -453,6 +492,17 @@ export class AgiAudio {
         this.noiseFilter!.frequency.setValueAtTime(Math.min(maxFreq, rawFreq), at);
       }
     }
+  }
+
+  /** Finish the worker's SOUND after its register clears, retaining Paula's DAC and capacitors. */
+  finishSound(): void {
+    if (this.family !== "paula" && this.family !== "paula-2.082") {
+      this.stop();
+      return;
+    }
+    if (this.timing) this.retiredStreams.add(this.timing.stream);
+    this.timing = null;
+    this.playing = false;
   }
 
   stop(): void {
@@ -498,6 +548,8 @@ export class AgiAudio {
     this.oscillators = [];
     this.noiseFilter = null;
     this.paulaSources = [];
+    this.paulaBuffers = [];
+    this.paulaPendingStops = [];
     this.paulaClocks = [];
     this.paulaPeriods = [];
     this.iigsSynth?.stop(at);
@@ -656,16 +708,20 @@ export class AgiAudio {
    */
   private createPaulaChannels(ctx: AudioContext, early: boolean): void {
     const sample = early ? AMIGA_2082_TONE_SAMPLE : AMIGA_TONE_SAMPLE;
-    const tone = ctx.createBuffer(1, sample.length, ctx.sampleRate);
+    const tone = ctx.createBuffer(1, sample.length * PAULA_HOLD_FRAMES, ctx.sampleRate);
     const toneData = tone.getChannelData(0);
-    for (let i = 0; i < toneData.length; i++) toneData[i] = sample[i]! / 128;
+    for (let i = 0; i < toneData.length; i++)
+      toneData[i] = sample[Math.floor(i / PAULA_HOLD_FRAMES)]! / 128;
     const noisePcm = early ? amigaNoisePcm(AMIGA_2082_NOISE_BYTES) : amigaNoisePcm();
-    const noise = ctx.createBuffer(1, noisePcm.length, ctx.sampleRate);
+    const noise = ctx.createBuffer(1, noisePcm.length * PAULA_HOLD_FRAMES, ctx.sampleRate);
     const noiseData = noise.getChannelData(0);
-    for (let i = 0; i < noiseData.length; i++) noiseData[i] = noisePcm[i]! / 128;
+    for (let i = 0; i < noiseData.length; i++)
+      noiseData[i] = noisePcm[Math.floor(i / PAULA_HOLD_FRAMES)]! / 128;
     const coefficients = paulaRcCoefficients(ctx.sampleRate);
     const stereo = ctx.createChannelMerger(2);
     const rc = ctx.createIIRFilter(coefficients.feedforward, coefficients.feedback);
+    const coupling = paulaCouplingCoefficients(ctx.sampleRate);
+    const ac = ctx.createIIRFilter(coupling.feedforward, coupling.feedback);
     const led = ctx.createBiquadFilter();
     led.type = "lowpass";
     led.frequency.setValueAtTime(PAULA_LED_FILTER.frequency, ctx.currentTime);
@@ -673,8 +729,9 @@ export class AgiAudio {
     led.Q.setValueAtTime(20 * Math.log10(PAULA_LED_FILTER.q), ctx.currentTime);
     stereo.connect(rc);
     rc.connect(led);
-    led.connect(this.masterGain!);
-    this.activeNodes.push(stereo, rc, led);
+    led.connect(ac);
+    ac.connect(this.masterGain!);
+    this.activeNodes.push(stereo, rc, led, ac);
     for (let channel = 0; channel < 4; channel++) {
       const gain = ctx.createGain();
       gain.gain.setValueAtTime(0, ctx.currentTime);
@@ -683,6 +740,7 @@ export class AgiAudio {
       this.activeNodes.push(gain);
       const source = ctx.createBufferSource();
       source.buffer = channel === 3 ? noise : tone;
+      this.paulaBuffers.push(source.buffer);
       source.loop = true;
       source.connect(gain);
       this.dormantPaula.add(source);

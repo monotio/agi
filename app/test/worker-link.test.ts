@@ -156,6 +156,7 @@ function makeLink(over: { getBootedGame?: () => BootedGame | null } = {}) {
       audioCalls.push(`pauseOwner:${owner}:${paused}`),
     setMode: (mode: string) => audioCalls.push(`setMode:${mode}`),
     stop: () => audioCalls.push("stop"),
+    finishSound: () => audioCalls.push("finishSound"),
     output: () => audioCalls.push("output"),
     outputTick: () => audioCalls.push("outputTick"),
   } as unknown as AgiAudio;
@@ -811,7 +812,7 @@ test("every WorkerOutbound member reaches its handler once", async () => {
       case "stopSound":
         deliver(w, { type });
         assert.equal(state.soundPlaying, false);
-        assert.ok(audioCalls.includes("stop"));
+        assert.ok(audioCalls.includes("finishSound"));
         break;
       case "quit":
         deliver(w, { type });
