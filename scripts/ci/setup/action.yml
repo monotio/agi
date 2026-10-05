@@ -1,8 +1,8 @@
 name: Restore CI environment
-description: Restore installed dependencies and versioned browsers on a fresh Linux runner.
+description: Restore installed dependencies and verify the browser container.
 inputs:
   browser:
-    description: Playwright browser to install (empty for Node jobs)
+    description: Playwright browser to verify (empty for Node jobs)
     default: ""
 runs:
   using: composite
@@ -25,55 +25,10 @@ runs:
         nproc
         free -h
         echo "PLAYWRIGHT_WORKERS=2" >> "$GITHUB_ENV"
-    - name: Browser version
-      if: inputs.browser != ''
-      id: version
-      shell: bash
-      run: |
-        echo "version=$(node -p 'require("./app/node_modules/playwright-core/package.json").version')" >> "$GITHUB_OUTPUT"
-        image=$( . /etc/os-release; printf '%s-%s' "$ID" "$VERSION_ID" )
-        echo "image=$image" >> "$GITHUB_OUTPUT"
-    - uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
-      if: inputs.browser != ''
-      id: browser
-      env:
-        SEGMENT_DOWNLOAD_TIMEOUT_MINS: "1"
-      with:
-        path: ~/.cache/ms-playwright
-        key: browsers-${{ runner.os }}-${{ steps.version.outputs.image }}-${{ steps.version.outputs.version }}-${{ inputs.browser }}
-    - uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
-      if: inputs.browser != ''
-      env:
-        SEGMENT_DOWNLOAD_TIMEOUT_MINS: "1"
-      with:
-        path: /tmp/agi-apt/*.deb
-        key: apt-${{ runner.os }}-${{ steps.version.outputs.image }}-${{ steps.version.outputs.version }}-${{ inputs.browser }}
-    - name: Browser system dependencies
+    - name: Verify Playwright container version
       if: inputs.browser != ''
       shell: bash
-      env:
-        BROWSER: ${{ inputs.browser }}
-      run: |
-        mkdir -p /tmp/agi-apt/partial
-        printf 'Dir::Cache::archives "/tmp/agi-apt";\nAPT::Keep-Downloaded-Packages "true";\nBinary::apt::APT::Keep-Downloaded-Packages "true";\nAcquire::http::Timeout "30";\nAcquire::https::Timeout "30";\nAcquire::Retries "2";\nDPkg::Lock::Timeout "60";\n' | sudo tee /etc/apt/apt.conf.d/99-ci-cache > /dev/null
-        cd app
-        # A slow mirror is a network failure, not a test result: try once more,
-        # resuming from the packages already kept in /tmp/agi-apt.
-        for attempt in 1 2; do
-          status=0
-          timeout 120s npx playwright install-deps "$BROWSER" || status=$?
-          [ "$status" = 0 ] && break
-          [ "$attempt" = 2 ] && exit "$status"
-          echo "::warning::Browser system dependencies attempt $attempt failed ($status); retrying with downloaded packages kept"
-        done
-    - name: Browser binary
-      if: inputs.browser != '' && steps.browser.outputs.cache-hit != 'true'
-      shell: bash
-      env:
-        BROWSER: ${{ inputs.browser }}
-      run: |
-        cd app
-        npx playwright install "$BROWSER"
+      run: python3 scripts/ci/browser_image.py
     - name: Browser font inventory
       if: inputs.browser != ''
       shell: bash

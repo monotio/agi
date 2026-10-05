@@ -2,6 +2,9 @@ name: Browser suites
 on:
   workflow_call:
     inputs:
+      browser_image:
+        type: string
+        required: true
       repeat:
         type: number
         default: 1
@@ -14,6 +17,12 @@ jobs:
   e2e:
     name: Playwright (${{ matrix.label }})
     runs-on: ubuntu-latest
+    container:
+      image: ${{ inputs.browser_image }}
+      options: --init --ipc=host
+    defaults:
+      run:
+        shell: bash
     timeout-minutes: ${{ inputs.repeat > 1 && 45 || 15 }}
     strategy:
       fail-fast: false
@@ -99,6 +108,12 @@ jobs:
     name: Production browser (${{ matrix.browser }})
     if: inputs.production
     runs-on: ubuntu-latest
+    container:
+      image: ${{ inputs.browser_image }}
+      options: --init --ipc=host
+    defaults:
+      run:
+        shell: bash
     timeout-minutes: 15
     strategy:
       fail-fast: false

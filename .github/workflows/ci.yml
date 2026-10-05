@@ -62,6 +62,7 @@ jobs:
     if: needs.prepare.outputs.browsers == 'true' && needs.prepare.outputs.duplicate != 'true'
     uses: ./.github/workflows/browser-suites.yml
     with:
+      browser_image: ${{ needs.prepare.outputs.browser_image }}
       production: true
 
   burn:
@@ -69,6 +70,12 @@ jobs:
     needs: [prepare, build]
     if: github.event_name == 'pull_request' && needs.prepare.outputs.specs != '[]' && needs.prepare.outputs.browsers == 'true'
     runs-on: ubuntu-latest
+    container:
+      image: ${{ needs.prepare.outputs.browser_image }}
+      options: --init --ipc=host
+    defaults:
+      run:
+        shell: bash
     timeout-minutes: 30
     strategy:
       fail-fast: false
@@ -224,6 +231,12 @@ jobs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.prepare.outputs.browsers == 'true'
     needs: [prepare, deploy]
     runs-on: ubuntu-latest
+    container:
+      image: ${{ needs.prepare.outputs.browser_image }}
+      options: --init --ipc=host
+    defaults:
+      run:
+        shell: bash
     timeout-minutes: 10
     environment: production
     steps:

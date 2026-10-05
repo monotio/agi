@@ -294,9 +294,22 @@ at most 19 concurrent jobs, leaving one of the 20 public-runner slots free.
 
 CI installs the two package roots once and restores the resulting dependency
 cache in test and build jobs. The production build and chunk graph are shared
-with both production browser jobs. Playwright browser caches use the browser,
-version and runner OS; apt archives are cached too, while system dependencies
-are installed on each fresh runner.
+with both production browser jobs. Chromium shards, WebKit desktop and phone,
+production browsers, timing, storage, PR burn-in and deployed-site verification
+run in the official Playwright Noble image from `scripts/ci/playwright-image.txt`.
+The tag carries the Playwright version and the digest fixes the image contents.
+The image supplies browser binaries, fonts and system packages. Setup checks the
+installed `app/node_modules/playwright-core` version and the image metadata before
+testing; a mismatch fails with the file to update. Node jobs keep the runner setup.
+
+For a Playwright upgrade, install the updated package, obtain the matching Noble
+image digest from the Microsoft registry, and update `scripts/ci/playwright-image.txt`.
+Run the CI helper tests (`python3 -m unittest discover -s scripts/ci -p 'test_*.py'`),
+then compare the Linux screenshot artifacts and timing results with the previous
+image. Browser jobs print their font inventory. Screenshot artifacts retain PNGs
+from successful tests as well as failed ones; JSON reports retain measured test
+durations. Keep screenshot expectations and timing budgets tied to the observed
+behavior.
 
 Pull requests repeat added or changed specs five times: on a PR's first run
 the specs it changes, and on each later push the specs that push changes. A
@@ -354,11 +367,11 @@ CI runs WebKit on Linux, and its result is the one that counts. WebKit on macOS
 reports a Mac platform and uses Mac fonts, so results can differ, and it cannot
 launch while the display sleeps or the session is locked. To reproduce a Linux
 failure locally, run the suite in the Playwright image whose version matches
-`@playwright/test` in `app/package.json` (`npm ci` inside the container replaces any
-copied `node_modules`):
+the installed `playwright-core` package. Use the CI pin to reproduce its exact
+image (`npm ci` inside the container replaces any copied `node_modules`):
 
 ```bash
-docker run --rm --init --ipc=host -v "$PWD:/src:ro" mcr.microsoft.com/playwright:v<version>-noble \
+docker run --rm --init --ipc=host -v "$PWD:/src:ro" "$(cat scripts/ci/playwright-image.txt)" \
   bash -lc 'cp -r /src /w && cd /w && npm ci && npm --prefix app ci &&
     CI=1 xvfb-run -a npm --prefix app run e2e:webkit-desktop -- e2e/<file>.spec.ts'
 ```

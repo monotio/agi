@@ -12,6 +12,8 @@ on:
         type: string
         default: ""
     outputs:
+      browser_image:
+        value: ${{ jobs.prepare.outputs.browser_image }}
       browsers:
         value: ${{ jobs.prepare.outputs.browsers }}
       specs:
@@ -26,6 +28,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     outputs:
+      browser_image: ${{ steps.image.outputs.image }}
       browsers: ${{ steps.changes.outputs.browsers }}
       specs: ${{ steps.changes.outputs.specs }}
       duplicate: ${{ steps.duplicate.outputs.duplicate }}
@@ -55,6 +58,11 @@ jobs:
           HEAD: ${{ inputs.head }}
           BURN_BASE: ${{ inputs.burn_base }}
         run: python3 scripts/ci/tools.py changes --base "$BASE" --head "$HEAD" --burn-base "$BURN_BASE"
+      - name: Pinned browser image
+        id: image
+        run: |
+          image=$(python3 scripts/ci/browser_image.py --print)
+          echo "image=$image" >> "$GITHUB_OUTPUT"
       - name: CI helper tests
         env:
           PYTHONDONTWRITEBYTECODE: "1"
