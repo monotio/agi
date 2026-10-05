@@ -426,6 +426,32 @@ onBeforeUnmount(() => {
         >
       </div>
     </nav>
+    <div
+      v-if="review"
+      :key="review.messageId"
+      class="agent-panel__review-actions"
+      role="group"
+      aria-label="Review changes"
+    >
+      <UiButton
+        size="sm"
+        :disabled="editor.readOnly.value || busy || review.stale() || !selected.length"
+        variant="primary"
+        data-testid="agent-approve"
+        @click="approve"
+        >Approve <kbd>⌘↵</kbd></UiButton
+      ><UiButton
+        size="sm"
+        variant="ghost"
+        :disabled="busy || editor.readOnly.value"
+        data-testid="agent-reject"
+        @click="
+          agent?.reject();
+          tick++;
+        "
+        >Reject</UiButton
+      >
+    </div>
     <div ref="feed" class="agent-panel__feed" aria-live="polite" @scroll.passive="readPosition">
       <div ref="feedContent">
         <p v-if="!current?.messages.length" class="agent-panel__intro">
@@ -470,27 +496,33 @@ onBeforeUnmount(() => {
           <summary>{{ busy ? "Working…" : "Steps" }}</summary>
           <p v-for="(note, index) in progress" :key="index">{{ note }}</p>
         </details>
-        <Suspense v-if="review && images" :key="review.messageId">
-          <section class="agent-panel__review" data-testid="agent-review">
-            <header>
-              <h3>{{ review.proposal.label }}</h3>
-              <span class="agent-panel__preview" title="Approve applies this preview to the game."
-                >Card preview</span
-              >
-            </header>
-            <p v-if="review.stale()" role="alert" data-testid="agent-conflict">
-              The project changed while the agent worked. Send a follow-up to revise these changes.
-            </p>
-            <article
-              v-for="change in review.changes()"
-              :key="change.key"
-              class="agent-panel__resource"
+        <section
+          v-if="review"
+          :key="review.messageId"
+          class="agent-panel__review"
+          data-testid="agent-review"
+        >
+          <header>
+            <h3>{{ review.proposal.label }}</h3>
+            <span class="agent-panel__preview" title="Approve applies this preview to the game."
+              >Card preview</span
             >
-              <label
-                ><input type="checkbox" :value="change.key" v-model="selected" />{{
-                  change.key === "inventory" ? "OBJECT" : change.key.replace(":", " ").toUpperCase()
-                }}</label
-              ><AgentResourceReview
+          </header>
+          <p v-if="review.stale()" role="alert" data-testid="agent-conflict">
+            The project changed while the agent worked. Send a follow-up to revise these changes.
+          </p>
+          <article
+            v-for="change in review.changes()"
+            :key="change.key"
+            class="agent-panel__resource"
+          >
+            <label
+              ><input type="checkbox" :value="change.key" v-model="selected" />{{
+                change.key === "inventory" ? "OBJECT" : change.key.replace(":", " ").toUpperCase()
+              }}</label
+            >
+            <Suspense v-if="images">
+              <AgentResourceReview
                 :document-key="change.key"
                 :before="review.proposal.base.read(change.key)?.content"
                 :before-documents="images.beforeDocuments"
@@ -500,34 +532,21 @@ onBeforeUnmount(() => {
                 :after-image="images.after"
                 :profile="profile"
               />
-            </article>
-            <footer>
-              <UiButton
-                size="sm"
-                :disabled="editor.readOnly.value || busy || review.stale() || !selected.length"
-                variant="primary"
-                data-testid="agent-approve"
-                @click="approve"
-                >Approve <kbd>⌘↵</kbd></UiButton
-              ><UiButton
-                size="sm"
-                variant="ghost"
-                :disabled="busy || editor.readOnly.value"
-                data-testid="agent-reject"
-                @click="
-                  agent?.reject();
-                  tick++;
-                "
-                >Reject</UiButton
-              >
-            </footer>
-          </section>
-          <template #fallback>
-            <p class="agent-panel__review-loading" role="status" data-testid="agent-review-loading">
-              Preparing the review…
+              <template #fallback>
+                <p
+                  class="agent-panel__review-loading"
+                  role="status"
+                  data-testid="agent-review-loading"
+                >
+                  Preparing the preview…
+                </p>
+              </template>
+            </Suspense>
+            <p v-else class="agent-panel__preview-missing" data-testid="agent-preview-missing">
+              The preview could not load. You can still approve or reject this change.
             </p>
-          </template>
-        </Suspense>
+          </article>
+        </section>
         <details v-if="review && progress.length" class="agent-panel__progress">
           <summary>Steps</summary>
           <p v-for="(note, index) in progress" :key="index">{{ note }}</p>

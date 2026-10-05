@@ -461,11 +461,17 @@ test("logic Monaco registration replacement retires listeners and markers withou
     const h = (window as unknown as { __monacoHost: MonacoHost }).__monacoHost;
     h.handle.dispose();
     const subscribe = h.model.onWillDispose;
+    let registering = false;
+    let editorListeners = 0;
     let listeners = 0;
     let maximum = 0;
     Object.defineProperty(h.model, "onWillDispose", {
       value: (...args: Parameters<typeof subscribe>) => {
         const original = subscribe(...args);
+        if (!registering) {
+          editorListeners++;
+          return original;
+        }
         listeners++;
         maximum = Math.max(maximum, listeners);
         let disposed = false;
@@ -480,26 +486,41 @@ test("logic Monaco registration replacement retires listeners and markers withou
         };
       },
     });
-    h.handle = h.mod.registerLogicModel(h.model, { client: h.client, documentKey: "logic:1" });
+    // Count subscriptions owned by registerLogicModel. Editor contributions have
+    // their own model listeners and can start while diagnostics are pending.
+    function register() {
+      registering = true;
+      try {
+        return h.mod.registerLogicModel(h.model, { client: h.client, documentKey: "logic:1" });
+      } finally {
+        registering = false;
+      }
+    }
+    h.handle = register();
+    // Activate Monaco's own hint listener during this registration's lifetime.
+    h.editor.getContribution("editor.contrib.InlayHints");
+    h.editor.updateOptions({ inlayHints: { enabled: "off" } });
+    h.editor.updateOptions({ inlayHints: { enabled: "on" } });
     await h.handle.refreshDiagnostics();
     const hadMarkers = h.monaco.editor.getModelMarkers({ resource: h.model.uri }).length > 0;
     const old = h.handle;
-    h.handle = h.mod.registerLogicModel(h.model, { client: h.client, documentKey: "logic:1" });
+    h.handle = register();
     const cleared = h.monaco.editor.getModelMarkers({ resource: h.model.uri }).length;
     await h.handle.refreshDiagnostics();
     old.dispose();
     const successorMarkers = h.monaco.editor.getModelMarkers({ resource: h.model.uri }).length;
     for (let index = 0; index < 20; index++) {
       const previous = h.handle;
-      h.handle = h.mod.registerLogicModel(h.model, { client: h.client, documentKey: "logic:1" });
+      h.handle = register();
       previous.dispose();
     }
     h.handle.dispose();
-    return { hadMarkers, cleared, successorMarkers, listeners, maximum };
+    return { hadMarkers, cleared, successorMarkers, listeners, maximum, editorListeners };
   });
   expect(result.hadMarkers).toBe(true);
   expect(result.cleared).toBe(0);
   expect(result.successorMarkers).toBeGreaterThan(0);
+  expect(result.editorListeners).toBeGreaterThan(0);
   expect(result.maximum).toBe(1);
   expect(result.listeners).toBe(0);
   await unmountEditor(page);
