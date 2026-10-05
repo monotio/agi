@@ -8,6 +8,7 @@ import type { PlayHereTarget } from "../../../src/runtime/playHere.ts";
 import type { StudioTool } from "./studioTools.ts";
 import { CONTROL_VALUES, patternOn } from "./studioView.ts";
 import type { StudioWalk } from "./useStudioWalk.ts";
+import type { RuleBox } from "../../../src/studio/rules/ruleModel.ts";
 import {
   doorStatus,
   doorTestNote,
@@ -111,21 +112,31 @@ const BOX_FIELDS = [
   ["x2", "Right"],
   ["y2", "Bottom"],
 ] as const;
-const boxInput = ref<{ door: string; field: string; value: string }>();
+/** Text belongs to the field until accepted, including across a landing room commit. */
+const boxInputs = ref<Partial<Record<keyof RuleBox, string>>>({});
+const boxError = ref("");
 watch(
   () => selected.value?.id,
   () => {
-    boxInput.value = undefined;
+    boxInputs.value = {};
+    boxError.value = "";
   },
 );
+function typeBox(event: Event, field: keyof RuleBox): void {
+  boxInputs.value[field] = (event.target as HTMLInputElement).value;
+  boxError.value = "";
+}
 function onBox(event: Event, field: "x1" | "y1" | "x2" | "y2"): void {
   const door = selected.value;
   const input = event.target as HTMLInputElement;
   if (!door?.box) return;
   const value = Number(input.value);
-  if (!Number.isInteger(value) || !walk.moveDoor(door.id, { ...door.box, [field]: value }))
-    input.value = String(door.box[field]);
-  boxInput.value = undefined;
+  if (input.value === "" || !Number.isInteger(value)) {
+    boxError.value = "Enter a whole number for the door box.";
+    return;
+  }
+  // Merge this field into the latest box, including other accepted field edits.
+  if (walk.moveDoor(door.id, { ...door.box, [field]: value })) delete boxInputs.value[field];
 }
 const roomChoices = computed(() => {
   const list = [...walk.rooms.value];
@@ -386,24 +397,15 @@ const roomChoices = computed(() => {
                   type="number"
                   min="0"
                   :max="field[0] === 'x' ? 159 : 167"
-                  :value="
-                    boxInput?.door === selected.id && boxInput.field === field
-                      ? boxInput.value
-                      : selected.box[field]
-                  "
+                  :value="boxInputs[field] ?? selected.box[field]"
                   :data-testid="`door-box-${field}`"
                   :disabled="!walk.canEditDoors.value"
-                  @input="
-                    boxInput = {
-                      door: selected.id,
-                      field,
-                      value: ($event.target as HTMLInputElement).value,
-                    }
-                  "
+                  @input="typeBox($event, field)"
                   @change="onBox($event, field)"
                 />
               </label>
             </div>
+            <p v-if="boxError" class="walk-panel__fail" role="alert">{{ boxError }}</p>
           </template>
           <div class="walk-panel__actions">
             <UiButton

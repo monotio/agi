@@ -15,7 +15,20 @@ export async function keepDetectedProfile(page: Page): Promise<void> {
 
 export const test = base.extend<{
   keepDetectedProfile: void;
+  cpuThrottle: void;
 }>({
+  cpuThrottle: [
+    async ({ page, browserName }, use) => {
+      const rate = Number(process.env["AGI_E2E_CPU_RATE"] ?? 1);
+      if (rate > 1) {
+        if (browserName !== "chromium") throw new Error("CPU throttling requires Chromium");
+        const session = await page.context().newCDPSession(page);
+        await session.send("Emulation.setCPUThrottlingRate", { rate });
+      }
+      await use();
+    },
+    { auto: true },
+  ],
   keepDetectedProfile: [
     async ({ page }, use) => {
       await keepDetectedProfile(page);

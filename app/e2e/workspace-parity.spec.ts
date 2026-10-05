@@ -369,6 +369,23 @@ test("Walk edits a door box and an edge exit and shows drawing errors beside the
   await expect(door).toBeVisible();
   await expect(door).toBeEnabled();
   await door.click();
+  await page.evaluate(() => {
+    const session = (
+      window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }
+    ).__AGI_PROJECT__.getSession();
+    const submit = session.submit.bind(session);
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    let first = true;
+    session.submit = async (request) => {
+      if (first) {
+        first = false;
+        await gate;
+      }
+      return submit(request);
+    };
+    Object.assign(window, { releaseDoorCreation: release });
+  });
   const from = await cell(page, 120, 130),
     to = await cell(page, 145, 150);
   await page.mouse.move(from.x, from.y);
@@ -379,9 +396,43 @@ test("Walk edits a door box and an edge exit and shows drawing errors beside the
   const box = studio.getByTestId("door-box-x1");
   await expect(box).toBeVisible();
   await box.fill("121");
+  await page.evaluate(() => {
+    (window as unknown as { releaseDoorCreation(): void }).releaseDoorCreation();
+  });
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const session = (
+          window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }
+        ).__AGI_PROJECT__.getSession();
+        return session.capture().snapshot.lastAdmissibleBuild?.documents()["logic:1"];
+      }),
+    )
+    .toContain("posn(o0, 120, 130, 145, 150)");
+  await expect(box, "a landing creation commit preserves text before blur").toHaveValue("121");
   await box.press("Tab");
   await expect(box).toHaveValue("121");
   await workspaceSaved(page);
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const session = (
+          window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }
+        ).__AGI_PROJECT__.getSession();
+        return session.capture().snapshot.lastAdmissibleBuild?.documents()["logic:1"];
+      }),
+    )
+    .toContain("posn(o0, 121, 130, 145, 150)");
+  const right = studio.getByTestId("door-box-x2");
+  await right.fill("999");
+  await right.press("Tab");
+  await expect(studio.getByTestId("studio-notice")).toContainText("Door edit rejected");
+  await expect(right, "a refused field keeps the text for correction").toHaveValue("999");
+  await right.fill("144");
+  await right.press("Tab");
+  await workspaceSaved(page);
+  await expect(box).toHaveValue("121");
+  await expect(right).toHaveValue("144");
   const edge = studio.locator('button[data-tool="edge"]');
   await expect(edge).toBeVisible();
   await edge.click();
