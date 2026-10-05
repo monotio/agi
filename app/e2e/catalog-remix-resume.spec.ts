@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./test.ts";
 import { TUTORIAL_LOGIC_SOURCES } from "../../games/adventure-department/game.ts";
 import { providerReply } from "../../test/provider-stream.ts";
 import {
@@ -20,6 +20,15 @@ test("forking the tutorial keeps each card’s own checkpoint", async ({ page })
   const patched = original.replace("PICTURE GALLERY", "REMIX GALLERY");
   expect(patched).not.toBe(original);
   const sprite = "view\ncel s 3 2 0\n444\n4.4\nendcel\nloop 0 s\nendview";
+  // Keep preview code pending while the proposal and its controls become ready.
+  let releaseReview!: () => void;
+  const reviewChunk = new Promise<void>((resolve) => {
+    releaseReview = resolve;
+  });
+  await page.route("**/AgentResourceReview.vue*", async (route) => {
+    await reviewChunk;
+    await route.continue();
+  });
   let requests = 0;
   await page.route("**/api/openai/v1/responses", async (route) => {
     requests++;
@@ -69,13 +78,25 @@ test("forking the tutorial keeps each card’s own checkpoint", async ({ page })
   await expect(page.getByTestId("agent-message")).toBeEnabled();
   await page.getByTestId("agent-message").fill("Rename the gallery");
   await page.getByRole("button", { name: "Send", exact: true }).click();
-  await expect(page.getByTestId("agent-review")).toBeVisible();
+  await expect(page.getByTestId("agent-review-loading").first()).toBeVisible();
+  await page.getByTestId("agent-review-loading").first().scrollIntoViewIfNeeded();
+  await page.screenshot({ path: test.info().outputPath("review-previews-loading.png") });
+  try {
+    await expect(page.getByTestId("agent-review")).toBeVisible();
+    await expect(page.getByTestId("agent-approve")).toBeVisible();
+    await expect(page.getByTestId("agent-approve")).toBeEnabled();
+    await expect(page.getByTestId("agent-reject")).toBeVisible();
+  } finally {
+    releaseReview();
+  }
+  await expect(page.getByTestId("agent-code-diff")).toBeVisible();
   await page.getByTestId("agent-approve").click();
   await expect(page.getByTestId("agent-review")).toHaveCount(0);
   await expect.poll(() => requests).toBe(2);
   // The panel closes on the forked copy, but the request stays in view, with
   // the answer and where the change went — not the empty first-run state.
   const lastTurn = page.getByTestId("workspace-agent-panel");
+  await expect(lastTurn).toBeVisible();
   await expect(lastTurn).toContainText("Rename the gallery");
   await expect(lastTurn).toContainText("The gallery is remixed.");
   await expect(

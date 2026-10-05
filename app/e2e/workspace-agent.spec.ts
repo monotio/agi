@@ -293,7 +293,7 @@ test("the workspace composer offers reference art", async ({ page }) => {
   await expect(page.getByTestId("reference-upload")).toBeVisible();
 });
 
-test("a slow review chunk shows Preparing, then the review", async ({ page }) => {
+test("a slow preview keeps review controls ready", async ({ page }) => {
   let release!: () => void;
   const held = new Promise<void>((resolve) => {
     release = resolve;
@@ -305,8 +305,11 @@ test("a slow review chunk shows Preparing, then the review", async ({ page }) =>
   await start(page);
   await page.getByTestId("agent-message").fill("Add a welcome sign that answers look at sign");
   await page.getByRole("button", { name: "Send", exact: true }).click();
-  await expect(page.getByTestId("agent-review-loading")).toBeVisible();
-  await expect(page.getByTestId("agent-approve")).toHaveCount(0);
+  await expect(page.getByTestId("agent-review-loading").first()).toBeVisible();
+  await expect(page.getByTestId("agent-review")).toBeVisible();
+  await expect(page.getByTestId("agent-approve")).toBeVisible();
+  await expect(page.getByTestId("agent-approve")).toBeEnabled();
+  await expect(page.getByTestId("agent-reject")).toBeVisible();
   release();
   await expect(page.getByTestId("agent-review")).toBeVisible();
   await expect(page.getByTestId("agent-review-loading")).toHaveCount(0);

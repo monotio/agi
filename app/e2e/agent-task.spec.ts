@@ -125,7 +125,9 @@ test("GPT-6.1 Sol is the new-user default; Stop and budget pauses retain a stage
     await page.screenshot({ path: test.info().outputPath("agent-budget.png") });
     await page.getByTestId("agent-continue").click();
     await expect.poll(() => reviewRequested).toBe(true);
-    await expect(page.getByTestId("agent-review")).toBeHidden();
+    await expect(page.getByTestId("agent-review")).toBeVisible();
+    await expect(page.getByTestId("agent-approve")).toBeVisible();
+    await expect(page.getByTestId("agent-approve")).toBeEnabled();
     releaseReview();
     await expect(page.getByTestId("agent-review")).toBeVisible();
     await page.getByTestId("agent-approve").click();
