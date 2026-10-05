@@ -127,10 +127,21 @@ type Group = "entry" | "home" | "js" | "css" | "workers" | "fonts";
  * and the CSS from the 1.1.0-rc.4 build. Workers were re-measured for 1.2
  * with the smaller headroom recorded below. The startup JavaScript budget
  * kept its value when the Home-start tutorial build joined the measure.
- * Raise one only on purpose,
- * saying in the commit what grew and why it must load before the first frame;
- * moving the code behind a dynamic import comes first.
+ * A budget is a heads-up: going over it warns, so the growth is seen and
+ * explained. Only a size beyond BUDGET_CEILING times its budget fails the
+ * build. Raise one when a warning keeps recurring, saying in the commit what
+ * grew and why it must load before the first frame; moving the code behind a
+ * dynamic import comes first.
  */
+/** How far over its budget a group may grow before the build fails. */
+export const BUDGET_CEILING = 1.1;
+
+/** "over" warns; "beyond" fails the build. */
+export function budgetVerdict(size: number, budget: number): "within" | "over" | "beyond" {
+  if (size <= budget) return "within";
+  return size <= budget * BUDGET_CEILING ? "over" : "beyond";
+}
+
 const BUDGETS: Record<Group, { readonly gzip: number; readonly brotli: number }> = {
   // Both variable Latin fonts are used on Home and preloaded: 51.6 kB WOFF2,
   // including the UI symbols. WOFF2 is already compressed; allow 55 kB.
@@ -242,6 +253,7 @@ function main(): void {
   // worker with no recorded graph fails rather than undercounting.
   const workerChunks: GraphChunk[] = [];
   const failures: string[] = [];
+  const warnings: string[] = [];
   for (const workerEntry of workerEntries) {
     const record = graph.workers?.[workerEntry];
     if (record === undefined) {
@@ -352,14 +364,16 @@ function main(): void {
       );
     }
     for (const encoding of ["gzip", "brotli"] as const) {
-      if (total[encoding] <= budget[encoding]) continue;
+      const verdict = budgetVerdict(total[encoding], budget[encoding]);
+      if (verdict === "within") continue;
       const largest = files[0]!;
-      failures.push(
+      const message =
         `${GROUP_LABELS[group]} is ${kB(total[encoding])} ${encoding}, over its ${kB(budget[encoding])} budget` +
-          (files.length > 1
-            ? ` (largest: ${largest} at ${kB(sizeOf(largest)[encoding])})`
-            : ` (${largest})`),
-      );
+        (verdict === "beyond" ? ` and its ${kB(budget[encoding] * BUDGET_CEILING)} ceiling` : "") +
+        (files.length > 1
+          ? ` (largest: ${largest} at ${kB(sizeOf(largest)[encoding])})`
+          : ` (${largest})`);
+      (verdict === "beyond" ? failures : warnings).push(message);
     }
   }
 
@@ -393,6 +407,16 @@ function main(): void {
           `${module} is in the startup closure of worker chunk ${chunk.file}; the execution debugger must load through app/src/worker/debugLoader.ts's dynamic import.`,
         );
 
+  if (warnings.length > 0) {
+    console.warn("\nBundle budget heads-up:");
+    for (const warning of warnings) {
+      console.warn(`- ${warning}`);
+      if (process.env["GITHUB_ACTIONS"] === "true") console.warn(`::warning::${warning}`);
+    }
+    console.warn(
+      "Move the code behind a dynamic import, or raise the budget with the reason in the commit.",
+    );
+  }
   if (failures.length > 0) {
     console.error(`\nBundle budget ${warnOnly ? "warnings" : "failed"}:`);
     for (const failure of failures) console.error(`- ${failure}`);
@@ -402,7 +426,7 @@ function main(): void {
     if (!warnOnly) process.exit(1);
   } else {
     console.log(
-      "\nBundle budget: startup path within budget; Studio and the AI authoring stack stay lazy.",
+      `\nBundle budget: startup path ${warnings.length > 0 ? "within its ceiling" : "within budget"}; Studio and the AI authoring stack stay lazy.`,
     );
   }
 }

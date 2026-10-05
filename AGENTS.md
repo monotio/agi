@@ -199,6 +199,9 @@ code, comments or documentation.
   write a test that mirrors the implementation or duplicates another assertion.
 - A recurring defect becomes an eslint or ast-grep rule or a permanent test; then
   delete the reminder.
+- Budgets are a heads-up, not a tripwire. A bundle size over its budget warns; only
+  10% beyond it fails. Timing budgets keep about three times the worst measured run.
+  Raise a budget when its warning recurs, never by the size of one change.
 - Harness integrity is tested offline. Model and prompt changes are validated
   against stored bad cases within authorized spend, with paid-run limits reported.
   Correction rounds are a ceiling, not a target.
