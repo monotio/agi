@@ -1,9 +1,12 @@
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import { beforeEach, test } from "node:test";
 import { AgentRun } from "../src/agent/agentRun.ts";
+import { beginProviderTask } from "../src/agent/providerBudget.ts";
 import { MODEL_CAPABILITIES, defaultModelEffort } from "../../src/agent/modelEffort.ts";
 import { createAnthropicConversation, createOpenAiConversation } from "../src/agent/llmClient.ts";
 import { providerSse } from "../../test/provider-stream.ts";
+
+beforeEach(() => beginProviderTask(5));
 
 const settle = () => new Promise<void>((resolve) => setImmediate(resolve));
 
