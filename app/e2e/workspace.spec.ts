@@ -25,7 +25,7 @@ test("one running workspace retains editors and opens Focus with a chord @webkit
   await expect.poll(async () => (await textHook(page)).cycle).toBeGreaterThan(before);
   await expect(page.getByTestId("studio-keep")).toHaveCount(0);
   await page.getByTestId("workspace-focus").click();
-  await expect(page.locator(".play-area")).toBeHidden();
+  await expect(page.locator(".play-area")).toBeVisible();
   const focused = (await textHook(page)).cycle;
   await expect.poll(async () => (await textHook(page)).cycle).toBeGreaterThan(focused);
   await reviewShot(page, "workspace-picture-focus");
@@ -551,9 +551,7 @@ test("keyboard authors all three parts, undoes across them and reloads @webkit-d
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
 });
 
-test("adding a room opens its PICTURE beside the current game @webkit-desktop", async ({
-  page,
-}) => {
+test("adding a room opens its PICTURE on the visited stage @webkit-desktop", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await starter(page);
   await page
@@ -571,8 +569,11 @@ test("adding a room opens its PICTURE beside the current game @webkit-desktop", 
   await expect(page.getByTestId("room-studio").locator(".studio-pane")).toBeVisible();
   const cycle = (await textHook(page)).cycle;
   await expect.poll(async () => (await textHook(page)).cycle).toBeGreaterThan(cycle);
-  await expect(page.locator(".shell-body > .play-area")).toBeVisible();
-  expect((await textHook(page)).room).toBe(1);
+  await expect(page.getByTestId("room-studio")).toHaveClass(/is-live-game/);
+  await expect(page.getByTestId("room-studio").locator(".play-area")).toBeVisible();
+  await expect.poll(async () => (await textHook(page)).room).toBe(2);
+  await expect(page.getByTestId("workspace-visit")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Back to Room 1", exact: true })).toBeVisible();
   await expect(page.getByTestId("workspace-saved")).toContainText("Saved");
 });
 
@@ -859,8 +860,11 @@ test("Create renders crisp while Play retains the CRT preference", async ({ page
     await gate;
     await route.continue();
   });
-  await isolateStorage(page);
-  await page.addInitScript(() => localStorage.setItem("monotio_agi.crt", "on"));
+  await page.addInitScript(() => {
+    localStorage.clear();
+    localStorage.setItem("monotio_agi.e2e.isolated", "1");
+    localStorage.setItem("monotio_agi.crt", "on");
+  });
   await page.setViewportSize({ width: 1440, height: 900 });
   await starter(page);
   release();

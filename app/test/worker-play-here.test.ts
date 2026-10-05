@@ -8,6 +8,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { historySyncDigest, type HistorySegment } from "../../src/agent/history.ts";
 import { buildView } from "../../src/view/view.ts";
+import { buildObjectFile } from "../../src/authoring/inventory.ts";
 import { gameContainer, replayHistorySegment } from "./worker-ctx.ts";
 import { createWorkerContext, type WorkerPorts } from "../src/worker/context.ts";
 import { createEngineHost } from "../src/worker/host.ts";
@@ -25,11 +26,13 @@ function game() {
     [
       "if(equaln(v0,0)){new.room(1);}call.v(v0);return;",
       `if(isset(f5)){${enter(20, 150)}}return;`,
-      `#message 1 "Lab"\nif(isset(f5)){${enter(80, 120)}if(isset(f50)){assignn(v51,1);}print(1);}return;`,
+      `#message 1 "Lab"\nif(isset(f5)){${enter(80, 120)}drop(0);if(isset(f50)){assignn(v51,1);}print(1);}return;`,
+      "if(isset(f5)){new.room(1);}return;",
     ],
     (c) => {
       const blank = Uint8Array.of(0xf0, 15, 0xf6, 0, 0, 1, 0, 0xff);
       c.putResource("picture", 1, blank);
+      c.putFile("OBJECT", buildObjectFile([{ name: "key", startingRoom: 255 }]));
       c.putResource("picture", 2, Uint8Array.of(0xf2, 0, 0xf6, 0, 100, 159, 100, 0xff));
       c.putResource(
         "view",
@@ -114,6 +117,105 @@ function segments(control: WorkerControl[]): HistorySegment[] {
   }
   return [...byId.values()];
 }
+
+test("Create visits preserve the first moment across rooms and restore it exactly", () => {
+  const { ctx, send, tick, control } = harness();
+  tick(6);
+  ctx.boot.authorRooms = true;
+  const engine = ctx.engine!;
+  engine.flags[50] = 1;
+  engine.vars[3] = 17;
+  engine.vars[75] = 23;
+  ctx.history.rng = 4321;
+  const image = engine.recordingImage();
+  const replay = engine.captureReplayState();
+  send({ type: "playHere", id: 50, room: 2, x: 0, y: 0, visit: "start" });
+  const visit = control.findLast((m) => m.type === "playedHere");
+  assert.ok(visit?.type === "playedHere");
+  assert.equal(visit.ok, true, "a visit uses the room's placement, including its entry window");
+  assert.equal(visit.returnRoom, 1);
+  assert.equal(engine.vars[0], 2);
+  assert.equal(
+    control.some((m) => m.type === "hostRequest"),
+    false,
+    "existing rooms never ask the agent to prepare them",
+  );
+  send({ type: "dismissPrint" });
+  engine.flags[50] = 0;
+  engine.vars[3] = 99;
+  ctx.history.rng = 99;
+  send({ type: "playHere", id: 51, room: 1, x: 0, y: 0, visit: "start" });
+  send({ type: "playHere", id: 52, room: 1, x: 0, y: 0, visit: "back" });
+  assert.deepEqual(
+    engine.recordingImage(),
+    image,
+    "position, flags, variables, inventory and text return",
+  );
+  assert.deepEqual(engine.captureReplayState(), replay, "transient state returns too");
+  assert.equal(ctx.history.rng, 4321, "the random sequence resumes at the prior moment");
+});
+
+test("opening another editor of the visited room keeps its current moment", () => {
+  const { ctx, send, tick, control } = harness();
+  tick(6);
+  send({ type: "playHere", id: 80, room: 2, x: 0, y: 0, visit: "start" });
+  send({ type: "dismissPrint" });
+  const image = ctx.engine!.recordingImage();
+  const replay = ctx.engine!.captureReplayState();
+  send({ type: "playHere", id: 81, room: 2, x: 0, y: 0, visit: "start" });
+  const reply = control.findLast((m) => m.type === "playedHere");
+  assert.ok(reply?.type === "playedHere");
+  assert.equal(reply.ok, true);
+  assert.equal(reply.returnRoom, 1);
+  assert.deepEqual(ctx.engine!.recordingImage(), image);
+  assert.deepEqual(ctx.engine!.captureReplayState(), replay);
+});
+
+test("Back refuses a removed cached resource before changing the live moment", () => {
+  const container = game();
+  container.putResource("view", 1, container.getResource("view", 0)!);
+  const { ctx, control } = workerHarness(container);
+  ctx.fns.tickEngine();
+  // A cached view can be absent from the displayed room and still belong to its replay state.
+  const engine = ctx.engine!;
+  engine.restoreReplayState({
+    ...engine.captureReplayState(),
+    viewCache: { loaded: [0, 1], order: [0, 1] },
+  });
+  ctx.fns.onPlayHere({ type: "playHere", id: 71, room: 2, x: 0, y: 0, visit: "start" });
+  engine.ackPrint();
+  container.putResources([{ kind: "view", num: 1, payload: null }]);
+  const image = engine.recordingImage();
+  const replay = engine.captureReplayState();
+  ctx.fns.onPlayHere({ type: "playHere", id: 72, room: 1, x: 0, y: 0, visit: "back" });
+  const reply = control.findLast((m) => m.type === "playedHere");
+  assert.ok(reply?.type === "playedHere");
+  assert.equal(reply.ok, false);
+  assert.deepEqual(engine.recordingImage(), image);
+  assert.deepEqual(engine.captureReplayState(), replay);
+});
+
+test("a room that redirects a Create visit reports the failed entry and keeps Back", () => {
+  const { send, tick, control } = harness();
+  tick(6);
+  send({ type: "playHere", id: 61, room: 3, x: 0, y: 0, visit: "start" });
+  const visit = control.findLast((m) => m.type === "playedHere");
+  assert.ok(visit?.type === "playedHere");
+  assert.equal(visit.ok, false);
+  assert.equal(visit.returnRoom, 1);
+});
+
+test("visiting uses the room's own hero placement", () => {
+  const { ctx, send, tick, control } = harness();
+  tick(6);
+  ctx.engine!.flags[50] = 1;
+  // Existing room 2 can run its entry with no placement probe.
+  send({ type: "playHere", id: 60, room: 2, x: 0, y: 0, visit: "start" });
+  const visit = control.findLast((m) => m.type === "playedHere");
+  assert.ok(visit?.type === "playedHere");
+  assert.equal(visit.ok, true);
+  assert.equal(visit.x, 80);
+});
 
 test("play here enters the room, keeps the flags and stands ego on the spot", () => {
   const { ctx, send, tick, playHere } = harness();

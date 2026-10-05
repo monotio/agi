@@ -93,8 +93,10 @@ for (const size of [
         await zoom.getByRole("button", { name: "Zoom in", exact: true }).click();
         await expect(zoom).not.toHaveText(prior);
         if (kind === "view" && size.width === 1063) {
-          await page.getByTestId("workspace-focus").click();
+          const focus = page.getByTestId("workspace-focus");
+          if ((await focus.getAttribute("aria-pressed")) === "true") await focus.click();
           const details = editor.getByTestId("sprite-cel-details");
+          await expect(details).toBeVisible();
           if ((await details.getAttribute("aria-expanded")) !== "true") await details.click();
           await expect(editor.getByLabel("Width in pixels")).toBeDisabled();
           await expect(editor.getByTestId("sprite-transparent-colour")).toBeDisabled();

@@ -758,6 +758,8 @@ watch(
           'shell-body--logic': creating && workspaceEditor.kind.value === 'logic',
           'shell-body--sound': creating && workspaceEditor.kind.value === 'sound',
           'shell-body--picture': creating && workspaceEditor.pictureLive.value,
+          'shell-body--solo': creating && workspaceEditor.stageSolo.value,
+          'shell-body--stacked': creating && workspaceEditor.splitAxis.value === 'vertical',
           'shell-body--focus':
             creating && workspaceEditor.focus.value && !!workspaceEditor.selected.value,
           'shell-body--sheet': creating && phone,
@@ -778,13 +780,19 @@ watch(
           :disabled="
             !creating ||
             !workspaceEditor.pictureLive.value ||
-            workspaceEditor.focus.value ||
+            workspaceEditor.stageSolo.value ||
             !workspaceEditor.gameHost.value
           "
         >
           <PlayArea
             v-if="state.phase === 'running'"
-            v-show="!creating || !workspaceEditor.focus.value || !workspaceEditor.selected.value"
+            v-show="
+              !creating ||
+              (!workspaceEditor.stagePaused.value &&
+                (!workspaceEditor.focus.value ||
+                  workspaceEditor.pictureLive.value ||
+                  !workspaceEditor.selected.value))
+            "
             ref="playArea"
             :touch-controls="touchControls"
             :crt-amount="crtShown"

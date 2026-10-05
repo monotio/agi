@@ -1258,6 +1258,8 @@ export interface GuidedAddRoomInput {
   /** Explicit resource ids; defaults allocate the lowest free id 1..254. */
   readonly logicId?: number;
   readonly pictureId?: number;
+  /** Use an existing picture as the room's art. */
+  readonly existingPicture?: number;
   /** Optional named bindings for the new room logic and picture. */
   readonly roomName?: string;
   readonly pictureName?: string;
@@ -1278,7 +1280,13 @@ export function prepareGuidedAddRoom(ctx: GuidedContext, input: GuidedAddRoomInp
 
   const logic = allocateResourceId(env, "logic", input.logicId, label, kind);
   if (!("id" in logic)) return logic;
-  const picture = allocateResourceId(env, "picture", input.pictureId, label, kind);
+  const picture =
+    input.existingPicture === undefined
+      ? allocateResourceId(env, "picture", input.pictureId, label, kind)
+      : intIn(input.existingPicture, 0, 255) &&
+          env.documents[`picture:${input.existingPicture}`] !== undefined
+        ? { id: input.existingPicture }
+        : refuse(kind, label, "missing", "Choose an existing PICTURE for the room.");
   if (!("id" in picture)) return picture;
   const logicId = logic.id;
   const pictureId = picture.id;
@@ -1400,7 +1408,9 @@ export function prepareGuidedAddRoom(ctx: GuidedContext, input: GuidedAddRoomInp
 
   const changes: GuidedChange[] = [
     { key: `logic:${logicId}`, content: roomSource },
-    { key: `picture:${pictureId}`, content: picSource },
+    ...(input.existingPicture === undefined
+      ? [{ key: `picture:${pictureId}`, content: picSource }]
+      : []),
     { key: "world", content: worldDocument(world) },
   ];
   if (bindingsDocument(bindings) !== bindingsDocument(env.bindings))
@@ -1412,11 +1422,15 @@ export function prepareGuidedAddRoom(ctx: GuidedContext, input: GuidedAddRoomInp
     changes,
     new Map([
       [`logic:${logicId}`, [{ start: 0, end: roomSource.length }]],
-      [`picture:${pictureId}`, [{ start: 0, end: picSource.length }]],
+      ...(input.existingPicture === undefined
+        ? [[`picture:${pictureId}`, [{ start: 0, end: picSource.length }]] as const]
+        : []),
     ]),
     new Map([
       [`logic:${logicId}`, roomSource],
-      [`picture:${pictureId}`, picSource],
+      ...(input.existingPicture === undefined
+        ? [[`picture:${pictureId}`, picSource] as const]
+        : []),
     ]),
   );
 }

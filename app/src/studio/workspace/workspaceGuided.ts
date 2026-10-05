@@ -15,6 +15,7 @@ import {
 
 export type WorkspaceAction =
   | { kind: "add-room"; title: string }
+  | { kind: "make-room"; key: string }
   | { kind: "place-hero"; room: number; x: number; y: number; view: number }
   | {
       kind: "response";
@@ -50,6 +51,13 @@ export function prepareWorkspaceAction(
   switch (action.kind) {
     case "add-room":
       return prepareGuidedAddRoom(context, { title: action.title });
+    case "make-room":
+      return prepareGuidedAddRoom(
+        context,
+        action.key.startsWith("picture:")
+          ? { existingPicture: Number(action.key.slice(8)) }
+          : { heroView: Number(action.key.slice(5)) },
+      );
     case "place-hero":
       return prepareGuidedPlaceHero(context, action);
     case "response": {

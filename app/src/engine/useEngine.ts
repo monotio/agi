@@ -847,6 +847,20 @@ export function useEngine(
     }
   }
 
+  async function visitRoom(room: number | "back"): Promise<WorkerQueryPayload["playHere"]> {
+    pauseEngine("stageVisit");
+    try {
+      return await link.query("playHere", {
+        room: room === "back" ? 1 : room,
+        x: 0,
+        y: 0,
+        visit: room === "back" ? "back" : "start",
+      });
+    } finally {
+      resumeEngine("stageVisit");
+    }
+  }
+
   const openPowerUp: ReturnType<typeof useAuthoringController>["openPowerUp"] = async (...args) =>
     (await loadAuthoringController()).openPowerUp(...args);
   function closePowerUp(): void {
@@ -1333,6 +1347,7 @@ export function useEngine(
     debugWrite: async (...args: Parameters<ReturnType<typeof useEngineDebug>["debugWrite"]>) =>
       (await loadEngineDebug()).debugWrite(...args),
     playHere,
+    visitRoom,
     /** The live screen objects (ego first when animated): Room Studio's walkable estimate. */
     readObjects: () => link.query("objects"),
     debugEventsSince: async (

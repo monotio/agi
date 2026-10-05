@@ -18,6 +18,8 @@ export function createWorkspaceEditor(engine: EngineApi) {
   const discard = shallowRef<() => void>();
   const retry = shallowRef<() => Promise<void>>();
   const pictureLive = ref(false);
+  const stageSolo = ref(false);
+  const stagePaused = ref(false);
   const gameHost = shallowRef<HTMLElement | null>(null);
   const studioRequests = shallowRef<Readonly<Record<string, StudioRequest>>>({});
   const selected = ref<string>();
@@ -57,6 +59,21 @@ export function createWorkspaceEditor(engine: EngineApi) {
   const exitRefusal = ref(false);
   const split = ref(50);
   const chosenSplit = ref(false);
+  const splitAxis = ref<"horizontal" | "vertical">("horizontal");
+  try {
+    if (localStorage.getItem("monotio_agi.workspaceSplitAxis") === "vertical")
+      splitAxis.value = "vertical";
+  } catch {
+    /* Use side by side. */
+  }
+  function setSplitAxis(axis: "horizontal" | "vertical"): void {
+    splitAxis.value = axis;
+    try {
+      localStorage.setItem("monotio_agi.workspaceSplitAxis", axis);
+    } catch {
+      /* Remember for this page. */
+    }
+  }
   try {
     const stored = Number(localStorage.getItem("monotio_agi.workspaceSplit"));
     if (stored >= 25 && stored <= 75) {
@@ -93,9 +110,9 @@ export function createWorkspaceEditor(engine: EngineApi) {
     if (!retained.value.includes(key)) retained.value.push(key);
     try {
       const pref = localStorage.getItem(`monotio_agi.workspaceFocus.${kind.value}`);
-      focus.value = pref === null ? window.innerWidth < 1280 : pref === "on";
+      focus.value = pref === "on";
     } catch {
-      focus.value = window.innerWidth < 1280;
+      focus.value = false;
     }
     if (focus.value) panel.value = history.value = false;
   }
@@ -188,6 +205,8 @@ export function createWorkspaceEditor(engine: EngineApi) {
     discard,
     retry,
     pictureLive,
+    stageSolo,
+    stagePaused,
     gameHost,
     selected,
     nameLocation,
@@ -219,6 +238,8 @@ export function createWorkspaceEditor(engine: EngineApi) {
     error,
     exitRefusal,
     split,
+    splitAxis,
+    setSplitAxis,
     kind,
     open,
     close,

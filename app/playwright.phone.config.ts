@@ -10,6 +10,7 @@ import base from "./playwright.config.ts";
 export default defineConfig({
   ...base,
   testMatch: [
+    "workspace-stage.spec.ts",
     "workspace-layout.spec.ts",
     "workspace-polish.spec.ts",
     "workspace-parity.spec.ts",

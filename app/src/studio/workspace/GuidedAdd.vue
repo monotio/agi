@@ -60,6 +60,7 @@ const doorY = ref(140);
 const x2 = ref(100);
 const y2 = ref(150);
 const labels: Record<WorkspaceAction["kind"], string> = {
+  "make-room": "Make it a room",
   "add-room": "Add a room",
   "place-hero": "Place hero",
   response: "Answer a sentence",

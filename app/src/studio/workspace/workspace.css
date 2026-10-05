@@ -8,9 +8,21 @@
   overflow: hidden;
   background: var(--surface-0) !important;
 }
+.in-game.touch-layout .shell:has(.shell-body--workspace) {
+  height: var(--layout-height, 100dvh);
+  min-height: 0;
+}
+.in-game .shell-body--workspace {
+  overflow: hidden;
+  padding-bottom: 0;
+}
+.in-game .shell-body--workspace .play-area {
+  position: relative;
+  min-height: 0;
+}
 .shell-body--workspace .parts-list {
   grid-column: 1;
-  grid-row: 1 / 3;
+  grid-row: 1 / -1;
 }
 .shell-body--workspace .play-strip {
   display: none;
@@ -35,7 +47,8 @@
 .shell-body--workspace.shell-body--no-editor {
   grid-template-columns: var(--workspace-parts) minmax(0, 1fr) !important;
 }
-.shell-body--workspace.shell-body--picture {
+.shell-body--workspace.shell-body--picture,
+.shell-body--workspace.shell-body--solo {
   grid-template-columns: var(--workspace-parts) minmax(0, 1fr) !important;
 }
 .workspace-inspector {
@@ -60,19 +73,34 @@
 .shell-body.is-resizing .play-area .game-surface {
   max-width: 100%;
 }
-.shell-body--workspace.shell-body--picture > .workspace-editor {
+.shell-body--workspace.shell-body--picture > .workspace-editor,
+.shell-body--workspace.shell-body--solo > .workspace-editor {
   grid-column: 2;
 }
-.shell-body--workspace.shell-body--picture > .workspace-splitter {
+.shell-body--workspace.shell-body--picture > .workspace-splitter,
+.shell-body--workspace.shell-body--solo > .workspace-splitter {
   display: none;
 }
-.shell-body--workspace.shell-body--logic > .play-area,
-.shell-body--workspace.shell-body--sound > .play-area {
-  grid-column: 4;
+.shell-body--workspace.shell-body--stacked:not(.shell-body--picture):not(.shell-body--solo):not(
+    .shell-body--no-editor
+  ):not(.shell-body--focus) {
+  grid-template-columns: var(--workspace-parts) minmax(0, 1fr) !important;
+  grid-template-rows: var(--workspace-game) 5px var(--workspace-edit) auto;
 }
-.shell-body--workspace.shell-body--logic > .workspace-editor,
-.shell-body--workspace.shell-body--sound > .workspace-editor {
+.shell-body--stacked:not(.shell-body--picture):not(.shell-body--solo):not(.shell-body--focus)
+  > .workspace-editor {
   grid-column: 2;
+  grid-row: 3;
+  border-left: 0;
+  border-top: 1px solid var(--hairline);
+}
+.shell-body--stacked > .workspace-splitter {
+  grid-column: 2;
+  grid-row: 2;
+  cursor: row-resize;
+}
+.shell-body--stacked > .workspace-problems {
+  grid-row: 4;
 }
 .shell-body--workspace.shell-body--focus {
   grid-template-columns: minmax(0, 1fr) !important;
@@ -110,6 +138,19 @@
   flex: 1;
   min-width: 0;
 }
+.workspace-axis {
+  display: flex;
+}
+.workspace-stage-note {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin: 0;
+  padding: var(--space-1) var(--space-3);
+  border-bottom: 1px solid var(--hairline);
+  color: var(--ink-2);
+  font-size: var(--text-xs);
+}
 .workspace-editor__surface {
   display: flex;
   flex-direction: column;
@@ -137,7 +178,8 @@
   gap: var(--space-1);
   padding: var(--space-2);
 }
-.workspace-error {
+.workspace-error,
+.workspace-history .workspace-error {
   margin: 0;
   padding: var(--space-3) var(--space-4);
   color: var(--warn);
@@ -299,13 +341,45 @@
   display: none;
 }
 
-/* A phone opens parts over the game, then returns to Focus on selection. */
+/* Phone panels pull up beneath the stage. */
 @media (max-width: 600px) {
   .in-game .shell-body.shell-body--workspace.shell-body--create {
     grid-template-columns: minmax(0, 1fr) !important;
   }
   .in-game .shell-body--workspace > .play-area {
     grid-column: 1;
+  }
+  .in-game
+    .shell-body--workspace:not(.shell-body--picture):not(.shell-body--solo):not(
+      .shell-body--no-editor
+    ):not(.shell-body--focus) {
+    grid-template-rows: var(--workspace-game) 12px var(--workspace-edit) auto;
+  }
+  .in-game .shell-body--workspace > .workspace-editor {
+    grid-column: 1;
+    grid-row: 3;
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  }
+  .in-game .shell-body--workspace.shell-body--picture > .workspace-editor,
+  .in-game .shell-body--workspace.shell-body--solo > .workspace-editor,
+  .in-game .shell-body--workspace.shell-body--focus > .workspace-editor {
+    grid-row: 1;
+  }
+  .in-game .shell-body--workspace > .workspace-splitter {
+    grid-column: 1;
+    grid-row: 2;
+    cursor: row-resize;
+    border-radius: var(--radius-pill);
+    background: var(--hairline-strong);
+  }
+  .workspace-axis {
+    display: none;
+  }
+  .workspace-editor__header {
+    flex-wrap: wrap;
+  }
+  .workspace-editor__header .project-tabs {
+    flex-basis: 100%;
   }
   .in-game .shell-body--workspace > .parts-list {
     position: absolute;
@@ -317,8 +391,7 @@
     background: var(--surface-1);
   }
   .in-game .shell-body--workspace > .parts-list:not(.parts-list--open),
-  .in-game .shell-body--workspace > .workspace-splitter,
-  .in-game .shell-body--workspace:not(.shell-body--focus) > .workspace-editor {
+  .in-game .shell-body--workspace.shell-body--no-editor > .workspace-splitter {
     display: none;
   }
 }
