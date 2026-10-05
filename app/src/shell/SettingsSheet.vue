@@ -104,14 +104,17 @@ function onWindowKeydown(event: KeyboardEvent): void {
 }
 
 /**
- * Focus taken outside by anything but Tab (the game claiming its input, a
- * click the outside handler has not seen) closes the sheet behind it.
+ * Keep the sheet's keyboard focus through delayed background focus requests.
+ * Outside pointer clicks, Escape and actions close it through their own handlers.
  */
 function onFocusOut(event: FocusEvent): void {
   const next = event.relatedTarget;
   if (!(next instanceof Node)) return;
   if (sheet.value?.contains(next) || trigger?.contains(next)) return;
-  close("stay");
+  const previous = event.target;
+  void nextTick(() => {
+    if (open.value && previous instanceof HTMLElement) previous.focus({ preventScroll: true });
+  });
 }
 
 async function show(from: HTMLElement | null): Promise<void> {

@@ -333,6 +333,23 @@ docker run --rm --init --ipc=host -v "$PWD:/src:ro" mcr.microsoft.com/playwright
 
 `--init` lets `xvfb-run` receive its ready signal; without it the run hangs.
 
+Stationary GPU captures need a separate native-browser check. With Playwright
+1.63.0 in the Linux Noble image under Xvfb, the saved Starter's GPU canvas
+captured zero coloured pixels at 1063×815, 1440×900 and 390×844, in both headed
+and headless WebKit. The composed engine-frame probe held more than eight
+colours at each size. Headed macOS WebKit showed the room and stationary hero
+at all three sizes, with both native WebGPU and the WebGL2 fallback. This
+comparison identifies a Linux software-rendering capture limit; it establishes
+the native macOS result for those configurations.
+
+For this check, save a Starter, open Play, wait for room 1 and four engine
+cycles, then capture the visible `gpu-canvas` and the whole page. Count coloured
+pixels in the PNG separately from `canvasColors(page)`, which reads the composed
+engine frame. A passing engine probe establishes composition; use native GPU
+captures to establish stationary presentation. The workspace screenshot tests
+check the engine frame and editor surfaces. Linux browser behavior remains a CI
+gate.
+
 The manual HMR proof in `app/e2e/manual/hmr-resume.mjs` temporarily edits
 source; run it in an isolated checkout as described in the script.
 

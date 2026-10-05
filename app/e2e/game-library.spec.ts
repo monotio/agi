@@ -594,6 +594,16 @@ test("a late Agent panel keeps Settings open @webkit-desktop", async ({ page }) 
   await page.getByTestId("workspace-agent").click();
   await page.getByTestId("settings-menu").click();
   await expect(page.getByTestId("settings-menu-menu")).toBeVisible();
+  await expect(page.getByTestId("toggle-mute")).toBeFocused();
+  // The shell can finish its queued focus move before the panel has loaded.
+  await page.locator(".assistant-host").focus();
+  await expect(page.getByTestId("settings-menu-menu")).toBeVisible();
+  await expect(page.getByTestId("toggle-mute")).toBeFocused();
+  const other = await page.context().newPage();
+  await other.bringToFront();
+  await page.bringToFront();
+  await other.close();
+  await expect(page.getByTestId("settings-menu-menu")).toBeVisible();
   release();
   await expect(page.getByTestId("workspace-agent-panel")).toBeVisible();
   await expect(page.getByTestId("open-ai-settings")).toBeVisible();
