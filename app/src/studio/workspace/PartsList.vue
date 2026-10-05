@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import UiIcon from "../../ui/UiIcon.vue";
 import {
   computed,
   ref,
@@ -217,7 +218,9 @@ function onKey(event: KeyboardEvent): void {
           ><i v-if="row.live" class="live-dot" aria-label="Hero here"></i>
         </button>
         <details v-if="resourceName(row.key)" class="part-menu">
-          <summary :aria-label="`Actions for ${resourceName(row.key)!.name}`">⋯</summary>
+          <summary :aria-label="`Actions for ${resourceName(row.key)!.name}`">
+            <UiIcon name="ellipsis" :size="16" />
+          </summary>
           <button
             class="part-rename"
             :title="
@@ -262,7 +265,9 @@ function onKey(event: KeyboardEvent): void {
             }}</small
           >
           <details class="part-menu">
-            <summary :aria-label="`Actions for ${info.name}`">⋯</summary>
+            <summary :aria-label="`Actions for ${info.name}`">
+              <UiIcon name="ellipsis" :size="16" />
+            </summary>
             <button
               class="part-rename"
               :title="

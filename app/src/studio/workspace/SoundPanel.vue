@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import UiIcon from "../../ui/UiIcon.vue";
 import { computed, onBeforeUnmount, ref, shallowRef, useTemplateRef, watch } from "vue";
 import { VOCABULARY } from "../../../../src/vocabulary.ts";
 import type { ProfileId } from "../../../../src/runtime/profile.ts";
@@ -269,7 +270,7 @@ onBeforeUnmount(() => {
           :aria-pressed="status === 'playing'"
           @click="transport"
         >
-          <span aria-hidden="true">{{ status === "playing" ? "■" : "▶" }}</span>
+          <UiIcon :name="status === 'playing' ? 'square' : 'play'" :size="16" />
         </button>
         <UiButton
           size="sm"

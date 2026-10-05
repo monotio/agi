@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import UiIcon from "../ui/UiIcon.vue";
 /**
  * The room list: a listbox over the graph's nodes; ArrowUp/ArrowDown move
  * between rows and Enter or a click picks one, which opens its details in
@@ -102,7 +103,7 @@ function onListKeydown(ev: KeyboardEvent): void {
     >
       <button type="button" class="map-list-button" @click="emit('pick', node.room)">
         <span class="map-room-name">
-          <template v-if="currentRoom === node.room">▶ </template>
+          <template v-if="currentRoom === node.room"><UiIcon name="play" :size="16" /> </template>
           <template v-if="compact && node.title">{{ node.room }} · {{ node.title }}</template>
           <template v-else
             >Room {{ node.room

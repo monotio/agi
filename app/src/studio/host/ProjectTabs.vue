@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import UiIcon from "../../ui/UiIcon.vue";
 /**
  * The project frame's open-document tabs. Pure: the host supplies the tab
  * rows (projectStudioDocuments.ts `projectStudioTabs` output) and the
@@ -182,7 +183,7 @@ function tabLabel(tab: ProjectStudioTab): string {
         tabindex="-1"
         @click="emit('close', tab.key)"
       >
-        ×
+        <UiIcon name="x" :size="16" />
       </button>
     </div>
   </div>

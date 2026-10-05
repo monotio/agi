@@ -107,7 +107,7 @@ test("WORDS row actions, in-place stub suggestions and tester choices", async ({
   await page.getByTestId("part-words").click();
   const words = page.getByTestId("workspace-words-editor");
   const row = words.locator('[data-word-group="100"]');
-  const suggest = row.getByRole("button", { name: "✦ Suggest", exact: true });
+  const suggest = row.getByRole("button", { name: "Suggest", exact: true });
   const plus = row.getByRole("button", { name: "Add word", exact: true });
   await words.getByRole("textbox", { name: "Find a word", exact: true }).focus();
   await page.mouse.move(0, 0);
@@ -127,7 +127,7 @@ test("WORDS row actions, in-place stub suggestions and tester choices", async ({
   await suggest.click();
   const panel = page.getByTestId("workspace-agent-panel");
   await expect(panel).toBeHidden();
-  await expect(row.locator(".word-suggestion")).toHaveText(["✦ inspect", "✦ check"]);
+  await expect(row.locator(".word-suggestion")).toHaveText(["inspect", "check"]);
   await expect(row.locator(".word-suggestion").first()).toHaveCSS("border-style", "dashed");
   await expect(words.getByRole("status")).toContainText("Suggestions from");
   await expect(page.getByTestId("workspace-saved")).toBeVisible();
@@ -148,7 +148,7 @@ test("WORDS row actions, in-place stub suggestions and tester choices", async ({
   await expect(page.getByTestId("sentence-parse")).toContainText("new word");
   await page.getByRole("button", { name: "Redo", exact: true }).click();
   await expect(page.getByTestId("sentence-parse")).toContainText("· 100");
-  await words.getByRole("button", { name: "✦ Suggest sentences", exact: true }).click();
+  await words.getByRole("button", { name: "Suggest sentences", exact: true }).click();
   await expect(panel).toBeHidden();
   const predicted = words.getByRole("region", { name: "Predicted commands" });
   await expect(predicted).toContainText("climb tree");
@@ -173,7 +173,7 @@ test("WORDS row actions, in-place stub suggestions and tester choices", async ({
     .getByRole("form", { name: "Teach climb", exact: true })
     .getByRole("button", { name: "Cancel" })
     .click();
-  await verdict.getByRole("button", { name: "More ▾", exact: true }).click();
+  await verdict.getByRole("button", { name: "More", exact: true }).click();
   await expect(verdict.getByRole("button", { name: "New meaning", exact: true })).toBeVisible();
   const newMeaning = verdict.getByRole("button", { name: "New meaning", exact: true });
   await expect
@@ -195,7 +195,7 @@ test("WORDS row actions, in-place stub suggestions and tester choices", async ({
   await verdict.getByRole("button", { name: "Skip it like “the”", exact: true }).click();
   await expect(page.getByTestId("sentence-parse")).toContainText("skipped");
   await sentence.fill("wander");
-  await verdict.getByRole("button", { name: "More ▾", exact: true }).click();
+  await verdict.getByRole("button", { name: "More", exact: true }).click();
   await verdict.getByRole("button", { name: "New meaning", exact: true }).click();
   await expect(page.getByTestId("sentence-parse")).not.toContainText("new word");
   await expect(words.locator(".meaning-row").filter({ hasText: "wander" })).toHaveCount(1);
@@ -263,7 +263,7 @@ test("WORDS suggestions show progress, inline failures and retry while chat stay
   const words = page.getByTestId("workspace-words-editor");
   const row = words.locator('[data-word-group="100"]');
   await row.hover();
-  await row.getByRole("button", { name: "✦ Suggest", exact: true }).click();
+  await row.getByRole("button", { name: "Suggest", exact: true }).click();
   await expect(row).toContainText("Suggesting…");
   await expect(page.getByTestId("workspace-agent-panel")).toBeHidden();
   await page.screenshot({ path: test.info().outputPath("words-suggesting-1440.png") });
@@ -271,12 +271,12 @@ test("WORDS suggestions show progress, inline failures and retry while chat stay
   await expect(row.getByRole("alert")).toContainText("The reply’s JSON could not be read.");
   await page.screenshot({ path: test.info().outputPath("words-retry-1440.png") });
   await row.getByRole("button", { name: "Retry", exact: true }).click();
-  await expect(row.locator(".word-suggestion")).toHaveText("✦ inspect");
+  await expect(row.locator(".word-suggestion")).toHaveText("inspect");
   await expect(words.getByRole("status")).toContainText("Suggestions from GPT-6.1 Sol · Open chat");
   await row.getByRole("button", { name: "Dismiss", exact: true }).focus();
   await page.keyboard.press("Escape");
   await expect(row.locator(".word-suggestion")).toHaveCount(0);
-  await words.getByRole("button", { name: "✦ Suggest sentences", exact: true }).click();
+  await words.getByRole("button", { name: "Suggest sentences", exact: true }).click();
   await expect(words.getByRole("region", { name: "Predicted commands" })).toContainText(
     "look tree",
   );

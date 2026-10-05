@@ -155,6 +155,8 @@ test("trace handles preview privately and Update makes each chosen History step 
   const scale = page.getByRole("button", { name: "Scale trace", exact: true });
   await expect(move).toBeVisible();
   await expect(scale).toBeVisible();
+  await expect(move.locator("svg")).toBeVisible();
+  await expect(scale.locator("svg")).toBeVisible();
   const canvas = page.locator('[data-layer="art"] canvas');
   const sample = () =>
     canvas.evaluate((element) => {

@@ -49,7 +49,7 @@ test("a host-served edition opens in Create and the first picture edit forks a c
     [60, 120],
   ])
     await page.mouse.click(box.x + (x! * box.width) / 160, box.y + (y! * box.height) / 168);
-  await studio.getByRole("button", { name: "✓ Done", exact: true }).click();
+  await studio.getByRole("button", { name: "Done", exact: true }).click();
   await workspaceUpdated(page);
   const copies = await stored();
   expect(copies).toHaveLength(1);

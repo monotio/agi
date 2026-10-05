@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import UiIcon from "../../ui/UiIcon.vue";
 import GuidedAdd from "./GuidedAdd.vue";
 import { soundProjectChanges } from "../sound/soundEdits.ts";
 import { VOCABULARY } from "../../../../src/vocabulary.ts";
@@ -1464,8 +1465,8 @@ onBeforeUnmount(() => {
         variant="ghost"
         aria-label="Close"
         @click="presentation.debugOpen.value = false"
-        >×</UiButton
-      >
+        ><UiIcon name="x" :size="16"
+      /></UiButton>
     </header>
     <InspectPanel />
   </aside>
@@ -1544,8 +1545,8 @@ onBeforeUnmount(() => {
           title="Side by side"
           :aria-pressed="editor.splitAxis.value === 'horizontal'"
           @click="editor.setSplitAxis('horizontal')"
-          >▥</UiButton
-        >
+          ><UiIcon name="panel-left" :size="16"
+        /></UiButton>
         <UiButton
           size="sm"
           variant="ghost"
@@ -1553,8 +1554,8 @@ onBeforeUnmount(() => {
           title="Stacked"
           :aria-pressed="editor.splitAxis.value === 'vertical'"
           @click="editor.setSplitAxis('vertical')"
-          >▤</UiButton
-        >
+          ><UiIcon name="panel-left" :size="16" style="transform: rotate(90deg)"
+        /></UiButton>
       </div>
       <template v-if="editor.kind.value === 'picture' || editor.kind.value === 'view'">
         <UiButton
@@ -1895,8 +1896,8 @@ onBeforeUnmount(() => {
       variant="ghost"
       aria-label="Close"
       @click="editor.panel.value = false"
-      >×</UiButton
-    >
+      ><UiIcon name="x" :size="16"
+    /></UiButton>
     <Suspense v-if="debug">
       <DebugPanel :debug="debug" :problems="diagnostics" @reveal="revealDebug" />
       <template #fallback>
@@ -1923,8 +1924,8 @@ onBeforeUnmount(() => {
     <header>
       <h2>History</h2>
       <UiButton size="sm" variant="ghost" aria-label="Close" @click="editor.history.value = false"
-        >×</UiButton
-      >
+        ><UiIcon name="x" :size="16"
+      /></UiButton>
     </header>
     <div id="workspace-history-errors"></div>
     <p>{{ VOCABULARY.history.help }}</p>

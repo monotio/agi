@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import UiIcon from "../../ui/UiIcon.vue";
 import { ref, onBeforeUnmount } from "vue";
 import type { ProfileId } from "../../../../src/runtime/profile.ts";
 import { applySoundPreset, SOUND_PRESETS } from "../../../../src/sound/presets.ts";
@@ -81,8 +82,8 @@ onBeforeUnmount(() => {
           variant="ghost"
           :aria-label="`${playing === `sound:${entry.sound}` ? 'Stop' : 'Play'} ${entry.name}`"
           @click="audition(`sound:${entry.sound}`, entry.bytes)"
-          >{{ playing === `sound:${entry.sound}` ? "■" : "▶" }}</UiButton
-        >
+          ><UiIcon :name="playing === `sound:${entry.sound}` ? 'square' : 'play'" :size="16"
+        /></UiButton>
       </div>
     </section>
     <section role="group" aria-label="New sound from a recipe">
@@ -106,8 +107,8 @@ onBeforeUnmount(() => {
           variant="ghost"
           :aria-label="`${playing === entry.id ? 'Stop' : 'Play'} ${entry.name}`"
           @click="recipe(entry.id)"
-          >{{ playing === entry.id ? "■" : "▶" }}</UiButton
-        >
+          ><UiIcon :name="playing === entry.id ? 'square' : 'play'" :size="16"
+        /></UiButton>
       </div>
     </section>
     <p v-if="error" role="alert">{{ error }}</p>

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import UiIcon from "../../ui/UiIcon.vue";
 import { VOCABULARY } from "../../../../src/vocabulary.ts";
 import { computed } from "vue";
 import UiButton from "../../ui/UiButton.vue";
@@ -76,8 +77,8 @@ function add(): void {
               @click="
                 write(rows.filter((_, i) => i !== index).map((r) => [...r] as [string, number]))
               "
-              >×</UiButton
-            >
+              ><UiIcon name="x" :size="16"
+            /></UiButton>
           </td>
         </tr>
       </tbody>

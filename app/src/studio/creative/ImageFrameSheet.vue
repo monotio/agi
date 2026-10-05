@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import UiIcon from "../../ui/UiIcon.vue";
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, useTemplateRef, watch } from "vue";
 import {
   suggestImageFrames,
@@ -538,7 +539,9 @@ const thumbnails = computed(() => {
         <div class="frame-find">
           <UiButton size="sm" @click="find">Find frames again</UiButton>
           <details class="frame-find-menu">
-            <summary aria-label="Frame finding options">▾</summary>
+            <summary aria-label="Frame finding options">
+              <UiIcon name="chevron-down" :size="16" />
+            </summary>
             <div>
               <label><input v-model="suggestion" type="radio" value="gaps" />By gaps</label>
               <label><input v-model="suggestion" type="radio" value="grid" />Grid</label>
@@ -564,11 +567,11 @@ const thumbnails = computed(() => {
             >Fit</UiButton
           >
           <UiButton size="sm" aria-label="Zoom out" @click="zoom = Math.max(0.05, scale / 1.5)"
-            >−</UiButton
-          >
+            ><UiIcon name="minus" :size="16"
+          /></UiButton>
           <UiButton size="sm" aria-label="Zoom in" @click="zoom = Math.min(64, scale * 1.5)"
-            >+</UiButton
-          >
+            ><UiIcon name="plus" :size="16"
+          /></UiButton>
         </div>
         <div ref="viewport" class="frame-viewport">
           <div
@@ -666,7 +669,7 @@ const thumbnails = computed(() => {
               aria-label="Smaller cels"
               @click="celHeight = Math.max(1, celHeight - 1)"
             >
-              −
+              <UiIcon name="minus" :size="16" />
             </button>
             <input
               v-model.number="celHeight"
@@ -680,7 +683,7 @@ const thumbnails = computed(() => {
               aria-label="Taller cels"
               @click="celHeight = Math.min(maximumHeight, celHeight + 1)"
             >
-              +
+              <UiIcon name="plus" :size="16" />
             </button>
           </span>
           px tall · like {{ name }}</label
@@ -742,7 +745,7 @@ const thumbnails = computed(() => {
             remove();
           "
         >
-          ×
+          <UiIcon name="x" :size="16" />
         </button>
       </div>
     </div>

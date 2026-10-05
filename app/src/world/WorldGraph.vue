@@ -289,7 +289,7 @@ defineExpose({ selectRoom });
         data-testid="map-graph-fold"
         @click="graphOpen = !graphOpen"
       >
-        {{ graphOpen ? "▾" : "▸" }} Graph
+        <UiIcon :name="graphOpen ? 'chevron-down' : 'chevron-right'" :size="16" /> Graph
       </button>
       <span v-show="graphOpen" class="map-zoom">
         <button
@@ -299,7 +299,7 @@ defineExpose({ selectRoom });
           aria-label="Zoom out"
           @click="setZoom(zoom / 1.25)"
         >
-          −
+          <UiIcon name="minus" :size="16" />
         </button>
         <button
           type="button"
@@ -317,7 +317,7 @@ defineExpose({ selectRoom });
           aria-label="Zoom in"
           @click="setZoom(zoom * 1.25)"
         >
-          +
+          <UiIcon name="plus" :size="16" />
         </button>
         <button type="button" class="map-zoom-btn" data-testid="map-zoom-fit" @click="fitGraph">
           Fit

@@ -12,7 +12,7 @@ export interface VocabularyAction extends VocabularyTerm {
 export const WORDS_EDITOR_COPY = {
   unknown: "“{word}” is a new word, so the game stops reading there.",
   teach: "Teach “{word}”…",
-  more: "More ▾",
+  more: "More",
   newMeaning: "New meaning",
   skip: "Skip it like “the”",
   suggesting: "Suggesting…",
@@ -113,13 +113,13 @@ export const VOCABULARY = {
   },
   predictCommands: {
     id: "predictCommands",
-    label: "✦ Suggest sentences",
+    label: "Suggest sentences",
     help: "Suggested by the agent from the room’s picture, objects and text.",
     technical: "",
   },
   suggestWords: {
     id: "suggestWords",
-    label: "✦ Suggest",
+    label: "Suggest",
     help: "Proposes words with the same meaning.",
     technical: "",
   },

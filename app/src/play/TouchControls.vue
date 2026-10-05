@@ -16,15 +16,15 @@ const assistiveHeld = ref(false);
 let pointer: number | null = null;
 let heldKey: string | null = null;
 const directions = [
-  { dir: 8, glyph: "↖", name: "northwest" },
-  { dir: 1, glyph: "↑", name: "north" },
-  { dir: 2, glyph: "↗", name: "northeast" },
-  { dir: 7, glyph: "←", name: "west" },
-  { dir: 0, glyph: "Type", name: "Keyboard" },
-  { dir: 3, glyph: "→", name: "east" },
-  { dir: 6, glyph: "↙", name: "southwest" },
-  { dir: 5, glyph: "↓", name: "south" },
-  { dir: 4, glyph: "↘", name: "southeast" },
+  { dir: 8, angle: -135, name: "northwest" },
+  { dir: 1, angle: -90, name: "north" },
+  { dir: 2, angle: -45, name: "northeast" },
+  { dir: 7, angle: 180, name: "west" },
+  { dir: 0, angle: 0, name: "Keyboard" },
+  { dir: 3, angle: 0, name: "east" },
+  { dir: 6, angle: 135, name: "southwest" },
+  { dir: 5, angle: 90, name: "south" },
+  { dir: 4, angle: 45, name: "southeast" },
 ];
 const extraKeys: Record<string, number> = {
   ...FUNCTION_KEYS,
@@ -138,7 +138,13 @@ onBeforeUnmount(() => {
           @blur="release"
           @click="direction.dir ? clickDirection($event, direction.dir) : emit('keyboard')"
         >
-          {{ direction.glyph }}
+          <UiIcon
+            v-if="direction.dir"
+            name="arrow-right"
+            :size="22"
+            :style="{ transform: `rotate(${direction.angle}deg)` }"
+          />
+          <template v-else>Type</template>
         </button>
       </div>
       <div class="action-keys">
@@ -238,10 +244,15 @@ button {
   touch-action: manipulation;
 }
 .direction-pad button {
+  display: grid;
+  place-items: center;
   font-size: var(--text-xl);
   touch-action: none;
   user-select: none;
   -webkit-touch-callout: none;
+}
+.direction-pad :deep(.ui-icon) {
+  pointer-events: none;
 }
 .direction-pad .keyboard-key {
   font-size: var(--text-sm);

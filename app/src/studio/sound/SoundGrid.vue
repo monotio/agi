@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import UiIcon from "../../ui/UiIcon.vue";
 import { computed, onMounted, useTemplateRef, watch } from "vue";
 import type { SoundDocument, SoundEventDataInput } from "../../../../src/sound/document.ts";
 import {
@@ -458,7 +459,7 @@ onMounted(() => {
       :title="pageStart === 0 ? 'First steps' : 'Show earlier steps'"
       @click="pageStart = Math.max(0, pageStart - 32)"
     >
-      ← Earlier</button
+      <UiIcon name="arrow-left" :size="16" /> Earlier</button
     ><span>Steps {{ pageStart + 1 }}–{{ pageStart + 32 }}</span
     ><button
       type="button"
@@ -466,7 +467,7 @@ onMounted(() => {
       :title="pageStart + 32 >= steps ? 'Final steps' : 'Show later steps'"
       @click="pageStart += 32"
     >
-      Later →
+      Later <UiIcon name="arrow-right" :size="16" />
     </button>
   </div>
   <div class="sound-roll">

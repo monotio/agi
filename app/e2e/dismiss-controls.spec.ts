@@ -133,7 +133,7 @@ test("History, Problems and Inspector dismiss with × and Escape", async ({ page
   const inspectorClose = inspector.locator("header > button");
   await expect(inspectorClose).toBeVisible();
   await expect.soft(inspectorClose).toHaveAccessibleName("Close");
-  await expect.soft(inspectorClose).toHaveText("×");
+  await expect(inspectorClose.locator("svg")).toBeVisible();
   await inspectorClose.focus();
   await page.keyboard.press("Escape");
   await expect(inspector).toBeHidden();

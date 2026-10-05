@@ -134,11 +134,11 @@ test("a line offers Done and finishes by clicking its last point", async ({ page
     const p = await cell(page, x!, y!);
     await page.mouse.click(p.x, p.y);
   }
-  await expect(studio.getByRole("button", { name: "✓ Done", exact: true })).toBeVisible();
+  await expect(studio.getByRole("button", { name: "Done", exact: true })).toBeVisible();
   await page.screenshot({ path: test.info().outputPath("line-done.png") });
   const p = await cell(page, 70, 120);
   await page.mouse.click(p.x, p.y);
-  await expect(studio.getByRole("button", { name: "✓ Done", exact: true })).toHaveCount(0);
+  await expect(studio.getByRole("button", { name: "Done", exact: true })).toHaveCount(0);
   await workspaceUpdated(page);
 });
 test("a polygon offers Done and its point menu names Delete shape", async ({ page }) => {
@@ -153,7 +153,7 @@ test("a polygon offers Done and its point menu names Delete shape", async ({ pag
     const p = await cell(page, x!, y!);
     await page.mouse.click(p.x, p.y);
   }
-  const done = studio.getByRole("button", { name: "✓ Done", exact: true });
+  const done = studio.getByRole("button", { name: "Done", exact: true });
   await expect(done).toBeVisible();
   await done.click();
   await workspaceUpdated(page);
@@ -259,8 +259,8 @@ async function drawLine(page: Page) {
     const p = await cell(page, x!, y!);
     await page.mouse.click(p.x, p.y);
   }
-  await expect(studio.getByRole("button", { name: "✓ Done", exact: true })).toBeVisible();
-  await studio.getByRole("button", { name: "✓ Done", exact: true }).click();
+  await expect(studio.getByRole("button", { name: "Done", exact: true })).toBeVisible();
+  await studio.getByRole("button", { name: "Done", exact: true }).click();
   await workspaceUpdated(page);
   return studio;
 }
@@ -544,7 +544,7 @@ test("drawing preserves invalid room LOGIC and Walk refuses to overwrite it", as
     const p = await cell(page, x!, y!);
     await page.mouse.click(p.x, p.y);
   }
-  await studio.getByRole("button", { name: "✓ Done", exact: true }).click();
+  await studio.getByRole("button", { name: "Done", exact: true }).click();
   await workspaceSaved(page);
   expect(await workspaceDocument(page, "logic:1")).toBe(source);
   await studio
@@ -612,7 +612,7 @@ test("drawing cannot resubmit a Walk edit over a newer pending LOGIC draft", asy
     const p = await cell(page, x!, y!);
     await page.mouse.click(p.x, p.y);
   }
-  await studio.getByRole("button", { name: "✓ Done", exact: true }).click();
+  await studio.getByRole("button", { name: "Done", exact: true }).click();
   await workspaceSaved(page);
   expect(await workspaceDocument(page, "logic:1")).toBe(source);
 });
