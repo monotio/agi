@@ -668,10 +668,11 @@ test("Undo and History restore update the editor while a game message waits", as
   await expect(restore).toBeEnabled();
   await restore.click();
   await expect(page.locator(".monaco-editor")).not.toContainText("Instant Undo");
-  await page
+  const closeHistory = page
     .getByTestId("workspace-history")
-    .getByRole("button", { name: "×", exact: true })
-    .click();
+    .getByRole("button", { name: "Close", exact: true });
+  await expect(closeHistory).toBeVisible();
+  await closeHistory.click();
   await page.locator(".monaco-editor").click();
   await page.keyboard.press("ControlOrMeta+End");
   await page.keyboard.insertText("\n// Latest while waiting");
