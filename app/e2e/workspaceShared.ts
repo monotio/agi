@@ -86,6 +86,7 @@ export async function replaceWorkspaceDocument(
   page: Page,
   key: string,
   text: string,
+  update = true,
 ): Promise<void> {
   if (key.startsWith("logic:")) {
     await openWorkspaceLogic(page, Number(key.split(":")[1]));
@@ -152,7 +153,7 @@ export async function replaceWorkspaceDocument(
       }
     }
   }
-  await workspaceUpdated(page);
+  if (update) await workspaceUpdated(page);
   await expect
     .poll(() => workspaceDocument(page, key))
     .toBe(key.startsWith("logic:") ? text : JSON.stringify(JSON.parse(text)));

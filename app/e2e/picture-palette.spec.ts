@@ -1,7 +1,7 @@
 import type { Page } from "@playwright/test";
 import type { ProjectSession } from "../src/project/projectSession.ts";
 import { test, expect } from "./test.ts";
-import { isolateStorage, workspaceSaved } from "./engineProbe.ts";
+import { isolateStorage, workspaceSaved, workspaceUpdated } from "./engineProbe.ts";
 
 const HINT = "Pick a drawing tool to paint, or select a shape to recolour it";
 async function picture(page: Page) {
@@ -79,7 +79,8 @@ for (const width of [1063, 1440, 390]) {
       await expect(red).toBeVisible();
       await red.click();
       await expect(red).toHaveAttribute("aria-checked", "true");
-      await workspaceSaved(page);
+      expect(await history(page)).toEqual(before);
+      await workspaceUpdated(page);
       const after = await history(page);
       expect(after.source).not.toEqual(before.source);
       expect(after.commits).toBe(before.commits + 1);
@@ -144,14 +145,15 @@ test("lenses, rail wells and colour keys share the selection context", async ({ 
   const artPicker = studio.getByRole("dialog", { name: "Art for selection", exact: true });
   await expect(artPicker).toBeVisible();
   await artPicker.getByRole("radio", { name: /^Colour 4,/ }).click();
-  await workspaceSaved(page);
+  await workspaceUpdated(page);
   await expect(artWell).toHaveAttribute("data-value", "4");
   const beforeKey = await history(page);
   const red = strip.getByRole("radio", { name: "Colour 4: red", exact: true });
   await expect(red).toBeVisible();
   await red.press("ArrowRight");
   await expect(strip.getByRole("radio", { name: /^Colour 5:/ })).toBeFocused();
-  await workspaceSaved(page);
+  expect(await history(page)).toEqual(beforeKey);
+  await workspaceUpdated(page);
   expect((await history(page)).commits).toBe(beforeKey.commits + 1);
   await page.keyboard.press("ControlOrMeta+z");
   await workspaceSaved(page);

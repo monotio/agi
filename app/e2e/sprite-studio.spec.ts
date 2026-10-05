@@ -19,6 +19,7 @@ import {
   openWorkspaceView,
   waitForRoom,
   workspaceSaved,
+  workspaceUpdated,
 } from "./engineProbe.ts";
 import { expect, test } from "./test.ts";
 
@@ -239,8 +240,8 @@ test("a mirrored actor is repaired without changing its source loop, saved, relo
     expect(samePixels(cel.pixels, original.loops[1]!.cels[index + 1]!.pixels)).toBe(true),
   );
 
-  // Autosave forks a remix on the first catalog edit.
-  await workspaceSaved(page);
+  // Update game forks a remix on the first catalog update.
+  await workspaceUpdated(page);
   const remix = await page.evaluate(
     () => localStorage.getItem("monotio_agi.resumeTarget")?.split(":")[1],
   );
@@ -354,7 +355,7 @@ test("a loop's cyan recoloured to blue by keys is saved, and the walking ego sho
       expect(samePixels(cel.pixels, expected)).toBe(true);
     }),
   );
-  await workspaceSaved(page);
+  await workspaceUpdated(page);
   await closeWorkspaceEditor(page);
 
   // Walking right shows loop 0's blue cels exactly; walking left keeps the cyan.

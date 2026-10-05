@@ -100,6 +100,7 @@ test("saved native WORDS.TOK supplies LOGIC diagnostics", async ({ page }) => {
     page,
     "logic:1",
     result.source + '\nif (said("notintok")) { print("Test"); }\n',
+    false,
   );
   const markers = () =>
     page.evaluate(async () => {

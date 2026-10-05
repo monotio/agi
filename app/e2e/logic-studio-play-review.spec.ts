@@ -56,7 +56,7 @@ test("a no-key source and vocabulary edit changes the game a player actually run
     .replace(/print\("[^"\n]*"\)/, `print("${message}")`)
     .replace('said("look")', 'said("inspect")');
   expect(source).not.toBe(prepared.source);
-  await replaceWorkspaceDocument(page, "logic:1", source);
+  await replaceWorkspaceDocument(page, "logic:1", source, false);
   const words = JSON.parse(prepared.words) as [string, number][];
   const look = words.find(([word]) => word === "look");
   expect(look).toBeDefined();

@@ -23,7 +23,7 @@ async function state(page: Page) {
   );
 }
 
-test("a completed LOGIC edit live-patches the running game @webkit-desktop", async ({ page }) => {
+test("Update game applies LOGIC while preserving play @webkit-desktop", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await prepareIsolatedPage(page);
   const providers = blockProviders(page);
@@ -64,7 +64,7 @@ test("a completed LOGIC edit live-patches the running game @webkit-desktop", asy
   await expect.poll(async () => (await textHook(page)).cycle).toBeGreaterThan(cycle);
 
   const generation = (await state(page))?.patchGeneration;
-  await replaceWorkspaceDocument(page, "logic:1", "this is not logic\n");
+  await replaceWorkspaceDocument(page, "logic:1", "this is not logic\n", false);
   await expect(page.getByTestId("workspace-last-good")).toBeVisible();
   const invalidCycle = (await textHook(page)).cycle;
   await expect.poll(async () => (await textHook(page)).cycle).toBeGreaterThan(invalidCycle);

@@ -9,6 +9,10 @@ import { readInventoryObjects } from "../../../../src/authoring/inventory.ts";
 import { PROFILES } from "../../../../src/runtime/profile.ts";
 import type { ProfileId } from "../../../../src/runtime/profile.ts";
 import { readBindingsDocument } from "../../../../src/authoring/projectDocuments.ts";
+import {
+  sameProjectContent,
+  type ProjectContent,
+} from "../../../../src/authoring/projectContent.ts";
 import type { ProjectSnapshot } from "../../../../src/authoring/projectModel.ts";
 import { offsetAt } from "../../../../src/logic/lspTypes.ts";
 import type { WorkspaceEdit } from "../../../../src/logic/lspTypes.ts";
@@ -121,7 +125,8 @@ function layout(): void {
 }
 let contextCache:
   | {
-      versions: string;
+      profile: string;
+      inputs: readonly (ProjectContent | undefined)[];
       words: [string, number][];
       objects: string[];
       bindings: Record<string, { num: number }>;
@@ -137,8 +142,11 @@ function analysis(): void {
       documents[key] = { version: doc.version, source: doc.content };
   }
   documents[props.documentKey] = { version: model.getVersionId(), source: model.getValue() };
-  const versions = `${props.profileId}:${["words", "inventory", "bindings"].map((key) => props.snapshot.version(key)).join(":")}`;
-  if (contextCache?.versions !== versions) {
+  const inputs = ["words", "inventory", "bindings"].map((key) => props.snapshot.read(key)?.content);
+  if (
+    contextCache?.profile !== props.profileId ||
+    inputs.some((value, index) => !sameProjectContent(value, contextCache?.inputs[index]))
+  ) {
     let objects: string[] = [];
     let words: [string, number][] = [];
     let bindings: Record<string, { num: number }> = {};
@@ -159,7 +167,7 @@ function analysis(): void {
         bindingSource = names;
         bindings = readBindingsDocument(names);
       }
-      contextCache = { versions, words, objects, bindings, bindingSource };
+      contextCache = { profile: props.profileId, inputs, words, objects, bindings, bindingSource };
     } catch {
       contextCache = undefined;
       client.invalidateContext("Fix the WORDS or names document to restore code intelligence.");

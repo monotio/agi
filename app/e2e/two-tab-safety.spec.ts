@@ -14,7 +14,7 @@ import {
   textHook,
   waitForAutosaveAfter,
   waitForCycles,
-  workspaceSaved,
+  workspaceUpdated,
 } from "./engineProbe.ts";
 import { expect, keepDetectedProfile, test } from "./test.ts";
 
@@ -114,7 +114,7 @@ async function keepInTabB(page: Page): Promise<Locator> {
   await studio.locator('[data-row="occluder"]').click();
   await studio.getByRole("group", { name: /^Canvas/ }).focus();
   await tabB.keyboard.press("ArrowDown");
-  await workspaceSaved(tabB);
+  await workspaceUpdated(tabB);
   await waitForAutosaveAfter(tabB, (await textHook(tabB)).cycle);
   return studio;
 }
@@ -145,7 +145,7 @@ async function keepLabelInTabB(page: Page): Promise<void> {
     return result.status;
   });
   expect(result).toBe("committed");
-  await workspaceSaved(tabB);
+  await workspaceUpdated(tabB);
 }
 
 /** What storage holds for the project: its revision, its notes and its checkpoint's revision. */
@@ -224,6 +224,7 @@ test("a tab running an older revision hears of another tab's saved edit at once 
 
   // Playing, assistant closed: the stage says so, once, and nothing is modal.
   const note = page.getByTestId("stale-tab-note");
+  await expect(note).toBeVisible();
   await expect(note).toHaveText(
     /Changed in another tab\. Editing is paused\. Download your unsaved edits, then reload\./,
   );
@@ -272,6 +273,7 @@ test("a label saved in another tab is heard at once, and nothing this tab saves 
   expect(kept.authoringState).toContain("Low bench");
 
   const note = page.getByTestId("stale-tab-note");
+  await expect(note).toBeVisible();
   await expect(note).toHaveText(
     /Changed in another tab\. Editing is paused\. Download your unsaved edits, then reload\./,
   );

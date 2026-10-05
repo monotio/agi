@@ -531,7 +531,9 @@ for (const mode of ["stale", "removed", "refusal"] as const) {
   });
 }
 
-test("a guided action finishing keeps Saving while LOGIC typing is pending", async ({ page }) => {
+test("a guided action finishing keeps Draft saving while LOGIC typing is pending", async ({
+  page,
+}) => {
   await starter(page);
   await openWorkspaceLogic(page, 1);
   await page.evaluate(() => {
@@ -583,6 +585,7 @@ test("a guided action finishing keeps Saving while LOGIC typing is pending", asy
   await expect
     .poll(() => page.evaluate(() => (window as unknown as { guidedHeld?: boolean }).guidedHeld))
     .toBe(true);
+  await expect(page.getByTestId("workspace-saved")).toBeVisible();
   const status = await page.evaluate(async () => {
     const { monaco } = await import("/src/studio/logic/monacoLanguage.ts");
     const model = monaco.editor.getModels().find((model) => model.uri.path.endsWith("/logic:1"))!;
@@ -591,7 +594,7 @@ test("a guided action finishing keeps Saving while LOGIC typing is pending", asy
     await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
     return document.querySelector('[data-testid="workspace-saved"]')!.textContent;
   });
-  expect(status).toContain("Saving");
+  expect(status).toBe("Draft saving…");
   await page.evaluate(() => (window as unknown as { releaseTyping(): void }).releaseTyping());
   await workspaceSaved(page);
 });
