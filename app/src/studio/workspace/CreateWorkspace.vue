@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import GuidedAdd from "./GuidedAdd.vue";
 import { soundProjectChanges } from "../sound/soundEdits.ts";
 import { VOCABULARY } from "../../../../src/vocabulary.ts";
 import "./workspace.css";
@@ -55,7 +56,6 @@ const traceUnderlays = shallowRef<
 let imageRefresh = 0;
 const SoundPanel = defineAsyncComponent(() => import("./SoundPanel.vue"));
 const SoundImport = defineAsyncComponent(() => import("../sound/SoundImport.vue"));
-const GuidedAdd = defineAsyncComponent(() => import("./GuidedAdd.vue"));
 const WordsEditor = defineAsyncComponent(() => import("./WordsEditor.vue"));
 const TableEditor = defineAsyncComponent(() => import("./TableEditor.vue"));
 const RoomStudio = defineAsyncComponent(() => import("../RoomStudio.vue"));

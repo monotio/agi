@@ -30,7 +30,7 @@ for (const viewport of [
     await trace.locator("header button").click();
     const focus = page.getByTestId("workspace-focus");
     if ((await focus.getAttribute("aria-pressed")) === "true") await focus.click();
-    const flag = page.getByRole("button", { name: "chime_done · Flag 204", exact: true });
+    const flag = page.getByRole("button", { name: "chime_done Flag 204", exact: true });
     if (viewport.width === 390 && !(await flag.isVisible()))
       await page.getByTestId("workspace-parts").click();
     await expect(flag).toBeVisible();
@@ -91,10 +91,13 @@ async function start(page: Page) {
 }
 test("name details closes with Escape from its Close control", async ({ page }) => {
   await start(page);
-  await page.getByRole("button", { name: "chime_done · Flag 204", exact: true }).click();
+  const flag = page.getByRole("button", { name: "chime_done Flag 204", exact: true });
+  await expect(flag).toBeVisible();
+  await flag.click();
   const details = page.getByTestId("binding-details");
   await expect(details).toBeVisible();
   const close = details.getByRole("button", { name: "Close", exact: true });
+  await expect(close).toBeVisible();
   await close.focus();
   await page.keyboard.press("Escape");
   await expect(details).toBeHidden();
