@@ -115,6 +115,22 @@ function context() {
 }
 
 describe("audio command backend", () => {
+  it("finishSound silences a PSG without final register writes while retaining its clock", () => {
+    const { audio, gains, bufferSources } = context();
+    audio.outputTick({
+      stream: "restart",
+      tick: 0,
+      outputs: [{ kind: "psg", bytes: [0xe4, 0x90, 0xf0] }],
+      complete: false,
+    });
+    audio.finishSound();
+    assert.equal(gains[1]!.gain.value, 0);
+    assert.equal(gains[4]!.gain.value, 0);
+    assert.equal(bufferSources.at(-1)!.stopped, false);
+    audio.setLaneAudible(3, false);
+    audio.setLaneAudible(3, true);
+    assert.equal(gains[4]!.gain.value, 0);
+  });
   it("a TI profile's first coupled noise write uses the already latched tone-2 divisor", () => {
     const { audio, bufferSources, ctx } = context();
     audio.output({ kind: "psg", bytes: [0xc4, 0x06] });

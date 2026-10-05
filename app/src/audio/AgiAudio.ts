@@ -542,6 +542,14 @@ export class AgiAudio {
       this.stop();
       return;
     }
+    // A restart can send stopSound without final register writes. Keep the
+    // PSG counter running, but cancel pending gains so the old cue stays quiet.
+    if (this.family === "psg" && this.ctx) {
+      for (const [lane, gain] of this.channelGains.entries()) {
+        gain.gain.cancelScheduledValues(this.ctx.currentTime);
+        this.setLaneGain(lane, 0, this.ctx.currentTime);
+      }
+    }
     if (this.timing) this.retiredStreams.add(this.timing.stream);
     this.timing = null;
     this.playing = false;
