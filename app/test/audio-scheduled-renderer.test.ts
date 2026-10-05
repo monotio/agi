@@ -194,3 +194,27 @@ it("IIgs fallback note-off keeps its tick when completion retires the whole grap
   );
   assert.ok(Math.abs(oscillators[1]!.stops.at(-1)! - off - 2 / 60) < 1e-10);
 });
+
+it("PAL packets keep 20 ms between Paula writes in a delivered batch", () => {
+  const { audio, gains } = context();
+  const outputs = [{ kind: "paula" as const, channel: 0, period: 8000, volume: 40 }];
+  audio.outputTick({
+    stream: "pal",
+    tick: 0,
+    hz: 50,
+    amigaRegion: "pal",
+    outputs,
+    complete: false,
+  });
+  const first = gains[1]!.gain.values.at(-1)![1];
+  audio.outputTick({
+    stream: "pal",
+    tick: 1,
+    hz: 50,
+    amigaRegion: "pal",
+    outputs,
+    complete: false,
+  });
+  const second = gains[1]!.gain.values.at(-1)![1];
+  assert.ok(Math.abs(second - first - 0.02) < 1e-10);
+});

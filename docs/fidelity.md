@@ -2924,8 +2924,8 @@ chapter 5, "Limitations on Selection of Sampling Period", p. 138](https://retro-
 lists the audio clock as 3,579,545 Hz for NTSC and 3,546,895 Hz for PAL.
 The byte rate is clock / AUDxPER; an eight-byte tone at period 1,000 is
 447.443125 Hz on NTSC and 443.361875 Hz on PAL. Settings > Advanced offers
-Amiga sound: NTSC (US) or PAL (Europe), saved locally and applied to active
-voices without restarting the game. This selects the audio clock.
+Amiga timing: NTSC (US) or PAL (Europe), saved locally for the next start.
+The session region selects the audio clock and frame timing.
 
 The NTSC default follows a MAME 0.289 NTSC A500 comparison using the US
 PQ1 2.310 and SQ2 2.202 releases. The previous PAL-clock output measured
@@ -2967,14 +2967,92 @@ Sound callbacks decrement the driver note countdown and step its envelope;
 these are interpreter instructions, separate from SOUND and LOGIC bytecode.
 The frame divider and 20-callback second counter contain fixed constants.
 
-**Inference and presentation limit.** On nominal 60 Hz NTSC these routines
-produce 60 sound updates and 20 pacing updates per real second. On nominal
-50 Hz PAL they produce 50 sound updates and 50/3 pacing updates; the game's
-seconds counter then advances every 1.2 real seconds. This follows from the
-installed VBlank chain and fixed dividers, rather than a controlled full-machine
-PAL run. The app currently retains its 60 Hz sound heartbeat and 50 ms game
-pacing in both sound settings. Its PAL choice reproduces the audio clock;
-original PAL frame pacing remains outside this presentation setting.
+**Measured PAL timing.** MAME 0.289 ran the original PQ1 2.310 and SQ2
+2.202 executables on `a500` (PAL) and `a500n` (NTSC), both with `kick13`.
+Captures used `-video none -sound none -nothrottle`, 48 kHz WAV output, no
+keyboard input, and 200 emulated seconds for PQ1 or 150 for SQ2. SQ2 used
+its bootable original disk (SHA-256
+`e46084876466879600fbde240a512dcd23b10e23058c680151d7f0e608dee4c4`).
+PQ1 used a reconstructed OFS boot disk containing the unchanged original
+executable and resources (SHA-256
+`a0509b8e161b05e8c9a1312a66977f22efc9063f4d68cb51cc4393cdf6cd0220`),
+rather than a preservation image. Periodic screenshots established that both
+intros reached the measured music.
+
+A read-only Lua probe located relocated h194 in RAM from its instruction
+signature, obtained the callback counter and v11 addresses from its relocated
+operands, and observed them each emulated frame. It neither wrote RAM nor
+changed game resources. Loaded addresses were:
+
+| Game / machine | h194      | Callback counter | v11       |
+| -------------- | --------- | ---------------- | --------- |
+| PQ1 / PAL      | `0x271f0` | `0x28068`        | `0x2833d` |
+| PQ1 / NTSC     | `0x24ef0` | `0x25d68`        | `0x2603d` |
+| SQ2 / PAL      | `0x26a38` | `0x278b0`        | `0x27b85` |
+| SQ2 / NTSC     | `0x24738` | `0x255b0`        | `0x25885` |
+
+Every measured game-second interval contained 60 frames and 20 callbacks.
+PQ1 supplied 140 PAL intervals and 169 NTSC intervals; SQ2 supplied 99 and 119. Both games measured 1.199993233 seconds per game second on PAL and
+0.998800022 on NTSC. MAME's reconstructed frame rates are approximately
+50.000282 and 60.072086 Hz, explaining the small difference from nominal
+50/60 Hz. These are observed counter changes in the original interpreter,
+independent of the TypeScript engine.
+
+The opening PQ1 SOUND 36 passage supplied four resolved first-channel note
+attacks at sound ticks 0, 39, 148 and 186. SQ2 SOUND 60 supplied sixteen
+resolved second-channel attacks through tick 500. Regression of attack time
+against sound ticks measured PAL/NTSC duration ratios of 1.200988 (PQ1) and
+1.200669 (SQ2). Median pitch shifts were −15.842 and −15.864 cents. Thus PAL
+music is about 16.7% slower; pitch is about 0.9% lower, following Paula's
+colour clock rather than the frame-rate ratio. Analysis retained the raw 48 kHz
+captures, demodulated resolved note frequencies for attacks, and used an FFT
+with interpolated log peaks in each note's middle half for pitch. Temporary
+12 kHz analysis copies had no time stretching or equalization. Mixed voices,
+short attacks and unresolved later effects are outside these measurements.
+
+**Other Amiga profiles.** Static inspection extends the fixed frame divider to
+KQ2 2.176, GR 2.316 and MH2 2.333: their h135 and h194 hashes match those
+above. Their executable identities are in
+[Amiga interpreter profiles](#amiga-interpreter-profiles). SQ1 2.082 uses the
+same interrupt bytes in h97; its h136 timer (SHA-256
+`9561d22a00dac7c15bcba73fbd5cf99bbf3474cbaa1ceeb5c67b7fc3472bb110`)
+increments at +0x16, compares against 20 at +0x1c and increments v11 at
++0x34. Its h141 (base `0xecdc`, SHA-256
+`d6f72da253a4451b762ca6768ebc4ca3d305fdc0bfb8f7f445ad5a42b25b9e9d`)
+installs h97 through AddIntServer 5 at +0x1c0..0x1ca and h136 as the callback
+at +0x216. Unlike h194's greater-or-equal test, h136
+uses equality; the normal frame division is the same. These additional
+profiles were inspected statically, without a full-machine PAL measurement.
+
+| Build     | Frame hunk / image base | Timer hunk / image base |
+| --------- | ----------------------- | ----------------------- |
+| SQ1 2.082 | h97 / `0xa2d0`          | h136 / `0xe50c`         |
+| KQ2 2.176 | h135 / `0xa16c`         | h194 / `0xe668`         |
+| GR 2.316  | h135 / `0xaa1c`         | h194 / `0xefc0`         |
+| MH2 2.333 | h135 / `0xa9e8`         | h194 / `0xefa0`         |
+
+**Regional release limit.** The measured executables came from US releases.
+The [PQ1 release catalogue](https://www.mobygames.com/game/146/police-quest-in-pursuit-of-the-death-angel/releases/)
+identifies a 1993 U.S. Gold Kixx XL Amiga release in France, Germany, Italy
+and the United Kingdom. A verified executable from that release was unavailable
+for this comparison. Its timing, and any European timing patch, remain unverified.
+
+**Engine timing.** The Amiga profile variants use nominal 60 Hz NTSC or 50 Hz
+PAL sound heartbeats, three frames per pacing increment and 20 increments per
+game second. PAL therefore has 60 ms pacing increments and 1.2-second game
+seconds. PC and IIgs keep their existing timing. Settings > Advanced > Amiga
+timing selects the region for the next start. The running session keeps its
+region; autosaves, numbered saves, tapes and recorded tests restore it.
+Optional region metadata preserves existing format versions, with omission
+meaning NTSC. Numbered saves retain authentic native bytes and carry the region
+in their host storage or archive metadata.
+
+A fresh PQ1 PAL run through the shipped offline audio graph used 48 kHz output,
+RNG/noise seed 1 and master gain 0.1. Against the four resolved MAME PAL SOUND
+36 notes, median pitch error was +0.017 cents and tempo error was −0.22%
+(regressed attack spacing). Envelope/filter attack uncertainty is several
+milliseconds; this establishes the opening passage's tuning and tempo rather
+than a sample-exact match or alignment of later SOUND 30 effects.
 
 Reproduce the static checks with privately supplied executables:
 
@@ -3153,8 +3231,9 @@ raw maxima.
 #### Engine/app mapping
 
 `SoundPlayback` emits `{kind: "paula", channel, period, volume, driver?}`
-per voice on the same 60 Hz clock: the 2.176+ family every tick for every
-live voice, the 2.082 family (`driver: "2.082"`) on decode ticks only.
+per voice on the session's 60 Hz NTSC or 50 Hz PAL clock: the 2.176+ family
+every tick for every live voice, the 2.082 family (`driver: "2.082"`) on decode
+ticks only.
 `period` is the value written to AUDxPER (null when the voice's DMA is
 off) and `volume` the value written to AUDxVOL while DMA is on, always 0..64.
 With a null period its zero volume is a software stop marker

@@ -1,3 +1,5 @@
+import { CycleClock } from "../../../src/runtime/cycleClock.ts";
+import { SoundClock } from "./soundClock.ts";
 import type { WorkerContext } from "./context.ts";
 
 /**
@@ -40,6 +42,7 @@ export function resetSession(ctx: WorkerContext): void {
   p.lastInputEdit = "";
   p.lastSoundEnabled = null;
   ctx.fns.stopTimers();
+  configureSessionTiming(ctx);
   ctx.clocks.sound.reset(now);
   ctx.clocks.cycle.reset(ctx.replay.replay ? 0 : now);
   ctx.cycle.lastCycleReportAt = now;
@@ -74,4 +77,15 @@ export function resetSession(ctx: WorkerContext): void {
 export function resetRecording(ctx: WorkerContext): void {
   if (ctx.recording.recording !== null) ctx.ports.control({ type: "recordingReset" });
   ctx.recording.recording = null;
+}
+
+/** Move both host clocks with the session interpreter. */
+export function configureSessionTiming(ctx: WorkerContext): void {
+  const timing = ctx.engine?.timing;
+  if (!timing) return;
+  ctx.boot.amigaRegion = ctx.engine!.amigaRegion;
+  if (ctx.clocks.sound.hz !== timing.soundHz)
+    ctx.clocks.sound = new SoundClock(ctx.ports.now(), timing.soundHz);
+  if (ctx.clocks.cycle.incrementMs !== timing.timerIncrementMs)
+    ctx.clocks.cycle = new CycleClock(ctx.ports.now(), timing.timerIncrementMs);
 }

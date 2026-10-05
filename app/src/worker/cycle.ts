@@ -96,7 +96,7 @@ export function createCycle(ctx: WorkerContext) {
       }
     }
     ctx.recording.recording?.tape.clock();
-    ctx.engine?.advanceClock(1000 / 60);
+    ctx.engine?.advanceClock(1000 / ctx.engine.timing.soundHz);
     ctx.engine?.soundTick();
   }
 

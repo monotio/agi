@@ -51,7 +51,7 @@ for (const viewport of [
   { width: 1440, height: 900 },
   { width: 390, height: 844 },
 ]) {
-  test(`Amiga region persists and switches the playing voice live at ${viewport.width}`, async ({
+  test(`Amiga timing applies on the next start and persists at ${viewport.width}`, async ({
     page,
   }, testInfo) => {
     await page.setViewportSize(viewport);
@@ -62,7 +62,7 @@ for (const viewport of [
     await expect(chip.locator("small")).toHaveText("Amiga Paula");
     await chip.scrollIntoViewIfNeeded();
     await page.screenshot({ path: testInfo.outputPath("amiga-settings.png") });
-    const region = page.getByRole("combobox", { name: "Amiga sound" });
+    const region = page.getByRole("combobox", { name: "Amiga timing" });
     await expect(region).toBeVisible();
     await expect(region).toHaveValue("ntsc");
     await region.scrollIntoViewIfNeeded();
@@ -83,15 +83,15 @@ for (const viewport of [
     await expect
       .poll(() => page.evaluate(() => localStorage.getItem("monotio_agi.amigaRegion")))
       .toBe("pal");
-    await expect
-      .poll(() =>
-        page.evaluate(
-          () =>
-            (window as unknown as { regionSource: AudioBufferSourceNode }).regionSource.playbackRate
-              .value,
-        ),
-      )
-      .toBeCloseTo((before.rate * 3546895) / 3579545, 5);
+    const nextStart = page.getByText("Applies on the next start", { exact: true });
+    await expect(nextStart).toBeVisible();
+    expect(
+      await page.evaluate(
+        () =>
+          (window as unknown as { regionSource: AudioBufferSourceNode }).regionSource.playbackRate
+            .value,
+      ),
+    ).toBeCloseTo(before.rate, 5);
     expect(
       await page.evaluate(() => {
         const w = window as unknown as {
@@ -101,17 +101,6 @@ for (const viewport of [
         return w.__AGI_AUDIO__.paulaSources[0] === w.regionSource;
       }),
     ).toBe(true);
-    await region.selectOption("ntsc");
-    await expect
-      .poll(() =>
-        page.evaluate(
-          () =>
-            (window as unknown as { regionSource: AudioBufferSourceNode }).regionSource.playbackRate
-              .value,
-        ),
-      )
-      .toBeCloseTo(before.rate, 5);
-    await region.selectOption("pal");
     await page.reload();
     await page
       .locator("[data-testid^='saved-game-card-']", { hasText: "region-sound" })
@@ -140,5 +129,5 @@ test("PC profiles keep the Amiga region choice hidden", async ({ page }) => {
   await bootSoundGame(page, "2.936");
   await openAdvanced(page);
   await expect(page.getByTestId("toggle-sound-mode")).toBeVisible();
-  await expect(page.getByRole("combobox", { name: "Amiga sound" })).toHaveCount(0);
+  await expect(page.getByRole("combobox", { name: "Amiga timing" })).toHaveCount(0);
 });

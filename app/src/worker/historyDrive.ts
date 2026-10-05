@@ -1,3 +1,4 @@
+import { configureSessionTiming } from "./session.ts";
 /**
  * The scratch tape drive (`openHistoryDrive`): rebuild a session from a
  * segment's boot or anchor, apply the recorded event stream at its recorded
@@ -320,11 +321,15 @@ export function openHistoryDrive(
     ctx.boot.selectedSoundDevice = anchor ? anchor.soundDevice : segment.boot.soundDevice;
     ctx.boot.authoredWords = wordsPatched ? (files.get("WORDS.TOK") ?? null) : null;
     ctx.boot.profile = segment.boot.profile ?? null;
+    ctx.boot.amigaRegion = segment.boot.amigaRegion ?? "ntsc";
     ctx.engine = new Engine(
       openContainer(files, ctx.boot.profile ? { profile: ctx.boot.profile } : {}),
       ctx.host,
       dictionary,
-      ctx.boot.profile ? { profile: ctx.boot.profile } : undefined,
+      {
+        ...(ctx.boot.profile ? { profile: ctx.boot.profile } : {}),
+        amigaRegion: ctx.boot.amigaRegion,
+      },
     );
     ctx.fns.armJournal();
     // Browser sessions boot with game sound enabled; the recorded flag restores below.
@@ -368,6 +373,7 @@ export function openHistoryDrive(
       anchor ? (anchor.clickQueue ?? []) : (segment.boot.clickQueue ?? [])
     ).map(([x, y]): [number, number] => [x, y]);
     const clock = anchor ? anchor.clock : segment.boot.clock;
+    configureSessionTiming(ctx);
     if (clock !== undefined) ctx.clocks.cycle.restore(clock, virtualNow);
     const soundRemainder = anchor ? anchor.soundRemainder : segment.boot.soundRemainder;
     if (soundRemainder !== undefined) ctx.clocks.sound.restore(virtualNow, soundRemainder);

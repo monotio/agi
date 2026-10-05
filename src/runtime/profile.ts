@@ -183,7 +183,16 @@ type SoundProfile =
  */
 type SoundEnvelope = "2.917" | "3.002" | "amiga-2.176" | "amiga-2.202";
 
+export type AmigaRegion = "ntsc" | "pal";
+
+/** Session timing from the fixed VBlank dividers; docs/fidelity.md "Original Amiga sound player". */
+export function interpreterTiming(profile: AgiProfile, region: AmigaRegion = "ntsc") {
+  const soundHz = profile.frameTiming === "amiga-vblank" && region === "pal" ? 50 : 60;
+  return { soundHz, timerIncrementMs: 3000 / soundHz, gameSecondMs: 60000 / soundHz };
+}
+
 export interface AgiProfile {
+  readonly frameTiming: "fixed" | "amiga-vblank";
   /** Promoted profile identifier, e.g. "2.936". */
   readonly id: ProfileId;
 
@@ -449,6 +458,7 @@ const BASE_2936: AgiProfile = {
   heapDiagnosticExtraLine: true,
   saveBlocks: 5,
   saveBlock3Xor: false,
+  frameTiming: "fixed",
   sound: "common",
   soundEnvelope: "2.917",
 };
@@ -545,6 +555,7 @@ const BASE_AMIGA_31X: AgiProfile = {
   saveBlock3Xor: false,
   patternProfile: "center-row-320",
   heapDiagnosticExtraLine: false,
+  frameTiming: "amiga-vblank",
   sound: "amiga",
   soundEnvelope: "amiga-2.202",
   ...AMIGA_INVENTORY,
@@ -697,6 +708,7 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
     // (docs/fidelity.md "Amiga interpreter profiles").
     movementClear: "later",
     saveBlocks: 5,
+    frameTiming: "amiga-vblank",
     sound: "amiga-2.082",
   },
   // Amiga "KQ2" 2.176 (KQ2 Amiga): 170 action slots through 0xa9, 19
@@ -736,6 +748,7 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
     patternProfile: "short-r1",
     heapDiagnosticExtraLine: false,
     saveBlocks: 5,
+    frameTiming: "amiga-vblank",
     sound: "amiga",
     soundEnvelope: "amiga-2.176",
   },
@@ -757,6 +770,7 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
     directionLoops: "exact-four",
     patternProfile: "short-r1",
     heapDiagnosticExtraLine: false,
+    frameTiming: "amiga-vblank",
     sound: "amiga",
     soundEnvelope: "amiga-2.202",
   },

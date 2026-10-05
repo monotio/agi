@@ -1,5 +1,5 @@
 import type { LogAgentFn } from "../play/useInputController.ts";
-import { readGameSaves, writeGameSave } from "./gameSaves.ts";
+import { readGameSaves, readGameSaveRecord, writeGameSave } from "./gameSaves.ts";
 import { resolveProgressTarget } from "../project/progressBinding.ts";
 import type { BootedGame } from "../project/gameTypes.ts";
 
@@ -49,9 +49,13 @@ export function useSaveSlotController(options: SaveSlotControllerOptions): SaveS
       // The stored value is the base64 save-file image itself; an empty
       // reply is the engine's "cancelled / no save" answer.
       let saved: string | undefined | null;
+      let region: "ntsc" | "pal" | undefined;
       try {
         const slot = Number(context["slot"]);
-        saved = Number.isInteger(slot) ? readActiveSlots()[String(slot)] : null;
+        const target = activeSaveTarget();
+        const record = target ? readGameSaveRecord(getStorage(), target) : null;
+        saved = Number.isInteger(slot) ? record?.slots[String(slot)] : null;
+        region = record?.amigaRegions[String(slot)];
       } catch {
         saved = null;
       }
@@ -60,7 +64,9 @@ export function useSaveSlotController(options: SaveSlotControllerOptions): SaveS
         return Promise.resolve("");
       }
       options.logAgent?.("log", "Restoring saved game from local storage...");
-      return Promise.resolve(saved);
+      return Promise.resolve(
+        region === "pal" ? JSON.stringify({ image: saved, amigaRegion: region }) : saved,
+      );
     }
     if (op === "saveList") {
       if (!options.getBootedGame()) return "[]";
@@ -90,7 +96,13 @@ export function useSaveSlotController(options: SaveSlotControllerOptions): SaveS
         return String(
           Boolean(
             key &&
-            writeGameSave(getStorage(), key, Number(context["slot"]), String(context["image"])),
+            writeGameSave(
+              getStorage(),
+              key,
+              Number(context["slot"]),
+              String(context["image"]),
+              context["amigaRegion"] === "pal" ? "pal" : "ntsc",
+            ),
           ),
         );
       } catch {

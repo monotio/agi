@@ -16,6 +16,7 @@ import {
   type AutosaveRecord,
   type GameProgress,
 } from "./gameProgress.ts";
+import { validateSaveRegions } from "./gameSaves.ts";
 
 const SLOT_FILE = /^SAVES\/SG\.(1[0-2]|[1-9])$/;
 /** A save image is a few kilobytes; the record adds a bounded PNG preview. */
@@ -79,11 +80,16 @@ export function readProgressEntries(
   override?: ProfileId,
 ): GameProgress | undefined {
   const saves: Record<string, Uint8Array> = {};
+  let amigaRegions: Record<string, "ntsc" | "pal"> = {};
   let autosaveBytes: Uint8Array | undefined;
   for (const [path, bytes] of entries) {
     if (!path.startsWith(root)) continue;
     const name = path.slice(root.length);
-    if (name === AUTOSAVE_FILE) autosaveBytes = bytes;
+    if (name === "SAVES/TIMING.JSON") {
+      if (bytes.length > 1024) throw new Error("Save timing metadata is too large.");
+      const timing = JSON.parse(new TextDecoder().decode(bytes)) as { amigaRegions?: unknown };
+      amigaRegions = validateSaveRegions(timing.amigaRegions);
+    } else if (name === AUTOSAVE_FILE) autosaveBytes = bytes;
     else {
       const slot = SLOT_FILE.exec(name)?.[1];
       if (slot) saves[slot] = bytes;
@@ -120,5 +126,5 @@ export function readProgressEntries(
     restores("SAVES/AUTOSAVE.JSON", hostImage);
     autosave = parsed;
   }
-  return { saves, autosave };
+  return { saves, autosave, ...(Object.keys(amigaRegions).length ? { amigaRegions } : {}) };
 }

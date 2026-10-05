@@ -1,9 +1,4 @@
-import {
-  SOUND_LOOKAHEAD_SECONDS,
-  SOUND_TICK_SECONDS,
-  type SoundTick,
-  type SoundTiming,
-} from "./soundTiming.ts";
+import { SOUND_LOOKAHEAD_SECONDS, type SoundTick, type SoundTiming } from "./soundTiming.ts";
 /**
  * Web Audio presentation of the engine's sound command stream.
  * Resource timing, channel selection, envelopes and completion belong to the
@@ -317,6 +312,7 @@ export class AgiAudio {
   /** Apply a whole heartbeat at one context time, including natural completion. */
   outputTick(packet: SoundTick): void {
     if (this.closedAudio || this.retiredStreams.has(packet.stream)) return;
+    if (packet.amigaRegion !== undefined) this.setAmigaRegion(packet.amigaRegion);
     const at = this.tickTime(packet);
     if (at === null) return;
     for (const event of packet.outputs) this.render(event, at);
@@ -360,7 +356,7 @@ export class AgiAudio {
     const clock = this.timing;
     if (position.tick < clock.tick) return null;
     if (position.tick === clock.tick) return clock.at;
-    let at = clock.anchorTime + (position.tick - clock.anchorTick) * SOUND_TICK_SECONDS;
+    let at = clock.anchorTime + (position.tick - clock.anchorTick) / (position.hz ?? 60);
     // A late batch gets one new anchor, then keeps its real tick distances.
     // Same-tick writes reuse clock.at even if delivery crosses a render quantum.
     if (at < ctx.currentTime) {
