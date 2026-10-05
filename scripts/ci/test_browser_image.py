@@ -42,6 +42,12 @@ class BrowserImage(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'actual container'):
             check_version(self.ref, self.package, self.marker)
 
+    def test_rejects_wrong_image_tag_with_matching_driver(self):
+        self.marker.write_text(json.dumps({'driverVersion': '1.63.0',
+                                          'dockerImageName': 'mcr.microsoft.com/playwright:v1.63.0-jammy'}))
+        with self.assertRaisesRegex(ValueError, 'actual container'):
+            check_version(self.ref, self.package, self.marker)
+
     def test_rejects_missing_container_metadata(self):
         self.marker.unlink()
         with self.assertRaisesRegex(ValueError, 'Playwright container metadata is missing'):
