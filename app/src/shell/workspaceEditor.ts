@@ -157,7 +157,10 @@ export function createWorkspaceEditor(engine: EngineApi) {
     error.value = "";
     try {
       const outcome = await session[direction]();
-      if (outcome && !["committed", "diagnostics", "unchanged"].includes(outcome.status))
+      if (
+        outcome &&
+        !["committed", "diagnostics", "unchanged", "restartRequired"].includes(outcome.status)
+      )
         error.value = "This change needs a fresh room. Return to the room and retry.";
     } catch (cause) {
       error.value = String(cause instanceof Error ? cause.message : cause);

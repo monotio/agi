@@ -259,6 +259,8 @@ test("unused picture becomes a room in one Undo step", async ({ page }) => {
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
   await expect(page.getByTestId("workspace-unused")).toBeVisible();
   await page.getByRole("button", { name: "Make it a room", exact: true }).click();
+  await workspaceUpdated(page);
+  await open(page, "part-room:2:logic");
   await expect.poll(async () => (await textHook(page)).room).toBe(2);
 });
 
@@ -283,7 +285,6 @@ test("opening another room's VIEW visits it and unused VIEW can become a room", 
   await expect.poll(async () => (await textHook(page)).room).toBe(2);
   await expect(page.getByTestId("workspace-unused")).toHaveCount(0);
   await page.getByTestId("workspace-undo").click();
-  await expect(page.getByTestId("workspace-unused")).toBeVisible();
   await expect
     .poll(() =>
       page.evaluate(() => {
@@ -294,7 +295,24 @@ test("opening another room's VIEW visits it and unused VIEW can become a room", 
       }),
     )
     .toEqual([255, 255, 255]);
+  await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  for (const size of [
+    { width: 1063, height: 815 },
+    { width: 1440, height: 900 },
+    { width: 390, height: 844 },
+  ]) {
+    await page.setViewportSize(size);
+    await page.screenshot({
+      path: test.info().outputPath(`room-undo-${size.width}.png`),
+      animations: "disabled",
+    });
+  }
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await expect(page.getByTestId("workspace-unused")).toBeVisible();
   await page.getByRole("button", { name: "Make it a room", exact: true }).click();
+  await workspaceUpdated(page);
+  await open(page, "part-room:2:logic");
   await expect.poll(async () => (await textHook(page)).room).toBe(2);
 });
 

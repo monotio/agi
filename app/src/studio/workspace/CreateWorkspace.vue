@@ -441,6 +441,7 @@ const unusedArt = computed(
     selectedRoom.value === undefined,
 );
 let makingRoom = false;
+const madeRoomArt: Record<string, string> = {};
 const returnRoom = ref<number>();
 const visitingRoom = ref<number>();
 const stageNote = ref("");
@@ -546,6 +547,10 @@ watch(snapshot, async (current) => {
   )
     return;
   returningRemovedRoom = true;
+  const selected = editor.selected.value;
+  const art = selected && madeRoomArt[selected];
+  if (selected && art && !current.keys.includes(selected) && current.keys.includes(art))
+    openPart(art);
   try {
     await backToGame(false);
   } finally {
@@ -1174,6 +1179,7 @@ async function guidedAction(action: WorkspaceAction): Promise<void> {
     if (action.kind === "make-room") {
       refresh();
       const key = prepared.changes.find((change) => change.key.startsWith("logic:"))?.key;
+      if (key) madeRoomArt[key] = action.key;
       if (key && props.creating && result.status !== "draft") {
         const room = Number(key.slice(6));
         const result = await engine.visitRoom(room);
