@@ -18,6 +18,24 @@ async function projectState(page: Page) {
   });
 }
 
+test.afterEach(async ({ page }, info) => {
+  if (info.status === info.expectedStatus) return;
+  const diagnostic = await page.evaluate(async () => ({
+    text: window.__AGI_TEXT__,
+    phase: window.__AGI_STATE__?.phase,
+    status: window.__AGI_STATE__?.status,
+    busy: window.__AGI_STATE__?.powerUp.busy,
+    history: window.__AGI_STATE__?.historyView,
+    worker: await (
+      window as unknown as { __AGI_PROJECT__: { query: (type: "state") => Promise<unknown> } }
+    ).__AGI_PROJECT__.query("state"),
+  }));
+  await info.attach("rewind-state", {
+    body: JSON.stringify(diagnostic),
+    contentType: "application/json",
+  });
+});
+
 for (const action of ["Resume from here", "Undo rewind", "Undo start over"] as const) {
   test(`${action} in Create admits the next LOGIC edit and saves its History commit @webkit-desktop`, async ({
     page,
@@ -63,7 +81,50 @@ for (const action of ["Resume from here", "Undo rewind", "Undo start over"] as c
       await expect(page.getByTestId("btn-history-resume")).toBeEnabled();
       await page.getByTestId("btn-history-resume").click();
       await expect(page.getByTestId("btn-undo-rewind")).toBeVisible();
-      if (action === "Undo rewind") await page.getByTestId("btn-undo-rewind").click();
+      if (action === "Undo rewind") {
+        await expect
+          .poll(() => page.evaluate(() => window.__AGI_STATE__?.powerUp.busy))
+          .toBe(false);
+        await expect.poll(async () => (await textHook(page)).paused).toBe(false);
+        await page.evaluate(() => {
+          const gate = window as unknown as {
+            releaseBranchRead: () => void;
+            branchReadHeld: boolean;
+          };
+          const get = IDBObjectStore.prototype.get;
+          const set = Object.getOwnPropertyDescriptor(IDBTransaction.prototype, "oncomplete")!.set!;
+          let claimed = false;
+          IDBObjectStore.prototype.get = function (key) {
+            if (!claimed && typeof key === "string" && key.startsWith("history/")) {
+              claimed = true;
+              const transaction = this.transaction;
+              Object.defineProperty(transaction, "oncomplete", {
+                set(callback: (event: Event) => void) {
+                  set.call(transaction, (event: Event) => {
+                    gate.branchReadHeld = true;
+                    gate.releaseBranchRead = () => {
+                      IDBObjectStore.prototype.get = get;
+                      callback.call(transaction, event);
+                    };
+                  });
+                },
+              });
+            }
+            return get.call(this, key);
+          };
+        });
+        await page.getByTestId("btn-undo-rewind").click();
+        await expect
+          .poll(() =>
+            page.evaluate(() => (window as unknown as { branchReadHeld: boolean }).branchReadHeld),
+          )
+          .toBe(true);
+        await expect.poll(() => page.evaluate(() => window.__AGI_STATE__?.powerUp.busy)).toBe(true);
+        await expect(page.getByRole("radio", { name: "Create", exact: true })).toBeDisabled();
+        await page.evaluate(() =>
+          (window as unknown as { releaseBranchRead: () => void }).releaseBranchRead(),
+        );
+      }
     }
     await expect
       .poll(() =>

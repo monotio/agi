@@ -31,6 +31,16 @@ test("GPT-6.1 Sol is the new-user default; Stop and budget pauses retain a stage
   const blocked = new Promise<void>((resolve) => {
     release = resolve;
   });
+  let reviewRequested = false;
+  let releaseReview!: () => void;
+  const reviewBlocked = new Promise<void>((resolve) => {
+    releaseReview = resolve;
+  });
+  await page.route("**/src/agent/AgentResourceReview.vue", async (route) => {
+    reviewRequested = true;
+    await reviewBlocked;
+    await route.continue();
+  });
   await page.route("**/api/openai/v1/responses", async (route) => {
     const request = ++requests;
     expect(route.request().postDataJSON().model).toBe("gpt-6.1-sol");
@@ -114,6 +124,9 @@ test("GPT-6.1 Sol is the new-user default; Stop and budget pauses retain a stage
     ).toBeGreaterThanOrEqual(0);
     await page.screenshot({ path: test.info().outputPath("agent-budget.png") });
     await page.getByTestId("agent-continue").click();
+    await expect.poll(() => reviewRequested).toBe(true);
+    await expect(page.getByTestId("agent-review")).toBeHidden();
+    releaseReview();
     await expect(page.getByTestId("agent-review")).toBeVisible();
     await page.getByTestId("agent-approve").click();
     await expect(page.getByTestId("agent-review")).toHaveCount(0);
@@ -126,6 +139,7 @@ test("GPT-6.1 Sol is the new-user default; Stop and budget pauses retain a stage
     expect(words.map(([word]: [string, number]) => word)).toContain("sparkle");
   } finally {
     release();
+    releaseReview();
   }
 });
 

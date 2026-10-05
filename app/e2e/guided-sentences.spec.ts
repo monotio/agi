@@ -21,6 +21,8 @@ async function start(page: Page) {
   await page.reload();
   await openLibraryActions(page, savedGameCard(page, "Sunny clearing"));
   await page.getByTestId("edit-library-game").click();
+  await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  await expect(page.getByTestId("workspace-logic-editor")).toBeVisible();
   await expect(page.getByTestId("workspace-add")).toBeVisible();
 }
 

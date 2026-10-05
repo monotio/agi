@@ -61,7 +61,11 @@ const mode = computed<ShellMode>({
 });
 const modes = computed(() => [
   { value: "play" as const, label: "Play" },
-  { value: "create" as const, label: "Create", disabled: !shell.createAvailable.value },
+  {
+    value: "create" as const,
+    label: "Create",
+    disabled: !shell.createAvailable.value || state.powerUp.busy,
+  },
 ]);
 
 /** The game's own save and restore, as it registered them (menu items or keys). */
