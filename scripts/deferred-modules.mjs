@@ -59,7 +59,8 @@ export function isHomeDeferredModule(module) {
   return (
     isStudioModule(module) ||
     HOME_DEFERRED_MODULES.some((pattern) => pattern.test(module)) ||
-    AUTHORING_MODULES.some((pattern) => pattern.test(module))
+    AUTHORING_MODULES.some((pattern) => pattern.test(module)) ||
+    ROOM_ANALYSIS_MODULES.some((pattern) => pattern.test(module))
   );
 }
 
@@ -89,4 +90,10 @@ export const AUTHORING_MODULES = [
   /^src\/studio\/(editOperations|editValidation|pictureDocument|probe|lensRules|assistScope)\.ts$/,
   /^src\/studio\/sprite\/(spriteOperations|spriteCels)\.ts$/,
   /^app\/node_modules\/(openai|@anthropic-ai\/sdk)\//,
+];
+
+/** Room-flow analysis starts with the map or Create, in its own worker. */
+export const ROOM_ANALYSIS_MODULES = [
+  /^src\/agent\/(roomMap|roomFlow)\.ts$/,
+  /^app\/src\/world\/roomAnalysis(Runner|\.worker)\.ts$/,
 ];

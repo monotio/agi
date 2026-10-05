@@ -60,10 +60,19 @@ function union(a: Value, b: Value): Value {
   if (a.widened || b.widened) return WIDENED;
   if (!b.numbers.length && (a.unknown || !b.unknown)) return a;
   if (!a.numbers.length && (b.unknown || !a.unknown)) return b;
-  const numbers = [...new Set([...a.numbers, ...b.numbers])].sort((x, y) => x - y);
+  if ((!b.unknown || a.unknown) && b.numbers.every((n) => a.numbers.includes(n))) return a;
+  if ((!a.unknown || b.unknown) && a.numbers.every((n) => b.numbers.includes(n))) return b;
+  const numbers = [...a.numbers];
+  for (const number of b.numbers) {
+    if (numbers.includes(number)) continue;
+    numbers.push(number);
+    if (numbers.length > MAX_CONSTANTS) return WIDENED;
+  }
+  numbers.sort((x, y) => x - y);
   return numbers.length > MAX_CONSTANTS ? WIDENED : { numbers, unknown: a.unknown || b.unknown };
 }
 function same(a: Value, b: Value): boolean {
+  if (a === b) return true;
   return (
     a.unknown === b.unknown &&
     a.widened === b.widened &&
@@ -91,32 +100,42 @@ function clear(state: State): void {
   for (const variable of state.keys()) state.set(variable, UNKNOWN);
 }
 
-/** Refine simple numeric guards on both branches. Other predicates stay possible. */
-function branch(
-  state: State,
-  text: string,
-  truth: boolean,
-  relevant: ReadonlySet<number>,
-): State | null {
-  const next = new Map(state);
+interface Guard {
+  variable: number;
+  constant: number;
+  comparison: string;
+  negated: boolean;
+}
+function guards(text: string, relevant: ReadonlySet<number>): { clauses: number; guards: Guard[] } {
   const clauses = text.split(" && ");
-  if (!truth && clauses.length !== 1) return next;
+  const guards: Guard[] = [];
   for (const clause of clauses) {
     const match = /^(!?)(equaln|greatern|lessn)\(v(\d+), (\d+)\)$/.exec(clause);
-    if (!match) continue;
-    const variable = Number(match[3]);
-    if (!relevant.has(variable)) continue;
-    const constant = Number(match[4]);
-    const positive = truth !== (match[1] === "!");
+    if (match && relevant.has(Number(match[3])))
+      guards.push({
+        variable: Number(match[3]),
+        constant: Number(match[4]),
+        comparison: match[2]!,
+        negated: match[1] === "!",
+      });
+  }
+  return { clauses: clauses.length, guards };
+}
+/** Refine simple numeric guards on both branches. Other predicates stay possible. */
+function branch(state: State, conditions: ReturnType<typeof guards>, truth: boolean): State | null {
+  if ((!truth && conditions.clauses !== 1) || !conditions.guards.length) return state;
+  const next = new Map(state);
+  for (const { variable, constant, comparison, negated } of conditions.guards) {
+    const positive = truth !== negated;
     const accepts = (n: number): boolean =>
-      (match[2] === "equaln"
+      (comparison === "equaln"
         ? n === constant
-        : match[2] === "greatern"
+        : comparison === "greatern"
           ? n > constant
           : n < constant) === positive;
     const value = next.get(variable) ?? UNKNOWN;
     const numbers = value.numbers.filter(accepts);
-    if (variable !== 0 && value.unknown && match[2] === "equaln" && positive)
+    if (variable !== 0 && value.unknown && comparison === "equaln" && positive)
       next.set(variable, literal(constant));
     else {
       if (!numbers.length && !value.unknown) return null;
@@ -165,6 +184,7 @@ export function createRoomFlow(
 ): {
   scan: (logic: number, room?: number, main?: boolean) => FlowScan;
   instructions: ReadonlyMap<number, readonly Insn[]>;
+  work: Readonly<{ steps: number; summaries: number; hits: number }>;
 } {
   const instructions = new Map<number, readonly Insn[]>();
   for (const [num, payload] of logics) {
@@ -279,19 +299,73 @@ export function createRoomFlow(
         removed = true;
       }
   }
-  function scan(logic: number, room?: number, main = false): FlowScan {
-    const result: FlowScan = {
+  // Instruction metadata is independent of entry state. Build it once rather
+  // than repeating guard/evidence searches inside the fixpoint worklist.
+  const metadata = new Map(
+    [...instructions].map(([num, insns]) => {
+      const next = new Map<number, number>();
+      const entries = new Map(
+        insns.map((i) => [
+          i.at,
+          {
+            insn: i,
+            evidence: evidence(i, insns),
+            side: ["new.room", "new.room.v", "call", "call.v"].includes(i.name ?? "")
+              ? edgeAt(insns, i.at)
+              : undefined,
+            guards: guards(i.kind === "if" ? (i.text ?? "") : "", relevant),
+          },
+        ]),
+      );
+      let nextAt = -1;
+      for (const insn of [...insns].reverse()) {
+        if (
+          insn.kind !== "action" ||
+          ["new.room", "new.room.v", "call", "call.v", "lindirectn", "lindirectv"].includes(
+            insn.name ?? "",
+          ) ||
+          entries.get(insn.at)!.evidence ||
+          (VAR_WRITES[insn.name ?? ""] ?? []).some((pos) => relevant.has(insn.args![pos]!))
+        )
+          nextAt = insn.at;
+        next.set(insn.at, nextAt);
+      }
+      return [num, { entries, next }] as const;
+    }),
+  );
+  interface Summary {
+    output: State | null;
+    scan: FlowScan;
+  }
+  const summaries = new Map<string, Summary>();
+  const work = { steps: 0, summaries: 0, hits: 0 };
+  function emptyScan(): FlowScan {
+    return {
       targets: [],
       variableTarget: false,
       calls: [],
       unresolvedCall: false,
       roomEvidence: false,
     };
-    const targets = new Set<string>();
-    const calls = new Set<number>();
-    const memo = new Map<string, State | null>();
-    const inputs = new Map<string, State>();
-    function run(
+  }
+  function scan(logic: number, room?: number, main = false): FlowScan {
+    let result = emptyScan();
+    let targets = new Set<string>();
+    let calls = new Set<number>();
+    function merge(saved: FlowScan): void {
+      result.variableTarget ||= saved.variableTarget;
+      result.unresolvedCall ||= saved.unresolvedCall;
+      result.roomEvidence ||= saved.roomEvidence;
+      for (const call of saved.calls) calls.add(call);
+      for (const target of saved.targets) {
+        const id = `${target.to}:${target.edge ?? ""}`;
+        if (!targets.has(id)) {
+          targets.add(id);
+          result.targets.push(target);
+        }
+      }
+    }
+    function runBody(
       num: number,
       input: State,
       stack: ReadonlySet<number>,
@@ -312,7 +386,7 @@ export function createRoomFlow(
           if (visited.has(current)) continue;
           visited.add(current);
           for (const insn of instructions.get(current)!) {
-            result.roomEvidence ||= evidence(insn, instructions.get(current)!);
+            result.roomEvidence ||= metadata.get(current)!.entries.get(insn.at)!.evidence;
             if (insn.name === "call") {
               calls.add(insn.args![0]!);
               queue.push(insn.args![0]!);
@@ -325,34 +399,15 @@ export function createRoomFlow(
         return output;
       }
       const vars = dependencies.get(num)!;
-      const key = JSON.stringify([num, inherited]);
-      const projected = new Map([...vars].map((v) => [v, input.get(v) ?? UNKNOWN]));
-      const previous = inputs.get(key);
-      const changed = !previous || join(previous, projected);
+      const joined = new Map([...vars].map((v) => [v, input.get(v) ?? UNKNOWN]));
       const restore = (saved: State | null): State | null => {
         if (!saved) return null;
         const restored = new Map(input);
         for (const variable of vars) restored.set(variable, saved.get(variable) ?? UNKNOWN);
         return restored;
       };
-      if (!changed && memo.has(key)) return restore(memo.get(key)!);
-      if (!previous) inputs.set(key, projected);
-      const joined = new Map(inputs.get(key)!);
       const insns = instructions.get(num)!;
-      const byOffset = new Map(insns.map((i) => [i.at, i]));
-      const next = new Map<number, number>();
-      let nextAt = -1;
-      for (const insn of [...insns].reverse()) {
-        const relevantAction =
-          insn.kind !== "action" ||
-          ["new.room", "new.room.v", "call", "call.v", "lindirectn", "lindirectv"].includes(
-            insn.name ?? "",
-          ) ||
-          evidence(insn, insns) ||
-          (VAR_WRITES[insn.name ?? ""] ?? []).some((pos) => relevant.has(insn.args![pos]!));
-        if (relevantAction) nextAt = insn.at;
-        next.set(insn.at, nextAt);
-      }
+      const { entries, next } = metadata.get(num)!;
       const states = new Map<number, State>();
       const queue: number[] = [];
       const pending = new Set<number>();
@@ -372,30 +427,45 @@ export function createRoomFlow(
         }
       };
       if (insns[0]) enqueue(insns[0].at, joined);
+      // Each instruction state grows monotonically: one admission, at most
+      // MAX_CONSTANTS new numbers per dependency, one unknown bit, then
+      // widening. This bound follows the lattice and this LOGIC's size.
+      const limit = (entries.size + 1) * (1 + vars.size * (MAX_CONSTANTS + 2));
+      let processed = 0;
       while (queue.length) {
+        if (++processed > limit) {
+          result.variableTarget = true;
+          result.unresolvedCall = true;
+          const output = new Map(input);
+          clear(output);
+          return output;
+        }
         const at = queue.shift()!;
         pending.delete(at);
-        const insn = byOffset.get(at);
-        if (!insn) continue;
-        const state = new Map(states.get(at)!);
+        work.steps++;
+        const entry = entries.get(at);
+        if (!entry) continue;
+        const { insn } = entry;
+        const entryState = states.get(at)!;
         if (insn.kind === "return") {
-          if (output) join(output, state);
-          else output = state;
+          if (output) join(output, entryState);
+          else output = new Map(entryState);
           continue;
         }
         if (insn.kind === "goto") {
-          enqueue(insn.target, state);
+          enqueue(insn.target, entryState);
           continue;
         }
         if (insn.kind === "if") {
-          enqueue(insn.end, branch(state, insn.text ?? "", true, relevant));
-          enqueue(insn.target, branch(state, insn.text ?? "", false, relevant));
+          enqueue(insn.end, branch(entryState, entry.guards, true));
+          enqueue(insn.target, branch(entryState, entry.guards, false));
           continue;
         }
+        const state = new Map(entryState);
         const name = insn.name;
         const args = insn.args ?? [];
-        result.roomEvidence ||= evidence(insn, insns);
-        const side = edgeAt(insns, at, inherited);
+        result.roomEvidence ||= entry.evidence;
+        const side = entry.side ?? inherited;
         if (name === "new.room" || name === "new.room.v") {
           const value = name === "new.room" ? literal(args[0]!) : (state.get(args[0]!) ?? UNKNOWN);
           if (name === "new.room.v") result.variableTarget ||= value.unknown;
@@ -435,8 +505,46 @@ export function createRoomFlow(
             if (relevant.has(args[pos]!)) state.set(args[pos]!, UNKNOWN);
         enqueue(insn.end, state);
       }
-      memo.set(key, output);
       return restore(output);
+    }
+    function run(
+      num: number,
+      input: State,
+      stack: ReadonlySet<number>,
+      inherited?: Side,
+    ): State | null {
+      const vars = dependencies.get(num) ?? relevant;
+      const projected = [...vars]
+        .sort((a, b) => a - b)
+        .map((v) => [v, input.get(v) ?? UNKNOWN] as const);
+      const key = JSON.stringify([num, inherited, projected]);
+      const cached = summaries.get(key);
+      // A summary is reusable only when none of its calls meets an active
+      // ancestor. Recursive entries keep the existing conservative clobber.
+      if (cached && !stack.has(num) && !cached.scan.calls.some((callee) => stack.has(callee))) {
+        work.hits++;
+        merge(cached.scan);
+        if (!cached.output) return null;
+        const output = new Map(input);
+        for (const variable of vars) output.set(variable, cached.output.get(variable) ?? UNKNOWN);
+        return output;
+      }
+      const parent = { result, targets, calls };
+      result = emptyScan();
+      targets = new Set();
+      calls = new Set();
+      const output = runBody(num, input, stack, inherited);
+      result.calls = [...calls];
+      const summary = { output, scan: result };
+      result = parent.result;
+      targets = parent.targets;
+      calls = parent.calls;
+      merge(summary.scan);
+      if (!stack.has(num) && !summary.scan.calls.includes(num)) {
+        summaries.set(key, summary);
+        work.summaries++;
+      }
+      return output;
     }
     const initial: State = new Map(
       [...globals]
@@ -467,5 +575,5 @@ export function createRoomFlow(
     result.calls = [...calls].sort((a, b) => a - b);
     return result;
   }
-  return { scan, instructions };
+  return { scan, instructions, work };
 }

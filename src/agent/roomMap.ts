@@ -56,7 +56,7 @@ export function scanStaticExits(
   payload: Uint8Array,
   profile?: AgiProfile,
   selfRoom?: number,
-  options: { readonly targets?: "literal" | "constant" } = {},
+  options: { readonly targets?: "literal" | "constant"; readonly resolve?: boolean } = {},
 ): StaticRoomScan {
   try {
     const insns = decodeLogicInsns(payload, profile !== undefined ? { profile } : {});
@@ -161,10 +161,19 @@ export function scanStaticExits(
         for (const at of VAR_WRITES[name] ?? []) bound.delete(args[at]!);
       }
     }
-    const flow = createRoomFlow(new Map([[selfRoom ?? 0, payload]]), profile).scan(
-      selfRoom ?? 0,
-      selfRoom,
-    );
+    const flow =
+      options.resolve === false
+        ? {
+            targets,
+            variableTarget,
+            roomEvidence: insns.some((i) =>
+              ["load.pic", "draw.pic", "overlay.pic"].includes(i.name ?? ""),
+            ),
+          }
+        : createRoomFlow(new Map([[selfRoom ?? 0, payload]]), profile).scan(
+            selfRoom ?? 0,
+            selfRoom,
+          );
     return {
       targets: options.targets !== "literal" && variableTarget ? flow.targets : targets,
       variableTarget: flow.variableTarget,
@@ -194,15 +203,15 @@ export function scanStaticExits(
 export function scanContainerExits(
   logics: ReadonlyMap<number, Uint8Array>,
   profile?: AgiProfile,
-  options: { readonly main?: boolean } = {},
+  options: { readonly main?: boolean; readonly literal?: boolean } = {},
 ): { scans: Map<number, StaticRoomScan>; shared: Set<number> } {
   const scans = new Map<number, StaticRoomScan>();
   const shared = new Set<number>([0]);
-  const flow = createRoomFlow(logics, profile);
+  const flow = options.literal ? undefined : createRoomFlow(logics, profile);
   const rooms = new Set<number>();
   for (const [num, payload] of logics) {
-    const scan = scanStaticExits(payload, profile, num);
-    const exits = flow.scan(num, num === 0 ? undefined : num);
+    const scan = scanStaticExits(payload, profile, num, { resolve: false });
+    const exits = flow?.scan(num, num === 0 ? undefined : num) ?? scan;
     scans.set(num, { ...scan, ...exits });
     for (const callee of exits.calls) if (callee !== num) shared.add(callee);
     for (const target of exits.targets) if (target.to !== 0) rooms.add(target.to);
@@ -212,13 +221,17 @@ export function scanContainerExits(
   // A room can also be called directly. Incoming exits establish its room
   // identity independently of the call that executes its LOGIC.
   for (const room of rooms) shared.delete(room);
-  const dispatch = flow.instructions
-    .get(0)
-    ?.some(
-      (i) =>
-        (i.name === "call.v" && i.args?.[0] === 0) || (i.name === "call" && rooms.has(i.args![0]!)),
-    );
+  const dispatch =
+    options.main &&
+    flow?.instructions
+      .get(0)
+      ?.some(
+        (i) =>
+          (i.name === "call.v" && i.args?.[0] === 0) ||
+          (i.name === "call" && rooms.has(i.args![0]!)),
+      );
   for (const [num, scan] of scans) {
+    if (!dispatch || !flow) break;
     if (
       shared.has(num) ||
       (!rooms.has(num) &&

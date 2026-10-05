@@ -1010,6 +1010,7 @@ onBeforeUnmount(() => {
     <InspectPanel />
   </aside>
   <PartsList
+    :data-analysis="engine.roomMap.analysisStatus.value"
     :active="
       creating && !editor.focus.value && (!workspace.collapsed.left || editor.partsOpen.value)
     "

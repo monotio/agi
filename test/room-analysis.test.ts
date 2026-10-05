@@ -143,3 +143,22 @@ test("LOGIC 0 can dispatch rooms with literal calls", () => {
     ],
   );
 });
+
+test("room flow reuses a completed entry summary across scans", async () => {
+  const { createRoomFlow } = await import("../src/agent/roomFlow.ts");
+  const flow = createRoomFlow(
+    new Map([
+      [1, logic("assignn(v60,7);call(9);new.room.v(v61);return;")],
+      [2, logic("assignn(v60,7);call(9);new.room.v(v61);return;")],
+      [9, logic("assignv(v61,v60);return;")],
+    ]),
+  );
+  assert.deepEqual(flow.scan(1, 1).targets, [{ to: 7 }]);
+  const steps = flow.work.steps;
+  assert.deepEqual(flow.scan(1, 1).targets, [{ to: 7 }]);
+  assert.equal(flow.work.steps, steps);
+  const summaries = flow.work.summaries;
+  assert.deepEqual(flow.scan(2, 2).targets, [{ to: 7 }]);
+  assert.equal(flow.work.summaries, summaries + 1);
+  assert.ok(flow.work.hits >= 2);
+});

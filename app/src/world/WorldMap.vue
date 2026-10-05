@@ -34,6 +34,11 @@ const editor = useWorkspaceEditor();
 const shell = useShell();
 // Top-level refs unwrap in the template; .value stays in the script.
 const { unsaved, storageError } = map;
+const runtimeExits = computed(() =>
+  [...map.resources.value.scans.values()].some(
+    (scan) => scan.variableTarget || scan.unresolvedCall,
+  ),
+);
 
 const graphView = useTemplateRef("graphView");
 const sideEl = useTemplateRef("sideEl");
@@ -110,6 +115,7 @@ function addStandaloneRoom(): void {
     class="world-map"
     close-testid="map-close"
     data-testid="world-map"
+    :data-analysis="map.analysisStatus.value"
   >
     <template #actions>
       <span v-if="state.paused" class="map-paused" data-testid="map-paused">Game paused</span>
@@ -151,11 +157,8 @@ function addStandaloneRoom(): void {
       </span>
     </div>
     <p
-      v-if="
-        [...map.resources.value.scans.values()].some(
-          (scan) => scan.variableTarget || scan.unresolvedCall,
-        )
-      "
+      :class="{ 'is-clear': !runtimeExits }"
+      :aria-hidden="!runtimeExits"
       class="map-runtime"
       data-testid="map-runtime-exits"
     >
@@ -231,6 +234,9 @@ function addStandaloneRoom(): void {
   padding: 0 var(--space-6) var(--space-3);
   color: var(--ink-3);
   font-size: var(--text-sm);
+}
+.map-runtime.is-clear {
+  visibility: hidden;
 }
 .map-body {
   display: grid;

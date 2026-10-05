@@ -111,3 +111,81 @@ test("an incoming exit identifies ROOM 255 in the parts list", async ({ page }) 
   await expect(room).toBeVisible();
   await expect(room).toContainText("ROOM 255");
 });
+
+test("a staged room answer preserves the selected room and graph viewport", async ({ page }) => {
+  await page.addInitScript(() => {
+    window.Worker = new Proxy(Worker, {
+      construct(Target, args: ConstructorParameters<typeof Worker>) {
+        const worker = new Target(...args);
+        if (!String(args[0]).includes("roomAnalysis.worker")) return worker;
+        Object.defineProperty(worker, "onmessage", {
+          set(listener: (event: MessageEvent) => void) {
+            worker.addEventListener("message", (event) => {
+              if (event.data.phase === "resolved")
+                (window as unknown as { releaseRoomScan: () => void }).releaseRoomScan = () =>
+                  listener(event);
+              else listener(event);
+            });
+          },
+        });
+        return worker;
+      },
+    });
+  });
+  const game = mapGame();
+  game.putResource(
+    "logic",
+    0,
+    assembleLogic("if(v0==0){new.room(1);}call(1);return;", { dictionary: new Map() }).payload,
+  );
+  game.putResource("logic", 4, assembleLogic("return;", { dictionary: new Map() }).payload);
+  game.putResource(
+    "logic",
+    1,
+    assembleLogic(
+      "if(isset(f5)){load.pic(v0);draw.pic(v0);show.pic();accept.input();}if(v2==4){assignn(v60,5);new.room.v(v60);}return;",
+      { dictionary: new Map() },
+    ).payload,
+  );
+  game.putResource("logic", 5, assembleLogic("return;", { dictionary: new Map() }).payload);
+  await page.goto("/");
+  await cacheGame(page, {
+    projectId: testProjectId("staged-map"),
+    title: "Room paths",
+    imported: true,
+    files: Object.fromEntries(game.files),
+    words: [],
+  });
+  await page.reload();
+  await page.getByTestId("btn-resume-cached").click();
+  await expect(page.getByTestId("input-line")).toBeEnabled();
+  await page.getByTestId("btn-world-map").click();
+  await expect(page.getByTestId("world-map")).toBeVisible();
+  await page.getByTestId("btn-world-plan").click();
+  await expect(page.getByTestId("world-map")).toHaveAttribute("data-analysis", "literal");
+  await openWorldRoom(page.getByTestId("world-map"), 1);
+  const node = page.getByTestId("map-node-1");
+  await expect(node).toBeVisible();
+  const before = await node.boundingBox();
+  expect(before).not.toBeNull();
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () => typeof (window as unknown as { releaseRoomScan?: () => void }).releaseRoomScan,
+      ),
+    )
+    .toBe("function");
+  await page.evaluate(() =>
+    (window as unknown as { releaseRoomScan: () => void }).releaseRoomScan(),
+  );
+  await expect(page.getByTestId("world-map")).toHaveAttribute("data-analysis", "resolved");
+  await expect(page.getByTestId("map-runtime-exits")).not.toBeVisible();
+  await expect(page.getByTestId("map-detail")).toBeVisible();
+  await expect(page.getByTestId("map-detail")).toContainText("Room 1");
+  await expect
+    .poll(async () => {
+      const after = await node.boundingBox();
+      return after ? Math.abs(after.x - before!.x) + Math.abs(after.y - before!.y) : Infinity;
+    })
+    .toBeLessThan(2);
+});

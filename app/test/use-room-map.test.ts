@@ -6,6 +6,7 @@ import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import { createAuthoringState } from "../../src/agent/authoringState.ts";
 import { commitWorldDraft, worldRevision, type WorldDraft } from "../../src/agent/worldPlan.ts";
+import { scanContainerExits } from "../../src/agent/roomMap.ts";
 import { useRoomMap } from "../src/world/useRoomMap.ts";
 import { installedProgressLocator } from "../src/project/progressTarget.ts";
 import { roomPictureUse } from "../../src/agent/roomPictures.ts";
@@ -62,6 +63,10 @@ function makeHarness(storage?: Pick<Storage, "getItem" | "setItem">): {
     folder: "test-game",
   };
   const map = useRoomMap({
+    startAnalysis: ({ logics, profile }, answer) => {
+      answer({ phase: "resolved", ...scanContainerExits(logics, profile, { main: true }) });
+      return () => {};
+    },
     state,
     hook,
     getBootedGame: () => game,
@@ -390,9 +395,10 @@ test("thumbnail reads are pure — no render, no version churn", async () => {
   );
   const { map, notice, boot } = makeHarness();
   await boot(Object.fromEntries(game.files));
+  map.openMap();
   notice({ to: 1, cause: "boot", cycle: 1 });
   await nextTick();
-  await nextTick(); // the graph watcher prepares static thumbs off-read
+  await nextTick(); // the map activity prepares static thumbs off-read
   const first = map.thumbnailFor(1);
   assert.equal(first?.kind, "static");
   const settled = map.thumbVersion.value;
@@ -540,6 +546,10 @@ function planHarness(opts: {
     words: [],
   };
   const map = useRoomMap({
+    startAnalysis: ({ logics, profile }, answer) => {
+      answer({ phase: "resolved", ...scanContainerExits(logics, profile, { main: true }) });
+      return () => {};
+    },
     state,
     hook,
     getBootedGame: () => game,
