@@ -13,7 +13,7 @@ import {
   AMIGA_2082_NOISE_BYTES,
   AMIGA_2082_TONE_SAMPLE,
   AMIGA_TONE_SAMPLE,
-  PIT_BASE_FREQ,
+  PSG_BASE_FREQ,
   amigaNoisePcm,
   type IigsOutput,
   type SoundOutput,
@@ -502,7 +502,7 @@ export class AgiAudio {
           ? (this.divisors[channel]! & 0x3f0) | (byte & 15)
           : (this.divisors[channel]! & 15) | ((byte & 63) << 4);
         const divisor = this.divisors[channel]!;
-        const rawFreq = divisor ? PIT_BASE_FREQ / divisor : 0;
+        const rawFreq = divisor ? PSG_BASE_FREQ / divisor : 0;
         this.oscillators[channel]!.frequency.setValueAtTime(Math.min(maxFreq, rawFreq), at);
       } else {
         // Noise control register is latch-only (docs/fidelity.md: SN76489 attenuation latching and rest notes).
@@ -510,7 +510,7 @@ export class AgiAudio {
         // Noise timbre is a presentation approximation; command timing and gain are exact.
         const rate = byte & 3;
         const rawFreq =
-          rate === 3 ? PIT_BASE_FREQ / Math.max(1, this.divisors[2]!) : 4000 / (1 << rate);
+          rate === 3 ? PSG_BASE_FREQ / Math.max(1, this.divisors[2]!) : 4000 / (1 << rate);
         this.noiseFilter!.frequency.setValueAtTime(Math.min(maxFreq, rawFreq), at);
       }
     }

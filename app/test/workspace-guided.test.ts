@@ -114,7 +114,8 @@ test("guided sound preset creates a cue and command playback in one detached cha
   assert.ok(result.ok, JSON.stringify(result));
   const cue = result.changes.find((change) => change.key === "sound:2");
   assert.ok(cue?.content instanceof Uint8Array);
-  assert.deepEqual([...cue.content.slice(8, 13)], [10, 0, 9, 135, 148]);
+  // E5: round((3,579,545 / 32) / 659.2551138) = 170 = 0x0aa.
+  assert.deepEqual([...cue.content.slice(8, 13)], [10, 0, 10, 138, 148]);
   assert.ok(result.changes.some((change) => change.key === "logic:1"));
   assert.equal(snapshot.read("sound:2"), undefined);
   assert.equal(model.capture().revision, snapshot.revision);

@@ -817,20 +817,20 @@ describe('apple iigs stream family (docs/fidelity.md "IIgs sound")', () => {
   };
 
   it("a type-1 sample completes when the oscillator reaches its zero byte", () => {
-    // Semitone 57 is 220 Hz: 256 * 220 = 56,320 bytes per second, 938.67 per
-    // tick. 1,000 bytes before the zero halt in the second tick.
+    // Note Synthesizer F=$0225, R=T=5: 28,222.03 bytes/second.
+    // A start on tick 1 reaches byte 1,000 after 2.13 ticks; tick 4 observes it.
     const payload = sample(57, [...new Array<number>(1000).fill(0x80), 0x00]);
     const { byTick, end } = run(iigs(payload));
     assert.deepEqual(byTick.get(1), [
       ALL_OFF,
       { kind: "iigs", event: "sample", voice: 0, data: payload.subarray(2) },
     ]);
-    assert.deepEqual(byTick.get(2), [ALL_OFF]);
-    assert.equal(end, 2);
+    assert.deepEqual(byTick.get(4), [ALL_OFF]);
+    assert.equal(end, 4);
   });
 
   it("an early zero byte halts the sample before its byte count", () => {
-    // 10 bytes at 938.67 per tick halt within the first tick.
+    // Ten bytes halt before the first heartbeat following the start on tick 1.
     const { end } = run(
       iigs(
         sample(57, [
@@ -841,15 +841,15 @@ describe('apple iigs stream family (docs/fidelity.md "IIgs sound")', () => {
         ]),
       ),
     );
-    assert.equal(end, 1);
+    assert.equal(end, 2);
   });
 
   it("a one-shot sample without a zero byte halts at the end of its table", () => {
-    // Size byte 0x12 is T = 2: a 1,024-byte table, 1.09 ticks at 938.67 bytes per tick.
+    // T=2,R=2: 1,024 bytes take 2.18 ticks after the start on tick 1.
     const { end } = run(
       iigs(sample(57, new Array<number>(1024).fill(0x80), { size: 0x12, mode: 0x02 })),
     );
-    assert.equal(end, 2);
+    assert.equal(end, 4);
   });
 
   it("a free-running sample without a zero byte loops until stopped", () => {

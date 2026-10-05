@@ -621,10 +621,10 @@ describe("agent tools", () => {
       tracks: [
         {
           notes: [
-            { note: "A4", duration: 30, attenuation: 0 }, // A440 -> divisor 226
-            { note: "C4", duration: 30, attenuation: null }, // C4 (Middle C) -> divisor 380
+            { note: "A4", duration: 30, attenuation: 0 }, // A440 -> divisor 254
+            { note: "C4", duration: 30, attenuation: null }, // C4 (Middle C) -> divisor 428
             { note: "rest", duration: 15, attenuation: null }, // Rest -> silence
-            { note: 72, duration: 60, attenuation: 1 }, // MIDI 72 = C5 -> divisor 190
+            { note: 72, duration: 60, attenuation: 1 }, // MIDI 72 = C5 -> divisor 214
           ],
         },
       ],
@@ -635,18 +635,18 @@ describe("agent tools", () => {
     const ch0Offset = soundData[0]! | (soundData[1]! << 8);
     assert.equal(ch0Offset, 8);
 
-    // Note 1: A4 (divisor 226 = 0x00e2) -> tone low: (226>>4)&0x3f = 14, tone latch: 0x80|(226&0x0f) = 0x82
+    // Note 1: A4 divisor 254: tone low 15, latch 0x8e.
     // Duration: 30 (0x001e)
     assert.equal(soundData[8], 30);
     assert.equal(soundData[9], 0);
-    assert.equal(soundData[10], (226 >> 4) & 0x3f);
-    assert.equal(soundData[11], 0x82);
+    assert.equal(soundData[10], (254 >> 4) & 0x3f);
+    assert.equal(soundData[11], 0x8e);
     assert.equal(soundData[12], 0x90); // channel 0, attenuation 0
 
-    // Note 2: C4 (divisor 380 = 0x017c) -> tone low: (380>>4)&0x3f = 23, tone latch: 0x80|(380&0x0f) = 0x8c
+    // Note 2: C4 divisor 428: tone low 26, latch 0x8c.
     assert.equal(soundData[13], 30);
     assert.equal(soundData[14], 0);
-    assert.equal(soundData[15], (380 >> 4) & 0x3f);
+    assert.equal(soundData[15], (428 >> 4) & 0x3f);
     assert.equal(soundData[16], 0x8c);
     assert.equal(soundData[17], 0x90);
 

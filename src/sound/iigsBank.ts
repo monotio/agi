@@ -9,7 +9,7 @@
  */
 
 export interface IigsWave {
-  /** Highest semitone this wave covers; entries are scanned in order. */
+  /** Exclusive upper semitone for this wave; entries are scanned in order. */
   readonly topKey: number;
   /** DOC wave-RAM page (address high byte) of the wave table. */
   readonly waveAddr: number;
@@ -44,6 +44,27 @@ export interface IigsBank {
   readonly programs: readonly IigsInstrument[];
   /** The channel default before any program change (record at ~globals+0x05c4). */
   readonly defaultInstrument: IigsInstrument;
+}
+
+/** DOC scan with 32 enabled oscillators and two RAM-refresh slots. */
+const DOC_SCAN_HZ = 7159090 / 8 / 34;
+
+/** Note Synthesizer frequency word followed by the DOC address multiplexer. */
+export function iigsByteRate(
+  semitone: number,
+  wave: Pick<IigsWave, "waveSize" | "relPitch">,
+  carry = 0,
+): number {
+  // docs/fidelity.md, "IIgs DOC pitch, volume and headroom".
+  const pitch = (semitone * 256 + wave.relPitch + carry) & 0x7fff & ~1;
+  const octave = Math.floor(pitch / 3072);
+  const fraction = pitch % 3072;
+  // Independent equal temperament matches the observed 1,536 table words.
+  const base = Math.floor(20905.466 * 2 ** (fraction / 3072));
+  const frequency = base >> Math.max(0, 10 - octave);
+  const size = (wave.waveSize >> 3) & 7;
+  const resolution = wave.waveSize & 7;
+  return (DOC_SCAN_HZ * frequency) / 2 ** (9 + resolution - size);
 }
 
 const ENVELOPE_SEGMENTS = 8;

@@ -10,7 +10,7 @@ import {
   timedSoundEvents,
   type TimedSoundEvent,
 } from "../../../../src/sound/sequencer.ts";
-import { PIT_BASE_FREQ } from "../../../../src/sound/sound.ts";
+import { PSG_BASE_FREQ } from "../../../../src/sound/sound.ts";
 import { VOCABULARY } from "../../../../src/vocabulary.ts";
 import { ref } from "vue";
 const props = defineProps<{
@@ -79,7 +79,7 @@ let drag:
   | undefined;
 function midi(note: TimedSoundEvent): number {
   return note.event.data.kind === "tone"
-    ? Math.round(69 + 12 * Math.log2(PIT_BASE_FREQ / note.event.data.divisor / 440))
+    ? Math.round(69 + 12 * Math.log2(PSG_BASE_FREQ / note.event.data.divisor / 440))
     : 0;
 }
 function noteRow(note: TimedSoundEvent): number {

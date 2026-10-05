@@ -72,7 +72,7 @@ describe("createSoundDocument", () => {
 
 describe("importSoundDocument strict decode", () => {
   it("decodes a hand-written tone event exactly and re-encodes to identical bytes", () => {
-    // lane0: 30 ticks, divisor 226 (~A4), attenuation 4 -> 1e 00 0e 82 94
+    // lane0: 30 ticks, divisor 226 (~B4), attenuation 4 -> 1e 00 0e 82 94
     const bytes = payload([[...toneRecord(0, 30, 226, 4), ...END], [...END], [...END], [...END]]);
     const doc = importSoundDocument(bytes, { profileId: "2.936" });
     assert.equal(doc.representation, "four-stream");
@@ -427,8 +427,8 @@ describe("editing", () => {
       ticks: 30,
       data: { kind: "tone", note: "A4" },
     });
-    assert.deepEqual(events(doc, 0)[0]!.data, { kind: "tone", divisor: 226, attenuation: 4 });
-    assert.deepEqual([...doc.encode()].slice(8, 13), [30, 0, 0x0e, 0x82, 0x94]);
+    assert.deepEqual(events(doc, 0)[0]!.data, { kind: "tone", divisor: 254, attenuation: 4 });
+    assert.deepEqual([...doc.encode()].slice(8, 13), [30, 0, 0x0f, 0x8e, 0x94]);
   });
 
   it("duplicates with a distinct stable id and keeps order", () => {
@@ -550,19 +550,19 @@ describe("editing", () => {
   });
 
   it("quantizes an in-range note to the nearest integer divisor", () => {
-    // Hand-computed against 99431.67 / Hz: G2 is the deepest representable
-    // note (ideal divisor ~1014.6 -> 1015), C4 is 380, "69" is A4 -> 226.
+    // Hand-computed against 3579545 / (32 * Hz): A2 is the deepest representable
+    // note (ideal divisor ~1016.916 -> 1017), C4 is 428, A4 is 254.
     const doc = createSoundDocument()
-      .insertEvent(0, 0, { ticks: 10, data: { kind: "tone", note: "G2" } })
+      .insertEvent(0, 0, { ticks: 10, data: { kind: "tone", note: "A2" } })
       .insertEvent(0, 1, { ticks: 10, data: { kind: "tone", note: 60 } })
       .insertEvent(0, 2, { ticks: 10, data: { kind: "tone", note: "69" } });
     const lane = events(doc, 0);
-    assert.deepEqual(lane[0]!.data, { kind: "tone", divisor: 1015, attenuation: 4 });
-    assert.deepEqual(lane[1]!.data, { kind: "tone", divisor: 380, attenuation: 4 });
-    assert.deepEqual(lane[2]!.data, { kind: "tone", divisor: 226, attenuation: 4 });
+    assert.deepEqual(lane[0]!.data, { kind: "tone", divisor: 1017, attenuation: 4 });
+    assert.deepEqual(lane[1]!.data, { kind: "tone", divisor: 428, attenuation: 4 });
+    assert.deepEqual(lane[2]!.data, { kind: "tone", divisor: 254, attenuation: 4 });
     // A valid note edit replaces the stored divisor.
     const edited = doc.updateEvent(lane[0]!.id, { note: "E5" });
-    assert.deepEqual(events(edited, 0)[0]!.data, { kind: "tone", divisor: 151, attenuation: 4 });
+    assert.deepEqual(events(edited, 0)[0]!.data, { kind: "tone", divisor: 170, attenuation: 4 });
     // The explicit divisor path still takes canonical 1..1023 values verbatim.
     const maxed = doc.updateEvent(lane[0]!.id, { divisor: 1023 });
     assert.deepEqual(events(maxed, 0)[0]!.data, { kind: "tone", divisor: 1023, attenuation: 4 });

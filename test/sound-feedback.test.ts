@@ -117,8 +117,8 @@ test("music feedback reports raw events, hand-computed onsets, pitch, rests, and
       duration: 30,
       attenuation: 0,
       rest: false,
-      noteName: "A4",
-      midiNote: 69,
+      noteName: "B4",
+      midiNote: 71,
       startTick: 0,
       endTick: 30,
       startSeconds: 0,
@@ -128,8 +128,8 @@ test("music feedback reports raw events, hand-computed onsets, pitch, rests, and
       durationBeats: 1,
     },
   );
-  assert.ok(Math.abs(a4.frequencyHz! - 439.963) < 0.001);
-  assert.ok(Math.abs(a4.centsOffset!) < 0.2);
+  assert.ok(Math.abs(a4.frequencyHz! - 494.959209) < 0.001);
+  assert.ok(Math.abs(a4.centsOffset! - 3.767331921911905) < 0.001);
 
   assert.deepEqual(
     {
@@ -267,12 +267,12 @@ test("the bounded piano roll aligns time and pitch and includes concurrent unpag
   assert.deepEqual([width, height], [800, 400]);
 
   // Plot x=96..779 spans ticks 0..30. The visible tones dynamically select
-  // MIDI 48..72; A4 is y=85 with channel stripes on either side of that pitch.
-  assert.deepEqual(pixel(rgb, width, 400, 81), [56, 189, 248], "paged tone 1 A4 is cyan");
+  // MIDI 48..72; B4 is y=64 with channel stripes on either side of that pitch.
+  assert.deepEqual(pixel(rgb, width, 400, 60), [56, 189, 248], "paged tone 1 B4 is cyan");
   assert.deepEqual(
-    pixel(rgb, width, 400, 85),
+    pixel(rgb, width, 400, 64),
     [192, 132, 252],
-    "simultaneous tone 2 A4 remains visible instead of overwriting tone 1",
+    "simultaneous tone 2 B4 remains visible instead of overwriting tone 1",
   );
   assert.deepEqual(
     pixel(rgb, width, 400, 351),
@@ -295,10 +295,10 @@ test("the music pitch window expands to show tones above a conventional piano", 
     limit: 1,
     representation: "music",
   });
-  assert.equal(feedback.events[0]!.midiNote, 151);
+  assert.equal(feedback.events[0]!.midiNote, 153);
   assert.match(feedback.image.caption, /pitch range C10-C12/i);
   const { width, rgb } = decodedRgb(feedback.image.png);
-  assert.deepEqual(pixel(rgb, width, 400, 101), [56, 189, 248]);
+  assert.deepEqual(pixel(rgb, width, 400, 81), [56, 189, 248]);
 });
 
 test("preview duration is capped instead of compressing a long effect into one image", () => {

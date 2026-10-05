@@ -1,7 +1,7 @@
 /** Dependency-free Standard MIDI Files type 0/1 reader and type 1 writer. */
 import { createSoundDocument, type SoundDocument, type SoundEventDataInput } from "./document.ts";
 import type { ProfileId } from "../runtime/profile.ts";
-import { PIT_BASE_FREQ } from "./sound.ts";
+import { PSG_BASE_FREQ } from "./sound.ts";
 import { DRUM_SOUNDS, insertSoundSpan } from "./sequencer.ts";
 import { MusicReader, type SoundImport } from "./musicImport.ts";
 
@@ -255,8 +255,8 @@ export function importMidi(bytes: Uint8Array, profileId?: ProfileId): SoundImpor
         let note = folded.get(segment.note.id);
         if (note === undefined) {
           note = segment.note.note;
-          while (PIT_BASE_FREQ / (440 * 2 ** ((note - 69) / 12)) > 1023) note += 12;
-          while (PIT_BASE_FREQ / (440 * 2 ** ((note - 69) / 12)) < 1) note -= 12;
+          while (PSG_BASE_FREQ / (440 * 2 ** ((note - 69) / 12)) > 1023) note += 12;
+          while (PSG_BASE_FREQ / (440 * 2 ** ((note - 69) / 12)) < 1) note -= 12;
           if (note > segment.note.note) up++;
           if (note < segment.note.note) down++;
           folded.set(segment.note.id, note);
@@ -370,7 +370,7 @@ export function exportMidi(document: SoundDocument): Uint8Array {
               0,
               Math.min(
                 127,
-                Math.round(69 + 12 * Math.log2(PIT_BASE_FREQ / voiceData.divisor / 440)),
+                Math.round(69 + 12 * Math.log2(PSG_BASE_FREQ / voiceData.divisor / 440)),
               ),
             );
       const velocity = Math.round(((15 - event.data.attenuation) * 127) / 15);

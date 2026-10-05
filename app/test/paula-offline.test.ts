@@ -376,6 +376,10 @@ for (const query of ["pq1", "pq1-amiga", "sq2", "sq2-amiga", "sq2-iigs"]) {
           measurements.some((m) => m.type === "end"),
           "capture covers note ends",
         );
+        if (query === "sq2-iigs") {
+          assert.ok(metrics.peak <= 1, `DOC mix peak ${metrics.peak} exceeds full scale`);
+          assert.ok(metrics.rms > 0, "SQ2 intro produces audible DOC output");
+        }
         if (query === "pq1-amiga") {
           assert.ok(onsets.length > 50, "the render exercises repeated tone onsets");
           assert.ok(maxJump < 0.08, `onset discontinuity ${maxJump}`);

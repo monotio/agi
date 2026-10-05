@@ -13,6 +13,7 @@
  */
 
 import type { AgiProfile } from "../runtime/profile.ts";
+import { iigsByteRate } from "./iigsBank.ts";
 import { validatePlaybackState, type PlaybackState } from "../runtime/replayState.ts";
 
 interface SoundNote {
@@ -38,11 +39,13 @@ export interface AgiSound {
 }
 
 /**
- * Standard AGI PIT frequency calculation constant:
- * PC PIT clock 1,193,180 Hz / 12 = 99,431.67 Hz.
- * frequency = 99431.67 / freqDivisor.
+ * Legacy PIT / 12 reference, retained for the PC-speaker preview calculation.
+ * PSG frequency calculations use the independent PSG_BASE_FREQ below.
  */
 export const PIT_BASE_FREQ = 99431.67;
+
+/** SN76496 tone clock after divide-by-32; docs/fidelity.md "Tandy PSG clock". */
+export const PSG_BASE_FREQ = 3579545 / 32;
 
 /**
  * The decay envelope executed on KQ1 2.917 — 67 steps then the 0x80 hold
@@ -228,7 +231,7 @@ function decodeSound(
       const attenuation = control & 0x0f;
 
       const isRest = attenuation === 15 || freqDivisor === 0;
-      const frequency = isRest ? 0 : PIT_BASE_FREQ / freqDivisor;
+      const frequency = isRest ? 0 : PSG_BASE_FREQ / freqDivisor;
       const volume = isRest ? 0 : Math.pow(10, -attenuation / 10);
 
       notes.push({
@@ -476,10 +479,10 @@ function decodeIigsStream(payload: Uint8Array, onWarning?: (m: string) => void):
  * until the generator halts. The embedded envelopes sustain, so only the
  * Ensoniq DOC stops the note: on a zero sample, or at the end of its table in
  * one-shot mode. A free-running wave with no zero loops until the sound is
- * stopped, and its done flag never sets. The Note Synthesizer plays 256 bytes
- * per cycle of the note's pitch, so a halt comes after (bytes played) /
- * (256 * f(semitone)) seconds, f equal-tempered with semitone 69 at 440 Hz —
- * an inference: the pitch table is in the toolset ROM (docs/fidelity.md).
+ * stopped, and its done flag never sets. Pitch, resolution and table size
+ * determine the DOC byte rate (docs/fidelity.md, "IIgs DOC pitch, volume and
+ * headroom"); completion is the first heartbeat after its scheduled start
+ * and the last byte's playback.
  */
 function decodeIigsWave(payload: Uint8Array, onWarning?: (m: string) => void): IigsDecoded {
   const data = payload.subarray(2);
@@ -501,8 +504,9 @@ function decodeIigsWave(payload: Uint8Array, onWarning?: (m: string) => void): I
     { tick: 1, output: { kind: "iigs", event: "sample", voice: 0, data } },
   ];
   if (played === null) return { events: start, endTick: Infinity };
-  const bytesPerSecond = 256 * 440 * 2 ** ((semitone - 69) / 12);
-  const endTick = Math.max(1, Math.ceil((played * 60) / bytesPerSecond));
+  const relPitch = u16(8 + 36);
+  const bytesPerSecond = iigsByteRate(semitone, { waveSize, relPitch: (relPitch << 16) >> 16 });
+  const endTick = 1 + Math.ceil((played * 60) / bytesPerSecond);
   return { events: [...start, { tick: endTick, output: null }], endTick };
 }
 

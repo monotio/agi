@@ -21,9 +21,9 @@ export interface SoundPreset {
   readonly tracks: readonly (readonly SoundEventInput[])[];
 }
 
-const tone = (ticks: number, divisor: number, attenuation: number): SoundEventInput => ({
+const tone = (ticks: number, note: string, attenuation: number): SoundEventInput => ({
   ticks,
-  data: { kind: "tone", divisor, attenuation },
+  data: { kind: "tone", note, attenuation },
 });
 const noise = (ticks: number, control: number, attenuation: number): SoundEventInput => ({
   ticks,
@@ -31,34 +31,33 @@ const noise = (ticks: number, control: number, attenuation: number): SoundEventI
 });
 const rest = (ticks: number): SoundEventInput => ({ ticks, data: { kind: "rest" } });
 
-// Divisor reference (99431.67 / Hz, hand-checked): A3 452, C4 380, D4 339,
-// E4 302, A4 226, C5 190, E5 151, G5 127, C6 95, E3 603.
+// Named notes preserve the cues' pitches through the shared PSG conversion.
 export const SOUND_PRESETS: readonly SoundPreset[] = [
   {
     id: "discovery",
     name: "Discovery",
     description: "A short rising three-note sparkle for finding something.",
-    tracks: [[tone(10, 151, 4), tone(10, 127, 4), tone(20, 95, 4)], [], [], []],
+    tracks: [[tone(10, "E5", 4), tone(10, "G5", 4), tone(20, "C6", 4)], [], [], []],
   },
   {
     id: "danger",
     name: "Danger",
     description: "Two low pulses over a held bass tone.",
-    tracks: [[tone(14, 452, 3), rest(6), tone(14, 452, 3)], [], [tone(34, 603, 7)], []],
+    tracks: [[tone(14, "A3", 3), rest(6), tone(14, "A3", 3)], [], [tone(34, "E3", 7)], []],
   },
   {
     id: "door-step",
     name: "Door / step",
     description: "Two white-noise taps with a soft thud, for a door or a step.",
-    tracks: [[tone(6, 339, 9)], [], [], [noise(4, 5, 6), rest(8), noise(4, 5, 7)]],
+    tracks: [[tone(6, "D4", 9)], [], [], [noise(4, 5, 6), rest(8), noise(4, 5, 7)]],
   },
   {
     id: "success",
     name: "Success",
     description: "An ascending major triad held on the high note.",
     tracks: [
-      [tone(8, 190, 4), tone(8, 151, 4), tone(8, 127, 4), tone(24, 95, 4)],
-      [tone(48, 302, 9)],
+      [tone(8, "C5", 4), tone(8, "E5", 4), tone(8, "G5", 4), tone(24, "C6", 4)],
+      [tone(48, "E4", 9)],
       [],
       [],
     ],
@@ -67,7 +66,12 @@ export const SOUND_PRESETS: readonly SoundPreset[] = [
     id: "death",
     name: "Death",
     description: "A slow descending phrase over a low drone.",
-    tracks: [[tone(20, 302, 5), tone(20, 339, 5), tone(40, 380, 6)], [tone(80, 452, 9)], [], []],
+    tracks: [
+      [tone(20, "E4", 5), tone(20, "D4", 5), tone(40, "C4", 6)],
+      [tone(80, "A3", 9)],
+      [],
+      [],
+    ],
   },
 ];
 

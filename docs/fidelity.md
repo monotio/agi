@@ -3144,11 +3144,10 @@ halt; a halt itself is abrupt. See the instrument and driver evidence under
 [IIgs sound](#sound-format-fact-except-where-marked). Apple's
 [technical note 11](https://apple2.gs/technotes/tn-iigs-011/) also documents
 physical DOC swap clicks, which this presentation does not model.
-The captures do not establish that Tandy and IIgs have smaller raw step
-metrics: their carrier, arrangement and presentation levels differ, and
-the IIgs mix can exceed full scale at master volume 1. Synthesis for those
-backends is unchanged; listener preference cannot be inferred from these
-raw maxima.
+Those captures preceded the [Tandy clock](#tandy-psg-clock) and
+[IIgs DOC corrections](#iigs-doc-pitch-volume-and-headroom). Their carrier,
+arrangement and presentation levels differ, so raw step maxima alone establish
+neither smaller clicks nor listener preference.
 
 #### Engine/app mapping
 
@@ -3722,21 +3721,21 @@ zero sample, or at the end of its table in one-shot mode. 33 samples end with
 a zero byte. The other 16 fill their table exactly (the byte count equals
 `256 << T`): four are one-shot and halt at the table's end, and twelve are
 free-running loops — they play until the game stops the sound, and their done
-flag never sets. The engine completes a halting sample after (bytes played) /
-(256 × f(semitone)) seconds, at the first heartbeat past that time. The 256
-bytes per cycle is the Note Synthesizer's wave convention; the
-semitone-to-frequency table lives in the toolset ROM, and the engine's equal
-temperament with semitone 69 at 440 Hz is an **inference**.
+flag never sets. The engine completes a halting sample at the first heartbeat
+at or after its start plus bytes played / DOC byte rate. The byte rate uses
+the same frequency word, relative pitch and resolution as the renderer;
+see [IIgs DOC pitch, volume and headroom](#iigs-doc-pitch-volume-and-headroom).
 
 **Rendering (host).** The app builds each note from its instrument: the A and
-B wave entries whose top key covers the semitone, each a table of
+B wave entries whose exclusive upper key covers the semitone, each a table of
 `256 << T` bytes from its DOC page, ending at its first zero byte; one-shot
 waves play once and free-running waves loop (the swap mode's A/B hand-off is
 approximated as a loop, and a halted oscillator is silent). Envelope levels
 are logarithmic — 16 steps per 6 dB — and each segment ramps at
 `increment / 256` levels per 60 Hz update; an increment of 0 sustains, and a
-note-off jumps to the release segment. The note volume scales the note
-linearly, an **inference**. A game without `SIERRASTANDARD` or its `.SYS16`
+note-off jumps to the release segment. Envelope and note volume combine before
+conversion to the DOC's 8-bit volume. Pitch, resolution and mix scaling follow
+the evidence below. A game without `SIERRASTANDARD` or its `.SYS16`
 falls back to a triangle per note. Tests:
 [sound-playback.test.ts](../test/sound-playback.test.ts),
 [iigs-synth.test.ts](../app/test/iigs-synth.test.ts).
@@ -3851,6 +3850,142 @@ false, `targetMotionDeferred` false, `inventorySelector` true,
 `saveBlock3Xor` false (the save writer never calls `encryptseg`).
 `soundEnvelope` is inert: the IIgs driver has no Paula envelope.
 
+### Tandy PSG clock
+
+**Evidence class:** hardware documentation, combined with the original divisor
+write evidence in [PC sound](#pc-sound),
+[Original sound player audit](#original-sound-player-audit) and
+[SN76489 attenuation latching](#sn76489-attenuation-latching-and-rest-notes).
+The [Tandy 1000 SX Technical Reference Manual](https://www.lo-tech.co.uk/downloads/manuals/tandy/Tandy_1000SX_Technical_Reference_Manual.pdf)
+audio/joystick schematic, sheet 7 of 10 (PDF page 72), connects `CLK358`
+to the SN76496's clock pin 14. Its Timing Control Generator specification
+defines that clock as the 28.63636 MHz oscillator divided by eight:
+3,579,545 Hz. The [TI SN76489 family data sheet](https://map.grauw.nl/resources/sound/texas_instruments_sn76489an.pdf)
+defines a tone counter clocked at input / 16 and toggling after each divisor
+count, hence tone frequency `3579545 / (32 * divisor)`.
+
+The renderer now uses that PSG clock independently of the PC speaker's
+1,193,180 Hz PIT clock. Divisor 226 gives 494.9592090707965 Hz on the PSG;
+speaker divisor 2,712 gives 439.9631268436578 Hz. Original resource divisor
+bytes, profile selection and the speaker path retain their existing contracts.
+The same PSG constant drives SOUND previews, decoded frequencies, note-name
+editing, MIDI import/export and VGM clock conversion. An authored A4 uses
+divisor 254 (440.39677657480314 Hz); C4 uses 428 (261.3569655373832 Hz).
+Existing resources retain their stored native divisors. The editor and agent
+feedback display pitches using this clock as well.
+New preset applications encode their named notes through the same conversion.
+[audio.test.ts](../app/test/audio.test.ts) failed with the shared clock and
+passes with these hand-computed frequencies. The same 16 PQ1 publisher-note
+windows used in the MAME comparison have median error +0.0032 cents after
+the correction, versus -203.8781 cents before. Noise remains the existing
+buffer/filter approximation; only its tone-2 frequency reference uses the
+corrected PSG clock.
+
+### IIgs DOC pitch, volume and headroom
+
+**Evidence class:** original 65816 machine-code inspection, observed DOC bus
+writes during original SQ2 execution, and chip documentation. Inputs are the
+SQ2 1.014 disk interpreter and wave RAM identified in
+[Original games through MAME audio](#original-games-through-mame-audio),
+Apple ROM 01 `342-0077-b` SHA-256
+`34cd454c6201bfd26839d6ace2ff6b1231e09d6279e49b4890311756dc3825fb`,
+and the disk's loaded Note Synthesizer `TOOL025` SHA-256
+`611fcd90f75ba50f63657d611a9caf1c10dfd93b006c839b584b923df65abe86`.
+Offsets below refer to the tool's loaded OMF segment, rather than resource
+LOGIC bytecode or file offsets. Its code base in the observed boot was
+`04:e8a9`. Original code and bulk disassembly remain private.
+
+**Clock and address rate.** ROM Sound Manager initialization at
+`FF:3ebd..3ed3` writes `$3e` to DOC register `$e1`, enabling all 32
+oscillators. Note Synthesizer startup at `TOOL025+0105..0147` configures
+oscillator 14 as its interrupt timer, with frequency word 300, volume zero,
+size/resolution zero and control `$08` for `NSStartUp(150)`.
+The [ICS1261 / Ensoniq 5503 DOC data sheet](https://audiopro.r-massive.com/Ensoniq/Schematics/ICS1261%20%28rebadged%205503%20DOC%29.pdf),
+pages 3–5, specifies the master clock divided by eight, one slot per enabled
+oscillator plus two refresh slots, and a 24-bit phase accumulator.
+With the capture system's nominal 7,159,090 Hz DOC clock and 32 enabled oscillators, scan rate is
+`7159090 / (8 * 34)` Hz. Table size `T` selects `256 << T` bytes and
+resolution `R` selects accumulator address bits: byte rate is
+`scan * frequencyWord / 2^(9 + R - T)`. Table size also masks the low
+wave-pointer bits. Resolution and table size have separate effects.
+
+**Note setup.** SQ2 `seg3+1fb5..205b` passes the resource note unchanged,
+uses the channel volume rather than note-on velocity, and selects the
+instrument through its relocated program map. `TOOL025+0311..0347` selects
+each A/B wave using `note < topKey`. At `+0349..0368` it adds the signed
+relative pitch to `note << 8`; the carry from A survives into B's addition.
+The pitch conversion at `+074a..076b` discards the low pitch bit, indexes
+1,536 fractional-semitone words at `+0a4c..164b`, then shifts by octave.
+The independently calculated `floor(20905.466 * 2^(fraction / 3072))`
+matches all 1,536 observed words before their integer octave shifts. This
+replaces the earlier 69 = 440 Hz / 256-byte-wave inference. For example,
+note 69 with relative pitch +256 produces frequency word 1,164 and byte
+rate 59,837.29291130515 Hz at `T=R=0`.
+
+The bus capture agrees with this decoding: at the intro's first notes,
+oscillators 0/1 receive frequency words 217/216, volume 188, page 4 and
+size/resolution `$12`; percussion oscillators 16/17 receive frequency 163,
+volume 63, page `$88` and size/resolution `$1b`. A later instrument-20 pair
+receives 1,042/1,043, confirming the A-to-B carry. The eight intro channels
+select programs 40, 41, 20, 32, 20, 35, 1 and 40. Their instruments use
+`R=T`, with free-running or one-shot oscillators. Swap and sync modes are
+absent from this intro; their existing host approximations remain.
+
+**Volume and envelope.** The envelope updater at `+05f7..0683` advances
+signed 8.8 levels, clamps at a breakpoint and proceeds to the next segment.
+At `+0613..063e` the envelope's integer level and note volume combine as
+`max(0, level + volume - 127)` before lookup in a 128-entry byte-volume table
+at `+094c..09cb`; both oscillators receive the result. Independent exponential
+calculation `max(1, floor(255 * 2^((index - 127) / 16)))` matches that table
+with upward rounding by one at indices 44, 60, 76, 92 and 108. For example,
+envelope 90 and note volume 96 produce register value 13, while two levels
+of 111 produce 63. The host now schedules these byte-volume steps at 60 Hz,
+including channel-volume changes during release. Continuous envelope segment
+durations still approximate the original tick-clamped breakpoint transitions
+and initial update; these timing details remain a fidelity limit.
+
+**Headroom.** The DOC multiplies an 8-bit wave sample by an 8-bit volume and
+time-multiplexes its enabled oscillators. The host's wave and volume are
+already normalized by 128 and 255, so a mix gain of `1/32` bounds a physical
+32-oscillator sum by one. Zero data halts an oscillator; the largest sounding
+sample magnitude is 127/128. This scale preserves relative oscillator levels
+and is independent of the tune. The real SQ2 intro graph at master 1 now
+has zero over-range samples. This fixture result covers the Web Audio graph;
+the mathematical bound alone does not cover resampler overshoot or arbitrary
+event streams exceeding the physical oscillator count. Original `AllocGen`
+at `+01f4..0249` manages 14 paired generators by priority and age; that finite
+allocator remains unmodelled by the host.
+
+**Regression and comparison.** Hand-computed tests in
+[iigs-synth.test.ts](../app/test/iigs-synth.test.ts) failed first for pitch,
+resolution, key splits, pointer masking, paired carry, volume and mix gain.
+[sound-playback.test.ts](../test/sound-playback.test.ts) covers sampled-note
+completion using the same byte rate, including its first-tick start.
+[paula-offline.test.ts](../app/test/paula-offline.test.ts) failed with an SQ2
+full-gain peak of 6.27356 and now checks that the real intro stays within full
+scale, skipping explicitly when its private fixture is absent.
+
+The stored MAME capture and corrected 48 kHz float render use the same
+45-second window and 20 Hz DC-removal highpass. Results are:
+
+| SQ2 IIgs measurement             |   Before |   After |              MAME |
+| -------------------------------- | -------: | ------: | ----------------: |
+| Peak at master 1                 |  6.27350 | 0.08289 | Uncalibrated gain |
+| AC RMS at master 1               |  1.14851 | 0.01544 | Uncalibrated gain |
+| Samples over unity at master 0.5 |  8.7846% |      0% | Uncalibrated gain |
+| AC energy above 4 kHz            | 27.9969% | 3.7000% |           2.1391% |
+
+Separate host channel renders show the bass channel 3 changing from -1.60 dB
+to +0.84 dB relative to channel 0, and percussion channel 6 from -8.46 dB to
+-5.19 dB. These measure host balance before and after; the stored mixed MAME
+capture does not isolate individual voices. The residual high-band difference
+has an unresolved cause. Web Audio interpolates the wave buffers, whereas
+the DOC addresses discrete bytes at its scan rate. Native DOC output holding,
+analogue filtering and envelope timing remain separate evidence questions;
+no equalizer or inferred instrument remapping was added. Listening pairs
+use one AC-RMS match and common peak-safe gain, with MAME followed by the
+corrected render. Absolute GS system gain remains uncalibrated.
+
 ### Original games through MAME audio
 
 **Evidence class:** original interpreter execution on MAME 0.289 reconstructed
@@ -3888,7 +4023,7 @@ longer on the original emulated machine than in the offline harness.
 | SQ2 Amiga, SOUND 60           | Median -15.85 cents, 162 resolved spectral peaks                                                                          | Median start/end residuals +34.42/+21.33 ms in 135 longer windows; drift and filter-dependent attacks need separate investigation.       |
 | SQ2 IIgs, SOUND 60            | Dominant wavetable partials usually fall near their counterparts; dense mixtures prevent a single reliable tuning verdict | Strong level and instrument-balance differences; spectral alignment confidence 0.58, so note timing remains unresolved.                  |
 
-**Tandy finding.** The app uses the PC speaker's `99431.67 / divisor` constant
+**Tandy finding at capture.** The app used the PC speaker's `99431.67 / divisor` constant
 for PSG oscillators. MAME reports an NCR8496 at 3,579,545 Hz; its measured tone
 frequencies agree with `3579545 / (32 * divisor)`. The ratio predicts
 -203.91 cents, matching the measured error. Original interpreter port-write

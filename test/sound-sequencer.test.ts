@@ -32,7 +32,7 @@ test("grid insertion, extension and removal preserve later exact positions and o
   assert.deepEqual(
     [...doc.encode()],
     [
-      8, 0, 20, 0, 27, 0, 29, 0, 8, 0, 0, 128, 159, 7, 0, 14, 130, 147, 255, 255, 7, 0, 14, 163,
+      8, 0, 20, 0, 27, 0, 29, 0, 8, 0, 0, 128, 159, 7, 0, 15, 142, 147, 255, 255, 7, 0, 14, 163,
       184, 255, 255, 255, 255, 255, 255,
     ],
   );
