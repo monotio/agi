@@ -225,12 +225,14 @@ it("packing preserves v3 dictionary and picture records, including aliases and m
   );
 });
 
-it("canonicalizes invalid compressed records without dropping their indexed identity", () => {
-  const c = openContainer(game(record([0, 0], 10)));
+it("preserves exact invalid compressed records while packing healthy resources", () => {
+  const stored = record([0, 0], 10);
+  const c = openContainer(game(stored));
   assert.throws(() => c.getResource("logic", 0), /Dictionary stream must start with reset/);
   c.putResource("view", 8, Uint8Array.of(1));
-  assert.throws(() => c.getResource("logic", 0), /out of bounds/);
-  assert.deepEqual(c.files.get("DEMODIR")!.slice(8, 11), Uint8Array.of(15, 255, 255));
+  assert.throws(() => c.getResource("logic", 0), /Dictionary stream must start with reset/);
+  assert.deepEqual(c.files.get("DEMODIR")!.slice(8, 11), Uint8Array.of(0, 0, 0));
+  assert.deepEqual(c.files.get("DEMOVOL.0"), stored);
   assert.deepEqual(c.getResource("view", 8), Uint8Array.of(1));
 });
 

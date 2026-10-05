@@ -13,6 +13,7 @@ import { buildWordsTok } from "../src/logic/words.ts";
 import { buildObjectFile } from "../src/authoring/inventory.ts";
 import { buildView } from "../src/view/view.ts";
 import type { GameContainer } from "../src/types.ts";
+import { diffResources } from "../src/runtime/previewAdmission.ts";
 import { Engine, HostWait, type EngineHost } from "../src/runtime/engine.ts";
 
 const DICT_WORDS: [string, number][] = [
@@ -216,6 +217,64 @@ function candidateFiles(
 function stateMinusGeneration(state: ReturnType<Engine["captureReplayState"]>) {
   const { patchGeneration: _gen, ...rest } = state;
   return rest;
+}
+
+for (const change of ["preserved", "entry", "payload"] as const) {
+  test(`preview admission checks the exact unreadable SOUND slot (${change})`, () => {
+    const base = new Map(buildGame().files);
+    const directory = base.get("SNDDIR")!.slice();
+    directory.set([0x30, 0, 0], 34 * 3);
+    base.set("SNDDIR", directory);
+    // A bad magic header with a two-byte indexed payload in a separate volume.
+    base.set("VOL.3", Uint8Array.of(0, 0x34, 3, 2, 0, 7, 8));
+    const engine = new Engine(openContainer(base), new QuietHost(), DICT);
+    const candidate = new Map([...base].map(([name, bytes]) => [name, bytes.slice()]));
+    candidate.set("TESTS.JSON", new TextEncoder().encode("[]"));
+    if (change === "entry") candidate.get("SNDDIR")![34 * 3 + 2] = 1;
+    if (change === "payload") candidate.get("VOL.3")![5] = 9;
+    const plan = engine.preparePreviewUpdate({ files: candidate });
+    const result = engine.commitPreviewUpdate(plan);
+    assert.equal(result.status, change === "preserved" ? "committed" : "refused");
+    if (change !== "preserved") {
+      assert.match(result.reason ?? "", /sound resource 34.*unreadable slot changed/);
+      assert.deepEqual(engine.containerFiles, base);
+    }
+    assert.throws(() => openContainer(engine.containerFiles).getResource("sound", 34), /corrupt/);
+  });
+}
+
+for (const change of ["preserved", "entry", "payload", "header"] as const) {
+  test(`combined v3 admission checks the encoded unreadable SOUND slot (${change})`, () => {
+    const sectionBytes = 35 * 3;
+    const directory = new Uint8Array(8 + 4 * sectionBytes).fill(255);
+    for (let section = 0; section < 4; section++) {
+      const start = 8 + section * sectionBytes;
+      directory.set([start & 255, start >> 8], section * 2);
+    }
+    const slot = 8 + 3 * sectionBytes + 34 * 3;
+    directory.set([0x30, 0, 0], slot);
+    const base = new Map([
+      ["GAMEDIR", directory],
+      ["GAMEVOL.0", new Uint8Array()],
+      // A compressed two-byte payload with an invalid dictionary stream.
+      ["GAMEVOL.3", Uint8Array.of(0x12, 0x34, 3, 3, 0, 2, 0, 0, 0)],
+    ]);
+    const before = openContainer(base);
+    assert.throws(() => before.getResource("sound", 34), /Dictionary/);
+    const files = new Map([...base].map(([name, bytes]) => [name, bytes.slice()]));
+    if (change === "entry") files.get("GAMEDIR")![slot + 2] = 1;
+    if (change === "payload") files.get("GAMEVOL.3")![7] = 1;
+    if (change === "header") files.get("GAMEVOL.3")![3] = 4;
+    const after = openContainer(files);
+    assert.throws(() => after.getResource("sound", 34));
+    if (change === "preserved")
+      assert.deepEqual(diffResources(before, after), { changes: [], removals: [] });
+    else
+      assert.throws(
+        () => diffResources(before, after),
+        /sound resource 34.*unreadable slot changed/,
+      );
+  });
 }
 
 test("coordinated LOGIC+WORDS+OBJECT+PIC update commits atomically and preserves runtime state", () => {

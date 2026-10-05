@@ -82,6 +82,35 @@ export function detectContainerFormat(files: ReadonlyMap<string, Uint8Array>): {
   return { kind: detectProfile(files).container, prefix: "" };
 }
 
+/** The original directory entry and encoded record bytes, including an unreadable header. */
+export function indexedResourceBytes(
+  files: ReadonlyMap<string, Uint8Array>,
+  kind: ResourceKind,
+  num: number,
+): { readonly entry: Uint8Array; readonly record: Uint8Array | null } {
+  const layout = detectContainerFormat(files);
+  const combined = layout.kind === "v3-combined" ? files.get(`${layout.prefix}DIR`) : undefined;
+  let directory = files.get(DIRECTORY_FILES[kind])!;
+  if (combined !== undefined) {
+    const section = RESOURCE_KINDS.indexOf(kind);
+    const start = combined[section * 2]! | (combined[section * 2 + 1]! << 8);
+    const end =
+      section === 3
+        ? combined.length
+        : combined[(section + 1) * 2]! | (combined[(section + 1) * 2 + 1]! << 8);
+    directory = combined.subarray(start, end);
+  }
+  const entry = directory.slice(num * ENTRY_BYTES, (num + 1) * ENTRY_BYTES);
+  const volume = files.get(`${layout.prefix}VOL.${entry[0]! >> 4}`);
+  if (volume === undefined) return { entry, record: null };
+  const offset = ((entry[0]! & 15) << 16) | (entry[1]! << 8) | entry[2]!;
+  const headerBytes = layout.kind === "v3-combined" ? 7 : RECORD_HEADER_BYTES;
+  if (offset + headerBytes > volume.length) return { entry, record: volume.slice(offset) };
+  const sizeOffset = offset + (layout.kind === "v3-combined" ? 5 : 3);
+  const length = volume[sizeOffset]! | (volume[sizeOffset + 1]! << 8);
+  return { entry, record: volume.slice(offset, offset + headerBytes + length) };
+}
+
 function volumeFileName(n: number, prefix = ""): string {
   return `${prefix}VOL.${n}`;
 }
@@ -367,10 +396,45 @@ class ResourceContainer implements GameContainer {
       bytes.set(original);
       return bytes;
     });
-    const volumes: Uint8Array[][] = [[]];
-    const lengths = [0];
+    // Unreadable slots keep their exact entry and indexed bytes. Reserve their
+    // volume numbers so packing cannot turn a missing or truncated record into
+    // a readable one. Unindexed bytes in those volumes are cleared.
+    const reserved = new Map<number, Uint8Array | null>();
+    const damaged = new Set<string>();
+    for (const kind of RESOURCE_KINDS) {
+      const directory = this.#directory(kind);
+      for (let num = 0; num < Math.min(256, Math.floor(directory.length / ENTRY_BYTES)); num++) {
+        if (replacements.some((r) => r.kind === kind && r.num === num)) continue;
+        const entry = this.#readEntry(kind, num);
+        if (entry === null) continue;
+        try {
+          this.getResource(kind, num);
+        } catch {
+          damaged.add(`${kind}:${num}`);
+          const source = this.#files.get(volumeFileName(entry.volume, this.#prefix));
+          if (source === undefined) {
+            reserved.set(entry.volume, null);
+            continue;
+          }
+          let bytes = reserved.get(entry.volume);
+          if (bytes == null) {
+            bytes = new Uint8Array(source.length);
+            reserved.set(entry.volume, bytes);
+          }
+          const record = indexedResourceBytes(this.#files, kind, num).record!;
+          if (record.length > 0) bytes.set(record, entry.offset);
+        }
+      }
+    }
+    const volumes: Uint8Array[][] = [];
+    const lengths: number[] = [];
     const aliases = new Map<string, { volume: number; offset: number }>();
     let volume = 0;
+    while (reserved.has(volume)) volume++;
+    if (volume <= this.#maxVolume) {
+      volumes[volume] = [];
+      lengths[volume] = 0;
+    }
     for (let k = 0; k < RESOURCE_KINDS.length; k++) {
       const kind = RESOURCE_KINDS[k]!;
       const directory = directories[k]!;
@@ -384,7 +448,7 @@ class ResourceContainer implements GameContainer {
           continue;
         }
         const entry = this.#readEntry(kind, num);
-        if (patch === undefined && !entry) continue;
+        if (patch === undefined && (!entry || damaged.has(`${kind}:${num}`))) continue;
         const key = entry && patch === undefined ? `${entry.volume}:${entry.offset}` : null;
         let destination = key ? aliases.get(key) : undefined;
         if (!destination) {
@@ -402,29 +466,21 @@ class ResourceContainer implements GameContainer {
             if (this.#v3) record.set([payload.length & 255, payload.length >>> 8], 5);
             record.set(payload, this.#headerBytes);
           } else {
-            try {
-              // Validate headers, lengths and compressed expansion without re-encoding it.
-              this.getResource(kind, num);
-            } catch {
-              // Keep a damaged resource present-but-unloadable. This offset cannot
-              // hold a header in any packed volume. Dropping it would turn a corrupt
-              // indexed resource into a missing one; copying its bytes would retain
-              // arbitrary historical data and could accidentally repair its pointer.
-              directory.set([0x0f, 0xff, 0xff], num * ENTRY_BYTES);
-              continue;
-            }
             const source = this.#files.get(volumeFileName(entry!.volume, this.#prefix))!;
             const at = entry!.offset;
             const sizeOffset = at + (this.#v3 ? 5 : 3);
             const storedLength = source[sizeOffset]! | (source[sizeOffset + 1]! << 8);
             record = source.slice(at, at + this.#headerBytes + storedLength);
           }
+          if (volume > this.#maxVolume)
+            throw new Error(`container is full: volume number would exceed ${this.#maxVolume}`);
           if (lengths[volume]! + record.length > VOLUME_MAX_BYTES) {
             volume++;
+            while (reserved.has(volume)) volume++;
             if (volume > this.#maxVolume)
               throw new Error(`container is full: volume number would exceed ${this.#maxVolume}`);
-            volumes.push([]);
-            lengths.push(0);
+            volumes[volume] = [];
+            lengths[volume] = 0;
           }
           destination = { volume, offset: lengths[volume]! };
           // Preserve picture-compression metadata, changing only the volume nibble.
@@ -456,7 +512,11 @@ class ResourceContainer implements GameContainer {
     } else {
       RESOURCE_KINDS.forEach((kind, i) => updated.set(DIRECTORY_FILES[kind], directories[i]!));
     }
+    for (const [number, bytes] of reserved) {
+      if (bytes !== null) updated.set(volumeFileName(number, this.#prefix), bytes);
+    }
     for (let i = 0; i < volumes.length; i++) {
+      if (volumes[i] === undefined) continue;
       const bytes = new Uint8Array(lengths[i]!);
       let cursor = 0;
       for (const record of volumes[i]!) {
@@ -518,8 +578,8 @@ export function containerFromResources(
 
 /**
  * Return an independent packed image of the currently indexed resources.
- * Valid records retain their encoding; damaged records remain indexed with a
- * deliberately dangling pointer, so loading them still reports corruption.
+ * Valid records retain their encoding; damaged records keep their directory
+ * entries and indexed bytes, so loading them still reports the same corruption.
  * Auxiliary files are copied unchanged. No reachability-based pruning is applied.
  */
 export function compactContainer(
