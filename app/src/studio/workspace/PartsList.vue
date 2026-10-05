@@ -137,10 +137,7 @@ function onKey(event: KeyboardEvent): void {
     @keydown="onKey"
     @scroll="rememberScroll"
   >
-    <WorkspaceTip
-      id="workspace"
-      text="Pick a part to change it. Play your game beside the editor."
-    />
+    <WorkspaceTip id="workspace" text="Your changes show up in the running game right away." />
     <section v-for="group in groups" :key="group.label">
       <header>
         <h2>

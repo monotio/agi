@@ -29,7 +29,6 @@ import { useWorkspaceEditor } from "../../shell/workspaceEditor.ts";
 import { openExplainer } from "../../ui/explain.ts";
 import { useAiSettings } from "../../settings/useAiSettings.ts";
 import type { WordsTask } from "./wordsAgent.ts";
-import WorkspaceTip from "../../shell/WorkspaceTip.vue";
 import UiButton from "../../ui/UiButton.vue";
 import PartsList from "./PartsList.vue";
 import ProjectTabs from "../host/ProjectTabs.vue";
@@ -1154,10 +1153,6 @@ onBeforeUnmount(() => {
         @changed="refresh"
       />
     </header>
-    <WorkspaceTip
-      :id="editor.kind.value ?? 'logic'"
-      text="Change this part with the tools here. Undo brings back an earlier step."
-    />
     <p
       v-if="
         diagnostics.some((entry) => entry.severity === 'error') && editor.kind.value === 'logic'

@@ -597,14 +597,8 @@ test("workspace tips dismiss and Help replays them", async ({ page }) => {
   await expect(tip).toBeVisible();
   await tip.getByRole("button", { name: "Got it", exact: true }).click();
   await expect(tip).toBeHidden();
-  const editorTip = page.getByTestId("editor-tip");
-  await expect(editorTip).toBeVisible();
-  await editorTip.getByRole("button", { name: "Got it", exact: true }).click();
-  await expect(editorTip).toBeHidden();
-  await openWorkspaceLogic(page);
-  await expect(editorTip).toBeVisible();
-  await page.getByTestId("part-room:1:picture:1").click();
-  await expect(editorTip).toBeHidden();
+  // Editors carry no tip of their own: tools and Undo explain themselves.
+  await expect(page.getByTestId("editor-tip")).toHaveCount(0);
   await openGameOptions(page, "help-menu");
   await page.getByTestId("btn-help-guide").click();
   const help = page.getByTestId("help-guide");

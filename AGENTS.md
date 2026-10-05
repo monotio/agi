@@ -171,6 +171,8 @@ code, comments or documentation.
   Describe capabilities directly; omit unnecessary reassurance about engines,
   keys or excluded alternatives. Error notices name the cause and next action.
   Keep actual constraints and irreversible consequences explicit.
+  Tips and hints say something the screen does not already show; never restate
+  universal controls such as tools or Undo.
 - Dismiss-only overlays and panels use a top-right × with aria-label "Close" and Esc;
   popovers also close on outside click. Editor tabs use ×. Modes end with Done;
   choices offer Cancel plus the named action. Buttons never display bare "Close".
