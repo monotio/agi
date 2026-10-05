@@ -227,3 +227,12 @@ test("latchPickAt returns null off the picture band and drops the latch on regre
   // cycle went backwards without a defined cycle on the latch → not stale
   assert.ok(!latchIsStale({ ...latch, cycle: null }, frame));
 });
+
+test("inspector picks follow CRT glass at every amount", () => {
+  const rect = { left: 0, top: 0, width: 640, height: 400 };
+  for (const amount of [0, 0.5]) {
+    assert.deepEqual(pickFromClient(480, 320, rect, 1, amount)?.displayed, { x: 240, y: 160 });
+  }
+  assert.deepEqual(pickFromClient(480, 320, rect, 1, 1)?.displayed, { x: 250, y: 168 });
+  assert.equal(pickFromClient(0, 0, rect, 1, 1), null);
+});

@@ -56,7 +56,7 @@ function eventPoint(ev: PointerEvent): PickPoint | null {
     if (hit.band !== undefined) point.layerBand = hit.band;
     return point;
   }
-  return pickFromClient(ev.clientX, ev.clientY, rect, frame?.picRow ?? 1);
+  return pickFromClient(ev.clientX, ev.clientY, rect, frame?.picRow ?? 1, presentation.crtAmount);
 }
 
 function onOverlayMove(ev: PointerEvent): void {

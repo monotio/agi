@@ -19,6 +19,7 @@ import TransportBar from "../history/TransportBar.vue";
 import { useEngineApi } from "../engine/engineContext.ts";
 import { usePresentation } from "./usePresentation.ts";
 import { useShellBridge } from "../shell/shellBridge.ts";
+import { crtFramePoint } from "../three/crtAmount.ts";
 import { stageScreenWidth } from "./viewportLayout.ts";
 import { FRAME_HEIGHT, FRAME_WIDTH } from "../render/composite.ts";
 import type { ModalKind } from "../engine/useEngine.ts";
@@ -29,7 +30,7 @@ import { GLYPH_CURSOR, TEXT_COLS } from "../../../src/runtime/textSurface.ts";
 
 const props = defineProps<{
   touchControls: boolean;
-  crtEnabled: boolean;
+  crtAmount: number;
   originalAspect: boolean;
   /** Create's Inspect tab hosts the inspector's controls: no floating dock. */
   inspectorDocked?: boolean;
@@ -271,10 +272,12 @@ function sendScreenClick(ev: MouseEvent): void {
   const canvas = gpuBackend.value ? presentation.gpuCanvasEl.value : presentation.canvasEl.value;
   const rect = canvas?.getBoundingClientRect();
   if (!rect || rect.width <= 0 || rect.height <= 0) return;
-  const x = Math.floor(((ev.clientX - rect.left) * FRAME_WIDTH) / rect.width);
-  const y = Math.floor(((ev.clientY - rect.top) * FRAME_HEIGHT) / rect.height);
-  if (x < 0 || x >= FRAME_WIDTH || y < 0 || y >= FRAME_HEIGHT) return;
-  sendClick(x, y);
+  const point = crtFramePoint(
+    (ev.clientX - rect.left) / rect.width,
+    (ev.clientY - rect.top) / rect.height,
+    gpuBackend.value ? props.crtAmount : 0,
+  );
+  if (point) sendClick(Math.floor(point.x), Math.floor(point.y));
 }
 
 function focusInput(): void {
@@ -593,7 +596,7 @@ function onSplitUp(): void {
 }
 
 onMounted(() => {
-  void presentation.initStage(props.crtEnabled);
+  void presentation.initStage(props.crtAmount);
   if (!props.touchControls) nextTick(claimGameFocus);
   // Callers close whatever held the keyboard first (the assistant, a sheet);
   // the input re-enables on the next render, so focus lands after it.
@@ -637,7 +640,7 @@ defineExpose({
         :class="{
           active: state.phase === 'running',
           'gpu-stage': !!gpuBackend,
-          tube: !!gpuBackend && crtEnabled,
+          tube: !!gpuBackend && crtAmount > 0,
           shake: state.shake,
           remixing: state.powerUp.open && state.powerUp.mode !== 'ask',
         }"

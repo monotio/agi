@@ -5,11 +5,11 @@
  * and the overlay geometry the object layer draws. Pure where possible so
  * app tests can pin the math.
  */
+import { crtFramePoint } from "../three/crtAmount.ts";
 import type { Frame } from "../project/gameTypes.ts";
 import type { ScreenObjectState } from "../../../src/runtime/engine.ts";
 import type { StagePick } from "./explodedPick.ts";
 import { EGA_PALETTE } from "../render/palette.ts";
-import { FRAME_HEIGHT, FRAME_WIDTH } from "../render/composite.ts";
 
 const PIC_W = 160;
 const PIC_H = 168;
@@ -46,11 +46,17 @@ export function pickFromClient(
   clientY: number,
   rect: { left: number; top: number; width: number; height: number },
   picRow: number,
+  crtAmount = 0,
 ): PickPoint | null {
   if (rect.width <= 0 || rect.height <= 0) return null;
-  const dx = Math.floor(((clientX - rect.left) / rect.width) * FRAME_WIDTH);
-  const dy = Math.floor(((clientY - rect.top) / rect.height) * FRAME_HEIGHT);
-  if (dx < 0 || dx >= FRAME_WIDTH || dy < 0 || dy >= FRAME_HEIGHT) return null;
+  const point = crtFramePoint(
+    (clientX - rect.left) / rect.width,
+    (clientY - rect.top) / rect.height,
+    crtAmount,
+  );
+  if (!point) return null;
+  const dx = Math.floor(point.x);
+  const dy = Math.floor(point.y);
   const lx = Math.floor(dx / 2);
   const ly = dy - picRow * 8;
   return {

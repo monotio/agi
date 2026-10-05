@@ -41,7 +41,7 @@ test("flat unchanged frames keep the uploaded texture and avoid another GPU draw
     disposed: false,
     rgba,
     texture,
-    crtOn: true,
+    amount: { value: 1 },
     exploded: false,
     pendingRaf: null,
     renderPass: () => draws++,

@@ -39,7 +39,7 @@ import {
 
 const {
   touchControls,
-  crtEnabled,
+  crtAmount,
   originalAspect,
   gpuBackend,
   debugOpen,
@@ -47,7 +47,7 @@ const {
   exportRefusal,
 } = defineProps<{
   touchControls: boolean;
-  crtEnabled: boolean;
+  crtAmount: number;
   originalAspect: boolean;
   gpuBackend: string | undefined;
   debugOpen: boolean;
@@ -57,7 +57,7 @@ const {
 
 const emit = defineEmits<{
   "update:touchControls": [value: boolean];
-  "update:crtEnabled": [value: boolean];
+  "update:crtAmount": [value: number];
   "update:originalAspect": [value: boolean];
   "update:debugOpen": [value: boolean];
   "trigger-key": [code: number];
@@ -634,13 +634,13 @@ async function onRecordSave(): Promise<void> {
   <SettingsSheet
     ref="settingsSheet"
     :touch-controls="touchControls"
-    :crt-enabled="crtEnabled"
+    :crt-amount="crtAmount"
     :original-aspect="originalAspect"
     :gpu-backend="gpuBackend"
     :debug-open="debugOpen"
     :export-busy="exportBusy"
     @update:touch-controls="emit('update:touchControls', $event)"
-    @update:crt-enabled="emit('update:crtEnabled', $event)"
+    @update:crt-amount="emit('update:crtAmount', $event)"
     @update:original-aspect="emit('update:originalAspect', $event)"
     @update:debug-open="emit('update:debugOpen', $event)"
     @export-zip="onExportAgiZip"

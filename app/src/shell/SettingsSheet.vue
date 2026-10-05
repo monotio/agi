@@ -9,7 +9,8 @@
  * close it. Keys pressed inside never reach the game (App.vue skips events
  * from dialogs).
  */
-import { nextTick, onBeforeUnmount, ref, useTemplateRef } from "vue";
+import { nextTick, onBeforeUnmount, ref, useId, useTemplateRef } from "vue";
+import { CRT_STEPS } from "../settings/crtPreference.ts";
 import UiIcon from "../ui/UiIcon.vue";
 import UiIconButton from "../ui/UiIconButton.vue";
 import UiSwitch from "../ui/UiSwitch.vue";
@@ -19,10 +20,10 @@ import { useShellBridge } from "./shellBridge.ts";
 import { nextAudioMode, soundChipLabel, soundFamily } from "../audio/useAudioController.ts";
 import { useShell } from "./useShell.ts";
 
-const { touchControls, crtEnabled, originalAspect, gpuBackend, debugOpen, exportBusy } =
+const { touchControls, crtAmount, originalAspect, gpuBackend, debugOpen, exportBusy } =
   defineProps<{
     touchControls: boolean;
-    crtEnabled: boolean;
+    crtAmount: number;
     originalAspect: boolean;
     gpuBackend: string | undefined;
     debugOpen: boolean;
@@ -31,7 +32,7 @@ const { touchControls, crtEnabled, originalAspect, gpuBackend, debugOpen, export
 
 const emit = defineEmits<{
   "update:touchControls": [value: boolean];
-  "update:crtEnabled": [value: boolean];
+  "update:crtAmount": [value: number];
   "update:originalAspect": [value: boolean];
   "update:debugOpen": [value: boolean];
   "export-zip": [project: boolean];
@@ -46,6 +47,7 @@ const bridge = useShellBridge();
 const shell = useShell();
 
 const sheet = useTemplateRef("sheet");
+const crtId = useId();
 const open = ref(false);
 /** Advanced disclosure: sound-chip emulation and diagnostics live under it. */
 const advanced = ref(false);
@@ -190,15 +192,27 @@ defineExpose({ toggle, close, open });
         >
           Sound<small>Linked to the game’s own sound setting</small>
         </UiSwitch>
-        <UiSwitch
-          v-if="gpuBackend"
-          class="settings-row"
-          data-testid="toggle-crt"
-          :model-value="crtEnabled"
-          @update:model-value="emit('update:crtEnabled', $event)"
-        >
-          CRT screen<small>Scanlines, glow and curved glass in Play</small>
-        </UiSwitch>
+        <div v-if="gpuBackend" class="settings-row settings-row--crt">
+          <label :for="crtId">CRT<small>Scanlines, glow and curved glass in Play</small></label>
+          <output :for="crtId" class="setting-value" data-testid="crt-value">{{
+            CRT_STEPS[Math.round(crtAmount * 4)]
+          }}</output>
+          <input
+            :id="crtId"
+            type="range"
+            data-testid="crt-amount"
+            min="0"
+            max="1"
+            step="0.25"
+            :value="crtAmount"
+            :aria-valuetext="CRT_STEPS[Math.round(crtAmount * 4)]"
+            aria-label="CRT"
+            @input="emit('update:crtAmount', Number(($event.target as HTMLInputElement).value))"
+          />
+          <div class="crt-steps" aria-hidden="true">
+            <span v-for="label in CRT_STEPS" :key="label">{{ label }}</span>
+          </div>
+        </div>
         <UiSwitch
           class="settings-row"
           data-testid="toggle-original-aspect"
@@ -422,6 +436,28 @@ defineExpose({ toggle, close, open });
 }
 .settings-row small {
   display: block;
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  font-weight: 400;
+}
+.settings-sheet .settings-row--crt {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-1) var(--space-3);
+  cursor: default;
+}
+.settings-row--crt input {
+  grid-column: 1 / -1;
+  width: 100%;
+  margin: 0;
+  min-height: var(--control-h-sm);
+  accent-color: var(--action);
+  cursor: pointer;
+}
+.crt-steps {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: space-between;
   color: var(--ink-3);
   font-size: var(--text-xs);
   font-weight: 400;
