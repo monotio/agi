@@ -459,7 +459,14 @@ test("a diverged tape labels the position unrestorable and keeps Resume from her
   await page.addInitScript(() => {
     const post = Worker.prototype.postMessage;
     Worker.prototype.postMessage = function (message, transfer) {
-      if (message.type === "boot") Reflect.set(window, "tapeWorker", this);
+      if (message.type === "boot") {
+        this.addEventListener("message", ({ data }) => {
+          if (data.type === "historyBatch" && data.batch.anchor?.reason === "pause")
+            Reflect.set(window, "tapePauseFlushed", true);
+        });
+      }
+      if (message.type === "pause" && message.paused === true)
+        Reflect.set(window, "tapePauseFlushed", false);
       post.call(this, message, Array.isArray(transfer) ? { transfer } : transfer);
     };
   });
@@ -542,19 +549,7 @@ test("a diverged tape labels the position unrestorable and keeps Resume from her
   await expect.poll(async () => (await textHook(page)).room).toBeGreaterThanOrEqual(1);
   await page.getByTestId("btn-transport-pause").click();
   await expect.poll(async () => (await textHook(page)).paused).toBe(true);
-  await page.evaluate(
-    () =>
-      new Promise<void>((resolve) => {
-        const worker = Reflect.get(window, "tapeWorker") as Worker;
-        const received = (event: MessageEvent) => {
-          if (event.data.type !== "engineState" || event.data.id !== -901) return;
-          worker.removeEventListener("message", received);
-          resolve();
-        };
-        worker.addEventListener("message", received);
-        worker.postMessage({ type: "state", id: -901 });
-      }),
-  );
+  await expect.poll(() => page.evaluate(() => Reflect.get(window, "tapePauseFlushed"))).toBe(true);
   await expect.poll(() => page.evaluate(() => window.__AGI_STATE__?.historyPending)).toBe(0);
 
   // Choose the click from the stored tape's own anatomy — read after the
@@ -589,8 +584,8 @@ test("a diverged tape labels the position unrestorable and keeps Resume from her
         req.onsuccess = () => resolve(req.result as Manifest);
         req.onerror = () => reject(req.error);
       });
-    // The state reply fences the pause flush; historyPending then fences
-    // its storage commit. The committed axis is now safe to read once.
+    // The posted pause anchor fences the worker's queued tail; historyPending
+    // then fences its storage commit. The committed axis is safe to read once.
     const manifest = await readManifest();
     const firstSegment = manifest.segments[0]!.id;
     const keys = (await new Promise<IDBValidKey[]>((resolve, reject) => {
