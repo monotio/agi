@@ -1235,8 +1235,7 @@ export function useEngine(
     ) => (await loadAuthoringController()).getAgentRuntime(...args),
     updateAiConfig,
     openPowerUp(config: LlmConfig) {
-      if (projectMode !== "create" || lifecycle.getBootedGame()?.installed)
-        return openPowerUp(config);
+      if (projectMode !== "create") return openPowerUp(config);
       state.powerUp.open = true;
       state.powerUp.mode = "remix";
       state.powerUp.busy = false;

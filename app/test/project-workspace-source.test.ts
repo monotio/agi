@@ -90,6 +90,16 @@ function workspaceWith(
 }
 
 describe("inspectEditableProject", () => {
+  test("native editions retain TESTS.JSON as detached editable metadata", () => {
+    const data = importedGame();
+    const bytes = new TextEncoder().encode('{"version":1,"tests":[]}');
+    data.files["TESTS.JSON"] = bytes;
+    const inspection = inspectEditableProject(data);
+    assert.deepEqual(inspection.documents["tests"], bytes);
+    assert.notEqual(inspection.documents["tests"], bytes);
+    const explicit = inspectEditableProject({ ...data, workspace: writeProjectWorkspace({}) });
+    assert.equal(explicit.documents["tests"], undefined);
+  });
   for (const kind of ["boilerplate", "starter"] as const) {
     test(`manual ${kind} workspace source survives an exact inspection`, () => {
       const data = manualProject(kind);

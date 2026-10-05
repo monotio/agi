@@ -1,7 +1,17 @@
 <script setup lang="ts">
-import { computed, ref, shallowRef, useTemplateRef, watch, onWatcherCleanup } from "vue";
+import {
+  computed,
+  ref,
+  shallowRef,
+  useTemplateRef,
+  watch,
+  onWatcherCleanup,
+  nextTick,
+  onMounted,
+} from "vue";
 import { useEngineApi } from "../../engine/engineContext.ts";
 import WorkspaceTip from "../../shell/WorkspaceTip.vue";
+import { useWorkspaceEditor } from "../../shell/workspaceEditor.ts";
 import BindingDetails from "../../shell/BindingDetails.vue";
 import { workspaceBindingInfos } from "../../shell/workspaceNames.ts";
 import type { BindingInfo } from "../../../../src/logic/projectNames.ts";
@@ -10,6 +20,7 @@ import ViewThumbnail from "./ViewThumbnail.vue";
 import UiExplain from "../../ui/UiExplain.vue";
 import type { WorkspacePartGroup } from "../host/workspaceParts.ts";
 const props = defineProps<{
+  active?: boolean;
   readOnly?: boolean;
   groups: readonly WorkspacePartGroup[];
   selected: string | undefined;
@@ -20,6 +31,7 @@ const props = defineProps<{
 }>();
 const emit = defineEmits<{ open: [key: string]; pin: [key: string]; add: [group: string] }>();
 const engine = useEngineApi();
+const workspace = useWorkspaceEditor();
 const names = shallowRef<BindingInfo[]>([]);
 const details = ref<BindingInfo>();
 const editingName = ref(false);
@@ -62,6 +74,20 @@ function renamePart(key: string): void {
   editingName.value = true;
 }
 const root = useTemplateRef("root");
+function rememberScroll(): void {
+  if (props.active !== false) workspace.partsScroll.value = root.value?.scrollTop ?? 0;
+}
+async function restoreScroll(): Promise<void> {
+  await nextTick();
+  if (root.value) root.value.scrollTop = workspace.partsScroll.value;
+}
+onMounted(restoreScroll);
+watch(
+  () => props.active,
+  (active) => {
+    if (active !== false) void restoreScroll();
+  },
+);
 const focused = ref("");
 const rows = computed(() => props.groups.flatMap((group) => group.entries));
 const roving = computed(
@@ -109,6 +135,7 @@ function onKey(event: KeyboardEvent): void {
     aria-label="Parts list"
     data-testid="parts-list"
     @keydown="onKey"
+    @scroll="rememberScroll"
   >
     <WorkspaceTip
       id="workspace"

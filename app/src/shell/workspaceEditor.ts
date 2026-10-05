@@ -42,6 +42,7 @@ export function createWorkspaceEditor(engine: EngineApi) {
   const retained = ref<string[]>([]);
   const focus = ref(false);
   const partsOpen = ref(false);
+  const partsScroll = ref(0);
   const panel = ref(false);
   const history = ref(false);
   const parts = shallowRef<readonly ChooserItem[]>([]);
@@ -174,6 +175,7 @@ export function createWorkspaceEditor(engine: EngineApi) {
     retained.value = [];
     focus.value = false;
     partsOpen.value = false;
+    partsScroll.value = 0;
     panel.value = history.value = false;
     parts.value = [];
   }
@@ -202,6 +204,7 @@ export function createWorkspaceEditor(engine: EngineApi) {
     retained,
     focus,
     partsOpen,
+    partsScroll,
     panel,
     history,
     parts,

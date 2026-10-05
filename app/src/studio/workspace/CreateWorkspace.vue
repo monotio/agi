@@ -1002,6 +1002,9 @@ onBeforeUnmount(() => {
     <InspectPanel />
   </aside>
   <PartsList
+    :active="
+      creating && !editor.focus.value && (!workspace.collapsed.left || editor.partsOpen.value)
+    "
     :read-only="writeConflict || actionBusy"
     :class="{ 'parts-list--open': editor.partsOpen.value }"
     v-show="

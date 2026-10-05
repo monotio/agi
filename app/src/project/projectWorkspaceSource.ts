@@ -312,6 +312,8 @@ export function inspectEditableProject(data: CachedGameData): EditableProjectIns
     }
   } else {
     legacySourceClaims(data.authoringState, claims, rejected, diagnostics);
+    const tests = data.files["TESTS.JSON"];
+    if (tests !== undefined) metadata["tests"] = new Uint8Array(tests);
   }
 
   // Bindings come from the workspace bindings document when present, else

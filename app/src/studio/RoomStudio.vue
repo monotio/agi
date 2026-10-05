@@ -255,7 +255,13 @@ const MAX_HANDLES = 160;
 /** How near its line, in CSS pixels, an Alt+click adds a point. */
 const INSERT_REACH = 12;
 
-const resolved = computed(() => resolveStudioSource({ bytes, authoredSource, profile }));
+let localPictureSource: string | undefined;
+const resolved = computed(() =>
+  // The keyed write queue can publish older bytes while our newer text is pending.
+  embedded && authoredSource !== undefined && authoredSource === localPictureSource
+    ? { source: authoredSource, trusted: true, profile }
+    : resolveStudioSource({ bytes, authoredSource, profile }),
+);
 const draft = useStudioDraft({
   base: () => ({ source: resolved.value.source, revision: baseRevision }),
   profile: () => profile,
@@ -443,7 +449,11 @@ const keeper = useStudioKeep({
 });
 watch([draft.source, draft.gesturing], ([source, gesturing]) => {
   if (!embedded || readOnly || gesturing) return;
+  // Receiving native bytes resets an untouched draft; it is not a drawing edit.
+  // Undo back to saved text still has a future step and must reach the queue.
+  if (!draft.dirty.value && !draft.canUndo.value && !draft.canRedo.value) return;
   // The saved source can still match an Undo while a newer write is pending.
+  localPictureSource = source;
   emit("edit", source);
   lesson.check({
     kind: "picture",

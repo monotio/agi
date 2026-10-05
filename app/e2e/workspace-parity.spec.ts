@@ -1,4 +1,4 @@
-import { workspaceDocument, openWorkspaceLogic, focusWorkspaceLogic } from "./workspaceShared.ts";
+import { workspaceDocument, openWorkspaceLogic } from "./workspaceShared.ts";
 import type { ProjectSession } from "../src/project/projectSession.ts";
 import { buildTutorial } from "../../games/adventure-department/game.ts";
 import { openContainer } from "../../src/container/container.ts";
@@ -169,7 +169,10 @@ test("a polygon offers Done and its point menu names Delete shape", async ({ pag
 });
 test("Walk shows doors and runs a real test with Play here", async ({ page }) => {
   const studio = await picture(page);
-  await studio.getByRole("radio", { name: "Walk", exact: true }).click();
+  await studio
+    .getByRole("radiogroup", { name: "Lens", exact: true })
+    .getByRole("radio", { name: "Walk", exact: true })
+    .click();
   await expect(studio.getByTestId("walk-panel")).toBeVisible();
   await expect(studio.getByTestId("walk-door").first()).toBeVisible();
   await studio.locator('[data-role="test-walk"] button').first().click();
@@ -365,7 +368,10 @@ test("Walk edits a door box and an edge exit and shows drawing errors beside the
   const studio = await picture(page);
   const show = page.getByTestId("workspace-show-game");
   if (await show.isVisible()) await show.click();
-  await studio.getByRole("radio", { name: "Walk", exact: true }).click();
+  await studio
+    .getByRole("radiogroup", { name: "Lens", exact: true })
+    .getByRole("radio", { name: "Walk", exact: true })
+    .click();
   const door = studio.locator('button[data-tool="door"]');
   await expect(door).toBeVisible();
   await expect(door).toBeEnabled();
@@ -451,7 +457,10 @@ test("Walk edits a door box and an edge exit and shows drawing errors beside the
 
 test("Walk keeps an unfinished box number when its saved LOGIC refreshes", async ({ page }) => {
   const studio = await picture(page);
-  await studio.getByRole("radio", { name: "Walk", exact: true }).click();
+  await studio
+    .getByRole("radiogroup", { name: "Lens", exact: true })
+    .getByRole("radio", { name: "Walk", exact: true })
+    .click();
   await studio.locator('button[data-tool="door"]').click();
   const from = await cell(page, 120, 130),
     to = await cell(page, 145, 150);
@@ -564,7 +573,10 @@ test("drawing preserves invalid room LOGIC and Walk refuses to overwrite it", as
   await studio.getByRole("button", { name: "✓ Done", exact: true }).click();
   await workspaceSaved(page);
   expect(await workspaceDocument(page, "logic:1")).toBe(source);
-  await studio.getByRole("radio", { name: "Walk", exact: true }).click();
+  await studio
+    .getByRole("radiogroup", { name: "Lens", exact: true })
+    .getByRole("radio", { name: "Walk", exact: true })
+    .click();
   await studio.locator('button[data-tool="door"]').click();
   const from = await cell(page, 120, 130),
     to = await cell(page, 145, 150);
@@ -626,7 +638,10 @@ test("drawing cannot resubmit a Walk edit over a newer pending LOGIC draft", asy
       return submit(request);
     };
   });
-  await studio.getByRole("radio", { name: "Walk", exact: true }).click();
+  await studio
+    .getByRole("radiogroup", { name: "Lens", exact: true })
+    .getByRole("radio", { name: "Walk", exact: true })
+    .click();
   await studio.locator('button[data-tool="door"]').click();
   const from = await cell(page, 120, 130),
     to = await cell(page, 145, 150);
@@ -635,14 +650,27 @@ test("drawing cannot resubmit a Walk edit over a newer pending LOGIC draft", asy
   await page.mouse.move(to.x, to.y, { steps: 4 });
   await page.mouse.up();
   await expect.poll(() => page.evaluate(() => Reflect.get(window, "walkEntered"))).toBe(true);
-  await openWorkspaceLogic(page);
-  await focusWorkspaceLogic(page);
-  await page.keyboard.press("ControlOrMeta+a");
+  const logicEditor = await openWorkspaceLogic(page);
+  // WebKit needs Monaco's rendered surface to own the keyboard before selection.
+  await logicEditor.locator(".view-lines").click();
+  // Monaco follows the user agent; Linux WebKit identifies as Macintosh.
+  const mac = await page.evaluate(() => /Macintosh|Mac OS X/i.test(navigator.userAgent));
+  await page.keyboard.press(mac ? "Meta+a" : "Control+a");
+  await expect(
+    page
+      .getByTestId("workspace-logic-editor")
+      .filter({ visible: true })
+      .locator(".selected-text")
+      .first(),
+  ).toBeVisible();
   await page.keyboard.press("Backspace");
   await page.keyboard.insertText(source);
   await page.keyboard.press("Escape");
   await page.getByTestId("part-room:1:picture:1").click();
-  await studio.getByRole("radio", { name: "Art", exact: true }).click();
+  await studio
+    .getByRole("radiogroup", { name: "Lens", exact: true })
+    .getByRole("radio", { name: "Art", exact: true })
+    .click();
   await studio.locator('button[data-tool="line"]').click();
   for (const [x, y] of [
     [40, 110],
