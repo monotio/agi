@@ -13,6 +13,7 @@
  */
 
 import type { AgiProfile } from "../runtime/profile.ts";
+import type { PsgChip } from "./psgNoise.ts";
 import { iigsByteRate } from "./iigsBank.ts";
 import { validatePlaybackState, type PlaybackState } from "../runtime/replayState.ts";
 
@@ -273,7 +274,7 @@ function decodeSound(
 
 export type SoundOutput =
   | { kind: "speaker"; divisor: number | null }
-  | { kind: "psg"; bytes: readonly number[] }
+  | { kind: "psg"; bytes: readonly number[]; chip?: PsgChip }
   | {
       kind: "paula";
       /** The Paula voice, 0..3; voice 3 is the noise voice. */
@@ -710,7 +711,12 @@ export class SoundPlayback {
       if (!channel.terminated) {
         const row = this.rows[channel.cursor++];
         if (row === undefined || channel.cursor >= this.rows.length) channel.terminated = true;
-        if (row !== undefined && row.length > 0) outputs.push({ kind: "psg", bytes: row });
+        if (row !== undefined && row.length > 0)
+          outputs.push({
+            kind: "psg",
+            bytes: row,
+            ...(row.some((byte) => (byte & 0xf0) === 0xe0) ? { chip: this.profile.psgNoise } : {}),
+          });
       }
       if (channel.terminated) outputs.push(...this.stop());
       return { outputs, complete: !this.active };
@@ -860,6 +866,7 @@ export class SoundPlayback {
           outputs.push({
             kind: "psg",
             bytes: !earlyBoth && (high & 0xe0) === 0xe0 ? [high] : [high, low],
+            ...((high & 0xf0) === 0xe0 ? { chip: this.profile.psgNoise } : {}),
           });
         }
         if (this.profile.sound !== "common") {

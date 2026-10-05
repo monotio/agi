@@ -404,6 +404,8 @@ export interface AgiProfile {
   // ---- sound ----
   /** Sound scheduling/output family. */
   readonly sound: SoundProfile;
+  /** Representative PC sound hardware; docs/fidelity.md "PCjr and Tandy noise". */
+  readonly psgNoise: "sn76496" | "ncr8496";
   /** Decay-envelope selection for the "common" family (unused by early/booter sound). */
   readonly soundEnvelope: SoundEnvelope;
 }
@@ -460,6 +462,7 @@ const BASE_2936: AgiProfile = {
   saveBlock3Xor: false,
   frameTiming: "fixed",
   sound: "common",
+  psgNoise: "ncr8496",
   soundEnvelope: "2.917",
 };
 
@@ -485,6 +488,7 @@ const BASE_EARLY: AgiProfile = {
   pictureMaxCommand: 0xf8,
   patternProfile: "none",
   sound: "early-2.089",
+  psgNoise: "sn76496",
 };
 
 /** Combined v3 container shape shared by the 3.002.x profiles. */
@@ -613,6 +617,7 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
     restartPromptBypassedByF16: false,
     heapDiagnosticExtraLine: false,
     sound: "early-2.411",
+    psgNoise: "sn76496",
   },
   // version_profiles.md "AGI 2.440 profile"; conformance matrix "2.440 variant selection".
   "2.440": {
@@ -623,6 +628,7 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
     directionLoops: "exact-four",
     heapDiagnosticExtraLine: false,
     sound: "early-2.440",
+    psgNoise: "sn76496",
   },
   // version_profiles.md "AGI 2.917 profile"; conformance matrix "2.917 variant selection".
   "2.917": {

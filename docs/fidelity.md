@@ -1922,8 +1922,9 @@ the same register remains selected, and single-byte attenuation/noise writes.
 Those documented formats do not establish what every chip variant does with
 a continuation byte after an attenuation/noise latch, nor resolve divisor-zero
 behavior for PCjr/Tandy devices. No independent silicon measurement was made.
-The browser's analog/noise synthesis remains an approximation; software port
-traces establish command bytes and completion behavior only.
+Software port traces establish command bytes and completion behavior. The
+[PCjr and Tandy noise](#pcjr-and-tandy-noise) generator models chip feedback;
+analogue speaker response remains approximate.
 
 Original tone-zero output is also established: the player emits two 0x00 port
 bytes before attenuation on device 1. The engine's suppression is therefore a
@@ -3956,9 +3957,88 @@ New preset applications encode their named notes through the same conversion.
 [audio.test.ts](../app/test/audio.test.ts) failed with the shared clock and
 passes with these hand-computed frequencies. The same 16 PQ1 publisher-note
 windows used in the MAME comparison have median error +0.0032 cents after
-the correction, versus -203.8781 cents before. Noise remains the existing
-buffer/filter approximation; only its tone-2 frequency reference uses the
-corrected PSG clock.
+the correction, versus -203.8781 cents before. The subsequent
+[PCjr and Tandy noise](#pcjr-and-tandy-noise) change uses the same clock.
+
+### PCjr and Tandy noise
+
+**Evidence class:** manufacturer hardware documentation for chip identities,
+mode, clock and rate; reported hardware sampling for exact feedback and reset.
+The generator is independently written from these behavioral descriptions.
+Original AGI port-write evidence is recorded in
+[SN76489 attenuation latching](#sn76489-attenuation-latching-and-rest-notes).
+
+The [IBM PCjr Technical Reference](https://bitsavers.trailing-edge.com/pdf/ibm/pc/pc_jr/PCjr_Technical_Reference_Nov83.pdf),
+Sound Subsystem, identifies the TI SN76496N. The
+[original Tandy 1000 manual](https://manualzz.com/doc/54837143/tandy-1000-ms-dos-technical-reference-manual)
+includes the TI SN76496 specification and sound schematic. The
+[SX manual](https://www.lo-tech.co.uk/downloads/manuals/tandy/Tandy_1000SX_Technical_Reference_Manual.pdf)
+also depicts that part. The
+[HX manual](https://www.lo-tech.co.uk/downloads/manuals/tandy/Tandy_1000HX_Technical_Reference_Manual.pdf)
+includes NCR's own 8496 datasheet (Devices section, PDF pages 313–325).
+Section 2.3 on PDF pages 320–321 specifies XNOR noise feedback, white/periodic
+selection and shift rates input clock / 512, / 1024, / 2048 or tone generator 3's
+output. At 3,579,545 Hz the fixed rates are 6,991.298828125, 3,495.6494140625 and
+1,747.82470703125 shifts per second. Coupled mode shifts once per complete
+tone-2 period, `3579545 / (32 * divisor)`; zero selects divisor 1,024.
+
+Hardware identity has a production boundary as well as a model boundary:
+
+| Machine                   | Chip                   | Evidence and limits                                                                                                                                                                                                    |
+| ------------------------- | ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| PCjr                      | TI SN76496             | IBM technical reference.                                                                                                                                                                                               |
+| Tandy 1000, A, HD         | TI SN76496             | Original 1000 manual; A/HD production identities rely on component reports.                                                                                                                                            |
+| Tandy EX, SX              | TI SN76496 or NCR 8496 | SX schematic shows TI; mixed production is reported in the [component survey](https://nerdlypleasures.blogspot.com/2015/10/the-journey-of-pcjrtandy-sound-chip.html). Board-specific identity needs a component check. |
+| Tandy HX, TX              | NCR 8496               | HX manufacturer datasheet and schematic; TX identity also appears in the component survey.                                                                                                                             |
+| Tandy SL, TL, RL families | PSSJ                   | Integrated sound core; the component survey identifies the NCR-derived core. Exact PSSJ revisions have thinner evidence.                                                                                               |
+
+Interpreter versions can run on several of these machines. The profile's
+`psgNoise` is a representative playback choice: PC profiles 2.001 through
+2.440 use the TI SN76496; common-family 2.917, 2.936 and 3.002.x use the NCR
+8496, representing an NCR-equipped SX/HX/TX. This is a presentation policy,
+with the era and available hardware as its basis. It establishes no particular
+board identity for a game's interpreter. Amiga and IIgs use their existing
+output families. PSG events carry optional chip metadata on noise writes;
+the renderer also accepts SN76489 and PSSJ-3 for an explicit hardware selection.
+The profile ids and saved interpreter replay state keep their existing format.
+
+The detailed sequence follows the hardware-sampling findings recorded in the
+[MAME chip investigation history](https://github.com/mamedev/mame/blob/mame0289/src/devices/sound/sn76496.cpp),
+including the 2010 periodic-ring correction and 2018 NCR/PSSJ findings. These
+are reported measurements, with exact tap/reset behavior still awaiting an
+independent silicon capture. MAME's general Tandy machine selection is broader
+than the hardware identities above.
+
+Bit numbering below uses a right shift and output at bit 0. Storage width
+includes output stages after the 15-stage feedback ring; this explains the
+different width and tap labels in descriptions of the chip's physical ring.
+
+| Chip               | Storage width | White feedback into highest bit | Output voltage | Register reset             |
+| ------------------ | ------------- | ------------------------------- | -------------- | -------------------------- |
+| SN76489            | 15            | bit 0 XOR bit 1                 | Negated        | Every noise write          |
+| SN76489A / SN76496 | 17            | bit 2 XOR bit 3                 | Positive       | Every noise write          |
+| NCR 8496           | 16            | bit 1 XNOR bit 5                | Negated        | White/periodic bit changes |
+| PSSJ-3             | 16            | bit 1 XNOR bit 5                | Positive       | White/periodic bit changes |
+
+Reset seeds the highest storage bit and clears the other storage bits.
+Periodic mode feeds back the first tap alone: a single pulse every 15 shifts,
+with the variant's output delay at startup. A register reset leaves the held
+output and pending shift edge in place. Rate writes and both bytes of a tone-2
+update take effect after that pending edge. Preserving the output flip-flop and
+counter phase is inferred from the counter model and emulator behavior; it has
+yet to receive an independent silicon measurement. Attenuation remains latched through
+the existing gain path; data-only noise/attenuation writes keep their existing
+ignored-byte contract. Natural SOUND completion leaves the quiet PSG clocking;
+an explicit audio transport stop releases it.
+
+[psg-noise.test.ts](../test/psg-noise.test.ts) checks hand-computed bits,
+periodic rates, repeated/rate/mode writes and shift-counter phase.
+[audio.test.ts](../app/test/audio.test.ts) checks actual buffer bits, held DAC
+frames, variant selection, tone-2 updates and quiet SOUND boundaries.
+Web Audio plays complete deterministic sequences with their transient prefix
+outside the loop. Each bit occupies 32 frames before resampling, keeping the
+DAC level flat for most of the shift interval. The analogue amplifier, output
+filter, cold-boot divider phase and exact resampler remain presentation limits.
 
 ### IIgs DOC pitch, volume and headroom
 
