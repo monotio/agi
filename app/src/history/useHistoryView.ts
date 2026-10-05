@@ -1606,7 +1606,7 @@ export function useHistoryView(deps: HistoryViewDeps) {
       if (v.active) {
         const total = flatTotal();
         const pct = total > 0 ? Math.round((flatPosition() / total) * 100) : 0;
-        return `Room ${v.room} · ${pct}%${v.seeking ? " · replaying…" : ""}`;
+        return `Room ${v.room} · ${pct}%`;
       }
       // Live or paused at LIVE: the LIVE and Resume buttons already say so.
       return undefined;

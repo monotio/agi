@@ -164,6 +164,26 @@ test("the transport rides live play from boot; the timeline enters the tape and 
   await scrubToTape(page, 0.05);
   await expect.poll(async () => (await textHook(page)).paused).toBe(true);
   await expect(page.getByTestId("history-pos")).toContainText("Room");
+  // Scrubbing never resizes the readout or flashes extra words while the tape
+  // catches up: only the numbers change, inside a reserved width.
+  const readout = page.locator(".transport-readout");
+  await expect(readout).toBeVisible();
+  const widths = new Set<number>();
+  const texts: string[] = [];
+  const sample = async () => {
+    widths.add(Math.round((await readout.boundingBox())!.width));
+    texts.push((await readout.textContent()) ?? "");
+  };
+  await sample();
+  const timelineBox = (await page.getByTestId("history-timeline").boundingBox())!;
+  for (const at of [0.5, 0.9, 0.2, 0.05]) {
+    await page.getByTestId("history-timeline").click({
+      position: { x: timelineBox.width * at, y: timelineBox.height / 2 },
+    });
+    for (let i = 0; i < 8; i++) await sample();
+  }
+  expect([...widths], "one readout width while scrubbing").toHaveLength(1);
+  for (const text of texts) expect(text).toMatch(/^Room \d+ · \d+%$/);
   await expect(page.locator(".history-marker").first()).toBeVisible();
   await expect
     .poll(async () => (await viewState(page))!.room, { timeout: 20_000 })

@@ -102,7 +102,7 @@ export interface TransportExtras {
   /** Source-scoped class on the active speed/story-pause button. */
   readonly speedActiveClass: string;
   readonly speedTitle: (speed: number) => string;
-  /** Position readout, e.g. "Room 4 · 62% · replaying…". */
+  /** Position readout, e.g. "Room 4 · 62%"; catching up shows as the seek dot. */
   readonly readout: string | undefined;
   readonly posTestid: string | undefined;
   /** >0 shows the "earlier history dropped" note. */

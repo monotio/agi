@@ -6,7 +6,7 @@
  * events translate to lane percents and dispatch through the model — the
  * scrub/hover machinery lives in useTransport.
  */
-import { onUnmounted, ref, useTemplateRef } from "vue";
+import { onUnmounted, ref, useTemplateRef, watch } from "vue";
 import type { TransportModel, TransportMark } from "./useTransport.ts";
 
 const props = defineProps<{
@@ -17,6 +17,19 @@ const props = defineProps<{
    */
   cardHost?: string | undefined;
 }>();
+// Catching up after a scrub shows as a dot in a reserved slot, and only once it
+// lasts: brief replays would otherwise blink and resize the readout.
+const seekShown = ref(false);
+let seekTimer: ReturnType<typeof setTimeout> | undefined;
+watch(
+  () => props.model.seeking,
+  (seeking) => {
+    clearTimeout(seekTimer);
+    if (seeking) seekTimer = setTimeout(() => (seekShown.value = true), 300);
+    else seekShown.value = false;
+  },
+);
+onUnmounted(() => clearTimeout(seekTimer));
 
 /** A phone wraps the secondary controls under the row instead (see the styles). */
 const narrowQuery = window.matchMedia("(max-width: 600px)");
@@ -262,6 +275,14 @@ onUnmounted(() => {
 
           <span v-if="model.posTestid" class="transport-pos" :data-testid="model.posTestid">
             <span v-if="model.readout" class="transport-readout">{{ model.readout }}</span>
+            <span
+              v-if="model.readout"
+              class="transport-seek"
+              :class="{ 'transport-seek--on': seekShown }"
+              data-testid="history-seeking"
+              :title="seekShown ? 'Catching up to this point' : undefined"
+              aria-hidden="true"
+            ></span>
             <span
               v-if="model.dropped > 0"
               class="transport-note"
@@ -631,9 +652,34 @@ onUnmounted(() => {
   white-space: nowrap;
 }
 .transport-readout {
-  min-width: 96px;
+  /* Room 99 · 100%: the widest readout, so scrubbing never resizes it. */
+  min-width: 14ch;
   font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
   text-align: right;
+}
+.transport-seek {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--action);
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.transport-seek--on {
+  opacity: 1;
+  animation: transport-seek-pulse 0.9s ease-in-out infinite alternate;
+}
+@keyframes transport-seek-pulse {
+  from {
+    opacity: 0.35;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .transport-seek--on {
+    animation: none;
+  }
 }
 .transport-action {
   min-height: 28px;
