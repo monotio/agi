@@ -3780,6 +3780,103 @@ false, `targetMotionDeferred` false, `inventorySelector` true,
 `saveBlock3Xor` false (the save writer never calls `encryptseg`).
 `soundEnvelope` is inert: the IIgs driver has no Paula envelope.
 
+### Original games through MAME audio
+
+**Evidence class:** original interpreter execution on MAME 0.289 reconstructed
+hardware. This supplements the machine-code findings above. Chip emulation,
+resampling, output gain and analogue filtering remain separate evidence questions.
+The comparison used `t1000sx`, `a500n` with Kickstart 1.3, and `apple2gsr1`.
+MAME was operated through boot media, keyboard input, screen captures and WAV
+output. Its implementation was neither inspected nor copied for this comparison.
+
+PQ1 used PC 2.936 and Amiga 2.310. SQ2 used the original Amiga 2.202 disk and
+the bootable IIgs 2MG edition, with its own extracted resources and instruments.
+That IIgs interpreter identifies as 1.014; `SQ2.SYS16` SHA-256 is
+`e5c414881d6b1a12f65ed662e2d179688b61ac3df713fec159577af5b2912678`.
+It differs at file offsets `0x1f66` and `0xea94` from the unpacked interpreter
+documented above: the disk has `af`, the unpacked file `22`, at both locations.
+The instrument bank used for rendering came from this disk interpreter.
+Its `SIERRASTANDARD` hash is the one recorded above. SQ2 Amiga's interpreter
+SHA-256 is `557215fbbf431193e99578be53372496bd4bf1cfad7c4ba93a61968e5c760dec`;
+its resources match the unpacked 2.202 fixture.
+
+The offline app render booted the same resources through `Engine`, `CycleClock`
+and 60 Hz sound packets into headless Chromium's `OfflineAudioContext` at
+48 kHz. Master volume 0.1 preserved headroom. Four 45-second pairs start at
+the first audible note. Individual SOUND calls were matched by cross-correlation
+of pitched spectral energy; individual notes were refined with demodulated
+envelope slopes and envelope correlation. Repeated effects, short notes and
+overlapping partials retain explicit uncertainty. PQ1 Amiga's later intro SOUND
+30 had low alignment confidence within this span: its logo sequence takes
+longer on the original emulated machine than in the offline harness.
+
+| Comparison                    | Measured pitch difference, app minus MAME                                                                                 | Other observations                                                                                                                       |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| PQ1 Tandy, publisher SOUND 36 | Median -203.88 cents, 16 resolved spectral peaks                                                                          | Ten longer note windows have median start/end residuals -0.75/-0.83 ms; the demodulation method has about 20 ms mixed-voice uncertainty. |
+| PQ1 Amiga, publisher SOUND 36 | Median -15.87 cents, 16 resolved spectral peaks                                                                           | Median start/end residuals +12.54/+1.00 ms in ten longer windows; output bandwidth differs substantially.                                |
+| SQ2 Amiga, SOUND 60           | Median -15.85 cents, 162 resolved spectral peaks                                                                          | Median start/end residuals +34.42/+21.33 ms in 135 longer windows; drift and filter-dependent attacks need separate investigation.       |
+| SQ2 IIgs, SOUND 60            | Dominant wavetable partials usually fall near their counterparts; dense mixtures prevent a single reliable tuning verdict | Strong level and instrument-balance differences; spectral alignment confidence 0.58, so note timing remains unresolved.                  |
+
+**Tandy finding.** The app uses the PC speaker's `99431.67 / divisor` constant
+for PSG oscillators. MAME reports an NCR8496 at 3,579,545 Hz; its measured tone
+frequencies agree with `3579545 / (32 * divisor)`. The ratio predicts
+-203.91 cents, matching the measured error. Original interpreter port-write
+evidence in [Original sound player audit](#original-sound-player-audit) already
+establishes the divisor bytes. This is a strong app presentation finding.
+The next change should separate the PSG and speaker clocks and verify the
+chosen Tandy hardware clock. The envelope contour of a held publisher note
+supports approximately 2 dB attenuation steps. PQ1 SOUND 19 also exercises
+noise: the app's random buffer and bandpass approximation need replacement
+with independently specified chip behavior, including periodic noise and
+tone-channel coupling. The exact NCR noise variant still needs hardware evidence.
+
+**IIgs finding.** The unclipped offline render reaches 6.27 full-scale units
+at master volume 1. At the app's default 0.5 setting, 8.78% of the stereo
+samples in the compared span would exceed full scale. MAME's corresponding
+DOC outputs have no clipped samples. Headroom is therefore the first app fix
+to investigate. After level matching, the app remains much brighter: energy
+above 4 kHz is approximately 28.0% of its AC spectrum, against 2.14% in the
+reference. This does not identify a filter correction by itself. Verify the
+Note Synthesizer's oscillator pairing, waveform resolution, volume conversion
+and instrument envelopes against the original ROM/toolset before adjusting
+voice balance. MAME exports separate DOC output channels; the app combines its
+voices into mono. Their relationship to the stock IIgs speaker and an external
+stereo adapter must be specified before treating this routing difference as a bug.
+
+**Amiga boundary.** The requested NTSC reference runs at a different clock
+from the app's PAL Paula constant. Their clock ratio predicts the measured
+15.86-cent difference. Region selection is the appropriate follow-up.
+The reference carries far more high harmonic energy than the app's documented
+A500 RC and LED filter path. The original driver's register order remains the
+authority for onset/offset work. A maximum adjacent-sample jump in a mixed WAV
+also includes ordinary waveform transitions, so it cannot establish a click defect
+on its own. This comparison leaves the analogue-filter coverage of MAME's
+Paula path and its effective LED state unresolved.
+
+**Capture limits.** MAME documents a default DC-removal highpass and optional
+output effects in its [Audio Effects menu](https://docs.mamedev.org/usingmame/mamemenus.html#audio-effects-menu).
+The headless `-sound none -wavwrite` files here retain separate output channels
+and substantial Tandy DC. The listening comparison therefore applies a stated
+20 Hz highpass to both members; untouched speaker-channel WAVs are retained.
+No additional cabinet lowpass was selected. The declared filtered PC speaker
+device is separate from the PSG. Analogue Tandy speaker response and IIgs DOC
+output filtering were not established by this black-box run. Absolute MAME gain
+and GS system-volume calibration remain unknown; clipping headroom and
+level-matched timbre carry stronger conclusions than an absolute loudness ratio.
+
+The original SQ2 PC TD0 fails in MAME's floppy conversion at cylinder 6,
+head 0: `expected_size=100000, current_size=256032`. Its overlapping,
+bad-CRC protection sectors cannot be represented as independent full sectors
+within that DD track. A file copy reaches the original Sierra disk check and
+does not pass it. This leaves SQ2 Tandy audio unmeasured; it supplies no chip
+evidence. The extracted PC interpreter identifies as 2.936 and matches the
+unpacked fixture, including `AGI` SHA-256
+`2d4c5389e6665570f83f024cdbe9b369d048b864183d2921ca45e7f6758021cc`.
+A preservation image that retains the protection track is needed for that pair.
+The alternate IIgs PO dump also remained at its original-disk check; the 2MG
+dump supplied the successful IIgs measurement. See the repeatable method in
+[Testing](testing.md#original-interpreter-audio-comparison).
+
 ## Appendix D: Tooling and open questions
 
 How to inventory, decode, disassemble and probe an original interpreter without
