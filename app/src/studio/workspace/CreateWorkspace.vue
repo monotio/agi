@@ -209,11 +209,14 @@ const groups = computed(() => {
   }
   const roomIds = new Set([
     ...engine.roomMap.graph.value.nodes.map((node) => node.room),
+    ...[...scan.scans]
+      .filter(([room, logic]) => !scan.shared.has(room) && logic.roomEvidence)
+      .map(([room]) => room),
     ...[...scan.scans.values()].flatMap((logic) => logic.targets.map((target) => target.to)),
     ...Object.keys(plan).map(Number),
   ]);
   const rooms = [...roomIds]
-    .filter((room) => room > 0 && room < 255)
+    .filter((room) => room > 0 && room <= 255)
     .map((room) => {
       const node = engine.roomMap.graph.value.nodes.find((node) => node.room === room);
       const pictures = roomPictureUse(room, {
@@ -1006,6 +1009,7 @@ onBeforeUnmount(() => {
     <InspectPanel />
   </aside>
   <PartsList
+    :data-analysis="engine.roomMap.analysisStatus.value"
     :active="
       creating && !editor.focus.value && (!workspace.collapsed.left || editor.partsOpen.value)
     "

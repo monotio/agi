@@ -18,6 +18,7 @@ import {
   PLAY_START,
   AUTHORING_MODULES,
   DEBUGGER_MODULES,
+  ROOM_ANALYSIS_MODULES,
   isHomeDeferredModule,
   isStudioModule,
 } from "./deferred-modules.mjs";
@@ -153,6 +154,7 @@ const BUDGETS: Record<Group, { readonly gzip: number; readonly brotli: number }>
   // the agent, debugger, editor and preview boundaries, plus the shared dismiss
   // control, first-run tip and reported-spend line in the shell. Home's GPU
   // stage and tutorial build wait for Play.
+  // Room-flow analysis starts with the map or Create in a separate worker.
   js: { gzip: 575_000, brotli: 474_000 },
   // The stylesheets of those chunks: 16.4 kB gzip, 14.3 kB brotli.
   css: { gzip: 16_500, brotli: 14_500 },
@@ -395,11 +397,23 @@ function main(): void {
         failures.push(
           `${module} is in the startup chunk ${chunk.file}; the AI authoring stack must load through app/src/agent/authoringLoader.ts.`,
         );
+  for (const chunk of boot)
+    for (const module of chunk.modules)
+      if (ROOM_ANALYSIS_MODULES.some((pattern) => pattern.test(module)))
+        failures.push(
+          `${module} is in the Play startup chunk ${chunk.file}; room analysis must load with the map or Create.`,
+        );
   for (const worker of workerEntries)
     if (STUDIO_WORKERS.some((pattern) => pattern.test(worker)))
       failures.push(
         `${worker} is started by a startup chunk; the Studio route worker must stay lazy.`,
       );
+  for (const chunk of workerChunks)
+    for (const module of chunk.modules)
+      if (ROOM_ANALYSIS_MODULES.some((pattern) => pattern.test(module)))
+        failures.push(
+          `${module} is in the startup closure of worker chunk ${chunk.file}; room analysis must load with the map or Create.`,
+        );
   for (const chunk of workerChunks)
     for (const module of chunk.modules)
       if (DEBUGGER_MODULES.some((pattern) => pattern.test(module)))
