@@ -743,3 +743,57 @@ the same on every run. `scripts/capture-feedback.ts` generates tutorial feedback
 call. `app/playwright.capture.config.ts` records selected browser tests with
 original resources and mocked provider replies; generated recordings stay under
 `.captures/` until reviewed and edited.
+
+## Original interpreter audio comparison
+
+MAME can supply a second audio reference by running a contributor's original
+interpreter on reconstructed hardware. Keep ROMs, game images, extracted files,
+WAVs and screen captures private. Record the MAME version, system and BIOS,
+interpreter banner and hashes, resource hashes, input sequence, output-channel
+mapping and gain. Copy supplied media into a private working directory before
+booting it, so any emulated filesystem writes affect the working copy.
+
+1. Verify the selected ROM set. For a machine with several BIOS choices, record
+   the selected BIOS separately; absent optional BIOS files can make the whole-set
+   verification fail while the selected BIOS boots successfully.
+2. Boot with `-video none -sound none -nothrottle -seconds_to_run N -samplerate 48000`
+   and `-wavwrite capture.wav`. Supply ROM and disk paths as local arguments.
+   Use `-autoboot_script` for keyboard input and periodic screen snapshots.
+   Inspect the snapshots to establish that the intro is playing. Boot beeps and
+   disk-check dialogs alone supply no game-audio measurement.
+3. For PC games, boot the supplied DOS disk in A and launch the original game
+   from B with its Tandy option. Check the image's geometry against both drives.
+   Preserve copy-protection tracks; ordinary file extraction can recover resources
+   while losing the geometry required by the original loader.
+4. For Amiga games, prefer the original bootable disk. A privately built OFS disk
+   needs a bootblock, `s/startup-sequence`, the executable and its expected `data/`
+   layout. For IIgs games, try the original self-booting ProDOS 16 image. Select
+   the image that actually reaches the intro, and record its interpreter hash.
+5. Extract the resources from the successful image for the offline engine run.
+   Include the IIgs interpreter and `SIERRASTANDARD`, since together they supply
+   its instruments. Boot real LOGIC with a controlled RNG, advance `CycleClock`
+   and the 60 Hz sound heartbeat, and send the resulting packets through the
+   shipped audio graph into an `OfflineAudioContext`. Record the source revision
+   and master volume. A low capture gain preserves headroom for analysis.
+6. Inspect the WAV's channel count and identify game speaker outputs before
+   mixing. Retain 48 kHz raw-level pairs and make separate, explicitly level-matched
+   listening copies. State any DC removal and filter treatment. Preserve the
+   full boot captures as well as the compared 30–60 second span.
+7. Detect audible onsets, then align individual SOUND calls using spectral-energy
+   cross-correlation. Refine note boundaries with envelope correlation and onset/
+   offset slopes. Record pitch cents, timing residuals, attenuation contours,
+   voice levels, spectrum and onset/offset step metrics in a per-note table.
+   Label repeated effects, short notes, overlapping harmonics and low alignment
+   confidence as unresolved. A mixed-waveform step includes ordinary tone edges.
+8. Compare hardware region, output filters and clipping before attributing a
+   difference to the interpreter. Re-render the same packet stream after audio
+   presentation changes, and re-run LOGIC when scheduler behavior changes.
+
+MAME's [Lua device interface](https://docs.mamedev.org/luascript/ref-devices.html)
+documents screenshots and image devices. Its
+[audio menus](https://docs.mamedev.org/usingmame/mamemenus.html#audio-effects-menu)
+describe output effects and resampling. Findings belong in
+[Fidelity](fidelity.md#original-games-through-mame-audio), with the evidence class
+and any blocked game/machine pairs stated explicitly. The private automation
+may carry the contributor's input paths; public scripts and examples use portable
+arguments and bundle independently authored code only.
