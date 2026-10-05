@@ -142,13 +142,13 @@ test("Create game owns F5 and F6 while the editor owns Run", async ({ page }) =>
   await page.keyboard.press("Escape");
   await focusWorkspaceLogic(page);
   await page.keyboard.press("F5");
-  await expect(page.getByTestId("debug-stop")).toBeVisible();
-  await expect(page.getByTestId("debug-stop")).toBeEnabled();
+  await expect(page.locator(".workspace-editor__header").getByTestId("debug-stop")).toBeVisible();
+  await expect(page.locator(".workspace-editor__header").getByTestId("debug-stop")).toBeEnabled();
   await page.keyboard.press("Shift+F5");
   await expect(page.getByTestId("debug-stop")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Run", exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Run", exact: true }).click();
-  await expect(page.getByTestId("debug-stop")).toBeVisible();
+  await expect(page.locator(".workspace-editor__header").getByTestId("debug-stop")).toBeVisible();
 });
 
 test("name hover opens resources and message actions keep readable text @webkit-desktop", async ({
@@ -275,7 +275,7 @@ test("F5 runs from the parts list, header, agent and page without reloading", as
         document.body.focus();
       });
     await page.keyboard.press("F5");
-    await expect(page.getByTestId("debug-stop")).toBeVisible();
+    await expect(page.locator(".workspace-editor__header").getByTestId("debug-stop")).toBeVisible();
     await page.keyboard.press("Shift+F5");
     await expect(page.getByTestId("debug-stop")).toHaveCount(0);
   }

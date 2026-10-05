@@ -57,7 +57,7 @@ for (const size of [
     await page.keyboard.press("F9");
     await expect(editor.locator(".workspace-breakpoint")).toHaveCount(1);
     await page.keyboard.press("F5");
-    await expect(page.getByTestId("debug-stop")).toBeEnabled();
+    await expect(page.locator(".workspace-editor__header").getByTestId("debug-stop")).toBeEnabled();
     await page.keyboard.press("Control+`");
     await page.keyboard.type("look");
     await page.keyboard.press("Enter");
@@ -74,7 +74,10 @@ for (const size of [
     await panel.getByText("All variables", { exact: true }).click();
     await expect(panel.getByRole("spinbutton", { name: "v255", exact: true })).toBeVisible();
     await panel.getByText("All variables", { exact: true }).click();
-    const toolbar = page.getByRole("group", { name: "Debug controls", exact: true });
+    const toolbar = page
+      .locator(".workspace-editor__header")
+      .getByRole("group", { name: "Debug controls", exact: true });
+    await expect(toolbar).toBeVisible();
     expect(
       await toolbar
         .getByRole("button")
@@ -142,7 +145,7 @@ test("stopped edits keep the running source, value edits and watches inspect MAI
   await page.keyboard.press("F9");
   await expect(editor.locator(".workspace-breakpoint")).toHaveCount(1);
   await page.keyboard.press("F5");
-  await expect(page.getByTestId("debug-stop")).toBeEnabled();
+  await expect(page.locator(".workspace-editor__header").getByTestId("debug-stop")).toBeEnabled();
   await page.keyboard.press("Control+`");
   await page.keyboard.type("look");
   await page.keyboard.press("Enter");

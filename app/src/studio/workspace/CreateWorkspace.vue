@@ -1105,7 +1105,13 @@ onBeforeUnmount(() => {
         @click="editor.debugCommand.value?.('start')"
         >Run</UiButton
       >
-      <DebugControls v-if="debug?.state.epoch" :debug="debug" />
+      <DebugControls
+        v-if="
+          debug?.state.epoch &&
+          (editor.kind.value === 'logic' || debug.stopped.value || debug.state.stepping)
+        "
+        :debug="debug"
+      />
       <GuidedAdd
         v-if="editor.kind.value === 'logic' && snapshot"
         v-model:action="guidedKind"
