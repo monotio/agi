@@ -307,6 +307,9 @@
   .in-game .shell-body--workspace > .play-area {
     grid-column: 1;
   }
+  .in-game .shell-body--workspace > .workspace-problems {
+    grid-column: 1 / -1;
+  }
   .in-game .shell-body--workspace > .parts-list {
     position: absolute;
     top: 0;
