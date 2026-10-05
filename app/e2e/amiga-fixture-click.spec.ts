@@ -59,6 +59,7 @@ for (const fixture of fixtures) {
       const errors: string[] = [];
       page.on("pageerror", (error) => errors.push(error.message));
       await isolateStorage(page);
+      await page.addInitScript(() => localStorage.setItem("monotio_agi.crtAmount", "0"));
       await page.goto("/");
       await revealFoldedBoot(page, fixture.alias);
       await page.locator(`[data-alias="${fixture.alias}"]`).press("Enter");

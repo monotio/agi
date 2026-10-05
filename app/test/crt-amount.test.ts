@@ -33,3 +33,20 @@ test("screen coordinates sample the same frame point as the glass shader", () =>
   assert.deepEqual(crtFramePoint(0.5, 0.5, 1), { x: 160, y: 100 });
   assert.equal(crtFramePoint(0, 0, 1), null, "glass border ignores clicks");
 });
+
+test("CRT defaults to Full while display fixtures can request a flat default", async () => {
+  const { readCrtAmount } = await import("../src/settings/crtPreference.ts");
+  const storage = (legacy: string | null = null) => {
+    const values: Record<string, string> = legacy === null ? {} : { "monotio_agi.crt": legacy };
+    return {
+      getItem: (key: string) => values[key] ?? null,
+      setItem: (key: string, value: string) => {
+        values[key] = value;
+      },
+    };
+  };
+  assert.equal(readCrtAmount(storage()), 1);
+  assert.equal(readCrtAmount(storage(), 0), 0);
+  assert.equal(readCrtAmount(storage("on"), 0), 1);
+  assert.equal(readCrtAmount(storage("off")), 0);
+});

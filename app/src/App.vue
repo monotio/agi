@@ -66,7 +66,8 @@ const viewport = ref(
 watch(touchControls, (enabled) =>
   localStorage.setItem("monotio_agi.touchControls", enabled ? "on" : "off"),
 );
-const crtAmount = ref(readCrtAmount(localStorage));
+// Display fixtures start crisp; an explicit preference also exercises CRT.
+const crtAmount = ref(readCrtAmount(localStorage, testMode ? 0 : 1));
 
 // A 320×200 frame filled a 4:3 monitor, so its pixels stood taller than
 // wide; square pixels are the other choice. Display only: the frame, clicks

@@ -3,7 +3,16 @@ import type { Page } from "@playwright/test";
 import { textHook } from "./engineProbe.ts";
 import { decodePng } from "../../scripts/png.ts";
 
-async function play(page: Page): Promise<void> {
+async function play(page: Page, full = false): Promise<void> {
+  if (full) {
+    await page.addInitScript(() => {
+      if (
+        localStorage.getItem("monotio_agi.crtAmount") === null &&
+        localStorage.getItem("monotio_agi.crt") === null
+      )
+        localStorage.setItem("monotio_agi.crtAmount", "1");
+    });
+  }
   await page.goto("/");
   // Observe the actual uniform through the public stage property; keep this
   // probe in the test rather than adding a browser-only production API.
@@ -29,6 +38,15 @@ async function uniformAmount(page: Page): Promise<number> {
   );
 }
 
+async function reloadGame(page: Page): Promise<void> {
+  await page.reload();
+  const game = page.getByTestId("gpu-canvas");
+  const play = page.getByTestId("catalog-play-adventure-department");
+  await expect(game.or(play).filter({ visible: true })).toBeVisible();
+  if (await play.isVisible()) await play.click();
+  await expect(game).toBeVisible();
+}
+
 async function settings(page: Page) {
   await page.getByTestId("settings-menu").click();
   const slider = page.getByRole("slider", { name: "CRT", exact: true });
@@ -39,7 +57,7 @@ async function settings(page: Page) {
 test("CRT steps preview their uniform live, support keys and persist after reload", async ({
   page,
 }) => {
-  await play(page);
+  await play(page, true);
   const slider = await settings(page);
   await expect(slider).toHaveValue("1");
   await slider.focus();
@@ -59,9 +77,7 @@ test("CRT steps preview their uniform live, support keys and persist after reloa
   await expect(slider).toHaveValue("0.5");
   await expect.poll(() => uniformAmount(page)).toBe(0.5);
   expect(await page.evaluate(() => localStorage.getItem("monotio_agi.crtAmount"))).toBe("0.5");
-  await page.reload();
-  await page.getByTestId("catalog-play-adventure-department").click();
-  await expect(page.getByTestId("gpu-canvas")).toBeVisible();
+  await reloadGame(page);
   const restored = await settings(page);
   await expect(restored).toHaveValue("0.5");
   await restored.press("End");
@@ -80,9 +96,7 @@ for (const legacy of ["off", "on"]) {
     expect(await page.evaluate(() => localStorage.getItem("monotio_agi.crtAmount"))).toBe(amount);
     expect(await page.evaluate(() => localStorage.getItem("monotio_agi.crt"))).toBe(legacy);
     await slider.fill("0.25");
-    await page.reload();
-    await page.getByTestId("catalog-play-adventure-department").click();
-    await expect(page.getByTestId("gpu-canvas")).toBeVisible();
+    await reloadGame(page);
     await expect(await settings(page)).toHaveValue("0.25");
   });
 }
@@ -168,7 +182,7 @@ test("CRT screenshots show every step and Settings fits each screen", async ({
           { width: 1063, height: 815 },
           { width: 1440, height: 900 },
         ];
-  await play(page);
+  await play(page, true);
   for (const size of sizes) {
     await page.setViewportSize(size);
     const slider = await settings(page);
