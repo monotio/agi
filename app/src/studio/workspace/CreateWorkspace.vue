@@ -186,9 +186,11 @@ function refresh(): void {
     capture.save.state === "saved"
       ? draftStatus.error
         ? "Could not save. Retry"
-        : editor.busy.value || draftStatus.pending
-          ? "Saving…"
-          : "Saved"
+        : draftStatus.pending || draftStatus.busy
+          ? "Draft saving…"
+          : editor.changeCount.value
+            ? "Draft saved"
+            : "Saved"
       : capture.save.state === "pending" || capture.save.state === "saving"
         ? "Saving…"
         : capture.save.message;
@@ -792,11 +794,19 @@ function draftChanged(force = false): void {
   }
   editor.pendingChanges.value =
     state.pending || state.busy || !!state.error || (session.pendingChanges ?? false);
-  editor.save.value = state.error
-    ? "Could not save. Retry"
-    : state.pending || state.busy
-      ? "Saving…"
-      : "Saved";
+  const gameSave = session.saveStatus();
+  editor.save.value =
+    gameSave.state !== "saved"
+      ? gameSave.state === "pending" || gameSave.state === "saving"
+        ? "Saving…"
+        : gameSave.message
+      : state.error
+        ? "Could not save. Retry"
+        : state.pending || state.busy
+          ? "Draft saving…"
+          : parts.length
+            ? "Draft saved"
+            : "Saved";
   if (state.error) {
     editor.error.value = state.error;
     if (state.error.includes("another tab")) {

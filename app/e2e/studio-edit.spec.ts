@@ -214,7 +214,8 @@ test("a depth drag changes only the priority plane, undoes, keeps, reloads, expo
   expect(planes(kept).priority[at(80, 106)]).toBe(10);
   expect(planes(kept).visual).toEqual(before.visual);
   await workspaceUpdated(page);
-  await expect(page.getByTestId("workspace-saved")).toHaveText("Saved");
+  await expect(page.getByTestId("workspace-saved")).toBeVisible();
+  await expect(page.getByTestId("workspace-saved")).toHaveText(/^(?:Saved|Draft saved)$/);
   expect(await storedPicture(page, 5)).toEqual(kept);
 
   // Room 1 draws PIC 5, so the live room re-enters and shows the new depth.

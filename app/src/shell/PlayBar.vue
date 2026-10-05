@@ -64,9 +64,7 @@ const game = computed(() => {
 });
 const roomLabel = computed(() => {
   const room = roomMap.currentRoom.value;
-  return room !== null && room > 0
-    ? `Room ${room}${shell.mode.value === "create" ? " · running your last update" : ""}`
-    : "";
+  return room !== null && room > 0 ? `Room ${room}` : "";
 });
 const originLabel = computed(() => {
   void state.patchTick;
@@ -140,21 +138,33 @@ const shortcutsBlocked = computed(
         size="sm"
         variant="ghost"
         data-testid="workspace-saved"
-        :title="editor.readOnly.value ? editor.save.value : VOCABULARY.saved.help"
+        :title="
+          editor.readOnly.value
+            ? editor.save.value
+            : editor.save.value.startsWith('Draft')
+              ? 'Your draft saves in this browser.'
+              : VOCABULARY.saved.help
+        "
         @click="
           editor.save.value === 'Could not save. Retry'
             ? editor.retry.value?.().catch(() => {})
             : (editor.history.value = !editor.history.value)
         "
-        ><UiChip :tone="editor.save.value === 'Saved' ? 'ok' : 'warn'" dot>{{
-          state.projectRemoved || editor.save.value.startsWith("This project was removed")
-            ? "Project removed"
-            : state.staleTab || editor.save.value.startsWith("Changed in another tab")
-              ? "Changed in another tab"
-              : editor.readOnly.value
-                ? "Read-only"
-                : editor.save.value
-        }}</UiChip></UiButton
+        ><UiChip
+          :tone="
+            editor.save.value === 'Saved' || editor.save.value === 'Draft saved' ? 'ok' : 'warn'
+          "
+          dot
+          >{{
+            state.projectRemoved || editor.save.value.startsWith("This project was removed")
+              ? "Project removed"
+              : state.staleTab || editor.save.value.startsWith("Changed in another tab")
+                ? "Changed in another tab"
+                : editor.readOnly.value
+                  ? "Read-only"
+                  : editor.save.value
+          }}</UiChip
+        ></UiButton
       >
       <span
         v-if="editor.changeCount.value"

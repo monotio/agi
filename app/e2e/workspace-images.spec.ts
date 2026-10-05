@@ -81,7 +81,7 @@ test("trace an attachment and draw over it with normal tools", async ({ page }) 
     )
     .toContain('"opacity":0.7');
   await expect(page.getByTestId("workspace-saved")).toBeVisible();
-  await expect(page.getByTestId("workspace-saved")).toContainText("Saved");
+  await expect(page.getByTestId("workspace-saved")).toHaveText(/^(?:Saved|Draft saved)$/);
   const referencePixel = await page.locator('[data-layer="art"] canvas').evaluate((element) => {
     const canvas = element as HTMLCanvasElement;
     return [
@@ -133,7 +133,7 @@ test("trace an attachment and draw over it with normal tools", async ({ page }) 
     )
     .toBe(commits + 1);
   await expect(page.getByTestId("workspace-saved")).toBeVisible();
-  await expect(page.getByTestId("workspace-saved")).toContainText("Saved");
+  await expect(page.getByTestId("workspace-saved")).toHaveText(/^(?:Saved|Draft saved)$/);
   await expect
     .poll(() =>
       page.evaluate(
@@ -290,7 +290,7 @@ test("make a four-cel walk loop and preview it on the running hero", async ({ pa
   await page.getByRole("menuitem", { name: "Update and restart this room", exact: true }).click();
   await expect(page.getByTestId("workspace-updated")).toBeVisible();
   await expect(page.getByTestId("workspace-saved")).toBeVisible();
-  await expect(page.getByTestId("workspace-saved")).toContainText("Saved");
+  await expect(page.getByTestId("workspace-saved")).toHaveText(/^(?:Saved|Draft saved)$/);
   await expect(page.getByTestId("image-status")).toBeVisible();
   await expect(page.getByTestId("image-status")).toHaveText("Added 4 cels");
   await expect
@@ -371,7 +371,7 @@ test("Generate sends one styled request and Use this opens tracing", async ({ pa
     ),
   ).toContain("A tree reference");
   await expect(page.getByTestId("workspace-saved")).toBeVisible();
-  await expect(page.getByTestId("workspace-saved")).toContainText("Saved");
+  await expect(page.getByTestId("workspace-saved")).toHaveText(/^(?:Saved|Draft saved)$/);
   await expect(page.getByTestId("room-studio")).toHaveClass(/is-live-game/);
   const generatedCanvas = (await page.locator('[data-layer="art"] canvas').boundingBox())!;
   const generatedEditor = (await page.getByTestId("workspace-editor").boundingBox())!;
@@ -499,7 +499,8 @@ for (const close of [false, true]) {
     await expect(slider).toHaveValue("0.9");
     await expect(page.getByTestId("image-reference").getByRole("alert")).toHaveCount(0);
     await expect(page.getByTestId("workspace-saved")).toBeVisible();
-    await expect(page.getByTestId("workspace-saved")).toContainText("Saved");
+    await expect(page.getByTestId("workspace-saved")).toBeVisible();
+    await expect(page.getByTestId("workspace-saved")).toHaveText(/^(?:Saved|Draft saved)$/);
   });
 }
 

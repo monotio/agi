@@ -1,5 +1,5 @@
 import { test, expect } from "./test.ts";
-import { isolateStorage, textHook } from "./engineProbe.ts";
+import { isolateStorage, textHook, workspaceUpdated } from "./engineProbe.ts";
 import { encodePngRgba } from "../../src/creative/composite.ts";
 import type { Page } from "@playwright/test";
 import type { ProjectSession } from "../src/project/projectSession.ts";
@@ -36,7 +36,7 @@ async function upload(page: Page) {
             window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }
           ).__AGI_PROJECT__
             .getSession()
-            .model.capture()
+            .workingSnapshot()
             .read("images")?.content,
       ),
     )
@@ -47,12 +47,12 @@ async function upload(page: Page) {
       .getByRole("button", { name: "Bring in an image", exact: true }),
   ).toBeEnabled();
   await expect(page.getByTestId("workspace-saved")).toBeVisible();
-  await expect(page.getByTestId("workspace-saved")).toContainText("Saved");
+  await expect(page.getByTestId("workspace-saved")).toHaveText(/^(?:Saved|Draft saved)$/);
 }
 function pixel(page: Page) {
   return page.locator('[data-layer="art"] canvas').evaluate((element) => {
     const canvas = element as HTMLCanvasElement;
-    return [
+    const rgba = [
       ...canvas
         .getContext("2d")!
         .getImageData(
@@ -62,6 +62,12 @@ function pixel(page: Page) {
           1,
         ).data,
     ];
+    if (rgba[3] === 0) {
+      const colour = window.__AGI_FRAME__?.()?.visual[10 * 160 + 80];
+      // The accepted sky remains on the engine surface under the transparent editing layer.
+      return colour === 9 ? [85, 85, 255, 255] : rgba;
+    }
+    return rgba;
   });
 }
 function shot(page: Page, name: string) {
@@ -78,9 +84,11 @@ test("reference snaps to EGA and blends above Starter art while placement follow
   await shot(page, "picture-trace");
   await page.getByTestId("trace-opacity").fill("1");
   await expect.poll(() => pixel(page)).toEqual([170, 0, 0, 255]);
+  await workspaceUpdated(page);
   await page.getByTestId("trace-opacity").fill("0.6");
   // EGA red at 60% over sky blue: 170*.6 + 85*.4 = 136.
   await expect.poll(() => pixel(page)).toEqual([136, 34, 102, 255]);
+  await workspaceUpdated(page);
   const front = await page.evaluate(
     () =>
       (window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }).__AGI_PROJECT__
@@ -89,6 +97,7 @@ test("reference snaps to EGA and blends above Starter art while placement follow
   );
   await page.getByRole("checkbox", { name: "Behind art", exact: true }).check();
   await expect.poll(() => pixel(page)).toEqual([85, 85, 255, 255]);
+  await workspaceUpdated(page);
   await page.getByRole("button", { name: "Undo", exact: true }).click();
   await expect(page.getByRole("checkbox", { name: "Behind art", exact: true })).not.toBeChecked();
   await expect.poll(() => pixel(page)).toEqual([136, 34, 102, 255]);

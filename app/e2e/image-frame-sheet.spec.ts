@@ -134,7 +134,13 @@ test("mark, resize and paint frames before one exact VIEW commit", async ({ page
   await expect(page.getByTestId("image-status")).toBeVisible();
   await expect(page.getByTestId("image-status")).toHaveText("Added 2 cels");
   await expect(page.getByTestId("workspace-saved")).toBeVisible();
-  await expect(page.getByTestId("workspace-saved")).toContainText("Saved");
+  await expect(page.getByTestId("workspace-saved")).toHaveText(/^(?:Saved|Draft saved)$/);
+  expect((await projectView(page)).commits).toBe(before.commits);
+  await page.getByTestId("workspace-update-menu").click();
+  const restart = page.getByRole("menuitem", { name: "Update and restart this room", exact: true });
+  await expect(restart).toBeVisible();
+  await restart.click();
+  await expect(page.getByTestId("workspace-updated")).toBeVisible();
   const after = await projectView(page);
   expect(after.commits).toBe(before.commits + 1);
   const input = parseView(
@@ -318,6 +324,12 @@ test("white sheet finds tight linked figures and adds exact prepared cels", asyn
   await page.getByTestId("image-add-cels").click();
   await expect(page.getByTestId("image-status")).toBeVisible();
   await expect(page.getByTestId("image-status")).toHaveText("Added 4 cels");
+  expect((await projectView(page)).commits).toBe(before.commits);
+  await page.getByTestId("workspace-update-menu").click();
+  const restart = page.getByRole("menuitem", { name: "Update and restart this room", exact: true });
+  await expect(restart).toBeVisible();
+  await restart.click();
+  await expect(page.getByTestId("workspace-updated")).toBeVisible();
   const after = await projectView(page);
   expect(after.commits).toBe(before.commits + 1);
   const original = parseView(

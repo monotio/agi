@@ -592,14 +592,16 @@ export async function workspaceSaved(page: Page): Promise<void> {
       { intervals: [100] },
     )
     .toBe("saved");
-  await expect(page.getByTestId("workspace-saved")).toHaveText("Saved");
+  await expect(page.getByTestId("workspace-saved")).toBeVisible();
+  await expect(page.getByTestId("workspace-saved")).toHaveText(/^(?:Saved|Draft saved)$/);
   await page.evaluate(async () => {
     const probe = window as unknown as {
       __AGI_PROJECT__: { getSession(): { flush(): Promise<void> } };
     };
     await probe.__AGI_PROJECT__.getSession().flush();
   });
-  await expect(page.getByTestId("workspace-saved")).toHaveText("Saved");
+  await expect(page.getByTestId("workspace-saved")).toBeVisible();
+  await expect(page.getByTestId("workspace-saved")).toHaveText(/^(?:Saved|Draft saved)$/);
 }
 
 /** The approved storyboard replaces gesture publication with an explicit Update game. */

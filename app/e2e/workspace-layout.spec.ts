@@ -299,7 +299,8 @@ for (const size of sizes) {
         };
       });
       await page.getByLabel("Game notes", { exact: true }).fill("Current buffer");
-      await expect(page.getByTestId("workspace-saved")).toContainText("Saving");
+      await expect(page.getByTestId("workspace-saved")).toBeVisible();
+      await expect(page.getByTestId("workspace-saved")).toHaveText("Draft saving…");
       await shot(page, `saving-${size.width}`);
       await expect.soft(page.getByTestId("download-unsaved-edits")).toHaveCount(0);
       expect

@@ -689,7 +689,8 @@ test("Undo and History restore update the editor while a game message waits", as
   await page.keyboard.press("Control+`");
   await page.keyboard.press("Enter");
   await expect(page.getByTestId("workspace-updated")).toBeVisible();
-  await expect(page.getByTestId("workspace-live")).toHaveText("LIVE");
+  await expect(page.getByTestId("workspace-live")).toBeVisible();
+  await expect(page.getByTestId("workspace-live")).toHaveText("Now");
   await expect(page.locator(".monaco-editor")).toContainText("Latest while waiting");
 });
 

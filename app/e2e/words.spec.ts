@@ -53,7 +53,8 @@ for (const width of [1440, 1280])
     await sentence.fill("inspect");
     await expect(page.getByTestId("sentence-parse")).toContainText("· 100");
     await expect(page.getByTestId("sentence-outcome")).toContainText("LOGIC 1");
-    await expect(page.getByTestId("workspace-saved")).toContainText("Saved");
+    await expect(page.getByTestId("workspace-saved")).toBeVisible();
+    await expect(page.getByTestId("workspace-saved")).toHaveText(/^(?:Saved|Draft saved)$/);
     await expect(page.getByTestId("sentence-outcome")).toContainText("Answers “You stand");
     const meaning = editor.locator('[data-word-group="100"]');
     await expect(meaning.locator(".head")).toHaveText(/look/);
@@ -129,12 +130,14 @@ test("WORDS row actions, in-place stub suggestions and tester choices", async ({
   await expect(row.locator(".word-suggestion")).toHaveText(["✦ inspect", "✦ check"]);
   await expect(row.locator(".word-suggestion").first()).toHaveCSS("border-style", "dashed");
   await expect(words.getByRole("status")).toContainText("Suggestions from");
-  await expect(page.getByTestId("workspace-saved")).toContainText("Saved");
+  await expect(page.getByTestId("workspace-saved")).toBeVisible();
+  await expect(page.getByTestId("workspace-saved")).toHaveText(/^(?:Saved|Draft saved)$/);
   await page.screenshot({ path: test.info().outputPath("words-suggestions-1440.png") });
   await row.getByRole("button", { name: "Add all", exact: true }).click();
   await expect(row.locator(".word-suggestion")).toHaveCount(0);
   await expect(row.locator(".word-chip").filter({ hasText: "inspect" })).toHaveCount(1);
-  await expect(page.getByTestId("workspace-saved")).toContainText("Saved");
+  await expect(page.getByTestId("workspace-saved")).toBeVisible();
+  await expect(page.getByTestId("workspace-saved")).toHaveText(/^(?:Saved|Draft saved)$/);
   const sentence = words.getByRole("textbox", { name: "A sentence a player might type" });
   await sentence.fill("inspect");
   await expect(page.getByTestId("sentence-parse")).toContainText("· 100");
@@ -150,7 +153,8 @@ test("WORDS row actions, in-place stub suggestions and tester choices", async ({
   const predicted = words.getByRole("region", { name: "Predicted commands" });
   await expect(predicted).toContainText("climb tree");
   await expect(predicted).toContainText("✦ look tree");
-  await expect(page.getByTestId("workspace-saved")).toContainText("Saved");
+  await expect(page.getByTestId("workspace-saved")).toBeVisible();
+  await expect(page.getByTestId("workspace-saved")).toHaveText(/^(?:Saved|Draft saved)$/);
   await page.screenshot({ path: test.info().outputPath("words-predict-1440.png") });
   await predicted.getByRole("button", { name: "Dismiss", exact: true }).focus();
   await page.keyboard.press("Escape");
@@ -185,7 +189,8 @@ test("WORDS row actions, in-place stub suggestions and tester choices", async ({
   await expect(
     verdict.getByRole("button", { name: "Skip it like “the”", exact: true }),
   ).toBeVisible();
-  await expect(page.getByTestId("workspace-saved")).toContainText("Saved");
+  await expect(page.getByTestId("workspace-saved")).toBeVisible();
+  await expect(page.getByTestId("workspace-saved")).toHaveText(/^(?:Saved|Draft saved)$/);
   await page.screenshot({ path: test.info().outputPath("words-tester-1440.png") });
   await verdict.getByRole("button", { name: "Skip it like “the”", exact: true }).click();
   await expect(page.getByTestId("sentence-parse")).toContainText("skipped");
@@ -201,7 +206,8 @@ test("WORDS row actions, in-place stub suggestions and tester choices", async ({
   await expect(panel).toContainText("Suggest words for look");
   await expect(panel).toContainText("Suggested inspect, check · shown in WORDS");
   await expect(panel).toContainText("Predict what players will try in Meadow");
-  await expect(page.getByTestId("workspace-saved")).toContainText("Saved");
+  await expect(page.getByTestId("workspace-saved")).toBeVisible();
+  await expect(page.getByTestId("workspace-saved")).toHaveText(/^(?:Saved|Draft saved)$/);
   await page.screenshot({ path: test.info().outputPath("words-chat-1440.png") });
   await page.reload();
   await page.getByTestId("part-words").click();

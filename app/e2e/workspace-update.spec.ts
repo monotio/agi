@@ -147,6 +147,42 @@ for (const [width, height] of [
       await page.mouse.move(box.x + 24.5 * 2 * zoom, box.y + 114.5 * zoom, { steps: 4 });
       await page.mouse.up();
       await expect(page.getByTestId("stage-draft")).toBeVisible();
+      await page.screenshot({
+        path: test.info().outputPath(`before-update-${width}.png`),
+        animations: "disabled",
+        scale: "css",
+      });
+      const label = (await page.getByTestId("stage-draft").boundingBox())!;
+      const outline = (await pane.locator(".studio-pane__changed-line").boundingBox())!;
+      expect.soft(label.y).toBeGreaterThanOrEqual(box.y);
+      expect.soft(label.y + label.height).toBeLessThanOrEqual(box.y + box.height);
+      expect
+        .soft(
+          Math.min(
+            Math.abs(label.y - (outline.y + outline.height)),
+            Math.abs(outline.y - (label.y + label.height)),
+          ),
+        )
+        .toBeLessThanOrEqual(12);
+      expect.soft(label.x).toBeLessThan(outline.x + outline.width);
+      expect.soft(label.x + label.width).toBeGreaterThan(outline.x);
+      const stageRow = page.getByTestId("workspace-room-live");
+      await expect(stageRow).toBeVisible();
+      await expect
+        .soft(page.getByText("Room 1 · running your last update", { exact: true }))
+        .toHaveCount(1);
+      await expect(page.getByTestId("workspace-saved")).toBeVisible();
+      await expect.soft(page.getByTestId("workspace-saved")).toHaveText("Draft saved");
+      await expect(page.getByTestId("workspace-live")).toBeVisible();
+      await expect.soft(page.getByTestId("workspace-live")).toHaveText("Now");
+      await expect(page.getByTestId("workspace-live")).toHaveAttribute(
+        "title",
+        "Timeline: present moment",
+      );
+      await expect(page.getByTestId("workspace-live")).toHaveAttribute(
+        "aria-label",
+        "Timeline: present moment",
+      );
       expect(await page.evaluate(() => window.__AGI_FRAME__?.()?.visual[112 * 160 + 22])).toBe(
         before,
       );
@@ -168,8 +204,30 @@ for (const [width, height] of [
         .toBe(4);
       if (width === 1063) {
         await page.getByTestId("part-room:1:logic").click();
+        await expect(
+          page.getByTestId("workspace-logic-editor").locator(".view-lines"),
+        ).toBeVisible();
+        await expect(page.getByRole("button", { name: "Side by side", exact: true })).toBeVisible();
+        await page.getByRole("button", { name: "Side by side", exact: true }).click();
+        await page.screenshot({
+          path: test.info().outputPath(`update-${width}-side-by-side.png`),
+          animations: "disabled",
+          scale: "css",
+        });
         await expect(page.getByRole("button", { name: "Stacked", exact: true })).toBeVisible();
         await page.getByRole("button", { name: "Stacked", exact: true }).click();
+        await expect
+          .poll(async () => {
+            const surface = (await page
+              .locator(".workspace-editor__surface:visible")
+              .boundingBox())!;
+            const editor = (await page
+              .getByTestId("workspace-logic-editor")
+              .locator(".monaco-editor")
+              .boundingBox())!;
+            return Math.abs(surface.width - editor.width);
+          })
+          .toBeLessThan(4);
         await page.screenshot({
           path: test.info().outputPath(`update-${width}-stacked.png`),
           animations: "disabled",
