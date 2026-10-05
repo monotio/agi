@@ -16,6 +16,7 @@ import {
   openLibraryActions,
   observe,
   probe,
+  progressStorageKey,
   screenText,
   settled,
   storedAutosave,
@@ -297,6 +298,7 @@ test("saving with F5 writes a real save-file image and F7 restores it without lo
   await page.goto("/");
   await bootKq1(page);
   await advanceToCourtyard(page);
+  const saveKey = `monotio_agi.saves.${encodeURIComponent(await progressStorageKey(page, "kq1"))}`;
 
   // Save game (F5): select a slot, name it and confirm the engine's dialog.
   await clickGameKey(page, 16128);
@@ -310,7 +312,7 @@ test("saving with F5 writes a real save-file image and F7 restores it without lo
   await expect.poll(() => screenText(page)).toContain("Courtyard");
   await page.keyboard.press("Enter");
   await expect
-    .poll(() => page.evaluate(() => localStorage.getItem("monotio_agi.saves.kq1") !== null), {
+    .poll(() => page.evaluate((key) => localStorage.getItem(key) !== null, saveKey), {
       timeout: 15_000,
     })
     .toBe(true);
@@ -318,12 +320,12 @@ test("saving with F5 writes a real save-file image and F7 restores it without lo
   // The stored value is the authentic save envelope, not a JSON snapshot:
   // base64 of a 31-byte description header followed by the 2.917 profile's
   // five u16le length-prefixed blocks, the first of which is 0x05e1 bytes.
-  const envelope = await page.evaluate(() => {
-    const stored = JSON.parse(localStorage.getItem("monotio_agi.saves.kq1") ?? "{}").slots["1"];
+  const envelope = await page.evaluate((key) => {
+    const stored = JSON.parse(localStorage.getItem(key) ?? "{}").slots["1"];
     if (!stored) return null;
     const binary = atob(stored);
     return { length: binary.length, block1: binary.charCodeAt(31) | (binary.charCodeAt(32) << 8) };
-  });
+  }, saveKey);
   expect(envelope).not.toBeNull();
   expect(envelope!.block1).toBe(0x05e1);
   expect(envelope!.length).toBeGreaterThan(31 + 2 + 0x05e1);
@@ -335,9 +337,9 @@ test("saving with F5 writes a real save-file image and F7 restores it without lo
   await page.keyboard.press("Enter");
 
   // Telemetry checks
-  await expect(page.locator(".agent-panel")).toContainText(
-    "Restoring saved game from local storage...",
-  );
+  await expect
+    .poll(() => agentActivity(page))
+    .toContain("Restoring saved game from local storage...");
 
   // Verify only 1 restore request was sent (infinite loop bug fixed): the
   // count must reach one and then STAY at one across an observation window.
@@ -588,7 +590,9 @@ test("returning to the menu preserves the installed game autosave", async ({ pag
   await expect(page.locator(".screen")).toBeVisible();
 });
 
-test("a corrupt autosave is discarded and the game boots normally", async ({ page }) => {
+test("a corrupt autosave refuses recovery and preserves the stored checkpoint", async ({
+  page,
+}) => {
   await page.goto("/");
   await bootKq1(page);
   await advanceToCourtyard(page);
@@ -596,26 +600,25 @@ test("a corrupt autosave is discarded and the game boots normally", async ({ pag
   await waitForAutosaveAfter(page, walked.cycle);
 
   // Truncate the stored envelope past repair: the decode has to throw.
-  await page.evaluate(() => {
-    const raw = JSON.parse(localStorage.getItem("monotio_agi.autosave.kq1")!);
+  const autosaveKey = `monotio_agi.autosave.${await progressStorageKey(page, "kq1")}`;
+  const damaged = await page.evaluate((key) => {
+    const raw = JSON.parse(localStorage.getItem(key)!);
     raw.image = raw.image.slice(0, 40);
-    localStorage.setItem("monotio_agi.autosave.kq1", JSON.stringify(raw));
-  });
+    const serialized = JSON.stringify(raw);
+    localStorage.setItem(key, serialized);
+    return serialized;
+  }, autosaveKey);
 
   await page.reload();
-  // A normal boot, not a broken screen: KQ1 comes up on its title screen and
-  // the failure is a log line, not an error panel.
-  await expect(await gameHint(page, "title-prompt-hint")).toBeVisible({ timeout: 20_000 });
-  await page.mouse.move(0, 0);
-  await expect(page.getByTestId("error-panel")).toHaveCount(0);
-  await expect(await gameHint(page, "resume-caption")).toBeHidden();
-  await page.mouse.move(0, 0);
-  await expect.poll(() => agentActivity(page)).toContain("Autosave discarded");
+  // Recovery reports the unreadable image and keeps the contributor's bytes.
+  const error = page.getByTestId("error-panel");
+  await expect(error).toBeVisible();
+  await expect(error).toContainText("The checkpoint could not be restored");
+  await expect(page.locator(".screen")).toBeHidden();
+  expect(await page.evaluate((key) => localStorage.getItem(key), autosaveKey)).toBe(damaged);
 });
 
-test("game frame is hidden until game is running, clicking screen advances title screen, and menu button ejects", async ({
-  page,
-}) => {
+test("game frame follows boot and exit while New game preserves its draft", async ({ page }) => {
   await page.goto("/");
 
   // 1. Initially (idle), the screen container must be hidden
@@ -626,12 +629,15 @@ test("game frame is hidden until game is running, clicking screen advances title
   await openCreateAdventure(page);
   await page.getByTestId("template-knights-trial").click();
   await page.getByRole("button", { name: "Edit as text", exact: true }).click();
+  await expect(page.getByTestId("custom-adventure-input")).toBeVisible();
   const draft = await page.getByTestId("custom-adventure-input").inputValue();
   await page.getByTestId("connect-create-ai").click();
   await expect(page.getByTestId("ai-settings-dialog")).toBeVisible();
   await expect(page.getByTestId("custom-adventure-input")).toHaveValue(draft);
   await page.getByTestId("ai-settings-cancel").click();
   await expect(page.locator(".screen")).toBeHidden();
+  await page.getByTestId("create-adventure-close").click();
+  await expect(page.getByTestId("create-adventure-disclosure")).toBeHidden();
 
   // 3. Boot KQ1: screen becomes visible
   await bootKq1(page);
@@ -642,7 +648,7 @@ test("game frame is hidden until game is running, clicking screen advances title
   await expect(await gameHint(page, "title-prompt-hint")).toBeVisible({ timeout: 15_000 });
   await page.mouse.move(0, 0);
 
-  // 5. Clicking screen advances to courtyard (Room 1)
+  // 5. Enter advances to courtyard (Room 1).
   await advanceToCourtyard(page);
   await expect.poll(() => canvasColors(page), { timeout: 15_000 }).toBeGreaterThanOrEqual(8);
   await expect(await gameHint(page, "title-prompt-hint")).toBeHidden();
