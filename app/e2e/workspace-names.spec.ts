@@ -222,7 +222,9 @@ test("name hover opens resources and message actions keep readable text @webkit-
   expect(await workspaceDocument(page, "logic:1")).toContain("print(m2)");
 });
 
-test("Home cards offer one Create and neutral entries clear an AI pick", async ({ page }) => {
+test("Home offers one Your own game card and neutral entries clear an AI pick", async ({
+  page,
+}) => {
   await page.setViewportSize({ width: 1063, height: 815 });
   await isolateStorage(page);
   await page.goto("/");
@@ -238,7 +240,11 @@ test("Home cards offer one Create and neutral entries clear an AI pick", async (
     await card.locator(".game-card__meta").evaluate((node) => node.scrollWidth <= node.clientWidth),
   ).toBe(true);
   await page.screenshot({ path: test.info().outputPath("home-neutral-card.png") });
-  await page.getByTestId("shelf-template-knights-trial").click();
+  // The AI templates live inside New game, not on the Home shelf.
+  await expect(page.locator('[data-testid^="shelf-template-"]')).toHaveCount(1);
+  await button.click();
+  await page.getByTestId("local-create-kind-ai").click();
+  await page.getByTestId("template-knights-trial").click();
   await expect(page.getByTestId("local-create-kind-ai")).toHaveAttribute("aria-checked", "true");
   await expect(page.getByTestId("template-knights-trial")).toHaveAttribute("aria-selected", "true");
   await page.getByTestId("create-adventure-close").click();

@@ -300,8 +300,13 @@ test("one roomy library reflows across desktop, tablet and phone with accessible
         return { x: rect.x, y: rect.y, width: rect.width };
       }),
     );
+    // Count the grid's own tracks: the shelf may hold fewer cards than columns.
     const columns = { 1440: 5, 1024: 5, 768: 3, 390: 2 }[width];
-    expect(new Set(boxes.map((box) => Math.round(box.x))).size, `${width}px columns`).toBe(columns);
+    const tracks = await gallery.evaluate(
+      (element) => getComputedStyle(element).gridTemplateColumns.split(" ").filter(Boolean).length,
+    );
+    expect(tracks, `${width}px columns`).toBe(columns);
+    expect(new Set(boxes.map((box) => Math.round(box.x))).size).toBeLessThanOrEqual(columns);
     expect(boxes.every((box) => box.width >= 150)).toBe(true);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
       true,

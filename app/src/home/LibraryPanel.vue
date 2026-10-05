@@ -23,7 +23,6 @@ import { earlierProgressDetails, showDetails } from "./cardDetails.ts";
 import { formatRelativeTime } from "./relativeTime.ts";
 import { useEarlierProgressPresence } from "./useEarlierProgress.ts";
 import { useNow } from "./useNow.ts";
-import { BUILTIN_TEMPLATES } from "../library/gameTemplates.ts";
 import { useGameLibrary } from "../library/useGameLibrary.ts";
 import { useShellBridge } from "../shell/shellBridge.ts";
 import { installedProgressTarget } from "../project/progressTarget.ts";
@@ -275,14 +274,6 @@ function startCreating(templateId: string): void {
           </ActionMenu>
         </template>
       </GameCard>
-      <TemplateCard
-        v-for="tmpl in BUILTIN_TEMPLATES"
-        :key="tmpl.id"
-        :title="tmpl.title"
-        detail="Template · create with AI"
-        :test-id="`shelf-template-${tmpl.id}`"
-        @select="startCreating(tmpl.id)"
-      />
       <TemplateCard
         title="Your own game"
         detail="Pick a ready start or describe your idea"
