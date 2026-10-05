@@ -27,7 +27,14 @@ import { useGameLibrary } from "../library/useGameLibrary.ts";
 import { useShellBridge } from "../shell/shellBridge.ts";
 import { installedProgressTarget } from "../project/progressTarget.ts";
 import { getKnownGameByRevision } from "../../../src/games/knownGames.ts";
-import { computed } from "vue";
+import { computed, useTemplateRef } from "vue";
+
+const diskInput = useTemplateRef("diskInput");
+async function addDisks(event: Event): Promise<void> {
+  const input = event.target as HTMLInputElement;
+  await onGameFolder(input.files ?? undefined);
+  input.value = "";
+}
 
 const {
   savedGames,
@@ -146,7 +153,7 @@ function startCreating(templateId: string): void {
     <header class="shelf-head">
       <h2 id="library-title">Your games</h2>
       <div id="open-game" class="shelf-add" role="group" aria-label="Add game">
-        <p class="shelf-hint">Drop a ZIP or folder anywhere to add a game</p>
+        <p class="shelf-hint">Add a game folder, a ZIP, or its disk images</p>
         <ActionMenu
           :label="importBusy ? 'Adding game…' : 'Add game'"
           test-id="open-game-menu"
@@ -159,6 +166,14 @@ function startCreating(templateId: string): void {
             @click="zipInput?.click()"
           >
             ZIP file
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            data-testid="open-game-disks"
+            @click="diskInput?.click()"
+          >
+            Disk images
           </button>
           <button
             type="button"
@@ -176,6 +191,15 @@ function startCreating(templateId: string): void {
           data-testid="game-zip-input"
           hidden
           @change="onGameZip(($event.target as HTMLInputElement).files?.[0])"
+        />
+        <input
+          ref="diskInput"
+          type="file"
+          multiple
+          accept=".img,.ima,.dsk,.td0,.adf,.po,.2mg"
+          data-testid="game-disk-input"
+          hidden
+          @change="addDisks"
         />
         <input
           ref="folderInput"
