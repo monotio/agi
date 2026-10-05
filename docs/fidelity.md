@@ -2932,6 +2932,12 @@ median pitch errors of -15.87 and -15.85 cents respectively, against
 `1200 * log2(3546895 / 3579545) = -15.86` cents predicted by the hardware
 clock ratio. This is measured emulation evidence for the default, distinct
 from the original driver machine-code facts below.
+A fresh 60-second NTSC engine render against the retained reference measures
+PQ1's median error as +0.01 cents (119 mixed-voice spectral candidates;
++0.01 cents also across the 52 confidently aligned intro-note peaks).
+SQ2's 111 candidates have a median within 0.01 cents of zero. These medians
+establish removal of the colour-clock tuning error; PQ1's later SOUND 30
+alignment remains uncertain and individual mixed-voice peaks remain ambiguous.
 
 **Original frame timing facts.** The PQ1 and SQ2 executable hashes are
 listed below and in [Amiga interpreter profiles](#amiga-interpreter-profiles).

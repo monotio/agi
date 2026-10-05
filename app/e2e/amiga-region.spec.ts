@@ -121,6 +121,16 @@ for (const viewport of [
     await openAdvanced(page);
     await expect(region).toBeVisible();
     await expect(region).toHaveValue("pal");
+    await expect
+      .poll(() =>
+        page.evaluate(() => {
+          const audio = (
+            window as unknown as { __AGI_AUDIO__: { paulaSources: AudioBufferSourceNode[] } }
+          ).__AGI_AUDIO__;
+          return audio.paulaSources[0]!.playbackRate.value;
+        }),
+      )
+      .toBeCloseTo((before.rate * 3546895) / 3579545, 5);
     await region.scrollIntoViewIfNeeded();
     await page.screenshot({ path: testInfo.outputPath("amiga-pal.png") });
   });

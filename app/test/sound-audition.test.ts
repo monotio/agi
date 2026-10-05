@@ -653,7 +653,7 @@ describe("sound audition seek", () => {
     );
   });
 
-  it("reconstructs Amiga voices silently: period and per-tick volume envelope", async () => {
+  it("reconstructs NTSC Amiga voices silently: period and per-tick volume envelope", async () => {
     const payload = soundPayload([[toneRecord(0, 30, 226, 4)], [], [], []]);
     const { audition, context } = auditionWith();
     audition.setTarget(target(payload, { profileId: "amiga-2.176" }));
