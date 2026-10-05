@@ -16,10 +16,14 @@ permissions:
 jobs:
   e2e:
     name: Playwright (${{ matrix.label }})
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     container:
       image: ${{ inputs.browser_image }}
       options: --init --ipc=host
+      # Match the runner dependency cache's compression without package installs.
+      volumes:
+        - /usr/bin/zstd:/usr/local/bin/zstd:ro
+        - /usr/bin/unzstd:/usr/local/bin/unzstd:ro
     defaults:
       run:
         shell: bash
@@ -107,10 +111,14 @@ jobs:
   production:
     name: Production browser (${{ matrix.browser }})
     if: inputs.production
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     container:
       image: ${{ inputs.browser_image }}
       options: --init --ipc=host
+      # Match the runner dependency cache's compression without package installs.
+      volumes:
+        - /usr/bin/zstd:/usr/local/bin/zstd:ro
+        - /usr/bin/unzstd:/usr/local/bin/unzstd:ro
     defaults:
       run:
         shell: bash

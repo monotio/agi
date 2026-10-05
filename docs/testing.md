@@ -300,7 +300,10 @@ run in the official Playwright Noble image from `scripts/ci/playwright-image.txt
 The tag carries the Playwright version and the digest fixes the image contents.
 The image supplies browser binaries, fonts and system packages. Setup checks the
 installed `app/node_modules/playwright-core` version and the image metadata before
-testing; a mismatch fails with the file to update. Node jobs keep the runner setup.
+testing; a mismatch fails with the file to update. Read-only mounts expose the
+Ubuntu 24.04 runner's `zstd` and `unzstd` tools so the container reads the same
+dependency cache as Node jobs. Browser hosts stay on Ubuntu 24.04 to match the
+Noble image's system libraries. Node jobs keep the runner setup.
 
 For a Playwright upgrade, install the updated package, obtain the matching Noble
 image digest from the Microsoft registry, and update `scripts/ci/playwright-image.txt`.

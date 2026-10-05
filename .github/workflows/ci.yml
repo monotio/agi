@@ -69,10 +69,14 @@ jobs:
     name: PR burn-in (${{ matrix.browser }})
     needs: [prepare, build]
     if: github.event_name == 'pull_request' && needs.prepare.outputs.specs != '[]' && needs.prepare.outputs.browsers == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     container:
       image: ${{ needs.prepare.outputs.browser_image }}
       options: --init --ipc=host
+      # Match the runner dependency cache's compression without package installs.
+      volumes:
+        - /usr/bin/zstd:/usr/local/bin/zstd:ro
+        - /usr/bin/unzstd:/usr/local/bin/unzstd:ro
     defaults:
       run:
         shell: bash
@@ -230,10 +234,14 @@ jobs:
     name: Verify deployed browser app
     if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.prepare.outputs.browsers == 'true'
     needs: [prepare, deploy]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     container:
       image: ${{ needs.prepare.outputs.browser_image }}
       options: --init --ipc=host
+      # Match the runner dependency cache's compression without package installs.
+      volumes:
+        - /usr/bin/zstd:/usr/local/bin/zstd:ro
+        - /usr/bin/unzstd:/usr/local/bin/unzstd:ro
     defaults:
       run:
         shell: bash
