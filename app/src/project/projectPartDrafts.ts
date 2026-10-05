@@ -5,7 +5,7 @@ import {
   readProjectWorkspace,
   writeProjectWorkspace,
 } from "../../../src/authoring/projectWorkspace.ts";
-import { historyLifetimeGuard, readBodyRecords, updateBodyRecords } from "./gameStorage.ts";
+import { historyLifetimeGuard, readBodyRecords, updateBodyRecords } from "./gameBodyStorage.ts";
 import { claimProjectSaveJournal } from "./projectSaveJournal.ts";
 
 type Journal = Pick<Storage, "length" | "key" | "getItem" | "setItem" | "removeItem">;
