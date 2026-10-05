@@ -166,7 +166,9 @@ A green report requires review before integration.
 
 Integrate only a lane with green CI. Merge its reviewed change into the shared
 integration branch, resolve conflicts, and run the affected checks and the full
-gate against the combined result. Review the whole change for failure paths,
+gate against the combined result. After merging several lanes, also run the
+complete browser suite on the combined head before pushing: lanes that pass on
+their own can collide, and the specs each lane touched will not show it. Review the whole change for failure paths,
 a second page sharing storage, and closing before a write commits where those
 behaviors apply. Verify browser changes in the real app and inspect screenshots.
 The orchestrator owns merge, review and final verification even when individual
