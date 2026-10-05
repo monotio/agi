@@ -48,6 +48,7 @@ import "monaco-editor/editor/contrib/semanticTokens/browser/documentSemanticToke
 import "monaco-editor/editor/standalone/browser/quickAccess/standaloneGotoSymbolQuickAccess.js";
 import EditorWorker from "monaco-editor/editor/editor.worker?worker";
 
+import { createAnalysisSchedule } from "./analysisSchedule.ts";
 import type { LogicAnalysisClient } from "./analysisClient.ts";
 import type { LspOperations, Range, WorkspaceEdit } from "../../../../src/logic/lspTypes.ts";
 import { SEMANTIC_LEGEND } from "../../../../src/logic/lspTypes.ts";
@@ -68,6 +69,32 @@ globalThis.MonacoEnvironment = {
 };
 
 monaco.languages.register({ id: LOGIC_LANGUAGE_ID });
+monaco.languages.setMonarchTokensProvider(LOGIC_LANGUAGE_ID, {
+  tokenizer: {
+    root: [
+      [/\/\/.*$/, "comment"],
+      [/#(?:define|message)\b/, "keyword"],
+      [/#.*$/, "comment"],
+      [/"(?:[^"\\]|\\.)*\\?$/, "string"],
+      [/"/, { token: "string.quote", next: "@string" }],
+      [/\b(?:if|else|return|goto)\b/, "keyword"],
+      [/\b[vfoismc]\d+\b/, "variable"],
+      [/\b\d+\b/, "number"],
+      [/[a-zA-Z_][\w.]*(?=\s*\()/, "type.identifier"],
+      [/[a-zA-Z_][\w.]*/, "variable"],
+      [/[{}()]/, "@brackets"],
+      [/[=!<>+*&|-]+/, "operator"],
+      [/[;,:]/, "delimiter"],
+      [/\s+/, "white"],
+    ],
+    string: [
+      [/\\(?:[\\"nrt]|x[0-9a-fA-F]{2})/, "string.escape"],
+      [/[^"\\]+/, "string"],
+      [/"/, { token: "string.quote", next: "@pop" }],
+      [/\\./, "string.escape"],
+    ],
+  },
+});
 
 monaco.languages.setLanguageConfiguration(LOGIC_LANGUAGE_ID, {
   comments: { lineComment: "//" },
@@ -108,6 +135,7 @@ interface ModelRegistration {
   readonly onBinding: ((info: BindingInfo, action: "open" | "rename") => void) | undefined;
   readonly bindingTargets: Map<string, BindingInfo>;
   readonly previews: Map<string, monaco.editor.ITextModel>;
+  waitForAnalysis(): Promise<void>;
   disposed: boolean;
   dispose(): void;
 }
@@ -574,18 +602,34 @@ monaco.languages.registerInlayHintsProvider(LOGIC_LANGUAGE_ID, {
     };
   },
 });
+const semanticListeners = new Set<() => void>();
+function cancelledTokens(): never {
+  const error = new Error("Canceled");
+  error.name = "Canceled";
+  throw error;
+}
 monaco.languages.registerDocumentSemanticTokensProvider(LOGIC_LANGUAGE_ID, {
+  onDidChange(listener) {
+    semanticListeners.add(listener);
+    return {
+      dispose: () => {
+        semanticListeners.delete(listener);
+      },
+    };
+  },
   getLegend: () => SEMANTIC_LEGEND,
   async provideDocumentSemanticTokens(model, _lastResultId, token) {
     const session = openQuery(model, token);
-    if (!session) return null;
+    if (!session) return cancelledTokens();
+    await session.registration.waitForAnalysis();
+    if (!queryIsLive(session, model, token)) return cancelledTokens();
     const tokens = await queryWorker(
       session.registration,
       "textDocument/semanticTokens/full",
       {},
       token,
     );
-    if (!tokens || !queryIsLive(session, model, token)) return null;
+    if (!tokens || !queryIsLive(session, model, token)) return cancelledTokens();
     return { data: new Uint32Array(tokens.data) };
   },
   releaseDocumentSemanticTokens() {},
@@ -610,7 +654,7 @@ export interface LogicModelHandle {
 /**
  * Serve one live editor model through a workspace's analysis client. Hosts
  * create models only for visible/open documents and keep the client snapshot
- * current (setProject after each text change) before refreshDiagnostics.
+ * current through changeDocument while typing and setProject for saved context.
  * Registering a second model for the same URI retires the earlier handle.
  */
 export function registerLogicModel(
@@ -634,9 +678,15 @@ export function registerLogicModel(
     onBinding: options.onBinding,
     previews: new Map(),
     bindingTargets: new Map(),
+    waitForAnalysis: () => analysisSchedule.settled(),
     disposed: false,
     dispose,
   };
+  const analysisSchedule = createAnalysisSchedule(() => {
+    for (const listener of semanticListeners) listener();
+    void refreshDiagnostics();
+  });
+  const unsubscribe = options.client.onDidChange(analysisSchedule.schedule);
   registrations.set(uri, registration);
   const modelDisposal = model.onWillDispose(dispose);
   const opener = monaco.editor.registerEditorOpener({
@@ -706,6 +756,8 @@ export function registerLogicModel(
   function dispose(): void {
     if (registration.disposed) return;
     registration.disposed = true;
+    unsubscribe();
+    analysisSchedule.dispose();
     modelDisposal.dispose();
     opener.dispose();
     previewInvalidation.dispose();

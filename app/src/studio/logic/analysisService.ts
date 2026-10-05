@@ -7,13 +7,48 @@ interface LanguagePort {
 }
 
 /** The worker and fake test ports carry ordinary LSP JSON-RPC messages. */
-export function attachLogicLanguageServer(port: LanguagePort, options: { version?: string } = {}) {
+export function attachLogicLanguageServer(
+  port: LanguagePort,
+  options: { version?: string; schedule?: (run: () => void) => void } = {},
+) {
   const core = createLogicLspServer({
     ...options,
-    publish: (message) => port.postMessage(message),
   });
+  const schedule =
+    options.schedule ??
+    ((run: () => void) => {
+      setTimeout(run, 0);
+    });
+  let generation = 0;
+  const queued = new Set<string | number>();
   port.onmessage = ({ data }) => {
-    const response = core.handle(data);
-    if (response) port.postMessage(response);
+    if (data.id === undefined) {
+      if (
+        [
+          "workspace/didChangeConfiguration",
+          "textDocument/didChange",
+          "textDocument/didClose",
+        ].includes(data.method)
+      )
+        generation++;
+      if (data.method === "$/cancelRequest") {
+        const id = (data.params as { id?: string | number } | undefined)?.id;
+        if (id === undefined || !queued.has(id)) return;
+      }
+      core.handle(data);
+      return;
+    }
+    const id = data.id;
+    const captured = data.method === "initialize" ? undefined : generation;
+    queued.add(id);
+    // Yield before each request so newer documents and cancellation messages
+    // invalidate queued work before it enters the synchronous language core.
+    schedule(() => {
+      queued.delete(id);
+      if (captured !== undefined && captured !== generation)
+        core.handle({ jsonrpc: "2.0", method: "$/cancelRequest", params: { id } });
+      const response = core.handle(data);
+      if (response) port.postMessage(response);
+    });
   };
 }

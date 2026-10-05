@@ -117,6 +117,15 @@ function layout(): void {
       editor?.revealLineInCenterIfOutsideViewport(props.stoppedLine);
   });
 }
+let contextCache:
+  | {
+      versions: string;
+      words: [string, number][];
+      objects: string[];
+      bindings: Record<string, { num: number }>;
+      bindingSource: string;
+    }
+  | undefined;
 function analysis(): void {
   if (!model) return;
   const documents: Record<string, { version: number; source: string }> = {};
@@ -126,25 +135,37 @@ function analysis(): void {
       documents[key] = { version: doc.version, source: doc.content };
   }
   documents[props.documentKey] = { version: model.getVersionId(), source: model.getValue() };
-  let objects: string[] = [];
-  let words: [string, number][] = [];
-  let bindings: Record<string, { num: number }> = {};
-  try {
-    const text = props.snapshot.read("words")?.content;
-    if (typeof text === "string") words = JSON.parse(text) as [string, number][];
-    else if (text) words = parseWordsTok(text).map(({ word, id }) => [word, id]);
-    const inventory = props.snapshot.read("inventory")?.content;
-    if (typeof inventory === "string")
-      objects = (JSON.parse(inventory) as { name: string }[]).map((item) => item.name);
-    else if (inventory instanceof Uint8Array)
-      objects = readInventoryObjects(inventory, PROFILES[props.profileId]).map((item) => item.name);
-    const names = props.snapshot.read("bindings")?.content;
-    if (typeof names === "string") bindings = readBindingsDocument(names);
-  } catch {
-    client.invalidateContext("Fix the WORDS or names document to restore code intelligence.");
-    return;
+  const versions = `${props.profileId}:${["words", "inventory", "bindings"].map((key) => props.snapshot.version(key)).join(":")}`;
+  if (contextCache?.versions !== versions) {
+    let objects: string[] = [];
+    let words: [string, number][] = [];
+    let bindings: Record<string, { num: number }> = {};
+    let bindingSource = "{}";
+    try {
+      const text = props.snapshot.read("words")?.content;
+      if (typeof text === "string") words = JSON.parse(text) as [string, number][];
+      else if (text) words = parseWordsTok(text).map(({ word, id }) => [word, id]);
+      const inventory = props.snapshot.read("inventory")?.content;
+      if (typeof inventory === "string")
+        objects = (JSON.parse(inventory) as { name: string }[]).map((item) => item.name);
+      else if (inventory instanceof Uint8Array)
+        objects = readInventoryObjects(inventory, PROFILES[props.profileId]).map(
+          (item) => item.name,
+        );
+      const names = props.snapshot.read("bindings")?.content;
+      if (typeof names === "string") {
+        bindingSource = names;
+        bindings = readBindingsDocument(names);
+      }
+      contextCache = { versions, words, objects, bindings, bindingSource };
+    } catch {
+      contextCache = undefined;
+      client.invalidateContext("Fix the WORDS or names document to restore code intelligence.");
+      return;
+    }
   }
-  const changed = client.setProject({
+  const { words, objects, bindings, bindingSource } = contextCache;
+  client.setProject({
     revision: props.snapshot.revision,
     profileId: props.profileId,
     words,
@@ -152,11 +173,10 @@ function analysis(): void {
     bindings,
     bindingDocument: {
       uri: "agi-project:///bindings.json",
-      source: (props.snapshot.read("bindings")?.content as string | undefined) ?? "{}",
+      source: bindingSource,
     },
     documents,
   });
-  if (changed) void language?.refreshDiagnostics();
 }
 async function applyProjectEdit(edit: WorkspaceEdit, label: string): Promise<void> {
   const revision = props.snapshot.revision;
@@ -254,7 +274,7 @@ onMounted(() => {
   model.onDidChangeContent(() => {
     if (!syncing && model) {
       emit("edit", model.getValue());
-      analysis();
+      client.changeDocument(props.documentKey, model.getVersionId(), model.getValue());
       decorate();
     }
   });
@@ -272,7 +292,7 @@ watch(
     const state = editor?.saveViewState();
     syncSource(source);
     if (state) editor?.restoreViewState(state);
-    analysis();
+    if (model) client.changeDocument(props.documentKey, model.getVersionId(), model.getValue());
   },
 );
 watch(
@@ -288,17 +308,21 @@ watch(showRunning, (show) => {
   if (show) editView = editor?.saveViewState() ?? null;
   editor?.updateOptions({ readOnly: show || props.readOnly, domReadOnly: show || props.readOnly });
   syncSource(show ? (props.runningSource ?? props.source) : props.source);
+  if (model) client.changeDocument(props.documentKey, model.getVersionId(), model.getValue());
   if (show && props.stoppedLine) navigate(props.stoppedLine);
   else if (editView) editor?.restoreViewState(editView);
 });
 watch(
   () => [props.breakpoints, props.stoppedLine, props.runningSource],
   () => {
-    if (showRunning.value) syncSource(props.runningSource ?? props.source);
+    if (showRunning.value) {
+      syncSource(props.runningSource ?? props.source);
+      if (model) client.changeDocument(props.documentKey, model.getVersionId(), model.getValue());
+    }
     decorate();
   },
 );
-watch(() => props.snapshot, analysis);
+watch(() => [props.snapshot, props.profileId], analysis);
 function revealLocation(): void {
   if (!props.location || !editor) return;
   editor.setPosition({ lineNumber: props.location.line, column: 1 });

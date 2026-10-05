@@ -30,8 +30,8 @@ interface Pending {
 }
 
 /**
- * One Studio workspace lifetime. Replace the complete consulted snapshot after
- * any project edit; old results lose authority immediately, including after undo.
+ * One Studio workspace lifetime. Saved context replaces the consulted snapshot;
+ * typing updates its document. Old results lose authority immediately, including after undo.
  * Analysis never changes documents. A host must still review/apply rename edits
  * through its draft transaction service against the captured project revision.
  */
@@ -45,6 +45,8 @@ export class LogicAnalysisClient {
   private readonly uris = new Map<string, string>();
   private readonly createWorker: () => AnalysisWorker;
   private readonly timeoutMs: number;
+  private contextSignature = "";
+  private readonly changes = new Set<() => void>();
 
   constructor(
     createWorker: () => AnalysisWorker = () =>
@@ -91,14 +93,82 @@ export class LogicAnalysisClient {
       documents,
       ...(project.bindingDocument ? { bindingDocument: { ...project.bindingDocument } } : {}),
     };
-    // Save-status notifications can repeat the exact consulted snapshot while
-    // a language request is in flight. Only a changed snapshot supersedes it.
-    if (JSON.stringify(next) === JSON.stringify(this.project)) return false;
+    const { documents: _documents, revision: _revision, ...context } = next;
+    const signature = JSON.stringify(context);
+    const previous = this.project;
+    const keys = Object.keys(documents);
+    const replace =
+      !previous ||
+      signature !== this.contextSignature ||
+      keys.length !== Object.keys(previous.documents).length ||
+      keys.some((key) => documents[key]?.uri !== previous.documents[key]?.uri);
+    const changed = keys.filter((key) => {
+      const before = previous?.documents[key];
+      const after = documents[key]!;
+      return before?.version !== after.version || before.source !== after.source;
+    });
+    if (!replace && !changed.length && previous.revision === next.revision) return false;
     this.project = next;
-    this.epoch++;
-    this.rejectAll(new Error("Logic analysis was superseded by a newer workspace snapshot."));
-    if (this.worker) this.sendProject(this.worker);
+    this.contextSignature = signature;
+    this.supersede();
+    if (this.worker) {
+      if (replace) this.sendProject(this.worker);
+      else for (const key of changed) this.sendDocument(this.worker, key);
+    }
+    this.changed();
     return true;
+  }
+
+  /** Update the typed document while retaining the other consulted sources. */
+  changeDocument(key: string, version: number, source: string): boolean {
+    if (this.closed) throw new Error("Logic analysis workspace is closed.");
+    const previous = this.project?.documents[key];
+    if (!this.project || !previous || !Object.hasOwn(this.project.documents, key)) return false;
+    if (!Number.isSafeInteger(version) || version < 0 || typeof source !== "string")
+      throw new Error("Invalid analysis document.");
+    if (previous.version === version && previous.source === source) return false;
+    this.project = {
+      ...this.project,
+      documents: { ...this.project.documents, [key]: { ...previous, version, source } },
+    };
+    this.supersede();
+    if (this.worker) this.sendDocument(this.worker, key);
+    this.changed();
+    return true;
+  }
+
+  onDidChange(listener: () => void): () => void {
+    this.changes.add(listener);
+    return () => {
+      this.changes.delete(listener);
+    };
+  }
+
+  private changed(): void {
+    for (const listener of this.changes) listener();
+  }
+
+  private supersede(): void {
+    this.epoch++;
+    for (const id of this.pending.keys())
+      this.worker?.postMessage({
+        jsonrpc: "2.0",
+        method: "$/cancelRequest",
+        params: { id },
+      } satisfies LspMessage);
+    this.rejectAll(new Error("Logic analysis was superseded by a newer workspace snapshot."));
+  }
+
+  private sendDocument(worker: AnalysisWorker, key: string): void {
+    const document = this.project!.documents[key]!;
+    worker.postMessage({
+      jsonrpc: "2.0",
+      method: "textDocument/didChange",
+      params: {
+        textDocument: { uri: this.uri(key), version: document.version },
+        contentChanges: [{ text: document.source }],
+      },
+    } satisfies LspMessage);
   }
 
   /**
@@ -110,6 +180,13 @@ export class LogicAnalysisClient {
   invalidateContext(message: string): void {
     if (this.closed) return;
     this.project = undefined;
+    this.epoch++;
+    for (const id of this.pending.keys())
+      this.worker?.postMessage({
+        jsonrpc: "2.0",
+        method: "$/cancelRequest",
+        params: { id },
+      } satisfies LspMessage);
     this.rejectAll(new Error(message || "The logic analysis context is invalid."));
   }
 
@@ -203,6 +280,7 @@ export class LogicAnalysisClient {
 
   dispose(): void {
     this.closed = true;
+    this.changes.clear();
     this.project = undefined;
     this.failWorker(new Error("Logic analysis workspace is closed."));
   }
