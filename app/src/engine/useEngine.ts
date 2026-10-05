@@ -877,7 +877,8 @@ export function useEngine(
         .then(({ loadTapeOutline }) => loadTapeOutline(targetLocator))
         .then((outline) => outline?.segments.some((segment) => segment.extent > 0) ?? false)
         .catch(() => false),
-    // historyView is built below; the closure reads it once it exists.
+    // historyView is built by prepareRun, which Start over awaits first.
+    prepareTimeline: prepareRun,
     expectStartOver: (expected) => historyView!.expectStartOver(expected),
     bootFresh: (targetKey, config, admission) =>
       autosaveController.startOver(targetKey, config, admission),

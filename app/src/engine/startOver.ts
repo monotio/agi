@@ -42,6 +42,11 @@ export interface StartOverDeps {
   ) => Promise<SelectedProgressTarget | null>;
   /** The selected target's timeline already holds a session Undo start over can return to. */
   readonly hasEarlierSession: (targetLocator: string) => Promise<boolean>;
+  /**
+   * Load the timeline view before marking. Start over from Home can run before
+   * any game has played on this page, when the view does not exist yet.
+   */
+  readonly prepareTimeline?: () => Promise<void>;
   /** Tell the timeline the next fresh boot is a Start over (false: none came). */
   readonly expectStartOver: (expected?: boolean) => void;
   /**
@@ -124,6 +129,16 @@ export function createStartOver(deps: StartOverDeps) {
       }
     }
     const earlier = await deps.hasEarlierSession(targetLocator);
+    if (!stillOwner()) {
+      releaseOwnHold();
+      return;
+    }
+    try {
+      await deps.prepareTimeline?.();
+    } catch (error) {
+      releaseOwnHold();
+      throw error;
+    }
     if (!stillOwner()) {
       releaseOwnHold();
       return;
