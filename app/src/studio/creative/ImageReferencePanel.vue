@@ -2,6 +2,7 @@
 import {
   computed,
   defineAsyncComponent,
+  nextTick,
   onBeforeUnmount,
   ref,
   shallowRef,
@@ -62,6 +63,8 @@ const previewing = ref(false);
 const busy = ref(false);
 const generateOpen = ref(props.generate);
 const file = useTemplateRef("file");
+let traceWrites = Promise.resolve();
+let pendingTraceWrites = 0;
 const isPicture = computed(() => props.target.startsWith("picture:"));
 const mirrors = shallowRef<readonly (number | null)[]>([]);
 const loopHeights = shallowRef<readonly number[]>([]);
@@ -130,7 +133,7 @@ watch(
 watch(
   () => props.imageRevision,
   () => {
-    if (!props.target.startsWith("picture:")) return;
+    if (!props.target.startsWith("picture:") || pendingTraceWrites > 0) return;
     const documents = props.session.model.capture().documents();
     const trace = readImageReferences(documents).traces[props.target];
     image.value = trace ? readProjectImage(documents, trace.image) : undefined;
@@ -148,7 +151,10 @@ watch(
 let closed = false;
 let intakeEpoch = 0;
 function current() {
-  return !closed && props.active && engine.getProjectSession() === props.session;
+  return !closed && currentProject();
+}
+function currentProject() {
+  return props.active && engine.getProjectSession() === props.session;
 }
 const generation = shallowRef<ReturnType<typeof createImageGenerationMount>>();
 watch(
@@ -177,7 +183,7 @@ watch(
   },
 );
 async function commit(changes: Parameters<typeof props.session.model.propose>[2], label: string) {
-  if (!current()) throw new Error("Open this project again to use the image.");
+  if (!currentProject()) throw new Error("Open this project again to use the image.");
   const result = await props.session.submit({
     proposal: props.session.model.propose(props.session.model.capture(), label, changes),
     label,
@@ -193,18 +199,23 @@ async function useImage(value: ProjectImageInput) {
   transform.value = { x: 0, y: 0, scale: 1 };
   previewPlacement();
   status.value = "";
-  if (isPicture.value)
-    await commit(
-      traceImageChanges(
-        props.session.model.capture().documents(),
-        props.target,
-        value,
-        opacity.value,
-        behindArt.value,
-      ),
-      "Trace an image",
-    );
-  else {
+  if (isPicture.value) {
+    const target = props.target;
+    const nextOpacity = opacity.value;
+    const nextBehind = behindArt.value;
+    await queueTraceWrite(async () => {
+      await commit(
+        traceImageChanges(
+          props.session.model.capture().documents(),
+          target,
+          value,
+          nextOpacity,
+          nextBehind,
+        ),
+        "Trace an image",
+      );
+    });
+  } else {
     background.value = detectImageBackground(value);
     backgroundTransparent.value = true;
     frames.value = [...suggestImageFrames(value)];
@@ -252,7 +263,16 @@ function paste(event: ClipboardEvent) {
     void intake(selected, "Pasted image");
   }
 }
-let traceWrites = Promise.resolve();
+function queueTraceWrite(write: () => Promise<void>) {
+  pendingTraceWrites++;
+  const queued = traceWrites.then(write).finally(async () => {
+    // The revision watcher runs while these writes still own the live preview.
+    await nextTick();
+    pendingTraceWrites--;
+  });
+  traceWrites = queued.catch(() => {});
+  return queued;
+}
 function adjustTrace(next: TraceTransform, release: boolean) {
   if (!current()) return;
   transform.value = next;
@@ -276,40 +296,32 @@ function previewOpacity() {
   previewTrace(props.session, props.target, opacity.value, behindArt.value);
 }
 function changeTrace(label: string) {
-  if (!image.value) return;
+  if (!current() || !image.value) return;
   const target = props.target;
   const nextOpacity = opacity.value;
   const nextBehind = behindArt.value;
   const nextTransform = { ...transform.value };
   previewOpacity();
-  traceWrites = traceWrites
-    .then(async () => {
-      if (!current()) return;
-      error.value = "";
-      while (current()) {
-        const capture = props.session.model.capture();
-        try {
-          await commit(
-            traceOptionsChanges(
-              capture.documents(),
-              target,
-              nextOpacity,
-              nextBehind,
-              nextTransform,
-            ),
-            label,
-          );
-          break;
-        } catch (cause) {
-          if (capture.documentId === props.session.model.capture().documentId) throw cause;
-        }
+  void queueTraceWrite(async () => {
+    if (!currentProject()) return;
+    error.value = "";
+    while (currentProject()) {
+      const capture = props.session.model.capture();
+      try {
+        await commit(
+          traceOptionsChanges(capture.documents(), target, nextOpacity, nextBehind, nextTransform),
+          label,
+        );
+        break;
+      } catch (cause) {
+        if (capture.documentId === props.session.model.capture().documentId) throw cause;
       }
-      previewOpacity();
-    })
-    .catch(() => {
-      if (current())
-        error.value = "The trace settings could not be saved. Move the slider again to retry.";
-    });
+    }
+    if (current()) previewOpacity();
+  }).catch(() => {
+    if (current())
+      error.value = "The trace settings could not be saved. Move the slider again to retry.";
+  });
 }
 const prepared = computed(() => {
   if (!image.value || isPicture.value) return null;
