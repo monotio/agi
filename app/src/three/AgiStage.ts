@@ -797,7 +797,13 @@ export class AgiStage {
     const dpr = Math.min(Math.max(1, rawDpr), 2);
     const width = Math.max(1, Math.round((canvas.clientWidth || FRAME_WIDTH * 2) * dpr));
     const height = Math.max(1, Math.round((canvas.clientHeight || FRAME_HEIGHT * 2) * dpr));
-    if (this.outSize.value.x === width && this.outSize.value.y === height && this.dpr.value === dpr)
+    if (
+      this.outSize.value.x === width &&
+      this.outSize.value.y === height &&
+      this.dpr.value === dpr &&
+      canvas.width === width &&
+      canvas.height === height
+    )
       return;
     this.renderer.setSize(width, height, false);
     this.outSize.value.set(width, height);

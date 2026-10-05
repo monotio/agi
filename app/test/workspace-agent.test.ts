@@ -1693,3 +1693,24 @@ test("completed spend stays with its chat when another chat is opened", async ()
   assert.equal(agent.task?.reportedSpent, 0.07);
   session.dispose();
 });
+
+test("background work retains image spend and a new person request starts a fresh allowance", async () => {
+  const { beginProviderTask, reserveImageBudget } = await import("../src/agent/providerBudget.ts");
+  const { session } = fixture();
+  const agent = createWorkspaceAgent({
+    session,
+    profileId: "2.936",
+    config: () => ({ provider: "stub", model: "stub", apiKey: "", budgetUsd: 1 }),
+  });
+  beginProviderTask(1);
+  reserveImageBudget(0.8)(0.8);
+  await agent.background("Next room", "Tell me about this room");
+  agent.resume(agent.chats().find((chat) => chat.background)!.id);
+  assert.equal(agent.task?.spent, 0.8);
+  const settlePreviousImage = reserveImageBudget(0.1);
+  await agent.send("Tell me about this room");
+  assert.equal(agent.task?.spent, 0);
+  settlePreviousImage(0.1);
+  assert.equal(agent.task?.spent, 0, "a late image response settles its original task");
+  session.dispose();
+});

@@ -1,6 +1,8 @@
-import { test } from "node:test";
+import { beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
 import { AgentRun } from "../src/agent/agentRun.ts";
+import { beginProviderTask } from "../src/agent/providerBudget.ts";
+beforeEach(() => beginProviderTask(5));
 
 test("budget pauses before another request and Continue preserves the task", async () => {
   const run = new AgentRun("gpt-6-sol", () => {}, 1);
@@ -65,18 +67,21 @@ test("cache reads use the per-model rate, and 10% of input where none is listed"
   });
   assert.equal(fable.snapshot().spent, 0.25);
   // Opus 5.5 lists $0.20/M; 10% of its $4 input would be $0.40.
+  beginProviderTask(5);
   const opus = new AgentRun("claude-opus-5-5", () => {});
   opus.run(async () => {
     opus.recordUsage({ input: 1_000_000, cachedInput: 1_000_000, cacheWriteInput: 0, output: 0 });
   });
   assert.equal(opus.snapshot().spent, 0.2);
   // GPT-6 Sol lists no cache rate: 100,000 reads at 10% of $2/M, below the long-context threshold.
+  beginProviderTask(5);
   const sol = new AgentRun("gpt-6-sol", () => {});
   sol.run(async () => {
     sol.recordUsage({ input: 100_000, cachedInput: 100_000, cacheWriteInput: 0, output: 0 });
   });
   assert.equal(sol.snapshot().spent, 0.02);
   // GPT-6.1 Sol lists reads at $0.10/M (5% of input): the same reads cost half.
+  beginProviderTask(5);
   const sol61 = new AgentRun("gpt-6.1-sol", () => {});
   sol61.run(async () => {
     sol61.recordUsage({ input: 100_000, cachedInput: 100_000, cacheWriteInput: 0, output: 0 });
@@ -139,6 +144,7 @@ test("task spend excludes image charges and pending reservations", async () => {
 
 test("cancelled and interrupted requests keep only completed usage as spent", async () => {
   for (const cancelled of [true, false]) {
+    beginProviderTask(5);
     const run = new AgentRun("gpt-6-sol", () => {});
     await assert.rejects(
       run.run(async () => {

@@ -15,20 +15,21 @@ let current: ProviderBudget = {
   limit: 5,
   allowance: 5,
 };
+/** A person's new task starts a fresh account; pending requests settle their original account. */
+export function beginProviderTask(allowance: number): ProviderBudget {
+  current = {
+    spent: 0,
+    reportedSpent: 0,
+    usageIncomplete: false,
+    reserved: 0,
+    limit: allowance,
+    allowance,
+  };
+  return current;
+}
+/** Provider activity joins the current task, including completed image requests. */
 export function beginProviderBudget(allowance: number): ProviderBudget {
-  if (current.reserved > 0) {
-    current.limit = allowance;
-    current.allowance = allowance;
-  } else {
-    current = {
-      spent: 0,
-      reportedSpent: 0,
-      usageIncomplete: false,
-      reserved: 0,
-      limit: allowance,
-      allowance,
-    };
-  }
+  configureImageBudget(allowance);
   return current;
 }
 export function configureImageBudget(allowance: number) {

@@ -162,11 +162,16 @@ watch(
 );
 
 watch(
-  [() => current.value?.messages, review, () => current.value?.id],
+  [() => current.value?.messages, review],
   () => {
     if (following.value) jumpToLatest();
   },
   { deep: true, flush: "post" },
+);
+watch(
+  () => current.value?.id,
+  () => jumpToLatest(),
+  { flush: "post" },
 );
 const chats = computed(() => {
   void tick.value;

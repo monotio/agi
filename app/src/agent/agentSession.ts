@@ -1,3 +1,4 @@
+import { beginProviderTask } from "./providerBudget.ts";
 import type { AgentChat } from "../../../src/agent/chats.ts";
 import { computeResourceRevision } from "../../../src/authoring/resourceRevision.ts";
 import { AgentRun } from "./agentRun.ts";
@@ -374,6 +375,7 @@ export class AgentSession implements AgentHandler {
   }
 
   runAsk(question: string, room: number, attachments?: TurnReferences): Promise<string> {
+    if (this.task.snapshot().status === "idle") beginProviderTask(this.task.snapshot().allowance);
     return this.task.run(() => this.ask(question, room, attachments));
   }
   private async ask(question: string, room: number, attachments?: TurnReferences): Promise<string> {
@@ -542,6 +544,7 @@ Answer the player's question using evidence from inspection when needed. For hin
     attachments?: TurnReferences,
     beforeAdopt?: () => Promise<void>,
   ): Promise<PowerUpResult> {
+    if (this.task.snapshot().status === "idle") beginProviderTask(this.task.snapshot().allowance);
     return this.task.run(() => this.remix(instruction, room, attachments, beforeAdopt));
   }
   private async remix(
@@ -748,6 +751,7 @@ Answer the player's question using evidence from inspection when needed. For hin
    * runs the same loop with a scripted conversation.
    */
   runStudioAssist(request: StudioAssistRequest): Promise<StudioAssistResult> {
+    if (this.task.snapshot().status === "idle") beginProviderTask(this.task.snapshot().allowance);
     return this.task.run(() => this.studioAssist(request));
   }
   private async studioAssist(request: StudioAssistRequest): Promise<StudioAssistResult> {
@@ -1182,6 +1186,7 @@ Answer the player's question using evidence from inspection when needed. For hin
    * afterwards and later rooms build when entered or from Build this room.
    */
   startGenesis(templateMarkdown: string): Promise<BootResources> {
+    if (this.task.snapshot().status === "idle") beginProviderTask(this.task.snapshot().allowance);
     return this.task.run(() => this.buildTurn(templateMarkdown));
   }
 

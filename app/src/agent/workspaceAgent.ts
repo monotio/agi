@@ -1,5 +1,6 @@
+import { beginProviderTask } from "./providerBudget.ts";
 /** One task-chat adapter; ProjectSession remains the sole project writer. */
-import { AgentRun, type AgentRunState } from "./agentRun.ts";
+import { DEFAULT_TASK_BUDGET_USD, AgentRun, type AgentRunState } from "./agentRun.ts";
 import {
   createAnthropicConversation,
   createOpenAiConversation,
@@ -480,6 +481,7 @@ export function createWorkspaceAgent(options: Options) {
     }
     let driver = projectDriver();
     const config = options.config();
+    if (!automatic) beginProviderTask(config.budgetUsd ?? DEFAULT_TASK_BUDGET_USD);
     const run = new AgentRun(config.model, () => notify(), config.budgetUsd);
     activeRun = run;
     const userId = id();

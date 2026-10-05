@@ -1,8 +1,11 @@
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import { beforeEach, test } from "node:test";
 import { AgentRun } from "../src/agent/agentRun.ts";
+import { beginProviderTask } from "../src/agent/providerBudget.ts";
 import { createAnthropicConversation, createOpenAiConversation } from "../src/agent/llmClient.ts";
 import { sseEvent, providerSse } from "../../test/provider-stream.ts";
+
+beforeEach(() => beginProviderTask(5));
 
 for (const provider of ["openai", "anthropic"] as const) {
   test(`${provider} Stop aborts the stream and Continue retries without keeping a draft`, async (t) => {

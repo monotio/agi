@@ -79,3 +79,40 @@ test("CRT preserves every frame edge and all four corner cells", async ({ page }
       }
     }
 });
+
+test("initial 640 by 400 stage matches its canvas backing store", async ({ page }) => {
+  await page.goto("/");
+  await page.evaluate(async () => {
+    const { AgiStage } = await import("/src/three/AgiStage.ts");
+    const canvas = document.createElement("canvas");
+    canvas.dataset["testid"] = "initial-stage";
+    canvas.width = 960;
+    canvas.height = 600;
+    canvas.style.cssText = "position:fixed;inset:0;width:640px;height:400px;z-index:9999";
+    document.body.append(canvas);
+    const stage = await AgiStage.create(canvas);
+    if (!stage) throw new Error("GPU stage unavailable");
+    const frame = new Uint8Array(320 * 200 * 4);
+    for (let y = 0; y < 200; y++)
+      for (let x = 0; x < 320; x++)
+        frame.set([x < 160 ? 255 : 0, y < 100 ? 255 : 0, 80, 255], (y * 320 + x) * 4);
+    stage.crtAmount = 1;
+    stage.render(frame, true);
+  });
+  const canvas = page.getByTestId("initial-stage");
+  await expect(canvas).toBeVisible();
+  for (const viewport of [
+    { width: 1063, height: 815 },
+    { width: 1440, height: 900 },
+    { width: 390, height: 844 },
+  ]) {
+    await page.setViewportSize(viewport);
+    await page.screenshot({
+      path: test.info().outputPath(`initial-stage-${viewport.width}.png`),
+      scale: "css",
+    });
+  }
+  expect(await canvas.evaluate((node: HTMLCanvasElement) => [node.width, node.height])).toEqual([
+    640, 400,
+  ]);
+});

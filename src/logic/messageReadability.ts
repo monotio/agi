@@ -62,7 +62,8 @@ export function messageCodeActions(
   return arguments_.flatMap(({ token, text }) => {
     if (text === undefined || token.start > end || token.end < start) return [];
     const inline = token.type === "string";
-    const num = Math.max(0, ...[...messages.keys()].map(Number)) + 1;
+    let num = 1;
+    while (num <= 255 && messages.has(String(num))) num++;
     if (inline && num > 255) return [];
     return [
       {

@@ -129,6 +129,68 @@ test("Create agent keeps reading position and jumps to latest", async ({ page })
   await page.screenshot({ path: test.info().outputPath("agent-latest.png") });
 });
 
+test("switching chats opens the latest messages", async ({ page }) => {
+  await start(page);
+  await page.getByTestId("workspace-agent").click();
+  const panel = page.getByTestId("workspace-agent-panel");
+  await expect(panel).toBeVisible();
+  const title = "Add a welcome sign that answers look at sign";
+  for (let index = 0; index < 3; index++) {
+    await page.getByTestId("agent-message").fill(title);
+    await panel.getByRole("button", { name: "Send", exact: true }).click();
+    await expect(page.getByTestId("agent-review")).toBeVisible();
+    await page.getByTestId("agent-reject").click();
+    await expect(page.getByTestId("agent-review")).toBeHidden();
+  }
+  await panel.getByRole("button", { name: "New chat", exact: true }).click();
+  const secondTitle = "Tell me about this room";
+  for (let index = 0; index < 3; index++) {
+    await page.getByTestId("agent-message").fill(secondTitle);
+    await panel.getByRole("button", { name: "Send", exact: true }).click();
+    await expect(page.getByTestId("agent-review")).toBeVisible();
+    await page.getByTestId("agent-reject").click();
+    await expect(page.getByTestId("agent-review")).toBeHidden();
+  }
+  const feed = panel.locator(".agent-panel__feed");
+  await expect(feed).toBeVisible();
+  await feed.evaluate((node) => {
+    node.scrollTop = 0;
+    node.dispatchEvent(new Event("scroll"));
+  });
+  await expect(panel.getByRole("button", { name: "Jump to latest", exact: true })).toBeVisible();
+  async function selectChat(name: string) {
+    await panel.getByRole("button", { name: "Chats", exact: true }).click();
+    const chat = panel
+      .getByRole("navigation", { name: "Chats" })
+      .getByRole("button", { name, exact: true });
+    await expect(chat).toBeVisible();
+    await chat.click();
+  }
+  for (const viewport of [
+    { width: 1063, height: 815 },
+    { width: 1440, height: 900 },
+    { width: 390, height: 844 },
+  ]) {
+    await page.setViewportSize(viewport);
+    await expect(panel).toBeVisible();
+    await selectChat(title);
+    await page.screenshot({
+      path: test.info().outputPath(`chat-switch-${viewport.width}.png`),
+      scale: "css",
+    });
+    await expect
+      .poll(() => feed.evaluate((node) => node.scrollHeight - node.clientHeight - node.scrollTop))
+      .toBeLessThan(24);
+    await expect(panel.getByRole("button", { name: "Jump to latest", exact: true })).toBeHidden();
+    await selectChat(secondTitle);
+    await feed.evaluate((node) => {
+      node.scrollTop = 0;
+      node.dispatchEvent(new Event("scroll"));
+    });
+    await expect(panel.getByRole("button", { name: "Jump to latest", exact: true })).toBeVisible();
+  }
+});
+
 test("Create game owns F5 and F6 while the editor owns Run", async ({ page }) => {
   await start(page);
   await openWorkspaceLogic(page);
