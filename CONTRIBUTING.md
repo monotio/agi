@@ -12,6 +12,8 @@ your first change. Hosting and production releases are covered in
 
 ## Development
 
+For independent tasks, see [Parallel agent lanes](docs/agent-lanes.md).
+
 Install Node.js 22.22 or newer, then:
 
 ```bash
