@@ -2452,7 +2452,7 @@ function onKeyup(event: KeyboardEvent): void {
   border-radius: var(--radius-sm);
   color: var(--ink);
   background: var(--surface-2);
-  font: var(--text-xs) / 16px var(--font-sans);
+  font: var(--text-xs) / var(--space-5) var(--font-sans);
   white-space: nowrap;
   pointer-events: none;
 }
