@@ -3797,6 +3797,12 @@ The renderer now uses that PSG clock independently of the PC speaker's
 1,193,180 Hz PIT clock. Divisor 226 gives 494.9592090707965 Hz on the PSG;
 speaker divisor 2,712 gives 439.9631268436578 Hz. Original resource divisor
 bytes, profile selection and the speaker path retain their existing contracts.
+The same PSG constant drives SOUND previews, decoded frequencies, note-name
+editing, MIDI import/export and VGM clock conversion. An authored A4 uses
+divisor 254 (440.39677657480314 Hz); C4 uses 428 (261.3569655373832 Hz).
+Existing resources retain their stored native divisors. The editor and agent
+feedback display pitches using this clock as well.
+New preset applications encode their named notes through the same conversion.
 [audio.test.ts](../app/test/audio.test.ts) failed with the shared clock and
 passes with these hand-computed frequencies. The same 16 PQ1 publisher-note
 windows used in the MAME comparison have median error +0.0032 cents after

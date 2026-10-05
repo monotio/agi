@@ -102,7 +102,7 @@ describe("offline AGI sound preview", () => {
     assert.ok(energy(pcm(long.wav)) > 1000);
   });
 
-  it("produces a deterministic, centered square tone at the PIT-derived frequency", () => {
+  it("produces a deterministic, centered square tone at the PSG frequency", () => {
     const payload = sound([[{ duration: 60, divisor: 226, attenuation: 0 }]]);
     const first = renderSoundPreview(payload, profile());
     const second = renderSoundPreview(payload, profile());
@@ -114,7 +114,8 @@ describe("offline AGI sound preview", () => {
       if (samples[index - 1]! < 0 !== samples[index]! < 0) transitions++;
       sum += samples[index]!;
     }
-    assert.ok(Math.abs(transitions / 2 - 440) < 2);
+    // 3,579,545 / (32 * 226) = 494.959209 Hz.
+    assert.ok(Math.abs(transitions / 2 - 494.9592090707965) < 2);
     assert.ok(energy(samples) > 1500);
     assert.ok(Math.abs(sum / samples.length) < 100);
     assert.ok(samples.every((sample) => Math.abs(sample) < 32767));

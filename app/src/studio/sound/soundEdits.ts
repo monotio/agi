@@ -2,7 +2,7 @@
 import { readMusicDocument } from "../../../../src/authoring/projectDocuments.ts";
 import { resourceCacheHint } from "../../../../src/authoring/authoringState.ts";
 import type { ProjectChange } from "../../../../src/authoring/projectContent.ts";
-import { PIT_BASE_FREQ } from "../../../../src/sound/sound.ts";
+import { PSG_BASE_FREQ } from "../../../../src/sound/sound.ts";
 import type { SoundDocument } from "../../../../src/sound/document.ts";
 import { VOCABULARY } from "../../../../src/vocabulary.ts";
 
@@ -39,7 +39,7 @@ const NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", 
 /** Nearest musical pitch is a display aid; opening a note never changes its divisor. */
 export function divisorNoteLabel(divisor: number): string {
   if (divisor < 1 || divisor > 1023) return "";
-  const midi = Math.round(69 + 12 * Math.log2(PIT_BASE_FREQ / divisor / 440));
+  const midi = Math.round(69 + 12 * Math.log2(PSG_BASE_FREQ / divisor / 440));
   if (midi < 0 || midi > 127) return "";
   return `${NOTE_NAMES[midi % 12]}${Math.floor(midi / 12) - 1}`;
 }

@@ -7,7 +7,7 @@
  */
 
 import type { AgiProfile } from "../runtime/profile.ts";
-import { PIT_BASE_FREQ, SoundPlayback, type SoundOutput } from "./sound.ts";
+import { PIT_BASE_FREQ, PSG_BASE_FREQ, SoundPlayback, type SoundOutput } from "./sound.ts";
 
 const SAMPLE_RATE = 24000;
 const SOUND_TICK_RATE = 60;
@@ -125,13 +125,13 @@ function synthSample(state: SynthState, speaker: boolean): number {
     if (divisor <= 0 || attenuation === 15) continue;
     const gain = Math.pow(10, -attenuation / 10) * 0.16;
     mixed += state.tonePhases[channel]! < 0.5 ? gain : -gain;
-    state.tonePhases[channel] = advancePhase(state.tonePhases[channel]!, PIT_BASE_FREQ / divisor);
+    state.tonePhases[channel] = advancePhase(state.tonePhases[channel]!, PSG_BASE_FREQ / divisor);
   }
 
   if (state.noiseAttenuation !== 15) {
     const rate = state.noiseControl & 3;
     const divisor = state.toneDivisors[2]!;
-    const frequency = rate === 3 ? PIT_BASE_FREQ / Math.max(1, divisor) : 4000 / (1 << rate);
+    const frequency = rate === 3 ? PSG_BASE_FREQ / Math.max(1, divisor) : 4000 / (1 << rate);
     const gain = Math.pow(10, -state.noiseAttenuation / 10) * 0.14;
     mixed += (state.noiseLfsr & 1) !== 0 ? gain : -gain;
     state.noisePhase += frequency / SAMPLE_RATE;

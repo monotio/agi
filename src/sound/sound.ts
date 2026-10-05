@@ -39,11 +39,13 @@ export interface AgiSound {
 }
 
 /**
- * Standard AGI PIT frequency calculation constant:
- * PC PIT clock 1,193,180 Hz / 12 = 99,431.67 Hz.
- * frequency = 99431.67 / freqDivisor.
+ * Legacy PIT / 12 reference, retained for the PC-speaker preview calculation.
+ * PSG frequency calculations use the independent PSG_BASE_FREQ below.
  */
 export const PIT_BASE_FREQ = 99431.67;
+
+/** SN76496 tone clock after divide-by-32; docs/fidelity.md "Tandy PSG clock". */
+export const PSG_BASE_FREQ = 3579545 / 32;
 
 /**
  * The decay envelope executed on KQ1 2.917 — 67 steps then the 0x80 hold
@@ -229,7 +231,7 @@ function decodeSound(
       const attenuation = control & 0x0f;
 
       const isRest = attenuation === 15 || freqDivisor === 0;
-      const frequency = isRest ? 0 : PIT_BASE_FREQ / freqDivisor;
+      const frequency = isRest ? 0 : PSG_BASE_FREQ / freqDivisor;
       const volume = isRest ? 0 : Math.pow(10, -attenuation / 10);
 
       notes.push({

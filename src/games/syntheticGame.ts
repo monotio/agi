@@ -46,7 +46,7 @@ export function buildSyntheticGame(): SyntheticGamePayload {
   const sound1 = buildSound([
     {
       notes: [
-        { note: "A4", duration: 4 },
+        { freqDivisor: 226, duration: 4 },
         { note: "rest", duration: 1 },
       ],
     },

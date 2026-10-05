@@ -73,10 +73,10 @@ test("MIDI type 0 running status, velocity and tempo map become hand-computed SO
   ).document;
   assert.deepEqual(
     [...doc.encode()],
-    [8, 0, 15, 0, 17, 0, 19, 0, 90, 0, 14, 130, 144, 255, 255, 255, 255, 255, 255, 255, 255],
+    [8, 0, 15, 0, 17, 0, 19, 0, 90, 0, 15, 142, 144, 255, 255, 255, 255, 255, 255, 255, 255],
   );
   const running = importMidi(smf([[0, 144, 69, 64, ...vlq(480), 69, 0]])).document;
-  assert.deepEqual([...running.encode().slice(8, 13)], [30, 0, 14, 130, 151]);
+  assert.deepEqual([...running.encode().slice(8, 13)], [30, 0, 15, 142, 151]);
 });
 
 test("MIDI highest-note reduction resumes held notes, folds low pitches and maps channel 10 drums", () => {
@@ -106,9 +106,9 @@ test("MIDI highest-note reduction resumes held notes, folds low pitches and maps
   assert.deepEqual(
     result.document.tracks()![0]!.map((n) => [n.durationTicks, n.data]),
     [
-      [15, { kind: "tone", divisor: 904, attenuation: 0 }],
-      [15, { kind: "tone", divisor: 113, attenuation: 0 }],
-      [30, { kind: "tone", divisor: 904, attenuation: 0 }],
+      [15, { kind: "tone", divisor: 1017, attenuation: 0 }],
+      [15, { kind: "tone", divisor: 127, attenuation: 0 }],
+      [30, { kind: "tone", divisor: 1017, attenuation: 0 }],
     ],
   );
   assert.deepEqual(result.document.tracks()![3]![0]!.data, {
@@ -174,7 +174,7 @@ test("type 1 conductor tempo changes govern every track and the last tick-zero t
   assert.equal(result.tempo, 120);
   assert.deepEqual(
     [...result.document.encode().slice(8, 18)],
-    [30, 0, 0, 128, 159, 30, 0, 14, 130, 144],
+    [30, 0, 0, 128, 159, 30, 0, 15, 142, 144],
   );
 });
 

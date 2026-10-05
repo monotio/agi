@@ -42,7 +42,7 @@ describe("sound cue presets", () => {
   });
 
   it("encodes the discovery cue to hand-computed bytes", () => {
-    // E5 divisor 151 -> 09 87; G5 divisor 127 -> 07 8f; C6 divisor 95 -> 05 8f.
+    // PSG: E5 divisor 170 -> 0a 8a; G5 143 -> 08 8f; C6 107 -> 06 8b.
     // All attenuation 4 on lane 0 -> control 0x94.
     const doc = applySoundPreset(createSoundDocument(), "discovery");
     assert.deepEqual(
@@ -50,7 +50,7 @@ describe("sound cue presets", () => {
       [
         8, 0, 25, 0, 27, 0, 29, 0,
         // lane 0: E5 10t, G5 10t, C6 20t, terminator
-        10, 0, 0x09, 0x87, 0x94, 10, 0, 0x07, 0x8f, 0x94, 20, 0, 0x05, 0x8f, 0x94, 0xff, 0xff,
+        10, 0, 0x0a, 0x8a, 0x94, 10, 0, 0x08, 0x8f, 0x94, 20, 0, 0x06, 0x8b, 0x94, 0xff, 0xff,
         // lanes 1-3: terminators
         0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
       ],

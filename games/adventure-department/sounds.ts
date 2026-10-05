@@ -14,7 +14,8 @@ export interface TutorialSoundSource {
 
 /**
  * Editable native AGI sound sources. Durations are 60 Hz sound ticks and
- * attenuation runs from 0 (loudest) through 15 (silent).
+ * attenuation runs from 0 (loudest) through 15 (silent). Stored divisors keep
+ * the released resources and walkthrough identities fixed.
  */
 export const TUTORIAL_SOUND_SOURCES: Readonly<Record<number, TutorialSoundSource>> = {
   [TUTORIAL_SOUND_IDS.intro]: {
@@ -23,29 +24,29 @@ export const TUTORIAL_SOUND_SOURCES: Readonly<Record<number, TutorialSoundSource
     tracks: [
       {
         notes: [
-          { note: "D4", duration: 30, attenuation: 3 },
-          { note: "F4", duration: 30, attenuation: 3 },
-          { note: "A4", duration: 45, attenuation: 2 },
-          { note: "G4", duration: 15, attenuation: 3 },
-          { note: "F4", duration: 30, attenuation: 3 },
-          { note: "E4", duration: 30, attenuation: 4 },
-          { note: "D4", duration: 30, attenuation: 3 },
+          { freqDivisor: 339, duration: 30, attenuation: 3 },
+          { freqDivisor: 285, duration: 30, attenuation: 3 },
+          { freqDivisor: 226, duration: 45, attenuation: 2 },
+          { freqDivisor: 254, duration: 15, attenuation: 3 },
+          { freqDivisor: 285, duration: 30, attenuation: 3 },
+          { freqDivisor: 302, duration: 30, attenuation: 4 },
+          { freqDivisor: 339, duration: 30, attenuation: 3 },
         ],
       },
       {
         notes: [
-          { note: "D3", duration: 60, attenuation: 8 },
-          { note: "Bb3", duration: 60, attenuation: 8 },
-          { note: "C4", duration: 60, attenuation: 8 },
-          { note: "D4", duration: 30, attenuation: 7 },
+          { freqDivisor: 677, duration: 60, attenuation: 8 },
+          { freqDivisor: 427, duration: 60, attenuation: 8 },
+          { freqDivisor: 380, duration: 60, attenuation: 8 },
+          { freqDivisor: 339, duration: 30, attenuation: 7 },
         ],
       },
       {
         notes: [
-          { note: "D3", duration: 60, attenuation: 10 },
-          { note: "Bb2", duration: 60, attenuation: 10 },
-          { note: "C3", duration: 60, attenuation: 10 },
-          { note: "D3", duration: 30, attenuation: 9 },
+          { freqDivisor: 677, duration: 60, attenuation: 10 },
+          { freqDivisor: 853, duration: 60, attenuation: 10 },
+          { freqDivisor: 760, duration: 60, attenuation: 10 },
+          { freqDivisor: 677, duration: 30, attenuation: 9 },
         ],
       },
       { notes: [{ note: "rest", duration: 210 }] },
@@ -57,16 +58,16 @@ export const TUTORIAL_SOUND_SOURCES: Readonly<Record<number, TutorialSoundSource
     tracks: [
       {
         notes: [
-          { note: "G4", duration: 12, attenuation: 3 },
-          { note: "B4", duration: 12, attenuation: 2 },
-          { note: "D5", duration: 12, attenuation: 1 },
+          { freqDivisor: 254, duration: 12, attenuation: 3 },
+          { freqDivisor: 201, duration: 12, attenuation: 2 },
+          { freqDivisor: 169, duration: 12, attenuation: 1 },
         ],
       },
       {
         notes: [
-          { note: "E4", duration: 12, attenuation: 8 },
-          { note: "G4", duration: 12, attenuation: 7 },
-          { note: "B4", duration: 12, attenuation: 6 },
+          { freqDivisor: 302, duration: 12, attenuation: 8 },
+          { freqDivisor: 254, duration: 12, attenuation: 7 },
+          { freqDivisor: 201, duration: 12, attenuation: 6 },
         ],
       },
     ],
@@ -79,18 +80,18 @@ export const TUTORIAL_SOUND_SOURCES: Readonly<Record<number, TutorialSoundSource
         notes: [
           { freqDivisor: 900, duration: 4, attenuation: 2 },
           { note: "rest", duration: 14 },
-          { note: "G4", duration: 12, attenuation: 3 },
-          { note: "B4", duration: 12, attenuation: 2 },
-          { note: "D5", duration: 12, attenuation: 1 },
+          { freqDivisor: 254, duration: 12, attenuation: 3 },
+          { freqDivisor: 201, duration: 12, attenuation: 2 },
+          { freqDivisor: 169, duration: 12, attenuation: 1 },
         ],
       },
       {
         notes: [
           { freqDivisor: 640, duration: 4, attenuation: 5 },
           { note: "rest", duration: 14 },
-          { note: "E4", duration: 12, attenuation: 8 },
-          { note: "G4", duration: 12, attenuation: 7 },
-          { note: "B4", duration: 12, attenuation: 6 },
+          { freqDivisor: 302, duration: 12, attenuation: 8 },
+          { freqDivisor: 254, duration: 12, attenuation: 7 },
+          { freqDivisor: 201, duration: 12, attenuation: 6 },
         ],
       },
       {

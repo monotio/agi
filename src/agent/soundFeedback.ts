@@ -1,6 +1,6 @@
 /** Pure, bounded score/timeline feedback for compiled AGI sound resources. */
 import { encodePngPaletteRgb } from "../picture/png.ts";
-import { parseSound, PIT_BASE_FREQ } from "../sound/sound.ts";
+import { parseSound, PSG_BASE_FREQ } from "../sound/sound.ts";
 
 const WIDTH = 800;
 const HEIGHT = 400;
@@ -411,7 +411,7 @@ export function soundFeedback(payload: Uint8Array, options: SoundFeedbackOptions
           ? null
           : note.freqDivisor === 0
             ? 0
-            : PIT_BASE_FREQ / note.freqDivisor;
+            : PSG_BASE_FREQ / note.freqDivisor;
       const event: SoundFeedbackEvent = {
         channel: item.channelIndex,
         index,

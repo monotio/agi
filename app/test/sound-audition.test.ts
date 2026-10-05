@@ -9,7 +9,7 @@ import {
   type AuditionSnapshot,
   type AuditionTarget,
 } from "../src/audio/soundAudition.ts";
-import { PIT_BASE_FREQ, SoundPlayback } from "../../src/sound/sound.ts";
+import { PSG_BASE_FREQ, SoundPlayback } from "../../src/sound/sound.ts";
 import { PROFILES } from "../../src/runtime/profile.ts";
 
 const TICK_MS = 1000 / AUDITION_TICK_HZ;
@@ -332,7 +332,7 @@ describe("AgiAudio lane audibility", () => {
     // Channel 2 latch+data: divisor 100; noise control white/rate 3, att 4.
     audio.output({ kind: "psg", bytes: [0xc4, 0x06] });
     audio.output({ kind: "psg", bytes: [0xe7, 0xf4] });
-    assert.equal(filters[0]!.frequency.value, PIT_BASE_FREQ / 100);
+    assert.equal(filters[0]!.frequency.value, PSG_BASE_FREQ / 100);
     assert.equal(gains[4]!.gain.value, Math.pow(10, -4 / 10) * 0.25);
     audio.setLaneAudible(3, false);
     assert.equal(gains[4]!.gain.value, 0);
@@ -344,7 +344,7 @@ describe("AgiAudio lane audibility", () => {
     const { audio, gains, oscillators } = fakeAudioContext();
     for (let lane = 0; lane < 4; lane++) audio.setLaneAudible(lane, false);
     audio.output({ kind: "psg", bytes: [0x82, 0x0e, 0x90] });
-    assert.equal(oscillators[0]!.frequency.value, PIT_BASE_FREQ / 226);
+    assert.equal(oscillators[0]!.frequency.value, PSG_BASE_FREQ / 226);
     assert.equal(gains[1]!.gain.value, 0);
     audio.output({ kind: "psg", bytes: [0x9f, 0xbf, 0xdf, 0xff] });
     assert.ok(gains.slice(1).every((gain) => gain.gain.value === 0));
@@ -395,7 +395,7 @@ describe("sound audition transport", () => {
     scheduler.advance(40);
     assert.equal(
       context.oscillators[0]!.frequency.value,
-      PIT_BASE_FREQ / 226,
+      PSG_BASE_FREQ / 226,
       "the copied payload, not the mutated caller bytes",
     );
     assert.equal(audition.snapshot().target!.payloadHash, identity.payloadHash);
@@ -641,7 +641,7 @@ describe("sound audition seek", () => {
       "reconstruction was silent",
     );
     // Lane 2's divisor reached the noise rate-3 computation.
-    assert.equal(context.filters[0]!.frequency.value, PIT_BASE_FREQ / 300);
+    assert.equal(context.filters[0]!.frequency.value, PSG_BASE_FREQ / 300);
     // Resuming continues the profile envelope, not a restarted note.
     await audition.resume();
     scheduler.advance(TICK_MS);
