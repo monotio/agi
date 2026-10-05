@@ -6,7 +6,7 @@ import UiButton from "../../ui/UiButton.vue";
 import WorkspaceDebugControls from "./WorkspaceDebugControls.vue";
 import { reservedValues } from "./debugValues.ts";
 const props = defineProps<{ debug: WorkspaceDebug; problems: readonly { message: string }[] }>();
-const emit = defineEmits<{ close: []; reveal: [logic: number, line: number] }>();
+const emit = defineEmits<{ reveal: [logic: number, line: number] }>();
 const tabs = ["Problems", "Variables", "Watch", "Call stack", "Breakpoints"] as const;
 const tab = ref<(typeof tabs)[number]>(props.debug.stopped.value ? "Variables" : "Problems");
 const expression = ref("");
@@ -100,7 +100,6 @@ function tabKey(event: KeyboardEvent): void {
           {{ name }}
         </button>
       </div>
-      <UiButton size="sm" variant="ghost" aria-label="Close" @click="emit('close')">×</UiButton>
     </header>
     <p v-if="debug.state.error" role="alert">{{ debug.state.error }}</p>
     <div role="tabpanel" :aria-label="tab" class="workspace-debug-content">

@@ -202,6 +202,15 @@ const shell = createShell({
 provideShell(shell);
 engine.setProjectMode(shell.mode.value);
 const creating = computed(() => state.phase === "running" && shell.mode.value === "create");
+watch(
+  () => state.phase,
+  (phase) => {
+    if (phase === "loading") {
+      // Load the surface alongside the worker. The async component owns mount and errors.
+      void import("./play/PlayArea.vue").catch(() => {});
+    }
+  },
+);
 /** CRT is a Play presentation; editing always shows the crisp frame. */
 const crtShown = computed(() => (creating.value ? 0 : crtAmount.value));
 watch(crtShown, (amount) => presentation.setCrtAmount(amount));

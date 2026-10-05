@@ -1623,19 +1623,25 @@ onBeforeUnmount(() => {
     data-testid="workspace-problems"
     @keydown.esc.stop.prevent="editor.panel.value = false"
   >
-    <DebugPanel
-      v-if="debug"
-      :debug="debug"
-      :problems="diagnostics"
-      @close="editor.panel.value = false"
-      @reveal="revealDebug"
-    />
+    <UiButton
+      class="workspace-problems-close"
+      size="sm"
+      variant="ghost"
+      aria-label="Close"
+      @click="editor.panel.value = false"
+      >×</UiButton
+    >
+    <Suspense v-if="debug">
+      <DebugPanel :debug="debug" :problems="diagnostics" @reveal="revealDebug" />
+      <template #fallback>
+        <header>
+          <h2>Problems</h2>
+        </header>
+      </template>
+    </Suspense>
     <template v-else>
       <header>
         <h2>Problems</h2>
-        <UiButton size="sm" variant="ghost" aria-label="Close" @click="editor.panel.value = false"
-          >×</UiButton
-        >
       </header>
       <p v-if="diagnostics.length === 0">Everything builds.</p>
       <p v-for="(entry, index) in diagnostics" :key="index">{{ entry.message }}</p>
@@ -1750,5 +1756,17 @@ onBeforeUnmount(() => {
 .workspace-problems:has(.workspace-debug-panel) {
   max-height: 290px;
   overflow: hidden;
+}
+.workspace-problems {
+  position: relative;
+}
+.workspace-problems-close {
+  position: absolute;
+  top: var(--space-3);
+  right: var(--space-5);
+  z-index: 1;
+}
+.workspace-problems :deep(header) {
+  padding-right: var(--space-8);
 }
 </style>

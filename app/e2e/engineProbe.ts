@@ -405,14 +405,14 @@ export async function openLibraryActions(page: Page, card: Locator): Promise<voi
 /**
  * Open a game card's action menu. Cards can sit deep in the library: the
  * trigger's scroll-into-view plus scroll-anchored layout shifts can still be
- * settling as the menu opens. Check its actionability before opening it so
- * movement during the scroll cannot close the menu mid-click.
+ * settling as the menu opens. The opening click checks actionability after
+ * scrolling; a second trial click repeats that browser work under load.
  */
 export async function openCardMenu(page: Page, testId: string): Promise<void> {
   const trigger = page.getByTestId(testId);
   await trigger.scrollIntoViewIfNeeded();
-  await trigger.click({ trial: true, timeout: 5000 });
-  if ((await trigger.getAttribute("aria-expanded")) !== "true") await trigger.click();
+  if ((await trigger.getAttribute("aria-expanded")) !== "true")
+    await trigger.click({ timeout: 5000 });
 }
 
 /**
@@ -577,6 +577,7 @@ export async function workspaceSaved(page: Page): Promise<void> {
       { intervals: [100] },
     )
     .toBe("saved");
+  await expect(page.getByTestId("workspace-saved")).toBeVisible();
   await expect(page.getByTestId("workspace-saved")).toHaveText("Saved");
   await page.evaluate(async () => {
     const probe = window as unknown as {

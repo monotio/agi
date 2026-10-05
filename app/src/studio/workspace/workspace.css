@@ -381,6 +381,9 @@
   .workspace-editor__header .project-tabs {
     flex-basis: 100%;
   }
+  .in-game .shell-body--workspace > .workspace-problems {
+    grid-column: 1 / -1;
+  }
   .in-game .shell-body--workspace > .parts-list {
     position: absolute;
     top: 0;

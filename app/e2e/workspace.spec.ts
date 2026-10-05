@@ -1,6 +1,7 @@
 import { test, expect, reviewShot } from "./test.ts";
 import { isolateStorage, textHook } from "./engineProbe.ts";
 import type { Page, Locator } from "@playwright/test";
+import { decodePng } from "../../scripts/png.ts";
 async function starter(page: Page): Promise<void> {
   await isolateStorage(page);
   await page.goto("/#create-adventure");
@@ -829,20 +830,12 @@ test("VIEW thumbnails animate only in visible parts and follow reduced motion @w
 
 /** The GPU canvas as the player sees it, sampled at the same game pixel. */
 async function renderedColourOf(page: Page): Promise<number[]> {
-  const bytes = [...(await page.getByTestId("gpu-canvas").screenshot())];
-  return page.evaluate(async (png) => {
-    const bitmap = await createImageBitmap(new Blob([new Uint8Array(png)], { type: "image/png" }));
-    const canvas = document.createElement("canvas");
-    canvas.width = bitmap.width;
-    canvas.height = bitmap.height;
-    const context = canvas.getContext("2d")!;
-    context.drawImage(bitmap, 0, 0);
-    bitmap.close();
-    return [
-      ...context.getImageData(Math.floor(canvas.width / 2), Math.floor(canvas.height * 0.8), 1, 1)
-        .data,
-    ].slice(0, 3);
-  }, bytes);
+  const canvas = page.getByTestId("gpu-canvas");
+  await expect(canvas).toBeVisible();
+  // Decode in the runner: sending the PNG back through CDP competes with game rendering.
+  const { width, height, rgba } = decodePng(await canvas.screenshot());
+  const offset = (Math.floor(height * 0.8) * width + Math.floor(width / 2)) * 4;
+  return [...rgba.subarray(offset, offset + 3)];
 }
 
 async function sourceColourOf(page: Page): Promise<number[]> {

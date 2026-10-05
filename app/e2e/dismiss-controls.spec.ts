@@ -117,7 +117,7 @@ test("History, Problems and Inspector dismiss with × and Escape", async ({ page
   await page.keyboard.press("ControlOrMeta+j");
   const problems = page.getByTestId("workspace-problems");
   await expect(problems).toBeVisible();
-  const problemsClose = problems.locator("header > button");
+  const problemsClose = problems.getByRole("button", { name: "Close", exact: true });
   await expect(problemsClose).toBeVisible();
   await expect.soft(problemsClose).toHaveAccessibleName("Close");
   await problemsClose.focus();
