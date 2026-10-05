@@ -108,6 +108,7 @@ export function useEngine(
 ) {
   let projectMode: "create" | "play" = "play";
   let projectSession: ProjectSession | null = null;
+  let projectSessionOpening: string | undefined;
   const pendingProjectRestart = shallowRef<PendingProjectRestart | null>(null);
   let projectOpenEpoch = 0;
   let audio: AgiAudio | null = null;
@@ -355,7 +356,9 @@ export function useEngine(
 
   const autosaveController = useAutosaveController({
     state,
-    getRunScope: () => projectSession?.runToken,
+    // The worker grants the run before the editor modules finish loading.
+    // Checkpoints keep that owner while its project session opens.
+    getRunScope: () => projectSessionOpening ?? projectSession?.runToken,
     getBootedGame: () => lifecycle.getBootedGame(),
     getWorker: link.getWorker,
     async prepareCheckpoint(game, files, checkpointRevision) {
@@ -404,7 +407,6 @@ export function useEngine(
     projectSession = null;
     pendingProjectRestart.value = null;
   };
-  let projectSessionOpening: string | undefined;
   async function openSession(
     grant: Extract<WorkerControl, { type: "booted" }>["projectAdmission"],
   ): Promise<void> {

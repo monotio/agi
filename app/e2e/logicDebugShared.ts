@@ -51,7 +51,7 @@ export async function seedLocalProject(
 
 /**
  * Create a project through the visible UI form — the production-safe path.
- * Returns the project id once the card exists in the library.
+ * Returns once the created game is visible in the library.
  */
 export async function createProjectViaUi(page: Page, title: string): Promise<void> {
   const disclosure = page.getByTestId("create-adventure-disclosure");
@@ -61,15 +61,12 @@ export async function createProjectViaUi(page: Page, title: string): Promise<voi
   await page.getByTestId("local-create-title").fill(title);
   await page.getByTestId("local-create-kind-starter").click();
   await page.getByTestId("local-create-submit").click();
-  // Creation can open the project's workspace; the library card holds the
-  // Edit entry, so leave the workspace when it took over the shell. Race the
-  // exit button against the card so both landings are handled.
+  // A starter opens in Create. Wait for that landing before returning to
+  // the library, rather than treating its transient card as a destination.
+  await expect(page.getByTestId("parts-list")).toBeVisible({ timeout: 30_000 });
   const exit = page.getByTestId("btn-exit");
+  await expect(exit).toBeVisible();
+  await exit.click();
   const card = savedGameCard(page, title);
-  await Promise.race([
-    exit.waitFor({ state: "visible", timeout: 30_000 }),
-    card.waitFor({ state: "visible", timeout: 30_000 }),
-  ]).catch(() => {});
-  if (await exit.isVisible().catch(() => false)) await exit.click();
   await expect(card).toBeVisible({ timeout: 30_000 });
 }
