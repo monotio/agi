@@ -976,11 +976,16 @@ onBeforeUnmount(() => {
     v-if="creating && presentation.debugOpen.value"
     class="workspace-inspector"
     aria-label="Game inspector"
+    @keydown.esc.stop.prevent="presentation.debugOpen.value = false"
   >
     <header>
       <strong>Inspector</strong
-      ><UiButton size="sm" variant="ghost" @click="presentation.debugOpen.value = false"
-        >Close</UiButton
+      ><UiButton
+        size="sm"
+        variant="ghost"
+        aria-label="Close"
+        @click="presentation.debugOpen.value = false"
+        >×</UiButton
       >
     </header>
     <InspectPanel />
@@ -1297,6 +1302,7 @@ onBeforeUnmount(() => {
     class="workspace-problems"
     aria-label="Problems"
     data-testid="workspace-problems"
+    @keydown.esc.stop.prevent="editor.panel.value = false"
   >
     <DebugPanel
       v-if="debug"
@@ -1308,7 +1314,9 @@ onBeforeUnmount(() => {
     <template v-else>
       <header>
         <h2>Problems</h2>
-        <UiButton size="sm" variant="ghost" @click="editor.panel.value = false">×</UiButton>
+        <UiButton size="sm" variant="ghost" aria-label="Close" @click="editor.panel.value = false"
+          >×</UiButton
+        >
       </header>
       <p v-if="diagnostics.length === 0">Everything builds.</p>
       <p v-for="(entry, index) in diagnostics" :key="index">{{ entry.message }}</p>
@@ -1319,10 +1327,13 @@ onBeforeUnmount(() => {
     class="workspace-history"
     aria-label="History"
     data-testid="workspace-history"
+    @keydown.esc.stop.prevent="editor.history.value = false"
   >
     <header>
       <h2>History</h2>
-      <UiButton size="sm" variant="ghost" @click="editor.history.value = false">×</UiButton>
+      <UiButton size="sm" variant="ghost" aria-label="Close" @click="editor.history.value = false"
+        >×</UiButton
+      >
     </header>
     <p>{{ VOCABULARY.history.help }}</p>
     <form @submit.prevent="nameVersion">

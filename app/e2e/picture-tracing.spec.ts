@@ -109,7 +109,7 @@ test("reference snaps to EGA and blends above Starter art while placement follow
   await expect.poll(() => pixel(page)).toEqual([136, 34, 102, 255]);
   await page
     .getByTestId("image-reference")
-    .getByRole("button", { name: "Close", exact: true })
+    .getByRole("button", { name: "Done", exact: true })
     .click();
   await page.getByRole("button", { name: "Trace an image", exact: true }).click();
   await expect(page.getByTestId("trace-opacity")).toHaveValue("0.6");
@@ -133,7 +133,7 @@ test("Trace and Generate retain the PICTURE split and canvas size", async ({ pag
   expect((await canvas.boundingBox())!.height).toBe(normalCanvas.height);
   await page
     .getByTestId("image-reference")
-    .getByRole("button", { name: "Close", exact: true })
+    .getByRole("button", { name: "Done", exact: true })
     .click();
   await page.getByRole("button", { name: "Generate", exact: true }).click();
   await expect(page.getByTestId("generate-prompt")).toBeVisible();

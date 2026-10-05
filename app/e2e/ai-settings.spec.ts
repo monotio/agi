@@ -118,7 +118,7 @@ test("AI settings pause only their own game interaction and preserve the assista
   await expect(page.getByTestId("settings-menu")).toBeFocused();
   expect((await textHook(page)).paused).toBe(true);
   expect(providerCalls).toBe(0);
-  await page.getByRole("button", { name: "Back to game", exact: true }).click();
+  await page.getByTestId("agent-bubble-close").click();
   await expect.poll(async () => (await textHook(page)).paused).toBe(false);
 });
 

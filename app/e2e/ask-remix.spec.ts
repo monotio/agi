@@ -89,12 +89,10 @@ test("Ask stays paused and remembers the conversation after reload", async ({ pa
   expect(Math.abs(input.height - send.height)).toBeLessThan(1);
   await page.screenshot({ path: test.info().outputPath("ask-desktop.png") });
   await page.setViewportSize({ width: 390, height: 844 });
-  await expect(
-    page.getByRole("button", { name: "Back to game", exact: true }).first(),
-  ).toBeInViewport();
+  await expect(page.getByTestId("agent-bubble-close").first()).toBeInViewport();
   await expect(page.getByTestId("agent-bubble-input")).toBeInViewport();
   await page.screenshot({ path: test.info().outputPath("ask-mobile.png") });
-  await page.getByRole("button", { name: "Back to game", exact: true }).first().click();
+  await page.getByTestId("agent-bubble-close").first().click();
   await page.reload();
   await page.getByTestId("btn-resume-cached").click();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);

@@ -1,0 +1,10 @@
+id: no-text-close-button
+language: html
+severity: error
+message: Use × with aria-label Close to dismiss, Done to finish a mode, or Cancel with the named action.
+files:
+  - app/src/**/*.vue
+rule:
+  any:
+    - pattern: <button $$$ATTR>Close</button>
+    - pattern: <UiButton $$$ATTR>Close</UiButton>

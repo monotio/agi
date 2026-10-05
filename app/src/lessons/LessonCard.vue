@@ -48,7 +48,7 @@ function fold(next: boolean): void {
       <UiIconButton
         icon="x"
         size="sm"
-        label="Hide Try this"
+        label="Close"
         data-testid="lesson-card-hide"
         @click="fold(true)"
       />

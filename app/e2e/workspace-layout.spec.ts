@@ -229,7 +229,7 @@ for (const size of sizes) {
         await page.bringToFront();
         const note = page.getByTestId(removed ? "removed-tab-note" : "stale-tab-note");
         await expect(note).toHaveCount(1);
-        await expect(note.getByRole("button", { name: "Dismiss", exact: true })).toHaveCount(0);
+        await expect(note.getByRole("button", { name: "Close", exact: true })).toHaveCount(0);
         await page.keyboard.press("Escape");
         await expect(note).toHaveCount(1);
         if ((await page.getByTestId("workspace-focus").getAttribute("aria-pressed")) !== "true")

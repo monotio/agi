@@ -73,7 +73,6 @@ defineExpose({ open });
     size="lg"
     class="help-guide"
     close-testid="help-guide-close"
-    close-label="Close Help"
     data-testid="help-guide"
   >
     <div class="help-body">

@@ -142,7 +142,7 @@ for (const size of [
       }
       expect(await documents(page)).toEqual(before);
       await page.keyboard.press("Escape");
-      await expect(note.getByRole("button", { name: "Dismiss", exact: true })).toHaveCount(0);
+      await expect(note.getByRole("button", { name: "Close", exact: true })).toHaveCount(0);
       for (const name of ["Download unsaved edits", "Download game", "Reload", "Exit"]) {
         const button = note.getByRole("button", { name, exact: true });
         await expect(button).toBeVisible();

@@ -199,6 +199,7 @@ onBeforeUnmount(close);
           Cancel
         </UiButton>
         <template v-else-if="share?.step === 'ready'">
+          <UiButton variant="ghost" @click="close">Cancel</UiButton>
           <UiButton v-if="canShare" icon="share" @click="shareFile">Share…</UiButton>
           <UiButton
             variant="primary"
@@ -209,7 +210,6 @@ onBeforeUnmount(close);
             Download
           </UiButton>
         </template>
-        <UiButton v-else @click="close">Close</UiButton>
       </template>
     </UiDialog>
   </Teleport>

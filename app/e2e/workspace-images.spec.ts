@@ -153,7 +153,7 @@ test("trace an attachment and draw over it with normal tools", async ({ page }) 
   await imageShot(page, "trace-drawing");
   await page
     .getByTestId("image-reference")
-    .getByRole("button", { name: "Close", exact: true })
+    .getByRole("button", { name: "Done", exact: true })
     .click();
   await page.getByRole("button", { name: "Trace an image", exact: true }).click();
   await expect(page.getByTestId("trace-opacity")).toHaveValue("0.7");

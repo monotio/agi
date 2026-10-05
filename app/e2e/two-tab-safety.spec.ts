@@ -207,7 +207,7 @@ test("a stale tab's Download game, Ask and Exit leave another tab's saved edit i
   expect(await stored(page)).toEqual(kept);
 
   // Leaving saves nothing over the edit, and is not refused for it.
-  await page.getByRole("button", { name: "Back to game", exact: true }).click();
+  await page.getByTestId("agent-bubble-close").click();
   await page.getByTestId("btn-exit").click();
   await expect(page.getByTestId("saved-game-gallery")).toBeVisible();
   expect(await stored(page)).toEqual(kept);
@@ -234,7 +234,7 @@ test("a tab running an older revision hears of another tab's saved edit at once 
   await expect.poll(async () => (await textHook(page)).cycle).toBeGreaterThan(cycle);
   await downloadGame(page);
   expect(await stored(page)).toEqual(kept);
-  await expect(note.getByRole("button", { name: "Dismiss" })).toHaveCount(0);
+  await expect(note.getByRole("button", { name: "Close", exact: true })).toHaveCount(0);
   await page.keyboard.press("Escape");
   for (const name of ["Download unsaved edits", "Download game", "Reload", "Exit"])
     await expect(note.getByRole("button", { name, exact: true })).toBeVisible();
@@ -280,7 +280,7 @@ test("a label saved in another tab is heard at once, and nothing this tab saves 
     "Changed in another tab. Editing is paused.",
   );
   await expect(page.getByTestId("agent-bubble-reload")).toBeVisible();
-  await page.getByRole("button", { name: "Back to game", exact: true }).click();
+  await page.getByTestId("agent-bubble-close").click();
 
   // Leaving writes this tab's older notes over nothing, and is not refused.
   await page.getByTestId("btn-exit").click();

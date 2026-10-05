@@ -48,7 +48,7 @@ const RECOVERY_LABELS: Record<KeepRecovery, string> = {
     </UiButton>
     <UiIconButton
       icon="x"
-      label="Dismiss"
+      label="Close"
       size="sm"
       data-testid="studio-keep-error-close"
       @click="emit('close')"
@@ -74,7 +74,7 @@ const RECOVERY_LABELS: Record<KeepRecovery, string> = {
     </details>
     <UiIconButton
       icon="x"
-      label="Dismiss"
+      label="Close"
       size="sm"
       data-testid="studio-notice-close"
       @click="emit('dismiss')"

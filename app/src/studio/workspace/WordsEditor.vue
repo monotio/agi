@@ -407,7 +407,7 @@ function dismissGhosts(event: KeyboardEvent): void {
     </header>
     <div v-if="toast" class="words-toast" role="status">
       {{ toast }} · <button class="words-link" @click="emit('chat')">{{ copy.openChat }}</button>
-      <button class="chip-remove" :aria-label="copy.dismiss" @click="toast = ''">×</button>
+      <button class="chip-remove" aria-label="Close" @click="toast = ''">×</button>
     </div>
     <p v-if="error" class="words-error" role="alert">{{ error }}</p>
     <form v-if="moving" class="words-choice" @submit.prevent="move" aria-label="Move to…">

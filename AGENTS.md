@@ -171,6 +171,9 @@ code, comments or documentation.
   Describe capabilities directly; omit unnecessary reassurance about engines,
   keys or excluded alternatives. Error notices name the cause and next action.
   Keep actual constraints and irreversible consequences explicit.
+- Dismiss-only overlays and panels use a top-right × with aria-label "Close" and Esc;
+  popovers also close on outside click. Editor tabs use ×. Modes end with Done;
+  choices offer Cancel plus the named action. Buttons never display bare "Close".
 - Never guess or promise what an AI request will cost before it runs: no price on a
   button, no estimate before sending. Show the budget with Stop and pause near it.
   Actual spend may be shown after the fact, from provider-reported usage or

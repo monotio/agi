@@ -90,7 +90,7 @@ test("agent image tools review PICTURE and VIEW previews before one saved commit
   image = Object.keys(JSON.parse(String(before.images)).images)[0]!;
   await page
     .getByTestId("image-reference")
-    .getByRole("button", { name: "Close", exact: true })
+    .getByRole("button", { name: "Done", exact: true })
     .click();
   await page.keyboard.press("ControlOrMeta+i");
   await page.getByTestId("agent-message").fill("Reuse the image for tracing and cels");

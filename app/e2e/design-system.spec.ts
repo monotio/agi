@@ -72,7 +72,8 @@ test("Help, Game controls and the map close with the standard × button", async 
   const help = page.getByTestId("help-guide");
   await expect(help).toBeVisible();
   const helpClose = help.getByTestId("help-guide-close");
-  await expect(helpClose).toHaveAccessibleName("Close Help");
+  await expect(helpClose).toBeVisible();
+  await expect(helpClose).toHaveAccessibleName("Close");
   await expect(helpClose).toHaveText("");
   await helpClose.click();
   await expect(help).toBeHidden();

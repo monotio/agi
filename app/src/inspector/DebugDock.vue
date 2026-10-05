@@ -113,7 +113,8 @@ function onHeadPointerUp(): void {
       <button
         type="button"
         class="dd-icon-btn dd-close"
-        title="Close inspector"
+        aria-label="Close"
+        title="Close"
         @click="emit('close')"
       >
         ×

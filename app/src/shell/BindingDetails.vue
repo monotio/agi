@@ -5,6 +5,7 @@ import { useEngineApi } from "../engine/engineContext.ts";
 import { useWorkspaceEditor } from "./workspaceEditor.ts";
 import { renameWorkspaceBinding, workspaceBindingInfos } from "./workspaceNames.ts";
 import UiButton from "../ui/UiButton.vue";
+import UiIconButton from "../ui/UiIconButton.vue";
 const { info, rename = false } = defineProps<{ info: BindingInfo; rename?: boolean }>();
 const emit = defineEmits<{ close: []; renamed: [info: BindingInfo] }>();
 const engine = useEngineApi();
@@ -60,7 +61,12 @@ function openUse(use: BindingInfo["uses"][number]): void {
 }
 </script>
 <template>
-  <section class="binding-details" data-testid="binding-details" aria-label="Name details">
+  <section
+    class="binding-details"
+    data-testid="binding-details"
+    aria-label="Name details"
+    @keydown.esc.stop.prevent="emit('close')"
+  >
     <header>
       <strong
         >{{ info.name }} ·
@@ -72,7 +78,7 @@ function openUse(use: BindingInfo["uses"][number]): void {
               : info.kind.toUpperCase()
         }}
         {{ info.num }}</strong
-      ><UiButton size="sm" variant="ghost" @click="emit('close')">Close</UiButton>
+      ><UiIconButton icon="x" label="Close" size="sm" @click="emit('close')" />
     </header>
     <p>
       {{
@@ -128,6 +134,14 @@ form {
   justify-content: space-between;
   gap: var(--space-2);
   flex-wrap: wrap;
+}
+header {
+  flex-wrap: nowrap;
+  align-items: flex-start;
+}
+header strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 p,
 small {
