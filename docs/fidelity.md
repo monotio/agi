@@ -567,7 +567,8 @@ The engine emits the values each driver writes to Paula's period and volume
 registers, and the app plays them as looping samples at the selected Paula clock
 (NTSC by default, with PAL in Settings > Advanced). Two
 rendering choices come from the hardware rather than the drivers: very short
-periods play at Paula's DMA limit, and period 0 is silent (an inference).
+periods play at Paula's DMA limit, and period 0 counts 65,536 clocks at the
+programmed volume.
 
 **Evidence:** [Original Amiga sound player](#original-amiga-sound-player).
 
