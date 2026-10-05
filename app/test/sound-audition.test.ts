@@ -328,12 +328,12 @@ describe("AgiAudio lane audibility", () => {
   });
 
   it("keeps the tone-2 divisor feeding noise rate 3 while lane 2 is gated", () => {
-    const { audio, gains, filters } = fakeAudioContext();
+    const { audio, gains, sources, ctx } = fakeAudioContext();
     audio.setLaneAudible(2, false);
     // Channel 2 latch+data: divisor 100; noise control white/rate 3, att 4.
     audio.output({ kind: "psg", bytes: [0xc4, 0x06] });
     audio.output({ kind: "psg", bytes: [0xe7, 0xf4] });
-    assert.equal(filters[0]!.frequency.value, PSG_BASE_FREQ / 100);
+    assert.equal(sources.at(-1)!.playbackRate.value, ((PSG_BASE_FREQ / 100) * 32) / ctx.sampleRate);
     assert.equal(gains[4]!.gain.value, Math.pow(10, -4 / 10) * 0.25);
     audio.setLaneAudible(3, false);
     assert.equal(gains[4]!.gain.value, 0);
@@ -642,7 +642,10 @@ describe("sound audition seek", () => {
       "reconstruction was silent",
     );
     // Lane 2's divisor reached the noise rate-3 computation.
-    assert.equal(context.filters[0]!.frequency.value, PSG_BASE_FREQ / 300);
+    assert.equal(
+      context.sources.at(-1)!.playbackRate.value,
+      ((PSG_BASE_FREQ / 300) * 32) / context.ctx.sampleRate,
+    );
     // Resuming continues the profile envelope, not a restarted note.
     await audition.resume();
     scheduler.advance(TICK_MS);

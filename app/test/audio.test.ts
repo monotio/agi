@@ -115,6 +115,87 @@ function context() {
 }
 
 describe("audio command backend", () => {
+  it("a TI profile's first coupled noise write uses the already latched tone-2 divisor", () => {
+    const { audio, bufferSources, ctx } = context();
+    audio.output({ kind: "psg", bytes: [0xc4, 0x06] });
+    audio.output({ kind: "psg", chip: "sn76496", bytes: [0xe7, 0xf0] });
+    assert.equal(bufferSources.at(-1)!.playbackRate.value, 3579545 / 100 / ctx.sampleRate);
+  });
+  it("holds each PSG noise bit for 32 buffer frames before resampling", () => {
+    const { audio, buffers } = context();
+    audio.output({ kind: "psg", bytes: [0xe4] });
+    const data = buffers.at(-1)!.data;
+    assert.ok(data.slice(15 * 32, 16 * 32).every((sample) => sample === -1));
+    assert.ok(data.slice(14 * 32, 15 * 32).every((sample) => sample === 0));
+  });
+  it("keeps the NCR sequence clocking through a quiet SOUND boundary", () => {
+    const { audio, bufferSources } = context();
+    audio.outputTick({
+      stream: "one",
+      tick: 0,
+      outputs: [{ kind: "psg", bytes: [0xe4, 0xf0] }],
+      complete: false,
+    });
+    audio.outputTick({
+      stream: "one",
+      tick: 1,
+      outputs: [{ kind: "psg", bytes: [0xff] }],
+      complete: true,
+    });
+    const count = bufferSources.length;
+    audio.outputTick({
+      stream: "two",
+      tick: 10,
+      outputs: [{ kind: "psg", bytes: [0xe4, 0xf0] }],
+      complete: false,
+    });
+    assert.equal(bufferSources.length, count);
+    assert.equal(bufferSources.at(-1)!.stopped, false);
+    audio.finishSound();
+    assert.equal(bufferSources.at(-1)!.stopped, false);
+    audio.stop();
+    assert.equal(bufferSources.at(-1)!.stopped, true);
+  });
+  it("renders the NCR shift bits at the chip rate and follows later tone-2 writes", () => {
+    const { audio, ctx, buffers, bufferSources } = context();
+    audio.output({ kind: "psg", bytes: [0xe4, 0xf0] });
+    const source = bufferSources.at(-1)!;
+    assert.equal(source.playbackRate.value, ((3579545 / 512) * 32) / ctx.sampleRate);
+    assert.deepEqual(
+      Array.from({ length: 17 }, (_, i) => buffers.at(-1)!.data[i * 32]),
+      [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, -1],
+    );
+    audio.output({ kind: "psg", bytes: [0xc4, 0x06, 0xe7] });
+    assert.equal(
+      bufferSources.at(-1)!.playbackRate.value,
+      ((3579545 / 3200) * 32) / ctx.sampleRate,
+    );
+    audio.output({ kind: "psg", bytes: [0xc8, 0x0c] });
+    assert.equal(
+      bufferSources.at(-1)!.playbackRate.value,
+      ((3579545 / 6400) * 32) / ctx.sampleRate,
+    );
+  });
+
+  it("TI metadata selects the delayed XOR sequence and resets on repeated writes", () => {
+    const { audio, buffers, bufferSources, ctx } = context();
+    audio.output({ kind: "psg", chip: "sn76496", bytes: [0xe4] });
+    assert.deepEqual(
+      Array.from({ length: 4 }, (_, i) => buffers.at(-1)!.data[(i + 14) * 32]),
+      [0, 0, 1, 0],
+    );
+    ctx.currentTime += 0.01;
+    audio.output({ kind: "psg", chip: "sn76496", bytes: [0xe4] });
+    assert.equal(bufferSources.at(-1)!.starts[0]![1], 32 / ctx.sampleRate);
+    const count = bufferSources.length;
+    audio.output({ kind: "psg", bytes: [0x00, 0xff, 0x00] });
+    assert.equal(
+      bufferSources.length,
+      count,
+      "noise/attenuation continuation bytes keep the state",
+    );
+  });
+
   it("uses speaker divisors and gates without an independent completion timer", () => {
     const { audio, gains, oscillators, ctx } = context();
     audio.output({ kind: "speaker", divisor: 2712 });

@@ -2,7 +2,7 @@ import { SOUND_LOOKAHEAD_SECONDS, type SoundTick, type SoundTiming } from "./sou
 /**
  * Web Audio presentation of the engine's sound command stream.
  * Resource timing, channel selection, envelopes and completion belong to the
- * profile-aware core scheduler. Analog tone/noise synthesis is approximate.
+ * profile-aware core scheduler. Analogue speaker response is approximate.
  */
 import {
   AMIGA_2082_NOISE_BYTES,
@@ -24,6 +24,12 @@ import {
   paulaCouplingCoefficients,
 } from "./paula.ts";
 import { IigsSynth, iigsSources, type IigsSources } from "./iigsSynth.ts";
+import {
+  PsgNoise,
+  PsgNoiseClock,
+  type NoiseChange,
+  type PsgChip,
+} from "../../../src/sound/psgNoise.ts";
 
 /**
  * The player's PC sound-chip preference, which is also the `soundDevice`
@@ -31,6 +37,9 @@ import { IigsSynth, iigsSources, type IigsSources } from "./iigsSynth.ts";
  * preference; see `soundFamily` in useAudioController.ts.
  */
 export type AudioMode = "tandy" | "pc-speaker";
+
+/** Keep the DAC level flat through each shift interval during resampling. */
+const PSG_HOLD_FRAMES = 32;
 
 export class AgiAudio {
   private ctx: AudioContext | null = null;
@@ -49,7 +58,12 @@ export class AgiAudio {
   private family: SoundOutput["kind"] | "paula-2.082" | null = null;
   private channelGains: GainNode[] = [];
   private oscillators: OscillatorNode[] = [];
-  private noiseFilter: BiquadFilterNode | null = null;
+  private noiseClock: PsgNoiseClock | null = null;
+  private noiseSource: AudioBufferSourceNode | null = null;
+  private noiseChip: PsgChip = "ncr8496";
+  private readonly noiseBuffers: Partial<
+    Record<PsgChip, Partial<Record<"white" | "periodic", { buffer: AudioBuffer; loop: number }>>>
+  > = {};
   private readonly divisors = [0, 0, 0];
   private latchedRegister = 0;
   private paulaSources: AudioBufferSourceNode[] = [];
@@ -320,7 +334,8 @@ export class AgiAudio {
       this.retiredStreams.add(packet.stream);
       this.timing = null;
       // The chip's DAC and analogue capacitors survive a SOUND terminator.
-      if (this.family !== "paula" && this.family !== "paula-2.082") this.releaseGraph(at);
+      if (this.family !== "paula" && this.family !== "paula-2.082" && this.family !== "psg")
+        this.releaseGraph(at);
       else this.playing = false;
     }
   }
@@ -478,6 +493,14 @@ export class AgiAudio {
       this.setLaneGain(0, divisor === null ? 0 : 0.4, at);
       return;
     }
+    if (event.chip !== undefined && event.chip !== this.noiseChip) {
+      this.noiseChip = event.chip;
+      if (this.noiseSource) this.stopSource(this.noiseSource, at);
+      this.noiseClock = new PsgNoiseClock(this.noiseChip, at);
+      this.noiseClock.tone2(this.divisors[2]!, at);
+      this.noiseSource = null;
+      this.scheduleNoise({ at, index: 0 });
+    }
     for (const raw of event.bytes) {
       const byte = raw & 255;
       const latch = (byte & 0x80) !== 0;
@@ -500,21 +523,22 @@ export class AgiAudio {
         const divisor = this.divisors[channel]!;
         const rawFreq = divisor ? PSG_BASE_FREQ / divisor : 0;
         this.oscillators[channel]!.frequency.setValueAtTime(Math.min(maxFreq, rawFreq), at);
+        if (channel === 2) {
+          const change = this.noiseClock!.tone2(divisor, at);
+          if (change) this.scheduleNoise(change);
+        }
       } else {
         // Noise control register is latch-only (docs/fidelity.md: SN76489 attenuation latching and rest notes).
         if (!latch) continue;
-        // Noise timbre is a presentation approximation; command timing and gain are exact.
-        const rate = byte & 3;
-        const rawFreq =
-          rate === 3 ? PSG_BASE_FREQ / Math.max(1, this.divisors[2]!) : 4000 / (1 << rate);
-        this.noiseFilter!.frequency.setValueAtTime(Math.min(maxFreq, rawFreq), at);
+        const change = this.noiseClock!.write(byte & 7, at);
+        if (change) this.scheduleNoise(change);
       }
     }
   }
 
-  /** Finish the worker's SOUND after its register clears, retaining Paula's DAC and capacitors. */
+  /** Finish after register clears, retaining Paula's DAC and the PSG's running counters. */
   finishSound(): void {
-    if (this.family !== "paula" && this.family !== "paula-2.082") {
+    if (this.family !== "paula" && this.family !== "paula-2.082" && this.family !== "psg") {
       this.stop();
       return;
     }
@@ -564,7 +588,8 @@ export class AgiAudio {
     this.activeNodes = [];
     this.channelGains = [];
     this.oscillators = [];
-    this.noiseFilter = null;
+    this.noiseClock = null;
+    this.noiseSource = null;
     this.paulaSources = [];
     this.paulaBuffers = [];
     this.paulaPendingStops = [];
@@ -699,23 +724,54 @@ export class AgiAudio {
         this.oscillators.push(oscillator);
         this.activeNodes.push(oscillator);
       } else {
-        const buffer = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate);
-        const data = buffer.getChannelData(0);
-        for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
-        const noise = ctx.createBufferSource();
-        noise.buffer = buffer;
-        noise.loop = true;
-        const filter = ctx.createBiquadFilter();
-        filter.type = "bandpass";
-        filter.Q.value = 1.5;
-        filter.frequency.setValueAtTime(1000, ctx.currentTime);
-        noise.connect(filter);
-        filter.connect(gain);
-        noise.start();
-        this.noiseFilter = filter;
-        this.activeNodes.push(noise, filter);
+        this.noiseClock = new PsgNoiseClock(this.noiseChip, ctx.currentTime);
+        this.scheduleNoise({ at: ctx.currentTime, index: 0 });
       }
     }
+  }
+
+  /** Web Audio resamples the held DAC bits, including the reset's transient prefix. */
+  private scheduleNoise(change: NoiseChange): void {
+    const ctx = this.ctx!;
+    const clock = this.noiseClock!;
+    const mode = clock.white ? "white" : "periodic";
+    const buffers = (this.noiseBuffers[this.noiseChip] ??= {});
+    let waveform = buffers[mode];
+    if (!waveform) {
+      const noise = new PsgNoise(this.noiseChip);
+      noise.write(clock.white ? 4 : 0);
+      const { samples, loop } = noise.waveform();
+      const buffer = ctx.createBuffer(1, samples.length * PSG_HOLD_FRAMES, ctx.sampleRate);
+      const data = buffer.getChannelData(0);
+      for (let i = 0; i < data.length; i++) data[i] = samples[Math.floor(i / PSG_HOLD_FRAMES)]!;
+      waveform = buffers[mode] = { buffer, loop: loop * PSG_HOLD_FRAMES };
+    }
+    const previous = this.noiseSource;
+    if (previous) {
+      this.stopSource(previous, change.at);
+      previous.onended = () => {
+        previous.disconnect();
+        this.activeNodes = this.activeNodes.filter((node) => node !== previous);
+      };
+    }
+    const source = ctx.createBufferSource();
+    source.buffer = waveform.buffer;
+    source.loop = true;
+    source.loopStart = waveform.loop / ctx.sampleRate;
+    source.loopEnd = waveform.buffer.length / ctx.sampleRate;
+    source.playbackRate.setValueAtTime(
+      (clock.shiftHz * PSG_HOLD_FRAMES) / ctx.sampleRate,
+      ctx.currentTime,
+    );
+    source.connect(this.channelGains[3]!);
+    const frame = change.index * PSG_HOLD_FRAMES;
+    const index =
+      frame < waveform.buffer.length
+        ? frame
+        : waveform.loop + ((frame - waveform.loop) % (waveform.buffer.length - waveform.loop));
+    source.start(change.at, index / ctx.sampleRate);
+    this.noiseSource = source;
+    this.activeNodes.push(source);
   }
 
   /**
