@@ -1,5 +1,6 @@
 import { expect, type Locator, type Page } from "@playwright/test";
 import type { CachedGameData } from "../src/project/gameTypes.ts";
+import type * as BrowserSignals from "./browserSignals.ts";
 
 export interface AiConfiguration {
   provider: "anthropic" | "openai" | "stub";
@@ -405,14 +406,14 @@ export async function openLibraryActions(page: Page, card: Locator): Promise<voi
 /**
  * Open a game card's action menu. Cards can sit deep in the library: the
  * trigger's scroll-into-view plus scroll-anchored layout shifts can still be
- * settling as the menu opens. Check its actionability before opening it so
- * movement during the scroll cannot close the menu mid-click.
+ * settling as the menu opens. The opening click checks actionability after
+ * scrolling; a second trial click repeats that browser work under load.
  */
 export async function openCardMenu(page: Page, testId: string): Promise<void> {
   const trigger = page.getByTestId(testId);
   await trigger.scrollIntoViewIfNeeded();
-  await trigger.click({ trial: true, timeout: 5000 });
-  if ((await trigger.getAttribute("aria-expanded")) !== "true") await trigger.click();
+  if ((await trigger.getAttribute("aria-expanded")) !== "true")
+    await trigger.click({ timeout: 5000 });
 }
 
 /**
@@ -560,23 +561,27 @@ export async function closeWorkspaceEditor(page: Page): Promise<void> {
 
 /** Observe completed gesture publication and durable autosave. */
 export async function workspaceSaved(page: Page): Promise<void> {
-  await expect
-    .poll(
-      async () =>
-        page.evaluate(() => {
-          const probe = window as unknown as {
-            __AGI_PROJECT__: {
-              getSession(): { saveStatus(): { state: string; message: string } } | undefined;
-            };
-          };
-          const status = probe.__AGI_PROJECT__.getSession()?.saveStatus();
-          return status?.state === "failed" || status?.state === "conflict"
-            ? status.message
-            : status?.state;
-        }),
-      { intervals: [100] },
-    )
-    .toBe("saved");
+  const status = await page.evaluate(async () => {
+    const path = "/e2e/browserSignals.ts";
+    const { waitForSignal }: typeof BrowserSignals = await import(/* @vite-ignore */ path);
+    const probe = window as unknown as {
+      __AGI_PROJECT__: {
+        getSession(): {
+          saveStatus(): { state: string; message: string };
+          subscribe(check: () => void): () => void;
+        };
+      };
+    };
+    const session = probe.__AGI_PROJECT__.getSession();
+    await waitForSignal(
+      () => !["pending", "saving"].includes(session.saveStatus().state),
+      (check) => session.subscribe(check),
+    );
+    const saved = session.saveStatus();
+    return saved.state === "failed" || saved.state === "conflict" ? saved.message : saved.state;
+  });
+  expect(status).toBe("saved");
+  await expect(page.getByTestId("workspace-saved")).toBeVisible();
   await expect(page.getByTestId("workspace-saved")).toHaveText("Saved");
   await page.evaluate(async () => {
     const probe = window as unknown as {

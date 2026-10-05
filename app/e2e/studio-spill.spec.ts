@@ -116,6 +116,7 @@ test("dragging an outline another item's fill pours around lands, names the fill
 
   await workspaceSaved(page);
   const notice = studio.getByTestId("studio-notice");
+  await expect(notice).toBeVisible();
   await expect(notice).toHaveText(NOTE);
   const moved = planes(await draftBytes(page));
   const expected = planes(compilePictureSource(MOVED).bytes);

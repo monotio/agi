@@ -172,8 +172,10 @@ test("a played remix exposes its origin in Details @webkit-desktop", async ({ pa
   await page.goto("/");
   await importDeclaredRemix(page);
   const card = savedGameCard(page, "Altered Remix");
+  await expect(card).toBeVisible();
   await expect(card).toContainText("Remix of Origin Adventure");
   await card.getByRole("button", { name: "Play", exact: true }).click();
+  await expect(page.locator(".play-area .screen")).toBeVisible();
   await expect
     .poll(async () => (await textHook(page)).rows.join(" "))
     .toContain("ALTERED ADVENTURE");
