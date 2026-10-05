@@ -196,7 +196,7 @@ test("? lists every key in a dialog, and Esc puts it away without leaving Studio
   await playTutorial(page);
   const studio = await openRoomStudio(page, 2);
   const canvas = studio.getByRole("group", { name: /^Canvas/ });
-  const sheet = page.getByRole("dialog", { name: "Room Studio keys" });
+  const sheet = page.getByRole("dialog", { name: "PICTURE keys" });
 
   await canvas.focus();
   await page.keyboard.press("l");

@@ -75,6 +75,7 @@ for (const size of [
         .click();
       await page.keyboard.press("Home");
       for (let line = 0; line < 6; line++) await page.keyboard.press("Shift+ArrowDown");
+      await expect(panel.locator(".agent-panel__context")).toBeVisible();
       await expect(panel.locator(".agent-panel__context")).toContainText("LOGIC 1 lines 5–11");
     }
     const before = await documents(page);
@@ -281,4 +282,13 @@ test("saved reviews reopen with previews and detect a changed base", async ({ pa
   await workspaceSaved(page);
   await reopen();
   await expect(page.getByTestId("agent-review")).toHaveCount(0);
+});
+
+test("the workspace composer offers reference art", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await start(page);
+  const attach = page.getByTestId("workspace-agent-panel").getByTestId("agent-attach-reference");
+  await expect(attach).toBeVisible();
+  await attach.click();
+  await expect(page.getByTestId("reference-upload")).toBeVisible();
 });

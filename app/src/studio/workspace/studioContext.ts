@@ -20,9 +20,19 @@ export function workspaceStudioContext(
   const logics = Object.entries(documents).flatMap(([key, value]) =>
     key.startsWith("logic:") && typeof value === "string" ? [[Number(key.slice(6)), value]] : [],
   );
+  const roomContexts = new Map<number, ReturnType<typeof studioRoomSource>>();
   return {
-    room: (room: number) =>
-      studioRoomSource(resources, room, rooms, undefined, { authoring, sources: { logics } }),
+    room: (room: number) => {
+      let context = roomContexts.get(room);
+      if (!context) {
+        context = studioRoomSource(resources, room, rooms, undefined, {
+          authoring,
+          sources: { logics },
+        });
+        roomContexts.set(room, context);
+      }
+      return context;
+    },
     sprite: (view: number, first?: number) => studioSpriteSource(resources, view, first),
   };
 }

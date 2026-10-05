@@ -1087,3 +1087,22 @@ describe("applyEdit ungroupItem", () => {
     refused(parts, ungroup("nope"), /no item 'nope'/);
   });
 });
+
+it("removing a triangle vertex preserves other shapes in its group", () => {
+  const before = doc(
+    '# @item shapes "Shapes" art',
+    '# part triangle "Triangle" art',
+    "vis 2",
+    "polygon 10,10 20,10 15,20",
+    "# end part",
+    '# part stroke "Stroke" art',
+    "line 30,30 40,40",
+    "# end part",
+    "# @end",
+    "end",
+  );
+  const [lines] = edit(before, { type: "removePoint", itemId: "shapes", line: 4, pointIndex: 1 });
+  assert.ok(lines.includes("line 30,30 40,40"));
+  assert.ok(lines.includes('# @item shapes "Shapes" art'));
+  assert.ok(!lines.some((line) => line.startsWith("polygon")));
+});

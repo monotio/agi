@@ -333,7 +333,7 @@ monaco.languages.registerHoverProvider(LOGIC_LANGUAGE_ID, {
         return {
           contents: [
             {
-              value: `${info.name} · ${info.kind.toUpperCase()} ${info.num} · used in ${info.uses.length} places\n\n[Open](${link("open")}) · [Rename](${link("rename")})`,
+              value: `${info.name} · ${info.kind.toUpperCase()} ${info.num} · used in ${info.uses.length} ${info.uses.length === 1 ? "place" : "places"}\n\n[Open](${link("open")}) · [Rename](${link("rename")})`,
               isTrusted: { enabledCommands: ["agi.binding"] },
             },
           ],

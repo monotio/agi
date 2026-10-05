@@ -1246,7 +1246,7 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
     return planOp(() => {
       const scan = scanResources();
       if (scan.logic.has(room) || scan.picture.has(room))
-        return `Room ${room} is already built. Change it in Remix.`;
+        return `Room ${room} is already built. Change it with the agent.`;
       if (
         discovered.rooms.has(room) ||
         journal.some((entry) => entry.to === room || entry.from === room)

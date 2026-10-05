@@ -270,3 +270,20 @@ test("the agent owns approval keys while its composer has focus", () => {
   assert.equal(registry.dispatch(key("Enter", { metaKey: true }).event), false);
   assert.equal(played, 0);
 });
+
+test("F5 runs from parts, agent and page focus while the game owns its input", () => {
+  const ctx = context();
+  const registry = createCommandRegistry(() => ctx, false);
+  let runs = 0;
+  registerDefaultCommands(registry, { run: () => runs++ });
+  for (const agentFocus of [false, true]) {
+    ctx.agentFocus = agentFocus;
+    ctx.editorFocus = false;
+    ctx.gameFocus = false;
+    ctx.textInputFocus = agentFocus;
+    assert.equal(registry.dispatch(key("F5").event), true);
+  }
+  assert.equal(runs, 2);
+  ctx.gameFocus = true;
+  assert.equal(registry.dispatch(key("F5").event), false);
+});

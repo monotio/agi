@@ -64,6 +64,7 @@ for (const size of [
     await expect(page.getByTestId("workspace-debug-status")).toHaveText(
       `Paused at LOGIC 1, line ${line}`,
     );
+    // Monaco repeats this decoration for wrapped line fragments; one visible fragment proves the stop.
     await expect(editor.locator(".workspace-stopped-line").first()).toBeVisible();
     await expect(page.getByRole("tab", { name: "Variables", exact: true })).toBeVisible();
     const panel = page.getByTestId("workspace-debug-panel");
@@ -78,13 +79,7 @@ for (const size of [
       await toolbar
         .getByRole("button")
         .evaluateAll((buttons) => buttons.map((button) => button.getAttribute("aria-label"))),
-    ).toEqual([
-      "Continue (F5)",
-      "Step over (F10)",
-      "Step into (F11)",
-      "Step out (⇧F11)",
-      "Stop (⇧F5)",
-    ]);
+    ).toEqual(["Continue", "Step over (F10)", "Step into (F11)", "Step out (⇧F11)", "Stop (⇧F5)"]);
     await panel.locator(".workspace-debug-content").evaluate((element) => {
       element.scrollTop = 0;
     });
@@ -183,6 +178,7 @@ test("stopped edits keep the running source, value edits and watches inspect MAI
   ).toBeVisible();
   await expect(editor.locator(".workspace-stopped-line")).toHaveCount(0);
   await page.getByRole("button", { name: "Show running source", exact: true }).click();
+  // Monaco repeats this decoration for wrapped line fragments; one visible fragment proves the stop.
   await expect(editor.locator(".workspace-stopped-line").first()).toBeVisible();
   await expect(
     editor.getByRole("textbox", { name: "Editor content", exact: true }),

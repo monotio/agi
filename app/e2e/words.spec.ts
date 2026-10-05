@@ -143,7 +143,7 @@ test("WORDS row actions, in-place stub suggestions and tester choices", async ({
   await expect(page.getByTestId("sentence-parse")).toContainText("new word");
   await page.getByRole("button", { name: "Redo", exact: true }).click();
   await expect(page.getByTestId("sentence-parse")).toContainText("· 100");
-  await words.getByRole("button", { name: "✦ Predict commands", exact: true }).click();
+  await words.getByRole("button", { name: "✦ Suggest sentences", exact: true }).click();
   await expect(panel).toBeHidden();
   const predicted = words.getByRole("region", { name: "Predicted commands" });
   await expect(predicted).toContainText("climb tree");
@@ -268,7 +268,7 @@ test("WORDS suggestions show progress, inline failures and retry while chat stay
   await row.getByRole("button", { name: "Dismiss", exact: true }).focus();
   await page.keyboard.press("Escape");
   await expect(row.locator(".word-suggestion")).toHaveCount(0);
-  await words.getByRole("button", { name: "✦ Predict commands", exact: true }).click();
+  await words.getByRole("button", { name: "✦ Suggest sentences", exact: true }).click();
   await expect(words.getByRole("region", { name: "Predicted commands" })).toContainText(
     "look tree",
   );

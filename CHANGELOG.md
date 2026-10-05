@@ -11,6 +11,8 @@ Released notes are also available on [GitHub Releases](https://github.com/monoti
 - Create workspace with a parts list, editors beside the running game, and Focus.
 - Live edits, autosave, shared Undo and Redo, and named History checkpoints.
 - LOGIC code intelligence, Problems, guided actions and a step debugger.
+- Game state names and Rename across the game, with inline printed text.
+- Answer a sentence and Teach beside missed sentences, with a game message preview.
 - PICTURE image tracing and Add depth; VIEW cels from an image.
 - WORDS meanings, sentence testing and missed-command collection.
 - SOUND grid, tracker, presets, MIDI and VGM import, and MIDI export.
@@ -26,6 +28,8 @@ Released notes are also available on [GitHub Releases](https://github.com/monoti
 
 ### Changed
 
+- Create docks are replaced by the parts list, Map, debugger and agent panel.
+- Image Generate starts drawing directly from your description.
 - Home, Play and Create load the engine, editor families and agent by activity.
 - CRT rendering uses beams and phosphors in Play; editors show the crisp image.
 - Adventure Department has refreshed animation and workspace lessons. Earlier

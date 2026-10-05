@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { roomHeroView } from "../logic/guided/guidedPreview.ts";
 import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { prepareWorkspaceAction, type WorkspaceAction } from "./workspaceGuided.ts";
 import type { ProjectSnapshot } from "../../../../src/authoring/projectModel.ts";
@@ -51,9 +52,11 @@ const notice = ref("");
 const soundChoice = ref<SoundChoice>({ sound: 1 });
 const view = ref(0);
 const sound = ref(1);
-const destination = ref(2);
+const destination = ref<number>();
 const x = ref(80);
 const y = ref(140);
+const doorX = ref(80);
+const doorY = ref(140);
 const x2 = ref(100);
 const y2 = ref(150);
 const labels: Record<WorkspaceAction["kind"], string> = {
@@ -123,9 +126,9 @@ const action = computed<WorkspaceAction | undefined>(() => {
       return {
         kind: kind.value,
         room,
-        destination: destination.value,
-        x1: x.value,
-        y1: y.value,
+        destination: destination.value ?? 0,
+        x1: doorX.value,
+        y1: doorY.value,
         x2: x2.value,
         y2: y2.value,
         ...(arrival.value ? { arrival: arrival.value } : {}),
@@ -170,6 +173,17 @@ watch(soundChoice, (choice) => {
   if (choice.sound !== undefined) sound.value = choice.sound;
 });
 function open(next: WorkspaceAction["kind"]): void {
+  x.value = doorX.value = 80;
+  y.value = doorY.value = 140;
+  x2.value = 100;
+  y2.value = 150;
+  destination.value = undefined;
+  const source = props.snapshot.read(`logic:${props.room}`)?.content;
+  const bindings = props.snapshot.read("bindings")?.content;
+  view.value =
+    typeof source === "string"
+      ? (roomHeroView(source, typeof bindings === "string" ? bindings : undefined) ?? 0)
+      : 0;
   guidedPlacement.value?.cancel();
   guidedPlacement.value = undefined;
   kind.value = next;
@@ -210,7 +224,7 @@ function place(target: "hero" | "box" | "arrival"): void {
     kind: target === "box" ? "box" : "hero",
     x: arrival.value?.x ?? x.value,
     y: arrival.value?.y ?? y.value,
-    box: { x1: x.value, y1: y.value, x2: x2.value, y2: y2.value },
+    box: { x1: doorX.value, y1: doorY.value, x2: x2.value, y2: y2.value },
     cel,
     background:
       roomImages.value[target === "arrival" ? `room:${destination.value}` : `room:${props.room}`],
@@ -227,8 +241,8 @@ function place(target: "hero" | "box" | "arrival"): void {
         y.value = value.y;
         positionPicked.value = true;
       } else {
-        x.value = value.box.x1;
-        y.value = value.box.y1;
+        doorX.value = value.box.x1;
+        doorY.value = value.box.y1;
         x2.value = value.box.x2;
         y2.value = value.box.y2;
         boxPicked.value = true;
@@ -244,8 +258,18 @@ onBeforeUnmount(() => {
     guidedPlacement.value = undefined;
   }
 });
+const doorReady = computed(
+  () =>
+    kind.value !== "door" ||
+    (boxPicked.value &&
+      typeof destination.value === "number" &&
+      Number.isInteger(destination.value) &&
+      destination.value >= 1 &&
+      destination.value <= 254 &&
+      destination.value !== props.room),
+);
 function add(): void {
-  if (action.value && !props.busy) emit("add", action.value);
+  if (action.value && !props.busy && doorReady.value) emit("add", action.value);
 }
 </script>
 <template>
@@ -360,13 +384,45 @@ function add(): void {
         <label v-if="kind === 'door'"
           >Destination ROOM<input v-model.number="destination" type="number" min="1" max="254"
         /></label>
-        <template v-if="kind === 'door' || kind === 'place-hero'">
+        <template v-if="kind === 'place-hero'">
           <label>X<input v-model.number="x" type="number" min="0" max="159" /></label>
           <label>Y<input v-model.number="y" type="number" min="0" max="167" /></label>
         </template>
         <template v-if="kind === 'door'">
-          <label>Right<input v-model.number="x2" type="number" min="0" max="159" /></label>
-          <label>Bottom<input v-model.number="y2" type="number" min="0" max="167" /></label>
+          <label
+            >X<input
+              v-model.number="doorX"
+              type="number"
+              min="0"
+              max="159"
+              @input="boxPicked = true"
+          /></label>
+          <label
+            >Y<input
+              v-model.number="doorY"
+              type="number"
+              min="0"
+              max="167"
+              @input="boxPicked = true"
+          /></label>
+        </template>
+        <template v-if="kind === 'door'">
+          <label
+            >Right<input
+              v-model.number="x2"
+              type="number"
+              min="0"
+              max="159"
+              @input="boxPicked = true"
+          /></label>
+          <label
+            >Bottom<input
+              v-model.number="y2"
+              type="number"
+              min="0"
+              max="167"
+              @input="boxPicked = true"
+          /></label>
         </template>
         <label v-if="arrival"
           >Arrival X<input v-model.number="arrival.x" type="number" min="0" max="159"
@@ -385,7 +441,10 @@ function add(): void {
         </details>
         <p v-else role="status">{{ prepared.message }}</p>
       </template>
-      <UiButton size="sm" type="submit" :disabled="busy">Add</UiButton>
+      <p v-if="kind === 'door' && destination === room" role="status">
+        Choose another room for this door.
+      </p>
+      <UiButton size="sm" type="submit" :disabled="busy || !doorReady">Add</UiButton>
       <UiButton size="sm" variant="ghost" @click="kind = undefined">Cancel</UiButton>
     </form>
   </div>

@@ -508,6 +508,7 @@ function walkRig(
   options: {
     runner?: (input: RouteWorkerInbound) => Promise<RouteTestResult>;
     liveState?: () => Promise<LiveGameState | null>;
+    currentSource?: () => string | undefined;
   } = {},
 ) {
   const files = roomGame();
@@ -533,6 +534,7 @@ function walkRig(
     const logic = useRoomLogicDraft({
       base,
       session,
+      currentSource: options.currentSource,
     });
     const ego: EgoShape = { ...DEFAULT_EGO, width: 3, height: 6 };
     const walk = useStudioWalk({
@@ -1249,4 +1251,22 @@ describe("test walks", () => {
     assert.equal(walk.tested.value.has(west.id), true);
     scope.stop();
   });
+});
+
+it("Walk edits the current pending LOGIC and refuses invalid text", () => {
+  let source = ROOM_1 + "\n// My latest draft";
+  const rig = walkRig({ currentSource: () => source });
+  try {
+    assert.equal(rig.walk.addDoor({ x1: 120, y1: 130, x2: 145, y2: 150 }), true);
+    assert.ok(rig.logic.source.value.includes("// My latest draft"));
+    source = rig.logic.source.value + "\nprint(";
+    const before = rig.logic.source.value;
+    assert.equal(rig.walk.addDoor({ x1: 100, y1: 130, x2: 110, y2: 150 }), false);
+    assert.equal(rig.logic.source.value, before);
+    assert.equal(rig.notices.at(-1)?.text, "Fix the room’s LOGIC before changing its doors.");
+    assert.equal(rig.logic.undo(), false);
+    assert.equal(rig.logic.source.value, before);
+  } finally {
+    rig.stop();
+  }
 });

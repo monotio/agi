@@ -151,7 +151,7 @@ const unknown = computed(
   () => parsed.value.tokens.find((token) => token.status === "new")?.text ?? "",
 );
 const moving = ref<{ from: number; word: string; to: number; merge: boolean }>();
-const teaching = ref<{ word: string; room: number }>();
+const teaching = ref<{ word: string; room: number; row?: number }>();
 const teachCommand = ref("");
 const teachResponse = ref("");
 const teachAlso = ref<readonly string[]>([]);
@@ -276,9 +276,12 @@ function move(): void {
 }
 function teach(word: string, entry?: PlayerSentence): void {
   if (props.readOnly) return;
-  if (entry) sentence.value = entry.text;
-  teaching.value = { word, room: entry?.room ?? props.room };
-  teachCommand.value = sentence.value;
+  teaching.value = {
+    word,
+    room: entry?.room ?? props.room,
+    ...(entry ? { row: tried.value.indexOf(entry) } : {}),
+  };
+  teachCommand.value = entry?.text ?? sentence.value;
   teachMeaning.value = "new";
   sameMeaning.value = "";
   teachResponse.value = "";
@@ -558,70 +561,75 @@ function dismissGhosts(event: KeyboardEvent): void {
               ></template
             >
           </div>
-          <form
+          <Teleport
             v-if="teaching"
-            class="teach-form"
-            :aria-label="`Teach ${teaching.word}`"
-            @submit.prevent="addAnswer"
+            :disabled="teaching.row === undefined"
+            :to="teaching.row === undefined ? 'body' : `#teach-row-${teaching.row}`"
           >
-            <h4>What is {{ teaching.word }}?</h4>
-            <div class="teach-meaning">
-              <label
-                ><input v-model="teachMeaning" value="new" type="radio" :disabled="readOnly" /> A
-                new thing</label
-              >
-              <label
-                ><input v-model="teachMeaning" value="same" type="radio" :disabled="readOnly" />
-                Same as…</label
-              >
-              <select
-                v-if="teachMeaning === 'same'"
-                v-model="sameMeaning"
-                aria-label="Same meaning"
-                :disabled="readOnly"
-                required
-              >
-                <option value="" disabled>Pick a meaning</option>
-                <option
-                  v-for="group in groups.filter((row) => ![0, 1, 9999].includes(row.id))"
-                  :key="group.id"
-                  :value="String(group.id)"
-                >
-                  {{ group.words.join(", ") }}
-                </option>
-              </select>
-            </div>
-            <SentenceFields
-              v-model:command="teachCommand"
-              v-model:response="teachResponse"
-              v-model:also="teachAlso"
-              :words="teachWords"
-              :disabled="readOnly"
-            />
-            <details v-if="teachResponse && teachPreview?.ok" open>
-              <summary>LOGIC to add</summary>
-              <pre data-testid="guided-code-preview">{{
-                teachPreview.showCode.map((preview) => preview.text).join("\n")
-              }}</pre>
-            </details>
-            <p v-else-if="teachResponse && teachPreview && !teachPreview.ok" role="status">
-              {{ teachPreview.message }}
-            </p>
-            <UiButton
-              size="sm"
-              type="submit"
-              :disabled="readOnly || !teachPreview?.ok"
-              :title="
-                readOnly
-                  ? 'Editing is paused in this tab'
-                  : teachPreview && !teachPreview.ok
-                    ? teachPreview.message
-                    : undefined
-              "
-              >Add</UiButton
+            <form
+              class="teach-form"
+              :aria-label="`Teach ${teaching.word}`"
+              @submit.prevent="addAnswer"
             >
-            <UiButton size="sm" variant="ghost" @click="teaching = undefined">Cancel</UiButton>
-          </form>
+              <h4>What is {{ teaching.word }}?</h4>
+              <div class="teach-meaning">
+                <label
+                  ><input v-model="teachMeaning" value="new" type="radio" :disabled="readOnly" /> A
+                  new thing</label
+                >
+                <label
+                  ><input v-model="teachMeaning" value="same" type="radio" :disabled="readOnly" />
+                  Same as…</label
+                >
+                <select
+                  v-if="teachMeaning === 'same'"
+                  v-model="sameMeaning"
+                  aria-label="Same meaning"
+                  :disabled="readOnly"
+                  required
+                >
+                  <option value="" disabled>Pick a meaning</option>
+                  <option
+                    v-for="group in groups.filter((row) => ![0, 1, 9999].includes(row.id))"
+                    :key="group.id"
+                    :value="String(group.id)"
+                  >
+                    {{ group.words.join(", ") }}
+                  </option>
+                </select>
+              </div>
+              <SentenceFields
+                v-model:command="teachCommand"
+                v-model:response="teachResponse"
+                v-model:also="teachAlso"
+                :words="teachWords"
+                :disabled="readOnly"
+              />
+              <details v-if="teachResponse && teachPreview?.ok" open>
+                <summary>LOGIC to add</summary>
+                <pre data-testid="guided-code-preview">{{
+                  teachPreview.showCode.map((preview) => preview.text).join("\n")
+                }}</pre>
+              </details>
+              <p v-else-if="teachResponse && teachPreview && !teachPreview.ok" role="status">
+                {{ teachPreview.message }}
+              </p>
+              <UiButton
+                size="sm"
+                type="submit"
+                :disabled="readOnly || !teachPreview?.ok"
+                :title="
+                  readOnly
+                    ? 'Editing is paused in this tab'
+                    : teachPreview && !teachPreview.ok
+                      ? teachPreview.message
+                      : undefined
+                "
+                >Add</UiButton
+              >
+              <UiButton size="sm" variant="ghost" @click="teaching = undefined">Cancel</UiButton>
+            </form>
+          </Teleport>
         </div>
       </section>
       <section v-if="predictOpen" class="words-predictions" aria-label="Predicted commands">
@@ -697,7 +705,7 @@ function dismissGhosts(event: KeyboardEvent): void {
             Play and type freely. Sentences the game misses show up here.
           </p>
           <div
-            v-for="entry in tried"
+            v-for="(entry, index) in tried"
             :key="`${entry.room}:${entry.text}`"
             class="tried-row"
             data-testid="player-sentence"
@@ -735,6 +743,7 @@ function dismissGhosts(event: KeyboardEvent): void {
                 ×
               </button>
             </div>
+            <div :id="`teach-row-${index}`" class="tried-teach"></div>
           </div>
         </div>
       </section>
@@ -1347,5 +1356,14 @@ code {
   display: flex;
   align-items: center;
   gap: var(--space-2);
+}
+</style>
+
+<style scoped>
+.tried-row {
+  flex-wrap: wrap;
+}
+.tried-teach {
+  flex-basis: 100%;
 }
 </style>

@@ -5,6 +5,13 @@
  * These describe; they never decide — the backend's prepare outcome stays the
  * sole authority over what is safe to write.
  */
+import {
+  actionsNamed,
+  initBlocks,
+  isEgo,
+  numRef,
+  parseRoomSource,
+} from "../../../../../src/authoring/guidedSource.ts";
 import { documentLabel } from "../logicWorkspace.ts";
 
 export interface GuidedOption {
@@ -132,4 +139,20 @@ export function roomPictureNumber(source: string, bindingsText: string | undefin
     }
   }
   return picture;
+}
+
+/** The literal VIEW in the room's entry block, with authored names expanded. */
+export function roomHeroView(source: string, bindingsText?: string): number | null {
+  try {
+    const bindings = readBindings(bindingsText) as Readonly<Record<string, { num: number }>>;
+    const room = parseRoomSource(source, bindings);
+    const entries = initBlocks(room.program);
+    if (entries.length !== 1) return null;
+    const views = actionsNamed(entries[0]!.then, "set.view").filter((action) =>
+      isEgo(action.args[0]),
+    );
+    return views.length === 1 ? numRef(views[0]!.args[1]) : null;
+  } catch {
+    return null;
+  }
 }

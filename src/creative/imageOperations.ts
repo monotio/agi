@@ -66,7 +66,12 @@ export function traceImageChanges(
     ...attached.references,
     traces: {
       ...attached.references.traces,
-      [target]: { image: attached.encoded, opacity, behindArt },
+      [target]: {
+        image: attached.encoded,
+        opacity,
+        behindArt,
+        transform: { x: 0, y: 0, scale: 1 },
+      },
     },
   };
   const changes = [...attached.changes, { key: "images", content: JSON.stringify(references) }];
@@ -373,9 +378,16 @@ export function imageTraceUnderlay(
   const references = readImageReferences(documents),
     trace = references.traces[target];
   if (!trace) return null;
-  const transform = trace.transform ?? { x: 0, y: 0, scale: 1 };
+  const image = readProjectImage(documents, trace.image);
+  const transform = trace.transform ?? {
+    x: 0,
+    y: 0,
+    scale:
+      Math.min(320 / image.width, 168 / image.height) /
+      Math.max(320 / image.width, 168 / image.height),
+  };
   return {
-    pixels: prepareTracePixels(readProjectImage(documents, trace.image), transform),
+    pixels: prepareTracePixels(image, transform),
     opacity: trace.opacity,
     behindArt: trace.behindArt ?? false,
     transform,

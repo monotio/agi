@@ -480,80 +480,84 @@ test("invalid typing retains the latest waiting runnable image and saves exact d
   }
 });
 
-test("catalog edits save to a remix and later writes keep that owner", async () => {
-  const documents = { "logic:0": "return;" };
-  const compiled = compileProjectDocuments({
-    files: Object.fromEntries(createContainer().files),
-    documents,
-    profileId: "2.936",
-  });
-  const original = requireProjectId("catalog-proof");
-  const requests: { projectId: string; expected: unknown }[] = [];
-  const session = openProjectSession({
-    data: {
-      projectId: original,
-      title: "Catalog",
-      authoredAt: "",
-      files: Object.fromEntries(compiled.files()),
-      words: [],
-      workspace: writeProjectWorkspace(documents),
-      library: {
-        version: 1,
-        source: "catalog",
-        revision: compiled.build.identity.revision,
-        catalog: { id: "proof", version: "1" },
-        validation: { status: "ready", message: "Ready" },
-      },
-    },
-    lifetime: "original",
-    admission: {
-      runToken: "catalog-run",
-      admit: async () => ({
-        status: "committed",
-        expected: null,
-        current: null,
-        patchGeneration: 1,
-      }),
-    },
-    write: async (request) => {
-      requests.push({ projectId: request.projectId, expected: request.expected });
-      assert.notEqual(request.projectId, original);
-      assert.equal(request.data.library?.source, "remix");
-      assert.equal(request.data.library?.parent?.project, original);
-      assert.equal(request.data.library?.catalog, undefined);
-      return {
-        commitId: request.commitId,
-        workspaceId: request.workspaceId,
-        candidateHash: "a",
-        documents: request.documents,
-        saved: {
-          projectId: request.projectId,
-          lifetime: "remix-owner",
-          generation: requests.length,
-          revision: compiled.build.identity.revision,
-          authoring: authoringFingerprint(undefined, request.data.workspace),
-          buildId: request.buildId,
-        },
-      };
-    },
-  });
-  for (const comment of ["first", "second"]) {
-    await session.submit({
-      proposal: session.model.propose(session.model.capture(), "Edit", [
-        { key: "logic:0", content: `// ${comment}\nreturn;` },
-      ]),
-      origin: "logic",
-      label: "Edit",
-      author: "creator",
+for (const source of ["catalog", "folder"] as const)
+  test(`${source} edits save to a remix and later writes keep that owner`, async () => {
+    const documents = { "logic:0": "return;" };
+    const compiled = compileProjectDocuments({
+      files: Object.fromEntries(createContainer().files),
+      documents,
+      profileId: "2.936",
     });
-    await session.flush();
-    assert.equal(session.saveStatus().state, "saved");
-  }
-  assert.equal(requests[0]!.expected, null);
-  assert.equal(requests[1]!.projectId, requests[0]!.projectId);
-  assert.equal(session.lifetime, "remix-owner");
-  session.dispose();
-});
+    const original = requireProjectId(`${source}-proof`);
+    const requests: { projectId: string; expected: unknown }[] = [];
+    const session = openProjectSession({
+      data: {
+        projectId: original,
+        title: "Catalog",
+        authoredAt: "",
+        files: Object.fromEntries(compiled.files()),
+        words: [],
+        workspace: writeProjectWorkspace(documents),
+        library: {
+          version: 1,
+          source,
+          revision: compiled.build.identity.revision,
+          ...(source === "catalog" ? { catalog: { id: "proof", version: "1" } } : {}),
+          validation: { status: "ready", message: "Ready" },
+        },
+      },
+      ...(source === "folder"
+        ? { forkParent: { project: original, revision: compiled.build.identity.revision } }
+        : {}),
+      lifetime: "original",
+      admission: {
+        runToken: "catalog-run",
+        admit: async () => ({
+          status: "committed",
+          expected: null,
+          current: null,
+          patchGeneration: 1,
+        }),
+      },
+      write: async (request) => {
+        requests.push({ projectId: request.projectId, expected: request.expected });
+        assert.notEqual(request.projectId, original);
+        assert.equal(request.data.library?.source, "remix");
+        assert.equal(request.data.library?.parent?.project, original);
+        assert.equal(request.data.library?.catalog, undefined);
+        return {
+          commitId: request.commitId,
+          workspaceId: request.workspaceId,
+          candidateHash: "a",
+          documents: request.documents,
+          saved: {
+            projectId: request.projectId,
+            lifetime: "remix-owner",
+            generation: requests.length,
+            revision: compiled.build.identity.revision,
+            authoring: authoringFingerprint(undefined, request.data.workspace),
+            buildId: request.buildId,
+          },
+        };
+      },
+    });
+    for (const comment of ["first", "second"]) {
+      await session.submit({
+        proposal: session.model.propose(session.model.capture(), "Edit", [
+          { key: "logic:0", content: `// ${comment}\nreturn;` },
+        ]),
+        origin: "logic",
+        label: "Edit",
+        author: "creator",
+      });
+      await session.flush();
+      assert.equal(session.saveStatus().state, "saved");
+    }
+    assert.equal(requests[0]!.expected, null);
+    assert.equal(requests[1]!.projectId, requests[0]!.projectId);
+    assert.equal(session.lifetime, "remix-owner");
+    session.dispose();
+  });
 
 test("a catalog save can create its remix while the next edit awaits admission", async () => {
   const documents = { "logic:0": "return;" };

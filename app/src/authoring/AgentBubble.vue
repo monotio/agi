@@ -274,7 +274,7 @@ async function onBubbleReload(): Promise<void> {
           title="Ask about this game"
           @click="state.powerUp.mode = 'ask'"
         >
-          {{ VOCABULARY.agent.label }}
+          Ask
         </button>
         <button
           type="button"
@@ -284,7 +284,7 @@ async function onBubbleReload(): Promise<void> {
           title="Make changes to this game"
           @click="state.powerUp.mode = 'remix'"
         >
-          Agent
+          Change
         </button>
       </div>
       <span class="agent-bubble-right">
@@ -371,7 +371,7 @@ async function onBubbleReload(): Promise<void> {
             ? 'Room generation in progress'
             : asking
               ? 'Investigation in progress'
-              : 'Remix in progress'
+              : 'Change in progress'
         "
       ></progress>
     </div>
@@ -467,11 +467,10 @@ async function onBubbleReload(): Promise<void> {
         data-testid="agent-bubble-send"
         :disabled="state.powerUp.busy || !powerUpLine.trim()"
       >
-        {{ state.powerUp.busy ? "Working…" : asking ? "Send" : "Agent" }}
+        {{ state.powerUp.busy ? "Working…" : "Send" }}
       </UiButton>
       <p v-if="surface === 'dock'" class="agent-budget" data-testid="agent-budget">
-        {{ asking ? VOCABULARY.agent.label : "Remix" }} · budget ${{ taskBudget.toFixed(2) }} per
-        task
+        {{ asking ? "Ask" : "Change" }} · budget ${{ taskBudget.toFixed(2) }} per task
       </p>
     </form>
     <!-- Playtest recording is editing tooling but needs no AI connection —

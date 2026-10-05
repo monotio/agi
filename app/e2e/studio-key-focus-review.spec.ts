@@ -51,7 +51,7 @@ async function sheetRoundTrip(
 }
 
 for (const studio of ["room", "sprite"] as const) {
-  const name = studio === "room" ? "Room Studio" : "VIEW editor";
+  const name = studio === "room" ? "PICTURE" : "VIEW editor";
   const open = studio === "room" ? openRoomStudio : openSpriteStudio;
   const stage = (root: Locator) =>
     studio === "room"

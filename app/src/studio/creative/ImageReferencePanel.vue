@@ -9,6 +9,7 @@ import {
   watch,
 } from "vue";
 import {
+  imageTraceUnderlay,
   traceImageChanges,
   traceOptionsChanges,
   prepareTracePixels,
@@ -135,7 +136,11 @@ watch(
     image.value = trace ? readProjectImage(documents, trace.image) : undefined;
     opacity.value = trace?.opacity ?? 0.4;
     behindArt.value = trace?.behindArt ?? false;
-    transform.value = trace?.transform ?? { x: 0, y: 0, scale: 1 };
+    transform.value = imageTraceUnderlay(documents, props.target)?.transform ?? {
+      x: 0,
+      y: 0,
+      scale: 1,
+    };
     previewPlacement();
   },
   { immediate: true },

@@ -250,3 +250,16 @@ test("trace transform options reuse attachments and old references centre by def
       /transform/i,
     );
 });
+
+test("released traces without a transform retain contain placement", () => {
+  const square = { ...image, width: 8, height: 8, rgba: new Uint8Array(8 * 8 * 4).fill(255) };
+  const documents = Object.fromEntries(
+    traceImageChanges({}, "picture:1", square).map((c) => [c.key, c.content!]),
+  );
+  const references = JSON.parse(documents["images"] as string);
+  delete references.traces["picture:1"].transform;
+  documents["images"] = JSON.stringify(references);
+  const pixels = imageTraceUnderlay(documents, "picture:1")!.pixels;
+  assert.equal(pixels[3], 0, "contain leaves the side margin clear");
+  assert.equal(pixels[(84 * 160 + 80) * 4 + 3], 255);
+});

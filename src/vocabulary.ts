@@ -35,7 +35,7 @@ export const WORDS_REPLY_COPY = {
   emptyWords: "The reply contained no usable words.",
   emptyCommands: "The reply contained no usable commands.",
   retrySuggest: "Try ✦ Suggest again.",
-  retryPredict: "Try ✦ Predict commands again.",
+  retryPredict: "Try ✦ Suggest sentences again.",
 } as const;
 
 export const VOCABULARY = {
@@ -107,13 +107,13 @@ export const VOCABULARY = {
   },
   addResponse: {
     id: "addResponse",
-    label: "Add response",
-    help: "Adds a command and its response to this room’s LOGIC.",
+    label: "Answer it",
+    help: "Adds a sentence and its answer to this room’s LOGIC.",
     technical: "",
   },
   predictCommands: {
     id: "predictCommands",
-    label: "✦ Predict commands",
+    label: "✦ Suggest sentences",
     help: "Suggested by the agent from the room’s picture, objects and text.",
     technical: "",
   },

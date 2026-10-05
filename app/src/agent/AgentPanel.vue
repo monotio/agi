@@ -11,6 +11,8 @@ import {
   shallowRef,
   watch,
 } from "vue";
+import PendingReferences from "../references/PendingReferences.vue";
+import { pendingReferences, removePendingReference } from "../references/referenceUploadState.ts";
 import AgentReply from "./AgentReply.ts";
 import { borrowWorkspaceAgent, type ReplyFormatter } from "./workspaceAgent.ts";
 import { useReadingPosition } from "../shell/useReadingPosition.ts";
@@ -72,6 +74,7 @@ const contexts = ref<string[]>([]);
 const selected = ref<string[]>([]);
 let off: (() => void) | undefined;
 let retired = false;
+let sentReferenceIds: readonly string[] = [];
 async function attach() {
   const session = engine.getProjectSession();
   if (!session) return;
@@ -82,7 +85,10 @@ async function attach() {
     session,
     profileId: engine.roomMap.resources.value.profile?.id ?? "2.936",
     config: settings.llmConfig,
-    runtime: () => runtime,
+    runtime: () => ({
+      ...runtime,
+      referenceArt: async () => runtime.referenceArt?.(sentReferenceIds),
+    }),
     beforeApprove: async () => {
       await editor.flush.value?.();
     },
@@ -195,6 +201,11 @@ const approvalModes = computed(() => [
     testid: "agent-auto-approve",
   },
 ]);
+const forkedCopy = computed(() => {
+  void tick.value;
+  void engine.state.patchTick;
+  return engine.getBootedGame()?.authoredGame?.library?.source === "remix";
+});
 const roomName = computed(() => {
   const room = engine.roomMap.currentRoom.value ?? 0;
   return (
@@ -246,6 +257,9 @@ async function action(work: () => unknown) {
 async function send() {
   if (!input.value.trim() || busy.value || editor.readOnly.value) return;
   const request = input.value;
+  sentReferenceIds = pendingReferences
+    .filter((reference) => reference.project === engine.getBootedGame()?.projectId)
+    .map((reference) => reference.id);
   const inspect = readOnly.value;
   const scoped = taskContext.value;
   const replyFormatter = formatReply.value;
@@ -271,6 +285,7 @@ async function send() {
     ].join("\n");
     if (inspect) await agent.value?.ask(request, context, replyFormatter);
     else await agent.value?.send(request, context);
+    for (const id of sentReferenceIds) removePendingReference(id);
   });
 }
 async function approve() {
@@ -512,7 +527,15 @@ onBeforeUnmount(() => {
       @resume="agent?.continue($event)"
       @discard="agent?.cancel()"
     />
+    <p v-if="forkedCopy" class="agent-panel__context" role="status">
+      Your changes went into your own copy.
+    </p>
     <form class="agent-panel__composer" @submit.prevent="send">
+      <PendingReferences
+        :busy
+        :room="engine.roomMap.currentRoom.value ?? 0"
+        :allow-attach="!readOnly"
+      />
       <div class="agent-panel__context">
         <span>{{ roomName }}</span
         ><span v-if="editor.agentContext.value">{{ editor.agentContext.value.label }}</span

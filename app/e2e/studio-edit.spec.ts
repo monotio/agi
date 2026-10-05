@@ -391,7 +391,7 @@ test("the first autosaved edit on a catalog game forks a remix", async ({ page }
   await openWorkspacePicture(page, 1);
   const studio = page.getByTestId("room-studio");
   // An untitled room's Studio is named by the picture it edits.
-  await expect(studio).toHaveAttribute("aria-label", "Room Studio: PICTURE 1");
+  await expect(studio).toHaveAttribute("aria-label", "PICTURE: PICTURE 1");
   // The tutorial's own picture text: named objects, not disassembled elements.
   const galleryRows = [
     "Corners & floor line",

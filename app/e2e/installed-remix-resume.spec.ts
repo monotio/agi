@@ -85,10 +85,15 @@ test("an installed-game remix survives immediate Menu, Resume, reload and projec
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
   await enterCreateMode(page);
   await openWorkspaceAgent(page);
-  await expect(page.getByTestId("agent-bubble-input")).toBeEnabled();
-  await page.getByTestId("agent-bubble-input").fill("Add an alligator");
-  await page.getByTestId("agent-bubble-send").click();
-  await expect(page.getByTestId("agent-bubble")).toBeHidden();
+  // Installed editions use the workspace's reviewed agent flow in Create.
+  const message = page.getByTestId("agent-message");
+  await expect(message).toBeVisible();
+  await expect(message).toBeEnabled();
+  await message.fill("Add an alligator");
+  await page.getByRole("button", { name: "Send", exact: true }).click();
+  await expect(page.getByTestId("agent-review")).toBeVisible();
+  await page.getByTestId("agent-approve").click();
+  await expect(page.getByTestId("agent-review")).toBeHidden();
   await expect.poll(async () => (await textHook(page)).rows.join(" ")).toContain("ALLIGATOR REMIX");
   // Delay actual IndexedDB completion callbacks: Menu must await storage, not just the worker reply.
   await page.evaluate(() => {
@@ -137,7 +142,8 @@ test("an installed-game remix survives immediate Menu, Resume, reload and projec
     // The same 3x2 cel written as pixels, independent of the source compiler.
     buildView({ loops: [{ cels: [{ width: 3, height: 2, pixels: [4, 4, 4, 4, 0, 4] }] }] }),
   );
-  expect(JSON.stringify(archive.project?.transcript)).toContain("Add an alligator");
+  // The workspace stores each reviewed task in its exported chats.
+  expect(JSON.stringify(archive.project?.chats)).toContain("Add an alligator");
   expect(archive.roomGeneration).toBe(false);
   expect(requests).toBe(2);
 });

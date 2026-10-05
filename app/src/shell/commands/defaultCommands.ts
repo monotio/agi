@@ -58,7 +58,7 @@ const DEFAULTS = {
     title: "Run or continue",
     key: "F5",
     textInput: true,
-    when: (c) => c.editorFocus,
+    when: (c) => !c.gameFocus,
   },
   stop: {
     id: "debug.stop",

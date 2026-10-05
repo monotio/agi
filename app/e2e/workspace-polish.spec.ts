@@ -100,7 +100,7 @@ test("unused game state says nowhere yet", async ({ page }) => {
   await start(page);
   const row = page
     .getByTestId("parts-list")
-    .getByRole("button", { name: "chime_done · Flag 204", exact: true })
+    .getByRole("button", { name: "chime_done Flag 204", exact: true })
     .locator("..");
   await expect(row).toBeVisible();
   await expect(row).toContainText("Checked: nowhere yet");

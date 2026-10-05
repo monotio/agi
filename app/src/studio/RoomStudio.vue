@@ -1,6 +1,15 @@
 <script setup lang="ts">
 import { VOCABULARY } from "../../../src/vocabulary.ts";
-import { computed, inject, onMounted, ref, shallowRef, useTemplateRef, watch } from "vue";
+import {
+  computed,
+  inject,
+  onBeforeUnmount,
+  onMounted,
+  ref,
+  shallowRef,
+  useTemplateRef,
+  watch,
+} from "vue";
 import type { ResourceRevision } from "../../../src/gameIdentity.ts";
 import type { AgiProfile } from "../../../src/runtime/profile.ts";
 import { createAgentSessionState } from "../../../src/agent/agentState.ts";
@@ -156,6 +165,7 @@ const {
   keep: keepFn = undefined,
   files = undefined,
   walk = undefined,
+  currentRoomSource = undefined,
   underlay = null,
   readOnly = false,
   lessonSession = undefined,
@@ -186,6 +196,7 @@ const {
   files?: ReadonlyMap<string, Uint8Array> | undefined;
   /** The room framing the picture: its logic (doors), bindings, plan and tests. */
   walk?: StudioRoomSource | null | undefined;
+  currentRoomSource?: (() => string | undefined) | undefined;
   /**
    * A prepared reference underlay (160x168 RGBA) from its project attachment,
    * blended over the art pane as a tracing guide — never a runtime bitmap.
@@ -244,7 +255,13 @@ const MAX_HANDLES = 160;
 /** How near its line, in CSS pixels, an Alt+click adds a point. */
 const INSERT_REACH = 12;
 
-const resolved = computed(() => resolveStudioSource({ bytes, authoredSource, profile }));
+let localPictureSource: string | undefined;
+const resolved = computed(() =>
+  // The keyed write queue can publish older bytes while our newer text is pending.
+  embedded && authoredSource !== undefined && authoredSource === localPictureSource
+    ? { source: authoredSource, trusted: true, profile }
+    : resolveStudioSource({ bytes, authoredSource, profile }),
+);
 const draft = useStudioDraft({
   base: () => ({ source: resolved.value.source, revision: baseRevision }),
   profile: () => profile,
@@ -340,6 +357,7 @@ const logic = useRoomLogicDraft({
       ? { source: walk.logicSource, bytes: walk.logicBytes }
       : null,
   session: () => ruleSession.value,
+  currentSource: () => currentRoomSource?.(),
 });
 /** Doors that follow picture art: Group and Ungroup keep them following. */
 const followingDoors = computed(() =>
@@ -429,24 +447,14 @@ const keeper = useStudioKeep({
     return result;
   },
 });
-watch([draft.source, draft.gesturing, logic.source], ([source, gesturing]) => {
+watch([draft.source, draft.gesturing], ([source, gesturing]) => {
   if (!embedded || readOnly || gesturing) return;
-  const pictureChanged = source !== resolved.value.source;
-  if (walk && logic.editable.value && (pictureChanged || logic.dirty.value)) {
-    const followed = logic.forKeep(keptDocument.value, draft.document.value);
-    if (!followed.ok) {
-      editing.say({ tone: "warn", text: followed.error });
-      return;
-    }
-    if ("source" in followed)
-      emit(
-        "room-edit",
-        walk.room,
-        followed.source,
-        followed.newBindings,
-        pictureChanged ? source : undefined,
-      );
-  } else if (pictureChanged) emit("edit", source);
+  // Receiving native bytes resets an untouched draft; it is not a drawing edit.
+  // Undo back to saved text still has a future step and must reach the queue.
+  if (!draft.dirty.value && !draft.canUndo.value && !draft.canRedo.value) return;
+  // The saved source can still match an Undo while a newer write is pending.
+  localPictureSource = source;
+  emit("edit", source);
   lesson.check({
     kind: "picture",
     num: pictureNumber,
@@ -459,6 +467,18 @@ watch([draft.source, draft.gesturing, logic.source], ([source, gesturing]) => {
 const frozen = (): boolean =>
   readOnly || draft.kept.value.revision === undefined || keeper.needsReload.value;
 
+watch(logic.source, () => {
+  if (!embedded || readOnly) return;
+  if (walk && logic.editable.value && logic.dirty.value) {
+    const followed = logic.forKeep(keptDocument.value, draft.document.value);
+    if (!followed.ok) {
+      editing.say({ tone: "warn", text: followed.error });
+      return;
+    }
+    if ("source" in followed)
+      emit("room-edit", walk.room, followed.source, followed.newBindings, undefined);
+  }
+});
 // ---- Ask -------------------------------------------------------------------
 const aiSettings = inject(aiSettingsKey, null);
 const assistHost: StudioAssistHost | null =
@@ -1305,7 +1325,17 @@ let traceDrag: {
   from: TraceTransform;
   kind: "move" | "scale";
 } | null = null;
+let traceKeyTimer: ReturnType<typeof setTimeout> | undefined;
+let traceKeyCommit: (() => void) | undefined;
+function flushTraceKeys(): void {
+  clearTimeout(traceKeyTimer);
+  const commit = traceKeyCommit;
+  traceKeyCommit = undefined;
+  commit?.();
+}
+onBeforeUnmount(flushTraceKeys);
 function grabTrace(event: PointerEvent, kind: "move" | "scale") {
+  flushTraceKeys();
   const button = event.currentTarget as HTMLButtonElement;
   const bounds = button.parentElement!.getBoundingClientRect();
   traceDrag = {
@@ -1363,7 +1393,11 @@ function traceKey(event: KeyboardEvent, kind: "move" | "scale") {
           y: Math.max(-168, Math.min(168, from.y + step[1])),
         }
       : { ...from, scale: Math.max(0.25, Math.min(4, from.scale + (step[0] - step[1]) * 0.05)) };
-  underlay?.adjust?.(next, true);
+  const adjust = underlay?.adjust;
+  adjust?.(next, false);
+  clearTimeout(traceKeyTimer);
+  traceKeyCommit = () => adjust?.(next, true);
+  traceKeyTimer = setTimeout(flushTraceKeys, 250);
 }
 const notesOnly = computed(() => draft.notesOnly.value && !logic.dirty.value);
 /** A tool change hands the status line back to the tool's hint (before anything it says). */
@@ -1458,7 +1492,7 @@ function onKeyup(event: KeyboardEvent): void {
     data-testid="room-studio"
     tabindex="-1"
     role="region"
-    :aria-label="`Room Studio: ${title}`"
+    :aria-label="`PICTURE: ${title}`"
     @keydown="onKeydown"
     @keyup="onKeyup"
     @keypress.stop
@@ -1669,6 +1703,7 @@ function onKeyup(event: KeyboardEvent): void {
                 @pointercancel.stop="releaseTrace($event, true)"
                 @lostpointercapture="releaseTrace($event, true)"
                 @keydown="traceKey($event, kind)"
+                @blur="flushTraceKeys"
                 @click.stop
               >
                 {{ kind === "move" ? "✥" : "↗" }}
@@ -1846,6 +1881,7 @@ function onKeyup(event: KeyboardEvent): void {
           </section>
         </template>
         <template #assist>
+          <!-- Ask is in the workspace agent when this editor is embedded. -->
           <StudioAssistPanel
             v-if="assistHost && !embedded"
             ref="assistPanel"
@@ -1938,7 +1974,7 @@ function onKeyup(event: KeyboardEvent): void {
     </footer>
     <p class="studio__sr" aria-live="polite" data-role="announce">{{ input.spoken.value }}</p>
 
-    <StudioKeySheet v-model:open="calm.sheetOpen.value" name="Room Studio" :sections="keySheet" />
+    <StudioKeySheet v-model:open="calm.sheetOpen.value" name="PICTURE" :sections="keySheet" />
     <StudioKeepDialog
       v-if="!embedded"
       v-model:ask="dialog"
@@ -1952,7 +1988,7 @@ function onKeyup(event: KeyboardEvent): void {
     />
     <StudioSmallScreen
       v-if="!embedded"
-      name="Room Studio"
+      name="PICTURE"
       :draft="room"
       :keeper
       @close="emit('close')"
