@@ -15,6 +15,7 @@ import { guidedPlacement } from "./guidedPlacement.ts";
 import { PAGE_CONTROLS } from "./useGameKeys.ts";
 
 import TouchControls from "./TouchControls.vue";
+import UiIconButton from "../ui/UiIconButton.vue";
 import TransportBar from "../history/TransportBar.vue";
 import { useEngineApi } from "../engine/engineContext.ts";
 import { usePresentation } from "./usePresentation.ts";
@@ -67,8 +68,36 @@ const inputEl = useTemplateRef("inputEl");
  * stage and the strip show the answer.
  */
 const gameFocused = ref(false);
+const keyHelpOpen = ref(false);
+const keyHelpPinned = ref(false);
+const keyHelpEl = useTemplateRef("keyHelpEl");
+function closeKeyHelp(): void {
+  keyHelpOpen.value = false;
+  keyHelpPinned.value = false;
+}
+function onHelpEscape(ev: KeyboardEvent): void {
+  if (ev.key === "Escape" && keyHelpOpen.value) {
+    ev.preventDefault();
+    ev.stopImmediatePropagation();
+    closeKeyHelp();
+  }
+}
+function onHelpOutside(ev: PointerEvent): void {
+  if (ev.target instanceof Node && !keyHelpEl.value?.contains(ev.target)) closeKeyHelp();
+}
+function toggleKeyHelp(): void {
+  keyHelpPinned.value = !keyHelpPinned.value;
+  keyHelpOpen.value = keyHelpPinned.value;
+}
 function readKeyboard(): void {
   const active = document.activeElement;
+  if (
+    active instanceof Element &&
+    active !== inputEl.value &&
+    active.closest(PAGE_CONTROLS) &&
+    !keyHelpEl.value?.contains(active)
+  )
+    closeKeyHelp();
   gameFocused.value =
     document.hasFocus() &&
     (active === inputEl.value ||
@@ -79,6 +108,8 @@ function onFocusMove(): void {
   setTimeout(readKeyboard, 0);
 }
 onMounted(() => {
+  document.addEventListener("keydown", onHelpEscape, true);
+  document.addEventListener("pointerdown", onHelpOutside);
   document.addEventListener("focusin", onFocusMove);
   document.addEventListener("focusout", onFocusMove);
   window.addEventListener("focus", onFocusMove);
@@ -86,6 +117,8 @@ onMounted(() => {
   readKeyboard();
 });
 onBeforeUnmount(() => {
+  document.removeEventListener("keydown", onHelpEscape, true);
+  document.removeEventListener("pointerdown", onHelpOutside);
   document.removeEventListener("focusin", onFocusMove);
   document.removeEventListener("focusout", onFocusMove);
   window.removeEventListener("focus", onFocusMove);
@@ -765,59 +798,82 @@ defineExpose({
         card-host="#transport-card-host"
       />
       <div class="play-hints">
-        <template v-if="!state.walkthrough.seeking && !state.historyView.active">
-          <span v-if="state.resumed" class="caption resume-caption" data-testid="resume-caption">
-            Resumed where you left off
-          </span>
-          <span v-if="state.prompt" class="caption" data-testid="prompt-hint">
-            Type your answer on the screen · Enter to accept · Esc to cancel
-          </span>
-          <span v-else-if="state.textMode" class="caption" data-testid="text-mode-hint">
-            Use the keys requested by the game
-          </span>
-          <span v-else-if="hasKeyPrompt" class="caption" data-testid="title-prompt-hint">
-            {{ touchControls ? `Tap screen or: ${keyPromptHint}` : keyPromptHint }}
-          </span>
-          <span v-else-if="state.modal === 'menu'" class="caption" data-testid="menu-hint">
-            Arrows to navigate · Enter to select · Esc to close
-          </span>
-          <span
-            v-else-if="state.modal === 'inventory'"
-            class="caption"
-            data-testid="inventory-hint"
-          >
-            Arrows to select · Enter to choose · Esc to return
-          </span>
-          <span v-else-if="state.modal !== null" class="caption" data-testid="modal-hint">
-            Press Enter to continue
-          </span>
-        </template>
-        <button
-          v-if="!touchControls"
-          type="button"
-          class="keys-led"
-          :class="{ on: gameFocused }"
-          data-testid="game-keys"
-          @click="focusInput"
+        <div
+          ref="keyHelpEl"
+          class="key-help"
+          @mouseenter="keyHelpOpen = true"
+          @mouseleave="keyHelpOpen = keyHelpPinned"
         >
-          <span class="led" aria-hidden="true"></span>
-          <span class="keys-led-label">
-            <span>{{ gameFocused ? "Keys go to the game" : "Click the game to play" }}</span>
-          </span>
-        </button>
-        <p
-          id="game-input-help"
-          class="input-help"
-          :class="{ 'input-help--hidden': !gameFocused && !touchControls }"
-        >
-          <template v-if="touchControls">Type for the keyboard · Keys for F1–F10</template>
-          <template v-else
-            >Type to talk · Arrows or numpad walk<template v-if="escOpensMenu">
-              · <kbd>Esc</kbd> game menu</template
-            >
-            · <kbd>Shift</kbd>+<kbd>Tab</kbd> leaves the game</template
+          <button
+            type="button"
+            class="keys-led"
+            :class="{ on: gameFocused }"
+            data-testid="game-keys"
+            aria-controls="game-input-help"
+            :aria-expanded="keyHelpOpen"
+            @mousedown.prevent
+            @click="toggleKeyHelp"
           >
-        </p>
+            <span class="led" aria-hidden="true"></span>
+            <span class="keys-led-label">
+              <span>{{ gameFocused ? "Keys go to the game" : "Click the game to play" }}</span>
+            </span>
+          </button>
+          <div
+            v-if="keyHelpOpen"
+            id="game-input-help"
+            class="key-help-bubble"
+            data-testid="game-key-help"
+            data-shell-keys
+            role="region"
+            aria-label="Game keys"
+          >
+            <template v-if="!state.walkthrough.seeking && !state.historyView.active">
+              <p v-if="state.prompt" class="caption" data-testid="prompt-hint">
+                Type your answer on the screen · Enter to accept · Esc to cancel
+              </p>
+              <p v-else-if="state.modal === 'menu'" class="caption" data-testid="menu-hint">
+                Game menu: arrows to move, Enter to choose, Esc to close
+              </p>
+              <p
+                v-else-if="state.modal === 'inventory'"
+                class="caption"
+                data-testid="inventory-hint"
+              >
+                Arrows to select · Enter to choose · Esc to return
+              </p>
+              <p v-else-if="state.modal !== null" class="caption" data-testid="modal-hint">
+                A message is open: press Enter to continue
+              </p>
+              <p v-else-if="state.textMode" class="caption" data-testid="text-mode-hint">
+                Use the keys requested by the game
+              </p>
+              <p v-else-if="hasKeyPrompt" class="caption" data-testid="title-prompt-hint">
+                {{ touchControls ? `Tap screen or: ${keyPromptHint}` : keyPromptHint }}
+              </p>
+            </template>
+
+            <p v-if="state.resumed" class="caption resume-caption" data-testid="resume-caption">
+              Resumed where you left off
+            </p>
+            <strong>Game keys</strong>
+            <UiIconButton
+              class="key-help-close"
+              icon="x"
+              label="Close"
+              size="sm"
+              @click="closeKeyHelp"
+            />
+            <ul>
+              <li>Type to talk</li>
+              <li>Arrows or numpad to walk</li>
+              <li>Enter answers a message</li>
+              <li v-if="escOpensMenu">Esc for the game menu</li>
+              <li>Shift+Tab leaves the game</li>
+              <li v-if="touchControls">Type opens the keyboard · Keys opens F1–F10</li>
+            </ul>
+          </div>
+        </div>
         <!-- Shell actions docked in the strip (Play's Ask), clear of the stage. -->
         <slot name="strip-actions" />
       </div>
@@ -981,8 +1037,7 @@ defineExpose({
   }
 }
 
-/* One slim strip: transport first, hints after it, both quiet. It is a
-   size container: its width, not the window's, decides whether the hint fits. */
+/* The key status takes one row; its bubble floats above the strip. */
 .play-strip {
   position: relative;
   container: play-strip / inline-size;
@@ -997,79 +1052,49 @@ defineExpose({
   border-top: 1px solid var(--hairline);
   background: var(--surface-0);
 }
-/* A fixed share of the strip: hints come and go without moving the timeline. */
 .play-hints {
   display: flex;
-  flex: 0 0 min(36%, 440px);
+  flex: none;
   align-items: center;
   justify-content: flex-end;
   gap: var(--space-3);
-  min-width: 0;
   margin-left: auto;
   color: var(--ink-3);
   font: var(--text-xs) / var(--leading-tight) var(--font-sans);
-  text-align: right;
 }
-.caption {
-  color: var(--ink-2);
+.key-help {
+  position: relative;
 }
-/* A caption asks for a key right now; the standing help steps back for it. */
-.caption ~ .input-help {
-  display: none;
-}
-/* The resume notice states a fact rather than asking for a keystroke, so it
-   sits still and fades out on its own. */
-.resume-caption {
-  color: var(--ok);
-  animation: resume-fade 10s ease-in forwards;
-}
-@keyframes resume-fade {
-  0%,
-  70% {
-    opacity: 1;
-  }
-  100% {
-    opacity: 0.25;
-  }
-}
-/* Standing key help is for the first minute; after that it only whispers. */
-.input-help {
-  margin: 0;
-  animation: hint-settle 1.2s ease-in 60s forwards;
-}
-.input-help--hidden {
-  visibility: hidden;
-}
-.input-help kbd {
-  padding: 0 var(--space-1);
+.key-help-bubble {
+  position: absolute;
+  z-index: 10;
+  bottom: 100%;
+  right: 0;
+  width: min(300px, calc(100vw - 32px));
+  box-sizing: border-box;
+  padding: var(--space-4);
   border: 1px solid var(--hairline-strong);
-  border-bottom-width: 2px;
-  border-radius: var(--radius-sm);
-  font: var(--text-2xs) var(--font-mono);
+  border-radius: var(--radius);
+  background: var(--surface-overlay);
+  box-shadow: var(--shadow-pop);
+  color: var(--ink-2);
+  text-align: left;
+  font: var(--text-sm) / var(--leading) var(--font-sans);
 }
-@keyframes hint-settle {
-  to {
-    opacity: 0.45;
-  }
+.key-help-bubble .caption {
+  margin: 0 0 var(--space-3);
+  padding-right: var(--control-h-sm);
+  color: var(--ink);
 }
-/* A strip too narrow for the hint's share beside the transport (Create's
-   centre column on a small laptop): the standing key help steps aside —
-   Help and Game controls keep it — and a caption asking for a key right now
-   takes its own row, so neither prints over the timeline. */
-@media (min-width: 901px) {
-  @container play-strip (max-width: 720px) {
-    .play-area:not(.with-touch) .play-hints {
-      flex: 0 1 auto;
-    }
-    .play-area:not(.with-touch) .input-help {
-      display: none;
-    }
-    .play-area:not(.with-touch) .play-hints:has(.caption) {
-      flex-basis: 100%;
-      justify-content: flex-start;
-      text-align: left;
-    }
-  }
+.key-help-bubble ul {
+  list-style: none;
+  padding: 0;
+  margin: var(--space-2) 0 0;
+}
+.key-help-close {
+  position: absolute;
+  top: var(--space-1);
+  right: var(--space-1);
 }
 @media (max-width: 900px) {
   .play-strip {
@@ -1079,7 +1104,10 @@ defineExpose({
   .play-hints {
     flex-basis: 100%;
     justify-content: center;
-    text-align: center;
+  }
+  .key-help-bubble {
+    right: auto;
+    left: 0;
   }
 }
 
@@ -1134,7 +1162,6 @@ defineExpose({
 }
 .keys-led.on {
   color: var(--ink-2);
-  cursor: default;
 }
 .led {
   width: 7px;

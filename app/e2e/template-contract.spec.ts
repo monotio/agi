@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import {
+  gameHint,
   isolateStorage,
   agentActivity,
   openDeveloperActivity,
@@ -66,7 +67,8 @@ test("the template menu bar drives save and restore on the text surface", async 
 
   // Pick the first slot, name it, confirm the engine's "Save in slot?" line.
   await page.keyboard.press("Enter");
-  await expect(page.getByTestId("prompt-hint")).toBeVisible();
+  await expect(await gameHint(page, "prompt-hint")).toBeVisible();
+  await page.mouse.move(0, 0);
   await page.getByTestId("input-line").fill("Checkpoint");
   await page.keyboard.press("Enter");
   await expect.poll(() => screenText(page)).toContain("Save in slot 1?");

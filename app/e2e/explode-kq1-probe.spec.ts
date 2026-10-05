@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { fixtureSkip, KNOWN_GAME_HASH } from "../../test/fixtures.ts";
-import { isolateStorage, textHook, waitForCycles, openInspector } from "./engineProbe.ts";
+import { gameHint, isolateStorage, textHook, waitForCycles, openInspector } from "./engineProbe.ts";
 
 const missingFixture = fixtureSkip(KNOWN_GAME_HASH.KQ1, ["AGIDATA.OVL"]);
 test.skip(Boolean(missingFixture), missingFixture || "");
@@ -14,7 +14,8 @@ test("KQ1 courtyard exploded", async ({ page }) => {
     .locator(`[data-hash="${KNOWN_GAME_HASH.KQ1}"], [data-alias="kq1"], [data-testid="boot-kq1"]`)
     .first()
     .click();
-  await expect(page.getByTestId("title-prompt-hint")).toBeVisible({ timeout: 15_000 });
+  await expect(await gameHint(page, "title-prompt-hint")).toBeVisible({ timeout: 15_000 });
+  await page.mouse.move(0, 0);
   await page.keyboard.press("Enter");
   await expect
     .poll(async () => (await textHook(page)).rows[0] ?? "", { timeout: 20_000 })

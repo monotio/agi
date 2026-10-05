@@ -9,6 +9,7 @@ import { buildProjectZip } from "../src/archive/projectArchive.ts";
 import { buildZip } from "../src/archive/zip.ts";
 import { testProjectId } from "../test/identity.ts";
 import {
+  gameHint,
   configureAi,
   enterCreateMode,
   isolateStorage,
@@ -397,7 +398,8 @@ test("the offline tutorial has a cached thumbnail and fits a phone", async ({ pa
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
   await expect.poll(async () => (await textHook(page)).cycle).toBeGreaterThan(5);
   await expect.poll(async () => (await textHook(page)).rows.join(" ")).toContain("HELP");
-  await expect(page.getByTestId("resume-caption")).toHaveCount(0);
+  await expect(await gameHint(page, "resume-caption")).toHaveCount(0);
+  await page.mouse.move(0, 0);
   expect(providerCalls).toBe(0);
 });
 

@@ -9,6 +9,7 @@ import { assembleLogic } from "../../src/logic/assembler.ts";
 import { buildWordsTok } from "../../src/logic/words.ts";
 import { Engine } from "../../src/runtime/engine.ts";
 import {
+  gameHint,
   isolateStorage,
   agentActivity,
   openDeveloperActivity,
@@ -301,7 +302,8 @@ test("the project archive moves the autosave to another browser; the game export
         message: "the imported checkpoint is restored, not a boot from room 1",
       })
       .toBe(stopped.egoX);
-    await expect(other.getByTestId("resume-caption")).toBeVisible();
+    await expect(await gameHint(other, "resume-caption")).toBeVisible();
+    await other.mouse.move(0, 0);
   } finally {
     await fresh.close();
   }

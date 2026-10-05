@@ -103,8 +103,12 @@ test("Play shows the game and its bar only; Developer activity opens from Settin
 }) => {
   await bootTutorial(page);
   // The tutorial registers a game menu, exposed in the keyboard help.
-  await expect(page.locator("#game-input-help")).toContainText("Arrows or numpad walk");
-  await expect(page.locator("#game-input-help")).toContainText("Esc game menu");
+  await page.getByTestId("game-keys").hover();
+  const help = page.getByTestId("game-key-help");
+  await expect(help).toBeVisible();
+  await expect(help).toContainText("Arrows or numpad to walk");
+  await expect(help).toContainText("Esc for the game menu");
+  await page.mouse.move(0, 0);
   for (const [width, height] of [
     [1440, 900],
     [1280, 720],
@@ -348,7 +352,7 @@ test("a cold deep link boots the stored game it names, or says it is not in this
  */
 async function stripOverlaps(page: Parameters<typeof textHook>[0]): Promise<string[]> {
   return page.locator(".play-strip:visible").evaluate((strip) => {
-    const text = [...strip.querySelectorAll(".play-hints .input-help, .play-hints .caption")]
+    const text = [...strip.querySelectorAll(".play-hints .keys-led-label")]
       .flatMap((hint) => {
         const range = document.createRange();
         range.selectNodeContents(hint);
@@ -381,7 +385,7 @@ async function stripOverlaps(page: Parameters<typeof textHook>[0]): Promise<stri
   });
 }
 
-test("the strip's key hint never prints over the transport, and Create's stage fills its column", async ({
+test("the strip's key status stays clear of the transport, and Create's stage fills its column", async ({
   page,
 }) => {
   await bootTutorial(page);
@@ -401,7 +405,8 @@ test("the strip's key hint never prints over the transport, and Create's stage f
         await expect
           .poll(() => stripOverlaps(page), { message: `${mode} at ${width}×${height}` })
           .toEqual([]);
-        await expect(page.locator("#game-input-help:visible")).toHaveCount(1);
+        await expect(page.getByTestId("game-keys")).toBeVisible();
+        await expect(page.getByTestId("game-key-help")).toBeHidden();
       } else {
         await expect(page.locator(".play-strip")).toBeHidden();
         await expect(page.locator(".game-surface:visible")).toBeInViewport();

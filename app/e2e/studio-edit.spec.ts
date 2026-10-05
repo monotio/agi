@@ -362,6 +362,7 @@ test("a lock refusal, keyboard nudges, Delete with undo, and draw-order keys sta
   await page.keyboard.press("Delete");
   await expect(studio.locator('[data-row="occluder"]')).toHaveCount(0);
   expect(planes(await draftBytes(page)).priority.every((value) => value === 4)).toBe(true);
+  await workspaceSaved(page);
   await page.keyboard.press("ControlOrMeta+z");
   await expect(studio.locator('[data-row="occluder"]')).toHaveCount(1);
   await expect.poll(() => draftBytes(page)).toEqual(original);

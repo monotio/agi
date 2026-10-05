@@ -36,6 +36,15 @@ if (missingFixture) {
   process.exit(0);
 }
 
+async function waitHint(id, timeout) {
+  await page.getByTestId("game-keys").hover();
+  try {
+    await page.getByTestId(id).waitFor({ timeout });
+  } finally {
+    await page.mouse.move(0, 0);
+  }
+}
+
 const PORT = process.env["AGI_HMR_PORT"] ?? "5301";
 const URL = `http://localhost:${PORT}/`;
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -70,7 +79,7 @@ async function poll(fn, label, timeout = 30000) {
 }
 async function playToRestedCourtyard() {
   await page.getByTestId("boot-kq1").click();
-  await page.getByTestId("title-prompt-hint").waitFor({ timeout: 20000 });
+  await waitHint("title-prompt-hint", 20000);
   await page.keyboard.press("Enter"); // a screen click only focuses the game
   await poll((h) => (h.rows?.[0] ?? "").includes("Score:"), "courtyard");
   await page.locator("canvas.game-surface:visible").click();
@@ -110,7 +119,7 @@ writeFileSync(
 );
 let ok = true;
 try {
-  await page.getByTestId("resume-caption").waitFor({ timeout: 30000 });
+  await waitHint("resume-caption", 30000);
   const after = await poll((h) => h.room > 0, "room after App.vue hot update", 20000);
   const reloaded = after.loadId !== before.loadId;
   console.log(
@@ -142,10 +151,7 @@ try {
   await sleep(2000);
 }
 
-await page
-  .getByTestId("resume-caption")
-  .waitFor({ timeout: 30000 })
-  .catch(() => {});
+await waitHint("resume-caption", 30000).catch(() => {});
 await poll((h) => h.room > 0, "room after revert", 20000);
 await sleep(1200);
 const before2 = await settledReference("BEFORE2");
@@ -161,7 +167,7 @@ try {
     30000,
   );
   console.log("  page reloaded (new document id %s)", String(after.loadId).slice(0, 8));
-  await page.getByTestId("resume-caption").waitFor({ timeout: 30000 });
+  await waitHint("resume-caption", 30000);
   const done = await poll((h) => h.room > 0, "room after full reload", 20000);
   console.log(
     "AFTER-A load=%s room=%d ego=(%d,%d)",
@@ -190,10 +196,7 @@ try {
 }
 // ---- (c) the flush earns its keep: walk, then reload INSIDE the 5s cadence
 // window. Only a flush before the reload can carry the new position over.
-await page
-  .getByTestId("resume-caption")
-  .waitFor({ timeout: 30000 })
-  .catch(() => {});
+await waitHint("resume-caption", 30000).catch(() => {});
 await poll((h) => h.room > 0, "room after reload", 20000);
 const cadence = await hook();
 const fresh = await poll(
@@ -226,7 +229,7 @@ const mainSrc2 = readFileSync(MAIN, "utf8");
 writeFileSync(MAIN, mainSrc2 + "\n// hmr probe 2\n");
 try {
   await poll((h) => h.loadId && h.loadId !== moved.loadId, "full page reload", 30000);
-  await page.getByTestId("resume-caption").waitFor({ timeout: 30000 });
+  await waitHint("resume-caption", 30000);
   const done = await poll((h) => h.room > 0, "room after flush-window reload", 20000);
   const dNew = Math.abs(done.egoX - moved.egoX);
   const dOld = Math.abs(done.egoX - fresh.egoX);
