@@ -63,13 +63,14 @@ test("a host-served edition opens in Create and the first picture edit forks a c
     return [...session.capture().snapshot.lastAdmissibleBuild!.files().get("WORDS.TOK")!];
   });
   expect(saved).toEqual([...files["WORDS.TOK"]!]);
-  await page.getByTestId("workspace-agent").click();
-  const panel = page.getByTestId("workspace-agent-panel");
-  await expect(panel).toBeVisible();
-  const note = panel.getByRole("status", { includeHidden: true }).filter({
-    hasText: "Your changes went into your own copy.",
-  });
+  const note = page.getByTestId("copy-created-note");
   await expect(note).toBeVisible();
+  await expect(note).toHaveText(
+    "Saved as your own copy of Sample edition. The original stays unchanged.",
+  );
+  const subtitle = page.getByTestId("play-origin");
+  await expect(subtitle).toBeVisible();
+  await expect(subtitle).toHaveText("Your copy of Sample edition");
   for (const [width, height] of [
     [1063, 815],
     [1440, 900],
@@ -77,19 +78,26 @@ test("a host-served edition opens in Create and the first picture edit forks a c
   ] as const) {
     await page.setViewportSize({ width, height });
     await expect(note).toBeVisible();
-    await note.evaluate((element) => {
-      element.style.visibility = "hidden";
-    });
-    await page.screenshot({
-      path: test.info().outputPath(`fork-note-${width}-before.png`),
-      scale: "css",
-    });
-    await note.evaluate((element) => {
-      element.style.visibility = "";
-    });
     await page.screenshot({
       path: test.info().outputPath(`fork-note-${width}-after.png`),
       scale: "css",
     });
   }
+  await note.getByRole("button", { name: "Close", exact: true }).click();
+  await expect(note).toHaveCount(0);
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await studio.getByRole("group", { name: /^Canvas/ }).focus();
+  await page.keyboard.press("ArrowUp");
+  await workspaceSaved(page);
+  await expect(note).toHaveCount(0);
+  await page.getByTestId("workspace-agent").click();
+  const panel = page.getByTestId("workspace-agent-panel");
+  await expect(panel).toBeVisible();
+  await expect(panel).not.toContainText("Your changes went into your own copy.");
+  await expect(note).toHaveCount(0);
+  await page.reload();
+  await waitForRoom(page, 1);
+  await expect(subtitle).toBeVisible();
+  await expect(subtitle).toHaveText("Your copy of Sample edition");
+  await expect(note).toHaveCount(0);
 });

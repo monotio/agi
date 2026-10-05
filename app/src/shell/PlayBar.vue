@@ -18,6 +18,7 @@ import { useEngineApi } from "../engine/engineContext.ts";
 import { gameShortcuts } from "../play/gameControls.ts";
 import { hasWalkthrough } from "../walkthrough/walkthrough.ts";
 import { useShell, type ShellMode } from "./useShell.ts";
+import { useGameLibrary } from "../library/useGameLibrary.ts";
 
 const { settingsOpen } = defineProps<{ settingsOpen: boolean }>();
 const emit = defineEmits<{
@@ -30,7 +31,8 @@ const emit = defineEmits<{
   "start-walkthrough": [alias: string];
 }>();
 
-const { state, currentGame, roomMap, closePowerUp } = useEngineApi();
+const { state, currentGame, getBootedGame, roomMap, closePowerUp } = useEngineApi();
+const { identityTitle } = useGameLibrary();
 const shell = useShell();
 const commands = useOptionalCommands();
 const editor = useWorkspaceEditor();
@@ -53,6 +55,13 @@ const game = computed(() => {
 const roomLabel = computed(() => {
   const room = roomMap.currentRoom.value;
   return room !== null && room > 0 ? `Room ${room}` : "";
+});
+const originLabel = computed(() => {
+  void state.patchTick;
+  void state.phase;
+  const library = getBootedGame()?.authoredGame?.library;
+  const parent = library?.source === "remix" ? library.parent : game.value?.parent;
+  return parent ? `Your copy of ${identityTitle(parent)}` : "";
 });
 
 const mode = computed<ShellMode>({
@@ -95,7 +104,12 @@ const shortcutsBlocked = computed(
       />
       <div class="play-bar__title">
         <h1 class="play-bar__game">{{ game?.title ?? "AGI IS HERE" }}</h1>
-        <span v-if="roomLabel" class="play-bar__room" data-testid="play-room">{{ roomLabel }}</span>
+        <span v-if="originLabel" class="play-bar__room" data-testid="play-origin">{{
+          originLabel
+        }}</span>
+        <span v-else-if="roomLabel" class="play-bar__room" data-testid="play-room">{{
+          roomLabel
+        }}</span>
       </div>
       <UiButton
         v-if="mode === 'create'"
@@ -266,6 +280,9 @@ const shortcutsBlocked = computed(
   white-space: nowrap;
 }
 .play-bar__room {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: var(--ink-3);
   font-size: var(--text-xs);
 }

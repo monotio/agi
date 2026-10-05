@@ -220,11 +220,6 @@ const approvalModes = computed(() => [
     testid: "agent-auto-approve",
   },
 ]);
-const forkedCopy = computed(() => {
-  void tick.value;
-  void engine.state.patchTick;
-  return engine.getBootedGame()?.authoredGame?.library?.source === "remix";
-});
 const roomName = computed(() => {
   const room = engine.roomMap.currentRoom.value ?? 0;
   return (
@@ -572,9 +567,6 @@ onBeforeUnmount(() => {
       @resume="agent?.continue($event)"
       @discard="agent?.cancel()"
     />
-    <p v-if="forkedCopy" class="agent-panel__context" role="status">
-      Your changes went into your own copy.
-    </p>
     <form class="agent-panel__composer" @submit.prevent="send">
       <PendingReferences
         :busy

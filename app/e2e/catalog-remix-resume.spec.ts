@@ -10,6 +10,7 @@ import {
   storedAutosave,
   textHook,
   waitForAutosaveAfter,
+  workspaceSaved,
 } from "./engineProbe.ts";
 
 /** The catalog installs the bundled tutorial under a deterministic project ID. */
@@ -34,13 +35,19 @@ test("forking the tutorial keeps each card’s own checkpoint", async ({ page })
     requests++;
     const calls = [
       ["write_view", { num: 9, source: sprite }],
-      ["write_logic", { room: 1, source: patched }],
+      [
+        "write_logic",
+        {
+          room: 1,
+          source: requests === 3 ? patched.replace("REMIX GALLERY", "NEW GALLERY") : patched,
+        },
+      ],
     ];
     await route.fulfill(
       providerReply("openai", {
         id: `catalog-fork-${requests}`,
         output:
-          requests === 1
+          requests === 1 || requests === 3
             ? calls.map(([name, args], i) => ({
                 type: "function_call",
                 id: `item-${i}`,
@@ -99,6 +106,30 @@ test("forking the tutorial keeps each card’s own checkpoint", async ({ page })
   await expect(lastTurn).toBeVisible();
   await expect(lastTurn).toContainText("Rename the gallery");
   await expect(lastTurn).toContainText("The gallery is remixed.");
+  const copyNote = page.getByTestId("copy-created-note");
+  await expect(copyNote).toBeVisible();
+  await expect(copyNote).toContainText(
+    "Saved as your own copy of Adventure Department. The original stays unchanged.",
+  );
+  const origin = page.getByTestId("play-origin");
+  await expect(origin).toBeVisible();
+  await expect(origin).toHaveText("Your copy of Adventure Department");
+  for (const [width, height] of [
+    [1063, 815],
+    [1440, 900],
+    [390, 844],
+  ] as const) {
+    await page.setViewportSize({ width, height });
+    await expect(copyNote).toBeVisible();
+    await expect(copyNote.getByRole("button", { name: "Close", exact: true })).toBeVisible();
+    await page.screenshot({
+      path: test.info().outputPath(`agent-copy-${width}-after.png`),
+      scale: "css",
+    });
+  }
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.keyboard.press("Escape");
+  await expect(copyNote).toHaveCount(0);
   await expect(
     page.getByRole("heading", { name: "Adventure Department Remix", exact: true }),
   ).toBeVisible();
@@ -115,6 +146,21 @@ test("forking the tutorial keeps each card’s own checkpoint", async ({ page })
   );
   // The original keeps its checkpoint; subsequent progress belongs to the remix.
   expect(await storedAutosave(page, TUTORIAL_PROJECT_ID)).not.toBeNull();
+
+  await page.getByTestId("agent-message").fill("Rename the gallery again");
+  await page.getByRole("button", { name: "Send", exact: true }).click();
+  await expect(page.getByTestId("agent-approve")).toBeVisible();
+  await page.getByTestId("agent-approve").click();
+  await expect.poll(() => requests).toBe(4);
+  await expect(copyNote).toHaveCount(0);
+  await workspaceSaved(page);
+  await waitForAutosaveAfter(page, (await textHook(page)).cycle);
+  await page.reload();
+  await expect(origin).toBeVisible();
+  await openWorkspaceAgent(page);
+  await expect(lastTurn).toBeVisible();
+  await expect(lastTurn).not.toContainText("Your changes went into your own copy.");
+  await expect(copyNote).toHaveCount(0);
 
   await page.getByTestId("btn-exit").click();
   await expect.poll(() => new URL(page.url()).hash).toBe("");

@@ -419,6 +419,13 @@ test("the first autosaved edit on a catalog game forks a remix", async ({ page }
   await studio.getByRole("group", { name: /^Canvas/ }).focus();
   await page.keyboard.press("ArrowUp");
   await workspaceSaved(page);
+  const copyNote = page.getByTestId("copy-created-note");
+  await expect(copyNote).toBeVisible();
+  await expect(copyNote).toContainText(
+    "Saved as your own copy of Adventure Department. The original stays unchanged.",
+  );
+  await copyNote.getByRole("button", { name: "Close", exact: true }).click();
+  await expect(copyNote).toHaveCount(0);
   const remix = await page.evaluate(
     () => localStorage.getItem("monotio_agi.resumeTarget")?.split(":")[1],
   );

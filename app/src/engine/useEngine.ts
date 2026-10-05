@@ -458,6 +458,7 @@ export function useEngine(
           current,
           forked(data, lifetime) {
             if (!current()) return;
+            state.copyCreated = { projectId: data.projectId, originalTitle: game.title };
             game = {
               ...game!,
               installed: false,

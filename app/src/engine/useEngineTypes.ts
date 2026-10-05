@@ -267,6 +267,8 @@ export interface EngineState {
    * re-read the world on this tick even when no resource moved.
    */
   worldTick: number;
+  /** The successful first edit's copy notice, cleared on dismissal or leaving the game. */
+  copyCreated?: { projectId: string; originalTitle: string } | null;
   /**
    * The world revision of the last confirmed durable write — set by every
    * path that persists the authoring state (map edits, turn commits,

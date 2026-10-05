@@ -16,8 +16,9 @@ import PlayBar from "./PlayBar.vue";
 import SettingsSheet from "./SettingsSheet.vue";
 import UiButton from "../ui/UiButton.vue";
 import UiDialog from "../ui/UiDialog.vue";
+import UiToast from "../ui/UiToast.vue";
 import type { HelpActionKind, HelpRequest } from "./helpContent.ts";
-import { computed, ref, shallowRef, useTemplateRef, watch } from "vue";
+import { computed, onWatcherCleanup, ref, shallowRef, useTemplateRef, watch } from "vue";
 import { useEngineApi } from "../engine/engineContext.ts";
 import { useAiSettings } from "../settings/useAiSettings.ts";
 import { useShellBridge } from "./shellBridge.ts";
@@ -86,6 +87,25 @@ const shell = useShell();
 const workspaceEditor = useWorkspaceEditor();
 const workspace = useCreateWorkspace();
 const { onStartOver: startGameOver } = useGameLibrary();
+
+watch(
+  () => [state.phase, state.patchTick, state.copyCreated] as const,
+  () => {
+    if (!state.copyCreated) return;
+    if (state.phase !== "running" || currentGame()?.projectId !== state.copyCreated.projectId) {
+      state.copyCreated = null;
+      return;
+    }
+    function dismissOnEscape(event: KeyboardEvent): void {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      state.copyCreated = null;
+    }
+    window.addEventListener("keydown", dismissOnEscape, true);
+    onWatcherCleanup(() => window.removeEventListener("keydown", dismissOnEscape, true));
+  },
+);
 
 const controlsOpen = ref(false);
 const helpGuide = useTemplateRef("helpGuide");
@@ -446,6 +466,15 @@ async function onRecordSave(): Promise<void> {
     @start-walkthrough="onStartWalkthrough"
   />
   <div class="shell-notices">
+    <UiToast
+      v-if="state.copyCreated"
+      dismissible
+      class="copy-created-note"
+      data-testid="copy-created-note"
+      @dismiss="state.copyCreated = null"
+    >
+      Saved as your own copy of {{ state.copyCreated.originalTitle }}. The original stays unchanged.
+    </UiToast>
     <StaleTabNote />
     <div
       v-if="
@@ -842,6 +871,12 @@ a.publisher:hover > span {
 }
 .shell-notices:not(:empty) {
   padding: var(--space-2) var(--space-4);
+}
+.copy-created-note {
+  max-width: 100%;
+  box-sizing: border-box;
+  margin: 0;
+  align-items: flex-start;
 }
 .notice-actions {
   display: flex;
