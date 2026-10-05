@@ -222,8 +222,8 @@ test("Home cards offer one Create and neutral entries clear an AI pick", async (
   await button.scrollIntoViewIfNeeded();
   const card = button.locator("xpath=ancestor::article");
   await expect(card).toBeVisible();
-  await expect(card).toContainText("New game");
-  await expect(card).toContainText("Starter, Boilerplate, Blank or AI");
+  await expect(card).toContainText("Your own game");
+  await expect(card).toContainText("Pick a ready start or describe your idea");
   await expect(card.getByRole("button")).toHaveCount(1);
   await expect(card.locator(".game-card__pill")).toHaveCount(0);
   expect(

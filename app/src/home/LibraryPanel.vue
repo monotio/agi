@@ -284,8 +284,8 @@ function startCreating(templateId: string): void {
         @select="startCreating(tmpl.id)"
       />
       <TemplateCard
-        title="New game"
-        detail="Starter, Boilerplate, Blank or AI"
+        title="Your own game"
+        detail="Pick a ready start or describe your idea"
         blank
         test-id="shelf-template-custom"
         @select="startCreating('')"
