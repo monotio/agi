@@ -1,4 +1,5 @@
-import { expect, test, type Page } from "@playwright/test";
+import type { Page } from "@playwright/test";
+import { expect, test } from "./test.ts";
 import { testProjectId } from "../test/identity.ts";
 import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
@@ -347,7 +348,7 @@ async function tapePlaysOn(page: Page): Promise<void> {
 /** The tape holds where the seek landed. */
 async function tapeHolds(page: Page): Promise<void> {
   const from = await landedTick(page);
-  await page.waitForTimeout(600);
+  await page.clock.runFor(600);
   expect((await viewState(page))!.tick, "the tape holds at the landing").toBe(from);
   await expect(page.getByTestId("btn-history-watch")).not.toHaveText(/Pause timeline/);
 }
@@ -370,6 +371,7 @@ async function seekThreeWays(page: Page, then: (page: Page) => Promise<void>): P
 }
 
 test("a seek keeps a playing surface playing and a paused one paused", async ({ page }) => {
+  await page.clock.install();
   await isolateStorage(page);
   await bootTapeGame(page);
   await writeFlag(page, 6);
@@ -405,6 +407,7 @@ test("a seek keeps a playing surface playing and a paused one paused", async ({ 
   await expect.poll(async () => (await viewState(page))?.active).toBe(false);
   await expect(page.getByTestId("btn-transport-resume")).toBeVisible();
   const held = (await textHook(page)).cycle;
+  // wall-clock: the live game's cycle scheduler runs in a worker which page.clock cannot advance.
   await page.waitForTimeout(600);
   expect((await textHook(page)).cycle, "the game stays paused").toBe(held);
   // LIVE again on the parked game changes nothing.
@@ -453,6 +456,13 @@ test("Resume from here continues from the viewed moment; Undo rewind restores th
 test("a diverged tape labels the position unrestorable and keeps Resume from here off", async ({
   page,
 }) => {
+  await page.addInitScript(() => {
+    const post = Worker.prototype.postMessage;
+    Worker.prototype.postMessage = function (message, transfer) {
+      if (message.type === "boot") Reflect.set(window, "tapeWorker", this);
+      post.call(this, message, Array.isArray(transfer) ? { transfer } : transfer);
+    };
+  });
   await isolateStorage(page);
   await bootTapeGame(page);
   await writeFlag(page, 6);
@@ -532,6 +542,19 @@ test("a diverged tape labels the position unrestorable and keeps Resume from her
   await expect.poll(async () => (await textHook(page)).room).toBeGreaterThanOrEqual(1);
   await page.getByTestId("btn-transport-pause").click();
   await expect.poll(async () => (await textHook(page)).paused).toBe(true);
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve) => {
+        const worker = Reflect.get(window, "tapeWorker") as Worker;
+        const received = (event: MessageEvent) => {
+          if (event.data.type !== "engineState" || event.data.id !== -901) return;
+          worker.removeEventListener("message", received);
+          resolve();
+        };
+        worker.addEventListener("message", received);
+        worker.postMessage({ type: "state", id: -901 });
+      }),
+  );
   await expect.poll(() => page.evaluate(() => window.__AGI_STATE__?.historyPending)).toBe(0);
 
   // Choose the click from the stored tape's own anatomy — read after the
@@ -566,18 +589,9 @@ test("a diverged tape labels the position unrestorable and keeps Resume from her
         req.onsuccess = () => resolve(req.result as Manifest);
         req.onerror = () => reject(req.error);
       });
-    // The click maps against the committed axis, and a batch still queued
-    // in the worker (the in-flight credit is bounded) lands after the
-    // pending drain — moving the landing under the pointer. Read until the
-    // manifest's shape holds still instead of trusting a single snapshot.
-    let manifest = await readManifest();
-    for (let i = 0; i < 40; i++) {
-      const shape = manifest.segments.map((seg) => seg.extent ?? 0).join(",");
-      await new Promise((r) => setTimeout(r, 150));
-      const again = await readManifest();
-      if (again.segments.map((seg) => seg.extent ?? 0).join(",") === shape) break;
-      manifest = again;
-    }
+    // The state reply fences the pause flush; historyPending then fences
+    // its storage commit. The committed axis is now safe to read once.
+    const manifest = await readManifest();
     const firstSegment = manifest.segments[0]!.id;
     const keys = (await new Promise<IDBValidKey[]>((resolve, reject) => {
       const req = db.transaction("projects", "readonly").objectStore("projects").getAllKeys();

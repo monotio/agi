@@ -1,7 +1,8 @@
 import { readFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import { BUNDLE_GRAPH_PATH } from "../bundle-graph.config.ts";
-import { test, expect, type Route } from "@playwright/test";
+import type { Route } from "@playwright/test";
+import { expect, test } from "./test.ts";
 import { isolateStorage, waitForRoom } from "./engineProbe.ts";
 import { createContainer } from "../../src/container/container.ts";
 import { compileProjectLogic } from "../../src/authoring/projectLogic.ts";
@@ -144,22 +145,33 @@ async function runIsolatedTest(
     async ({ workerUrl, game, profile, id }: Args) => {
       const w = new Worker(workerUrl, { type: "module" });
       const out: Outbound[] = [];
-      w.onmessage = (event) => out.push(event.data as Outbound);
-      const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+      const waiters = new Set<() => void>();
+      w.onmessage = (event) => {
+        out.push(event.data as Outbound);
+        for (const check of waiters) check();
+      };
       const until = async (
         predicate: (m: Outbound) => boolean,
         what: string,
       ): Promise<Outbound> => {
-        const deadline = performance.now() + 10_000;
-        for (;;) {
-          const found = out.find(predicate);
-          if (found !== undefined) return found;
-          if (performance.now() > deadline)
-            throw new Error(
-              `timed out waiting for ${what}; worker replies: ${JSON.stringify(out)}`,
+        // wall-clock: bounds a missing worker reply; success resolves on the matching event.
+        return new Promise((resolve, reject) => {
+          const timeout = setTimeout(() => {
+            waiters.delete(check);
+            reject(
+              new Error(`timed out waiting for ${what}; worker replies: ${JSON.stringify(out)}`),
             );
-          await sleep(10);
-        }
+          }, 10_000);
+          const check = () => {
+            const found = out.find(predicate);
+            if (found === undefined) return;
+            clearTimeout(timeout);
+            waiters.delete(check);
+            resolve(found);
+          };
+          waiters.add(check);
+          check();
+        });
       };
       try {
         w.postMessage({
@@ -196,7 +208,8 @@ async function runIsolatedTest(
           (m) => m.type === "debugEvaluation" && m.id === 1,
           "entry evaluation",
         );
-        await sleep(350);
+        // wall-clock: the frozen worker owns real timers in a separate realm from page.clock.
+        await new Promise((resolve) => setTimeout(resolve, 350));
         w.postMessage({ type: "debugEvaluate", id: 2, epoch, stopId, expression: "count" });
         const evalHeld = await until(
           (m) => m.type === "debugEvaluation" && m.id === 2,

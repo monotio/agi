@@ -393,25 +393,11 @@ export async function openAiSettings(page: Page): Promise<void> {
   await expect(page.getByTestId("ai-settings-dialog")).toBeVisible();
 }
 
-/**
- * Wait out the document scroll a card's scroll-into-view started: a late
- * scroll event moves the trigger and closes an open menu mid-click.
- */
-async function settleScroll(page: Page): Promise<void> {
-  await expect
-    .poll(async () => {
-      const a = await page.evaluate(() => window.scrollY);
-      await page.waitForTimeout(80);
-      return a === (await page.evaluate(() => window.scrollY));
-    })
-    .toBe(true);
-}
-
 /** Saved-game actions live in a popup outside the card's clipping boundary. */
 export async function openLibraryActions(page: Page, card: Locator): Promise<void> {
   const trigger = card.getByRole("button", { name: "Game actions", exact: true });
   await trigger.scrollIntoViewIfNeeded();
-  await settleScroll(page);
+  await trigger.click({ trial: true, timeout: 5000 });
   if ((await trigger.getAttribute("aria-expanded")) !== "true") await trigger.click();
   await expect(page.getByRole("menu", { name: "Game actions", exact: true })).toBeVisible();
 }
@@ -419,13 +405,13 @@ export async function openLibraryActions(page: Page, card: Locator): Promise<voi
 /**
  * Open a game card's action menu. Cards can sit deep in the library: the
  * trigger's scroll-into-view plus scroll-anchored layout shifts can still be
- * settling as the menu opens, and a late scroll event moves the trigger and
- * closes the menu mid-click. Wait for the document scroll to go quiet first.
+ * settling as the menu opens. Check its actionability before opening it so
+ * movement during the scroll cannot close the menu mid-click.
  */
 export async function openCardMenu(page: Page, testId: string): Promise<void> {
   const trigger = page.getByTestId(testId);
   await trigger.scrollIntoViewIfNeeded();
-  await settleScroll(page);
+  await trigger.click({ trial: true, timeout: 5000 });
   if ((await trigger.getAttribute("aria-expanded")) !== "true") await trigger.click();
 }
 

@@ -165,39 +165,47 @@ test("a cancelled genesis offers the same recovery, and late bytes cannot take t
 }) => {
   let requests = 0;
   const answer = deferredAnswer();
+  const consumed = Promise.withResolvers<void>();
   await page.route("**/api/openai/v1/responses", async (route) => {
     requests++;
     await answer.promise;
-    await route.fulfill(
-      providerReply("openai", {
-        id: "late-reply",
-        usage: { input_tokens: 0, output_tokens: 0 },
-        output: [
-          {
-            type: "function_call",
-            call_id: "plan",
-            name: "update_plan",
-            arguments: JSON.stringify({
-              rooms: [
-                { num: 1, title: "Late world", description: "Arrived after cancel.", exits: [] },
-              ],
-            }),
-          },
-          { type: "function_call", call_id: "hand", name: "finish", arguments: "{}" },
-        ],
-      }),
-    );
+    await route
+      .fulfill(
+        providerReply("openai", {
+          id: "late-reply",
+          usage: { input_tokens: 0, output_tokens: 0 },
+          output: [
+            {
+              type: "function_call",
+              call_id: "plan",
+              name: "update_plan",
+              arguments: JSON.stringify({
+                rooms: [
+                  { num: 1, title: "Late world", description: "Arrived after cancel.", exits: [] },
+                ],
+              }),
+            },
+            { type: "function_call", call_id: "hand", name: "finish", arguments: "{}" },
+          ],
+        }),
+      )
+      .catch(() => {});
+    consumed.resolve();
   });
 
   await page.goto("/");
   await connectDefaultOpenAi(page);
   await launchGenesis(page);
+  const aborted = page.waitForEvent("requestfailed", {
+    predicate: (request) => request.url().includes("/api/openai/v1/responses"),
+  });
 
   // Stop, then discard the in-flight attempt: the same error surface offers
   // the starter.
   await expect(page.getByTestId("agent-stop")).toBeVisible({ timeout: 15_000 });
   await page.getByTestId("agent-stop").click();
   await page.getByTestId("agent-discard").click();
+  await aborted;
   await expect(page.getByTestId("error-panel")).toBeVisible({ timeout: 15_000 });
   await expect(page.getByTestId("open-starter")).toBeVisible();
   expect(await storedProjectCount(page)).toBe(0);
@@ -211,7 +219,7 @@ test("a cancelled genesis offers the same recovery, and late bytes cannot take t
   // The abandoned request's reply arrives now; the recovered project keeps
   // the slot and stays the only stored one.
   answer.release();
-  await page.waitForTimeout(500);
+  await consumed.promise;
   await expect(page).toHaveURL(/#create\/local-/);
   expect(requests).toBe(1);
   expect(await storedProjectCount(page)).toBe(1);
