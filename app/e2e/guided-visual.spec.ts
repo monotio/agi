@@ -228,3 +228,62 @@ for (const [width, height] of [
     await messagePixels(preview);
   });
 }
+
+test("message preview draws a fallback when the renderer fails after WebGL2 starts", async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await page.setViewportSize({ width: 1063, height: 815 });
+  await page.addInitScript(() => {
+    const original = WebGL2RenderingContext.prototype.getParameter;
+    WebGL2RenderingContext.prototype.getParameter = function (
+      this: WebGL2RenderingContext,
+      ...args: Parameters<typeof original>
+    ) {
+      const canvas = this.canvas as HTMLCanvasElement;
+      if (canvas.getAttribute?.("aria-label") === "Game message preview")
+        throw new Error("Renderer initialization failed");
+      return original.apply(this, args);
+    } as typeof original;
+  });
+  await start(page);
+  const form = await open(page, "Answer a sentence");
+  await form
+    .getByLabel("The game says…", { exact: true })
+    .fill("The sun shines above the clearing.");
+  const preview = form.getByRole("img", { name: "Game message preview" }).filter({ visible: true });
+  await expect(preview).toBeVisible();
+  await preview.scrollIntoViewIfNeeded();
+  await messagePixels(preview);
+  expect(errors).toEqual([]);
+});
+
+test("message preview draws a fallback when drawing throws", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await page.addInitScript(() => {
+    const original = WebGL2RenderingContext.prototype.compileShader;
+    WebGL2RenderingContext.prototype.compileShader = function (
+      this: WebGL2RenderingContext,
+      ...args: Parameters<typeof original>
+    ) {
+      const canvas = this.canvas as HTMLCanvasElement;
+      if (canvas.getAttribute?.("aria-label") === "Game message preview")
+        throw new Error("Preview shader compile failed");
+      return original.apply(this, args);
+    };
+  });
+  await start(page);
+  const form = await open(page, "Answer a sentence");
+  await form.getByLabel("The game says…", { exact: true }).fill("Hello from your game.");
+  const preview = form.getByRole("img", { name: "Game message preview" });
+  await messagePixels(preview);
+  const first = decodePng(await preview.screenshot()).rgba;
+  await form
+    .getByLabel("The game says…", { exact: true })
+    .fill("The sun shines above the clearing.");
+  await messagePixels(preview);
+  expect(decodePng(await preview.screenshot()).rgba).not.toEqual(first);
+  expect(errors).toEqual([]);
+});

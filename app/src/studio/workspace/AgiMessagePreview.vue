@@ -10,7 +10,12 @@ import { compositeFrame } from "../../render/composite.ts";
 import { usePresentation } from "../../play/usePresentation.ts";
 import type { AgiStage } from "../../three/AgiStage.ts";
 const { text } = defineProps<{ text: string }>();
+const preview = useTemplateRef("preview");
 const canvas = useTemplateRef("canvas");
+const flatCanvas = useTemplateRef("flatCanvas");
+// A canvas committed to WebGL has no 2D context, so a renderer that fails after
+// WebGL started draws its fallback on a second canvas.
+const flat = ref(false);
 const presentation = usePresentation();
 let stage: AgiStage | null = null;
 let fallback: CanvasRenderingContext2D | null = null;
@@ -33,30 +38,47 @@ function render(): void {
     pixels,
   );
   if (stage) {
-    stage.render(pixels, true);
-    stage.flush();
-  } else if (fallback) {
+    try {
+      stage.render(pixels, true);
+      ready.value = true;
+      return;
+    } catch {
+      useFallback();
+    }
+  }
+  if (fallback) {
     const frame = fallback.createImageData(320, 200);
     frame.data.set(pixels);
     fallback.putImageData(frame, 0, 0);
   }
   ready.value = true;
 }
+function useFallback(): void {
+  stage?.dispose();
+  stage = null;
+  flat.value = true;
+  fallback = flatCanvas.value?.getContext("2d") ?? null;
+}
 async function start(): Promise<void> {
   if (starting || stage || fallback || closed) return;
   starting = true;
-  const target = canvas.value!;
-  const { AgiStage } = await import("../../three/AgiStage.ts");
-  // A static message must survive scrolling after WebGL presents its frame.
-  const context = target.getContext("webgl2", { preserveDrawingBuffer: true });
-  const created = context ? await AgiStage.create(target, context) : null;
-  if (closed) {
-    created?.dispose();
-    return;
+  try {
+    const target = canvas.value!;
+    const { AgiStage } = await import("../../three/AgiStage.ts");
+    // A static message must survive scrolling after WebGL presents its frame.
+    const context = target.getContext("webgl2", { preserveDrawingBuffer: true });
+    const created = context ? await AgiStage.create(target, context) : null;
+    if (closed) {
+      created?.dispose();
+      return;
+    }
+    stage = created;
+    if (stage) stage.crt = false;
+    else useFallback();
+  } catch {
+    if (closed) return;
+    useFallback();
   }
-  stage = created;
-  if (stage) stage.crt = false;
-  else fallback = target.getContext("2d");
   render();
 }
 onMounted(() => {
@@ -66,7 +88,7 @@ onMounted(() => {
       render();
     }
   });
-  visibility.observe(canvas.value!);
+  visibility.observe(preview.value!);
 });
 watch(() => text, render);
 onBeforeUnmount(() => {
@@ -76,15 +98,22 @@ onBeforeUnmount(() => {
 });
 </script>
 <template>
-  <canvas
-    ref="canvas"
+  <div
+    ref="preview"
     class="message-preview"
     role="img"
     aria-label="Game message preview"
     :data-ready="ready"
-    width="320"
-    height="200"
-  />
+  >
+    <canvas
+      v-show="!flat"
+      ref="canvas"
+      aria-label="Game message preview"
+      width="320"
+      height="200"
+    />
+    <canvas v-show="flat" ref="flatCanvas" width="320" height="200" />
+  </div>
 </template>
 <style scoped>
 .message-preview {
@@ -94,5 +123,11 @@ onBeforeUnmount(() => {
   aspect-ratio: 8 / 5;
   image-rendering: pixelated;
   border-radius: var(--radius);
+  overflow: hidden;
+}
+.message-preview canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
 }
 </style>

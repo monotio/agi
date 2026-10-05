@@ -809,7 +809,13 @@ export class AgiStage {
         return new AgiStage(renderer, gpu, canvas);
       } catch {
         try {
-          renderer?.dispose();
+          // dispose() restarts initialization through setAnimationLoop on a
+          // failed renderer, leaving a rejected promise outside its return value.
+          if (renderer?.initialized) await renderer.dispose();
+          else {
+            const backend = renderer?.backend as { dispose?: () => Promise<void> } | undefined;
+            await backend?.dispose?.();
+          }
         } catch {
           // fall through to next backend
         }
@@ -898,7 +904,9 @@ export class AgiStage {
     this.texture.dispose();
     this.glowTexture.dispose();
     try {
-      this.renderer.dispose();
+      void this.renderer.dispose().catch(() => {
+        // A failed backend can also reject asynchronous teardown.
+      });
     } catch {
       // safe teardown
     }
