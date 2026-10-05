@@ -93,11 +93,15 @@
   overflow: hidden;
 }
 .agent-panel__review > header,
-.agent-panel__review > footer {
+.agent-panel__review-actions {
   display: flex;
   gap: var(--space-3);
   align-items: center;
   padding: var(--space-3);
+}
+.agent-panel__review-actions {
+  flex: none;
+  border-bottom: 1px solid var(--hairline);
 }
 .agent-panel__review h3 {
   font-size: var(--text-sm);

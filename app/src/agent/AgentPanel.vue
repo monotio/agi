@@ -421,6 +421,32 @@ onBeforeUnmount(() => {
         >
       </div>
     </nav>
+    <div
+      v-if="review"
+      :key="review.messageId"
+      class="agent-panel__review-actions"
+      role="group"
+      aria-label="Review changes"
+    >
+      <UiButton
+        size="sm"
+        :disabled="editor.readOnly.value || busy || review.stale() || !selected.length"
+        variant="primary"
+        data-testid="agent-approve"
+        @click="approve"
+        >Approve <kbd>⌘↵</kbd></UiButton
+      ><UiButton
+        size="sm"
+        variant="ghost"
+        :disabled="busy || editor.readOnly.value"
+        data-testid="agent-reject"
+        @click="
+          agent?.reject();
+          tick++;
+        "
+        >Reject</UiButton
+      >
+    </div>
     <div ref="feed" class="agent-panel__feed" aria-live="polite" @scroll.passive="readPosition">
       <div ref="feedContent">
         <p v-if="!current?.messages.length" class="agent-panel__intro">
@@ -515,26 +541,6 @@ onBeforeUnmount(() => {
               The preview could not load. You can still approve or reject this change.
             </p>
           </article>
-          <footer>
-            <UiButton
-              size="sm"
-              :disabled="editor.readOnly.value || busy || review.stale() || !selected.length"
-              variant="primary"
-              data-testid="agent-approve"
-              @click="approve"
-              >Approve <kbd>⌘↵</kbd></UiButton
-            ><UiButton
-              size="sm"
-              variant="ghost"
-              :disabled="busy || editor.readOnly.value"
-              data-testid="agent-reject"
-              @click="
-                agent?.reject();
-                tick++;
-              "
-              >Reject</UiButton
-            >
-          </footer>
         </section>
         <details v-if="review && progress.length" class="agent-panel__progress">
           <summary>Steps</summary>

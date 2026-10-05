@@ -13,7 +13,7 @@ import {
   openWorkspaceAgent,
 } from "./engineProbe.ts";
 import type { Page } from "@playwright/test";
-async function start(page: Page, provider: "stub" | "openai" = "stub") {
+async function start(page: Page, provider: "stub" | "openai" = "stub", openLogic = true) {
   await isolateStorage(page);
   await page.goto("/");
   await configureAi(page, {
@@ -29,10 +29,14 @@ async function start(page: Page, provider: "stub" | "openai" = "stub") {
   await page.getByRole("button", { name: "Start building", exact: true }).click();
   await expect(page.getByTestId("create-adventure-disclosure")).toBeHidden();
   await expect(page.getByTestId("input-line")).toBeEnabled();
-  await expect(page.getByTestId("parts-list")).toBeVisible();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
-  await openWorkspaceLogic(page);
-  await page.keyboard.press("ControlOrMeta+i");
+  if (openLogic) {
+    await expect(page.getByTestId("parts-list")).toBeVisible();
+    await openWorkspaceLogic(page);
+    await page.keyboard.press("ControlOrMeta+i");
+  } else {
+    await openWorkspaceAgent(page);
+  }
   await expect(page.getByTestId("workspace-agent-panel")).toBeVisible();
 }
 async function documents(page: Page) {
@@ -293,7 +297,7 @@ test("the workspace composer offers reference art", async ({ page }) => {
   await expect(page.getByTestId("reference-upload")).toBeVisible();
 });
 
-test("a slow preview keeps review controls ready", async ({ page }) => {
+test("a slow preview keeps Approve working through preview loading", async ({ page }) => {
   let release!: () => void;
   const held = new Promise<void>((resolve) => {
     release = resolve;
@@ -302,7 +306,7 @@ test("a slow preview keeps review controls ready", async ({ page }) => {
     await held;
     await route.continue();
   });
-  await start(page);
+  await start(page, "stub", false);
   await page.getByTestId("agent-message").fill("Add a welcome sign that answers look at sign");
   await page.getByRole("button", { name: "Send", exact: true }).click();
   await expect(page.getByTestId("agent-review-loading").first()).toBeVisible();
@@ -310,9 +314,28 @@ test("a slow preview keeps review controls ready", async ({ page }) => {
   await expect(page.getByTestId("agent-approve")).toBeVisible();
   await expect(page.getByTestId("agent-approve")).toBeEnabled();
   await expect(page.getByTestId("agent-reject")).toBeVisible();
+  // Read the proposal, then press Approve while its previews are still loading.
+  await page.getByTestId("agent-review").getByRole("heading").scrollIntoViewIfNeeded();
+  const approve = page.getByTestId("agent-approve");
+  await approve.scrollIntoViewIfNeeded();
+  await expect(approve).toBeInViewport({ ratio: 1 });
+  await approve.evaluate((button) => {
+    button.setAttribute("data-pressed", "false");
+    button.addEventListener("mousedown", () => button.setAttribute("data-pressed", "true"), {
+      once: true,
+    });
+  });
+  const before = (await approve.boundingBox())!;
+  await page.mouse.move(before.x + before.width / 2, before.y + before.height / 2);
+  await page.mouse.down();
+  await expect(approve).toHaveAttribute("data-pressed", "true");
   release();
-  await expect(page.getByTestId("agent-review")).toBeVisible();
   await expect(page.getByTestId("agent-review-loading")).toHaveCount(0);
+  await page.mouse.up();
+  await expect(page.getByTestId("agent-review")).toHaveCount(0);
+  await expect
+    .poll(async () => (await documents(page))["logic:1"])
+    .toContain('said("look", "sign")');
 });
 
 test("a review whose preview code cannot load still offers Approve", async ({ page }) => {
