@@ -57,7 +57,15 @@ runs:
         mkdir -p /tmp/agi-apt/partial
         printf 'Dir::Cache::archives "/tmp/agi-apt";\nAPT::Keep-Downloaded-Packages "true";\nBinary::apt::APT::Keep-Downloaded-Packages "true";\nAcquire::http::Timeout "30";\nAcquire::https::Timeout "30";\nAcquire::Retries "2";\nDPkg::Lock::Timeout "60";\n' | sudo tee /etc/apt/apt.conf.d/99-ci-cache > /dev/null
         cd app
-        timeout 120s npx playwright install-deps "$BROWSER"
+        # A slow mirror is a network failure, not a test result: try once more,
+        # resuming from the packages already kept in /tmp/agi-apt.
+        for attempt in 1 2; do
+          status=0
+          timeout 120s npx playwright install-deps "$BROWSER" || status=$?
+          [ "$status" = 0 ] && break
+          [ "$attempt" = 2 ] && exit "$status"
+          echo "::warning::Browser system dependencies attempt $attempt failed ($status); retrying with downloaded packages kept"
+        done
     - name: Browser binary
       if: inputs.browser != '' && steps.browser.outputs.cache-hit != 'true'
       shell: bash
