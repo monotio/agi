@@ -9,7 +9,6 @@
  * it, so an explainer's "Learn more" (UiExplain.vue) arrives where it points.
  */
 import { computed, nextTick, ref } from "vue";
-import { showWorkspaceTips } from "./workspaceTips.ts";
 import UiButton from "../ui/UiButton.vue";
 import KeyboardShortcuts from "./commands/KeyboardShortcuts.vue";
 import { useOptionalCommands } from "./commands/commandContext.ts";
@@ -76,15 +75,6 @@ defineExpose({ open });
     close-testid="help-guide-close"
     data-testid="help-guide"
   >
-    <UiButton
-      size="sm"
-      variant="ghost"
-      @click="
-        showWorkspaceTips();
-        shown = false;
-      "
-      >Show tips</UiButton
-    >
     <div class="help-body">
       <nav class="help-sections" aria-label="Help sections">
         <button

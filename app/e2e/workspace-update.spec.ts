@@ -180,6 +180,36 @@ for (const [width, height] of [
   });
 }
 
+test("Help explains Update game after the retired live-edit tips are removed @webkit-desktop", async ({
+  page,
+  browserName,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await starter(page);
+  await page.getByTestId("help-menu").click();
+  await expect(page.getByTestId("btn-help-guide")).toBeVisible();
+  await page.getByTestId("btn-help-guide").click();
+  const help = page.getByTestId("help-guide");
+  await expect(help).toBeVisible();
+  await page.getByTestId("help-section-creating").click();
+  await expect(help).toContainText("Update game puts the changed parts in the game together.");
+  for (const [width, height] of [
+    [1440, 900],
+    [1063, 815],
+    [390, 844],
+  ]) {
+    await page.setViewportSize({ width: width!, height: height! });
+    const shot = await page.screenshot({
+      path: test.info().outputPath(`help-${width}.png`),
+      animations: "disabled",
+      scale: "css",
+    });
+    if (process.env["CI"] && browserName === "webkit" && width === 390)
+      console.log(`PHONE_HELP_SHOT:${shot.toString("base64")}`);
+  }
+  await expect(help.getByRole("button", { name: "Show tips", exact: true })).toHaveCount(0);
+});
+
 test("reopening restores a saved draft and its dot while the game keeps its last update", async ({
   page,
 }) => {
