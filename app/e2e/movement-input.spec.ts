@@ -4,7 +4,7 @@ import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import { buildView } from "../../src/view/view.ts";
 import { buildPublicGameZip } from "../src/archive/projectArchive.ts";
-import { isolateStorage, textHook, waitForCycles } from "./engineProbe.ts";
+import { gameHint, isolateStorage, textHook, waitForCycles } from "./engineProbe.ts";
 
 for (const hold of [false, true]) {
   test(`numpad directions preserve ${hold ? "held" : "toggle"} movement with numeric key values`, async ({
@@ -113,7 +113,8 @@ for (const hold of [false, true]) {
     await expect(input).toHaveValue("123");
     await input.fill("");
     await page.keyboard.press("F1");
-    await expect(page.getByTestId("prompt-hint")).toBeVisible();
+    await expect(await gameHint(page, "prompt-hint")).toBeVisible();
+    await page.mouse.move(0, 0);
     const permitsNumber = await input.evaluate((element) =>
       element.dispatchEvent(
         new KeyboardEvent("keydown", {

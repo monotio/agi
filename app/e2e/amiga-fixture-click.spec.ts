@@ -1,6 +1,12 @@
 import { expect, test, type Page } from "@playwright/test";
 import { fixtureSkip } from "../../test/fixtures.ts";
-import { isolateStorage, revealFoldedBoot, textHook, waitForCycles } from "./engineProbe.ts";
+import {
+  gameHint,
+  isolateStorage,
+  revealFoldedBoot,
+  textHook,
+  waitForCycles,
+} from "./engineProbe.ts";
 
 const fixtures = [
   {
@@ -71,7 +77,8 @@ for (const fixture of fixtures) {
       // state intact, rather than setting restart flags or jumping rooms.
       if ((await textHook(page)).room !== fixture.room) await page.keyboard.press("Enter");
       if (fixture.alias === "sq1-amiga") {
-        await expect(page.getByTestId("prompt-hint")).toBeVisible();
+        await expect(await gameHint(page, "prompt-hint")).toBeVisible();
+        await page.mouse.move(0, 0);
         await page.getByTestId("input-line").fill("Roger");
         await page.getByTestId("input-line").press("Enter");
       }

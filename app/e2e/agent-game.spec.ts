@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import type { ProjectSession } from "../src/project/projectSession.ts";
 import type { WorkerQueryFn } from "../src/worker/workerProtocol.ts";
 import {
+  gameHint,
   configureAi,
   openAiSettings,
   isolateStorage,
@@ -293,7 +294,8 @@ test("an autosave resumes a room the agent authored mid-play, across a reload", 
   await page.reload();
 
   await expect(page.getByTestId("input-line")).toBeVisible({ timeout: 30_000 });
-  await expect(page.getByTestId("resume-caption")).toBeVisible({ timeout: 30_000 });
+  await expect(await gameHint(page, "resume-caption")).toBeVisible({ timeout: 30_000 });
+  await page.mouse.move(0, 0);
   await expect.poll(async () => (await textHook(page)).room, { timeout: 20_000 }).toBe(2);
   // The room came out of the persisted container, not out of the agent: a
   // second authoring turn would have logged one, and none did.

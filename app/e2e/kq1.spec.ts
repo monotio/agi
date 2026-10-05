@@ -1,4 +1,4 @@
-import { openGameOptions, enterCreateMode } from "./engineProbe.ts";
+import { gameHint, openGameOptions, enterCreateMode } from "./engineProbe.ts";
 import { fixtureSkip, KNOWN_GAME_HASH } from "../../test/fixtures.ts";
 import { readFile } from "node:fs/promises";
 import { readGameZip } from "../src/archive/gameZip.ts";
@@ -60,7 +60,8 @@ async function bootKq1(page: Page): Promise<void> {
     .first()
     .click();
   await expect(page.getByTestId("input-line")).toBeVisible({ timeout: 15_000 });
-  await expect(page.getByTestId("title-prompt-hint")).toBeVisible({ timeout: 15_000 });
+  await expect(await gameHint(page, "title-prompt-hint")).toBeVisible({ timeout: 15_000 });
+  await page.mouse.move(0, 0);
 }
 
 /**
@@ -69,12 +70,14 @@ async function bootKq1(page: Page): Promise<void> {
  * signal. A click on the screen only focuses the game; it never advances it.
  */
 async function advanceToCourtyard(page: Page): Promise<void> {
-  await expect(page.getByTestId("title-prompt-hint")).toBeVisible({ timeout: 15_000 });
+  await expect(await gameHint(page, "title-prompt-hint")).toBeVisible({ timeout: 15_000 });
+  await page.mouse.move(0, 0);
   await page.keyboard.press("Enter");
   await expect
     .poll(async () => (await textHook(page)).rows[0] ?? "", { timeout: 20_000 })
     .toContain("Score:");
-  await expect(page.getByTestId("title-prompt-hint")).toBeHidden();
+  await expect(await gameHint(page, "title-prompt-hint")).toBeHidden();
+  await page.mouse.move(0, 0);
 }
 
 test("boots authentic KQ1 to the title screen and advances to courtyard", async ({ page }) => {
@@ -119,7 +122,8 @@ test("a printable key wakes a graphics-mode have.key wait on the title screen", 
   await expect
     .poll(async () => (await textHook(page)).rows[0] ?? "", { timeout: 20_000 })
     .toContain("Score:");
-  await expect(page.getByTestId("title-prompt-hint")).toBeHidden();
+  await expect(await gameHint(page, "title-prompt-hint")).toBeHidden();
+  await page.mouse.move(0, 0);
 });
 
 test("intro credits in room 83 land on the engine's text rows below the picture", async ({
@@ -240,7 +244,8 @@ test("F1 help screen displays in text mode and is dismissed on key", async ({ pa
   // Use the game-registered F1 shortcut
   await clickGameKey(page, 15104);
   await expect.poll(async () => (await textHook(page)).textMode, { timeout: 5_000 }).toBe(true);
-  await expect(page.getByTestId("text-mode-hint")).toBeVisible();
+  await expect(await gameHint(page, "text-mode-hint")).toBeVisible();
+  await page.mouse.move(0, 0);
 
   // Verify help text contains "Help"
   expect(await screenText(page)).toContain("Help");
@@ -249,7 +254,8 @@ test("F1 help screen displays in text mode and is dismissed on key", async ({ pa
   // Dismiss help screen with a key
   await page.keyboard.press("Enter");
   await expect.poll(async () => (await textHook(page)).textMode, { timeout: 5_000 }).toBe(false);
-  await expect(page.getByTestId("text-mode-hint")).toBeHidden();
+  await expect(await gameHint(page, "text-mode-hint")).toBeHidden();
+  await page.mouse.move(0, 0);
 });
 
 test("Escape opens the authentic menu bar; arrows navigate; Escape closes it", async ({ page }) => {
@@ -296,7 +302,8 @@ test("saving with F5 writes a real save-file image and F7 restores it without lo
   await clickGameKey(page, 16128);
   await expectModal(page, "save");
   await page.keyboard.press("Enter");
-  await expect(page.getByTestId("prompt-hint")).toBeVisible();
+  await expect(await gameHint(page, "prompt-hint")).toBeVisible();
+  await page.mouse.move(0, 0);
   await page.getByTestId("input-line").fill("Courtyard");
   await page.keyboard.press("Enter");
   await expect.poll(() => screenText(page)).toContain("Save in slot 1?");
@@ -408,12 +415,14 @@ test("an autosave resumes the courtyard across a browser reload", async ({ page 
 
   // No picker, no title screen: the same game comes back by itself.
   await expect(page.getByTestId("input-line")).toBeVisible({ timeout: 20_000 });
-  await expect(page.getByTestId("resume-caption")).toBeVisible({ timeout: 20_000 });
+  await expect(await gameHint(page, "resume-caption")).toBeVisible({ timeout: 20_000 });
+  await page.mouse.move(0, 0);
   await expect(page.locator(".setup-panel")).toBeHidden();
   await expect
     .poll(async () => (await textHook(page)).rows[0] ?? "", { timeout: 20_000 })
     .toContain("Score:");
-  await expect(page.getByTestId("title-prompt-hint")).toBeHidden();
+  await expect(await gameHint(page, "title-prompt-hint")).toBeHidden();
+  await page.mouse.move(0, 0);
 
   const after = await textHook(page);
   expect(after.room).toBe(1);
@@ -441,13 +450,16 @@ test("Start over discards the autosave and boots the game from the top", async (
   const walked = await textHook(page);
   await waitForAutosaveAfter(page, walked.cycle);
   await page.reload();
-  await expect(page.getByTestId("resume-caption")).toBeVisible({ timeout: 20_000 });
+  await expect(await gameHint(page, "resume-caption")).toBeVisible({ timeout: 20_000 });
+  await page.mouse.move(0, 0);
 
   // Start over throws the snapshot away and boots KQ1 from its title screen.
   await openGameOptions(page, "settings-menu");
   await page.getByTestId("btn-start-over").click();
-  await expect(page.getByTestId("title-prompt-hint")).toBeVisible({ timeout: 20_000 });
-  await expect(page.getByTestId("resume-caption")).toBeHidden();
+  await expect(await gameHint(page, "title-prompt-hint")).toBeVisible({ timeout: 20_000 });
+  await page.mouse.move(0, 0);
+  await expect(await gameHint(page, "resume-caption")).toBeHidden();
+  await page.mouse.move(0, 0);
   expect(await storedAutosave(page, "kq1")).toBeNull();
 });
 
@@ -487,7 +499,8 @@ test("typing after Start over while the input is unfocused does not double the f
 
   await openGameOptions(page, "settings-menu");
   await page.getByTestId("btn-start-over").click();
-  await expect(page.getByTestId("title-prompt-hint")).toBeVisible({ timeout: 20_000 });
+  await expect(await gameHint(page, "title-prompt-hint")).toBeVisible({ timeout: 20_000 });
+  await page.mouse.move(0, 0);
   await advanceToCourtyard(page);
 
   // With focus anywhere but the hidden input (the menu button holds it after
@@ -514,7 +527,8 @@ test("clicking the game screen only focuses it, never acts as Enter", async ({ p
 
   // On the title screen a click must not start the game.
   await page.locator(".screen").click();
-  await expect(page.getByTestId("title-prompt-hint")).toBeVisible();
+  await expect(await gameHint(page, "title-prompt-hint")).toBeVisible();
+  await page.mouse.move(0, 0);
   await waitForCycles(page, 4);
   expect((await textHook(page)).rows[0] ?? "").not.toContain("Score:");
 
@@ -544,7 +558,8 @@ test.describe("hybrid pointer", () => {
     await page.locator(".screen").click();
     await waitForCycles(page, 4);
     expect((await textHook(page)).rows[0] ?? "").not.toContain("Score:");
-    await expect(page.getByTestId("title-prompt-hint")).toBeVisible();
+    await expect(await gameHint(page, "title-prompt-hint")).toBeVisible();
+    await page.mouse.move(0, 0);
 
     await page.locator(".screen").tap();
     await expect
@@ -590,9 +605,11 @@ test("a corrupt autosave is discarded and the game boots normally", async ({ pag
   await page.reload();
   // A normal boot, not a broken screen: KQ1 comes up on its title screen and
   // the failure is a log line, not an error panel.
-  await expect(page.getByTestId("title-prompt-hint")).toBeVisible({ timeout: 20_000 });
+  await expect(await gameHint(page, "title-prompt-hint")).toBeVisible({ timeout: 20_000 });
+  await page.mouse.move(0, 0);
   await expect(page.getByTestId("error-panel")).toHaveCount(0);
-  await expect(page.getByTestId("resume-caption")).toBeHidden();
+  await expect(await gameHint(page, "resume-caption")).toBeHidden();
+  await page.mouse.move(0, 0);
   await expect.poll(() => agentActivity(page)).toContain("Autosave discarded");
 });
 
@@ -622,12 +639,14 @@ test("game frame is hidden until game is running, clicking screen advances title
   await expect(page.locator(".setup-panel")).toBeHidden();
 
   // 4. In Room 83 title screen, title prompt hint is visible
-  await expect(page.getByTestId("title-prompt-hint")).toBeVisible({ timeout: 15_000 });
+  await expect(await gameHint(page, "title-prompt-hint")).toBeVisible({ timeout: 15_000 });
+  await page.mouse.move(0, 0);
 
   // 5. Clicking screen advances to courtyard (Room 1)
   await advanceToCourtyard(page);
   await expect.poll(() => canvasColors(page), { timeout: 15_000 }).toBeGreaterThanOrEqual(8);
-  await expect(page.getByTestId("title-prompt-hint")).toBeHidden();
+  await expect(await gameHint(page, "title-prompt-hint")).toBeHidden();
+  await page.mouse.move(0, 0);
 
   // 6. Clicking Menu button returns to setup panel and hides screen
   await page.getByTestId("btn-exit").click();

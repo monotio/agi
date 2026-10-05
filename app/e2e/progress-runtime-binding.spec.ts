@@ -5,7 +5,13 @@ import { assembleLogic } from "../../src/logic/assembler.ts";
 import { gameRevision } from "../src/project/gameMetadata.ts";
 import { installedProgressLocator } from "../src/project/progressTarget.ts";
 import type { Page } from "@playwright/test";
-import { isolateStorage, textHook, waitForAutosaveAfter, waitForCycles } from "./engineProbe.ts";
+import {
+  gameHint,
+  isolateStorage,
+  textHook,
+  waitForAutosaveAfter,
+  waitForCycles,
+} from "./engineProbe.ts";
 
 /**
  * Progress runtime binding (B1), observed in a real browser: two installed
@@ -156,7 +162,8 @@ test("two same-dictionary installed folders checkpoint and resume on their own p
   // pointer: omega's own checkpoint restores (the caption is the actual
   // restore, not a fresh boot), and the sibling's record is untouched.
   await page.reload();
-  await expect(page.getByTestId("resume-caption")).toBeVisible({ timeout: 30_000 });
+  await expect(await gameHint(page, "resume-caption")).toBeVisible({ timeout: 30_000 });
+  await page.mouse.move(0, 0);
   await expect
     .poll(async () => (await textHook(page)).rows.join(" "), { timeout: 30_000 })
     .toContain("OMEGA CHAMBER");
@@ -176,7 +183,8 @@ test("two same-dictionary installed folders checkpoint and resume on their own p
   await expect.poll(() => stored(page, "monotio_agi.resumeTarget")).toBe(alphaLocator);
   await waitForAutosaveAfter(page, (await textHook(page)).cycle);
   await page.reload();
-  await expect(page.getByTestId("resume-caption")).toBeVisible({ timeout: 30_000 });
+  await expect(await gameHint(page, "resume-caption")).toBeVisible({ timeout: 30_000 });
+  await page.mouse.move(0, 0);
   await expect
     .poll(async () => (await textHook(page)).rows.join(" "), { timeout: 30_000 })
     .toContain("ALPHA CHAMBER");

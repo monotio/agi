@@ -6,6 +6,7 @@ import { openContainer } from "../../src/container/container.ts";
 import { DEFAULT_V2_PROFILE } from "../../src/runtime/profile.ts";
 import { readGameZip } from "../src/archive/gameZip.ts";
 import {
+  gameHint,
   closeWorkspaceEditor,
   isolateStorage,
   openLibraryActions,
@@ -312,7 +313,8 @@ test("the first guided game: starter, editors, five actions, play both ways and 
   await page.keyboard.press("Enter");
   await expect.poll(async () => (await textHook(page)).modal, { intervals: [100] }).toBe("save");
   await page.keyboard.press("Enter");
-  await expect(page.getByTestId("prompt-hint")).toBeVisible();
+  await expect(await gameHint(page, "prompt-hint")).toBeVisible();
+  await page.mouse.move(0, 0);
   await input.fill("Moonlit checkpoint");
   await input.press("Enter");
   await expect.poll(() => screenText(page), { intervals: [100] }).toContain("Save in slot 1?");

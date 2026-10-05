@@ -6,6 +6,7 @@ import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import { buildWordsTok } from "../../src/logic/words.ts";
 import {
+  gameHint,
   isolateStorage,
   openGameOptions,
   savedGameCard,
@@ -75,7 +76,8 @@ for (const failure of ["unsafe", "timeout", "storage"] as const) {
     if (failure === "unsafe") {
       await page.getByTestId("input-line").fill("look");
       await page.getByTestId("input-line").press("Enter");
-      await expect(page.getByTestId("prompt-hint")).toBeVisible();
+      await expect(await gameHint(page, "prompt-hint")).toBeVisible();
+      await page.mouse.move(0, 0);
     } else if (failure === "timeout") {
       await page.evaluate(() => {
         const post = Worker.prototype.postMessage;

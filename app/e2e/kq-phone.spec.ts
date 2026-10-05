@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { fixtureSkip, KNOWN_GAME_HASH } from "../../test/fixtures.ts";
-import { isolateStorage, textHook, waitForCycles, waitForFrames } from "./engineProbe.ts";
+import { gameHint, isolateStorage, textHook, waitForCycles, waitForFrames } from "./engineProbe.ts";
 
 test.use({ hasTouch: true, viewport: { width: 390, height: 844 } });
 
@@ -74,7 +74,8 @@ for (const game of [
     await pad.getByRole("button", { name: "F5", exact: true }).tap();
     await expect.poll(async () => (await textHook(page)).modal).toBe("save");
     await pad.getByRole("button", { name: "Enter", exact: true }).tap();
-    await expect(page.getByTestId("prompt-hint")).toBeVisible();
+    await expect(await gameHint(page, "prompt-hint")).toBeVisible();
+    await page.mouse.move(0, 0);
     await page.getByTestId("input-line").fill("Phone opening room");
     await pad.getByRole("button", { name: "Enter", exact: true }).tap();
     await expect

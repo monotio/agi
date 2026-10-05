@@ -13,9 +13,13 @@ test("page controls keep their keys and the play strip says where keys go", asyn
   const keys = page.getByTestId("game-keys");
 
   await command.focus();
+  await expect(keys).toBeVisible();
   await expect(keys).toHaveText("Keys go to the game");
   await expect(keys).toHaveClass(/\bon\b/);
+  await keys.hover();
+  await expect(page.locator("#game-input-help")).toBeVisible();
   await expect(page.locator("#game-input-help")).toContainText("leaves the game");
+  await page.mouse.move(0, 0);
 
   // A keyboard user on the timeline's controls types nothing into the game.
   const pause = page.getByRole("button", { name: "Pause" });
@@ -26,8 +30,10 @@ test("page controls keep their keys and the play strip says where keys go", asyn
   await expect(pause).toBeFocused();
   await expect(command).toHaveValue("");
 
-  // The light is a button that hands the keys back.
+  // The light opens key help; clicking the screen hands the keys back.
   await keys.click();
+  await expect(page.getByTestId("game-key-help")).toBeVisible();
+  await page.locator(".screen").click();
   await expect(command).toBeFocused();
   await expect(keys).toHaveText("Keys go to the game");
 

@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { testProjectId } from "../test/identity.ts";
 import {
+  gameHint,
   cacheGame,
   openDeveloperActivity,
   openLibraryActions,
@@ -222,7 +223,8 @@ test("Resume shows the same saved scene and position, including after reopening 
   await page.reload();
   await expect(page.getByTestId("saved-game-gallery")).toBeVisible();
   await card.getByRole("button", { name: "Resume", exact: true }).click();
-  await expect(page.getByTestId("resume-caption")).toBeVisible();
+  await expect(await gameHint(page, "resume-caption")).toBeVisible();
+  await page.mouse.move(0, 0);
   await expect.poll(async () => (await textHook(page)).room).toBe(2);
   expect((await textHook(page)).egoX).toBeGreaterThan(spawnX + 12);
   await page.getByTestId("btn-exit").click();

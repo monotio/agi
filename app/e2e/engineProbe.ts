@@ -647,3 +647,12 @@ export async function surfaceBox(
     return { x, y, width, height };
   });
 }
+
+/** Situation hints live in the key help bubble, opened without moving game focus. */
+export async function gameHint(page: Page, id: string): Promise<Locator> {
+  const status = page.getByTestId("game-keys");
+  await expect(status).toBeVisible();
+  await status.hover();
+  await expect(page.getByTestId("game-key-help")).toBeVisible();
+  return page.getByTestId(id);
+}
