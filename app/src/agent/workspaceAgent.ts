@@ -1,5 +1,5 @@
 /** One task-chat adapter; ProjectSession remains the sole project writer. */
-import { AgentRun } from "./agentRun.ts";
+import { AgentRun, type AgentRunState } from "./agentRun.ts";
 import {
   createAnthropicConversation,
   createOpenAiConversation,
@@ -282,6 +282,7 @@ export function createWorkspaceAgent(options: Options) {
   }
   review = store.active === null ? null : (reviews.get(store.active) ?? null);
   let activeRun: AgentRun | null = null;
+  const completedRuns: Record<string, AgentRunState> = {};
   let autoApprove = false;
   const reviewOutcomes: Record<string, string> = {};
   let error = "";
@@ -842,6 +843,7 @@ export function createWorkspaceAgent(options: Options) {
       appliedDuringRun = null;
       if (provider) chat.transcript = provider.getTranscript();
       busy = false;
+      completedRuns[chat.id] = run.snapshot();
       activeRun = null;
       await save();
     }
@@ -921,7 +923,10 @@ export function createWorkspaceAgent(options: Options) {
       return [...progress];
     },
     get task() {
-      return activeRun?.snapshot() ?? null;
+      return (
+        activeRun?.snapshot() ??
+        (store.active === null ? null : (completedRuns[store.active] ?? null))
+      );
     },
     subscribe(observer: () => void) {
       observers.add(observer);

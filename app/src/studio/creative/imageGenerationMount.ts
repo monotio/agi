@@ -10,6 +10,7 @@ import {
 import { createOpenAiImageProvider, type OpenAiImageProvider } from "./openaiImageProvider.ts";
 import { loadAiSettings } from "../../settings/aiSettings.ts";
 import { configureImageBudget, reserveImageBudget } from "../../agent/providerBudget.ts";
+import { imageReportedSpend } from "./imageSpend.ts";
 import { estimateImageOutputCost } from "./openaiImageProvider.ts";
 import { DEFAULT_MODELS } from "../../../../src/agent/modelEffort.ts";
 export function createImageGenerationMount(input: {
@@ -61,18 +62,9 @@ export function createImageGenerationMount(input: {
           );
         }
         return (offer) => {
-          const usage = offer?.usage;
-          const rate = summary.model === "gpt-image-2" ? 15 : 30;
-          settle(
-            usage?.outputTokens !== undefined &&
-              usage.inputTextTokens !== undefined &&
-              usage.inputImageTokens !== undefined
-              ? (usage.outputTokens * rate +
-                  usage.inputTextTokens * 5 +
-                  usage.inputImageTokens * 8) /
-                  1_000_000
-              : null,
-          );
+          const spend = imageReportedSpend(summary.model, offer?.usage);
+          const budget = settle(spend.incomplete ? null : spend.amount, spend.amount);
+          return { ...spend, budget };
         };
       },
       async stageGenerated(use) {

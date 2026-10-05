@@ -189,6 +189,7 @@ function recordAnthropicUsage(
   model: string,
 ): void {
   const fallback = usage?.iterations?.some((iteration) => iteration.type === "fallback_message");
+  if (!usage) run?.markUsageIncomplete();
   recordUsage(anthropicUsage(usage), total, fallback ? undefined : run);
   // Fallback iterations identify the serving model, whose price can differ.
   // Each iteration's tokens are billed once; compaction is also a separate iteration.
@@ -489,7 +490,12 @@ export function createAnthropicConversation(
         usageIncomplete = true;
         responseMs = performance.now() - startedAt;
         if (usage) {
-          recordAnthropicUsage(usage, totalUsage, run, config.model || DEFAULT_MODELS.anthropic);
+          recordAnthropicUsage(
+            usage,
+            totalUsage,
+            undefined,
+            config.model || DEFAULT_MODELS.anthropic,
+          );
         }
         run?.markUsageIncomplete();
         throw error;
@@ -798,6 +804,7 @@ export function createOpenAiConversation(
             event.type === "response.failed"
           ) {
             responseMs = performance.now() - startedAt;
+            if (!event.response.usage) run?.markUsageIncomplete();
             recordUsage(openAiUsage(event.response.usage), totalUsage, run);
             return event.response;
           }

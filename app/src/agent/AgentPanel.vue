@@ -506,7 +506,7 @@ onBeforeUnmount(() => {
     </p>
     <p v-if="error" class="agent-panel__error" role="alert">{{ error }}</p>
     <AgentTaskControls
-      v-if="task && busy"
+      v-if="task"
       :task="task"
       @stop="agent?.stop()"
       @resume="agent?.continue($event)"

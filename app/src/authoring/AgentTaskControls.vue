@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import UiButton from "../ui/UiButton.vue";
+import { formatSpent } from "../agent/reportedSpend.ts";
 import type { AgentRunState } from "../agent/agentRun.ts";
 const { task, showText = true } = defineProps<{ task: AgentRunState | null; showText?: boolean }>();
 defineEmits<{ stop: []; resume: [requestLimit?: number]; discard: [] }>();
@@ -63,6 +64,20 @@ const quiet = computed(() =>
         {{ task.progress.text }}
       </p>
     </div>
+    <p
+      v-if="task.status !== 'running' && task.requests > 0"
+      class="task-spent"
+      data-testid="agent-spent"
+    >
+      {{
+        formatSpent({
+          amount: task.reportedSpent,
+          priceKnown: task.priceKnown,
+          incomplete: task.usageIncomplete,
+          budget: task.budget,
+        })
+      }}
+    </p>
     <div class="task-row">
       <span>Budget ${{ task.budget.toFixed(2) }}</span>
       <a :href="task.usageUrl ?? 'https://platform.openai.com/usage'" target="_blank" rel="noopener"
@@ -101,15 +116,20 @@ const quiet = computed(() =>
 
 <style scoped>
 .task-controls {
-  padding: 10px 0;
+  padding: 10px 12px;
   color: var(--ink-2);
   font: var(--text-xs) / var(--leading) var(--font-sans);
+}
+.task-spent,
+.task-row {
+  font-variant-numeric: tabular-nums;
 }
 .task-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  flex-wrap: wrap;
 }
 .task-row a {
   color: var(--action);

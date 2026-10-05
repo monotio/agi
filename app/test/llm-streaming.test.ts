@@ -111,6 +111,7 @@ for (const provider of ["openai", "anthropic"] as const) {
       assert.equal(requests, 1);
       assert.equal(run.snapshot().progress, null);
       assert.equal(run.snapshot().usageIncomplete, true);
+      assert.equal(run.snapshot().reportedSpent, 0, "unfinished usage is excluded from spent");
       assert.doesNotMatch(JSON.stringify(conversation.getTranscript()), /Discard this draft/);
       run.resume();
       await work;

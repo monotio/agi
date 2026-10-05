@@ -54,3 +54,21 @@ test("an agent request reserves allowance while its response is pending", async 
     await result;
   }
 });
+
+test("unreported image requests keep a budget hold without reporting it as spent", () => {
+  const account = beginProviderBudget(5);
+  const settle = reserveImageBudget(0.8);
+  assert.equal(account.reportedSpent, 0);
+  settle(null);
+  assert.equal(account.reportedSpent, 0);
+  assert.equal(account.usageIncomplete, true);
+  assert.equal(account.spent, 0.8);
+});
+
+test("partial image usage holds at least the reported charge against the budget", () => {
+  const account = beginProviderBudget(5);
+  reserveImageBudget(0.01)(null, 0.018);
+  assert.equal(account.reportedSpent, 0.018);
+  assert.equal(account.spent, 0.018);
+  assert.equal(account.usageIncomplete, true);
+});

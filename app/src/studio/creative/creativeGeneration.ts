@@ -1,3 +1,5 @@
+import type { ReportedSpend } from "../../agent/reportedSpend.ts";
+import { imageReportedSpend } from "./imageSpend.ts";
 /**
  * The optional image-generation controller: review -> one explicit submit ->
  * detached offer -> explicit Use. It sits on the accepted OpenAI adapter and
@@ -165,7 +167,7 @@ export interface CreativeGenerationHost {
   reserveRequest?(
     summary: OpenAiImageSummary,
     approved: boolean,
-  ): (offer: OpenAiImageOffer | null) => void;
+  ): (offer: OpenAiImageOffer | null) => ReportedSpend | void;
   /** Decode an offer through the shared intake; defaults to the upload path. */
   intakeOffer?: (offer: OpenAiImageOffer, signal?: AbortSignal) => Promise<CreativeImageIntake>;
   /**
@@ -317,6 +319,7 @@ export interface CreativeGenerationController {
   readonly review: CreativeGenerationReview | null;
   readonly offer: OpenAiImageOffer | null;
   readonly partialImage: Uint8Array | null;
+  readonly spend: ReportedSpend | null;
   /** The offer arrived after the work moved: a comparison, it cannot stage. */
   readonly offerStale: boolean;
   readonly disposed: boolean;
@@ -399,6 +402,7 @@ class CreativeGenerationControllerImpl implements CreativeGenerationController {
   private reviewState: ReviewState | null = null;
   private offerState: OfferState | null = null;
   private partialBytes: Uint8Array | null = null;
+  private spendState: ReportedSpend | null = null;
   private job: { readonly controller: AbortController; cancelled: boolean } | null = null;
   private isDisposed = false;
   private versionCount = 0;
@@ -430,6 +434,9 @@ class CreativeGenerationControllerImpl implements CreativeGenerationController {
   }
   get offer(): OpenAiImageOffer | null {
     return this.offerState?.offer ?? null;
+  }
+  get spend(): ReportedSpend | null {
+    return this.spendState ? { ...this.spendState } : null;
   }
   get partialImage(): Uint8Array | null {
     return this.partialBytes;
@@ -572,6 +579,7 @@ class CreativeGenerationControllerImpl implements CreativeGenerationController {
     if (this.phaseState === "offer")
       return this.refuse("invalid-request", "Settle the held offer before a new request.");
     const stamp = ++this.operationStamp;
+    this.spendState = null;
     this.phaseState = "preparing";
     this.failureInfo = null;
     this.reviewState = null;
@@ -786,7 +794,8 @@ class CreativeGenerationControllerImpl implements CreativeGenerationController {
     const job = { controller: new AbortController(), cancelled: false };
     this.job = job;
     this.changed();
-    let settle: ((offer: OpenAiImageOffer | null) => void) | undefined;
+    let settle: ((offer: OpenAiImageOffer | null) => ReportedSpend | void) | undefined;
+    let sent = false;
     try {
       await this.checkContext(review.record.context);
       await this.checkConsulted(review.consulted);
@@ -798,6 +807,7 @@ class CreativeGenerationControllerImpl implements CreativeGenerationController {
         throw fail("no-key", "Generation needs a saved OpenAI API key.");
       if (job.cancelled) throw fail("cancelled", "The request was cancelled.");
       settle = this.host.reserveRequest?.(review.record.summary, approved);
+      sent = true;
       const offer = await this.provider.submit(review.prepared, {
         signal: job.controller.signal,
         onPartial: (bytes) => {
@@ -806,7 +816,8 @@ class CreativeGenerationControllerImpl implements CreativeGenerationController {
           this.changed();
         },
       });
-      settle?.(offer);
+      const spend = settle?.(offer) ?? imageReportedSpend(offer.summary.model, offer.usage);
+      if (this.job === job) this.spendState = spend;
       settle = undefined;
       this.partialBytes = null;
       // A transport that settles after cancel/dispose is consumed by nobody.
@@ -877,9 +888,14 @@ class CreativeGenerationControllerImpl implements CreativeGenerationController {
       }
       this.refuse(reason, error instanceof Error ? error.message : String(error));
     } finally {
-      settle?.(null);
-      this.partialBytes = null;
-      if (this.job === job) this.job = null;
+      const spend = settle?.(null);
+      if (this.job === job) {
+        if (sent && this.spendState === null)
+          this.spendState = spend ?? imageReportedSpend(review.record.summary.model);
+        this.partialBytes = null;
+        this.job = null;
+        if (!this.isDisposed) this.changed();
+      }
     }
   }
 

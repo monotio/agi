@@ -9,6 +9,8 @@ export interface AgentRunState {
   status: "idle" | "running" | "paused";
   reason: string;
   spent: number;
+  /** Charges from completed requests in this task, excluding shared image activity. */
+  reportedSpent: number;
   budget: number;
   allowance: number;
   requests: number;
@@ -72,6 +74,7 @@ export class AgentRun {
       status: "idle",
       reason: "",
       spent: 0,
+      reportedSpent: 0,
       budget,
       allowance: budget,
       requests: 0,
@@ -119,6 +122,7 @@ export class AgentRun {
       status: "running",
       reason: "",
       spent: 0,
+      reportedSpent: 0,
       budget: this.allowance,
       requests: 0,
       usageIncomplete: false,
@@ -224,8 +228,12 @@ export class AgentRun {
         : inputCost;
     this.lastInputCost = inputCost;
     const charge = inputCost + (usage.output * this.outputRate) / 1e6;
+    this.state.reportedSpent += charge;
     this.state.spent += charge;
-    if (this.account) this.account.spent += charge;
+    if (this.account) {
+      this.account.spent += charge;
+      this.account.reportedSpent += charge;
+    }
     this.publish();
   }
   recordTool(
@@ -325,9 +333,9 @@ export class AgentRun {
       try {
         response = await send(controller.signal, maxTokens);
       } catch (error) {
+        this.state.usageIncomplete = true;
         if (!controller.signal.aborted || this.cancelled) throw error;
         // An aborted provider request may still be billed; do not call this total exact.
-        this.state.usageIncomplete = true;
         continue;
       } finally {
         if (account) account.reserved -= reservation;
