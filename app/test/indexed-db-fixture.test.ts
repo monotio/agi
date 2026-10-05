@@ -8,11 +8,51 @@ const openDatabase = (): Promise<IDBDatabase> =>
     request.onsuccess = () => resolve(request.result);
   });
 
-const settle = (transaction: IDBTransaction): Promise<string> =>
-  new Promise<string>((resolve) => {
-    transaction.oncomplete = () => resolve("complete");
-    transaction.onabort = () => resolve("abort");
+function transactionDeadline<T>(pending: Promise<T>): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    // wall-clock: bounds a missing terminal event; success resolves on complete or abort.
+    const deadline = setTimeout(
+      () => reject(new Error("Transaction did not complete or abort")),
+      100,
+    );
+    pending.then(
+      (value) => {
+        clearTimeout(deadline);
+        resolve(value);
+      },
+      (error: unknown) => {
+        clearTimeout(deadline);
+        reject(error);
+      },
+    );
   });
+}
+
+const settle = (transaction: IDBTransaction): Promise<string> =>
+  transactionDeadline(
+    new Promise<string>((resolve) => {
+      transaction.oncomplete = () => resolve("complete");
+      transaction.onabort = () => resolve("abort");
+    }),
+  );
+
+test("a transaction with no terminal event fails at its deadline", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const transaction = {} as IDBTransaction;
+  let outcome = "pending";
+  void settle(transaction).then(
+    () => {
+      outcome = "settled";
+    },
+    (error: Error) => {
+      outcome = error.message;
+    },
+  );
+  t.mock.timers.tick(100);
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.equal(outcome, "Transaction did not complete or abort");
+});
 
 const read = (store: IDBObjectStore, key: string): Promise<unknown> =>
   new Promise((resolve) => {
@@ -26,11 +66,13 @@ test("a failing operation rejects the transaction instead of leaving it pending"
   const database = await openDatabase();
   const transaction = database.transaction("projects", "readwrite");
   const events: string[] = [];
-  const settled = new Promise<string[]>((resolve) => {
-    transaction.oncomplete = () => resolve([...events, "complete"]);
-    transaction.onerror = () => events.push("error");
-    transaction.onabort = () => resolve([...events, "abort"]);
-  });
+  const settled = transactionDeadline(
+    new Promise<string[]>((resolve) => {
+      transaction.oncomplete = () => resolve([...events, "complete"]);
+      transaction.onerror = () => events.push("error");
+      transaction.onabort = () => resolve([...events, "abort"]);
+    }),
+  );
   // Functions are not structured-cloneable, so the fixture's put throws like a real store would.
   const request = transaction.objectStore("projects").put({ projectId: "broken", run: () => {} });
   request.onerror = () => events.push("request-error");
@@ -165,12 +207,14 @@ test("a transaction completes once after several requests drain together", async
   const database = await openDatabase();
   const transaction = database.transaction("projects", "readwrite");
   let completions = 0;
-  const settled = new Promise<void>((resolve) => {
-    transaction.oncomplete = () => {
-      completions++;
-      resolve();
-    };
-  });
+  const settled = transactionDeadline(
+    new Promise<void>((resolve) => {
+      transaction.oncomplete = () => {
+        completions++;
+        resolve();
+      };
+    }),
+  );
   const store = transaction.objectStore("projects");
   store.get("one");
   store.get("two");

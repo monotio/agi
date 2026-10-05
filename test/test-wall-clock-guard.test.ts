@@ -38,3 +38,25 @@ test("promise timers and timer import aliases need a reason; safety deadlines an
     [],
   );
 });
+
+for (const module of ["node:timers/promises", "timers/promises", "node:timers", "timers"]) {
+  test(`${module} namespace promise timers need a wall-clock reason`, () => {
+    const call = module.endsWith("/promises")
+      ? "timers.setTimeout(20)"
+      : "timers.promises.setTimeout(20)";
+    assert.deepEqual(
+      unmarkedTestWaits(`import * as timers from "${module}";\nawait ${call};`),
+      [2],
+    );
+    assert.deepEqual(
+      unmarkedTestWaits(
+        `import * as timers from "${module}";\n// wall-clock: failure deadline\nawait ${call};`,
+      ),
+      [],
+    );
+    assert.deepEqual(
+      unmarkedTestWaits('import * as other from "unrelated";\nawait other.setTimeout(20);'),
+      [],
+    );
+  });
+}

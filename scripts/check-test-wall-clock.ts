@@ -22,13 +22,19 @@ export function unmarkedTestWaits(source: string): number[] {
     }
   }
   const timerAliases = new Set<string>();
+  const promiseNamespaces = new Set<string>();
+  const timerNamespaces = new Set<string>();
   const waits: number[] = [];
   for (const statement of file.statements) {
     if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier))
       continue;
-    if (!/^(?:node:)?timers\/promises$/.test(statement.moduleSpecifier.text)) continue;
+    const module = statement.moduleSpecifier.text;
+    if (!/^(?:node:)?timers(?:\/promises)?$/.test(module)) continue;
     const bindings = statement.importClause?.namedBindings;
-    if (bindings && ts.isNamedImports(bindings)) {
+    if (bindings && ts.isNamespaceImport(bindings)) {
+      (module.endsWith("/promises") ? promiseNamespaces : timerNamespaces).add(bindings.name.text);
+    }
+    if (module.endsWith("/promises") && bindings && ts.isNamedImports(bindings)) {
       for (const binding of bindings.elements) {
         if ((binding.propertyName ?? binding.name).text === "setTimeout")
           timerAliases.add(binding.name.text);
@@ -42,7 +48,17 @@ export function unmarkedTestWaits(source: string): number[] {
         : ts.isIdentifier(node.expression)
           ? node.expression.text
           : "";
-      let promiseTimer = false;
+      const expression = node.expression;
+      const namespaceTimer =
+        ts.isPropertyAccessExpression(expression) &&
+        expression.name.text === "setTimeout" &&
+        ((ts.isIdentifier(expression.expression) &&
+          promiseNamespaces.has(expression.expression.text)) ||
+          (ts.isPropertyAccessExpression(expression.expression) &&
+            expression.expression.name.text === "promises" &&
+            ts.isIdentifier(expression.expression.expression) &&
+            timerNamespaces.has(expression.expression.expression.text)));
+      let promiseTimer = namespaceTimer;
       if (name === "setTimeout") {
         for (let parent = node.parent; parent; parent = parent.parent) {
           if (ts.isNewExpression(parent) && parent.expression.getText(file) === "Promise") {
