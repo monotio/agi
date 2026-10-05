@@ -244,6 +244,7 @@ export interface FrozenTestBoot {
 }
 
 export interface BootMessage {
+  amigaRegion?: "ntsc" | "pal";
   type: "boot";
   files: Record<string, Uint8Array>;
   words: [string, number][];

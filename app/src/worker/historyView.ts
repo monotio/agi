@@ -14,7 +14,7 @@
  * session's segment ends with reason "resume" — the tape is never
  * rewritten, only continued.
  */
-import { resetRecording } from "./session.ts";
+import { resetRecording, configureSessionTiming } from "./session.ts";
 import { Engine } from "../../../src/runtime/engine.ts";
 import { openContainer } from "../../../src/container/container.ts";
 import { base64ToBytes, bytesToBase64 } from "../project/bytes.ts";
@@ -362,7 +362,10 @@ export function createHistoryView(
       openContainer(files, boot.profile ? { profile: boot.profile } : {}),
       ctx.host,
       dictionary,
-      boot.profile ? { profile: boot.profile } : undefined,
+      {
+        ...(boot.profile ? { profile: boot.profile } : {}),
+        amigaRegion: boot.amigaRegion ?? "ntsc",
+      },
     );
     if (boot.image !== undefined)
       candidate.restoreImage(base64ToBytes(boot.image), { preservePresentation: true });
@@ -390,6 +393,7 @@ export function createHistoryView(
     ctx.boot.currentDictionary = dictionary;
     ctx.boot.authorRooms = boot.authorRooms;
     ctx.boot.profile = boot.profile ?? null;
+    ctx.boot.amigaRegion = candidate.amigaRegion;
     ctx.boot.authoredWords = null;
     ctx.boot.selectedSoundDevice = boot.soundDevice === 0 ? 0 : 1;
     ctx.hostRequests.hostRequestOutstanding = null;
@@ -412,6 +416,7 @@ export function createHistoryView(
     // recorded state (not the abandoned future's) and the recorded cycle
     // clock is deferred — a parked poll would discard its accumulators, so
     // it lands on the host's first release instead.
+    configureSessionTiming(ctx);
     ctx.cycle.pendingClock = boot.clock ?? null;
     if (boot.clock === undefined) ctx.clocks.cycle.reset(ctx.ports.now());
     if (boot.soundRemainder !== undefined)

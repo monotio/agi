@@ -67,6 +67,7 @@ export class HistoryUnsavedError extends Error {
 }
 
 export interface GameLifecycleOptions {
+  readonly getAmigaRegion?: () => "ntsc" | "pal";
   readonly state: EngineState;
   readonly hook: TextHook;
   readonly audio: AgiAudio | null;
@@ -395,6 +396,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
       options.audio?.useGameFiles(game.files);
       w.postMessage({
         type: "boot",
+        amigaRegion: options.getAmigaRegion?.() ?? "ntsc",
         ...(options.getProjectMode?.() === "create"
           ? {
               projectMode: "create" as const,
@@ -490,6 +492,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
       options.audio?.useGameFiles(prepared.game.files);
       w.postMessage({
         type: "boot",
+        amigaRegion: options.getAmigaRegion?.() ?? "ntsc",
         ...(options.getProjectMode?.() === "create"
           ? {
               projectMode: "create" as const,
@@ -801,6 +804,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
     options.audio?.useGameFiles(files);
     w.postMessage({
       type: "boot",
+      amigaRegion: options.getAmigaRegion?.() ?? "ntsc",
       projectMode: "create",
       sessionId: options.getSessionId(),
       soundDevice: state.soundMode === "pc-speaker" ? 0 : 1,
@@ -992,6 +996,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
           options.audio?.useGameFiles(cached.files);
           w.postMessage({
             type: "boot",
+            amigaRegion: options.getAmigaRegion?.() ?? "ntsc",
             ...(options.getProjectMode?.() === "create"
               ? {
                   projectMode: "create" as const,

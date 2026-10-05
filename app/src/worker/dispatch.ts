@@ -11,7 +11,7 @@ import { resourceCacheHint } from "../../../src/agent/authoringState.ts";
 import { base64ToBytes, bytesToBase64 } from "../project/bytes.ts";
 import { AUTOSAVE_INTERVAL_MS } from "./autosave.ts";
 import type { Inbound, WorkerContext } from "./context.ts";
-import { resetSession } from "./session.ts";
+import { resetSession, configureSessionTiming } from "./session.ts";
 import { newDebuggerState, newPreviewLane, mintPreviewRunToken } from "./debuggerState.ts";
 import { newProjectAdmissionState } from "./projectAdmissionState.ts";
 import { controllerDemand, ensureDebugController } from "./debugLoader.ts";
@@ -571,11 +571,15 @@ export function onWorkerMessage(ctx: WorkerContext, msg: WorkerInbound): void {
       ctx.boot.createAllowed = frozen === undefined;
       ctx.boot.selectedSoundDevice = boot.soundDevice === 0 ? 0 : 1;
       ctx.boot.profile = boot.profile ?? null;
+      ctx.boot.amigaRegion = boot.amigaRegion ?? "ntsc";
       ctx.engine = new Engine(
         openContainer(files, ctx.boot.profile ? { profile: ctx.boot.profile } : {}),
         ctx.host,
         ctx.boot.liveDictionary,
-        ctx.boot.profile ? { profile: ctx.boot.profile } : undefined,
+        {
+          ...(ctx.boot.profile ? { profile: ctx.boot.profile } : {}),
+          amigaRegion: ctx.boot.amigaRegion,
+        },
       );
       ctx.projectAdmission =
         boot.projectMode === "create" && frozen === undefined
@@ -627,6 +631,7 @@ export function onWorkerMessage(ctx: WorkerContext, msg: WorkerInbound): void {
           control({ type: "restored", ok: false, message: String(e) });
         }
       }
+      configureSessionTiming(ctx);
       if (frozen === undefined) {
         // The always-on recording opens its segment once the engine is
         // restored: the boot record carries the image the session resumed

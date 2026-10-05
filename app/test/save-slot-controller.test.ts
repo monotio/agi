@@ -113,3 +113,31 @@ test("useSaveSlotController handles saveList, saveWrite, and restore lifecycle",
   const restoredAuthored = await controller.handleSaveSlotRequest("restore", { slot: 2 });
   assert.equal(restoredAuthored, authoredPayload);
 });
+
+test("restore takes native bytes and region from one storage record", async () => {
+  const game: BootedGame = {
+    installed: false,
+    projectId: testProjectId("paired-save"),
+    title: "Paired",
+    revision: requireResourceRevision("ab".repeat(32)),
+    historyLifetime: "initial",
+    files: {},
+    words: [],
+  };
+  let reads = 0;
+  const storage = {
+    getItem() {
+      reads++;
+      return JSON.stringify({
+        format: "monotio.agi.saves",
+        version: 1,
+        slots: { "1": reads === 1 ? "original" : "replacement" },
+        ...(reads === 1 ? {} : { amigaRegions: { "1": "pal" } }),
+      });
+    },
+    setItem() {},
+  };
+  const controller = useSaveSlotController({ storage, getBootedGame: () => game });
+  assert.equal(await controller.handleSaveSlotRequest("restore", { slot: 1 }), "original");
+  assert.equal(reads, 1);
+});

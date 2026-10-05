@@ -18,7 +18,6 @@ import {
   reactive,
   shallowReactive,
   shallowRef,
-  watch,
 } from "vue";
 import type { createAgentLogger } from "../agent/agentLog.ts";
 import type { ReplayObservation } from "../walkthrough/replay.ts";
@@ -113,7 +112,7 @@ export function useEngine(
   let projectOpenEpoch = 0;
   let audio: AgiAudio | null = null;
   const amigaSettings = useAmigaRegion();
-  watch(amigaSettings.region, (region) => audio?.setAmigaRegion(region));
+
   let audioLoading: Promise<AgiAudio> | undefined;
 
   const state = reactive<EngineState>({
@@ -732,6 +731,7 @@ export function useEngine(
   };
 
   const lifecycle = useGameLifecycle({
+    getAmigaRegion: () => amigaSettings.region.value,
     state,
     hook,
     get audio() {

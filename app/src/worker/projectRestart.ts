@@ -11,6 +11,7 @@ export function installProjectRestart(ctx: WorkerContext, replacement: Engine): 
   if (ctx.engine!.hostInteractionPending) ctx.engine!.abortInteraction();
   ctx.fns.setKeyWaiting(false);
   ctx.fns.abandonHostRequest();
+  replacement.amigaRegion = ctx.engine!.amigaRegion;
   ctx.engine = replacement;
   ctx.boot.currentBootFiles = new Map(replacement.containerFiles);
   ctx.boot.profile = replacement.profile.id;

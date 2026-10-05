@@ -96,6 +96,7 @@ interface BootState {
   currentDictionary: Map<string, number> | null;
   /** The boot's interpreter-profile override; null detects from the files. */
   profile: ProfileId | null;
+  amigaRegion: "ntsc" | "pal";
 }
 
 /** worker/input.ts */
@@ -177,7 +178,7 @@ export interface ReplaySnapshot {
 interface CycleState {
   timer: number | null;
   soundTimer: number | null;
-  /** 60 Hz sound-clock ticks since session start — history's tick timeline. */
+  /** Region-rate sound-clock ticks since session start — history's tick timeline. */
   tickCount: number;
   /** Interpreter cycles completed since boot; the frame ring's timeline. */
   cycleCount: number;
@@ -320,7 +321,7 @@ interface HistoryState {
   };
   openBytes: number;
   /**
-   * 60 Hz sound ticks discharged inside the current host poll — the poll's
+   * Region-rate sound ticks discharged inside the current host poll — the poll's
    * clock observation counts them directly: they precede the poll's cycle
    * decision.
    */
@@ -649,6 +650,7 @@ export function createWorkerContext(ports: WorkerPorts): WorkerContext {
       currentBootFiles: null,
       currentDictionary: null,
       profile: null,
+      amigaRegion: "ntsc",
     },
     clocks: { sound: new SoundClock(now), cycle: new CycleClock(now) },
     input: {

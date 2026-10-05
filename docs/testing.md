@@ -804,7 +804,7 @@ booting it, so any emulated filesystem writes affect the working copy.
 5. Extract the resources from the successful image for the offline engine run.
    Include the IIgs interpreter and `SIERRASTANDARD`, since together they supply
    its instruments. Boot real LOGIC with a controlled RNG, advance `CycleClock`
-   and the 60 Hz sound heartbeat, and send the resulting packets through the
+   and the selected profile/region sound heartbeat, and send the resulting packets through the
    shipped audio graph into an `OfflineAudioContext`. Record the source revision
    and master volume. A low capture gain preserves headroom for analysis.
 6. Inspect the WAV's channel count and identify game speaker outputs before
@@ -820,6 +820,24 @@ booting it, so any emulated filesystem writes affect the working copy.
 8. Compare hardware region, output filters and clipping before attributing a
    difference to the interpreter. Re-render the same packet stream after audio
    presentation changes, and re-run LOGIC when scheduler behavior changes.
+
+For Amiga PAL timing, capture the same passage on `a500` and `a500n` with
+`-bios kick13`, separate configuration directories and working disk copies.
+Measure note attacks and pitch independently. A read-only Lua probe can locate
+the original timer's relocated operands and observe v11 and its callback counter
+on every frame. Record loaded addresses, counter deltas and frame counts; game
+LOGIC alone may reset v11. The original timer findings and measured intervals
+are in [Original Amiga sound player](fidelity.md#original-amiga-sound-player).
+A European release needs its own verified executable before making a regional
+patch claim.
+
+The portable regressions in `test/amiga-timing.test.ts` hand-count three frames
+per pacing increment and 60 per game second. `app/test/worker-amiga-timing.test.ts`
+covers PAL boot, tape adoption, autosave and numbered-save restoration, including
+restoring a PAL tape under an NTSC preference. Audio packet tests assert 20 ms
+PAL write spacing; the Amiga setting browser test checks the next-start rule.
+Released archive fixtures remain unchanged and continue to read as NTSC when
+region metadata is absent.
 
 MAME's [Lua device interface](https://docs.mamedev.org/luascript/ref-devices.html)
 documents screenshots and image devices. Its

@@ -281,6 +281,8 @@ export interface HistoryBoot {
   authorRooms: boolean;
   /** Interpreter-profile override the session booted under; absent detects from `files`. */
   profile?: ProfileId;
+  /** Absent uses the released NTSC timing. */
+  amigaRegion?: "ntsc" | "pal";
   /** Set when the segment continues an earlier one (replay takeover, budget rollover). */
   resumedFrom?: { segment: string; seq: number; tick: number };
   image?: string;
@@ -985,6 +987,12 @@ function projectDocuments(value: unknown): HistoryProjectDocuments {
 /** Validate a standalone boot record (a retained original carried over messages). */
 export function validateHistoryBoot(value: unknown): HistoryBoot {
   if (!isObj(value)) fail("boot must be an object.");
+  if (
+    value["amigaRegion"] !== undefined &&
+    value["amigaRegion"] !== "pal" &&
+    value["amigaRegion"] !== "ntsc"
+  )
+    fail("boot region must be ntsc or pal.");
   const files = value["files"];
   if (!isObj(files) || Object.keys(files).length > 1024) fail("boot.files must be a bounded map.");
   const out: Omit<HistoryBoot, "fingerprint"> = {
@@ -997,6 +1005,9 @@ export function validateHistoryBoot(value: unknown): HistoryBoot {
     dictionary: dictionary(value["dictionary"]),
     authorRooms: value["authorRooms"] === true,
     ...(value["profile"] !== undefined ? { profile: profileId(value["profile"]) } : {}),
+    ...(value["amigaRegion"] !== undefined
+      ? { amigaRegion: value["amigaRegion"] as "ntsc" | "pal" }
+      : {}),
     rng: int(value["rng"], "boot rng", 0xffff),
     ...(value["resumedFrom"] !== undefined
       ? {

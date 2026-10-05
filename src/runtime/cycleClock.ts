@@ -1,6 +1,7 @@
 /**
  * AGI v10 uses 1/20-second increments, per Peter Kelly's AGI Studio reference:
  * https://agistudio.sourceforge.net/help/special_variables.html
+ * Amiga regions use three frames per increment (docs/fidelity.md "Original Amiga sound player").
  * The agi-re runtime-state contract specifies accumulation and counter clearing.
  */
 export const TIMER_INCREMENT_MS = 50;
@@ -8,11 +9,13 @@ export const TIMER_INCREMENT_MS = 50;
 /** Host adapter for the pacing-counter contract in the agi-re runtime-state specification. */
 export class CycleClock {
   private previous: number;
+  readonly incrementMs: number;
   private remainder = 0;
   private increments = 0;
   private paused = false;
 
-  constructor(now: number) {
+  constructor(now: number, incrementMs = TIMER_INCREMENT_MS) {
+    this.incrementMs = incrementMs;
     if (!Number.isFinite(now)) throw new Error("Cycle clock time must be finite.");
     this.previous = now;
   }
@@ -38,8 +41,8 @@ export class CycleClock {
     const elapsed = monotonic - this.previous;
     this.previous = monotonic;
     const elapsedMs = this.remainder + elapsed;
-    const whole = Math.floor((elapsedMs + 1e-7) / TIMER_INCREMENT_MS);
-    this.remainder = Math.max(0, elapsedMs - whole * TIMER_INCREMENT_MS);
+    const whole = Math.floor((elapsedMs + 1e-7) / this.incrementMs);
+    this.remainder = Math.max(0, elapsedMs - whole * this.incrementMs);
     this.increments += whole;
   }
 

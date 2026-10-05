@@ -340,7 +340,7 @@ defineExpose({ toggle, close, open });
             v-if="state.phase === 'running' && soundFamily(state.profile) === 'amiga'"
             class="settings-row"
           >
-            <label :for="amigaRegionId">Amiga sound</label>
+            <label :for="amigaRegionId">Amiga timing<small>Applies on the next start</small></label>
             <span class="setting-value">
               <UiSelect
                 :id="amigaRegionId"

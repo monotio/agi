@@ -25,7 +25,7 @@ export function replayTick(ctx: WorkerContext, obs?: { sound?: number; cycle?: b
   if (replay === null) return;
   replay.tick++;
   ctx.cycle.tickCount = replay.tick;
-  ctx.fns.stepHostTick((replay.tick * 1000) / 60, obs);
+  ctx.fns.stepHostTick((replay.tick * 1000) / (ctx.engine?.timing.soundHz ?? 60), obs);
 }
 
 interface ReplayAdvanceOptions {
@@ -92,7 +92,7 @@ export function createReplay(ctx: WorkerContext) {
       while (remaining > 0 && chunkTicks < maxChunkTicks) {
         if (ctx.engine.awaitingHostAnswer) break;
         // One sound tick per virtual poll — the walkthrough's perfect
-        // 60 Hz clock; the cycle decision polls the clock reset to virtual
+        // region-rate clock; the cycle decision polls the clock reset to virtual
         // time.
         replayTick(ctx, { sound: 1 });
         remaining--;
@@ -231,7 +231,10 @@ export function createReplay(ctx: WorkerContext) {
       ),
       ctx.host,
       ctx.boot.currentDictionary,
-      ctx.boot.profile ? { profile: ctx.boot.profile } : undefined,
+      {
+        ...(ctx.boot.profile ? { profile: ctx.boot.profile } : {}),
+        amigaRegion: ctx.boot.amigaRegion,
+      },
     );
     ctx.fns.armJournal();
     ctx.engine.flags[9] = 1;
@@ -247,7 +250,7 @@ export function createReplay(ctx: WorkerContext) {
       ctx.input.clickQueue = snap.clickQueue.map(([x, y]): [number, number] => [x, y]);
       ctx.hostRequests.hostRequestSerial = snap.requestSerial;
       // The replay tick axis is virtual time; both clocks re-base onto it.
-      const virtualNow = (tick * 1000) / 60;
+      const virtualNow = (tick * 1000) / ctx.engine.timing.soundHz;
       ctx.clocks.cycle.restore(snap.clock, virtualNow);
       ctx.clocks.sound.restore(virtualNow, snap.soundRemainder);
       ctx.cycle.paused = snap.clock.paused;
@@ -292,7 +295,10 @@ export function createReplay(ctx: WorkerContext) {
       ),
       ctx.host,
       ctx.boot.currentDictionary,
-      ctx.boot.profile ? { profile: ctx.boot.profile } : undefined,
+      {
+        ...(ctx.boot.profile ? { profile: ctx.boot.profile } : {}),
+        amigaRegion: ctx.boot.amigaRegion,
+      },
     );
     ctx.fns.armJournal();
     ctx.engine.flags[9] = 1;

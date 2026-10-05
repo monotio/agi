@@ -3,7 +3,10 @@ export class SoundClock {
   private previous: number;
   private remainder = 0;
 
-  constructor(now: number) {
+  readonly hz: number;
+
+  constructor(now: number, hz = 60) {
+    this.hz = hz;
     this.previous = now;
   }
 
@@ -12,7 +15,7 @@ export class SoundClock {
     this.remainder = 0;
   }
 
-  /** The sub-tick carry, in ms·60 units — a history anchor's sound-clock state. */
+  /** The sub-tick carry, in ms·hz units — a history anchor's sound-clock state. */
   snapshot(): number {
     return this.remainder;
   }
@@ -26,13 +29,13 @@ export class SoundClock {
     this.remainder = remainder;
   }
 
-  /** Return whole 60Hz ticks since the previous observation, preserving fractions. */
+  /** Return whole sound ticks since the previous observation, preserving fractions. */
   advance(now: number, paused = false): number {
     const elapsed = Math.max(0, now - this.previous);
     this.previous = now;
     if (paused) return 0;
-    // Keep units in milliseconds * 60 to avoid rounding every timer callback.
-    const total = this.remainder + elapsed * 60;
+    // Keep units in milliseconds * hz to avoid rounding every timer callback.
+    const total = this.remainder + elapsed * this.hz;
     const ticks = Math.floor((total + 1e-7) / 1000);
     this.remainder = Math.max(0, total - ticks * 1000);
     return ticks;

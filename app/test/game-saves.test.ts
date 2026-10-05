@@ -51,3 +51,23 @@ test("future save versions are retained and never overwritten", () => {
   assert.equal(writeGameSave(storage, "game", 2, "current"), false);
   assert.equal(values.get("monotio_agi.saves.game"), future);
 });
+
+test("PAL save timing is optional version-1 metadata and survives another slot write", async () => {
+  const { readGameSaveRecord } = await import("../src/saves/gameSaves.ts");
+  const values = new Map<string, string>();
+  const storage = {
+    getItem: (key: string) => values.get(key) ?? null,
+    setItem: (key: string, value: string) => {
+      values.set(key, value);
+    },
+  };
+  assert.equal(writeGameSave(storage, "game", 1, "image", "pal"), true);
+  assert.equal(writeGameSave(storage, "game", 2, "other"), true);
+  assert.equal(readGameSaveRecord(storage, "game").amigaRegions["1"], "pal");
+  assert.deepEqual(readGameSaves(storage, "game"), { "1": "image", "2": "other" });
+  storage.setItem = () => {
+    throw new Error("refused");
+  };
+  assert.equal(writeGameSave(storage, "game", 1, "replacement", "ntsc"), false);
+  assert.equal(readGameSaveRecord(storage, "game").amigaRegions["1"], "pal");
+});
