@@ -3906,7 +3906,7 @@ The stored MAME capture and corrected 48 kHz float render use the same
 
 Separate host channel renders show the bass channel 3 changing from -1.60 dB
 to +0.84 dB relative to channel 0, and percussion channel 6 from -8.46 dB to
--5.20 dB. These measure host balance before and after; the stored mixed MAME
+-5.19 dB. These measure host balance before and after; the stored mixed MAME
 capture does not isolate individual voices. The residual high-band difference
 has an unresolved cause. Web Audio interpolates the wave buffers, whereas
 the DOC addresses discrete bytes at its scan rate. Native DOC output holding,

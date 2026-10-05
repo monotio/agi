@@ -72,7 +72,7 @@ describe("createSoundDocument", () => {
 
 describe("importSoundDocument strict decode", () => {
   it("decodes a hand-written tone event exactly and re-encodes to identical bytes", () => {
-    // lane0: 30 ticks, divisor 226 (~A4), attenuation 4 -> 1e 00 0e 82 94
+    // lane0: 30 ticks, divisor 226 (~B4), attenuation 4 -> 1e 00 0e 82 94
     const bytes = payload([[...toneRecord(0, 30, 226, 4), ...END], [...END], [...END], [...END]]);
     const doc = importSoundDocument(bytes, { profileId: "2.936" });
     assert.equal(doc.representation, "four-stream");
