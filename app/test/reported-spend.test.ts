@@ -26,14 +26,14 @@ test("image spend prices only reported text, image input and output tokens", () 
     priceKnown: true,
     incomplete: false,
   });
-  assert.equal(imageReportedSpend("gpt-image-2", usage).amount, 0.052);
+  assert.equal(imageReportedSpend("gpt-image-2", usage).amount, 0.07);
   assert.equal(
     imageReportedSpend("gpt-image-2", {
       inputTextTokens: 2000,
       inputImageTokens: 3000,
       outputImageTokens: 1200,
     }).amount,
-    0.052,
+    0.07,
   );
 });
 
@@ -51,8 +51,8 @@ test("unknown image prices and missing image usage never invent spend", () => {
 
 test("partial completed image usage contributes a measured lower bound", () => {
   const spend = imageReportedSpend("gpt-image-2", { outputImageTokens: 1200 });
-  // The returned 1,200 output image tokens cost $15/M; input usage was absent.
-  assert.equal(spend.amount, 0.018);
+  // The returned 1,200 output image tokens cost $30/M; input usage was absent.
+  assert.equal(spend.amount, 0.036);
   assert.equal(spend.incomplete, true);
 });
 
@@ -65,4 +65,19 @@ test("lower bounds round down to cents and identify reported fractions of a cent
     formatSpent({ amount: 0.009, priceKnown: true, incomplete: true }),
     "Spent at least $0.00 (less than $0.01 reported); see your usage for the total",
   );
+});
+
+test("cached image input is charged once at the cached rate", () => {
+  // 2,000 text × $5/M + 2,000 fresh images × $8/M + 1,000 cached × $2/M
+  // + 1,200 output × $30/M = $0.064.
+  for (const model of ["gpt-image-2", "gpt-image-2.5-sunburst", "gpt-image-2.5-flare"])
+    assert.deepEqual(
+      imageReportedSpend(model, {
+        inputTextTokens: 2000,
+        inputImageTokens: 3000,
+        inputCachedTokens: 1000,
+        outputTokens: 1200,
+      }),
+      { amount: 0.064, priceKnown: true, incomplete: false },
+    );
 });

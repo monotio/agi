@@ -5,11 +5,20 @@ import { rangeAt, positionAt, type Range } from "./lspTypes.ts";
 
 function printArguments(source: string) {
   const syntax = analyzeLogicSyntax(source);
-  const messages: Record<string, string | undefined> = {};
+  const messages = new Map<string, string | undefined>();
   for (const [index, token] of syntax.tokens.entries()) {
-    if (token.text === "#message")
-      messages[syntax.tokens[index + 1]!.text] =
-        syntax.tokens[index + 2]?.type === "string" ? syntax.tokens[index + 2]!.text : undefined;
+    const key = syntax.tokens[index + 1]?.text;
+    if (
+      token.text === "#message" &&
+      key &&
+      /^\d+$/.test(key) &&
+      Number(key) >= 1 &&
+      Number(key) <= 255
+    )
+      messages.set(
+        String(Number(key)),
+        syntax.tokens[index + 2]?.type === "string" ? syntax.tokens[index + 2]!.text : undefined,
+      );
   }
   const arguments_ = syntax.tokens.flatMap((token, index) => {
     if (
@@ -23,7 +32,12 @@ function printArguments(source: string) {
     return [
       {
         token: argument,
-        text: argument.type === "string" ? argument.text : number ? messages[number] : undefined,
+        text:
+          argument.type === "string"
+            ? argument.text
+            : number
+              ? messages.get(String(Number(number)))
+              : undefined,
       },
     ];
   });
@@ -48,7 +62,7 @@ export function messageCodeActions(
   return arguments_.flatMap(({ token, text }) => {
     if (text === undefined || token.start > end || token.end < start) return [];
     const inline = token.type === "string";
-    const num = Math.max(0, ...Object.keys(messages).map(Number)) + 1;
+    const num = Math.max(0, ...[...messages.keys()].map(Number)) + 1;
     if (inline && num > 255) return [];
     return [
       {

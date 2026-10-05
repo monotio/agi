@@ -13,12 +13,13 @@ const { text } = defineProps<{ text: string }>();
 const canvas = useTemplateRef("canvas");
 const presentation = usePresentation();
 let stage: AgiStage | null = null;
+let fallback: CanvasRenderingContext2D | null = null;
 let closed = false;
 const ready = ref(false);
 let visibility: IntersectionObserver | undefined;
 let starting = false;
 function render(): void {
-  if (!stage) return;
+  if (!stage && !fallback) return;
   const surface = new TextSurface();
   const lines = wrapLines(text, 30);
   drawWindow(surface, placeWindow(lines, 1), lines, 0xf0, 0xf4);
@@ -31,12 +32,18 @@ function render(): void {
     },
     pixels,
   );
-  stage.render(pixels, true);
-  stage.flush();
+  if (stage) {
+    stage.render(pixels, true);
+    stage.flush();
+  } else if (fallback) {
+    const frame = fallback.createImageData(320, 200);
+    frame.data.set(pixels);
+    fallback.putImageData(frame, 0, 0);
+  }
   ready.value = true;
 }
 async function start(): Promise<void> {
-  if (starting || stage || closed) return;
+  if (starting || stage || fallback || closed) return;
   starting = true;
   const target = canvas.value!;
   const { AgiStage } = await import("../../three/AgiStage.ts");
@@ -49,6 +56,7 @@ async function start(): Promise<void> {
   }
   stage = created;
   if (stage) stage.crt = false;
+  else fallback = target.getContext("2d");
   render();
 }
 onMounted(() => {

@@ -192,3 +192,39 @@ for (const [width, height] of [
     await shot(page, `${width}-Sound-preset`);
   });
 }
+
+for (const [width, height] of [
+  [1063, 815],
+  [1440, 900],
+  [390, 844],
+] as const) {
+  test(`message preview with WebGL2 unavailable at ${width} @webkit-desktop`, async ({ page }) => {
+    await page.setViewportSize({ width, height });
+    await page.addInitScript(() => {
+      const original = HTMLCanvasElement.prototype.getContext;
+      HTMLCanvasElement.prototype.getContext = function (
+        this: HTMLCanvasElement,
+        ...args: Parameters<typeof original>
+      ) {
+        if (args[0] === "webgl2" && this.getAttribute("aria-label") === "Game message preview")
+          return null;
+        return original.apply(this, args);
+      } as typeof original;
+    });
+    await start(page);
+    const form = await open(page, "Answer a sentence");
+    await form
+      .getByLabel("The game says…", { exact: true })
+      .fill("The sun shines above the clearing.");
+    const preview = form.getByRole("img", { name: "Game message preview" });
+    await expect(preview).toBeVisible();
+    await preview.scrollIntoViewIfNeeded();
+    await page.screenshot({
+      path: test.info().outputPath(`${width}-fallback.png`),
+      animations: "disabled",
+    });
+    await messagePixels(preview);
+    await form.getByLabel("The game says…", { exact: true }).fill("Hello from your game.");
+    await messagePixels(preview);
+  });
+}
