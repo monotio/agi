@@ -40,7 +40,7 @@ test("names open resources, peek game state and rename all authored uses @webkit
   await start(page);
   const parts = page.getByTestId("parts-list");
   await expect(parts.getByRole("heading", { name: "Game state", exact: true })).toBeVisible();
-  await parts.getByRole("button", { name: "chime_done · Flag 204", exact: true }).click();
+  await parts.getByRole("button", { name: "chime_done Flag 204", exact: true }).click();
   const details = page.getByTestId("binding-details");
   await expect(details).toBeVisible();
   await expect(details).toContainText("Set · LOGIC 1");
@@ -64,7 +64,13 @@ test("names open resources, peek game state and rename all authored uses @webkit
   await findWord(page, "birdsong_done");
   await page.keyboard.press("F12");
   await expect(details).toBeVisible();
-  await expect(details).toContainText("birdsong_done · Flag 204");
+  await expect(details.locator("header strong")).toHaveText("birdsong_done");
+  const storedNumber = details.locator("header small");
+  await expect(storedNumber).toBeVisible();
+  await expect(storedNumber).toHaveText("Flag 204");
+  expect((await storedNumber.boundingBox())!.y).toBeGreaterThan(
+    (await details.locator("header strong").boundingBox())!.y,
+  );
   await expect(page.locator(".monaco-editor")).not.toContainText("bindings.json");
   await expect(page.locator(".reference-zone-widget")).toHaveCount(0);
   for (const viewport of [
@@ -159,12 +165,14 @@ test("name hover opens resources and message actions keep readable text @webkit-
   await editor.locator(".view-lines").getByText("chime_sound", { exact: true }).hover();
   const hover = page.locator(".monaco-hover:not(.hidden)");
   await expect(hover).toBeVisible();
-  await expect(hover).toContainText("chime_sound · SOUND 1 · used in 1 places");
+  await expect(hover).toContainText("chime_sound · SOUND 1 · used in 1 place");
   await expect(hover.getByRole("link", { name: "Rename", exact: true })).toBeVisible();
   await hover.getByRole("link", { name: "Rename", exact: true }).click();
   const details = page.getByTestId("binding-details");
   await expect(details).toBeVisible();
   await details.getByLabel("Name", { exact: true }).fill("birdsong");
+  await expect(details.getByLabel("Name", { exact: true })).toBeFocused();
+  await expect(details.getByLabel("Name", { exact: true })).toHaveValue("birdsong");
   await details.getByRole("button", { name: "Save name", exact: true }).click();
   await workspaceSaved(page);
   await expect(details).toContainText("load.sound(birdsong);");
@@ -172,7 +180,7 @@ test("name hover opens resources and message actions keep readable text @webkit-
   await details.getByRole("button", { name: "Close", exact: true }).click();
   await editor.locator(".view-lines").getByText("birdsong", { exact: true }).hover();
   await expect(hover).toBeVisible();
-  await expect(hover).toContainText("birdsong · SOUND 1 · used in 1 places");
+  await expect(hover).toContainText("birdsong · SOUND 1 · used in 1 place");
   await hover.getByRole("link", { name: "Open", exact: true }).click();
   await expect(page.getByTestId("workspace-sound")).toBeVisible();
   await openWorkspaceLogic(page);
@@ -245,4 +253,46 @@ test("Home cards offer one Create and neutral entries clear an AI pick", async (
   await expect(
     page.getByRole("radiogroup", { name: "Starting point" }).locator('[aria-checked="true"]'),
   ).toHaveCount(0);
+});
+
+test("F5 runs from the parts list, header, agent and page without reloading", async ({ page }) => {
+  await start(page);
+  await openWorkspaceLogic(page);
+  let navigations = 0;
+  page.on("framenavigated", (frame) => {
+    if (frame === page.mainFrame()) navigations++;
+  });
+  for (const target of ["parts", "header", "agent", "page"]) {
+    if (target === "parts") await page.getByTestId("part-room:1:logic").focus();
+    else if (target === "header") await page.getByTestId("workspace-agent").focus();
+    else if (target === "agent") {
+      await page.getByTestId("workspace-agent").click();
+      await expect(page.getByTestId("workspace-agent-panel")).toBeVisible();
+      await page.getByTestId("agent-message").focus();
+    } else
+      await page.evaluate(() => {
+        document.body.tabIndex = -1;
+        document.body.focus();
+      });
+    await page.keyboard.press("F5");
+    await expect(page.getByTestId("debug-stop")).toBeVisible();
+    await page.keyboard.press("Shift+F5");
+    await expect(page.getByTestId("debug-stop")).toHaveCount(0);
+  }
+  expect(navigations).toBe(0);
+});
+
+test("switching names resets Rename and leaves both bindings unchanged", async ({ page }) => {
+  await start(page);
+  const before = await workspaceDocument(page, "bindings");
+  const parts = page.getByTestId("parts-list");
+  await parts.getByRole("button", { name: "chime_done Flag 204", exact: true }).click();
+  const details = page.getByTestId("binding-details");
+  await expect(details).toBeVisible();
+  await details.getByRole("button", { name: "Rename", exact: true }).click();
+  await details.getByLabel("Name", { exact: true }).fill("birdsong_done");
+  await parts.getByRole("button", { name: "dead Flag 202", exact: true }).click();
+  await expect(details.locator("header strong")).toHaveText("dead");
+  await expect(details.getByLabel("Name", { exact: true })).toBeHidden();
+  expect(await workspaceDocument(page, "bindings")).toBe(before);
 });

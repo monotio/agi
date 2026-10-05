@@ -151,7 +151,8 @@ for (const [width, height] of [
     await form.getByRole("button", { name: "Add", exact: true }).click();
     await expect(form).toBeHidden();
     await workspaceSaved(page);
-    expect(await workspaceDocument(page, "logic:2")).toContain("position(o0, 127, 112)");
+    // Arrival starts at its own position (80,140); ArrowLeft moves it one cell.
+    expect(await workspaceDocument(page, "logic:2")).toContain("position(o0, 79, 140)");
     await page.getByTestId("workspace-undo").click();
     await workspaceSaved(page);
     expect(await workspaceDocument(page, "logic:1")).toBe(before);

@@ -255,7 +255,8 @@ shows WORDS, SOUND, History, Play with CRT and Make a new game._
   a whole item moves with all its planes. **Undo** steps back across parts.
 - **LOGIC** uses code intelligence, completion and diagnostics. Typing starts saving
   the source; **Saved** confirms browser storage. Errors leave the last working build running. **+ Add** guides
-  room creation, hero placement, responses, doors and sounds.
+  **Add a room**, **Place hero** with Start here or drag, a drawn **Door**,
+  **Answer a sentence**, and **Play a sound when…**.
 - **SOUND** opens beside the game. Draw the three voices and Drums on the **Grid**,
   or type notes, tick lengths and hex volumes in the **Tracker**. **Choose preset**
   previews recipes and adds a new SOUND. Set tempo and snap, and play a private audition

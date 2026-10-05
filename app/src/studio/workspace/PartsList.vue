@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, shallowRef, useTemplateRef, watch, onWatcherCleanup } from "vue";
 import { useEngineApi } from "../../engine/engineContext.ts";
+import WorkspaceTip from "../../shell/WorkspaceTip.vue";
 import BindingDetails from "../../shell/BindingDetails.vue";
 import { workspaceBindingInfos } from "../../shell/workspaceNames.ts";
 import type { BindingInfo } from "../../../../src/logic/projectNames.ts";
@@ -109,6 +110,10 @@ function onKey(event: KeyboardEvent): void {
     data-testid="parts-list"
     @keydown="onKey"
   >
+    <WorkspaceTip
+      id="workspace"
+      text="Pick a part to change it. Play your game beside the editor."
+    />
     <section v-for="group in groups" :key="group.label">
       <header>
         <h2>
@@ -199,7 +204,8 @@ function onKey(event: KeyboardEvent): void {
               editingName = false;
             "
           >
-            {{ info.name }} · {{ info.kind === "flag" ? "Flag" : "Variable" }} {{ info.num }}
+            {{ info.name
+            }}<small>{{ info.kind === "flag" ? "Flag" : "Variable" }} {{ info.num }}</small>
           </button>
           <small v-for="role in ['Set', 'Checked'] as const" :key="role"
             >{{ role }}:
@@ -256,6 +262,8 @@ function onKey(event: KeyboardEvent): void {
 }
 .state-row .part {
   grid-column: 1 / -1;
+  flex-direction: column;
+  align-items: flex-start;
 }
 .state-row small {
   grid-column: 1;

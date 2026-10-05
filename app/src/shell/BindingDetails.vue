@@ -14,8 +14,9 @@ const name = ref(info.name);
 const busy = ref(false);
 const error = ref("");
 watch(
-  () => info.name,
-  (value) => {
+  () => [info.kind, info.num, info.name] as const,
+  ([kind, num, value], [oldKind, oldNum]) => {
+    if (kind === oldKind && num === oldNum && (editing.value || busy.value)) return;
     name.value = value;
     editing.value = rename;
     error.value = "";
@@ -26,6 +27,8 @@ async function save(): Promise<void> {
   busy.value = true;
   error.value = "";
   try {
+    const newName = name.value.trim();
+    const original = { name: info.name, kind: info.kind, num: info.num };
     await workspace.flush.value?.();
     const snapshot = engine.getProjectSession()?.model.capture();
     if (!snapshot) throw new Error("Open a project to rename its parts.");
@@ -33,16 +36,18 @@ async function save(): Promise<void> {
       engine,
       snapshot,
       engine.roomMap.resources.value.profile?.id ?? "2.936",
-      info.name,
-      name.value.trim(),
+      original.name,
+      newName,
     );
     const updated = engine.getProjectSession()!.model.capture();
     const renamed = workspaceBindingInfos(
       updated,
       engine.roomMap.resources.value.profile?.id ?? "2.936",
-    ).find((entry) => entry.name === name.value.trim());
-    editing.value = false;
-    emit("renamed", renamed ?? { ...info, name: name.value.trim() });
+    ).find((entry) => entry.name === newName);
+    if (info.kind === original.kind && info.num === original.num) {
+      editing.value = false;
+      emit("renamed", renamed ?? { ...info, name: newName });
+    }
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : String(cause);
   } finally {
@@ -62,17 +67,20 @@ function openUse(use: BindingInfo["uses"][number]): void {
 <template>
   <section class="binding-details" data-testid="binding-details" aria-label="Name details">
     <header>
-      <strong
-        >{{ info.name }} ·
-        {{
-          info.kind === "flag"
-            ? "Flag"
-            : info.kind === "variable"
-              ? "Variable"
-              : info.kind.toUpperCase()
-        }}
-        {{ info.num }}</strong
-      ><UiButton size="sm" variant="ghost" @click="emit('close')">Close</UiButton>
+      <div>
+        <strong>{{ info.name }}</strong>
+        <small
+          >{{
+            info.kind === "flag"
+              ? "Flag"
+              : info.kind === "variable"
+                ? "Variable"
+                : info.kind.toUpperCase()
+          }}
+          {{ info.num }}</small
+        >
+      </div>
+      <UiButton size="sm" variant="ghost" @click="emit('close')">Close</UiButton>
     </header>
     <p>
       {{
@@ -80,7 +88,7 @@ function openUse(use: BindingInfo["uses"][number]): void {
           ? "Remembers an on or off choice."
           : info.kind === "variable"
             ? "Holds a number from 0 to 255."
-            : `Used in ${info.uses.length} places.`
+            : `Used in ${info.uses.length} ${info.uses.length === 1 ? "place" : "places"}.`
       }}
     </p>
     <UiButton v-if="!editing" size="sm" :disabled="workspace.readOnly.value" @click="editing = true"
@@ -162,6 +170,7 @@ li button {
   cursor: pointer;
 }
 small {
+  display: block;
   overflow-wrap: anywhere;
 }
 </style>

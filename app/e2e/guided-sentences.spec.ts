@@ -1,4 +1,5 @@
 import { test, expect } from "./test.ts";
+import type { ProjectSession } from "../src/project/projectSession.ts";
 import type { Page } from "@playwright/test";
 import type { WorkerQueryFn } from "../src/worker/workerProtocol.ts";
 import {
@@ -156,4 +157,144 @@ test("sound recipes explain and audition before adding a new sentence trigger", 
   await expect(form).toBeHidden();
   await workspaceSaved(page);
   expect(await workspaceDocument(page, "logic:1")).toContain('said("ring", "bell")');
+});
+
+test("Place hero starts with the room’s current VIEW", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await start(page);
+  await page.evaluate(async () => {
+    const session = (
+      window as unknown as {
+        __AGI_PROJECT__: {
+          getSession(): ProjectSession;
+        };
+      }
+    ).__AGI_PROJECT__.getSession();
+    const base = session.model.capture();
+    const bindings = JSON.parse(base.read("bindings")!.content as string);
+    bindings.ego_view.num = 3;
+    await session.submit({
+      proposal: session.model.propose(base, "Change hero VIEW", [
+        { key: "bindings", content: JSON.stringify(bindings) },
+        { key: "view:3", content: base.read("view:0")!.content },
+      ]),
+      label: "Change hero VIEW",
+      author: "creator",
+      origin: "view",
+    });
+  });
+  await page.getByTestId("workspace-add").click();
+  await page.getByRole("menuitem", { name: "Place hero", exact: true }).click();
+  const form = page.getByTestId("workspace-guided-form");
+  await expect(form).toBeVisible();
+  await form.getByText("Exact numbers", { exact: true }).click();
+  await expect(form.getByLabel("VIEW", { exact: true })).toHaveValue("3");
+});
+
+test("Door starts with its own coordinates and waits for a box and destination", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await start(page);
+  await page.getByTestId("workspace-add").click();
+  await page.getByRole("menuitem", { name: "Place hero", exact: true }).click();
+  const form = page.getByTestId("workspace-guided-form");
+  await expect(form).toBeVisible();
+  await form.getByText("Exact numbers", { exact: true }).click();
+  await form.getByLabel("X", { exact: true }).fill("150");
+  await form.getByLabel("Y", { exact: true }).fill("160");
+  await form.getByRole("button", { name: "Cancel", exact: true }).click();
+  await page.getByTestId("workspace-add").click();
+  await page.getByRole("menuitem", { name: "Door", exact: true }).click();
+  await expect(form).toBeVisible();
+  await expect(form.getByRole("button", { name: "Add", exact: true })).toBeDisabled();
+  await form.getByText("Exact numbers", { exact: true }).click();
+  await expect(form.getByLabel("X", { exact: true })).toHaveValue("80");
+  await expect(form.getByLabel("Y", { exact: true })).toHaveValue("140");
+  await form.getByLabel("Destination ROOM", { exact: true }).fill("1");
+  await form.getByLabel("Right", { exact: true }).fill("120");
+  await expect(form.getByRole("button", { name: "Add", exact: true })).toBeDisabled();
+  await expect(
+    form.getByRole("status").filter({ hasText: "Choose another room for this door." }),
+  ).toBeVisible();
+  await form.getByLabel("Destination ROOM", { exact: true }).fill("2");
+  await expect(form.getByRole("button", { name: "Add", exact: true })).toBeEnabled();
+  await form.getByLabel("Destination ROOM", { exact: true }).fill("");
+  await expect(form.getByRole("button", { name: "Add", exact: true })).toBeDisabled();
+});
+
+test("unknown play sentences open Answer and Players tried teaches beside its row", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await start(page);
+  const input = page.getByTestId("input-line");
+  await input.focus();
+  await page.keyboard.type("look at moon");
+  await page.keyboard.press("Enter");
+  const teachThis = page.getByRole("button", {
+    name: "Teach this",
+    exact: true,
+    includeHidden: true,
+  });
+  await expect(teachThis).toBeVisible();
+  for (const [width, height] of [
+    [1063, 815],
+    [1440, 900],
+    [390, 844],
+  ] as const) {
+    await page.setViewportSize({ width, height });
+    await teachThis.evaluate((button) => {
+      button.style.visibility = "hidden";
+    });
+    await page.screenshot({
+      path: test.info().outputPath(`teach-this-${width}-before.png`),
+      scale: "css",
+    });
+    await teachThis.evaluate((button) => {
+      button.style.visibility = "";
+    });
+    await page.screenshot({
+      path: test.info().outputPath(`teach-this-${width}-after.png`),
+      scale: "css",
+    });
+  }
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await teachThis.click();
+  const form = page.getByTestId("workspace-guided-form");
+  await expect(form).toBeVisible();
+  await expect(form.getByLabel("When the player types…", { exact: true })).toHaveValue(
+    "look at moon",
+  );
+  await form.getByRole("button", { name: "Cancel", exact: true }).click();
+  await page.getByTestId("part-words").click();
+  const words = page.getByTestId("workspace-words-editor").filter({ visible: true });
+  await expect(words).toBeVisible();
+  await words.getByLabel("A sentence a player might type").fill("look at tree");
+  const row = words.getByTestId("player-sentence").filter({ hasText: "look at moon" });
+  await expect(row).toBeVisible();
+  await row.getByRole("button", { name: "Teach “moon”…", exact: true }).click();
+  const anyTeach = words.getByRole("form", { name: "Teach moon", exact: true });
+  await expect(anyTeach).toBeVisible();
+  for (const [width, height] of [
+    [1063, 815],
+    [1440, 900],
+    [390, 844],
+  ] as const) {
+    await page.setViewportSize({ width, height });
+    if (width === 390) {
+      const part = page.getByTestId("part-words");
+      if (!(await part.isVisible())) await page.getByTestId("workspace-parts").click();
+      await part.click();
+    }
+    await expect(anyTeach).toBeVisible();
+    await anyTeach.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: test.info().outputPath(`teach-row-${width}.png`), scale: "css" });
+  }
+  const teach = row.getByRole("form", { name: "Teach moon", exact: true });
+  await expect(teach).toBeVisible();
+  await expect(teach.getByLabel("When the player types…", { exact: true })).toHaveValue(
+    "look at moon",
+  );
+  await expect(words.getByLabel("A sentence a player might type")).toHaveValue("look at tree");
 });

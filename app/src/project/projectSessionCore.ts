@@ -29,7 +29,7 @@ import {
 } from "../../../src/authoring/projectWorkspace.ts";
 import { sha256Hex } from "../../../src/crypto.ts";
 import { computeResourceRevision } from "../../../src/authoring/resourceRevision.ts";
-import { requireProjectId } from "../../../src/gameIdentity.ts";
+import { requireProjectId, type GameIdentity } from "../../../src/gameIdentity.ts";
 import { inspectEditableProject } from "./projectWorkspaceSource.ts";
 import type {
   authoringFingerprint,
@@ -155,6 +155,7 @@ function createSession(
       ): Promise<PreviewUpdateOutcome>;
     };
     readonly openedAt?: number;
+    readonly forkParent?: GameIdentity;
     readonly workingDocumentId?: string;
     readonly current?: () => boolean;
     readonly boundary?: () => Promise<void>;
@@ -281,7 +282,9 @@ function createSession(
         });
   function requestFor(capture: SessionSave): ProjectCommitRequest {
     if (capture.request !== undefined) return capture.request;
-    const fork = data.library?.source === "catalog";
+    const fork =
+      (input.forkParent !== undefined && (forkId === undefined || data.projectId !== forkId)) ||
+      data.library?.source === "catalog";
     if (fork) forkId ??= requireProjectId(`remix-${crypto.randomUUID()}`);
     const saving = {
       ...capture.data,
@@ -296,7 +299,7 @@ function createSession(
               source: "remix" as const,
               catalog: undefined,
               preview: undefined,
-              parent: { project: data.projectId, revision: expected.revision },
+              parent: input.forkParent ?? { project: data.projectId, revision: expected.revision },
             },
           }
         : { title: data.title, library: capture.data.library }),
@@ -380,11 +383,18 @@ function createSession(
       if (!capture.attempted) {
         capture.request = {
           ...capture.request!,
-          expected: data.library?.source === "catalog" ? null : { ...expected },
+          expected:
+            (input.forkParent !== undefined && forkId !== undefined && data.projectId !== forkId) ||
+            data.library?.source === "catalog"
+              ? null
+              : { ...expected },
           data: {
             ...capture.request!.data,
             library: projectCommitLibrary(
-              data.library?.source === "catalog" ? capture.request!.data.library : data.library,
+              (input.forkParent !== undefined && data.projectId !== forkId) ||
+                data.library?.source === "catalog"
+                ? capture.request!.data.library
+                : data.library,
               {
                 revision: capture.snapshot.lastAdmissibleBuild!.identity.revision,
                 source: capture.request!.data.imported ? "zip" : "authored",

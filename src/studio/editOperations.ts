@@ -333,7 +333,7 @@ function removePoint(
       .filter((line) =>
         ["line", "polyline", "polygon", "rel", "xcorner", "ycorner"].includes(commandHead(line)),
       );
-    if (head === "polygon" || otherLines.length === 1) return deleteItem(ctx, item.id);
+    if (otherLines.length === 1) return deleteItem(ctx, item.id);
     return finish(
       inputLines(ctx, 1, ctx.lines.length).filter((entry) => entry.from !== op.line),
       ctx,

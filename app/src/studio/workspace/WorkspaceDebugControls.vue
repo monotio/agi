@@ -21,8 +21,8 @@ async function pause(): Promise<void> {
       size="sm"
       variant="ghost"
       :disabled="debug.state.busy"
-      :title="debug.stopped.value ? 'Continue (F5)' : 'Pause'"
-      :aria-label="debug.stopped.value ? 'Continue (F5)' : 'Pause'"
+      :title="debug.stopped.value ? 'Continue' : 'Pause'"
+      :aria-label="debug.stopped.value ? 'Continue' : 'Pause'"
       @click="debug.run(debug.stopped.value ? () => debug.resume('continue') : pause)"
       ><UiIcon :name="debug.stopped.value ? 'play' : 'pause'" :size="16"
     /></UiButton>

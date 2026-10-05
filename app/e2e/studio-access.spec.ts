@@ -167,7 +167,7 @@ test("keyboard only: an Art rectangle and a Walk wall line autosave @webkit-desk
   await expect(studio.getByTestId("studio-tool-filled")).toBeChecked();
   await canvas.focus();
   await page.keyboard.press("?");
-  const sheet = page.getByRole("dialog", { name: "Room Studio keys" });
+  const sheet = page.getByRole("dialog", { name: "PICTURE keys" });
   await expect(sheet).toContainText("Click at the cursor: starts; arrows size it; again finishes");
   await page.keyboard.press("Escape");
   await expect(sheet).toBeHidden();

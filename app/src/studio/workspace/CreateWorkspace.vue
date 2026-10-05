@@ -28,6 +28,7 @@ import { useWorkspaceEditor } from "../../shell/workspaceEditor.ts";
 import { openExplainer } from "../../ui/explain.ts";
 import { useAiSettings } from "../../settings/useAiSettings.ts";
 import type { WordsTask } from "./wordsAgent.ts";
+import WorkspaceTip from "../../shell/WorkspaceTip.vue";
 import UiButton from "../../ui/UiButton.vue";
 import PartsList from "./PartsList.vue";
 import ProjectTabs from "../host/ProjectTabs.vue";
@@ -326,14 +327,24 @@ watch(
   },
   { immediate: true },
 );
-const studioContext = computed(() =>
-  workspaceStudioContext(
+let studioContextKey = "";
+let admittedStudioContext: ReturnType<typeof workspaceStudioContext>;
+const studioContext = computed(() => {
+  const documents = snapshot.value?.lastAdmissibleBuild?.documents() ?? {};
+  const rooms = engine.roomMap.graph.value.nodes.map((node) => ({
+    room: node.room,
+    title: node.title ?? "",
+  }));
+  const key = JSON.stringify([revision.value, documents["bindings"], documents["world"], rooms]);
+  if (key === studioContextKey && admittedStudioContext) return admittedStudioContext;
+  studioContextKey = key;
+  return (admittedStudioContext = workspaceStudioContext(
     files.value,
     snapshot.value?.lastAdmissibleBuild?.documents() ?? {},
     profile.value,
     engine.roomMap.graph.value.nodes.map((node) => ({ room: node.room, title: node.title ?? "" })),
-  ),
-);
+  ));
+});
 const pictureWalks = computed(() =>
   Object.fromEntries(
     editor.retained.value
@@ -632,6 +643,11 @@ const diagnostics = computed(() => {
 });
 const guidedKind = ref<WorkspaceAction["kind"]>();
 const guidedCommand = ref("");
+const unknownSentence = computed(() =>
+  engine.playerSentences.value.findLast(
+    (entry) => entry.unknown && entry.room === engine.roomMap.currentRoom.value,
+  ),
+);
 const logicLocation = ref<{ key: string; line: number; serial: number }>();
 function openWordLogic(logic: number, line: number): void {
   const key = `logic:${logic}`;
@@ -1014,6 +1030,16 @@ onBeforeUnmount(() => {
     @keydown.left.prevent="editor.resize(editor.split.value - 2)"
     @keydown.right.prevent="editor.resize(editor.split.value + 2)"
   ></div>
+  <Teleport defer to=".play-area"
+    ><UiButton
+      v-if="creating && unknownSentence"
+      size="sm"
+      variant="ghost"
+      class="workspace-teach"
+      @click="wordResponse(unknownSentence.room, unknownSentence.text)"
+      >Teach this</UiButton
+    ></Teleport
+  >
   <section
     v-show="creating && editor.selected.value"
     class="workspace-editor"
@@ -1114,6 +1140,10 @@ onBeforeUnmount(() => {
         @changed="refresh"
       />
     </header>
+    <WorkspaceTip
+      :id="editor.kind.value ?? 'logic'"
+      text="Change this part with the tools here. Undo brings back an earlier step."
+    />
     <p
       v-if="
         diagnostics.some((entry) => entry.severity === 'error') && editor.kind.value === 'logic'
@@ -1164,6 +1194,9 @@ onBeforeUnmount(() => {
         @agent-ask="openAgent"
         :underlay="traceUnderlays[key] ?? null"
         :walk="pictureWalks[key]"
+        :current-room-source="
+          () => (pictureWalks[key] ? text(`logic:${pictureWalks[key]!.room}`) : undefined)
+        "
         :priority-base="livePreview.state?.priorityBase"
         :lesson-session="editor.studioRequests.value[key]?.lesson"
         @room-edit="

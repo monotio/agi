@@ -303,7 +303,12 @@ export function useStudioWalk(options: StudioWalkOptions) {
     const outcome = logic.apply(op, label);
     if (!outcome.ok) {
       onRefusal?.(outcome.error);
-      return refuse("Door edit rejected. Open Details for the reason.", outcome.error);
+      return refuse(
+        outcome.error === "Fix the room’s LOGIC before changing its doors."
+          ? outcome.error
+          : "Door edit rejected. Open Details for the reason.",
+        outcome.error,
+      );
     }
     options.say({ tone: "ok", text: done });
     return true;

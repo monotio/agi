@@ -1,3 +1,4 @@
+import { requireProjectId } from "../../../src/gameIdentity.ts";
 import type { createExecutionDebugLink } from "./executionDebugLink.ts";
 import type * as PlayerSentenceTools from "../project/playerSentences.ts";
 import type { PlayerSentence } from "../project/playerSentences.ts";
@@ -439,12 +440,18 @@ export function useEngine(
         projectSession = openProjectSession({
           data: game.authoredGame!,
           lifetime: game.historyLifetime!,
+          ...(game.installed && game.progressTarget
+            ? { forkParent: game.progressTarget.identity }
+            : {}),
           admission,
           current,
           forked(data, lifetime) {
             if (!current()) return;
             game = {
               ...game!,
+              installed: false,
+              revision: computeResourceRevision(data.files),
+              files: data.files,
               projectId: data.projectId,
               title: data.title,
               authoredGame: data,
@@ -474,8 +481,10 @@ export function useEngine(
               outcome?.status === "unchanged";
             if (running) {
               game.files = structuredClone(data.files);
-              game.revision = snapshot.lastAdmissibleBuild!.identity.revision;
-              bindProgressTarget(game);
+              if (!game.installed) {
+                game.revision = snapshot.lastAdmissibleBuild!.identity.revision;
+                bindProgressTarget(game);
+              }
               if (outcome?.replacementRunToken !== undefined)
                 state.profile = snapshot.lastAdmissibleBuild!.identity.profileId;
             }
@@ -506,7 +515,7 @@ export function useEngine(
             }
           },
           checkpointReady() {
-            if (current()) void autosaveController.flushAutosave();
+            if (current() && !game.installed) void autosaveController.flushAutosave();
           },
           changed() {
             if (current()) {
@@ -1028,13 +1037,36 @@ export function useEngine(
         type: "observeSentences",
         enabled: mode === "create",
       } satisfies WorkerInbound);
-      const game = lifecycle.getBootedGame();
+      let game = lifecycle.getBootedGame();
       const worker = link.getWorker();
+      if (mode === "create" && game?.installed && !game.authoredGame && game.historyLifetime) {
+        const id = requireProjectId(`edition-${crypto.randomUUID()}`);
+        game = {
+          ...game,
+          projectId: id,
+          authoredGame: {
+            projectId: id,
+            title: game.title,
+            authoredAt: new Date().toISOString(),
+            files: game.files,
+            words: game.words,
+            imported: true,
+            roomGeneration: false,
+            library: {
+              version: 1,
+              revision: game.revision,
+              source: "folder",
+              profile: roomMap.value?.resources.value.profile?.id ?? "2.936",
+              validation: { status: "ready", message: "Ready to edit" },
+            },
+          },
+        };
+        lifecycle.setBootedGame(game);
+      }
       if (
         mode !== "create" ||
         projectSessionOpening ||
         !game?.authoredGame ||
-        game.installed ||
         state.phase !== "running"
       )
         return;

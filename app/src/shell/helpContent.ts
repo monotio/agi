@@ -293,7 +293,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
       },
       {
         id: "keys",
-        title: "Keys and cost",
+        title: "Keys and budget",
         body: [
           "Your key is saved in this browser and sent to your provider, and only to your provider, with each request. Requests are billed to your provider account. Agent tasks and pictures share the budget you set.",
           "What the agent writes comes from your provider's model. Play through the game to review it before sharing, especially with children.",

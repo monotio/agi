@@ -36,6 +36,12 @@ const emit = defineEmits<{
 const binding = ref<BindingInfo>();
 const renameBinding = ref(false);
 function onBinding(info: BindingInfo, action: "open" | "rename"): void {
+  // Close the focused hover before the form opens: its close restores editor focus.
+  editor
+    ?.getContribution<monaco.editor.IEditorContribution & { hideContentHover(): void }>(
+      "editor.contrib.contentHover",
+    )
+    ?.hideContentHover();
   if (action === "open" && ["sound", "picture", "view", "logic"].includes(info.kind)) {
     workspace.open(`${info.kind}:${info.num}`, true);
     return;

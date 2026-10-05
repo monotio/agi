@@ -1772,7 +1772,7 @@ export function prepareGuidedRespondToCommand(
       kind,
       label,
       "invalid-input",
-      "Command must be 1 to 10 words of lowercase letters and digits.",
+      "Use 1 to 10 words with lowercase letters and digits for the sentence.",
     );
   const response = input.response;
   if (
@@ -1830,7 +1830,7 @@ export function prepareGuidedRespondToCommand(
         kind,
         label,
         "conflict",
-        `The room already answers '${retained.join(" ")}'. Choose another command or ask to replace its reply.`,
+        `The room already answers '${retained.join(" ")}'. Choose another sentence or replace its answer.`,
         key,
         {
           start: lineOf(source, handler.stmt.tok.start - room.base),
@@ -1852,7 +1852,7 @@ export function prepareGuidedRespondToCommand(
         kind,
         label,
         "custom-code",
-        "The existing handler for that command is not a plain said→print; edit it by hand.",
+        "This sentence uses custom LOGIC. Edit its answer in the code.",
         key,
         {
           start: lineOf(source, handler.stmt.tok.start - room.base),
@@ -1900,7 +1900,7 @@ export function prepareGuidedRespondToCommand(
       kind,
       label,
       "conflict",
-      `An earlier handler would answer '${retained.join(" ")}' first; pick different words or edit the source.`,
+      `An earlier rule answers '${retained.join(" ")}' first. Choose different words or edit the LOGIC.`,
       key,
       {
         start: lineOf(source, handler.stmt.tok.start - room.base),
@@ -2473,7 +2473,7 @@ export function prepareGuidedPlaySound(
         kind,
         label,
         "missing",
-        `No handler in this room answers '${tokens.join(" ")}'.`,
+        `This room needs an answer for '${tokens.join(" ")}'.`,
         key,
       );
     if (matches.length > 1)
@@ -2481,7 +2481,7 @@ export function prepareGuidedPlaySound(
         kind,
         label,
         "custom-code",
-        `More than one handler answers '${tokens.join(" ")}'; pick one by hand.`,
+        `More than one rule answers '${tokens.join(" ")}'; pick one by hand.`,
         key,
       );
     if (matches.length === 0) {
@@ -2512,7 +2512,7 @@ export function prepareGuidedPlaySound(
           kind,
           label,
           "conflict",
-          `The handler for '${tokens.join(" ")}' already plays a sound; one cue owns the channel.`,
+          `The answer for '${tokens.join(" ")}' already plays a sound. Choose another sentence.`,
           key,
           {
             start: lineOf(source, handler.tok.start - room.base),
@@ -2529,7 +2529,7 @@ export function prepareGuidedPlaySound(
           kind,
           label,
           "custom-code",
-          "The handler's body is not a plain braced block; place the cue by hand.",
+          "This answer uses custom LOGIC. Add the sound in the code.",
           key,
         );
       edits.push(trigger);

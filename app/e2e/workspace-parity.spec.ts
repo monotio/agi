@@ -1,3 +1,4 @@
+import { workspaceDocument, openWorkspaceLogic, focusWorkspaceLogic } from "./workspaceShared.ts";
 import type { ProjectSession } from "../src/project/projectSession.ts";
 import { buildTutorial } from "../../games/adventure-department/game.ts";
 import { openContainer } from "../../src/container/container.ts";
@@ -529,4 +530,129 @@ test("an empty picture names the next drawing action", async ({ page }) => {
   const empty = page.locator(".scene-list__empty");
   await expect(empty).toBeVisible();
   await expect(empty).toHaveText("Nothing drawn yet. Pick a tool to start.");
+});
+
+test("drawing preserves invalid room LOGIC and Walk refuses to overwrite it", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await picture(page);
+  const source = (await workspaceDocument(page, "logic:1")) + "\nunknown.opcode();";
+  await page.evaluate(async (source) => {
+    const session = (
+      window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }
+    ).__AGI_PROJECT__.getSession();
+    await session.submit({
+      proposal: session.model.propose(session.model.capture(), "Invalid room LOGIC", [
+        { key: "logic:1", content: source },
+      ]),
+      label: "Invalid room LOGIC",
+      origin: "logic",
+      author: "creator",
+    });
+    await session.flush();
+  }, source);
+  await page.getByTestId("part-room:1:picture:1").click();
+  const studio = page.getByTestId("room-studio");
+  await expect(studio).toBeVisible();
+  await studio.locator('button[data-tool="line"]').click();
+  for (const [x, y] of [
+    [40, 110],
+    [60, 115],
+  ]) {
+    const p = await cell(page, x!, y!);
+    await page.mouse.click(p.x, p.y);
+  }
+  await studio.getByRole("button", { name: "✓ Done", exact: true }).click();
+  await workspaceSaved(page);
+  expect(await workspaceDocument(page, "logic:1")).toBe(source);
+  await studio.getByRole("radio", { name: "Walk", exact: true }).click();
+  await studio.locator('button[data-tool="door"]').click();
+  const from = await cell(page, 120, 130),
+    to = await cell(page, 145, 150);
+  await page.mouse.move(from.x, from.y);
+  await page.mouse.down();
+  await page.mouse.move(to.x, to.y, { steps: 4 });
+  await page.mouse.up();
+  const notice = studio.getByTestId("studio-notice");
+  await expect(notice).toBeVisible();
+  await expect(notice).toContainText("Fix the room’s LOGIC before changing its doors.");
+  expect(await workspaceDocument(page, "logic:1")).toBe(source);
+});
+
+test("workspace tips dismiss and Help replays them", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await picture(page);
+  const tip = page.getByTestId("workspace-tip");
+  await expect(tip).toBeVisible();
+  await tip.getByRole("button", { name: "Got it", exact: true }).click();
+  await expect(tip).toBeHidden();
+  const editorTip = page.getByTestId("editor-tip");
+  await expect(editorTip).toBeVisible();
+  await editorTip.getByRole("button", { name: "Got it", exact: true }).click();
+  await expect(editorTip).toBeHidden();
+  await openWorkspaceLogic(page);
+  await expect(editorTip).toBeVisible();
+  await page.getByTestId("part-room:1:picture:1").click();
+  await expect(editorTip).toBeHidden();
+  await openGameOptions(page, "help-menu");
+  await page.getByTestId("btn-help-guide").click();
+  const help = page.getByTestId("help-guide");
+  await expect(help).toBeVisible();
+  await help.getByRole("button", { name: "Show tips", exact: true }).click();
+  await expect(help).toBeHidden();
+  await expect(tip).toBeVisible();
+});
+
+test("drawing cannot resubmit a Walk edit over a newer pending LOGIC draft", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const studio = await picture(page);
+  const source = "// Newer pending room text.\nreturn;\nunknown.opcode();";
+  await page.evaluate(() => {
+    const session = (
+      window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }
+    ).__AGI_PROJECT__.getSession();
+    const submit = session.submit.bind(session);
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let first = true;
+    Object.assign(window, { releaseWalk: release, walkEntered: false });
+    session.submit = async (request) => {
+      if (first) {
+        first = false;
+        Object.assign(window, { walkEntered: true });
+        await gate;
+      }
+      return submit(request);
+    };
+  });
+  await studio.getByRole("radio", { name: "Walk", exact: true }).click();
+  await studio.locator('button[data-tool="door"]').click();
+  const from = await cell(page, 120, 130),
+    to = await cell(page, 145, 150);
+  await page.mouse.move(from.x, from.y);
+  await page.mouse.down();
+  await page.mouse.move(to.x, to.y, { steps: 4 });
+  await page.mouse.up();
+  await expect.poll(() => page.evaluate(() => Reflect.get(window, "walkEntered"))).toBe(true);
+  await openWorkspaceLogic(page);
+  await focusWorkspaceLogic(page);
+  await page.keyboard.press("ControlOrMeta+a");
+  await page.keyboard.press("Backspace");
+  await page.keyboard.insertText(source);
+  await page.keyboard.press("Escape");
+  await page.getByTestId("part-room:1:picture:1").click();
+  await studio.getByRole("radio", { name: "Art", exact: true }).click();
+  await studio.locator('button[data-tool="line"]').click();
+  for (const [x, y] of [
+    [40, 110],
+    [60, 115],
+  ]) {
+    const p = await cell(page, x!, y!);
+    await page.mouse.click(p.x, p.y);
+  }
+  await studio.getByRole("button", { name: "✓ Done", exact: true }).click();
+  await page.evaluate(() => (window as unknown as { releaseWalk(): void }).releaseWalk());
+  await workspaceSaved(page);
+  expect(await workspaceDocument(page, "logic:1")).toBe(source);
 });

@@ -494,3 +494,40 @@ test("trace opacity previews during input and serializes quick releases", async 
   await expect(page.getByTestId("image-reference").getByRole("alert")).toHaveCount(0);
   await expect(slider).toHaveValue("0.8");
 });
+
+test("trace arrow keys make one History step for a typing burst", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await start(page);
+  await page.getByTestId("part-room:1:picture:1").click();
+  await page.getByRole("button", { name: "Trace an image", exact: true }).click();
+  await upload(page);
+  const handle = page.getByRole("button", { name: "Move trace", exact: true });
+  await expect(handle).toBeVisible();
+  const count = () =>
+    page.evaluate(
+      () =>
+        (window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }).__AGI_PROJECT__
+          .getSession()
+          .capture().history.commits.length,
+    );
+  const before = await count();
+  await handle.focus();
+  for (let index = 0; index < 4; index++) await page.keyboard.press("ArrowRight");
+  await page.keyboard.press("Tab");
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const content = (
+          window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }
+        ).__AGI_PROJECT__
+          .getSession()
+          .model.capture()
+          .read("images")?.content;
+        return typeof content === "string"
+          ? JSON.parse(content).traces["picture:1"].transform.x
+          : undefined;
+      }),
+    )
+    .toBe(4);
+  expect(await count()).toBe(before + 1);
+});
