@@ -6,7 +6,7 @@ import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import { buildView } from "../../src/view/view.ts";
 import { buildObjectFile } from "../../src/agent/agentState.ts";
-import { textHook } from "./engineProbe.ts";
+import { gameInputProbe, textHook, waitForGameInput } from "./engineProbe.ts";
 
 for (const fail of [false, true])
   test(`room generation shows activity and ${fail ? "recovers from failure" : "enters with new inventory"}`, async ({
@@ -125,11 +125,21 @@ for (const fail of [false, true])
         }),
       );
     });
+    const observations: Awaited<ReturnType<typeof gameInputProbe>>[] = [];
     try {
       await page.reload();
       await page.getByTestId("btn-resume-cached").click();
-      await expect.poll(async () => (await textHook(page)).room).toBe(1);
+      // roomTransition precedes the async play surface and the cycle heartbeat.
+      await waitForGameInput(page);
+      await expect
+        .poll(async () => {
+          const { room, egoX, egoY, cycle } = await textHook(page);
+          return { room, egoX, egoY, cycled: cycle > 0 };
+        })
+        .toEqual({ room: 1, egoX: 155, egoY: 100, cycled: true });
+      observations.push(await gameInputProbe(page));
       await page.keyboard.down("ArrowRight");
+      await expect.poll(async () => (await textHook(page)).egoX).toBeGreaterThan(155);
       await expect.poll(() => requests).toBe(1);
       await page.keyboard.up("ArrowRight");
       expect(requests).toBe(1);
@@ -173,6 +183,13 @@ for (const fail of [false, true])
         await expect.poll(async () => (await textHook(page)).rows.join(" ")).toContain("Letter");
         expect((await textHook(page)).rows.join(" ")).toContain("Old key");
       }
+    } catch (error) {
+      observations.push(await gameInputProbe(page));
+      await test.info().attach("game-input-state", {
+        body: JSON.stringify({ requests, observations }, null, 2),
+        contentType: "application/json",
+      });
+      throw error;
     } finally {
       release();
       finish();
