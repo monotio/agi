@@ -195,22 +195,22 @@ set.text.attribute(15, 0);
 return;
 `;
 
-/** The one death sound: a short descending sting on two tone channels. */
+/** A descending sting; stored divisors preserve the released resource bytes. */
 export const BASE_TEMPLATE_DEATH_TRACKS: readonly SoundTrackInput[] = [
   {
     notes: [
-      { note: "G4", duration: 6 },
-      { note: "E4", duration: 6 },
-      { note: "C4", duration: 6 },
-      { note: "G3", duration: 24 },
+      { freqDivisor: 254, duration: 6 },
+      { freqDivisor: 302, duration: 6 },
+      { freqDivisor: 380, duration: 6 },
+      { freqDivisor: 507, duration: 24 },
     ],
   },
   {
     notes: [
-      { note: "E4", duration: 6 },
-      { note: "C4", duration: 6 },
-      { note: "G3", duration: 6 },
-      { note: "C3", duration: 24 },
+      { freqDivisor: 302, duration: 6 },
+      { freqDivisor: 380, duration: 6 },
+      { freqDivisor: 507, duration: 6 },
+      { freqDivisor: 760, duration: 24 },
     ],
   },
   { notes: [{ note: "rest", duration: 42 }] },
