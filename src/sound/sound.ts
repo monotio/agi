@@ -13,6 +13,7 @@
  */
 
 import type { AgiProfile } from "../runtime/profile.ts";
+import { iigsByteRate } from "./iigsBank.ts";
 import { validatePlaybackState, type PlaybackState } from "../runtime/replayState.ts";
 
 interface SoundNote {
@@ -476,10 +477,10 @@ function decodeIigsStream(payload: Uint8Array, onWarning?: (m: string) => void):
  * until the generator halts. The embedded envelopes sustain, so only the
  * Ensoniq DOC stops the note: on a zero sample, or at the end of its table in
  * one-shot mode. A free-running wave with no zero loops until the sound is
- * stopped, and its done flag never sets. The Note Synthesizer plays 256 bytes
- * per cycle of the note's pitch, so a halt comes after (bytes played) /
- * (256 * f(semitone)) seconds, f equal-tempered with semitone 69 at 440 Hz —
- * an inference: the pitch table is in the toolset ROM (docs/fidelity.md).
+ * stopped, and its done flag never sets. Pitch, resolution and table size
+ * determine the DOC byte rate (docs/fidelity.md, "IIgs DOC pitch, volume and
+ * headroom"); completion is the first heartbeat after its scheduled start
+ * and the last byte's playback.
  */
 function decodeIigsWave(payload: Uint8Array, onWarning?: (m: string) => void): IigsDecoded {
   const data = payload.subarray(2);
@@ -501,8 +502,9 @@ function decodeIigsWave(payload: Uint8Array, onWarning?: (m: string) => void): I
     { tick: 1, output: { kind: "iigs", event: "sample", voice: 0, data } },
   ];
   if (played === null) return { events: start, endTick: Infinity };
-  const bytesPerSecond = 256 * 440 * 2 ** ((semitone - 69) / 12);
-  const endTick = Math.max(1, Math.ceil((played * 60) / bytesPerSecond));
+  const relPitch = u16(8 + 36);
+  const bytesPerSecond = iigsByteRate(semitone, { waveSize, relPitch: (relPitch << 16) >> 16 });
+  const endTick = 1 + Math.ceil((played * 60) / bytesPerSecond);
   return { events: [...start, { tick: endTick, output: null }], endTick };
 }
 

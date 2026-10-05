@@ -119,7 +119,8 @@ describe("audio command backend", () => {
     const { audio, gains, oscillators, ctx } = context();
     audio.output({ kind: "speaker", divisor: 2712 });
     assert.equal(audio.isPlaying, true);
-    assert.equal(oscillators[0]!.frequency.value, 1193180 / 2712);
+    // PIT 1,193,180 Hz / 2,712; the PSG has a separate clock.
+    assert.ok(Math.abs(oscillators[0]!.frequency.value - 439.9631268436578) < 1e-10);
     assert.equal(gains[1]!.gain.value, 0.4);
     ctx.currentTime = 13;
     audio.output({ kind: "speaker", divisor: null });
@@ -132,7 +133,8 @@ describe("audio command backend", () => {
   it("applies latched PSG tone data and channel attenuation commands exactly once", () => {
     const { audio, gains, oscillators } = context();
     audio.output({ kind: "psg", bytes: [0x82, 0x0e, 0x94, 0xb6, 0xd7, 0xf8] });
-    assert.equal(oscillators[0]!.frequency.value, 99431.67 / 226);
+    // PSG 3,579,545 Hz / 32 / 226, from the Tandy hardware clock.
+    assert.ok(Math.abs(oscillators[0]!.frequency.value - 494.9592090707965) < 1e-10);
     assert.equal(gains[1]!.gain.value, Math.pow(10, -4 / 10) * 0.25);
     assert.equal(gains[2]!.gain.value, Math.pow(10, -6 / 10) * 0.25);
     assert.equal(gains[3]!.gain.value, Math.pow(10, -7 / 10) * 0.25);

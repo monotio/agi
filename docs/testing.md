@@ -797,3 +797,24 @@ describe output effects and resampling. Findings belong in
 and any blocked game/machine pairs stated explicitly. The private automation
 may carry the contributor's input paths; public scripts and examples use portable
 arguments and bundle independently authored code only.
+
+### PSG and DOC corrections
+
+The audio unit tests use hand-computed frequencies for the separate Tandy PSG
+and PC-speaker PIT clocks. IIgs tests cover DOC resolution, table-size pointer
+masking, exclusive key splits, paired pitch carry and byte-volume conversion.
+The physical 32-oscillator sum bound is checked independently of any tune;
+`app/test/paula-offline.test.ts` additionally checks the real SQ2 intro at
+master volume 1 through `AgiAudio` and `OfflineAudioContext`. Its content-identified
+fixture check explicitly skips when the IIgs resources or instruments are absent.
+
+After a clock or synthesis change, re-render the same original LOGIC against
+the stored MAME capture at 48 kHz. Float WAVs at master 1 retain raw peaks
+and over-range values. Use the original window anchors for the before/after
+comparison, apply the same stated DC-removal filter to both spectrum inputs,
+and keep raw WAVs separate from level-matched listening copies. Isolated host
+channel renders measure relative voice balance; a mixed reference recording
+cannot establish individual reference voice levels. See
+[Tandy PSG clock](fidelity.md#tandy-psg-clock) and
+[IIgs DOC pitch, volume and headroom](fidelity.md#iigs-doc-pitch-volume-and-headroom)
+for inputs, addresses, findings and remaining limits.
