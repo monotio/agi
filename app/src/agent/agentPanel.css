@@ -243,3 +243,9 @@
     display: none;
   }
 }
+.agent-panel__review-loading,
+.agent-panel__preview-missing {
+  color: var(--muted);
+  font-size: var(--text-sm);
+  padding: var(--space-3);
+}

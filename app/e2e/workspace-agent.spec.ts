@@ -292,3 +292,36 @@ test("the workspace composer offers reference art", async ({ page }) => {
   await attach.click();
   await expect(page.getByTestId("reference-upload")).toBeVisible();
 });
+
+test("a slow review chunk shows Preparing, then the review", async ({ page }) => {
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route("**/AgentResourceReview.vue*", async (route) => {
+    await held;
+    await route.continue();
+  });
+  await start(page);
+  await page.getByTestId("agent-message").fill("Add a welcome sign that answers look at sign");
+  await page.getByRole("button", { name: "Send", exact: true }).click();
+  await expect(page.getByTestId("agent-review-loading")).toBeVisible();
+  await expect(page.getByTestId("agent-approve")).toHaveCount(0);
+  release();
+  await expect(page.getByTestId("agent-review")).toBeVisible();
+  await expect(page.getByTestId("agent-review-loading")).toHaveCount(0);
+});
+
+test("a review whose preview code cannot load still offers Approve", async ({ page }) => {
+  await page.route("**/AgentResourceReview.vue*", (route) => route.abort());
+  await start(page);
+  await page.getByTestId("agent-message").fill("Add a welcome sign that answers look at sign");
+  await page.getByRole("button", { name: "Send", exact: true }).click();
+  await expect(page.getByTestId("agent-review")).toBeVisible();
+  await expect(page.getByTestId("agent-preview-missing").first()).toBeVisible();
+  await page.getByTestId("agent-approve").click();
+  await expect(page.getByTestId("agent-review")).toHaveCount(0);
+  await expect
+    .poll(async () => (await documents(page))["logic:1"])
+    .toContain('said("look", "sign")');
+});

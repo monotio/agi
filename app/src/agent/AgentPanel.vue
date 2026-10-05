@@ -2,6 +2,7 @@
 import {
   computed,
   defineAsyncComponent,
+  h,
   nextTick,
   onBeforeUnmount,
   onMounted,
@@ -34,7 +35,20 @@ const engine = useEngineApi();
 const editor = useWorkspaceEditor();
 const settings = useAiSettings();
 const bridge = useShellBridge();
-const AgentResourceReview = defineAsyncComponent(() => import("./AgentResourceReview.vue"));
+// Load the review previews while the panel opens, so a proposal shows at once. A chunk
+// that cannot load (offline, or a deploy mid-session) still leaves Approve and Reject.
+const loadResourceReview = () => import("./AgentResourceReview.vue");
+void loadResourceReview().catch(() => {});
+const AgentResourceReview = defineAsyncComponent({
+  loader: loadResourceReview,
+  errorComponent: () =>
+    h(
+      "p",
+      { class: "agent-panel__preview-missing", "data-testid": "agent-preview-missing" },
+      "The preview could not load. You can still approve or reject this change.",
+    ),
+  onError: (_error, retry, fail, attempts) => (attempts <= 2 ? retry() : fail()),
+});
 watch(
   settings.provider,
   (provider) => {
@@ -503,6 +517,11 @@ onBeforeUnmount(() => {
               >
             </footer>
           </section>
+          <template #fallback>
+            <p class="agent-panel__review-loading" role="status" data-testid="agent-review-loading">
+              Preparing the review…
+            </p>
+          </template>
         </Suspense>
         <details v-if="review && progress.length" class="agent-panel__progress">
           <summary>Steps</summary>
