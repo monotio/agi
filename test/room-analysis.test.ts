@@ -162,3 +162,15 @@ test("room flow reuses a completed entry summary across scans", async () => {
   assert.equal(flow.work.summaries, summaries + 1);
   assert.ok(flow.work.hits >= 2);
 });
+
+test("recursive entry summaries keep the caller's cutoff context", async () => {
+  const { createRoomFlow } = await import("../src/agent/roomFlow.ts");
+  const flow = createRoomFlow(
+    new Map([
+      [1, logic("call(9);new.room(2);return;")],
+      [9, logic("call(1);new.room(3);return;")],
+    ]),
+  );
+  assert.deepEqual(flow.scan(1, 1).targets, [{ to: 3 }]);
+  assert.deepEqual(flow.scan(9, 9).targets, [{ to: 2 }]);
+});

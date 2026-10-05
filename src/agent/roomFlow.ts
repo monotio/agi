@@ -540,7 +540,11 @@ export function createRoomFlow(
       targets = parent.targets;
       calls = parent.calls;
       merge(summary.scan);
-      if (!stack.has(num) && !summary.scan.calls.includes(num)) {
+      if (
+        !stack.has(num) &&
+        !summary.scan.calls.includes(num) &&
+        !summary.scan.calls.some((callee) => stack.has(callee))
+      ) {
         summaries.set(key, summary);
         work.summaries++;
       }
