@@ -12,12 +12,32 @@ for (const [width, height] of [
       await page.setViewportSize({ width, height });
       await isolateStorage(page);
       await page.route("**/fixtures/", (route) => route.fulfill({ json: [] }));
+      await page.addInitScript(() => {
+        const post = Worker.prototype.postMessage;
+        Worker.prototype.postMessage = function (message, transfer) {
+          post.call(this, message, Array.isArray(transfer) ? { transfer } : transfer);
+          if (message.type === "boot") {
+            this.postMessage({ type: "pause", paused: true });
+            Object.assign(window, {
+              releasePlaybarBoot: () => this.postMessage({ type: "pause", paused: false }),
+            });
+          }
+        };
+      });
       await page.goto("/");
       await page.getByRole("button", { name: "Play the tutorial" }).click();
       await page.waitForURL(/#play\//);
-      await expect.poll(async () => (await textHook(page)).room).toBe(1);
       const input = page.locator("#game-command");
+      await expect(input).toBeVisible();
+      await expect(input).toBeDisabled();
       await input.focus();
+      await page.evaluate(() =>
+        (window as unknown as { releasePlaybarBoot: () => void }).releasePlaybarBoot(),
+      );
+      await expect(input).toBeEnabled();
+      await input.focus();
+      await expect(input).toBeFocused();
+      await expect.poll(async () => (await textHook(page)).room).toBe(1);
       await expect.poll(async () => (await textHook(page)).frame).toBeGreaterThan(0);
       await page.screenshot({ path: test.info().outputPath(`${width}-walking.png`) });
       const keys = page.getByTestId("game-keys");

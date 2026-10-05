@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./test.ts";
 import { providerReply } from "../../test/provider-stream.ts";
 import { isolateStorage, openAiSettings, enterPlayMode, textHook } from "./engineProbe.ts";
 
