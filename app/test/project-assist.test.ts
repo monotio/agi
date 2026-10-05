@@ -1,3 +1,4 @@
+import { waitUntil } from "./async.ts";
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { providerSse } from "../../test/provider-stream.ts";
@@ -899,8 +900,8 @@ describe("projectAssist: guard rails", () => {
       budgetUsd: 0.32,
     });
     const request = assist.request({ instruction: "inspect" });
-    for (let i = 0; i < 8 && requests.length < 1; i++) await settle();
-    for (let i = 0; i < 8 && assist.state().phase !== "paused"; i++) await settle();
+    await waitUntil(() => requests.length > 0, "the provider request did not start");
+    await waitUntil(() => assist.state().phase === "paused", "the agent did not pause");
     assert.equal(assist.state().phase, "paused");
     assert.match(assist.state().run?.reason ?? "", /Budget/i);
     assert.equal(requests.length, 1, "the second provider request waits for resume");

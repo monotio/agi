@@ -1,0 +1,40 @@
+id: no-test-wall-clock
+language: ts
+severity: error
+message: >-
+  Wait for an observable event or advance a controlled clock. Explain a required time window with // wall-clock: on this line or the line above.
+files:
+  - test/**/*.ts
+  - app/test/**/*.ts
+  - evals/tests/**/*.ts
+rule:
+  all:
+    - kind: call_expression
+    - any:
+        - pattern: sleep($$$)
+        - pattern: $OBJECT.sleep($$$)
+        - pattern: waitForTimeout($$$)
+        - pattern: $OBJECT.waitForTimeout($$$)
+        - all:
+            - pattern: setTimeout($$$)
+            - inside:
+                stopBy: end
+                kind: new_expression
+                has:
+                  kind: identifier
+                  regex: ^Promise$
+    - not:
+        inside:
+          stopBy: end
+          all:
+            - any:
+                - kind: expression_statement
+                - kind: lexical_declaration
+                - kind: return_statement
+            - any:
+                - follows:
+                    kind: comment
+                    regex: "^// wall-clock: .+"
+                - precedes:
+                    kind: comment
+                    regex: "^// wall-clock: .+"

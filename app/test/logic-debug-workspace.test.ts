@@ -1,3 +1,4 @@
+import { scheduler as testScheduler } from "node:timers/promises";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createWorkerContext, type WorkerContext } from "../src/worker/context.ts";
@@ -75,7 +76,7 @@ class FakeWorker implements TestWorkerLike {
 }
 
 async function flush(): Promise<void> {
-  await new Promise((resolve) => setTimeout(resolve, 0));
+  await testScheduler.yield();
 }
 
 type Bindings = Record<string, { kind: string; num: number }>;

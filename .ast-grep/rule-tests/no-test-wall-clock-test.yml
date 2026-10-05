@@ -1,0 +1,36 @@
+id: no-test-wall-clock
+valid:
+  - "await result;"
+  - "clock.advance(100);"
+  - "await scheduler.yield();"
+  - "const deadline = setTimeout(fail, 100);"
+  - |
+    // wall-clock: a native transport exposes no virtual clock
+    await sleep(50);
+  - "await page.waitForTimeout(50); // wall-clock: the native callback runs outside the process"
+  - |
+    // wall-clock: this native transport exposes no later acknowledgement
+    await new Promise<void>((resolve) => setTimeout(resolve, 50));
+  - |
+    await new Promise((resolve) => {
+      // wall-clock: the native callback exposes no later acknowledgement
+      setTimeout(resolve, 50);
+    });
+invalid:
+  - "await sleep(100);"
+  - "await page.waitForTimeout(100);"
+  - "await waitForTimeout(100);"
+  - "await clock.sleep(100);"
+  - "await new Promise((resolve) => setTimeout(resolve, 100));"
+  - "const settle = () => new Promise<void>((resolve) => setTimeout(resolve, 0));"
+  - |
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, 100);
+    });
+  - |
+    // a plain comment
+    await sleep(100);
+  - |
+    // wall-clock: the native callback runs outside the process
+    work();
+    await sleep(100);

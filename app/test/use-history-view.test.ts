@@ -1,3 +1,4 @@
+import { useTestClock, waitUntil } from "./async.ts";
 /**
  * The host half of the always-visible transport: mark stepping is relative
  * to the viewed position on the flattened axis — a mark under the current
@@ -44,6 +45,7 @@ import type { EngineState } from "../src/engine/useEngineTypes.ts";
 import type { BootedGame } from "../src/project/gameTypes.ts";
 import type { WorkerInbound } from "../src/worker/workerProtocol.ts";
 
+const clock = useTestClock();
 const RECORDS = installIndexedDbFixture();
 Object.defineProperty(globalThis, "localStorage", {
   configurable: true,
@@ -194,8 +196,7 @@ function makeHarness(opts?: {
   };
   /** Wait until a deferred query of this type is actually in flight. */
   const waitHeld = async (type: string): Promise<void> => {
-    for (let i = 0; i < 100 && !held.get(type)?.length; i++)
-      await new Promise((r) => setTimeout(r, 0));
+    await waitUntil(() => !!held.get(type)?.length, `${type} never arrived`);
     if (!held.get(type)?.length) throw new Error(`${type} never arrived`);
   };
   const seqAt = opts?.seqAt ?? ((_s: number, t: number) => t);
@@ -780,7 +781,7 @@ test("a seek requested while the tape opens lands once the view confirms", async
     diverged: null,
     error: null,
   });
-  for (let i = 0; i < 50 && seeks.length === 0; i++) await new Promise((r) => setTimeout(r, 0));
+  await waitUntil(() => seeks.length > 0, "the seek did not reach the worker");
   assert.equal(v.active, true);
   assert.deepEqual(seeks, [{ segment: 0, tick: 6 }], "only the newest request sought");
 });
@@ -1023,7 +1024,7 @@ test("a scrub keeps lane extents and the final target while a batch lands during
   model.scrubMove(62.5);
   model.scrubUp(62.5);
   release("state", {});
-  for (let i = 0; i < 100 && seeks.length === 0; i++) await new Promise((r) => setTimeout(r, 0));
+  await waitUntil(() => seeks.length > 0, "the seek did not reach the worker");
   assert.deepEqual(seeks, [{ segment: 1, tick: 1 }], "the final target stays in the second lane");
 });
 
@@ -1098,7 +1099,7 @@ async function longHarness(
 }
 
 async function flushSeeks(): Promise<void> {
-  for (let i = 0; i < 30; i++) await new Promise((r) => setTimeout(r, 0));
+  await clock.advance(0);
 }
 
 /** The Watch button's label: "Pause timeline" while the tape plays. */
@@ -1109,7 +1110,7 @@ function watchLabel(view: ReturnType<typeof makeHarness>["view"]): string | unde
 /** Whether the viewed position moves over a short window. */
 async function tapeMoves(view: ReturnType<typeof makeHarness>["view"]): Promise<boolean> {
   const from = view.transport.tick;
-  await new Promise((r) => setTimeout(r, 350));
+  await clock.advance(350);
   return view.transport.tick > from;
 }
 
@@ -1155,9 +1156,9 @@ test("a drag keeps the intent it started with, and plays only once the pointer l
   const model = view.transport;
   model.scrubDown(10);
   model.scrubMove(30);
-  await new Promise((r) => setTimeout(r, 400));
+  await clock.advance(400);
   model.scrubMove(40);
-  await new Promise((r) => setTimeout(r, 400));
+  await clock.advance(400);
   assert.ok(seeks.length >= 2, "the drag sought on its way");
   assert.equal(await tapeMoves(view), false, "the tape holds under the pointer");
   model.scrubUp(40);
@@ -1173,7 +1174,7 @@ test("a drag across a paused tape leaves it paused", async (t) => {
   const model = view.transport;
   model.scrubDown(10);
   model.scrubMove(40);
-  await new Promise((r) => setTimeout(r, 400));
+  await clock.advance(400);
   model.scrubUp(40);
   await flushSeeks();
   assert.equal(model.tick, 200);
@@ -1264,7 +1265,7 @@ test("a drag from a playing tape to LIVE resumes live play only once the pointer
   await watching(view);
   model.scrubDown(40);
   model.scrubMove(100);
-  await new Promise((r) => setTimeout(r, 400));
+  await clock.advance(400);
   await flushSeeks();
   assert.equal(v.active, false, "the drag reached LIVE");
   assert.equal(v.parked, true, "live play waits for the pointer");
@@ -1332,7 +1333,7 @@ for (const parked of [false, true])
       diverged: null,
       error: null,
     });
-    for (let i = 0; i < 50 && seeks.length === 0; i++) await new Promise((r) => setTimeout(r, 0));
+    await waitUntil(() => seeks.length > 0, "the seek did not reach the worker");
     await flushSeeks();
     assert.equal(state.historyView.active, true);
     assert.deepEqual(seeks[0], { segment: 0, tick: 150 });
@@ -1395,7 +1396,7 @@ test("a seek during a Watch step leaves one Watch loop running, not two", async 
     error: null,
   });
   release("historyViewAdvance", report(156));
-  await new Promise((r) => setTimeout(r, 180));
+  await clock.advance(180);
   assert.equal(heldCount("historyViewAdvance"), 1, "a single loop steps on");
   release("historyViewAdvance", report(162));
 });

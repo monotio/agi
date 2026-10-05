@@ -1,3 +1,4 @@
+import { scheduler as testScheduler } from "node:timers/promises";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { SoundOutput } from "../../src/sound/sound.ts";
@@ -67,7 +68,7 @@ function fakeAudio(): DebugAudioPort & {
 }
 
 async function flush(): Promise<void> {
-  await new Promise((resolve) => setTimeout(resolve, 0));
+  await testScheduler.yield();
 }
 
 test("frames reach the sink; the text mirror and key wait publish", () => {

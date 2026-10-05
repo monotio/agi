@@ -1,3 +1,5 @@
+import { waitUntil } from "./async.ts";
+import { scheduler as testScheduler } from "node:timers/promises";
 /**
  * Room Studio's Walk view below the canvas: the pure door and outcome
  * helpers (walkView.ts), the room logic draft (useRoomLogicDraft.ts), the
@@ -915,7 +917,7 @@ describe("test walks", () => {
     assert.equal(walk.running.value, true);
     assert.equal(walk.prompt.value, "Walking…");
     await Promise.resolve();
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await testScheduler.yield();
     assert.equal(walk.running.value, false);
     const run = rig.runs[0]!;
     assert.deepEqual([run.room, run.from, run.to], [1, { x: 40, y: 140 }, { x: 60, y: 100 }]);
@@ -932,8 +934,7 @@ describe("test walks", () => {
     const rig = walkRig({ liveState: async () => live });
     const { walk } = rig;
     const settle = async () => {
-      await new Promise((resolve) => setTimeout(resolve, 0));
-      while (walk.running.value) await new Promise((resolve) => setTimeout(resolve, 5));
+      await waitUntil(() => !walk.running.value, "the test walk did not finish");
     };
     // A door box just below the rope, open only while door_open (reserved as f32) is set.
     walk.addDoor({ x1: 60, y1: 122, x2: 72, y2: 127 });
@@ -1006,8 +1007,7 @@ describe("test walks", () => {
     });
     const { walk } = rig;
     const settle = async () => {
-      await new Promise((resolve) => setTimeout(resolve, 0));
-      while (walk.running.value) await new Promise((resolve) => setTimeout(resolve, 5));
+      await waitUntil(() => !walk.running.value, "the test walk did not finish");
     };
     const tested = (id: string) =>
       doorStatus(
@@ -1050,7 +1050,7 @@ describe("test walks", () => {
     hold = true;
     walk.clickWalk({ x: 65, y: 150 });
     walk.clickWalk({ x: 65, y: 110 });
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await testScheduler.yield();
     assert.equal(walk.setDestination("door-2", 1), true);
     release();
     await settle();
@@ -1077,8 +1077,7 @@ describe("test walks", () => {
     // From 40,140 to 60,150: nowhere near the door box.
     walk.clickWalk({ x: 40, y: 140 });
     walk.clickWalk({ x: 60, y: 150 });
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    while (walk.running.value) await new Promise((resolve) => setTimeout(resolve, 5));
+    await waitUntil(() => !walk.running.value, "the test walk did not finish");
     assert.equal(walk.result.value?.title, "Reached room 2 (Green room)");
     assert.equal(walk.result.value?.door, null);
     assert.equal(walk.tested.value.size, 0);
@@ -1098,8 +1097,7 @@ describe("test walks", () => {
     const rig = walkRig({ runner: async () => outcome });
     const { walk } = rig;
     const settle = async () => {
-      await new Promise((resolve) => setTimeout(resolve, 0));
-      while (walk.running.value) await new Promise((resolve) => setTimeout(resolve, 5));
+      await waitUntil(() => !walk.running.value, "the test walk did not finish");
     };
     assert.equal(walk.addEdge("left"), true);
     walk.selectDoor(null);
@@ -1150,8 +1148,7 @@ describe("test walks", () => {
     });
     const { walk } = rig;
     const settle = async () => {
-      await new Promise((resolve) => setTimeout(resolve, 0));
-      while (walk.running.value) await new Promise((resolve) => setTimeout(resolve, 5));
+      await waitUntil(() => !walk.running.value, "the test walk did not finish");
     };
     // A box straddling the rope (y 121): its centre is on the wall, its floor from y 122.
     walk.addDoor({ x1: 60, y1: 110, x2: 72, y2: 125 });
@@ -1230,8 +1227,7 @@ describe("test walks", () => {
     walk.startFromDoor(west.id);
     assert.deepEqual(walk.start.value, { x: 18, y: 151 }, "the gallery's else-branch arrival");
     walk.clickWalk({ x: 30, y: 140 });
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    while (walk.running.value) await new Promise((resolve) => setTimeout(resolve, 5));
+    await waitUntil(() => !walk.running.value, "the test walk did not finish");
     assert.equal(walk.result.value?.title, "Reached", walk.result.value?.result.reason ?? "");
     assert.deepEqual(walk.result.value?.result.end, { x: 30, y: 140 });
 
@@ -1240,8 +1236,7 @@ describe("test walks", () => {
     assert.equal(walk.tested.value.has(west.id), false);
     walk.clickWalk({ x: 30, y: 140 });
     walk.clickWalk({ x: 0, y: 130 });
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    while (walk.running.value) await new Promise((resolve) => setTimeout(resolve, 5));
+    await waitUntil(() => !walk.running.value, "the test walk did not finish");
     assert.equal(
       walk.result.value?.title,
       "Went to room 1 (Picture Gallery)",

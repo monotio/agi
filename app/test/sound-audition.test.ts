@@ -1,3 +1,4 @@
+import { scheduler as testScheduler } from "node:timers/promises";
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { AgiAudio } from "../src/audio/AgiAudio.ts";
@@ -286,7 +287,7 @@ function target(payload: Uint8Array, overrides?: Partial<AuditionTarget>): Audit
   };
 }
 
-const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
+const flush = () => testScheduler.yield();
 
 /**
  * Pump a fake scheduler through reconstruction yields: each timer fire

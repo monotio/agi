@@ -1,3 +1,4 @@
+import { scheduler as testScheduler } from "node:timers/promises";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createWorkerContext, type WorkerContext } from "../src/worker/context.ts";
@@ -105,7 +106,7 @@ test("probe: run-to-cursor after a set-values stop on a real starter", async (t)
   const posted = workers[0]!.posts.find((m) => m.type === "debugRunTo");
   console.log("posted", JSON.stringify(posted));
   workers[0]!.tick(60);
-  await new Promise((r) => setTimeout(r, 0));
+  await testScheduler.yield();
   console.log("phase", workspace.state.phase);
   console.log("reasons", JSON.stringify(workspace.state.stop?.reasons));
   console.log("stopLocation", JSON.stringify(workspace.state.stopLocation));

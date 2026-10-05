@@ -9,10 +9,9 @@ const openDatabase = (): Promise<IDBDatabase> =>
   });
 
 const settle = (transaction: IDBTransaction): Promise<string> =>
-  new Promise<string>((resolve, reject) => {
+  new Promise<string>((resolve) => {
     transaction.oncomplete = () => resolve("complete");
     transaction.onabort = () => resolve("abort");
-    setTimeout(() => reject(new Error("transaction never settled")), 100);
   });
 
 const read = (store: IDBObjectStore, key: string): Promise<unknown> =>
@@ -27,11 +26,10 @@ test("a failing operation rejects the transaction instead of leaving it pending"
   const database = await openDatabase();
   const transaction = database.transaction("projects", "readwrite");
   const events: string[] = [];
-  const settled = new Promise<string[]>((resolve, reject) => {
+  const settled = new Promise<string[]>((resolve) => {
     transaction.oncomplete = () => resolve([...events, "complete"]);
     transaction.onerror = () => events.push("error");
     transaction.onabort = () => resolve([...events, "abort"]);
-    setTimeout(() => reject(new Error("transaction never settled")), 100);
   });
   // Functions are not structured-cloneable, so the fixture's put throws like a real store would.
   const request = transaction.objectStore("projects").put({ projectId: "broken", run: () => {} });

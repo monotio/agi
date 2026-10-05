@@ -1,3 +1,5 @@
+import { waitUntil } from "./async.ts";
+import { scheduler as testScheduler } from "node:timers/promises";
 /**
  * Earlier-progress UI controller tests — the Details dialog section's async
  * ownership (generations retire stale list/read work), the pinned snapshot a
@@ -66,12 +68,12 @@ function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
   return { promise, resolve };
 }
 
-async function settle(turns = 40): Promise<void> {
-  for (let i = 0; i < turns; i++) await new Promise((r) => setTimeout(r, 0));
+async function settle(): Promise<void> {
+  await testScheduler.yield();
 }
 
 async function waitFor(condition: () => boolean): Promise<void> {
-  for (let i = 0; i < 200 && !condition(); i++) await settle(1);
+  await waitUntil(condition, "the earlier-progress operation did not settle");
   assert.ok(condition());
 }
 
@@ -159,7 +161,7 @@ test("a slow read retired by a context change never publishes", async () => {
   const { scope, ctrl } = controller(ctx, hooks);
   await settle();
   ctrl.selectEntry(ctrl.entries.value[0]!);
-  await settle(4);
+  await settle();
   assert.equal(ctrl.selected.value?.state, "reading");
 
   ctx.value = { kind: "candidates", candidates: ["elsewhere"] };
@@ -186,7 +188,7 @@ test("a pending read retired by scope disposal never publishes", async () => {
   const { scope, ctrl } = controller(ctx, hooks);
   await settle();
   ctrl.selectEntry(ctrl.entries.value[0]!);
-  await settle(4);
+  await settle();
   scope.stop();
   gate.resolve({
     kind: "live",
@@ -211,7 +213,7 @@ test("a slow list page retired by a context change never replaces the new listin
 
   const ctx = ref<EarlierDetailsContext | undefined>({ kind: "all" });
   const { scope, ctrl } = controller(ctx, hooks);
-  await settle(2);
+  await settle();
   ctx.value = { kind: "candidates", candidates: ["tape-b"] };
   await settle();
   assert.deepEqual(
