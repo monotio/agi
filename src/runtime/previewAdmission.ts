@@ -298,9 +298,9 @@ function readResourceEntry(
 }
 
 /**
- * Enumerate every resource slot on both images. Candidate entries the
- * container cannot read are refusals; installed-but-corrupt entries compare
- * as changes the candidate must still validate.
+ * Enumerate every resource slot on both images. Existing unreadable slots
+ * stay opaque; new unreadable slots are refused. Repairs compare as changes
+ * the candidate must validate.
  */
 export function diffResources(
   installed: GameContainer,
@@ -313,6 +313,7 @@ export function diffResources(
       const before = readResourceEntry(installed, kind, num);
       const after = readResourceEntry(candidate, kind, num);
       if (after.status === "corrupt") {
+        if (before.status === "corrupt") continue;
         throw new PreviewBlock(
           "refused",
           `preview candidate ${kind} resource ${num} cannot be read`,
