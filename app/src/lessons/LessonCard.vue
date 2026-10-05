@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import UiIcon from "../ui/UiIcon.vue";
 /** Lesson steps and outcome dock beside the editor; folded cards are remembered. */
 import { computed, ref, watch } from "vue";
 import UiIconButton from "../ui/UiIconButton.vue";
@@ -35,7 +36,7 @@ function fold(next: boolean): void {
     :aria-label="`Show Try this: ${lesson.title}`"
     @click="fold(false)"
   >
-    Try this<span v-if="done" class="lesson-tab__done"> ✓</span>
+    Try this<span v-if="done" class="lesson-tab__done"> <UiIcon name="check" :size="16" /></span>
   </button>
   <aside
     v-else

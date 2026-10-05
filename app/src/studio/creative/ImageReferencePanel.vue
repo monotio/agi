@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import UiIcon from "../../ui/UiIcon.vue";
 import {
   computed,
   defineAsyncComponent,
@@ -433,8 +434,8 @@ onBeforeUnmount(() => {
           variant="ghost"
           :aria-expanded="replaceOpen"
           @click="replaceOpen = !replaceOpen"
-          >Replace ▾</UiButton
-        >
+          >Replace <UiIcon name="chevron-down" :size="16"
+        /></UiButton>
         <div v-if="replaceOpen" class="image-source__popover">
           <UiButton
             size="sm"

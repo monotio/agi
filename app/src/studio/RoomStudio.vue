@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import UiIcon from "../ui/UiIcon.vue";
 import { VOCABULARY } from "../../../src/vocabulary.ts";
 import {
   computed,
@@ -1717,7 +1718,7 @@ function onKeyup(event: KeyboardEvent): void {
                 @blur="flushTraceKeys"
                 @click.stop
               >
-                {{ kind === "move" ? "✥" : "↗" }}
+                <UiIcon :name="kind === 'move' ? 'move' : 'expand'" :size="18" />
               </button>
             </template>
             <StudioWalkOverlay
@@ -1742,7 +1743,7 @@ function onKeyup(event: KeyboardEvent): void {
               @pointerdown.stop
               @click.stop="tools.finish()"
             >
-              ✓ Done
+              <UiIcon name="check" :size="16" /> Done
             </button>
             <span
               v-if="tools.path.value && input.overlay.value.cursor"
@@ -2245,6 +2246,9 @@ function onKeyup(event: KeyboardEvent): void {
   white-space: nowrap;
 }
 .studio__trace-handle {
+  display: grid;
+  place-items: center;
+  padding: 0;
   position: absolute;
   z-index: 2;
   width: 28px;

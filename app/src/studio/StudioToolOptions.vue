@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import UiIcon from "../ui/UiIcon.vue";
 import { computed } from "vue";
 import UiButton from "../ui/UiButton.vue";
 import UiExplain from "../ui/UiExplain.vue";
@@ -101,7 +102,7 @@ const clampSeed = (value: number): number => Math.min(239, Math.max(0, Math.roun
       data-testid="studio-playhead-end"
       @click="emit('end')"
     >
-      → Last
+      <UiIcon name="arrow-right" :size="16" /> Last
     </UiButton>
     <StudioBarNotice
       v-if="notice"

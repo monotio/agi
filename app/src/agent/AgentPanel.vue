@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import UiIcon from "../ui/UiIcon.vue";
 import {
   computed,
   defineAsyncComponent,
@@ -364,7 +365,7 @@ onBeforeUnmount(() => {
   >
     <header class="agent-panel__header">
       <button class="agent-panel__chat-title" @click="chatList = !chatList" aria-label="Chats">
-        {{ current?.title ?? "Agent" }} ▾</button
+        {{ current?.title ?? "Agent" }} <UiIcon name="chevron-down" :size="16" /></button
       ><UiButton
         size="sm"
         variant="ghost"
@@ -417,8 +418,8 @@ onBeforeUnmount(() => {
           :disabled="busy || editor.readOnly.value"
           :aria-label="`Delete ${chat.title}`"
           @click="action(() => agent?.deleteChat(chat.id))"
-          >×</UiButton
-        >
+          ><UiIcon name="x" :size="16"
+        /></UiButton>
       </div>
     </nav>
     <div
@@ -582,7 +583,7 @@ onBeforeUnmount(() => {
           type="button"
           @click="contexts = contexts.filter((entry) => entry !== context)"
         >
-          {{ contextName(context) }} ×</button
+          {{ contextName(context) }} <UiIcon name="x" :size="16" /></button
         ><button type="button" @click="addContext = !addContext">+ Add context</button>
       </div>
       <select

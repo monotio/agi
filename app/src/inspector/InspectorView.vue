@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import UiIcon from "../ui/UiIcon.vue";
 /**
  * The inspector's controls for its current tab:
  *
@@ -278,8 +279,13 @@ watch(
         <input v-model="varEdit.text" data-testid="dbg-var-set" size="4" autofocus
       /></label>
       <button type="submit" class="ui-button ui-button--secondary">set</button>
-      <button type="button" class="ui-button ui-button--secondary" @click="varEdit = undefined">
-        ×
+      <button
+        type="button"
+        class="ui-button ui-button--secondary"
+        aria-label="Close"
+        @click="varEdit = undefined"
+      >
+        <UiIcon name="x" :size="16" />
       </button>
     </form>
     <div v-if="inspector.pinnedVars.value.size" class="dd-pins">

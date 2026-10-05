@@ -155,6 +155,8 @@ test("trace handles preview live and commit once on release with Reset and Undo"
   const scale = page.getByRole("button", { name: "Scale trace", exact: true });
   await expect(move).toBeVisible();
   await expect(scale).toBeVisible();
+  await expect(move.locator("svg")).toBeVisible();
+  await expect(scale.locator("svg")).toBeVisible();
   const canvas = page.locator('[data-layer="art"] canvas');
   const sample = () =>
     canvas.evaluate((element) => {

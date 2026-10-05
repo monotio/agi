@@ -12,7 +12,7 @@ export interface VocabularyAction extends VocabularyTerm {
 export const WORDS_EDITOR_COPY = {
   unknown: "“{word}” is a new word, so the game stops reading there.",
   teach: "Teach “{word}”…",
-  more: "More ▾",
+  more: "More",
   newMeaning: "New meaning",
   skip: "Skip it like “the”",
   suggesting: "Suggesting…",

@@ -27,7 +27,8 @@ const { size = 20, strokeWidth = 2 } = defineProps<{
 
 <style scoped>
 .ui-icon {
-  display: block;
+  display: inline-block;
+  vertical-align: middle;
   flex: none;
 }
 </style>

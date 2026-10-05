@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import UiIcon from "../ui/UiIcon.vue";
 /**
  * The AGI inspector's floating frame in Play mode (Create hosts the same
  * controls in its Inspect tab). Placement follows the usual inspector
@@ -117,7 +118,7 @@ function onHeadPointerUp(): void {
         title="Close"
         @click="emit('close')"
       >
-        ×
+        <UiIcon name="x" :size="16" />
       </button>
     </header>
     <InspectorView v-if="!collapsed" />

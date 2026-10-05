@@ -117,7 +117,7 @@ test("the Help guide lists the three lessons and opens the mural PICTURE", async
     .getByTestId(`help-lesson-${MURAL}`)
     .getByTestId("help-lesson-badge");
   await expect(completed).toBeVisible();
-  await expect(completed).toHaveText("✓ Done");
+  await expect(completed).toHaveText("Done");
 });
 
 test("the VIEW lesson opens its resource and repainting a mirror preserves its source loop", async ({

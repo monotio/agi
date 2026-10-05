@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import UiIcon from "../../ui/UiIcon.vue";
 import { computed, ref } from "vue";
 import { VOCABULARY } from "../../../../src/vocabulary.ts";
 import type { WorkspaceDebug } from "./workspaceDebug.ts";
@@ -100,7 +101,9 @@ function tabKey(event: KeyboardEvent): void {
           {{ name }}
         </button>
       </div>
-      <UiButton size="sm" variant="ghost" aria-label="Close" @click="emit('close')">×</UiButton>
+      <UiButton size="sm" variant="ghost" aria-label="Close" @click="emit('close')"
+        ><UiIcon name="x" :size="16"
+      /></UiButton>
     </header>
     <p v-if="debug.state.error" role="alert">{{ debug.state.error }}</p>
     <div role="tabpanel" :aria-label="tab" class="workspace-debug-content">
@@ -180,8 +183,8 @@ function tabKey(event: KeyboardEvent): void {
             variant="ghost"
             :aria-label="`Remove watch ${watch.expression}`"
             @click="debug.removeWatch(watch.id)"
-            >×</UiButton
-          >
+            ><UiIcon name="x" :size="16"
+          /></UiButton>
         </div>
       </template>
       <template v-else-if="tab === 'Call stack'">
@@ -216,8 +219,8 @@ function tabKey(event: KeyboardEvent): void {
             variant="ghost"
             :aria-label="`Remove breakpoint ${point.id}`"
             @click="debug.run(() => debug.toggle(point.logic, point.line))"
-            >×</UiButton
-          >
+            ><UiIcon name="x" :size="16"
+          /></UiButton>
         </div>
       </template>
     </div>

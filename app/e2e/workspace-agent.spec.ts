@@ -148,7 +148,7 @@ for (const size of [
     });
     await page.getByTestId("agent-message").focus();
     await page.keyboard.press("ControlOrMeta+n");
-    await expect(page.getByRole("button", { name: "Chats", exact: true })).toHaveText("New chat ▾");
+    await expect(page.getByRole("button", { name: "Chats", exact: true })).toHaveText("New chat");
     await page.getByRole("button", { name: "Chats", exact: true }).click();
     await page.getByRole("button", { name: "Add a welcome sign", exact: true }).click();
     await expect(page.getByRole("button", { name: "Undo this", exact: true })).toBeVisible();

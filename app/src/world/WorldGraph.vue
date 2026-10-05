@@ -289,7 +289,7 @@ defineExpose({ selectRoom });
         data-testid="map-graph-fold"
         @click="graphOpen = !graphOpen"
       >
-        {{ graphOpen ? "▾" : "▸" }} Graph
+        <UiIcon :name="graphOpen ? 'chevron-down' : 'chevron-right'" :size="16" /> Graph
       </button>
       <span v-show="graphOpen" class="map-zoom">
         <button

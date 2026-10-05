@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import UiIcon from "../../ui/UiIcon.vue";
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, useTemplateRef, watch } from "vue";
 import {
   suggestImageFrames,
@@ -538,7 +539,9 @@ const thumbnails = computed(() => {
         <div class="frame-find">
           <UiButton size="sm" @click="find">Find frames again</UiButton>
           <details class="frame-find-menu">
-            <summary aria-label="Frame finding options">▾</summary>
+            <summary aria-label="Frame finding options">
+              <UiIcon name="chevron-down" :size="16" />
+            </summary>
             <div>
               <label><input v-model="suggestion" type="radio" value="gaps" />By gaps</label>
               <label><input v-model="suggestion" type="radio" value="grid" />Grid</label>
@@ -742,7 +745,7 @@ const thumbnails = computed(() => {
             remove();
           "
         >
-          ×
+          <UiIcon name="x" :size="16" />
         </button>
       </div>
     </div>

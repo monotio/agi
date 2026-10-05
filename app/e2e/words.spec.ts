@@ -167,7 +167,7 @@ test("WORDS row actions, in-place stub suggestions and tester choices", async ({
     .getByRole("form", { name: "Teach climb", exact: true })
     .getByRole("button", { name: "Cancel" })
     .click();
-  await verdict.getByRole("button", { name: "More ▾", exact: true }).click();
+  await verdict.getByRole("button", { name: "More", exact: true }).click();
   await expect(verdict.getByRole("button", { name: "New meaning", exact: true })).toBeVisible();
   const newMeaning = verdict.getByRole("button", { name: "New meaning", exact: true });
   await expect
@@ -188,7 +188,7 @@ test("WORDS row actions, in-place stub suggestions and tester choices", async ({
   await verdict.getByRole("button", { name: "Skip it like “the”", exact: true }).click();
   await expect(page.getByTestId("sentence-parse")).toContainText("skipped");
   await sentence.fill("wander");
-  await verdict.getByRole("button", { name: "More ▾", exact: true }).click();
+  await verdict.getByRole("button", { name: "More", exact: true }).click();
   await verdict.getByRole("button", { name: "New meaning", exact: true }).click();
   await expect(page.getByTestId("sentence-parse")).not.toContainText("new word");
   await expect(words.locator(".meaning-row").filter({ hasText: "wander" })).toHaveCount(1);

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import UiIcon from "../ui/UiIcon.vue";
 /**
  * The Help guide: topics for playing and making games, each with an optional
  * "Show me" that opens the real control. The screen passes the actions it can
@@ -134,7 +135,7 @@ defineExpose({ open });
             {{ lesson.title }}
             <template v-if="lesson.challenge">
               <UiChip v-if="completed.has(lesson.id)" tone="ok" data-testid="help-lesson-badge">
-                ✓ Done
+                <UiIcon name="check" :size="16" /> Done
               </UiChip>
               <UiChip v-else data-testid="help-lesson-badge">Not yet done</UiChip>
             </template>

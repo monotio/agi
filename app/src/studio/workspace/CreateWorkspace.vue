@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import UiIcon from "../../ui/UiIcon.vue";
 import GuidedAdd from "./GuidedAdd.vue";
 import { soundProjectChanges } from "../sound/soundEdits.ts";
 import { VOCABULARY } from "../../../../src/vocabulary.ts";
@@ -1199,8 +1200,8 @@ onBeforeUnmount(() => {
         variant="ghost"
         aria-label="Close"
         @click="presentation.debugOpen.value = false"
-        >×</UiButton
-      >
+        ><UiIcon name="x" :size="16"
+      /></UiButton>
     </header>
     <InspectPanel />
   </aside>
@@ -1634,8 +1635,8 @@ onBeforeUnmount(() => {
       <header>
         <h2>Problems</h2>
         <UiButton size="sm" variant="ghost" aria-label="Close" @click="editor.panel.value = false"
-          >×</UiButton
-        >
+          ><UiIcon name="x" :size="16"
+        /></UiButton>
       </header>
       <p v-if="diagnostics.length === 0">Everything builds.</p>
       <p v-for="(entry, index) in diagnostics" :key="index">{{ entry.message }}</p>
@@ -1651,8 +1652,8 @@ onBeforeUnmount(() => {
     <header>
       <h2>History</h2>
       <UiButton size="sm" variant="ghost" aria-label="Close" @click="editor.history.value = false"
-        >×</UiButton
-      >
+        ><UiIcon name="x" :size="16"
+      /></UiButton>
     </header>
     <div id="workspace-history-errors"></div>
     <p>{{ VOCABULARY.history.help }}</p>

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import UiIcon from "../../ui/UiIcon.vue";
 import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
 import { VOCABULARY, WORDS_EDITOR_COPY } from "../../../../src/vocabulary.ts";
 import { parseSentence } from "../../../../src/runtime/parser.ts";
@@ -410,7 +411,9 @@ function dismissGhosts(event: KeyboardEvent): void {
     </header>
     <div v-if="toast" class="words-toast" role="status">
       {{ toast }} · <button class="words-link" @click="emit('chat')">{{ copy.openChat }}</button>
-      <button class="chip-remove" aria-label="Close" @click="toast = ''">×</button>
+      <button class="chip-remove" aria-label="Close" @click="toast = ''">
+        <UiIcon name="x" :size="16" />
+      </button>
     </div>
     <p v-if="error" class="words-error" role="alert">{{ error }}</p>
     <form v-if="moving" class="words-choice" @submit.prevent="move" aria-label="Move to…">
@@ -509,9 +512,14 @@ function dismissGhosts(event: KeyboardEvent): void {
                   >{{ copy.teach.replace("{word}", unknown) }}</UiButton
                 >
                 <div class="tester-more">
-                  <UiButton size="sm" variant="ghost" :aria-expanded="more" @click="more = !more">{{
-                    copy.more
-                  }}</UiButton>
+                  <UiButton
+                    size="sm"
+                    variant="ghost"
+                    trailing-icon="chevron-down"
+                    :aria-expanded="more"
+                    @click="more = !more"
+                    >{{ copy.more }}</UiButton
+                  >
                   <div v-if="more" class="tester-menu">
                     <UiButton
                       size="sm"
@@ -740,7 +748,7 @@ function dismissGhosts(event: KeyboardEvent): void {
                 :disabled="readOnly"
                 :title="readOnly ? 'Editing is paused in this tab' : undefined"
               >
-                ×
+                <UiIcon name="x" :size="16" />
               </button>
             </div>
             <div :id="`teach-row-${index}`" class="tried-teach"></div>
@@ -795,7 +803,7 @@ function dismissGhosts(event: KeyboardEvent): void {
                 :disabled="readOnly"
                 :title="readOnly ? 'Editing is paused in this tab' : undefined"
               >
-                ↗</button
+                <UiIcon name="external-link" :size="16" /></button
               ><button
                 class="chip-remove"
                 :aria-label="`Remove ${word}`"
@@ -803,9 +811,8 @@ function dismissGhosts(event: KeyboardEvent): void {
                 :disabled="readOnly"
                 :title="readOnly ? 'Editing is paused in this tab' : undefined"
               >
-                ×
-              </button></span
-            >
+                <UiIcon name="x" :size="16" /></button
+            ></span>
             <button
               v-for="word in ghosts[String(group.id)] ?? []"
               :key="word"
@@ -935,7 +942,7 @@ function dismissGhosts(event: KeyboardEvent): void {
               :disabled="readOnly"
               :title="readOnly ? 'Editing is paused in this tab' : undefined"
             >
-              ↗</button
+              <UiIcon name="external-link" :size="16" /></button
             ><button
               class="chip-remove"
               :aria-label="`Remove ${word}`"
@@ -943,8 +950,7 @@ function dismissGhosts(event: KeyboardEvent): void {
               :disabled="readOnly"
               :title="readOnly ? 'Editing is paused in this tab' : undefined"
             >
-              ×
-            </button></span
+              <UiIcon name="x" :size="16" /></button></span
           ><button
             v-if="adding !== 0"
             class="word-chip row-action"
