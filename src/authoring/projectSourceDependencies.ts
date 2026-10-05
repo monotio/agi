@@ -4,7 +4,7 @@
  * operand roles. A recovered tree is never evidence that removal is safe: the
  * final selected image still needs strict compilation and reference admission.
  */
-import { actionSpec, CONDITION_BY_NAME } from "../logic/opcodes.ts";
+import { actionSpec, conditionSpec } from "../logic/opcodes.ts";
 import { analyzeLogicSyntax, type Ref, type Stmt, type TestExpr } from "../logic/syntax.ts";
 import type { AgiProfile } from "../runtime/profile.ts";
 import { expandProjectLogic } from "./projectLogic.ts";
@@ -53,7 +53,7 @@ export function inspectProjectSourceDependencies(input: {
     call: { readonly name: string; readonly args: readonly Ref[]; readonly tok: { start: number } },
     condition: boolean,
   ): void {
-    const spec = condition ? CONDITION_BY_NAME[call.name] : actionSpec(call.name, input.profile);
+    const spec = condition ? conditionSpec(call.name) : actionSpec(call.name, input.profile);
     if (!spec) return;
     const start = call.tok.start - base;
     const add = (dependency: string): void => {

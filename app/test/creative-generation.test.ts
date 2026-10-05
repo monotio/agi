@@ -1067,7 +1067,7 @@ for (const outcome of ["completed", "cancelled", "interrupted"] as const) {
     if (outcome === "cancelled") controller.cancel();
     else finish();
     await pending;
-    assert.equal(controller.spend?.amount, outcome === "completed" ? 0.052 : 0);
+    assert.equal(controller.spend?.amount, outcome === "completed" ? 0.07 : 0);
     assert.equal(controller.spend?.incomplete, outcome !== "completed");
     controller.dispose();
   });

@@ -6,7 +6,7 @@
  * contribute their own references before a caller authorizes removal.
  */
 import { inspectLogicResource } from "../logic/disassembler.ts";
-import { actionSpec, CONDITION_BY_NAME, SAID_ANY_WORD, SAID_REST } from "../logic/opcodes.ts";
+import { actionSpec, conditionSpec, SAID_ANY_WORD, SAID_REST } from "../logic/opcodes.ts";
 import { parseWordsTok } from "../logic/words.ts";
 import type { AgiProfile } from "../runtime/profile.ts";
 import { RESOURCE_KINDS, type GameContainer, type ResourceKind } from "../types.ts";
@@ -161,7 +161,7 @@ export function inspectProjectReferences(input: {
           })),
         ...decoded.predicates.map((predicate) => ({
           ...predicate,
-          operands: CONDITION_BY_NAME[predicate.name]!.operands,
+          operands: conditionSpec(predicate.name)!.operands,
         })),
       ].sort((left, right) => left.at - right.at);
       for (const call of calls) {

@@ -7,7 +7,7 @@
  * the bindings record, and a failed call reserves nothing.
  */
 import { inspectLogicResource } from "../logic/disassembler.ts";
-import { actionSpec, CONDITION_BY_NAME } from "../logic/opcodes.ts";
+import { actionSpec, conditionSpec } from "../logic/opcodes.ts";
 import { parseView } from "../view/view.ts";
 import { readInventoryObjects } from "./inventory.ts";
 import { inspectProjectReferences } from "./projectReferences.ts";
@@ -83,7 +83,7 @@ function occupiedIds(
         })),
       ...decoded.predicates.map((predicate) => ({
         ...predicate,
-        operands: CONDITION_BY_NAME[predicate.name]!.operands,
+        operands: conditionSpec(predicate.name)!.operands,
       })),
     ];
     if (

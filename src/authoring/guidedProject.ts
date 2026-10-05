@@ -66,7 +66,7 @@ import {
   type TestExpr,
   type Token,
 } from "../logic/syntax.ts";
-import { actionSpec, CONDITION_BY_NAME, SAID_ANY_WORD, SAID_REST } from "../logic/opcodes.ts";
+import { actionSpec, conditionSpec, SAID_ANY_WORD, SAID_REST } from "../logic/opcodes.ts";
 import {
   compileProjectDocuments,
   ProjectDocumentCompileError,
@@ -457,7 +457,7 @@ function sourceStateUse(
     };
   }
   const visitArgs = (name: string, args: readonly Ref[]) => {
-    const spec = actionSpec(name, profile) ?? CONDITION_BY_NAME[name];
+    const spec = actionSpec(name, profile) ?? conditionSpec(name);
     if (spec === undefined) {
       // Unknown call: sigil refs still name state; positions for the rest
       // cannot be proven.
@@ -551,7 +551,7 @@ function salvageStateUse(
   for (let i = 0; i < tokens.length; i++) {
     const token = tokens[i]!;
     if (token.type !== "ident") continue;
-    const spec = actionSpec(token.text, profile) ?? CONDITION_BY_NAME[token.text];
+    const spec = actionSpec(token.text, profile) ?? conditionSpec(token.text);
     if (spec === undefined || spec.operands.length === 0) continue;
     if (tokens[i + 1]?.type !== "punct" || tokens[i + 1]!.text !== "(") continue;
     let cursor = i + 2;

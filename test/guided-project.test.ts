@@ -1013,3 +1013,18 @@ describe("guided operation surface", () => {
     assert.equal(on.type, "command");
   });
 });
+
+test("guided state allocation tolerates inherited action and condition names in drafts", () => {
+  for (const name of ["constructor", "toString", "__proto__"])
+    for (const call of [`${name}(v40);`, `if (${name}(f40)) { return; }`]) {
+      const { ctx, draft } = workspace();
+      draft.edit("logic:3", `${call}\nreturn;`, 0);
+      const result = prepareGuidedPlaySound(ctx, {
+        room: 1,
+        sound: "chime_sound",
+        on: { type: "command", command: "wave" },
+        createCommand: true,
+      });
+      assert.ok(result.ok, result.ok === false ? result.message : "");
+    }
+});

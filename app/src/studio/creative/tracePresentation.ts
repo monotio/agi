@@ -9,7 +9,7 @@ export type TraceUnderlay = {
   transform?: TraceTransform;
   adjust?: ((transform: TraceTransform, release: boolean) => void) | undefined;
 };
-const presentations = new WeakMap<ProjectSession, Record<string, TraceUnderlay>>();
+const presentations = new WeakMap<ProjectSession, Map<string, TraceUnderlay>>();
 export function presentTrace(
   session: ProjectSession,
   target: string,
@@ -18,15 +18,17 @@ export function presentTrace(
   if (!underlay) return null;
   let targets = presentations.get(session);
   if (!targets) {
-    targets = {};
+    targets = new Map();
     presentations.set(session, targets);
   }
-  const existing = targets[target];
+  const existing = targets.get(target);
   if (existing) {
     Object.assign(existing, underlay);
     return existing;
   }
-  return (targets[target] = shallowReactive(underlay));
+  const presented = shallowReactive(underlay);
+  targets.set(target, presented);
+  return presented;
 }
 export function previewTrace(
   session: ProjectSession,
@@ -35,6 +37,6 @@ export function previewTrace(
   behindArt: boolean,
   options: Partial<TraceUnderlay> = {},
 ) {
-  const underlay = presentations.get(session)?.[target];
+  const underlay = presentations.get(session)?.get(target);
   if (underlay) Object.assign(underlay, { opacity, behindArt, ...options });
 }

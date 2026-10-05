@@ -282,9 +282,9 @@ export function createWorkspaceAgent(options: Options) {
   }
   review = store.active === null ? null : (reviews.get(store.active) ?? null);
   let activeRun: AgentRun | null = null;
-  const completedRuns: Record<string, AgentRunState> = {};
+  const completedRuns = new Map<string, AgentRunState>();
   let autoApprove = false;
-  const reviewOutcomes: Record<string, string> = {};
+  const reviewOutcomes = new Map<string, string>();
   let error = "";
   let busy = false;
   let applying = false;
@@ -418,7 +418,7 @@ export function createWorkspaceAgent(options: Options) {
       chat.messages = chat.messages.map((message) =>
         message.id === approving.messageId ? { ...message, beforeCommit: before, commit } : message,
       );
-      reviewOutcomes[approving.messageId] = automatic ? "Applied automatically" : "Approved";
+      reviewOutcomes.set(approving.messageId, automatic ? "Applied automatically" : "Approved");
       action(chat, "approve", {
         resources: changes.map((change) => change.key),
         outcome: result.status,
@@ -843,7 +843,7 @@ export function createWorkspaceAgent(options: Options) {
       appliedDuringRun = null;
       if (provider) chat.transcript = provider.getTranscript();
       busy = false;
-      completedRuns[chat.id] = run.snapshot();
+      completedRuns.set(chat.id, run.snapshot());
       activeRun = null;
       await save();
     }
@@ -895,7 +895,7 @@ export function createWorkspaceAgent(options: Options) {
     current,
     reviewOutcome(messageId: string): string | undefined {
       return (
-        reviewOutcomes[messageId] ??
+        reviewOutcomes.get(messageId) ??
         (store.chats.some((chat) =>
           chat.messages.some((message) => message.id === messageId && message.commit),
         )
@@ -925,7 +925,7 @@ export function createWorkspaceAgent(options: Options) {
     get task() {
       return (
         activeRun?.snapshot() ??
-        (store.active === null ? null : (completedRuns[store.active] ?? null))
+        (store.active === null ? null : (completedRuns.get(store.active) ?? null))
       );
     },
     subscribe(observer: () => void) {
@@ -988,7 +988,7 @@ export function createWorkspaceAgent(options: Options) {
       if (applying) return;
       if (review) {
         const chat = store.chats.find((chat) => chat.id === review!.chatId)!;
-        reviewOutcomes[review.messageId] = "Rejected";
+        reviewOutcomes.set(review.messageId, "Rejected");
         action(chat, "reject", {
           resources: review.changes().map((change) => change.key),
           outcome: "discarded",

@@ -131,3 +131,16 @@ test("name uses remain available while an unknown command is being edited", () =
     ["Used"],
   );
 });
+
+test("message actions allocate after valid slots while declarations are being edited", async () => {
+  const { messageCodeActions } = await import("../src/logic/messageReadability.ts");
+  for (const key of ["nope", "constructor", "toString", "__proto__", "0", "256", "999999"]) {
+    const draft = `#message ${key} "draft"\n#message 2 "existing"\nprint("Hello");`;
+    const actions = messageCodeActions(draft, "agi-project:///logic.1.lgc", 1, 0, draft.length);
+    assert.deepEqual(
+      actions[0]?.edit.documentChanges[0]?.edits.map((edit) => edit.newText),
+      ["m3", '#message 3 "Hello"\n'],
+      key,
+    );
+  }
+});

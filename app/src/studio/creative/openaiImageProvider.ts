@@ -324,6 +324,8 @@ export interface OpenAiImageUsage {
   readonly totalTokens?: number;
   readonly inputTextTokens?: number;
   readonly inputImageTokens?: number;
+  /** Cached image input, included in inputImageTokens by the provider. */
+  readonly inputCachedTokens?: number;
   readonly outputImageTokens?: number;
 }
 
@@ -878,6 +880,8 @@ function readUsage(value: unknown): OpenAiImageUsage | undefined {
   if (inputText !== undefined) usage.inputTextTokens = inputText;
   const inputImage = number(details["image_tokens"]);
   if (inputImage !== undefined) usage.inputImageTokens = inputImage;
+  const cached = number(details["cached_tokens"]);
+  if (cached !== undefined) usage.inputCachedTokens = cached;
   const outputImage = number(outDetails["image_tokens"]);
   if (outputImage !== undefined) usage.outputImageTokens = outputImage;
   return Object.keys(usage).length > 0 ? usage : undefined;

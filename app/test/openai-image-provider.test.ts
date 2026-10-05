@@ -276,10 +276,10 @@ function prepareError(
 
 test("prompt-only generation posts exact JSON and returns exact bytes with usage", async () => {
   const usage = {
-    input_tokens: 42,
-    input_tokens_details: { image_tokens: 0, text_tokens: 42 },
+    input_tokens: 3042,
+    input_tokens_details: { image_tokens: 3000, text_tokens: 42, cached_tokens: 1000 },
     output_tokens: 1290,
-    total_tokens: 1332,
+    total_tokens: 4332,
     output_tokens_details: { image_tokens: 1290, text_tokens: 0 },
   };
   const { provider, calls, keys } = harness((call) =>
@@ -325,11 +325,12 @@ test("prompt-only generation posts exact JSON and returns exact bytes with usage
   assert.equal(offer.requestId, "req_abc");
   assert.equal(offer.created, 1_700_000_000);
   assert.deepEqual(offer.usage, {
-    inputTokens: 42,
+    inputTokens: 3042,
     outputTokens: 1290,
-    totalTokens: 1332,
+    totalTokens: 4332,
     inputTextTokens: 42,
-    inputImageTokens: 0,
+    inputImageTokens: 3000,
+    inputCachedTokens: 1000,
     outputImageTokens: 1290,
   });
   assert.equal(offer.summary, prepared.summary);
@@ -947,6 +948,7 @@ test("image quality and pixel count extend the whole-job timeout", async (t) => 
 
 test("paid request estimates use the documented image output calculator", async () => {
   const { estimateImageOutputCost } = await import("../src/studio/creative/openaiImageProvider.ts");
+  assert.equal(estimateImageOutputCost("gpt-image-2", "low", "1024x1024"), 0.00588);
   assert.equal(estimateImageOutputCost("gpt-image-2.5-sunburst", "low", "1024x1024"), 0.00588);
   assert.equal(estimateImageOutputCost("gpt-image-2.5-flare", "high", "1024x1024"), 0.05268);
   assert.equal(estimateImageOutputCost("unknown", "low", "1024x1024"), null);
