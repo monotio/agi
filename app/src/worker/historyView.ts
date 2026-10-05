@@ -41,6 +41,7 @@ export function createHistoryView(
   ctx: WorkerContext,
   /** Builds each scratch session's context: createWorkerContext, which passes itself. */
   createContext: (ports: WorkerPorts) => WorkerContext,
+  createDrive: typeof openHistoryDrive = openHistoryDrive,
 ) {
   /**
    * Whether the view session has successfully opened: a start whose landing
@@ -129,7 +130,7 @@ export function createHistoryView(
         break;
       }
     }
-    const drive = openHistoryDrive(segment, createContext, {
+    const drive = createDrive(segment, createContext, {
       ...(anchorIdx !== undefined ? { anchor: anchorIdx } : {}),
       ports: {
         // Scratch host requests resolve from the recorded answers, never the
@@ -220,23 +221,32 @@ export function createHistoryView(
     preview.ctx.replay.isSeeking = true;
     const presentStart = (): void => {
       if (view.request !== requestId) return;
-      const start = ctx.ports.now();
       let presented = false;
-      while (!preview.halted && !presented) {
-        preview.step();
-        const engine = preview.ctx.engine;
-        presented =
-          engine !== null &&
-          (engine.readLeanState().pictureShown ||
-            engine.textModeActive ||
-            engine.modalKind !== null);
-        if (!presented && ctx.ports.now() - start > CHUNK_BUDGET_MS) {
-          view.timer = setTimeout(() => {
-            view.timer = null;
-            presentStart();
-          }, 0);
-          return;
+      try {
+        const start = ctx.ports.now();
+        while (!preview.halted && !presented) {
+          preview.step();
+          const engine = preview.ctx.engine;
+          presented =
+            engine !== null &&
+            (engine.readLeanState().pictureShown ||
+              engine.textModeActive ||
+              engine.modalKind !== null);
+          if (!presented && ctx.ports.now() - start > CHUNK_BUDGET_MS) {
+            view.timer = setTimeout(() => {
+              view.timer = null;
+              presentStart();
+            }, 0);
+            return;
+          }
         }
+      } catch (error) {
+        view.request = null;
+        scratch.replay.isSeeking = false;
+        preview.ctx.replay.isSeeking = false;
+        postViewError(requestId, String(error));
+        endView(false);
+        return;
       }
       if (presented && preview.error === null) {
         preview.ctx.replay.isSeeking = false;
