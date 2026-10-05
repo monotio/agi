@@ -26,7 +26,10 @@ function context() {
     stopped: false,
     connect() {},
     disconnect() {},
-    start() {},
+    starts: [] as number[][],
+    start(...args: number[]) {
+      this.starts.push(args);
+    },
     stop() {
       this.stopped = true;
     },
@@ -64,6 +67,7 @@ function context() {
     createOscillator: oscillator,
     createBuffer: (_channels: number, length: number) => {
       const buffer = {
+        length,
         data: new Float32Array(length),
         getChannelData() {
           return this.data;
@@ -90,6 +94,8 @@ function context() {
       bufferSources.push(source);
       return source;
     },
+    createChannelMerger: () => node(),
+    createIIRFilter: () => node(),
     createBiquadFilter: () => ({ ...node(), type: "bandpass", Q: params(), frequency: params() }),
     resume: async () => {},
   };
@@ -185,6 +191,30 @@ describe("audio command backend", () => {
     // Channel 0 must remain silent (not corrupted to gain 0.25 / attenuation 0)
     assert.equal(gains[1]!.gain.value, 0);
   });
+  it("starts Paula DMA at the programmed rate and resets phase after DMA off", () => {
+    const { audio, bufferSources } = context();
+    audio.output(
+      { kind: "paula", channel: 0, period: 760, volume: 55 },
+      { stream: "dma", tick: 0 },
+    );
+    assert.deepEqual(bufferSources[0]!.starts, [[12 + 2 / 60, 0]]);
+    assert.equal(
+      bufferSources[0]!.playbackRate.values[0]![1],
+      12,
+      "constant rate is installed before the start quantum",
+    );
+    assert.deepEqual(bufferSources[1]!.starts, [], "unprogrammed DMA stays off");
+    audio.output(
+      { kind: "paula", channel: 0, period: null, volume: 0 },
+      { stream: "dma", tick: 1 },
+    );
+    assert.equal(bufferSources[0]!.stopped, true);
+    audio.output(
+      { kind: "paula", channel: 0, period: 760, volume: 55 },
+      { stream: "dma", tick: 2 },
+    );
+    assert.deepEqual(bufferSources.at(-1)!.starts, [[12 + 4 / 60, 0]]);
+  });
   it("renders paula events with the driver's tone sample and per-voice gains", () => {
     const { audio, gains, bufferSources } = context();
     audio.output({ kind: "paula", channel: 0, period: 760, volume: 55 });
@@ -214,19 +244,19 @@ describe("audio command backend", () => {
     assert.equal(bufferSources[3]!.playbackRate.value, 3546895 / 0x800 / 8000);
     assert.equal(gains[4]!.gain.value, 0.4);
     // A rest writes AUDxPER 0 with a nonzero volume (KQ2's attack gives 8):
-    // the voice renders silent and keeps its previous rate.
+    // the voice renders silent while its zero period counts 65536 clocks.
     audio.output({ kind: "paula", channel: 1, period: 0, volume: 8 });
     assert.equal(gains[2]!.gain.value, 0);
-    assert.equal(bufferSources[1]!.playbackRate.value, 3546895 / 1016 / 8000);
+    assert.equal(bufferSources.at(-1)!.playbackRate.value, 3546895 / 65536 / 8000);
     // The engine's terminator and stop() events carry no noise flag; the
     // noise voice keeps its buffer (Web Audio cannot reassign one).
     audio.output({ kind: "paula", channel: 3, period: null, volume: 0 });
     assert.equal(bufferSources[3]!.buffer, noise);
     assert.equal(gains[4]!.gain.value, 0);
-    // A null period silences the voice without stopping its source.
+    // A null period disables DMA and stops the source.
     audio.output({ kind: "paula", channel: 0, period: null, volume: 0 });
     assert.equal(gains[1]!.gain.value, 0);
-    assert.equal(bufferSources[0]!.stopped, false);
+    assert.equal(bufferSources[0]!.stopped, true);
     audio.stop();
     assert.ok(bufferSources.every((source) => source.stopped));
   });

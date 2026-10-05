@@ -128,13 +128,15 @@ function fakeAudioContext() {
     },
     createBuffer: (_channels: number, length: number, _rate: number) => {
       const data = new Float32Array(length);
-      return { data, getChannelData: () => data };
+      return { data, length, getChannelData: () => data };
     },
     createBufferSource: (): Source => {
       const source = { ...node(), buffer: null, loop: false, playbackRate: params() };
       sources.push(source);
       return source;
     },
+    createChannelMerger: () => node(),
+    createIIRFilter: () => node(),
     createBiquadFilter: (): Filter => {
       const filter = { ...node(), frequency: params(), type: "bandpass", Q: params() };
       filters.push(filter);

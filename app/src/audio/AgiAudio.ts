@@ -18,6 +18,13 @@ import {
   type IigsOutput,
   type SoundOutput,
 } from "../../../src/sound/sound.ts";
+import {
+  PaulaClock,
+  PAULA_CLOCK,
+  PAULA_MIN_PERIOD,
+  PAULA_LED_FILTER,
+  paulaRcCoefficients,
+} from "./paula.ts";
 import { IigsSynth, iigsSources, type IigsSources } from "./iigsSynth.ts";
 
 /**
@@ -27,17 +34,6 @@ import { IigsSynth, iigsSources, type IigsSources } from "./iigsSynth.ts";
  */
 export type AudioMode = "tandy" | "pc-speaker";
 
-/** The PAL Paula clock; the driver's AUDxPER converts it to a sample rate. */
-const PAULA_CLOCK = 3546895;
-
-/**
- * Paula's audio DMA fetches one word per voice per scanline, so a voice
- * cannot take new samples faster than a period of about 124 colour clocks
- * (Amiga Hardware Reference Manual) — hardware behaviour, not driver
- * evidence. The 2.082 driver writes noise periods 6, 3 and 1
- * (docs/fidelity.md, "The older 2.082 driver"); they render at the limit.
- */
-const PAULA_MIN_PERIOD = 124;
 export class AgiAudio {
   private ctx: AudioContext | null = null;
   private masterGain: GainNode | null = null;
@@ -59,6 +55,9 @@ export class AgiAudio {
   private readonly divisors = [0, 0, 0];
   private latchedRegister = 0;
   private paulaSources: AudioBufferSourceNode[] = [];
+  private paulaClocks: PaulaClock[] = [];
+  private readonly dormantPaula = new WeakSet<object>();
+  private paulaPeriods: (number | null)[] = [];
   /** The game's DOC RAM and instrument bank, when its files carry them. */
   private iigsSources: IigsSources | null = null;
   private iigsSynth: IigsSynth | null = null;
@@ -371,24 +370,46 @@ export class AgiAudio {
     if (event.kind === "paula") {
       if (!this.paulaSources.length) this.createPaulaChannels(ctx, event.driver === "2.082");
       const channel = event.channel & 3;
-      const source = this.paulaSources[channel]!;
-      // Paula steps the sample at clock / period bytes per second; a looping
-      // source replays its buffer at context rate times playbackRate.
-      if (event.period !== null && event.period > 0)
-        source.playbackRate.setValueAtTime(
-          PAULA_CLOCK / Math.max(PAULA_MIN_PERIOD, event.period) / ctx.sampleRate,
-          at,
-        );
-      // Both drivers write AUDxPER 0 for a rest (tone word 0) with the
-      // volume its attenuation gives — KQ2's signed attack and 2.082's v23
-      // make that nonzero. Inference: a zero period gives the voice no
-      // audible pitch, so it renders silent (docs/fidelity.md, "Original
-      // Amiga sound player"). AUDxVOL bit 6 is Paula's maximum; the
-      // drivers only write 0..64, clamped here for safety.
+      const clock = this.paulaClocks[channel]!;
+      let source = this.paulaSources[channel]!;
+      if (event.period === null) {
+        this.stopSource(source, at);
+        clock.disable();
+        this.paulaPeriods[channel] = null;
+        this.setLaneGain(channel, 0, at);
+        return;
+      }
+      const position = clock.write(event.period, at);
+      const previous = this.paulaPeriods[channel];
+      if (position.restart || previous !== event.period) {
+        if (previous !== undefined) {
+          this.stopSource(source, position.at);
+          const replaced = source;
+          replaced.onended = () => {
+            replaced.disconnect();
+            this.activeNodes = this.activeNodes.filter((node) => node !== replaced);
+          };
+          source = ctx.createBufferSource();
+          source.buffer = replaced.buffer;
+          source.loop = true;
+          source.connect(this.channelGains[channel]!);
+          this.paulaSources[channel] = source;
+          this.activeNodes.push(source);
+        }
+        // A constant rate set before start avoids playbackRate's k-rate
+        // transition at a render quantum. Reload at a byte boundary and keep
+        // DMA phase, as documented in "Paula onset and A500 output".
+        const period = event.period === 0 ? 65536 : Math.max(PAULA_MIN_PERIOD, event.period);
+        source.playbackRate.setValueAtTime(PAULA_CLOCK / period / ctx.sampleRate, ctx.currentTime);
+        this.dormantPaula.delete(source);
+        source.start(position.at, (position.byte % source.buffer!.length) / ctx.sampleRate);
+        this.paulaPeriods[channel] = event.period;
+      }
+      // Retain the established silent presentation for AUDxPER 0 rests.
       this.setLaneGain(
         channel,
-        event.period === null || event.period === 0 ? 0 : (Math.min(64, event.volume) / 64) * 0.4,
-        at,
+        event.period === 0 ? 0 : (Math.min(64, event.volume) / 64) * 0.4,
+        position.at,
       );
       return;
     }
@@ -463,7 +484,7 @@ export class AgiAudio {
       this.retiredGraphs.add(graph);
       // The last sounding source owns cleanup; an earlier note-off cannot
       // disconnect the other voices while they still have scheduled audio.
-      const sources = graph.filter((node) => node.stop);
+      const sources = graph.filter((node) => node.stop && !this.dormantPaula.has(node));
       sources.sort((a, b) => (this.sourceStops.get(b) ?? 0) - (this.sourceStops.get(a) ?? 0));
       const source = sources[0] as AudioScheduledSourceNode | undefined;
       if (source)
@@ -477,6 +498,8 @@ export class AgiAudio {
     this.oscillators = [];
     this.noiseFilter = null;
     this.paulaSources = [];
+    this.paulaClocks = [];
+    this.paulaPeriods = [];
     this.iigsSynth?.stop(at);
     this.iigsFallback.clear();
     this.divisors.fill(0);
@@ -640,17 +663,30 @@ export class AgiAudio {
     const noise = ctx.createBuffer(1, noisePcm.length, ctx.sampleRate);
     const noiseData = noise.getChannelData(0);
     for (let i = 0; i < noiseData.length; i++) noiseData[i] = noisePcm[i]! / 128;
+    const coefficients = paulaRcCoefficients(ctx.sampleRate);
+    const stereo = ctx.createChannelMerger(2);
+    const rc = ctx.createIIRFilter(coefficients.feedforward, coefficients.feedback);
+    const led = ctx.createBiquadFilter();
+    led.type = "lowpass";
+    led.frequency.setValueAtTime(PAULA_LED_FILTER.frequency, ctx.currentTime);
+    // Web Audio lowpass Q is in dB; the circuit's Q is dimensionless.
+    led.Q.setValueAtTime(20 * Math.log10(PAULA_LED_FILTER.q), ctx.currentTime);
+    stereo.connect(rc);
+    rc.connect(led);
+    led.connect(this.masterGain!);
+    this.activeNodes.push(stereo, rc, led);
     for (let channel = 0; channel < 4; channel++) {
       const gain = ctx.createGain();
       gain.gain.setValueAtTime(0, ctx.currentTime);
-      gain.connect(this.masterGain!);
+      gain.connect(stereo, 0, channel === 0 || channel === 3 ? 0 : 1);
       this.channelGains.push(gain);
       this.activeNodes.push(gain);
       const source = ctx.createBufferSource();
       source.buffer = channel === 3 ? noise : tone;
       source.loop = true;
       source.connect(gain);
-      source.start();
+      this.dormantPaula.add(source);
+      this.paulaClocks.push(new PaulaClock());
       this.paulaSources.push(source);
       this.activeNodes.push(source);
     }
