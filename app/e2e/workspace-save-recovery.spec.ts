@@ -675,6 +675,8 @@ test("removal freezes retained buffers before the same project ID is reused", as
 test("Unsaved edits downloads current buffers when IndexedDB writes are refused", async ({
   page,
 }) => {
+  const pageErrors: string[] = [];
+  page.on("pageerror", (error) => pageErrors.push(error.message));
   await starter(page);
   await page.evaluate(() => {
     const put = IDBObjectStore.prototype.put;
@@ -704,6 +706,7 @@ test("Unsaved edits downloads current buffers when IndexedDB writes are refused"
     "UNSAVED_DOWNLOAD_SENTINEL",
   );
   await page.screenshot({ path: test.info().outputPath("unsaved-download.png") });
+  expect(pageErrors).toEqual([]);
 });
 
 test("recovery download reports browser failure and keeps the recovery data", async ({ page }) => {

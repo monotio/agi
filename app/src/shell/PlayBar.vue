@@ -253,6 +253,7 @@ const shortcutsBlocked = computed(
             size="sm"
             variant="ghost"
             icon="sparkles"
+            aria-label="Agent"
             data-testid="workspace-agent"
             :title="`${VOCABULARY.agent.help} (⌘I)`"
             :disabled="!commands?.commands.value.some((command) => command.id === 'agent.focus')"
@@ -446,8 +447,18 @@ const shortcutsBlocked = computed(
   .play-bar__actions {
     grid-column: 1 / -1;
     grid-row: 2;
+    flex-wrap: wrap;
     justify-content: flex-end;
     gap: 0;
+  }
+}
+@media (max-width: 420px) {
+  [data-testid="workspace-agent"] {
+    width: var(--control-h-touch);
+    padding: 0;
+  }
+  [data-testid="workspace-agent"] :deep(.ui-btn__label) {
+    display: none;
   }
 }
 </style>

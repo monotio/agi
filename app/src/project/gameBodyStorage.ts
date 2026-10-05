@@ -103,6 +103,21 @@ export async function updateBodyRecords<T>(
     const request = store.get(key);
     let outcome: { result: T; puts?: unknown[]; deletes?: string[] } | undefined;
     let contractError: Error | undefined;
+    const abortUpdate = (error: unknown): void => {
+      if (contractError !== undefined) return;
+      contractError = error instanceof Error ? error : new Error(String(error));
+      try {
+        transaction.abort();
+      } catch (abortError) {
+        // A refused operation can leave the transaction already aborted.
+        // Preserve its original failure instead of throwing from the callback.
+        if (!(abortError instanceof DOMException && abortError.name === "InvalidStateError")) {
+          reject(abortError);
+          return;
+        }
+      }
+      reject(contractError);
+    };
     request.onsuccess = () => {
       const apply = () => {
         const settle = (settled: { result: T; puts?: unknown[]; deletes?: string[] }): void => {
@@ -133,8 +148,7 @@ export async function updateBodyRecords<T>(
                   try {
                     settle(produced.complete(records));
                   } catch (error) {
-                    contractError = error instanceof Error ? error : new Error(String(error));
-                    transaction.abort();
+                    abortUpdate(error);
                   }
                 }
               };
@@ -143,8 +157,7 @@ export async function updateBodyRecords<T>(
           }
           settle(produced);
         } catch (error) {
-          contractError = error instanceof Error ? error : new Error(String(error));
-          transaction.abort();
+          abortUpdate(error);
         }
       };
       const guards = guard === undefined ? [] : Array.isArray(guard) ? guard : [guard];
@@ -158,8 +171,7 @@ export async function updateBodyRecords<T>(
             each.check(guarded.result);
             if (--remaining === 0) apply();
           } catch (error) {
-            contractError = error instanceof Error ? error : new Error(String(error));
-            transaction.abort();
+            abortUpdate(error);
           }
         };
       }

@@ -260,6 +260,17 @@ function addStandaloneRoom(): void {
   align-self: flex-start;
   margin: var(--space-2) var(--space-3) 0;
 }
+@media (max-width: 520px) {
+  .world-map :deep(.ui-dialog__head) {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .world-map :deep(.ui-dialog__actions) {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    margin-left: 0;
+  }
+}
 @media (max-width: 700px) {
   .map-body {
     grid-template-columns: minmax(0, 1fr);

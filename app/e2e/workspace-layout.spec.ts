@@ -9,7 +9,11 @@ import {
   openGameOptions,
   waitForRoom,
   canvasColors,
+  cacheGame,
 } from "./engineProbe.ts";
+import { createContainer } from "../../src/container/container.ts";
+import { assembleLogic } from "../../src/logic/assembler.ts";
+import { testProjectId } from "../test/identity.ts";
 import { openStoredWorkspace, openWorkspaceLogic } from "./workspaceShared.ts";
 
 const sizes = [
@@ -45,7 +49,7 @@ async function originalShot(page: Page, name: string) {
   await page.keyboard.press("Escape");
 }
 async function inside(page: Page, locator: Locator) {
-  expect.soft(await locator.isVisible()).toBe(true);
+  await expect.soft(locator).toBeVisible();
   const box = await locator.boundingBox();
   const viewport = page.viewportSize()!;
   expect.soft(box).not.toBeNull();
@@ -54,7 +58,7 @@ async function inside(page: Page, locator: Locator) {
     expect.soft(box.y).toBeGreaterThanOrEqual(0);
     expect.soft(box.x + box.width).toBeLessThanOrEqual(viewport.width);
     expect.soft(box.y + box.height).toBeLessThanOrEqual(viewport.height);
-    await locator.click({ trial: true });
+    if (await locator.isEnabled()) await locator.click({ trial: true });
   }
 }
 async function header(page: Page) {
@@ -273,6 +277,8 @@ for (const size of sizes) {
     test(`Saving keeps the editor still and a refused save offers Download ${size.width}`, async ({
       page,
     }) => {
+      const pageErrors: string[] = [];
+      page.on("pageerror", (error) => pageErrors.push(error.message));
       await page.setViewportSize(size);
       await start(page);
       if (size.width === 390) await page.getByTestId("workspace-parts").click();
@@ -314,7 +320,12 @@ for (const size of sizes) {
       await page.evaluate(() => (window as unknown as { refuseSave(): void }).refuseSave());
       await expect(page.getByTestId("workspace-saved")).toContainText("Could not save");
       await expect(page.getByTestId("download-unsaved-edits")).toBeVisible();
+      await expect(page.getByTestId("workspace-saved")).toHaveText("Could not save. Retry");
+      const download = page.waitForEvent("download");
+      await page.getByTestId("download-unsaved-edits").click();
+      expect((await download).suggestedFilename()).toMatch(/\.zip$/);
       await shot(page, `refused-${size.width}`);
+      expect(pageErrors).toEqual([]);
     });
   });
 }
@@ -381,3 +392,128 @@ for (const size of [sizes[0]!, sizes[2]!, sizes[3]!]) {
     await shot(page, `agent-reading-${size.width}`);
   });
 }
+
+for (const size of [sizes[0]!, sizes[2]!, sizes[3]!]) {
+  test.describe(`${size.width} Create geometry`, () => {
+    test.use({ hasTouch: size.width === 390 });
+    test(`Create tools and Map heading fit ${size.width}`, async ({ page }) => {
+      await page.setViewportSize(size);
+      await start(page);
+      await shot(page, `tools-closed-${size.width}`);
+      for (const control of await page.locator(".play-bar__actions button:visible").all())
+        await inside(page, control);
+      if (size.width === 390) await page.getByTestId("workspace-parts").click();
+      await page.getByTestId("part-room:1:logic").click();
+      await expect(page.getByTestId("workspace-logic-editor")).toBeVisible();
+      await shot(page, `tools-editor-${size.width}`);
+      for (const control of await page.locator(".play-bar__actions button:visible").all())
+        await inside(page, control);
+      await page.getByTestId("btn-world-map").click();
+      const map = page.getByTestId("world-map");
+      await expect(map).toBeVisible();
+      const title = map.getByRole("heading", { name: "Map", exact: true });
+      const status = map.getByTestId("map-paused");
+      await expect(title).toBeVisible();
+      await expect(status).toBeVisible();
+      await expect(status).toHaveText("Game paused");
+      await shot(page, `map-heading-${size.width}`);
+      const headingBox = (await title.boundingBox())!;
+      const statusBox = (await status.boundingBox())!;
+      expect
+        .soft(
+          headingBox.x + headingBox.width <= statusBox.x ||
+            statusBox.x + statusBox.width <= headingBox.x ||
+            headingBox.y + headingBox.height <= statusBox.y ||
+            statusBox.y + statusBox.height <= headingBox.y,
+        )
+        .toBe(true);
+      await inside(page, status);
+      await inside(page, map.getByTestId("map-close"));
+      await map.getByTestId("map-close").click();
+      await expect(map).toBeHidden();
+    });
+  });
+}
+
+for (const size of [sizes[0]!, sizes[2]!, sizes[3]!]) {
+  test.describe(`${size.width} imported Map geometry`, () => {
+    test.use({ hasTouch: size.width === 390 });
+    test(`Imported Map heading fits ${size.width}`, async ({ page }) => {
+      await page.setViewportSize(size);
+      await isolateStorage(page);
+      await page.goto("/");
+      const game = createContainer();
+      game.putResource(
+        "logic",
+        0,
+        assembleLogic("accept.input();return;", { dictionary: new Map() }).payload,
+      );
+      await cacheGame(page, {
+        projectId: testProjectId("map-header"),
+        title: "Map header",
+        imported: true,
+        provider: "stub",
+        model: "stub",
+        files: Object.fromEntries(game.files),
+        words: [],
+      });
+      await page.reload();
+      await page.getByTestId("btn-resume-cached").click();
+      await expect(page.getByTestId("input-line")).toBeEnabled();
+      await page.getByRole("radio", { name: "Create", exact: true }).click();
+      await page.getByTestId("btn-world-map").click();
+      const map = page.getByTestId("world-map");
+      await expect(map).toBeVisible();
+      await expect(map.getByTestId("btn-world-plan")).toBeVisible();
+      await expect(map.getByTestId("btn-world-plan")).toHaveText("Full map");
+      const title = map.getByRole("heading", { name: "Map", exact: true });
+      const status = map.getByTestId("map-paused");
+      await expect(title).toBeVisible();
+      await expect(status).toBeVisible();
+      await shot(page, `imported-map-${size.width}`);
+      const titleBox = await title.evaluate((node) => {
+        const range = document.createRange();
+        range.selectNodeContents(node);
+        const box = range.getBoundingClientRect();
+        return { x: box.x, y: box.y, width: box.width, height: box.height };
+      });
+      const statusBox = (await status.boundingBox())!;
+      expect(
+        titleBox.x + titleBox.width + 8 <= statusBox.x ||
+          titleBox.y + titleBox.height <= statusBox.y,
+      ).toBe(true);
+    });
+  });
+}
+
+test("A native refused write rejects the deferred update and rolls back its records", async ({
+  page,
+}) => {
+  const pageErrors: string[] = [];
+  page.on("pageerror", (error) => pageErrors.push(error.message));
+  await isolateStorage(page);
+  await page.goto("/");
+  const result = await page.evaluate(async () => {
+    const { updateBodyRecords, readBodyRecordSet } =
+      await import("/src/project/gameBodyStorage.ts");
+    let errorName = "";
+    try {
+      await updateBodyRecords("native-refusal/head", () => ({
+        reads: ["native-refusal/part"],
+        complete: () => ({
+          result: undefined,
+          puts: [
+            { projectId: "native-refusal/head", value: "queued first" },
+            { projectId: "native-refusal/part", value: () => {} },
+          ],
+        }),
+      }));
+    } catch (error) {
+      errorName = error instanceof DOMException ? error.name : String(error);
+    }
+    const records = await readBodyRecordSet(["native-refusal/head", "native-refusal/part"]);
+    return { errorName, records: [...records.values()] };
+  });
+  expect(result).toEqual({ errorName: "DataCloneError", records: [undefined, undefined] });
+  expect(pageErrors).toEqual([]);
+});
