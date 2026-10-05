@@ -37,7 +37,9 @@ test("SOUND edits autosave, audition privately and play in MAIN on listen @webki
   await expect(panel.getByLabel("Note", { exact: true })).toHaveValue("A4");
   await expect(panel.getByLabel("Length in beats")).toHaveValue("4");
 
-  await expect(panel.getByLabel("Divisor", { exact: true })).toHaveValue("226");
+  // A4: round((3,579,545 / 32) / 440) = 254 = 0x0fe.
+  await expect(panel.getByLabel("Divisor", { exact: true })).toBeVisible();
+  await expect(panel.getByLabel("Divisor", { exact: true })).toHaveValue("254");
   await expect(panel.getByLabel("Attenuation", { exact: true })).toHaveValue("3");
   await expect(panel.getByLabel("Ticks", { exact: true })).toHaveValue("120");
   const stored = await page.evaluate(() => {
@@ -50,7 +52,7 @@ test("SOUND edits autosave, audition privately and play in MAIN on listen @webki
     ).__AGI_PROJECT__.getSession();
     return [...session.model.capture().read("sound:1").content.slice(8, 13)];
   });
-  expect(stored).toEqual([120, 0, 14, 130, 147]);
+  expect(stored).toEqual([120, 0, 15, 142, 147]);
   await panel.getByLabel("Ticks", { exact: true }).scrollIntoViewIfNeeded();
   await reviewShot(page, "sound-details");
   await panel.getByText("Details", { exact: true }).click();
@@ -99,7 +101,7 @@ test("SOUND edits autosave, audition privately and play in MAIN on listen @webki
     expect(
       outputs.some(
         (output) =>
-          output.kind === "psg" && output.bytes?.[0] === 0x82 && output.bytes?.[1] === 0x0e,
+          output.kind === "psg" && output.bytes?.[0] === 0x8e && output.bytes?.[1] === 0x0f,
       ),
     ).toBe(true);
   }
