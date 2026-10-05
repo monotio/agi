@@ -222,6 +222,7 @@ code, comments or documentation.
 
 ## Working with others
 
+- Parallel agent lanes: see [docs/agent-lanes.md](docs/agent-lanes.md).
 - Shared tree: never `git stash`, `git reset`, or `git checkout`/`restore` on
   paths. Re-read before editing, exact-string edits only, never rewrite a shared
   file wholesale. Agree file ownership before parallel edits.
