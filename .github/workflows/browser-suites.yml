@@ -81,6 +81,13 @@ jobs:
           path: app/test-results/ci-reports/*.json
           if-no-files-found: error
           retention-days: 14
+      - if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: browser-screenshots-${{ matrix.browser }}-${{ matrix.index }}
+          path: app/test-results/**/*.png
+          if-no-files-found: ignore
+          retention-days: 7
       - if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:

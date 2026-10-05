@@ -74,3 +74,8 @@ runs:
       run: |
         cd app
         npx playwright install "$BROWSER"
+    - name: Browser font inventory
+      if: inputs.browser != ''
+      shell: bash
+      run: |
+        fc-list : family file | sort
