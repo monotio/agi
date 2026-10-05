@@ -20,10 +20,11 @@ export function captureDropHandles(dataTransfer: DataTransfer): CapturedDrop {
     if (!item || item.kind !== "file") continue;
     const getEntry = item.webkitGetAsEntry;
     const entry = typeof getEntry === "function" ? getEntry.call(item) : null;
-    if (entry) entries.push(entry);
+    if (entry?.isDirectory) entries.push(entry);
     else {
       const file = item.getAsFile();
       if (file) fallbackFiles.push(file);
+      else if (entry) entries.push(entry);
     }
   }
   if (entries.length === 0 && fallbackFiles.length === 0) {

@@ -27,6 +27,7 @@ export default defineConfig({
     "reported-spend.spec.ts",
     "synthetic-walkthrough.spec.ts",
     "dialog-fit.spec.ts",
+    "disk-import.spec.ts",
   ],
   projects: [
     { name: "android-chromium", use: { browserName: "chromium" } },

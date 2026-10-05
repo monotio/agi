@@ -1,4 +1,5 @@
 import { captureDropHandles, type CapturedDrop } from "./gameDropCapture.ts";
+import { isDiskImageName } from "../../../src/container/disk/image.ts";
 
 export type { CapturedDrop } from "./gameDropCapture.ts";
 
@@ -101,22 +102,31 @@ function isZip(file: File): boolean {
 /** Resolve drop handles captured while the event was live: traverse folders, apply the budgets. */
 export async function resolveGameDrop(captured: CapturedDrop): Promise<GameDrop> {
   const { entries, fallbackFiles } = captured;
-  if (entries.length > 1 || (entries.length > 0 && fallbackFiles.length > 0))
-    throw new Error(PICK_ONE_ERROR);
-  const entry = entries[0];
-  if (entry?.isDirectory)
-    return { kind: "folder", files: await readFolder(entry as FileSystemDirectoryEntry) };
-  if (entry?.isFile) {
-    const file = await fileFromEntry(entry as FileSystemFileEntry);
-    if (isZip(file)) return { kind: "zip", file };
-    throw new Error(FOLDER_FALLBACK_ERROR);
+  const directory = entries.find((entry) => entry.isDirectory);
+  if (directory) {
+    if (entries.length !== 1 || fallbackFiles.length) throw new Error(PICK_ONE_ERROR);
+    return { kind: "folder", files: await readFolder(directory as FileSystemDirectoryEntry) };
   }
-  if (fallbackFiles.length > 1)
-    throw new Error(fallbackFiles.every(isZip) ? PICK_ONE_ERROR : FOLDER_FALLBACK_ERROR);
-  const file = fallbackFiles[0];
-  if (file && isZip(file)) return { kind: "zip", file };
-  if (file) throw new Error(FOLDER_FALLBACK_ERROR);
-  throw new Error("Drop a game folder or ZIP to open it.");
+  const files = [...fallbackFiles];
+  for (const entry of entries) {
+    if (!entry.isFile) throw new Error(FOLDER_FALLBACK_ERROR);
+    files.push(await fileFromEntry(entry as FileSystemFileEntry));
+  }
+  if (files.length === 1 && isZip(files[0]!)) return { kind: "zip", file: files[0]! };
+  if (files.length && files.every((file) => isDiskImageName(file.name))) {
+    const selected = new Map<string, File>();
+    for (const file of files) {
+      if (selected.has(file.name))
+        throw new Error(
+          `Two disks are named ${file.name}. Give each disk a different name and add them together.`,
+        );
+      selected.set(file.name, file);
+    }
+    return { kind: "folder", files: selected };
+  }
+  if (files.length > 1 && files.some(isZip)) throw new Error(PICK_ONE_ERROR);
+  if (files.length) throw new Error(FOLDER_FALLBACK_ERROR);
+  throw new Error("Drop a game folder, a ZIP, or its disk images to open it.");
 }
 
 /**

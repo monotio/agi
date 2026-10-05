@@ -94,6 +94,38 @@ Full resource-census tests require every volume referenced by the directories.
 Tests for individual rooms can use `checkVolumes: false` in the fixture helpers;
 resource readers still reject unavailable data if the scenario requests it.
 
+### Disk-image fixtures
+
+**Add game** accepts a game folder, a ZIP, or its disk images. Add every disk
+of a multi-disk game together, directly or inside one ZIP. Repeated playable
+filenames must have identical bytes. Native interpreter files provide profile
+hints, including executables above a disk's resource subdirectory.
+
+PC raw FAT12 images (`.img`, `.ima`, `.dsk`) and TeleDisk (`.td0`, normal or
+advanced compression), Amiga 880 KiB OFS/FFS (`.adf`), and Apple IIgs 800 KiB
+ProDOS-order (`.po`, `.2mg`) images have independent readers. A DOS-ordered 2MG
+needs conversion to ProDOS order before import. PC booter images use the existing
+booter extraction path. Readers leave original resource bytes intact.
+
+Place contributor-owned disk images in any immediate subfolder under `games/`.
+The optional tests resolve the **SHA-256 of the whole image**, rather than the
+folder or image name. [test/fixtures.ts](../test/fixtures.ts) registers original
+media hashes. `SOURCE.json` may sit beside local images to record their hashes;
+the content hash remains the test's authority. For example, a two-disk set may
+use `games/<edition>-disks/disk1.td0` and `disk2.td0`. Every missing image produces
+an explicit skip naming its hash and setup instructions.
+
+```bash
+node --test --experimental-strip-types test/disk.test.ts test/disk-fixtures.test.ts
+node --test --experimental-strip-types app/test/disk-import.test.ts
+npm --prefix app run e2e -- e2e/disk-import.spec.ts --workers=1 --retries=0
+```
+
+The registered sets cover Space Quest II PC/Tandy, Amiga, Apple IIgs 2MG and PO,
+and the Donald Duck's Playground PC booter. Disk tests compare WORDS.TOK and
+resource directories with contributor-owned unpacked editions, or report hashes
+when editions differ. Synthetic tests contain original byte patterns only.
+
 ### Fixture notes
 
 - **Demo pack.** `test/demopac4.test.ts` runs all six demonstrations in the
@@ -125,7 +157,7 @@ resource readers still reject unavailable data if the scenario requests it.
   the entries come from the matched directories themselves, as shipped. The
   strict volume check still reports them. Walkthrough tooling uses
   `checkVolumes: "shipped"`, which exempts exactly those volumes for exactly
-  those directory hashes ([test/fixtures.ts](../test/fixtures.ts)); a route
+  those directory hashes ([disk/volumes.ts](../src/container/disk/volumes.ts)); a route
   that requests one of the six resources still fails at the load. A
   fingerprint identifies the directory; the volume bytes and the resources a
   playthrough requests lie outside it.
@@ -183,9 +215,9 @@ inventory metadata. Filenames are case-insensitive. The JSON report records
 resource counts, selected profiles and individual findings; any finding produces
 a nonzero exit.
 
-- Image-only folders (`.img` or `.ima`) are reported as unsupported; the engine
-  requires resource files and a supported interpreter profile. Extraction alone
-  does not establish compatibility with an older interpreter.
+- The folder audit expects extracted resource files. Test image-only folders
+  with `test/disk-fixtures.test.ts`, or add their disks together in the Library.
+  Extraction alone does not establish compatibility with an interpreter profile.
 - The audit distinguishes decoding failures from unsupported contracts,
   including unknown interpreter versions and logic that cannot be reconstructed
   reliably.

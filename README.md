@@ -29,7 +29,9 @@ ready to play in your browser.
 
 ![Adventure Department in Play with the CRT display](docs/media/play-crt-1.2.png)
 
-- **Play your own Sierra games.** **Add game** takes a ZIP or a game folder.
+- **Play your own Sierra games.** **Add game** takes a game folder, a ZIP, or its disk images.
+  Add all disks of a game together. PC sector and TeleDisk images, Amiga ADF,
+  and Apple IIgs ProDOS PO and 2MG images are supported.
   The files stay in your browser's storage. The app
   recognises the edition, picks the matching interpreter and checks that the
   game opens.

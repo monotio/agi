@@ -284,7 +284,7 @@ each folder holds one responsibility:
 | `saves/`         | A player's progress: save slots, autosaves and their thumbnails                            |
 | `project/`       | The stored project: bodies, identities, metadata and the transactions every write takes    |
 | `archive/`       | ZIP formats: project archives, published games and `HISTORY.JSON`                          |
-| `library/`       | The game library: imports, the hosted catalog, discovery, previews and profile choice      |
+| `library/`       | The game library: folder, ZIP and disk imports, catalog, previews and profile choice       |
 | `home/`          | The Home screen: the shelf, its cards and the create panel                                 |
 | `shell/`         | Page chrome, modes, commands, keyboard focus, Create workspace, Settings, Help and routing |
 | `settings/`      | AI provider, model and key settings                                                        |
