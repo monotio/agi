@@ -1,5 +1,6 @@
-/** PAL colour clock and OCS DMA limit; see docs/fidelity.md, "Paula onset and A500 output". */
-export const PAULA_CLOCK = 3546895;
+/** Colour clocks; see docs/fidelity.md, "Paula onset and A500 output". */
+export type AmigaRegion = "ntsc" | "pal";
+export const PAULA_CLOCKS: Record<AmigaRegion, number> = { ntsc: 3579545, pal: 3546895 };
 export const PAULA_MIN_PERIOD = 124;
 /** Subdivide held DAC bytes for browser reconstruction; see the same fidelity entry. */
 export const PAULA_HOLD_FRAMES = 32;
@@ -37,14 +38,28 @@ export class PaulaClock {
   private heldByte: number | null = null;
   private disabling: { period: number; until: number } | null = null;
 
+  private frequency: number;
+
+  constructor(region: AmigaRegion = "ntsc") {
+    this.frequency = PAULA_CLOCKS[region];
+  }
+
+  /** Preserve the remaining fraction of the current byte when the clock changes. */
+  setRegion(region: AmigaRegion, at: number): void {
+    const ratio = this.frequency / PAULA_CLOCKS[region];
+    this.at = at + (this.at - at) * ratio;
+    if (this.disabling) this.disabling.until = at + (this.disabling.until - at) * ratio;
+    this.frequency = PAULA_CLOCKS[region];
+  }
+
   write(period: number, at: number): { at: number; byte: number; restart: boolean } {
     if (this.disabling && at < this.disabling.until) this.period = this.disabling.period;
     this.disabling = null;
     const restart = this.period === null;
     if (this.period !== null) {
-      const steps = Math.max(0, Math.ceil(((at - this.at) * PAULA_CLOCK) / this.period - 1e-8));
+      const steps = Math.max(0, Math.ceil(((at - this.at) * this.frequency) / this.period - 1e-8));
       this.byte += steps;
-      this.at += (steps * this.period) / PAULA_CLOCK;
+      this.at += (steps * this.period) / this.frequency;
     } else {
       this.byte = 0;
       this.at = at;
@@ -63,11 +78,14 @@ export class PaulaClock {
       } else {
         // Figure 5-8 exits from low-byte state 011. Finish the current word;
         // idle keeps that low byte in the DAC, with its existing volume.
-        const steps = Math.max(0, Math.ceil(((at - this.at) * PAULA_CLOCK) / this.period - 1e-8));
+        const steps = Math.max(
+          0,
+          Math.ceil(((at - this.at) * this.frequency) / this.period - 1e-8),
+        );
         const nextByte = this.byte + steps;
         const endByte = nextByte + (nextByte & 1);
         held = {
-          at: this.at + ((endByte - this.byte) * this.period) / PAULA_CLOCK,
+          at: this.at + ((endByte - this.byte) * this.period) / this.frequency,
           byte: endByte - 1,
         };
         this.disabling = { period: this.period, until: held.at };

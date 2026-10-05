@@ -23,6 +23,7 @@ export default defineConfig({
     "ai-settings.spec.ts",
     "menu-flow.spec.ts",
     "crt-amount.spec.ts",
+    "amiga-region.spec.ts",
     "reference-art.spec.ts",
     "reported-spend.spec.ts",
     "synthetic-walkthrough.spec.ts",

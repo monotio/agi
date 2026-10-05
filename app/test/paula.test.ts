@@ -25,8 +25,8 @@ test("boundary measurements detect a filtered level step and retain signed DC", 
 });
 
 // Hand-computed sample boundaries at a 1000 Hz byte rate.
-test("Paula DMA starts at byte zero and held DMA preserves phase through register writes", () => {
-  const clock = new PaulaClock();
+test("PAL Paula DMA starts at byte zero and held DMA preserves phase through register writes", () => {
+  const clock = new PaulaClock("pal");
   assert.deepEqual(clock.write(3546.895, 2), { at: 2, byte: 0, restart: true });
   const next = clock.write(7093.79, 2.0032);
   assert.ok(Math.abs(next.at - 2.004) < 1e-12);
@@ -51,8 +51,8 @@ test("A500 RC coefficients preserve DC and attenuate high frequencies with one p
   assert.ok(Math.abs(PAULA_LED_FILTER.q - 0.6602) < 0.0001);
 });
 
-test("Paula DMA off completes its low byte and holds it while the next activation reloads", () => {
-  const clock = new PaulaClock();
+test("PAL Paula DMA off completes its low byte and holds it while the next activation reloads", () => {
+  const clock = new PaulaClock("pal");
   clock.write(3546.895, 2);
   // At 2.0042 byte 4 is high; byte 5 starts at 2.005, then idle at 2.006.
   const held = clock.disable(2.0042)!;
@@ -62,8 +62,8 @@ test("Paula DMA off completes its low byte and holds it while the next activatio
   assert.deepEqual(clock.write(3546.895, 3), { at: 3, byte: 0, restart: true });
 });
 
-test("a DMA re-enable before the word ends keeps the current sample phase", () => {
-  const clock = new PaulaClock();
+test("a PAL DMA re-enable before the word ends keeps the current sample phase", () => {
+  const clock = new PaulaClock("pal");
   clock.write(3546.895, 2);
   clock.disable(2.0042);
   const next = clock.write(3546.895, 2.0045);
@@ -73,7 +73,7 @@ test("a DMA re-enable before the word ends keeps the current sample phase", () =
 });
 
 test("DMA cancelled before its first fetch retains the initial zero DAC", () => {
-  const clock = new PaulaClock();
+  const clock = new PaulaClock("pal");
   clock.write(3546.895, 2);
   assert.deepEqual(clock.disable(1.99), { at: 1.99, byte: null });
   clock.write(3546.895, 3);
@@ -98,7 +98,7 @@ test("independent DAC reference holds signed bytes and keeps volume on DMA clear
         stream: "test",
         tick: 0,
         complete: false,
-        outputs: [{ kind: "paula", channel: 0, period: 3546.895, volume: 32 }],
+        outputs: [{ kind: "paula", channel: 0, period: 3579.545, volume: 32 }],
       },
       {
         stream: "test",
@@ -115,4 +115,15 @@ test("independent DAC reference holds signed bytes and keeps volume on DMA clear
   assert.equal(pcm[3000], Math.fround(0.1));
   assert.equal(pcm[3500], Math.fround(0.1));
   assert.equal(pcm[1600], 0);
+});
+
+test("changing NTSC to PAL preserves the fraction of the current DMA byte", () => {
+  const clock = new PaulaClock();
+  clock.write(3579.545, 2); // NTSC: exactly 1,000 bytes/s.
+  clock.setRegion("pal", 2.0025);
+  const next = clock.write(3546.895, 2.0028);
+  // Three NTSC byte periods, with the final half-period stretched by the clock ratio.
+  assert.equal(next.byte, 3);
+  assert.equal(next.restart, false);
+  assert.ok(Math.abs(next.at - (2.0025 + (0.0005 * 3579545) / 3546895)) < 1e-12);
 });

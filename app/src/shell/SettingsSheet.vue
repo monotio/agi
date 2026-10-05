@@ -10,9 +10,11 @@
  * from dialogs).
  */
 import { nextTick, onBeforeUnmount, ref, useId, useTemplateRef } from "vue";
+import { useAmigaRegion } from "../settings/amigaRegion.ts";
 import { CRT_STEPS } from "../settings/crtPreference.ts";
 import UiIcon from "../ui/UiIcon.vue";
 import UiIconButton from "../ui/UiIconButton.vue";
+import UiSelect from "../ui/UiSelect.vue";
 import UiSwitch from "../ui/UiSwitch.vue";
 import { useEngineApi } from "../engine/engineContext.ts";
 import { useAiSettings } from "../settings/useAiSettings.ts";
@@ -48,6 +50,8 @@ const shell = useShell();
 
 const sheet = useTemplateRef("sheet");
 const crtId = useId();
+const amigaRegionId = useId();
+const { region: amigaRegion, setRegion: setAmigaRegion } = useAmigaRegion();
 const open = ref(false);
 /** Advanced disclosure: sound-chip emulation and diagnostics live under it. */
 const advanced = ref(false);
@@ -332,6 +336,23 @@ defineExpose({ toggle, close, open });
             >
             <span v-if="soundFamily(state.profile) === 'pc'" class="setting-value">Change</span>
           </button>
+          <div
+            v-if="state.phase === 'running' && soundFamily(state.profile) === 'amiga'"
+            class="settings-row"
+          >
+            <label :for="amigaRegionId">Amiga sound</label>
+            <span class="setting-value">
+              <UiSelect
+                :id="amigaRegionId"
+                size="sm"
+                :model-value="amigaRegion"
+                @update:model-value="setAmigaRegion"
+              >
+                <option value="ntsc">NTSC (US)</option>
+                <option value="pal">PAL (Europe)</option>
+              </UiSelect>
+            </span>
+          </div>
           <UiSwitch
             v-if="state.phase === 'running'"
             class="settings-row"

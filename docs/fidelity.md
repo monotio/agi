@@ -564,9 +564,11 @@ volume variable; the older 2.082 driver has no envelope, uses a square wave, and
 lets v23 make notes louder.
 
 The engine emits the values each driver writes to Paula's period and volume
-registers, and the app plays them as looping samples at the PAL Paula clock. Two
+registers, and the app plays them as looping samples at the selected Paula clock
+(NTSC by default, with PAL in Settings > Advanced). Two
 rendering choices come from the hardware rather than the drivers: very short
-periods play at Paula's DMA limit, and period 0 is silent (an inference).
+periods play at Paula's DMA limit, and period 0 counts 65,536 clocks at the
+programmed volume.
 
 **Evidence:** [Original Amiga sound player](#original-amiga-sound-player).
 
@@ -2917,6 +2919,74 @@ The profile family `amiga-2.082` keeps these behaviors distinct;
 
 #### Paula onset and A500 output
 
+**Region and pitch.** Commodore's [Amiga Hardware Reference Manual,
+chapter 5, "Limitations on Selection of Sampling Period", p. 138](https://retro-commodore.eu/files/downloads/amigamanuals-xiik.net/Other/Amiga%20Hardware%20Reference%20%28within%20all%20pictures%29%20-%20Manual-ENG.pdf)
+lists the audio clock as 3,579,545 Hz for NTSC and 3,546,895 Hz for PAL.
+The byte rate is clock / AUDxPER; an eight-byte tone at period 1,000 is
+447.443125 Hz on NTSC and 443.361875 Hz on PAL. Settings > Advanced offers
+Amiga sound: NTSC (US) or PAL (Europe), saved locally and applied to active
+voices without restarting the game. This selects the audio clock.
+
+The NTSC default follows a MAME 0.289 NTSC A500 comparison using the US
+PQ1 2.310 and SQ2 2.202 releases. The previous PAL-clock output measured
+median pitch errors of -15.87 and -15.85 cents respectively, against
+`1200 * log2(3546895 / 3579545) = -15.86` cents predicted by the hardware
+clock ratio. This is measured emulation evidence for the default, distinct
+from the original driver machine-code facts below.
+A fresh 60-second NTSC engine render against the retained reference measures
+PQ1's median error as +0.01 cents (119 mixed-voice spectral candidates;
++0.01 cents also across the 52 confidently aligned intro-note peaks).
+SQ2's 111 candidates have a median within 0.01 cents of zero. These medians
+establish removal of the colour-clock tuning error; PQ1's later SOUND 30
+alignment remains uncertain and individual mixed-voice peaks remain ambiguous.
+
+**Original frame timing facts.** The PQ1 and SQ2 executable hashes are
+listed below and in [Amiga interpreter profiles](#amiga-interpreter-profiles).
+Their h135 interrupt code has the same unrelocated SHA-256
+`6b82c1fe6db6009af28c6bf069a90765ab17f9e4b7730910ab4aa2cd8f2734a9`.
+PQ1 h200 (base `0xf7c0`, SHA-256
+`4360355b398b9e16bb40c7ec212eea871a178944965241d21d910d2af1a6beef`)
+and SQ2 h200 (base `0xf020`, SHA-256
+`eda9acd119d343110a8db5f6acf2084764f7a22e18ec823b9ff4aa92ff34c19d`)
+install h135 through Exec AddIntServer with interrupt number 5 (VERTB) at
+h200+0x1b8..0x1d6. PQ1's Exec veneer h246+0..0x14 calls vector -168;
+[Commodore's Exec interrupt documentation](https://wiki.amigaos.net/wiki/Exec_Interrupts)
+identifies this as the vertical-blank server chain.
+
+| Interpreter operation                     | Hunk offsets    | PQ1 2.310 addresses | SQ2 2.202 addresses |
+| ----------------------------------------- | --------------- | ------------------- | ------------------- |
+| Sound soft interrupt each active frame    | h135+0x06..0x16 | `0xa8aa..0xa8ba`    | `0xa1b2..0xa1c2`    |
+| Game soft interrupt every third frame     | h135+0x1a..0x38 | `0xa8be..0xa8dc`    | `0xa1c6..0xa1e4`    |
+| Game callback installed                   | h200+0x222      | `0xf9e2` → `0xee48` | `0xf242` → `0xe6a8` |
+| Sound callback installed                  | h200+0x274      | `0xfa34` → `0xf10a` | `0xf294` → `0xe96a` |
+| Game seconds increment every 20 callbacks | h194+0x16..0x38 | `0xee5e..0xee80`    | `0xe6be..0xe6e0`    |
+
+Both h194 timer hunks have unrelocated SHA-256
+`162c154512ea27ee43e31904b581fa27e52cf82faf72fa9183c92e7feef90dbc`.
+Sound callbacks decrement the driver note countdown and step its envelope;
+these are interpreter instructions, separate from SOUND and LOGIC bytecode.
+The frame divider and 20-callback second counter contain fixed constants.
+
+**Inference and presentation limit.** On nominal 60 Hz NTSC these routines
+produce 60 sound updates and 20 pacing updates per real second. On nominal
+50 Hz PAL they produce 50 sound updates and 50/3 pacing updates; the game's
+seconds counter then advances every 1.2 real seconds. This follows from the
+installed VBlank chain and fixed dividers, rather than a controlled full-machine
+PAL run. The app currently retains its 60 Hz sound heartbeat and 50 ms game
+pacing in both sound settings. Its PAL choice reproduces the audio clock;
+original PAL frame pacing remains outside this presentation setting.
+
+Reproduce the static checks with privately supplied executables:
+
+```bash
+python scripts/probe-interpreter-amiga.py disasm games/pq1-amiga/PQ 200 --start 0x172 --end 0x27e
+python scripts/probe-interpreter-amiga.py disasm games/sq2-amiga/SQ2 200 --start 0x172 --end 0x27e
+python scripts/probe-interpreter-amiga.py disasm games/pq1-amiga/PQ 135 --start 0 --end 0x40
+python scripts/probe-interpreter-amiga.py disasm games/sq2-amiga/SQ2 135 --start 0 --end 0x40
+python scripts/probe-interpreter-amiga.py disasm games/pq1-amiga/PQ 194 --start 0 --end 0xd8
+python scripts/probe-interpreter-amiga.py disasm games/sq2-amiga/SQ2 194 --start 0 --end 0xd8
+```
+
 **Original driver facts.** PQ Amiga 2.310 (`PQ`, SHA-256
 `72ddbb3ecda804b8dac2f65ed115099af0241d475ac8d432de48428b28cd5cca`)
 has h197 at image base `0xef40`. Its unrelocated code SHA-256 is
@@ -3092,7 +3162,8 @@ With a null period its zero volume is a software stop marker
 `AMIGA_2082_NOISE_PERIODS`, `AMIGA_TONE_SAMPLE`,
 `AMIGA_2082_TONE_SAMPLE`, `amigaNoisePcm` in `src/sound/sound.ts`).
 `app/src/audio/AgiAudio.ts` renders fixed per-channel buffers at
-`3546895 / period` against the PAL clock, through stereo A500 output filters.
+`3579545 / period` for NTSC or `3546895 / period` for PAL, through stereo
+A500 output filters.
 A driver change rebuilds the voices. Phase, register boundaries and the LED
 model are described in [Paula onset and A500 output](#paula-onset-and-a500-output).
 Periods below 124 colour clocks retain the DMA-limit approximation, and period 0
