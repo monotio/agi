@@ -2915,6 +2915,102 @@ strings — no envelope table.
 The profile family `amiga-2.082` keeps these behaviors distinct;
 `amiga` is the 2.176+ driver only.
 
+#### Paula onset and A500 output
+
+**Original driver facts.** PQ Amiga 2.310 (`PQ`, SHA-256
+`72ddbb3ecda804b8dac2f65ed115099af0241d475ac8d432de48428b28cd5cca`)
+has h197 at image base `0xef40`. Its unrelocated code SHA-256 is
+`06c91c9320595f165ae819201d6654c87880c8a9ab4dd99ee51918cd6db2cdd8`,
+identical to GR 2.316 (`GR`, SHA-256
+`7bfa2f36616923a41ecb5aa9e3595e7225cdd48ea453e1c1b8310ace0fcdb7db`).
+The following are relocated **interpreter machine-code** addresses, cross-checked
+against both executables; the SOUND and LOGIC resources are separate bytecode.
+
+| Operation                            | h197 offset    | PQ 2.310       | GR 2.316       |
+| ------------------------------------ | -------------- | -------------- | -------------- |
+| Noise AUDxLC, then AUDxLEN = 0x800   | +0x574, +0x57a | 0xf4b4, 0xf4ba | 0xf62c, 0xf632 |
+| Tone AUDxLC, then AUDxLEN = 4        | +0x582, +0x588 | 0xf4c2, 0xf4c8 | 0xf63a, 0xf640 |
+| Note AUDxPER                         | +0x382         | 0xf2c2         | 0xf43a         |
+| Call envelope step                   | +0x38a         | 0xf2ca         | 0xf442         |
+| Note AUDxVOL                         | +0x38e         | 0xf2ce         | 0xf446         |
+| Set DMACON channel bit (OR 0x8000)   | +0x39c         | 0xf2dc         | 0xf454         |
+| Held-tick AUDxVOL                    | +0x224         | 0xf164         | 0xf2dc         |
+| Terminator clears DMACON channel bit | +0x5b0         | 0xf4f0         | 0xf668         |
+
+LC/LEN are set during sound setup, before the first note enables DMA.
+The note routine writes PER, computes the envelope, writes VOL, then sets
+the DMA bit. It contains no DMA clear, LC/LEN rewrite, raster wait or timed
+attack ramp. The envelope subroutine includes the division helper, so these
+writes have instruction execution time between them; this inspection establishes
+order, rather than a measured bus-cycle delay. Between notes DMA remains enabled.
+The positive `2, 1, 0` envelope entries are the attack values described above.
+A terminator or stop clears DMA. Consequently a new note on an enabled channel
+continues phase; a new DMA activation reloads the sample start.
+
+No instruction in h197 accesses CIA-A PRA or its direction register.
+A literal-address census of all hunks in both executables finds no operands
+`0xbfe001`, `0xbfe201`, `0xbfe000` or `0xbfe200`. This establishes the
+absence of direct literal accesses; it does not observe OS calls or indirect
+addresses. The driver uses `audio.device` to allocate channels and writes
+Paula registers itself. These checks can be reproduced without distributing
+interpreter bytes:
+
+```bash
+python scripts/probe-interpreter-amiga.py disasm games/pq1-amiga/PQ 197 --start 0x372 --end 0x3aa
+python scripts/probe-interpreter-amiga.py disasm games/goldrush-amiga/GR 197 --start 0x372 --end 0x3aa
+python scripts/probe-interpreter-amiga.py cia games/pq1-amiga/PQ
+```
+
+**Hardware facts.** Commodore's [Amiga Hardware Reference Manual,
+chapter 5](https://oldcrap.org/wp-content/uploads/2023/04/amiga-all-hw-ref-manual.pdf),
+"Playing the Waveform", "Joining Tones" and "The Audio State Machine",
+describes DMA start, pointer/length reload and high-byte/low-byte output.
+The period counter reloads from AUDxPER at each byte transition; setting an
+already-set DMACON bit leaves DMA running. Channels 0 and 3 feed the left
+output; 1 and 2 feed the right output. The manual's "Low-Pass Filter" section
+and appendix F identify CIA-A bit 1 as the active-low power LED/filter control
+on later A500 models.
+
+The [Commodore A500 rev 6a/7 schematic, sheet 4](https://www.amigawiki.org/dnl/schematics/A500_R6.pdf)
+gives the always-connected RC stage as R321/R331 = 360 ohm and
+C321/C331 = 0.1 uF: a 4,421 Hz pole. The switched unity-gain Sallen-Key
+stage uses 10 kohm resistors and 6,800/3,900 pF capacitors: nominal
+frequency 3,091 Hz and Q 0.6602, with a 12 dB/octave roll-off.
+Component tolerances and board revisions affect these frequencies.
+
+**Presentation model and limits.** The app selects this A500 analogue path
+with the LED bright, since the inspected driver leaves the filter control alone.
+This is an explicit boot-state assumption; OS LED state was not captured.
+A first-order IIR models the RC stage and a Web Audio lowpass biquad models
+the LED stage. [Web Audio's lowpass Q](https://www.w3.org/TR/webaudio-1.0/#dom-biquadfilternode-q)
+uses decibels, so the circuit's dimensionless Q is converted with `20 * log10(Q)`. Both filters preserve state across notes.
+The four voices route to the hardware's stereo sides.
+
+DMA starts at sample byte zero with the playback rate installed **before**
+its start quantum. On period changes, a replacement source starts at the next
+byte boundary and the current sample offset. Volume writes use that same
+boundary. This avoids Web Audio's k-rate `playbackRate` transition, which
+otherwise emits several fast cycles at onset before the intended period takes
+effect. The browser's sample reconstruction remains an approximation; this
+model does not claim bus-cycle accuracy, DAC PWM emulation or measured analogue
+component tolerances. Period 0 retains the existing silent rest presentation;
+the phase clock treats its counter as 65,536 clocks.
+
+**Regression evidence.** [paula-offline.test.ts](../app/test/paula-offline.test.ts)
+boots PQ's original LOGIC and captures 1,800 sound heartbeats through the real
+`AgiAudio` graph in headless Chromium's `OfflineAudioContext`. It covers SOUND
+36, repeated SOUND 19, then SOUND 37 and the intro music in SOUND 30.
+The harness advances the game clock and uses the shipped `CycleClock` for
+`v10` pacing, with a controlled injected RNG seeded at 1. Tests measure the first 4 ms at 133 tone onsets:
+maximum adjacent-sample jump, jumps above 0.08, and Hann-window DFT energy above
+8 kHz. The original graph fails the jump and wideband bounds. The changed
+render removes the initial rapid cycles and passes both bounds. Optional
+`AGI_AUDIO_RENDER_DIR` output writes a WAV, fixed-scale spectrogram PNG and
+metrics for private A/B inspection. The test explicitly skips when the
+content-identified fixture is absent. [paula.test.ts](../app/test/paula.test.ts)
+checks phase and RC coefficients with hand-computed expectations, and
+[audio.test.ts](../app/test/audio.test.ts) checks DMA start/stop scheduling.
+
 #### Engine/app mapping
 
 `SoundPlayback` emits `{kind: "paula", channel, period, volume, driver?}`
@@ -2925,16 +3021,13 @@ off) and `volume` the value written to AUDxVOL, always 0..64
 (`AMIGA_ENVELOPE_TABLE`, `AMIGA_2176_ENVELOPE_TABLE`,
 `AMIGA_2082_NOISE_PERIODS`, `AMIGA_TONE_SAMPLE`,
 `AMIGA_2082_TONE_SAMPLE`, `amigaNoisePcm` in `src/sound/sound.ts`).
-`app/src/audio/AgiAudio.ts` renders the voices with looping buffer
-sources whose buffers are fixed per voice as in the drivers — sample rate
-`3546895 / period` against the PAL Paula clock — and per-voice gains; a
-change of driver rebuilds the voices. Two render choices come from the
-hardware, not the drivers: periods below 124 colour clocks render at 124,
-because Paula's audio DMA cannot fetch samples faster (the Amiga Hardware
-Reference Manual's minimum); and period 0 renders silent — an inference
-that a zero period gives no audible pitch, not a measurement. The
-`soundDevice` operand stays a PC-family selection and does not reach this
-path.
+`app/src/audio/AgiAudio.ts` renders fixed per-channel buffers at
+`3546895 / period` against the PAL clock, through stereo A500 output filters.
+A driver change rebuilds the voices. Phase, register boundaries and the LED
+model are described in [Paula onset and A500 output](#paula-onset-and-a500-output).
+Periods below 124 colour clocks retain the DMA-limit approximation, and period 0
+retains silent rest presentation. The `soundDevice` operand stays a PC-family
+selection. PC and IIgs graphs keep their own synthesis paths.
 
 ### Original Amiga and IIgs pattern brushes
 
