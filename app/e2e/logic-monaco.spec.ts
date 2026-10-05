@@ -464,8 +464,6 @@ test("logic Monaco registration replacement retires listeners and markers withou
   const result = await page.evaluate(async () => {
     const h = (window as unknown as { __monacoHost: MonacoHost }).__monacoHost;
     h.handle.dispose();
-    // Measure registration listeners on a model detached from editor contributions.
-    h.editor.setModel(null);
     const subscribe = h.model.onWillDispose;
     let registering = false;
     let editorListeners = 0;
