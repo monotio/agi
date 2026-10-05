@@ -419,6 +419,63 @@ function playedSession(): { h: ViewHarness; recording: HistoryRecording; lastTic
   return { h, recording: asRecording(segments), lastTick };
 }
 
+for (const delay of [0, 3]) {
+  test(`zero seek presents the first game frame after ${delay} cycles while preserving the boot replay state`, () => {
+    const h = viewHarness(
+      gameContainer(
+        [
+          `increment(v100); if (v100 > ${delay} && !isset(f200)) { set(f200); load.pic(v0); draw.pic(v0); show.pic(); } return;`,
+        ],
+        (c) => c.putResource("picture", 0, PICTURE_1),
+      ),
+      { rngSeed: 9 },
+    );
+    h.tick(30);
+    const firstFrame = h.presentation.find(
+      (m) => m.type === "frame" && m.visual.some((pixel) => pixel !== 15),
+    );
+    assert.ok(firstFrame?.type === "frame");
+    h.send({ type: "pause", paused: true });
+    const recording = asRecording(collectSegments(h.control));
+    h.send({ type: "historyViewStart", id: 1, recording, segment: 0, tick: 0 });
+    const report = finalView(h.control, 1);
+    assert.equal(report.tick, 0);
+    assert.equal(report.canResume, false);
+    const state = h.ctx.view.drive!.ctx.engine!.getPresentation();
+    assert.ok(state.visual.every((pixel) => pixel === 15));
+    const shown = h.presentation.at(-1);
+    assert.ok(shown?.type === "frame");
+    assert.equal(Buffer.compare(shown.visual, firstFrame.visual), 0);
+    assert.deepEqual(h.ctx.view.drive!.ctx.engine!.getPresentation(), state);
+    assert.equal(h.ctx.view.drive!.ctx.cycle.cycleCount, 0);
+  });
+}
+
+test("an existing anchor shows its exact moving-object frame", () => {
+  const h = viewHarness(
+    gameContainer(
+      [
+        `if (!isset(f230)) { set(f230); assignn(v10, 0); set(f218); } ${VIEW_LOGICS[0]}`,
+        ...VIEW_LOGICS.slice(1),
+      ],
+      populateViewResources,
+    ),
+    { rngSeed: 9 },
+  );
+  h.tick(6);
+  h.send({ type: "pause", paused: true });
+  const recording = asRecording(collectSegments(h.control));
+  const anchor = recording.segments[0]!.anchors[0]!;
+  assert.ok(anchor);
+  h.send({ type: "historyViewStart", id: 1, recording, segment: 0, tick: anchor.tick });
+  const shown = h.presentation.at(-1);
+  assert.ok(shown?.type === "frame");
+  assert.equal(
+    Buffer.compare(shown.visual, h.ctx.view.drive!.ctx.engine!.getPresentation().visual),
+    0,
+  );
+});
+
 test("viewing the tape replays it in a scratch session the live engine never feels", () => {
   const { h, recording, lastTick } = playedSession();
   const { ctx, send, tick } = h;

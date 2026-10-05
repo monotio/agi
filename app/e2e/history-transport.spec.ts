@@ -4,6 +4,7 @@ import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import {
   cacheGame,
+  canvasPicHash,
   isolateStorage,
   openWorldMap,
   textHook,
@@ -13,7 +14,7 @@ import {
   openWorldRoom,
 } from "./engineProbe.ts";
 
-test.use({ headless: process.platform !== "darwin" });
+test.use({ headless: true });
 
 /**
  * The history transport's proof fixture: an authored two-room game that
@@ -128,6 +129,109 @@ async function scrubToTape(page: Page, fraction: number): Promise<void> {
   const selected = (await timeline.boundingBox())!;
   expect(selected.x, "seeking directly from LIVE keeps the timeline origin").toBe(box.x);
   expect(selected.width, "seeking directly from LIVE keeps the timeline width").toBe(box.width);
+}
+
+for (const viewport of [
+  { width: 1063, height: 815 },
+  { width: 1440, height: 900 },
+  { width: 390, height: 844 },
+]) {
+  test(`zero scrub shows the first presented picture at ${viewport.width}×${viewport.height}`, async ({
+    page,
+  }) => {
+    await page.setViewportSize(viewport);
+    await isolateStorage(page);
+    await bootTapeGame(page);
+    await waitForCycles(page, 6);
+    // PICTURE 1 draws colour 1 at (20, 10): doubled x, display row 1.
+    await expect
+      .poll(() =>
+        page
+          .getByTestId("game-canvas")
+          .evaluate((canvas) => [
+            ...(canvas as HTMLCanvasElement).getContext("2d")!.getImageData(40, 18, 1, 1).data,
+          ]),
+      )
+      .toEqual([0, 0, 170, 255]);
+    const firstPicture = await canvasPicHash(page);
+    await pauseLive(page);
+    const timeline = page.getByTestId("history-timeline");
+    await expect(timeline).toBeVisible();
+    await expect(timeline).toHaveAttribute("aria-valuenow", "100");
+    const box = (await timeline.boundingBox())!;
+    await page.mouse.move(box.x, box.y + box.height / 2);
+    await page.mouse.down();
+    await expect.poll(async () => (await viewState(page))?.active).toBe(true);
+    await expect.poll(async () => (await viewState(page))?.seeking).toBe(false);
+    await page.screenshot({ path: test.info().outputPath(`zero-${viewport.width}.png`) });
+    expect(await canvasPicHash(page)).toBe(firstPicture);
+    expect((await viewState(page))?.tick).toBe(0);
+    await page.mouse.up();
+  });
+
+  test(`speed selection stays visible under the pointer and changes watch pacing at ${viewport.width}×${viewport.height}`, async ({
+    page,
+  }) => {
+    await page.setViewportSize(viewport);
+    await isolateStorage(page);
+    await page.addInitScript(() => {
+      const rates = [] as number[];
+      (window as Window & { transportRates?: number[] }).transportRates = rates;
+      const post = Worker.prototype.postMessage;
+      Worker.prototype.postMessage = function (message, transfer) {
+        if (message.type === "historyViewAdvance") rates.push(message.ticks);
+        post.call(this, message, Array.isArray(transfer) ? { transfer } : transfer);
+      };
+    });
+    await bootTapeGame(page);
+    // Enough tape for the largest step (48 ticks) plus the initial 2× step (12).
+    await waitForCycles(page, 6 * (8 + 2));
+    await pauseLive(page);
+    await scrubToTape(page, 0);
+    for (const speed of [2, 4, 8, 1]) {
+      const box = (await page.getByTestId("history-timeline").boundingBox())!;
+      await page.getByTestId("history-timeline").click({ position: { x: 0, y: box.height / 2 } });
+      await expect.poll(async () => (await viewState(page))?.seeking).toBe(false);
+      // Begin with a short step so the preceding 8× choice cannot finish
+      // the fixture before the next button receives its click.
+      if (speed !== 2) await page.getByTestId(`history-speed-${speed === 1 ? 2 : 1}`).click();
+      await page.getByTestId("btn-history-watch").click();
+      const button = page.getByTestId(`history-speed-${speed}`);
+      await expect(button).toBeVisible();
+      await button.click();
+      await expect(button).toHaveClass(/transport-speed-btn--active/);
+      if (speed === 2)
+        await page.screenshot({
+          path: test.info().outputPath(`speed-click-${viewport.width}.png`),
+        });
+      await expect
+        .poll(() => button.evaluate((el) => getComputedStyle(el).backgroundColor))
+        .toBe(
+          await button.evaluate((el) => {
+            const sample = document.createElement("span");
+            sample.style.color = "var(--action)";
+            el.append(sample);
+            const color = getComputedStyle(sample).color;
+            sample.remove();
+            return color;
+          }),
+        );
+      expect(await button.evaluate((el) => el.matches(":hover"))).toBe(true);
+      expect(await page.evaluate(() => window.__AGI_STATE__?.historyView.speed)).toBe(speed);
+      await expect
+        .poll(() =>
+          page.evaluate(() =>
+            (window as Window & { transportRates?: number[] }).transportRates?.at(-1),
+          ),
+        )
+        .toBe(6 * speed);
+      if (speed === 2) {
+        await expect.poll(async () => (await viewState(page))?.room).toBe(1);
+        await page.screenshot({ path: test.info().outputPath(`speed-${viewport.width}.png`) });
+      }
+      await page.getByTestId("btn-history-watch").click();
+    }
+  });
 }
 
 test("the transport rides live play from boot; the timeline enters the tape and LIVE returns paused", async ({
