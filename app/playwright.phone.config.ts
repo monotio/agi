@@ -22,6 +22,7 @@ export default defineConfig({
     "ai-settings.spec.ts",
     "menu-flow.spec.ts",
     "reference-art.spec.ts",
+    "reported-spend.spec.ts",
     "synthetic-walkthrough.spec.ts",
     "dialog-fit.spec.ts",
   ],

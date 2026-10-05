@@ -1658,3 +1658,38 @@ test("a shared agent first opened for questions adopts the editor approval drain
   assert.ok(panel.pending());
   session.dispose();
 });
+
+test("completed spend stays with its chat when another chat is opened", async () => {
+  const { session } = fixture();
+  const agent = createWorkspaceAgent({
+    session,
+    profileId: "2.936",
+    config: () => ({ provider: "openai", model: "gpt-6-sol", apiKey: "placeholder" }),
+    conversation(_config, transcript, run) {
+      return {
+        setAvailableTools() {},
+        appendToolResults() {},
+        getTranscript: () => transcript,
+        async sendUserMessage() {
+          return run.request(async () => {
+            run.recordUsage({ input: 10000, cachedInput: 0, cacheWriteInput: 0, output: 5000 });
+            return { text: "Ready.", toolCalls: [] };
+          });
+        },
+        async complete() {
+          return { text: "Ready.", toolCalls: [] };
+        },
+      };
+    },
+  });
+  await agent.send("Describe the room.");
+  const chat = agent.chats()[0]!;
+  assert.equal(agent.task?.status, "idle");
+  assert.equal(agent.task?.reportedSpent, 0.07);
+  agent.newChat();
+  const freshTask = agent.task;
+  assert.equal(freshTask, null);
+  agent.resume(chat.id);
+  assert.equal(agent.task?.reportedSpent, 0.07);
+  session.dispose();
+});

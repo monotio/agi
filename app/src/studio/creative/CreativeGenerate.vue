@@ -21,6 +21,7 @@ import type {
   OpenAiImageQuality,
   OpenAiImageRole,
 } from "./openaiImageProvider.ts";
+import { formatSpent, type ReportedSpend } from "../../agent/reportedSpend.ts";
 import { OPENAI_IMAGE_LIMITS } from "./openaiImageProvider.ts";
 import { imageStylePrompt, SIERRA_IMAGE_STYLE } from "../../../../src/creative/imageStyle.ts";
 import UiSwitch from "../../ui/UiSwitch.vue";
@@ -44,6 +45,7 @@ interface Snapshot {
   readonly review: CreativeGenerationReview | null;
   readonly offer: OpenAiImageOffer | null;
   readonly partialImage: Uint8Array | null;
+  readonly spend: ReportedSpend | null;
   readonly offerStale: boolean;
   readonly credentialReady: boolean;
   readonly composite: boolean;
@@ -58,6 +60,7 @@ function readController(): Snapshot {
     review: controller.review,
     offer: controller.offer,
     partialImage: controller.partialImage,
+    spend: controller.spend,
     offerStale: controller.offerStale,
     credentialReady: controller.credentialReady(),
     composite: controller.editComposite() !== null,
@@ -602,6 +605,14 @@ const noKey = computed(() => !credentialReady.value || failure.value?.reason ===
       <UiButton variant="ghost" @click="controller.discardReview()">Change the words</UiButton>
     </section>
 
+    <p
+      v-if="phase === 'compose' && state.spend"
+      class="generate__spent"
+      data-testid="generate-spent"
+    >
+      {{ formatSpent(state.spend) }}
+    </p>
+
     <!-- In flight -->
     <section v-if="phase === 'submitting'" class="generate__flight" data-testid="generate-flight">
       <div class="generate__placeholder">
@@ -627,6 +638,10 @@ const noKey = computed(() => !credentialReady.value || failure.value?.reason ===
       data-testid="generate-offer"
     >
       <h3 class="generate__sub">Result</h3>
+      <p v-if="state.spend" class="generate__spent" data-testid="generate-spent">
+        {{ formatSpent(state.spend) }}
+      </p>
+      <a href="https://platform.openai.com/usage" target="_blank" rel="noopener">See your usage</a>
       <img
         v-if="offerUrl !== ''"
         :src="offerUrl"
@@ -675,6 +690,9 @@ const noKey = computed(() => !credentialReady.value || failure.value?.reason ===
 </template>
 
 <style scoped>
+.generate__spent {
+  font-variant-numeric: tabular-nums;
+}
 .generate a {
   color: var(--action);
 }

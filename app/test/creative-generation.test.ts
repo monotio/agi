@@ -1017,7 +1017,9 @@ test("a budget pause keeps the request and approval sends it once", async () => 
   host.reserveRequest = (_summary, approved) => {
     if (!approved)
       throw new GenerationRefusal("budget", "This request may pass your budget. Continue?");
-    return (result) => settled.push(result);
+    return (result) => {
+      settled.push(result);
+    };
   };
   const controller = createCreativeGeneration({ provider, host });
   await reviewed(controller);
@@ -1031,3 +1033,42 @@ test("a budget pause keeps the request and approval sends it once", async () => 
   assert.equal(settled[0], controller.offer);
   controller.dispose();
 });
+
+for (const outcome of ["completed", "cancelled", "interrupted"] as const) {
+  test(`generation receipt reports ${outcome} usage after sending`, async () => {
+    const { host } = makeHost({});
+    const { provider, answer } = makeProvider();
+    const controller = createCreativeGeneration({ provider, host });
+    await reviewed(controller);
+    const beforeSending = controller.spend;
+    assert.equal(beforeSending, null);
+    let started!: () => void;
+    const sent = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    let finish!: () => void;
+    answer(
+      (prepared) =>
+        new Promise<OpenAiImageOffer>((resolve, reject) => {
+          finish = () =>
+            outcome === "interrupted"
+              ? reject(new Error("connection lost"))
+              : resolve({
+                  ...offer(prepared),
+                  usage: { inputTextTokens: 2000, inputImageTokens: 3000, outputTokens: 1200 },
+                });
+          started();
+        }),
+    );
+    const pending = controller.submit();
+    await sent;
+    const whileSending = controller.spend;
+    assert.equal(whileSending, null);
+    if (outcome === "cancelled") controller.cancel();
+    else finish();
+    await pending;
+    assert.equal(controller.spend?.amount, outcome === "completed" ? 0.052 : 0);
+    assert.equal(controller.spend?.incomplete, outcome !== "completed");
+    controller.dispose();
+  });
+}

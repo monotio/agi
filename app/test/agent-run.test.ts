@@ -119,3 +119,38 @@ test("a long task and a long request run on without a wall-clock stop", async (t
   assert.equal(aborted, false, "no abort at 10 minutes");
   assert.equal(answer, "streamed");
 });
+
+test("task spend excludes image charges and pending reservations", async () => {
+  const { reserveImageBudget } = await import("../src/agent/providerBudget.ts");
+  const run = new AgentRun("gpt-6-sol", () => {});
+  await run.run(async () => {
+    run.recordUsage({ input: 10000, cachedInput: 0, cacheWriteInput: 0, output: 5000 });
+    reserveImageBudget(1)(0.5);
+    const settle = reserveImageBudget(1);
+    try {
+      // 10,000 × $2/M + 5,000 × $10/M = $0.07 for this task.
+      assert.equal(run.snapshot().reportedSpent, 0.07);
+      assert.ok(Math.abs(run.snapshot().spent - 0.57) < 1e-12);
+    } finally {
+      settle(0);
+    }
+  });
+});
+
+test("cancelled and interrupted requests keep only completed usage as spent", async () => {
+  for (const cancelled of [true, false]) {
+    const run = new AgentRun("gpt-6-sol", () => {});
+    await assert.rejects(
+      run.run(async () => {
+        run.recordUsage({ input: 10000, cachedInput: 0, cacheWriteInput: 0, output: 5000 });
+        return run.request(async () => {
+          if (cancelled) run.cancel();
+          throw new Error("interrupted");
+        });
+      }),
+      /interrupted/,
+    );
+    assert.equal(run.snapshot().usageIncomplete, true);
+    assert.equal(run.snapshot().reportedSpent, 0.07);
+  }
+});

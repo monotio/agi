@@ -1,3 +1,4 @@
+import { imageTokenRates } from "./imageSpend.ts";
 /**
  * Optional BYOK OpenAI image transport for the creative workflow.
  *
@@ -317,7 +318,7 @@ export interface PreparedOpenAiImage {
 }
 
 /** Token accounting the provider returned; absent stays absent, never a fabricated zero. */
-interface OpenAiImageUsage {
+export interface OpenAiImageUsage {
   readonly inputTokens?: number;
   readonly outputTokens?: number;
   readonly totalTokens?: number;
@@ -1333,5 +1334,6 @@ export function estimateImageOutputCost(
   const whole = Math.floor(short);
   const rounded = short - whole === 0.5 ? whole + (whole % 2) : Math.round(short);
   const tokens = Math.ceil((edge * rounded * (2_000_000 + width * height)) / 4_000_000);
-  return (tokens * (model === "gpt-image-2" ? 15 : 30)) / 1_000_000;
+  const rate = imageTokenRates(model);
+  return rate ? (tokens * rate.output) / 1_000_000 : null;
 }
