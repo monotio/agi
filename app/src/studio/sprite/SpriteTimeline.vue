@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import UiIcon from "../../ui/UiIcon.vue";
 import { computed, nextTick, shallowRef, useTemplateRef } from "vue";
 import UiExplain from "../../ui/UiExplain.vue";
 import { sameDisplay, type SpriteDocument } from "../../../../src/view/spriteDocument.ts";
@@ -444,7 +445,7 @@ function onMenuKey(event: KeyboardEvent): void {
               }
             "
           >
-            ⋯
+            <UiIcon name="ellipsis" :size="16" />
           </button>
         </div>
         <div class="timeline__cels" role="gridcell">

@@ -567,11 +567,11 @@ const thumbnails = computed(() => {
             >Fit</UiButton
           >
           <UiButton size="sm" aria-label="Zoom out" @click="zoom = Math.max(0.05, scale / 1.5)"
-            >−</UiButton
-          >
+            ><UiIcon name="minus" :size="16"
+          /></UiButton>
           <UiButton size="sm" aria-label="Zoom in" @click="zoom = Math.min(64, scale * 1.5)"
-            >+</UiButton
-          >
+            ><UiIcon name="plus" :size="16"
+          /></UiButton>
         </div>
         <div ref="viewport" class="frame-viewport">
           <div
@@ -669,7 +669,7 @@ const thumbnails = computed(() => {
               aria-label="Smaller cels"
               @click="celHeight = Math.max(1, celHeight - 1)"
             >
-              −
+              <UiIcon name="minus" :size="16" />
             </button>
             <input
               v-model.number="celHeight"
@@ -683,7 +683,7 @@ const thumbnails = computed(() => {
               aria-label="Taller cels"
               @click="celHeight = Math.min(maximumHeight, celHeight + 1)"
             >
-              +
+              <UiIcon name="plus" :size="16" />
             </button>
           </span>
           px tall · like {{ name }}</label

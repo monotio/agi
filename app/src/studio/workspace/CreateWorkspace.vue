@@ -1277,8 +1277,8 @@ onBeforeUnmount(() => {
           title="Side by side"
           :aria-pressed="editor.splitAxis.value === 'horizontal'"
           @click="editor.setSplitAxis('horizontal')"
-          >▥</UiButton
-        >
+          ><UiIcon name="panel-left" :size="16"
+        /></UiButton>
         <UiButton
           size="sm"
           variant="ghost"
@@ -1286,8 +1286,8 @@ onBeforeUnmount(() => {
           title="Stacked"
           :aria-pressed="editor.splitAxis.value === 'vertical'"
           @click="editor.setSplitAxis('vertical')"
-          >▤</UiButton
-        >
+          ><UiIcon name="panel-left" :size="16" style="transform: rotate(90deg)"
+        /></UiButton>
       </div>
       <template v-if="editor.kind.value === 'picture' || editor.kind.value === 'view'">
         <UiButton

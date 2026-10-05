@@ -390,6 +390,7 @@ function dismissGhosts(event: KeyboardEvent): void {
       />
       <UiButton
         size="sm"
+        icon="sparkles"
         :disabled="readOnly || !!pendingTask"
         :title="
           readOnly
@@ -821,7 +822,7 @@ function dismissGhosts(event: KeyboardEvent): void {
               :disabled="readOnly"
               :title="readOnly ? 'Editing is paused in this tab' : undefined"
             >
-              ✦ {{ word }}
+              <UiIcon name="sparkles" :size="16" /> {{ word }}
             </button>
             <template v-if="ghosts[String(group.id)]?.length">
               <button
@@ -869,7 +870,7 @@ function dismissGhosts(event: KeyboardEvent): void {
               "
               @click="task({ kind: 'suggest', group: group.id, words: group.words })"
             >
-              {{ VOCABULARY.suggestWords.label }}
+              <UiIcon name="sparkles" :size="16" /> {{ VOCABULARY.suggestWords.label }}
             </button>
             <span v-else class="words-note">{{ copy.suggesting }}</span>
             <div v-if="taskProblems[String(group.id)]" class="words-error" role="alert">

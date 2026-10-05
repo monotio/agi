@@ -100,7 +100,7 @@ function onHeadPointerUp(): void {
         data-testid="dbg-dock-back"
         @click="floating = false"
       >
-        ⇥
+        <UiIcon name="panel-right" :size="16" />
       </button>
       <button
         type="button"
@@ -109,7 +109,7 @@ function onHeadPointerUp(): void {
         data-testid="dbg-collapse"
         @click="collapsed = !collapsed"
       >
-        {{ collapsed ? "+" : "−" }}
+        <UiIcon :name="collapsed ? 'plus' : 'minus'" :size="16" />
       </button>
       <button
         type="button"

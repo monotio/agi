@@ -113,13 +113,13 @@ export const VOCABULARY = {
   },
   predictCommands: {
     id: "predictCommands",
-    label: "✦ Suggest sentences",
+    label: "Suggest sentences",
     help: "Suggested by the agent from the room’s picture, objects and text.",
     technical: "",
   },
   suggestWords: {
     id: "suggestWords",
-    label: "✦ Suggest",
+    label: "Suggest",
     help: "Proposes words with the same meaning.",
     technical: "",
   },
