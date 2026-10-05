@@ -403,7 +403,7 @@ export function useWorkerLink(options: WorkerLinkOptions) {
       soundPaused: (msg) => setWorkerAudioPause(msg.paused),
       stopSound: () => {
         state.soundPlaying = false;
-        options.audio?.stop();
+        options.audio?.finishSound();
       },
       autosave: (msg) => deps.handleAutosave(msg),
       // The always-on recording's transport unit: commit it, then free the

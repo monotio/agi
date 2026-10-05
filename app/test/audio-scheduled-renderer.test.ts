@@ -130,11 +130,13 @@ for (const kind of ["speaker", "psg", "paula", "iigs"] as const) {
     const first = Math.max(...initial);
     audio.outputTick({ stream: "song", tick: 1, outputs: events, complete: false });
     const second = Math.max(...gains.flatMap(({ gain }) => gain.values.map(([, at]) => at)));
-    if (kind === "paula") {
-      // Hand-computed reload counts: 139 at 428 clocks; 70 at 856 clocks.
-      assert.ok(Math.abs(gains[1]!.gain.values.at(-1)![1] - first - (139 * 428) / 3546895) < 1e-10);
-      assert.ok(Math.abs(second - first - (70 * 856) / 3546895) < 1e-10);
-    } else assert.ok(Math.abs(second - first - 1 / 60) < 1e-10);
+    assert.ok(Math.abs(second - first - 1 / 60) < 1e-10);
+    if (kind === "paula")
+      assert.equal(
+        gains[1]!.gain.values.at(-1)![1],
+        gains[2]!.gain.values.at(-1)![1],
+        "volume writes share the register tick independently of sample reload",
+      );
     if (kind === "iigs") {
       assert.equal(gains[1]!.gain.values.at(-1)![1], gains[2]!.gain.values.at(-1)![1]);
     }
@@ -144,10 +146,7 @@ for (const kind of ["speaker", "psg", "paula", "iigs"] as const) {
     assert.ok(late >= ctx.currentTime);
     audio.outputTick({ stream: "song", tick: 3, outputs: events, complete: false });
     const next = Math.max(...gains.flatMap(({ gain }) => gain.values.map(([, at]) => at)));
-    if (kind === "paula") {
-      const reloads = Math.ceil(((ctx.currentTime + 3 / 60 - first) * 3546895) / 856);
-      assert.ok(Math.abs(next - first - (reloads * 856) / 3546895) < 1e-10);
-    } else assert.ok(Math.abs(next - late - 1 / 60) < 1e-10);
+    assert.ok(Math.abs(next - late - 1 / 60) < 1e-10);
   });
 }
 

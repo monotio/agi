@@ -58,6 +58,7 @@ function context() {
     playbackRate: ReturnType<typeof params>;
   };
   const bufferSources: BufferSource[] = [];
+  const iirs: { b: number[]; a: number[] }[] = [];
   const ctx = {
     state: "running",
     currentTime: 12,
@@ -95,7 +96,10 @@ function context() {
       return source;
     },
     createChannelMerger: () => node(),
-    createIIRFilter: () => node(),
+    createIIRFilter: (b: number[], a: number[]) => {
+      iirs.push({ b, a });
+      return node();
+    },
     createBiquadFilter: () => ({ ...node(), type: "bandpass", Q: params(), frequency: params() }),
     resume: async () => {},
   };
@@ -105,6 +109,7 @@ function context() {
     oscillators,
     buffers,
     bufferSources,
+    iirs,
     audio: new AgiAudio({ contextFactory: () => ctx as unknown as AudioContext }),
   };
 }
@@ -215,19 +220,93 @@ describe("audio command backend", () => {
     );
     assert.deepEqual(bufferSources.at(-1)!.starts, [[12 + 4 / 60, 0]]);
   });
+  it("retains Paula volume and the low byte after DMA off, with AC coupling on the output", () => {
+    const { audio, gains, bufferSources, ctx, iirs } = context();
+    audio.output({ kind: "paula", channel: 0, period: 3546.895, volume: 32 });
+    ctx.currentTime = 12.0042;
+    audio.output({ kind: "paula", channel: 0, period: null, volume: 0 });
+    assert.equal(gains[1]!.gain.value, 0.2, "DMA clear writes no AUDxVOL");
+    const held = bufferSources.at(-1)!;
+    assert.deepEqual([...held.buffer!.data], [-0.5], "byte 5 is -64/128");
+    assert.ok(Math.abs(held.starts[0]![0]! - 12.006) < 1e-12);
+    assert.equal(iirs.length, 2);
+    assert.equal(iirs[1]!.b[0]! + iirs[1]!.b[1]!, 0, "output coupling rejects DC");
+  });
+  it("keeps the Paula latch and filter graph across completed SOUND streams", () => {
+    const { audio, gains, bufferSources } = context();
+    audio.outputTick({
+      stream: "a",
+      tick: 0,
+      outputs: [{ kind: "paula", channel: 0, period: 3546.895, volume: 32 }],
+      complete: false,
+    });
+    audio.outputTick({
+      stream: "a",
+      tick: 1,
+      outputs: [{ kind: "paula", channel: 0, period: null, volume: 0 }],
+      complete: true,
+    });
+    const held = bufferSources.at(-1)!;
+    assert.equal(held.stopped, false);
+    assert.equal(
+      audio.isPlaying,
+      false,
+      "completion ends the logical sound while the DAC retains its level",
+    );
+    audio.outputTick({
+      stream: "b",
+      tick: 0,
+      outputs: [{ kind: "paula", channel: 0, period: 3546.895, volume: 16 }],
+      complete: false,
+    });
+    assert.equal(gains.length, 5, "the existing channel gains and filters carry capacitor state");
+    assert.equal(held.stopped, true);
+    audio.stop();
+    assert.ok(bufferSources.every((source) => source.stopped));
+  });
+  it("serves the worker's stop marker while keeping Paula output and retiring the stream", () => {
+    const { audio, gains, bufferSources } = context();
+    audio.outputTick({
+      stream: "a",
+      tick: 0,
+      outputs: [{ kind: "paula", channel: 0, period: 3546.895, volume: 32 }],
+      complete: false,
+    });
+    audio.output({ kind: "paula", channel: 0, period: null, volume: 0 });
+    audio.finishSound();
+    const held = bufferSources.at(-1)!;
+    assert.equal(held.stopped, false);
+    assert.equal(audio.isPlaying, false);
+    audio.outputTick({
+      stream: "a",
+      tick: 1,
+      outputs: [{ kind: "paula", channel: 0, period: 500, volume: 64 }],
+      complete: false,
+    });
+    assert.equal(gains[1]!.gain.value, 0.2, "retired output stays rejected");
+    audio.outputTick({
+      stream: "b",
+      tick: 0,
+      outputs: [{ kind: "paula", channel: 0, period: 3546.895, volume: 16 }],
+      complete: false,
+    });
+    assert.equal(gains.length, 5);
+    audio.stop();
+    assert.ok(bufferSources.every((source) => source.stopped));
+  });
   it("renders paula events with the driver's tone sample and per-voice gains", () => {
     const { audio, gains, bufferSources } = context();
     audio.output({ kind: "paula", channel: 0, period: 760, volume: 55 });
     // PAL Paula clock / period is the byte rate; the source replays its
     // buffer against the context rate.
-    assert.equal(bufferSources[0]!.playbackRate.value, 3546895 / 760 / 8000);
+    assert.equal(bufferSources[0]!.playbackRate.value, ((3546895 / 760) * 32) / 8000);
     assert.equal(bufferSources[0]!.loop, true);
     assert.equal(gains[1]!.gain.value, (55 / 64) * 0.4);
     // The tone voices loop the 8-byte h198 sample as signed PCM.
     const tone = bufferSources[0]!.buffer!;
     assert.deepEqual(
       [...tone.data],
-      [0, 64, 127, 64, 0, -64, -127, -64].map((v) => v / 128),
+      [0, 64, 127, 64, 0, -64, -127, -64].flatMap((v) => Array<number>(32).fill(v / 128)),
     );
     // Every tone voice loops the same tone sample.
     audio.output({ kind: "paula", channel: 1, period: 1016, volume: 21 });
@@ -236,26 +315,26 @@ describe("audio command backend", () => {
     // 1 -> 0xca0 -> 0x650 -> 0x328 -> 0x194, stored low-byte first.
     audio.output({ kind: "paula", channel: 3, period: 0x800, volume: 64 });
     const noise = bufferSources[3]!.buffer!;
-    assert.equal(noise.data.length, 4096);
+    assert.equal(noise.data.length, 4096 * 32);
     assert.deepEqual(
-      [noise.data[0], noise.data[1], noise.data[2], noise.data[3]],
+      [noise.data[0], noise.data[32], noise.data[64], noise.data[96]],
       [-0x60 / 128, 0x50 / 128, 0x28 / 128, -0x6c / 128],
     );
-    assert.equal(bufferSources[3]!.playbackRate.value, 3546895 / 0x800 / 8000);
+    assert.equal(bufferSources[3]!.playbackRate.value, ((3546895 / 0x800) * 32) / 8000);
     assert.equal(gains[4]!.gain.value, 0.4);
     // A rest writes AUDxPER 0 with a nonzero volume (KQ2's attack gives 8):
-    // the voice renders silent while its zero period counts 65536 clocks.
+    // the voice keeps its volume while its zero period counts 65536 clocks.
     audio.output({ kind: "paula", channel: 1, period: 0, volume: 8 });
-    assert.equal(gains[2]!.gain.value, 0);
-    assert.equal(bufferSources.at(-1)!.playbackRate.value, 3546895 / 65536 / 8000);
+    assert.equal(gains[2]!.gain.value, (8 / 64) * 0.4);
+    assert.equal(bufferSources.at(-1)!.playbackRate.value, ((3546895 / 65536) * 32) / 8000);
     // The engine's terminator and stop() events carry no noise flag; the
     // noise voice keeps its buffer (Web Audio cannot reassign one).
     audio.output({ kind: "paula", channel: 3, period: null, volume: 0 });
     assert.equal(bufferSources[3]!.buffer, noise);
-    assert.equal(gains[4]!.gain.value, 0);
+    assert.equal(gains[4]!.gain.value, 0.4);
     // A null period disables DMA and stops the source.
     audio.output({ kind: "paula", channel: 0, period: null, volume: 0 });
-    assert.equal(gains[1]!.gain.value, 0);
+    assert.equal(gains[1]!.gain.value, (55 / 64) * 0.4);
     assert.equal(bufferSources[0]!.stopped, true);
     audio.stop();
     assert.ok(bufferSources.every((source) => source.stopped));
@@ -263,20 +342,23 @@ describe("audio command backend", () => {
   it("renders the 2.082 driver's own buffers and clamps its sub-DMA periods", () => {
     const { audio, gains, bufferSources } = context();
     audio.output({ kind: "paula", channel: 0, period: 760, volume: 55 });
-    assert.equal(bufferSources[0]!.buffer!.data.length, 8);
+    assert.equal(bufferSources[0]!.buffer!.data.length, 8 * 32);
     // A 2.082 event rebuilds the voices with the 4-byte square and the
     // 1,024-byte noise PCM instead of reassigning buffers.
     audio.output({ kind: "paula", channel: 3, period: 3, volume: 64, driver: "2.082" });
     assert.ok(bufferSources.slice(0, 4).every((source) => source.stopped));
-    assert.deepEqual([...bufferSources[4]!.buffer!.data], [0, -1, 0, -1]);
-    assert.equal(bufferSources[7]!.buffer!.data.length, 0x400);
+    assert.deepEqual(
+      [...bufferSources[4]!.buffer!.data],
+      [0, -1, 0, -1].flatMap((v) => Array<number>(32).fill(v)),
+    );
+    assert.equal(bufferSources[7]!.buffer!.data.length, 0x400 * 32);
     // Periods below Paula's DMA minimum render at the 124-clock limit.
-    assert.equal(bufferSources[7]!.playbackRate.value, 3546895 / 124 / 8000);
+    assert.equal(bufferSources[7]!.playbackRate.value, ((3546895 / 124) * 32) / 8000);
     assert.equal(gains[8]!.gain.value, 0.4);
     // The terminator keeps the 2.082 voices.
     audio.output({ kind: "paula", channel: 3, period: null, volume: 0, driver: "2.082" });
-    assert.equal(bufferSources.length, 8);
-    assert.equal(gains[8]!.gain.value, 0);
+    assert.equal(bufferSources.length, 9);
+    assert.equal(gains[8]!.gain.value, 0.4);
   });
   it("renders iigs notes as triangles when the game lacks its IIgs sound files", () => {
     const { audio, oscillators } = context();
