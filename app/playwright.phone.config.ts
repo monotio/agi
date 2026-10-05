@@ -13,6 +13,7 @@ export default defineConfig({
     "workspace-layout.spec.ts",
     "workspace-polish.spec.ts",
     "workspace-parity.spec.ts",
+    "picture-palette.spec.ts",
     "workspace-readonly.spec.ts",
     "project-progress.spec.ts",
     "phone-input.spec.ts",

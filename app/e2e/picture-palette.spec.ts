@@ -1,0 +1,168 @@
+import type { Page } from "@playwright/test";
+import type { ProjectSession } from "../src/project/projectSession.ts";
+import { test, expect } from "./test.ts";
+import { isolateStorage, workspaceSaved } from "./engineProbe.ts";
+
+const HINT = "Pick a drawing tool to paint, or select a shape to recolour it";
+async function picture(page: Page) {
+  await isolateStorage(page);
+  await page.goto("/#create-adventure");
+  await page.getByTestId("local-create-kind-starter").click();
+  await page.getByRole("button", { name: "Start building", exact: true }).click();
+  if (page.viewportSize()!.width <= 600) await page.getByTestId("workspace-parts").click();
+  await page.getByTestId("part-room:1:picture:1").click();
+  const studio = page.getByTestId("room-studio");
+  await expect(studio).toBeVisible();
+  return studio;
+}
+async function history(page: Page) {
+  return page.evaluate(() => {
+    const session = (
+      window as unknown as {
+        __AGI_PROJECT__: { getSession(): ProjectSession };
+      }
+    ).__AGI_PROJECT__.getSession();
+    return {
+      commits: session.capture().history.commits.length,
+      source: session.model.capture().read("picture:1")!.content,
+    };
+  });
+}
+for (const width of [1063, 1440, 390]) {
+  test.describe(`${width} palette`, () => {
+    test.use({
+      viewport: { width, height: width === 1063 ? 815 : width === 1440 ? 900 : 844 },
+      hasTouch: width === 390,
+    });
+    test("palette review screenshots", async ({ page }) => {
+      const studio = await picture(page);
+      await studio.getByRole("button", { name: "Draw order", exact: true }).click();
+      await expect(studio.getByTestId("studio-scrubber")).toBeVisible();
+      await page.evaluate(() => document.fonts.ready);
+      await page.screenshot({
+        path: test.info().outputPath(`select-${width}.png`),
+        animations: "disabled",
+      });
+      await studio.locator('button[data-tool="brush"]').click();
+      await expect(studio.getByRole("radiogroup", { name: "Palette", exact: true })).toBeVisible();
+      await page.screenshot({
+        path: test.info().outputPath(`drawing-${width}.png`),
+        animations: "disabled",
+      });
+    });
+    test("palette follows the tool and selection with one Undo step", async ({ page }) => {
+      const studio = await picture(page);
+      const strip = studio.locator(".workspace-palette");
+      await expect(strip).toBeVisible();
+      const hint = strip.getByText(HINT, { exact: true });
+      await expect(hint).toBeVisible();
+      await expect(hint).toHaveText(HINT);
+      await expect(strip.getByRole("radio")).toHaveCount(0);
+      await expect(studio.getByTestId("studio-value-visual")).toBeDisabled();
+      const initialBox = (await strip.boundingBox())!;
+      await studio.locator('button[data-tool="brush"]').click();
+      await expect(strip.getByRole("radiogroup", { name: "Palette", exact: true })).toBeVisible();
+      expect((await strip.boundingBox())!.height).toBe(initialBox.height);
+      await studio.getByRole("button", { name: "Draw order", exact: true }).click();
+      const scrubber = studio.getByTestId("studio-scrubber");
+      await expect(scrubber).toBeVisible();
+      const box = (await strip.boundingBox())!;
+      expect((await scrubber.boundingBox())!.y).toBeGreaterThanOrEqual(box.y + box.height);
+      await studio.locator('button[data-tool="select"]').click();
+      await studio.getByRole("radio", { name: "Items", exact: true }).click();
+      const sun = studio.locator('[role="treeitem"][data-row="sun"]');
+      await expect(sun).toBeVisible();
+      await sun.click();
+      await workspaceSaved(page);
+      const before = await history(page);
+      const red = strip.getByRole("radio", { name: "Colour 4: red", exact: true });
+      await expect(red).toBeVisible();
+      await red.click();
+      await expect(red).toHaveAttribute("aria-checked", "true");
+      await workspaceSaved(page);
+      const after = await history(page);
+      expect(after.source).not.toEqual(before.source);
+      expect(after.commits).toBe(before.commits + 1);
+      await red.press("ControlOrMeta+z");
+      await workspaceSaved(page);
+      expect((await history(page)).source).toEqual(before.source);
+      await expect(hint).toBeHidden();
+      await studio
+        .getByTestId("studio-options-bar")
+        .getByRole("radio", { name: "Depth", exact: true })
+        .click();
+      const beforeRefusal = await history(page);
+      const band = strip.getByRole("radio", { name: /^Depth 8:/ });
+      await expect(band).toBeVisible();
+      await band.click();
+      const notice = studio.getByTestId("studio-notice");
+      await expect(notice).toBeVisible();
+      await expect(notice).toContainText(
+        "Sun has no depth band. Add depth or select a shape with depth.",
+      );
+      expect(await history(page)).toEqual(beforeRefusal);
+    });
+  });
+}
+
+test("lenses, rail wells and colour keys share the selection context", async ({ page }) => {
+  await page.setViewportSize({ width: 1063, height: 815 });
+  const studio = await picture(page);
+  const strip = studio.locator(".workspace-palette");
+  const options = studio.getByTestId("studio-options-bar");
+  await studio.locator('button[data-tool="brush"]').click();
+  await options.getByRole("radio", { name: "Depth", exact: true }).click();
+  const bands = strip.getByRole("radiogroup", { name: "Depth bands", exact: true });
+  await expect(bands).toBeVisible();
+  await expect(bands.getByRole("radio")).toHaveCount(12);
+  await page.screenshot({ path: test.info().outputPath("depth-1063.png"), animations: "disabled" });
+  await bands.getByRole("radio", { name: /^Depth 8:/ }).click();
+  const well = studio.getByTestId("studio-value-priority");
+  await expect(well).toBeVisible();
+  await expect(well).toHaveAttribute("data-value", "8");
+  await well.click();
+  const depthPicker = studio.getByRole("dialog", { name: "Depth for new shapes", exact: true });
+  await expect(depthPicker).toBeVisible();
+  await expect(depthPicker.locator('[data-value="0"]')).toHaveCount(0);
+  await depthPicker.getByRole("radio", { name: /^Depth 9,/ }).click();
+  await expect(well).toHaveAttribute("data-value", "9");
+  await options.getByRole("radio", { name: "Walk", exact: true }).click();
+  const walk = strip.getByRole("radiogroup", { name: "Walk lines", exact: true });
+  await expect(walk).toBeVisible();
+  await expect(walk.getByRole("radio")).toHaveCount(4);
+  await page.screenshot({ path: test.info().outputPath("walk-1063.png"), animations: "disabled" });
+  await walk.getByRole("radio", { name: "Water", exact: true }).click();
+  await expect(well).toHaveAttribute("data-value", "3");
+  await options.getByRole("radio", { name: "Art", exact: true }).click();
+  await studio.locator('button[data-tool="select"]').click();
+  await studio.getByRole("radio", { name: "Items", exact: true }).click();
+  const sun = studio.locator('[role="treeitem"][data-row="sun"]');
+  await expect(sun).toBeVisible();
+  await sun.click();
+  const artWell = studio.getByTestId("studio-value-visual");
+  await artWell.click();
+  const artPicker = studio.getByRole("dialog", { name: "Art for selection", exact: true });
+  await expect(artPicker).toBeVisible();
+  await artPicker.getByRole("radio", { name: /^Colour 4,/ }).click();
+  await workspaceSaved(page);
+  await expect(artWell).toHaveAttribute("data-value", "4");
+  const beforeKey = await history(page);
+  const red = strip.getByRole("radio", { name: "Colour 4: red", exact: true });
+  await expect(red).toBeVisible();
+  await red.press("ArrowRight");
+  await expect(strip.getByRole("radio", { name: /^Colour 5:/ })).toBeFocused();
+  await workspaceSaved(page);
+  expect((await history(page)).commits).toBe(beforeKey.commits + 1);
+  await page.keyboard.press("ControlOrMeta+z");
+  await workspaceSaved(page);
+  expect((await history(page)).source).toEqual(beforeKey.source);
+  await options.getByRole("radio", { name: "Depth", exact: true }).click();
+  const beforeRefusal = await history(page);
+  await bands.getByRole("radio", { name: /^Depth 8:/ }).click();
+  const notice = studio.getByTestId("studio-notice");
+  await expect(notice).toBeVisible();
+  await expect(notice).toContainText(
+    "Sun has no depth band. Add depth or select a shape with depth.",
+  );
+  expect(await history(page)).toEqual(beforeRefusal);
+});
