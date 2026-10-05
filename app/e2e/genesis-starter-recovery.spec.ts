@@ -165,9 +165,11 @@ test("a cancelled genesis offers the same recovery, and late bytes cannot take t
 }) => {
   let requests = 0;
   const answer = deferredAnswer();
+  const requested = Promise.withResolvers<void>();
   const consumed = Promise.withResolvers<void>();
   await page.route("**/api/openai/v1/responses", async (route) => {
     requests++;
+    requested.resolve();
     await answer.promise;
     await route
       .fulfill(
@@ -196,6 +198,7 @@ test("a cancelled genesis offers the same recovery, and late bytes cannot take t
   await page.goto("/");
   await connectDefaultOpenAi(page);
   await launchGenesis(page);
+  await requested.promise;
   const aborted = page.waitForEvent("requestfailed", {
     predicate: (request) => request.url().includes("/api/openai/v1/responses"),
   });

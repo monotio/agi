@@ -1,6 +1,5 @@
 import { expect, type Locator, type Page } from "@playwright/test";
 import type { CachedGameData } from "../src/project/gameTypes.ts";
-import type * as BrowserSignals from "./browserSignals.ts";
 
 export interface AiConfiguration {
   provider: "anthropic" | "openai" | "stub";
@@ -561,26 +560,23 @@ export async function closeWorkspaceEditor(page: Page): Promise<void> {
 
 /** Observe completed gesture publication and durable autosave. */
 export async function workspaceSaved(page: Page): Promise<void> {
-  const status = await page.evaluate(async () => {
-    const path = "/e2e/browserSignals.ts";
-    const { waitForSignal }: typeof BrowserSignals = await import(/* @vite-ignore */ path);
-    const probe = window as unknown as {
-      __AGI_PROJECT__: {
-        getSession(): {
-          saveStatus(): { state: string; message: string };
-          subscribe(check: () => void): () => void;
-        };
-      };
-    };
-    const session = probe.__AGI_PROJECT__.getSession();
-    await waitForSignal(
-      () => !["pending", "saving"].includes(session.saveStatus().state),
-      (check) => session.subscribe(check),
-    );
-    const saved = session.saveStatus();
-    return saved.state === "failed" || saved.state === "conflict" ? saved.message : saved.state;
-  });
-  expect(status).toBe("saved");
+  await expect
+    .poll(
+      async () =>
+        page.evaluate(() => {
+          const probe = window as unknown as {
+            __AGI_PROJECT__: {
+              getSession(): { saveStatus(): { state: string; message: string } } | undefined;
+            };
+          };
+          const status = probe.__AGI_PROJECT__.getSession()?.saveStatus();
+          return status?.state === "failed" || status?.state === "conflict"
+            ? status.message
+            : status?.state;
+        }),
+      { intervals: [100] },
+    )
+    .toBe("saved");
   await expect(page.getByTestId("workspace-saved")).toBeVisible();
   await expect(page.getByTestId("workspace-saved")).toHaveText("Saved");
   await page.evaluate(async () => {
