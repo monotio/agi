@@ -171,6 +171,10 @@ code, comments or documentation.
   Describe capabilities directly; omit unnecessary reassurance about engines,
   keys or excluded alternatives. Error notices name the cause and next action.
   Keep actual constraints and irreversible consequences explicit.
+- Never guess or promise what an AI request will cost before it runs: no price on a
+  button, no estimate before sending. Show the budget with Stop and pause near it.
+  Actual spend may be shown after the fact, from provider-reported usage or
+  measured benchmarks, labelled as spent.
 
 ## Method
 
