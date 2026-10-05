@@ -441,6 +441,60 @@ test("rewind preserves saved PNG attachments and trace settings", async ({ page 
   await expect.poll(images).toBe(saved);
 });
 
+for (const close of [false, true]) {
+  test(`trace opacity set before upload commits keeps the latest release${close ? " after Done" : ""}`, async ({
+    page,
+  }) => {
+    await start(page);
+    await blankRoom(page);
+    await page.getByTestId("part-room:1:picture:1").click();
+    await page.getByRole("button", { name: "Trace an image", exact: true }).click();
+    // Hold admission at the upload boundary so the visible slider can be used first.
+    await page.evaluate(() => {
+      const session = (
+        window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }
+      ).__AGI_PROJECT__.getSession();
+      const submit = session.submit.bind(session);
+      const admitted = new Promise<void>((resolve) =>
+        window.addEventListener("admit-trace-upload", () => resolve(), { once: true }),
+      );
+      session.submit = async (edit) => {
+        if (edit.label === "Trace an image") await admitted;
+        return submit(edit);
+      };
+    });
+    await upload(page);
+    const slider = page.getByTestId("trace-opacity");
+    await expect(slider).toBeVisible();
+    await slider.fill("0.7");
+    await slider.fill("0.9");
+    if (close)
+      await page
+        .getByTestId("image-reference")
+        .getByRole("button", { name: "Done", exact: true })
+        .click();
+    await page.evaluate(() => window.dispatchEvent(new Event("admit-trace-upload")));
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () =>
+            (
+              window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }
+            ).__AGI_PROJECT__
+              .getSession()
+              .model.capture()
+              .read("images")?.content,
+        ),
+      )
+      .toContain('"opacity":0.9');
+    if (close) await page.getByRole("button", { name: "Trace an image", exact: true }).click();
+    await expect(slider).toHaveValue("0.9");
+    await expect(page.getByTestId("image-reference").getByRole("alert")).toHaveCount(0);
+    await expect(page.getByTestId("workspace-saved")).toBeVisible();
+    await expect(page.getByTestId("workspace-saved")).toContainText("Saved");
+  });
+}
+
 test("trace opacity previews during input and serializes quick releases", async ({ page }) => {
   await start(page);
   await blankRoom(page);
