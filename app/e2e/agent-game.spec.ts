@@ -1,5 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { readFile } from "node:fs/promises";
+import type { ProjectSession } from "../src/project/projectSession.ts";
+import type { WorkerQueryFn } from "../src/worker/workerProtocol.ts";
 import {
   configureAi,
   openAiSettings,
@@ -63,9 +65,11 @@ async function printWindowText(page: Page): Promise<string> {
 
 /** Close any open engine window first (Enter would only dismiss it), then submit. */
 async function typeCommand(page: Page, text: string): Promise<void> {
-  const openMenu = page.locator(".game-nav details[open] summary");
-  if (await openMenu.count()) await openMenu.press("Escape");
+  const settings = page.getByTestId("settings-menu-menu");
+  if (await settings.isVisible())
+    await settings.getByRole("button", { name: "Close", exact: true }).click();
   const input = page.getByTestId("input-line");
+  await expect(input).toBeVisible();
   await input.focus();
   if ((await textHook(page)).modal !== null) {
     await page.keyboard.press("Enter");
@@ -101,6 +105,52 @@ test("returning to the menu preserves the saved room and offers continue", async
   expect((await storedAutosave(page, "custom"))?.room).toBe(2);
   await savedGameCard(page, "custom").getByTestId("btn-resume-cached").click();
   await expect.poll(async () => (await textHook(page)).room).toBe(2);
+});
+
+test("a late project session checkpoints a generated room while its entry window waits", async ({
+  page,
+}) => {
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route("**/src/engine/mainProjectAdmission.ts", async (route) => {
+    await held;
+    await route.continue();
+  });
+  try {
+    await bootAgentGame(page);
+    await typeCommand(page, "east");
+    expect(await printWindowText(page)).toContain("generated room 2");
+    release();
+    await expect
+      .poll(() =>
+        page.evaluate(async () => {
+          const project = (
+            window as unknown as {
+              __AGI_PROJECT__: {
+                getSession(): ProjectSession | null;
+                query: WorkerQueryFn;
+              };
+            }
+          ).__AGI_PROJECT__;
+          const session = project.getSession();
+          if (!session) return "opening";
+          const status = await project.query("previewUpdateStatus");
+          return session.prepareCheckpoint(status.current?.revision);
+        }),
+      )
+      .toBe("ready");
+    await waitForAutosaveAfter(page, (await textHook(page)).cycle - 1);
+    expect((await storedAutosave(page, "custom"))?.room).toBe(2);
+    await expect.poll(async () => (await textHook(page)).modal).toBe("print");
+    await page.reload();
+    await expect.poll(() => page.evaluate(() => window.__AGI_STATE__?.resumed)).toBe(true);
+    await expect.poll(async () => (await textHook(page)).room).toBe(2);
+    expect(await printWindowText(page)).toContain("generated room 2");
+  } finally {
+    release();
+  }
 });
 
 test("in-game ZIP exports the live game after a patch and reload", async ({ page }) => {

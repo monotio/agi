@@ -43,6 +43,7 @@ import { clearCachedGame } from "../project/gameStorage.ts";
 import { bindProgressTarget, resolveProgressTarget } from "../project/progressBinding.ts";
 import {
   advanceAuthoring,
+  requireSaved,
   STALE_SAVE_MESSAGE,
   PROJECT_REMOVED_MESSAGE,
   watchProjectWrites,
@@ -431,6 +432,13 @@ export function useEngine(
     await Promise.all([import("../project/projectSession.ts"), import("./mainProjectAdmission.ts")])
       .then(async ([{ openProjectSession }, { createMainProjectAdmission }]) => {
         if (!current()) return;
+        // A room can finish while these modules load. Open the confirmed
+        // stored body, including its files, source claims and generation.
+        if (!game.installed) {
+          const saved = await requireSaved(game, { authoring: true, message: STALE_SAVE_MESSAGE });
+          if (!current()) return;
+          game.authoredGame = saved.data;
+        }
         const admission = createMainProjectAdmission({
           ...grant,
           query: link.query,
