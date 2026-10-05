@@ -6,6 +6,7 @@ import {
   enterCreateMode,
   isolateStorage,
   openWorkspaceAgent,
+  openGameOptions,
   savedGameCard,
   storedAutosave,
   textHook,
@@ -128,7 +129,11 @@ test("forking the tutorial keeps each card’s own checkpoint", async ({ page })
     });
   }
   await page.setViewportSize({ width: 1440, height: 900 });
+  await openGameOptions(page, "settings-menu");
+  const settings = page.getByTestId("settings-menu-menu");
+  await expect(settings).toBeVisible();
   await page.keyboard.press("Escape");
+  await expect(settings).toBeHidden();
   await expect(copyNote).toHaveCount(0);
   await expect(
     page.getByRole("heading", { name: "Adventure Department Remix", exact: true }),

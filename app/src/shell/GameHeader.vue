@@ -98,8 +98,6 @@ watch(
     }
     function dismissOnEscape(event: KeyboardEvent): void {
       if (event.key !== "Escape") return;
-      event.preventDefault();
-      event.stopImmediatePropagation();
       state.copyCreated = null;
     }
     window.addEventListener("keydown", dismissOnEscape, true);
@@ -465,7 +463,7 @@ async function onRecordSave(): Promise<void> {
     @trigger-key="triggerKey"
     @start-walkthrough="onStartWalkthrough"
   />
-  <div class="shell-notices">
+  <div class="shell-notices" :class="{ 'shell-notices--copy': state.copyCreated }">
     <UiToast
       v-if="state.copyCreated"
       dismissible
@@ -871,6 +869,13 @@ a.publisher:hover > span {
 }
 .shell-notices:not(:empty) {
   padding: var(--space-2) var(--space-4);
+}
+.shell-notices--copy {
+  z-index: calc(var(--z-dock) + 1);
+  pointer-events: none;
+}
+.shell-notices--copy > * {
+  pointer-events: auto;
 }
 .copy-created-note {
   max-width: 100%;
