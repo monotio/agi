@@ -110,23 +110,24 @@ test("a pause before the first context, an unlock request, and a named owner @we
   const result = await page.evaluate(async () => {
     const { AgiAudio } = await import("/src/audio/AgiAudio.ts");
     let context: AudioContext | null = null;
-    let suspension = Promise.resolve();
+    let suspensionSettled = false;
+    const suspension = Promise.withResolvers<void>();
     const audio = new AgiAudio({
       contextFactory: () => {
         const ctx = new AudioContext();
         const suspend = ctx.suspend.bind(ctx);
-        ctx.suspend = () => {
-          suspension = suspend();
-          return suspension;
+        ctx.suspend = async () => {
+          await suspend();
+          suspensionSettled = true;
+          suspension.resolve();
         };
         context = ctx;
         return ctx;
       },
     });
     const signalsPath = "/e2e/browserSignals.ts";
-    const { audioElapsed, audioState, audioWitness }: typeof BrowserSignals = await import(
-      /* @vite-ignore */ signalsPath
-    );
+    const { audioElapsed, audioState, audioWitness, waitForSignal }: typeof BrowserSignals =
+      await import(/* @vite-ignore */ signalsPath);
     try {
       // The pause predates the context; the first output creates it frozen.
       audio.setPaused(true);
@@ -134,10 +135,15 @@ test("a pause before the first context, an unlock request, and a named owner @we
       const ctx = context!;
       // WebKit initially reports suspended, then starts the context. Observe
       // the app's completed suspension rather than that provisional state.
-      await suspension;
-      if (!(await audioState(ctx, "suspended"))) {
-        throw new Error("The app did not settle the initial audio suspension.");
-      }
+      await waitForSignal(
+        () => suspensionSettled && ctx.state === "suspended",
+        (check) => {
+          void suspension.promise.then(check);
+          ctx.addEventListener("statechange", check);
+          return () => ctx.removeEventListener("statechange", check);
+        },
+        1200,
+      );
       const frozenAt = ctx.currentTime;
       await audioWitness(0.15);
       const firstContext = { state: ctx.state, drift: ctx.currentTime - frozenAt };
