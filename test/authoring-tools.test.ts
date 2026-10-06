@@ -582,3 +582,80 @@ test("whole ordinary SOUND reads fit a generous character page", () => {
   assert.equal((sound.details?.["events"] as unknown[]).length, 200);
   assert.equal(sound.details?.["nextOffset"], null);
 });
+
+test("configure_launch creates, updates, selects and removes launches through authoring tools", () => {
+  const state = createAgentSessionState();
+
+  // Create a launch
+  const created = executeAuthoringTool(state, "configure_launch", {
+    room: 8,
+    action: "create",
+    name: "Vacuum death",
+    cameFrom: { room: 7, edge: 4 },
+    flags: { "77": true },
+    variables: { "90": 123 },
+    seed: 58235,
+    selected: true,
+  });
+  assert.ok(created);
+  assert.equal(created.success, true);
+  assert.equal(created.details?.["authoringChanged"], true);
+
+  const roomLaunches = state.authoring.world.launches?.["8"];
+  assert.ok(roomLaunches);
+  assert.equal(roomLaunches.entries.length, 1);
+  const launchId = roomLaunches.entries[0]!.id;
+  assert.equal(roomLaunches.entries[0]!.name, "Vacuum death");
+  assert.equal(roomLaunches.selected, launchId);
+  assert.deepEqual(roomLaunches.entries[0]!.cameFrom, { room: 7, edge: 4 });
+  assert.deepEqual(roomLaunches.entries[0]!.flags, { "77": true });
+  assert.deepEqual(roomLaunches.entries[0]!.variables, { "90": 123 });
+  assert.equal(roomLaunches.entries[0]!.seed, 58235);
+
+  // Update the launch
+  const updated = executeAuthoringTool(state, "configure_launch", {
+    room: 8,
+    action: "update",
+    id: launchId,
+    name: "Airless death",
+    hero: { x: 50, y: 100 },
+  });
+  assert.ok(updated);
+  assert.equal(updated.success, true);
+  assert.equal(state.authoring.world.launches?.["8"]?.entries[0]!.name, "Airless death");
+  assert.deepEqual(state.authoring.world.launches?.["8"]?.entries[0]!.hero, { x: 50, y: 100 });
+  assert.equal(state.authoring.world.launches?.["8"]?.entries[0]!.seed, 58235);
+
+  // Dispatch via executeAgentTool (tests schema validation & parameter normalization)
+  const agentCreated = executeAgentTool(state, "configure_launch", {
+    room: 3,
+    action: "create",
+    name: "Meadow stroll",
+  });
+  assert.equal(agentCreated.success, true, agentCreated.error ?? "");
+  assert.equal(state.authoring.world.launches?.["3"]?.entries[0]!.name, "Meadow stroll");
+
+  // Remove the launch
+  const removed = executeAuthoringTool(state, "configure_launch", {
+    room: 8,
+    action: "remove",
+    id: launchId,
+  });
+  assert.ok(removed);
+  assert.equal(removed.success, true);
+  assert.equal(state.authoring.world.launches?.["8"], undefined);
+
+  // Validation refusals
+  const invalidRoom = executeAuthoringTool(state, "configure_launch", {
+    room: 0,
+    action: "create",
+    name: "Invalid",
+  });
+  assert.equal(invalidRoom?.success, false);
+
+  const missingIdOnUpdate = executeAuthoringTool(state, "configure_launch", {
+    room: 3,
+    action: "update",
+  });
+  assert.equal(missingIdOnUpdate?.success, false);
+});

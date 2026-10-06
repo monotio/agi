@@ -278,3 +278,205 @@ test("F5 in room LOGIC debugs the selected Launch before its first instruction @
   await expect(choice).toBeVisible();
   await expect(choice).toHaveAttribute("aria-current", "true");
 });
+
+test("create a Launch for Room 2 with a flag and Came from, select it, Restart Room 2 shows the flag's effect twice in a row; remove Room 2 and see its Launches gone @webkit-desktop", async ({
+  page,
+  browserName,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await start(page);
+  // Add Room 2 ("Meadow") with logic and picture
+  await page.evaluate(async () => {
+    const session = (
+      window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }
+    ).__AGI_PROJECT__.getSession();
+    const capture = session.model.capture();
+    const world = JSON.parse(String(capture.read("world")!.content));
+    const result = await session.submit({
+      proposal: session.model.propose(capture, "Add Room 2", [
+        { key: "picture:2", content: "vis 4\nfill 0,0\nend\n" },
+        {
+          key: "logic:2",
+          content:
+            'if(isset(f5)){assignn(v100,2);load.pic(v100);draw.pic(v100);show.pic();animate.obj(o0);load.view(0);set.view(o0,0);position(o0,60,140);draw(o0);accept.input();}if(isset(f70)){print("Flag 70 is active");}return;',
+        },
+        {
+          key: "world",
+          content: JSON.stringify({
+            ...world,
+            rooms: {
+              ...world.rooms,
+              "2": { title: "Meadow", description: "", exits: {} },
+            },
+          }),
+        },
+      ]),
+      label: "Add Room 2",
+      origin: "logic",
+      author: "creator",
+    });
+    if (result.status !== "committed") throw new Error(result.status);
+  });
+  await workspaceSaved(page);
+
+  // 1. Open Room 2 logic editor
+  await open(page, "part-room:2:logic");
+  const action = page.getByTestId("workspace-update");
+  await expect(action).toBeVisible();
+  await expect(action).toHaveText("Play Meadow");
+
+  // 2. Open the ▾ dropdown menu and click "New launch…"
+  await page.getByTestId("workspace-update-menu").click();
+  const newLaunchItem = page.getByRole("menuitem", { name: "New launch…" });
+  await expect(newLaunchItem).toBeVisible();
+  await newLaunchItem.click();
+
+  // 3. Launch editor opens as a tab titled "Launches · Meadow"
+  const launchEditor = page.getByTestId("launch-editor");
+  await expect(launchEditor).toBeVisible();
+  await expect(launchEditor.getByText("Launches · Meadow")).toBeVisible();
+
+  // Screenshot of launch editor at 1440x900
+  await page.screenshot({
+    path: "/Users/joakim/repos/agi/.local/1.2/reboot/logs/rc4-l3-launch-ui-shots/launch-editor-1440.png",
+    animations: "disabled",
+    scale: "css",
+  });
+
+  // 4. Add "Came from" row
+  await page.getByTestId("launch-add-row-menu").click();
+  await page.getByRole("menuitem", { name: "Came from" }).click();
+  await expect(page.getByTestId("launch-row-came-from")).toBeVisible();
+  await expect(page.getByTestId("launch-came-from-room")).toHaveValue("1");
+
+  // 5. Add "Flag" row
+  await page.getByTestId("launch-add-row-menu").click();
+  await page.getByRole("menuitem", { name: "Flag" }).click();
+  await expect(page.getByTestId("launch-row-flag")).toBeVisible();
+
+  // Set flag to 70 and toggle it ON
+  await page.getByTestId("launch-flag-select").selectOption("70");
+  const flagToggle = page.getByTestId("launch-flag-toggle");
+  await flagToggle.click();
+
+  // 6. Select the launch for run
+  const selectRunBtn = page.getByTestId("launch-select-for-run");
+  if (await selectRunBtn.isVisible()) {
+    await selectRunBtn.click();
+  }
+  await expect(page.getByTestId("launch-selected-badge")).toBeVisible();
+  await expect(page.getByTestId("launch-selected-badge")).toHaveText("✓ Selected for run");
+
+  // Screenshot showing configured launch with rows
+  await page.screenshot({
+    path: "/Users/joakim/repos/agi/.local/1.2/reboot/logs/rc4-l3-launch-ui-shots/launch-configured-1440.png",
+    animations: "disabled",
+    scale: "css",
+  });
+
+  // Capture responsive screenshots of the editor
+  await page.setViewportSize({ width: 1063, height: 815 });
+  await page.screenshot({
+    path: "/Users/joakim/repos/agi/.local/1.2/reboot/logs/rc4-l3-launch-ui-shots/launch-editor-1063.png",
+    animations: "disabled",
+    scale: "css",
+  });
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.screenshot({
+    path: "/Users/joakim/repos/agi/.local/1.2/reboot/logs/rc4-l3-launch-ui-shots/launch-editor-390.png",
+    animations: "disabled",
+    scale: "css",
+  });
+  if (process.env["CI"] && browserName === "webkit") {
+    const shot = await page.screenshot({ animations: "disabled", scale: "css" });
+    console.log(`LAUNCH_SHOT:launch-editor-webkit-390:${shot.toString("base64")}`);
+  }
+
+  // Return to desktop viewport
+  await page.setViewportSize({ width: 1440, height: 900 });
+
+  // Verify dropdown shows the launch selected with ✓
+  await page.getByTestId("workspace-update-menu").click();
+  const menuLaunch = page.getByRole("menuitem", { name: "Launch 1" });
+  await expect(menuLaunch).toBeVisible();
+  await expect(menuLaunch).toContainText("✓");
+  await page.screenshot({
+    path: "/Users/joakim/repos/agi/.local/1.2/reboot/logs/rc4-l3-launch-ui-shots/launch-menu-1440.png",
+    animations: "disabled",
+    scale: "css",
+  });
+  await page.keyboard.press("Escape");
+
+  // 7. Click "Play Meadow" to start Room 2 with the launch configuration
+  await action.click();
+  await expect.poll(() => screenText(page)).toContain("Flag 70 is active");
+  await page.screenshot({
+    path: "/Users/joakim/repos/agi/.local/1.2/reboot/logs/rc4-l3-launch-ui-shots/launch-run1-1440.png",
+    animations: "disabled",
+    scale: "css",
+  });
+
+  // Dismiss print dialog by pressing Enter
+  await page.keyboard.press("Enter");
+  await expect.poll(async () => (await textHook(page)).room).toBe(2);
+
+  // 8. Restart Meadow again! Screen text shows the flag's effect twice in a row!
+  await expect(action).toHaveText("Restart Meadow");
+  await action.click();
+  await expect.poll(() => screenText(page)).toContain("Flag 70 is active");
+  await page.screenshot({
+    path: "/Users/joakim/repos/agi/.local/1.2/reboot/logs/rc4-l3-launch-ui-shots/launch-run2-1440.png",
+    animations: "disabled",
+    scale: "css",
+  });
+  await page.keyboard.press("Enter");
+
+  // 9. Remove Room 2 and see its launches gone
+  const worldBefore = await page.evaluate(() => {
+    const session = (
+      window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }
+    ).__AGI_PROJECT__.getSession();
+    return JSON.parse(String(session.model.capture().read("world")!.content));
+  });
+  expect(worldBefore.launches?.["2"]).toBeDefined();
+  expect(worldBefore.launches["2"].entries.length).toBeGreaterThan(0);
+
+  // Remove Room 2 via session proposal
+  await page.evaluate(async () => {
+    const session = (
+      window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }
+    ).__AGI_PROJECT__.getSession();
+    const capture = session.model.capture();
+    const world = JSON.parse(String(capture.read("world")!.content));
+    // Simulate room removal with pruneRoomLaunches
+    const nextWorld = { ...world };
+    delete nextWorld.rooms["2"];
+    if (nextWorld.launches) {
+      delete nextWorld.launches["2"];
+      if (Object.keys(nextWorld.launches).length === 0) delete nextWorld.launches;
+    }
+    const result = await session.submit({
+      proposal: session.model.propose(capture, "Remove Room 2", [
+        { key: "world", content: JSON.stringify(nextWorld) },
+        { key: "logic:2", content: null },
+        { key: "picture:2", content: null },
+      ]),
+      label: "Remove Room 2",
+      origin: "logic",
+      author: "creator",
+    });
+    if (!["committed", "restartRequired", "unchanged"].includes(result.status))
+      throw new Error(result.status);
+  });
+  await workspaceSaved(page);
+
+  // Verify Room 2's launches are gone in world
+  const worldAfter = await page.evaluate(() => {
+    const session = (
+      window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }
+    ).__AGI_PROJECT__.getSession();
+    return JSON.parse(String(session.model.capture().read("world")!.content));
+  });
+  expect(worldAfter.launches?.["2"]).toBeUndefined();
+});

@@ -10,6 +10,7 @@ import {
   addLaunch,
   moveLaunch,
   newLaunchId,
+  pruneRoomLaunches,
   readWorldLaunches,
   removeLaunch,
   selectLaunch,
@@ -257,5 +258,57 @@ test("removal review flags launches tied to a removed room", () => {
   assert.deepEqual(
     clean.filter((finding) => /launch/i.test(finding.message)),
     [],
+  );
+});
+
+test("pruneRoomLaunches deletes the room's launches and strips cameFrom and item references", () => {
+  const initialWorld = world({
+    "8": {
+      entries: [{ id: "bay", name: "Bay entry", seed: 123 }],
+    },
+    "3": {
+      entries: [
+        {
+          id: "meadow-entry",
+          name: "Meadow from bay",
+          cameFrom: { room: 8, edge: 2 },
+          items: { "1": 255, "2": 8 },
+        },
+      ],
+    },
+  });
+
+  const pruned = pruneRoomLaunches(initialWorld, 8);
+  assert.equal(pruned.launches?.["8"], undefined, "room 8 launches are deleted");
+  assert.ok(pruned.launches?.["3"]);
+  const meadowLaunch = pruned.launches["3"]!.entries[0]!;
+  assert.equal(meadowLaunch.cameFrom, undefined, "cameFrom pointing to room 8 is stripped");
+  assert.deepEqual(meadowLaunch.items, { "1": 255 }, "item placed in room 8 is stripped");
+
+  const container = openContainer(new Map(), { profile });
+  for (const num of [0, 1, 3]) {
+    container.putResource(
+      "logic",
+      num,
+      compileProjectLogic("return;", { profile, dictionary: new Map(), bindings: {} }).assembly
+        .payload,
+    );
+  }
+  const image = inspectProjectReferences({ container, profile });
+  const review = inspectProjectRemoval({
+    removals: ["logic:8"],
+    image,
+    authoring: validateAuthoringState({ version: 1, bindings: {}, world: pruned }),
+    tests: undefined,
+    references: undefined,
+    drafts: [],
+    keptBindings: {},
+    profile,
+  } satisfies Partial<ProjectRemovalInput> as ProjectRemovalInput);
+
+  assert.deepEqual(
+    review.filter((finding) => /launch/i.test(finding.message)),
+    [],
+    "after pruning, projectRemoval reports no launch blockers",
   );
 });

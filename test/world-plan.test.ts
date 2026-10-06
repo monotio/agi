@@ -159,3 +159,19 @@ test("validateWorldDraft surfaces the same limits as update_plan", () => {
   draft.world.rooms["1"]!.title = "x".repeat(200);
   assert.match(validateWorldDraft(draft) ?? "", /title|long|character/i);
 });
+
+test("draftRemoveRoom deletes the room's launches and strips cameFrom references", () => {
+  const state = worldWith({
+    "1": { title: "Hall", description: "", exits: { east: 2 } },
+    "2": { title: "Vault", description: "", exits: { west: 1 } },
+  });
+  state.world.launches = {
+    "2": { entries: [{ id: "l2", name: "In Vault" }] },
+    "1": { entries: [{ id: "l1", name: "From Vault", cameFrom: { room: 2, edge: 4 } }] },
+  };
+  const draft = createWorldDraft(state.world);
+  assert.equal(draftRemoveRoom(draft, 2), null);
+  assert.equal(draft.world.rooms["2"], undefined);
+  assert.equal(draft.world.launches?.["2"], undefined);
+  assert.equal(draft.world.launches?.["1"]?.entries[0]?.cameFrom, undefined);
+});

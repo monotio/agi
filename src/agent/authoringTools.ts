@@ -6,6 +6,15 @@ import {
 } from "./agentState.ts";
 import { sourceRevision, validateAuthoringState, type BindingKind } from "./authoringState.ts";
 import { allocateProjectIds } from "../authoring/resourceAllocation.ts";
+import {
+  addLaunch,
+  newLaunchId,
+  removeLaunch,
+  selectLaunch,
+  updateLaunch,
+  type LaunchFields,
+  type LaunchPatch,
+} from "../authoring/launches.ts";
 import { disassembleLogic } from "../logic/disassembler.ts";
 import { readPictureSource } from "../picture/source.ts";
 
@@ -74,7 +83,9 @@ export function executeAuthoringTool(
   name: string,
   args: Record<string, unknown>,
 ): AgentToolResult | undefined {
-  if (name !== "reserve_name" && name !== "update_plan") return undefined;
+  if (name !== "reserve_name" && name !== "update_plan" && name !== "configure_launch") {
+    return undefined;
+  }
   try {
     if (name === "reserve_name") {
       let items: { name: unknown; kind: unknown; id: unknown }[];
@@ -165,6 +176,114 @@ export function executeAuthoringTool(
         },
       };
     }
+    if (name === "configure_launch") {
+      const room = args["room"] as number;
+      if (!Number.isInteger(room) || room < 1 || room > 255) {
+        throw new Error("Select a room number 1..255.");
+      }
+      const action = args["action"] as "create" | "update" | "remove";
+      let nextWorld = state.authoring.world;
+      let resultMessage = "";
+
+      if (action === "remove") {
+        const id = args["id"] as string | null;
+        if (!id) throw new Error("A launch id is required to remove a launch.");
+        nextWorld = removeLaunch(nextWorld, room, id);
+        resultMessage = `Launch '${id}' removed from room ${room}.`;
+      } else if (action === "create") {
+        const launchName = (args["name"] as string | null)?.trim() || "Launch";
+        const fields: LaunchFields = { name: launchName };
+        if (args["id"]) fields.id = args["id"] as string;
+        if (args["note"]) fields.note = (args["note"] as string).trim();
+        if (args["cameFrom"] && typeof args["cameFrom"] === "object") {
+          const cf = args["cameFrom"] as { room: number; edge?: 1 | 2 | 3 | 4 };
+          fields.cameFrom = { room: cf.room, ...(cf.edge ? { edge: cf.edge } : {}) };
+        }
+        if (args["flags"] && typeof args["flags"] === "object") {
+          fields.flags = args["flags"] as Record<string, boolean>;
+        }
+        if (args["variables"] && typeof args["variables"] === "object") {
+          fields.variables = args["variables"] as Record<string, number>;
+        }
+        if (args["items"] && typeof args["items"] === "object") {
+          fields.items = args["items"] as Record<string, number>;
+        }
+        if (args["hero"] && typeof args["hero"] === "object") {
+          const h = args["hero"] as { x: number; y: number };
+          fields.hero = { x: h.x, y: h.y };
+        }
+        if (typeof args["seed"] === "number") fields.seed = args["seed"];
+
+        const currentLaunches = nextWorld.launches?.[String(room)];
+        const launchId = fields.id ?? newLaunchId(currentLaunches);
+        nextWorld = addLaunch(nextWorld, room, { ...fields, id: launchId });
+        if (args["selected"] === true) {
+          nextWorld = selectLaunch(nextWorld, room, launchId);
+        }
+        resultMessage = `Launch '${launchName}' (${launchId}) created for room ${room}.`;
+      } else if (action === "update") {
+        const id = args["id"] as string | null;
+        if (!id) throw new Error("A launch id is required to update a launch.");
+        const patch: LaunchPatch = {};
+        if (args["name"] !== undefined && args["name"] !== null) {
+          patch.name = (args["name"] as string).trim();
+        }
+        if (args["note"] !== undefined) {
+          patch.note = args["note"] === null ? undefined : (args["note"] as string).trim();
+        }
+        if (args["cameFrom"] !== undefined) {
+          if (args["cameFrom"] === null) {
+            patch.cameFrom = undefined;
+          } else {
+            const cf = args["cameFrom"] as { room: number; edge?: 1 | 2 | 3 | 4 };
+            patch.cameFrom = { room: cf.room, ...(cf.edge ? { edge: cf.edge } : {}) };
+          }
+        }
+        if (args["flags"] !== undefined) {
+          patch.flags =
+            args["flags"] === null ? undefined : (args["flags"] as Record<string, boolean>);
+        }
+        if (args["variables"] !== undefined) {
+          patch.variables =
+            args["variables"] === null ? undefined : (args["variables"] as Record<string, number>);
+        }
+        if (args["items"] !== undefined) {
+          patch.items =
+            args["items"] === null ? undefined : (args["items"] as Record<string, number>);
+        }
+        if (args["hero"] !== undefined) {
+          patch.hero =
+            args["hero"] === null ? undefined : (args["hero"] as { x: number; y: number });
+        }
+        if (args["seed"] !== undefined) {
+          patch.seed = args["seed"] === null ? undefined : (args["seed"] as number);
+        }
+
+        nextWorld = updateLaunch(nextWorld, room, id, patch);
+        if (args["selected"] === true) {
+          nextWorld = selectLaunch(nextWorld, room, id);
+        } else if (
+          args["selected"] === false &&
+          nextWorld.launches?.[String(room)]?.selected === id
+        ) {
+          nextWorld = selectLaunch(nextWorld, room, "carry");
+        }
+        resultMessage = `Launch '${id}' updated for room ${room}.`;
+      } else {
+        throw new Error(`Unknown action: '${action}'. Use 'create', 'update' or 'remove'.`);
+      }
+
+      state.authoring = validateAuthoringState({ ...state.authoring, world: nextWorld });
+      return {
+        success: true,
+        message: resultMessage,
+        details: {
+          room,
+          authoringChanged: true,
+        },
+      };
+    }
+
     const next = validateAuthoringState(state.authoring);
     for (const category of ["rooms", "facts", "quests"] as const) {
       const entries = args[category];

@@ -134,4 +134,68 @@ export const AUTHORING_TOOLS: readonly ToolDefinition[] = [
       required: ["rooms", "facts", "quests"],
     }),
   },
+  {
+    name: "configure_launch",
+    description: toolDescription(
+      "configure_launch",
+      "Create, update or remove a named Launch configuration for `room`. When `action` is 'create', creates a new launch (or updates if `id` exists). When `action` is 'update', updates fields on launch `id`. When `action` is 'remove', deletes launch `id`. Fields not specified retain their previous values on update or defaults on create.",
+    ),
+    parameters: parameterDescriptions("configure_launch", {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        room: { type: "integer", minimum: 1, maximum: 255 },
+        action: { type: "string", enum: ["create", "update", "remove"] },
+        id: { type: ["string", "null"] },
+        name: { type: ["string", "null"], maxLength: 60 },
+        note: { type: ["string", "null"] },
+        cameFrom: {
+          type: ["object", "null"],
+          additionalProperties: false,
+          properties: {
+            room: { type: "integer", minimum: 0, maximum: 255 },
+            edge: { type: ["integer", "null"], minimum: 1, maximum: 4 },
+          },
+          required: ["room", "edge"],
+        },
+        flags: {
+          type: ["object", "null"],
+          additionalProperties: { type: "boolean" },
+        },
+        variables: {
+          type: ["object", "null"],
+          additionalProperties: { type: "integer", minimum: 0, maximum: 255 },
+        },
+        items: {
+          type: ["object", "null"],
+          additionalProperties: { type: "integer", minimum: 0, maximum: 255 },
+        },
+        hero: {
+          type: ["object", "null"],
+          additionalProperties: false,
+          properties: {
+            x: { type: "integer", minimum: 0, maximum: 159 },
+            y: { type: "integer", minimum: 0, maximum: 167 },
+          },
+          required: ["x", "y"],
+        },
+        seed: { type: ["integer", "null"], minimum: 0, maximum: 65535 },
+        selected: { type: ["boolean", "null"] },
+      },
+      required: [
+        "room",
+        "action",
+        "id",
+        "name",
+        "note",
+        "cameFrom",
+        "flags",
+        "variables",
+        "items",
+        "hero",
+        "seed",
+        "selected",
+      ],
+    }),
+  },
 ];

@@ -126,6 +126,32 @@ function stubConversation(initial: unknown[]): UnifiedConversation {
     },
     async complete() {
       if (selected) return selected.complete();
+      if (/launch|vacuum death/i.test(prompt)) {
+        if (step++ === 0) {
+          const roomMatch = /room\s*(\d+)/i.exec(prompt);
+          const room = roomMatch ? Number(roomMatch[1]) : 8;
+          return {
+            toolCalls: [
+              {
+                id: "launch",
+                name: "configure_launch",
+                input: {
+                  room,
+                  action: "create",
+                  name: "Vacuum death",
+                  cameFrom: { room: 7, edge: 4 },
+                  flags: { "77": true },
+                  variables: { "90": 123 },
+                  selected: true,
+                },
+              },
+            ],
+          };
+        }
+        const text = "Created a launch for the vacuum death in Room 8.";
+        transcript.push({ role: "assistant", text });
+        return { text, toolCalls: [] };
+      }
       if (step++ === 0) {
         const docs = context["documents"] as { key: string }[] | undefined;
         const picture = docs?.find((d) => d.key.startsWith("picture:"))?.key;

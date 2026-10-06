@@ -772,9 +772,21 @@ export const VOCABULARY = {
     help: "The source text or bytes of one part of your game.",
     technical: "Exact authored document, including invalid source.",
   },
+  launch: {
+    id: "launch",
+    label: "Launch",
+    help: "Per-room launch configurations that preset entry state for testing.",
+    technical: "A named room entry state.",
+  },
 } as const satisfies Record<string, VocabularyTerm>;
 
 export const VOCABULARY_ACTIONS = {
+  configure_launch: {
+    ...VOCABULARY.launch,
+    id: "configure_launch",
+    label: "Configure launch",
+    tool: "configure_launch",
+  },
   write_notes: {
     id: "write_notes",
     label: "Write notes",

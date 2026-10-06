@@ -1,6 +1,14 @@
 <script setup lang="ts">
 import UiIcon from "../../ui/UiIcon.vue";
-import { readWorldLaunches, type Launch } from "../../../../src/authoring/launches.ts";
+import {
+  addLaunch,
+  newLaunchId,
+  selectLaunch,
+  readWorldLaunches,
+  type Launch,
+  type RoomLaunches,
+} from "../../../../src/authoring/launches.ts";
+import type { AuthoringState } from "../../../../src/authoring/authoringState.ts";
 import UiDialog from "../../ui/UiDialog.vue";
 import GuidedAdd from "./GuidedAdd.vue";
 import {
@@ -71,6 +79,7 @@ const DebugControls = defineAsyncComponent(() => import("./WorkspaceDebugControl
 const StudioKeySheet = defineAsyncComponent(() => import("../StudioKeySheet.vue"));
 const GameStateTab = defineAsyncComponent(() => import("./GameStateTab.vue"));
 const MessagesTab = defineAsyncComponent(() => import("./MessagesTab.vue"));
+const LaunchEditor = defineAsyncComponent(() => import("./LaunchEditor.vue"));
 const engine = useEngineApi();
 const workspace = useCreateWorkspace();
 const editor = useWorkspaceEditor();
@@ -490,6 +499,27 @@ watch(
   },
   { immediate: true },
 );
+const parsedWorld = computed<AuthoringState["world"]>(() => {
+  const worldText = groupMetadata.value.world ?? content("world");
+  if (typeof worldText === "string") {
+    try {
+      return JSON.parse(worldText);
+    } catch {
+      /* Stored world may be unparseable during edits. */
+    }
+  }
+  return {};
+});
+function roomName(room: number): string {
+  return (
+    parsedWorld.value.rooms?.[room]?.title ||
+    groups.value
+      .flatMap((group) => group.entries)
+      .find((entry) => entry.id === `room:${room}`)
+      ?.label.split(" · ROOM ")[0] ||
+    `Room ${room}`
+  );
+}
 const DATA_LABELS: Record<string, string> = {
   state: "Game state",
   problems: "Problems",
@@ -502,17 +532,21 @@ const DATA_LABELS: Record<string, string> = {
 const tabRows = computed(() =>
   editor.tabs.value.map((key) => ({
     key,
-    label:
-      DATA_LABELS[key] ??
-      (key === "words"
-        ? "WORDS"
-        : key === "inventory"
-          ? "OBJECTS"
-          : key === "notes"
-            ? "Notes"
-            : key.replace(":", " ").toUpperCase()),
-    dirty: draftMembership.value.includes(key),
+    label: key.startsWith("launches:")
+      ? `Launches · ${roomName(Number(key.slice(9)))}`
+      : (DATA_LABELS[key] ??
+        (key === "words"
+          ? "WORDS"
+          : key === "inventory"
+            ? "OBJECTS"
+            : key === "notes"
+              ? "Notes"
+              : key.replace(":", " ").toUpperCase())),
+    dirty:
+      draftMembership.value.includes(key) ||
+      (key.startsWith("launches:") && draftMembership.value.includes("world")),
     missing:
+      !key.startsWith("launches:") &&
       DATA_LABELS[key] === undefined &&
       !snapshot.value?.keys.includes(key) &&
       (key !== "notes" || (optimistic.value[key]?.length ?? 0) > 0),
@@ -593,6 +627,10 @@ const spriteContexts = computed(() =>
 const selectedRoom = computed(() => {
   const key = editor.selected.value;
   if (!key) return undefined;
+  if (key.startsWith("launches:")) {
+    const room = Number(key.slice(9));
+    return Number.isFinite(room) ? room : undefined;
+  }
   const uses = key.startsWith("view:")
     ? (spriteContexts.value[key]?.usage.rooms ?? [])
     : groups.value
@@ -1348,6 +1386,113 @@ function text(key: string): string | undefined {
   }
   return undefined;
 }
+function roomLaunches(room: number): RoomLaunches | undefined {
+  const launches = parsedWorld.value.launches ? readWorldLaunches(parsedWorld.value.launches) : {};
+  return launches[room];
+}
+function roomSelectedLaunch(room: number): string | undefined {
+  const launches = parsedWorld.value.launches ? readWorldLaunches(parsedWorld.value.launches) : {};
+  return launches[room]?.selected;
+}
+function roomPictureBytes(room: number): Uint8Array | undefined {
+  const direct = native(`picture:${room}`);
+  if (direct) return direct;
+  const group = groups.value.find((g) => g.entries.some((e) => e.room === room));
+  const picEntry = group?.entries.find((e) => e.key.startsWith("picture:"));
+  if (picEntry) return native(picEntry.key);
+  return undefined;
+}
+const allRooms = computed<readonly { room: number; title: string }[]>(() => {
+  const map = new Map<number, string>();
+  for (const node of engine.roomMap.graph.value.nodes) {
+    map.set(node.room, node.title ?? `Room ${node.room}`);
+  }
+  if (parsedWorld.value.rooms) {
+    for (const [key, r] of Object.entries(parsedWorld.value.rooms)) {
+      const roomNum = Number(key);
+      if (Number.isFinite(roomNum) && r.title) {
+        map.set(roomNum, r.title);
+      }
+    }
+  }
+  for (const group of groups.value) {
+    for (const entry of group.entries) {
+      if (entry.room !== undefined && !map.has(entry.room)) {
+        map.set(entry.room, entry.label.split(" · ROOM ")[0] || `Room ${entry.room}`);
+      }
+    }
+  }
+  return [...map.entries()].sort(([a], [b]) => a - b).map(([room, title]) => ({ room, title }));
+});
+const parsedInventory = computed<readonly { num: number; name: string }[]>(() => {
+  const invText = text("inventory");
+  if (!invText) return [];
+  try {
+    const list = JSON.parse(invText) as { name: string; startingRoom?: number }[];
+    return list.map((item, index) => ({ num: index, name: item.name }));
+  } catch {
+    return [];
+  }
+});
+function editRoomLaunches(room: number, launches: RoomLaunches): void {
+  const currentWorld = { ...parsedWorld.value };
+  const currentLaunches = currentWorld.launches ? { ...currentWorld.launches } : {};
+  if (launches.entries.length === 0) {
+    delete currentLaunches[String(room)];
+  } else {
+    currentLaunches[String(room)] = launches;
+  }
+  if (Object.keys(currentLaunches).length === 0) {
+    delete currentWorld.launches;
+  } else {
+    currentWorld.launches = currentLaunches;
+  }
+  edit("world", JSON.stringify(currentWorld, null, 2));
+}
+async function selectRoomLaunch(room: number, id: string): Promise<void> {
+  if (editor.actionRoom.value === room && editor.selectLaunch.value) {
+    await editor.selectLaunch.value(id);
+    return;
+  }
+  if (!session) return;
+  try {
+    const capture = session.model.capture();
+    const currentWorldStr =
+      groupMetadata.value.world ?? content("world") ?? capture.read("world")?.content ?? "{}";
+    const world = JSON.parse(String(currentWorldStr)) as AuthoringState["world"];
+    const nextWorld = selectLaunch(world, room, id);
+    if (draftMembership.value.includes("world")) {
+      edit("world", JSON.stringify(nextWorld, null, 2));
+    } else {
+      const contentStr = JSON.stringify(nextWorld, null, 2);
+      const result = await session.submit({
+        proposal: session.model.propose(capture, "Select launch", [
+          { key: "world", content: contentStr },
+        ]),
+        label: "Select launch",
+        origin: "logic",
+        author: "creator",
+      });
+      if (!["committed", "unchanged"].includes(result.status))
+        throw new Error("Launch selection could not save. Try again.");
+      refresh();
+    }
+  } catch (cause) {
+    editor.error.value = cause instanceof Error ? cause.message : String(cause);
+  }
+}
+editor.openLaunchEditor.value = (mode: "new" | "edit", room: number) => {
+  const tabKey = `launches:${room}`;
+  if (mode === "new") {
+    const currentLaunches = roomLaunches(room);
+    const id = newLaunchId(currentLaunches);
+    const count = (currentLaunches?.entries.length ?? 0) + 1;
+    const name = `Launch ${count}`;
+    const nextWorld = addLaunch(parsedWorld.value, room, { id, name });
+    edit("world", JSON.stringify(nextWorld, null, 2));
+  }
+  openPart(tabKey, room);
+};
 function workingSnapshot(): ProjectSnapshot | undefined {
   if (session) return session.workingSnapshot();
   const base = snapshot.value;
@@ -2263,6 +2408,23 @@ onBeforeUnmount(() => {
         />
         <template #fallback><p>Loading…</p></template>
       </Suspense>
+      <LaunchEditor
+        :read-only="writeConflict || actionBusy"
+        v-else-if="key.startsWith('launches:')"
+        :room="Number(key.slice(9))"
+        :room-name="roomName(Number(key.slice(9)))"
+        :launches="roomLaunches(Number(key.slice(9)))"
+        :selected-launch-id="roomSelectedLaunch(Number(key.slice(9)))"
+        :bindings="typeof content('bindings') === 'string' ? String(content('bindings')) : ''"
+        :live-preview="livePreview"
+        :picture-bytes="roomPictureBytes(Number(key.slice(9)))"
+        :profile="profile"
+        :rooms="allRooms"
+        :inventory="parsedInventory"
+        @edit="(launches) => editRoomLaunches(Number(key.slice(9)), launches)"
+        @select-launch="(launchId) => selectRoomLaunch(Number(key.slice(9)), launchId)"
+        @close="editor.close(key)"
+      />
       <p v-else class="workspace-error">Open an authored part to edit it.</p>
       <p
         v-for="(preview, object) in key === editor.selected.value && key.startsWith('picture:')
