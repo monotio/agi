@@ -581,16 +581,17 @@ test.describe("workspace VIEW editor", () => {
     ]);
   });
 
-  test("a held pen shows its cue on the stage", async ({ page }) => {
+  test("a held pen shows its cue in the workspace status bar @webkit-desktop", async ({ page }) => {
     await playTutorial(page);
     const studio = await openApprentice(page);
-    const cue = studio.getByTestId("sprite-pen-down");
+    const cue = page.getByTestId("workspace-status").getByTestId("sprite-pen-down");
     await studio.locator(`[data-colour="${RED}"]`).click();
     await studio.getByTestId("sprite-stage").focus();
     await expect(cue).toHaveCount(0);
-    // The first Space puts the pen down: the cue is on the stage and in the
+    // The first Space puts the pen down: the cue is in the status bar and the
     // live region. The next Space lifts it.
     await page.keyboard.press("Space");
+    await expect(cue).toBeVisible();
     await expect(cue).toHaveText("Pen down: Space lifts it");
     await expect(studio.locator(".sprite-studio__sr")).toContainText("Pen down: Space lifts it");
     await page.keyboard.press("Space");

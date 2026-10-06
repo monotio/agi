@@ -5,6 +5,7 @@ import {
   defineAsyncComponent,
   nextTick,
   onBeforeUnmount,
+  onWatcherCleanup,
   ref,
   shallowRef,
   useTemplateRef,
@@ -67,6 +68,31 @@ const file = useTemplateRef("file");
 let traceWrites = Promise.resolve();
 let pendingTraceWrites = 0;
 const isPicture = computed(() => props.target.startsWith("picture:"));
+const panel = useTemplateRef<HTMLElement>("panel");
+const generationHeight = ref<string>();
+watch(
+  panel,
+  (element) => {
+    if (!element || !isPicture.value) return;
+    const target = element;
+    function fit(): void {
+      if (!target.offsetParent) return;
+      generationHeight.value = `${Math.max(0, window.innerHeight - target.getBoundingClientRect().bottom - 8)}px`;
+    }
+    const observer = new ResizeObserver(fit);
+    observer.observe(target);
+    const frame = target.closest(".workspace-editor");
+    if (frame) observer.observe(frame);
+    if (target.offsetParent) observer.observe(target.offsetParent);
+    window.addEventListener("resize", fit);
+    fit();
+    onWatcherCleanup(() => {
+      observer.disconnect();
+      window.removeEventListener("resize", fit);
+    });
+  },
+  { flush: "post" },
+);
 const mirrors = shallowRef<readonly (number | null)[]>([]);
 const loopHeights = shallowRef<readonly number[]>([]);
 const background = shallowRef<readonly [number, number, number] | null>(null);
@@ -400,6 +426,7 @@ onBeforeUnmount(() => {
 </script>
 <template>
   <section
+    ref="panel"
     class="image-reference"
     :class="{
       'image-reference--cels': !isPicture,
@@ -501,6 +528,7 @@ onBeforeUnmount(() => {
       :controller="generation"
       :role="isPicture ? 'room' : 'character'"
       :class="{ 'image-reference__generation': isPicture }"
+      :style="isPicture ? { maxHeight: generationHeight } : undefined"
     />
     <label v-if="image && isPicture"
       >Opacity
@@ -582,7 +610,10 @@ onBeforeUnmount(() => {
   margin-bottom: var(--space-2);
 }
 .image-reference--picture {
-  position: relative;
+  position: absolute;
+  top: 100%;
+  right: 0;
+  width: min(440px, 100%);
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -618,10 +649,11 @@ onBeforeUnmount(() => {
   flex: 1;
   min-height: 0;
   max-height: 100%;
-  overflow: hidden;
+  overflow: auto;
 }
 .image-reference--cels :deep(.frame-editor) {
   flex: 1;
+  min-height: min-content;
   padding: var(--space-1);
 }
 .image-reference--cels > header,

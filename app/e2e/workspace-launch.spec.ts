@@ -260,10 +260,11 @@ test("F5 in room LOGIC debugs the selected Launch before its first instruction @
   expect(state?.vars[1]).toBe(7);
   expect(state?.vars[90]).toBe(123);
   expect(state?.flags[77]).toBe(1);
-  await page
-    .getByTestId("workspace-problems")
-    .getByRole("button", { name: "Close", exact: true })
-    .click();
+  // Debug views are persistent data tabs; Stop ends the session in the context row.
+  const stop = page.getByTestId("workspace-context").getByTestId("debug-stop");
+  await expect(stop).toBeVisible();
+  await stop.click();
+  await expect(status).toHaveCount(0);
   await page.reload();
   const latest = page.getByTestId("start-latest-version");
   await expect

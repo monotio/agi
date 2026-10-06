@@ -447,7 +447,13 @@ for (const size of [
     expect((await textHook(page)).room).toBe(1);
     await playRoom(page);
     if (size.width <= 600) await page.getByRole("button", { name: "Edit", exact: true }).click();
-    await expect(page.getByTestId("workspace-visit")).toBeVisible();
+    await expect.poll(async () => (await textHook(page)).room).toBe(8);
+    const visitBar = page.getByTestId(size.width <= 600 ? "workspace-visit" : "workspace-game-bar");
+    await expect(visitBar).toBeVisible();
+    await expect(visitBar).toContainText("Room 8");
+    await expect(
+      visitBar.getByRole("button", { name: "Back to Room 1", exact: true }),
+    ).toBeVisible();
     await shot(page, "visiting");
     await page.getByRole("button", { name: "Back to Room 1", exact: true }).click();
     await expect.poll(async () => (await textHook(page)).room).toBe(1);

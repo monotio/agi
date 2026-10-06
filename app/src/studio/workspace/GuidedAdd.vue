@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { roomHeroView } from "../logic/guided/guidedPreview.ts";
-import { computed, onBeforeUnmount, ref, watch } from "vue";
+import { computed, onBeforeUnmount, onWatcherCleanup, ref, useTemplateRef, watch } from "vue";
 import { prepareWorkspaceAction, type WorkspaceAction } from "./workspaceGuided.ts";
 import type { ProjectSnapshot } from "../../../../src/authoring/projectModel.ts";
 import { PROFILES, type ProfileId } from "../../../../src/runtime/profile.ts";
@@ -32,6 +32,32 @@ const props = defineProps<{
 }>();
 const emit = defineEmits<{ add: [action: WorkspaceAction] }>();
 const kind = defineModel<WorkspaceAction["kind"] | undefined>("action");
+const form = useTemplateRef<HTMLFormElement>("form");
+const formHeight = ref<string>();
+watch(
+  form,
+  (element) => {
+    if (!element) return;
+    const target = element;
+    function fit(): void {
+      if (!target.offsetParent) return;
+      const top = target.getBoundingClientRect().top;
+      formHeight.value = `${Math.max(0, window.innerHeight - top - 8)}px`;
+    }
+    const observer = new ResizeObserver(fit);
+    observer.observe(element);
+    const frame = element.closest(".workspace-editor");
+    if (frame) observer.observe(frame);
+    if (element.offsetParent) observer.observe(element.offsetParent);
+    window.addEventListener("resize", fit);
+    fit();
+    onWatcherCleanup(() => {
+      observer.disconnect();
+      window.removeEventListener("resize", fit);
+    });
+  },
+  { flush: "post" },
+);
 const title = ref("");
 const command = ref(props.initialCommand ?? "");
 watch(
@@ -292,7 +318,9 @@ function add(): void {
     <form
       v-if="kind"
       v-show="!placing"
+      ref="form"
       class="workspace-guided__form"
+      :style="{ maxHeight: formHeight }"
       data-testid="workspace-guided-form"
       @submit.prevent="add"
       @keydown.esc.stop="kind = undefined"

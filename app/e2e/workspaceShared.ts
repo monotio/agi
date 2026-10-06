@@ -15,7 +15,10 @@ export async function openStoredWorkspace(page: Page, title: string): Promise<vo
   await page.getByTestId("edit-library-game").click();
   await expect(page.getByRole("heading", { name: title, exact: true, level: 1 })).toBeVisible();
   await expect(page.getByTestId("input-line")).toBeEnabled();
-  await expect(page.getByTestId("parts-list")).toBeVisible();
+  const parts = page.getByTestId("parts-list");
+  if (page.viewportSize()!.width <= 600 && !(await parts.isVisible()))
+    await page.getByTestId("workspace-parts").click();
+  await expect(parts).toBeVisible();
   await workspaceSaved(page);
 }
 

@@ -38,6 +38,7 @@ import { useCreateWorkspace } from "../../shell/useCreateWorkspace.ts";
 import { useWorkspaceEditor } from "../../shell/workspaceEditor.ts";
 import { openExplainer } from "../../ui/explain.ts";
 import UiButton from "../../ui/UiButton.vue";
+import UiChip from "../../ui/UiChip.vue";
 import UiIconButton from "../../ui/UiIconButton.vue";
 import ActionMenu from "../../ui/ActionMenu.vue";
 import PartsList from "./PartsList.vue";
@@ -2023,6 +2024,9 @@ onBeforeUnmount(() => {
         "
         :debug="debug"
       />
+      <UiChip v-if="editor.debugStatus.value" tone="warn" data-testid="workspace-debug-status">{{
+        editor.debugStatus.value
+      }}</UiChip>
       <GuidedAdd
         v-if="editor.kind.value === 'logic' && snapshot"
         v-model:action="guidedKind"
@@ -2171,7 +2175,7 @@ onBeforeUnmount(() => {
         v-else-if="key.startsWith('view:') && (native(key) || stagedRequest(key)) && profile"
         v-show="imagePanel !== key"
         :workspace-focus="editor.focus.value || phoneWidth"
-        :active="creating && key === editor.selected.value"
+        :active="creating && key === editor.selected.value && imagePanel !== key"
         embedded
         :usage="spriteContexts[key]?.usage ?? { rooms: [], logics: [], dynamic: false }"
         :rooms="spriteContexts[key]?.rooms ?? []"
@@ -2439,6 +2443,7 @@ onBeforeUnmount(() => {
 }
 .workspace-context {
   position: relative;
+  z-index: 1;
 }
 .workspace-game-bar__room {
   flex: 1;

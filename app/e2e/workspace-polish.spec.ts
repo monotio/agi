@@ -112,9 +112,15 @@ test("unused game state says nowhere yet", async ({ page }) => {
   await expect(row).toContainText("Set: LOGIC 1");
 });
 for (const width of [1063, 1440])
-  test(`Items has room for eight rows at ${width}`, async ({ page }) => {
+  test(`Items has room for eight rows Side by side at ${width} @webkit-desktop`, async ({
+    page,
+  }) => {
     await start(page, width);
     await picture(page);
+    const layout = page.getByTestId("workspace-layout");
+    await expect(layout).toBeVisible();
+    await layout.click();
+    await expect(layout).toHaveAttribute("aria-pressed", "true");
     const scene = page.getByTestId("studio-scene");
     const row = scene.locator('[role="treeitem"][data-row]').first();
     await expect(scene).toBeVisible();

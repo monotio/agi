@@ -73,7 +73,7 @@ test("the featured opening image does not move the controls below it", async ({ 
   }
 });
 
-test("one Settings menu owns AI and budget while Remix stays compact", async ({ page }) => {
+test("Settings keeps the AI budget and the agent drawer stays compact", async ({ page }) => {
   await page.getByTestId("catalog-play-adventure-department").click();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
   await expect(page.getByRole("button", { name: "AI settings", exact: true })).toHaveCount(0);
@@ -86,15 +86,23 @@ test("one Settings menu owns AI and budget while Remix stays compact", async ({ 
   await enterCreateMode(page);
   await openWorkspaceAgent(page);
   const composer = page.getByTestId("workspace-agent-panel");
+  await expect(composer).toBeVisible();
   await expect(composer.getByTestId("agent-message")).toBeEnabled();
   await expect(composer.getByTestId("connect-assistant-ai")).toHaveCount(0);
   await expect(composer.locator("input[type=number]")).toHaveCount(0);
   await expect(composer).not.toContainText(/Change AI settings|Task budget|Not configured/);
+  const close = composer.getByTestId("agent-panel-close");
+  await expect(close).toBeVisible();
+  await close.click();
+  await expect(composer).toBeHidden();
   await page.getByTestId("settings-menu").click();
   await page.getByTestId("open-ai-settings").click();
+  await expect(dialog.getByTestId("task-budget")).toBeVisible();
   await expect(dialog.getByTestId("task-budget")).toHaveValue("3");
   await page.keyboard.press("Escape");
   await expect(page.getByTestId("settings-menu")).toBeFocused();
+  await openWorkspaceAgent(page);
+  await expect(composer).toBeVisible();
   for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: 900 });
     await page.screenshot({

@@ -26,7 +26,7 @@ async function editorBox(page: Page) {
   return (await editor.boundingBox())!;
 }
 
-test("agent drawer overlays the workspace without narrowing the editor in both arrangements", async ({
+test("agent drawer overlays the workspace without narrowing the editor in both arrangements @webkit-desktop", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -34,8 +34,12 @@ test("agent drawer overlays the workspace without narrowing the editor in both a
   await openWorkspaceLogic(page);
   const panel = page.getByTestId("workspace-agent-panel");
 
+  const layout = page.getByTestId("workspace-layout");
+  await expect(layout).toBeVisible();
   for (const arrangement of ["Side by side", "Stacked"]) {
-    await page.getByRole("button", { name: arrangement, exact: true }).click();
+    const pressed = arrangement === "Side by side" ? "true" : "false";
+    if ((await layout.getAttribute("aria-pressed")) !== pressed) await layout.click();
+    await expect(layout).toHaveAttribute("aria-pressed", pressed);
     const before = await editorBox(page);
     await openWorkspaceAgent(page);
     await expect(panel).toBeVisible();
@@ -69,7 +73,7 @@ test("agent drawer overlays the workspace without narrowing the editor in both a
   await expect(panel).toBeVisible();
 });
 
-test("the drawer is full width on a phone", async ({ page }) => {
+test("the drawer is full width on a phone @webkit-desktop", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await startStarter(page);
   await openWorkspaceAgent(page);
@@ -80,7 +84,7 @@ test("the drawer is full width on a phone", async ({ page }) => {
   expect(box.width).toBe(390);
 });
 
-test("a blank project has a working agent drawer", async ({ page }) => {
+test("a blank project has a working agent drawer @webkit-desktop", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await isolateStorage(page);
   await page.goto("/#create-adventure");
@@ -126,7 +130,7 @@ test("a blank project has a working agent drawer", async ({ page }) => {
   await expect(panel).toBeHidden();
 });
 
-test("the context chip follows the selection and its × asks about the whole game", async ({
+test("the context chip follows the selection and its × asks about the whole game @webkit-desktop", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });

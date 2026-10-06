@@ -105,7 +105,14 @@ test("an owned game without progress has one Play button and the flat ⋯ menu",
   // Edit in Create opens the game in Create.
   await openLibraryActions(page, card);
   await menu.getByTestId("edit-library-game").click();
-  await expect(page.getByTestId("parts-list")).toBeVisible();
+  await expect(page.getByRole("radio", { name: "Create", exact: true })).toHaveAttribute(
+    "aria-checked",
+    "true",
+  );
+  const parts = page.getByTestId("parts-list");
+  if (page.viewportSize()!.width <= 600 && !(await parts.isVisible()))
+    await page.getByTestId("workspace-parts").click();
+  await expect(parts).toBeVisible();
 });
 
 test("a game with saved progress offers Start over under More ways to play", async ({ page }) => {

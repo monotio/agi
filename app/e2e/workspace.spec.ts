@@ -1,4 +1,4 @@
-import { workspaceUpdated, workspaceSaved } from "./engineProbe.ts";
+import { workspaceUpdated, workspaceSaved, waitForGameInput } from "./engineProbe.ts";
 import { test, expect, reviewShot } from "./test.ts";
 import { isolateStorage, textHook } from "./engineProbe.ts";
 import type { Page, Locator } from "@playwright/test";
@@ -205,7 +205,11 @@ test("drawing, LOGIC and VIEW edit MAIN, Undo spans editors, reload keeps edits 
   await workspaceUpdated(page);
   await page.getByTestId("workspace-show-game").click();
   await page.keyboard.press("Control+`");
+  await waitForGameInput(page);
   await page.keyboard.type("look");
+  await expect(page.getByRole("textbox", { name: "Game command", exact: true })).toHaveValue(
+    "look",
+  );
   await page.keyboard.press("Enter");
   await expect
     .poll(async () => (await textHook(page)).rows.join("\n"))
@@ -287,7 +291,11 @@ test("drawing, LOGIC and VIEW edit MAIN, Undo spans editors, reload keeps edits 
     .poll(() => page.evaluate((index) => window.__AGI_FRAME__?.()?.visual[index], pixel))
     .toBe(4);
   await page.keyboard.press("Control+`");
+  await waitForGameInput(page);
   await page.keyboard.type("look");
+  await expect(page.getByRole("textbox", { name: "Game command", exact: true })).toHaveValue(
+    "look",
+  );
   await page.keyboard.press("Enter");
   await expect
     .poll(async () => (await textHook(page)).rows.join("\n"))
@@ -449,7 +457,11 @@ test("keyboard authors all three parts, undoes across them and reloads @webkit-d
   );
   await workspaceUpdated(page);
   await page.keyboard.press("Control+`");
+  await waitForGameInput(page);
   await page.keyboard.type("look");
+  await expect(page.getByRole("textbox", { name: "Game command", exact: true })).toHaveValue(
+    "look",
+  );
   await page.keyboard.press("Enter");
   await expect
     .poll(async () => (await textHook(page)).rows.join("\n"))
@@ -537,7 +549,11 @@ test("keyboard authors all three parts, undoes across them and reloads @webkit-d
     .poll(() => page.evaluate((index) => window.__AGI_FRAME__?.()?.visual[index], pixel))
     .toBe(4);
   await page.keyboard.press("Control+`");
+  await waitForGameInput(page);
   await page.keyboard.type("look");
+  await expect(page.getByRole("textbox", { name: "Game command", exact: true })).toHaveValue(
+    "look",
+  );
   await page.keyboard.press("Enter");
   await expect
     .poll(async () => (await textHook(page)).rows.join("\n"))
@@ -561,7 +577,7 @@ test("keyboard authors all three parts, undoes across them and reloads @webkit-d
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
 });
 
-test("adding a room waits for Update before its PICTURE opens on the visited stage @webkit-desktop", async ({
+test("adding a room leaves play in place until Update and restart enters it @webkit-desktop", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -576,10 +592,14 @@ test("adding a room waits for Update before its PICTURE opens on the visited sta
     .getByTestId("workspace-guided-form")
     .getByRole("button", { name: "Add", exact: true })
     .click();
-  await workspaceUpdated(page);
   await expect(page.getByTestId("part-room:2:picture:2")).toBeVisible();
   await page.getByTestId("part-room:2:picture:2").click();
-  await page.getByTestId("workspace-update").click();
+  await expect(page.getByTestId("room-studio")).toBeVisible();
+  expect((await textHook(page)).room).toBe(1);
+  const action = page.getByTestId("workspace-update");
+  await expect(action).toBeVisible();
+  await expect(action).toHaveText("Update and restart Garden");
+  await action.click();
   await expect(page.getByTestId("room-studio").locator(".studio-pane")).toBeVisible();
   const cycle = (await textHook(page)).cycle;
   await expect.poll(async () => (await textHook(page)).cycle).toBeGreaterThan(cycle);
@@ -587,8 +607,10 @@ test("adding a room waits for Update before its PICTURE opens on the visited sta
   await expect(page.getByTestId("room-studio").locator(".play-area")).toHaveCount(0);
   await expect(page.locator(".play-area")).toBeVisible();
   await expect.poll(async () => (await textHook(page)).room).toBe(2);
-  await expect(page.getByTestId("workspace-visit")).toBeVisible();
-  await expect(page.getByTestId("workspace-update")).toHaveText("Restart Garden");
+  const bar = page.getByTestId("workspace-game-bar");
+  await expect(bar).toBeVisible();
+  await expect(bar.getByTestId("workspace-room")).toContainText("Garden");
+  await expect(action).toHaveText("Restart Garden");
   await workspaceUpdated(page);
 });
 

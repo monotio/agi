@@ -4,7 +4,6 @@ import { computed, ref } from "vue";
 import { VOCABULARY } from "../../../../src/vocabulary.ts";
 import type { WorkspaceDebug } from "./workspaceDebug.ts";
 import UiButton from "../../ui/UiButton.vue";
-import WorkspaceDebugControls from "./WorkspaceDebugControls.vue";
 import { reservedValues } from "./debugValues.ts";
 /** One debug view inside the frame: the workspace tab names which one. */
 const props = defineProps<{
@@ -83,7 +82,6 @@ function editValue(kind: "variable" | "flag", slot: number, event: Event): void 
     class="workspace-debug-panel"
     :data-testid="view === 'problems' ? 'workspace-problems' : 'workspace-debug-panel'"
   >
-    <WorkspaceDebugControls v-if="debug?.state.epoch" :debug="debug" />
     <p v-if="debug?.state.error" role="alert">{{ debug.state.error }}</p>
     <div :aria-label="view" class="workspace-debug-content">
       <template v-if="view === 'problems'">

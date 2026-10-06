@@ -31,12 +31,13 @@ test("debug controls follow LOGIC and a paused session @webkit-desktop", async (
   await page.getByTestId("workspace-logic-editor").locator("textarea.inputarea").focus();
   await page.keyboard.press("F5");
   await expect(header.getByRole("button", { name: "Continue", exact: true })).toBeVisible();
+  await page.getByTestId("part-debug:variables").click();
+  const panel = page.getByTestId("workspace-debug-panel").filter({ visible: true });
+  await expect(panel).toBeVisible();
+  await expect(page.getByRole("group", { name: "Debug controls" })).toHaveCount(1);
   await header.getByRole("button", { name: "Continue", exact: true }).click();
-  await expect(page.getByTestId("workspace-debug-panel")).toBeVisible();
-  await page
-    .getByTestId("workspace-problems")
-    .getByRole("button", { name: "Close", exact: true })
-    .click();
+  await page.getByTestId("project-tab-close-debug:variables").click();
+  await expect(panel).toBeHidden();
   await page.getByTestId("part-room:1:picture:1").click();
   await expect(page.getByTestId("room-studio")).toBeVisible();
   await expect(header.getByRole("group", { name: "Debug controls" })).toHaveCount(0);
@@ -63,7 +64,7 @@ for (const [width, height] of [
   [1440, 900],
   [390, 844],
 ] as const) {
-  test(`picture debugger layout at ${width} @webkit-desktop`, async ({ page }) => {
+  test(`picture debugger layout at ${width} @webkit-desktop`, async ({ page, browserName }) => {
     await page.setViewportSize({ width, height });
     await starter(page);
     await parts(page);
@@ -71,7 +72,19 @@ for (const [width, height] of [
     await expect(page.getByTestId("workspace-logic-editor")).toBeVisible();
     await page.getByTestId("workspace-logic-editor").locator("textarea.inputarea").focus();
     await page.keyboard.press("F5");
-    await expect(page.locator(".workspace-context").getByTestId("debug-stop")).toBeVisible();
+    const context = page.getByTestId("workspace-context");
+    await expect(context.getByTestId("debug-stop")).toBeVisible();
+    await expect(page.locator(".workspace-stopped-line").first()).toBeVisible();
+    const shot = await page.screenshot({
+      path: test.info().outputPath(`debug-${width}.png`),
+      animations: "disabled",
+      scale: "css",
+    });
+    if (process.env["CI"] && browserName === "webkit" && width === 390)
+      console.log(`FRAME_SHOT:debug-${width}:${shot.toString("base64")}`);
+    const status = context.getByTestId("workspace-debug-status");
+    await expect(status).toBeVisible();
+    await expect(status).toContainText("Paused at LOGIC");
     await parts(page);
     await page.getByTestId("part-room:1:picture:1").click();
     await expect(page.getByTestId("room-studio")).toBeVisible();

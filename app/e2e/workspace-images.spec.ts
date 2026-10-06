@@ -387,7 +387,7 @@ for (const viewport of [
   { width: 1440, height: 900 },
   { width: 390, height: 844 },
 ]) {
-  test(`image controls ${viewport.width} @webkit-desktop`, async ({ page }) => {
+  test(`image controls ${viewport.width} @webkit-desktop`, async ({ page, browserName }) => {
     await page.setViewportSize(viewport);
     await start(page);
     if (viewport.width < 600)
@@ -396,7 +396,67 @@ for (const viewport of [
     await page.getByRole("button", { name: "Generate", exact: true }).click();
     await expect(page.getByTestId("generate-prompt")).toBeVisible();
     await page.getByTestId("generate-prompt").fill("A quiet forest with a path to a cottage");
-    await imageShot(page, `image-controls-${viewport.width}`);
+    const shot = await page.screenshot({
+      path: test.info().outputPath(`image-controls-${viewport.width}.png`),
+      animations: "disabled",
+      scale: "css",
+    });
+    if (process.env["CI"] && browserName === "webkit" && viewport.width === 390)
+      console.log(`FRAME_SHOT:image-controls-${viewport.width}:${shot.toString("base64")}`);
+    const panel = page.getByTestId("image-reference");
+    await expect(panel).toBeVisible();
+    await expect
+      .poll(async () => {
+        const box = (await panel.boundingBox())!;
+        const generation = (await panel.locator(".image-reference__generation").boundingBox())!;
+        return Math.max(box.y + box.height, generation.y + generation.height);
+      })
+      .toBeLessThanOrEqual(viewport.height);
+    await panel.getByTestId("generate-review").scrollIntoViewIfNeeded();
+    await expect(panel.getByTestId("generate-review")).toBeInViewport({ ratio: 1 });
+  });
+  test(`cel image controls receive clicks at ${viewport.width} @webkit-desktop`, async ({
+    page,
+    browserName,
+  }) => {
+    await page.setViewportSize(viewport);
+    await start(page);
+    if (viewport.width < 600)
+      await page.getByRole("button", { name: "Parts", exact: true }).click();
+    await page.getByTestId("part-view:0").click();
+    await page.getByRole("button", { name: "Make cels from an image", exact: true }).click();
+    await upload(page);
+    await expect(page.getByTestId("image-frame")).toHaveCount(4);
+    const preview = page.getByTestId("image-preview-hero");
+    await expect(preview).toBeVisible();
+    await preview.scrollIntoViewIfNeeded();
+    const shot = await page.screenshot({
+      path: test.info().outputPath(`image-cels-${viewport.width}.png`),
+      animations: "disabled",
+      scale: "css",
+    });
+    if (process.env["CI"] && browserName === "webkit" && viewport.width === 390)
+      console.log(`FRAME_SHOT:image-cels-${viewport.width}:${shot.toString("base64")}`);
+    await expect(
+      page.getByTestId("workspace-status").getByRole("button", { name: "Zoom in", exact: true }),
+    ).toHaveCount(0);
+    await expect
+      .poll(() =>
+        preview.evaluate((button) => {
+          const box = button.getBoundingClientRect();
+          return button.contains(
+            document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2),
+          );
+        }),
+      )
+      .toBe(true);
+    await expect(preview).toBeInViewport({ ratio: 1 });
+    await preview.click();
+    await expect(preview).toHaveText("Stop preview");
+    await preview.click();
+    const add = page.getByTestId("image-add-cels");
+    await add.scrollIntoViewIfNeeded();
+    await expect(add).toBeInViewport({ ratio: 1 });
   });
 }
 

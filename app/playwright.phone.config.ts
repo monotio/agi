@@ -10,6 +10,11 @@ import base from "./playwright.config.ts";
 export default defineConfig({
   ...base,
   testMatch: [
+    "agent-drawer.spec.ts",
+    "workspace-debug-controls.spec.ts",
+    "workspace-launch.spec.ts",
+    "workspace-frame.spec.ts",
+    "workspace-images.spec.ts",
     "logic-names.spec.ts",
     "words-phone.spec.ts",
     "workspace-picture.spec.ts",

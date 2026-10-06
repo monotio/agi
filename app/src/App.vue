@@ -750,13 +750,7 @@ watch(
         >
           <template #stage-actions>
             <UiChip
-              v-if="creating && workspaceEditor.debugStatus.value"
-              tone="warn"
-              data-testid="workspace-debug-status"
-              >{{ workspaceEditor.debugStatus.value }}</UiChip
-            >
-            <UiChip
-              v-else-if="creating"
+              v-if="creating"
               :tone="workspaceEditor.pendingAdmission.value ? 'warn' : 'ok'"
               dot
               data-testid="workspace-live"
