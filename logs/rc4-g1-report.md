@@ -38,7 +38,7 @@ tests on one worker, e2e:perf — all pass under Node 22.23.3.
   `subject`/`notesOnly`/`changeTotal`, the close/reopen/recover path and
   the keep dialog wiring are gone. `frozen()` is now just "view only when
   there is no revision to write to" (`readOnly || kept.revision ===
-  undefined`, where `kept` is the draft baseline, not the dialog).
+undefined`, where `kept` is the draft baseline, not the dialog).
 - Edits still emit `edit`/`room-edit`; the workspace writes back as before.
   `harness.ts` now models that contract: each `edit` emission becomes the
   picture's authored source (recorded in `studioHarness.edits`) and
@@ -75,7 +75,7 @@ Fix, in `RoomStudio.vue` CSS:
 
 - Status row `28px` → `minmax(28px, auto)`; it grows to fit its controls.
 - `.studio` gets `overflow-y: auto`; the status bar is `position: sticky;
-  bottom: 0` so it stays visible while the studio scrolls.
+bottom: 0` so it stays visible while the studio scrolls.
 - The canvas row stays `minmax(0, 1fr)`: the picture shrinks first; only
   controls take fixed room.
 - The ≤600px phone layout keeps flexible rows
