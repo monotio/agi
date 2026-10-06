@@ -63,7 +63,7 @@ function record(value: unknown, label: string, limit: number): Record<string, un
   return value as Record<string, unknown>;
 }
 
-function fields(
+function readFields(
   value: unknown,
   allowed: readonly string[],
   label: string,
@@ -139,7 +139,7 @@ function readEntry(value: unknown, room: string, used: ReadonlySet<string>): Lau
   }
   const cameFrom = entry["cameFrom"];
   if (cameFrom !== undefined) {
-    const from = fields(cameFrom, ["room", "edge"], `launch '${id}' cameFrom in room ${room}`);
+    const from = readFields(cameFrom, ["room", "edge"], `launch '${id}' cameFrom in room ${room}`);
     // Room numbers are identities, not labels: 0..255 like exits.
     launch.cameFrom = {
       room: boundedNumber(
@@ -178,7 +178,7 @@ function readEntry(value: unknown, room: string, used: ReadonlySet<string>): Lau
   if (items) launch.items = items as Record<string, number>;
   const hero = entry["hero"];
   if (hero !== undefined) {
-    const spot = fields(hero, ["x", "y"], `launch '${id}' hero in room ${room}`);
+    const spot = readFields(hero, ["x", "y"], `launch '${id}' hero in room ${room}`);
     const x = boundedNumber(spot["x"], 0, HERO_X_MAX, `launch '${id}' hero x in room ${room}`);
     const y = boundedNumber(spot["y"], 0, HERO_Y_MAX, `launch '${id}' hero y in room ${room}`);
     launch.hero = { x, y };
@@ -203,7 +203,7 @@ export function readWorldLaunches(value: unknown): WorldLaunches {
     if (decimalKey(key, 1, ROOM_MAX) === undefined) {
       throw new Error(`Invalid launches room '${key}'.`);
     }
-    const room = fields(read[key], ROOM_LAUNCH_FIELDS, `launches for room '${key}'`);
+    const room = readFields(read[key], ROOM_LAUNCH_FIELDS, `launches for room '${key}'`);
     const entries = room["entries"];
     if (!Array.isArray(entries) || entries.length > 256)
       throw new Error(`Invalid launches entries for room '${key}'.`);
