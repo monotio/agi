@@ -53,12 +53,6 @@ export function alsoChanges(report: SideEffectReport): string {
   return `Also changes: ${who}, ${cells}.`;
 }
 
-/** "Bench occluder"; "Bench, Bench shadow"; "Bench and 3 more". */
-export function labelList(labels: readonly string[]): string {
-  if (labels.length <= 2) return labels.join(", ");
-  return `${labels[0]} and ${labels.length - 1} more`;
-}
-
 /**
  * Room Studio: the selected items, by name for one and "These 3 items" for
  * several (the names on its tooltip). The lens's locks are the lock chip's

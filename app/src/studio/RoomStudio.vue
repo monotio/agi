@@ -23,13 +23,7 @@ import {
   type LineHandle,
   type PointInsertion,
 } from "../../../src/studio/editPoints.ts";
-import type { StudioFocus } from "../../../src/agent/studioAssistTools.ts";
-import { pictureAssistScope, selectionArea } from "../../../src/studio/assistScope.ts";
-import {
-  compileEditDocument,
-  footprintMask,
-  unionMask,
-} from "../../../src/studio/editValidation.ts";
+import { footprintMask, unionMask } from "../../../src/studio/editValidation.ts";
 import {
   groupPart,
   parsePictureDocument,
@@ -43,9 +37,6 @@ import type { RuleSession } from "../../../src/studio/rules/ruleEdit.ts";
 import type { Point } from "../../../src/studio/shapes.ts";
 import { engineKey } from "../engine/engineContext.ts";
 import { aiSettingsKey } from "../settings/useAiSettings.ts";
-import { ResourceCommitError } from "../project/projectTransaction.ts";
-import type { ResourceCommitResult } from "../project/resourceCommit.ts";
-import type { AuthoringFingerprint } from "../project/gameStorage.ts";
 import type { StudioRoomSource } from "../world/studioSource.ts";
 import type { LessonSession } from "../lessons/lessonCheck.ts";
 import LessonCard from "../lessons/LessonCard.vue";
@@ -59,26 +50,20 @@ import GhostProbe from "./GhostProbe.vue";
 import GhostReadout from "./GhostReadout.vue";
 import PixelInspector from "./PixelInspector.vue";
 import SceneList from "./SceneList.vue";
-import StudioAssistCompare from "./StudioAssistCompare.vue";
-import StudioAssistPanel from "./StudioAssistPanel.vue";
 import StudioCanvas, { type MaskPaths } from "./StudioCanvas.vue";
 import StudioCanvasMenu, { type CanvasMenuItem } from "./StudioCanvasMenu.vue";
 import StudioCombineDialog from "./StudioCombineDialog.vue";
 import StudioGroupEditor from "./StudioGroupEditor.vue";
 import StudioItemEditor from "./StudioItemEditor.vue";
 import StudioItemPoints from "./StudioItemPoints.vue";
-import StudioLockChip from "./StudioLockChip.vue";
-import StudioKeepDialog from "./StudioKeepDialog.vue";
 import StudioKeySheet from "./StudioKeySheet.vue";
 import StudioLogicText from "./StudioLogicText.vue";
 import StudioSelectionBar from "./StudioSelectionBar.vue";
-import StudioSmallScreen from "./StudioSmallScreen.vue";
 import StudioStatusNotice from "./StudioStatusNotice.vue";
 import StudioToolOptions from "./StudioToolOptions.vue";
 import StudioToolOverlay from "./StudioToolOverlay.vue";
 import StudioToolRail from "./StudioToolRail.vue";
 import StudioValuePicker from "./StudioValuePicker.vue";
-import StudioTopBar from "./StudioTopBar.vue";
 import SharePictureMenu from "./share/SharePictureMenu.vue";
 import { shareFileBase, shareRoomName } from "./share/shareFrame.ts";
 import StudioViewBar from "./StudioViewBar.vue";
@@ -98,18 +83,10 @@ import {
   roomKeySheet,
 } from "./studioHelp.ts";
 import { explain } from "./studioTerms.ts";
-import { useStudioCalm } from "./useStudioCalm.ts";
 import { isWalkTool, TOOL_KEYS, type StudioTool } from "./studioTools.ts";
 import { studioKey, type StudioKeyActions } from "./studioKeys.ts";
 import { lensItemLocks, lockedPlanes, NO_UNLOCKS, type LensUnlocks } from "./studioLocks.ts";
-import {
-  alsoChanges,
-  changedCells,
-  labelList,
-  pictureChangeSummary,
-  pictureScopeChips,
-} from "./studioAssistText.ts";
-import { HOLD_TEXT, useStudioAssist, type StudioAssistHost } from "./useStudioAssist.ts";
+import { changedCells } from "./studioAssistText.ts";
 import {
   bandGuides,
   controlLabels,
@@ -118,46 +95,41 @@ import {
   PANE_LABELS,
   panesFor,
   pictureSize,
-  subtitleExtra,
   type StudioLens,
   type StudioViewMode,
 } from "./studioView.ts";
 import { listGameViews, useGhostProbe } from "./useGhostProbe.ts";
 import { filterScene, resolveStudioSource, useStudioDocument } from "./useStudioDocument.ts";
-import { draftPictureEdit, exposeStudioDraft, useStudioDraft } from "./useStudioDraft.ts";
+import { exposeStudioDraft, useStudioDraft } from "./useStudioDraft.ts";
 import { useStudioFocus } from "./useStudioFocus.ts";
 import { useStudioInput } from "./useStudioInput.ts";
 import { useStudioDrag } from "./useStudioDrag.ts";
 import { useStudioEditing } from "./useStudioEditing.ts";
-import { useStudioKeep, type KeepFn } from "./useStudioKeep.ts";
-import { useStudioExit } from "./useStudioExit.ts";
 import { useFold } from "./useFold.ts";
 import { useStudioReadout } from "./useStudioReadout.ts";
 import { useStudioSelection } from "./useStudioSelection.ts";
 import { useStudioTools } from "./useStudioTools.ts";
 import { useStudioViewport } from "./useStudioViewport.ts";
-import { unfollowedText, useRoomLogicDraft, type Unfollowed } from "./useRoomLogicDraft.ts";
+import { useRoomLogicDraft } from "./useRoomLogicDraft.ts";
 import { DEFAULT_EGO, useStudioWalk, type EgoShape } from "./useStudioWalk.ts";
 import { useUndoOrder } from "./useUndoOrder.ts";
-import { keyLabel } from "../ui/keyLabel.ts";
 
 /**
  * Room Studio: one picture's items, draw order and planes, edited as a draft
- * (useStudioDraft) and kept through the resource transaction (useStudioKeep).
- * It takes the picture bytes (and authored text, trusted only while it
- * compiles to those bytes) and the revision they were read at. Keys are
- * handled at the root and stopped (studioKeys.ts), so none reach the game,
- * and focus never falls out of the studio while it is open. The tool rail
- * (useStudioTools, by pointer or keys: useStudioInput) inserts new items at
- * the playhead; the actor probe stands a VIEW from the game's `files` on the
- * draft; every way out settles unkept changes first (useStudioLeave). The
- * Walk view (useStudioWalk) adds test walks, Play here and the room's doors,
- * whose logic edits keep together with the picture in one transaction. Ask
- * (useStudioAssist) has the game's AI propose a change
- * to the selected items, previewed on the canvas and accepted as one undo step.
- * Several items can be selected (useStudioSelection) and moved, copied,
- * deleted or grouped together (and a group ungrouped); the selection's actions dock in the
- * options bar above the canvas, so nothing covers the picture.
+ * (useStudioDraft); the workspace owns saving and the agent. It takes the
+ * picture bytes (and authored text, trusted only while it compiles to those
+ * bytes) and the revision they were read at. Keys are handled at the root
+ * and stopped (studioKeys.ts), so none reach the game, and focus never falls
+ * out of the studio while it is open. The tool rail (useStudioTools, by
+ * pointer or keys: useStudioInput) inserts new items at the playhead; the
+ * actor probe stands a VIEW from the game's `files` on the draft. The Walk
+ * view (useStudioWalk) adds test walks, Play here and the room's doors,
+ * whose logic edits emit room-edit for the workspace to keep with the
+ * picture. The selected items are offered to the workspace agent
+ * (agent-context, agent-ask). Several items can be selected
+ * (useStudioSelection) and moved, copied, deleted or grouped together (and a
+ * group ungrouped); the selection's actions dock in the options bar above
+ * the canvas, so nothing covers the picture.
  */
 const {
   pictureNumber,
@@ -165,10 +137,7 @@ const {
   authoredSource = undefined,
   profile,
   title,
-  subtitle = undefined,
   baseRevision = undefined,
-  baseAuthoring = undefined,
-  keep: keepFn = undefined,
   files = undefined,
   walk = undefined,
   currentRoomSource = undefined,
@@ -176,30 +145,21 @@ const {
   readOnly = false,
   lessonSession = undefined,
   priorityBase = undefined,
-  embedded = false,
   figures = [],
   runningBytes = undefined,
-  workspaceFocus = false,
 } = defineProps<{
   readOnly?: boolean;
   lessonSession?: LessonSession | undefined;
   priorityBase?: number | undefined;
-  embedded?: boolean;
   figures?: readonly import("../../../src/authoring/roomPlacements.ts").RoomPlacement[];
   runningBytes?: Uint8Array | undefined;
-  workspaceFocus?: boolean;
   pictureNumber: number;
   bytes: Uint8Array;
   authoredSource?: string | undefined;
   profile: AgiProfile;
   title: string;
-  subtitle?: string | undefined;
   /** The game revision the bytes were read at; without one the picture is view only. */
   baseRevision?: ResourceRevision | undefined;
-  /** The authoring content the draft opens on; each Keep carries it (resourceCommit.ts). */
-  baseAuthoring?: AuthoringFingerprint | undefined;
-  /** The Keep transaction; the engine's when omitted. */
-  keep?: KeepFn | undefined;
   /** The game's container files, read at the same revision: the actor probe's VIEWs. */
   files?: ReadonlyMap<string, Uint8Array> | undefined;
   /** The room framing the picture: its logic (doors), bindings, plan and tests. */
@@ -222,12 +182,8 @@ const {
       | undefined;
   } | null;
 }>();
-/**
- * `reopen` asks for Studio again; `fromStorage` reloads the game from storage
- * first. `play-here` asks the shell to leave Studio and play from a spot.
- */
+/** `play-here` asks the shell to play from a spot on this picture's room. */
 const emit = defineEmits<{
-  close: [];
   edit: [source: string];
   "room-edit": [
     room: number,
@@ -247,7 +203,6 @@ const emit = defineEmits<{
   ];
   "agent-context": [context: { label: string; text: string } | null];
   "agent-ask": [];
-  reopen: [fromStorage: boolean];
   "play-here": [target: PlayHereTarget];
 }>();
 
@@ -270,7 +225,7 @@ const INSERT_REACH = 12;
 let localPictureSource: string | undefined;
 const resolved = computed(() =>
   // The keyed write queue can publish older bytes while our newer text is pending.
-  embedded && authoredSource !== undefined && authoredSource === localPictureSource
+  authoredSource !== undefined && authoredSource === localPictureSource
     ? { source: authoredSource, trusted: true, profile }
     : resolveStudioSource({ bytes, authoredSource, profile }),
 );
@@ -283,8 +238,8 @@ const draft = useStudioDraft({
 });
 const doc = useStudioDocument(() => ({
   source: draft.source.value,
-  // A Keep stores the draft's annotated text beside the bytes: from then on
-  // it is the picture's authored source, not a disassembly.
+  // A write-back stores the draft's annotated text beside the bytes: from
+  // then on it is the picture's authored source, not a disassembly.
   trusted: resolved.value.trusted || draft.kept.value.revision !== baseRevision,
   profile,
 }));
@@ -300,15 +255,8 @@ const selection = useStudioSelection({
 const { hoveredId, selectedId, selectedRow, pinnedCell } = selection;
 const readout = useStudioReadout({ doc, selection });
 const { ticks, current, drawn, single, pixel, fill, labelOf, status } = readout;
-/** The engine, when Studio runs in the app (the harness supplies its own Keep). */
+/** The engine, when Studio runs in the app (the harness has none). */
 const engineApi = inject(engineKey, null);
-const commitPicture =
-  keepFn ??
-  engineApi?.commitPictureEdit ??
-  (() => Promise.reject(new Error("Nothing can be kept here.")));
-const commitRoom =
-  engineApi?.commitRoomEdit ??
-  (() => Promise.reject(new Error("Door changes can't be kept here.")));
 /**
  * Share's caption and file name: the game, and the room by its title in the
  * world plan or on the map (Studio's title, unless it only names the
@@ -332,12 +280,12 @@ const shareCaption = computed(() => ({
   bytes: draft.compiled.value.bytes.length,
 }));
 const shareFile = computed(() => shareFileBase(shareGame.value, shareRoom.value));
-/** A Help guide lesson Studio opened from: every successful Keep runs its challenge. */
+/** A Help guide lesson Studio opened from: every successful edit runs its challenge. */
 const lesson = useStudioLesson(() => lessonSession);
 watch(
   () => lessonSession,
   (session) => {
-    if (embedded && session && window.innerWidth <= 600) side.value = "inspector";
+    if (session && window.innerWidth <= 600) side.value = "inspector";
   },
   { immediate: true },
 );
@@ -382,85 +330,8 @@ const followLabel = (id: string): string =>
   followedItem(draft.document.value, id)?.label ?? labelOf(id);
 /** The picture as last kept: door boxes are stored in its frame. */
 const keptDocument = computed(() => parsePictureDocument(draft.kept.value.source).document);
-/** The logic takes part in a Keep: it changed, or a door follows the art. */
-const logicInKeep = (): boolean =>
-  logic.editable.value &&
-  (logic.dirty.value || logic.rules.value.some((entry) => entry.rule.item !== null));
-/** The picture and the doors, as one draft for the Keep and the way out. */
-const room = {
-  dirty: computed(() => draft.dirty.value || logic.dirty.value),
-  changes: computed(() => draft.changes.value + logic.changes.value),
-  gesturing: draft.gesturing,
-  kept: draft.kept,
-  markKept: (revision: ResourceRevision) => draft.markKept(revision),
-  discard: () => {
-    draft.discard();
-    logic.discard();
-  },
-};
-/** The authoring content the draft was opened or last kept on. */
-let keptAuthoring = baseAuthoring;
-/** Doors the last Keep stopped following art that is gone: its notice names them. */
-let unfollowed: readonly Unfollowed[] = [];
-watch(
-  () => baseAuthoring,
-  (next) => (keptAuthoring = next),
-);
-const keeper = useStudioKeep({
-  draft: room,
-  keep: async (baseRevision) => {
-    const edit = {
-      ...draftPictureEdit(draft, pictureNumber, baseRevision),
-      baseAuthoring: keptAuthoring,
-    };
-    const pictureChanged = draft.dirty.value;
-    /** The picture this Keep goes from and to: door boxes and their history move between them. */
-    const frames = { before: keptDocument.value, after: draft.document.value };
-    unfollowed = [];
-    let result: ResourceCommitResult;
-    if (!logicInKeep() || !walk) {
-      result = await commitPicture(edit);
-      const logicKept = logic.kept.value;
-      if (logic.editable.value && logicKept) logic.markKept(logicKept, frames);
-    } else {
-      // Doors that follow moved art move with it, in the same transaction.
-      const followed = logic.forKeep(frames.before, frames.after);
-      if (!followed.ok || !("bytes" in followed))
-        throw new ResourceCommitError(
-          "invalid",
-          `The doors can't follow this picture edit: ${"error" in followed ? followed.error : ""}`,
-        );
-      result = await commitRoom({
-        room: walk.room,
-        picture: pictureChanged
-          ? { pictureNumber, bytes: edit.bytes, source: edit.source }
-          : undefined,
-        logic: {
-          bytes: followed.bytes,
-          source: followed.source,
-          newBindings: followed.newBindings,
-        },
-        baseRevision,
-        baseAuthoring: keptAuthoring,
-        reason: edit.reason,
-      });
-      logic.markKept({ source: followed.source, bytes: followed.bytes }, frames);
-      unfollowed = followed.unfollowed;
-    }
-    keptAuthoring = result.authoring;
-    if (pictureChanged)
-      lesson.check({
-        kind: "picture",
-        num: pictureNumber,
-        after: edit.bytes,
-        afterSource: edit.source,
-        profile,
-      });
-    return result;
-  },
-});
 watch([draft.source, draft.gesturing], ([source, gesturing]) => {
-  if (!embedded || readOnly || gesturing) return;
+  if (readOnly || gesturing) return;
   // Receiving native bytes resets an untouched draft; it is not a drawing edit.
   // Undo back to saved text still has a future step and must reach the queue.
   if (!draft.dirty.value && !draft.canUndo.value && !draft.canRedo.value) return;
@@ -475,12 +346,11 @@ watch([draft.source, draft.gesturing], ([source, gesturing]) => {
     profile,
   });
 });
-/** Editing is blocked: view only, or a Keep that needs a reload first. */
-const frozen = (): boolean =>
-  readOnly || draft.kept.value.revision === undefined || keeper.needsReload.value;
+/** Editing is blocked while the picture is view only (no revision to write to). */
+const frozen = (): boolean => readOnly || draft.kept.value.revision === undefined;
 
 watch(logic.source, () => {
-  if (!embedded || readOnly) return;
+  if (readOnly) return;
   if (walk && logic.editable.value && logic.dirty.value) {
     const followed = logic.forKeep(keptDocument.value, draft.document.value);
     if (!followed.ok) {
@@ -491,19 +361,11 @@ watch(logic.source, () => {
       emit("room-edit", walk.room, followed.source, followed.newBindings, undefined);
   }
 });
-// ---- Ask -------------------------------------------------------------------
+// ---- The workspace agent ---------------------------------------------------
 const aiSettings = inject(aiSettingsKey, null);
-const assistHost: StudioAssistHost | null =
-  engineApi && aiSettings
-    ? {
-        run: (request) => engineApi.runStudioAssist(request, aiSettings.llmConfig()),
-        cancel: () => engineApi.discardAgent(),
-        resume: (requestLimit) => engineApi.continueAgent(requestLimit),
-        task: () => engineApi.state.agentTask,
-        log: () => engineApi.state.agentLog,
-      }
-    : null;
-/** The selected items an Ask is about: the item, a group's members, or several items. */
+/** Ask opens the workspace agent; without the app shell (the harness) there is none. */
+const agentReady = engineApi !== null && aiSettings !== null;
+/** The selected items the agent's context chip follows: an item, a group's members, or several items. */
 const askTargets = computed<string[]>(() => {
   const items = new Set(draft.document.value.items.map((item) => item.id));
   return selection.itemIds.value.filter((id) => items.has(id));
@@ -513,69 +375,29 @@ const itemLabel = (id: string): string =>
 watch(
   [askTargets, lens],
   ([ids, currentLens]) => {
-    if (embedded)
-      emit(
-        "agent-context",
-        ids.length
-          ? {
-              label: `PICTURE ${pictureNumber} · ${ids.map(itemLabel).join(", ")}`,
-              text: `Selected item ids: ${ids.join(", ")}. Lens: ${currentLens}.`,
-            }
-          : null,
-      );
+    emit(
+      "agent-context",
+      ids.length
+        ? {
+            label: `PICTURE ${pictureNumber} · ${ids.map(itemLabel).join(", ")}`,
+            text: `Selected item ids: ${ids.join(", ")}. Lens: ${currentLens}.`,
+          }
+        : null,
+    );
   },
   { immediate: true },
 );
 function askAgent(): boolean {
-  if (embedded) {
-    emit("agent-ask");
-    return true;
-  }
-  return assistPanel.value?.focus() ?? false;
+  if (!agentReady) return false;
+  emit("agent-ask");
+  return true;
 }
-const currentPicture = () => ({ kind: "picture" as const, source: draft.source.value });
-const assist = useStudioAssist({
-  host: () => assistHost,
-  configured: () => aiSettings?.aiConfigured.value ?? false,
-  frozen,
-  selected: () => askTargets.value.length > 0,
-  focus: (): StudioFocus | null => {
-    const targetIds = askTargets.value;
-    if (targetIds.length === 0) return null;
-    return {
-      scope: pictureAssistScope({
-        num: pictureNumber,
-        compiled: draft.compiled.value,
-        targetIds,
-        lens: lens.value,
-        unlocks: unlocks.value,
-      }),
-      draft: currentPicture,
-      lens: lens.value,
-      room: walk && walk.room > 0 ? walk.room : undefined,
-      // Under ignore.horizon nothing stops ego; the estimate's 0 says the same.
-      horizon: ego.value.horizon ?? 0,
-      profile,
-    };
-  },
-  current: currentPicture,
-  apply: (candidate, focus) => {
-    if (candidate.kind !== "picture" || focus.scope.kind !== "picture")
-      return { ok: false, message: "That change is not for this picture." };
-    const outcome = draft.adopt(candidate.draft.source, "AI edit", focus.scope);
-    editing.report(outcome);
-    return outcome.ok ? outcome : { ok: false, message: outcome.refusal.message };
-  },
-});
-/** Edits wait while a request runs or its proposal awaits a verdict. */
-const editsBlocked = (): boolean => frozen() || assist.holds.value;
 const editing = useStudioEditing({
   draft,
   selectedId,
   itemIds: () => selection.itemIds.value,
   selectItems: selection.selectItems,
   frozen,
-  paused: () => assist.holds.value,
   doors: () => followingDoors.value,
   lens: () => lens.value,
   offer: (check) => {
@@ -590,7 +412,6 @@ const editing = useStudioEditing({
 });
 /** A lock refusal's step: the lock opens for this session and the notice says so. */
 function unlockNow(patch: Partial<LensUnlocks>): void {
-  if (assist.holds.value) return;
   unlocks.value = { ...unlocks.value, ...patch };
   editing.say({ tone: "ok", text: "Unlocked until you close Studio. Try it again." });
   keepFocus();
@@ -623,44 +444,12 @@ const { viewport, zoom, dpr, fitted, zoomBy, zoomToFit } = useStudioViewport(
   stage,
   () => panes.value.length,
   undefined,
-  () => embedded,
+  true,
 );
 const size = computed(() => pictureSize(draft.compiled.value.bytes.length, total.value));
 
-/**
- * An AI proposal awaiting a verdict: compiled, with the cells it changes and
- * its side effects (other items' cells it changes, outside the selection).
- */
-const proposal = computed(() => {
-  const candidate = assist.candidate.value;
-  if (assist.phase.value !== "candidate" || candidate?.kind !== "picture") return null;
-  try {
-    const compiled = compileEditDocument(
-      parsePictureDocument(candidate.draft.source).document,
-      profile,
-    );
-    return {
-      compiled,
-      changed: changedCells(draft.compiled.value, compiled),
-      sideEffects: candidate.check.sideEffects ?? null,
-    };
-  } catch {
-    return null;
-  }
-});
-/** The canvas shows the draft (before) or the proposal applied (after). */
-const compare = ref<"before" | "after">("after");
-watch(proposal, (next, previous) => {
-  if (next && !previous) compare.value = "after";
-});
-/** The planes on screen: a proposal's side, the drag's preview while one runs, else the scrubbed draft. */
-const shown = computed(() =>
-  proposal.value
-    ? compare.value === "after"
-      ? proposal.value.compiled
-      : draft.compiled.value
-    : (draft.preview.value?.compiled ?? surface.value),
-);
+/** The planes on screen: the drag's preview while one runs, else the scrubbed draft. */
+const shown = computed(() => draft.preview.value?.compiled ?? surface.value);
 const runningPicture = computed(() => {
   if (!runningBytes) return null;
   const surface = createPictureSurface();
@@ -668,7 +457,7 @@ const runningPicture = computed(() => {
   return surface;
 });
 const draftMask = computed(() =>
-  embedded && runningPicture.value ? changedCells(runningPicture.value, shown.value) : null,
+  runningPicture.value ? changedCells(runningPicture.value, shown.value) : null,
 );
 const hasStageDraft = computed(() => draftMask.value?.some((cell) => cell !== 0) ?? false);
 const stageDraftPaths = computed(() =>
@@ -704,26 +493,6 @@ const stageDraftLabel = computed(() => {
     style: { left: `${x}px`, top: `${y}px`, "--draft-pointer": `${anchor - x}px` },
   };
 });
-const assistChanges = computed(() => {
-  const next = proposal.value;
-  const scope = assist.asked.value?.scope;
-  if (!next || scope?.kind !== "picture") return null;
-  return pictureChangeSummary(
-    draft.compiled.value,
-    next.compiled,
-    labelList(scope.targetIds.map(itemLabel)),
-    selectionArea(draft.compiled.value, scope.targetIds),
-    next.sideEffects?.mask ?? null,
-  );
-});
-/** What the request is held to: the asked scope while it is open, else the selection's. */
-const assistChips = computed(() => {
-  const scope = assist.holds.value ? assist.asked.value?.scope : undefined;
-  return pictureScopeChips(
-    (scope?.kind === "picture" ? scope.targetIds : askTargets.value).map(itemLabel),
-  );
-});
-const assistPanel = useTemplateRef("assistPanel");
 const editableId = computed(() => editing.editable.value?.id);
 /**
  * The selection's cells on the canvas, on both planes in every lens (a move
@@ -925,7 +694,6 @@ const walker = useStudioWalk({
   ego: () => ego.value,
   say: (notice) => editing.say(notice),
   frozen,
-  paused: () => assist.holds.value,
   liveState: engineApi
     ? async () => {
         const state = await engineApi.readEngineState();
@@ -943,7 +711,6 @@ const tools = useStudioTools({
   report: editing.report,
   say: editing.say,
   frozen,
-  paused: () => assist.holds.value,
   stage: () => stage.value,
   walk: {
     press: (tool, cell) => walker.press(tool, cell),
@@ -979,13 +746,6 @@ const hoverPaths = computed(() =>
     : pathsOf(doc.rowMask(hoveredId.value, lens.value)),
 );
 const selectionPaths = computed(() => pathsOf(selectionMask.value));
-const changedPaths = computed(() => (proposal.value ? pathsOf(proposal.value.changed) : null));
-const spilledPaths = computed(() => pathsOf(proposal.value?.sideEffects?.mask ?? null));
-/** "Also changes: Grass, 17,802 cells.": the proposal's side effects, by the items' names. */
-const assistAlso = computed(() => {
-  const effects = proposal.value?.sideEffects;
-  return effects ? alsoChanges(effects) : null;
-});
 const flashPaths = computed(() => pathsOf(editing.flash.value));
 const handleList = computed(() => {
   const id = editableId.value;
@@ -1123,7 +883,6 @@ watch(
     editing.several.value,
     fillAdvice.value?.notice.summary,
     lens.value,
-    proposal.value !== null,
     tools.insertion.value.index,
   ],
   () => void optionsFold.refit(),
@@ -1162,10 +921,9 @@ watch(
 watch(walker.selectedDoorId, (id) => {
   if (id !== null) selectedId.value = undefined;
 });
-/** A walk tool opens the Walk view first; false while the AI holds the lens elsewhere. */
+/** A walk tool opens the Walk view first. */
 function walkView(next: StudioTool): boolean {
   if (!isWalkTool(next) || lens.value === "walk") return true;
-  if (assist.holds.value) return false;
   lens.value = "walk";
   return true;
 }
@@ -1211,19 +969,16 @@ const logicTextOpen = computed({
   },
 });
 
-const RELOAD_FIRST = "Reload the game to play your saved version.";
 /**
- * Play here: settle unkept changes, then the shell plays from the spot, in
- * this room or, from a walk that went through a door, the room it ended in.
+ * Play here: the shell plays from the spot, in this room or, from a walk that
+ * went through a door, the room it ended in.
  */
-async function playHere(at: Point | PlayHereTarget): Promise<void> {
-  if (keeper.needsReload.value) return editing.say({ tone: "warn", text: RELOAD_FIRST });
+function playHere(at: Point | PlayHereTarget): void {
   const room = "room" in at ? at.room : (walk?.room ?? 0);
   if (room < 1) {
     editing.say({ tone: "warn", text: "This picture isn't shown by a room the game can enter." });
     return;
   }
-  if (!embedded && !(await leave.confirm())) return;
   emit("play-here", { room, x: at.x, y: at.y });
 }
 
@@ -1254,7 +1009,7 @@ const selectionMenu = computed<CanvasMenuItem[]>(() =>
         {
           id: "ask",
           label: "Tell the agent about the selection",
-          ...(assistHost
+          ...(agentReady
             ? {}
             : { disabled: true, title: "An AI model is required. Choose a model in Settings." }),
         },
@@ -1265,10 +1020,7 @@ const menuItems = computed<CanvasMenuItem[]>(() => [
   {
     id: "play",
     label: "Play here",
-    // The running game differs from the saved one until it reloads (useStudioKeep).
-    ...(keeper.needsReload.value
-      ? { disabled: true, title: RELOAD_FIRST }
-      : { disabled: !walk || walk.room < 1 }),
+    disabled: !walk || walk.room < 1,
   },
   ...(lens.value === "walk"
     ? [
@@ -1313,7 +1065,7 @@ function pickMenu(id: string): void {
   else if (id === "ungroup") editing.ungroup();
   else if (id === "ask") askAgent();
   else if (id === "delete-point") removePoint();
-  else if (id === "play") void playHere(cell);
+  else if (id === "play") playHere(cell);
   else if (id === "walk-from") {
     pickTool("walk");
     walker.setStart(cell);
@@ -1327,40 +1079,11 @@ function seek(k: number): void {
   playhead.value = Math.min(total.value, Math.max(0, k));
 }
 
-/** Every way out of Studio, here or in the shell: Keep / Discard / Cancel first. */
-const exit = useStudioExit({
-  embedded,
-  draft: room,
-  keeper,
-  say: (notice) => editing.say(notice),
-  keptNotice: () => {
-    const notice = lesson.keptNotice(subject.value);
-    return unfollowed.length === 0
-      ? notice
-      : { tone: "warn", text: `${notice.text} ${unfollowedText(unfollowed)}` };
-  },
-  keepFocus: () => keepFocus(),
-  close: () => emit("close"),
-  reopen: (fromStorage) => emit("reopen", fromStorage),
-});
-const { leave, dialog, requestClose, discardChanges, keepChanges, recover, reopen } = exit;
-
 const keepFocus = useStudioFocus(useTemplateRef("root"));
 exposeStudioDraft(draft, () => logic.source.value);
-/** What a Keep writes, as the top bar and the dialogs name it. */
-const subject = computed(() =>
-  logic.dirty.value && walk
-    ? `PIC ${pictureNumber} and room ${walk.room}'s doors`
-    : `PIC ${pictureNumber}`,
-);
-const changeTotal = room.changes;
 
-// ---- The calm canvas: help in the status bar, the side panels on ⌘\ ----------
-const calm = useStudioCalm();
-function toggleFocus(): void {
-  calm.toggleFocus();
-  input.spoken.value = calm.focus.value ? "Side panels hidden" : "Side panels shown";
-}
+/** The status bar's Keys sheet (its `?` key opens the same one). */
+const sheetOpen = ref(false);
 /**
  * The status bar's Keys button. Safari leaves a clicked button unfocused, so
  * activation takes its focus first: the sheet returns focus to what had it when the sheet opened.
@@ -1368,7 +1091,7 @@ function toggleFocus(): void {
 function openKeySheet(event: MouseEvent): void {
   if (event.currentTarget instanceof HTMLElement)
     event.currentTarget.focus({ preventScroll: true });
-  calm.sheetOpen.value = true;
+  sheetOpen.value = true;
 }
 const keySheet = computed(() => roomKeySheet(tools.tool.value));
 /** The status bar's line for the active tool (the editing keys while an item is selected). */
@@ -1463,7 +1186,6 @@ function traceKey(event: KeyboardEvent, kind: "move" | "scale") {
   traceKeyCommit = () => adjust?.(next, true);
   traceKeyTimer = setTimeout(flushTraceKeys, 250);
 }
-const notesOnly = computed(() => draft.notesOnly.value && !logic.dirty.value);
 /** A tool change hands the status line back to the tool's hint (before anything it says). */
 watch(tools.tool, () => editing.say(null), { flush: "sync" });
 
@@ -1485,9 +1207,8 @@ const keys: StudioKeyActions = {
     else return false;
     return true;
   },
-  // The lens and the unlocks wait with the request: Accept applies the terms it was asked under.
   lens: (next) => {
-    if (!assist.holds.value) lens.value = next;
+    lens.value = next;
   },
   seek: (to) => seek(to === "first" ? 0 : to === "last" ? total.value : playhead.value + to),
   zoom: (step) => (step === "fit" ? zoomToFit() : zoomBy(step)),
@@ -1507,21 +1228,14 @@ const keys: StudioKeyActions = {
   finish: tools.finish,
   ask: askAgent,
   insertPoint: insertPointAtCursor,
-  focusMode: toggleFocus,
-  keySheet: () => (calm.sheetOpen.value = true),
+  keySheet: () => (sheetOpen.value = true),
 };
 /** Every key stops here so the game never sees it. */
 function onKeydown(event: KeyboardEvent): void {
-  if (embedded && (event.target as HTMLElement).closest(".play-area")) return;
+  if ((event.target as HTMLElement).closest(".play-area")) return;
   event.stopPropagation();
-  // An open confirmation, the logic text or the key sheet takes the keys it needs (Esc closes it) and nothing else runs.
-  if (
-    dialog.value !== undefined ||
-    logicText.value !== undefined ||
-    calm.sheetOpen.value ||
-    combineOpen.value
-  )
-    return;
+  // The logic text or the key sheet takes the keys it needs (Esc closes it) and nothing else runs.
+  if (logicText.value !== undefined || sheetOpen.value || combineOpen.value) return;
   if (
     (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) &&
     event.target === stage.value
@@ -1534,7 +1248,7 @@ function onKeydown(event: KeyboardEvent): void {
   keepFocus();
 }
 function onKeyup(event: KeyboardEvent): void {
-  if (embedded && (event.target as HTMLElement).closest(".play-area")) return;
+  if ((event.target as HTMLElement).closest(".play-area")) return;
   event.stopPropagation();
   input.spaceKey(event, false);
 }
@@ -1545,13 +1259,9 @@ function onKeyup(event: KeyboardEvent): void {
     ref="root"
     class="studio"
     :class="{
-      'is-focus': calm.focus.value,
-      'is-embedded': embedded,
       'has-reference': !!underlay,
-      'is-workspace-focus': workspaceFocus,
       'is-art-idle': lens === 'art' && !draft.gesturing.value,
     }"
-    :style="embedded ? { '--picture-zoom': zoom } : undefined"
     data-testid="room-studio"
     tabindex="-1"
     role="region"
@@ -1561,46 +1271,11 @@ function onKeyup(event: KeyboardEvent): void {
     @keypress.stop
     @click="
       (event) => {
-        if (!(embedded && (event.target as HTMLElement).closest('.play-area'))) keepFocus();
+        if (!(event.target as HTMLElement).closest('.play-area')) keepFocus();
       }
     "
   >
-    <StudioTopBar
-      v-if="!embedded"
-      v-model:lens="lens"
-      v-model:unlocks="unlocks"
-      class="studio__top"
-      :title
-      :picture-number="pictureNumber"
-      :subtitle="subtitleExtra(title, pictureNumber, subtitle)"
-      :diagnostics="model.diagnostics.length"
-      :bytes="draft.compiled.value.bytes.length"
-      :commands="total"
-      :status="keeper.status.value"
-      :changes="changeTotal"
-      :notes-only="notesOnly"
-      :can-undo="(draft.canUndo.value || logic.canUndo.value) && !keeper.needsReload.value"
-      :can-redo="(draft.canRedo.value || logic.canRedo.value) && !keeper.needsReload.value"
-      :can-keep="keeper.canKeep.value"
-      :lens-held="assist.holds.value ? HOLD_TEXT : null"
-      @back="requestClose"
-      @close="requestClose"
-      @undo="undoOrder.undo"
-      @redo="undoOrder.redo"
-      @keep="keepChanges()"
-      @discard="leave.discarding.value = true"
-    >
-      <template #share
-        ><SharePictureMenu
-          :picture="model.compiled"
-          :timeline="model.timeline"
-          :profile
-          :caption="shareCaption"
-          :file-base="shareFile"
-      /></template>
-    </StudioTopBar>
-
-    <div v-if="embedded" class="studio__scrubber studio__palette-row">
+    <div class="studio__scrubber studio__palette-row">
       <PaletteStrip
         :context="palette.context.value"
         :value="lens === 'art' ? palette.values.value.visual : palette.values.value.priority"
@@ -1633,10 +1308,8 @@ function onKeyup(event: KeyboardEvent): void {
         :priority-locked="itemLocks.priority"
         :depth-values-locked="itemLocks.depthValues"
         :edit="editing"
-        :askable="assistHost !== null"
         :grouped="editing.grouped.value"
         :fold="optionsFold.level.value"
-        @ask="askAgent"
         @combine="openCombine"
         @ungroup="editing.ungroup()"
       />
@@ -1654,20 +1327,13 @@ function onKeyup(event: KeyboardEvent): void {
         @end="seek(total)"
         @fix="applyFillFix"
       />
-      <StudioAssistCompare
-        v-if="proposal"
-        v-model="compare"
-        :stale="assist.stale.value"
-        :spilled="proposal.sideEffects !== null"
-      />
       <span class="studio__spacer"></span>
-      <label v-if="embedded" class="studio__views-slider"
+      <label class="studio__views-slider"
         >Views
         <input v-model.number="viewsOpacity" type="range" min="0" max="100" aria-label="Views" />
         <output>{{ viewsOpacity }}%</output>
       </label>
       <UiSegmented
-        v-if="embedded"
         v-model="lens"
         size="sm"
         :label="VOCABULARY.lens.label"
@@ -1688,7 +1354,7 @@ function onKeyup(event: KeyboardEvent): void {
     <StudioToolRail
       :tool="tools.tool.value"
       class="studio__rail"
-      :frozen="editsBlocked()"
+      :frozen="frozen()"
       :probe-active="ghost.active.value"
       :probe-available="views.length > 0"
       :lens
@@ -1700,7 +1366,7 @@ function onKeyup(event: KeyboardEvent): void {
       @update:tool="pickTool"
       @probe="ghost.toggle()"
       @values="palette.choose"
-      @unlocks="(next) => !assist.holds.value && (unlocks = next)"
+      @unlocks="(next) => (unlocks = next)"
     />
     <main class="studio__frame">
       <div
@@ -1735,8 +1401,7 @@ function onKeyup(event: KeyboardEvent): void {
             :handles
             :ghost="insertGhost"
             :flash="flashPaths"
-            :changed="stageDraftPaths ?? changedPaths"
-            :spilled="spilledPaths"
+            :changed="stageDraftPaths"
             :movable="movable"
             :marquee="drag.marqueeBox.value ?? null"
             :underlay="layer === 'art' ? underlay : null"
@@ -1749,7 +1414,7 @@ function onKeyup(event: KeyboardEvent): void {
             @menu="openMenu"
           >
             <span
-              v-if="embedded && stageDraftLabel && (layer === 'art' || panes.length === 1)"
+              v-if="stageDraftLabel && (layer === 'art' || panes.length === 1)"
               class="studio__draft-label"
               :class="{ 'is-above': stageDraftLabel.above }"
               :style="stageDraftLabel.style"
@@ -1841,19 +1506,8 @@ function onKeyup(event: KeyboardEvent): void {
       </div>
     </main>
 
-    <DrawOrderScrubber
-      v-if="!embedded"
-      v-model="playhead"
-      class="studio__scrubber"
-      data-testid="studio-scrubber"
-      :ticks
-      :marked="selectedRow?.entries ?? []"
-      :command="current"
-    />
-
     <aside class="studio__side">
       <UiSegmented
-        v-if="embedded"
         v-model="side"
         size="sm"
         label="Side panel"
@@ -1863,7 +1517,7 @@ function onKeyup(event: KeyboardEvent): void {
         ]"
       />
       <SceneList
-        v-show="!embedded || side === 'items'"
+        v-show="side === 'items'"
         v-model:filter="filter"
         class="studio__scene"
         data-testid="studio-scene"
@@ -1969,33 +1623,10 @@ function onKeyup(event: KeyboardEvent): void {
             />
           </section>
         </template>
-        <template #assist>
-          <!-- Ask is in the workspace agent when this editor is embedded. -->
-          <StudioAssistPanel
-            v-if="assistHost && !embedded"
-            ref="assistPanel"
-            :assist
-            :chips="assistChips"
-            :changes="assistChanges"
-            :also="assistAlso"
-            :reference-target="walk && walk.room > 0 ? { kind: 'room', num: walk.room } : null"
-            @reload="reopen(true)"
-            noun="picture"
-            empty="Select an item to ask about it."
-          >
-            <template #scope>
-              <StudioLockChip
-                v-model:unlocks="unlocks"
-                :lens
-                :held="assist.holds.value ? HOLD_TEXT : null"
-              />
-            </template>
-          </StudioAssistPanel>
-        </template>
       </PixelInspector>
     </aside>
 
-    <div v-if="embedded" class="studio__meta-bar">
+    <div class="studio__meta-bar">
       <SharePictureMenu
         :picture="model.compiled"
         :timeline="model.timeline"
@@ -2014,42 +1645,17 @@ function onKeyup(event: KeyboardEvent): void {
     </div>
     <footer class="studio__status" aria-label="Status bar">
       <span data-role="status" data-testid="studio-status">{{ status }}</span>
-      <!-- A notice or a failed Keep takes the hint's place, off the picture. -->
+      <!-- A notice takes the hint's place, off the picture. -->
       <StudioStatusNotice
-        v-if="keeper.banner.value || editing.notice.value"
-        :banner="keeper.banner.value"
+        v-if="editing.notice.value"
         :notice="editing.notice.value"
-        @recover="recover"
         @dismiss="editing.dismiss"
-        @close="keeper.dismiss"
       />
-      <span
-        v-else
-        class="studio__hint"
-        :class="{ 'is-tip': calm.tip.value }"
-        data-testid="studio-hint"
-        :data-tool="tools.tool.value"
-        >{{ calm.tip.value ?? toolHint }}</span
-      >
+      <span v-else class="studio__hint" data-testid="studio-hint" :data-tool="tools.tool.value">{{
+        toolHint
+      }}</span>
       <span class="studio__spacer"></span>
-      <span v-if="!embedded" class="studio__meta" data-testid="studio-size">{{ size.full }}</span>
-      <span class="studio__meta">AGI {{ profile.id }}</span>
-      <span
-        v-if="!embedded && !model.trusted"
-        class="studio__meta studio__source"
-        data-testid="studio-source-kind"
-        >Rebuilt <UiExplain v-bind="explain('rebuilt')"
-      /></span>
       <StudioZoom :zoom :fitted @zoom="(step) => (step === 'fit' ? zoomToFit() : zoomBy(step))" />
-      <span class="studio__status-sep" aria-hidden="true"></span>
-      <UiIconButton
-        icon="panel-left"
-        :label="calm.focus.value ? 'Show side panel' : 'Hide side panel'"
-        :shortcut="keyLabel('Mod+\\')"
-        aria-keyshortcuts="Meta+Backslash Control+Backslash"
-        :pressed="calm.focus.value"
-        @click="toggleFocus"
-      />
       <UiIconButton
         icon="help"
         label="Keys"
@@ -2063,25 +1669,7 @@ function onKeyup(event: KeyboardEvent): void {
     </footer>
     <p class="studio__sr" aria-live="polite" data-role="announce">{{ input.spoken.value }}</p>
 
-    <StudioKeySheet v-model:open="calm.sheetOpen.value" name="PICTURE" :sections="keySheet" />
-    <StudioKeepDialog
-      v-if="!embedded"
-      v-model:ask="dialog"
-      :subject="subject"
-      noun="picture"
-      :changes="changeTotal"
-      :notes-only="notesOnly"
-      :can-keep="keeper.canKeep.value"
-      @keep="leave.answer('keep')"
-      @discard="(answer) => (answer ? leave.answer('discard') : discardChanges())"
-    />
-    <StudioSmallScreen
-      v-if="!embedded"
-      name="PICTURE"
-      :draft="room"
-      :keeper
-      @close="emit('close')"
-    />
+    <StudioKeySheet v-model:open="sheetOpen" name="PICTURE" :sections="keySheet" />
     <StudioCombineDialog
       v-model:open="combineOpen"
       :count="editing.targets.value.length"
@@ -2112,44 +1700,26 @@ function onKeyup(event: KeyboardEvent): void {
 .studio {
   position: relative;
   display: grid;
-  --studio-bar: var(--control-h);
-  /* The status bar grows a line when its readout and hint wrap. */
-  grid-template-rows:
-    52px calc(var(--studio-bar) + var(--space-1)) minmax(0, 1fr) 92px
-    minmax(var(--studio-bar), auto);
-  /* The Scene list takes what the canvas can spare: at 1280 wide what still
-     leaves it 200% zoom (640 + 2 × STAGE_INSET), more when wider. */
-  grid-template-columns: clamp(208px, max(18vw, 100vw - 1040px), 300px) 48px minmax(0, 1fr) 300px;
+  container-type: inline-size;
+  /* Rows: the meta strip, the tool and view options, the canvas (which takes
+     what's left), the palette and draw order, then the status bar, which is
+     28px and grows to fit its controls. The canvas keeps a floor because the
+     side panel rides its row: below it the studio scrolls, like the phone
+     layout, instead of squeezing the panel's list under a row. */
+  grid-template-rows: auto minmax(40px, max-content) minmax(160px, 1fr) auto minmax(28px, auto);
+  grid-template-columns: 0 44px minmax(0, 1fr) clamp(140px, 30%, 260px);
   width: 100%;
   height: 100%;
-  overflow: hidden;
+  /* A window shorter than the fixed rows scrolls the studio; the sticky
+     status bar stays in view and no control is clipped away. */
+  overflow-x: hidden;
+  overflow-y: auto;
   color: var(--ink);
   background: var(--surface-1);
   font: var(--text-sm) / var(--leading) var(--font-sans);
   outline: 0;
 }
-.studio__top {
-  grid-column: 1 / -1;
-}
-/* Focus mode: the Scene list and the inspector step aside for the canvas. */
-.studio.is-focus {
-  grid-template-columns: 0 48px minmax(0, 1fr) 0;
-}
-.studio.is-focus .studio__scene,
-.studio.is-focus .studio__inspector {
-  display: none;
-}
-@media (pointer: coarse) {
-  .studio {
-    --studio-bar: var(--control-h-touch);
-  }
-}
-.studio__scene {
-  grid-row: 2 / 5;
-  grid-column: 1;
-  border-right: 1px solid var(--hairline);
-}
-/* The rail stops above the scrubber, which keeps the full width under it. */
+/* The rail stops above the palette row, which keeps the full width under it. */
 .studio__rail {
   grid-row: 3;
   grid-column: 2;
@@ -2159,12 +1729,13 @@ function onKeyup(event: KeyboardEvent): void {
   position: relative;
   z-index: var(--z-dock);
   grid-row: 2;
-  grid-column: 2 / 4;
+  grid-column: 2 / 5;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--space-3);
   min-width: 0;
-  padding: 0 var(--space-3);
+  padding: var(--space-1) var(--space-3);
   border-bottom: 1px solid var(--hairline);
   background: var(--surface-1);
 }
@@ -2205,10 +1776,6 @@ function onKeyup(event: KeyboardEvent): void {
   grid-row: 4;
   grid-column: 2 / 4;
 }
-.studio__inspector {
-  grid-row: 2 / 5;
-  grid-column: 4;
-}
 .studio__status {
   grid-row: 5;
   grid-column: 1 / -1;
@@ -2222,6 +1789,11 @@ function onKeyup(event: KeyboardEvent): void {
   background: var(--surface-0);
   font: var(--text-2xs) var(--font-mono);
   white-space: nowrap;
+  overflow: hidden;
+  /* Below a scrolled studio the status bar rides the bottom edge. */
+  position: sticky;
+  bottom: 0;
+  z-index: 3;
 }
 /* The readout and the tool's help share what the bar leaves, wrapping onto a
    second line when short of room; the readout gives way first. */
@@ -2241,14 +1813,6 @@ function onKeyup(event: KeyboardEvent): void {
   line-height: 1.2;
   white-space: normal;
 }
-.studio__hint.is-tip {
-  flex-shrink: 0;
-  color: var(--action);
-  font-weight: var(--weight-bold);
-}
-.studio__meta {
-  flex: none;
-}
 .studio__depth-all {
   display: grid;
   gap: var(--space-3);
@@ -2265,24 +1829,6 @@ function onKeyup(event: KeyboardEvent): void {
   letter-spacing: var(--tracking-caps);
   text-transform: uppercase;
 }
-.studio__source {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1);
-}
-/* The size the top bar folded away: it wraps before the readout and hint must. */
-.studio__meta[data-testid="studio-size"] {
-  flex: 0 1 auto;
-  min-width: 12ch;
-  line-height: 1.2;
-  text-align: right;
-  white-space: normal;
-}
-.studio__status-sep {
-  width: 1px;
-  height: var(--space-6);
-  background: var(--hairline);
-}
 .studio__spacer {
   flex: 1;
 }
@@ -2294,12 +1840,6 @@ function onKeyup(event: KeyboardEvent): void {
   overflow: hidden;
   clip-path: inset(50%);
   white-space: nowrap;
-}
-/* Embedded pictures use the editor's own canvas and tools. */
-.studio.is-embedded {
-  container-type: inline-size;
-  grid-template-columns: 0 44px minmax(0, 1fr) clamp(140px, 30%, 260px);
-  grid-template-rows: auto minmax(40px, max-content) minmax(0, 1fr) auto 28px;
 }
 .studio__done,
 .studio__cursor-hint {
@@ -2363,9 +1903,6 @@ function onKeyup(event: KeyboardEvent): void {
   min-width: 0;
 }
 .studio__side {
-  display: contents;
-}
-.studio.is-embedded .studio__side {
   container-type: inline-size;
   grid-column: 4;
   grid-row: 3 / 5;
@@ -2375,123 +1912,87 @@ function onKeyup(event: KeyboardEvent): void {
   min-width: 0;
   border-left: 1px solid var(--hairline);
 }
-.studio.is-embedded .studio__side > .ui-seg {
+.studio__side > .ui-seg {
   flex-shrink: 0;
   margin: var(--space-2);
 }
-.studio.is-embedded .studio__side > .scene-list,
-.studio.is-embedded .studio__side > .inspector {
+.studio__side > .scene-list,
+.studio__side > .inspector {
   flex: 1;
   min-height: 0;
   height: 0;
 }
-.studio.is-embedded .studio__side > .scene-list {
+.studio__side > .scene-list {
   flex: 2;
   min-height: 0;
   min-width: 0;
 }
-.studio.is-embedded .studio__side > .scene-list :deep(.ui-panel__foot) {
+.studio__side > .scene-list :deep(.ui-panel__foot) {
   padding-block: var(--space-1);
 }
-.studio.is-embedded
-  .studio__side:has(.scene-list:not([style*="display: none"]))
-  > .inspector.is-compact {
-  display: none;
-}
-.studio.is-embedded.is-focus {
-  grid-template-columns: 0 44px minmax(0, 1fr) 0;
-}
-.studio.is-embedded.is-focus .studio__side {
+.studio__side:has(.scene-list:not([style*="display: none"])) > .inspector.is-compact {
   display: none;
 }
 @media (max-width: 600px) {
-  .studio.is-embedded {
+  .studio {
     grid-template-columns: 0 44px minmax(0, 1fr) 0;
-    grid-template-rows: auto auto minmax(180px, 1fr) auto minmax(240px, 0.8fr) 28px;
-    overflow-y: auto;
+    grid-template-rows:
+      auto auto minmax(180px, 1fr) auto minmax(240px, 0.8fr)
+      minmax(28px, auto);
   }
-  .studio.is-embedded .studio__palette-row {
+  .studio .studio__palette-row {
     grid-column: 1 / 4;
   }
-  .studio.is-embedded .studio__palette-row :deep(.scrubber) {
+  .studio .studio__palette-row :deep(.scrubber) {
     grid-template-columns: auto minmax(0, 1fr) minmax(64px, 100px);
     gap: var(--space-2);
     padding-inline: var(--space-2);
   }
-  .studio.is-embedded .studio__side {
+  .studio .studio__side {
     grid-column: 2 / 4;
     grid-row: 5;
     border-top: 1px solid var(--hairline);
   }
-  .studio.is-embedded .studio__status {
+  .studio .studio__status {
     grid-row: 6;
-    position: sticky;
-    bottom: 0;
-    z-index: 3;
   }
-  .studio.is-embedded .studio__side > .scene-list {
+  .studio .studio__side > .scene-list {
     flex: 1;
     height: 0;
     min-height: 0;
   }
-  .studio.is-embedded .studio__side:has(.scene-list:not([style*="display: none"])) > .inspector {
+  .studio .studio__side:has(.scene-list:not([style*="display: none"])) > .inspector {
     display: none;
   }
-  .studio.is-embedded .studio__panes {
+  .studio .studio__panes {
     padding: var(--space-1);
   }
-  .studio.is-embedded.is-focus {
-    grid-template-rows: auto auto minmax(0, 1fr) auto 0 28px;
-  }
-}
-.studio.is-embedded .studio__options {
-  grid-column: 2 / 5;
-  flex-wrap: wrap;
-  padding-block: var(--space-1);
-}
-.studio.is-embedded .studio__scene {
-  grid-column: 4;
-  grid-row: 3 / 5;
-  border-right: 0;
-  border-left: 1px solid var(--hairline);
-}
-.studio.is-embedded .studio__inspector {
-  display: block;
-}
-.studio.is-embedded .studio__status {
-  min-width: 0;
-  overflow: hidden;
-  white-space: nowrap;
-}
-.studio.is-embedded .studio__meta,
-.studio.is-embedded .studio__status-sep {
-  display: none;
 }
 @container (max-width: 232px) {
-  .studio.is-embedded .studio__side :deep(.walk-panel__sec h3),
-  .studio.is-embedded .studio__side :deep(.walk-panel__check) {
+  .studio .studio__side :deep(.walk-panel__sec h3),
+  .studio .studio__side :deep(.walk-panel__check) {
     flex-wrap: wrap;
   }
-  .studio.is-embedded .studio__side :deep(.ui-seg) {
+  .studio .studio__side :deep(.ui-seg) {
     max-width: 100%;
     box-sizing: border-box;
     flex-wrap: wrap;
   }
-  .studio.is-embedded .studio__side :deep(.ui-panel__head) {
+  .studio .studio__side :deep(.ui-panel__head) {
     flex-wrap: wrap;
     gap: var(--space-1);
     padding: var(--space-2);
   }
 }
 @container (max-width: 760px) {
-  .studio.is-embedded .studio__status [data-role="status"] {
+  .studio .studio__status [data-role="status"] {
     flex: 1;
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  .studio.is-embedded .studio__status .studio__hint {
+  .studio .studio__status .studio__hint {
     display: none;
   }
 }
@@ -2538,7 +2039,7 @@ function onKeyup(event: KeyboardEvent): void {
   min-width: 3ch;
 }
 @media (max-height: 800px) {
-  .studio.is-embedded :deep(.tool-rail__tool .ui-icon-btn) {
+  .studio :deep(.tool-rail__tool .ui-icon-btn) {
     width: var(--control-h-sm);
     height: var(--control-h-sm);
   }

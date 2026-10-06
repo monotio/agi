@@ -88,20 +88,6 @@ export const PANE_LABELS: Record<PaneLayer, string> = {
   "walk-only": "Walk lines",
 };
 
-/** The subtitle's parts that add something beyond the title and the PIC chip. */
-export function subtitleExtra(
-  title: string,
-  pictureNumber: number,
-  subtitle: string | undefined,
-): string {
-  const known = [title.toLowerCase(), `pic ${pictureNumber}`];
-  return (subtitle ?? "")
-    .split("·")
-    .map((part) => part.trim())
-    .filter((part) => part !== "" && !known.includes(part.toLowerCase()))
-    .join(" · ");
-}
-
 /** The panes a lens and view mode put on screen, left to right. */
 export function panesFor(lens: StudioLens, mode: StudioViewMode): PaneLayer[] {
   if (lens === "art") return ["art"];
@@ -373,50 +359,7 @@ export function spanIndexAt(spans: readonly PictureSourceSpan[], offset: number)
   return -1;
 }
 
-/** When the byte meter starts warning: this share of draw_picture_items's limit. */
-const BYTES_APPROACH = 0.8;
-
-export interface ByteMeter {
-  tone: "ok" | "warn" | "danger";
-  /** Share of the resource limit used, 0..1. */
-  fraction: number;
-  note: string;
-}
-
-/**
- * The top bar's size meter for a compiled picture: against the container's
- * record limit (a PIC is at most `recordLimit` bytes) and, before it, the
- * agent's draw_picture_items limit, past which the agent cannot rewrite the picture.
- */
-export function byteMeter(bytes: number, sceneLimit: number, recordLimit: number): ByteMeter {
-  const fraction = Math.min(1, bytes / recordLimit);
-  const n = (value: number): string => value.toLocaleString("en-US");
-  if (bytes > recordLimit)
-    return {
-      tone: "danger",
-      fraction,
-      note: `Over the ${n(recordLimit)}-byte resource limit: this picture cannot be kept.`,
-    };
-  if (bytes > sceneLimit)
-    return {
-      tone: "warn",
-      fraction,
-      note: `Larger than the ${n(sceneLimit)} bytes the agent can rewrite in one go; the game allows ${n(recordLimit)} bytes.`,
-    };
-  if (bytes >= sceneLimit * BYTES_APPROACH)
-    return {
-      tone: "warn",
-      fraction,
-      note: `Close to the ${n(sceneLimit)} bytes the agent can rewrite in one go (the game allows ${n(recordLimit)}).`,
-    };
-  return {
-    tone: "ok",
-    fraction,
-    note: `${n(bytes)} of the ${n(recordLimit)} bytes a picture can hold.`,
-  };
-}
-
-/** A picture's size in plain words, for the top bar's meter and the footer. */
+/** A picture's size in plain words, for the meta bar. */
 export interface PictureSize {
   /** "1,148 bytes" */
   readonly bytes: string;

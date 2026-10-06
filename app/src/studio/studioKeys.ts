@@ -22,10 +22,9 @@
  * - the tool rail's letters (studioTools.ts TOOL_SHORTCUTS: V A L R P F B I, the
  *   Walk view's T D E, which open it first, and G H); Enter finishes a line
  *   or polygon, Backspace drops its last point
- * - `/` focuses Ask (StudioAssistPanel.vue); `?`
- *   opens the key sheet (StudioKeySheet.vue)
- * - Cmd+\ (Ctrl+\ off a Mac) toggles focus mode, which hides the side
- *   panels; Tab and Shift+Tab only ever move focus
+ * - `/` asks the workspace agent about the selection; `?`
+ *   opens the key sheet (StudioKeySheet.vue); Tab and Shift+Tab only ever
+ *   move focus
  */
 
 import type { StudioLens } from "./studioView.ts";
@@ -71,12 +70,10 @@ export interface StudioKeyActions {
   tool(key: string): boolean;
   /** Enter: finish what a tool is drawing; true when there was something. */
   finish(): boolean;
-  /** `/`: focus the Ask box; false when there is none. */
+  /** `/`: tell the agent about the selection; false when there is no agent. */
   ask(): boolean;
   /** Insert: add a point to the selected line nearest the cursor; false when none was added. */
   insertPoint(): boolean;
-  /** Cmd+\ or Ctrl+\: hide or show the side panels. */
-  focusMode(): void;
   /** `?`: the key sheet. */
   keySheet(): void;
 }
@@ -102,16 +99,6 @@ export function studioKey(event: KeyboardEvent, act: StudioKeyActions): boolean 
   // Esc only lets go: with nothing in hand it does nothing, and Studio stays open.
   if (key === "Escape") {
     act.dismiss();
-    return true;
-  }
-  // Focus mode: the backslash character, whatever keys a layout (AltGr,
-  // Option) types it with; or the US backslash key, whose character a
-  // modifier may change. A held chord toggles once.
-  if (
-    command &&
-    (key === "\\" || (event.code === "Backslash" && !event.altKey && !event.shiftKey))
-  ) {
-    if (!event.repeat) act.focusMode();
     return true;
   }
   const plain = !command && !event.altKey;

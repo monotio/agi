@@ -11,8 +11,8 @@ import type { KeepBanner, KeepRecovery } from "./useStudioKeep.ts";
  * offers and its technical detail behind a disclosure that opens above the
  * line. Each has its own close button.
  */
-const { banner, notice } = defineProps<{
-  banner: KeepBanner | null;
+const { banner = null, notice } = defineProps<{
+  banner?: KeepBanner | null;
   notice: StudioNotice | null;
 }>();
 const emit = defineEmits<{

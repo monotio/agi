@@ -123,7 +123,9 @@ function page(direction: 1 | -1): void {
   const el = scroller.value;
   if (!el) return;
   const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
-  const step = Math.max(32, el.clientHeight - 48);
+  // A tool's height follows the control size: 32 px where a short window shrinks them.
+  const toolHeight = el.querySelector(".tool-rail__tool")?.getBoundingClientRect().height ?? 48;
+  const step = Math.max(32, el.clientHeight - toolHeight);
   el.scrollBy({ top: direction * step, behavior: reduce ? "auto" : "smooth" });
 }
 const revealPressed = () => reveal(scroller.value?.querySelector('[aria-pressed="true"]'));

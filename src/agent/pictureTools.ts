@@ -22,8 +22,8 @@ import { parsePictureDocument, serializePictureDocument } from "../studio/pictur
 const MAX_SHAPES = 128;
 const MAX_VERTICES_PER_SHAPE = 64;
 const MAX_TOTAL_VERTICES = 2048;
-/** The largest picture draw_picture_items compiles; Room Studio's byte meter warns against it. */
-export const MAX_PAYLOAD_BYTES = 60_000;
+/** The largest picture draw_picture_items compiles. */
+const MAX_PAYLOAD_BYTES = 60_000;
 const MAX_SHAPE_NAME = 48;
 
 const POINT_SCHEMA = {

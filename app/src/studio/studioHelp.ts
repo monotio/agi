@@ -140,7 +140,6 @@ export function roomKeySheet(tool: StudioTool): KeySection[] {
               { keys: [keyLabel("Alt+click"), "Insert"], does: "Add a point to the selected line" },
             ]),
         { keys: ["Esc"], does: "Cancel one thing per press" },
-        { keys: [keyLabel("Mod+\\")], does: "Hide or show the side panels (focus mode)" },
         { keys: ["Menu", keyLabel("Shift+F10")], does: "Canvas menu: Play here, test walks" },
       ],
     },

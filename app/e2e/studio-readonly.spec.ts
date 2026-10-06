@@ -244,7 +244,7 @@ test("a long list folds into draw-order sections, and a canvas click opens one",
   );
 });
 
-test("Alt+arrow keys on the canvas step through items; ⌘\\ is focus mode, Tab and Shift+Tab leave", async ({
+test("Alt+arrow keys on the canvas step through items; Tab and Shift+Tab leave", async ({
   page,
 }) => {
   await open(page, "demo");
@@ -258,13 +258,6 @@ test("Alt+arrow keys on the canvas step through items; ⌘\\ is focus mode, Tab 
   await page.keyboard.press("Alt+ArrowUp");
   await expect(selected).toHaveAttribute("data-row", "floor");
   await page.keyboard.press("Alt+ArrowLeft");
-  await expect(selected).toHaveAttribute("data-row", "floor");
-  // ⌘\ (Ctrl+\ off a Mac) hides and shows the side panels; focus stays on the canvas.
-  await page.keyboard.press("ControlOrMeta+Backslash");
-  await expect(canvas).toBeFocused();
-  await expect(page.locator(".studio__scene")).toBeHidden();
-  await page.keyboard.press("ControlOrMeta+Backslash");
-  await expect(page.locator(".studio__scene")).toBeVisible();
   await expect(selected).toHaveAttribute("data-row", "floor");
   // Tab and Shift+Tab are never taken by the canvas: each moves focus on or back.
   await page.keyboard.press("Tab");
@@ -280,7 +273,9 @@ test("Alt+arrow keys on the canvas step through items; ⌘\\ is focus mode, Tab 
 test("studio shortcuts keep working after clicking studio controls", async ({ page }) => {
   await open(page, "demo");
   const lens = (name: string) =>
-    page.getByTestId("studio-lens").getByRole("radio", { name: new RegExp(`^${name}`) });
+    page
+      .getByRole("radiogroup", { name: "Lens", exact: true })
+      .getByRole("radio", { name: new RegExp(`^${name}`) });
   await lens("Walk").click();
   await page.keyboard.press("2");
   await expect(lens("Depth")).toHaveAttribute("aria-checked", "true");
@@ -300,6 +295,7 @@ test("studio shortcuts keep working after clicking studio controls", async ({ pa
 
 test("dragging the scrubber to command k paints exactly renderUpTo(k)", async ({ page }) => {
   await open(page, "1");
+  await page.getByRole("button", { name: "Draw order", exact: true }).click();
   const slider = page.getByRole("slider", { name: "Draw order", exact: true });
   const total = Number(await slider.getAttribute("aria-valuemax"));
   // The playhead counts drawing commands: every compiled span but the closing end.
@@ -368,7 +364,9 @@ test("lens keys switch lenses and studio keys never reach a window listener", as
       );
   });
   const lens = (name: string) =>
-    page.getByTestId("studio-lens").getByRole("radio", { name: new RegExp(`^${name}`) });
+    page
+      .getByRole("radiogroup", { name: "Lens", exact: true })
+      .getByRole("radio", { name: new RegExp(`^${name}`) });
   await page.keyboard.press("2");
   await expect(lens("Depth")).toHaveAttribute("aria-checked", "true");
   await expect(page.locator('[data-role="band-guides"]')).toHaveCount(1);
@@ -381,6 +379,12 @@ test("lens keys switch lenses and studio keys never reach a window listener", as
   await page.keyboard.press("1");
   await expect(lens("Art")).toHaveAttribute("aria-checked", "true");
 
+  // The Walk lens docked the side panel on Inspector; Items brings the list back.
+  await page
+    .getByRole("radiogroup", { name: "Side panel", exact: true })
+    .getByRole("radio", { name: "Items", exact: true })
+    .click();
+  await page.getByRole("button", { name: "Draw order", exact: true }).click();
   const slider = page.getByRole("slider", { name: "Draw order", exact: true });
   const total = Number(await slider.getAttribute("aria-valuemax"));
   await page.keyboard.press(",");
@@ -399,21 +403,15 @@ test("lens keys switch lenses and studio keys never reach a window listener", as
     [],
   );
 
-  // Esc with nothing in hand stays in Studio: the × closes it.
+  // Esc with nothing in hand stays in Studio (its tab's × closes it, as in the workspace).
   await page.keyboard.press("Escape");
-  expect(await page.evaluate(() => (window as unknown as HarnessWindow).studioHarness.closes)).toBe(
-    0,
-  );
-  await page.getByTestId("studio-close").click();
-  expect(await page.evaluate(() => (window as unknown as HarnessWindow).studioHarness.closes)).toBe(
-    1,
-  );
+  await expect(page.getByTestId("room-studio")).toBeVisible();
   expect(await page.evaluate(() => (window as unknown as { seenKeys: string[] }).seenKeys)).toEqual(
     [],
   );
 });
 
-test("a picture rebuilt from the game's bytes reads as its own source once kept: the kept text is stored", async ({
+test("a picture rebuilt from the game's bytes reads as its own source once its draft is written back", async ({
   page,
 }) => {
   await open(page, "demo&authored=0");
@@ -426,8 +424,11 @@ test("a picture rebuilt from the game's bytes reads as its own source once kept:
   for (const key of ["ArrowRight", "ArrowDown"])
     for (let i = 0; i < 3; i++) await page.keyboard.press(key);
   await page.keyboard.press("Space");
-  await expect(page.getByTestId("studio-draft-status")).toHaveText("1 change");
-  await page.getByTestId("studio-keep").click();
-  await expect(page.getByTestId("studio-draft-status")).toHaveText("Kept");
+  // The emitted draft is written back as the authored source: the rebuild is trusted.
+  await expect
+    .poll(async () =>
+      page.evaluate(() => (window as unknown as HarnessWindow).studioHarness.edits.length),
+    )
+    .toBe(1);
   await expect(source).toHaveCount(0);
 });
