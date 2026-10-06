@@ -1703,8 +1703,10 @@ function onKeyup(event: KeyboardEvent): void {
   container-type: inline-size;
   /* Rows: the meta strip, the tool and view options, the canvas (which takes
      what's left), the palette and draw order, then the status bar, which is
-     28px and grows to fit its controls. */
-  grid-template-rows: auto minmax(40px, max-content) minmax(0, 1fr) auto minmax(28px, auto);
+     28px and grows to fit its controls. The canvas keeps a floor because the
+     side panel rides its row: below it the studio scrolls, like the phone
+     layout, instead of squeezing the panel's list under a row. */
+  grid-template-rows: auto minmax(40px, max-content) minmax(160px, 1fr) auto minmax(28px, auto);
   grid-template-columns: 0 44px minmax(0, 1fr) clamp(140px, 30%, 260px);
   width: 100%;
   height: 100%;
