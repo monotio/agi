@@ -67,7 +67,6 @@ const taskContext = ref("");
 const formatReply = shallowRef<ReplyFormatter>();
 const composer = useTemplateRef("composer");
 onMounted(() => {
-  window.addEventListener("keydown", onEscapeKey);
   if (!document.querySelector("dialog[open]")) composer.value?.focus();
 });
 watch(
@@ -319,8 +318,9 @@ function newChat() {
   void action(() => agent.value?.newChat());
   chatList.value = false;
 }
+// Esc belongs to the panel only while focus is inside it: the game, the
+// editors and their popups keep their own Esc.
 function onEscapeKey(event: KeyboardEvent) {
-  if (event.key !== "Escape") return;
   if (document.querySelector("dialog[open]")) return;
   event.preventDefault();
   event.stopPropagation();
@@ -371,7 +371,6 @@ const offNewChat = commands?.register({
   run: newChat,
 });
 onBeforeUnmount(() => {
-  window.removeEventListener("keydown", onEscapeKey);
   retired = true;
   off?.();
   offApprove?.();

@@ -259,7 +259,11 @@ for (const size of [
 
     await openWorkspaceAgent(page);
     await expect(panel).toBeVisible();
+    // Esc outside the panel stays with the game and editors.
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
     await page.keyboard.press("Escape");
+    await expect(panel).toBeVisible();
+    await panel.getByRole("textbox").first().press("Escape");
     await expect(panel).toBeHidden();
   });
 }
