@@ -427,7 +427,7 @@ function renderHeroStage(): void {
     }
     ctx.putImageData(imgData, 0, 0);
   } else {
-    ctx.fillStyle = "#111";
+    ctx.fillStyle = `rgb(${EGA_PALETTE[0]!.join(" ")})`;
     ctx.fillRect(0, 0, 160, 168);
   }
 
@@ -437,7 +437,7 @@ function renderHeroStage(): void {
     const hx = Math.max(0, Math.min(159, hero.x));
     const hy = Math.max(0, Math.min(167, hero.y));
 
-    ctx.strokeStyle = "#ffff55";
+    ctx.strokeStyle = `rgb(${EGA_PALETTE[14]!.join(" ")})`;
     ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.arc(hx, hy, 4, 0, 2 * Math.PI);
@@ -1038,13 +1038,13 @@ function handleCanvasDrag(event: MouseEvent): void {
 
 .launch-pill--active {
   background: var(--surface-3);
-  border-color: var(--color-focus, var(--teal-6));
+  border-color: var(--focus);
   color: var(--ink);
   font-weight: var(--weight-semibold);
 }
 
 .launch-pill__check {
-  color: var(--teal-4, #2dd4bf);
+  color: var(--action);
   font-weight: var(--weight-bold);
 }
 
@@ -1113,7 +1113,7 @@ function handleCanvasDrag(event: MouseEvent): void {
   padding: var(--space-1) var(--space-2);
   border-radius: var(--radius-sm);
   background: var(--surface-2);
-  color: var(--teal-4, #2dd4bf);
+  color: var(--action);
   font: var(--weight-semibold) var(--text-xs) var(--font-sans);
 }
 
@@ -1223,7 +1223,7 @@ function handleCanvasDrag(event: MouseEvent): void {
   border: 1px solid var(--hairline);
   border-radius: var(--radius-sm);
   overflow: hidden;
-  background: #000;
+  background: var(--surface-sunken);
   display: inline-block;
   cursor: crosshair;
 }
