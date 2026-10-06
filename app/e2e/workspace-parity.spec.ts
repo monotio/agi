@@ -74,35 +74,54 @@ test.describe("phone Items", () => {
     await page.screenshot({ path: test.info().outputPath("phone-selected-item.png") });
   });
 });
-test("a native picture explains its Rebuilt source in the workspace", async ({ page }) => {
-  const studio = await picture(page);
-  const bytes = openContainer(new Map(Object.entries(buildTutorial().files))).getResource(
-    "picture",
-    1,
-  )!;
-  await page.evaluate(
-    async (payload) => {
-      const session = (
-        window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }
-      ).__AGI_PROJECT__.getSession();
-      await session.submit({
-        proposal: session.model.propose(session.model.capture(), "Native picture", [
-          { key: "picture:1", content: new Uint8Array(payload) },
-        ]),
-        label: "Native picture",
-        origin: "picture",
-        author: "creator",
+for (const width of [1063, 1440, 390]) {
+  test.describe(`${width} Rebuilt`, () => {
+    test.use({
+      viewport: { width, height: width === 1063 ? 815 : width === 1440 ? 900 : 844 },
+      hasTouch: width === 390,
+    });
+    test("a native picture explains its Rebuilt source in the workspace", async ({ page }) => {
+      const studio = await picture(page);
+      const bytes = openContainer(new Map(Object.entries(buildTutorial().files))).getResource(
+        "picture",
+        1,
+      )!;
+      await page.evaluate(
+        async (payload) => {
+          const session = (
+            window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }
+          ).__AGI_PROJECT__.getSession();
+          await session.submit({
+            proposal: session.model.propose(session.model.capture(), "Native picture", [
+              { key: "picture:1", content: new Uint8Array(payload) },
+            ]),
+            label: "Native picture",
+            origin: "picture",
+            author: "creator",
+          });
+        },
+        [...bytes],
+      );
+      // The first accepted edit saves a personal copy and updates the workspace header.
+      await workspaceSaved(page);
+      await expect(page).toHaveURL(/#create\/remix-/);
+      const rebuilt = studio.getByTestId("studio-source-kind");
+      await expect(rebuilt).toBeVisible();
+      await expect(rebuilt).toContainText("Rebuilt");
+      const term = rebuilt.locator('[data-term="rebuilt"]');
+      await expect(term).toBeVisible();
+      if (width === 390) await term.tap();
+      else await term.click();
+      const pop = page.getByTestId("explain-pop");
+      await expect(pop).toBeVisible();
+      await pop.evaluate(async (element) => {
+        await Promise.all(element.getAnimations().map((animation) => animation.finished));
       });
-    },
-    [...bytes],
-  );
-  const rebuilt = studio.getByTestId("studio-source-kind");
-  await expect(rebuilt).toBeVisible();
-  await expect(rebuilt).toContainText("Rebuilt");
-  await rebuilt.locator('[data-term="rebuilt"]').click();
-  await expect(page.getByTestId("explain-pop")).toBeVisible();
-  await page.screenshot({ path: test.info().outputPath("rebuilt-picture.png") });
-});
+      await expect(pop).toBeVisible();
+      await page.screenshot({ path: test.info().outputPath("rebuilt-picture.png") });
+    });
+  });
+}
 test("side panel collapse widens the PICTURE canvas", async ({ page }) => {
   await page.setViewportSize({ width: 1063, height: 815 });
   const studio = await picture(page);
