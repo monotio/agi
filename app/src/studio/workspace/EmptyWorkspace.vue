@@ -2,8 +2,8 @@
 import { VOCABULARY } from "../../../../src/vocabulary.ts";
 import "./workspace.css";
 import { onBeforeUnmount, ref } from "vue";
-import { loadAuthoredGameWithHistoryLifetime } from "../../project/gameStorage.ts";
-import { openProjectSession, type ProjectSession } from "../../project/projectSession.ts";
+import { emptyStageSession, openPlayableProject } from "../../home/emptyStageSession.ts";
+import { useOpenAgent } from "../../agent/openAgent.ts";
 import { emptyWorkspaceChanges } from "./emptyWorkspace.ts";
 import { useGameLibrary } from "../../library/useGameLibrary.ts";
 import { useEngineApi } from "../../engine/engineContext.ts";
@@ -26,26 +26,15 @@ const mode = ref("create");
 const groups = workspaceParts({ keys: [], rooms: [], currentRoom: null });
 const busy = ref(false);
 const error = ref("");
-let session: ProjectSession | undefined;
 let active = true;
+const openAgent = useOpenAgent();
 async function start(action: "room" | "boilerplate"): Promise<void> {
   if (busy.value) return;
   busy.value = true;
   error.value = "";
   try {
-    const held = await loadAuthoredGameWithHistoryLifetime(project.projectId);
-    if (!active || !held?.lifetime) return;
-    session = openProjectSession({
-      data: held.data,
-      lifetime: held.lifetime,
-      current: () => active,
-      admission: {
-        runToken: `empty-${crypto.randomUUID()}`,
-        async admit() {
-          return { status: "unchanged", expected: null, current: null, patchGeneration: 0 };
-        },
-      },
-    });
+    const session = await emptyStageSession(project);
+    if (!session || !active) return;
     const changes = emptyWorkspaceChanges(action);
     const result = await session.submit({
       proposal: session.model.propose(session.model.capture(), "Added a room", changes),
@@ -57,13 +46,7 @@ async function start(action: "room" | "boilerplate"): Promise<void> {
       throw new Error("The first room could not build. Retry to add it.");
     await session.flush();
     if (session.saveStatus().state !== "saved") throw new Error(session.saveStatus().message);
-    session.dispose();
-    session = undefined;
-    library.refreshLibrary(project.projectId);
-    engine.setProjectMode("create");
-    await library.onBootSavedGame();
-    shell.expectCreate(project.projectId);
-    emptyProject.value = null;
+    await openPlayableProject({ engine, library, shell, projectId: project.projectId });
   } catch (cause) {
     error.value = String(cause instanceof Error ? cause.message : cause);
   } finally {
@@ -72,7 +55,6 @@ async function start(action: "room" | "boilerplate"): Promise<void> {
 }
 onBeforeUnmount(() => {
   active = false;
-  session?.dispose();
 });
 function goHome(): void {
   emptyProject.value = null;
@@ -96,7 +78,7 @@ function goHome(): void {
       />
       <UiIconButton icon="undo" label="Undo" :title="VOCABULARY.undo.help" disabled />
       <UiIconButton icon="redo" label="Redo" :title="VOCABULARY.redo.help" disabled />
-      <UiButton icon="sparkles" variant="ghost" :title="VOCABULARY.agent.help" disabled
+      <UiButton icon="sparkles" variant="ghost" :title="VOCABULARY.agent.help" @click="openAgent()"
         >Agent</UiButton
       >
       <UiIconButton icon="help" label="Help" @click="bridge.openHelp()" />

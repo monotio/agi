@@ -95,8 +95,6 @@ test("UI explainers use the canonical help lines", () => {
     transparent: "transparentColour",
     onion: "onionSkin",
     keep: "saved",
-    "ask-scope": "agent",
-    "ask-cels": "agent",
   } as const;
   for (const [ui, id] of Object.entries(pairs)) {
     assert.equal(STUDIO_TERMS[ui as keyof typeof STUDIO_TERMS].says, VOCABULARY[id].help, ui);

@@ -36,7 +36,6 @@ import { followedItem } from "../../../src/studio/rules/ruleBinding.ts";
 import type { RuleSession } from "../../../src/studio/rules/ruleEdit.ts";
 import type { Point } from "../../../src/studio/shapes.ts";
 import { engineKey } from "../engine/engineContext.ts";
-import { aiSettingsKey } from "../settings/useAiSettings.ts";
 import type { StudioRoomSource } from "../world/studioSource.ts";
 import type { LessonSession } from "../lessons/lessonCheck.ts";
 import LessonCard from "../lessons/LessonCard.vue";
@@ -125,8 +124,8 @@ import { useUndoOrder } from "./useUndoOrder.ts";
  * actor probe stands a VIEW from the game's `files` on the draft. The Walk
  * view (useStudioWalk) adds test walks, Play here and the room's doors,
  * whose logic edits emit room-edit for the workspace to keep with the
- * picture. The selected items are offered to the workspace agent
- * (agent-context, agent-ask). Several items can be selected
+ * picture. The selected items follow the workspace agent's context chip
+ * (agent-context). Several items can be selected
  * (useStudioSelection) and moved, copied, deleted or grouped together (and a
  * group ungrouped); the selection's actions dock in the options bar above
  * the canvas, so nothing covers the picture.
@@ -202,7 +201,6 @@ const emit = defineEmits<{
     y: number,
   ];
   "agent-context": [context: { label: string; text: string } | null];
-  "agent-ask": [];
   "play-here": [target: PlayHereTarget];
 }>();
 
@@ -361,10 +359,6 @@ watch(logic.source, () => {
       emit("room-edit", walk.room, followed.source, followed.newBindings, undefined);
   }
 });
-// ---- The workspace agent ---------------------------------------------------
-const aiSettings = inject(aiSettingsKey, null);
-/** Ask opens the workspace agent; without the app shell (the harness) there is none. */
-const agentReady = engineApi !== null && aiSettings !== null;
 /** The selected items the agent's context chip follows: an item, a group's members, or several items. */
 const askTargets = computed<string[]>(() => {
   const items = new Set(draft.document.value.items.map((item) => item.id));
@@ -387,11 +381,6 @@ watch(
   },
   { immediate: true },
 );
-function askAgent(): boolean {
-  if (!agentReady) return false;
-  emit("agent-ask");
-  return true;
-}
 const editing = useStudioEditing({
   draft,
   selectedId,
@@ -1003,16 +992,6 @@ const selectionMenu = computed<CanvasMenuItem[]>(() =>
               ? "Delete line"
               : "Delete shape",
         },
-        ...(editing.several.value
-          ? [{ id: "combine", label: "Group…" }]
-          : [{ id: "ungroup", label: "Ungroup" }]),
-        {
-          id: "ask",
-          label: "Tell the agent about the selection",
-          ...(agentReady
-            ? {}
-            : { disabled: true, title: "An AI model is required. Choose a model in Settings." }),
-        },
       ],
 );
 const menuItems = computed<CanvasMenuItem[]>(() => [
@@ -1059,11 +1038,9 @@ function pickMenu(id: string): void {
   keepFocus();
   if (!cell) return;
   if (id === "duplicate") editing.duplicate();
-  else if (id === "delete") editing.remove();
   else if (id === "priority") priorityOpen.value = true;
   else if (id === "combine") openCombine();
   else if (id === "ungroup") editing.ungroup();
-  else if (id === "ask") askAgent();
   else if (id === "delete-point") removePoint();
   else if (id === "play") playHere(cell);
   else if (id === "walk-from") {
@@ -1226,7 +1203,6 @@ const keys: StudioKeyActions = {
   redo: undoOrder.redo,
   tool: toolKey,
   finish: tools.finish,
-  ask: askAgent,
   insertPoint: insertPointAtCursor,
   keySheet: () => (sheetOpen.value = true),
 };

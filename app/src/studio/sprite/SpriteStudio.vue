@@ -72,8 +72,7 @@ export type SpriteKeepFn = (
  * or the view (SpriteRecolor.vue), and the contact sheet shows every cel in
  * place of the canvas (SpriteContactSheet.vue). Keys are handled at the
  * root and stopped (spriteKeys.ts), so none reach the game, and focus never
- * falls out of the editor while it is open; `/` asks the workspace agent
- * about the selection.
+ * falls out of the editor while it is open.
  */
 const {
   viewNumber,
@@ -117,7 +116,6 @@ const emit = defineEmits<{
   edit: [bytes: Uint8Array];
   "use-staged": [bytes: Uint8Array];
   "agent-context": [context: { label: string; text: string }];
-  "agent-ask": [];
 }>();
 
 const draft = useSpriteDraft({
@@ -189,11 +187,6 @@ watch(
   },
   { immediate: true },
 );
-/** `/` opens the workspace agent on the selection. */
-function askAgent(): boolean {
-  emit("agent-ask");
-  return true;
-}
 /** What the canvas and previews show: the gesture's preview, else the document. */
 const shown = draft.shown;
 const celPanel = useTemplateRef("celPanel");
@@ -437,7 +430,6 @@ const keys: SpriteKeyActions = {
     else if (next) tools.setTool(next);
     return next !== undefined;
   },
-  ask: askAgent,
   keySheet: () => (calm.sheetOpen.value = true),
 };
 /** Every key stops here so the game never sees it. */

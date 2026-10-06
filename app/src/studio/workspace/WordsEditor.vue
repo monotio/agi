@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import UiIcon from "../../ui/UiIcon.vue";
-import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
+import { computed, nextTick, ref, watch } from "vue";
 import { VOCABULARY, WORDS_EDITOR_COPY } from "../../../../src/vocabulary.ts";
 import { parseSentence } from "../../../../src/runtime/parser.ts";
 import { buildWordsTok } from "../../../../src/logic/words.ts";
@@ -9,7 +9,6 @@ import type { ProjectContent } from "../../../../src/authoring/projectContent.ts
 import type { PlayerSentence } from "../../project/playerSentences.ts";
 import { useWorkspaceEditor } from "../../shell/workspaceEditor.ts";
 import { useEngineApi } from "../../engine/engineContext.ts";
-import { useAiSettings } from "../../settings/useAiSettings.ts";
 import UiButton from "../../ui/UiButton.vue";
 import UiExplain from "../../ui/UiExplain.vue";
 import { wordGroups, nextWordGroup } from "./wordGroups.ts";
@@ -19,12 +18,8 @@ import {
   sentenceOutcomes,
   type WordRows,
 } from "./wordsAnalysis.ts";
-import {
-  readWordSuggestions,
-  wordsTaskRequest,
-  wordsTaskReply,
-  type WordsTask,
-} from "./wordsPrompts.ts";
+import { wordsTaskReply, wordsTaskRequest, type WordsTask } from "./wordsPrompts.ts";
+import { useOpenAgent } from "../../agent/openAgent.ts";
 import type { ProjectSnapshot } from "../../../../src/authoring/projectModel.ts";
 import { prepareWorkspaceAction, type WorkspaceAction } from "./workspaceGuided.ts";
 import SentenceFields from "./SentenceFields.vue";
@@ -43,24 +38,15 @@ const emit = defineEmits<{
   remove: [word: string];
   openLogic: [logic: number, line: number];
   response: [room: number, command: string];
-  task: [task: WordsTask];
-  chat: [];
   guided: [action: WorkspaceAction];
 }>();
 const engine = useEngineApi();
 void engine.loadPlayerSentences();
 const editor = useWorkspaceEditor();
-const ai = useAiSettings();
 const copy = WORDS_EDITOR_COPY;
 const adding = ref<number>();
 const more = ref(false);
-const taskProblems = ref<Record<string, string>>({});
-const taskRequests = ref<Record<string, WordsTask>>({});
-const toast = ref("");
-let retired = false;
-onBeforeUnmount(() => {
-  retired = true;
-});
+const openAgent = useOpenAgent();
 
 const roomName = computed(
   () =>
@@ -86,36 +72,6 @@ watch(sentence, () => {
   more.value = false;
 });
 const error = ref("");
-const ghosts = ref<Record<string, string[]>>({});
-const predictions = ref<string[]>([]);
-const predictionRows = computed(() =>
-  predictions.value.map((command) => {
-    const parsed = parseSentence(command, new Map(entries.value));
-    const unknown = parsed.tokens.find((token) => token.status === "new")?.text;
-    const outcomes = sentenceOutcomes(
-      command,
-      entries.value,
-      props.documents,
-      props.room,
-      props.profile,
-    );
-    const answered = !unknown && outcomes.length > 0;
-    const conditional = outcomes.some((outcome) => outcome.conditional);
-    return {
-      command,
-      answered,
-      description: unknown
-        ? `“${unknown}” is a new word`
-        : answered
-          ? conditional
-            ? "Answers when the game's state allows it"
-            : `LOGIC ${outcomes[0]!.logic} answers`
-          : VOCABULARY.noResponse.label,
-    };
-  }),
-);
-const predictOpen = ref(false);
-const dismissedTask = ref(false);
 const groups = computed(() => {
   const rows = wordGroups(entries.value).map((group) => {
     const head =
@@ -221,7 +177,6 @@ function addWord(id: number, value?: string): void {
   }
   write([...entries.value, [word, id]]);
   drafts.value[String(id)] = "";
-  ghosts.value[String(id)] = (ghosts.value[String(id)] ?? []).filter((ghost) => ghost !== word);
 }
 function wordKey(event: KeyboardEvent, id: number, words: readonly string[]): void {
   if (props.readOnly) return;
@@ -248,14 +203,6 @@ async function openAdd(id: number): Promise<void> {
   adding.value = id;
   await nextTick();
   document.querySelector<HTMLInputElement>(`[data-word-group="${id}"] .add-word`)?.focus();
-}
-function addAll(id: number): void {
-  if (props.readOnly) return;
-  const words = (ghosts.value[String(id)] ?? []).filter(
-    (word) => !entries.value.some(([existing]) => existing === word),
-  );
-  write([...entries.value, ...words.map((word) => [word, id] as const)]);
-  if (!error.value) ghosts.value[String(id)] = [];
 }
 function drop(event: DragEvent, to: number): void {
   if (props.readOnly) return;
@@ -296,74 +243,30 @@ function addAnswer(): void {
   if (!props.readOnly && teachAction.value && teachPreview.value?.ok)
     emit("guided", teachAction.value);
 }
-const receivedReplies = new Set<string>();
-const taskSources: Record<string, { source: string; room: number }> = {};
-const chatSession = engine.getProjectSession();
-const stopChatWatch = chatSession?.subscribe(() => {
-  if (retired || dismissedTask.value) return;
-  for (const chat of chatSession.chats().chats) {
-    for (const [index, message] of chat.messages.entries()) {
-      if (message.role !== "assistant" || receivedReplies.has(message.id) || !message.context)
-        continue;
-      const request = chat.messages.slice(0, index).findLast((entry) => entry.role === "user");
-      const match = Object.entries(taskRequests.value).find(
-        ([, value]) => wordsTaskRequest(value, props.documents).text === request?.text,
-      );
-      if (!match) continue;
-      const [key, value] = match;
-      receivedReplies.add(message.id);
-      if (taskSources[key]?.source !== props.source || taskSources[key]?.room !== props.room) {
-        taskProblems.value[key] = copy.changed;
-        continue;
-      }
-      const values = readWordSuggestions(message.context, value.kind);
-      taskProblems.value[key] = values.length ? "" : wordsTaskReply(message.context, value).text;
-      if (value.kind === "suggest") {
-        ghosts.value[key] = values.filter(
-          (word) => !entries.value.some(([existing]) => existing === word),
-        );
-        if (values.length && !ghosts.value[key]!.length) taskProblems.value[key] = copy.existing;
-      } else {
-        predictions.value = values;
-        predictOpen.value = true;
-      }
-      if (values.length)
-        toast.value = copy.suggestionsFrom.replace("{model}", ai.aiModelLabel.value);
-    }
-  }
-});
-onBeforeUnmount(() => stopChatWatch?.());
-async function task(value: WordsTask): Promise<void> {
+/** One-click prompts open the agent drawer with a prepared request. */
+function askAgent(value: Exclude<WordsTask, { kind: "review" }>): void {
   if (props.readOnly) return;
-  await editor.flush.value?.();
-  const scoped = value.kind === "suggest" ? value : { ...value, roomName: roomName.value };
-  const key = scoped.kind === "suggest" ? String(scoped.group) : "predict";
-  taskRequests.value[key] = scoped;
-  taskSources[key] = { source: props.source, room: props.room };
-  dismissedTask.value = false;
-  taskProblems.value[key] = "";
-  emit("task", scoped);
+  const task =
+    value.kind === "suggest"
+      ? value
+      : {
+          ...value,
+          roomName: roomName.value,
+          pictures: engine.roomMap.resources.value.scans.get(props.room)?.pictures ?? [],
+        };
+  const request = wordsTaskRequest(task, props.documents);
+  openAgent(request.text, {
+    context: request.context,
+    readOnly: true,
+    formatReply: (reply) => wordsTaskReply(reply, task),
+  });
 }
 function typeInGame(): void {
   engine.sendInput(sentence.value);
 }
 function dismissGhosts(event: KeyboardEvent): void {
-  if (
-    !moving.value &&
-    !teaching.value &&
-    adding.value === undefined &&
-    !more.value &&
-    !predictOpen.value &&
-    !Object.values(ghosts.value).some((words) => words.length) &&
-    !Object.values(taskProblems.value).some(Boolean)
-  )
-    return;
+  if (!moving.value && !teaching.value && adding.value === undefined && !more.value) return;
   event.stopPropagation();
-  dismissedTask.value = true;
-  ghosts.value = {};
-  taskProblems.value = {};
-  predictions.value = [];
-  predictOpen.value = false;
   adding.value = undefined;
   more.value = false;
   moving.value = undefined;
@@ -384,7 +287,7 @@ function dismissGhosts(event: KeyboardEvent): void {
         icon="sparkles"
         :disabled="readOnly"
         :title="readOnly ? 'Editing is paused in this tab' : VOCABULARY.predictCommands.help"
-        @click="task({ kind: 'predict', room })"
+        @click="askAgent({ kind: 'predict', room })"
         >{{ VOCABULARY.predictCommands.label }}</UiButton
       >
       <UiButton
@@ -395,12 +298,6 @@ function dismissGhosts(event: KeyboardEvent): void {
         >{{ VOCABULARY.meaningButton.label }}</UiButton
       >
     </header>
-    <div v-if="toast" class="words-toast" role="status">
-      {{ toast }} · <button class="words-link" @click="emit('chat')">{{ copy.openChat }}</button>
-      <button class="chip-remove" aria-label="Close" @click="toast = ''">
-        <UiIcon name="x" :size="16" />
-      </button>
-    </div>
     <p v-if="error" class="words-error" role="alert">{{ error }}</p>
     <form v-if="moving" class="words-choice" @submit.prevent="move" aria-label="Move to…">
       <strong>{{ VOCABULARY.moveWord.label }} {{ moving.word }}</strong>
@@ -626,62 +523,6 @@ function dismissGhosts(event: KeyboardEvent): void {
           </Teleport>
         </div>
       </section>
-      <section v-if="predictOpen" class="words-predictions" aria-label="Predicted commands">
-        <div class="words-section">
-          <h3>✦ Players will likely try in {{ roomName }}</h3>
-          <UiButton
-            size="sm"
-            @click="
-              predictions = [];
-              predictOpen = false;
-              dismissedTask = true;
-            "
-            >{{ copy.dismiss }}</UiButton
-          >
-        </div>
-        <div v-if="taskProblems['predict']" class="words-error" role="alert">
-          {{ taskProblems["predict"] }}
-          <button
-            class="words-link"
-            :disabled="readOnly"
-            :title="readOnly ? 'Editing is paused in this tab' : copy.retry"
-            @click="task(taskRequests['predict']!)"
-          >
-            {{ copy.retry }}
-          </button>
-        </div>
-        <div v-for="prediction in predictionRows" :key="prediction.command" class="tried-row">
-          <code class="prediction-ghost">✦ {{ prediction.command }}</code
-          ><small>{{ prediction.answered ? "✓ " : "○ " }}{{ prediction.description }}</small>
-          <UiButton
-            v-if="!prediction.answered"
-            size="sm"
-            @click="!readOnly && emit('response', room, prediction.command)"
-            :disabled="readOnly"
-            :title="readOnly ? 'Editing is paused in this tab' : undefined"
-            >{{ VOCABULARY.addResponse.label }}</UiButton
-          >
-        </div>
-        <UiButton
-          v-if="predictions.length"
-          size="sm"
-          :disabled="readOnly || predictionRows.every((row) => row.answered)"
-          :title="
-            readOnly
-              ? 'Editing is paused in this tab'
-              : 'Choose commands with a response gap to review'
-          "
-          @click="
-            task({
-              kind: 'review',
-              room,
-              commands: predictionRows.filter((row) => !row.answered).map((row) => row.command),
-            })
-          "
-          >{{ copy.addAll }}</UiButton
-        >
-        <p class="words-note">{{ VOCABULARY.predictCommands.help }}</p>
-      </section>
       <section :aria-label="VOCABULARY.playersTried.label">
         <div class="words-section">
           <h3>{{ VOCABULARY.playersTried.label }}</h3>
@@ -793,29 +634,6 @@ function dismissGhosts(event: KeyboardEvent): void {
                 <UiIcon name="x" :size="16" /></button
             ></span>
             <button
-              v-for="word in ghosts[String(group.id)] ?? []"
-              :key="word"
-              class="word-chip word-suggestion"
-              @click="addWord(group.id, word)"
-              :disabled="readOnly"
-              :title="readOnly ? 'Editing is paused in this tab' : undefined"
-            >
-              <UiIcon name="sparkles" :size="16" /> {{ word }}
-            </button>
-            <template v-if="ghosts[String(group.id)]?.length">
-              <button
-                class="words-link"
-                @click="addAll(group.id)"
-                :disabled="readOnly"
-                :title="readOnly ? 'Editing is paused in this tab' : undefined"
-              >
-                {{ copy.addAll }}
-              </button>
-              <button class="words-link" @click="ghosts[String(group.id)] = []">
-                {{ copy.dismiss }}
-              </button>
-            </template>
-            <button
               v-if="adding !== group.id"
               class="word-chip row-action"
               :aria-label="VOCABULARY.addWord.label"
@@ -839,21 +657,10 @@ function dismissGhosts(event: KeyboardEvent): void {
               class="words-link suggest row-action"
               :disabled="readOnly"
               :title="readOnly ? 'Editing is paused in this tab' : VOCABULARY.suggestWords.help"
-              @click="task({ kind: 'suggest', group: group.id, words: group.words })"
+              @click="askAgent({ kind: 'suggest', group: group.id, words: group.words })"
             >
               <UiIcon name="sparkles" :size="16" /> {{ VOCABULARY.suggestWords.label }}
             </button>
-            <div v-if="taskProblems[String(group.id)]" class="words-error" role="alert">
-              {{ taskProblems[String(group.id)] }}
-              <button
-                class="words-link"
-                :disabled="readOnly"
-                :title="readOnly ? 'Editing is paused in this tab' : copy.retry"
-                @click="task(taskRequests[String(group.id)]!)"
-              >
-                {{ copy.retry }}
-              </button>
-            </div>
           </div>
           <div class="meaning-uses">
             <template v-if="group.usage.locations.length">
@@ -1139,13 +946,6 @@ p {
   border-color: var(--action-line);
   font-weight: 600;
 }
-.word-suggestion {
-  border-color: var(--action-line);
-  border-style: dashed;
-  background: transparent;
-  color: var(--action);
-  cursor: pointer;
-}
 .chip-remove,
 .chip-move {
   border: 0;
@@ -1242,17 +1042,6 @@ input.add-word {
   opacity: 1;
   pointer-events: auto;
 }
-.words-toast {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-2) var(--space-5);
-  font-size: var(--text-xs);
-  color: var(--ink-3);
-}
-.words-toast .chip-remove {
-  margin-left: auto;
-}
 .tester-more {
   position: relative;
 }
@@ -1268,14 +1057,7 @@ input.add-word {
   border-radius: var(--radius);
   box-shadow: var(--shadow-pop);
 }
-.prediction-ghost {
-  border: 1px dashed var(--action-line);
-  border-radius: var(--radius-pill);
-  padding: var(--space-1) var(--space-3);
-  color: var(--action);
-}
-.tried-list,
-.words-predictions {
+.tried-list {
   background: var(--surface-1);
   border: 1px solid var(--hairline);
   border-radius: var(--radius-lg);

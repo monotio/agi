@@ -117,14 +117,15 @@ for (const [width, height] of [
     );
     await expect(bar.getByTestId("selection-priority")).toBeVisible();
     await expect.poll(barFits).toBe(true);
-    // The selection's agent path is the canvas menu (the workspace agent owns Ask).
+    // The selection's actions dock in the options bar; the canvas menu has no agent entry.
     const selection = (await pane.locator('[data-role="selection"]').boundingBox())!;
     await page.mouse.click(selection.x + selection.width / 2, selection.y + selection.height / 2, {
       button: "right",
     });
     await expect(
       page.getByRole("menuitem", { name: "Tell the agent about the selection", exact: true }),
-    ).toBeVisible();
+    ).toHaveCount(0);
+    await expect(page.getByRole("menuitem", { name: "Delete line", exact: true })).toBeVisible();
     await page.keyboard.press("Escape");
     // Depth and Walk: the view switch and the legend toggle sit in the options bar.
     for (const lens of ["2", "3"]) {
@@ -202,7 +203,6 @@ test("? lists every key in a dialog, and Esc puts it away without leaving Studio
   await expect(sheet).toContainText(
     "Click at the cursor: adds a point; on the last point, finishes",
   );
-  await expect(sheet).toContainText("Tell the agent about the selection");
   await page.keyboard.press("Escape");
   await expect(sheet).toBeHidden();
   await expect(studio).toBeVisible();

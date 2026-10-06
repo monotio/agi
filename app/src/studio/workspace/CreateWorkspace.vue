@@ -37,8 +37,6 @@ import { useEngineApi } from "../../engine/engineContext.ts";
 import { useCreateWorkspace } from "../../shell/useCreateWorkspace.ts";
 import { useWorkspaceEditor } from "../../shell/workspaceEditor.ts";
 import { openExplainer } from "../../ui/explain.ts";
-import { useAiSettings } from "../../settings/useAiSettings.ts";
-import type { WordsTask } from "./wordsPrompts.ts";
 import UiButton from "../../ui/UiButton.vue";
 import PartsList from "./PartsList.vue";
 import ProjectTabs from "../host/ProjectTabs.vue";
@@ -93,10 +91,6 @@ function openPart(key: string, pinned = false, room?: number): void {
   if (window.innerWidth <= 600) {
     editor.partsOpen.value = false;
   }
-}
-function openAgent(): void {
-  engine.state.powerUp.mode = "remix";
-  engine.state.powerUp.open = true;
 }
 const snapshot = shallowRef<ProjectSnapshot>();
 const languageSnapshot = shallowRef<ProjectSnapshot>();
@@ -1268,32 +1262,6 @@ function wordResponse(room: number, command: string): void {
   guidedCommand.value = command;
   guidedKind.value = "response";
 }
-const ai = useAiSettings();
-async function openWordsChat(): Promise<void> {
-  editor.focus.value = false;
-  if (!engine.state.powerUp.open) await engine.openPowerUp(ai.llmConfig());
-  workspace.showPanel("assistant");
-}
-async function wordsTask(task: WordsTask): Promise<void> {
-  editor.focus.value = false;
-  const { openWordsTask } = await import("./wordsPrompts.ts");
-  const scoped =
-    task.kind === "suggest"
-      ? task
-      : { ...task, pictures: engine.roomMap.resources.value.scans.get(task.room)?.pictures ?? [] };
-  await openWordsTask({
-    task: scoped,
-    documents: snapshot.value?.documents() ?? {},
-    engine,
-    compose: (request) => {
-      workspace.showPanel("assistant");
-      editor.agentPrefill.value = { ...request, readOnly: task.kind !== "review" };
-    },
-    configured: ai.aiConfigured.value,
-    config: ai.llmConfig(),
-    setup: () => ai.openAiSettings(null, "assistant"),
-  });
-}
 async function wordChange(
   action: { from: number; to: number; word?: string } | { remove: string },
 ): Promise<void> {
@@ -1976,7 +1944,6 @@ onBeforeUnmount(() => {
         :figures="key === editor.selected.value ? figures : []"
         @place-figure="placeFigure"
         @agent-context="editor.setAgentContext(key, $event)"
-        @agent-ask="openAgent"
         :underlay="traceUnderlays[key] ?? null"
         :walk="pictureWalks[key]"
         :current-room-source="
@@ -2014,7 +1981,6 @@ onBeforeUnmount(() => {
         :lesson-session="editor.studioRequests.value[key]?.lesson"
         :view-number="Number(key.split(':')[1])"
         @agent-context="editor.setAgentContext(key, $event)"
-        @agent-ask="openAgent"
         @use-staged="editView(key, $event)"
         :bytes="stagedRequest(key)?.bytes ?? native(key)!"
         :profile="profile"
@@ -2068,8 +2034,6 @@ onBeforeUnmount(() => {
         @open-logic="openWordLogic"
         @response="wordResponse"
         @guided="guidedAction"
-        @task="wordsTask"
-        @chat="openWordsChat"
       />
       <TableEditor
         :read-only="writeConflict || actionBusy"

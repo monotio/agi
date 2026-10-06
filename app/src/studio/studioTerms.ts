@@ -137,18 +137,6 @@ export const STUDIO_TERMS = {
     says: "Drag the door's round handle onto an item. The door moves with it.",
     help: topic("studio-walk"),
   },
-  "ask-scope": {
-    name: VOCABULARY.agent.label,
-    says: VOCABULARY.agent.help,
-    technical: VOCABULARY.agent.technical,
-    help: topic("studio-ask"),
-  },
-  "ask-cels": {
-    name: VOCABULARY.agent.label,
-    says: VOCABULARY.agent.help,
-    technical: VOCABULARY.agent.technical,
-    help: topic("sprites-ask"),
-  },
   rebuilt: {
     name: "Rebuilt",
     says: "These steps come from the game's bytes. Your first edit starts saving their source.",

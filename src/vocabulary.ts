@@ -26,9 +26,9 @@ export const WORDS_EDITOR_COPY = {
 } as const;
 
 export const WORDS_REPLY_COPY = {
-  suggested: "Suggested {words} · shown in WORDS",
-  suggestedCount: "Suggested {count} words · shown in WORDS",
-  predicted: "Predicted {count} {commands} · see Players will likely try in {room}",
+  suggested: "Suggested {words}",
+  suggestedCount: "Suggested {count} words",
+  predicted: "Predicted {count} {commands} players will try in {room}",
   command: "command",
   commands: "commands",
   unreadable: "The reply’s JSON could not be read.",

@@ -47,7 +47,7 @@ const AiSettingsDialog = defineAsyncComponent(() => import("./settings/AiSetting
 const SoundPreview = defineAsyncComponent(() => import("./authoring/SoundPreview.vue"));
 const PlayArea = defineAsyncComponent(() => import("./play/PlayArea.vue"));
 const ReferenceUpload = defineAsyncComponent(() => import("./references/ReferenceUpload.vue"));
-const AgentPanel = defineAsyncComponent(() => import("./agent/AgentPanel.vue"));
+const AgentDrawer = defineAsyncComponent(() => import("./agent/AgentDrawer.vue"));
 const ProjectRestartNotice = defineAsyncComponent(
   () => import("./project/ProjectRestartNotice.vue"),
 );
@@ -222,7 +222,6 @@ watch(
     if (phase === "idle") workspaceEditor.reset();
   },
 );
-const sheetOpen = workspace.sheetOpen;
 const { onDockKey } = useCreateMode({
   state,
   workspace,
@@ -250,12 +249,6 @@ const activitySheetOpen = ref(false);
 function openDeveloperActivity(): void {
   activitySheetOpen.value = true;
 }
-const assistantShown = computed(() =>
-  phone.value
-    ? sheetOpen.value && workspace.active.sheet === "assistant"
-    : workspace.active.right === "assistant" && !workspace.collapsed.right,
-);
-
 watch(shell.mode, (mode) => {
   engine.setProjectMode(mode);
   releaseMovement();
@@ -405,11 +398,6 @@ function clearPlayHash(): void {
 const latestAgentAudio = computed(
   () => [...state.agentLog].reverse().find((entry) => entry.audio?.length)?.audio ?? [],
 );
-const workspaceAgentAvailable = computed(() => {
-  void state.patchTick;
-  return creating.value && engine.getProjectSession() !== null;
-});
-
 function releaseMovement(): void {
   playArea.value?.releaseMovement();
 }
@@ -725,7 +713,6 @@ watch(
         :class="{
           'shell-body--create': creating,
           'shell-body--workspace': creating,
-          'shell-body--agent': creating && state.powerUp.open && !workspaceEditor.focus.value,
           'shell-body--no-editor': creating && !workspaceEditor.selected.value,
           'shell-body--logic': creating && workspaceEditor.kind.value === 'logic',
           'shell-body--sound': creating && workspaceEditor.kind.value === 'sound',
@@ -810,20 +797,20 @@ watch(
           </template>
         </PlayArea>
         <aside
-          v-show="!creating || state.powerUp.open"
+          v-show="!creating && state.powerUp.open"
           class="shell-side"
-          :class="{ 'shell-side--sheet': creating && phone, 'shell-side--open': sheetOpen }"
           aria-label="Agent"
           data-shell-keys
         >
-          <div v-show="!creating || assistantShown" class="assistant-host">
-            <!-- Mounted through the turn, so it sees the panel open and close. -->
-            <AgentPanel v-if="workspaceAgentAvailable && state.powerUp.open" />
-            <AgentBubble v-else-if="state.powerUp.open" surface="drawer" />
+          <div class="assistant-host">
+            <AgentBubble v-if="!creating && state.powerUp.open" surface="drawer" />
           </div>
         </aside>
       </div>
     </div>
+
+    <!-- The agent drawer overlays the workspace; it never takes a column. -->
+    <AgentDrawer />
 
     <AiSettingsDialog
       v-if="ai.dialogRequested.value"

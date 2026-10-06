@@ -276,12 +276,16 @@ onMounted(() => {
       emit("breakpoint", event.target.position.lineNumber);
   });
   editor.onDidChangeCursorSelection(({ selection }) => {
+    const name = props.documentKey.replace(":", " ").toUpperCase();
     emit(
       "selection",
       selection.isEmpty()
-        ? null
+        ? {
+            label: `${name} · line ${selection.startLineNumber}`,
+            text: model!.getLineContent(selection.startLineNumber),
+          }
         : {
-            label: `${props.documentKey.replace(":", " ").toUpperCase()} lines ${selection.startLineNumber}–${selection.endLineNumber}`,
+            label: `${name} · lines ${selection.startLineNumber}–${selection.endLineNumber}`,
             text: model!.getValueInRange(selection),
           },
     );

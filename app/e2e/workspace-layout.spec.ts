@@ -122,21 +122,24 @@ for (const size of sizes) {
         expect.soft(box.width).toBe(358);
         expect.soft(box.x).toBeGreaterThanOrEqual(0);
         expect.soft(box.x + box.width).toBeLessThanOrEqual(size.width);
+        // The drawer takes the phone's whole width.
+        const drawer = (await page.locator(".agent-drawer").boundingBox())!;
+        expect.soft(drawer.width).toBe(size.width);
       }
       if (size.width > 600) {
         await fit(page);
-        await expect.soft
+        // The drawer overlays the workspace: the stage keeps its full width.
+        await expect
           .poll(() =>
             page.locator(".shell-body").evaluate((body) => {
               const parts = body.querySelector(".parts-list")!.getBoundingClientRect();
-              const agent = body.querySelector(".shell-side")!.getBoundingClientRect();
               const stage = body.querySelector(".stage")!.getBoundingClientRect();
-              return Math.abs(
-                stage.width - (body.getBoundingClientRect().width - parts.width - agent.width),
-              );
+              return Math.abs(stage.width - (body.getBoundingClientRect().width - parts.width));
             }),
           )
           .toBeLessThanOrEqual(1);
+        const drawer = (await page.locator(".agent-drawer").boundingBox())!;
+        expect.soft(drawer.x + drawer.width).toBe(size.width);
       }
       if (size.width > 600) await originalShot(page, `agent-${size.width}`);
       await page.getByTestId("agent-message").fill("Add a welcome sign that answers look at sign");
