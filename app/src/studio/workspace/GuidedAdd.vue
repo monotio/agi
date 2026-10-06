@@ -207,7 +207,9 @@ async function startHere(): Promise<void> {
 }
 function place(target: "hero" | "box" | "arrival"): void {
   const wasFocused = editor.focus.value;
+  const wasPlaytesting = editor.phonePlaytest.value;
   editor.focus.value = false;
+  editor.phonePlaytest.value = true;
   editor.partsOpen.value = false;
   placing.value = true;
   let cel;
@@ -220,6 +222,7 @@ function place(target: "hero" | "box" | "arrival"): void {
   function close(): void {
     placing.value = false;
     editor.focus.value = wasFocused;
+    editor.phonePlaytest.value = wasPlaytesting;
   }
   guidedPlacement.value = {
     kind: target === "box" ? "box" : "hero",

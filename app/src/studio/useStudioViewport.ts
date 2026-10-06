@@ -55,8 +55,8 @@ export function useStudioViewport(
   panes: MaybeRefOrGetter<number>,
   /** One pane of other content than the picture (Sprite Studio's cel), and its largest zoom. */
   content?: { readonly size: MaybeRefOrGetter<PaneContent>; readonly max: number },
-  /** A live game fits its complete 320×200 surface, with tools on the same scale. */
-  liveGame?: MaybeRefOrGetter<boolean>,
+  /** Embedded pictures also fit narrow editor panels at fractional zoom. */
+  fluidPicture?: MaybeRefOrGetter<boolean>,
 ) {
   const maxZoom = content?.max ?? MAX_ZOOM;
   const size = ref({ width: 0, height: 0 });
@@ -103,8 +103,16 @@ export function useStudioViewport(
   });
 
   const fit = computed(() =>
-    toValue(liveGame)
-      ? Math.max(0.1, Math.min(maxZoom, size.value.width / 320, size.value.height / 200))
+    toValue(fluidPicture)
+      ? Math.max(
+          0.1,
+          Math.min(
+            maxZoom,
+            (size.value.width - 2 * STAGE_INSET - PANE_GAP * (toValue(panes) - 1)) /
+              (320 * toValue(panes)),
+            (size.value.height - 2 * STAGE_INSET) / 168,
+          ),
+        )
       : content
         ? contentFitZoom(size.value.width, size.value.height, toValue(content.size), maxZoom)
         : paneFitZoom(size.value.width, size.value.height, toValue(panes)),

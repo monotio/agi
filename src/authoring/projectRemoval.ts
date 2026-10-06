@@ -43,6 +43,7 @@ export interface RemovalFinding {
   /** Where the use lives: a document key, `bindings`, `world`, `music` or a draft key. */
   readonly document: string;
   readonly message: string;
+  readonly computedRoomJump?: string;
 }
 
 export interface ProjectRemovalInput {
@@ -75,7 +76,7 @@ function reason(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-type Report = (document: string, message: string) => void;
+type Report = (document: string, message: string, computedRoomJump?: string) => void;
 
 function inspectFlowTargets(
   input: ProjectRemovalInput,
@@ -114,7 +115,18 @@ function inspectFlowTargets(
             document,
             `${key} is still used by ${document} at offset ${use.offset} (${use.command}).`,
           );
-        if (use.unknown && (use.kind === kind || use.kind === "logic"))
+        if (use.unknown && kind === "logic" && use.command === "new.room.v") {
+          const insns = flow.instructions.get(use.logic) ?? [];
+          const jump = insns.find((insn) => insn.at === use.offset);
+          const teleport = insns.some(
+            (insn) => insn.name === "get.num" && insn.args?.[1] === jump?.args?.[0],
+          );
+          report(
+            document,
+            `Room ${num} can still be reached by a computed room jump in LOGIC ${use.logic}${teleport ? " (the debug teleport)" : ""}. Remove anyway?`,
+            key,
+          );
+        } else if (use.unknown && (use.kind === kind || use.kind === "logic"))
           report(
             document,
             `${key} may still be used: ${document} at offset ${use.offset} (${use.command}) has a computed or unresolved ${use.kind.toUpperCase()} target.`,
@@ -338,11 +350,15 @@ export function inspectProjectRemoval(input: ProjectRemovalInput): readonly Remo
   const removedKeys: ReadonlySet<string> = new Set(removed.map((entry) => entry.key));
   const findings: RemovalFinding[] = [];
   const seen = new Set<string>();
-  const report: Report = (document, message) => {
+  const report: Report = (document, message, computedRoomJump) => {
     const marker = `${document}${message}`;
     if (seen.has(marker)) return;
     seen.add(marker);
-    findings.push({ document, message });
+    findings.push({
+      document,
+      message,
+      ...(computedRoomJump === undefined ? {} : { computedRoomJump }),
+    });
   };
 
   // LOGIC 0 is the interpreter's required entry point; removing it cannot be

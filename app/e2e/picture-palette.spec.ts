@@ -84,6 +84,7 @@ for (const width of [1063, 1440, 390]) {
       const after = await history(page);
       expect(after.source).not.toEqual(before.source);
       expect(after.commits).toBe(before.commits + 1);
+      if (width <= 600) await page.getByRole("button", { name: "Edit", exact: true }).click();
       await red.press("ControlOrMeta+z");
       await workspaceSaved(page);
       expect((await history(page)).source).toEqual(before.source);

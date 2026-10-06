@@ -107,11 +107,16 @@ test("boot and resolved transitions bound the current-room dispatch across share
   assert.ok(review({ removals: ["logic:7"], image }).length > 0);
 });
 
-test("a computed target refuses removal with its LOGIC and code offset", () => {
+test("a computed room target reports its LOGIC and the reviewable room", () => {
   const image = imageFor({ "0": "call(1);return;", "1": "get.num(1,v60);new.room.v(v60);return;" });
   const findings = review({ removals: ["logic:42"], image });
   assert.ok(
-    findings.some(({ message }) => /logic:1 at offset 3.*new.room.v.*computed/.test(message)),
+    findings.some(
+      ({ message, document, computedRoomJump }) =>
+        document === "logic:1" &&
+        computedRoomJump === "logic:42" &&
+        /Room 42.*LOGIC 1.*debug teleport/.test(message),
+    ),
   );
 });
 
@@ -132,8 +137,8 @@ test("a saved scan start keeps a skipped target assignment uncertain", () => {
     "1": "assignn(v60,7);set.scan.start();new.room.v(v60);return;",
   });
   assert.ok(
-    review({ removals: ["logic:42"], image }).some(({ message }) =>
-      /offset 4.*new.room.v.*computed/.test(message),
+    review({ removals: ["logic:42"], image }).some(
+      ({ document, computedRoomJump }) => document === "logic:1" && computedRoomJump === "logic:42",
     ),
   );
 });

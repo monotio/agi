@@ -42,15 +42,19 @@ const workspace = useWorkspaceEditor();
 const acceptedNames = shallowRef<BindingInfo[]>([]);
 const names = computed(() => {
   if (props.bindings === undefined) return acceptedNames.value;
-  return Object.entries(readBindingsDocument(props.bindings))
-    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-    .map(([name, binding]) => ({
-      name,
-      ...binding,
-      uses:
-        acceptedNames.value.find((info) => info.kind === binding.kind && info.num === binding.num)
-          ?.uses ?? [],
-    }));
+  try {
+    return Object.entries(readBindingsDocument(props.bindings))
+      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+      .map(([name, binding]) => ({
+        name,
+        ...binding,
+        uses:
+          acceptedNames.value.find((info) => info.kind === binding.kind && info.num === binding.num)
+            ?.uses ?? [],
+      }));
+  } catch {
+    return acceptedNames.value;
+  }
 });
 const details = ref<BindingInfo>();
 const editingName = ref(false);

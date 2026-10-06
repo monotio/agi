@@ -287,7 +287,7 @@ test("make a four-cel walk loop and preview it on the running hero", async ({ pa
   );
   await page.getByTestId("image-add-cels").click();
   await page.getByTestId("workspace-update-menu").click();
-  await page.getByRole("menuitem", { name: "Update and restart this room", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Update and play this room", exact: true }).click();
   await expect(page.getByTestId("workspace-updated")).toBeVisible();
   await expect(page.getByTestId("workspace-saved")).toBeVisible();
   await expect(page.getByTestId("workspace-saved")).toHaveText(/^(?:Saved|Draft saved)$/);
@@ -342,7 +342,7 @@ test("Generate sends one styled request and Use this opens tracing", async ({ pa
     });
   });
   await page.getByTestId("part-room:1:picture:1").click();
-  await expect(page.getByTestId("room-studio")).toHaveClass(/is-live-game/);
+  await expect(page.getByTestId("room-studio")).not.toHaveClass(/is-live-game/);
   await page.evaluate(() => document.fonts.ready);
   await page.locator('[data-layer="art"] canvas').hover();
   const normalCanvas = (await page.locator('[data-layer="art"] canvas').boundingBox())!;
@@ -372,7 +372,7 @@ test("Generate sends one styled request and Use this opens tracing", async ({ pa
   ).toContain("A tree reference");
   await expect(page.getByTestId("workspace-saved")).toBeVisible();
   await expect(page.getByTestId("workspace-saved")).toHaveText(/^(?:Saved|Draft saved)$/);
-  await expect(page.getByTestId("room-studio")).toHaveClass(/is-live-game/);
+  await expect(page.getByTestId("room-studio")).not.toHaveClass(/is-live-game/);
   const generatedCanvas = (await page.locator('[data-layer="art"] canvas').boundingBox())!;
   const generatedEditor = (await page.getByTestId("workspace-editor").boundingBox())!;
   expect(generatedCanvas.width).toBe(normalCanvas.width);

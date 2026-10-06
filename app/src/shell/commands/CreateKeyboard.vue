@@ -130,7 +130,7 @@ const offDefaults = registerDefaultCommands(props.registry, {
 });
 const offUpdateRestart = props.registry.register({
   id: "game.update-restart",
-  title: "Update and restart this room",
+  title: "Update and play this room",
   category: "Game",
   keys: [{ key: "Mod+Shift+Enter", textInput: true, game: true }],
   when: (c) => !c.dialogOpen,

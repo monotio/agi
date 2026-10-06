@@ -82,6 +82,8 @@ import StudioTopBar from "./StudioTopBar.vue";
 import SharePictureMenu from "./share/SharePictureMenu.vue";
 import { shareFileBase, shareRoomName } from "./share/shareFrame.ts";
 import StudioViewBar from "./StudioViewBar.vue";
+import RoomViewsOverlay from "./RoomViewsOverlay.vue";
+import { pictureViewsOpacity as viewsOpacity } from "./pictureViews.ts";
 import StudioWalkOverlay from "./StudioWalkOverlay.vue";
 import StudioWalkPanel from "./StudioWalkPanel.vue";
 import StudioZoom from "./StudioZoom.vue";
@@ -175,7 +177,7 @@ const {
   lessonSession = undefined,
   priorityBase = undefined,
   embedded = false,
-  liveGame = false,
+  figures = [],
   runningBytes = undefined,
   workspaceFocus = false,
 } = defineProps<{
@@ -183,7 +185,7 @@ const {
   lessonSession?: LessonSession | undefined;
   priorityBase?: number | undefined;
   embedded?: boolean;
-  liveGame?: boolean;
+  figures?: readonly import("../../../src/authoring/roomPlacements.ts").RoomPlacement[];
   runningBytes?: Uint8Array | undefined;
   workspaceFocus?: boolean;
   pictureNumber: number;
@@ -238,7 +240,11 @@ const emit = defineEmits<{
     >,
     pictureSource: string | undefined,
   ];
-  "game-host": [host: HTMLElement];
+  "place-figure": [
+    figure: import("../../../src/authoring/roomPlacements.ts").RoomPlacement,
+    x: number,
+    y: number,
+  ];
   "agent-context": [context: { label: string; text: string } | null];
   "agent-ask": [];
   reopen: [fromStorage: boolean];
@@ -612,16 +618,12 @@ const undoOrder = useUndoOrder([
 ]);
 
 const stage = useTemplateRef("stage");
-const gameHost = useTemplateRef("gameHost");
-watch(gameHost, (host) => {
-  if (host) emit("game-host", host);
-});
 const panes = computed(() => panesFor(lens.value, mode.value));
 const { viewport, zoom, dpr, fitted, zoomBy, zoomToFit } = useStudioViewport(
   stage,
   () => panes.value.length,
   undefined,
-  () => liveGame && panes.value.length === 1,
+  () => embedded,
 );
 const size = computed(() => pictureSize(draft.compiled.value.bytes.length, total.value));
 
@@ -666,7 +668,7 @@ const runningPicture = computed(() => {
   return surface;
 });
 const draftMask = computed(() =>
-  liveGame && runningPicture.value ? changedCells(runningPicture.value, shown.value) : null,
+  embedded && runningPicture.value ? changedCells(runningPicture.value, shown.value) : null,
 );
 const hasStageDraft = computed(() => draftMask.value?.some((cell) => cell !== 0) ?? false);
 const stageDraftPaths = computed(() =>
@@ -1545,7 +1547,6 @@ function onKeyup(event: KeyboardEvent): void {
     :class="{
       'is-focus': calm.focus.value,
       'is-embedded': embedded,
-      'is-live-game': liveGame,
       'has-reference': !!underlay,
       'is-workspace-focus': workspaceFocus,
       'is-art-idle': lens === 'art' && !draft.gesturing.value,
@@ -1660,6 +1661,11 @@ function onKeyup(event: KeyboardEvent): void {
         :spilled="proposal.sideEffects !== null"
       />
       <span class="studio__spacer"></span>
+      <label v-if="embedded" class="studio__views-slider"
+        >Views
+        <input v-model.number="viewsOpacity" type="range" min="0" max="100" aria-label="Views" />
+        <output>{{ viewsOpacity }}%</output>
+      </label>
       <UiSegmented
         v-if="embedded"
         v-model="lens"
@@ -1697,7 +1703,6 @@ function onKeyup(event: KeyboardEvent): void {
       @unlocks="(next) => !assist.holds.value && (unlocks = next)"
     />
     <main class="studio__frame">
-      <div v-if="embedded" ref="gameHost" class="studio__live-game"></div>
       <div
         ref="stage"
         class="studio__stage"
@@ -1731,7 +1736,6 @@ function onKeyup(event: KeyboardEvent): void {
             :ghost="insertGhost"
             :flash="flashPaths"
             :changed="stageDraftPaths ?? changedPaths"
-            :transparent-mask="lens === 'art' && !underlay ? draftMask : null"
             :spilled="spilledPaths"
             :movable="movable"
             :marquee="drag.marqueeBox.value ?? null"
@@ -1745,13 +1749,30 @@ function onKeyup(event: KeyboardEvent): void {
             @menu="openMenu"
           >
             <span
-              v-if="liveGame && stageDraftLabel && layer === 'art'"
+              v-if="embedded && stageDraftLabel && (layer === 'art' || panes.length === 1)"
               class="studio__draft-label"
               :class="{ 'is-above': stageDraftLabel.above }"
               :style="stageDraftLabel.style"
               data-testid="stage-draft"
-              >Draft · ⌘↵ puts it in the game</span
+              >Draft · Update game to play it</span
             >
+            <RoomViewsOverlay
+              v-if="layer === 'art' && viewsOpacity > 0"
+              :figures
+              :views
+              :viewport
+              :opacity="viewsOpacity / 100"
+              :picture="shown"
+              :profile
+              :priority-base="priorityBase"
+              :read-only="readOnly"
+              @place="(figure, x, y) => emit('place-figure', figure, x, y)"
+              @pointerdown.stop
+              @pointermove.stop
+              @pointerup.stop
+              @keydown.stop
+              @click.stop
+            />
             <template v-if="layer === 'art' && underlay?.adjust && lens === 'art'">
               <button
                 v-for="kind in ['move', 'scale'] as const"
@@ -2274,10 +2295,10 @@ function onKeyup(event: KeyboardEvent): void {
   clip-path: inset(50%);
   white-space: nowrap;
 }
-/* Embedded drawing surrounds the same MAIN stage. The transparent art pane
-   takes editor gestures; only an unfinished gesture paints a preview over MAIN. */
+/* Embedded pictures use the editor's own canvas and tools. */
 .studio.is-embedded {
-  grid-template-columns: 0 44px minmax(0, 1fr) minmax(220px, 260px);
+  container-type: inline-size;
+  grid-template-columns: 0 44px minmax(0, 1fr) clamp(140px, 30%, 260px);
   grid-template-rows: auto minmax(40px, max-content) minmax(0, 1fr) auto 28px;
 }
 .studio__done,
@@ -2345,11 +2366,13 @@ function onKeyup(event: KeyboardEvent): void {
   display: contents;
 }
 .studio.is-embedded .studio__side {
+  container-type: inline-size;
   grid-column: 4;
   grid-row: 3 / 5;
   display: flex;
   flex-direction: column;
   min-height: 0;
+  min-width: 0;
   border-left: 1px solid var(--hairline);
 }
 .studio.is-embedded .studio__side > .ui-seg {
@@ -2364,11 +2387,16 @@ function onKeyup(event: KeyboardEvent): void {
 }
 .studio.is-embedded .studio__side > .scene-list {
   flex: 2;
-  min-height: 300px;
+  min-height: 0;
+  min-width: 0;
 }
-.studio.is-embedded .studio__side > .inspector.is-compact {
-  flex: 0 0 auto;
-  height: auto;
+.studio.is-embedded .studio__side > .scene-list :deep(.ui-panel__foot) {
+  padding-block: var(--space-1);
+}
+.studio.is-embedded
+  .studio__side:has(.scene-list:not([style*="display: none"]))
+  > .inspector.is-compact {
+  display: none;
 }
 .studio.is-embedded.is-focus {
   grid-template-columns: 0 44px minmax(0, 1fr) 0;
@@ -2439,6 +2467,30 @@ function onKeyup(event: KeyboardEvent): void {
 .studio.is-embedded .studio__status-sep {
   display: none;
 }
+@container (max-width: 232px) {
+  .studio.is-embedded .studio__side :deep(.ui-seg) {
+    max-width: 100%;
+    box-sizing: border-box;
+    flex-wrap: wrap;
+  }
+  .studio.is-embedded .studio__side :deep(.ui-panel__head) {
+    flex-wrap: wrap;
+    gap: var(--space-1);
+    padding: var(--space-2);
+  }
+}
+@container (max-width: 760px) {
+  .studio.is-embedded .studio__status [data-role="status"] {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .studio.is-embedded .studio__status .studio__hint {
+    display: none;
+  }
+}
 
 .studio__draft-label {
   position: absolute;
@@ -2468,44 +2520,18 @@ function onKeyup(event: KeyboardEvent): void {
   top: 100%;
   bottom: auto;
 }
-.studio__live-game {
-  position: absolute;
-  inset: 0;
+.studio__views-slider {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--ink-2);
+  font-size: var(--text-xs);
 }
-.studio.is-live-game .studio__panes {
-  padding: 0;
-  transform: translateY(calc(-8px * var(--picture-zoom)));
+.studio__views-slider input {
+  width: 76px;
 }
-.studio.is-live-game.is-art-idle:not(.has-reference) :deep(.studio-pane canvas) {
-  opacity: 1;
-}
-.studio.is-live-game .studio__frame {
-  background: var(--agi-0);
-}
-.studio__live-game :deep(.play-area) {
-  position: absolute;
-  inset: 0;
-  overflow: hidden;
-  height: 100%;
-  --game-aspect: 8 / 5;
-  --game-ratio: 1.6;
-}
-.studio__live-game :deep(.play-strip) {
-  display: none;
-}
-.studio__live-game :deep(.touch-controls) {
-  display: none;
-}
-.studio.is-live-game .studio__live-game :deep(.play-area .screen) {
-  --game-width: calc(320px * var(--picture-zoom));
-  width: calc(320px * var(--picture-zoom));
-  height: calc(200px * var(--picture-zoom));
-  max-width: none;
-  box-sizing: content-box;
-}
-.studio__live-game :deep(.stage) {
-  min-height: 0;
-  padding: 0;
+.studio__views-slider output {
+  min-width: 3ch;
 }
 @media (max-height: 800px) {
   .studio.is-embedded :deep(.tool-rail__tool .ui-icon-btn) {

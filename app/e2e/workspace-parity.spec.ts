@@ -38,10 +38,13 @@ for (const width of [1063, 1440, 390]) {
         height: width === 1063 ? 815 : width === 1440 ? 900 : 844,
       });
       const studio = await picture(page);
-      if (width === 1440)
-        expect((await page.getByTestId("workspace-editor").boundingBox())!.width).toBeGreaterThan(
-          1000,
-        );
+      if (width === 1440) {
+        await expect(page.locator(".play-area")).toBeVisible();
+        const game = (await page.locator(".play-area").boundingBox())!;
+        const editor = (await page.getByTestId("workspace-editor").boundingBox())!;
+        expect(editor.x).toBeGreaterThanOrEqual(game.x + game.width);
+        expect(editor.width).toBeCloseTo(game.width, 0);
+      }
       await page.evaluate(() => document.fonts.ready);
       await page.screenshot({ path: test.info().outputPath(`picture-${width}.png`) });
       await studio.getByRole("radio", { name: "Inspector", exact: true }).click();
