@@ -501,6 +501,7 @@ watch([editor.selected, roomHint, () => props.creating], ([, , creating], [, , w
       await flushWorkspace();
       if (serial !== selectionSerial || retired) return;
       const result = await engine.visitRoom(room);
+      if (serial !== selectionSerial || retired) return;
       returnRoom.value = result.returnRoom;
       visitingRoom.value = room;
       if (!result.ok)

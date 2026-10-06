@@ -609,6 +609,8 @@ export interface WorkerContext {
   projectAdmission: ProjectAdmissionState | null;
   /** A Create visit keeps play progress at its return point until Back. */
   previewVisitEngine: Engine | null;
+  /** Choosing Play invalidates visits still waiting for their module. */
+  previewVisitSerial: number;
   projectLoader: {
     loading: Promise<void> | null;
     installed: boolean;
@@ -778,6 +780,7 @@ export function createWorkerContext(ports: WorkerPorts): WorkerContext {
     recording: { recording: null },
     projectAdmission: null,
     previewVisitEngine: null,
+    previewVisitSerial: 0,
     projectLoader: { loading: null, installed: false, queue: [] },
     debugger: newDebuggerState(),
     debuggerLoader: newDebuggerLoaderState(),

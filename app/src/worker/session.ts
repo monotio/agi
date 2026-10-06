@@ -11,6 +11,7 @@ import type { WorkerContext } from "./context.ts";
  */
 export function resetSession(ctx: WorkerContext): void {
   ctx.previewVisitEngine = null;
+  ctx.previewVisitSerial++;
   ctx.imageHeroPreview = undefined;
   ctx.imagePreviewEngine = undefined;
   ctx.imagePreviewSerial = (ctx.imagePreviewSerial ?? 0) + 1;

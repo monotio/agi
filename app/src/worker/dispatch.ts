@@ -801,6 +801,7 @@ export function onWorkerMessage(ctx: WorkerContext, msg: WorkerInbound): void {
     }
     if (msg.type === "projectPlay") {
       ctx.previewVisitEngine = null;
+      ctx.previewVisitSerial++;
       return;
     }
     if (msg.type === "observeSentences") {

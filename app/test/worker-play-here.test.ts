@@ -425,6 +425,27 @@ test("choosing Play after a preview visit resumes ordinary autosave in that room
   assert.equal(ctx.engine!.vars[0], 2, "a promoted visit has no old return point");
 });
 
+test("choosing Play while a preview visit loads cancels that visit and keeps autosave", async () => {
+  const { ctx, control } = workerHarness(game());
+  Object.assign(ctx.fns, createPlayHereLoader(ctx));
+  ctx.fns.tickEngine();
+  const answered = new Promise<void>((resolve) => {
+    const post = ctx.ports.control;
+    ctx.ports.control = (message) => {
+      post(message);
+      if (message.type === "playedHere") resolve();
+    };
+  });
+  onWorkerMessage(ctx, { type: "playHere", id: 112, room: 2, x: 0, y: 0, visit: "start" });
+  onWorkerMessage(ctx, { type: "projectPlay" });
+  await answered;
+  const reply = control.findLast((message) => message.type === "playedHere");
+  assert.ok(reply?.type === "playedHere");
+  assert.equal(reply.ok, false);
+  assert.equal(ctx.engine!.vars[0], 1);
+  assert.equal(ctx.fns.autosave(true), true);
+});
+
 test("a preview death's global state cannot poison the next room visit", () => {
   const container = gameContainer(
     [
