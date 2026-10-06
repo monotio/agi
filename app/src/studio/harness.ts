@@ -1,22 +1,15 @@
-// Dev and test entry for studio-harness.html; not a production build input.
+// Dev and test entry for studio-harness.html?probe=1; not a production build input.
 // `?pic=1|2|3` opens the tutorial's scene art, `?pic=demo` (the default) the
 // annotated demo picture, `?pic=injected` the source or bytes a test or script
-// set on `window.studioHarnessInput` before the page loads (for pictures that
-// are generated or held privately); `&authored=0` withholds the source so the
-// studio falls back to disassembling the bytes. `&probe=1` mounts the ghost
-// actor probe alone over the picture's art pane, its readout beside it, with the tutorial's
-// character VIEWs as its game (the full studio gets the same VIEWs for its
-// probe). The kernel is exposed on
+// set on `window.studioHarnessInput` before the page loads. `&probe=1` mounts
+// the ghost actor probe over the picture's art pane, its readout beside it,
+// with the tutorial's character VIEWs as its game. The kernel is exposed on
 // `window.studioHarness` so browser tests compute expectations independently.
-// Edits write back as the workspace does: the emitted source becomes the
-// picture's authored source and lands in `studioHarness.edits`.
-import { createApp, defineComponent, h, ref } from "vue";
+import { createApp, defineComponent, h } from "vue";
 import "../styles/tokens.css";
-import RoomStudio from "./RoomStudio.vue";
 import { EGA_PALETTE } from "../render/palette.ts";
 import { ORIGINAL_SCENE_PICTURES } from "../../../games/adventure-department/sceneArt.ts";
 import { compilePictureSource, disassemblePicture } from "../../../src/picture/source.ts";
-import { requireResourceRevision } from "../../../src/gameIdentity.ts";
 import { DEFAULT_V2_PROFILE } from "../../../src/runtime/profile.ts";
 import { inferNativeItems } from "../../../src/studio/nativeItems.ts";
 import { parsePictureDocument } from "../../../src/studio/pictureDocument.ts";
@@ -34,14 +27,6 @@ import GhostReadout from "./GhostReadout.vue";
 import StudioCanvas from "./StudioCanvas.vue";
 import { listGameViews, useGhostProbe } from "./useGhostProbe.ts";
 import { DEMO_PICTURE_SOURCE } from "./demoPicture.ts";
-
-const TITLES: Readonly<Record<string, string>> = {
-  "1": "Picture Gallery",
-  "2": "VIEW Lab",
-  "3": "Priority Archive",
-  demo: "Studio demo",
-  injected: "Injected picture",
-};
 
 /** What `?pic=injected` shows: authored source, or stored bytes to disassemble. */
 export interface StudioHarnessInput {
@@ -71,17 +56,12 @@ const authored =
   params.get("authored") !== "0" && (pic !== "injected" || input?.source !== undefined);
 /** What Studio models: the written text, or with `&authored=0` the bytes as an import disassembles them. */
 const source = authored ? written : disassemblePicture(bytes, { profile });
-const pictureNumber =
-  pic === "demo" ? 0 : pic === "injected" ? (input?.pictureNumber ?? 0) : Number(pic);
 const probeMode = params.get("probe") === "1";
 /** The probe's game: the tutorial's character VIEWs, as container files. */
 const ghostViewBytes = new Map(
   Object.entries(CHARACTER_VIEWS).map(([n, input]) => [Number(n), buildView(input)] as const),
 );
 const ghostFiles = containerFromResources({ view: ghostViewBytes }).files;
-const revision = (n: number) => requireResourceRevision(n.toString(16).padStart(64, "0"));
-/** The workspace's write-back: each `edit` emit becomes the authored source. */
-const liveSource = ref<string | undefined>(authored ? source : undefined);
 const edits: string[] = [];
 
 const probe = {
@@ -162,20 +142,5 @@ const ProbeHarness = defineComponent(() => {
 });
 
 createApp({
-  render: () =>
-    probeMode
-      ? h(ProbeHarness)
-      : h(RoomStudio, {
-          pictureNumber,
-          bytes,
-          authoredSource: liveSource.value,
-          profile,
-          title: TITLES[pic] ?? `Picture ${pic}`,
-          baseRevision: revision(1),
-          files: ghostFiles,
-          onEdit: (next: string) => {
-            liveSource.value = next;
-            edits.push(next);
-          },
-        }),
+  render: () => (probeMode ? h(ProbeHarness) : null),
 }).mount("#studio");

@@ -136,8 +136,9 @@ test("the transparent colour's ⓘ says what it is, and Choose another… opens 
 });
 
 test("Onion ▾ holds Before, After and how many cels, and Esc closes it first", async ({ page }) => {
-  await page.goto("/sprite-harness.html?view=0");
-  const studio = page.getByTestId("sprite-studio");
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await playTutorial(page);
+  const studio = await openApprentice(page);
   const onion = studio.getByTestId("sprite-onion");
   const canvas = studio.getByTestId("sprite-canvas");
   /** How many onion skins the canvas draws. */
