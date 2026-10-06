@@ -584,7 +584,7 @@ function createSession(
         if (updateMode !== undefined) {
           const admit = updateMode === "reenter" ? input.admission.reenter : input.admission.admit;
           if (admit === undefined)
-            throw new Error("This game cannot restart its room. Use Update game.");
+            throw new Error("This game cannot restart its room. Use Update and keep playing.");
           return (async () => {
             let outcome: PreviewUpdateOutcome;
             do {

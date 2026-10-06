@@ -30,7 +30,7 @@ function readProgressWriter(
 /** Called inside the same publication lock as checkpoints and slot writes. */
 export function claimProgressWriter(
   storage: WriterStorage,
-  target: ProgressTarget,
+  target: Pick<ProgressTarget, "locator">,
   owner: string,
 ): ProgressWriter {
   const previous = readProgressWriter(storage, target.locator);

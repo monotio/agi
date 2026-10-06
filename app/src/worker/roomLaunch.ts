@@ -90,7 +90,15 @@ export function prepareRoomLaunch(
     beginning: request.beginning === true,
     rng:
       state.seed !== undefined
-        ? { word: state.seed, policy: { kind: "sequence", next: state.seed, cursor: 0 } }
+        ? {
+            word: state.seed,
+            policy: {
+              kind: "sequence",
+              next: state.seed,
+              cursor: 0,
+              ...(ctx.run.progress.mode === "play" ? { untilRoomChange: true as const } : {}),
+            },
+          }
         : request.beginning
           ? { word: 1, policy: { kind: "external" } }
           : structuredClone(ctx.run.rng),

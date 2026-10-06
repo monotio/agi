@@ -109,7 +109,6 @@ export function createWorkspaceEditor(engine: EngineApi) {
     if (openLaunchEditor.value) openLaunchEditor.value(mode, room);
     else error.value = "Launch editor will be available in a later update.";
   }
-  const stagePaused = ref(false);
   const phonePlaytest = ref(false);
   const removalReview = shallowRef<ComputedRoomRemovalReview>();
   const studioRequests = shallowRef<Readonly<Record<string, StudioRequest>>>({});
@@ -406,7 +405,6 @@ export function createWorkspaceEditor(engine: EngineApi) {
     selectLaunch,
     openLaunchEditor,
     requestLaunchEditor,
-    stagePaused,
     phonePlaytest,
     removalReview,
     selected,

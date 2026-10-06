@@ -477,6 +477,36 @@
   }
 }
 
+/* A desktop touch game fits beside its controls and above the game bar. */
+@media (min-width: 601px) {
+  .shell-body--workspace > .play-area.with-touch {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-rows: minmax(0, 1fr) auto;
+    align-items: stretch;
+    gap: var(--space-3);
+  }
+  .shell-body--workspace > .play-area.with-touch .stage {
+    grid-column: 1;
+    grid-row: 1;
+    --game-width: min(100cqw, calc(100cqh * var(--game-ratio)));
+    container-type: size;
+    flex: 1 1 0;
+    width: 100%;
+    min-height: 0;
+  }
+  .shell-body--workspace > .play-area.with-touch .touch-controls {
+    grid-column: 2;
+    grid-row: 1;
+    min-height: 0;
+    overflow-y: auto;
+  }
+  .shell-body--workspace > .play-area.with-touch .workspace-game-bar {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+}
+
 /* Compact parts leave room for the game beside an editor. */
 @media (min-width: 601px) and (max-width: 1280px) {
   .shell-body--workspace:not(.shell-body--no-editor) {

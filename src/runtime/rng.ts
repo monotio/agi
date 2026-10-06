@@ -16,7 +16,8 @@ export function rngDraw(state: number, reseed: () => number): { state: number; b
 }
 
 /** Host entropy ownership, separate from the interpreter's arithmetic. */
-export type RngPolicy = { kind: "external" } | { kind: "sequence"; next: number; cursor: number };
+export type RngPolicy =
+  { kind: "external" } | { kind: "sequence"; next: number; cursor: number; untilRoomChange?: true };
 export interface HostRngState {
   word: number;
   policy: RngPolicy;
@@ -39,14 +40,22 @@ export function readRngPolicy(value: unknown): RngPolicy {
     return { kind: "external" };
   if (
     policy["kind"] === "sequence" &&
-    Object.keys(policy).length === 3 &&
+    Object.keys(policy).every((key) =>
+      ["kind", "next", "cursor", "untilRoomChange"].includes(key),
+    ) &&
+    (policy["untilRoomChange"] === undefined || policy["untilRoomChange"] === true) &&
     Number.isInteger(policy["next"]) &&
     (policy["next"] as number) >= 0 &&
     (policy["next"] as number) <= 65535 &&
     Number.isSafeInteger(policy["cursor"]) &&
     (policy["cursor"] as number) >= 0
   )
-    return { kind: "sequence", next: policy["next"] as number, cursor: policy["cursor"] as number };
+    return {
+      kind: "sequence",
+      next: policy["next"] as number,
+      cursor: policy["cursor"] as number,
+      ...(policy["untilRoomChange"] === true ? { untilRoomChange: true } : {}),
+    };
   throw new Error("Random source has invalid state.");
 }
 

@@ -818,9 +818,6 @@ export function createProjectAdmission(ctx: WorkerContext, options: ProjectAdmis
     const commit = () =>
       roomReentry
         ? engine.commitRoomReentry(plan, () => {
-            if (ctx.run.projectAdmission === lane && ctx.run.progress.mode === "create") {
-              ctx.fns.autosave(true);
-            }
             ctx.fns.historyEnd("resume");
             ctx.fns.setKeyWaiting(false);
             ctx.fns.abandonHostRequest();

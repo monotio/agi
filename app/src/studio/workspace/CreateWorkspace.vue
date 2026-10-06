@@ -1,11 +1,6 @@
 <script setup lang="ts">
 import UiIcon from "../../ui/UiIcon.vue";
-import {
-  selectLaunch,
-  readWorldLaunches,
-  type Launch,
-} from "../../../../src/authoring/launches.ts";
-import type { AuthoringState } from "../../../../src/authoring/authoringState.ts";
+import { readWorldLaunches, type Launch } from "../../../../src/authoring/launches.ts";
 import UiDialog from "../../ui/UiDialog.vue";
 import GuidedAdd from "./GuidedAdd.vue";
 import {
@@ -69,7 +64,6 @@ const SoundImport = defineAsyncComponent(() => import("../sound/SoundImport.vue"
 const WordsEditor = defineAsyncComponent(() => import("./WordsEditor.vue"));
 const TableEditor = defineAsyncComponent(() => import("./TableEditor.vue"));
 const RoomStudio = defineAsyncComponent(() => import("../RoomStudio.vue"));
-const PausedPicture = defineAsyncComponent(() => import("./PausedPicture.vue"));
 const SpriteStudio = defineAsyncComponent(() => import("../sprite/SpriteStudio.vue"));
 const LogicEditor = defineAsyncComponent(() => import("./LogicEditor.vue"));
 const DebugPanel = defineAsyncComponent(() => import("./WorkspaceDebugPanel.vue"));
@@ -617,6 +611,7 @@ const selectedRoom = computed(() => {
     return current;
   return uses.find((room) => room === current) ?? uses[0];
 });
+const rememberedLaunches: Record<string, string> = {};
 watch(
   [selectedRoom, engine.roomMap.currentRoom, snapshot, groupMetadata, groups],
   () => {
@@ -645,7 +640,13 @@ watch(
     const launches = world.launches ? readWorldLaunches(world.launches) : {};
     const choices = room === undefined ? undefined : launches[room];
     editor.launchChoices.value = choices?.entries ?? [];
-    const selected = room === undefined ? "carry" : (choices?.selected ?? "carry");
+    const selectionKey = `monotio_agi.workspaceLaunch.${engine.currentGame()?.projectId}.${room}`;
+    let selected = choices?.selected ?? "carry";
+    try {
+      selected = rememberedLaunches[selectionKey] ?? localStorage.getItem(selectionKey) ?? selected;
+    } catch {
+      selected = rememberedLaunches[selectionKey] ?? selected;
+    }
     editor.selectedLaunch.value =
       selected === "beginning" ||
       selected === "carry" ||
@@ -658,25 +659,14 @@ watch(
 );
 editor.selectLaunch.value = async (id) => {
   const room = editor.actionRoom.value;
-  if (room === undefined || !session) return;
+  if (room === undefined) return;
+  const key = `monotio_agi.workspaceLaunch.${engine.currentGame()?.projectId}.${room}`;
+  rememberedLaunches[key] = id;
+  editor.selectedLaunch.value = id;
   try {
-    const capture = session.model.capture();
-    const world = JSON.parse(
-      String(capture.read("world")?.content ?? "{}"),
-    ) as AuthoringState["world"];
-    const content = JSON.stringify(selectLaunch(world, room, id));
-    const result = await session.submit({
-      proposal: session.model.propose(capture, "Select launch", [{ key: "world", content }]),
-      label: "Select launch",
-      origin: "logic",
-      author: "creator",
-    });
-    if (!["committed", "unchanged"].includes(result.status))
-      throw new Error("Launch selection could not save. Try again.");
-    editor.selectedLaunch.value = id;
-    refresh();
-  } catch (cause) {
-    editor.error.value = cause instanceof Error ? cause.message : String(cause);
+    localStorage.setItem(key, id);
+  } catch {
+    /* Keep this session's selection, like its open tabs. */
   }
 };
 let launchSerial = 0;
@@ -724,14 +714,8 @@ const contextRow = computed(() => {
 const madeRoomArt: Record<string, string> = {};
 const returnRoom = ref<number>();
 const visitingRoom = ref<number>();
-const stageNote = ref("");
 const visitBusy = ref(false);
-const pausedPicture = computed(() => {
-  const row = groups.value
-    .flatMap((group) => group.entries)
-    .find((entry) => entry.room === visitingRoom.value && entry.key.startsWith("picture:"));
-  return row ? native(row.key) : undefined;
-});
+
 watch(
   () => props.creating,
   () => {
@@ -739,18 +723,9 @@ watch(
   },
 );
 watch([editor.selected, roomHint, () => props.creating], () => {
-  stageNote.value = "";
   if (!props.creating) returnRoom.value = visitingRoom.value = undefined;
 });
-watch(
-  [editor.selected, unusedArt, () => props.creating, stageNote],
-  () => {
-    editor.stagePaused.value = !!stageNote.value;
-    if (props.creating && editor.stagePaused.value) engine.pauseEngine("stageArt");
-    else engine.resumeEngine("stageArt");
-  },
-  { immediate: true },
-);
+
 let returningRemovedRoom = false;
 watch(snapshot, async (current) => {
   const room = engine.roomMap.currentRoom.value;
@@ -781,7 +756,6 @@ async function backToGame(openRoom = true): Promise<void> {
     const result = await engine.visitRoom("back");
     if (!result.ok) throw new Error(result.reason);
     returnRoom.value = visitingRoom.value = undefined;
-    stageNote.value = "";
     if (openRoom) {
       const picture = groups.value
         .flatMap((group) => group.entries)
@@ -1751,8 +1725,6 @@ onBeforeUnmount(() => {
   window.removeEventListener("keydown", escape, true);
   window.removeEventListener("dragover", musicDrag, true);
   window.removeEventListener("drop", dropMusic, true);
-  editor.stagePaused.value = false;
-  engine.resumeEngine("stageArt");
 });
 </script>
 <template>
@@ -1796,17 +1768,6 @@ onBeforeUnmount(() => {
       >Playtest</UiButton
     >
   </div>
-  <PausedPicture
-    v-if="
-      creating &&
-      stageNote &&
-      editor.kind.value !== 'picture' &&
-      !editor.focus.value &&
-      pausedPicture
-    "
-    :bytes="pausedPicture"
-    :profile
-  />
   <aside
     v-if="creating && presentation.debugOpen.value"
     class="workspace-inspector"
@@ -2090,13 +2051,10 @@ onBeforeUnmount(() => {
         "
       />
     </div>
-    <!-- While the game pauses for editing the game bar hides with the
-         play area, so Back repeats here. -->
+    <!-- Back stays available while the editor fills the workspace. -->
     <div
       v-if="
-        visitingRoom !== undefined &&
-        returnRoom !== undefined &&
-        (editor.stagePaused.value || editor.focus.value || phoneWidth)
+        visitingRoom !== undefined && returnRoom !== undefined && (editor.focus.value || phoneWidth)
       "
       class="workspace-stage-note"
       data-testid="workspace-visit"
@@ -2111,9 +2069,6 @@ onBeforeUnmount(() => {
         >Back to Room {{ returnRoom }}</UiButton
       >
     </div>
-    <p v-if="stageNote" class="workspace-stage-note" data-testid="workspace-stage-note">
-      {{ stageNote }}
-    </p>
     <p
       v-if="
         diagnostics.some((entry) => entry.severity === 'error') && editor.kind.value === 'logic'
