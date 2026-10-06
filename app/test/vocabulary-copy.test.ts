@@ -97,11 +97,19 @@ function files(directory: string): string[] {
 function retiredPattern(retired: string): RegExp {
   return new RegExp(
     retired === "Keep"
-      ? "\\bKeep\\b(?! this tab open(?: until it says Saved)?(?:[.!?]|\\s*$))"
+      ? "\\bKeep\\b(?! it\\s*$| this tab open(?: until it says Saved)?(?:[.!?]|\\s*$))"
       : `\\b${retired}${["sprite", "proposal", "candidate", "drawing element"].includes(retired) ? "s?" : ""}\\b${retired === "Onion" ? "(?! skin)" : ""}`,
     retired === "Keep" ? "" : "i",
   );
 }
+
+test("Keep it names a room-removal choice while Keep remains retired for editor commits", () => {
+  const keep = retiredPattern("Keep");
+  assert.equal(keep.test("Keep it"), false);
+  assert.equal(keep.test("Keep"), true);
+  assert.equal(keep.test("Keep changes"), true);
+  assert.equal(keep.test("Keep it and apply"), true);
+});
 
 test("visible editor copy uses the shared vocabulary, allowing internal identifiers", () => {
   const violations: string[] = [];

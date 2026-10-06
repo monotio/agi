@@ -32,8 +32,15 @@ async function openGallery(page: Page, fixedZoom = false): Promise<Locator> {
   await expect(studio).toBeVisible();
   await expect(studio.locator('[data-row="frame"]')).toHaveCount(1);
   if (fixedZoom) {
+    const level = studio.locator(".studio-zoom__level");
+    await expect(level).toBeVisible();
     await studio.getByRole("button", { name: "Zoom out", exact: true }).click();
-    await expect(studio.locator(".studio-zoom__level")).toHaveText("200%");
+    await expect(level).toHaveText("100%");
+    await studio.getByRole("button", { name: "Zoom in", exact: true }).click();
+    const focus = page.getByTestId("workspace-focus");
+    await expect(focus).toBeVisible();
+    await focus.click();
+    await expect(level).toHaveText("200%");
   }
   return studio;
 }

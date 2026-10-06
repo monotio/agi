@@ -38,6 +38,11 @@ async function upload(page: Page) {
       .getByRole("button", { name: "Bring in an image", exact: true }),
   ).toBeEnabled();
   await workspaceUpdated(page);
+  if (page.viewportSize()!.width <= 600) {
+    const edit = page.getByRole("button", { name: "Edit", exact: true });
+    await expect(edit).toBeVisible();
+    await edit.click();
+  }
 }
 async function shot(page: Page, name: string) {
   await page.screenshot({ path: test.info().outputPath(`${name}.png`), animations: "disabled" });
