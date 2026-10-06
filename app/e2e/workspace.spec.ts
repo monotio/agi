@@ -652,7 +652,7 @@ test("parts preview replaces, double click and editing pin, close uses the keybo
   expect(active.x + active.width).toBeLessThanOrEqual(stripBox.x + stripBox.width);
 });
 
-test("Undo and History restore update the editor while a game message waits", async ({ page }) => {
+test("Undo and History restore apply while a game message waits", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await starter(page);
   await page.getByTestId("part-room:1:logic").click();
@@ -667,7 +667,11 @@ test("Undo and History restore update the editor while a game message waits", as
   await page.getByTestId("workspace-undo").click();
   await expect(page.locator(".monaco-editor")).not.toContainText("Instant Undo");
   await expect(page.getByTestId("workspace-redo")).toBeEnabled();
-  await expect(page.getByTestId("workspace-live")).toHaveText("Updates when the game continues");
+  await expect(page.getByTestId("workspace-live")).toBeVisible();
+  await expect(page.getByTestId("workspace-live")).toHaveText("Now");
+  await expect
+    .poll(async () => (await textHook(page)).rows.join("\n"))
+    .not.toContain("sunny clearing");
   await page.getByTestId("workspace-redo").click();
   await expect(page.locator(".monaco-editor")).toContainText("Instant Undo");
   await page.getByTestId("workspace-saved").click();
@@ -689,8 +693,6 @@ test("Undo and History restore update the editor while a game message waits", as
   await workspaceSaved(page);
   await page.getByTestId("workspace-update").click();
   await expect(page.getByTestId("workspace-update")).toBeDisabled();
-  await page.keyboard.press("Control+`");
-  await page.keyboard.press("Enter");
   await expect(page.getByTestId("workspace-updated")).toBeVisible();
   await expect(page.getByTestId("workspace-live")).toBeVisible();
   await expect(page.getByTestId("workspace-live")).toHaveText("Now");
