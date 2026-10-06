@@ -253,7 +253,8 @@ test("new.room: east authors a new room live; west returns to the old one", asyn
   await typeCommand(page, "east");
   // The agent authors room 2 and patches it into the VOL, live.
   await expect.poll(() => agentActivity(page), { timeout: 10_000 }).toContain("authored room 2");
-  expect(await printWindowText(page)).toContain("generated room 2");
+  await expect(page.locator(".game-surface:visible")).toBeVisible();
+  await expect.poll(() => printWindowText(page)).toContain("generated room 2");
   const room2Hash = (await settled(page)).picHash;
   expect(room2Hash).not.toBe(room1Hash);
 

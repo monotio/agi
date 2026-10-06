@@ -9,12 +9,14 @@ export function createPlayHereLoader(ctx: WorkerContext) {
   function onPlayHere(msg: Inbound<"playHere">): void {
     if (handler !== null) return handler.onPlayHere(msg);
     const engine = ctx.engine;
+    const previewSerial = ctx.previewVisitSerial;
     loading ??= import("./playHere.ts").then((module) => {
       handler = module.createPlayHere(ctx);
     });
     void loading
       .then(() => {
-        if (ctx.engine === engine) handler!.onPlayHere(msg);
+        if (ctx.engine === engine && (!msg.visit || ctx.previewVisitSerial === previewSerial))
+          handler!.onPlayHere(msg);
         else
           ctx.ports.control({
             type: "playedHere",
@@ -23,7 +25,10 @@ export function createPlayHereLoader(ctx: WorkerContext) {
             room: ctx.engine?.vars[0] ?? 0,
             x: ctx.engine?.screenObjects[0]?.x ?? 0,
             y: ctx.engine?.screenObjects[0]?.y ?? 0,
-            reason: "The game changed while Play here loaded. Try again.",
+            reason:
+              ctx.engine === engine
+                ? "Play started while the room visit loaded. Choose Create and open the room again."
+                : "The game changed while Play here loaded. Try again.",
           });
       })
       .catch((error: unknown) => {

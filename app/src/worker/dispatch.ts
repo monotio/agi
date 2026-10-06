@@ -611,6 +611,11 @@ export function onWorkerMessage(ctx: WorkerContext, msg: WorkerInbound): void {
       ctx.fns.historyRecord({ kind: "device", device });
       return;
     }
+    if (msg.type === "projectPlay") {
+      ctx.previewVisitEngine = null;
+      ctx.previewVisitSerial++;
+      return;
+    }
     if (msg.type === "observeSentences") {
       ctx.input.observeSentences = msg.enabled;
       if (!msg.enabled) {

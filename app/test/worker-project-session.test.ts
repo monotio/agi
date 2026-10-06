@@ -212,10 +212,10 @@ test("one MAIN run admits PICTURE, LOGIC, WORDS and Undo; autosave reopens exact
   again.dispose();
 });
 
-test("Update waits for the worker safe point and installs all parts with one Undo", async () => {
+test("Update closes a waiting message and installs all parts with one Undo", async () => {
   const documents = {
     "logic:0":
-      'if (v40 == 0) { load.pic(0); draw.pic(0); show.pic(); assignn(v40,1); print("Wait"); } return;',
+      'if (isset(f5)) { load.pic(0); draw.pic(0); show.pic(); } if (v40 == 0) { assignn(v40,1); print("Wait"); } return;',
     "picture:0": "vis 1\nfill 1,1\nend\n",
     words: '[["look",10]]',
   };
@@ -306,12 +306,16 @@ test("Update waits for the worker safe point and installs all parts with one Und
     ).status,
     "committed",
   );
-  assert.ok(boundaries > 0);
+  assert.equal(boundaries, 0);
+  assert.equal(engine.modalKind, null);
+  assert.equal(engine.continuationPending, false);
+  ctx.fns.hostTick();
   assert.equal(ctx.engine, engine);
   assert.equal(engine.getPictureSurface().visual[161], 4);
   assert.equal(ctx.boot.liveDictionary.get("inspect"), 10);
   assert.equal(session.history.capture().commits.length, originalHistory + 1);
-  assert.equal((await session.undo())?.status, "committed");
+  const undone = await session.undo();
+  assert.equal(undone?.status, "committed", JSON.stringify(undone));
   assert.equal(engine.getPictureSurface().visual[161], 1);
   assert.equal(ctx.boot.liveDictionary.has("inspect"), false);
   session.dispose();

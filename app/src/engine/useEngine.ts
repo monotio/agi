@@ -1071,6 +1071,8 @@ export function useEngine(
         type: "observeSentences",
         enabled: mode === "create",
       } satisfies WorkerInbound);
+      if (mode === "play")
+        link.getWorker()?.postMessage({ type: "projectPlay" } satisfies WorkerInbound);
       let game = lifecycle.getBootedGame();
       const worker = link.getWorker();
       if (mode === "create" && game?.installed && !game.authoredGame && game.historyLifetime) {

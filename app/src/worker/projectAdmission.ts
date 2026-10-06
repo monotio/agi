@@ -733,10 +733,17 @@ export function createProjectAdmission(ctx: WorkerContext, options: ProjectAdmis
       settleRefused("the lane's identity moved while the candidate was staged");
       return;
     }
+    const roomReentry =
+      msg.mode === "reenter" ||
+      (ctx.projectAdmission === lane &&
+        engine.continuationPending &&
+        (engine.modalKind === "print" || engine.awaitingKey));
     const commit = () =>
-      msg.mode === "reenter"
+      roomReentry
         ? engine.commitRoomReentry(plan, () => {
             ctx.fns.historyEnd("resume");
+            ctx.fns.setKeyWaiting(false);
+            ctx.fns.abandonHostRequest();
             ctx.fns.markReenter();
           })
         : engine.commitPreviewUpdate(plan, { sourceAuthorityChanged });
@@ -775,7 +782,7 @@ export function createProjectAdmission(ctx: WorkerContext, options: ProjectAdmis
     if (installed) {
       if (ctx.projectAdmission === lane)
         ctx.boot.project = { documents: admittedDocuments!, documentId: documentId! };
-      if (ctx.projectAdmission === lane && msg.mode !== "reenter")
+      if (ctx.projectAdmission === lane && !roomReentry)
         ctx.fns.historyRecord({
           kind: "projectImage",
           files: Object.fromEntries(
@@ -810,7 +817,7 @@ export function createProjectAdmission(ctx: WorkerContext, options: ProjectAdmis
         ctx.boot.authoredWords = wordsFile.slice();
       }
     }
-    if (installed && msg.mode === "reenter") {
+    if (installed && roomReentry) {
       ctx.fns.noteTransition();
       ctx.fns.historyResume();
       ctx.fns.postFrame(true);

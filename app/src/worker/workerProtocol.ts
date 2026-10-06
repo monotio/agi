@@ -263,6 +263,8 @@ export interface PatchResource {
 
 export type WorkerInbound =
   | { type: "observeSentences"; enabled: boolean }
+  /** Choosing Play adopts a temporary Create visit as the live play state. */
+  | { type: "projectPlay" }
   | BootMessage
   | { type: "pause"; paused: boolean }
   | { type: "key"; code: number; sessionId?: number }

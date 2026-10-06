@@ -499,7 +499,9 @@ export function historyAnchorSemantic(
 }
 
 /** The semantic view of a segment boot — every resumable-state field it carries. */
-export function historyBootSemantic(boot: Omit<HistoryBoot, "fingerprint">): HistorySemanticState {
+export function historyBootSemantic(
+  boot: Omit<HistoryBoot, "fingerprint"> & { fingerprint?: HistoryFingerprint },
+): HistorySemanticState {
   const out: HistorySemanticState = {
     authorRooms: boot.authorRooms,
     dictionary: sortDictionary(boot.dictionary),
@@ -519,6 +521,18 @@ export function historyBootSemantic(boot: Omit<HistoryBoot, "fingerprint">): His
   if (boot.clickQueue !== undefined) out.clickQueue = boot.clickQueue;
   if (boot.clock !== undefined) out.clock = boot.clock;
   if (boot.soundRemainder !== undefined) out.soundRemainder = boot.soundRemainder;
+  // Early PAL writers bound timing in replay state before adding the boot
+  // region to this hash. Both region fields must agree, and every other
+  // recorded field must still match the original fingerprint.
+  if (
+    boot.amigaRegion === "pal" &&
+    boot.replay?.amigaRegion === "pal" &&
+    boot.fingerprint?.v === 1
+  ) {
+    const earlier = { ...out };
+    delete earlier.amigaRegion;
+    if (historyFingerprint(earlier).hash === boot.fingerprint.hash) return earlier;
+  }
   return out;
 }
 
@@ -1050,7 +1064,7 @@ export function validateHistoryBoot(value: unknown): HistoryBoot {
   if (value["soundRemainder"] !== undefined)
     out.soundRemainder = num(value["soundRemainder"], "boot soundRemainder", 1000);
   const stamp = fingerprint(value["fingerprint"]);
-  if (historyFingerprint(historyBootSemantic(out)).hash !== stamp.hash)
+  if (historyFingerprint(historyBootSemantic({ ...out, fingerprint: stamp })).hash !== stamp.hash)
     fail("boot fingerprint does not match its recorded state.");
   return { ...out, fingerprint: stamp };
 }

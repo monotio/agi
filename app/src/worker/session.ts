@@ -10,6 +10,8 @@ import type { WorkerContext } from "./context.ts";
  * captureStateDiffs run last so the diff ring baselines the fresh engine.
  */
 export function resetSession(ctx: WorkerContext): void {
+  ctx.previewVisitEngine = null;
+  ctx.previewVisitSerial++;
   ctx.imageHeroPreview = undefined;
   ctx.imagePreviewEngine = undefined;
   ctx.imagePreviewSerial = (ctx.imagePreviewSerial ?? 0) + 1;

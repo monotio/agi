@@ -69,6 +69,54 @@ test("switching Play and Create follows the running room without moving it", asy
     /is-live-game/,
   );
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  await expect(page.getByTestId("workspace-visit")).toBeHidden();
+});
+
+test("a room visit reply arriving after Play keeps Create on the adopted room", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.addInitScript(() => {
+    const onmessage = Object.getOwnPropertyDescriptor(Worker.prototype, "onmessage")!;
+    let held: (() => void) | null = null;
+    const hooks = window as unknown as {
+      roomVisitHeld(): boolean;
+      releaseRoomVisit(): void;
+    };
+    hooks.roomVisitHeld = () => held !== null;
+    hooks.releaseRoomVisit = () => {
+      const reply = held;
+      held = null;
+      reply?.();
+    };
+    Object.defineProperty(Worker.prototype, "onmessage", {
+      configurable: true,
+      get: onmessage.get!,
+      set(this: Worker, listener: (event: MessageEvent) => void) {
+        onmessage.set!.call(this, (event: MessageEvent) => {
+          if (event.data?.type === "playedHere" && event.data.returnRoom !== undefined) {
+            held = () => listener.call(this, event);
+            return;
+          }
+          listener.call(this, event);
+        });
+      },
+    });
+  });
+  await start(page);
+  await open(page, "part-room:8:picture:8");
+  await expect
+    .poll(() =>
+      page.evaluate(() => (window as unknown as { roomVisitHeld(): boolean }).roomVisitHeld()),
+    )
+    .toBe(true);
+  await expect.poll(async () => (await textHook(page)).room).toBe(8);
+  await page.getByRole("radio", { name: "Play", exact: true }).click();
+  await page.evaluate(() => (window as unknown as { releaseRoomVisit(): void }).releaseRoomVisit());
+  await page.getByRole("radio", { name: "Create", exact: true }).click();
+  await expect(page.getByTestId("room-studio").filter({ visible: true })).toBeVisible();
+  await expect(page.getByTestId("workspace-visit")).toBeHidden();
+  await expect.poll(async () => (await textHook(page)).room).toBe(8);
 });
 
 test("room changes during Create keep the picture editor on the running room", async ({ page }) => {
