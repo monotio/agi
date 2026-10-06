@@ -425,7 +425,16 @@ test("a reload resumes the parked window in an agent-authored room @webkit-deskt
   await input.fill("east");
   await input.press("Enter");
   await expect.poll(() => agentActivity(page), { timeout: 10_000 }).toContain("authored room 2");
-  await expect.poll(async () => (await textHook(page)).modal, { timeout: 10_000 }).toBe("print");
+  await expect(page.locator(".game-surface:visible")).toBeVisible();
+  await expect
+    .poll(
+      async () => {
+        const frame = await textHook(page);
+        return [frame.room, frame.modal, frame.rows.join(" ")];
+      },
+      { timeout: 10_000 },
+    )
+    .toEqual([2, "print", expect.stringContaining("generated room 2")]);
   const parked = await textHook(page);
   expect(parked.rows.join(" ")).toContain("generated room 2");
   try {
@@ -474,7 +483,15 @@ test("a reload resumes the parked window in an agent-authored room @webkit-deskt
   // The authored bytes persisted beside the image, so the continuation is
   // still keyed on identical logic: the same window is back up.
   try {
-    await expect.poll(async () => (await textHook(page)).modal, { timeout: 30_000 }).toBe("print");
+    await expect
+      .poll(
+        async () => {
+          const frame = await textHook(page);
+          return [frame.room, frame.modal, frame.rows.join(" ")];
+        },
+        { timeout: 30_000 },
+      )
+      .toEqual([2, "print", expect.stringContaining("generated room 2")]);
     expect((await textHook(page)).rows.join(" ")).toContain("generated room 2");
     expect(await input.count()).toBe(0);
   } finally {
