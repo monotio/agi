@@ -464,9 +464,8 @@ async function onRecordSave(): Promise<void> {
     @trigger-key="triggerKey"
     @start-walkthrough="onStartWalkthrough"
   />
-  <div class="shell-notices" :class="{ 'shell-notices--copy': state.copyCreated }">
+  <div v-if="state.copyCreated" class="copy-created-anchor">
     <UiToast
-      v-if="state.copyCreated"
       dismissible
       class="copy-created-note"
       data-testid="copy-created-note"
@@ -474,6 +473,8 @@ async function onRecordSave(): Promise<void> {
     >
       Saved as your own copy of {{ state.copyCreated.originalTitle }}. The original stays unchanged.
     </UiToast>
+  </div>
+  <div class="shell-notices">
     <StaleTabNote />
     <div
       v-if="
@@ -871,18 +872,35 @@ a.publisher:hover > span {
 .shell-notices:not(:empty) {
   padding: var(--space-2) var(--space-4);
 }
-.shell-notices--copy {
+.copy-created-anchor {
+  position: relative;
   z-index: calc(var(--z-dock) + 1);
+  flex: none;
+  height: 0;
   pointer-events: none;
 }
-.shell-notices--copy > * {
-  pointer-events: auto;
-}
+/* Desktop notices fit over Parts to leave the editor controls clear. */
 .copy-created-note {
-  max-width: 100%;
+  position: absolute;
+  top: var(--space-2);
+  left: var(--space-2);
+  width: 236px;
+  max-width: calc(100% - var(--space-4));
   box-sizing: border-box;
   margin: 0;
   align-items: flex-start;
+  background: var(--surface-2);
+  pointer-events: auto;
+}
+@media (max-width: 1280px) {
+  .copy-created-note {
+    width: 164px;
+  }
+}
+@media (max-width: 600px) {
+  .copy-created-note {
+    width: calc(100% - var(--space-4));
+  }
 }
 .notice-actions {
   display: flex;
