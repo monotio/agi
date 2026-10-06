@@ -5,8 +5,7 @@
  * takes a grid column, so the editor keeps its width. Play keeps its own
  * drawer (the aside in App.vue).
  */
-import { computed, onBeforeUnmount, shallowRef, watch } from "vue";
-import AgentPanel from "./AgentPanel.vue";
+import { computed, defineAsyncComponent, onBeforeUnmount, shallowRef, watch } from "vue";
 import { blankAgentOpen } from "./openAgent.ts";
 import { emptyProject } from "../home/emptyProjectRoute.ts";
 import {
@@ -20,6 +19,8 @@ import { useGameLibrary } from "../library/useGameLibrary.ts";
 import type { ProjectSession } from "../project/projectSession.ts";
 import type { ProfileId } from "../../../src/runtime/profile.ts";
 
+// The panel carries the AI authoring stack; Home and Play never load it.
+const AgentPanel = defineAsyncComponent(() => import("./AgentPanel.vue"));
 const engine = useEngineApi();
 const shell = useShell();
 const library = useGameLibrary();
