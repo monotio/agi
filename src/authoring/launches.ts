@@ -89,9 +89,9 @@ function decimalKey(key: string, min: number, max: number): number | undefined {
     : undefined;
 }
 
-function byteNumber(key: string, max: number, label: string): number {
-  const value = Number(key);
-  if (!Number.isInteger(value) || value < 0 || value > max) {
+/** An integer within an inclusive range; strings do not coerce in. */
+function boundedNumber(value: unknown, min: number, max: number, label: string): number {
+  if (typeof value !== "number" || !Number.isInteger(value) || value < min || value > max) {
     throw new Error(`Invalid ${label}.`);
   }
   return value;
@@ -142,8 +142,9 @@ function readEntry(value: unknown, room: string, used: ReadonlySet<string>): Lau
     const from = fields(cameFrom, ["room", "edge"], `launch '${id}' cameFrom in room ${room}`);
     // Room numbers are identities, not labels: 0..255 like exits.
     launch.cameFrom = {
-      room: byteNumber(
-        String(from["room"]),
+      room: boundedNumber(
+        from["room"],
+        0,
         ROOM_MAX,
         `launch '${id}' cameFrom room in room ${room}`,
       ),
@@ -166,26 +167,25 @@ function readEntry(value: unknown, room: string, used: ReadonlySet<string>): Lau
   const variables = readByteRecord(
     entry["variables"],
     `launch '${id}' variables in room ${room}`,
-    (variable) =>
-      byteNumber(String(variable), BYTE_MAX, `launch '${id}' variables in room ${room}`),
+    (variable) => boundedNumber(variable, 0, BYTE_MAX, `launch '${id}' variables in room ${room}`),
   );
   if (variables) launch.variables = variables as Record<string, number>;
   // Inventory locations are AGI room numbers; 255 is the engine's "carried by
   // the hero" value — `get` writes 0xff into itemLocations (src/runtime/engine.ts).
   const items = readByteRecord(entry["items"], `launch '${id}' items in room ${room}`, (item) =>
-    byteNumber(String(item), ROOM_MAX, `launch '${id}' items in room ${room}`),
+    boundedNumber(item, 0, ROOM_MAX, `launch '${id}' items in room ${room}`),
   );
   if (items) launch.items = items as Record<string, number>;
   const hero = entry["hero"];
   if (hero !== undefined) {
     const spot = fields(hero, ["x", "y"], `launch '${id}' hero in room ${room}`);
-    const x = byteNumber(String(spot["x"]), HERO_X_MAX, `launch '${id}' hero x in room ${room}`);
-    const y = byteNumber(String(spot["y"]), HERO_Y_MAX, `launch '${id}' hero y in room ${room}`);
+    const x = boundedNumber(spot["x"], 0, HERO_X_MAX, `launch '${id}' hero x in room ${room}`);
+    const y = boundedNumber(spot["y"], 0, HERO_Y_MAX, `launch '${id}' hero y in room ${room}`);
     launch.hero = { x, y };
   }
   const seed = entry["seed"];
   if (seed !== undefined) {
-    launch.seed = byteNumber(String(seed), SEED_MAX, `launch '${id}' seed in room ${room}`);
+    launch.seed = boundedNumber(seed, 0, SEED_MAX, `launch '${id}' seed in room ${room}`);
   }
   return launch;
 }
