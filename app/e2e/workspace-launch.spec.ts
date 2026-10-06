@@ -338,7 +338,7 @@ test("create a Launch for Room 2 with a flag and Came from, select it, Restart R
 
   // Screenshot of launch editor at 1440x900
   await page.screenshot({
-    path: "/Users/joakim/repos/agi/.local/1.2/reboot/logs/rc4-l3-launch-ui-shots/launch-editor-1440.png",
+    path: test.info().outputPath("launch-editor-1440.png"),
     animations: "disabled",
     scale: "css",
   });
@@ -369,7 +369,7 @@ test("create a Launch for Room 2 with a flag and Came from, select it, Restart R
 
   // Screenshot showing configured launch with rows
   await page.screenshot({
-    path: "/Users/joakim/repos/agi/.local/1.2/reboot/logs/rc4-l3-launch-ui-shots/launch-configured-1440.png",
+    path: test.info().outputPath("launch-configured-1440.png"),
     animations: "disabled",
     scale: "css",
   });
@@ -377,14 +377,14 @@ test("create a Launch for Room 2 with a flag and Came from, select it, Restart R
   // Capture responsive screenshots of the editor
   await page.setViewportSize({ width: 1063, height: 815 });
   await page.screenshot({
-    path: "/Users/joakim/repos/agi/.local/1.2/reboot/logs/rc4-l3-launch-ui-shots/launch-editor-1063.png",
+    path: test.info().outputPath("launch-editor-1063.png"),
     animations: "disabled",
     scale: "css",
   });
 
   await page.setViewportSize({ width: 390, height: 844 });
   await page.screenshot({
-    path: "/Users/joakim/repos/agi/.local/1.2/reboot/logs/rc4-l3-launch-ui-shots/launch-editor-390.png",
+    path: test.info().outputPath("launch-editor-390.png"),
     animations: "disabled",
     scale: "css",
   });
@@ -402,7 +402,7 @@ test("create a Launch for Room 2 with a flag and Came from, select it, Restart R
   await expect(menuLaunch).toBeVisible();
   await expect(menuLaunch).toContainText("✓");
   await page.screenshot({
-    path: "/Users/joakim/repos/agi/.local/1.2/reboot/logs/rc4-l3-launch-ui-shots/launch-menu-1440.png",
+    path: test.info().outputPath("launch-menu-1440.png"),
     animations: "disabled",
     scale: "css",
   });
@@ -412,7 +412,7 @@ test("create a Launch for Room 2 with a flag and Came from, select it, Restart R
   await action.click();
   await expect.poll(() => screenText(page)).toContain("Flag 70 is active");
   await page.screenshot({
-    path: "/Users/joakim/repos/agi/.local/1.2/reboot/logs/rc4-l3-launch-ui-shots/launch-run1-1440.png",
+    path: test.info().outputPath("launch-run1-1440.png"),
     animations: "disabled",
     scale: "css",
   });
@@ -426,7 +426,7 @@ test("create a Launch for Room 2 with a flag and Came from, select it, Restart R
   await action.click();
   await expect.poll(() => screenText(page)).toContain("Flag 70 is active");
   await page.screenshot({
-    path: "/Users/joakim/repos/agi/.local/1.2/reboot/logs/rc4-l3-launch-ui-shots/launch-run2-1440.png",
+    path: test.info().outputPath("launch-run2-1440.png"),
     animations: "disabled",
     scale: "css",
   });
