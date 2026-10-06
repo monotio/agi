@@ -828,7 +828,7 @@ function createSession(
       await drafts.ready;
       if (!current() || writeBlock !== undefined)
         throw new Error(session.saveStatus().message || "Reopen this game before editing.");
-      drafts.stage(changes);
+      drafts.stageTransaction(changes);
       return { status: "draft" as const, diagnostics: [] };
     },
     update(changes: readonly ProjectChange[], restartRoom = false) {
@@ -907,10 +907,9 @@ function createSession(
       const { proposal, ...metadata } = edit;
       return schedule(() => apply(proposal, { ...metadata, time: Date.now() }, undefined, true));
     },
-    undo(review?: ComputedRoomRemovalReview, scope: "working" | "game" = "working") {
+    undo(review?: ComputedRoomRemovalReview) {
       return schedule(async () => {
-        if (scope === "working" && partDrafts?.undo())
-          return { status: "draft" as const, diagnostics: [] };
+        if (partDrafts?.undo()) return { status: "draft" as const, diagnostics: [] };
         const action = history.undo(model);
         if (action === undefined) return undefined;
         const capture = model.capture();

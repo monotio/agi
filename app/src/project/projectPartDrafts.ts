@@ -269,6 +269,12 @@ export function openProjectDrafts(input: {
       };
     },
     stage(changes: readonly ProjectChange[]) {
+      stage(changes);
+      past.length = 0;
+      future.length = 0;
+      notify();
+    },
+    stageTransaction(changes: readonly ProjectChange[]) {
       if (changes.length === 0) return;
       const before = changes.map(({ key }) => ({
         key,

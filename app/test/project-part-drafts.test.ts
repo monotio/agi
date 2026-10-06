@@ -13,7 +13,7 @@ test("a coordinated draft edit undoes and redoes as one transaction", async () =
     read: (key) => (key === "logic:1" ? "set(f36);" : "{}"),
   });
   await drafts.ready;
-  drafts.stage([
+  drafts.stageTransaction([
     { key: "logic:1", content: "set(gate_open);" },
     { key: "bindings", content: '{"gate_open":36}' },
   ]);
@@ -49,7 +49,7 @@ test("closing after draft Undo recovers every reverted document", async () => {
     read: () => "before",
   });
   await drafts.ready;
-  drafts.stage([
+  drafts.stageTransaction([
     { key: "logic:1", content: "after" },
     { key: "bindings", content: "after" },
   ]);
@@ -75,7 +75,7 @@ test("draft Undo keeps its transaction when writing is blocked", async () => {
     canWrite: () => writable,
   });
   await drafts.ready;
-  drafts.stage([{ key: "notes", content: "after" }]);
+  drafts.stageTransaction([{ key: "notes", content: "after" }]);
   writable = false;
   assert.throws(() => drafts.undo(), /another tab/);
   assert.equal(drafts.status().canUndo, true);
