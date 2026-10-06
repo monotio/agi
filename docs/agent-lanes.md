@@ -73,10 +73,10 @@ Verification:
 - typecheck, lint and format for the touched files
 - <build and bundle checks if imports move>
 - <browser checks and screenshot sizes for UI changes>
-- Push only lane/<name>; inspect one full Linux CI run.
+- Commit on lane/<name>; do not push.
 
 Report: .local/agent-lanes/reports/<name>.md
-Start with at most 150 words: verdict, commits, gates, CI link, open questions.
+Start with at most 150 words: verdict, commits, gates, open questions.
 Then describe changes, fail-first evidence, deleted tests and replacements,
 screenshots inspected, failures and uncertainties.
 ```
@@ -126,7 +126,7 @@ and verification evidence determine whether the task succeeded.
 
 ## Lane rules
 
-- Work in your assigned worktree and branch. Push only that branch. Coordinate
+- Work in your assigned worktree and branch. Commit there; never push. Coordinate
   any scope changes with the orchestrator. Preserve other contributors' work;
   never use `git stash`, `git reset`, path checkout or path restore in a shared
   tree. Commit coherent changes with plain messages explaining what and why.
@@ -136,19 +136,20 @@ and verification evidence determine whether the task succeeded.
   replacement test or behavior whenever deleting or rewriting a test, and
   explain why the old assertion was dropped.
 - Keep timeouts, retries and skips unchanged. Avoid sleeps in browser tests;
-  wait for observable conditions. Never rerun CI to obtain green. Read each
-  failure, fix its cause with fail-first evidence, or report the failing test,
-  first failing line and run link. A failure on unchanged code is a finding.
+  wait for observable conditions. Read each failure, fix its cause with fail-first
+  evidence, or report the failing test and first failing line. A failure on
+  unchanged code is a finding.
 - Run selective gates only: the affected unit and browser tests, and typecheck,
   lint and format for the touched files. When imports move, also run
   `npm --prefix app run build` and `npm run check:bundle`. Follow the repository's
   additional gates for rendering, transport, save, sync and recovery changes.
-  Leave `npm run check` and the full browser suite to the orchestrator and CI:
+  For browser changes, also run the affected specs in Linux WebKit through the
+  container in docs/testing.md. Leave `npm run check` and the full browser suite to
+  the orchestrator:
   parallel full runs on one machine compete for it, and the load they create makes
   every lane's timing evidence unreliable.
-  Search existing tests for changed selectors and copy before pushing.
-- Push the lane branch and inspect one full Linux CI run. CI supplies the Linux
-  browser verdict; use `gh run view <id> --log-failed` to read failures. Report
+  Search existing tests for changed selectors and copy before committing.
+- Never push: CI runs cost money and only the integration head goes to CI. Report
   only results you observed. Local success and a stub provider prove their
   declared contracts; model quality and player experience need their own evidence.
 - For visual changes, capture and inspect real app screenshots at desktop
@@ -157,7 +158,7 @@ and verification evidence determine whether the task succeeded.
   through `test.info().outputPath(...)`; copy report evidence separately into
   the private folder. Use before and after pairs when comparing a change.
 - Begin the report with a summary of at most 150 words: verdict, commits,
-  observed gates with the CI link, and open questions. Follow with file changes,
+  observed gates, and open questions. Follow with file changes,
   fail-first evidence, test replacements, screenshot evidence, failures and
   uncertainties. Keep private reports out of git.
 
@@ -168,16 +169,17 @@ and verification evidence determine whether the task succeeded.
 
 The orchestrator chooses task boundaries, assigns ownership, tracks dependencies
 and keeps briefs consistent. It reads each report and the actual diff, examines
-test assertions and CI evidence, and resolves conflicts and cross-lane effects.
+test assertions and gate evidence, and resolves conflicts and cross-lane effects.
 A green report requires review before integration.
 
-Integrate only a lane with green CI. Merge its reviewed change into the shared
+Merge a lane's reviewed local branch into the shared
 integration branch, resolve conflicts, and run the affected checks and the full
 gate (`npm run check`, build and bundle, the full browser suite) against the
 combined result; this is the only place the full gate runs locally. Run no more
 lanes at once than the machine can test without slowing them down; on a laptop
 that is about four. After merging several lanes, also run the
-complete browser suite on the combined head before pushing: lanes that pass on
+complete browser suite, including Linux WebKit through the container, on the
+combined head before pushing; CI on that push is the final Linux verdict: lanes that pass on
 their own can collide, and the specs each lane touched will not show it. Review the whole change for failure paths,
 a second page sharing storage, and closing before a write commits where those
 behaviors apply. Verify browser changes in the real app and inspect screenshots.

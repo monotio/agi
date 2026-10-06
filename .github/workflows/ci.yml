@@ -1,7 +1,7 @@
 name: CI
 on:
   push:
-    branches: [main, "lane/**", "rc/**"]
+    branches: [main, "rc/**"]
   pull_request:
 permissions:
   contents: read

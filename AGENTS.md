@@ -217,11 +217,12 @@ code, comments or documentation.
   before showing a mockup or asking for a scope decision. Limits on agents (rounds,
   reads, tokens) follow evidence about the task, never round numbers.
 - Run the affected tests and `npm run check` before integration, plus
-  `npm --prefix app run build && npm run check:bundle` when imports move. CI is the
-  browser verdict: push the branch and read failures with
-  `gh run view <id> --log-failed` instead of replaying the matrix locally, since macOS
-  fonts, WebKit and CPU differ from the Linux runners. A failure on unchanged code
-  is a finding to fix or report, never a reason to rerun until green. Doc-only
+  `npm --prefix app run build && npm run check:bundle` when imports move. Debug on
+  your own machine, never through CI: CI runs cost money. Reproduce Linux WebKit and
+  fonts with the container in docs/testing.md. Push only a fully gated integration
+  head; CI on that push is the final Linux verdict, read with
+  `gh run view <id> --log-failed`. A failure on unchanged code is a finding to fix or
+  report, never a reason to rerun until green. Doc-only
   changes need consistency and formatting checks only. Keep README.md and
   CONTRIBUTING.md consistent with shipped behavior; no gratuitous markdown files.
 - Before a candidate is accepted, answer every automated review thread against the
@@ -237,8 +238,9 @@ code, comments or documentation.
 - Delegation: explicit file scope per contributor, a fresh agent for unrelated
   work, review delegated output and run the relevant checks before integrating.
   Do not require a particular agent vendor or model.
-- A delegated task works in its own worktree and branch, runs selective gates (affected
-  tests, touched-file typecheck, lint and format; the integrator alone runs the full
-  gate), pushes only that branch for CI, and opens its report with at most 150 words: verdict, commits, gates with the CI
-  run link, open questions. Integrate only on green CI for that branch; then delete
-  its worktree and branches.
+- A delegated task works in its own worktree and branch, runs selective gates locally
+  (affected tests, touched-file typecheck, lint and format; the integrator alone runs
+  the full gate), commits without pushing, and opens its report with at most 150
+  words: verdict, commits, gates, open questions. The integrator merges the reviewed
+  local branch, runs the full gate on the combined head, and then deletes the lane's
+  worktree and branch.
