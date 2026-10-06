@@ -513,6 +513,46 @@ describe("captureAgentWorkspace: isolated tool candidate", () => {
     draft.apply(proposal);
   });
 
+  test("world launches hydrate and survive a tool run that changes the plan", () => {
+    const project = createStarterProject("starter");
+    const { draft } = authoredDraft(project);
+    const launches = {
+      "1": {
+        selected: "launch-1",
+        entries: [
+          {
+            id: "launch-1",
+            name: "Vacuum death",
+            cameFrom: { room: 2, edge: 3 },
+            seed: 4242,
+          },
+        ],
+      },
+    };
+    editDraft(draft, "world", JSON.stringify({ rooms: {}, facts: {}, quests: {}, launches }));
+
+    const workspace = capture(project, draft);
+    const candidate = workspace.openToolState();
+    assert.deepEqual(candidate.state.authoring.world.launches, launches);
+
+    assert.equal(
+      executeAgentTool(candidate.state, "update_plan", {
+        rooms: [{ num: 1, title: "Clearing", description: "First room.", exits: [] }],
+        facts: [],
+        quests: [],
+      }).success,
+      true,
+    );
+    const proposal = candidate.finish("metadata");
+    const change = proposal.changes().find((entry) => entry.key === "world");
+    assert.ok(change, "the plan edit emits the world document");
+    const emitted = JSON.parse(String(change.content)) as {
+      launches?: Record<string, { entries: { name: string; seed: number }[] }>;
+    };
+    assert.equal(emitted.launches?.["1"]?.entries[0]?.name, "Vacuum death");
+    assert.equal(emitted.launches?.["1"]?.entries[0]?.seed, 4242);
+  });
+
   test("an envelope sound document hydrates and survives finish untouched", () => {
     const project = createStarterProject("starter");
     const files = withSoundFiles(filesRecord(project), new Map([[5, TWO_TONE_PAYLOAD]]));
