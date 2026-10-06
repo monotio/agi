@@ -543,15 +543,19 @@ editor.selectLaunch.value = async (id) => {
   }
 };
 let launchSerial = 0;
-async function runSelectedLaunch(debug = false): Promise<void> {
+async function runSelectedLaunch(
+  debug = false,
+  entry?: { room: number; beginning: boolean; state?: Launch },
+): Promise<void> {
   const serial = ++launchSerial;
-  const room = editor.actionRoom.value;
+  const room = entry?.room ?? editor.actionRoom.value;
   if (room === undefined) throw new Error("Open a room to play it.");
-  const state = editor.launchChoices.value.find(
-    (entry) => entry.id === editor.selectedLaunch.value,
-  );
+  const state =
+    entry === undefined
+      ? editor.launchChoices.value.find((choice) => choice.id === editor.selectedLaunch.value)
+      : entry.state;
   const result = await engine.launchRoom(room, {
-    beginning: editor.selectedLaunch.value === "beginning",
+    beginning: entry?.beginning ?? editor.selectedLaunch.value === "beginning",
     ...(state ? { state } : {}),
     debug,
   });
@@ -1004,6 +1008,13 @@ async function updateGame(restartRoom = true): Promise<void> {
         : editor.error.value;
     return;
   }
+  const room = editor.actionRoom.value;
+  const roomName = editor.actionRoomName.value;
+  const state = editor.launchChoices.value.find(
+    (entry) => entry.id === editor.selectedLaunch.value,
+  );
+  const beginning = editor.selectedLaunch.value === "beginning";
+  const launch = room === undefined ? undefined : { room, ...(state ? { state } : {}), beginning };
   actionBusy.value = true;
   try {
     await writes.flush();
@@ -1011,7 +1022,7 @@ async function updateGame(restartRoom = true): Promise<void> {
     if (!changes.length && !session.pendingRestart) {
       if (restartRoom) {
         if (debug.value?.state.epoch) await debug.value.stop();
-        await runSelectedLaunch();
+        await runSelectedLaunch(false, launch);
       }
       editor.phonePlaytest.value = true;
       return;
@@ -1019,19 +1030,7 @@ async function updateGame(restartRoom = true): Promise<void> {
     const updatedParts = pendingParts.parts(snapshot.value, changes).length;
     const waiting = engine.state.modal !== null || engine.state.waitingForKey;
     if (restartRoom && debug.value?.state.epoch) await debug.value.stop();
-    const room = editor.actionRoom.value;
-    const roomName = editor.actionRoomName.value;
-    const state = editor.launchChoices.value.find(
-      (entry) => entry.id === editor.selectedLaunch.value,
-    );
-    const beginning = editor.selectedLaunch.value === "beginning";
-    const result = await session.update(
-      changes,
-      restartRoom,
-      restartRoom && room !== undefined
-        ? { room, ...(state ? { state } : {}), beginning }
-        : undefined,
-    );
+    const result = await session.update(changes, restartRoom, restartRoom ? launch : undefined);
     updateProblems.value = result.diagnostics;
     if (!["committed", "unchanged", "draft"].includes(result.status)) {
       editor.problemCount.value = Math.max(

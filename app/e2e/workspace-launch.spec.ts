@@ -146,6 +146,52 @@ test("Update result names the launched room after another editor opens", async (
   await expect(action).toHaveText("Play Garden");
 });
 
+test("Update keeps the room chosen before drafts flush @webkit-desktop", async ({ page }) => {
+  await start(page);
+  await open(page, "part-room:1:logic");
+  const source = await runningWorkspaceDocument(page, "logic:1");
+  await focusWorkspaceLogic(page);
+  await page.keyboard.press("ControlOrMeta+a");
+  await page.keyboard.insertText(`${source}\n// A pinned room update`);
+  await page.keyboard.press("Escape");
+  await workspaceSaved(page);
+  await page.evaluate(() => {
+    const session = (
+      window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }
+    ).__AGI_PROJECT__.getSession();
+    const drafts = session.drafts();
+    const flush = drafts.flush.bind(drafts);
+    const hooks = window as unknown as {
+      draftFlushHeld: boolean;
+      releaseDraftFlush(): void;
+    };
+    hooks.draftFlushHeld = false;
+    let hold = true;
+    drafts.flush = async () => {
+      if (hold) {
+        hold = false;
+        await new Promise<void>((resolve) => {
+          hooks.draftFlushHeld = true;
+          hooks.releaseDraftFlush = resolve;
+        });
+      }
+      await flush();
+    };
+  });
+  const action = page.getByTestId("workspace-update");
+  await expect(action).toBeVisible();
+  await expect(action).toHaveText("Update and restart Home");
+  await action.click();
+  await expect.poll(() => page.evaluate(() => Reflect.get(window, "draftFlushHeld"))).toBe(true);
+  await open(page, "part-room:8:logic");
+  await page.evaluate(() => Reflect.get(window, "releaseDraftFlush")());
+  const result = page.getByTestId("workspace-updated");
+  await expect(result).toBeVisible();
+  await expect(result).toContainText("Updated · Home restarted");
+  expect((await textHook(page)).room).toBe(1);
+  await expect(action).toHaveText("Play Garden");
+});
+
 test("F5 in room LOGIC debugs the selected Launch before its first instruction @webkit-desktop", async ({
   page,
 }) => {
