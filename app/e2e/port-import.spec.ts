@@ -7,7 +7,7 @@ import { findFixture, fixtureSkip } from "../../test/fixtures.ts";
 import { gameRevision } from "../src/project/gameMetadata.ts";
 import { buildZip } from "../src/archive/zip.ts";
 import { readGameZip } from "../src/archive/gameZip.ts";
-import { isolateStorage, openGameOptions, textHook } from "./engineProbe.ts";
+import { downloadFromSettings, isolateStorage, textHook } from "./engineProbe.ts";
 
 /**
  * A port edition imported the way a player does it — a ZIP of their own
@@ -85,8 +85,7 @@ for (const port of PORTS) {
     expect(await storedRevision(page)).toBe(revision);
 
     const pending = page.waitForEvent("download");
-    await openGameOptions(page, "settings-menu");
-    await page.getByTestId("btn-export-game").click();
+    await downloadFromSettings(page);
     const exported = (await (await pending).path())!;
     const game = await readGameZip(new Uint8Array(await readFile(exported)));
     expect(game.files[port.executable]).toEqual(executable);

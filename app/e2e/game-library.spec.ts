@@ -544,7 +544,7 @@ test("removing a game forgets its progress, so the same bytes come back fresh", 
   await expect(card.getByTestId("btn-resume-cached")).toHaveText("Resume");
   expect(await stored()).toEqual(before);
 
-  // Download game first is the card's own Download game…, and the question stays open.
+  // Download game first downloads the project file, and the question stays open.
   await openLibraryActions(page, card);
   await page.getByTestId("remove-library-game").click();
   const download = page.waitForEvent("download");

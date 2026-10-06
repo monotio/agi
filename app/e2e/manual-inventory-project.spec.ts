@@ -4,6 +4,7 @@ import { openContainer } from "../../src/container/container.ts";
 import { parseWordsTok } from "../../src/logic/words.ts";
 import {
   openLibraryActions,
+  openPlayMore,
   savedGameCard,
   screenText,
   textHook,
@@ -132,8 +133,8 @@ return;
     await page.getByTestId("btn-exit").click();
     await expect(page.getByTestId("parts-list")).toBeHidden();
     // Playtest the newly kept bytes from the opening; earlier progress remains separate.
-    await openLibraryActions(page, savedGameCard(page, title));
-    await page.getByTestId("start-library-game-over").click();
+    const more = await openPlayMore(page, savedGameCard(page, title));
+    await more.getByTestId("start-library-game-over").click();
     await expect.poll(async () => (await textHook(page)).room).toBe(1);
     if (kind === "boilerplate") {
       await expect.poll(async () => (await textHook(page)).modal).toBe("print");

@@ -3,6 +3,7 @@ import type { Page, Download } from "@playwright/test";
 import type { ProjectSession } from "../src/project/projectSession.ts";
 import { test, expect } from "./test.ts";
 import {
+  downloadFromSettings,
   isolateStorage,
   openGameOptions,
   workspaceSaved,
@@ -46,7 +47,7 @@ async function moveStorage(page: Page, other: Page, removed: boolean): Promise<v
 }
 
 for (const mode of ["refusal", "storage", "stale", "removed"] as const) {
-  test(`Download game preserves a backup after ${mode}`, async ({ page, context }) => {
+  test(`Project file download preserves a backup after ${mode}`, async ({ page, context }) => {
     const errors: string[] = [];
     page.on("pageerror", (error) => errors.push(error.message));
     await starter(page);
@@ -117,6 +118,9 @@ for (const mode of ["refusal", "storage", "stale", "removed"] as const) {
     page.on("download", (download) => downloads.push(download));
     await openGameOptions(page, "settings-menu");
     await page.getByTestId("btn-download-game").click();
+    const downloadDialog = page.getByTestId("settings-download-dialog");
+    await expect(downloadDialog).toBeVisible();
+    await downloadDialog.getByTestId("download-library-game").click();
     await expect
       .poll(async () => ({
         downloads: downloads.length,
@@ -401,9 +405,8 @@ test("Export game reports a refused editor draft", async ({ page }) => {
   await refuseDraftWrites(page, "Injected export refusal");
   await page.getByLabel("Game notes", { exact: true }).fill("Unaccepted export note");
   await expect(page.getByTestId("workspace-saved")).toContainText("Could not save");
-  await openGameOptions(page, "settings-menu");
   const exported = page.waitForEvent("download");
-  await page.getByTestId("btn-export-game").click();
+  await downloadFromSettings(page);
   const archive = await readGameZip(
     new Uint8Array(await readFile((await (await exported).path())!)),
   );

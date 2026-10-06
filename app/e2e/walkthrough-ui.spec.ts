@@ -58,10 +58,10 @@ test.describe("Walkthrough UI", () => {
     // Open ActionMenu next to Play for KQ1
     await openCardMenu(page, "game-actions-kq1");
 
-    // Verify "Run walkthrough" item is visible
+    // Verify the walkthrough item is visible
     const runBtn = page.getByTestId("run-walkthrough");
     await expect(runBtn).toBeVisible();
-    await expect(runBtn).toContainText("Run walkthrough");
+    await expect(runBtn).toContainText("Watch walkthrough");
     await runBtn.click();
 
     // Verify walkthrough HUD bar and bottom transport bar appear

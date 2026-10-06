@@ -353,7 +353,7 @@ test("Exit leaves quietly when the current moment cannot be checkpointed", async
 test("Exit still refuses when browser storage fails or the autosave times out", async () => {
   for (const status of ["storage_failure", "timeout"]) {
     const { calls, state, lifecycle } = quitHarness({ status });
-    await assert.rejects(lifecycle.ejectGame(), /Settings → This game → Download game…/);
+    await assert.rejects(lifecycle.ejectGame(), /Settings → This game → Download…/);
     assert.deepEqual(calls, ["flush"], `${status} keeps the game running`);
     assert.equal(state.leaving, false);
   }

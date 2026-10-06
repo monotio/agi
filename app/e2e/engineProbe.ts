@@ -361,6 +361,33 @@ export async function openSavedGameDetails(card: Locator): Promise<Locator> {
   return dialog;
 }
 
+/** Open a card's play split-button menu (Resume/Play, Start over, Watch walkthrough). */
+export async function openPlayMore(page: Page, card: Locator): Promise<Locator> {
+  const trigger = card.getByRole("button", { name: "More ways to play", exact: true });
+  await trigger.scrollIntoViewIfNeeded();
+  await trigger.click({ trial: true, timeout: 5000 });
+  if ((await trigger.getAttribute("aria-expanded")) !== "true") await trigger.click();
+  const menu = page.getByRole("menu", { name: "More ways to play", exact: true });
+  await expect(menu).toBeVisible();
+  return menu;
+}
+
+/**
+ * Open a saved game's Download dialog from its ⋯ menu; returns the open
+ * dialog. Every card mounts its own dialog element, so the returned locator
+ * is scoped to the card — a page-level one matches every closed sibling.
+ */
+export async function openGameDownload(page: Page, card: Locator): Promise<Locator> {
+  await openLibraryActions(page, card);
+  await page
+    .getByRole("menu", { name: "Game actions", exact: true })
+    .getByTestId("open-game-download")
+    .click();
+  const dialog = card.getByTestId("game-download-dialog");
+  await expect(dialog).toBeVisible();
+  return dialog;
+}
+
 /** Open the new game page on its AI starting point. */
 export async function openCreateAdventure(page: Page): Promise<void> {
   const details = page.getByTestId("create-adventure-disclosure");
@@ -466,6 +493,19 @@ export async function openGameOptions(
 ): Promise<void> {
   const trigger = page.getByTestId(menu);
   if ((await trigger.getAttribute("aria-expanded")) !== "true") await trigger.click();
+}
+
+/**
+ * Download the running game through Settings → This game → Download…:
+ * `project` picks the project file, otherwise the playable game. The sheet
+ * closes for the dialog; register waitForEvent("download") before calling.
+ */
+export async function downloadFromSettings(page: Page, project = false): Promise<void> {
+  await openGameOptions(page, "settings-menu");
+  await page.getByTestId("btn-download-game").click();
+  const dialog = page.getByTestId("settings-download-dialog");
+  await expect(dialog).toBeVisible();
+  await dialog.getByTestId(project ? "download-library-game" : "export-library-game").click();
 }
 
 /** Open the Game controls dialog through the Help menu. */

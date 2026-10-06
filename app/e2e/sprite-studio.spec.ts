@@ -13,8 +13,8 @@ import { readGameZip } from "../src/archive/gameZip.ts";
 import { parseGameHash } from "../src/shell/shellRoute.ts";
 import {
   closeWorkspaceEditor,
+  downloadFromSettings,
   enterCreateMode,
-  openGameOptions,
   openInspector,
   openWorkspaceView,
   waitForRoom,
@@ -282,8 +282,7 @@ test("a mirrored actor is repaired without changing its source loop, saved, relo
 
   // The exported game's VIEW is the kept bytes.
   const downloading = page.waitForEvent("download");
-  await openGameOptions(page, "settings-menu");
-  await page.getByTestId("btn-export-game").click();
+  await downloadFromSettings(page);
   const exported = await readGameZip(await readFile((await (await downloading).path())!));
   expect(openContainer(new Map(Object.entries(exported.files))).getResource("view", 0)).toEqual(
     kept,

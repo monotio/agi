@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { isolateStorage, openLibraryActions, textHook } from "./engineProbe.ts";
+import { isolateStorage, openSavedGameDetails, textHook } from "./engineProbe.ts";
 import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import { buildZip } from "../src/archive/zip.ts";
@@ -79,29 +79,30 @@ test("keeping the default or pressing Escape stores no override", async ({ page 
   await expect(picker).toBeHidden();
 
   const card = savedGameCard(page, "synthetic-keep");
-  await openLibraryActions(page, card);
-  await expect(page.getByTestId("interpreter-profile-menu-item")).toContainText(
-    "2.936 (container default)",
-  );
+  const details = await openSavedGameDetails(card);
+  await expect(details.getByTestId("interpreter-profile-menu-item")).toBeVisible();
+  await expect(details).toContainText("2.936 (container default)");
   await page.keyboard.press("Escape");
   await card.getByTestId("btn-resume-cached").click();
   await expect.poll(async () => (await textHook(page)).profile).toBe("2.936");
   await expect.poll(async () => (await textHook(page)).profileKind).toBe("default");
 });
 
-test("the card menu changes the profile and returns it to automatic", async ({ page }) => {
+test("the card's Details dialog changes the profile and returns it to automatic", async ({
+  page,
+}) => {
   await isolateStorage(page);
   await page.goto("/");
   await importSynthetic(page, "synthetic-menu");
   await page.getByTestId("profile-picker-keep").click();
 
   const card = savedGameCard(page, "synthetic-menu");
-  const menuItem = page.getByTestId("interpreter-profile-menu-item");
   const picker = page.getByTestId("profile-picker-dialog");
   const select = page.getByTestId("profile-picker-select");
 
-  await openLibraryActions(page, card);
-  await menuItem.click();
+  // The interpreter choice lives in Details…, behind the row's Change… button.
+  const details = await openSavedGameDetails(card);
+  await details.getByTestId("interpreter-profile-menu-item").click();
   await expect(picker).toBeVisible();
   await expect(select).toHaveValue("");
   await select.selectOption("2.440");
@@ -112,13 +113,14 @@ test("the card menu changes the profile and returns it to automatic", async ({ p
   await expect.poll(async () => (await textHook(page)).profile).toBe("2.440");
 
   await page.goto("/");
-  await openLibraryActions(page, card);
-  await expect(menuItem).toContainText("2.440 (your override)");
-  await menuItem.click();
+  const reopened = await openSavedGameDetails(card);
+  await expect(reopened).toContainText("2.440 (your override)");
+  await reopened.getByTestId("interpreter-profile-menu-item").click();
   await expect(select).toHaveValue("2.440");
   await select.selectOption("");
   await page.getByTestId("profile-picker-confirm").click();
   await expect(picker).toBeHidden();
-  await openLibraryActions(page, card);
-  await expect(menuItem).toContainText("2.936 (container default)");
+  const restored = await openSavedGameDetails(card);
+  await expect(restored).toContainText("2.936 (container default)");
+  await page.keyboard.press("Escape");
 });
