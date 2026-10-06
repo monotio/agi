@@ -22,6 +22,8 @@ export interface PanePress {
   readonly event: PointerEvent;
   readonly cell: ViewportPoint;
   readonly handle: LineHandle | undefined;
+  /** Rounded logical displacement from pointerdown, measured at the starting scale. */
+  readonly delta?: ViewportPoint | undefined;
 }
 
 /**
@@ -178,7 +180,7 @@ let last: ViewportPoint | undefined;
 /** The pointer this pane captured on a press, until release or cancel. */
 let captured: number | null = null;
 /** The pane's screen origin at the press: a reflow during the drag must not move its cells. */
-let anchor: { left: number; top: number } | undefined;
+let anchor: { left: number; top: number; x: number; y: number; viewport: Viewport } | undefined;
 
 function cellAt(
   rect: { left: number; top: number },
@@ -193,9 +195,21 @@ function rawCell(event: PointerEvent): ViewportPoint {
     event.pointerId === captured && anchor !== undefined
       ? anchor
       : (event.currentTarget as HTMLElement).getBoundingClientRect();
+  const scale = event.pointerId === captured && anchor !== undefined ? anchor.viewport : viewport;
   return {
-    x: Math.floor((event.clientX - rect.left) / (viewport.pixelAspect * viewport.zoom)),
-    y: Math.floor((event.clientY - rect.top) / viewport.zoom),
+    x: Math.floor((event.clientX - rect.left) / (scale.pixelAspect * scale.zoom)),
+    y: Math.floor((event.clientY - rect.top) / scale.zoom),
+  };
+}
+function dragDelta(event: PointerEvent): ViewportPoint | undefined {
+  if (event.pointerId !== captured || anchor === undefined) return undefined;
+  // Integer browser coordinates can straddle cell edges at fractional zoom.
+  // Round the displacement once, instead of subtracting two floored cells.
+  return {
+    x: Math.round(
+      (event.clientX - anchor.x) / (anchor.viewport.pixelAspect * anchor.viewport.zoom),
+    ),
+    y: Math.round((event.clientY - anchor.y) / anchor.viewport.zoom),
   };
 }
 function handleAt(event: PointerEvent): LineHandle | undefined {
@@ -209,13 +223,19 @@ function onDown(event: PointerEvent): void {
   const handle = handleAt(event);
   if (!handle && cellAt(rect, event.clientX, event.clientY) === undefined) return;
   captured = event.pointerId;
-  anchor = { left: rect.left, top: rect.top };
+  anchor = {
+    left: rect.left,
+    top: rect.top,
+    x: event.clientX,
+    y: event.clientY,
+    viewport,
+  };
   (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
   emit("press", { event, cell: rawCell(event), handle });
 }
 function onMove(event: PointerEvent): void {
   if (event.pointerId === captured) {
-    emit("drag", { event, cell: rawCell(event), handle: undefined });
+    emit("drag", { event, cell: rawCell(event), handle: undefined, delta: dragDelta(event) });
     return;
   }
   const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
@@ -227,9 +247,10 @@ function onMove(event: PointerEvent): void {
 function onUp(event: PointerEvent): void {
   if (event.pointerId !== captured) return;
   const cell = rawCell(event);
+  const delta = dragDelta(event);
   captured = null;
   anchor = undefined;
-  emit("release", { event, cell, handle: undefined });
+  emit("release", { event, cell, handle: undefined, delta });
 }
 /** The browser took the pointer (a cancel, or capture lost without a release). */
 function onLost(event: PointerEvent): void {
