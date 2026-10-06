@@ -227,10 +227,7 @@ export function walkableWords(walkable: { readonly before: number; readonly afte
 }
 
 /** Displayed pixels of `a` and `b` that differ; null when their sizes differ. */
-export function changedPixels(
-  a: SpriteCel | undefined,
-  b: SpriteCel | undefined,
-): Uint8Array | null {
+function changedPixels(a: SpriteCel | undefined, b: SpriteCel | undefined): Uint8Array | null {
   if (!a || !b || a.width !== b.width || a.height !== b.height) return null;
   const mask = new Uint8Array(a.width * a.height);
   for (let i = 0; i < mask.length; i++) {

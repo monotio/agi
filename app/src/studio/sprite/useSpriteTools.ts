@@ -84,8 +84,6 @@ export interface SpriteToolsOptions {
   readonly say: (notice: StudioNotice | null) => void;
   /** Editing is blocked: tools do nothing. */
   readonly frozen: () => boolean;
-  /** Drawing waits for an AI proposal's verdict (or its request). */
-  readonly paused?: () => boolean;
 }
 
 interface Stroke {
@@ -127,8 +125,7 @@ export function useSpriteTools(options: SpriteToolsOptions) {
   /**
    * The pen is down: a pencil or eraser stroke is open until the pointer's
    * button comes up or the next Space or Enter lifts it (Escape cancels).
-   * Its only trace may be one pixel, so the stage shows a cue meanwhile —
-   * an open gesture also holds Keep (the draft's `gesturing`).
+   * Its only trace may be one pixel, so the stage shows a cue meanwhile.
    */
   const penDown = computed(() => stroke.value !== null);
 
@@ -145,12 +142,8 @@ export function useSpriteTools(options: SpriteToolsOptions) {
   });
 
   function blocked(): boolean {
-    if (options.frozen()) {
-      options.say({ tone: "warn", text: "This actor is read-only." });
-      return true;
-    }
-    if (!options.paused?.()) return false;
-    options.say({ tone: "warn", text: "Approve or reject the AI's change first." });
+    if (!options.frozen()) return false;
+    options.say({ tone: "warn", text: "This actor is read-only." });
     return true;
   }
 
@@ -442,7 +435,7 @@ export function useSpriteTools(options: SpriteToolsOptions) {
     cancel();
     selection.value = null;
   });
-  watch([options.frozen, () => options.paused?.() ?? false], () => cancel());
+  watch(options.frozen, () => cancel());
 
   /** SpriteCanvas's overlay: the marquee being dragged, the selection and the cursor. */
   const overlay = computed(() => {
