@@ -70,11 +70,19 @@ const mode = computed<ShellMode>({
   set: (next) => shell.setMode(next),
 });
 const modes = computed(() => [
-  { value: "play" as const, label: "Play" },
+  {
+    value: "play" as const,
+    label: "Play",
+    disabled: state.walkthrough.active || state.historyView.active,
+  },
   {
     value: "create" as const,
     label: "Create",
-    disabled: !shell.createAvailable.value || state.powerUp.busy,
+    disabled:
+      !shell.createAvailable.value ||
+      state.powerUp.busy ||
+      state.walkthrough.active ||
+      state.historyView.active,
   },
 ]);
 

@@ -227,6 +227,8 @@ export function adoptResumePoint(
 export function returnToPlay(ctx: WorkerContext, restart = false): void {
   const progress = ctx.run.progress;
   if (progress.mode === "play") return;
+  if (ctx.replay.replay || ctx.view.drive)
+    throw new Error("Play needs the live game. Leave the replay or history view first.");
   if (restart) {
     const prepared = prepareRoomLaunch(ctx, { room: 0, beginning: true });
     replaceRun(ctx, "beginning", {

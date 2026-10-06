@@ -127,3 +127,74 @@ test("Launch and v2 walkthrough wander progress at seed 58235 under a subprocess
     assert.equal(result.status, 0, result.stderr);
   }
 });
+
+for (const mode of ["play", "create"] as const) {
+  test(`a seeded ${mode} Launch owns reseeds ${mode === "play" ? "until the next room change" : "across room changes"}`, (t) => {
+    const container = gameContainer(
+      [
+        "if(equaln(v0,0)){new.room(1);}call.v(v0);return;",
+        "if(isset(f5)){load.pic(v0);draw.pic(v0);show.pic();}if(isset(f220)){new.room(2);}return;",
+        "random(0,255,v80);return;",
+      ],
+      (c) => c.putResource("picture", 1, Uint8Array.of(0xff)),
+    );
+    const { ctx } = workerHarness(container);
+    t.after(() => ctx.fns.stopTimers());
+    ctx.fns.armJournal();
+    ctx.fns.tickEngine();
+    if (mode === "create") enterCreateRun(ctx);
+    let entropyReads = 0;
+    ctx.ports.seedWord = () => {
+      entropyReads++;
+      return 42;
+    };
+    ctx.fns.onPlayHere({
+      type: "playHere",
+      id: 1,
+      room: 1,
+      x: 0,
+      y: 0,
+      launch: { state: { seed: 0 } },
+    });
+    assert.equal(ctx.run.rng.policy.kind, "sequence");
+    ctx.run.engine!.flags[220] = 1;
+    ctx.run.rng.word = 0;
+    ctx.fns.tickEngine();
+    assert.equal(ctx.run.engine!.vars[0], 2);
+    assert.equal(ctx.run.engine!.vars[80], mode === "play" ? 199 : 1);
+    assert.equal(entropyReads, mode === "play" ? 1 : 0);
+    assert.equal(ctx.run.rng.policy.kind, mode === "play" ? "external" : "sequence");
+  });
+}
+
+test("a Play Launch's room-scoped entropy returns to external after historical adoption", (t) => {
+  const container = gameContainer(
+    [
+      "if(equaln(v0,0)){new.room(1);}call.v(v0);return;",
+      "if(isset(f5)){load.pic(v0);draw.pic(v0);show.pic();}if(isset(f220)){new.room(2);}return;",
+      "return;",
+    ],
+    (c) => c.putResource("picture", 1, Uint8Array.of(0xff)),
+  );
+  const { ctx } = workerHarness(container);
+  t.after(() => ctx.fns.stopTimers());
+  ctx.fns.tickEngine();
+  ctx.fns.onPlayHere({
+    type: "playHere",
+    id: 1,
+    room: 1,
+    x: 0,
+    y: 0,
+    launch: { state: { seed: 0 } },
+  });
+  const boot = ctx.fns.historySnapshot(true)!;
+  const { ctx: scratch } = workerHarness(container);
+  t.after(() => scratch.fns.stopTimers());
+  scratch.replay.replay = { tick: 0, revision: 0 };
+  scratch.replay.historyReplay = true;
+  adoptResumePoint(scratch, boot, { currentFiles: false, paused: false });
+  scratch.run.engine!.flags[220] = 1;
+  scratch.fns.tickEngine();
+  assert.equal(scratch.run.engine!.vars[0], 2);
+  assert.equal(scratch.run.rng.policy.kind, "external");
+});

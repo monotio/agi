@@ -759,11 +759,8 @@ watch(
           v-if="state.phase === 'running'"
           v-show="
             !creating ||
-            (!workspaceEditor.stagePaused.value &&
-              (!workspaceEditor.selected.value ||
-                (workspacePhone
-                  ? workspaceEditor.phonePlaytest.value
-                  : !workspaceEditor.focus.value)))
+            !workspaceEditor.selected.value ||
+            (workspacePhone ? workspaceEditor.phonePlaytest.value : !workspaceEditor.focus.value)
           "
           ref="playArea"
           :touch-controls="touchControls"

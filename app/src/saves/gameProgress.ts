@@ -8,7 +8,7 @@ import type { EngineMenuState } from "../../../src/runtime/engine.ts";
 import { readHostRngState, type HostRngState } from "../../../src/runtime/rng.ts";
 import { base64ToBytes, bytesToBase64 } from "../project/bytes.ts";
 import { readGameSaveRecord, writeGameSave } from "./gameSaves.ts";
-import { progressWriterMatches } from "./progressWriter.ts";
+import { claimProgressWriter, progressWriterMatches } from "./progressWriter.ts";
 import { isProgressPreview, storeRecordWithPreviewFallback } from "./progressPreview.ts";
 import type { ZipFileInput } from "../archive/zip.ts";
 import type { ProjectId } from "../project/gameTypes.ts";
@@ -369,6 +369,13 @@ export function storeImportedProgress(
     .map(Number)
     .filter((slot) => Number.isInteger(slot))
     .sort((a, b) => a - b);
+  let writerGeneration: number;
+  try {
+    writerGeneration = claimProgressWriter(storage, { locator }, "archive-import").generation;
+  } catch {
+    report.failedSlots = slots;
+    return report;
+  }
   for (const slot of slots) {
     if (
       writeGameSave(
@@ -377,6 +384,7 @@ export function storeImportedProgress(
         slot,
         bytesToBase64(progress.saves[String(slot)]!),
         progress.amigaRegions?.[String(slot)],
+        writerGeneration,
       )
     )
       report.slots.push(slot);
@@ -385,6 +393,7 @@ export function storeImportedProgress(
   if (progress.autosave) {
     const record: AutosaveRecord = {
       ...progress.autosave,
+      writerGeneration,
       game: { installed: false, identity },
     };
     report.autosave =
