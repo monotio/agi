@@ -416,7 +416,10 @@ export function createHistoryView(
     ctx.input.inputBuffer = [...(boot.inputLines ?? [])];
     ctx.input.clickQueue = (boot.clickQueue ?? []).map(([x, y]): [number, number] => [x, y]);
     resetRecording(ctx);
+    const preview = ctx.previewVisitEngine === ctx.engine;
     ctx.engine = candidate;
+    ctx.previewVisitEngine = preview ? candidate : null;
+    ctx.history.launchReseed = undefined;
     ctx.projectAdmission = admission?.lane ?? null;
     if (admission !== null) ctx.boot.project = admission.project;
     ctx.fns.armJournal();

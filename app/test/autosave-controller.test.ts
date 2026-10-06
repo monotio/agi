@@ -933,6 +933,15 @@ test("flushAutosaveDetailed reports not_checkpointable, timeout, already_durable
   const res1 = await flush1;
   assert.equal(res1.status, "not_checkpointable");
 
+  const temporary = controller.flushAutosaveDetailed(2000);
+  const temporaryMessage = postedMessages.at(-1) as { id: number };
+  controller.handleFlushed({ id: temporaryMessage.id, taken: false, cycle: 10, temporary: true });
+  assert.equal((await temporary).status, "temporary");
+  const keepProgress = controller.flushAutosave(2000);
+  const keepMessage = postedMessages.at(-1) as { id: number };
+  controller.handleFlushed({ id: keepMessage.id, taken: false, cycle: 10, temporary: true });
+  assert.equal(await keepProgress, true, "temporary play deliberately keeps the saved position");
+
   // 3. Clean opening at cycle 0 is already durable (does not trap player at start)
   const flush3 = controller.flushAutosaveDetailed(2000);
   const flushMsg3 = postedMessages[postedMessages.length - 1] as { type: string; id: number };
@@ -1003,6 +1012,20 @@ test("flushAutosaveDetailed reports not_checkpointable, timeout, already_durable
   });
   const res5 = await flush5;
   assert.equal(res5.status, "saved");
+
+  const write = localStorage.setItem;
+  localStorage.setItem = () => {
+    throw new Error("Injected checkpoint write failure");
+  };
+  try {
+    controller.handleAutosave({ image: "opening", cycle: 56, room: 2 });
+    const opening = controller.flushAutosaveDetailed(2000);
+    const openingMessage = postedMessages.at(-1) as { id: number };
+    controller.handleFlushed({ id: openingMessage.id, taken: false, cycle: 56, temporary: true });
+    assert.equal((await opening).status, "storage_failure");
+  } finally {
+    localStorage.setItem = write;
+  }
 
   // 6. When worker flush times out with unsaved progress
   controller.handleFlushed({

@@ -86,6 +86,7 @@ export interface WorkerPorts {
 
 /** Settings the boot message owns; a replay reset keeps them. */
 interface BootState {
+  progressMode: "create" | "play";
   project: HistoryProjectDocuments | undefined;
   authorRooms: boolean;
   createAllowed: boolean;
@@ -289,6 +290,8 @@ interface JournalState {
 
 /** worker/history.ts — the always-on recording stream. */
 interface HistoryState {
+  /** Create's seed-owned sequence of zero-state reseed words. */
+  launchReseed?: number | undefined;
   /**
    * Live RNG state — the interpreter's 16-bit word (docs/fidelity.md,
    * "Original RNG") — seeded per boot and recorded into every segment's
@@ -554,7 +557,7 @@ export interface WorkerFns {
    */
   debugBeforeReplace(): void;
   /** The run's identity changed: mint a new epoch, rebind against the build. */
-  debugSessionReplaced(): void;
+  debugSessionReplaced(stopAtFirstInstruction?: boolean): void;
   /** True while an attach owns this engine session. */
   debugAttached(): boolean;
   /** The engine's stop latch is held — the freeze every entry consults. */
@@ -646,6 +649,7 @@ export function createWorkerContext(ports: WorkerPorts): WorkerContext {
     engine: null,
     host: undefined as unknown as EngineHost,
     boot: {
+      progressMode: "play",
       project: undefined,
       authorRooms: false,
       createAllowed: false,

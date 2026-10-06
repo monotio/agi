@@ -1,5 +1,5 @@
 import { expect, reviewShot, test } from "./test.ts";
-import { isolateStorage, textHook, waitForAutosaveAfter, workspaceUpdated } from "./engineProbe.ts";
+import { isolateStorage, textHook, savePlayProgress, workspaceUpdated } from "./engineProbe.ts";
 import type { Page } from "@playwright/test";
 import type { ProjectSession } from "../src/project/projectSession.ts";
 
@@ -109,7 +109,7 @@ test("SOUND drafts audition privately and play in MAIN after Update game @webkit
   }
   await reviewShot(page, "sound-listen");
   await page.keyboard.press("Enter");
-  await waitForAutosaveAfter(page, (await textHook(page)).cycle);
+  await savePlayProgress(page);
   await page.reload();
   await expect(page.getByTestId("parts-list")).toBeVisible();
   await page.getByTestId("part-sound:1").click();
@@ -194,7 +194,7 @@ test("sound presets, note keyboard edits and guided cue creation share the works
   await page.getByTestId("workspace-redo").click();
   await expect(page.getByTestId("workspace-saved")).toBeVisible();
   await expect(page.getByTestId("workspace-saved")).toHaveText(/^(?:Saved|Draft saved)$/);
-  await waitForAutosaveAfter(page, (await textHook(page)).cycle);
+  await savePlayProgress(page);
   await page.reload();
   await expect(page.getByTestId("parts-list")).toBeVisible();
   await page.getByTestId("part-sound:3").click();

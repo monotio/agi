@@ -4,6 +4,7 @@ import { projectDocumentId } from "../../../src/authoring/projectContent.ts";
 import { writeProjectWorkspace } from "../../../src/authoring/projectWorkspace.ts";
 import { sha256Hex } from "../../../src/crypto.ts";
 import { WorkerQueryTimeoutError } from "./workerQueries.ts";
+import type { RoomLaunchRequest } from "../worker/roomLaunch.ts";
 import type {
   PreviewLaneIdentity,
   PreviewUpdateOutcome,
@@ -25,8 +26,9 @@ export function createMainProjectAdmission(input: {
   async function admit(
     compiled: ProjectDocumentsCompile,
     origins: { key: string; version: number }[],
-    mode?: "restart" | "reenter",
+    mode?: "restart" | "reenter" | "keep",
     preparedRoom = false,
+    launch?: RoomLaunchRequest,
   ): Promise<PreviewUpdateOutcome> {
     const continuation = input.waitForContinue?.();
     if (continuation) await continuation;
@@ -80,6 +82,7 @@ export function createMainProjectAdmission(input: {
         ...(preparedRoom ? { mode: "adoptRoom" as const } : mode === undefined ? {} : { mode }),
         expected: expectedIdentity,
         candidate,
+        ...(launch ? { launch } : {}),
       });
       if (reply.runToken !== expectedRun)
         throw new Error("Project acknowledgement belongs to another run.");
@@ -126,8 +129,12 @@ export function createMainProjectAdmission(input: {
     restart(compiled: ProjectDocumentsCompile, origins: { key: string; version: number }[]) {
       return admit(compiled, origins, "restart");
     },
-    reenter(compiled: ProjectDocumentsCompile, origins: { key: string; version: number }[]) {
-      return admit(compiled, origins, "reenter");
+    reenter(
+      compiled: ProjectDocumentsCompile,
+      origins: { key: string; version: number }[],
+      launch?: RoomLaunchRequest,
+    ) {
+      return admit(compiled, origins, "reenter", false, launch);
     },
     dispose() {
       disposed = true;

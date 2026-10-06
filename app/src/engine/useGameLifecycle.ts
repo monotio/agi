@@ -397,6 +397,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
       w.postMessage({
         type: "boot",
         amigaRegion: options.getAmigaRegion?.() ?? "ntsc",
+        progressMode: options.getProjectMode?.() ?? "play",
         ...(options.getProjectMode?.() === "create"
           ? {
               projectMode: "create" as const,
@@ -493,6 +494,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
       w.postMessage({
         type: "boot",
         amigaRegion: options.getAmigaRegion?.() ?? "ntsc",
+        progressMode: options.getProjectMode?.() ?? "play",
         ...(options.getProjectMode?.() === "create"
           ? {
               projectMode: "create" as const,
@@ -805,6 +807,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
     w.postMessage({
       type: "boot",
       amigaRegion: options.getAmigaRegion?.() ?? "ntsc",
+      progressMode: options.getProjectMode?.() ?? "play",
       projectMode: "create",
       sessionId: options.getSessionId(),
       soundDevice: state.soundMode === "pc-speaker" ? 0 : 1,
@@ -997,6 +1000,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
           w.postMessage({
             type: "boot",
             amigaRegion: options.getAmigaRegion?.() ?? "ntsc",
+            progressMode: options.getProjectMode?.() ?? "play",
             ...(options.getProjectMode?.() === "create"
               ? {
                   projectMode: "create" as const,

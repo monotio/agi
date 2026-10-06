@@ -648,7 +648,11 @@ export async function workspaceSaved(page: Page): Promise<void> {
 export async function workspaceUpdated(page: Page, keyboard = false): Promise<void> {
   await workspaceSaved(page);
   const update = page.getByTestId("workspace-update");
-  if ((await update.isVisible()) && (await update.isEnabled())) {
+  if (
+    (await update.isVisible()) &&
+    (await page.getByTestId("workspace-pending").isVisible()) &&
+    (await update.isEnabled())
+  ) {
     const previousFocus = await page.evaluateHandle(() => document.activeElement);
     await expect(update).toBeVisible();
     if (keyboard) await page.keyboard.press("ControlOrMeta+Enter");
@@ -660,6 +664,17 @@ export async function workspaceUpdated(page: Page, keyboard = false): Promise<vo
     });
     await previousFocus.dispose();
   }
+}
+
+/** Record ordinary Play progress, then return to the editor's mode. */
+export async function savePlayProgress(page: Page): Promise<void> {
+  const create = page.getByRole("radio", { name: "Create", exact: true });
+  const play = page.getByRole("radio", { name: "Play", exact: true });
+  await expect(create).toBeVisible();
+  const creating = (await create.getAttribute("aria-checked")) === "true";
+  if (creating) await play.click();
+  await waitForAutosaveAfter(page, (await textHook(page)).cycle);
+  if (creating) await create.click();
 }
 
 export async function enterCreateMode(page: Page): Promise<void> {

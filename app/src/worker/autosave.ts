@@ -93,6 +93,7 @@ export function createAutosave(ctx: WorkerContext) {
     ctx.autosave.lastAutosaveAt = Date.now();
     // The autosave cadence is the history anchor cadence — same boundary.
     ctx.fns.historyAnchor("autosave");
+    if (ctx.boot.progressMode === "create") ctx.previewVisitEngine = ctx.engine;
     return true;
   }
 
@@ -123,6 +124,7 @@ export function createAutosave(ctx: WorkerContext) {
       id: msg.id,
       taken,
       cycle: ctx.cycle.cycleCount,
+      ...(ctx.previewVisitEngine === ctx.engine ? { temporary: true as const } : {}),
     });
   }
 

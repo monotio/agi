@@ -111,6 +111,7 @@ test("an installed-game remix survives immediate Menu, Resume, reload and projec
       },
     });
   });
+  await page.getByRole("radio", { name: "Play", exact: true }).click();
   await page.getByTestId("btn-exit").click();
   await page.waitForFunction(() => Reflect.get(window, "completionPending") === true);
   await expect(page.getByTestId("btn-exit")).toBeVisible();

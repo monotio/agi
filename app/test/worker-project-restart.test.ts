@@ -421,12 +421,15 @@ test("the session keeps the pending notice and running token until replacement a
   }
 });
 
-test("worker progress autosave leaves a saved pending candidate to the session after a prior live edit", async () => {
+test("Create keeps progress temporary and Play autosave leaves the saved pending candidate to the session", async () => {
   const f = await fixture("restart-autosave-owner");
   try {
+    onWorkerMessage(f.ctx, { type: "projectCreate", id: 900 });
     assert.equal((await f.edit("picture:0", "vis 4\nfill 1,1\nend\n")).status, "committed");
     await f.edit("inventory", '[{"name":"key","startingRoom":1}]');
     await f.session.flush();
+    assert.equal(f.ctx.fns.autosave(true), false, "Create progress stays temporary");
+    onWorkerMessage(f.ctx, { type: "projectPlay" });
     assert.equal(f.ctx.fns.autosave(true), true);
     const progress = f.presentations.findLast((m) => m.type === "autosave");
     assert.ok(progress?.type === "autosave");

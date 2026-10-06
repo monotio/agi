@@ -271,11 +271,13 @@ test("drawing, LOGIC and VIEW edit MAIN, Undo spans editors, reload keeps edits 
   await expect
     .poll(() => page.evaluate(() => window.__AGI_FRAME__?.()?.visual[112 * 160 + 22]))
     .toBe(4);
-  // Saved covers the documents; this reload also needs progress for the current image.
+  // Choosing Play adopts the temporary launch before this progress checkpoint.
+  await page.getByRole("radio", { name: "Play", exact: true }).click();
   const checkpointCycle = (await textHook(page)).cycle;
   await expect
     .poll(async () => (await textHook(page)).autosave, { timeout: 10_000 })
     .toBeGreaterThanOrEqual(checkpointCycle);
+  await page.getByRole("radio", { name: "Create", exact: true }).click();
   await page.reload();
   await expect(page.getByTestId("parts-list")).toBeVisible();
   await expect
@@ -518,11 +520,13 @@ test("keyboard authors all three parts, undoes across them and reloads @webkit-d
     await expect(page.getByTestId("workspace-undo")).toBeEnabled();
   }
   await workspaceUpdated(page);
-  // Saved covers the documents; this reload also needs progress for the current image.
+  // Choosing Play adopts the temporary launch before this progress checkpoint.
+  await page.getByRole("radio", { name: "Play", exact: true }).click();
   const checkpointCycle = (await textHook(page)).cycle;
   await expect
     .poll(async () => (await textHook(page)).autosave, { timeout: 10_000 })
     .toBeGreaterThanOrEqual(checkpointCycle);
+  await page.getByRole("radio", { name: "Create", exact: true }).click();
   await page.reload();
   await expect(page.getByTestId("parts-list")).toBeVisible();
   await expect
@@ -574,6 +578,7 @@ test("adding a room waits for Update before its PICTURE opens on the visited sta
   await workspaceUpdated(page);
   await expect(page.getByTestId("part-room:2:picture:2")).toBeVisible();
   await page.getByTestId("part-room:2:picture:2").click();
+  await page.getByTestId("workspace-update").click();
   await expect(page.getByTestId("room-studio").locator(".studio-pane")).toBeVisible();
   const cycle = (await textHook(page)).cycle;
   await expect.poll(async () => (await textHook(page)).cycle).toBeGreaterThan(cycle);
@@ -582,7 +587,7 @@ test("adding a room waits for Update before its PICTURE opens on the visited sta
   await expect(page.locator(".play-area")).toBeVisible();
   await expect.poll(async () => (await textHook(page)).room).toBe(2);
   await expect(page.getByTestId("workspace-visit")).toBeVisible();
-  await expect(page.getByRole("button", { name: "Back to Room 1", exact: true })).toBeVisible();
+  await expect(page.getByTestId("workspace-update")).toHaveText("Restart Garden");
   await workspaceUpdated(page);
 });
 
@@ -692,7 +697,7 @@ test("Undo and History restore apply while a game message waits", async ({ page 
   await page.keyboard.insertText("\n// Latest while waiting");
   await workspaceSaved(page);
   await page.getByTestId("workspace-update").click();
-  await expect(page.getByTestId("workspace-update")).toBeDisabled();
+  await expect(page.getByTestId("workspace-update")).toBeEnabled();
   await expect(page.getByTestId("workspace-updated")).toBeVisible();
   await expect(page.getByTestId("workspace-live")).toBeVisible();
   await expect(page.getByTestId("workspace-live")).toHaveText("Now");

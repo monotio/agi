@@ -1,6 +1,6 @@
 import type { Page } from "@playwright/test";
 import type { ProjectSession } from "../src/project/projectSession.ts";
-import { isolateStorage, waitForRoom, workspaceUpdated } from "./engineProbe.ts";
+import { isolateStorage, waitForRoom, workspaceUpdated, savePlayProgress } from "./engineProbe.ts";
 
 export async function start(page: Page) {
   await isolateStorage(page);
@@ -42,6 +42,7 @@ export async function start(page: Page) {
     });
     if (result.status !== "committed") throw new Error(result.status);
   });
+  await savePlayProgress(page);
 }
 export async function open(page: Page, id: string) {
   if (page.viewportSize()!.width <= 600) await page.getByTestId("workspace-parts").click();

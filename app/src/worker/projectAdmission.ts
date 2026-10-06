@@ -21,6 +21,7 @@ import { PROFILES, type ProfileId } from "../../../src/runtime/profile.ts";
 import { validateCompleteImage } from "../../../src/runtime/projectImageValidation.ts";
 import { prepareProjectRestart } from "../../../src/runtime/projectRestart.ts";
 import { installProjectRestart } from "./projectRestart.ts";
+import { prepareRoomLaunch, runRoomLaunch, type PreparedRoomLaunch } from "./roomLaunch.ts";
 import type { Inbound, WorkerContext } from "./context.ts";
 import type { Engine } from "../../../src/runtime/engine.ts";
 import type { HistoryProjectDocuments } from "../../../src/agent/history.ts";
@@ -168,6 +169,7 @@ function requestDigest(msg: Inbound<"previewUpdate">): string {
       runToken: msg?.runToken,
       expected: msg?.expected,
       mode: msg?.mode,
+      launch: msg?.launch,
       candidate: { ...candidate, files: sha256Hex(image) },
     });
     return sha256Hex(new TextEncoder().encode(manifest)) + ":" + sha256Hex(image);
@@ -492,6 +494,7 @@ export function createProjectAdmission(ctx: WorkerContext, options: ProjectAdmis
       msg.mode !== undefined &&
       msg.mode !== "restart" &&
       msg.mode !== "reenter" &&
+      msg.mode !== "keep" &&
       msg.mode !== "adoptRoom"
     ) {
       settleRefused("Unknown project admission action.");
@@ -642,22 +645,44 @@ export function createProjectAdmission(ctx: WorkerContext, options: ProjectAdmis
       return;
     }
 
-    if (msg.mode === "restart") {
+    if (msg.launch && msg.mode !== "reenter") {
+      settleRefused("Update and launch needs room-entry admission.");
+      return;
+    }
+    if (msg.mode === "restart" || msg.launch) {
       let replacement;
+      let launch: PreparedRoomLaunch | undefined;
       try {
-        replacement = prepareProjectRestart(
-          { files: candidate.files, profile: profile.id },
-          ctx.host,
-          engine.profile,
-          engine.containerFiles,
-        );
+        if (msg.launch) {
+          launch = prepareRoomLaunch(ctx, msg.launch, candidate.files, profile);
+          replacement = launch.engine;
+        } else
+          replacement = prepareProjectRestart(
+            { files: candidate.files, profile: profile.id },
+            ctx.host,
+            engine.profile,
+            engine.containerFiles,
+          );
       } catch (error) {
         settleRefused(error instanceof Error ? error.message : String(error));
         return;
       }
       // Replacement starts only after complete native, document and reference validation.
+      const paused = ctx.cycle.paused;
+      const rng = ctx.history.rng;
       installProjectRestart(ctx, replacement);
-      const next = newProjectAdmissionState(mintPreviewRunToken(), replacement);
+      if (launch) {
+        ctx.cycle.paused = paused;
+        ctx.history.rng = rng;
+      }
+      const next = newProjectAdmissionState(
+        launch ? lane.runToken : mintPreviewRunToken(),
+        replacement,
+      );
+      if (launch) {
+        next.epoch = lane.epoch + 1;
+        next.updateSerial = lane.updateSerial + 1;
+      }
       next.buildId = candidate.buildId;
       next.documentId = documentId;
       next.sources = candidate.sources;
@@ -672,10 +697,13 @@ export function createProjectAdmission(ctx: WorkerContext, options: ProjectAdmis
         words === undefined ? [] : parseWordsTok(words).map(({ word, id }) => [word, id]),
       );
       ctx.boot.currentDictionary = ctx.boot.liveDictionary;
-      ctx.fns.debugSessionReplaced();
-      ctx.fns.historyResume();
-      ctx.fns.startTimers();
-      ctx.fns.postFrame(true);
+      if (launch) runRoomLaunch(ctx, launch);
+      else {
+        ctx.fns.debugSessionReplaced();
+        ctx.fns.historyResume();
+        ctx.fns.startTimers();
+        ctx.fns.postFrame(true);
+      }
       settle({
         status: "committed",
         expected,
@@ -749,13 +777,17 @@ export function createProjectAdmission(ctx: WorkerContext, options: ProjectAdmis
     }
     const roomReentry =
       msg.mode === "reenter" ||
-      (!adoptingRoom &&
+      (msg.mode === undefined &&
         ctx.projectAdmission === lane &&
         engine.continuationPending &&
         (engine.modalKind === "print" || engine.awaitingKey));
     const commit = () =>
       roomReentry
         ? engine.commitRoomReentry(plan, () => {
+            if (ctx.projectAdmission === lane && ctx.boot.progressMode === "create") {
+              ctx.fns.autosave(true);
+              ctx.previewVisitEngine = engine;
+            }
             ctx.fns.historyEnd("resume");
             ctx.fns.setKeyWaiting(false);
             ctx.fns.abandonHostRequest();
@@ -765,6 +797,7 @@ export function createProjectAdmission(ctx: WorkerContext, options: ProjectAdmis
             // Adoption publishes sources for bytes the room answer installed.
             // The exact native-image check above preserves its parked pass.
             sourceAuthorityChanged: sourceAuthorityChanged && !adoptingRoom,
+            messageWaiting: msg.mode === "keep",
           });
     const result = options.commitAtBoundary ? options.commitAtBoundary(commit) : commit();
 
@@ -907,6 +940,13 @@ export function enterProjectCreate(ctx: WorkerContext, msg: Inbound<"projectCrea
       initializeProjectAdmission(ctx, lane, msg.documents, msg.history);
       ctx.projectAdmission = lane;
     }
+    ctx.boot.progressMode = msg.progressMode ?? "create";
+    if (
+      ctx.boot.progressMode === "create" &&
+      ctx.previewVisitEngine !== ctx.engine &&
+      (ctx.autosave.lastAutosaveCycle >= 0 || ctx.fns.autosave(true))
+    )
+      ctx.previewVisitEngine = ctx.engine;
     ctx.ports.control({
       type: "projectCreated",
       id: msg.id,

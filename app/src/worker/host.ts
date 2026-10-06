@@ -32,11 +32,15 @@ export function createEngineHost(ctx: WorkerContext): EngineHost {
           // The harness's modern stand-in for the BIOS-clock read: injected
           // per port so tests stay deterministic, crypto in production —
           // labeled different from Sierra's source per the plan.
+          const fixed =
+            ctx.previewVisitEngine === ctx.engine ? ctx.history.launchReseed : undefined;
           const word =
-            (ctx.ports.seedWord?.() ??
+            (fixed ??
+              ctx.ports.seedWord?.() ??
               (typeof crypto !== "undefined"
                 ? crypto.getRandomValues(new Uint16Array(1))[0]!
                 : Math.floor(ctx.ports.now()))) & 0xffff;
+          if (fixed !== undefined) ctx.history.launchReseed = (fixed * 31821 + 1) & 0xffff;
           ctx.fns.historyRecord({ kind: "reseed", value: word });
           return word;
         }

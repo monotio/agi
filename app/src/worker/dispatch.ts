@@ -428,6 +428,7 @@ export function onWorkerMessage(ctx: WorkerContext, msg: WorkerInbound): void {
       // v10 selects the number of 50ms timer increments between logic cycles.
       // Modal/input presentation remains responsive at the host polling cadence.
       resetSession(ctx);
+      ctx.boot.progressMode = boot.progressMode ?? "play";
       ctx.autosave.autosaveIntervalMs = Number(boot.autosaveMs ?? AUTOSAVE_INTERVAL_MS);
       ctx.autosave.autosaveFiles = boot.autosaveFiles === true;
       ctx.autosave.lastAutosaveAt = Date.now();
@@ -616,7 +617,9 @@ export function onWorkerMessage(ctx: WorkerContext, msg: WorkerInbound): void {
       return;
     }
     if (msg.type === "projectPlay") {
+      ctx.boot.progressMode = "play";
       ctx.previewVisitEngine = null;
+      ctx.history.launchReseed = undefined;
       ctx.previewVisitSerial++;
       return;
     }

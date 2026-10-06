@@ -6,8 +6,8 @@ import { VOCABULARY } from "../../../src/vocabulary.ts";
  * save and restore, help and the settings sheet. Dialogs live in GameHeader;
  * this bar only asks for them.
  */
-import { computed, ref } from "vue";
-import UiDialog from "../ui/UiDialog.vue";
+import { computed } from "vue";
+import WorkspaceAction from "./WorkspaceAction.vue";
 import ActionMenu from "../ui/ActionMenu.vue";
 import UiButton from "../ui/UiButton.vue";
 import UiChip from "../ui/UiChip.vue";
@@ -37,15 +37,6 @@ const { identityTitle } = useGameLibrary();
 const shell = useShell();
 const commands = useOptionalCommands();
 const editor = useWorkspaceEditor();
-const discardOpen = ref(false);
-async function discardChanges(): Promise<void> {
-  try {
-    await editor.discardDrafts.value?.();
-    discardOpen.value = false;
-  } catch (cause) {
-    editor.error.value = cause instanceof Error ? cause.message : String(cause);
-  }
-}
 function toggleParts(): void {
   if (state.powerUp.open) closePowerUp();
   editor.focus.value = false;
@@ -103,18 +94,6 @@ const shortcutsBlocked = computed(
 </script>
 
 <template>
-  <UiDialog
-    v-model:open="discardOpen"
-    title="Discard changes?"
-    description="Your parts return to the game's last update."
-  >
-    <template #footer
-      ><UiButton variant="ghost" @click="discardOpen = false">Cancel</UiButton
-      ><UiButton :disabled="editor.busy.value" @click="discardChanges"
-        >Discard changes</UiButton
-      ></template
-    >
-  </UiDialog>
   <header class="play-bar" data-shell-keys>
     <nav class="play-bar__nav" aria-label="App options">
       <UiIconButton
@@ -174,53 +153,18 @@ const shortcutsBlocked = computed(
         {{ editor.changeCount.value === 1 ? "change" : "changes" }} not in the game yet</span
       >
       <span
-        v-else-if="editor.updatedParts.value && mode === 'create'"
+        v-else-if="editor.updateResult.value && mode === 'create'"
         class="play-bar__pending"
         data-testid="workspace-updated"
-        >Updated · {{ editor.updatedParts.value }}
-        {{ editor.updatedParts.value === 1 ? "part" : "parts" }} ·
+        >{{ editor.updateResult.value }} ·
         <button type="button" aria-label="Undo update" @click="editor.step('undo')">
           Undo
         </button></span
       >
-      <div v-if="mode === 'create' || editor.changeCount.value" class="play-bar__update">
-        <UiButton
-          size="sm"
-          data-testid="workspace-update"
-          :disabled="
-            editor.busy.value ||
-            editor.readOnly.value ||
-            (!editor.changeCount.value && !editor.problemCount.value)
-          "
-          title="Update game (⌘↵ / Ctrl+Enter)"
-          @click="editor.update.value?.()"
-          >{{
-            editor.problemCount.value
-              ? `${editor.problemCount.value} ${editor.problemCount.value === 1 ? "problem" : "problems"}`
-              : "Update game"
-          }}</UiButton
-        >
-        <ActionMenu
-          v-if="mode === 'create'"
-          label="Update options"
-          test-id="workspace-update-menu"
-          icon-only
-          size="sm"
-          :disabled="editor.busy.value || editor.readOnly.value"
-        >
-          <button type="button" role="menuitem" @click="editor.update.value?.(true)">
-            Update and play this room
-          </button>
-          <button
-            type="button"
-            role="menuitem"
-            :disabled="!editor.changeCount.value"
-            @click="discardOpen = true"
-          >
-            Discard changes…
-          </button>
-        </ActionMenu>
-      </div>
+      <WorkspaceAction
+        v-if="mode === 'create' || editor.changeCount.value"
+        class="play-bar__update"
+      />
       <UiSegmented v-model="mode" class="play-bar__modes" label="Mode" :options="modes" />
       <div class="play-bar__actions">
         <template v-if="mode === 'create'">

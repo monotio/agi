@@ -20,6 +20,16 @@ async function starter(page: Page): Promise<void> {
   await waitForRoom(page, 1);
   if (page.viewportSize()!.width <= 600) await page.getByTestId("workspace-parts").click();
   await expect(page.getByTestId("parts-list")).toBeVisible();
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          (
+            window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession | null } }
+          ).__AGI_PROJECT__.getSession() !== null,
+      ),
+    )
+    .toBe(true);
   // The session can trail the first room on a slow engine; callers read it
   // directly, so wait it out here.
   await expect.poll(() => runningWorkspaceDocument(page, "logic:1")).not.toBe("");
@@ -77,10 +87,10 @@ test("invalid drafts report a problem and discard restores the editor @webkit-de
   const before = await runningWorkspaceDocument(page, "logic:1");
   await draft(page, "if (");
   await expect(page.getByTestId("workspace-update")).toBeVisible();
-  await expect(page.getByTestId("workspace-update")).toHaveText("1 problem");
+  await expect(page.getByTestId("workspace-update")).toHaveText("Update and restart Meadow");
   await page.keyboard.press("ControlOrMeta+Enter");
   await expect(page.getByTestId("workspace-update")).toBeVisible();
-  await expect(page.getByTestId("workspace-update")).toHaveText("1 problem");
+  await expect(page.getByTestId("workspace-update")).toHaveText("Update and restart Meadow");
   expect(await runningWorkspaceDocument(page, "logic:1")).toBe(before);
   await page.getByTestId("workspace-update").click();
   await expect(page.getByTestId("workspace-problems")).toBeVisible();
@@ -259,7 +269,9 @@ test("Help explains Update game after the retired live-edit tips are removed @we
   const help = page.getByTestId("help-guide");
   await expect(help).toBeVisible();
   await page.getByTestId("help-section-creating").click();
-  await expect(help).toContainText("Update game puts the changed parts in the game together.");
+  await expect(help).toContainText(
+    "Update and restart puts the changed parts in the game together and starts the open room.",
+  );
   for (const [width, height] of [
     [1440, 900],
     [1063, 815],
@@ -296,7 +308,7 @@ test("reopening restores a saved draft and its dot while the game keeps its last
   );
 });
 
-test("Update shortcuts keep the room state and the restart menu starts it again @webkit-desktop", async ({
+test("Update shortcuts restart the room and the keep-playing menu preserves its moment @webkit-desktop", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -307,14 +319,16 @@ test("Update shortcuts keep the room state and the restart menu starts it again 
   await expect(page.getByTestId("workspace-updated")).toBeVisible();
   await expect.poll(async () => (await textHook(page)).egoX).toBe(42);
   await draft(page, before.replace("position(o0, 80, 140)", "position(o0, 64, 140)"));
-  await page.keyboard.press("ControlOrMeta+Enter");
+  await page.getByTestId("workspace-update-menu").click();
+  const keep = page.getByRole("menuitem", { name: "Update and keep playing", exact: true });
+  await expect(keep).toBeVisible();
+  await keep.click();
   await expect(page.getByTestId("workspace-updated")).toBeVisible();
   await expect.poll(async () => (await textHook(page)).egoX).toBe(42);
   await expect
     .poll(() => runningWorkspaceDocument(page, "logic:1"))
     .toContain("position(o0, 64, 140)");
-  await page.getByTestId("workspace-update-menu").click();
-  const restart = page.getByRole("menuitem", { name: "Update and play this room", exact: true });
+  const restart = page.getByTestId("workspace-update");
   await expect(restart).toBeVisible();
   await restart.click();
   await expect.poll(async () => (await textHook(page)).egoX).toBe(64);

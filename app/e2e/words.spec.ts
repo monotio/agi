@@ -5,7 +5,7 @@ import {
   isolateStorage,
   textHook,
   configureAi,
-  waitForAutosaveAfter,
+  savePlayProgress,
   workspaceUpdated,
 } from "./engineProbe.ts";
 
@@ -223,7 +223,7 @@ test("WORDS row actions hand prompts to the shared agent and retain suggestion c
   await expect(page.getByTestId("sentence-parse")).not.toContainText("new word");
   await expect(words.locator(".meaning-row").filter({ hasText: "wander" })).toHaveCount(1);
   await workspaceUpdated(page);
-  await waitForAutosaveAfter(page, (await textHook(page)).cycle);
+  await savePlayProgress(page);
   await words.getByRole("button", { name: "Open chat", exact: true }).click();
   await expect(panel).toBeVisible();
   await expect(panel).toContainText("Suggest words for look");

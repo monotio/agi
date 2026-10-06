@@ -19,6 +19,7 @@ import type { LessonSession } from "../lessons/lessonCheck.ts";
 import type { ReplyFormatter } from "../agent/workspaceAgent.ts";
 import type { ComputedRoomRemovalReview } from "../project/projectSessionCore.ts";
 import type { IconName } from "../ui/icons.ts";
+import type { Launch } from "../../../src/authoring/launches.ts";
 
 /** The dock a Create panel sits in. */
 export type DockSide = "left" | "right";
@@ -75,6 +76,19 @@ export function createWorkspaceEditor(engine: EngineApi) {
   const changeCount = ref(0);
   const problemCount = ref(0);
   const updatedParts = ref(0);
+  const updateResult = ref("");
+  const actionRoom = ref<number>();
+  const actionRoomName = ref("");
+  const launchChoices = shallowRef<readonly Launch[]>([]);
+  const selectedLaunch = ref("carry");
+  const selectLaunch = shallowRef<(id: string) => Promise<void>>();
+  const openLaunchEditor = shallowRef<(mode: "new" | "edit", room: number) => void>();
+  function requestLaunchEditor(mode: "new" | "edit"): void {
+    const room = actionRoom.value;
+    if (room === undefined) return;
+    if (openLaunchEditor.value) openLaunchEditor.value(mode, room);
+    else error.value = "Launch editor will be available in a later update.";
+  }
   const stagePaused = ref(false);
   const phonePlaytest = ref(false);
   const removalReview = shallowRef<ComputedRoomRemovalReview>();
@@ -228,6 +242,7 @@ export function createWorkspaceEditor(engine: EngineApi) {
     if (!session || busy.value || readOnly.value) return;
     busy.value = true;
     updatedParts.value = 0;
+    updateResult.value = "";
     save.value = "Saving…";
     error.value = "";
     try {
@@ -278,6 +293,11 @@ export function createWorkspaceEditor(engine: EngineApi) {
   }
   function reset(): void {
     changeCount.value = problemCount.value = updatedParts.value = 0;
+    updateResult.value = "";
+    actionRoom.value = undefined;
+    actionRoomName.value = "";
+    launchChoices.value = [];
+    selectedLaunch.value = "carry";
     nameLocation.value = undefined;
     studioRequests.value = {};
     selected.value = undefined;
@@ -312,6 +332,14 @@ export function createWorkspaceEditor(engine: EngineApi) {
     changeCount,
     problemCount,
     updatedParts,
+    updateResult,
+    actionRoom,
+    actionRoomName,
+    launchChoices,
+    selectedLaunch,
+    selectLaunch,
+    openLaunchEditor,
+    requestLaunchEditor,
     stagePaused,
     phonePlaytest,
     removalReview,

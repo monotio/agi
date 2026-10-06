@@ -7,7 +7,7 @@ import {
   openGameOptions,
   surfaceBox,
   textHook,
-  waitForAutosaveAfter,
+  savePlayProgress,
   waitForCycles,
   waitForRoom,
 } from "./engineProbe.ts";
@@ -264,7 +264,7 @@ test("Create is a route: Back and Forward switch modes and a reload keeps Create
   await expect(create).toHaveAttribute("aria-checked", "true");
   await expect(page.getByTestId("parts-list")).toBeVisible();
 
-  await waitForAutosaveAfter(page, (await textHook(page)).cycle);
+  await savePlayProgress(page);
   await page.reload();
   await waitForRoom(page, 1, { coldBoot: true });
   await expect(page).toHaveURL(new RegExp(`#create/${target}$`));

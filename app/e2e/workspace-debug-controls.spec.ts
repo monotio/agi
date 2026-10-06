@@ -30,7 +30,13 @@ test("debug controls follow LOGIC and a paused session @webkit-desktop", async (
   await expect(page.getByTestId("workspace-update")).toBeVisible();
   await page.getByTestId("workspace-logic-editor").locator("textarea.inputarea").focus();
   await page.keyboard.press("F5");
-  await expect(header.getByRole("button", { name: "Pause", exact: true })).toBeVisible();
+  await expect(header.getByRole("button", { name: "Continue", exact: true })).toBeVisible();
+  await header.getByRole("button", { name: "Continue", exact: true }).click();
+  await expect(page.getByTestId("workspace-debug-panel")).toBeVisible();
+  await page
+    .getByTestId("workspace-problems")
+    .getByRole("button", { name: "Close", exact: true })
+    .click();
   await page.getByTestId("part-room:1:picture:1").click();
   await expect(page.getByTestId("room-studio")).toBeVisible();
   await expect(header.getByRole("group", { name: "Debug controls" })).toHaveCount(0);

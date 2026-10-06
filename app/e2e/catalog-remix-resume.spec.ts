@@ -11,6 +11,7 @@ import {
   storedAutosave,
   textHook,
   waitForAutosaveAfter,
+  savePlayProgress,
   workspaceSaved,
 } from "./engineProbe.ts";
 
@@ -159,7 +160,7 @@ test("forking the tutorial keeps each card’s own checkpoint", async ({ page })
   await expect.poll(() => requests).toBe(4);
   await expect(copyNote).toHaveCount(0);
   await workspaceSaved(page);
-  await waitForAutosaveAfter(page, (await textHook(page)).cycle);
+  await savePlayProgress(page);
   await page.reload();
   await expect(origin).toBeVisible();
   await openWorkspaceAgent(page);

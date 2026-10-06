@@ -13,6 +13,7 @@ import {
   openWorkspaceView,
   workspaceSaved,
   workspaceUpdated,
+  savePlayProgress,
 } from "./engineProbe.ts";
 import { expect, reviewShot, test } from "./test.ts";
 import {
@@ -109,6 +110,7 @@ test("Update game saves exact PICTURE pixels and source and reopens cold @webkit
   expect(storedSource).toBe(drawnSource);
   await reviewShot(page, "project-resource-after-keep");
 
+  await savePlayProgress(page);
   await page.getByTestId("btn-exit").click();
   await openStoredWorkspace(page, "Drawn clearing");
   await openWorkspacePicture(page, 1);
@@ -193,6 +195,7 @@ test("Update game saves exact VIEW recolour bytes and retains an unrelated LOGIC
   });
   await reviewShot(page, "project-resource-sprite-kept");
 
+  await savePlayProgress(page);
   await page.getByTestId("btn-exit").click();
   await openStoredWorkspace(page, "Recoloured ego");
   await openWorkspaceView(page, 0);

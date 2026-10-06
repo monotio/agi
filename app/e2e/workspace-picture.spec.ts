@@ -128,6 +128,8 @@ test("computed placements are dashed and locked, and game motion never paints th
     ]);
   });
   await open(page, "part-room:8:picture:8");
+  await expect(page.getByTestId("workspace-update")).toBeVisible();
+  await page.getByTestId("workspace-update").click();
   const studio = page.getByTestId("room-studio");
   await expect(studio).toBeVisible();
   const canvas = studio.locator('.studio-pane[data-layer="art"] canvas');
@@ -344,7 +346,12 @@ test("Make it a room Undo warns for a computed jump and Remove anyway is one ste
   await expect(dialog).toBeVisible();
   await dialog.getByRole("button", { name: "Remove anyway", exact: true }).click();
   await expect(dialog).toBeHidden();
+  expect((await textHook(page)).room).toBe(2);
+  await open(page, "part-room:1:logic");
+  await expect(page.getByTestId("workspace-update")).toBeVisible();
+  await page.getByTestId("workspace-update").click();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  await open(page, "part-picture:9");
   await expect(page.getByTestId("workspace-unused")).toBeVisible();
   expect(
     await page.evaluate(() =>
@@ -356,6 +363,7 @@ test("Make it a room Undo warns for a computed jump and Remove anyway is one ste
   ).toBeUndefined();
   await page.getByTestId("workspace-redo").click();
   await open(page, "part-room:2:picture:9");
+  await page.getByTestId("workspace-update").click();
   await expect.poll(async () => (await textHook(page)).room).toBe(2);
   await page.getByTestId("btn-world-map").click();
   const map = page.getByTestId("world-map");
@@ -373,7 +381,7 @@ test("Make it a room Undo warns for a computed jump and Remove anyway is one ste
   );
   await page.getByTestId("workspace-undo").click();
   await expect(dialog).toBeHidden();
-  const refusal = page.getByRole("alert");
+  const refusal = page.getByRole("alert").filter({ hasText: "logic:2" });
   await expect(refusal).toBeVisible();
   await expect(refusal).toContainText("logic:2");
   expect((await textHook(page)).room).toBe(2);

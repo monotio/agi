@@ -1419,7 +1419,7 @@ function onKeyup(event: KeyboardEvent): void {
               :class="{ 'is-above': stageDraftLabel.above }"
               :style="stageDraftLabel.style"
               data-testid="stage-draft"
-              >Draft · Update game to play it</span
+              >Draft · Update and restart to play it</span
             >
             <RoomViewsOverlay
               v-if="viewsOpacity > 0 && (layer === 'art' || panes.length === 1)"
