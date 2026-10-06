@@ -229,7 +229,9 @@ for (const [width, height] of [
     await page.getByTestId("part-room:1:logic").click();
     const context = page.getByTestId("workspace-context");
     await expect(context).toBeVisible();
-    await context.getByTestId("room-action-place-hero").click();
+    // Phones fold the room actions into one menu in the same row.
+    if (width <= 600) await context.getByTestId("room-actions-menu").click();
+    await page.getByTestId("room-action-place-hero").click();
     const form = context.getByTestId("workspace-guided-form");
     const here = form.getByRole("button", { name: "Start here", exact: true });
     await expect(form).toBeVisible();
