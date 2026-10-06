@@ -8,14 +8,13 @@ import { VOCABULARY } from "../../../src/vocabulary.ts";
 /** Controls a Help topic can open; HelpGuide.vue decides which are available. */
 type HelpAction = "controls" | "map" | "hint" | "remix" | "ai-settings" | "create" | "add-game";
 
-/** Open a Studio on one resource of the current game, switching to Create first. */
-type HelpStudioAction =
-  | { readonly kind: "openRoomStudio"; readonly picture: number }
-  | { readonly kind: "openSpriteStudio"; readonly view: number };
-
-/** What a topic's "Show me" asks for: a control, or a Studio on a resource. */
-export type HelpRequest = { readonly kind: HelpAction } | HelpStudioAction;
-export type HelpActionKind = HelpRequest["kind"];
+/** What a topic's "Show me" asks for: a control on the current screen. */
+export type HelpRequest = { readonly kind: HelpAction };
+/**
+ * The actions the current screen can perform, plus "lessons": the guide's
+ * lessons can open their editors (each lesson carries its own resource).
+ */
+export type HelpActionKind = HelpAction | "lessons";
 
 interface HelpTopic {
   readonly id: string;

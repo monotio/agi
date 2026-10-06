@@ -24,7 +24,7 @@ import LessonCard from "../../lessons/LessonCard.vue";
 import { useStudioLesson } from "../../lessons/useStudioLesson.ts";
 import type { ResourceCommitResult, ViewEdit } from "../../project/resourceCommit.ts";
 import type { AuthoringFingerprint } from "../../project/gameStorage.ts";
-import type { SpriteRoom } from "../../shell/useCreateWorkspace.ts";
+import type { SpriteRoom } from "../../world/studioSource.ts";
 import StudioAssistCompare from "../StudioAssistCompare.vue";
 import StudioAssistPanel from "../StudioAssistPanel.vue";
 import StudioKeepDialog from "../StudioKeepDialog.vue";

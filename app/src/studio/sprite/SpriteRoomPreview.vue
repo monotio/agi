@@ -12,7 +12,7 @@ import UiButton from "../../ui/UiButton.vue";
 import UiExplain from "../../ui/UiExplain.vue";
 import { explain } from "../studioTerms.ts";
 import { useShortWindow } from "./useShortWindow.ts";
-import type { SpriteRoom } from "../../shell/useCreateWorkspace.ts";
+import type { SpriteRoom } from "../../world/studioSource.ts";
 
 /**
  * The edited cel standing in one of the rooms that use the view: the room's

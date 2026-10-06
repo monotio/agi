@@ -29,7 +29,6 @@ import { parseWordsTok } from "../../../src/logic/words.ts";
 import { sourceCompilesTo } from "../../../src/picture/source.ts";
 import { detectProfile, type AgiProfile } from "../../../src/runtime/profile.ts";
 import type { ScannedResources } from "./useRoomMap.ts";
-import type { SpriteRoom } from "../shell/useCreateWorkspace.ts";
 import { scanContainerExits, type StaticRoomScan } from "../../../src/agent/roomMap.ts";
 import { roomPictureUse } from "../../../src/agent/roomPictures.ts";
 import { openSprite, type SpriteCel } from "../../../src/view/spriteDocument.ts";
@@ -290,6 +289,13 @@ export interface StudioSpriteSource {
   readonly files: ReadonlyMap<string, Uint8Array>;
   readonly usage: ViewUsage;
   readonly rooms: readonly SpriteRoom[];
+}
+
+/** A room the in-room preview can stand a sprite in: its number and the picture it draws. */
+export interface SpriteRoom {
+  readonly room: number;
+  readonly picture: number;
+  readonly title?: string | undefined;
 }
 
 /**

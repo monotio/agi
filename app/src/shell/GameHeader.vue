@@ -23,7 +23,6 @@ import { useEngineApi } from "../engine/engineContext.ts";
 import { useAiSettings } from "../settings/useAiSettings.ts";
 import { useShellBridge } from "./shellBridge.ts";
 import { useShell } from "./useShell.ts";
-import { useCreateWorkspace } from "./useCreateWorkspace.ts";
 import { useStudioLauncher } from "./useStudioLauncher.ts";
 import { useGameLibrary } from "../library/useGameLibrary.ts";
 import { getCachedGameMeta } from "../project/gameStorage.ts";
@@ -85,7 +84,6 @@ const { aiSettingsUnavailable, openAiSettings, llmConfig } = useAiSettings();
 const bridge = useShellBridge();
 const shell = useShell();
 const workspaceEditor = useWorkspaceEditor();
-const workspace = useCreateWorkspace();
 const { onStartOver: startGameOver } = useGameLibrary();
 
 watch(
@@ -126,7 +124,7 @@ const helpActions = computed<HelpActionKind[]>(() => {
   if (!state.powerUp.busy && !state.historyView.active) actions.push("hint");
   if (!state.powerUp.busy && shell.createAvailable.value) actions.push("remix");
   if (!aiSettingsUnavailable.value) actions.push("ai-settings");
-  if (studios.available.value) actions.push("openRoomStudio", "openSpriteStudio");
+  if (studios.available.value) actions.push("lessons");
   return actions;
 });
 
@@ -165,12 +163,6 @@ function onHelpLesson(lesson: StudioLesson): void {
 
 function onHelpAction(request: HelpRequest): void {
   switch (request.kind) {
-    case "openRoomStudio":
-      void studios.open({ studio: "room", picture: request.picture });
-      return;
-    case "openSpriteStudio":
-      void studios.open({ studio: "sprite", view: request.view });
-      return;
     case "controls":
       controlsOpen.value = true;
       return;
@@ -279,8 +271,6 @@ const historyExit = ref(false);
  */
 async function onStartOver(anyway = false): Promise<void> {
   historyStartOver.value = false;
-  // Room Studio's unkept changes are kept or thrown away before the game restarts.
-  if (!(await workspace.confirmStudioLeave())) return;
   if (!touchControls) bridge.focusGameInput();
   try {
     await startGameOver(anyway ? { abandonHistory: true } : undefined);

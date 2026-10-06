@@ -1,4 +1,4 @@
-/** Create mode follows the room and hands studio requests back to play on exit. */
+/** Create mode follows the room the player is in and owns the dock keys. */
 import { watch, type ComputedRef, type Ref } from "vue";
 import type { CreateWorkspace } from "./useCreateWorkspace.ts";
 import type { EngineState } from "../engine/useEngineTypes.ts";
@@ -38,14 +38,6 @@ export function useCreateMode(deps: {
     () => state.powerUp.open,
     (open) => {
       if (open && creating.value) workspace.showPanel("assistant");
-    },
-  );
-
-  // Leave a pending studio request when play or a walkthrough takes over.
-  watch(
-    () => [creating.value, state.phase, state.walkthrough.active] as const,
-    ([inCreate, phase, watching]) => {
-      if (!inCreate || phase !== "running" || watching) workspace.closeStudio();
     },
   );
 

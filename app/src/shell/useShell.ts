@@ -18,7 +18,6 @@ import type { EngineApi } from "../engine/engineContext.ts";
 import type { ShellBridge } from "./shellBridge.ts";
 import type { ProjectId } from "../project/gameTypes.ts";
 import { gameHash, parseGameHash, type ShellMode } from "./shellRoute.ts";
-import type { StudioLeaveGuard } from "./useCreateWorkspace.ts";
 
 export type { ShellMode };
 
@@ -67,8 +66,6 @@ export function createShell(deps: {
   librarySource: (projectId: string) => string | undefined;
   initialMode?: ShellMode;
   awaitingLatest?: () => boolean;
-  /** Room Studio's unkept changes, settled before Create is left. */
-  createGuard?: StudioLeaveGuard;
 }): Shell {
   const { state, currentGame } = deps.engine;
   const mode = ref<ShellMode>(deps.initialMode ?? "play");
@@ -98,19 +95,9 @@ export function createShell(deps: {
     if (location.hash !== target) history.replaceState(null, "", target);
   }
 
-  /** Leaving Create for `next` would lose unkept Studio changes: they are settled first. */
-  const guarded = (next: ShellMode): boolean =>
-    mode.value === "create" && next !== "create" && deps.createGuard?.unkept() === true;
-
   function setMode(next: ShellMode): void {
     if (next === mode.value) return;
     if (next === "create" && !createAvailable.value) return;
-    if (guarded(next)) {
-      void deps.createGuard!.confirm().then((go) => {
-        if (go && !guarded(next)) setMode(next);
-      });
-      return;
-    }
     mode.value = next;
     const key = routeKey();
     if (key) history.pushState(null, "", gameHash(next, key));
@@ -120,16 +107,6 @@ export function createShell(deps: {
     const route = parseGameHash(hash);
     if (!route || state.phase !== "running") return;
     if (route.mode === "create" && !createAvailable.value) return;
-    if (guarded(route.mode)) {
-      // The history moved already: the URL names Create again until the question is settled.
-      markRoute();
-      void deps.createGuard!.confirm().then((go) => {
-        if (!go || guarded(route.mode) || state.phase !== "running") return;
-        mode.value = route.mode;
-        markRoute();
-      });
-      return;
-    }
     mode.value = route.mode;
   }
 
