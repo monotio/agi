@@ -44,7 +44,6 @@ const {
   grid = true,
   baseline = true,
   overlay,
-  changed = null,
   label,
   backdrop = DEFAULT_BACKDROP,
   room = null,
@@ -61,8 +60,6 @@ const {
     readonly selection: CelRect | null;
     readonly cursor: CelPoint | null;
   };
-  /** Row-major, the cel's size: 1 where an AI proposal changes the pixel. */
-  changed?: Uint8Array | null;
   label: string;
   backdrop?: SpriteBackdrop;
   /** The room picture a Room backdrop reads. */
@@ -167,19 +164,6 @@ watchEffect(
       );
       context.restore();
     };
-    if (changed && changed.length === cel.width * cel.height) {
-      context.save();
-      context.strokeStyle = token("--ok");
-      context.lineWidth = Math.max(1, Math.round(dpr * 1.5));
-      context.setLineDash([3 * dpr, 2 * dpr]);
-      for (let i = 0; i < changed.length; i++) {
-        if (changed[i] !== 1) continue;
-        const x = i % cel.width;
-        const y = (i - x) / cel.width;
-        context.strokeRect(x * unitX + 1, y * unitY + 1, unitX - 2, unitY - 2);
-      }
-      context.restore();
-    }
     if (overlay.selection) outline(overlay.selection, token("--action"), true);
     if (overlay.marquee) outline(overlay.marquee, token("--action"), true);
     if (overlay.cursor)
@@ -248,7 +232,6 @@ function onLeave(): void {
       :data-height="cel.height"
       :data-zoom="zoom"
       :data-onion="onion.length"
-      :data-changed="changed ? changed.reduce((sum, bit) => sum + bit, 0) : undefined"
       :style="{ width: `${width}px`, height: `${height}px` }"
       @pointerdown="onDown"
       @pointermove="onMove"
