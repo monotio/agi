@@ -5,6 +5,7 @@ import type { IconName } from "./icons.ts";
 /** An icon-only button. `label` is required: it is the accessible name and the tooltip. */
 const {
   size = "md",
+  title = undefined,
   pressed = undefined,
   shortcut = undefined,
 } = defineProps<{
