@@ -91,7 +91,7 @@ test("a room visit reply arriving after Play keeps Create on the adopted room", 
     };
     Object.defineProperty(Worker.prototype, "onmessage", {
       configurable: true,
-      get: onmessage.get,
+      get: onmessage.get!,
       set(this: Worker, listener: (event: MessageEvent) => void) {
         onmessage.set!.call(this, (event: MessageEvent) => {
           if (event.data?.type === "playedHere" && event.data.returnRoom !== undefined) {
