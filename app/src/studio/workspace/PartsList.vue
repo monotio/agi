@@ -121,7 +121,7 @@ const builtinNames = computed(() => stateNames.value.filter((info) => info.built
 const editingRoomLocal = ref<number>();
 const editingRoom = computed(() => editingRoomLocal.value ?? props.renameRoom);
 const roomTitle = ref("");
-const renameInput = useTemplateRef<HTMLInputElement | HTMLInputElement[]>("renameInput");
+const renameInput = useTemplateRef("renameInput");
 function roomLabel(room: number): string {
   const row = props.groups
     .flatMap((group) => group.entries)
