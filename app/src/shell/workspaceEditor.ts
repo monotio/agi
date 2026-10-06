@@ -260,7 +260,9 @@ export function createWorkspaceEditor(engine: EngineApi) {
         if (problem) error.value = `${problem.message} Change its references and try Undo again.`;
       } else if (
         outcome &&
-        !["committed", "diagnostics", "unchanged", "restartRequired"].includes(outcome.status)
+        !["committed", "draft", "diagnostics", "unchanged", "restartRequired"].includes(
+          outcome.status,
+        )
       )
         error.value =
           ("diagnostics" in outcome &&

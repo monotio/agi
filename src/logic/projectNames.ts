@@ -5,17 +5,21 @@ import { commandReference } from "./commandReference.ts";
 import { analyzeLogicSyntax } from "./syntax.ts";
 import { rangeAt, type Range } from "./lspTypes.ts";
 import type { LogicLanguageProject } from "./lspServer.ts";
+import { BINDING_KINDS } from "./languageOperands.ts";
+import { systemBindingInfos } from "./systemNames.ts";
 
 export interface BindingInfo {
   readonly name: string;
   readonly kind: string;
   readonly num: number;
+  readonly logic?: number;
   readonly uses: readonly {
     key: string;
     uri: string;
     range: Range;
     role: "Set" | "Checked" | "Used";
     text: string;
+    operation?: "Reset" | "View" | "Positioned" | "Drawn";
   }[];
 }
 // Destination operands of AGI actions; sound/cycle callbacks set flags later.
@@ -56,15 +60,24 @@ const WRITES: Record<string, readonly number[]> = {
   "follow.ego": [2],
 };
 
-export function projectBindingInfos(project: LogicLanguageProject): BindingInfo[] {
+export function projectOperandInfos(project: LogicLanguageProject): BindingInfo[] {
   const infos = Object.entries(project.bindings)
     .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
     .map(([name, binding]) => ({
       name,
       kind: binding.kind ?? "resource",
       num: binding.num,
+      ...(binding.logic === undefined ? {} : { logic: binding.logic }),
       uses: [] as BindingInfo["uses"][number][],
     }));
+  for (const info of systemBindingInfos()) {
+    if (
+      !infos.some(
+        (entry) => entry.name === info.name || (entry.kind === info.kind && entry.num === info.num),
+      )
+    )
+      infos.push({ ...info, uses: [] });
+  }
   const commands = Object.fromEntries(
     commandReference(PROFILES[project.profileId]).map((command) => [command.name, command]),
   );
@@ -87,22 +100,32 @@ export function projectBindingInfos(project: LogicLanguageProject): BindingInfo[
       if (token.type !== "ident" && token.type !== "number") continue;
       const operand = snapshot.operandAt(token.start);
       const name = snapshot.definitionAt(token.start);
+      if (operand && !operand.declaration) {
+        const kind = BINDING_KINDS[operand.kind];
+        const logic = operand.kind === "m" ? Number(key.slice(6)) : undefined;
+        if (
+          !infos.some(
+            (info) =>
+              !info.name && info.kind === kind && info.num === operand.num && info.logic === logic,
+          )
+        )
+          infos.push({
+            name: "",
+            kind,
+            num: operand.num,
+            ...(logic === undefined ? {} : { logic }),
+            uses: [],
+          });
+      }
       const matches = infos.filter(
         (info) =>
-          (project.bindings[info.name]?.logic === undefined ||
-            key === `logic:${project.bindings[info.name]?.logic}`) &&
+          (info.logic === undefined || key === `logic:${info.logic}`) &&
           ((name?.kind === "binding" && name.name === info.name) ||
             (operand &&
               !operand.declaration &&
-              !operand.name &&
+              (!operand.name || !info.name) &&
               operand.num === info.num &&
-              operand.kind ===
-                (
-                  { flag: "f", variable: "v", object: "o", inventory: "i", message: "m" } as Record<
-                    string,
-                    string
-                  >
-                )[info.kind])),
+              BINDING_KINDS[operand.kind] === info.kind)),
       );
       const call = frames.at(-1);
       const role =
@@ -122,8 +145,26 @@ export function projectBindingInfos(project: LogicLanguageProject): BindingInfo[
           range: rangeAt(source, token.start, token.end),
           role,
           text: source.split(/\r?\n/)[token.line - 1]?.trim() ?? "",
+          ...(call?.name === "reset" && operand?.kind === "f"
+            ? { operation: "Reset" as const }
+            : operand?.kind === "o" &&
+                call?.parameter === 0 &&
+                ["set.view", "set.view.v"].includes(call.name)
+              ? { operation: "View" as const }
+              : operand?.kind === "o" &&
+                  call?.parameter === 0 &&
+                  ["position", "position.v", "reposition.to", "reposition.to.v"].includes(call.name)
+                ? { operation: "Positioned" as const }
+                : operand?.kind === "o" && call?.name === "draw"
+                  ? { operation: "Drawn" as const }
+                  : {}),
         });
     }
   }
   return infos;
+}
+
+/** Agent naming evidence and editor evidence are the same authored operand inventory. */
+export function projectBindingInfos(project: LogicLanguageProject): BindingInfo[] {
+  return projectOperandInfos(project).filter((info) => info.name);
 }

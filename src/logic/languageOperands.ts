@@ -1,8 +1,11 @@
 /** Numbered symbols retain the argument kind, including numeric source operands. */
 import type { CommandReference } from "./commandReference.ts";
 import type { analyzeLogicSyntax, Token } from "./syntax.ts";
+import { resourceReferenceOperand } from "../authoring/projectReferences.ts";
+import type { AgiProfile } from "../runtime/profile.ts";
 
-export type NumberedKind = "v" | "f" | "o" | "i" | "s" | "w" | "m" | "c";
+export type NumberedKind =
+  "v" | "f" | "o" | "i" | "s" | "w" | "m" | "c" | "logic" | "picture" | "view" | "sound";
 export interface NumberedOperand {
   readonly kind: NumberedKind;
   readonly num: number;
@@ -21,6 +24,24 @@ export const OPERAND_NAMES: Record<NumberedKind, string> = {
   w: "Word",
   m: "Message",
   c: "Controller",
+  logic: "LOGIC",
+  picture: "PICTURE",
+  view: "VIEW",
+  sound: "SOUND",
+};
+export const BINDING_KINDS: Record<NumberedKind, string> = {
+  v: "variable",
+  f: "flag",
+  o: "object",
+  i: "inventory",
+  m: "message",
+  s: "string",
+  w: "word",
+  c: "controller",
+  logic: "logic",
+  picture: "picture",
+  view: "view",
+  sound: "sound",
 };
 const ARGUMENT_KINDS: Record<string, NumberedKind> = {
   var: "v",
@@ -35,6 +56,7 @@ const ARGUMENT_KINDS: Record<string, NumberedKind> = {
 export function collectLogicOperands(
   syntax: ReturnType<typeof analyzeLogicSyntax>,
   commands: readonly CommandReference[],
+  profile: AgiProfile,
 ): readonly NumberedOperand[] {
   const byName = new Map(commands.map((command) => [command.name, command]));
   const definitions = new Map(syntax.definitions.map((entry) => [entry.start, entry]));
@@ -98,10 +120,16 @@ export function collectLogicOperands(
       continue;
     const call = frames.at(-1);
     if (call && byName.has(call.name)) {
+      const resource = resourceReferenceOperand(call.name, profile);
       const kind =
         call.name === "said"
           ? "w"
-          : ARGUMENT_KINDS[byName.get(call.name)!.operands[call.parameter] ?? ""];
+          : resource &&
+              !resource.variable &&
+              resource.kind !== "item" &&
+              resource.operand === call.parameter
+            ? resource.kind
+            : ARGUMENT_KINDS[byName.get(call.name)!.operands[call.parameter] ?? ""];
       if (kind) add(token, kind);
     } else if (
       next?.text === "=" ||

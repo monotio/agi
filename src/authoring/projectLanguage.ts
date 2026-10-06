@@ -89,10 +89,31 @@ export function createProjectLogicLanguageSnapshot(
               : { definitionStart: definitionStart - base }),
         };
       });
+  const resourceNames: (NumberedOperand & { readonly bindingName?: string })[] = [];
+  for (const reference of analyzeLogicSyntax(source).references) {
+    const binding = input.bindings[reference.name];
+    if (
+      binding &&
+      ["logic", "picture", "view", "sound"].includes(binding.kind ?? "") &&
+      definitionAt(reference.start)?.kind === "binding" &&
+      !operands.some((operand) => operand.start === reference.start)
+    )
+      resourceNames.push({
+        kind: binding.kind as NumberedOperand["kind"],
+        num: binding.num,
+        start: reference.start,
+        end: reference.end,
+        declaration: false,
+        name: reference.name,
+        bindingName: reference.name,
+      });
+  }
 
   function operandAt(offset: number) {
     expandedOffset(offset);
-    return operands.find((entry) => entry.start <= offset && entry.end > offset);
+    return [...operands, ...resourceNames].find(
+      (entry) => entry.start <= offset && entry.end > offset,
+    );
   }
 
   function definitionAt(offset: number) {
@@ -156,7 +177,7 @@ export function createProjectLogicLanguageSnapshot(
 
   return {
     source,
-    operands,
+    operands: [...operands, ...resourceNames].sort((a, b) => a.start - b.start),
     operandAt,
     diagnostics: Object.freeze(diagnostics),
     generatedDiagnostics: Object.freeze(generatedDiagnostics),

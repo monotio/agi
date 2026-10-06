@@ -790,6 +790,7 @@ function createSession(
           lifetime: expected.lifetime,
           currentImage: () => model.capture().documentId,
           canWrite: () => current() && writeBlock === undefined,
+          read: (key) => model.capture().read(key)?.content,
           changed() {
             for (const observer of draftObservers) observer();
           },
@@ -836,7 +837,7 @@ function createSession(
       await drafts.ready;
       if (!current() || writeBlock !== undefined)
         throw new Error(session.saveStatus().message || "Reopen this game before editing.");
-      drafts.stage(changes);
+      drafts.stageTransaction(changes);
       return { status: "draft" as const, diagnostics: [] };
     },
     update(changes: readonly ProjectChange[], restartRoom = false, launch?: RoomLaunchRequest) {
@@ -919,6 +920,7 @@ function createSession(
     },
     undo(review?: ComputedRoomRemovalReview) {
       return schedule(async () => {
+        if (partDrafts?.undo()) return { status: "draft" as const, diagnostics: [] };
         const action = history.undo(model);
         if (action === undefined) return undefined;
         const capture = model.capture();
@@ -962,6 +964,7 @@ function createSession(
     },
     redo() {
       return schedule(async () => {
+        if (partDrafts?.redo()) return { status: "draft" as const, diagnostics: [] };
         const action = history.redo(model);
         return action === undefined
           ? undefined

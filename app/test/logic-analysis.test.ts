@@ -51,7 +51,9 @@ test("analysis worker uses actual shared project semantics and proposes rename w
     position: { line: 0, character: 4 },
   });
   worker.reply();
-  assert.equal((await definition)?.uri, "agi-project:///bindings.json");
+  const target = await definition;
+  assert.ok(target && !Array.isArray(target));
+  assert.equal(target.uri, "agi-project:///bindings.json");
   const rename = client.request("logic:1", "textDocument/rename", {
     position: { line: 0, character: 4 },
     newName: "gate",
@@ -94,7 +96,9 @@ test("an unchanged workspace notification preserves a pending definition", async
   });
   client.setProject(structuredClone(snapshot));
   worker.reply();
-  assert.deepEqual((await definition)?.range, {
+  const target = await definition;
+  assert.ok(target && !Array.isArray(target));
+  assert.deepEqual(target.range, {
     start: { line: 0, character: 0 },
     end: { line: 0, character: 6 },
   });
@@ -121,7 +125,9 @@ test("a definition captured before an edit cannot move a newer document's caret"
     position: { line: 2, character: 6 },
   });
   worker.reply(1);
-  assert.equal((await current)?.range.start.line, 1);
+  const target = await current;
+  assert.ok(target && !Array.isArray(target));
+  assert.equal(target.range.start.line, 1);
   client.dispose();
 });
 

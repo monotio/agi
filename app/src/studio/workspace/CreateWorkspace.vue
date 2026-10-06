@@ -206,10 +206,10 @@ function refresh(): void {
       : capture.save.state === "pending" || capture.save.state === "saving"
         ? "Saving…"
         : capture.save.message;
-  editor.canUndo.value = !!capture.history.commits.find(
-    (commit) => commit.id === capture.history.cursor,
-  )?.parent;
-  editor.canRedo.value = capture.history.future.length > 0;
+  editor.canUndo.value =
+    draftStatus.canUndo ||
+    !!capture.history.commits.find((commit) => commit.id === capture.history.cursor)?.parent;
+  editor.canRedo.value = draftStatus.canRedo || capture.history.future.length > 0;
 }
 function attach(): void {
   const next = engine.getProjectSession();
@@ -931,6 +931,10 @@ function draftChanged(force = false): void {
     draftKeys = keys;
   } else Object.assign(optimistic.value, next);
   const state = drafts.status();
+  const history = session.capture().history;
+  editor.canUndo.value =
+    state.canUndo || !!history.commits.find((commit) => commit.id === history.cursor)?.parent;
+  editor.canRedo.value = state.canRedo || history.future.length > 0;
   if (!state.error && editor.error.value === draftError) editor.error.value = "";
   draftError = state.error;
   writerBusy.value = state.busy;

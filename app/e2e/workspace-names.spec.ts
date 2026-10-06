@@ -228,7 +228,7 @@ test("name hover opens resources and message actions keep readable text @webkit-
   await editor.locator(".view-lines").getByText("chime_sound", { exact: true }).hover();
   const hover = page.locator(".monaco-hover:not(.hidden)");
   await expect(hover).toBeVisible();
-  await expect(hover).toContainText("chime_sound · SOUND 1 · used in 1 place");
+  await expect(hover).toContainText("SOUND 1 · chime_sound");
   await expect(hover.getByRole("link", { name: "Rename", exact: true })).toBeVisible();
   await hover.getByRole("link", { name: "Rename", exact: true }).click();
   const details = page.getByTestId("binding-details");
@@ -243,7 +243,7 @@ test("name hover opens resources and message actions keep readable text @webkit-
   await details.getByRole("button", { name: "Close", exact: true }).click();
   await editor.locator(".view-lines").getByText("birdsong", { exact: true }).hover();
   await expect(hover).toBeVisible();
-  await expect(hover).toContainText("birdsong · SOUND 1 · used in 1 place");
+  await expect(hover).toContainText("SOUND 1 · birdsong");
   await hover.getByRole("link", { name: "Open", exact: true }).click();
   await expect(page.getByTestId("workspace-sound")).toBeVisible();
   await openWorkspaceLogic(page);
