@@ -20,6 +20,16 @@ async function starter(page: Page): Promise<void> {
   await waitForRoom(page, 1);
   if (page.viewportSize()!.width <= 600) await page.getByTestId("workspace-parts").click();
   await expect(page.getByTestId("parts-list")).toBeVisible();
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          (
+            window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession | null } }
+          ).__AGI_PROJECT__.getSession() !== null,
+      ),
+    )
+    .toBe(true);
 }
 async function draft(page: Page, source: string): Promise<void> {
   await openWorkspaceLogic(page);

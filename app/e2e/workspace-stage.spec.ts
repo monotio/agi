@@ -128,7 +128,9 @@ test("a room visit reply arriving after Play keeps Create on the adopted room", 
   });
   await start(page);
   await open(page, "part-room:8:picture:8");
-  await playRoom(page);
+  const action = page.getByTestId("workspace-update");
+  await expect(action).toBeVisible();
+  await action.click();
   await expect
     .poll(() =>
       page.evaluate(() => (window as unknown as { roomVisitHeld(): boolean }).roomVisitHeld()),

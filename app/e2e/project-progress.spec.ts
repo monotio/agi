@@ -419,6 +419,7 @@ test("a reload resumes the parked window in an agent-authored room @webkit-deskt
   // Room 1's entry window is parked too; acknowledge it, then walk east so
   // the stub authors room 2 and its entry print parks the pass there.
   const input = page.getByTestId("input-line");
+  await expect.poll(async () => (await textHook(page)).modal).toBe("print");
   await input.focus();
   await page.keyboard.press("Enter");
   await expect.poll(async () => (await textHook(page)).modal, { timeout: 5_000 }).toBe(null);
