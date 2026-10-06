@@ -42,18 +42,18 @@ return;`;
 
 test("an f16 bypass restart mints a fresh epoch and strands the old session", () => {
   const h = workerHarness(gameContainer([BYPASS]));
-  const engine = h.ctx.engine!;
+  const engine = h.ctx.run.engine!;
   const { epoch, buildId } = attach(h, { "0": BYPASS });
   assert.equal(engine.runResetSerial, 0);
 
   h.ctx.fns.tickEngine();
-  assert.equal(h.ctx.engine, engine, "the in-place restart kept the Engine instance");
+  assert.equal(h.ctx.run.engine, engine, "the in-place restart kept the Engine instance");
   assert.equal(engine.runResetSerial, 1, "the engine witnessed one accepted restart");
   assert.equal(engine.vars[40], 1, "the reset run's initial logic executed");
-  assert.equal(h.ctx.debugger.epoch, epoch + 1, "exactly one fresh epoch was minted");
+  assert.equal(h.ctx.run.debugger.epoch, epoch + 1, "exactly one fresh epoch was minted");
   assert.equal(controls(h, "debugSessionReset").length, 1);
   const reset = lastControl(h, "debugSessionReset");
-  assert.equal(reset["epoch"], h.ctx.debugger.epoch);
+  assert.equal(reset["epoch"], h.ctx.run.debugger.epoch);
   assert.equal(reset["buildId"], buildId, "the same bytes verified under the new epoch");
 
   // Every command carrying the dead epoch is refused; none can touch the run.
@@ -80,7 +80,7 @@ test("an f16 bypass restart mints a fresh epoch and strands the old session", ()
   assert.equal(engine.vars[41], 0, "no stale command mutated the reset run");
 
   // The live epoch still owns the run.
-  send(h.ctx, { type: "debugPause", id: 18, epoch: h.ctx.debugger.epoch });
+  send(h.ctx, { type: "debugPause", id: 18, epoch: h.ctx.run.debugger.epoch });
   assert.equal(lastControl(h, "debugAck")["id"], 18);
   assert.ok(engine.executionStopInfo !== null);
 });
@@ -91,7 +91,7 @@ assignn(v40, 7);
 restart.game();
 return;`;
   const h = workerHarness(gameContainer([source]));
-  const engine = h.ctx.engine!;
+  const engine = h.ctx.run.engine!;
   const { epoch } = attach(h, { "0": source });
 
   h.ctx.fns.tickEngine();
@@ -102,7 +102,7 @@ return;`;
   // Escape declines: the pass resumes past restart.game, identity untouched.
   h.ctx.fns.onKey({ type: "key", code: 0x1b });
   assert.equal(engine.runResetSerial, 0, "a declined restart never reached the reset");
-  assert.equal(h.ctx.debugger.epoch, epoch, "decline kept the session epoch");
+  assert.equal(h.ctx.run.debugger.epoch, epoch, "decline kept the session epoch");
   assert.equal(controls(h, "debugSessionReset").length, 0);
   assert.equal(engine.vars[40], 7);
   assert.equal(engine.hostInteractionPending, false, "the declined pass completed");
@@ -113,9 +113,9 @@ return;`;
   h.ctx.fns.onKey({ type: "key", code: 0x0d });
   assert.equal(engine.runResetSerial, 1);
   assert.equal(engine.vars[40], 1, "the accepted restart ran initial logic");
-  assert.equal(h.ctx.debugger.epoch, epoch + 1);
+  assert.equal(h.ctx.run.debugger.epoch, epoch + 1);
   assert.equal(controls(h, "debugSessionReset").length, 1);
-  assert.equal(lastControl(h, "debugSessionReset")["epoch"], h.ctx.debugger.epoch);
+  assert.equal(lastControl(h, "debugSessionReset")["epoch"], h.ctx.run.debugger.epoch);
 
   send(h.ctx, { type: "debugPause", id: 20, epoch });
   assert.equal(lastControl(h, "debugError")["code"], "staleEpoch");
@@ -129,7 +129,7 @@ set(f16);
 restart.game();
 return;`;
   const h = workerHarness(gameContainer([source]));
-  const engine = h.ctx.engine!;
+  const engine = h.ctx.run.engine!;
   const { epoch } = attach(h, { "0": source });
   send(h.ctx, {
     type: "debugConfigure",
@@ -194,7 +194,7 @@ set(f16);
 restart.game();
 return;`;
   const h = workerHarness(gameContainer([source]));
-  const engine = h.ctx.engine!;
+  const engine = h.ctx.run.engine!;
   const { epoch } = attach(h, { "0": source });
 
   h.ctx.fns.tickEngine();
@@ -208,7 +208,7 @@ return;`;
 
   send(h.ctx, { type: "hostAnswer", id: request["id"] as number, response: "42" });
   assert.equal(lastControl(h, "debugAnswerReady")["id"], request["id"]);
-  assert.equal(h.ctx.debugger.queuedAnswers.length, 1, "the answer parks behind the latch");
+  assert.equal(h.ctx.run.debugger.queuedAnswers.length, 1, "the answer parks behind the latch");
   assert.equal(engine.vars[100], 0);
 
   // The resume drains the answer and the resumed pass runs into restart.game
@@ -221,8 +221,8 @@ return;`;
     action: "continue",
   });
   assert.equal(engine.runResetSerial, 1);
-  assert.equal(h.ctx.debugger.epoch, epoch + 1);
-  assert.equal(h.ctx.debugger.queuedAnswers.length, 0, "stale answers dropped with the epoch");
+  assert.equal(h.ctx.run.debugger.epoch, epoch + 1);
+  assert.equal(h.ctx.run.debugger.queuedAnswers.length, 0, "stale answers dropped with the epoch");
   assert.equal(engine.vars[100], 0, "the applied answer went down with the abandoned run");
   assert.equal(engine.vars[40], 1, "the reset run initialized instead");
   // The new run asked its own question — no stale answer auto-applies to it.
@@ -233,7 +233,7 @@ return;`;
 
 test("an armed step continuation is cancelled by the reset, not replayed", () => {
   const h = workerHarness(gameContainer([BYPASS]));
-  const engine = h.ctx.engine!;
+  const engine = h.ctx.run.engine!;
   const { epoch } = attach(h, { "0": BYPASS });
 
   send(h.ctx, { type: "debugPause", id: 50, epoch });
@@ -246,8 +246,8 @@ test("an armed step continuation is cancelled by the reset, not replayed", () =>
     action: "cycle",
   });
   assert.equal(engine.runResetSerial, 1, "the stepped-into pass ran the restart");
-  assert.equal(h.ctx.debugger.step, null, "the dead epoch's step plan is gone");
-  assert.equal(h.ctx.debugger.epoch, epoch + 1);
+  assert.equal(h.ctx.run.debugger.step, null, "the dead epoch's step plan is gone");
+  assert.equal(h.ctx.run.debugger.epoch, epoch + 1);
   assert.equal(engine.vars[40], 1);
   // No step stop was published for a run that no longer exists.
   assert.equal(

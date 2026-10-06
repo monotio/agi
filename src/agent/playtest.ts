@@ -151,7 +151,7 @@ export class Simulation {
     state: AgentSessionState,
     cycleBudget = DEFAULT_CYCLES,
     instructionBudget = 50000,
-    options: { pressKeys?: boolean } = {},
+    options: { pressKeys?: boolean; rngVersion?: 1 | 2 } = {},
   ) {
     this.cycleBudget = cycleBudget;
     this.resourceSet = resourceSetHint(state);
@@ -161,7 +161,7 @@ export class Simulation {
     });
     const words = container.files.get("WORDS.TOK");
     const dictionary = new Map(words ? parseWordsTok(words).map(({ word, id }) => [word, id]) : []);
-    const randomByte = randomSource(123456789);
+    const randomByte = randomSource(123456789, options.rngVersion ?? 2);
     const unsupported = (name: string): never => {
       throw new SimulationStop(
         `Simulation requires host service ${name}; no external action was performed.`,
@@ -606,6 +606,7 @@ export function playtestRoom(
   state: AgentSessionState,
   args: Record<string, unknown>,
   options: {
+    rngVersion?: 1 | 2;
     setupImage?: Uint8Array;
     replay?: RecordedReplay;
     /**
@@ -707,6 +708,7 @@ export function playtestRoom(
       args["instructionBudget"] == null
         ? 50000
         : integer(args["instructionBudget"], "instructionBudget", 1, 1000000),
+      { rngVersion: options.rngVersion ?? 2 },
     );
     if (recording) simulation.originKind = "recorded";
     else if (setupImage) simulation.originKind = "candidate";

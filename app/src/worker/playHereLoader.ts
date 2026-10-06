@@ -8,7 +8,7 @@ export function createPlayHereLoader(ctx: WorkerContext) {
 
   function onPlayHere(msg: Inbound<"playHere">): void {
     if (handler !== null) return handler.onPlayHere(msg);
-    const engine = ctx.engine;
+    const generation = ctx.run.generation;
     const previewSerial = ctx.previewVisitSerial;
     loading ??= import("./playHere.ts").then((module) => {
       handler = module.createPlayHere(ctx);
@@ -16,7 +16,7 @@ export function createPlayHereLoader(ctx: WorkerContext) {
     void loading
       .then(() => {
         if (
-          ctx.engine === engine &&
+          ctx.run.generation === generation &&
           (!(msg.visit || msg.launch) || ctx.previewVisitSerial === previewSerial)
         )
           handler!.onPlayHere(msg);
@@ -25,11 +25,11 @@ export function createPlayHereLoader(ctx: WorkerContext) {
             type: "playedHere",
             id: msg.id,
             ok: false,
-            room: ctx.engine?.vars[0] ?? 0,
-            x: ctx.engine?.screenObjects[0]?.x ?? 0,
-            y: ctx.engine?.screenObjects[0]?.y ?? 0,
+            room: ctx.run.engine?.vars[0] ?? 0,
+            x: ctx.run.engine?.screenObjects[0]?.x ?? 0,
+            y: ctx.run.engine?.screenObjects[0]?.y ?? 0,
             reason:
-              ctx.engine === engine
+              ctx.run.generation === generation
                 ? "Play started while the room visit loaded. Choose Create and open the room again."
                 : "The game changed while Play here loaded. Try again.",
           });
@@ -39,9 +39,9 @@ export function createPlayHereLoader(ctx: WorkerContext) {
           type: "playedHere",
           id: msg.id,
           ok: false,
-          room: ctx.engine?.vars[0] ?? 0,
-          x: ctx.engine?.screenObjects[0]?.x ?? 0,
-          y: ctx.engine?.screenObjects[0]?.y ?? 0,
+          room: ctx.run.engine?.vars[0] ?? 0,
+          x: ctx.run.engine?.screenObjects[0]?.x ?? 0,
+          y: ctx.run.engine?.screenObjects[0]?.y ?? 0,
           reason: `Play here could not load: ${String(error)}`,
         });
       });

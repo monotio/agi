@@ -2,6 +2,73 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { gameContainer, workerHarness } from "./worker-ctx.ts";
 import type { WorkerControl } from "../src/worker/workerProtocol.ts";
+import { enterCreateRun } from "../src/worker/resumePoint.ts";
+
+test("Launch carries journal deltas, beginning resets them, and exact return rebaselines", () => {
+  const { ctx, control } = workerHarness(
+    gameContainer(
+      [
+        "if(equaln(v0,0)){new.room(1);}if(isset(f200)){reset(f200);new.room(2);}call.v(v0);return;",
+        "if(isset(f5)){load.pic(v0);draw.pic(v0);show.pic();}return;",
+        "if(isset(f5)){load.pic(v0);draw.pic(v0);show.pic();}return;",
+      ],
+      (c) => {
+        c.putResource("picture", 1, PICTURE_1);
+        c.putResource("picture", 2, PICTURE_1);
+        c.putFile("OBJECT", OBJECT_FILE);
+      },
+    ),
+  );
+  ctx.fns.armJournal();
+  ctx.fns.tickEngine();
+  ctx.fns.finishCycle();
+  ctx.run.engine!.vars[3] = 5;
+  ctx.run.engine!.setItemLocation(0, 255);
+  ctx.fns.rebaselineJournal();
+  enterCreateRun(ctx);
+  ctx.fns.onPlayHere({
+    type: "playHere",
+    id: 1,
+    room: 2,
+    x: 0,
+    y: 0,
+    launch: { state: { variables: { "3": 9 }, items: { "0": 0 } } },
+  });
+  const jump = transitions(control).at(-1)!;
+  assert.deepEqual(
+    { from: jump.from, to: jump.to, cause: jump.cause, delta: jump.scoreDelta, lost: jump.lost },
+    { from: 1, to: 2, cause: "jump", delta: 4, lost: [0] },
+  );
+  const count = transitions(control).length;
+  ctx.fns.onPlayHere({
+    type: "playHere",
+    id: 2,
+    room: 1,
+    x: 0,
+    y: 0,
+    launch: { fromMyGame: true },
+  });
+  assert.equal(
+    transitions(control).length,
+    count,
+    "adoption creates a baseline rather than a room exit",
+  );
+  ctx.run.engine!.vars[3] = 7;
+  ctx.run.engine!.flags[200] = 1;
+  ctx.fns.tickEngine();
+  ctx.fns.finishCycle();
+  const next = transitions(control).at(-1)!;
+  assert.deepEqual(
+    { from: next.from, to: next.to, cause: next.cause, delta: next.scoreDelta, lost: next.lost },
+    { from: 1, to: 2, cause: "logic", delta: 2, lost: [] },
+  );
+  ctx.fns.onPlayHere({ type: "playHere", id: 3, room: 1, x: 0, y: 0, launch: { beginning: true } });
+  const cold = transitions(control).at(-1)!;
+  assert.deepEqual(
+    { from: cold.from, cause: cold.cause, delta: cold.scoreDelta, lost: cold.lost },
+    { from: null, cause: "restart", delta: 0, lost: [] },
+  );
+});
 
 // Blue box — the same fixture bytes test/autosave uses.
 const PICTURE_1 = new Uint8Array([
@@ -60,7 +127,7 @@ test("boot records the starting room, then an edge exit carries its deltas", () 
     { from: null, to: 0, cause: "boot" },
   );
 
-  ctx.engine!.flags[200] = 1;
+  ctx.run.engine!.flags[200] = 1;
   ctx.fns.tickEngine();
   ctx.fns.finishCycle();
   const all = transitions(control);
@@ -90,9 +157,9 @@ test("a transition resumed by a host answer records exactly one entry", () => {
   ctx.fns.tickEngine();
   ctx.fns.finishCycle();
 
-  ctx.engine!.flags[201] = 1;
+  ctx.run.engine!.flags[201] = 1;
   ctx.fns.tickEngine(); // suspends on get.num mid-logic
-  assert.equal(ctx.engine!.hostInteractionPending, true, "the pass parked on the prompt");
+  assert.equal(ctx.run.engine!.hostInteractionPending, true, "the pass parked on the prompt");
   const request = control.find((m) => m.type === "hostRequest");
   assert.ok(request && request.type === "hostRequest");
 
@@ -114,10 +181,10 @@ test("restart, reenter, restore and a v0 jump are labelled, never walkable", () 
   ctx.fns.finishCycle();
 
   // Move to a drawn room first so the restore step has a snapshot.
-  ctx.engine!.flags[200] = 1;
+  ctx.run.engine!.flags[200] = 1;
   ctx.fns.tickEngine();
   ctx.fns.finishCycle();
-  const image = ctx.engine!.autosaveImage();
+  const image = ctx.run.engine!.autosaveImage();
   assert.ok(image, "a drawn room snapshots for the restore step");
 
   // Authoring re-entry: same room, cause "reenter", not an edge.
@@ -129,7 +196,7 @@ test("restart, reenter, restore and a v0 jump are labelled, never walkable", () 
   assert.equal("edge" in reenter, false);
 
   // Restart: f6 drives the game's own new.room(1); the engine marks it.
-  ctx.engine!.flags[202] = 1;
+  ctx.run.engine!.flags[202] = 1;
   ctx.fns.tickEngine(); // restart.game aborts the pass, arms f6 + restartPending
   ctx.fns.finishCycle();
   ctx.fns.tickEngine(); // logic 0 sees f6 and new.rooms to 1
@@ -142,7 +209,7 @@ test("restart, reenter, restore and a v0 jump are labelled, never walkable", () 
   // Restore: the delivered image moves v0 without a new.room.
   ctx.fns.markRestore();
   try {
-    ctx.engine!.restoreImage(image);
+    ctx.run.engine!.restoreImage(image);
   } catch {
     // ContinuationAbort unwinds like the live host path.
   }
@@ -168,12 +235,12 @@ test("replay sessions leave no journal trace and the baseline survives exit", ()
   const liveEntries = transitions(control).length;
 
   ctx.replay.replay = { tick: 0 } as never;
-  ctx.engine!.flags[200] = 1;
+  ctx.run.engine!.flags[200] = 1;
   ctx.fns.tickEngine();
   ctx.fns.finishCycle();
   assert.equal(transitions(control).length, liveEntries, "scratch replay emits nothing");
 
   ctx.replay.replay = null;
   ctx.fns.rebaselineJournal();
-  assert.equal(ctx.journal.lastRoom, 2, "the journal continues from the room replay left");
+  assert.equal(ctx.run.journal.lastRoom, 2, "the journal continues from the room replay left");
 });

@@ -2,6 +2,7 @@ import { workspaceUpdated, workspaceSaved, waitForGameInput } from "./engineProb
 import { test, expect, reviewShot } from "./test.ts";
 import { isolateStorage, textHook } from "./engineProbe.ts";
 import type { Page, Locator } from "@playwright/test";
+import type { WorkerQueryFn } from "../src/worker/workerProtocol.ts";
 import { decodePng } from "../../scripts/png.ts";
 async function starter(page: Page): Promise<void> {
   await isolateStorage(page);
@@ -275,7 +276,7 @@ test("drawing, LOGIC and VIEW edit MAIN, Undo spans editors, reload keeps edits 
   await expect
     .poll(() => page.evaluate(() => window.__AGI_FRAME__?.()?.visual[112 * 160 + 22]))
     .toBe(4);
-  // Choosing Play adopts the temporary launch before this progress checkpoint.
+  // Choosing Play restores its moment on the edited files before this checkpoint.
   await page.getByRole("radio", { name: "Play", exact: true }).click();
   const checkpointCycle = (await textHook(page)).cycle;
   await expect
@@ -533,7 +534,7 @@ test("keyboard authors all three parts, undoes across them and reloads @webkit-d
     await expect(page.getByTestId("workspace-undo")).toBeEnabled();
   }
   await workspaceUpdated(page);
-  // Choosing Play adopts the temporary launch before this progress checkpoint.
+  // Choosing Play restores its moment on the edited files before this checkpoint.
   await page.getByRole("radio", { name: "Play", exact: true }).click();
   const checkpointCycle = (await textHook(page)).cycle;
   await expect
@@ -617,8 +618,19 @@ test("adding a room leaves play in place until Update and restart enters it @web
 test("Tab opens the Starter's inventory and keeps the keyboard in the game", async ({ page }) => {
   await starter(page);
   await page.getByRole("radio", { name: "Play", exact: true }).click();
+  await expect
+    .poll(() =>
+      page.evaluate(async () => {
+        const state = await (
+          window as unknown as { __AGI_PROJECT__: { query: WorkerQueryFn } }
+        ).__AGI_PROJECT__.query("state");
+        return state?.room === 1 && state.inputEnabled;
+      }),
+    )
+    .toBe(true);
   const command = page.locator("#game-command");
   await command.focus();
+  await expect(command).toBeFocused();
   await page.keyboard.press("Tab");
   await expect(command).toBeFocused();
   await expect.poll(async () => (await textHook(page)).modal).toBe("inventory");
@@ -627,6 +639,7 @@ test("Tab opens the Starter's inventory and keeps the keyboard in the game", asy
 test("Home Continue resumes the Starter in its room", async ({ page }) => {
   await starter(page);
   await page.getByRole("radio", { name: "Play", exact: true }).click();
+  await expect(page.locator("#game-command")).toBeFocused();
   const before = (await textHook(page)).egoX;
   await page.keyboard.press("Control+`");
   await page.keyboard.down("ArrowRight");

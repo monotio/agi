@@ -1,6 +1,6 @@
 import { decodeRecordedReplay } from "./recordedReplay.ts";
 import { validateTarget, type Target } from "./navigationTarget.ts";
-import { rngDraw } from "../runtime/rng.ts";
+import { rngDraw, takeSequenceWord } from "../runtime/rng.ts";
 /**
  * The game-test step and expectation vocabulary shared by the stored
  * TESTS.JSON format (src/agent/gameTests.ts), the playtest simulation
@@ -18,13 +18,14 @@ export { DIRECTION_KEYS } from "../runtime/keys.ts";
 /**
  * Repeatable random input, never a chosen result for an individual game
  * branch. Runs the interpreter's own RNG (src/runtime/rng.ts); the seed
- * doubles as the deterministic stand-in for a zero-state clock read, so a
- * stored test and a speedrun can never disagree about a draw.
+ * starts an advancing entropy stream for zero-state clock reads. Version 1
+ * retains the released constant-word policy.
  */
-export function randomSource(seed: number): () => number {
+export function randomSource(seed: number, version: 1 | 2 = 2): () => number {
   let state = seed & 0xffff;
+  const policy = { kind: "sequence" as const, next: state, cursor: 0 };
   return () => {
-    const draw = rngDraw(state, () => seed & 0xffff);
+    const draw = rngDraw(state, () => (version === 1 ? seed & 0xffff : takeSequenceWord(policy)));
     state = draw.state;
     return draw.byte;
   };

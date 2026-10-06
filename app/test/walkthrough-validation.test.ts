@@ -42,11 +42,11 @@ test("validateWalkthroughArtifact rejects invalid structures and out-of-bound va
   assert.throws(() => validateWalkthroughArtifact(undefined), /must be an object/);
   assert.throws(() => validateWalkthroughArtifact("string"), /must be an object/);
 
-  // Unsupported schema
+  // Future schemas are refused
   assert.throws(
     () =>
       validateWalkthroughArtifact({
-        schema: "monotio.agi.walkthrough.v2",
+        schema: "monotio.agi.walkthrough.v3",
         identity: {
           project: "kq1",
           revision: "41d863172326c712c0aebadf12fc63b049ff5d892743f4ee990004c344eb3780",

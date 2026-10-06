@@ -214,6 +214,9 @@ export interface EngineState {
    * Storage moved past the running game (another tab committed a newer
    * revision): the stage's note offers Reload game until dismissed.
    */
+  otherTab: boolean;
+  returnProblem: string;
+  entryProblem: string;
   staleTab: boolean;
   /**
    * The running game's project was removed in another tab: nothing is stored

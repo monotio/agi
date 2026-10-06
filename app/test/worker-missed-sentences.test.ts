@@ -10,7 +10,7 @@ test("Create observes unknown and unanswered input once, including a cleared mat
   const { ctx, control } = workerHarness(
     gameContainer(["accept.input(); if (said(100)) { reset(f4); reset(f2); } return;"]),
   );
-  ctx.engine = new Engine(
+  ctx.run.engine = new Engine(
     gameContainer(["accept.input(); if (said(100)) { reset(f4); reset(f2); } return;"]),
     createEngineHost(ctx),
     new Map([
@@ -18,8 +18,8 @@ test("Create observes unknown and unanswered input once, including a cleared mat
       ["tree", 120],
     ]),
   );
-  ctx.input.observeSentences = true;
-  ctx.projectAdmission = newProjectAdmissionState("test", ctx.engine);
+  ctx.run.input.observeSentences = true;
+  ctx.run.projectAdmission = newProjectAdmissionState("test", ctx.run.engine);
   ctx.fns.tickEngine();
   for (const text of ["look", "look tree", "missing tree"]) {
     ctx.fns.onInput({ type: "input", text });
@@ -33,7 +33,7 @@ test("Create observes unknown and unanswered input once, including a cleared mat
       ["missing tree", 0, "missing"],
     ],
   );
-  ctx.projectAdmission = null;
+  ctx.run.projectAdmission = null;
   ctx.fns.onInput({ type: "input", text: "other" });
   ctx.fns.tickEngine();
   assert.equal(control.filter((m) => m.type === "missedSentence").length, 2);
@@ -45,15 +45,15 @@ test("setting f4 directly does not invent a said match; prompted parses keep the
       'accept.input(); set(f4); set.string(s0,"other"); parse(s0); reset(f2); return;',
     ]),
   );
-  ctx.engine = new Engine(
+  ctx.run.engine = new Engine(
     gameContainer([
       'accept.input(); set(f4); set.string(s0,"other"); parse(s0); reset(f2); return;',
     ]),
     createEngineHost(ctx),
     new Map([["look", 100]]),
   );
-  ctx.input.observeSentences = true;
-  ctx.projectAdmission = newProjectAdmissionState("test", ctx.engine);
+  ctx.run.input.observeSentences = true;
+  ctx.run.projectAdmission = newProjectAdmissionState("test", ctx.run.engine);
   ctx.fns.tickEngine();
   ctx.fns.onInput({ type: "input", text: "look" });
   ctx.fns.tickEngine();
@@ -68,7 +68,7 @@ test("a LOGIC parse starts another input; its said match cannot resolve the play
     'accept.input(); set.string(s0,"other"); parse(s0); if (said(120)) { assignn(v40,1); } return;',
   ]);
   const { ctx, control } = workerHarness(container);
-  ctx.engine = new Engine(
+  ctx.run.engine = new Engine(
     container,
     createEngineHost(ctx),
     new Map([
@@ -76,12 +76,12 @@ test("a LOGIC parse starts another input; its said match cannot resolve the play
       ["other", 120],
     ]),
   );
-  ctx.input.observeSentences = true;
-  ctx.projectAdmission = newProjectAdmissionState("test", ctx.engine);
+  ctx.run.input.observeSentences = true;
+  ctx.run.projectAdmission = newProjectAdmissionState("test", ctx.run.engine);
   ctx.fns.tickEngine();
   ctx.fns.onInput({ type: "input", text: "look" });
   ctx.fns.tickEngine();
-  assert.equal(ctx.engine.vars[40], 1);
+  assert.equal(ctx.run.engine.vars[40], 1);
   assert.deepEqual(
     control.filter((m) => m.type === "missedSentence").map((m) => [m.text, m.unknown]),
     [["look", ""]],
@@ -93,7 +93,7 @@ for (const stop of ["breakpoint", "watch", "input watch"] as const) {
     const source = "accept.input();\n increment(v40);\n if (said(100)) { assignn(v41,1); } return;";
     const container = gameContainer([source]);
     const { ctx, control } = workerHarness(container);
-    ctx.engine = new Engine(
+    ctx.run.engine = new Engine(
       container,
       createEngineHost(ctx),
       new Map([
@@ -101,11 +101,11 @@ for (const stop of ["breakpoint", "watch", "input watch"] as const) {
         ["tree", 120],
       ]),
     );
-    ctx.input.observeSentences = true;
-    ctx.projectAdmission = newProjectAdmissionState("test", ctx.engine);
+    ctx.run.input.observeSentences = true;
+    ctx.run.projectAdmission = newProjectAdmissionState("test", ctx.run.engine);
     ctx.fns.tickEngine();
     onWorkerMessage(ctx, { type: "debugAttach", id: 1, sources: { "0": source } });
-    const epoch = ctx.debugger.epoch;
+    const epoch = ctx.run.debugger.epoch;
     let revision = 0;
     for (const text of ["look", "tree"]) {
       onWorkerMessage(ctx, {
@@ -137,7 +137,7 @@ for (const stop of ["breakpoint", "watch", "input watch"] as const) {
       const stopped = control.findLast((m) => m.type === "debugStopped");
       assert.ok(stopped?.type === "debugStopped");
       assert.equal(stopped.reasons[0]!.kind, stop === "breakpoint" ? "breakpoint" : "watch");
-      if (stop === "input watch") assert.equal(ctx.engine.continuationPending, false);
+      if (stop === "input watch") assert.equal(ctx.run.engine.continuationPending, false);
       assert.deepEqual(
         control.filter((m) => m.type === "missedSentence"),
         [],
@@ -157,7 +157,7 @@ for (const stop of ["breakpoint", "watch", "input watch"] as const) {
         stopId: stopped.stopId,
         action: "continue",
       });
-      assert.equal(ctx.engine.vars[41], 1);
+      assert.equal(ctx.run.engine.vars[41], 1);
     }
     assert.deepEqual(
       control.filter((m) => m.type === "missedSentence").map((m) => m.text),

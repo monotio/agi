@@ -16,8 +16,15 @@ function integer(value: unknown, max: number): boolean {
 }
 
 /** Validate every input before a host changes state; inventory identities come from OBJECT. */
-export function roomEntryProblem(value: unknown, inventoryCount: number): string | null {
+export function roomEntryProblem(value: unknown, inventoryCount = 256): string | null {
   if (!record(value)) return "Launch inputs must be an object.";
+  for (const key of Object.keys(value))
+    if (
+      !["id", "name", "note", "cameFrom", "flags", "variables", "items", "hero", "seed"].includes(
+        key,
+      )
+    )
+      return `Invalid launch field '${key}'.`;
   for (const kind of ["flags", "variables", "items"] as const) {
     const rows = value[kind];
     if (rows === undefined) continue;
@@ -40,12 +47,19 @@ export function roomEntryProblem(value: unknown, inventoryCount: number): string
   if (
     from !== undefined &&
     (!record(from) ||
+      Object.keys(from).some((key) => !["room", "edge"].includes(key)) ||
       !integer(from["room"], 255) ||
       (from["edge"] !== undefined && (!integer(from["edge"], 4) || from["edge"] === 0)))
   )
     return "Came from needs a room from 0 to 255 and an edge from 1 to 4.";
   const hero = value["hero"];
-  if (hero !== undefined && (!record(hero) || !integer(hero["x"], 159) || !integer(hero["y"], 167)))
+  if (
+    hero !== undefined &&
+    (!record(hero) ||
+      Object.keys(hero).some((key) => !["x", "y"].includes(key)) ||
+      !integer(hero["x"], 159) ||
+      !integer(hero["y"], 167))
+  )
     return "Hero position needs X from 0 to 159 and Y from 0 to 167.";
   if (value["seed"] !== undefined && !integer(value["seed"], 65535))
     return "Same random each time needs a seed from 0 to 65535.";

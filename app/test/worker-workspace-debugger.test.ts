@@ -38,7 +38,7 @@ async function main() {
   });
   await ctx.projectLoader.loading;
   ctx.fns.stopTimers();
-  const engine = ctx.engine!;
+  const engine = ctx.run.engine!;
   assert.equal(engine.executionStopInfo, null);
   assert.equal(ctx.debuggerLoader.installed, false);
   const boot = messages.find((m) => m.type === "booted");
@@ -49,7 +49,7 @@ async function main() {
     sources: { "0": documents["logic:0"], "1": documents["logic:1"], "2": documents["logic:2"] },
   });
   await ctx.debuggerLoader.loading;
-  assert.equal(ctx.engine, engine);
+  assert.equal(ctx.run.engine, engine);
   assert.equal(engine.executionStopInfo, null);
   function last<T extends WorkerControl["type"]>(type: T): Extract<WorkerControl, { type: T }> {
     const found = messages.findLast((m) => m.type === type);
@@ -109,11 +109,11 @@ test("MAIN attaches while running, steps calls, edits values and detaches into n
   assert.equal(h.engine.flags[50], 1);
   h.send({ type: "debugDetach", id: 7, epoch });
   assert.equal(h.engine.executionStopInfo, null);
-  assert.equal(h.ctx.engine, h.engine);
-  const cycles = h.ctx.cycle.cycleCount;
+  assert.equal(h.ctx.run.engine, h.engine);
+  const cycles = h.ctx.run.cycle.cycleCount;
   h.ctx.fns.stepHostTick(10, { cycle: true, sound: 0 });
   h.ctx.fns.stepHostTick(10, { cycle: true, sound: 0 });
-  assert.ok(h.ctx.cycle.cycleCount > cycles);
+  assert.ok(h.ctx.run.cycle.cycleCount > cycles);
 });
 
 test("MAIN live admission keeps the stopped build, then rebinds debugging to the admitted source", async () => {
@@ -157,7 +157,7 @@ test("MAIN live admission keeps the stopped build, then rebinds debugging to the
     });
   update(3);
   assert.equal(h.last("previewUpdateResult").status, "deferred");
-  assert.equal(h.ctx.debugger.buildId, attached.buildId);
+  assert.equal(h.ctx.run.debugger.buildId, attached.buildId);
   h.send({
     type: "debugResume",
     id: 4,
@@ -167,9 +167,9 @@ test("MAIN live admission keeps the stopped build, then rebinds debugging to the
   });
   update(5);
   assert.equal(h.last("previewUpdateResult").status, "committed");
-  assert.equal(h.ctx.debugger.buildId, build.build.identity.buildId);
+  assert.equal(h.ctx.run.debugger.buildId, build.build.identity.buildId);
   assert.equal(h.last("debugSessionReset").buildId, build.build.identity.buildId);
-  assert.equal(h.ctx.projectAdmission?.runToken, h.grant.runToken);
+  assert.equal(h.ctx.run.projectAdmission?.runToken, h.grant.runToken);
   h.ctx.fns.stepHostTick(10, { cycle: true, sound: 0 });
   assert.equal(h.last("debugStopped").buildId, build.build.identity.buildId);
 });

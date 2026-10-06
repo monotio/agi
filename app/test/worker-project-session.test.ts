@@ -80,10 +80,11 @@ test("one MAIN run admits PICTURE, LOGIC, WORDS and Undo; autosave reopens exact
     words: [["look", 10]],
     profile: "2.936",
     projectMode: "create",
+    progressMode: "play",
   });
   await ctx.projectLoader.loading;
   ctx.fns.stopTimers();
-  const engine = ctx.engine!;
+  const engine = ctx.run.engine!;
   const tick = () => {
     now += 100;
     ctx.fns.hostTick();
@@ -115,7 +116,7 @@ test("one MAIN run admits PICTURE, LOGIC, WORDS and Undo; autosave reopens exact
   const admission = createMainProjectAdmission({
     ...ack.projectAdmission,
     query,
-    current: () => ctx.engine === engine,
+    current: () => ctx.run.engine === engine,
   });
   const session = openProjectSession({
     data: (await storage.loadAuthoredGame(id))!,
@@ -156,7 +157,7 @@ test("one MAIN run admits PICTURE, LOGIC, WORDS and Undo; autosave reopens exact
   const invalid = await edit("logic:0", "if (", "logic");
   assert.equal(invalid.status, "diagnostics");
   assert.deepEqual(Object.fromEntries(engine.containerFiles), goodFiles);
-  assert.equal(ctx.engine, engine);
+  assert.equal(ctx.run.engine, engine);
   await session.flush();
   assert.equal(session.saveStatus().state, "saved");
   const reopened = (await storage.loadAuthoredGame(id))!;
@@ -183,7 +184,7 @@ test("one MAIN run admits PICTURE, LOGIC, WORDS and Undo; autosave reopens exact
   const replayed = replayHistorySegment(segment);
   assert.equal(replayed.error, null);
   assert.equal(replayed.diverged, null);
-  assert.deepEqual(Object.fromEntries(replayed.ctx.engine!.containerFiles), goodFiles);
+  assert.deepEqual(Object.fromEntries(replayed.ctx.run.engine!.containerFiles), goodFiles);
   assert.equal(
     readProjectWorkspace(replayed.ctx.boot.project!.documents)["logic:0"],
     source.replace("Old room", "New room"),
@@ -242,7 +243,7 @@ test("Update and restart closes a waiting message and installs all parts with on
   await ctx.projectLoader.loading;
   ctx.fns.stopTimers();
   ctx.fns.hostTick();
-  const engine = ctx.engine!;
+  const engine = ctx.run.engine!;
   const boot = messages.find((message) => message.type === "booted");
   assert.ok(boot?.type === "booted" && boot.projectAdmission);
   let queryId = 0;
@@ -253,7 +254,7 @@ test("Update and restart closes a waiting message and installs all parts with on
   const admission = createMainProjectAdmission({
     ...boot.projectAdmission,
     query,
-    current: () => ctx.engine === engine,
+    current: () => ctx.run.engine === engine,
   });
   let boundaries = 0;
   const session = openProjectSession({
@@ -313,7 +314,7 @@ test("Update and restart closes a waiting message and installs all parts with on
   assert.equal(engine.modalKind, null);
   assert.equal(engine.continuationPending, false);
   ctx.fns.hostTick();
-  assert.equal(ctx.engine, engine);
+  assert.equal(ctx.run.engine, engine);
   assert.equal(engine.getPictureSurface().visual[161], 4);
   assert.equal(ctx.boot.liveDictionary.get("inspect"), 10);
   assert.equal(session.history.capture().commits.length, originalHistory + 1);

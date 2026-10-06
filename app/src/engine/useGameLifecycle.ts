@@ -91,6 +91,8 @@ export interface GameLifecycleOptions {
   readonly getProjectMode?: () => "create" | "play";
   readonly getSessionId: () => number;
   readonly nextSessionId: () => number;
+  readonly acquirePlayOwnership?: (game: BootedGame) => Promise<void>;
+  readonly getActiveReplayRngVersion?: () => 1 | 2;
   readonly getActiveReplaySeed: () => number | null;
   readonly setActiveReplaySeed: (seed: number | null) => void;
   readonly setActiveLlmConfig: (config: LlmConfig) => void;
@@ -177,6 +179,9 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
 
   function resetScreenState(): void {
     autosave.resetScreen();
+    state.otherTab = false;
+    state.returnProblem = "";
+    state.entryProblem = "";
     state.staleTab = false;
     state.projectRemoved = false;
     // The timeline notices belong to the session that raised them.
@@ -393,6 +398,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
       const w = link.spawnWorker();
       options.authoring?.resetSession();
       booted = game;
+      await options.acquirePlayOwnership?.(game);
       options.audio?.useGameFiles(game.files);
       w.postMessage({
         type: "boot",
@@ -412,7 +418,12 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
             }
           : {}),
         sessionId: options.getSessionId(),
-        ...(activeReplaySeed !== null ? { replaySeed: activeReplaySeed } : {}),
+        ...(activeReplaySeed !== null
+          ? {
+              replaySeed: activeReplaySeed,
+              replayRngVersion: options.getActiveReplayRngVersion?.() ?? 1,
+            }
+          : {}),
         soundDevice: state.soundMode === "pc-speaker" ? 0 : 1,
         files: game.files,
         words: game.words,
@@ -421,6 +432,9 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
         ...(resumeAdmission.status === "restore"
           ? {
               restoreImage: resumeAdmission.restoreImage,
+              ...(resumeAdmission.restoreRng !== undefined
+                ? { restoreRng: resumeAdmission.restoreRng }
+                : {}),
               ...(resumeAdmission.restoreMenus !== undefined
                 ? { restoreMenus: resumeAdmission.restoreMenus }
                 : {}),
@@ -490,6 +504,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
       const w = link.spawnWorker();
       options.authoring?.resetSession();
       booted = prepared.game;
+      await options.acquirePlayOwnership?.(prepared.game);
       options.audio?.useGameFiles(prepared.game.files);
       w.postMessage({
         type: "boot",
@@ -509,7 +524,12 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
             }
           : {}),
         sessionId: options.getSessionId(),
-        ...(activeReplaySeed !== null ? { replaySeed: activeReplaySeed } : {}),
+        ...(activeReplaySeed !== null
+          ? {
+              replaySeed: activeReplaySeed,
+              replayRngVersion: options.getActiveReplayRngVersion?.() ?? 1,
+            }
+          : {}),
         soundDevice: state.soundMode === "pc-speaker" ? 0 : 1,
         files: prepared.game.files,
         words: prepared.game.words,
@@ -797,6 +817,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
     // target before the worker can send its first history or save request.
     bindProgressTarget(game);
     booted = game;
+    await options.acquirePlayOwnership?.(game);
     // The world's first record is this tab's own authoring content.
     advanceAuthoring(game, authoringState);
     const authoring = options.authoring ?? (await options.ensureAuthoring!());
@@ -815,7 +836,12 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
       words,
       autosaveFiles: true,
       authorRooms: true,
-      ...(activeReplaySeed !== null ? { replaySeed: activeReplaySeed } : {}),
+      ...(activeReplaySeed !== null
+        ? {
+            replaySeed: activeReplaySeed,
+            replayRngVersion: options.getActiveReplayRngVersion?.() ?? 1,
+          }
+        : {}),
     } satisfies WorkerInbound);
     // The baseline lands on the tape only now — attachSessionRuntime's post
     // ran before the segment existed. A rewind to before the first commit
@@ -992,6 +1018,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
           // The authoring content this boot read is the tab's base for it.
           hydrateAuthoring(game, cached.authoringState);
           booted = game;
+          await options.acquirePlayOwnership?.(game);
           if (cachedSession) {
             options.authoring!.attachSessionRuntime(cachedSession, game);
           }
@@ -1015,7 +1042,12 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
                 }
               : {}),
             sessionId: options.getSessionId(),
-            ...(activeReplaySeed !== null ? { replaySeed: activeReplaySeed } : {}),
+            ...(activeReplaySeed !== null
+              ? {
+                  replaySeed: activeReplaySeed,
+                  replayRngVersion: options.getActiveReplayRngVersion?.() ?? 1,
+                }
+              : {}),
             soundDevice: state.soundMode === "pc-speaker" ? 0 : 1,
             files: cached.files,
             words: cached.words,
@@ -1025,6 +1057,9 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
             ...(resumeAdmission.status === "restore"
               ? {
                   restoreImage: resumeAdmission.restoreImage,
+                  ...(resumeAdmission.restoreRng !== undefined
+                    ? { restoreRng: resumeAdmission.restoreRng }
+                    : {}),
                   ...(resumeAdmission.restoreMenus !== undefined
                     ? { restoreMenus: resumeAdmission.restoreMenus }
                     : {}),

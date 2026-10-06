@@ -31,17 +31,18 @@ export function createAutosave(ctx: WorkerContext) {
    * advanced since the last one, so a parked or idle game costs nothing.
    */
   function autosave(force: boolean): boolean {
-    if (!ctx.engine || ctx.previewVisitEngine === ctx.engine) return false;
-    if (!force && ctx.cycle.cycleCount === ctx.autosave.lastAutosaveCycle) return false;
+    if (!ctx.run.engine || ctx.run.progress.mode === "create" || !ctx.run.owner.active)
+      return false;
+    if (!force && ctx.run.cycle.cycleCount === ctx.run.autosave.lastAutosaveCycle) return false;
     // A debugger-parked or armed mid-pass engine has no resumable boundary:
     // the engine would throw on capture, so the last good image is kept.
     if (ctx.fns.debugCaptureBlocked()) return false;
     // A game that quit has ended: its image would resume a stopped
     // interpreter. The autosave taken before the quit stays the one to continue.
-    if (ctx.engine.readLeanState().terminated) return false;
+    if (ctx.run.engine.readLeanState().terminated) return false;
     let image: Uint8Array | null;
     try {
-      image = ctx.engine.autosaveImage();
+      image = ctx.run.engine.autosaveImage();
     } catch (error) {
       ctx.ports.presentation({
         type: "log",
@@ -50,22 +51,24 @@ export function createAutosave(ctx: WorkerContext) {
       return false;
     }
     if (!image) return false;
-    const files = Object.fromEntries(ctx.engine.containerFiles);
+    const files = Object.fromEntries(ctx.run.engine.containerFiles);
     if (ctx.boot.authoredWords) files["WORDS.TOK"] = ctx.boot.authoredWords;
     const msg: Extract<WorkerPresentation, { type: "autosave" }> = {
       type: "autosave",
+      ...(ctx.run.owner.generation > 0 ? { writerGeneration: ctx.run.owner.generation } : {}),
       image: bytesToBase64(image),
       revision: computeResourceRevision(files),
-      menus: ctx.engine.readMenuState(),
-      cycle: ctx.cycle.cycleCount,
-      room: ctx.engine.vars[0]!,
+      menus: ctx.run.engine.readMenuState(),
+      cycle: ctx.run.cycle.cycleCount,
+      room: ctx.run.engine.vars[0]!,
+      rng: structuredClone(ctx.run.rng),
     };
     try {
-      const presentation = ctx.engine.getPresentation();
+      const presentation = ctx.run.engine.getPresentation();
       const frame = {
         visual: presentation.visual,
         text: presentation.text,
-        picRow: ctx.engine.displayBase,
+        picRow: ctx.run.engine.displayBase,
       };
       // A black screen leaves the card's previous picture in place.
       if (!isBlackFrame(frame)) msg.preview = createProgressPreview(frame);
@@ -79,21 +82,20 @@ export function createAutosave(ctx: WorkerContext) {
     // host last saw one: a resource snapshot on every tick would cost far more
     // than the save image it accompanies.
     if (
-      ctx.autosave.autosaveFiles &&
-      ctx.engine.patchGeneration !== ctx.autosave.lastPatchGeneration
+      ctx.run.autosave.autosaveFiles &&
+      ctx.run.engine.patchGeneration !== ctx.run.autosave.lastPatchGeneration
     ) {
       const files: Record<string, Uint8Array> = {};
-      for (const [name, bytes] of ctx.engine.containerFiles) files[name] = bytes.slice();
+      for (const [name, bytes] of ctx.run.engine.containerFiles) files[name] = bytes.slice();
       if (ctx.boot.authoredWords) files["WORDS.TOK"] = ctx.boot.authoredWords;
       msg.files = files;
-      ctx.autosave.lastPatchGeneration = ctx.engine.patchGeneration;
+      ctx.run.autosave.lastPatchGeneration = ctx.run.engine.patchGeneration;
     }
     ctx.ports.presentation(msg);
-    ctx.autosave.lastAutosaveCycle = ctx.cycle.cycleCount;
-    ctx.autosave.lastAutosaveAt = Date.now();
+    ctx.run.autosave.lastAutosaveCycle = ctx.run.cycle.cycleCount;
+    ctx.run.autosave.lastAutosaveAt = Date.now();
     // The autosave cadence is the history anchor cadence — same boundary.
     ctx.fns.historyAnchor("autosave");
-    if (ctx.boot.progressMode === "create") ctx.previewVisitEngine = ctx.engine;
     return true;
   }
 
@@ -103,9 +105,9 @@ export function createAutosave(ctx: WorkerContext) {
     // debugger-parked or armed mid-pass engine. The pre-check cannot see a
     // private cycle cursor, so a capture refusal lands as null too.
     let image: Uint8Array | null = null;
-    if (ctx.engine && !ctx.fns.debugCaptureBlocked()) {
+    if (ctx.run.engine && !ctx.fns.debugCaptureBlocked()) {
       try {
-        image = ctx.engine.autosaveImage();
+        image = ctx.run.engine.autosaveImage();
       } catch {
         image = null;
       }
@@ -123,8 +125,10 @@ export function createAutosave(ctx: WorkerContext) {
       type: "flushed",
       id: msg.id,
       taken,
-      cycle: ctx.cycle.cycleCount,
-      ...(ctx.previewVisitEngine === ctx.engine ? { temporary: true as const } : {}),
+      cycle: ctx.run.cycle.cycleCount,
+      ...(ctx.run.progress.mode === "create" || !ctx.run.owner.active
+        ? { temporary: true as const }
+        : {}),
     });
   }
 

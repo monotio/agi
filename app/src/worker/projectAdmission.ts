@@ -20,7 +20,9 @@ import {
 import { PROFILES, type ProfileId } from "../../../src/runtime/profile.ts";
 import { validateCompleteImage } from "../../../src/runtime/projectImageValidation.ts";
 import { prepareProjectRestart } from "../../../src/runtime/projectRestart.ts";
+import { enterCreateRun } from "./resumePoint.ts";
 import { installProjectRestart } from "./projectRestart.ts";
+import { detachedHost } from "./runSession.ts";
 import { prepareRoomLaunch, runRoomLaunch, type PreparedRoomLaunch } from "./roomLaunch.ts";
 import type { Inbound, WorkerContext } from "./context.ts";
 import type { Engine } from "../../../src/runtime/engine.ts";
@@ -43,6 +45,7 @@ import {
 } from "../../../src/authoring/projectDocuments.ts";
 import type { captureProjectBuild as CaptureProjectBuild } from "../../../src/authoring/projectBuild.ts";
 import type {
+  BootMessage,
   PreviewLaneIdentity,
   PreviewUpdateOutcome,
   SourceBindingKind,
@@ -68,7 +71,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 /** The live image exactly as the capture contract assembles it. */
 function liveImageFiles(ctx: WorkerContext): Record<string, Uint8Array> {
   const files: Record<string, Uint8Array> = {};
-  for (const [name, bytes] of ctx.engine!.containerFiles) files[name] = bytes;
+  for (const [name, bytes] of ctx.run.engine!.containerFiles) files[name] = bytes;
   if (ctx.boot.authoredWords) files["WORDS.TOK"] = ctx.boot.authoredWords;
   return files;
 }
@@ -83,7 +86,7 @@ export function projectAdmissionIdentity(
   ctx: WorkerContext,
   lane: ProjectAdmissionState | null,
 ): PreviewLaneIdentity | null {
-  const engine = ctx.engine;
+  const engine = ctx.run.engine;
   if (lane === null || engine === null || lane.engine !== engine) return null;
   return {
     epoch: lane.epoch,
@@ -316,7 +319,7 @@ export function initializeProjectAdmission(
   history: PortableProjectHistory | undefined,
 ): void {
   const files = liveImageFiles(ctx);
-  const profileId = ctx.engine!.profile.id;
+  const profileId = ctx.run.engine!.profile.id;
   const claims = workspace === undefined ? undefined : readProjectWorkspace(workspace);
   let nativeBindings = {};
   try {
@@ -379,14 +382,30 @@ export function prepareProjectAdmissionReplacement(
   engine: Engine,
   project: HistoryProjectDocuments | undefined,
 ): { lane: ProjectAdmissionState; project: HistoryProjectDocuments } | null {
-  if (ctx.projectAdmission === null) return null;
+  if (ctx.run.projectAdmission === null) return null;
   const lane = newProjectAdmissionState(mintPreviewRunToken(), engine);
   const detached = {
     ...ctx,
-    engine,
+    run: { ...ctx.run, engine },
     boot: { ...ctx.boot, authoredWords: null, project: undefined },
   };
   initializeProjectAdmission(detached, lane, project?.documents, undefined);
+  return { lane, project: detached.boot.project! };
+}
+
+/** Validate the opening documents against the detached interpreter before publishing it. */
+export function prepareProjectBoot(
+  ctx: WorkerContext,
+  engine: Engine,
+  boot: BootMessage,
+): { lane: ProjectAdmissionState; project: HistoryProjectDocuments } {
+  const lane = newProjectAdmissionState(mintPreviewRunToken(), engine);
+  const detached = {
+    ...ctx,
+    run: { ...ctx.run, engine },
+    boot: { ...ctx.boot, authoredWords: null, project: undefined },
+  };
+  initializeProjectAdmission(detached, lane, boot.projectDocuments, boot.projectHistory);
   return { lane, project: detached.boot.project! };
 }
 
@@ -395,12 +414,12 @@ export function createProjectAdmission(ctx: WorkerContext, options: ProjectAdmis
 
   function liveLane(): ProjectAdmissionState | null {
     const lane = options.lane();
-    const engine = ctx.engine;
+    const engine = ctx.run.engine;
     return lane !== null && engine !== null && lane.engine === engine ? lane : null;
   }
 
   function onPreviewUpdate(msg: Inbound<"previewUpdate">): void {
-    const engine = ctx.engine;
+    const engine = ctx.run.engine;
     const id = isRecord(msg) && Number.isSafeInteger(msg.id) ? msg.id : 0;
     const runToken = isRecord(msg) && typeof msg.runToken === "string" ? msg.runToken : "";
     const expected = isRecord(msg) ? readIdentity(msg.expected) : null;
@@ -500,7 +519,7 @@ export function createProjectAdmission(ctx: WorkerContext, options: ProjectAdmis
       settleRefused("Unknown project admission action.");
       return;
     }
-    if (msg.mode !== undefined && ctx.projectAdmission !== lane) {
+    if (msg.mode !== undefined && ctx.run.projectAdmission !== lane) {
       settleRefused("Open this game in Create to restart with changes.");
       return;
     }
@@ -598,7 +617,7 @@ export function createProjectAdmission(ctx: WorkerContext, options: ProjectAdmis
         container,
         profile,
         bindings: candidate.sourceBindings,
-        allowMissingRooms: ctx.projectAdmission === lane && ctx.boot.authorRooms,
+        allowMissingRooms: ctx.run.projectAdmission === lane && ctx.boot.authorRooms,
       });
     } catch (error) {
       settleRefused(
@@ -611,7 +630,7 @@ export function createProjectAdmission(ctx: WorkerContext, options: ProjectAdmis
     const existing: Record<string, number> = Object.create(null);
     const marker = (finding: (typeof inspection.diagnostics)[number]) =>
       JSON.stringify([finding.document, finding.code, finding.command, finding.message]);
-    if (ctx.projectAdmission === lane) {
+    if (ctx.run.projectAdmission === lane) {
       const baseline = inspectProjectReferences({
         container: openStagedContainer(
           new Map(Object.entries(liveImageFiles(ctx))),
@@ -652,14 +671,19 @@ export function createProjectAdmission(ctx: WorkerContext, options: ProjectAdmis
     if (msg.mode === "restart" || msg.launch) {
       let replacement;
       let launch: PreparedRoomLaunch | undefined;
+      const facade = detachedHost(ctx);
       try {
         if (msg.launch) {
-          launch = prepareRoomLaunch(ctx, msg.launch, candidate.files, profile);
+          launch = prepareRoomLaunch(ctx, msg.launch, candidate.files, profile, {
+            sources: candidate.sources,
+            sourceBindings: candidate.sourceBindings,
+            bindings: candidate.bindings,
+          });
           replacement = launch.engine;
         } else
           replacement = prepareProjectRestart(
             { files: candidate.files, profile: profile.id },
-            ctx.host,
+            facade.host,
             engine.profile,
             engine.containerFiles,
           );
@@ -668,13 +692,6 @@ export function createProjectAdmission(ctx: WorkerContext, options: ProjectAdmis
         return;
       }
       // Replacement starts only after complete native, document and reference validation.
-      const paused = ctx.cycle.paused;
-      const rng = ctx.history.rng;
-      installProjectRestart(ctx, replacement);
-      if (launch) {
-        ctx.cycle.paused = paused;
-        ctx.history.rng = rng;
-      }
       const next = newProjectAdmissionState(
         launch ? lane.runToken : mintPreviewRunToken(),
         replacement,
@@ -690,16 +707,33 @@ export function createProjectAdmission(ctx: WorkerContext, options: ProjectAdmis
       next.bindings = candidate.bindings;
       next.highWater = lane.highWater;
       next.results = lane.results;
-      ctx.projectAdmission = next;
-      ctx.boot.project = { documents: admittedDocuments!, documentId: documentId! };
       const words = candidate.files.get("WORDS.TOK");
-      ctx.boot.liveDictionary = new Map(
-        words === undefined ? [] : parseWordsTok(words).map(({ word, id }) => [word, id]),
+      const dictionary = new Map(
+        words === undefined
+          ? []
+          : parseWordsTok(words).map(({ word, id }) => [word, id] as [string, number]),
       );
-      ctx.boot.currentDictionary = ctx.boot.liveDictionary;
+      installProjectRestart(
+        ctx,
+        replacement,
+        launch ? (launch.beginning ? "beginning" : "launch") : "restart",
+        {
+          admission: next,
+          dictionary,
+          project: { documents: admittedDocuments!, documentId: documentId! },
+          ...(launch
+            ? {
+                rng: launch.rng,
+                paused: ctx.run.cycle.paused,
+                activate: launch.activate,
+                debug: launch.debug,
+                ...(launch.debugSession ? { debugSession: launch.debugSession } : {}),
+              }
+            : { activate: facade.activate }),
+        },
+      );
       if (launch) runRoomLaunch(ctx, launch);
       else {
-        ctx.fns.debugSessionReplaced();
         ctx.fns.historyResume();
         ctx.fns.startTimers();
         ctx.fns.postFrame(true);
@@ -778,15 +812,14 @@ export function createProjectAdmission(ctx: WorkerContext, options: ProjectAdmis
     const roomReentry =
       msg.mode === "reenter" ||
       (msg.mode === undefined &&
-        ctx.projectAdmission === lane &&
+        ctx.run.projectAdmission === lane &&
         engine.continuationPending &&
         (engine.modalKind === "print" || engine.awaitingKey));
     const commit = () =>
       roomReentry
         ? engine.commitRoomReentry(plan, () => {
-            if (ctx.projectAdmission === lane && ctx.boot.progressMode === "create") {
+            if (ctx.run.projectAdmission === lane && ctx.run.progress.mode === "create") {
               ctx.fns.autosave(true);
-              ctx.previewVisitEngine = engine;
             }
             ctx.fns.historyEnd("resume");
             ctx.fns.setKeyWaiting(false);
@@ -832,9 +865,9 @@ export function createProjectAdmission(ctx: WorkerContext, options: ProjectAdmis
     // revision untouched.
     const installed = result.status === "committed" || sourceAuthorityChanged;
     if (installed) {
-      if (ctx.projectAdmission === lane)
+      if (ctx.run.projectAdmission === lane)
         ctx.boot.project = { documents: admittedDocuments!, documentId: documentId! };
-      if (ctx.projectAdmission === lane && !roomReentry)
+      if (ctx.run.projectAdmission === lane && !roomReentry)
         ctx.fns.historyRecord({
           kind: "projectImage",
           files: Object.fromEntries(
@@ -856,7 +889,8 @@ export function createProjectAdmission(ctx: WorkerContext, options: ProjectAdmis
       ctx.boot.currentBootFiles = new Map(engine.containerFiles);
       // The session owns this complete image's body write. Progress autosave
       // can carry the old run while a later edit waits for restart.
-      if (ctx.projectAdmission === lane) ctx.autosave.lastPatchGeneration = engine.patchGeneration;
+      if (ctx.run.projectAdmission === lane)
+        ctx.run.autosave.lastPatchGeneration = engine.patchGeneration;
       if (committedDictionary !== null && wordsFile !== undefined) {
         // The commit rebinds the engine's parser dictionary to the staged
         // map — liveDictionary keeps the boot-time content mirror (and
@@ -876,7 +910,7 @@ export function createProjectAdmission(ctx: WorkerContext, options: ProjectAdmis
     }
     // A reload needs progress for these admitted bytes, even when the last
     // periodic checkpoint belongs to the image before the edit.
-    if (ctx.projectAdmission === lane && result.status === "committed") ctx.fns.autosave(true);
+    if (ctx.run.projectAdmission === lane && result.status === "committed") ctx.fns.autosave(true);
     settle({
       status: installed ? "committed" : "unchanged",
       expected,
@@ -926,7 +960,7 @@ export function createProjectAdmission(ctx: WorkerContext, options: ProjectAdmis
 
 /** Explicit Create on an existing ordinary MAIN run; frozen test runs retain their denial. */
 export function enterProjectCreate(ctx: WorkerContext, msg: Inbound<"projectCreate">): void {
-  if (!ctx.engine || ctx.replay.replay || !ctx.boot.createAllowed) {
+  if (!ctx.run.engine || ctx.replay.replay || !ctx.boot.createAllowed) {
     ctx.ports.control({
       type: "projectCreated",
       id: msg.id,
@@ -935,24 +969,18 @@ export function enterProjectCreate(ctx: WorkerContext, msg: Inbound<"projectCrea
     return;
   }
   try {
-    if (!ctx.projectAdmission || ctx.projectAdmission.engine !== ctx.engine) {
-      const lane = newProjectAdmissionState(mintPreviewRunToken(), ctx.engine);
+    if (msg.progressMode !== "play") enterCreateRun(ctx);
+    if (!ctx.run.projectAdmission || ctx.run.projectAdmission.engine !== ctx.run.engine) {
+      const lane = newProjectAdmissionState(mintPreviewRunToken(), ctx.run.engine);
       initializeProjectAdmission(ctx, lane, msg.documents, msg.history);
-      ctx.projectAdmission = lane;
+      ctx.run.projectAdmission = lane;
     }
-    ctx.boot.progressMode = msg.progressMode ?? "create";
-    if (
-      ctx.boot.progressMode === "create" &&
-      ctx.previewVisitEngine !== ctx.engine &&
-      (ctx.autosave.lastAutosaveCycle >= 0 || ctx.fns.autosave(true))
-    )
-      ctx.previewVisitEngine = ctx.engine;
     ctx.ports.control({
       type: "projectCreated",
       id: msg.id,
       grant: {
-        runToken: ctx.projectAdmission.runToken,
-        identity: projectAdmissionIdentity(ctx, ctx.projectAdmission)!,
+        runToken: ctx.run.projectAdmission.runToken,
+        identity: projectAdmissionIdentity(ctx, ctx.run.projectAdmission)!,
       },
     });
   } catch (cause) {

@@ -68,6 +68,7 @@ for (const [width, height] of [
       );
       await page.getByTestId("workspace-update-menu").click();
       await expect(page.getByRole("menuitem", { name: "Carry over", exact: false })).toBeVisible();
+      await expect(page.getByRole("menuitem", { name: "From my game", exact: true })).toBeVisible();
       await expect(
         page.getByRole("menuitem", { name: "From the beginning", exact: false }),
       ).toBeVisible();

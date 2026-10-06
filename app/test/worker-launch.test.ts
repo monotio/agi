@@ -6,6 +6,132 @@ import { buildView } from "../../src/view/view.ts";
 import { prepareRoomLaunch, type RoomLaunchRequest } from "../src/worker/roomLaunch.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import { PROFILES } from "../../src/runtime/profile.ts";
+import { enterCreateRun } from "../src/worker/resumePoint.ts";
+import { buildSound } from "../../src/sound/build.ts";
+
+test("Carry over completes the logical sound before the destination LOGIC runs", (t) => {
+  const { ctx } = workerHarness(
+    gameContainer(
+      [
+        "if(equaln(v0,0)){new.room(1);}call.v(v0);return;",
+        "if(isset(f5)){load.sound(0);sound(0,f60);}return;",
+        "if(isset(f60)){assignn(v80,1);}return;",
+      ],
+      (c) =>
+        c.putResource(
+          "sound",
+          0,
+          buildSound([{ notes: [{ duration: 1000, freqDivisor: 226, attenuation: 0 }] }]),
+        ),
+    ),
+  );
+  t.after(() => ctx.fns.stopTimers());
+  ctx.fns.tickEngine();
+  ctx.fns.onPlayHere({ type: "playHere", id: 1, room: 2, x: 0, y: 0, launch: {} });
+  assert.equal(ctx.run.engine!.vars[80], 1);
+});
+
+test("Launch f2 f4 v9 v19 inputs reach the first LOGIC pass after transition clears", (t) => {
+  const { ctx } = workerHarness(
+    gameContainer([
+      "if(equaln(v0,0)){new.room(1);}call.v(v0);return;",
+      "return;",
+      "if(isset(f2)){assignn(v80,1);}if(isset(f4)){assignn(v81,1);}assignv(v82,v9);assignv(v83,v19);return;",
+    ]),
+  );
+  t.after(() => ctx.fns.stopTimers());
+  ctx.fns.tickEngine();
+  ctx.fns.onPlayHere({
+    type: "playHere",
+    id: 1,
+    room: 2,
+    x: 0,
+    y: 0,
+    launch: { state: { flags: { "2": true, "4": true }, variables: { "9": 17, "19": 65 } } },
+  });
+  assert.deepEqual(
+    [80, 81, 82, 83].map((n) => ctx.run.engine!.vars[n]),
+    [1, 1, 17, 65],
+  );
+});
+
+test("From the beginning resets the RNG word to the cold boot stream", (t) => {
+  const { ctx } = workerHarness(game());
+  t.after(() => ctx.fns.stopTimers());
+  ctx.fns.tickEngine();
+  ctx.fns.onPlayHere({
+    type: "playHere",
+    id: 1,
+    room: 2,
+    x: 0,
+    y: 0,
+    launch: { state: { seed: 1234 } },
+  });
+  ctx.fns.onPlayHere({ type: "playHere", id: 2, room: 1, x: 0, y: 0, launch: { beginning: true } });
+  assert.equal(ctx.host.randomByte!(), 50);
+});
+
+test("Debug Launch refuses mismatched sources before replacing or executing the run", (t) => {
+  const { ctx, control } = workerHarness(game());
+  t.after(() => ctx.fns.stopTimers());
+  ctx.fns.tickEngine();
+  ctx.fns.onDebugAttach({ type: "debugAttach", id: 80, sources: { "2": "return;" } });
+  // Attach with mismatched sources refuses too; attach matching authority first.
+  ctx.fns.onDebugAttach({ type: "debugAttach", id: 81 });
+  ctx.run.debugger.sources = { "2": "assignn(v99,9);return;" };
+  const engine = ctx.run.engine;
+  const image = engine!.recordingImage();
+  ctx.fns.onPlayHere({ type: "playHere", id: 82, room: 2, x: 0, y: 0, launch: { debug: true } });
+  const reply = control.findLast((m) => m.type === "playedHere");
+  assert.ok(reply?.type === "playedHere" && !reply.ok);
+  assert.match(reply.reason!, /Source does not reproduce LOGIC 2/);
+  assert.equal(ctx.run.engine, engine);
+  assert.deepEqual(ctx.run.engine!.recordingImage(), image);
+});
+
+test("native room entry drains worker keys, movement, lines and clicks in order", (t) => {
+  const { ctx } = workerHarness(
+    gameContainer([
+      "if(equaln(v0,0)){new.room(1);}call.v(v0);return;",
+      "if(isset(f50)){new.room(2);}return;",
+      "assignv(v80,v19);return;",
+    ]),
+  );
+  t.after(() => ctx.fns.stopTimers());
+  ctx.fns.tickEngine();
+  ctx.run.engine!.flags[50] = 1;
+  ctx.run.engine!.setRoomTransitionListener(() => {
+    // Inputs arriving while prepareRoom is pending belong before its transition boundary.
+    ctx.run.input.keyQueue.push(65);
+    ctx.run.input.deferredMovement.push(0x4800);
+    ctx.run.input.inputBuffer.push("old room");
+    ctx.run.input.clickQueue.push([10, 10]);
+  });
+  ctx.fns.tickEngine();
+  assert.deepEqual(ctx.run.input.keyQueue, []);
+  assert.deepEqual(ctx.run.input.deferredMovement, []);
+  assert.deepEqual(ctx.run.input.inputBuffer, []);
+  assert.deepEqual(ctx.run.input.clickQueue, []);
+  ctx.fns.tickEngine();
+  assert.equal(ctx.run.engine!.vars[80], 0);
+});
+
+test("host reentry drains input before the destination pass", (t) => {
+  const { ctx } = workerHarness(
+    gameContainer([
+      "if(equaln(v0,0)){new.room(1);}call.v(v0);return;",
+      "return;",
+      "assignv(v80,v19);return;",
+    ]),
+  );
+  t.after(() => ctx.fns.stopTimers());
+  ctx.fns.tickEngine();
+  ctx.run.input.keyQueue.push(65);
+  ctx.run.engine!.reenterRoom(2);
+  ctx.fns.tickEngine();
+  ctx.fns.tickEngine();
+  assert.equal(ctx.run.engine!.vars[80], 0);
+});
 
 function game() {
   return gameContainer(
@@ -31,8 +157,8 @@ function game() {
 test("Launch applies origin after reset and edge placement before LOGIC 0, with items and flags", (t) => {
   const { ctx, control } = workerHarness(game());
   t.after(() => ctx.fns.stopTimers());
-  ctx.boot.progressMode = "create";
   ctx.fns.tickEngine();
+  enterCreateRun(ctx);
   ctx.fns.onPlayHere({
     type: "playHere",
     id: 1,
@@ -51,18 +177,18 @@ test("Launch applies origin after reset and edge placement before LOGIC 0, with 
   const reply = control.findLast((m) => m.type === "playedHere");
   assert.ok(reply?.type === "playedHere" && reply.ok, JSON.stringify(reply));
   assert.deepEqual(
-    [80, 81, 82, 83, 84, 85, 90].map((n) => ctx.engine!.vars[n]),
+    [80, 81, 82, 83, 84, 85, 90].map((n) => ctx.run.engine!.vars[n]),
     [7, 7, 157, 140, 255, 1, 44],
   );
-  assert.equal(ctx.engine!.vars[2], 0);
-  assert.equal(ctx.previewVisitEngine, ctx.engine);
+  assert.equal(ctx.run.engine!.vars[2], 0);
+  assert.equal(ctx.run.progress.mode, "create");
 });
 
 test("an invalid Launch refuses before changing the engine, history or host", (t) => {
   const { ctx, control, presentation } = workerHarness(game());
   t.after(() => ctx.fns.stopTimers());
   ctx.fns.tickEngine();
-  const engine = ctx.engine!;
+  const engine = ctx.run.engine!;
   const before = engine.recordingImage();
   const count = presentation.length;
   ctx.fns.onPlayHere({
@@ -75,7 +201,7 @@ test("an invalid Launch refuses before changing the engine, history or host", (t
   });
   const reply = control.findLast((m) => m.type === "playedHere");
   assert.ok(reply?.type === "playedHere" && !reply.ok);
-  assert.equal(ctx.engine, engine);
+  assert.equal(ctx.run.engine, engine);
   assert.deepEqual(engine.recordingImage(), before);
   assert.equal(presentation.length, count);
 });
@@ -84,7 +210,7 @@ test("Launch validates its room and options before creating an entry", (t) => {
   const { ctx, presentation } = workerHarness(game());
   t.after(() => ctx.fns.stopTimers());
   ctx.fns.tickEngine();
-  const engine = ctx.engine!;
+  const engine = ctx.run.engine!;
   const image = engine.recordingImage();
   const count = presentation.length;
   for (const request of [
@@ -94,7 +220,7 @@ test("Launch validates its room and options before creating an entry", (t) => {
     { room: 2, state: null },
   ])
     assert.throws(() => prepareRoomLaunch(ctx, request as RoomLaunchRequest));
-  assert.equal(ctx.engine, engine);
+  assert.equal(ctx.run.engine, engine);
   assert.deepEqual(engine.recordingImage(), image);
   assert.equal(presentation.length, count);
 });
@@ -103,7 +229,7 @@ test("Launch carries state within a profile and starts fresh when the profile ch
   const { ctx } = workerHarness(game());
   t.after(() => ctx.fns.stopTimers());
   ctx.fns.tickEngine();
-  const engine = ctx.engine!;
+  const engine = ctx.run.engine!;
   const files = engine.containerFiles;
   assert.throws(
     () => prepareRoomLaunch(ctx, { room: 2 }, files, PROFILES["2.917"]),
@@ -112,17 +238,16 @@ test("Launch carries state within a profile and starts fresh when the profile ch
   const fresh = prepareRoomLaunch(ctx, { room: 2, beginning: true }, files, PROFILES["2.917"]);
   assert.equal(fresh.engine.profile.id, "2.917");
   assert.equal(fresh.engine.vars[0], 0);
-  assert.equal(ctx.engine, engine);
+  assert.equal(ctx.run.engine, engine);
 });
 
-test("Create keeps one opening checkpoint before its temporary play", (t) => {
+test("Create entry checkpoints Play once before temporary play", (t) => {
   const { ctx, presentation, control } = workerHarness(game());
   t.after(() => ctx.fns.stopTimers());
-  ctx.boot.progressMode = "create";
   ctx.fns.tickEngine();
-  assert.equal(ctx.fns.autosave(true), true);
+  enterCreateRun(ctx);
   assert.equal(presentation.filter((m) => m.type === "autosave").length, 1);
-  assert.ok(ctx.previewVisitEngine === ctx.engine, "the opening checkpoint starts temporary play");
+  assert.equal(ctx.run.progress.mode, "create");
   assert.equal(ctx.fns.autosave(true), false);
   ctx.fns.onFlush({ type: "flush", id: 60 });
   const reply = control.findLast((m) => m.type === "flushed");
@@ -167,16 +292,16 @@ test("Debug Launch stops before its first LOGIC 0 instruction and carries edit a
   assert.ok(stop?.type === "debugStopped");
   assert.equal(stop.location?.logic, 0);
   assert.equal(stop.location?.pc, 0);
-  assert.equal(ctx.engine!.vars[80], 0, "the entry pass has not executed");
-  assert.equal(ctx.debugger.engine, ctx.engine);
+  assert.equal(ctx.run.engine!.vars[80], 0, "the entry pass has not executed");
+  assert.equal(ctx.run.debugger.engine, ctx.run.engine);
 });
 
 test("repeated death Launches stay outside saved progress, including flush", (t) => {
   const { ctx, control, presentation } = workerHarness(game());
   t.after(() => ctx.fns.stopTimers());
-  ctx.boot.progressMode = "create";
   ctx.fns.tickEngine();
-  assert.equal(ctx.fns.autosave(true), true);
+  enterCreateRun(ctx);
+  assert.equal(ctx.fns.autosave(true), false);
   const baseline = presentation.find((m) => m.type === "autosave");
   assert.ok(baseline?.type === "autosave");
   for (let id = 10; id < 12; id++) {
@@ -188,8 +313,8 @@ test("repeated death Launches stay outside saved progress, including flush", (t)
       y: 0,
       launch: { state: { flags: { "220": false } } },
     });
-    assert.equal(ctx.engine!.modalKind, "print");
-    assert.equal(ctx.engine!.flags[220], 1);
+    assert.equal(ctx.run.engine!.modalKind, "print");
+    assert.equal(ctx.run.engine!.flags[220], 1);
     assert.ok(control.findLast((m) => m.type === "playedHere")?.ok);
     assert.equal(ctx.fns.autosave(true), false);
     ctx.fns.onFlush({ type: "flush", id: id + 20 });
@@ -214,12 +339,12 @@ test("Restart abandons a waiting message after a keep-playing update", (t) => {
     assembleLogic('if(isset(f5)){print("Changed death");}return;', { dictionary: new Map() })
       .payload,
   );
-  const result = ctx.engine!.commitPreviewUpdate(
-    ctx.engine!.preparePreviewUpdate({ files: edited.files }),
+  const result = ctx.run.engine!.commitPreviewUpdate(
+    ctx.run.engine!.preparePreviewUpdate({ files: edited.files }),
     { messageWaiting: true },
   );
   assert.equal(result.status, "committed");
-  assert.equal(ctx.engine!.recordingImage(), null);
+  assert.equal(ctx.run.engine!.recordingImage(), null);
   ctx.fns.onPlayHere({ type: "playHere", id: 31, room: 3, x: 0, y: 0, launch: {} });
   const reply = control.findLast((m) => m.type === "playedHere");
   assert.ok(reply?.type === "playedHere" && reply.ok, JSON.stringify(reply));
@@ -231,8 +356,8 @@ test("Update and launch retains carried items and starts appended items at their
   const { ctx } = workerHarness(game());
   t.after(() => ctx.fns.stopTimers());
   ctx.fns.tickEngine();
-  ctx.engine!.setItemLocation(0, 255);
-  const files = new Map(ctx.engine!.containerFiles);
+  ctx.run.engine!.setItemLocation(0, 255);
+  const files = new Map(ctx.run.engine!.containerFiles);
   files.set(
     "OBJECT",
     buildObjectFile([
@@ -254,14 +379,14 @@ test("Debug Launch stops at the first instruction when LOGIC 0 has set.scan.star
   t.after(() => ctx.fns.stopTimers());
   ctx.fns.tickEngine();
   ctx.fns.tickEngine();
-  const before = ctx.engine!.vars[80];
+  const before = ctx.run.engine!.vars[80];
   ctx.fns.onDebugAttach({ type: "debugAttach", id: 50 });
   ctx.fns.onPlayHere({ type: "playHere", id: 51, room: 2, x: 0, y: 0, launch: { debug: true } });
   const stop = control.findLast((m) => m.type === "debugStopped");
   assert.ok(stop?.type === "debugStopped");
   assert.equal(stop.location?.logic, 0);
   assert.equal(stop.location?.pc, 4);
-  assert.equal(ctx.engine!.vars[80], before);
+  assert.equal(ctx.run.engine!.vars[80], before);
 });
 
 test("a Launch while playing keeps saving progress", (t) => {

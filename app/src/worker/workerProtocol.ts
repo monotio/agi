@@ -1,5 +1,6 @@
 import type { RoomEntryState } from "../../../src/runtime/roomEntry.ts";
 import type { RoomLaunchRequest } from "./roomLaunch.ts";
+import type { HostRngState } from "../../../src/runtime/rng.ts";
 import type { PortableProjectWorkspace } from "../../../src/authoring/projectWorkspace.ts";
 import type { ResourceRevision } from "../../../src/gameIdentity.ts";
 /**
@@ -239,8 +240,10 @@ export interface BootMessage {
    */
   restoreImage?: string;
   restoreMenus?: EngineMenuState;
+  restoreRng?: HostRngState;
   /** Test-mode host clock and reproducible random input. */
   replaySeed?: number;
+  replayRngVersion?: 1 | 2;
   /**
    * Live-session PRNG seed for the recorded history stream — the original's
    * 16-bit word (docs/fidelity.md, "Original RNG"); recorded into the
@@ -266,9 +269,10 @@ export interface PatchResource {
 }
 
 export type WorkerInbound =
+  | { type: "playOwner"; active: boolean; generation: number }
   | { type: "observeSentences"; enabled: boolean }
-  /** Choosing Play adopts a temporary Create visit as the live play state. */
-  | { type: "projectPlay" }
+  /** Choosing Play restores the moment captured on entry to Create. */
+  | { type: "projectPlay"; id?: number; restart?: boolean }
   | BootMessage
   | { type: "pause"; paused: boolean }
   | { type: "key"; code: number; sessionId?: number }
@@ -301,6 +305,7 @@ export type WorkerInbound =
         state?: RoomEntryState;
         beginning?: boolean;
         debug?: boolean;
+        fromMyGame?: boolean;
       };
     }
   /**
@@ -342,7 +347,13 @@ export type WorkerInbound =
       fullState?: boolean;
     }
   | { type: "replayPause"; id: number; sessionId: number }
-  | { type: "resetReplay"; seed?: number; seeking?: boolean; sessionId?: number }
+  | {
+      type: "resetReplay";
+      seed?: number;
+      seeking?: boolean;
+      sessionId?: number;
+      rngVersion?: 1 | 2;
+    }
   /**
    * Record a restore point at the replay's current position — sent by the
    * runner at each walkthrough checkpoint so a backward seek replays only
@@ -842,6 +853,12 @@ export type WorkerControl =
    * the lane's actual recomputed identity.
    */
   | {
+      type: "projectPlayed";
+      id: number;
+      ok: boolean;
+      reason?: string;
+    }
+  | {
       type: "projectCreated";
       id: number;
       grant?: { runToken: string; identity: PreviewLaneIdentity };
@@ -922,6 +939,8 @@ export type WorkerPresentation =
   | { type: "showObj"; viewNum: number }
   | {
       type: "autosave";
+      writerGeneration?: number;
+      rng?: HostRngState;
       image: string;
       revision?: ResourceRevision;
       menus: EngineMenuState;
@@ -993,6 +1012,7 @@ export type WorkerOutbound = WorkerControl | WorkerPresentation;
  * waiter table because a flush can outlive the caller's await (pagehide).
  */
 interface WorkerQueryReplies {
+  projectPlay: Extract<WorkerControl, { type: "projectPlayed" }>;
   projectCreate: Extract<WorkerControl, { type: "projectCreated" }>;
   state: Extract<WorkerControl, { type: "engineState" }>;
   objects: Extract<WorkerControl, { type: "objects" }>;
@@ -1033,6 +1053,7 @@ export type WorkerQueryType = keyof WorkerQueryReplies;
 
 /** The value a reply resolves its pending query with. */
 export interface WorkerQueryPayload {
+  projectPlay: WorkerQueryReplies["projectPlay"];
   projectCreate: WorkerQueryReplies["projectCreate"];
   state: WorkerQueryReplies["state"]["state"];
   objects: WorkerQueryReplies["objects"]["objects"];

@@ -21,7 +21,7 @@ for (const profileId of ["2.936", "amiga-2.202"] as const) {
     );
     const { ctx, presentation } = workerHarness(container);
     const profile = PROFILES[profileId];
-    ctx.engine = new Engine(container, ctx.host!, new Map(), { profile });
+    ctx.run.engine = new Engine(container, ctx.host!, new Map(), { profile });
     ctx.fns.tickEngine();
     ctx.fns.stepHostTick(100);
     const packets = presentation.filter((message) => message.type === "soundTick");
@@ -32,7 +32,7 @@ for (const profileId of ["2.936", "amiga-2.202"] as const) {
     );
     assert.equal(new Set(packets.map(({ stream }) => stream)).size, 1);
     assert.equal(packets.at(-1)!.complete, true);
-    assert.equal(ctx.engine.flags[200], 1, "completion remains interpreter-owned");
+    assert.equal(ctx.run.engine.flags[200], 1, "completion remains interpreter-owned");
     if (profileId === "amiga-2.202") {
       const first = packets[0]!.outputs;
       assert.ok(
@@ -47,9 +47,9 @@ for (const profileId of ["2.936", "amiga-2.202"] as const) {
       );
     }
     const oldStream = packets[0]!.stream;
-    ctx.engine.flags[201] = 0;
+    ctx.run.engine.flags[201] = 0;
     ctx.fns.tickEngine();
-    ctx.engine.soundTick();
+    ctx.run.engine.soundTick();
     const next = presentation.filter((message) => message.type === "soundTick").at(-1)!;
     assert.notEqual(next.stream, oldStream);
     assert.equal(next.tick, 0);

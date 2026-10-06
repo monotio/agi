@@ -91,7 +91,7 @@ export function createDebugController(ctx: WorkerContext) {
    * debugAfterEntry.
    */
   function syncControlArming(engine: Engine): void {
-    const d = ctx.debugger;
+    const d = ctx.run.debugger;
     if (d.epoch === 0 || engine !== d.engine || d.installed) return;
     if (boundaryClear(engine)) {
       try {
@@ -107,7 +107,7 @@ export function createDebugController(ctx: WorkerContext) {
   function install(engine: Engine): void {
     engine.setExecutionGate(gate);
     engine.setExecutionObserver(observer);
-    const d = ctx.debugger;
+    const d = ctx.run.debugger;
     d.installed = true;
     d.armDeferred = false;
     // A fresh arm supersedes any disarm still owed to a previous session.
@@ -117,7 +117,7 @@ export function createDebugController(ctx: WorkerContext) {
   function uninstall(engine: Engine): void {
     engine.setExecutionGate(null);
     engine.setExecutionObserver(null);
-    ctx.debugger.installed = false;
+    ctx.run.debugger.installed = false;
   }
 
   /**
@@ -131,9 +131,9 @@ export function createDebugController(ctx: WorkerContext) {
   function planSnapshot(
     engine: Engine,
     location: { logic: number; pc: number } | null = engine.executionStopInfo?.location ?? null,
-    rich = ctx.debugger.richSnapshot,
+    rich = ctx.run.debugger.richSnapshot,
   ): DebugSnapshot {
-    return debugPlanSnapshot(engine, ctx.cycle.cycleCount, location, rich);
+    return debugPlanSnapshot(engine, ctx.run.cycle.cycleCount, location, rich);
   }
 
   /** Map an authoritative engine cause onto the watch plan's cause domain. */
@@ -157,8 +157,8 @@ export function createDebugController(ctx: WorkerContext) {
 
   /** The shared gate: run-to, then breakpoint bindings, then a non-cycle step. */
   function gate(boundary: ExecutionBoundary): boolean {
-    const d = ctx.debugger;
-    const engine = ctx.engine;
+    const d = ctx.run.debugger;
+    const engine = ctx.run.engine;
     if (d.epoch === 0 || !d.installed || engine === null) return false;
     // The run restarted in place inside this entry: the outgoing epoch's
     // plans must not stop or account the reset's pass. The reset is
@@ -213,8 +213,8 @@ export function createDebugController(ctx: WorkerContext) {
 
   /** The shared observer: watchpoints on every operation, cycle-step at cycle-end. */
   function observer(observation: ExecutionObservation): boolean {
-    const d = ctx.debugger;
-    const engine = ctx.engine;
+    const d = ctx.run.debugger;
+    const engine = ctx.run.engine;
     if (d.epoch === 0 || !d.installed || engine === null) return false;
     // Same in-place reset as the gate: stale-epoch watch baselines and step
     // plans never observe the new run's pass.
@@ -260,7 +260,7 @@ export function createDebugController(ctx: WorkerContext) {
     epoch?: number | null,
     buildId?: string | null,
   ): void {
-    const d = ctx.debugger;
+    const d = ctx.run.debugger;
     control({
       type: "debugError",
       id,
@@ -272,13 +272,13 @@ export function createDebugController(ctx: WorkerContext) {
   }
 
   function postAck(id: number): void {
-    const d = ctx.debugger;
+    const d = ctx.run.debugger;
     control({ type: "debugAck", id, epoch: d.epoch, buildId: d.buildId! });
   }
 
   /** The pinned stop's published snapshot — always the full detached view. */
   function pinStop(engine: Engine): number {
-    const d = ctx.debugger;
+    const d = ctx.run.debugger;
     const stopId = ++d.stopSerial;
     d.stopId = stopId;
     // The pinned snapshot is the full detached view of the latched stop:
@@ -290,8 +290,8 @@ export function createDebugController(ctx: WorkerContext) {
   }
 
   function postStopped(reasons: readonly DebugStopReason[]): void {
-    const d = ctx.debugger;
-    const engine = ctx.engine!;
+    const d = ctx.run.debugger;
+    const engine = ctx.run.engine!;
     const info = engine.executionStopInfo!;
     control({
       type: "debugStopped",
@@ -314,8 +314,8 @@ export function createDebugController(ctx: WorkerContext) {
    * point (null for a phase-only or idle stop), and the audio hold.
    */
   function publishStop(): void {
-    const d = ctx.debugger;
-    const engine = ctx.engine;
+    const d = ctx.run.debugger;
+    const engine = ctx.run.engine;
     if (engine === null || d.epoch === 0 || engine !== d.engine) return;
     const info = engine.executionStopInfo;
     if (info === null || info.stopId === d.publishedEngineStop) return;
@@ -338,9 +338,9 @@ export function createDebugController(ctx: WorkerContext) {
    * reports before the next atomic operation in the same outer loop.
    */
   function debugAfterEntry(): void {
-    const engine = ctx.engine;
+    const engine = ctx.run.engine;
     if (engine === null) return;
-    const d = ctx.debugger;
+    const d = ctx.run.debugger;
     if (d.epoch === 0) {
       // No session — but a detach may still owe this engine its disarm.
       if (orphanDisarm) {
@@ -359,9 +359,9 @@ export function createDebugController(ctx: WorkerContext) {
       // accepted restart.game reset the run inside the same engine — the
       // same identity replacement, healed lazily at the entry boundary.
       debugSessionReplaced();
-      if (ctx.debugger.epoch === 0) return;
+      if (ctx.run.debugger.epoch === 0) return;
     }
-    const session = ctx.debugger;
+    const session = ctx.run.debugger;
     if (session.armDeferred && boundaryClear(engine)) {
       // The cursor/fault states boundaryClear cannot see still refuse: keep
       // the deferred flag and retry after the next entry.
@@ -375,7 +375,7 @@ export function createDebugController(ctx: WorkerContext) {
   }
 
   function releaseAudio(): void {
-    const d = ctx.debugger;
+    const d = ctx.run.debugger;
     if (!d.audioHold) return;
     d.audioHold = false;
     control({ type: "debugAudio", epoch: d.epoch, paused: false });
@@ -389,10 +389,10 @@ export function createDebugController(ctx: WorkerContext) {
    */
   function debugBeforeReplace(): void {
     stopAtEntry = false;
-    const d = ctx.debugger;
+    const d = ctx.run.debugger;
     if (d.epoch === 0) return;
     const engine = d.engine;
-    if (engine !== null && engine === ctx.engine && engine.executionStopInfo !== null) {
+    if (engine !== null && engine === ctx.run.engine && engine.executionStopInfo !== null) {
       try {
         engine.resumeExecution();
       } catch {
@@ -419,10 +419,10 @@ export function createDebugController(ctx: WorkerContext) {
    * session instead of binding breakpoints against unverifiable bytes.
    */
   function debugSessionReplaced(stopAtFirstInstruction = false): void {
-    const d = ctx.debugger;
+    const d = ctx.run.debugger;
     if (d.epoch === 0) return;
     debugBeforeReplace();
-    const engine = ctx.engine;
+    const engine = ctx.run.engine;
     if (engine === null) {
       detachInternal("closed");
       return;
@@ -493,7 +493,7 @@ export function createDebugController(ctx: WorkerContext) {
   }
 
   function refreshRichSnapshot(): void {
-    const d = ctx.debugger;
+    const d = ctx.run.debugger;
     d.richSnapshot =
       d.breakpointSpecs.some((s) => s.condition !== undefined || s.log !== undefined) ||
       d.watchpointSpecs.some((s) => s.condition !== undefined);
@@ -501,8 +501,8 @@ export function createDebugController(ctx: WorkerContext) {
 
   /** Deliver every queued host answer in order; a re-stop parks the rest. */
   function drainQueuedAnswers(): void {
-    const d = ctx.debugger;
-    while (d.queuedAnswers.length > 0 && ctx.engine?.executionStopInfo === null) {
+    const d = ctx.run.debugger;
+    while (d.queuedAnswers.length > 0 && ctx.run.engine?.executionStopInfo === null) {
       const answer = d.queuedAnswers.shift()!;
       ctx.fns.onHostAnswer({ type: "hostAnswer", id: answer.id, response: answer.response });
     }
@@ -510,7 +510,7 @@ export function createDebugController(ctx: WorkerContext) {
 
   /** Release the latch and run: the shared half of resume/runTo. */
   function releaseAndRun(): void {
-    const engine = ctx.engine;
+    const engine = ctx.run.engine;
     if (engine === null) return;
     if (engine.executionStopInfo !== null) engine.resumeExecution();
     releaseAudio();
@@ -520,11 +520,11 @@ export function createDebugController(ctx: WorkerContext) {
   }
 
   function detachInternal(reason: string): void {
-    const d = ctx.debugger;
+    const d = ctx.run.debugger;
     const epoch = d.epoch;
     const buildId = d.buildId;
     const engine = d.engine;
-    if (engine !== null && engine === ctx.engine) {
+    if (engine !== null && engine === ctx.run.engine) {
       try {
         if (engine.executionStopInfo !== null) engine.resumeExecution();
       } catch {
@@ -543,8 +543,8 @@ export function createDebugController(ctx: WorkerContext) {
     releaseAudio();
     const hiatus = d.hiatus;
     const epochCounter = d.epochCounter;
-    ctx.debugger = newDebuggerState();
-    ctx.debugger.epochCounter = epochCounter;
+    ctx.run.debugger = newDebuggerState();
+    ctx.run.debugger.epochCounter = epochCounter;
     boundResetSerial = -1;
     if (hiatus) {
       // Normal recording restarts at the next representable boundary.
@@ -556,7 +556,7 @@ export function createDebugController(ctx: WorkerContext) {
   // ---------- inbound command handlers ----------
 
   function onDebugAttach(msg: Inbound<"debugAttach">): void {
-    const engine = ctx.engine;
+    const engine = ctx.run.engine;
     if (engine === null) {
       postError(msg.id, "noEngine", "No game is running.", 0, null);
       return;
@@ -675,8 +675,8 @@ export function createDebugController(ctx: WorkerContext) {
     }
     // Supersession is explicit: the old session ends only once the
     // replacement's build is verified.
-    if (ctx.debugger.epoch !== 0) detachInternal("superseded");
-    const d = ctx.debugger;
+    if (ctx.run.debugger.epoch !== 0) detachInternal("superseded");
+    const d = ctx.run.debugger;
     d.engine = engine;
     boundResetSerial = engine.runResetSerial;
     d.epoch = ++d.epochCounter;
@@ -694,7 +694,7 @@ export function createDebugController(ctx: WorkerContext) {
     // must not fabricate a resume for a session that was never live.
     d.hiatus = ctx.history.segment !== null || ctx.history.resumePending;
     ctx.fns.historyEnd("debugger");
-    const rec = ctx.recording.recording;
+    const rec = ctx.run.recording.recording;
     if (rec !== null && rec.tainted === null)
       rec.tainted = "The debugger interrupted the recording.";
     syncControlArming(engine);
@@ -707,7 +707,7 @@ export function createDebugController(ctx: WorkerContext) {
   }
 
   function onDebugDetach(msg: Inbound<"debugDetach">): void {
-    const d = ctx.debugger;
+    const d = ctx.run.debugger;
     if (d.epoch === 0 || msg.epoch !== d.epoch) {
       postError(msg.id, "staleEpoch", "the debugger session is not attached", msg.epoch, null);
       return;
@@ -719,7 +719,7 @@ export function createDebugController(ctx: WorkerContext) {
   }
 
   function onDebugConfigure(msg: Inbound<"debugConfigure">): void {
-    const d = ctx.debugger;
+    const d = ctx.run.debugger;
     if (d.epoch === 0 || d.breakpointPlan === null || d.watchpointPlan === null) {
       postError(msg.id, "notAttached", "the debugger is not attached", msg.epoch, null);
       return;
@@ -736,7 +736,7 @@ export function createDebugController(ctx: WorkerContext) {
       );
       return;
     }
-    const engine = ctx.engine;
+    const engine = ctx.run.engine;
     if (engine === null) {
       postError(msg.id, "noEngine", "No game is running.");
       return;
@@ -784,7 +784,7 @@ export function createDebugController(ctx: WorkerContext) {
   }
 
   function onDebugPause(msg: Inbound<"debugPause">): void {
-    const d = ctx.debugger;
+    const d = ctx.run.debugger;
     if (d.epoch === 0) {
       postError(msg.id, "notAttached", "the debugger is not attached", msg.epoch, null);
       return;
@@ -793,7 +793,7 @@ export function createDebugController(ctx: WorkerContext) {
       postError(msg.id, "staleEpoch", "epoch does not match the attached session", msg.epoch);
       return;
     }
-    const engine = ctx.engine;
+    const engine = ctx.run.engine;
     if (engine === null) {
       postError(msg.id, "noEngine", "No game is running.");
       return;
@@ -805,8 +805,8 @@ export function createDebugController(ctx: WorkerContext) {
 
   /** Validate the named stop is the published one and the latch is held. */
   function requireStopped(msg: { id: number; epoch: number; stopId: number }): boolean {
-    const d = ctx.debugger;
-    const engine = ctx.engine;
+    const d = ctx.run.debugger;
+    const engine = ctx.run.engine;
     if (d.epoch === 0) {
       postError(msg.id, "notAttached", "the debugger is not attached", msg.epoch, null);
       return false;
@@ -828,8 +828,8 @@ export function createDebugController(ctx: WorkerContext) {
 
   function onDebugResume(msg: Inbound<"debugResume">): void {
     if (!requireStopped(msg)) return;
-    const d = ctx.debugger;
-    const engine = ctx.engine!;
+    const d = ctx.run.debugger;
+    const engine = ctx.run.engine!;
     const granularity: DebugStepGranularity = msg.granularity ?? "statement";
     switch (msg.action) {
       case "continue":
@@ -868,7 +868,7 @@ export function createDebugController(ctx: WorkerContext) {
 
   function onDebugRunTo(msg: Inbound<"debugRunTo">): void {
     if (!requireStopped(msg)) return;
-    const d = ctx.debugger;
+    const d = ctx.run.debugger;
     const location = msg.location;
     if (
       location === null ||
@@ -890,8 +890,8 @@ export function createDebugController(ctx: WorkerContext) {
 
   function onDebugInspect(msg: Inbound<"debugInspect">): void {
     if (!requireStopped(msg)) return;
-    const d = ctx.debugger;
-    const engine = ctx.engine!;
+    const d = ctx.run.debugger;
+    const engine = ctx.run.engine!;
     const section: DebugInspectSection = msg.section ?? "all";
     const info = engine.executionStopInfo!;
     let data: unknown;
@@ -949,7 +949,7 @@ export function createDebugController(ctx: WorkerContext) {
 
   function onDebugEvaluate(msg: Inbound<"debugEvaluate">): void {
     if (!requireStopped(msg)) return;
-    const d = ctx.debugger;
+    const d = ctx.run.debugger;
     let compiled;
     try {
       compiled = compileDebugExpression(String(msg.expression), d.bindings);
@@ -992,10 +992,33 @@ export function createDebugController(ctx: WorkerContext) {
    * A fresh session epoch retires every command, stop snapshot and queued
    * answer minted under the old source identity.
    */
+  function prepareDebugReplacement(
+    engine: Engine,
+    authority?: Pick<PreviewPreparedSession, "sources" | "sourceBindings" | "bindings">,
+  ): PreviewPreparedSession {
+    const d = ctx.run.debugger;
+    if (!d.epoch) throw new Error("Open Debug before starting this launch.");
+    const sources = authority?.sources ?? d.sources;
+    const sourceBindings = authority?.sourceBindings ?? d.sourceBindings;
+    const bindings = authority?.bindings ?? d.bindings;
+    const build = captureBuild(engine, sources, sourceBindings ?? bindings);
+    const breakpointPlan = createDebugBreakpointPlan({ build, bindings });
+    breakpointPlan.configure({ revision: 1, breakpoints: d.breakpointSpecs });
+    const watchpointPlan = createDebugWatchpointPlan({ build, bindings });
+    watchpointPlan.configure(
+      { revision: 1, watchpoints: d.watchpointSpecs },
+      debugPlanSnapshot(engine, ctx.run.cycle.cycleCount, null, d.richSnapshot),
+    );
+    // Arming itself must succeed while the detached room entry is still unexecuted.
+    engine.setExecutionGate(() => false);
+    engine.setExecutionGate(null);
+    return { build, sources, sourceBindings, bindings, breakpointPlan, watchpointPlan };
+  }
+
   function previewSessionInstall(prepared: PreviewPreparedSession): void {
-    const d = ctx.debugger;
-    const lane = ctx.projectAdmission;
-    if (lane === null || lane.engine !== ctx.engine || d.epoch === 0) return;
+    const d = ctx.run.debugger;
+    const lane = ctx.run.projectAdmission;
+    if (lane === null || lane.engine !== ctx.run.engine || d.epoch === 0) return;
     d.epoch = ++d.epochCounter;
     d.build = prepared.build;
     d.buildId = prepared.build.identity.buildId;
@@ -1017,8 +1040,8 @@ export function createDebugController(ctx: WorkerContext) {
 
   function onDebugSetValues(msg: Inbound<"debugSetValues">): void {
     if (!requireStopped(msg)) return;
-    const d = ctx.debugger;
-    const engine = ctx.engine!;
+    const d = ctx.run.debugger;
+    const engine = ctx.run.engine!;
     const vars = msg.vars ?? [];
     const flags = msg.flags ?? [];
     // Validate the whole transaction before any write — a malformed pair
@@ -1103,18 +1126,20 @@ export function createDebugController(ctx: WorkerContext) {
     onDebugEvaluate,
     onDebugSetValues,
     previewSessionInstall,
+    prepareDebugReplacement,
     debugAfterEntry,
     debugBeforeReplace,
     debugSessionReplaced,
     /** True while an attach owns this engine session. */
-    debugAttached: (): boolean => ctx.debugger.epoch !== 0,
+    debugAttached: (): boolean => ctx.run.debugger.epoch !== 0,
     /** The engine's stop latch is held — every entry point consults this. */
-    debugStoppedHeld: (): boolean => ctx.engine !== null && ctx.engine.executionStopInfo !== null,
+    debugStoppedHeld: (): boolean =>
+      ctx.run.engine !== null && ctx.run.engine.executionStopInfo !== null,
     /**
      * A resumable-boundary image (autosaveImage/recordingImage/
      * captureReplayState) cannot describe the run right now: the latch is
      * held, or an armed pass is parked or yielded mid-cycle.
      */
-    debugCaptureBlocked: (): boolean => ctx.engine !== null && captureBlocked(ctx.engine),
+    debugCaptureBlocked: (): boolean => ctx.run.engine !== null && captureBlocked(ctx.run.engine),
   };
 }

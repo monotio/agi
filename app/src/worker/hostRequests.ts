@@ -32,16 +32,68 @@ export function createHostRequests(ctx: WorkerContext) {
    * editing while the game waits.
    */
   function postHostRequest(op: HostRequestOp, context: Record<string, unknown>): never {
-    if (ctx.recording.recording && !["getstring", "getnum"].includes(op))
-      ctx.recording.recording.tainted = `The recording used unsupported host service ${op}.`;
+    if (ctx.run.recording.recording && !["getstring", "getnum"].includes(op))
+      ctx.run.recording.recording.tainted = `The recording used unsupported host service ${op}.`;
     ctx.fns.advanceSoundClock();
     // The interpreter is about to suspend: ship the frame that shows the
     // prompt (or the selector) the request belongs to.
     ctx.fns.postFrame();
-    const id = ++ctx.hostRequests.hostRequestSerial;
+    const id = ++ctx.run.hostRequests.hostRequestSerial;
     const authoring = op === "room";
-    ctx.hostRequests.hostRequestOutstanding = { id, op, authoring };
-    ctx.ports.control({ type: "hostRequest", id, op, context });
+    ctx.run.hostRequests.hostRequestOutstanding = { id, op, authoring };
+    if (
+      ctx.run.progress.mode === "create" &&
+      !ctx.replay.historyReplay &&
+      ["saveList", "saveWrite", "restore"].includes(op)
+    ) {
+      const run = ctx.run;
+      run.hostRequests.scratchTimer = (ctx.ports.schedule ?? setTimeout)(() => {
+        run.hostRequests.scratchTimer = null;
+        if (
+          ctx.run !== run ||
+          run.progress.mode !== "create" ||
+          run.hostRequests.hostRequestOutstanding?.id !== id
+        )
+          return;
+        const slot = Number(context["slot"] ?? 1);
+        let response = "";
+        if (op === "saveList")
+          response = JSON.stringify(
+            Object.entries(run.scratchSlots).map(([slot, save]) => ({
+              slot: Number(slot),
+              image: bytesToBase64(base64ToBytes(save.image).slice(0, 40)),
+            })),
+          );
+        if (op === "saveWrite") {
+          if (
+            Number.isInteger(slot) &&
+            slot >= 1 &&
+            slot <= 12 &&
+            typeof context["image"] === "string"
+          ) {
+            run.scratchSlots[String(slot)] = {
+              image: context["image"],
+              amigaRegion: context["amigaRegion"] === "pal" ? "pal" : "ntsc",
+            };
+            response = "true";
+          } else response = "false";
+        }
+        if (op === "restore") {
+          const saved = run.scratchSlots[String(slot)];
+          response = saved ? JSON.stringify(saved) : "";
+        }
+        ctx.fns.onHostAnswer({ type: "hostAnswer", id, response });
+      }, 0);
+    } else
+      ctx.ports.control({
+        type: "hostRequest",
+        id,
+        op,
+        context:
+          op === "saveWrite" && ctx.run.owner.generation > 0
+            ? { ...context, writerGeneration: ctx.run.owner.generation }
+            : context,
+      });
     if (ctx.replay.replay && ["getnum", "getstring", "saveDescription"].includes(op)) {
       ctx.fns.postReplay(op);
     }
@@ -52,7 +104,7 @@ export function createHostRequests(ctx: WorkerContext) {
   /** The request finished or was abandoned: release the authoring pause. */
   function settleHostRequest(outstanding: { op: string; authoring: boolean }): void {
     if (!outstanding.authoring) return;
-    ctx.clocks.cycle.reset(
+    ctx.run.clocks.cycle.reset(
       ctx.replay.replay ? (ctx.replay.replay.tick * 1000) / 60 : ctx.ports.now(),
     );
     ctx.ports.presentation({ type: "soundPaused", paused: false });
@@ -64,12 +116,17 @@ export function createHostRequests(ctx: WorkerContext) {
    * check in the hostAnswer handler.
    */
   function abandonHostRequest(): void {
-    const outstanding = ctx.hostRequests.hostRequestOutstanding;
+    const outstanding = ctx.run.hostRequests.hostRequestOutstanding;
+    if (ctx.run.hostRequests.scratchTimer !== null) {
+      if (ctx.ports.cancelSchedule) ctx.ports.cancelSchedule(ctx.run.hostRequests.scratchTimer);
+      else clearTimeout(ctx.run.hostRequests.scratchTimer as ReturnType<typeof setTimeout>);
+      ctx.run.hostRequests.scratchTimer = null;
+    }
     if (outstanding === null) return;
-    ctx.hostRequests.hostRequestOutstanding = null;
+    ctx.run.hostRequests.hostRequestOutstanding = null;
     settleHostRequest(outstanding);
     // An abandoned suspended re-enter can never land its transition.
-    ctx.journal.pendingCause = null;
+    ctx.run.journal.pendingCause = null;
     ctx.ports.control({ type: "interactionCancelled", id: outstanding.id, op: outstanding.op });
   }
 
@@ -85,14 +142,14 @@ export function createHostRequests(ctx: WorkerContext) {
     objects?: Uint8Array;
     tests?: Uint8Array;
   }): void {
-    ctx.engine!.patchResources(patch.resources);
+    ctx.run.engine!.patchResources(patch.resources);
     if (patch.words) {
       const entries = parseWordsTok(patch.words);
       ctx.boot.liveDictionary.clear();
       for (const { word, id } of entries) ctx.boot.liveDictionary.set(word, id);
       ctx.boot.authoredWords = patch.words;
     }
-    ctx.engine!.patchAuxiliaryFiles({
+    ctx.run.engine!.patchAuxiliaryFiles({
       ...(patch.words ? { words: patch.words } : {}),
       ...(patch.objects ? { objects: patch.objects } : {}),
       ...(patch.tests ? { tests: patch.tests } : {}),
@@ -127,18 +184,18 @@ export function createHostRequests(ctx: WorkerContext) {
     response: string,
     committed?: HistoryCommittedPatch | null,
   ): HostAnswerOutcome | undefined {
-    if (!ctx.engine) return undefined;
+    if (!ctx.run.engine) return undefined;
     switch (op) {
       case "getnum": {
         const n = Number.parseInt(response, 10);
         const value = Number.isFinite(n) ? n : 0;
-        ctx.recording.recording?.tape.host(["number", value]);
-        ctx.engine.deliverHostAnswer(value);
+        ctx.run.recording.recording?.tape.host(["number", value]);
+        ctx.run.engine.deliverHostAnswer(value);
         return;
       }
       case "getstring": {
-        ctx.recording.recording?.tape.host(["string", response]);
-        ctx.engine.deliverHostAnswer(response);
+        ctx.run.recording.recording?.tape.host(["string", response]);
+        ctx.run.engine.deliverHostAnswer(response);
         return;
       }
       case "saveList": {
@@ -151,7 +208,7 @@ export function createHostRequests(ctx: WorkerContext) {
         } catch {
           slots = null;
         }
-        ctx.engine.deliverHostAnswer(slots);
+        ctx.run.engine.deliverHostAnswer(slots);
         return;
       }
       case "saveDescription": {
@@ -162,11 +219,11 @@ export function createHostRequests(ctx: WorkerContext) {
         } catch {
           value = null;
         }
-        ctx.engine.deliverHostAnswer(value);
+        ctx.run.engine.deliverHostAnswer(value);
         return;
       }
       case "saveWrite":
-        ctx.engine.deliverHostAnswer(response === "true");
+        ctx.run.engine.deliverHostAnswer(response === "true");
         return;
       case "restore": {
         let bytes: Uint8Array | null = null;
@@ -186,7 +243,7 @@ export function createHostRequests(ctx: WorkerContext) {
             bytes = base64ToBytes(image);
             // Validate on disposable state before session timing changes.
             const candidate = new Engine(
-              openContainer(ctx.engine.containerFiles, { profile: ctx.engine.profile }),
+              openContainer(ctx.run.engine.containerFiles, { profile: ctx.run.engine.profile }),
               {
                 print() {},
                 displayAt() {},
@@ -195,11 +252,11 @@ export function createHostRequests(ctx: WorkerContext) {
                 takeKeys: () => [],
               },
               undefined,
-              { profile: ctx.engine.profile },
+              { profile: ctx.run.engine.profile },
             );
             try {
               candidate.restoreImage(bytes);
-              ctx.engine.amigaRegion = region;
+              ctx.run.engine.amigaRegion = region;
             } catch {
               // The original restore path reports invalid native images.
             }
@@ -207,19 +264,19 @@ export function createHostRequests(ctx: WorkerContext) {
             bytes = null;
           }
         }
-        if (bytes && ctx.recording.recording) {
+        if (bytes && ctx.run.recording.recording) {
           // A restore replaces the interpreter state mid-recording; the captured
           // steps no longer describe the live game.
-          ctx.recording.recording.tainted = "the game was restored mid-recording";
+          ctx.run.recording.recording.tainted = "the game was restored mid-recording";
         }
         if (bytes) ctx.fns.markRestore();
-        ctx.engine.deliverHostAnswer(bytes);
+        ctx.run.engine.deliverHostAnswer(bytes);
         if (bytes) ctx.fns.noteTransition();
         return bytes !== null ? { restored: true } : undefined;
       }
       case "room": {
         // Apply the authored patch the agent produced, then deliver the outcome.
-        const request = ctx.engine.hostInteraction;
+        const request = ctx.run.engine.hostInteraction;
         const room = request?.kind === "room" ? request.room : -1;
         let prepared = false;
         let patch: HistoryCommittedPatch | undefined;
@@ -228,7 +285,7 @@ export function createHostRequests(ctx: WorkerContext) {
             if (committed === null) {
               // History replay of a declined room: the tape carries no
               // patch — the refusal is the answer, nothing to compile.
-              ctx.engine.deliverHostAnswer(false);
+              ctx.run.engine.deliverHostAnswer(false);
               return { room, prepared: false };
             }
             if (committed !== undefined) {
@@ -236,15 +293,15 @@ export function createHostRequests(ctx: WorkerContext) {
               applyRoomPatchFiles(decodeCommittedPatch(committed));
               patch = committed;
             } else {
-              const container = openContainer(ctx.engine.containerFiles, {
-                profile: ctx.engine.profile,
+              const container = openContainer(ctx.run.engine.containerFiles, {
+                profile: ctx.run.engine.profile,
               });
               const compiled = prepareRoomPatch(
                 container,
                 room,
                 response,
                 ctx.boot.liveDictionary,
-                ctx.engine.profile,
+                ctx.run.engine.profile,
               );
               const words = buildWordsTok(compiled.words.map(([word, id]) => ({ word, id })));
               applyRoomPatchFiles({
@@ -272,7 +329,7 @@ export function createHostRequests(ctx: WorkerContext) {
             });
           }
         }
-        ctx.engine.deliverHostAnswer(prepared);
+        ctx.run.engine.deliverHostAnswer(prepared);
         return { room, prepared, ...(patch !== undefined ? { patch } : {}) };
       }
     }
@@ -292,15 +349,20 @@ export function createHostRequests(ctx: WorkerContext) {
     // an answer for a request already abandoned — is dropped, never
     // delivered.
     const id = Number(msg.id);
-    const outstanding = ctx.hostRequests.hostRequestOutstanding;
-    if (!ctx.engine || outstanding === null || outstanding.id !== id) return;
+    const outstanding = ctx.run.hostRequests.hostRequestOutstanding;
+    if (!ctx.run.engine || outstanding === null || outstanding.id !== id) return;
+    if (!ctx.run.owner.active) {
+      if (!ctx.run.owner.answers.some((answer) => answer.id === id))
+        ctx.run.owner.answers.push({ id, response: String(msg.response ?? "") });
+      return;
+    }
     // While the debugger holds the stop latch the answer is raw queued data:
     // no room patch, auxiliary file, history record or host continuation may
     // apply until the latch and every relevant hold release — the answer then
     // delivers exactly once, in order. Identity was already validated above;
     // late or duplicate answers never requeue.
     if (ctx.fns.debugStoppedHeld()) {
-      const d = ctx.debugger;
+      const d = ctx.run.debugger;
       if (!d.queuedAnswers.some((answer) => answer.id === id)) {
         d.queuedAnswers.push({ id, op: outstanding.op, response: String(msg.response ?? "") });
         ctx.ports.control({
@@ -313,7 +375,7 @@ export function createHostRequests(ctx: WorkerContext) {
       }
       return;
     }
-    ctx.hostRequests.hostRequestOutstanding = null;
+    ctx.run.hostRequests.hostRequestOutstanding = null;
     settleHostRequest(outstanding);
     let outcome: HostAnswerOutcome | undefined;
     try {
@@ -346,7 +408,7 @@ export function createHostRequests(ctx: WorkerContext) {
     // pass: a message posted after the answer — a state query, the key's
     // own echo — observes the resumed state. A re-suspension (the
     // selector's next need) posts its request inside this tick.
-    if (ctx.engine.hostInteractionReady) ctx.fns.tickEngine();
+    if (ctx.run.engine.hostInteractionReady) ctx.fns.tickEngine();
     if (outcome?.restored === true) configureSessionTiming(ctx);
     // A restore's new image or a room patch's new bytes replace the run the
     // debug session pinned — rebind identity before another answer drains.
@@ -356,19 +418,31 @@ export function createHostRequests(ctx: WorkerContext) {
     // The runner holds the blocked observation postReplay(op) sent when
     // the request fired; the resumed state is its unblocked follow-up.
     // A seek needs only its revision and blocking flag, not the full state.
-    if (ctx.replay.replay && !ctx.engine.awaitingHostAnswer)
+    if (ctx.replay.replay && !ctx.run.engine.awaitingHostAnswer)
       ctx.fns.postReplay(null, !ctx.replay.isSeeking);
   }
 
   function onReenter(msg: Inbound<"reenter">): void {
-    if (!ctx.engine) return;
-    if (ctx.recording.recording)
-      ctx.recording.recording.tainted = "Game resources changed during recording.";
+    if (!ctx.run.engine || !ctx.run.owner.active) return;
+    const room = typeof msg.room === "number" ? msg.room : ctx.run.engine.vars[0]!;
+    if (
+      !Number.isInteger(room) ||
+      room < 0 ||
+      room > 255 ||
+      (!ctx.boot.authorRooms &&
+        !openContainer(ctx.run.engine.containerFiles, {
+          profile: ctx.run.engine.profile,
+        }).getResource("logic", room))
+    )
+      throw new Error(`Room ${room} needs a LOGIC to enter.`);
+    ctx.fns.debugBeforeReplace();
+    if (ctx.run.recording.recording)
+      ctx.run.recording.recording.tainted = "Game resources changed during recording.";
     // A suspended interaction is abandoned: its parked continuation is
     // meaningless once the room's resources change under it, and the
     // request still in flight resolves into a dropped answer.
-    if (ctx.engine.hostInteractionPending) {
-      ctx.engine.abortInteraction();
+    if (ctx.run.engine.hostInteractionPending) {
+      ctx.run.engine.abortInteraction();
       ctx.fns.setKeyWaiting(false);
       abandonHostRequest();
     }
@@ -376,16 +450,17 @@ export function createHostRequests(ctx: WorkerContext) {
     // An open message window blocks the cycle, and bytecode can never issue
     // new.room while one is up, so the harness acknowledges them first —
     // otherwise the re-entered room would sit behind an invisible window.
-    for (let guard = 0; ctx.engine.modalKind !== null && guard < 16; guard++) ctx.engine.ackPrint();
+    for (let guard = 0; ctx.run.engine.modalKind !== null && guard < 16; guard++)
+      ctx.run.engine.ackPrint();
     ctx.fns.markReenter();
     try {
-      ctx.engine.reenterRoom(typeof msg.room === "number" ? msg.room : undefined);
+      ctx.run.engine.reenterRoom(typeof msg.room === "number" ? msg.room : undefined);
     } catch (wait) {
       if (!(wait instanceof HostWait)) {
         // A declined re-enter never transitions; disarm so the next real
         // transition is not mislabeled — and the tape never saw it: the
         // reenter is recorded only once the room accepts it.
-        ctx.journal.pendingCause = null;
+        ctx.run.journal.pendingCause = null;
         throw wait;
       }
       // Room authoring suspended the transition: the hostAnswer message
@@ -394,7 +469,8 @@ export function createHostRequests(ctx: WorkerContext) {
         kind: "reenter",
         ...(typeof msg.room === "number" ? { room: msg.room } : {}),
       });
-      ctx.hostRequests.pendingReenter = true;
+      ctx.run.hostRequests.pendingReenter = true;
+      ctx.fns.debugSessionReplaced();
       ctx.fns.postFrame(true);
       return;
     }
@@ -402,6 +478,7 @@ export function createHostRequests(ctx: WorkerContext) {
       kind: "reenter",
       ...(typeof msg.room === "number" ? { room: msg.room } : {}),
     });
+    ctx.fns.debugSessionReplaced();
     ctx.fns.noteTransition();
     ctx.fns.postFrame(true);
   }

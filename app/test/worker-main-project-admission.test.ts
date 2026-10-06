@@ -14,6 +14,36 @@ import { compileProjectDocuments } from "../../src/authoring/projectDocuments.ts
 import { createContainer } from "../../src/container/container.ts";
 import type { WorkerControl } from "../src/worker/workerProtocol.ts";
 
+test("exact Create return carries the current admission grant for the next edit", async () => {
+  const messages: WorkerControl[] = [];
+  const ctx = createWorkerContext({
+    control: (m) => messages.push(m),
+    presentation: () => {},
+    now: () => 0,
+  });
+  ctx.host = createEngineHost(ctx);
+  const build = compileProjectDocuments({
+    files: Object.fromEntries(createContainer().files),
+    documents: { "logic:0": "return;" },
+    profileId: "2.936",
+  });
+  onWorkerMessage(ctx, {
+    type: "boot",
+    files: Object.fromEntries(build.files()),
+    words: [],
+    projectMode: "create",
+  });
+  await ctx.projectLoader.loading;
+  ctx.fns.stopTimers();
+  const boot = messages.find((m) => m.type === "booted");
+  assert.ok(boot?.type === "booted" && boot.projectAdmission);
+  onWorkerMessage(ctx, { type: "projectPlay", id: 1 });
+  onWorkerMessage(ctx, { type: "projectCreate", id: 2 });
+  const created = messages.findLast((m) => m.type === "projectCreated");
+  assert.ok(created?.type === "projectCreated" && created.grant);
+  assert.deepEqual(created.grant, boot.projectAdmission);
+});
+
 test("MAIN Create grants a debugger-free physical run and Play revokes it", async () => {
   const messages: WorkerControl[] = [];
   const ctx = createWorkerContext({
@@ -116,7 +146,7 @@ test("entering Create grants the existing MAIN engine without booting or loading
   });
   onWorkerMessage(ctx, { type: "boot", files: Object.fromEntries(build.files()), words: [] });
   ctx.fns.stopTimers();
-  const engine = ctx.engine;
+  const engine = ctx.run.engine;
   onWorkerMessage(ctx, {
     type: "projectCreate",
     id: 3,
@@ -125,7 +155,7 @@ test("entering Create grants the existing MAIN engine without booting or loading
   await ctx.projectLoader.loading;
   const reply = messages.find((m) => m.type === "projectCreated");
   assert.ok(reply?.type === "projectCreated" && reply.grant);
-  assert.equal(ctx.engine, engine);
+  assert.equal(ctx.run.engine, engine);
   assert.equal(ctx.debuggerLoader.installed, false);
   onWorkerMessage(ctx, {
     type: "projectCreate",

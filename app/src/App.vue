@@ -7,6 +7,7 @@ import { createCommandRegistry } from "./shell/commands/commandRegistry.ts";
 import { emptyCommandContext, provideCommands } from "./shell/commands/commandContext.ts";
 import UiButton from "./ui/UiButton.vue";
 import UiDialog from "./ui/UiDialog.vue";
+import UiToast from "./ui/UiToast.vue";
 import UiChip from "./ui/UiChip.vue";
 import {
   computed,
@@ -249,31 +250,53 @@ const activitySheetOpen = ref(false);
 function openDeveloperActivity(): void {
   activitySheetOpen.value = true;
 }
-watch(shell.mode, (mode) => {
-  engine.setProjectMode(mode);
+async function restartPlay(): Promise<void> {
+  if (await engine.setProjectMode("play", true)) shell.setMode("play");
+}
+let modeChange = 0;
+let claimKeyboard = false;
+let modeKeyboard = false;
+watch(shell.mode, async (mode, previous) => {
+  const change = ++modeChange;
   releaseMovement();
-  // The switch keeps focus otherwise, and a focused control swallows game keys.
-  if (mode === "play" && !state.powerUp.open && !touchControls.value)
-    nextTick(() => playArea.value?.focusInput());
+  if (!(await engine.setProjectMode(mode))) {
+    if (change === modeChange) shell.setMode(previous);
+    return;
+  }
+  if (change !== modeChange) return;
+  // A cold return enables input when its opening LOGIC finishes.
+  if (mode === "play" && !state.powerUp.open && !touchControls.value) {
+    claimKeyboard = !state.inputReady;
+    modeKeyboard = claimKeyboard;
+    if (!claimKeyboard) nextTick(() => playArea.value?.focusInput());
+  }
 });
 // A game that starts from the keyboard (Enter on a Play button) takes the
 // keyboard once its input line first accepts text: the button that had
 // focus left with the menu. Focus another control or a dialog holds (the
 // profile picker, AI settings) stays where it is.
-let claimKeyboard = false;
 watch(
   () => [state.phase, state.inputReady] as const,
   ([phase, ready], previous) => {
     if (phase !== "running") {
       claimKeyboard = false;
+      modeKeyboard = false;
       return;
     }
     if (previous?.[0] !== "running") claimKeyboard = !touchControls.value;
     if (!claimKeyboard || !ready) return;
     claimKeyboard = false;
+    const fromMode = modeKeyboard;
+    modeKeyboard = false;
     void nextTick(() => {
       const focused = document.activeElement;
-      if (state.walkthrough.active || (focused && focused !== document.body)) return;
+      if (
+        state.walkthrough.active ||
+        (focused &&
+          focused !== document.body &&
+          !(fromMode && focused.closest('[role="radiogroup"][aria-label="Mode"]')))
+      )
+        return;
       playArea.value?.focusInput();
     });
   },
@@ -768,6 +791,17 @@ watch(
           </template>
           <template #screen-notes>
             <StartOverNote />
+            <UiToast v-if="state.entryProblem" tone="warn" data-testid="entry-notice">
+              {{ state.entryProblem }}
+            </UiToast>
+            <UiToast v-if="state.otherTab" tone="warn" data-testid="other-tab-notice">
+              <span>This game is open in another tab.</span>
+              <UiButton size="sm" @click="engine.takePlayBack()">Take back</UiButton>
+            </UiToast>
+            <UiToast v-if="state.returnProblem" tone="warn" data-testid="return-notice">
+              <span>{{ state.returnProblem }}</span>
+              <UiButton size="sm" @click="restartPlay">Restart</UiButton>
+            </UiToast>
           </template>
           <template #strip-actions>
             <UiButton

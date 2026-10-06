@@ -43,7 +43,7 @@ test("attach publishes identity; stale epoch and double attach are rejected", ()
   const h = workerHarness(gameContainer(["return;"]));
   // No engine → structured refusal, not a throw.
   const bare = workerHarness(gameContainer(["return;"]));
-  bare.ctx.engine = null;
+  bare.ctx.run.engine = null;
   send(bare.ctx, { type: "debugAttach", id: 9 });
   assert.equal(lastControl(bare, "debugError")["code"], "noEngine");
 
@@ -52,12 +52,12 @@ test("attach publishes identity; stale epoch and double attach are rejected", ()
   assert.ok(epoch > 0);
   assert.equal(typeof buildId, "string");
   assert.ok(buildId.length > 0);
-  assert.equal(h.ctx.debugger.epoch, epoch);
+  assert.equal(h.ctx.run.debugger.epoch, epoch);
 
   // A stale epoch is refused on the reliable channel.
   send(h.ctx, { type: "debugPause", id: 2, epoch: epoch + 9 });
   assert.equal(lastControl(h, "debugError")["code"], "staleEpoch");
-  assert.equal(h.ctx.engine!.executionStopInfo, null);
+  assert.equal(h.ctx.run.engine!.executionStopInfo, null);
 
   // A second attach supersedes the first: detach event, then a fresh epoch.
   send(h.ctx, { type: "debugAttach", id: 3 });
@@ -81,7 +81,7 @@ test("pause publishes exactly one stop; resume releases only the latch", () => {
   assert.equal(stopped["epoch"], epoch);
   assert.equal(typeof stopped["stopId"], "number");
   assert.deepEqual(stopped["reasons"], [{ kind: "pause" }]);
-  assert.equal(h.ctx.engine!.executionStopInfo !== null, true);
+  assert.equal(h.ctx.run.engine!.executionStopInfo !== null, true);
   // The stop's audio hold is the debugger's own owner.
   assert.deepEqual(lastControl(h, "debugAudio"), { type: "debugAudio", epoch, paused: true });
   // A second pause reports no second stop — idempotent latch.
@@ -89,10 +89,10 @@ test("pause publishes exactly one stop; resume releases only the latch", () => {
   assert.equal(controls(h, "debugStopped").length, 1);
 
   // A stopped poll counts no cycle and runs nothing.
-  const before = h.ctx.cycle.cycleCount;
+  const before = h.ctx.run.cycle.cycleCount;
   assert.equal(h.ctx.fns.stepHostTick(10, { cycle: true, sound: 0 }), false);
-  assert.equal(h.ctx.cycle.cycleCount, before);
-  assert.equal(h.ctx.engine!.vars[40], 0);
+  assert.equal(h.ctx.run.cycle.cycleCount, before);
+  assert.equal(h.ctx.run.engine!.vars[40], 0);
 
   // Continue releases the latch; the next fired poll runs the pass.
   send(h.ctx, {
@@ -103,9 +103,22 @@ test("pause publishes exactly one stop; resume releases only the latch", () => {
     action: "continue",
   });
   assert.equal(lastControl(h, "debugAck")["id"], 12);
-  assert.equal(h.ctx.engine!.executionStopInfo, null);
-  assert.equal(h.ctx.engine!.vars[40], 1);
+  assert.equal(h.ctx.run.engine!.executionStopInfo, null);
+  assert.equal(h.ctx.run.engine!.vars[40], 1);
   assert.deepEqual(lastControl(h, "debugAudio"), { type: "debugAudio", epoch, paused: false });
+});
+
+test("invalid room re-entry preserves the pinned debugger stop", () => {
+  const h = workerHarness(gameContainer(["return;"]));
+  const { epoch } = attach(h);
+  send(h.ctx, { type: "debugPause", id: 10, epoch });
+  const stop = h.ctx.run.engine!.executionStopInfo;
+  const stopId = h.ctx.run.debugger.stopId;
+  send(h.ctx, { type: "reenter", room: 999 });
+  assert.ok(controls(h, "error").some((m) => String(m["message"]).includes("Room 999")));
+  assert.equal(h.ctx.run.engine!.executionStopInfo, stop);
+  assert.equal(h.ctx.run.debugger.stopId, stopId);
+  assert.equal(h.ctx.run.debugger.epoch, epoch);
 });
 
 test("a breakpoint stops before the bound statement", () => {
@@ -129,8 +142,8 @@ test("a breakpoint stops before the bound statement", () => {
   assert.equal(reasons[0]!.kind, "breakpoint");
   assert.equal(reasons[0]!.id, "b1");
   // The stop landed before the bound line ran: v40 written, v41 untouched.
-  assert.equal(h.ctx.engine!.vars[40], 1);
-  assert.equal(h.ctx.engine!.vars[41], 0);
+  assert.equal(h.ctx.run.engine!.vars[40], 1);
+  assert.equal(h.ctx.run.engine!.vars[41], 0);
   const cause = stopped["cause"] as { type: string };
   assert.equal(cause.type, "instruction");
 
@@ -142,7 +155,7 @@ test("a breakpoint stops before the bound statement", () => {
     action: "continue",
   });
   // The breakpoint re-arms: the next pass stops at the same line again.
-  assert.equal(h.ctx.engine!.vars[41], 2);
+  assert.equal(h.ctx.run.engine!.vars[41], 2);
 });
 
 test("a watchpoint reports the responsible instruction", () => {
@@ -184,7 +197,7 @@ test("a clock-phase watch truncates the sound batch at the first stop", () => {
   // 120 due sound ticks span two seconds; the stop at the first-second
   // boundary must end the batch — v11 cannot reach 2.
   h.ctx.fns.stepHostTick(0, { cycle: false, sound: 120 });
-  assert.equal(h.ctx.engine!.vars[11], 1);
+  assert.equal(h.ctx.run.engine!.vars[11], 1);
   const stopped = lastControl(h, "debugStopped");
   const cause = stopped["cause"] as { type: string; phase?: string };
   assert.equal(cause.type, "phase");
@@ -192,7 +205,7 @@ test("a clock-phase watch truncates the sound batch at the first stop", () => {
   const reasons = stopped["reasons"] as { kind: string }[];
   assert.equal(reasons[0]!.kind, "watch");
   // The latch blocks the rest of the batch: no further clock advance runs.
-  const remainder = h.ctx.engine!.vars[12];
+  const remainder = h.ctx.run.engine!.vars[12];
   assert.equal(remainder, 0);
 });
 
@@ -230,17 +243,17 @@ test("stopped input is rejected; direction release queues as cleanup", () => {
   const h = workerHarness(gameContainer(["return;"]));
   const { epoch } = attach(h);
   send(h.ctx, { type: "debugPause", id: 50, epoch });
-  assert.equal(h.ctx.engine!.executionStopInfo !== null, true);
+  assert.equal(h.ctx.run.engine!.executionStopInfo !== null, true);
   send(h.ctx, { type: "key", code: 13 });
   send(h.ctx, { type: "input", text: "look" });
   send(h.ctx, { type: "direction", dir: 3 });
   send(h.ctx, { type: "edit", text: "x" });
-  assert.deepEqual(h.ctx.input.keyQueue, []);
-  assert.deepEqual(h.ctx.input.inputBuffer, []);
-  assert.deepEqual(h.ctx.input.deferredMovement, []);
+  assert.deepEqual(h.ctx.run.input.keyQueue, []);
+  assert.deepEqual(h.ctx.run.input.inputBuffer, []);
+  assert.deepEqual(h.ctx.run.input.deferredMovement, []);
   // A release for a pre-stop hold is cleanup, not new input.
   send(h.ctx, { type: "direction", dir: 0 });
-  assert.deepEqual(h.ctx.input.deferredMovement, [0]);
+  assert.deepEqual(h.ctx.run.input.deferredMovement, [0]);
 });
 
 test("a host answer queues while stopped and applies once on resume", () => {
@@ -250,7 +263,7 @@ test("a host answer queues while stopped and applies once on resume", () => {
   const { epoch } = attach(h);
   h.ctx.fns.tickEngine();
   const request = lastControl(h, "hostRequest");
-  assert.equal(h.ctx.engine!.hostInteractionPending, true);
+  assert.equal(h.ctx.run.engine!.hostInteractionPending, true);
   send(h.ctx, { type: "debugPause", id: 60, epoch });
   const stopped = lastControl(h, "debugStopped");
   // The stop overlays the in-flight host wait.
@@ -261,8 +274,8 @@ test("a host answer queues while stopped and applies once on resume", () => {
   assert.equal(ready["epoch"], epoch);
   assert.equal(ready["id"], request["id"]);
   // Raw queued: nothing applied while the latch holds.
-  assert.equal(h.ctx.engine!.vars[100], 0);
-  assert.equal(h.ctx.engine!.hostInteractionPending, true);
+  assert.equal(h.ctx.run.engine!.vars[100], 0);
+  assert.equal(h.ctx.run.engine!.hostInteractionPending, true);
   // A duplicate answer cannot double-apply.
   send(h.ctx, { type: "hostAnswer", id: request["id"] as number, response: "42" });
   assert.equal(controls(h, "debugAnswerReady").length, 1);
@@ -274,8 +287,8 @@ test("a host answer queues while stopped and applies once on resume", () => {
     stopId: stopped["stopId"] as number,
     action: "continue",
   });
-  assert.equal(h.ctx.engine!.vars[100], 42);
-  assert.equal(h.ctx.engine!.vars[101], 9);
+  assert.equal(h.ctx.run.engine!.vars[100], 42);
+  assert.equal(h.ctx.run.engine!.vars[101], 9);
 });
 
 test("autosave and checkpoint refuse while the latch is held", () => {
@@ -297,7 +310,7 @@ test("debugWrite is refused while attached; debugSetValues is atomic", () => {
   send(h.ctx, { type: "debugWrite", id: 81, vars: [[40, 9]] });
   const refused = lastControl(h, "debugWritten");
   assert.match(refused["error"] as string, /debugSetValues/);
-  assert.equal(h.ctx.engine!.vars[40], 0);
+  assert.equal(h.ctx.run.engine!.vars[40], 0);
 
   // A malformed pair aborts the whole transaction.
   send(h.ctx, {
@@ -311,13 +324,13 @@ test("debugWrite is refused while attached; debugSetValues is atomic", () => {
     ],
   });
   assert.equal(lastControl(h, "debugError")["code"], "invalidRequest");
-  assert.equal(h.ctx.engine!.vars[40], 0);
+  assert.equal(h.ctx.run.engine!.vars[40], 0);
 
   send(h.ctx, { type: "debugSetValues", id: 83, epoch, stopId, vars: [[40, 5]], flags: [[3, 1]] });
   const ack = lastControl(h, "debugSetValuesAck");
   assert.equal(ack["id"], 83);
-  assert.equal(h.ctx.engine!.vars[40], 5);
-  assert.equal(h.ctx.engine!.flags[3], 1);
+  assert.equal(h.ctx.run.engine!.vars[40], 5);
+  assert.equal(h.ctx.run.engine!.flags[3], 1);
   // The mutation repins the stop: a fresh stopId supersedes the old one.
   const mutated = lastControl(h, "debugStopped");
   assert.deepEqual(mutated["reasons"], [{ kind: "mutated" }]);
@@ -342,9 +355,9 @@ test("evaluate reads the pinned snapshot; the snapshot cannot mutate the engine"
   assert.equal(lastControl(h, "debugError")["code"], "invalidExpression");
 
   // Mutating the returned snapshot object leaves the engine untouched.
-  const snapshot = h.ctx.debugger.snapshot!;
+  const snapshot = h.ctx.run.debugger.snapshot!;
   (snapshot.vars as number[])[40] = 99;
-  assert.equal(h.ctx.engine!.vars[40], 3);
+  assert.equal(h.ctx.run.engine!.vars[40], 3);
 
   // A stale stopId is refused.
   send(h.ctx, { type: "debugEvaluate", id: 93, epoch, stopId: stopId + 5, expression: "1" });
@@ -376,7 +389,7 @@ test("attach ends the live segment with the debugger reason; detach resumes", ()
   assert.ok(batch !== undefined);
   assert.equal(batch.batch?.end?.reason, "debugger", "the segment's closer carries the reason");
 
-  send(h.ctx, { type: "debugDetach", id: 110, epoch: h.ctx.debugger.epoch });
+  send(h.ctx, { type: "debugDetach", id: 110, epoch: h.ctx.run.debugger.epoch });
   assert.equal(lastControl(h, "debugDetached")["reason"], "requested");
   // Normal recording resumes at the next boundary without the session.
   assert.equal(
@@ -393,7 +406,7 @@ test("entering replay ends the session instead of binding a scratch engine", () 
   const { epoch } = attach(h);
   send(h.ctx, { type: "resetReplay", sessionId: 1 });
   assert.equal(lastControl(h, "debugDetached")["epoch"], epoch);
-  assert.equal(h.ctx.debugger.epoch, 0, "the session ended with the live run");
+  assert.equal(h.ctx.run.debugger.epoch, 0, "the session ended with the live run");
 });
 
 test("step into and cycle publish step stops; over is refused from an idle stop", () => {
@@ -412,7 +425,7 @@ test("step into and cycle publish step stops; over is refused from an idle stop"
     action: "over",
   });
   assert.equal(lastControl(h, "debugError")["code"], "invalidRequest");
-  assert.ok(h.ctx.engine!.executionStopInfo !== null, "the refused plan kept the stop pinned");
+  assert.ok(h.ctx.run.engine!.executionStopInfo !== null, "the refused plan kept the stop pinned");
 
   // into from a null origin stops at the first statement boundary.
   send(h.ctx, {
@@ -425,7 +438,7 @@ test("step into and cycle publish step stops; over is refused from an idle stop"
   const stepped = lastControl(h, "debugStopped");
   assert.deepEqual(stepped["reasons"], [{ kind: "step", mode: "into" }]);
   assert.equal((stepped["cause"] as { type: string }).type, "instruction");
-  assert.equal(h.ctx.engine!.vars[40], 0, "the step stopped before the statement ran");
+  assert.equal(h.ctx.run.engine!.vars[40], 0, "the step stopped before the statement ran");
 
   // A cycle step rides the observer to the completed-cycle tail.
   send(h.ctx, {
@@ -438,8 +451,8 @@ test("step into and cycle publish step stops; over is refused from an idle stop"
   const cycled = lastControl(h, "debugStopped");
   assert.deepEqual(cycled["reasons"], [{ kind: "step", mode: "cycle" }]);
   assert.deepEqual(cycled["cause"], { type: "phase", phase: "cycle-end" });
-  assert.equal(h.ctx.engine!.vars[40], 1);
-  assert.equal(h.ctx.engine!.vars[41], 2);
+  assert.equal(h.ctx.run.engine!.vars[40], 1);
+  assert.equal(h.ctx.run.engine!.vars[41], 2);
 });
 
 test("runTo stops once at the target pc, coincident with the bound breakpoint", () => {
@@ -481,8 +494,8 @@ test("runTo stops once at the target pc, coincident with the bound breakpoint", 
   assert.ok(kinds.includes("runTo"), `runTo among the coincident reasons: ${kinds}`);
   assert.ok(kinds.includes("breakpoint"), "the bound l2 breakpoint reported alongside");
   assert.equal((reached["location"] as { pc: number }).pc, pcs["l2"]);
-  assert.equal(h.ctx.engine!.vars[40], 1, "the first statement completed");
-  assert.equal(h.ctx.engine!.vars[41], 0, "the runTo target itself has not executed");
+  assert.equal(h.ctx.run.engine!.vars[40], 1, "the first statement completed");
+  assert.equal(h.ctx.run.engine!.vars[41], 0, "the runTo target itself has not executed");
 });
 
 test("a stale stopId is refused while a newer stop is pinned", () => {
@@ -496,7 +509,7 @@ test("a stale stopId is refused while a newer stop is pinned", () => {
   assert.notEqual(fresh["stopId"], staleId);
   send(h.ctx, { type: "debugResume", id: 163, epoch, stopId: staleId, action: "continue" });
   assert.equal(lastControl(h, "debugError")["code"], "staleStop");
-  assert.ok(h.ctx.engine!.executionStopInfo !== null, "the live stop stays pinned");
+  assert.ok(h.ctx.run.engine!.executionStopInfo !== null, "the live stop stays pinned");
 });
 
 test("a room answer queued while stopped applies its patch once on resume", () => {
@@ -506,7 +519,7 @@ test("a room answer queued while stopped applies its patch once on resume", () =
   h.ctx.fns.tickEngine(); // newRoom(9) suspends on the missing room
   const request = lastControl(h, "hostRequest");
   assert.equal(request["op"], "room");
-  assert.equal(h.ctx.engine!.hostInteractionPending, true);
+  assert.equal(h.ctx.run.engine!.hostInteractionPending, true);
 
   send(h.ctx, { type: "debugPause", id: 170, epoch });
   const stopped = lastControl(h, "debugStopped");
@@ -535,8 +548,8 @@ test("a room answer queued while stopped applies its patch once on resume", () =
   send(h.ctx, { type: "hostAnswer", id: request["id"] as number, response });
   assert.equal(lastControl(h, "debugAnswerReady")["id"], request["id"]);
   // Raw queued data only: no patch, no delivery, the outstanding request stays.
-  assert.equal(h.ctx.hostRequests.hostRequestOutstanding !== null, true);
-  assert.equal(h.ctx.engine!.patchGeneration, 0, "no resource mutation while the latch held");
+  assert.equal(h.ctx.run.hostRequests.hostRequestOutstanding !== null, true);
+  assert.equal(h.ctx.run.engine!.patchGeneration, 0, "no resource mutation while the latch held");
 
   send(h.ctx, {
     type: "debugResume",
@@ -549,12 +562,11 @@ test("a room answer queued while stopped applies its patch once on resume", () =
   // the new bytes are a different build than the one the stop pinned.
   const reset = lastControl(h, "debugSessionReset");
   assert.ok((reset["epoch"] as number) > epoch, "the room patch rebound the session");
-  assert.ok(h.ctx.engine!.patchGeneration > 0, "the queued room patch applied exactly once");
+  assert.ok(h.ctx.run.engine!.patchGeneration > 0, "the queued room patch applied exactly once");
   assert.ok(
-    openContainer(h.ctx.engine!.containerFiles, { profile: h.ctx.engine!.profile }).getResource(
-      "logic",
-      9,
-    ) !== null,
+    openContainer(h.ctx.run.engine!.containerFiles, {
+      profile: h.ctx.run.engine!.profile,
+    }).getResource("logic", 9) !== null,
     "room 9's logic landed in the live container",
   );
   // A duplicate or late answer names a settled request and is dropped.
@@ -585,15 +597,15 @@ test("a pending step accepts a genuine host answer while parked at the wait", ()
   // get.num ran and parked: the step stays armed, no stop is latched.
   const request = lastControl(h, "hostRequest");
   assert.equal(request["op"], "getnum");
-  assert.equal(h.ctx.engine!.executionStopInfo, null, "a parked host wait is not a debug stop");
-  assert.equal(h.ctx.debugger.step !== null, true, "the step remains armed across the wait");
+  assert.equal(h.ctx.run.engine!.executionStopInfo, null, "a parked host wait is not a debug stop");
+  assert.equal(h.ctx.run.debugger.step !== null, true, "the step remains armed across the wait");
 
   send(h.ctx, { type: "hostAnswer", id: request["id"] as number, response: "7" });
   assert.equal(controls(h, "debugAnswerReady").length, 0, "delivered, never queued");
   const stepped = lastControl(h, "debugStopped");
   assert.deepEqual(stepped["reasons"], [{ kind: "step", mode: "into" }]);
-  assert.equal(h.ctx.engine!.vars[11], 7);
-  assert.equal(h.ctx.engine!.vars[40], 0, "the step pinned the next statement before it ran");
+  assert.equal(h.ctx.run.engine!.vars[11], 7);
+  assert.equal(h.ctx.run.engine!.vars[40], 0, "the step pinned the next statement before it ran");
 });
 
 test("a resource patch while running resets the session with a fresh epoch", () => {
@@ -611,11 +623,11 @@ test("a resource patch while running resets the session with a fresh epoch", () 
   });
   const reset = lastControl(h, "debugSessionReset");
   assert.ok((reset["epoch"] as number) > epoch, "the patched run carries a new epoch");
-  assert.equal(h.ctx.debugger.epoch, reset["epoch"]);
+  assert.equal(h.ctx.run.debugger.epoch, reset["epoch"]);
   // Every request the old epoch issued is stale.
   send(h.ctx, { type: "debugPause", id: 190, epoch });
   assert.equal(lastControl(h, "debugError")["code"], "staleEpoch");
-  send(h.ctx, { type: "debugPause", id: 191, epoch: h.ctx.debugger.epoch });
+  send(h.ctx, { type: "debugPause", id: 191, epoch: h.ctx.run.debugger.epoch });
   assert.equal(lastControl(h, "debugAck")["id"], 191);
 });
 
@@ -631,6 +643,6 @@ test("a resource patch while stopped is refused without dropping the stop", () =
   const refused = lastControl(h, "patched");
   assert.match(refused["error"] as string, /stopped or parked/);
   // The pinned stop survived the refusal.
-  assert.equal(h.ctx.engine!.executionStopInfo !== null, true);
-  assert.equal(h.ctx.debugger.stopId, stopId);
+  assert.equal(h.ctx.run.engine!.executionStopInfo !== null, true);
+  assert.equal(h.ctx.run.debugger.stopId, stopId);
 });

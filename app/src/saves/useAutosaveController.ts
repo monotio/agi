@@ -3,6 +3,8 @@
  * Manages autosave storage, background flushes, worker synchronization,
  * and game resume / start-over lifecycle.
  */
+import { progressWriterMatches } from "./progressWriter.ts";
+import type { HostRngState } from "../../../src/runtime/rng.ts";
 import type { AgentLogEntry } from "../agent/agentLog.ts";
 import type { LlmConfig } from "../agent/llmClient.ts";
 import { gameRevision, updateBootedResources } from "../project/gameMetadata.ts";
@@ -182,6 +184,7 @@ export interface AutosaveControllerContext {
   readonly getBootedGame: () => BootedGame | null;
   readonly getWorker: () => Worker | null;
   readonly getRunScope?: () => string | undefined;
+  readonly getWriterGeneration?: () => number | undefined;
   /** The project's write owner makes its live image durable before a checkpoint. */
   readonly prepareCheckpoint?: (
     game: BootedGame,
@@ -330,6 +333,7 @@ type ResumeAdmission =
       readonly status: "restore";
       readonly restoreImage: string;
       readonly restoreMenus?: EngineMenuState | undefined;
+      readonly restoreRng?: HostRngState | undefined;
     }
   | { readonly status: "aborted"; readonly message?: string | undefined };
 
@@ -366,6 +370,8 @@ export interface AutosaveController {
     revision?: ResourceRevision;
     preview?: unknown;
     menus?: EngineMenuState;
+    rng?: HostRngState;
+    writerGeneration?: number;
     cycle: number;
     room: number;
     files?: Record<string, Uint8Array>;
@@ -677,11 +683,18 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
       revision?: ResourceRevision;
       preview?: unknown;
       menus?: EngineMenuState;
+      rng?: HostRngState;
+      writerGeneration?: number;
       cycle: number;
       room: number;
       files?: Record<string, Uint8Array>;
     },
-    captured: { game: BootedGame | null; worker: Worker | null; run: string | undefined },
+    captured: {
+      game: BootedGame | null;
+      worker: Worker | null;
+      run: string | undefined;
+      writerGeneration: number | undefined;
+    },
   ): Promise<boolean> {
     try {
       const booted = ctx.getBootedGame();
@@ -698,6 +711,13 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
       // removed body and a game that never bound a target both refuse
       // before anything is stored.
       let target = resolveProgressTarget(game);
+      if (
+        ctx.getWriterGeneration &&
+        (captured.writerGeneration === undefined ||
+          (target !== null &&
+            !progressWriterMatches(localStorage, target.locator, captured.writerGeneration)))
+      )
+        return false;
       // The incarnation this boot may write into: its captured lifetime
       // receipt, else the bound target's own epoch for a game carrying the
       // binding alone.
@@ -760,8 +780,12 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
         format: "monotio.agi.autosave",
         version: 1,
         image: String(msg.image),
+        ...(captured.writerGeneration !== undefined
+          ? { writerGeneration: captured.writerGeneration }
+          : {}),
         ...(preview !== undefined ? { preview } : {}),
         ...(msg.menus ? { menus: msg.menus } : {}),
+        ...(msg.rng ? { rng: structuredClone(msg.rng) } : {}),
         cycle: Number(msg.cycle),
         room: Number(msg.room),
         savedAt: Date.now(),
@@ -829,6 +853,8 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
     revision?: ResourceRevision;
     preview?: unknown;
     menus?: EngineMenuState;
+    rng?: HostRngState;
+    writerGeneration?: number;
     cycle: number;
     room: number;
     files?: Record<string, Uint8Array>;
@@ -836,7 +862,12 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
     const game = ctx.getBootedGame();
     invalidateOldCheckpoint();
     const revision = msg.revision ?? game?.revision;
-    const captured = { game, worker: ctx.getWorker(), run: ctx.getRunScope?.() };
+    const captured = {
+      game,
+      worker: ctx.getWorker(),
+      run: ctx.getRunScope?.(),
+      writerGeneration: msg.writerGeneration ?? ctx.getWriterGeneration?.(),
+    };
     autosaveWrite = autosaveWrite
       .then(async () => {
         if (
@@ -1119,6 +1150,7 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
       status: "restore",
       restoreImage: validated.image,
       ...(validated.menus !== undefined ? { restoreMenus: validated.menus } : {}),
+      ...(validated.rng !== undefined ? { restoreRng: validated.rng } : {}),
     };
   }
 

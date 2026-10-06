@@ -2,9 +2,11 @@ import type { LogAgentFn } from "../play/useInputController.ts";
 import { readGameSaves, readGameSaveRecord, writeGameSave } from "./gameSaves.ts";
 import { resolveProgressTarget } from "../project/progressBinding.ts";
 import type { BootedGame } from "../project/gameTypes.ts";
+import { withCheckpointLock } from "./gameProgress.ts";
 
 export interface SaveSlotControllerOptions {
   readonly getBootedGame: () => BootedGame | null;
+  readonly getWriterGeneration?: () => number | undefined;
   readonly logAgent?: LogAgentFn;
   readonly storage?: Pick<Storage, "getItem" | "setItem">;
 }
@@ -92,8 +94,12 @@ export function useSaveSlotController(options: SaveSlotControllerOptions): SaveS
       // resurface when the game is added again.
       if (options.getBootedGame()?.removed) return "false";
       const key = activeSaveTarget();
-      try {
-        return String(
+      const generation =
+        typeof context["writerGeneration"] === "number"
+          ? context["writerGeneration"]
+          : options.getWriterGeneration?.();
+      const write = () =>
+        String(
           Boolean(
             key &&
             writeGameSave(
@@ -102,9 +108,14 @@ export function useSaveSlotController(options: SaveSlotControllerOptions): SaveS
               Number(context["slot"]),
               String(context["image"]),
               context["amigaRegion"] === "pal" ? "pal" : "ntsc",
+              generation,
             ),
           ),
         );
+      if (options.getWriterGeneration && key)
+        return withCheckpointLock(key.locator, write).catch(() => "false");
+      try {
+        return write();
       } catch {
         return "false";
       }

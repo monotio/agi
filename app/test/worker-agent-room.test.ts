@@ -63,7 +63,7 @@ test("an authored room answer joins History and keeps its parked print in every 
   const admission = createMainProjectAdmission({
     ...ack.projectAdmission,
     query,
-    current: () => ctx.engine !== null,
+    current: () => ctx.run.engine !== null,
   });
   const session = openProjectSession({
     data: {
@@ -125,8 +125,8 @@ test("an authored room answer joins History and keeps its parked print in every 
     }),
   });
   ctx.fns.postFrame();
-  assert.equal(ctx.engine!.modalKind, "print");
-  const parked = ctx.engine!.getPresentation().text;
+  assert.equal(ctx.run.engine!.modalKind, "print");
+  const parked = ctx.run.engine!.getPresentation().text;
   assert.match(decodeTextRows(parked).join(" "), /You stand in generated room 2\./);
   const firstPrint = frames.length - 1;
   const result = await session.submitPreparedRoom({
@@ -142,7 +142,7 @@ test("an authored room answer joins History and keeps its parked print in every 
   assert.equal(session.model.capture().read("logic:2")!.content, roomSource);
   ctx.fns.postFrame();
   assert.equal(
-    ctx.engine!.modalKind,
+    ctx.run.engine!.modalKind,
     "print",
     "adopting the authored bytes keeps the window parked",
   );
@@ -151,7 +151,7 @@ test("an authored room answer joins History and keeps its parked print in every 
     assert.deepEqual(frame.text, parked, `cycle ${frame.cycle} keeps the complete print surface`);
   }
   const cursor = session.history.capture().cursor;
-  ctx.engine!.patchResources([
+  ctx.run.engine!.patchResources([
     { kind: "picture", num: 2, payload: compilePictureSource("vis 3\nfill 0,0\nend\n").bytes },
   ]);
   await assert.rejects(

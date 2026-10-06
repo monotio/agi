@@ -347,6 +347,25 @@ test("write_game_tests stores, merges, replaces and removes; commands need regis
   assert.ok(AGI_SYSTEM_PROMPT.includes("write_game_tests"));
 });
 
+test("editing a released game test keeps its RNG version during v2 migration", () => {
+  const state = world();
+  state.testsPayload = new TextEncoder().encode(
+    JSON.stringify({
+      format: "monotio.agi.tests.v1",
+      tests: [{ name: "old stream", room: 1, steps: [] }],
+    }),
+  );
+  const result = executeAgentTool(state, "write_game_tests", {
+    mode: "merge",
+    names: null,
+    tests: [{ name: "old stream", room: 1, steps: [{ action: "wait", ticks: 1 }] }],
+  });
+  assert.equal(result.success, true, result.error ?? "");
+  const migrated = parseGameTests(state.testsPayload);
+  assert.equal(migrated.format, GAME_TESTS_FORMAT);
+  assert.equal(migrated.tests[0]!.rngVersion, 1);
+});
+
 /** Whether the REAL parser (engine said()/dictionary path) accepts a command line. */
 function realParserAccepts(command: string): boolean {
   const container = createContainer();

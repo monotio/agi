@@ -8,109 +8,110 @@ import type { Inbound, WorkerContext } from "./context.ts";
 
 export function createPresentation(ctx: WorkerContext) {
   function postFrame(capture = false): void {
-    if (!ctx.engine || ctx.replay.isSeeking) return;
-    const enabled = ctx.engine.flags[9] !== 0;
-    if (enabled !== ctx.presentation.lastSoundEnabled) {
-      ctx.presentation.lastSoundEnabled = enabled;
+    if (!ctx.run.engine || ctx.replay.isSeeking) return;
+    const enabled = ctx.run.engine.flags[9] !== 0;
+    if (enabled !== ctx.run.presentation.lastSoundEnabled) {
+      ctx.run.presentation.lastSoundEnabled = enabled;
       ctx.ports.presentation({ type: "soundEnabled", enabled });
     }
-    const controls = ctx.engine.readControls();
+    const controls = ctx.run.engine.readControls();
     const serialized = JSON.stringify(controls);
-    if (serialized !== ctx.presentation.lastControls) {
-      ctx.presentation.lastControls = serialized;
+    if (serialized !== ctx.run.presentation.lastControls) {
+      ctx.run.presentation.lastControls = serialized;
       ctx.ports.presentation({ type: "controls", controls });
     }
-    if (ctx.engine.inputEdit !== ctx.presentation.lastInputEdit) {
-      ctx.presentation.lastInputEdit = ctx.engine.inputEdit;
-      ctx.ports.presentation({ type: "inputEdit", text: ctx.presentation.lastInputEdit });
+    if (ctx.run.engine.inputEdit !== ctx.run.presentation.lastInputEdit) {
+      ctx.run.presentation.lastInputEdit = ctx.run.engine.inputEdit;
+      ctx.ports.presentation({ type: "inputEdit", text: ctx.run.presentation.lastInputEdit });
     }
-    const frame = ctx.engine.getPresentation();
+    const frame = ctx.run.engine.getPresentation();
     if (capture) captureFrame(frame);
-    if (ctx.engine === ctx.imagePreviewEngine) ctx.imageHeroPreview?.(frame, ctx.cycle.cycleCount);
-    const modal = ctx.engine.modalKind;
+    if (ctx.run.engine === ctx.imagePreviewEngine)
+      ctx.imageHeroPreview?.(frame, ctx.run.cycle.cycleCount);
+    const modal = ctx.run.engine.modalKind;
     const textCells = frame.text;
     // Armed inspector channels join the sameness check so a sprite's sub-pixel
     // or slot change still ships its fresh ownership/objects payload.
-    const ownership = ctx.debug.channels.ownership ? ctx.engine.getOwnership() : null;
-    const objects = ctx.debug.channels.objects ? ctx.engine.readObjects() : null;
-    const picture = ctx.debug.channels.picture ? ctx.engine.getPictureSurface() : null;
+    const ownership = ctx.run.debug.channels.ownership ? ctx.run.engine.getOwnership() : null;
+    const objects = ctx.run.debug.channels.objects ? ctx.run.engine.readObjects() : null;
+    const picture = ctx.run.debug.channels.picture ? ctx.run.engine.getPictureSurface() : null;
     // The show.obj preview mask is composition metadata, not an armed channel:
     // it travels with every frame while the modal is open so layered
     // renderers can give the cel its own identifiable layer.
-    const preview = ctx.engine.getPreviewMask();
+    const preview = ctx.run.engine.getPreviewMask();
     const objectsJson = objects ? JSON.stringify(objects) : "";
     // Repeated display/trace opcodes can mark text dirty without changing a cell.
     // Sending those frames floods software GPU renderers and delays user input.
     let same =
-      ctx.cycle.lastInputReady === ctx.cycle.initialLogicStarted &&
-      ctx.presentation.lastModal === modal &&
-      ctx.presentation.lastPicRow === ctx.engine.displayBase &&
-      ctx.presentation.lastTextMode === ctx.engine.textModeActive &&
-      ctx.presentation.lastInputEnabled === ctx.engine.inputEnabled &&
-      ctx.presentation.lastReleaseGate === ctx.engine.releaseGate &&
-      objectsJson === ctx.presentation.lastObjectsJson &&
-      ctx.engine.patchGeneration === ctx.presentation.lastPatchGen &&
-      ctx.presentation.lastText !== null;
-    if (same && ctx.presentation.lastText) {
+      ctx.run.cycle.lastInputReady === ctx.run.cycle.initialLogicStarted &&
+      ctx.run.presentation.lastModal === modal &&
+      ctx.run.presentation.lastPicRow === ctx.run.engine.displayBase &&
+      ctx.run.presentation.lastTextMode === ctx.run.engine.textModeActive &&
+      ctx.run.presentation.lastInputEnabled === ctx.run.engine.inputEnabled &&
+      ctx.run.presentation.lastReleaseGate === ctx.run.engine.releaseGate &&
+      objectsJson === ctx.run.presentation.lastObjectsJson &&
+      ctx.run.engine.patchGeneration === ctx.run.presentation.lastPatchGen &&
+      ctx.run.presentation.lastText !== null;
+    if (same && ctx.run.presentation.lastText) {
       for (let i = 0; i < textCells.length; i++) {
-        if (textCells[i] !== ctx.presentation.lastText[i]) {
+        if (textCells[i] !== ctx.run.presentation.lastText[i]) {
           same = false;
           break;
         }
       }
     }
-    if (same && ctx.presentation.lastVisual) {
+    if (same && ctx.run.presentation.lastVisual) {
       for (let i = 0; i < frame.visual.length; i++) {
-        if (frame.visual[i] !== ctx.presentation.lastVisual[i]) {
+        if (frame.visual[i] !== ctx.run.presentation.lastVisual[i]) {
           same = false;
           break;
         }
       }
-    } else if (!ctx.presentation.lastVisual) {
+    } else if (!ctx.run.presentation.lastVisual) {
       same = false;
     }
     // The composed priority surface is part of the frame's identity: an
     // object can change depth (set.priority, horizon-relative bands) without
     // touching a visual byte, and debug views render the surface itself.
-    if (same && ctx.presentation.lastPriority) {
+    if (same && ctx.run.presentation.lastPriority) {
       for (let i = 0; i < frame.priority.length; i++) {
-        if (frame.priority[i] !== ctx.presentation.lastPriority[i]) {
+        if (frame.priority[i] !== ctx.run.presentation.lastPriority[i]) {
           same = false;
           break;
         }
       }
-    } else if (!ctx.presentation.lastPriority) {
+    } else if (!ctx.run.presentation.lastPriority) {
       same = false;
     }
     // Optional payloads publish on presence transitions both ways, so a
     // disarmed channel never leaves a stale mirror on the host.
-    if (same && (ownership === null) !== (ctx.presentation.lastOwnership === null)) {
+    if (same && (ownership === null) !== (ctx.run.presentation.lastOwnership === null)) {
       same = false;
-    } else if (same && ownership && ctx.presentation.lastOwnership) {
+    } else if (same && ownership && ctx.run.presentation.lastOwnership) {
       for (let i = 0; i < ownership.length; i++) {
-        if (ownership[i] !== ctx.presentation.lastOwnership[i]) {
+        if (ownership[i] !== ctx.run.presentation.lastOwnership[i]) {
           same = false;
           break;
         }
       }
     }
-    if (same && (preview === null) !== (ctx.presentation.lastPreview === null)) {
+    if (same && (preview === null) !== (ctx.run.presentation.lastPreview === null)) {
       same = false;
-    } else if (same && preview && ctx.presentation.lastPreview) {
+    } else if (same && preview && ctx.run.presentation.lastPreview) {
       for (let i = 0; i < preview.length; i++) {
-        if (preview[i] !== ctx.presentation.lastPreview[i]) {
+        if (preview[i] !== ctx.run.presentation.lastPreview[i]) {
           same = false;
           break;
         }
       }
     }
-    if (same && (picture === null) !== (ctx.presentation.lastPicture === null)) {
+    if (same && (picture === null) !== (ctx.run.presentation.lastPicture === null)) {
       same = false;
-    } else if (same && picture && ctx.presentation.lastPicture) {
+    } else if (same && picture && ctx.run.presentation.lastPicture) {
       for (let i = 0; i < picture.visual.length; i++) {
         if (
-          picture.visual[i] !== ctx.presentation.lastPicture[i] ||
-          picture.priority[i] !== ctx.presentation.lastPicturePriority![i]
+          picture.visual[i] !== ctx.run.presentation.lastPicture[i] ||
+          picture.priority[i] !== ctx.run.presentation.lastPicturePriority![i]
         ) {
           same = false;
           break;
@@ -118,21 +119,21 @@ export function createPresentation(ctx: WorkerContext) {
       }
     }
     if (same) return;
-    ctx.presentation.lastVisual = frame.visual.slice(); // retained copy, never transferred
-    ctx.presentation.lastPriority = frame.priority.slice();
-    ctx.presentation.lastText = textCells.slice();
-    ctx.presentation.lastOwnership = ownership ? ownership.slice() : null;
-    ctx.presentation.lastPreview = preview ? preview.slice() : null;
-    ctx.presentation.lastPicture = picture ? picture.visual.slice() : null;
-    ctx.presentation.lastPicturePriority = picture ? picture.priority.slice() : null;
-    ctx.presentation.lastObjectsJson = objectsJson;
-    ctx.presentation.lastPicRow = ctx.engine.displayBase;
-    ctx.presentation.lastTextMode = ctx.engine.textModeActive;
-    ctx.presentation.lastInputEnabled = ctx.engine.inputEnabled;
-    ctx.cycle.lastInputReady = ctx.cycle.initialLogicStarted;
-    ctx.presentation.lastReleaseGate = ctx.engine.releaseGate;
-    ctx.presentation.lastModal = modal;
-    ctx.presentation.lastPatchGen = ctx.engine.patchGeneration;
+    ctx.run.presentation.lastVisual = frame.visual.slice(); // retained copy, never transferred
+    ctx.run.presentation.lastPriority = frame.priority.slice();
+    ctx.run.presentation.lastText = textCells.slice();
+    ctx.run.presentation.lastOwnership = ownership ? ownership.slice() : null;
+    ctx.run.presentation.lastPreview = preview ? preview.slice() : null;
+    ctx.run.presentation.lastPicture = picture ? picture.visual.slice() : null;
+    ctx.run.presentation.lastPicturePriority = picture ? picture.priority.slice() : null;
+    ctx.run.presentation.lastObjectsJson = objectsJson;
+    ctx.run.presentation.lastPicRow = ctx.run.engine.displayBase;
+    ctx.run.presentation.lastTextMode = ctx.run.engine.textModeActive;
+    ctx.run.presentation.lastInputEnabled = ctx.run.engine.inputEnabled;
+    ctx.run.cycle.lastInputReady = ctx.run.cycle.initialLogicStarted;
+    ctx.run.presentation.lastReleaseGate = ctx.run.engine.releaseGate;
+    ctx.run.presentation.lastModal = modal;
+    ctx.run.presentation.lastPatchGen = ctx.run.engine.patchGeneration;
     const text = textCells.slice();
     ctx.ports.presentation(
       {
@@ -140,15 +141,15 @@ export function createPresentation(ctx: WorkerContext) {
         visual: frame.visual,
         priority: frame.priority,
         text,
-        picRow: ctx.engine.displayBase,
+        picRow: ctx.run.engine.displayBase,
         modal,
-        textMode: ctx.engine.textModeActive,
-        inputEnabled: ctx.engine.inputEnabled,
-        inputReady: ctx.cycle.initialLogicStarted,
-        holdToMove: ctx.engine.releaseGate !== 0,
-        edit: ctx.engine.inputEdit,
-        cycle: ctx.cycle.cycleCount,
-        patchGeneration: ctx.engine.patchGeneration,
+        textMode: ctx.run.engine.textModeActive,
+        inputEnabled: ctx.run.engine.inputEnabled,
+        inputReady: ctx.run.cycle.initialLogicStarted,
+        holdToMove: ctx.run.engine.releaseGate !== 0,
+        edit: ctx.run.engine.inputEdit,
+        cycle: ctx.run.cycle.cycleCount,
+        patchGeneration: ctx.run.engine.patchGeneration,
         ...(ownership ? { ownership } : {}),
         ...(objects ? { objects } : {}),
         ...(picture ? { picVisual: picture.visual, picPriority: picture.priority } : {}),
@@ -167,23 +168,23 @@ export function createPresentation(ctx: WorkerContext) {
 
   /** Copy the same presentation into the rings before postFrame transfers its buffers. */
   function captureFrame(frame: ReturnType<Engine["getPresentation"]>): void {
-    if (!ctx.engine || ctx.replay.replay !== null) return;
-    ctx.presentation.recentRing.push(
-      ctx.cycle.cycleCount,
+    if (!ctx.run.engine || ctx.replay.replay !== null) return;
+    ctx.run.presentation.recentRing.push(
+      ctx.run.cycle.cycleCount,
       frame.visual,
       frame.priority,
       frame.text,
-      ctx.engine.displayBase,
+      ctx.run.engine.displayBase,
     );
     const now = ctx.ports.now();
-    if (now - ctx.cycle.lastHistoryAt >= 1000) {
-      ctx.cycle.lastHistoryAt = now;
-      ctx.presentation.historyRing.push(
-        ctx.cycle.cycleCount,
+    if (now - ctx.run.cycle.lastHistoryAt >= 1000) {
+      ctx.run.cycle.lastHistoryAt = now;
+      ctx.run.presentation.historyRing.push(
+        ctx.run.cycle.cycleCount,
         frame.visual,
         frame.priority,
         frame.text,
-        ctx.engine.displayBase,
+        ctx.run.engine.displayBase,
       );
     }
   }
@@ -195,13 +196,13 @@ export function createPresentation(ctx: WorkerContext) {
   function serveFrames(id: number, count: number, stride: number, since: number | null): void {
     const n = Math.max(1, Math.min(64, Math.floor(count)));
     const step = Math.max(1, Math.floor(stride));
-    const useHistory = step * n > ctx.presentation.recentRing.capacity;
-    const frames = useHistory ? [] : ctx.presentation.recentRing.take(n, step, since);
+    const useHistory = step * n > ctx.run.presentation.recentRing.capacity;
+    const frames = useHistory ? [] : ctx.run.presentation.recentRing.take(n, step, since);
     if (useHistory) {
       // History samples are timed rather than every fixed number of logic cycles.
       // Select by their actual cycle IDs so a v10 change cannot distort stride.
-      const history = ctx.presentation.historyRing.take(
-        ctx.presentation.historyRing.capacity,
+      const history = ctx.run.presentation.historyRing.take(
+        ctx.run.presentation.historyRing.capacity,
         1,
         since,
       );
@@ -222,10 +223,10 @@ export function createPresentation(ctx: WorkerContext) {
   }
 
   function onRenderFrame(): void {
-    if (ctx.engine) {
+    if (ctx.run.engine) {
       ctx.replay.isSeeking = false;
-      ctx.presentation.lastVisual = null;
-      ctx.presentation.lastText = null;
+      ctx.run.presentation.lastVisual = null;
+      ctx.run.presentation.lastText = null;
       postFrame();
     }
   }

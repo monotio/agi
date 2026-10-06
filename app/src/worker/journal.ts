@@ -29,7 +29,7 @@ export function createJournal(ctx: WorkerContext) {
    * player held at the previous entry (item room 255 means carried).
    */
   function carried(): number[] {
-    return (ctx.engine?.readState().inventory ?? [])
+    return (ctx.run.engine?.readState().inventory ?? [])
       .filter((item) => item.room === 255)
       .map((item) => item.num)
       .sort((a, b) => a - b);
@@ -37,13 +37,13 @@ export function createJournal(ctx: WorkerContext) {
 
   /** Record the fact at transition time; the boundary flush posts it. */
   function record(to: number, cause: RoomTransitionCause, edge?: EdgeSide): void {
-    const j = ctx.journal;
+    const j = ctx.run.journal;
     j.pending.push({
       from: j.lastRoom,
       to,
       cause,
       ...(edge !== undefined ? { edge } : {}),
-      score: ctx.engine!.vars[V_SCORE]!,
+      score: ctx.run.engine!.vars[V_SCORE]!,
       carried: carried(),
     });
     j.lastRoom = to;
@@ -55,9 +55,9 @@ export function createJournal(ctx: WorkerContext) {
    * was recorded.
    */
   function flush(): void {
-    const j = ctx.journal;
+    const j = ctx.run.journal;
     if (j.pending.length === 0) return;
-    const patchGeneration = ctx.engine!.patchGeneration;
+    const patchGeneration = ctx.run.engine!.patchGeneration;
     for (const entry of j.pending) {
       const history = ctx.fns.historyMark(entry.to, entry.cause, entry.edge);
       ctx.ports.control({
@@ -67,7 +67,7 @@ export function createJournal(ctx: WorkerContext) {
         to: entry.to,
         cause: entry.cause,
         ...(entry.edge !== undefined ? { edge: entry.edge } : {}),
-        cycle: ctx.cycle.cycleCount,
+        cycle: ctx.run.cycle.cycleCount,
         patchGeneration,
         scoreDelta: entry.score - j.lastScore,
         gained: entry.carried.filter((num) => !j.lastCarried.includes(num)),
@@ -90,10 +90,11 @@ export function createJournal(ctx: WorkerContext) {
    */
   function onRoomTransition(_from: number, to: number, edge: number, restarted: boolean): void {
     if (ctx.replay.replay) return; // scratch replay traffic stays out
-    const j = ctx.journal;
+    const j = ctx.run.journal;
     if (j.lastRoom === null) {
+      const cause = j.pendingCause ?? "boot";
       j.pendingCause = null;
-      record(to, "boot");
+      record(to, cause);
       return;
     }
     const pending = j.pendingCause;
@@ -120,16 +121,17 @@ export function createJournal(ctx: WorkerContext) {
    * first call after boot records the session's starting room.
    */
   function noteTransition(): void {
-    const engine = ctx.engine;
+    const engine = ctx.run.engine;
     if (!engine || ctx.replay.replay) {
-      ctx.journal.pending = [];
+      ctx.run.journal.pending = [];
       return;
     }
-    const j = ctx.journal;
+    const j = ctx.run.journal;
     const room = engine.vars[V_ROOM]!;
     if (j.lastRoom === null) {
+      const cause = j.pendingCause ?? "boot";
       j.pendingCause = null;
-      record(room, "boot");
+      record(room, cause);
     } else if (room !== j.lastRoom || j.pendingCause !== null) {
       const pending = j.pendingCause;
       j.pendingCause = null;
@@ -148,7 +150,7 @@ export function createJournal(ctx: WorkerContext) {
 
   /** Arm the observation sink on the live engine; call after every boot. */
   function arm(): void {
-    ctx.engine?.setRoomTransitionListener(onRoomTransition);
+    ctx.run.engine?.setRoomTransitionListener(onRoomTransition);
   }
 
   /**
@@ -157,29 +159,29 @@ export function createJournal(ctx: WorkerContext) {
    * without inventing a transition.
    */
   function rebaseline(): void {
-    const j = ctx.journal;
+    const j = ctx.run.journal;
     j.pending = [];
     j.pendingCause = null;
-    j.lastRoom = ctx.engine ? ctx.engine.vars[V_ROOM]! : null;
-    if (ctx.engine) {
-      j.lastScore = ctx.engine.vars[V_SCORE]!;
+    j.lastRoom = ctx.run.engine ? ctx.run.engine.vars[V_ROOM]! : null;
+    if (ctx.run.engine) {
+      j.lastScore = ctx.run.engine.vars[V_SCORE]!;
       j.lastCarried = carried();
     }
   }
 
   /** The authoring re-enter message sets the pending cause; the listener emits. */
   function markReenter(): void {
-    ctx.journal.pendingCause = "reenter";
+    ctx.run.journal.pendingCause = "reenter";
   }
 
   /** A save image was delivered to the suspended restore interaction. */
   function markRestore(): void {
-    ctx.journal.pendingCause = "restore";
+    ctx.run.journal.pendingCause = "restore";
   }
 
   /** A debug write touched v0 — the next observed room is a jump. */
   function markJump(): void {
-    ctx.journal.pendingCause = "jump";
+    ctx.run.journal.pendingCause = "jump";
   }
 
   return {

@@ -10,16 +10,22 @@ const engine = useEngineApi();
 const discardOpen = ref(false);
 const label = computed(() =>
   editor.changeCount.value
-    ? `Update and restart ${editor.actionRoomName.value}`
-    : editor.selectedLaunch.value === "beginning"
-      ? "Play from beginning"
-      : `${engine.roomMap.currentRoom.value === editor.actionRoom.value ? "Restart" : "Play"} ${editor.actionRoomName.value}`,
+    ? editor.selectedLaunch.value === "my-game"
+      ? "Update and return to my game"
+      : `Update and restart ${editor.actionRoomName.value}`
+    : editor.selectedLaunch.value === "my-game"
+      ? "Play from my game"
+      : editor.selectedLaunch.value === "beginning"
+        ? "Play from beginning"
+        : `${engine.roomMap.currentRoom.value === editor.actionRoom.value ? "Restart" : "Play"} ${editor.actionRoomName.value}`,
 );
 const selectedName = computed(() =>
-  editor.selectedLaunch.value === "beginning"
-    ? "From the beginning"
-    : (editor.launchChoices.value.find((entry) => entry.id === editor.selectedLaunch.value)?.name ??
-      "Carry over"),
+  editor.selectedLaunch.value === "my-game"
+    ? "From my game"
+    : editor.selectedLaunch.value === "beginning"
+      ? "From the beginning"
+      : (editor.launchChoices.value.find((entry) => entry.id === editor.selectedLaunch.value)
+          ?.name ?? "Carry over"),
 );
 async function discardChanges(): Promise<void> {
   try {
@@ -54,6 +60,7 @@ async function discardChanges(): Promise<void> {
       <button
         v-for="choice in [
           { id: 'carry', name: 'Carry over' },
+          { id: 'my-game', name: 'From my game' },
           { id: 'beginning', name: 'From the beginning' },
           ...editor.launchChoices.value,
         ]"

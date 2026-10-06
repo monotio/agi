@@ -1,8 +1,24 @@
 import assert from "node:assert/strict";
+import { roomEntryProblem } from "../../src/runtime/roomEntry.ts";
+
+test("stored and runtime Launch inputs reject transition-owned fields together", () => {
+  for (const input of [
+    { variables: { "0": 1 } },
+    { variables: { "2": 4 } },
+    { flags: { "5": true } },
+  ]) {
+    assert.notEqual(roomEntryProblem(input, 256), null);
+    assert.throws(
+      () => readWorldLaunches({ "1": { entries: [{ id: "bad", name: "Bad", ...input }] } }),
+      /room transition/,
+    );
+  }
+});
 import { test } from "node:test";
 import { validateAuthoringState } from "../../src/authoring/authoringState.ts";
 import {
   addLaunch,
+  readWorldLaunches,
   selectLaunch,
   updateLaunch,
   type Launch,

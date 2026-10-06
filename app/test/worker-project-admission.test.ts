@@ -37,12 +37,12 @@ test("walkthrough rebuilds revoke Create admission; taking control can grant the
   await ctx.projectLoader.loading;
   ctx.fns.stopTimers();
   for (const type of ["resetReplay", "replayRestore"] as const) {
-    const token = ctx.projectAdmission!.runToken;
+    const token = ctx.run.projectAdmission!.runToken;
     if (type === "replayRestore") onWorkerMessage(ctx, { type: "resetReplay", seed: 1 });
-    const engine = ctx.engine;
+    const engine = ctx.run.engine;
     onWorkerMessage(ctx, type === "resetReplay" ? { type, seed: 1 } : { type, tick: 0, id: 1 });
-    assert.notEqual(ctx.engine, engine);
-    assert.ok(ctx.projectAdmission === null, "a tape-driven engine has no Create authority");
+    assert.notEqual(ctx.run.engine, engine);
+    assert.ok(ctx.run.projectAdmission === null, "a tape-driven engine has no Create authority");
     onWorkerMessage(ctx, { type: "projectCreate", id: 2, documents: initial.documents });
     const denied = control.at(-1);
     assert.ok(denied?.type === "projectCreated" && !denied.grant);
@@ -89,10 +89,10 @@ test("an installed game with an unreadable SOUND can enter Create and run an unr
     result?.type === "previewUpdateResult" && result.status === "committed",
     JSON.stringify(result),
   );
-  ctx.engine!.tick();
-  assert.equal(ctx.engine!.vars[80], 42);
+  ctx.run.engine!.tick();
+  assert.equal(ctx.run.engine!.vars[80], 42);
   assert.throws(
-    () => openContainer(ctx.engine!.containerFiles).getResource("sound", 34),
+    () => openContainer(ctx.run.engine!.containerFiles).getResource("sound", 34),
     /corrupt/i,
   );
 });
@@ -132,7 +132,7 @@ function harness() {
   const initial = candidate();
   onWorkerMessage(ctx, { type: "boot", files: initial.files, words: [], profile: "2.936" });
   ctx.fns.stopTimers();
-  const state = newProjectAdmissionState("test-run", ctx.engine!);
+  const state = newProjectAdmissionState("test-run", ctx.run.engine!);
   state.buildId = initial.buildId;
   state.documentId = initial.documentId;
   state.sources = initial.sources;
@@ -144,7 +144,7 @@ function harness() {
 test("project admission installs complete document identities with no debugger controller", () => {
   const h = harness();
   assert.equal(h.ctx.debuggerLoader.installed, false);
-  assert.equal(h.ctx.debugger.epoch, 0);
+  assert.equal(h.ctx.run.debugger.epoch, 0);
   const initial = projectAdmissionIdentity(h.ctx, h.state)!;
   const source = candidate("// exact source-only edit\nreturn;");
   h.admission.onPreviewUpdate({
@@ -256,10 +256,10 @@ for (const wait of ["print", "key"] as const)
     await ctx.projectLoader.loading;
     ctx.fns.stopTimers();
     ctx.fns.tickEngine();
-    assert.equal(ctx.engine!.modalKind, wait === "print" ? "print" : null);
-    assert.equal(ctx.engine!.awaitingKey, wait === "key");
-    const text = ctx.engine!.textCells.slice();
-    const image = ctx.engine!.recordingImage();
+    assert.equal(ctx.run.engine!.modalKind, wait === "print" ? "print" : null);
+    assert.equal(ctx.run.engine!.awaitingKey, wait === "key");
+    const text = ctx.run.engine!.textCells.slice();
+    const image = ctx.run.engine!.recordingImage();
     const edited = candidate(
       'if (isset(f5)) { print("New message"); assignn(v80,2); } return;',
       "{}",
@@ -269,36 +269,44 @@ for (const wait of ["print", "key"] as const)
     onWorkerMessage(ctx, {
       type: "previewUpdate",
       id: 201,
-      runToken: ctx.projectAdmission!.runToken,
-      expected: projectAdmissionIdentity(ctx, ctx.projectAdmission)!,
+      runToken: ctx.run.projectAdmission!.runToken,
+      expected: projectAdmissionIdentity(ctx, ctx.run.projectAdmission)!,
       candidate: { ...edited, buildId: "wrong" },
     });
-    assert.deepEqual(ctx.engine!.recordingImage(), image);
-    assert.deepEqual(ctx.engine!.textCells, text);
-    assert.equal(ctx.engine!.continuationPending, true);
+    assert.deepEqual(ctx.run.engine!.recordingImage(), image);
+    assert.deepEqual(ctx.run.engine!.textCells, text);
+    assert.equal(ctx.run.engine!.continuationPending, true);
     onWorkerMessage(ctx, {
       type: "previewUpdate",
       id: 202,
       mode: "reenter",
-      runToken: ctx.projectAdmission!.runToken,
-      expected: projectAdmissionIdentity(ctx, ctx.projectAdmission)!,
+      runToken: ctx.run.projectAdmission!.runToken,
+      expected: projectAdmissionIdentity(ctx, ctx.run.projectAdmission)!,
       candidate: edited,
     });
     const result = control.findLast((msg) => msg.type === "previewUpdateResult");
     assert.ok(result?.type === "previewUpdateResult");
     assert.equal(result.status, "committed", JSON.stringify(result));
-    assert.equal(ctx.input.keyWaiting, false, "the abandoned key wait is cleared on the host too");
-    assert.ok(ctx.previewVisitEngine === ctx.engine, "Update restart stays outside saved progress");
+    assert.equal(
+      ctx.run.input.keyWaiting,
+      false,
+      "the abandoned key wait is cleared on the host too",
+    );
+    assert.equal(ctx.run.progress.mode, "create", "Update restart stays outside saved progress");
     ctx.fns.tickEngine();
-    assert.equal(ctx.engine!.modalKind, "print", "the new entrance message is shown");
-    ctx.engine!.ackPrint();
+    assert.equal(ctx.run.engine!.modalKind, "print", "the new entrance message is shown");
+    ctx.run.engine!.ackPrint();
     ctx.fns.tickEngine();
-    assert.equal(ctx.engine!.vars[80], 2, "the discarded old message never resumes into old code");
+    assert.equal(
+      ctx.run.engine!.vars[80],
+      2,
+      "the discarded old message never resumes into old code",
+    );
   });
 
 test("adopting an authored room refuses a changed native image", () => {
   const h = harness();
-  h.ctx.projectAdmission = h.state;
+  h.ctx.run.projectAdmission = h.state;
   const before = projectAdmissionIdentity(h.ctx, h.state)!;
   h.admission.onPreviewUpdate({
     type: "previewUpdate",
@@ -344,8 +352,8 @@ test("keep-playing Update settles during a message and resumes the old pass befo
     type: "previewUpdate",
     id: 301,
     mode: "keep",
-    runToken: ctx.projectAdmission!.runToken,
-    expected: projectAdmissionIdentity(ctx, ctx.projectAdmission)!,
+    runToken: ctx.run.projectAdmission!.runToken,
+    expected: projectAdmissionIdentity(ctx, ctx.run.projectAdmission)!,
     candidate: edited,
   });
   const result = control.findLast((m) => m.type === "previewUpdateResult");
@@ -353,18 +361,18 @@ test("keep-playing Update settles during a message and resumes the old pass befo
     result?.type === "previewUpdateResult" && result.status === "committed",
     JSON.stringify(result),
   );
-  assert.equal(ctx.engine!.modalKind, "print");
-  assert.equal(ctx.engine!.vars[80], 0);
+  assert.equal(ctx.run.engine!.modalKind, "print");
+  assert.equal(ctx.run.engine!.vars[80], 0);
   assert.equal(
-    ctx.engine!.recordingImage(),
+    ctx.run.engine!.recordingImage(),
     null,
     "the old pass cannot be saved against new instruction offsets",
   );
-  ctx.engine!.ackPrint();
+  ctx.run.engine!.ackPrint();
   ctx.fns.tickEngine();
-  assert.equal(ctx.engine!.vars[80], 1, "the parked pass completes its own instructions");
+  assert.equal(ctx.run.engine!.vars[80], 1, "the parked pass completes its own instructions");
   ctx.fns.tickEngine();
-  assert.equal(ctx.engine!.vars[81], 9, "the following cycle runs the new instructions");
+  assert.equal(ctx.run.engine!.vars[81], 9, "the following cycle runs the new instructions");
 });
 
 test("Update and launch refuses invalid entry inputs before changing resources or the current run", async (t) => {
@@ -387,14 +395,14 @@ test("Update and launch refuses invalid entry inputs before changing resources o
   await ctx.projectLoader.loading;
   ctx.fns.stopTimers();
   ctx.fns.tickEngine();
-  const engine = ctx.engine!;
+  const engine = ctx.run.engine!;
   const bytes = sha256Hex(engine.serialize());
-  const identity = projectAdmissionIdentity(ctx, ctx.projectAdmission)!;
+  const identity = projectAdmissionIdentity(ctx, ctx.run.projectAdmission)!;
   onWorkerMessage(ctx, {
     type: "previewUpdate",
     id: 302,
     mode: "reenter",
-    runToken: ctx.projectAdmission!.runToken,
+    runToken: ctx.run.projectAdmission!.runToken,
     expected: identity,
     candidate: candidate("assignn(v70,99);return;", "{}", initial.files),
     launch: { room: 0, state: { variables: { "70": 12 }, hero: { x: 160, y: 100 } } },
@@ -404,9 +412,9 @@ test("Update and launch refuses invalid entry inputs before changing resources o
     result?.type === "previewUpdateResult" && result.status === "refused",
     JSON.stringify(result),
   );
-  assert.ok(ctx.engine === engine);
+  assert.ok(ctx.run.engine === engine);
   assert.equal(sha256Hex(engine.serialize()), bytes);
-  assert.deepEqual(projectAdmissionIdentity(ctx, ctx.projectAdmission), identity);
+  assert.deepEqual(projectAdmissionIdentity(ctx, ctx.run.projectAdmission), identity);
 });
 
 test("Update and launch uses the new LOGIC 0 with carried state, pause holds and random state", async (t) => {
@@ -424,18 +432,18 @@ test("Update and launch uses the new LOGIC 0 with carried state, pause holds and
   await ctx.projectLoader.loading;
   ctx.fns.stopTimers();
   ctx.fns.tickEngine();
-  ctx.cycle.paused = true;
-  ctx.history.rng = 4321;
+  ctx.run.cycle.paused = true;
+  ctx.run.rng.word = 4321;
   onWorkerMessage(ctx, {
     type: "previewUpdate",
     id: 303,
     mode: "reenter",
-    runToken: ctx.projectAdmission!.runToken,
-    expected: projectAdmissionIdentity(ctx, ctx.projectAdmission)!,
+    runToken: ctx.run.projectAdmission!.runToken,
+    expected: projectAdmissionIdentity(ctx, ctx.run.projectAdmission)!,
     candidate: candidate("assignv(v71,v70);return;", "{}", initial.files),
     launch: { room: 0, state: { variables: { "70": 12 } } },
   });
-  assert.equal(ctx.engine!.vars[71], 12, "new global code sees the Launch inputs");
-  assert.equal(ctx.cycle.paused, true, "the app still owns its pause hold");
-  assert.equal(ctx.history.rng, 4321, "Carry over keeps the random state");
+  assert.equal(ctx.run.engine!.vars[71], 12, "new global code sees the Launch inputs");
+  assert.equal(ctx.run.cycle.paused, true, "the app still owns its pause hold");
+  assert.equal(ctx.run.rng.word, 4321, "Carry over keeps the random state");
 });

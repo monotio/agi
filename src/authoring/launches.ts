@@ -7,6 +7,7 @@
  * a launch is applied to a running game is the engine's business.
  */
 import type { AuthoringState } from "./authoringState.ts";
+import { roomEntryProblem, type RoomEntryState } from "../runtime/roomEntry.ts";
 
 export interface Launch {
   id: string;
@@ -34,10 +35,6 @@ type World = AuthoringState["world"];
 export type LaunchFields = Omit<Launch, "id"> & { id?: string };
 
 const ROOM_MAX = 255;
-const BYTE_MAX = 255;
-const HERO_X_MAX = 159;
-const HERO_Y_MAX = 167;
-const SEED_MAX = 65535;
 const NAME_MAX = 60;
 const LAUNCH_FIELDS = [
   "id",
@@ -51,7 +48,7 @@ const LAUNCH_FIELDS = [
   "seed",
 ];
 const ROOM_LAUNCH_FIELDS = ["selected", "entries"];
-const SELECTIONS = ["carry", "beginning"];
+const SELECTIONS = ["carry", "beginning", "my-game"];
 const RESERVED_KEYS = ["__proto__", "constructor", "prototype"];
 
 function record(value: unknown, label: string, limit: number): Record<string, unknown> {
@@ -89,30 +86,6 @@ function decimalKey(key: string, min: number, max: number): number | undefined {
     : undefined;
 }
 
-/** An integer within an inclusive range; strings do not coerce in. */
-function boundedNumber(value: unknown, min: number, max: number, label: string): number {
-  if (typeof value !== "number" || !Number.isInteger(value) || value < min || value > max) {
-    throw new Error(`Invalid ${label}.`);
-  }
-  return value;
-}
-
-function readByteRecord(
-  value: unknown,
-  label: string,
-  read: (entry: unknown) => unknown,
-): Record<string, unknown> | undefined {
-  if (value === undefined) return undefined;
-  const entries: Record<string, unknown> = {};
-  for (const [key, entry] of Object.entries(record(value, label, 256))) {
-    if (decimalKey(key, 0, BYTE_MAX) === undefined) {
-      throw new Error(`Invalid ${label} key '${key}'.`);
-    }
-    entries[key] = read(entry);
-  }
-  return Object.keys(entries).length === 0 ? undefined : ordered(entries);
-}
-
 function readEntry(value: unknown, room: string, used: ReadonlySet<string>): Launch {
   const entry = record(value, `launch in room ${room}`, LAUNCH_FIELDS.length);
   for (const field of Object.keys(entry)) {
@@ -137,56 +110,19 @@ function readEntry(value: unknown, room: string, used: ReadonlySet<string>): Lau
     if (typeof note !== "string") throw new Error(`Invalid launch '${id}' note in room ${room}.`);
     if (note.trim() !== "") launch.note = note.trim();
   }
-  const cameFrom = entry["cameFrom"];
-  if (cameFrom !== undefined) {
-    const from = readFields(cameFrom, ["room", "edge"], `launch '${id}' cameFrom in room ${room}`);
-    // Room numbers are identities, not labels: 0..255 like exits.
-    launch.cameFrom = {
-      room: boundedNumber(
-        from["room"],
-        0,
-        ROOM_MAX,
-        `launch '${id}' cameFrom room in room ${room}`,
-      ),
-    };
-    const edge = from["edge"];
-    if (edge !== undefined) {
-      if (typeof edge !== "number" || ![1, 2, 3, 4].includes(edge)) {
-        throw new Error(`Invalid launch '${id}' cameFrom edge in room ${room}.`);
-      }
-      launch.cameFrom.edge = edge as 1 | 2 | 3 | 4;
+  const problem = roomEntryProblem(entry);
+  if (problem) throw new Error(`Invalid launch '${id}' in room ${room}: ${problem}`);
+  const inputs = entry as RoomEntryState;
+  if (inputs.cameFrom) launch.cameFrom = { ...inputs.cameFrom };
+  if (inputs.hero) launch.hero = { ...inputs.hero };
+  for (const field of ["flags", "variables", "items"] as const) {
+    const values = inputs[field];
+    if (values && Object.keys(values).length) {
+      if (field === "flags") launch.flags = ordered(values as Record<string, boolean>);
+      else launch[field] = ordered(values as Record<string, number>);
     }
   }
-  const flags = readByteRecord(entry["flags"], `launch '${id}' flags in room ${room}`, (flag) => {
-    if (typeof flag !== "boolean") {
-      throw new Error(`Invalid launch '${id}' flags in room ${room}.`);
-    }
-    return flag;
-  });
-  if (flags) launch.flags = flags as Record<string, boolean>;
-  const variables = readByteRecord(
-    entry["variables"],
-    `launch '${id}' variables in room ${room}`,
-    (variable) => boundedNumber(variable, 0, BYTE_MAX, `launch '${id}' variables in room ${room}`),
-  );
-  if (variables) launch.variables = variables as Record<string, number>;
-  // Inventory locations are AGI room numbers; 255 is the engine's "carried by
-  // the hero" value — `get` writes 0xff into itemLocations (src/runtime/engine.ts).
-  const items = readByteRecord(entry["items"], `launch '${id}' items in room ${room}`, (item) =>
-    boundedNumber(item, 0, ROOM_MAX, `launch '${id}' items in room ${room}`),
-  );
-  if (items) launch.items = items as Record<string, number>;
-  const hero = entry["hero"];
-  if (hero !== undefined) {
-    const spot = readFields(hero, ["x", "y"], `launch '${id}' hero in room ${room}`);
-    const x = boundedNumber(spot["x"], 0, HERO_X_MAX, `launch '${id}' hero x in room ${room}`);
-    const y = boundedNumber(spot["y"], 0, HERO_Y_MAX, `launch '${id}' hero y in room ${room}`);
-    launch.hero = { x, y };
-  }
-  const seed = entry["seed"];
-  if (seed !== undefined) {
-    launch.seed = boundedNumber(seed, 0, SEED_MAX, `launch '${id}' seed in room ${room}`);
-  }
+  if (inputs.seed !== undefined) launch.seed = inputs.seed;
   return launch;
 }
 
@@ -328,7 +264,7 @@ export function moveLaunch(world: World, room: number, id: string, index: number
 
 /**
  * Selects which launch a room opens with: "carry" (the default, so the record
- * stays absent), "beginning" or an entry id.
+ * stays absent), "beginning", "my-game" or an entry id.
  */
 export function selectLaunch(world: World, room: number, selected: string): World {
   const key = checkedRoom(room, "select launch");

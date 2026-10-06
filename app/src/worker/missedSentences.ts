@@ -13,11 +13,11 @@ export interface PendingSentence {
 }
 /** Read parser state and the existing instruction trace; never write interpreter state. */
 export function observeSentence(ctx: WorkerContext, record?: TraceRecord, finished = false): void {
-  const pending = ctx.input.sentence;
+  const pending = ctx.run.input.sentence;
   if (!pending) return;
-  const engine = ctx.engine;
+  const engine = ctx.run.engine;
   if (engine !== pending.engine || ctx.replay.replay) {
-    ctx.input.sentence = null;
+    ctx.run.input.sentence = null;
     return;
   }
   if (!pending.parsed) {
@@ -30,7 +30,7 @@ export function observeSentence(ctx: WorkerContext, record?: TraceRecord, finish
     record?.op === ACTION_BY_NAME["parse"]!.code &&
     record.args[0]! < engine.profile.stringSlots;
   if (!pending.unknown && !finished && !reparsing && engine.flags[2] !== 0) return;
-  ctx.input.sentence = null;
+  ctx.run.input.sentence = null;
   if (pending.unknown || !pending.matched)
     ctx.ports.control({
       type: "missedSentence",
