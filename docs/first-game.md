@@ -12,8 +12,10 @@ in the Meadow, with the game running beside the parts list.
 3. Open **VIEWS** and select the hero. Change a pixel in a cel, then move the
    hero in the game to see the animation. **Focus** expands the editor;
    pressing Escape twice returns to the workspace.
-4. Open **WORDS** and test a sentence to see its word meanings. New responses
-   can use those groups in `said()`; **+ Add** in LOGIC guides response creation.
+4. Open **WORDS** and test a sentence to see its word meanings. Choose **Teach** beside a new word to give it a meaning and an answer.
+   **+ Add → Answer a sentence** writes a reply for the whole sentence.
+   Use **Place hero → Start here** or drag the hero to choose its start; **Door**
+   draws a box and lets you pick the next room.
 5. Click **Saved** to open **History** and name a checkpoint. Naming waits for the visible edits to save, including source with errors.
    Undo and Redo work across all the editors.
 6. Switch to **Play** for the game at full size. **Settings → This game →

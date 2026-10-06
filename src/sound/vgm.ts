@@ -1,7 +1,7 @@
 /** VGM 1.50/1.51 PSG command reconstruction, independently from the format spec. */
 import { createSoundDocument, type SoundEventDataInput } from "./document.ts";
 import type { ProfileId } from "../runtime/profile.ts";
-import { PIT_BASE_FREQ } from "./sound.ts";
+import { PSG_BASE_FREQ } from "./sound.ts";
 import { insertSoundSpan } from "./sequencer.ts";
 import { MusicReader, type SoundImport } from "./musicImport.ts";
 
@@ -90,7 +90,7 @@ export function importVgm(bytes: Uint8Array, profileId?: ProfileId): SoundImport
     for (let lane = 0; lane < 4; lane++) {
       const div = Math.max(
         1,
-        Math.min(1023, Math.round((divisors[lane]! * PIT_BASE_FREQ * 32) / clock)),
+        Math.min(1023, Math.round((divisors[lane]! * PSG_BASE_FREQ * 32) / clock)),
       );
       const data: SoundEventDataInput =
         attenuation[lane] === 15
@@ -160,6 +160,6 @@ export function importVgm(bytes: Uint8Array, profileId?: ProfileId): SoundImport
   return {
     document,
     tempo: 120,
-    summary: `Four PSG voices · One pass · Timing rounded to 60 Hz${Math.abs(clock - PIT_BASE_FREQ * 32) > 2 ? " · Pitches scaled to the game chip clock" : ""}${stereo ? " · Stereo folded to mono" : ""}`,
+    summary: `Four PSG voices · One pass · Timing rounded to 60 Hz${Math.abs(clock - PSG_BASE_FREQ * 32) > 2 ? " · Pitches scaled to the game chip clock" : ""}${stereo ? " · Stereo folded to mono" : ""}`,
   };
 }

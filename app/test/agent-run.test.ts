@@ -1,6 +1,9 @@
-import { test } from "node:test";
+import { waitUntil } from "./async.ts";
+import { beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
 import { AgentRun } from "../src/agent/agentRun.ts";
+import { beginProviderTask } from "../src/agent/providerBudget.ts";
+beforeEach(() => beginProviderTask(5));
 
 test("budget pauses before another request and Continue preserves the task", async () => {
   const run = new AgentRun("gpt-6-sol", () => {}, 1);
@@ -65,18 +68,21 @@ test("cache reads use the per-model rate, and 10% of input where none is listed"
   });
   assert.equal(fable.snapshot().spent, 0.25);
   // Opus 5.5 lists $0.20/M; 10% of its $4 input would be $0.40.
+  beginProviderTask(5);
   const opus = new AgentRun("claude-opus-5-5", () => {});
   opus.run(async () => {
     opus.recordUsage({ input: 1_000_000, cachedInput: 1_000_000, cacheWriteInput: 0, output: 0 });
   });
   assert.equal(opus.snapshot().spent, 0.2);
   // GPT-6 Sol lists no cache rate: 100,000 reads at 10% of $2/M, below the long-context threshold.
+  beginProviderTask(5);
   const sol = new AgentRun("gpt-6-sol", () => {});
   sol.run(async () => {
     sol.recordUsage({ input: 100_000, cachedInput: 100_000, cacheWriteInput: 0, output: 0 });
   });
   assert.equal(sol.snapshot().spent, 0.02);
   // GPT-6.1 Sol lists reads at $0.10/M (5% of input): the same reads cost half.
+  beginProviderTask(5);
   const sol61 = new AgentRun("gpt-6.1-sol", () => {});
   sol61.run(async () => {
     sol61.recordUsage({ input: 100_000, cachedInput: 100_000, cacheWriteInput: 0, output: 0 });
@@ -106,16 +112,56 @@ test("a long task and a long request run on without a wall-clock stop", async (t
   });
   // Resume any later pause so the old behaviour fails instead of hanging.
   let pausedLater = false;
-  for (let turn = 0; turn < 100; turn++) {
-    await Promise.resolve();
+  let finished = false;
+  void result.finally(() => {
+    finished = true;
+  });
+  await waitUntil(() => {
     if (run.snapshot().status === "paused") {
       pausedLater = true;
       run.resume();
     }
-  }
+    return finished;
+  }, "the long request did not settle");
   const answer = await result;
   assert.equal(pausedAfter16Minutes, false, "no pause at 15 minutes");
   assert.equal(pausedLater, false, "no pause after a long request");
   assert.equal(aborted, false, "no abort at 10 minutes");
   assert.equal(answer, "streamed");
+});
+
+test("task spend excludes image charges and pending reservations", async () => {
+  const { reserveImageBudget } = await import("../src/agent/providerBudget.ts");
+  const run = new AgentRun("gpt-6-sol", () => {});
+  await run.run(async () => {
+    run.recordUsage({ input: 10000, cachedInput: 0, cacheWriteInput: 0, output: 5000 });
+    reserveImageBudget(1)(0.5);
+    const settle = reserveImageBudget(1);
+    try {
+      // 10,000 × $2/M + 5,000 × $10/M = $0.07 for this task.
+      assert.equal(run.snapshot().reportedSpent, 0.07);
+      assert.ok(Math.abs(run.snapshot().spent - 0.57) < 1e-12);
+    } finally {
+      settle(0);
+    }
+  });
+});
+
+test("cancelled and interrupted requests keep only completed usage as spent", async () => {
+  for (const cancelled of [true, false]) {
+    beginProviderTask(5);
+    const run = new AgentRun("gpt-6-sol", () => {});
+    await assert.rejects(
+      run.run(async () => {
+        run.recordUsage({ input: 10000, cachedInput: 0, cacheWriteInput: 0, output: 5000 });
+        return run.request(async () => {
+          if (cancelled) run.cancel();
+          throw new Error("interrupted");
+        });
+      }),
+      /interrupted/,
+    );
+    assert.equal(run.snapshot().usageIncomplete, true);
+    assert.equal(run.snapshot().reportedSpent, 0.07);
+  }
 });

@@ -14,7 +14,7 @@
  * session's segment ends with reason "resume" — the tape is never
  * rewritten, only continued.
  */
-import { resetRecording } from "./session.ts";
+import { resetRecording, configureSessionTiming } from "./session.ts";
 import { Engine } from "../../../src/runtime/engine.ts";
 import { openContainer } from "../../../src/container/container.ts";
 import { base64ToBytes, bytesToBase64 } from "../project/bytes.ts";
@@ -41,6 +41,7 @@ export function createHistoryView(
   ctx: WorkerContext,
   /** Builds each scratch session's context: createWorkerContext, which passes itself. */
   createContext: (ports: WorkerPorts) => WorkerContext,
+  createDrive: typeof openHistoryDrive = openHistoryDrive,
 ) {
   /**
    * Whether the view session has successfully opened: a start whose landing
@@ -129,7 +130,7 @@ export function createHistoryView(
         break;
       }
     }
-    const drive = openHistoryDrive(segment, createContext, {
+    const drive = createDrive(segment, createContext, {
       ...(anchorIdx !== undefined ? { anchor: anchorIdx } : {}),
       ports: {
         // Scratch host requests resolve from the recorded answers, never the
@@ -188,16 +189,73 @@ export function createHistoryView(
       if (!opened) endView(false);
       return;
     }
-    view.request = null;
     ctx.replay.isSeeking = false;
     scratch.replay.isSeeking = false;
-    scratch.fns.postFrame();
-    postReport(requestId, true);
-    // A start that could not open the tape leaves no half-open session.
-    if (!opened) {
-      if (drive.error !== null) endView(false);
-      else opened = true;
+    const finish = (): void => {
+      view.request = null;
+      postReport(requestId, true);
+      // A start that could not open the tape leaves no half-open session.
+      if (!opened) {
+        if (drive.error !== null) endView(false);
+        else opened = true;
+      }
+    };
+    const engine = scratch.engine;
+    if (
+      engine === null ||
+      drive.tick !== 0 ||
+      scratch.cycle.initialLogicStarted ||
+      engine.readLeanState().pictureShown ||
+      engine.textModeActive ||
+      engine.modalKind !== null ||
+      drive.error !== null
+    ) {
+      scratch.fns.postFrame();
+      finish();
+      return;
     }
+    // Before LOGIC 0 runs, the picture allocation is white. Present the
+    // first frame from a separate replay; the selected drive stays exact,
+    // including its tick, queues and eligibility for Resume from here.
+    const preview = openDrive(view.recording!.segments[view.segment]!, drive.tick);
+    preview.ctx.replay.isSeeking = true;
+    const presentStart = (): void => {
+      if (view.request !== requestId) return;
+      let presented = false;
+      try {
+        const start = ctx.ports.now();
+        while (!preview.halted && !presented) {
+          preview.step();
+          const engine = preview.ctx.engine;
+          presented =
+            engine !== null &&
+            (engine.readLeanState().pictureShown ||
+              engine.textModeActive ||
+              engine.modalKind !== null);
+          if (!presented && ctx.ports.now() - start > CHUNK_BUDGET_MS) {
+            view.timer = setTimeout(() => {
+              view.timer = null;
+              presentStart();
+            }, 0);
+            return;
+          }
+        }
+      } catch (error) {
+        view.request = null;
+        scratch.replay.isSeeking = false;
+        preview.ctx.replay.isSeeking = false;
+        postViewError(requestId, String(error));
+        endView(false);
+        return;
+      }
+      if (presented && preview.error === null) {
+        preview.ctx.replay.isSeeking = false;
+        preview.ctx.fns.postFrame();
+      }
+      // An empty tape has no presented frame: retain the current surface.
+      finish();
+    };
+    presentStart();
   }
 
   /**
@@ -314,7 +372,10 @@ export function createHistoryView(
       openContainer(files, boot.profile ? { profile: boot.profile } : {}),
       ctx.host,
       dictionary,
-      boot.profile ? { profile: boot.profile } : undefined,
+      {
+        ...(boot.profile ? { profile: boot.profile } : {}),
+        amigaRegion: boot.amigaRegion ?? "ntsc",
+      },
     );
     if (boot.image !== undefined)
       candidate.restoreImage(base64ToBytes(boot.image), { preservePresentation: true });
@@ -323,6 +384,8 @@ export function createHistoryView(
     if (boot.fingerprint.v !== HISTORY_FINGERPRINT_VERSION)
       throw new Error(`history boot carries fingerprint version ${boot.fingerprint.v}`);
     const semantic = historyBootSemantic(boot);
+    if (candidate.amigaRegion === "pal") semantic.amigaRegion = "pal";
+    else delete semantic.amigaRegion;
     if (semantic.image !== undefined) {
       const image = candidate.recordingImage();
       if (image === null) throw new Error("the adopted state is not a resumable boundary");
@@ -342,6 +405,7 @@ export function createHistoryView(
     ctx.boot.currentDictionary = dictionary;
     ctx.boot.authorRooms = boot.authorRooms;
     ctx.boot.profile = boot.profile ?? null;
+    ctx.boot.amigaRegion = candidate.amigaRegion;
     ctx.boot.authoredWords = null;
     ctx.boot.selectedSoundDevice = boot.soundDevice === 0 ? 0 : 1;
     ctx.hostRequests.hostRequestOutstanding = null;
@@ -364,6 +428,7 @@ export function createHistoryView(
     // recorded state (not the abandoned future's) and the recorded cycle
     // clock is deferred — a parked poll would discard its accumulators, so
     // it lands on the host's first release instead.
+    configureSessionTiming(ctx);
     ctx.cycle.pendingClock = boot.clock ?? null;
     if (boot.clock === undefined) ctx.clocks.cycle.reset(ctx.ports.now());
     if (boot.soundRemainder !== undefined)

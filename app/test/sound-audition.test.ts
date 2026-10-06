@@ -1,3 +1,4 @@
+import { scheduler as testScheduler } from "node:timers/promises";
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { AgiAudio } from "../src/audio/AgiAudio.ts";
@@ -9,7 +10,7 @@ import {
   type AuditionSnapshot,
   type AuditionTarget,
 } from "../src/audio/soundAudition.ts";
-import { PIT_BASE_FREQ, SoundPlayback } from "../../src/sound/sound.ts";
+import { PSG_BASE_FREQ, SoundPlayback } from "../../src/sound/sound.ts";
 import { PROFILES } from "../../src/runtime/profile.ts";
 
 const TICK_MS = 1000 / AUDITION_TICK_HZ;
@@ -128,13 +129,15 @@ function fakeAudioContext() {
     },
     createBuffer: (_channels: number, length: number, _rate: number) => {
       const data = new Float32Array(length);
-      return { data, getChannelData: () => data };
+      return { data, length, getChannelData: () => data };
     },
     createBufferSource: (): Source => {
       const source = { ...node(), buffer: null, loop: false, playbackRate: params() };
       sources.push(source);
       return source;
     },
+    createChannelMerger: () => node(),
+    createIIRFilter: () => node(),
     createBiquadFilter: (): Filter => {
       const filter = { ...node(), frequency: params(), type: "bandpass", Q: params() };
       filters.push(filter);
@@ -284,7 +287,7 @@ function target(payload: Uint8Array, overrides?: Partial<AuditionTarget>): Audit
   };
 }
 
-const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
+const flush = () => testScheduler.yield();
 
 /**
  * Pump a fake scheduler through reconstruction yields: each timer fire
@@ -325,12 +328,12 @@ describe("AgiAudio lane audibility", () => {
   });
 
   it("keeps the tone-2 divisor feeding noise rate 3 while lane 2 is gated", () => {
-    const { audio, gains, filters } = fakeAudioContext();
+    const { audio, gains, sources, ctx } = fakeAudioContext();
     audio.setLaneAudible(2, false);
     // Channel 2 latch+data: divisor 100; noise control white/rate 3, att 4.
     audio.output({ kind: "psg", bytes: [0xc4, 0x06] });
     audio.output({ kind: "psg", bytes: [0xe7, 0xf4] });
-    assert.equal(filters[0]!.frequency.value, PIT_BASE_FREQ / 100);
+    assert.equal(sources.at(-1)!.playbackRate.value, ((PSG_BASE_FREQ / 100) * 32) / ctx.sampleRate);
     assert.equal(gains[4]!.gain.value, Math.pow(10, -4 / 10) * 0.25);
     audio.setLaneAudible(3, false);
     assert.equal(gains[4]!.gain.value, 0);
@@ -342,7 +345,7 @@ describe("AgiAudio lane audibility", () => {
     const { audio, gains, oscillators } = fakeAudioContext();
     for (let lane = 0; lane < 4; lane++) audio.setLaneAudible(lane, false);
     audio.output({ kind: "psg", bytes: [0x82, 0x0e, 0x90] });
-    assert.equal(oscillators[0]!.frequency.value, PIT_BASE_FREQ / 226);
+    assert.equal(oscillators[0]!.frequency.value, PSG_BASE_FREQ / 226);
     assert.equal(gains[1]!.gain.value, 0);
     audio.output({ kind: "psg", bytes: [0x9f, 0xbf, 0xdf, 0xff] });
     assert.ok(gains.slice(1).every((gain) => gain.gain.value === 0));
@@ -393,7 +396,7 @@ describe("sound audition transport", () => {
     scheduler.advance(40);
     assert.equal(
       context.oscillators[0]!.frequency.value,
-      PIT_BASE_FREQ / 226,
+      PSG_BASE_FREQ / 226,
       "the copied payload, not the mutated caller bytes",
     );
     assert.equal(audition.snapshot().target!.payloadHash, identity.payloadHash);
@@ -639,7 +642,10 @@ describe("sound audition seek", () => {
       "reconstruction was silent",
     );
     // Lane 2's divisor reached the noise rate-3 computation.
-    assert.equal(context.filters[0]!.frequency.value, PIT_BASE_FREQ / 300);
+    assert.equal(
+      context.sources.at(-1)!.playbackRate.value,
+      ((PSG_BASE_FREQ / 300) * 32) / context.ctx.sampleRate,
+    );
     // Resuming continues the profile envelope, not a restarted note.
     await audition.resume();
     scheduler.advance(TICK_MS);
@@ -651,7 +657,7 @@ describe("sound audition seek", () => {
     );
   });
 
-  it("reconstructs Amiga voices silently: period and per-tick volume envelope", async () => {
+  it("reconstructs NTSC Amiga voices silently: period and per-tick volume envelope", async () => {
     const payload = soundPayload([[toneRecord(0, 30, 226, 4)], [], [], []]);
     const { audition, context } = auditionWith();
     audition.setTarget(target(payload, { profileId: "amiga-2.176" }));
@@ -659,7 +665,7 @@ describe("sound audition seek", () => {
     assert.equal(sought.status, "paused");
     assert.equal(sought.positionTicks, 3);
     // AUDxPER is the note's divisor times four.
-    assert.equal(context.sources[0]!.playbackRate.value, 3546895 / (4 * 226) / 48000);
+    assert.equal(context.sources[0]!.playbackRate.value, ((3579545 / (4 * 226)) * 32) / 48000);
     // The 2.176 attack envelope (-2, -3, -2, …) leaves attenuation 2 at
     // tick 3: AUDxVOL ((15 - 2) << 6) / 15 = 55, rendered (55 / 64) * 0.4.
     assert.equal(context.gains[1]!.gain.value, (55 / 64) * 0.4);

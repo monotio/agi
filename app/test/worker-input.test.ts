@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { OperationRecorder } from "../../src/agent/recordedReplay.ts";
 import { gameContainer, workerHarness } from "./worker-ctx.ts";
+import { buildView } from "../../src/view/view.ts";
 
 test("a parked have.key plus a key message delivers exactly one key", () => {
   const { ctx, presentation } = workerHarness(
@@ -48,4 +49,35 @@ test("a parked have.key plus a key message delivers exactly one key", () => {
     [true, false],
     "waitingForKey cleared on delivery",
   );
+});
+
+test("toggle release keeps northeast direction when the horizon clips its vertical step", () => {
+  const { ctx } = workerHarness(
+    gameContainer(
+      [
+        `if (!isset(f200)) {
+          set(f200); load.view(0); animate.obj(0); set.view(0,0);
+          position(0,38,46); draw(0); assignn(v99,1); step.size(0,v99);
+        } return;`,
+      ],
+      (game) =>
+        game.putResource(
+          "view",
+          0,
+          buildView({ loops: [{ cels: [{ width: 1, height: 1, pixels: [1] }] }] }),
+        ),
+    ),
+  );
+  ctx.fns.tickEngine();
+  ctx.fns.onDirection({ type: "direction", dir: 2 });
+  for (let i = 0; i < 10; i++) ctx.fns.tickEngine();
+  const ego = ctx.engine!.screenObjects[0]!;
+  assert.deepEqual([ego.x, ego.y], [48, 37]);
+  const before = { x: ego.x, y: ego.y };
+  ctx.fns.onDirection({ type: "direction", dir: 0, releaseEligible: false });
+  for (let i = 0; i < 10; i++) ctx.fns.tickEngine();
+  // CI's pixel-delta oracle reported [1, 0] even though direction 2 survived.
+  assert.deepEqual([Math.sign(ego.x - before.x), Math.sign(ego.y - before.y)], [1, 0]);
+  assert.equal(ego.direction, 2);
+  assert.equal(ctx.engine!.vars[6], 2);
 });

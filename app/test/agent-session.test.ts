@@ -1,3 +1,5 @@
+import { waitUntil } from "./async.ts";
+import { scheduler as testScheduler } from "node:timers/promises";
 import { providerSse } from "../../test/provider-stream.ts";
 import assert from "node:assert/strict";
 import { test } from "node:test";
@@ -321,8 +323,7 @@ test("unvalidated Remix progress replies pause visibly on repetition and keep li
   );
 
   const pending = session.runPowerUp("simplify room 1", 1);
-  for (let i = 0; i < 100 && session.task.snapshot().status !== "paused"; i++)
-    await new Promise((resolve) => setImmediate(resolve));
+  await waitUntil(() => session.task.snapshot().status === "paused", "the agent did not pause");
   const paused = session.task.snapshot();
   session.task.cancel();
   await pending.catch(() => {});
@@ -556,8 +557,7 @@ test("a stalled remix pauses and can be discarded without claiming completion", 
   );
   const work = session.runPowerUp("Keep working", 1);
   const rejected = assert.rejects(work, /cancelled/i);
-  for (let i = 0; i < 100 && session.task.snapshot().status !== "paused"; i++)
-    await new Promise((resolve) => setImmediate(resolve));
+  await waitUntil(() => session.task.snapshot().status === "paused", "the agent did not pause");
   assert.equal(session.task.snapshot().status, "paused");
   assert.ok(calls < 24);
   session.task.cancel();
@@ -636,8 +636,7 @@ test("a truncated response pauses without discarding earlier staged resources", 
   );
   const work = session.runPowerUp("Add sparkle", 1);
   void work.catch(() => {});
-  for (let i = 0; i < 100 && session.task.snapshot().status !== "paused"; i++)
-    await new Promise((resolve) => setImmediate(resolve));
+  await waitUntil(() => session.task.snapshot().status === "paused", "the agent did not pause");
   assert.equal(session.task.snapshot().status, "paused");
   assert.equal(session.state.sources.words.has("sparkle"), false);
   session.task.resume();
@@ -761,7 +760,7 @@ test("a map edit mid-turn is refused, and the turn's world survives a clean adop
   const turn = session.runPowerUp("paint the room blue", 1);
   try {
     // The request is in flight — the map's commit is refused, not lost.
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await testScheduler.yield();
     const draft = createWorldDraft(state.authoring.world);
     assert.equal(draftRenameRoom(draft, 1, "Parlor"), null);
     assert.equal(session.commitPlanDraft(draft).status, "busy");

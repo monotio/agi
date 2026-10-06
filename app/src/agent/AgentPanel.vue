@@ -1,17 +1,23 @@
 <script setup lang="ts">
+import UiIcon from "../ui/UiIcon.vue";
 import {
   computed,
   defineAsyncComponent,
+  h,
   nextTick,
   onBeforeUnmount,
   onMounted,
+  onWatcherCleanup,
   useTemplateRef,
   ref,
   shallowRef,
   watch,
 } from "vue";
+import PendingReferences from "../references/PendingReferences.vue";
+import { pendingReferences, removePendingReference } from "../references/referenceUploadState.ts";
 import AgentReply from "./AgentReply.ts";
 import { borrowWorkspaceAgent, type ReplyFormatter } from "./workspaceAgent.ts";
+import { useReadingPosition } from "../shell/useReadingPosition.ts";
 import { useEngineApi } from "../engine/engineContext.ts";
 import { useWorkspaceEditor } from "../shell/workspaceEditor.ts";
 import { useShellBridge } from "../shell/shellBridge.ts";
@@ -30,7 +36,20 @@ const engine = useEngineApi();
 const editor = useWorkspaceEditor();
 const settings = useAiSettings();
 const bridge = useShellBridge();
-const AgentResourceReview = defineAsyncComponent(() => import("./AgentResourceReview.vue"));
+// Load the review previews while the panel opens, so a proposal shows at once. A chunk
+// that cannot load (offline, or a deploy mid-session) still leaves Approve and Reject.
+const loadResourceReview = () => import("./AgentResourceReview.vue");
+void loadResourceReview().catch(() => {});
+const AgentResourceReview = defineAsyncComponent({
+  loader: loadResourceReview,
+  errorComponent: () =>
+    h(
+      "p",
+      { class: "agent-panel__preview-missing", "data-testid": "agent-preview-missing" },
+      "The preview could not load. You can still approve or reject this change.",
+    ),
+  onError: (_error, retry, fail, attempts) => (attempts <= 2 ? retry() : fail()),
+});
 watch(
   settings.provider,
   (provider) => {
@@ -70,6 +89,7 @@ const contexts = ref<string[]>([]);
 const selected = ref<string[]>([]);
 let off: (() => void) | undefined;
 let retired = false;
+let sentReferenceIds: readonly string[] = [];
 async function attach() {
   const session = engine.getProjectSession();
   if (!session) return;
@@ -80,7 +100,10 @@ async function attach() {
     session,
     profileId: engine.roomMap.resources.value.profile?.id ?? "2.936",
     config: settings.llmConfig,
-    runtime: () => runtime,
+    runtime: () => ({
+      ...runtime,
+      referenceArt: async () => runtime.referenceArt?.(sentReferenceIds),
+    }),
     beforeApprove: async () => {
       await editor.flush.value?.();
     },
@@ -122,7 +145,35 @@ watch(
   },
   { immediate: true, deep: true },
 );
-const visibleMessages = computed(() => (review.value ? [] : current.value?.messages));
+const visibleMessages = computed(() => current.value?.messages);
+const feed = useTemplateRef("feed");
+const { following, readPosition, jumpToLatest } = useReadingPosition(feed);
+const feedContent = useTemplateRef("feedContent");
+watch(
+  feedContent,
+  (element) => {
+    if (!element) return;
+    const observer = new ResizeObserver(() => {
+      if (following.value) jumpToLatest();
+    });
+    observer.observe(element);
+    onWatcherCleanup(() => observer.disconnect());
+  },
+  { flush: "post" },
+);
+
+watch(
+  [() => current.value?.messages, review],
+  () => {
+    if (following.value) jumpToLatest();
+  },
+  { deep: true, flush: "post" },
+);
+watch(
+  () => current.value?.id,
+  () => jumpToLatest(),
+  { flush: "post" },
+);
 const chats = computed(() => {
   void tick.value;
   return agent.value?.chats() ?? [];
@@ -221,6 +272,9 @@ async function action(work: () => unknown) {
 async function send() {
   if (!input.value.trim() || busy.value || editor.readOnly.value) return;
   const request = input.value;
+  sentReferenceIds = pendingReferences
+    .filter((reference) => reference.project === engine.getBootedGame()?.projectId)
+    .map((reference) => reference.id);
   const inspect = readOnly.value;
   const scoped = taskContext.value;
   const replyFormatter = formatReply.value;
@@ -246,6 +300,7 @@ async function send() {
     ].join("\n");
     if (inspect) await agent.value?.ask(request, context, replyFormatter);
     else await agent.value?.send(request, context);
+    for (const id of sentReferenceIds) removePendingReference(id);
   });
 }
 async function approve() {
@@ -310,7 +365,7 @@ onBeforeUnmount(() => {
   >
     <header class="agent-panel__header">
       <button class="agent-panel__chat-title" @click="chatList = !chatList" aria-label="Chats">
-        {{ current?.title ?? "Agent" }} ▾</button
+        {{ current?.title ?? "Agent" }} <UiIcon name="chevron-down" :size="16" /></button
       ><UiButton
         size="sm"
         variant="ghost"
@@ -363,115 +418,162 @@ onBeforeUnmount(() => {
           :disabled="busy || editor.readOnly.value"
           :aria-label="`Delete ${chat.title}`"
           @click="action(() => agent?.deleteChat(chat.id))"
-          >×</UiButton
-        >
+          ><UiIcon name="x" :size="16"
+        /></UiButton>
       </div>
     </nav>
-    <div class="agent-panel__feed" aria-live="polite">
-      <p v-if="!current?.messages.length" class="agent-panel__intro">{{ VOCABULARY.agent.help }}</p>
-      <article
-        v-for="message in visibleMessages"
-        :key="message.id"
-        class="agent-panel__message"
-        :class="{ 'agent-panel__message--user': message.role === 'user' }"
+    <div
+      v-if="review"
+      :key="review.messageId"
+      class="agent-panel__review-actions"
+      role="group"
+      aria-label="Review changes"
+    >
+      <UiButton
+        size="sm"
+        :disabled="editor.readOnly.value || busy || review.stale() || !selected.length"
+        variant="primary"
+        data-testid="agent-approve"
+        @click="approve"
+        >Approve <kbd>⌘↵</kbd></UiButton
+      ><UiButton
+        size="sm"
+        variant="ghost"
+        :disabled="busy || editor.readOnly.value"
+        data-testid="agent-reject"
+        @click="
+          agent?.reject();
+          tick++;
+        "
+        >Reject</UiButton
       >
-        <strong>{{ message.role === "user" ? "You" : "Agent" }}</strong>
-        <p v-if="message.role === 'user'">{{ message.text }}</p>
-        <AgentReply v-else :text="message.text" />
-        <details v-if="message.context" class="agent-panel__task-context">
-          <summary>Context</summary>
-          <pre>{{ message.context }}</pre>
-        </details>
-        <UiChip
-          v-if="agent?.reviewOutcome(message.id)"
-          :tone="message.commit ? 'ok' : 'neutral'"
-          data-testid="agent-review-outcome"
-          >{{ agent.reviewOutcome(message.id) }}</UiChip
-        >
-        <div v-if="message.commit" class="agent-panel__checkpoints">
-          <UiButton
-            size="sm"
-            variant="ghost"
-            :disabled="busy || editor.readOnly.value"
-            @click="action(() => agent?.undoMessage(message.id))"
-            >Undo this</UiButton
-          ><UiButton
-            size="sm"
-            variant="ghost"
-            :disabled="busy || editor.readOnly.value"
-            @click="action(() => agent?.restoreBefore(message.id))"
-            >Restore to before this</UiButton
-          >
-        </div>
-      </article>
-      <details v-if="progress.length && !review" class="agent-panel__progress" :open="busy">
-        <summary>{{ busy ? "Working…" : "Steps" }}</summary>
-        <p v-for="(note, index) in progress" :key="index">{{ note }}</p>
-      </details>
-      <section v-if="review && images" class="agent-panel__review" data-testid="agent-review">
-        <header>
-          <h3>{{ review.proposal.label }}</h3>
-          <span class="agent-panel__preview" title="Approve applies this preview to the game."
-            >Card preview</span
-          >
-        </header>
-        <p v-if="review.stale()" role="alert" data-testid="agent-conflict">
-          The project changed while the agent worked. Send a follow-up to revise these changes.
-        </p>
-        <article v-for="change in review.changes()" :key="change.key" class="agent-panel__resource">
-          <label
-            ><input type="checkbox" :value="change.key" v-model="selected" />{{
-              change.key === "inventory" ? "OBJECT" : change.key.replace(":", " ").toUpperCase()
-            }}</label
-          ><AgentResourceReview
-            :document-key="change.key"
-            :before="review.proposal.base.read(change.key)?.content"
-            :before-documents="images.beforeDocuments"
-            :after-documents="images.afterDocuments"
-            :after="change.content"
-            :before-image="images.before"
-            :after-image="images.after"
-            :profile="profile"
-          />
-        </article>
-        <footer>
-          <UiButton
-            size="sm"
-            :disabled="editor.readOnly.value || busy || review.stale() || !selected.length"
-            variant="primary"
-            data-testid="agent-approve"
-            @click="approve"
-            >Approve <kbd>⌘↵</kbd></UiButton
-          ><UiButton
-            size="sm"
-            variant="ghost"
-            :disabled="busy || editor.readOnly.value"
-            data-testid="agent-reject"
-            @click="
-              agent?.reject();
-              tick++;
-            "
-            >Reject</UiButton
-          >
-        </footer>
-      </section>
-      <details v-if="review && progress.length" class="agent-panel__progress">
-        <summary>Steps</summary>
-        <p v-for="(note, index) in progress" :key="index">{{ note }}</p>
-      </details>
     </div>
+    <div ref="feed" class="agent-panel__feed" aria-live="polite" @scroll.passive="readPosition">
+      <div ref="feedContent">
+        <p v-if="!current?.messages.length" class="agent-panel__intro">
+          {{ VOCABULARY.agent.help }}
+        </p>
+        <article
+          v-for="message in visibleMessages"
+          :key="message.id"
+          class="agent-panel__message"
+          :class="{ 'agent-panel__message--user': message.role === 'user' }"
+        >
+          <strong>{{ message.role === "user" ? "You" : "Agent" }}</strong>
+          <p v-if="message.role === 'user'">{{ message.text }}</p>
+          <AgentReply v-else :text="message.text" />
+          <details v-if="message.context" class="agent-panel__task-context">
+            <summary>Context</summary>
+            <pre>{{ message.context }}</pre>
+          </details>
+          <UiChip
+            v-if="agent?.reviewOutcome(message.id)"
+            :tone="message.commit ? 'ok' : 'neutral'"
+            data-testid="agent-review-outcome"
+            >{{ agent.reviewOutcome(message.id) }}</UiChip
+          >
+          <div v-if="message.commit" class="agent-panel__checkpoints">
+            <UiButton
+              size="sm"
+              variant="ghost"
+              :disabled="busy || editor.readOnly.value"
+              @click="action(() => agent?.undoMessage(message.id))"
+              >Undo this</UiButton
+            ><UiButton
+              size="sm"
+              variant="ghost"
+              :disabled="busy || editor.readOnly.value"
+              @click="action(() => agent?.restoreBefore(message.id))"
+              >Restore to before this</UiButton
+            >
+          </div>
+        </article>
+        <details v-if="progress.length && !review" class="agent-panel__progress" :open="busy">
+          <summary>{{ busy ? "Working…" : "Steps" }}</summary>
+          <p v-for="(note, index) in progress" :key="index">{{ note }}</p>
+        </details>
+        <section
+          v-if="review"
+          :key="review.messageId"
+          class="agent-panel__review"
+          data-testid="agent-review"
+        >
+          <header>
+            <h3>{{ review.proposal.label }}</h3>
+            <span class="agent-panel__preview" title="Approve applies this preview to the game."
+              >Card preview</span
+            >
+          </header>
+          <p v-if="review.stale()" role="alert" data-testid="agent-conflict">
+            The project changed while the agent worked. Send a follow-up to revise these changes.
+          </p>
+          <article
+            v-for="change in review.changes()"
+            :key="change.key"
+            class="agent-panel__resource"
+          >
+            <label
+              ><input type="checkbox" :value="change.key" v-model="selected" />{{
+                change.key === "inventory" ? "OBJECT" : change.key.replace(":", " ").toUpperCase()
+              }}</label
+            >
+            <Suspense v-if="images">
+              <AgentResourceReview
+                :document-key="change.key"
+                :before="review.proposal.base.read(change.key)?.content"
+                :before-documents="images.beforeDocuments"
+                :after-documents="images.afterDocuments"
+                :after="change.content"
+                :before-image="images.before"
+                :after-image="images.after"
+                :profile="profile"
+              />
+              <template #fallback>
+                <p
+                  class="agent-panel__review-loading"
+                  role="status"
+                  data-testid="agent-review-loading"
+                >
+                  Preparing the preview…
+                </p>
+              </template>
+            </Suspense>
+            <p v-else class="agent-panel__preview-missing" data-testid="agent-preview-missing">
+              The preview could not load. You can still approve or reject this change.
+            </p>
+          </article>
+        </section>
+        <details v-if="review && progress.length" class="agent-panel__progress">
+          <summary>Steps</summary>
+          <p v-for="(note, index) in progress" :key="index">{{ note }}</p>
+        </details>
+      </div>
+    </div>
+    <UiButton
+      v-if="!following"
+      size="sm"
+      variant="ghost"
+      data-testid="agent-jump-latest"
+      @click="jumpToLatest"
+      >Jump to latest</UiButton
+    >
     <p v-if="!settings.aiConfigured.value" class="agent-panel__intro agent-panel__setup">
       Connect your AI provider in Settings to start a task.
     </p>
     <p v-if="error" class="agent-panel__error" role="alert">{{ error }}</p>
     <AgentTaskControls
-      v-if="task && busy"
+      v-if="task"
       :task="task"
       @stop="agent?.stop()"
       @resume="agent?.continue($event)"
       @discard="agent?.cancel()"
     />
     <form class="agent-panel__composer" @submit.prevent="send">
+      <PendingReferences
+        :busy
+        :room="engine.roomMap.currentRoom.value ?? 0"
+        :allow-attach="!readOnly"
+      />
       <div class="agent-panel__context">
         <span>{{ roomName }}</span
         ><span v-if="editor.agentContext.value">{{ editor.agentContext.value.label }}</span
@@ -481,7 +583,7 @@ onBeforeUnmount(() => {
           type="button"
           @click="contexts = contexts.filter((entry) => entry !== context)"
         >
-          {{ contextName(context) }} ×</button
+          {{ contextName(context) }} <UiIcon name="x" :size="16" /></button
         ><button type="button" @click="addContext = !addContext">+ Add context</button>
       </div>
       <select

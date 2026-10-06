@@ -12,7 +12,7 @@ export interface VocabularyAction extends VocabularyTerm {
 export const WORDS_EDITOR_COPY = {
   unknown: "“{word}” is a new word, so the game stops reading there.",
   teach: "Teach “{word}”…",
-  more: "More ▾",
+  more: "More",
   newMeaning: "New meaning",
   skip: "Skip it like “the”",
   suggesting: "Suggesting…",
@@ -35,7 +35,7 @@ export const WORDS_REPLY_COPY = {
   emptyWords: "The reply contained no usable words.",
   emptyCommands: "The reply contained no usable commands.",
   retrySuggest: "Try ✦ Suggest again.",
-  retryPredict: "Try ✦ Predict commands again.",
+  retryPredict: "Try ✦ Suggest sentences again.",
 } as const;
 
 export const VOCABULARY = {
@@ -107,19 +107,19 @@ export const VOCABULARY = {
   },
   addResponse: {
     id: "addResponse",
-    label: "Add response",
-    help: "Adds a command and its response to this room’s LOGIC.",
+    label: "Answer it",
+    help: "Adds a sentence and its answer to this room’s LOGIC.",
     technical: "",
   },
   predictCommands: {
     id: "predictCommands",
-    label: "✦ Predict commands",
+    label: "Suggest sentences",
     help: "Suggested by the agent from the room’s picture, objects and text.",
     technical: "",
   },
   suggestWords: {
     id: "suggestWords",
-    label: "✦ Suggest",
+    label: "Suggest",
     help: "Proposes words with the same meaning.",
     technical: "",
   },
@@ -594,7 +594,7 @@ export const VOCABULARY = {
   nameVersion: {
     id: "nameVersion",
     label: "Name this version",
-    help: "Saves the visible edits and names this version, including source with errors.",
+    help: "Names the game's last update so you can find it in History.",
     technical: "",
   },
   agent: {

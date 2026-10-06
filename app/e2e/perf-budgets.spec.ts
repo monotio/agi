@@ -7,6 +7,7 @@ import {
   openWorkspacePicture,
   openWorkspaceView,
   workspaceSaved,
+  workspaceUpdated,
 } from "./engineProbe.ts";
 
 /**
@@ -150,6 +151,7 @@ const nextFrame = (page: Page): Promise<void> =>
 
 async function playTutorial(page: Page): Promise<void> {
   await isolateStorage(page);
+  await page.addInitScript(() => localStorage.setItem("monotio_agi.crtAmount", "1"));
   await installProbe(page);
   await page.goto("/");
   await page.getByTestId("catalog-play-adventure-department").click();
@@ -234,6 +236,9 @@ test(
     const sample = await endWindow(page);
     report("studio-drag", sample);
     await workspaceSaved(page);
+    // The approved Update game storyboard keeps a drag out of History until Update.
+    expect(await historyCommits(page)).toBe(commits);
+    await workspaceUpdated(page);
     expect(await historyCommits(page)).toBe(commits + 1);
     expect(sample.frames).toBeGreaterThanOrEqual(60);
     // Measured: p95 16.8 ms (every frame on time), slowest event 16–32 ms.
@@ -284,9 +289,28 @@ test("pencil strokes in Sprite Studio keep frames responsive", PERF, async ({ pa
   report("sprite-pencil", sample);
   // Each stroke is one undo step.
   await workspaceSaved(page);
-  expect(await historyCommits(page)).toBe(commits + 4);
+  expect(await historyCommits(page)).toBe(commits);
+  await workspaceUpdated(page);
+  expect(await historyCommits(page)).toBe(commits + 1);
   expect(sample.frames).toBeGreaterThanOrEqual(80);
   // Measured: p95 16.7 ms (every frame on time), slowest event 24 ms.
   expect(sample.frameP95, "p95 frame interval while drawing (ms)").toBeLessThan(50);
   expectInputResponsive(sample, 75, "slowest input event while drawing (ms)");
+});
+
+test("workspace splitter keeps frames responsive during a LOGIC resize", PERF, async ({ page }) => {
+  await playTutorial(page);
+  await openWorkspacePicture(page, 1);
+  await page.getByTestId("part-room:1:logic").click();
+  await expect(page.getByTestId("workspace-logic-editor").locator(".monaco-editor")).toBeVisible();
+  const splitter = page.getByRole("separator", { name: "Editor width" });
+  await expect(splitter).toBeVisible();
+  const box = (await splitter.boundingBox())!;
+  await startWindow(page);
+  await dragPerFrame(page, [box.x + box.width / 2, box.y + 40], [box.x + 160, box.y + 40], 60);
+  const sample = await endWindow(page);
+  report("workspace-splitter", sample);
+  expect(sample.frames).toBeGreaterThanOrEqual(30);
+  expect(sample.frameP95, "p95 frame interval while resizing (ms)").toBeLessThan(50);
+  expectInputResponsive(sample, 100, "workspace resize input (ms)");
 });

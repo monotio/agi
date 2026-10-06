@@ -1,12 +1,10 @@
 <script setup lang="ts">
 /**
- * The optional reference-art generator: compose -> review -> one explicit
- * send -> detached offer -> explicit Use. All state lives in the injected
- * controller; this file is only the form, the review sheet and the offer
- * tray. Its workspace mount owns disposal and late-result admission.
+ * The optional reference-art generator: intent, Generate, progress and Use.
+ * All state lives in the injected controller; this file shows the form and offer. Its workspace mount owns disposal and late-result admission.
  */
 import { computed, onBeforeUnmount, ref, shallowRef, useTemplateRef, watch } from "vue";
-import { versionRefKey, type Rect, type VersionRef } from "../../../../src/creative/catalog.ts";
+import type { Rect, VersionRef } from "../../../../src/creative/catalog.ts";
 import type {
   CreativeGenerationController,
   CreativeGenerationFailureInfo,
@@ -23,7 +21,10 @@ import type {
   OpenAiImageQuality,
   OpenAiImageRole,
 } from "./openaiImageProvider.ts";
-import { estimateImageOutputCost } from "./openaiImageProvider.ts";
+import { formatSpent, type ReportedSpend } from "../../agent/reportedSpend.ts";
+import { OPENAI_IMAGE_LIMITS } from "./openaiImageProvider.ts";
+import { imageStylePrompt, SIERRA_IMAGE_STYLE } from "../../../../src/creative/imageStyle.ts";
+import UiSwitch from "../../ui/UiSwitch.vue";
 import UiButton from "../../ui/UiButton.vue";
 import UiChip from "../../ui/UiChip.vue";
 import UiDisclosure from "../../ui/UiDisclosure.vue";
@@ -43,6 +44,8 @@ interface Snapshot {
   readonly failure: CreativeGenerationFailureInfo | null;
   readonly review: CreativeGenerationReview | null;
   readonly offer: OpenAiImageOffer | null;
+  readonly partialImage: Uint8Array | null;
+  readonly spend: ReportedSpend | null;
   readonly offerStale: boolean;
   readonly credentialReady: boolean;
   readonly composite: boolean;
@@ -56,6 +59,8 @@ function readController(): Snapshot {
     failure: controller.failure,
     review: controller.review,
     offer: controller.offer,
+    partialImage: controller.partialImage,
+    spend: controller.spend,
     offerStale: controller.offerStale,
     credentialReady: controller.credentialReady(),
     composite: controller.editComposite() !== null,
@@ -70,7 +75,6 @@ const unsubscribe = controller.subscribe(() => {
 const phase = computed(() => state.value.phase);
 const notice = computed(() => state.value.notice);
 const failure = computed(() => state.value.failure);
-const review = computed(() => state.value.review);
 const offer = computed(() => state.value.offer);
 const offerStale = computed(() => state.value.offerStale);
 const credentialReady = computed(() => state.value.credentialReady);
@@ -86,6 +90,8 @@ const kind = ref<OpenAiImageKind>("generate");
 const role = ref<OpenAiImageRole>(initialRole);
 const model = ref<string>(modelIds[0] ?? "");
 const prompt = ref("");
+const styleEnabled = ref(true);
+const styleTarget = computed(() => (role.value === "room" ? "picture" : "view"));
 const size = ref("");
 const customSize = ref("2048x2048");
 const quality = ref<OpenAiImageQuality | "">("");
@@ -127,11 +133,21 @@ watch(
     const caps = capability.value;
     if (caps === undefined) return;
     if (!caps.sizes.includes(size.value) && !(caps.customSizes && size.value === "custom"))
-      size.value = caps.sizes[0] ?? "";
+      size.value =
+        (initialRole === "room"
+          ? caps.sizes.find((entry) => {
+              const [width, height] = entry.split("x").map(Number);
+              return width! > height!;
+            })
+          : undefined) ??
+        caps.sizes[0] ??
+        "";
     if (!caps.qualities.includes(quality.value as OpenAiImageQuality))
       quality.value = caps.qualities[0] ?? "";
     if (!caps.backgrounds.includes(background.value as OpenAiImageBackground))
       background.value = caps.backgrounds[0] ?? "";
+    if (initialRole !== "room" && caps.backgrounds.includes("transparent"))
+      background.value = "transparent";
     if (!usesFidelity.value) inputFidelity.value = "";
   },
   { immediate: true },
@@ -197,15 +213,15 @@ const selectionValid = computed(() => {
 /* --- The detached offer preview: a blob URL for the exact PNG bytes. --- */
 const offerUrl = ref("");
 watch(
-  offer,
+  () => offer.value?.encodedBytes ?? state.value.partialImage,
   (next) => {
     if (offerUrl.value !== "") URL.revokeObjectURL(offerUrl.value);
     offerUrl.value =
       next === null
         ? ""
         : URL.createObjectURL(
-            new Blob([next.encodedBytes.slice().buffer as ArrayBuffer], {
-              type: next.encoded.mime,
+            new Blob([next.slice().buffer as ArrayBuffer], {
+              type: "image/png",
             }),
           );
   },
@@ -257,7 +273,8 @@ function currentInput(): CreativeGenerationInput {
     kind: kind.value,
     role: role.value,
     model: model.value,
-    prompt: prompt.value,
+    prompt: imageStylePrompt(styleTarget.value, prompt.value, styleEnabled.value),
+    title: prompt.value.trim(),
     size: size.value === "custom" ? customSize.value : size.value,
     quality: quality.value as OpenAiImageQuality,
     background: background.value as OpenAiImageBackground,
@@ -268,13 +285,27 @@ function currentInput(): CreativeGenerationInput {
   };
 }
 
-function prepareReview(): void {
-  void controller.prepareReview(currentInput());
+async function prepareReview() {
+  await controller.prepareReview(currentInput());
+  if (controller.phase === "review") await controller.submit();
 }
-
-function short(value: string): string {
-  return value.length <= 12 ? value : value.slice(0, 12);
+async function tryAgain() {
+  controller.dismissOffer();
+  await prepareReview();
 }
+const elapsed = ref(0);
+let progressTimer: ReturnType<typeof setInterval> | undefined;
+watch(phase, (value) => {
+  clearInterval(progressTimer);
+  if (value === "submitting") {
+    const started = Date.now();
+    elapsed.value = 0;
+    progressTimer = setInterval(() => {
+      elapsed.value = Math.floor((Date.now() - started) / 1000);
+    }, 1000);
+  }
+});
+onBeforeUnmount(() => clearInterval(progressTimer));
 
 function bytes(value: number): string {
   if (value < 1024) return `${value} B`;
@@ -282,22 +313,6 @@ function bytes(value: number): string {
   return `${(value / (1024 * 1024)).toFixed(2)} MB`;
 }
 
-const formCost = computed(() => {
-  const estimate = estimateImageOutputCost(
-    model.value,
-    quality.value || "low",
-    size.value === "custom" ? customSize.value : size.value,
-  );
-  return estimate === null ? "Generate" : `Generate · about $${estimate.toFixed(2)}`;
-});
-const estimatedCost = computed(() => {
-  const request = review.value?.summary;
-  if (!request) return "";
-  const estimate = estimateImageOutputCost(request.model, request.quality, request.size);
-  return estimate === null
-    ? "Estimate unavailable. Check OpenAI pricing before sending."
-    : `About $${estimate.toFixed(5)} for image output, plus prompt and image inputs.`;
-});
 const compositeNote = computed(() => state.value.phase === "offer" && state.value.composite);
 
 const noKey = computed(() => !credentialReady.value || failure.value?.reason === "no-key");
@@ -332,17 +347,25 @@ const noKey = computed(() => !credentialReady.value || failure.value?.reason ===
 
     <!-- Compose -->
     <form
-      v-if="phase === 'compose' || phase === 'preparing'"
+      v-if="
+        phase === 'compose' ||
+        phase === 'preparing' ||
+        (phase === 'review' && failure?.reason !== 'budget')
+      "
       class="generate__form"
       data-testid="generate-form"
       @submit.prevent="prepareReview"
     >
       <label class="generate__field">
-        <span>Prompt</span>
+        <span>{{
+          role === "character" ? "What should the character look like?" : "What should it show?"
+        }}</span>
         <textarea
           v-model="prompt"
           rows="4"
-          aria-label="Prompt"
+          :aria-label="
+            role === 'character' ? 'What should the character look like?' : 'What should it show?'
+          "
           :disabled="formDisabled"
           data-testid="generate-prompt"
         />
@@ -356,9 +379,24 @@ const noKey = computed(() => !credentialReady.value || failure.value?.reason ===
         :title="formReady ? '' : formProblem"
         data-testid="generate-review"
       >
-        {{ phase === "preparing" ? "Preparing review…" : formCost }}
+        {{ phase === "preparing" ? "Getting ready…" : "Generate" }}
       </UiButton>
-      <UiDisclosure id="generate-options" label="Options" test-id="generate-options">
+      <UiDisclosure id="generate-options" label="Details" test-id="generate-options">
+        <p class="generate__hint"><strong>Style: Sierra EGA</strong></p>
+        <UiSwitch v-model="styleEnabled" size="sm">Use Sierra EGA</UiSwitch>
+        <p class="generate__hint" data-testid="generate-style">
+          {{ SIERRA_IMAGE_STYLE[styleTarget] }}
+        </p>
+        <p class="generate__hint">Format: PNG · One image per request</p>
+        <ul class="generate__limits">
+          <li>{{ OPENAI_IMAGE_LIMITS.maxInputImages }} input images</li>
+          <li>{{ bytes(OPENAI_IMAGE_LIMITS.maxInputBytesTotal) }} total input</li>
+          <li>{{ bytes(OPENAI_IMAGE_LIMITS.maxEncodedBytes) }} per image</li>
+          <li>{{ OPENAI_IMAGE_LIMITS.maxPromptLength }} prompt characters</li>
+        </ul>
+        <a href="https://platform.openai.com/usage" target="_blank" rel="noopener"
+          >See your usage</a
+        >
         <UiSegmented v-model="kind" label="Request kind" :options="KIND_OPTIONS" block size="sm" />
         <div class="generate__row">
           <label class="generate__field">
@@ -556,87 +594,38 @@ const noKey = computed(() => !credentialReady.value || failure.value?.reason ===
       </UiDisclosure>
     </form>
 
-    <!-- Review: the exact request, before it may cost anything. -->
     <section
-      v-if="phase === 'review' && review !== null"
-      class="generate__review"
-      data-testid="generate-review-sheet"
+      v-if="phase === 'review' && failure?.reason === 'budget'"
+      class="generate__actions"
+      data-testid="generate-budget"
     >
-      <h3 class="generate__sub">Review</h3>
-      <dl class="generate__facts">
-        <dt>Request</dt>
-        <dd>
-          {{ review.summary.kind }} · {{ review.summary.provider }} · {{ review.summary.model }}
-        </dd>
-        <dt>Options</dt>
-        <dd>
-          {{ review.summary.size }} · {{ review.summary.quality }} · {{ review.summary.background
-          }}<template v-if="review.summary.inputFidelity !== undefined">
-            · fidelity {{ review.summary.inputFidelity }}</template
-          >
-          · {{ review.summary.count }} image · {{ review.summary.outputFormat }}
-        </dd>
-        <template v-if="review.selection !== undefined">
-          <dt>Selection</dt>
-          <dd>
-            {{ review.selection.rect.width }}×{{ review.selection.rect.height }} at
-            {{ review.selection.rect.x }},{{ review.selection.rect.y }} · mask
-            {{ short(review.selection.mask.hash) }}… ·
-            {{ bytes(review.selection.mask.byteLength) }}
-          </dd>
-        </template>
-        <dt>Estimated cost</dt>
-        <dd>{{ estimatedCost }}</dd>
-        <dt>Prompt</dt>
-        <dd class="generate__prompt">{{ review.summary.prompt }}</dd>
-      </dl>
-      <ul v-if="review.images.length > 0" class="generate__images" role="list">
-        <li v-for="image in review.images" :key="versionRefKey(image.identity)">
-          <span class="generate__img-title">{{ image.title }}</span>
-          <UiChip v-for="r in image.roles" :key="r">{{ r }}</UiChip>
-          <span class="generate__img-facts">
-            {{ image.width }}×{{ image.height }} · {{ image.mime }} ·
-            {{ bytes(image.byteLength) }} · <code>{{ short(image.hash) }}…</code>
-          </span>
-        </li>
-      </ul>
-      <UiDisclosure
-        id="generate-bounds"
-        label="Request limits"
-        hint="request limits"
-        test-id="generate-bounds"
+      <UiButton variant="primary" data-testid="generate-allow" @click="void controller.submit(true)"
+        >Continue</UiButton
       >
-        <ul class="generate__limits" role="list">
-          <li>{{ review.summary.limits.maxInputImages }} input images</li>
-          <li>{{ bytes(review.summary.limits.maxInputBytesTotal) }} total input</li>
-          <li>{{ bytes(review.summary.limits.maxEncodedBytes) }} per input</li>
-          <li>{{ bytes(review.summary.limits.maxResponseBytes) }} response</li>
-          <li>{{ Math.round(review.summary.limits.timeoutMs / 1000) }}s timeout</li>
-          <li>{{ review.summary.limits.maxPromptLength }} prompt code units</li>
-        </ul>
-        <p class="generate__hint">
-          OpenAI bills this image request to your account. Costs follow the provider's pricing.
-        </p>
-      </UiDisclosure>
-      <a
-        href="https://developers.openai.com/api/docs/guides/image-generation#calculating-costs"
-        target="_blank"
-        rel="noopener"
-        >Image cost calculator</a
-      >
-      <div class="generate__actions">
-        <UiButton variant="primary" data-testid="generate-submit" @click="void controller.submit()"
-          >Send one request</UiButton
-        >
-        <UiButton variant="ghost" data-testid="generate-change" @click="controller.discardReview()"
-          >Change request</UiButton
-        >
-      </div>
+      <UiButton variant="ghost" @click="controller.discardReview()">Change the words</UiButton>
     </section>
+
+    <p
+      v-if="phase === 'compose' && state.spend"
+      class="generate__spent"
+      data-testid="generate-spent"
+    >
+      {{ formatSpent(state.spend) }}
+    </p>
 
     <!-- In flight -->
     <section v-if="phase === 'submitting'" class="generate__flight" data-testid="generate-flight">
-      <p class="generate__note">The request is on its way…</p>
+      <div class="generate__placeholder">
+        <img
+          v-if="offerUrl"
+          :src="offerUrl"
+          class="generate__preview"
+          alt="Picture in progress"
+          data-testid="generate-partial"
+        />
+        <p role="status">Drawing your picture…</p>
+        <span data-testid="generate-elapsed">{{ elapsed }}s</span>
+      </div>
       <UiButton variant="secondary" data-testid="generate-cancel" @click="controller.cancel()"
         >Cancel</UiButton
       >
@@ -649,6 +638,10 @@ const noKey = computed(() => !credentialReady.value || failure.value?.reason ===
       data-testid="generate-offer"
     >
       <h3 class="generate__sub">Result</h3>
+      <p v-if="state.spend" class="generate__spent" data-testid="generate-spent">
+        {{ formatSpent(state.spend) }}
+      </p>
+      <a href="https://platform.openai.com/usage" target="_blank" rel="noopener">See your usage</a>
       <img
         v-if="offerUrl !== ''"
         :src="offerUrl"
@@ -668,7 +661,7 @@ const noKey = computed(() => !credentialReady.value || failure.value?.reason ===
         This result belongs to an earlier version of your work. Dismiss it and start a new request.
       </p>
       <p v-else-if="compositeNote" class="generate__hint" data-testid="generate-composite">
-        Use image places the result inside your selection. The rest stays as it was.
+        Use this places the result inside your selection. The rest stays as it was.
       </p>
       <div class="generate__actions">
         <UiButton
@@ -679,10 +672,13 @@ const noKey = computed(() => !credentialReady.value || failure.value?.reason ===
           "
           data-testid="generate-use"
           @click="void controller.useImage()"
-          >Use image</UiButton
+          >Use this</UiButton
+        >
+        <UiButton variant="secondary" data-testid="generate-again" @click="void tryAgain()"
+          >Try again</UiButton
         >
         <UiButton variant="ghost" data-testid="generate-dismiss" @click="controller.dismissOffer()"
-          >Dismiss</UiButton
+          >Change the words</UiButton
         >
       </div>
     </section>
@@ -694,6 +690,24 @@ const noKey = computed(() => !credentialReady.value || failure.value?.reason ===
 </template>
 
 <style scoped>
+.generate__spent {
+  font-variant-numeric: tabular-nums;
+}
+.generate a {
+  color: var(--action);
+}
+.generate__placeholder {
+  min-height: 180px;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  background: var(--surface-2);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  margin-bottom: var(--space-3);
+  color: var(--ink-2);
+}
+
 .generate__error {
   display: flex;
   align-items: center;

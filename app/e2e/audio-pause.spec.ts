@@ -1,4 +1,5 @@
-import { expect, test } from "@playwright/test";
+import type * as BrowserSignals from "./browserSignals.ts";
+import { expect, test } from "./test.ts";
 
 // Real Web Audio evidence for the pause contract: a pause must freeze the
 // AudioContext clock — scheduled one-shots and envelope ramps hold mid-flight
@@ -20,11 +21,9 @@ test("pause freezes scheduled playback; release continues it from that point @we
     const { AgiAudio } = await import("/src/audio/AgiAudio.ts");
     const context = new AudioContext();
     const audio = new AgiAudio({ contextFactory: () => context });
-    const elapse = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
-    const until = async (predicate: () => boolean, tries = 60) => {
-      for (let i = 0; i < tries && !predicate(); i++) await elapse(20);
-      return predicate();
-    };
+    const signalsPath = "/e2e/browserSignals.ts";
+    const { audioElapsed, audioState, audioWitness, waitForSignal }: typeof BrowserSignals =
+      await import(/* @vite-ignore */ signalsPath);
     try {
       audio.output({ kind: "speaker", divisor: 2712 });
       await context.resume();
@@ -48,13 +47,13 @@ test("pause freezes scheduled playback; release continues it from that point @we
       envelope.connect(context.destination);
       source.connect(context.destination);
       source.start(startAt);
-      await elapse(80);
+      await audioElapsed(context, 0.08);
       const playingAt = context.currentTime;
       audio.setPaused(true);
-      await until(() => context.state === "suspended");
+      await audioState(context, "suspended");
       const pausedAt = context.currentTime;
       const rampAtPause = envelope.gain.value;
-      await elapse(400); // the sample's wall-clock length passes while frozen
+      await audioWitness(0.4); // an independent clock passes the sample's length
       const frozen = {
         state: context.state,
         drift: context.currentTime - pausedAt,
@@ -62,7 +61,14 @@ test("pause freezes scheduled playback; release continues it from that point @we
         ramp: rampAtPause,
       };
       audio.setPaused(false);
-      const ranOut = await until(() => ended);
+      const ranOut = await waitForSignal(
+        () => ended,
+        (check) => {
+          source.addEventListener("ended", check);
+          return () => source.removeEventListener("ended", check);
+        },
+        1200,
+      );
       return {
         playingAdvance: playingAt - startAt,
         frozen,
@@ -105,6 +111,7 @@ test("a pause before the first context, an unlock request, and a named owner @we
     const { AgiAudio } = await import("/src/audio/AgiAudio.ts");
     let context: AudioContext | null = null;
     let suspensionSettled = false;
+    const suspension = Promise.withResolvers<void>();
     const audio = new AgiAudio({
       contextFactory: () => {
         const ctx = new AudioContext();
@@ -112,16 +119,15 @@ test("a pause before the first context, an unlock request, and a named owner @we
         ctx.suspend = async () => {
           await suspend();
           suspensionSettled = true;
+          suspension.resolve();
         };
         context = ctx;
         return ctx;
       },
     });
-    const elapse = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
-    const until = async (predicate: () => boolean, tries = 60) => {
-      for (let i = 0; i < tries && !predicate(); i++) await elapse(20);
-      return predicate();
-    };
+    const signalsPath = "/e2e/browserSignals.ts";
+    const { audioElapsed, audioState, audioWitness, waitForSignal }: typeof BrowserSignals =
+      await import(/* @vite-ignore */ signalsPath);
     try {
       // The pause predates the context; the first output creates it frozen.
       audio.setPaused(true);
@@ -129,29 +135,35 @@ test("a pause before the first context, an unlock request, and a named owner @we
       const ctx = context!;
       // WebKit initially reports suspended, then starts the context. Observe
       // the app's completed suspension rather than that provisional state.
-      if (!(await until(() => suspensionSettled && ctx.state === "suspended"))) {
-        throw new Error("The app did not settle the initial audio suspension.");
-      }
+      await waitForSignal(
+        () => suspensionSettled && ctx.state === "suspended",
+        (check) => {
+          void suspension.promise.then(check);
+          ctx.addEventListener("statechange", check);
+          return () => ctx.removeEventListener("statechange", check);
+        },
+        1200,
+      );
       const frozenAt = ctx.currentTime;
-      await elapse(150);
+      await audioWitness(0.15);
       const firstContext = { state: ctx.state, drift: ctx.currentTime - frozenAt };
       // The user-gesture unlock must not lift the outstanding pause.
       await audio.resume();
-      await elapse(80);
+      await audioWitness(0.08);
       const afterUnlock = { state: ctx.state, drift: ctx.currentTime - frozenAt };
       // A named owner holds across the ambient channel's release.
       audio.setPauseOwner("worker", true);
       audio.setPaused(false);
-      await elapse(150);
+      await audioWitness(0.15);
       const ownerHeld = { state: ctx.state, drift: ctx.currentTime - frozenAt };
       // Late output during the hold does not lift it either.
       audio.output({ kind: "speaker", divisor: 1356 });
-      await elapse(80);
+      await audioWitness(0.08);
       const stillHeld = { state: ctx.state, drift: ctx.currentTime - frozenAt };
       audio.setPauseOwner("worker", false);
-      await until(() => ctx.state === "running");
+      await audioState(ctx, "running");
       const resumedAt = ctx.currentTime;
-      await elapse(150);
+      await audioElapsed(ctx, 0.15);
       return {
         firstContext,
         afterUnlock,

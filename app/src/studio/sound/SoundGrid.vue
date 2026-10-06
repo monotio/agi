@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import UiIcon from "../../ui/UiIcon.vue";
 import { computed, onMounted, useTemplateRef, watch } from "vue";
 import type { SoundDocument, SoundEventDataInput } from "../../../../src/sound/document.ts";
 import {
@@ -10,7 +11,7 @@ import {
   timedSoundEvents,
   type TimedSoundEvent,
 } from "../../../../src/sound/sequencer.ts";
-import { PIT_BASE_FREQ } from "../../../../src/sound/sound.ts";
+import { PSG_BASE_FREQ } from "../../../../src/sound/sound.ts";
 import { VOCABULARY } from "../../../../src/vocabulary.ts";
 import { ref } from "vue";
 const props = defineProps<{
@@ -79,7 +80,7 @@ let drag:
   | undefined;
 function midi(note: TimedSoundEvent): number {
   return note.event.data.kind === "tone"
-    ? Math.round(69 + 12 * Math.log2(PIT_BASE_FREQ / note.event.data.divisor / 440))
+    ? Math.round(69 + 12 * Math.log2(PSG_BASE_FREQ / note.event.data.divisor / 440))
     : 0;
 }
 function noteRow(note: TimedSoundEvent): number {
@@ -458,7 +459,7 @@ onMounted(() => {
       :title="pageStart === 0 ? 'First steps' : 'Show earlier steps'"
       @click="pageStart = Math.max(0, pageStart - 32)"
     >
-      ← Earlier</button
+      <UiIcon name="arrow-left" :size="16" /> Earlier</button
     ><span>Steps {{ pageStart + 1 }}–{{ pageStart + 32 }}</span
     ><button
       type="button"
@@ -466,7 +467,7 @@ onMounted(() => {
       :title="pageStart + 32 >= steps ? 'Final steps' : 'Show later steps'"
       @click="pageStart += 32"
     >
-      Later →
+      Later <UiIcon name="arrow-right" :size="16" />
     </button>
   </div>
   <div class="sound-roll">

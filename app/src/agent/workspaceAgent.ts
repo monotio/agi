@@ -1,5 +1,6 @@
+import { beginProviderTask } from "./providerBudget.ts";
 /** One task-chat adapter; ProjectSession remains the sole project writer. */
-import { AgentRun } from "./agentRun.ts";
+import { DEFAULT_TASK_BUDGET_USD, AgentRun, type AgentRunState } from "./agentRun.ts";
 import {
   createAnthropicConversation,
   createOpenAiConversation,
@@ -187,7 +188,9 @@ function stubConversation(initial: unknown[]): UnifiedConversation {
           return {
             key,
             content: key.startsWith("logic:")
-              ? text.replace(/#message (\d+) "[^"]*"/, '#message $1 "Welcome sign"')
+              ? /#message/.test(text)
+                ? text.replace(/#message (\d+) "[^"]*"/, '#message $1 "Welcome sign"')
+                : text.replace(/print\("(?:[^"\\]|\\.)*"\)/, 'print("Welcome sign")')
               : text.replace(/vis \d+/, "vis 4"),
           };
         });
@@ -280,8 +283,9 @@ export function createWorkspaceAgent(options: Options) {
   }
   review = store.active === null ? null : (reviews.get(store.active) ?? null);
   let activeRun: AgentRun | null = null;
+  const completedRuns = new Map<string, AgentRunState>();
   let autoApprove = false;
-  const reviewOutcomes: Record<string, string> = {};
+  const reviewOutcomes = new Map<string, string>();
   let error = "";
   let busy = false;
   let applying = false;
@@ -415,7 +419,7 @@ export function createWorkspaceAgent(options: Options) {
       chat.messages = chat.messages.map((message) =>
         message.id === approving.messageId ? { ...message, beforeCommit: before, commit } : message,
       );
-      reviewOutcomes[approving.messageId] = automatic ? "Applied automatically" : "Approved";
+      reviewOutcomes.set(approving.messageId, automatic ? "Applied automatically" : "Approved");
       action(chat, "approve", {
         resources: changes.map((change) => change.key),
         outcome: result.status,
@@ -477,6 +481,7 @@ export function createWorkspaceAgent(options: Options) {
     }
     let driver = projectDriver();
     const config = options.config();
+    if (!automatic) beginProviderTask(config.budgetUsd ?? DEFAULT_TASK_BUDGET_USD);
     const run = new AgentRun(config.model, () => notify(), config.budgetUsd);
     activeRun = run;
     const userId = id();
@@ -840,6 +845,7 @@ export function createWorkspaceAgent(options: Options) {
       appliedDuringRun = null;
       if (provider) chat.transcript = provider.getTranscript();
       busy = false;
+      completedRuns.set(chat.id, run.snapshot());
       activeRun = null;
       await save();
     }
@@ -891,7 +897,7 @@ export function createWorkspaceAgent(options: Options) {
     current,
     reviewOutcome(messageId: string): string | undefined {
       return (
-        reviewOutcomes[messageId] ??
+        reviewOutcomes.get(messageId) ??
         (store.chats.some((chat) =>
           chat.messages.some((message) => message.id === messageId && message.commit),
         )
@@ -919,7 +925,10 @@ export function createWorkspaceAgent(options: Options) {
       return [...progress];
     },
     get task() {
-      return activeRun?.snapshot() ?? null;
+      return (
+        activeRun?.snapshot() ??
+        (store.active === null ? null : (completedRuns.get(store.active) ?? null))
+      );
     },
     subscribe(observer: () => void) {
       observers.add(observer);
@@ -981,7 +990,7 @@ export function createWorkspaceAgent(options: Options) {
       if (applying) return;
       if (review) {
         const chat = store.chats.find((chat) => chat.id === review!.chatId)!;
-        reviewOutcomes[review.messageId] = "Rejected";
+        reviewOutcomes.set(review.messageId, "Rejected");
         action(chat, "reject", {
           resources: review.changes().map((change) => change.key),
           outcome: "discarded",

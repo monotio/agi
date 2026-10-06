@@ -32,7 +32,8 @@ test("draw, audition, track and import MIDI beside the game @webkit-desktop", as
   await page.mouse.down();
   await page.mouse.move(box!.x + 64 + 11 * 26 + 12, box!.y + 24 + 12 * 20 + 10, { steps: 8 });
   await page.mouse.up();
-  await expect(page.getByTestId("workspace-saved")).toContainText("Saved");
+  await expect(page.getByTestId("workspace-saved")).toBeVisible();
+  await expect(page.getByTestId("workspace-saved")).toHaveText(/^(?:Saved|Draft saved)$/);
   // Move off the note so the pixel probe measures its fill, without the selection outline.
   await grid.press("ArrowDown");
   const readNotePixels = () =>
@@ -83,7 +84,8 @@ test("draw, audition, track and import MIDI beside the game @webkit-desktop", as
   await grid.press("Shift+ArrowRight");
   await panel.getByRole("button", { name: "Drums", exact: true }).click();
   await panel.getByTestId("sound-drums").click({ position: { x: 64 + 4 * 26 + 4, y: 10 } });
-  await expect(page.getByTestId("workspace-saved")).toContainText("Saved");
+  await expect(page.getByTestId("workspace-saved")).toBeVisible();
+  await expect(page.getByTestId("workspace-saved")).toHaveText(/^(?:Saved|Draft saved)$/);
   for (const size of [
     { width: 1440, height: 900 },
     { width: 1280, height: 720 },
@@ -151,5 +153,6 @@ test("draw, audition, track and import MIDI beside the game @webkit-desktop", as
     .getByRole("button", { name: "Add SOUND", exact: true })
     .click();
   await expect(page.getByTestId("part-sound:2")).toBeVisible();
-  await expect(page.getByTestId("workspace-saved")).toContainText("Saved");
+  await expect(page.getByTestId("workspace-saved")).toBeVisible();
+  await expect(page.getByTestId("workspace-saved")).toHaveText(/^(?:Saved|Draft saved)$/);
 });

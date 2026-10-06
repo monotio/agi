@@ -9,9 +9,12 @@
  * close it. Keys pressed inside never reach the game (App.vue skips events
  * from dialogs).
  */
-import { nextTick, onBeforeUnmount, ref, useTemplateRef } from "vue";
+import { nextTick, onBeforeUnmount, ref, useId, useTemplateRef } from "vue";
+import { useAmigaRegion } from "../settings/amigaRegion.ts";
+import { CRT_STEPS } from "../settings/crtPreference.ts";
 import UiIcon from "../ui/UiIcon.vue";
 import UiIconButton from "../ui/UiIconButton.vue";
+import UiSelect from "../ui/UiSelect.vue";
 import UiSwitch from "../ui/UiSwitch.vue";
 import { useEngineApi } from "../engine/engineContext.ts";
 import { useAiSettings } from "../settings/useAiSettings.ts";
@@ -19,10 +22,10 @@ import { useShellBridge } from "./shellBridge.ts";
 import { nextAudioMode, soundChipLabel, soundFamily } from "../audio/useAudioController.ts";
 import { useShell } from "./useShell.ts";
 
-const { touchControls, crtEnabled, originalAspect, gpuBackend, debugOpen, exportBusy } =
+const { touchControls, crtAmount, originalAspect, gpuBackend, debugOpen, exportBusy } =
   defineProps<{
     touchControls: boolean;
-    crtEnabled: boolean;
+    crtAmount: number;
     originalAspect: boolean;
     gpuBackend: string | undefined;
     debugOpen: boolean;
@@ -31,7 +34,7 @@ const { touchControls, crtEnabled, originalAspect, gpuBackend, debugOpen, export
 
 const emit = defineEmits<{
   "update:touchControls": [value: boolean];
-  "update:crtEnabled": [value: boolean];
+  "update:crtAmount": [value: number];
   "update:originalAspect": [value: boolean];
   "update:debugOpen": [value: boolean];
   "export-zip": [project: boolean];
@@ -46,6 +49,9 @@ const bridge = useShellBridge();
 const shell = useShell();
 
 const sheet = useTemplateRef("sheet");
+const crtId = useId();
+const amigaRegionId = useId();
+const { region: amigaRegion, setRegion: setAmigaRegion } = useAmigaRegion();
 const open = ref(false);
 /** Advanced disclosure: sound-chip emulation and diagnostics live under it. */
 const advanced = ref(false);
@@ -104,14 +110,17 @@ function onWindowKeydown(event: KeyboardEvent): void {
 }
 
 /**
- * Focus taken outside by anything but Tab (the game claiming its input, a
- * click the outside handler has not seen) closes the sheet behind it.
+ * Keep the sheet's keyboard focus through delayed background focus requests.
+ * Outside pointer clicks, Escape and actions close it through their own handlers.
  */
 function onFocusOut(event: FocusEvent): void {
   const next = event.relatedTarget;
   if (!(next instanceof Node)) return;
   if (sheet.value?.contains(next) || trigger?.contains(next)) return;
-  close("stay");
+  const previous = event.target;
+  void nextTick(() => {
+    if (open.value && previous instanceof HTMLElement) previous.focus({ preventScroll: true });
+  });
 }
 
 async function show(from: HTMLElement | null): Promise<void> {
@@ -170,7 +179,7 @@ defineExpose({ toggle, close, open });
     <template v-if="open">
       <header class="settings-sheet__head">
         <h2 id="settings-sheet-title">Settings</h2>
-        <UiIconButton icon="x" label="Close settings" size="sm" @click="close('game')" />
+        <UiIconButton icon="x" label="Close" size="sm" @click="close('game')" />
       </header>
 
       <section class="settings-sheet__group" aria-labelledby="settings-sound-display">
@@ -187,15 +196,27 @@ defineExpose({ toggle, close, open });
         >
           Sound<small>Linked to the game’s own sound setting</small>
         </UiSwitch>
-        <UiSwitch
-          v-if="gpuBackend"
-          class="settings-row"
-          data-testid="toggle-crt"
-          :model-value="crtEnabled"
-          @update:model-value="emit('update:crtEnabled', $event)"
-        >
-          CRT screen<small>Scanlines, glow and curved glass in Play</small>
-        </UiSwitch>
+        <div v-if="gpuBackend" class="settings-row settings-row--crt">
+          <label :for="crtId">CRT<small>Scanlines, glow and curved glass in Play</small></label>
+          <output :for="crtId" class="setting-value" data-testid="crt-value">{{
+            CRT_STEPS[Math.round(crtAmount * 4)]
+          }}</output>
+          <input
+            :id="crtId"
+            type="range"
+            data-testid="crt-amount"
+            min="0"
+            max="1"
+            step="0.25"
+            :value="crtAmount"
+            :aria-valuetext="CRT_STEPS[Math.round(crtAmount * 4)]"
+            aria-label="CRT"
+            @input="emit('update:crtAmount', Number(($event.target as HTMLInputElement).value))"
+          />
+          <div class="crt-steps" aria-hidden="true">
+            <span v-for="label in CRT_STEPS" :key="label">{{ label }}</span>
+          </div>
+        </div>
         <UiSwitch
           class="settings-row"
           data-testid="toggle-original-aspect"
@@ -315,6 +336,23 @@ defineExpose({ toggle, close, open });
             >
             <span v-if="soundFamily(state.profile) === 'pc'" class="setting-value">Change</span>
           </button>
+          <div
+            v-if="state.phase === 'running' && soundFamily(state.profile) === 'amiga'"
+            class="settings-row"
+          >
+            <label :for="amigaRegionId">Amiga timing<small>Applies on the next start</small></label>
+            <span class="setting-value">
+              <UiSelect
+                :id="amigaRegionId"
+                size="sm"
+                :model-value="amigaRegion"
+                @update:model-value="setAmigaRegion"
+              >
+                <option value="ntsc">NTSC (US)</option>
+                <option value="pal">PAL (Europe)</option>
+              </UiSelect>
+            </span>
+          </div>
           <UiSwitch
             v-if="state.phase === 'running'"
             class="settings-row"
@@ -419,6 +457,28 @@ defineExpose({ toggle, close, open });
 }
 .settings-row small {
   display: block;
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  font-weight: 400;
+}
+.settings-sheet .settings-row--crt {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-1) var(--space-3);
+  cursor: default;
+}
+.settings-row--crt input {
+  grid-column: 1 / -1;
+  width: 100%;
+  margin: 0;
+  min-height: var(--control-h-sm);
+  accent-color: var(--action);
+  cursor: pointer;
+}
+.crt-steps {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: space-between;
   color: var(--ink-3);
   font-size: var(--text-xs);
   font-weight: 400;

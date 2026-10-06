@@ -1,5 +1,5 @@
 import type { Page } from "@playwright/test";
-import { isolateStorage, workspaceSaved } from "./engineProbe.ts";
+import { isolateStorage, workspaceSaved, workspaceUpdated } from "./engineProbe.ts";
 import { expect, reviewShot, test } from "./test.ts";
 import {
   focusWorkspaceLogic,
@@ -33,7 +33,7 @@ async function appendComment(page: Page): Promise<void> {
   await workspaceSaved(page);
 }
 
-test("LOGIC autosaves an exact source-only edit and reopens it", async ({ page }) => {
+test("Update game saves an exact source-only edit and reopens it", async ({ page }) => {
   await isolateStorage(page);
   // These editor scenarios use local projects rather than the development
   // fixture shelf and its independent thumbnail fetches.
@@ -52,7 +52,7 @@ test("LOGIC autosaves an exact source-only edit and reopens it", async ({ page }
   await page.reload();
   await edit(page, "Source review");
   await appendComment(page);
-  await workspaceSaved(page);
+  await workspaceUpdated(page);
   await reviewShot(page, "logic-source-saved");
   const source = await page.evaluate(async (id) => {
     const { loadAuthoredGame } = await import("/src/project/gameStorage.ts");
@@ -81,9 +81,15 @@ test("invalid LOGIC and another document both autosave and reopen", async ({ pag
   await page.reload();
   await edit(page, "Selected changes");
   const source = await workspaceDocument(page, "logic:1");
-  await replaceWorkspaceDocument(page, "logic:0", "if broken");
+  const runningSource = await workspaceDocument(page, "logic:0");
+  await replaceWorkspaceDocument(page, "logic:0", "if broken", false);
   await expect(page.getByTestId("workspace-last-good")).toBeVisible();
-  await replaceWorkspaceDocument(page, "logic:1", source + "\n// saved beside broken source");
+  await replaceWorkspaceDocument(
+    page,
+    "logic:1",
+    source + "\n// saved beside broken source",
+    false,
+  );
   await workspaceSaved(page);
   const contents = await page.evaluate(async (id) => {
     const { loadAuthoredGame } = await import("/src/project/gameStorage.ts");
@@ -91,7 +97,7 @@ test("invalid LOGIC and another document both autosave and reopen", async ({ pag
   }, id);
   expect(contents?.find((doc) => doc.key === "logic:0")?.content).toEqual({
     type: "text",
-    text: "if broken",
+    text: runningSource,
   });
   await page.reload();
   await openWorkspaceLogic(page, 0);

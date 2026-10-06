@@ -118,7 +118,7 @@ describe("starter project determinism and ownership", () => {
     assert.notEqual(blank.seed.digest, starter.seed.digest);
     assert.match(blank.seed.digest, /^[0-9a-f]{64}$/);
     assert.equal(blank.seed.templateRevision, 2);
-    assert.equal(starter.seed.templateRevision, 4);
+    assert.equal(starter.seed.templateRevision, 5);
     assert.notEqual(blank.seed.templateId, starter.seed.templateId);
   });
 });

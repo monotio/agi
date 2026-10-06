@@ -132,7 +132,7 @@ test("defaults preserve text undo and dialogs, and dispose all bindings", () => 
   assert.equal(registry.commands.value.length, 0);
 });
 
-test("debug bindings can run from game and editor zones when the host supplies actions", () => {
+test("focused game owns F5 and F6; editor owns debugging and zone navigation", () => {
   const ctx = context();
   const registry = createCommandRegistry(() => ctx, true);
   const calls: string[] = [];
@@ -148,14 +148,16 @@ test("debug bindings can run from game and editor zones when the host supplies a
     },
   });
   ctx.gameFocus = true;
-  assert.equal(registry.dispatch(key("F5").event), true);
+  assert.equal(registry.dispatch(key("F5").event), false);
+  assert.equal(registry.dispatch(key("F6").event), false);
   ctx.debugging = true;
   assert.equal(registry.dispatch(key("F10").event), true);
   ctx.gameFocus = false;
   ctx.editorFocus = true;
   ctx.textInputFocus = true;
+  assert.equal(registry.dispatch(key("F5").event), true);
   assert.equal(registry.dispatch(key("F9").event), true);
-  assert.deepEqual(calls, ["run", "step", "breakpoint"]);
+  assert.deepEqual(calls, ["step", "run", "breakpoint"]);
 });
 
 test("the global dispatcher mounts once, stops handled keys and releases its listener", () => {
@@ -267,4 +269,21 @@ test("the agent owns approval keys while its composer has focus", () => {
   registerDefaultCommands(registry, { play: () => played++ });
   assert.equal(registry.dispatch(key("Enter", { metaKey: true }).event), false);
   assert.equal(played, 0);
+});
+
+test("F5 runs from parts, agent and page focus while the game owns its input", () => {
+  const ctx = context();
+  const registry = createCommandRegistry(() => ctx, false);
+  let runs = 0;
+  registerDefaultCommands(registry, { run: () => runs++ });
+  for (const agentFocus of [false, true]) {
+    ctx.agentFocus = agentFocus;
+    ctx.editorFocus = false;
+    ctx.gameFocus = false;
+    ctx.textInputFocus = agentFocus;
+    assert.equal(registry.dispatch(key("F5").event), true);
+  }
+  assert.equal(runs, 2);
+  ctx.gameFocus = true;
+  assert.equal(registry.dispatch(key("F5").event), false);
 });

@@ -244,6 +244,7 @@ export interface FrozenTestBoot {
 }
 
 export interface BootMessage {
+  amigaRegion?: "ntsc" | "pal";
   type: "boot";
   files: Record<string, Uint8Array>;
   words: [string, number][];
@@ -324,7 +325,15 @@ export type WorkerInbound =
    * Play here: enter `room`, run its entry cycle and place ego's baseline at
    * (x, y), keeping the session's flags. Answered by `playedHere`.
    */
-  | { type: "playHere"; id: number; room: number; x: number; y: number }
+  | {
+      type: "playHere";
+      id: number;
+      room: number;
+      x: number;
+      y: number;
+      /** Create visits use the room's placement and keep an exact return point. */
+      visit?: "start" | "back";
+    }
   /**
    * Replace every listed resource, or none: the worker stages the whole set
    * before the live container changes, so a refusal (a full volume, an
@@ -621,6 +630,7 @@ export type WorkerControl =
       x: number;
       y: number;
       reason?: string;
+      returnRoom?: number;
     }
   | { type: "debugEvents"; id: number; cycle: number; latestSeq: number; events: DebugEvent[] }
   | { type: "debugTrace"; id: number; cycle: number; latestSeq: number; records: StampedTrace[] }

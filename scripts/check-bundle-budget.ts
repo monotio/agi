@@ -18,6 +18,7 @@ import {
   PLAY_START,
   AUTHORING_MODULES,
   DEBUGGER_MODULES,
+  ROOM_ANALYSIS_MODULES,
   isHomeDeferredModule,
   isStudioModule,
 } from "./deferred-modules.mjs";
@@ -127,10 +128,21 @@ type Group = "entry" | "home" | "js" | "css" | "workers" | "fonts";
  * and the CSS from the 1.1.0-rc.4 build. Workers were re-measured for 1.2
  * with the smaller headroom recorded below. The startup JavaScript budget
  * kept its value when the Home-start tutorial build joined the measure.
- * Raise one only on purpose,
- * saying in the commit what grew and why it must load before the first frame;
- * moving the code behind a dynamic import comes first.
+ * A budget is a heads-up: going over it warns, so the growth is seen and
+ * explained. Only a size beyond BUDGET_CEILING times its budget fails the
+ * build. Raise one when a warning keeps recurring, saying in the commit what
+ * grew and why it must load before the first frame; moving the code behind a
+ * dynamic import comes first.
  */
+/** How far over its budget a group may grow before the build fails. */
+export const BUDGET_CEILING = 1.1;
+
+/** "over" warns; "beyond" fails the build. */
+export function budgetVerdict(size: number, budget: number): "within" | "over" | "beyond" {
+  if (size <= budget) return "within";
+  return size <= budget * BUDGET_CEILING ? "over" : "beyond";
+}
+
 const BUDGETS: Record<Group, { readonly gzip: number; readonly brotli: number }> = {
   // Both variable Latin fonts are used on Home and preloaded: 51.6 kB WOFF2,
   // including the UI symbols. WOFF2 is already compressed; allow 55 kB.
@@ -138,10 +150,12 @@ const BUDGETS: Record<Group, { readonly gzip: number; readonly brotli: number }>
   // The entry chunk alone: measured 453.0 kB gzip, 367.3 kB brotli.
   entry: { gzip: 500_000, brotli: 405_000 },
   home: { gzip: 500_000, brotli: 405_000 },
-  // Home through cold catalog Play: 555.4 kB gzip, 463.8 kB brotli after
-  // the agent, debugger, editor and preview boundaries. Keep the original
-  // 575/472 kB limits; Home's GPU stage and tutorial build wait for Play.
-  js: { gzip: 575_000, brotli: 472_000 },
+  // Home through cold catalog Play: 565.0 kB gzip, 472.1 kB brotli after
+  // the agent, debugger, editor and preview boundaries, plus the shared dismiss
+  // control, first-run tip and reported-spend line in the shell. Home's GPU
+  // stage and tutorial build wait for Play.
+  // Room-flow analysis starts with the map or Create in a separate worker.
+  js: { gzip: 575_000, brotli: 474_000 },
   // The stylesheets of those chunks: 16.4 kB gzip, 14.3 kB brotli.
   css: { gzip: 16_500, brotli: 14_500 },
   // The 1.2 engine and catalog workers share Engine's synchronous native
@@ -156,7 +170,9 @@ const BUDGETS: Record<Group, { readonly gzip: number; readonly brotli: number }>
   // run without a reboot, through a message gate and frozen-run denial. Together
   // they bring this closure to 167.5 kB gzip, 140.5 kB brotli; restart
   // validation and the admission controller still load only for Create.
-  workers: { gzip: 168_000, brotli: 141_000 },
+  // Executable-only recording boots and the oversize rotation guard bring
+  // the closure to 168.1 kB gzip and 141.1 kB brotli.
+  workers: { gzip: 169_000, brotli: 142_000 },
 };
 
 const GROUP_LABELS: Record<Group, string> = {
@@ -239,6 +255,7 @@ function main(): void {
   // worker with no recorded graph fails rather than undercounting.
   const workerChunks: GraphChunk[] = [];
   const failures: string[] = [];
+  const warnings: string[] = [];
   for (const workerEntry of workerEntries) {
     const record = graph.workers?.[workerEntry];
     if (record === undefined) {
@@ -349,14 +366,16 @@ function main(): void {
       );
     }
     for (const encoding of ["gzip", "brotli"] as const) {
-      if (total[encoding] <= budget[encoding]) continue;
+      const verdict = budgetVerdict(total[encoding], budget[encoding]);
+      if (verdict === "within") continue;
       const largest = files[0]!;
-      failures.push(
+      const message =
         `${GROUP_LABELS[group]} is ${kB(total[encoding])} ${encoding}, over its ${kB(budget[encoding])} budget` +
-          (files.length > 1
-            ? ` (largest: ${largest} at ${kB(sizeOf(largest)[encoding])})`
-            : ` (${largest})`),
-      );
+        (verdict === "beyond" ? ` and its ${kB(budget[encoding] * BUDGET_CEILING)} ceiling` : "") +
+        (files.length > 1
+          ? ` (largest: ${largest} at ${kB(sizeOf(largest)[encoding])})`
+          : ` (${largest})`);
+      (verdict === "beyond" ? failures : warnings).push(message);
     }
   }
 
@@ -378,6 +397,12 @@ function main(): void {
         failures.push(
           `${module} is in the startup chunk ${chunk.file}; the AI authoring stack must load through app/src/agent/authoringLoader.ts.`,
         );
+  for (const chunk of boot)
+    for (const module of chunk.modules)
+      if (ROOM_ANALYSIS_MODULES.some((pattern) => pattern.test(module)))
+        failures.push(
+          `${module} is in the Play startup chunk ${chunk.file}; room analysis must load with the map or Create.`,
+        );
   for (const worker of workerEntries)
     if (STUDIO_WORKERS.some((pattern) => pattern.test(worker)))
       failures.push(
@@ -385,11 +410,27 @@ function main(): void {
       );
   for (const chunk of workerChunks)
     for (const module of chunk.modules)
+      if (ROOM_ANALYSIS_MODULES.some((pattern) => pattern.test(module)))
+        failures.push(
+          `${module} is in the startup closure of worker chunk ${chunk.file}; room analysis must load with the map or Create.`,
+        );
+  for (const chunk of workerChunks)
+    for (const module of chunk.modules)
       if (DEBUGGER_MODULES.some((pattern) => pattern.test(module)))
         failures.push(
           `${module} is in the startup closure of worker chunk ${chunk.file}; the execution debugger must load through app/src/worker/debugLoader.ts's dynamic import.`,
         );
 
+  if (warnings.length > 0) {
+    console.warn("\nBundle budget heads-up:");
+    for (const warning of warnings) {
+      console.warn(`- ${warning}`);
+      if (process.env["GITHUB_ACTIONS"] === "true") console.warn(`::warning::${warning}`);
+    }
+    console.warn(
+      "Move the code behind a dynamic import, or raise the budget with the reason in the commit.",
+    );
+  }
   if (failures.length > 0) {
     console.error(`\nBundle budget ${warnOnly ? "warnings" : "failed"}:`);
     for (const failure of failures) console.error(`- ${failure}`);
@@ -399,7 +440,7 @@ function main(): void {
     if (!warnOnly) process.exit(1);
   } else {
     console.log(
-      "\nBundle budget: startup path within budget; Studio and the AI authoring stack stay lazy.",
+      `\nBundle budget: startup path ${warnings.length > 0 ? "within its ceiling" : "within budget"}; Studio and the AI authoring stack stay lazy.`,
     );
   }
 }

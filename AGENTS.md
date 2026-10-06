@@ -171,6 +171,15 @@ code, comments or documentation.
   Describe capabilities directly; omit unnecessary reassurance about engines,
   keys or excluded alternatives. Error notices name the cause and next action.
   Keep actual constraints and irreversible consequences explicit.
+  Tips and hints say something the screen does not already show; never restate
+  universal controls such as tools or Undo.
+- Dismiss-only overlays and panels use a top-right × with aria-label "Close" and Esc;
+  popovers also close on outside click. Editor tabs use ×. Modes end with Done;
+  choices offer Cancel plus the named action. Buttons never display bare "Close".
+- Never guess or promise what an AI request will cost before it runs: no price on a
+  button, no estimate before sending. Show the budget with Stop and pause near it.
+  Actual spend may be shown after the fact, from provider-reported usage or
+  measured benchmarks, labelled as spent.
 
 ## Method
 
@@ -190,6 +199,9 @@ code, comments or documentation.
   write a test that mirrors the implementation or duplicates another assertion.
 - A recurring defect becomes an eslint or ast-grep rule or a permanent test; then
   delete the reminder.
+- Budgets are a heads-up, not a tripwire. A bundle size over its budget warns; only
+  10% beyond it fails. Timing budgets keep about three times the worst measured run.
+  Raise a budget when its warning recurs, never by the size of one change.
 - Harness integrity is tested offline. Model and prompt changes are validated
   against stored bad cases within authorized spend, with paid-run limits reported.
   Correction rounds are a ceiling, not a target.
@@ -218,13 +230,15 @@ code, comments or documentation.
 
 ## Working with others
 
+- Parallel agent lanes: see [docs/agent-lanes.md](docs/agent-lanes.md).
 - Shared tree: never `git stash`, `git reset`, or `git checkout`/`restore` on
   paths. Re-read before editing, exact-string edits only, never rewrite a shared
   file wholesale. Agree file ownership before parallel edits.
 - Delegation: explicit file scope per contributor, a fresh agent for unrelated
   work, review delegated output and run the relevant checks before integrating.
   Do not require a particular agent vendor or model.
-- A delegated task works in its own worktree and branch, pushes only that branch for
-  CI, and opens its report with at most 150 words: verdict, commits, gates with the CI
+- A delegated task works in its own worktree and branch, runs selective gates (affected
+  tests, touched-file typecheck, lint and format; the integrator alone runs the full
+  gate), pushes only that branch for CI, and opens its report with at most 150 words: verdict, commits, gates with the CI
   run link, open questions. Integrate only on green CI for that branch; then delete
   its worktree and branches.

@@ -50,8 +50,7 @@ function strays(root: Locator, pictures: string): Promise<string[]> {
       );
       if (!over) continue;
       if (element.closest('[role="menu"], [role="dialog"]')) continue;
-      if (element.querySelector('[data-role="drag-handle"], button[aria-label^="Dismiss"]'))
-        continue;
+      if (element.querySelector('[data-role="drag-handle"], button[aria-label="Close"]')) continue;
       found.push(`${element.className || element.tagName}: ${text.slice(0, 48)}`);
     }
     return found;
@@ -69,7 +68,7 @@ for (const [width, height] of [
     await openWorkspacePicture(page, 2);
     const studio = page.getByTestId("room-studio");
     await expect(studio).toBeVisible();
-    const pictures = ".studio-pane__pixels";
+    const pictures = ".studio-pane__pixels, .game-surface";
     /** Every stray, by the step that showed it: all of them are reported at once. */
     const seen: string[] = [];
     const look = async (step: string, root: Locator, over: string) =>

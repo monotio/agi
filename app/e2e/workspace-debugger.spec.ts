@@ -1,3 +1,4 @@
+import { workspaceUpdated } from "./engineProbe.ts";
 import { test, expect, reviewShot } from "./test.ts";
 import { isolateStorage, textHook } from "./engineProbe.ts";
 import type { Page, Locator } from "@playwright/test";
@@ -52,19 +53,20 @@ for (const size of [
     await tabTo(page, editor.getByRole("textbox", { name: "Editor content", exact: true }));
     await page.keyboard.press("Escape");
     await page.keyboard.press("ControlOrMeta+f");
-    await page.keyboard.type("print(m1);");
+    await page.keyboard.type('print("You stand');
     await page.keyboard.press("Escape");
     await page.keyboard.press("F9");
     await expect(editor.locator(".workspace-breakpoint")).toHaveCount(1);
     await page.keyboard.press("F5");
-    await expect(page.getByTestId("debug-stop")).toBeEnabled();
+    await expect(page.locator(".workspace-editor__header").getByTestId("debug-stop")).toBeEnabled();
     await page.keyboard.press("Control+`");
     await page.keyboard.type("look");
     await page.keyboard.press("Enter");
     await expect(page.getByTestId("workspace-debug-status")).toHaveText(
       `Paused at LOGIC 1, line ${line}`,
     );
-    await expect(editor.locator(".workspace-stopped-line")).toBeVisible();
+    // Monaco repeats this decoration for wrapped line fragments; one visible fragment proves the stop.
+    await expect(editor.locator(".workspace-stopped-line").first()).toBeVisible();
     await expect(page.getByRole("tab", { name: "Variables", exact: true })).toBeVisible();
     const panel = page.getByTestId("workspace-debug-panel");
     await expect(panel.getByRole("heading", { name: "Used here", exact: true })).toBeVisible();
@@ -73,18 +75,15 @@ for (const size of [
     await panel.getByText("All variables", { exact: true }).click();
     await expect(panel.getByRole("spinbutton", { name: "v255", exact: true })).toBeVisible();
     await panel.getByText("All variables", { exact: true }).click();
-    const toolbar = page.getByRole("group", { name: "Debug controls", exact: true });
+    const toolbar = page
+      .locator(".workspace-editor__header")
+      .getByRole("group", { name: "Debug controls", exact: true });
+    await expect(toolbar).toBeVisible();
     expect(
       await toolbar
         .getByRole("button")
         .evaluateAll((buttons) => buttons.map((button) => button.getAttribute("aria-label"))),
-    ).toEqual([
-      "Continue (F5)",
-      "Step over (F10)",
-      "Step into (F11)",
-      "Step out (⇧F11)",
-      "Stop (⇧F5)",
-    ]);
+    ).toEqual(["Continue", "Step over (F10)", "Step into (F11)", "Step out (⇧F11)", "Stop (⇧F5)"]);
     await panel.locator(".workspace-debug-content").evaluate((element) => {
       element.scrollTop = 0;
     });
@@ -137,7 +136,7 @@ test("stopped edits keep the running source, value edits and watches inspect MAI
   );
   await editor.getByRole("textbox", { name: "Editor content", exact: true }).focus();
   await page.keyboard.press("ControlOrMeta+f");
-  await page.keyboard.type("print(m1);");
+  await page.keyboard.type('print("You stand');
   await page.keyboard.press("Escape");
   await page.keyboard.press("F9");
   await expect(editor.locator(".workspace-breakpoint")).toHaveCount(1);
@@ -147,7 +146,7 @@ test("stopped edits keep the running source, value edits and watches inspect MAI
   await page.keyboard.press("F9");
   await expect(editor.locator(".workspace-breakpoint")).toHaveCount(1);
   await page.keyboard.press("F5");
-  await expect(page.getByTestId("debug-stop")).toBeEnabled();
+  await expect(page.locator(".workspace-editor__header").getByTestId("debug-stop")).toBeEnabled();
   await page.keyboard.press("Control+`");
   await page.keyboard.type("look");
   await page.keyboard.press("Enter");
@@ -183,16 +182,18 @@ test("stopped edits keep the running source, value edits and watches inspect MAI
   ).toBeVisible();
   await expect(editor.locator(".workspace-stopped-line")).toHaveCount(0);
   await page.getByRole("button", { name: "Show running source", exact: true }).click();
-  await expect(editor.locator(".workspace-stopped-line")).toBeVisible();
+  // Monaco repeats this decoration for wrapped line fragments; one visible fragment proves the stop.
+  await expect(editor.locator(".workspace-stopped-line").first()).toBeVisible();
   await expect(
     editor.getByRole("textbox", { name: "Editor content", exact: true }),
   ).toHaveAttribute("readonly");
   await page.getByRole("button", { name: "Return to editing", exact: true }).click();
+  await editor.getByRole("textbox", { name: "Editor content", exact: true }).focus();
   await page.keyboard.press("F5");
   await expect.poll(async () => (await textHook(page)).rows.join("\n")).toContain("sunny clearing");
   await page.keyboard.press("Control+`");
   await page.keyboard.press("Enter");
-  await expect(page.getByTestId("workspace-saved")).toContainText("Saved");
+  await workspaceUpdated(page);
   await expect(page.getByRole("button", { name: "Show running source", exact: true })).toHaveCount(
     0,
   );
@@ -204,6 +205,7 @@ test("stopped edits keep the running source, value edits and watches inspect MAI
         ).__AGI_PROJECT__.getSession().runToken,
     ),
   ).toBe(token);
+  await page.keyboard.press("Control+`");
   await page.keyboard.type("look");
   await page.keyboard.press("Enter");
   await expect(page.getByTestId("workspace-debug-status")).toContainText("Paused at LOGIC 1");

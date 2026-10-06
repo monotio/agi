@@ -1,3 +1,4 @@
+import { scheduler as testScheduler } from "node:timers/promises";
 /**
  * Cross-editor coherence, end to end over fake ports: a stored project keeps
  * both its native files and its workspace envelope; an ordinary Room/Sprite
@@ -216,7 +217,7 @@ function rig(
     control,
     game: () => game,
     tick,
-    settle: () => new Promise((resolve) => setTimeout(resolve, 0)),
+    settle: () => testScheduler.yield(),
   };
 }
 

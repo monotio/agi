@@ -9,6 +9,7 @@ import {
   useTemplateRef,
   watch,
 } from "vue";
+import { useReadingPosition } from "../shell/useReadingPosition.ts";
 import AgentTaskControls from "./AgentTaskControls.vue";
 import { useEngineApi } from "../engine/engineContext.ts";
 import { useShellBridge } from "../shell/shellBridge.ts";
@@ -23,7 +24,7 @@ import UiKbd from "../ui/UiKbd.vue";
 
 /**
  * Where the assistant is hosted: the Play drawer is Ask-only (remix lives in
- * Create), the Create dock carries the full Ask / Remix surface.
+ * Create), the Create dock carries the full Agent surface.
  */
 const { surface } = defineProps<{ surface: "drawer" | "dock" }>();
 
@@ -73,11 +74,8 @@ const powerUpFeed = computed(() => {
 const powerUpAudio = computed(() => powerUpFeed.value.flatMap((entry) => entry.audio ?? []));
 
 const conversationEl = useTemplateRef("conversationEl");
-const followConversation = ref(true);
-function onConversationScroll(): void {
-  const el = conversationEl.value;
-  if (el) followConversation.value = el.scrollHeight - el.clientHeight - el.scrollTop < 24;
-}
+const { following: followConversation, readPosition: onConversationScroll } =
+  useReadingPosition(conversationEl);
 watch(
   [
     () => state.powerUp.open,
@@ -276,7 +274,7 @@ async function onBubbleReload(): Promise<void> {
           title="Ask about this game"
           @click="state.powerUp.mode = 'ask'"
         >
-          {{ VOCABULARY.agent.label }}
+          Ask
         </button>
         <button
           type="button"
@@ -286,7 +284,7 @@ async function onBubbleReload(): Promise<void> {
           title="Make changes to this game"
           @click="state.powerUp.mode = 'remix'"
         >
-          Remix
+          Change
         </button>
       </div>
       <span class="agent-bubble-right">
@@ -309,7 +307,7 @@ async function onBubbleReload(): Promise<void> {
         <UiIconButton
           v-if="!creatingRoom || !state.powerUp.busy"
           icon="x"
-          label="Back to game"
+          label="Close"
           shortcut="Esc"
           class="bubble-close remix-close"
           data-testid="agent-bubble-close"
@@ -373,7 +371,7 @@ async function onBubbleReload(): Promise<void> {
             ? 'Room generation in progress'
             : asking
               ? 'Investigation in progress'
-              : 'Remix in progress'
+              : 'Change in progress'
         "
       ></progress>
     </div>
@@ -469,11 +467,10 @@ async function onBubbleReload(): Promise<void> {
         data-testid="agent-bubble-send"
         :disabled="state.powerUp.busy || !powerUpLine.trim()"
       >
-        {{ state.powerUp.busy ? "Working…" : asking ? "Send" : "Remix" }}
+        {{ state.powerUp.busy ? "Working…" : "Send" }}
       </UiButton>
       <p v-if="surface === 'dock'" class="agent-budget" data-testid="agent-budget">
-        {{ asking ? VOCABULARY.agent.label : "Remix" }} · budget ${{ taskBudget.toFixed(2) }} per
-        task
+        {{ asking ? "Ask" : "Change" }} · budget ${{ taskBudget.toFixed(2) }} per task
       </p>
     </form>
     <!-- Playtest recording is editing tooling but needs no AI connection —

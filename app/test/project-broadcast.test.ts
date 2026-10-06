@@ -1,3 +1,4 @@
+import { drainProjectNotices, NOTICE_BARRIER } from "./projectNotices.ts";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
@@ -150,7 +151,9 @@ test("removing a project tells other tabs the lifetime it ended, once", async (t
   const id = testProjectId("removed-announced");
   const otherTab = new BroadcastChannel(PROJECT_CHANNEL);
   const heard: unknown[] = [];
-  otherTab.addEventListener("message", (event) => heard.push((event as MessageEvent).data));
+  otherTab.addEventListener("message", (event) => {
+    if (event.data?.projectId !== NOTICE_BARRIER) heard.push(event.data);
+  });
   t.after(() => {
     otherTab.close();
     if (descriptor) Object.defineProperty(globalThis, "localStorage", descriptor);
@@ -165,13 +168,13 @@ test("removing a project tells other tabs the lifetime it ended, once", async (t
   });
   const lifetime = await readHistoryLifetime(id);
   assert.ok(lifetime);
-  await new Promise((resolve) => setTimeout(resolve, 50));
+  await drainProjectNotices(otherTab);
   heard.length = 0;
 
   await clearCachedGame(id);
   // Removing it again ends no lifetime and says nothing.
   await clearCachedGame(id);
-  await new Promise((resolve) => setTimeout(resolve, 50));
+  await drainProjectNotices(otherTab);
   assert.deepEqual(heard, [{ projectId: id, removed: lifetime }]);
 });
 
@@ -209,7 +212,9 @@ test("every committed project write tells other tabs its project, revision and g
   // Another tab's channel: a separate object on the same name hears the writes.
   const otherTab = new BroadcastChannel(PROJECT_CHANNEL);
   const heard: unknown[] = [];
-  otherTab.addEventListener("message", (event) => heard.push((event as MessageEvent).data));
+  otherTab.addEventListener("message", (event) => {
+    if (event.data?.projectId !== NOTICE_BARRIER) heard.push(event.data);
+  });
   t.after(async () => {
     otherTab.close();
     await clearCachedGame(id);
@@ -227,7 +232,7 @@ test("every committed project write tells other tabs its project, revision and g
   assert.equal(await renameAuthoredGame(id, "Renamed"), true);
   // A refused write commits nothing and says nothing.
   assert.equal(await renameAuthoredGame(id, "Stale", 1), false);
-  await new Promise((resolve) => setTimeout(resolve, 50));
+  await drainProjectNotices(otherTab);
 
   const stored = JSON.parse(values.get(`monotio_agi.authored.${id}`)!) as {
     library: { revision: string };

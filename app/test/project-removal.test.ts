@@ -176,14 +176,18 @@ test("a same-family unresolved operand blocks; an unrelated family does not", as
     reviewedRemovals: ["sound:42"],
   });
 
-  // A variable-operand logic target keeps every LOGIC removal unsafe.
+  // The current-room dispatch resolves to boot and authored transitions.
   edit(ws, "logic:9", "return;");
   await ws.keepCandidate(ws.buildSelected(["logic:9"]));
   edit(ws, "logic:9", null);
   const logicRemoval = ws.buildSelected(["logic:9"]);
-  await assert.rejects(
-    ws.keepCandidate(logicRemoval, { reviewedRemovals: ["logic:9"] }),
-    /logic:9 may still be used: logic:0 .*v0/,
+  await ws.keepCandidate(logicRemoval, { reviewedRemovals: ["logic:9"] });
+  assert.equal(
+    openContainer(new Map(Object.entries((await storedBody(projectId)).files))).getResource(
+      "logic",
+      9,
+    ),
+    null,
   );
 });
 
@@ -208,6 +212,24 @@ test("an unselected dirty draft use blocks until the draft is repaired", async (
   const repaired = ws.buildSelected(["sound:42"]);
   await ws.keepCandidate(repaired, { reviewedRemovals: ["sound:42"] });
   assert.equal(soundBytes(await storedBody(projectId), 42), null);
+});
+
+test("a computed room jump names its room and LOGIC while native removal preserves the saved image", async () => {
+  const projectId = await seedProject("rm-computed-room");
+  const ws = await openEditableProject(projectId);
+  edit(ws, "logic:0", "call(1);return;");
+  edit(ws, "logic:1", '#message 1 "Room"\nget.num(m1,v60);new.room.v(v60);return;');
+  edit(ws, "logic:9", "return;");
+  await ws.keepCandidate(ws.buildSelected(["logic:0", "logic:1", "logic:9"]));
+  const before = await storedBody(projectId);
+  edit(ws, "logic:9", null);
+  await assert.rejects(
+    ws.keepCandidate(ws.buildSelected(["logic:9"]), { reviewedRemovals: ["logic:9"] }),
+    /Room 9.*computed room jump in LOGIC 1 \(the debug teleport\).*Remove anyway/,
+  );
+  const after = await storedBody(projectId);
+  assert.equal(after.generation, before.generation);
+  assert.deepEqual(after.files, before.files);
 });
 
 test("a binding reservation blocks removal until the binding is reassigned", async () => {

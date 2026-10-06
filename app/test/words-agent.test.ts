@@ -71,7 +71,7 @@ test("unreadable and empty word replies name the problem and the action to retry
     });
   assert.equal(
     wordsTaskReply('{"commands":', { kind: "predict", room: 1 }).text,
-    "The reply’s JSON could not be read. Try ✦ Predict commands again.",
+    "The reply’s JSON could not be read. Try ✦ Suggest sentences again.",
   );
   for (const raw of ['{"synonyms":[]}', '{"synonyms":[{},"UPPER","<script>"]}'])
     assert.equal(
@@ -80,7 +80,7 @@ test("unreadable and empty word replies name the problem and the action to retry
     );
   assert.equal(
     wordsTaskReply('{"commands":[]}', { kind: "predict", room: 1 }).text,
-    "The reply contained no usable commands. Try ✦ Predict commands again.",
+    "The reply contained no usable commands. Try ✦ Suggest sentences again.",
   );
   assert.deepEqual(
     wordsTaskReply("Ready for review.", { kind: "review", room: 1, commands: ["look tree"] }),

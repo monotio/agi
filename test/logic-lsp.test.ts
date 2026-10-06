@@ -1,3 +1,4 @@
+import { scheduler } from "node:timers/promises";
 /**
  * Wire tests for the local logic language server: each case launches the real
  * CLI as a child process and talks to it through the official protocol client
@@ -152,7 +153,7 @@ async function waitFor<T>(label: string, pick: () => T | undefined, server?: Run
         : "";
       throw new Error(`timed out waiting for ${label}${seen}`);
     }
-    await new Promise((resolvePromise) => setTimeout(resolvePromise, 20));
+    await scheduler.yield();
   }
 }
 
@@ -705,7 +706,10 @@ test("close clears diagnostics, stale versions are ignored, reopen restarts clea
     // A change for a closed document is a protocol violation; the server must
     // stay alive and silent rather than publish for it.
     await change(server, uri, "return;", 5);
-    await new Promise((resolvePromise) => setTimeout(resolvePromise, 150));
+    await server.connection.sendRequest(HoverRequest.type, {
+      textDocument: { uri },
+      position: { line: 0, character: 0 },
+    });
     assert.equal(
       server.diagnostics.filter((p) => p.uri === uri && p.version === 5).length,
       0,
@@ -721,7 +725,10 @@ test("close clears diagnostics, stale versions are ignored, reopen restarts clea
 
     // An out-of-order older version must not publish over the current one.
     await change(server, uri, "not.a.command();", 0).catch(() => undefined);
-    await new Promise((resolvePromise) => setTimeout(resolvePromise, 150));
+    await server.connection.sendRequest(HoverRequest.type, {
+      textDocument: { uri },
+      position: { line: 0, character: 0 },
+    });
     assert.equal(
       server.diagnostics.filter((p) => p.uri === uri && p.version === 0).length,
       0,
@@ -746,7 +753,10 @@ test("non-AGI documents stay silent and unknown methods are rejected", async () 
     await server.connection.sendNotification(DidOpenTextDocumentNotification.type, {
       textDocument: { uri, languageId: "plaintext", version: 1, text: "not.a.command();" },
     });
-    await new Promise((resolvePromise) => setTimeout(resolvePromise, 150));
+    await server.connection.sendRequest(HoverRequest.type, {
+      textDocument: { uri },
+      position: { line: 0, character: 0 },
+    });
     assert.equal(
       server.diagnostics.filter((p) => p.uri === uri).length,
       0,
@@ -1147,23 +1157,34 @@ test("incremental changes apply sequential UTF-16 edits and pull diagnostics mat
 
 test("stdio and browser worker ports answer the same LSP sequence", async () => {
   const { attachLogicLanguageServer } = await import("../app/src/studio/logic/analysisService.ts");
-  const replies: LspResponse[] = [];
+  let receive: ((reply: LspResponse) => void) | undefined;
   const port = {
     onmessage: null as ((event: { data: LspMessage }) => void) | null,
     postMessage: (reply: LspResponse | LspNotification) => {
-      if ("id" in reply) replies.push(reply);
+      if ("id" in reply) receive?.(reply);
     },
   };
   attachLogicLanguageServer(port, {
     version: JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")).version,
   });
+  function request(message: LspMessage): Promise<LspResponse> {
+    return new Promise((resolve) => {
+      receive = resolve;
+      port.onmessage!({ data: message });
+    });
+  }
   const server = start();
   const uri = "file:///parity.lgc";
   const source = "#define door 41\nif (isset(door)) {\n  set(door);\n}\nreturn;";
   try {
     const initialized = await initialize(server);
-    port.onmessage!({ data: { jsonrpc: "2.0", id: -1, method: "initialize", params: {} } });
-    assert.deepEqual(replies.at(-1)?.result, initialized);
+    const initializedWorker = await request({
+      jsonrpc: "2.0",
+      id: -1,
+      method: "initialize",
+      params: {},
+    });
+    assert.deepEqual(initializedWorker.result, initialized);
     await open(server, uri, source, 1);
     port.onmessage!({
       data: {
@@ -1200,8 +1221,7 @@ test("stdio and browser worker ports answer the same LSP sequence", async () => 
         range: { start: { line: 2, character: 0 }, end: { line: 3, character: 0 } },
       };
       const cli = await server.connection.sendRequest(method, params);
-      port.onmessage!({ data: { jsonrpc: "2.0", id, method, params } });
-      const reply = replies.at(-1)!;
+      const reply = await request({ jsonrpc: "2.0", id, method, params });
       assert.equal(reply.error, undefined, method);
       assert.deepEqual(reply.result, cli, method);
     }
@@ -1517,4 +1537,17 @@ test("clients can register project watches and receive flat document symbols", a
     await shutdown(server);
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test("line coordinates share an index across distant tokens and preserve UTF-16", async () => {
+  const { createTextCoordinates } = await import("../src/logic/lspTypes.ts");
+  const coordinates = createTextCoordinates("🎮\r\nset(v1);\rreturn;\n// last");
+  assert.deepEqual(coordinates.positionAt(5), { line: 1, character: 1 });
+  assert.deepEqual(coordinates.positionAt(4), { line: 1, character: 0 });
+  assert.deepEqual(coordinates.positionAt(3), { line: 1, character: 0 });
+  assert.deepEqual(coordinates.rangeAt(21, 28), {
+    start: { line: 3, character: 0 },
+    end: { line: 3, character: 7 },
+  });
+  assert.equal(coordinates.offsetAt({ line: 2, character: 3 }), 16);
 });

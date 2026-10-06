@@ -312,13 +312,19 @@ test("a v3 game can be imported, remixed, exported and opened in a fresh session
     const friend = await fresh.newPage();
     await keepDetectedProfile(friend);
     // Cover a cold worker request instead of depending on the runner's load speed.
+    const workerRequested = Promise.withResolvers<void>();
+    const releaseWorker = Promise.withResolvers<void>();
     await friend.route("**/engine.worker.ts*", async (route) => {
-      await new Promise((resolve) => setTimeout(resolve, 6000));
+      workerRequested.resolve();
+      await releaseWorker.promise;
       await route.continue();
     });
     await friend.goto(page.url());
     await friend.getByTestId("game-zip-input").setInputFiles((await download.path())!);
     await friend.getByTestId("btn-resume-cached").click();
+    await workerRequested.promise;
+    expect((await textHook(friend)).profile).toBeNull();
+    releaseWorker.resolve();
     // A fresh browser must load and boot its worker before it can paint game text.
     await expect
       .poll(async () => (await textHook(friend)).profile, { timeout: 15_000 })

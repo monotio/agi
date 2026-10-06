@@ -35,7 +35,13 @@ test("bundled tutorial previews and plays on the production origin without a pro
   await expect.poll(async () => (await textHook(page)).rows[2] ?? "").toContain("HELP");
   await page.getByTestId("input-line").fill("help");
   await page.getByTestId("input-line").press("Enter");
-  await expect(page.getByTestId("modal-hint")).toHaveText("Press Enter to continue");
+  const keys = page.getByTestId("game-keys");
+  await expect(keys).toBeVisible();
+  await keys.hover();
+  const hint = page.getByTestId("modal-hint");
+  await expect(hint).toBeVisible();
+  await expect(hint).toHaveText("A message is open: press Enter to continue");
+  await page.mouse.move(0, 0);
   await expect.poll(async () => (await textHook(page)).rows.join(" ")).toContain("Useful commands");
   await page.screenshot({ path: test.info().outputPath("tutorial-production.png") });
   expect(externalRequests).toEqual([]);
@@ -76,6 +82,7 @@ test("production origin, worker and provider policy", async ({ page, request }) 
     async ({ url, files }) => {
       const worker = new Worker(url, { type: "module" });
       try {
+        // wall-clock: bounds worker startup failure; success resolves on boot and render events.
         return await new Promise<string>((resolve, reject) => {
           const timeout = setTimeout(
             () => reject(new Error("Worker did not boot and render")),

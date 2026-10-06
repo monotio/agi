@@ -6,6 +6,8 @@
  * session.
  */
 
+import { PSG_BASE_FREQ } from "./sound.ts";
+
 export interface SoundNoteInput {
   note?: number | string | null | undefined;
   duration: number;
@@ -69,7 +71,7 @@ export function parseNoteToMidi(input: string | number | null | undefined): numb
 export function midiToAgiDivisor(midi: number | null): number {
   if (midi === null || midi <= 0 || midi > 127) return 0;
   const freq = 440 * Math.pow(2, (midi - 69) / 12);
-  return Math.max(1, Math.min(1023, Math.round(99431.67 / freq)));
+  return Math.max(1, Math.min(1023, Math.round(PSG_BASE_FREQ / freq)));
 }
 
 /**

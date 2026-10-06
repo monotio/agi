@@ -17,6 +17,7 @@ import {
   canonicalResourceName,
 } from "../src/container/playableFiles.ts";
 import { detectProfile } from "../src/runtime/profile.ts";
+import { unshippedDiskVolumes } from "../src/container/disk/volumes.ts";
 
 export { KNOWN_GAME_HASH, type GameHash };
 
@@ -305,19 +306,6 @@ export interface FixtureRequirements {
 }
 
 /**
- * Original releases whose combined directory references volumes absent from
- * the release itself, keyed by the directory file's SHA-256 so only that exact
- * edition gets the allowance. Both directories match the ScummVM detection
- * fingerprints for these releases; docs/testing.md records the evidence.
- */
-const UNSHIPPED_VOLUMES: Record<string, readonly number[]> = {
-  // King's Quest IV 2.0 (1988-07-27, 3.5"): pictures 150-151, views 198-199.
-  "3ceb755dc98398f3369038d21528763c05aac926238681ad88efac74c60d4d2d": [6, 7],
-  // Manhunter 2 3.02 (1989-07-26, 3.5"): sounds 215-216.
-  f646929faac4b905c4ed9fe3d8661cb33c97e4ae3168c38fa097cf3e1dbd8948: [6],
-};
-
-/**
  * The file map profile detection sees for a fixture folder: every name under
  * its canonical spelling, with real bytes behind the names detection reads —
  * the interpreter executables and the WORDS.TOK/OBJECT catalog pair. Other
@@ -420,10 +408,7 @@ export function fixtureReadiness(
     const bytes = readFileSync(dir + onDisk.get(combined.name.toLowerCase())!);
     const offsets = [0, 1, 2, 3].map((i) => bytes[i * 2]! | (bytes[i * 2 + 1]! << 8));
     offsets.push(bytes.length);
-    const unshipped =
-      options.checkVolumes === "shipped"
-        ? (UNSHIPPED_VOLUMES[createHash("sha256").update(bytes).digest("hex")] ?? [])
-        : [];
+    const unshipped = options.checkVolumes === "shipped" ? unshippedDiskVolumes(bytes) : [];
     // The absence rule of the fixture's own interpreter decides whether an
     // entry references a volume at all — detected on the fixture's real
     // bytes, through the same pipeline the container opens with. An Amiga
@@ -458,4 +443,46 @@ export function fixtureReadiness(
 
 export function hasFixture(query: string): boolean {
   return fixtureSkip(query) === false;
+}
+
+/** Original media identities. Match image bytes, independently of local names. */
+export const DISK_IMAGE_FIXTURES: Readonly<Record<string, readonly string[]>> = {
+  "sq2-tandy": [
+    "bb10899cd873746c8da6bcc942f8b9cedd26d174f087cabcaeb49f87d208dab3",
+    "fed37cc0362dc55d1d8400c7f674131955c8ebe148c93ed982bf697f631a3818",
+  ],
+  "sq2-amiga": ["e46084876466879600fbde240a512dcd23b10e23058c680151d7f0e608dee4c4"],
+  "sq2-iigs-2mg": [
+    "b0f08338a2ccb8706097c62b40e537ba53fe9d22c7d8dfeedeebae6ec271b553",
+    "6c3b701e0983ecdf709450a8563b93bf016e55c4bd589a4339835ebfa9210596",
+  ],
+  "sq2-iigs-po": [
+    "d56922036e77aade45deb52923e643a2a87be25a2bb5c5c188496692b5a6c596",
+    "f68511d0b9b21cb6bc7e4e9e072ddc7a6d5008081b8a07fcfdc487ae9be5d285",
+  ],
+  "ddp-booter": ["254c1406aeb25868fd5a188a534faa2855f468c5e02e76f4b628df8fbd8560c2"],
+};
+
+/** Scan each fixture folder for disk media; the complete image hash is authority. */
+export function diskImageFixture(hash: string): { name: string; bytes: Uint8Array } | null {
+  const root = fileURLToPath(new URL("../games/", import.meta.url));
+  for (const folder of readdirSync(root)) {
+    const directory = join(root, folder);
+    if (!statSync(directory).isDirectory()) continue;
+    for (const name of readdirSync(directory)) {
+      if (!/\.(?:img|ima|dsk|td0|adf|po|2mg)$/i.test(name)) continue;
+      const path = join(directory, name);
+      if (!statSync(path).isFile()) continue;
+      const bytes = new Uint8Array(readFileSync(path));
+      if (createHash("sha256").update(bytes).digest("hex") === hash) return { name, bytes };
+    }
+  }
+  return null;
+}
+
+export function diskImageSkip(hashes: readonly string[]): false | string {
+  const missing = hashes.filter((hash) => !diskImageFixture(hash));
+  return missing.length
+    ? `Place your own disk images in a subfolder under games/ to run this test (image SHA-256: ${missing.join(", ")}). Add all disks in the set together.`
+    : false;
 }

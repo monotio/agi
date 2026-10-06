@@ -275,10 +275,24 @@ defineExpose({ focusHeading: () => heading.value?.focus() });
       :aria-label="side === 'out' ? 'Exits' : 'Entrances'"
     >
       <h4 class="ri-sec__title">{{ side === "out" ? "Exits" : "Entrances" }}</h4>
-      <p v-if="!edges[side].length" class="ri-note">
+      <p
+        v-if="!edges[side].length && !(side === 'out' && (node.variableExit || node.unknownCalls))"
+        class="ri-note"
+      >
         {{ side === "out" ? "No observed exit yet." : "Connection unknown." }}
       </p>
       <ul v-else class="ri-list">
+        <li
+          v-if="side === 'out' && (node.variableExit || node.unknownCalls)"
+          class="ri-exit"
+          data-testid="map-computed-exit"
+        >
+          <UiIcon class="ri-exit__icon" name="arrow-right" :size="14" />
+          <span class="ri-exit__main">
+            <span class="ri-exit__room">Computed at runtime</span>
+            <span class="ri-exit__how">Worked out while you play</span>
+          </span>
+        </li>
         <li v-for="(e, i) in edges[side]" :key="i" class="ri-exit">
           <UiIcon
             class="ri-exit__icon"

@@ -30,6 +30,8 @@ import { parseView, selectViewCel, readViewCel, drawCel, type AgiView } from "..
 import {
   detectProfile,
   detectProfileDecision,
+  interpreterTiming,
+  type AmigaRegion,
   type AgiProfile,
   type ProfileDetectionKind,
   type ProfileId,
@@ -592,6 +594,20 @@ export class Engine {
   readonly strings: string[];
   /** Selected interpreter profile: the single source of version-variant behavior. */
   readonly profile: AgiProfile;
+  private sessionAmigaRegion: AmigaRegion = "ntsc";
+
+  get amigaRegion(): AmigaRegion {
+    return this.sessionAmigaRegion;
+  }
+
+  set amigaRegion(region: AmigaRegion) {
+    if (region !== "ntsc" && region !== "pal") throw new Error("Amiga region must be ntsc or pal.");
+    this.sessionAmigaRegion = this.profile.frameTiming === "amiga-vblank" ? region : "ntsc";
+  }
+
+  get timing() {
+    return interpreterTiming(this.profile, this.amigaRegion);
+  }
   /** How the edition was identified: an interpreter binary, the catalog, or neither. */
   readonly profileKind: ProfileDetectionKind;
   /** The interpreter build the identification named; null when unidentified. */
@@ -894,6 +910,7 @@ export class Engine {
     dictionary?: ReadonlyMap<string, number>,
     options?: {
       restarted?: boolean;
+      amigaRegion?: AmigaRegion;
       profile?: ProfileId | AgiProfile;
       instructionBudget?: number;
       executionBudgetPolicy?: ExecutionBudgetPolicy;
@@ -924,6 +941,7 @@ export class Engine {
     // otherwise the container shape decides.
     const decision = detectProfileDecision(container.files, options?.profile);
     this.profile = decision.profile;
+    this.amigaRegion = options?.amigaRegion ?? "ntsc";
     this.profileKind = decision.kind;
     this.profileBuild = decision.build;
     // The table and its reserved records are one contiguous bank; only parse()
@@ -2674,7 +2692,10 @@ export class Engine {
         serial: ++this.modalSerialCounter,
         kind: "print",
         saved,
-        remainingMs: !forceAcknowledgement && this.vars[21] !== 0 ? this.vars[21]! * 500 : null,
+        remainingMs:
+          !forceAcknowledgement && this.vars[21] !== 0
+            ? (this.vars[21]! * this.timing.gameSecondMs) / 2
+            : null,
         pauseClock,
       });
     }
@@ -3104,6 +3125,7 @@ export class Engine {
       screen ?? [],
       presentation ?? undefined,
       continuation,
+      this.amigaRegion,
     );
   }
 
@@ -3111,6 +3133,7 @@ export class Engine {
   captureReplayState(): EngineReplayState {
     if (!this.autosaveImage()) throw new Error("Recording requires a resumable cycle boundary.");
     return {
+      ...(this.amigaRegion === "pal" ? { amigaRegion: this.amigaRegion } : {}),
       clockRemainderMs: this.clockRemainderMs,
       pictureShown: this.pictureShown,
       terminated: this.terminated,
@@ -3169,6 +3192,7 @@ export class Engine {
       sound = new SoundPlayback(this.profile, payload, state.sound.playback.device);
       sound.restore(state.sound.playback);
     }
+    this.amigaRegion = state.amigaRegion ?? "ntsc";
     this.clockRemainderMs = state.clockRemainderMs;
     this.pictureShown = state.pictureShown;
     this.terminated = state.terminated;
@@ -3444,6 +3468,7 @@ export class Engine {
         })),
       },
       continuation,
+      this.amigaRegion,
     );
   }
 
@@ -3460,7 +3485,7 @@ export class Engine {
    */
   restoreImage(bytes: Uint8Array, options: { preservePresentation?: boolean } = {}): void {
     this.assertExecutionBoundary();
-    const { image, screen, presentation, continuation } = decodeHostImage(bytes);
+    const { image, screen, presentation, continuation, amigaRegion } = decodeHostImage(bytes);
     // Run the same restore against disposable state and a silent host first.
     // This validates both packet grammar and referenced resources before the
     // live engine or host sees any mutation, without a second replay parser.
@@ -3497,6 +3522,7 @@ export class Engine {
     } catch (e) {
       if (!(e instanceof ContinuationAbort)) throw e;
     }
+    this.amigaRegion = amigaRegion ?? "ntsc";
     if (presentation) {
       this.textMode = false; // Host snapshots are taken only in graphics mode.
       this.text.cells.set(presentation.cells);
@@ -3839,8 +3865,9 @@ export class Engine {
     if (modal === null && this.pendingLogic !== null && this.pendingInteraction === null)
       this.clockWaitMs += milliseconds;
     const elapsed = this.clockRemainderMs + milliseconds;
-    let seconds = Math.floor((elapsed + 1e-7) / 1000);
-    this.clockRemainderMs = Math.max(0, elapsed - seconds * 1000);
+    const secondMs = this.timing.gameSecondMs;
+    let seconds = Math.floor((elapsed + 1e-7) / secondMs);
+    this.clockRemainderMs = Math.max(0, elapsed - seconds * secondMs);
     while (seconds-- > 0) {
       this.vars[11] = this.vars[11]! + 1;
       if (this.vars[11]! >= 60) {
@@ -3861,7 +3888,7 @@ export class Engine {
     this.observePhase("clock", null);
   }
 
-  /** Advance one independent 60Hz sound tick, including during modal waits. */
+  /** Advance one independent sound heartbeat, including during modal waits. */
   soundTick(): void {
     if (
       this.stopLatch !== null ||

@@ -124,20 +124,20 @@ export interface PathDraft {
 
 export interface PathClick {
   readonly draft: PathDraft;
-  /** The click closed a polygon on its first point: finish it. */
+  /** The click finished the line or polygon. */
   readonly closed: boolean;
 }
 
 /**
- * One click of the line or polygon tool. A click on the last point adds
- * nothing (a double-click's second press); on the first point of a polygon
- * of three or more points it closes the polygon.
+ * One click of the line or polygon tool. Clicking the last point finishes
+ * a line with at least two points or a polygon with at least three points.
+ * Clicking the first point of a polygon with at least three points closes it.
  */
 export function clickPath(draft: PathDraft, point: Point): PathClick {
   const { points } = draft;
   if (draft.tool === "polygon" && points.length >= 3 && samePoint(points[0], point))
     return { draft, closed: true };
-  if (samePoint(points.at(-1), point)) return { draft, closed: false };
+  if (samePoint(points.at(-1), point)) return { draft, closed: finishPath(draft) !== null };
   return { draft: { ...draft, points: [...points, point] }, closed: false };
 }
 

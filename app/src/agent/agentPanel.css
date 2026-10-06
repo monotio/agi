@@ -50,6 +50,7 @@
   color: var(--muted);
 }
 .agent-panel__feed {
+  overflow-anchor: none;
   flex: 1;
   overflow: auto;
   min-height: 0;
@@ -92,11 +93,15 @@
   overflow: hidden;
 }
 .agent-panel__review > header,
-.agent-panel__review > footer {
+.agent-panel__review-actions {
   display: flex;
   gap: var(--space-3);
   align-items: center;
   padding: var(--space-3);
+}
+.agent-panel__review-actions {
+  flex: none;
+  border-bottom: 1px solid var(--hairline);
 }
 .agent-panel__review h3 {
   font-size: var(--text-sm);
@@ -241,4 +246,10 @@
   .shell-body--workspace.shell-body--agent > .workspace-splitter {
     display: none;
   }
+}
+.agent-panel__review-loading,
+.agent-panel__preview-missing {
+  color: var(--muted);
+  font-size: var(--text-sm);
+  padding: var(--space-3);
 }

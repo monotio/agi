@@ -9,11 +9,11 @@ import {
   isolateStorage,
   textHook,
   configureAi,
-  workspaceSaved,
+  workspaceUpdated,
   openWorkspaceAgent,
 } from "./engineProbe.ts";
 import type { Page } from "@playwright/test";
-async function start(page: Page, provider: "stub" | "openai" = "stub") {
+async function start(page: Page, provider: "stub" | "openai" = "stub", openLogic = true) {
   await isolateStorage(page);
   await page.goto("/");
   await configureAi(page, {
@@ -29,10 +29,14 @@ async function start(page: Page, provider: "stub" | "openai" = "stub") {
   await page.getByRole("button", { name: "Start building", exact: true }).click();
   await expect(page.getByTestId("create-adventure-disclosure")).toBeHidden();
   await expect(page.getByTestId("input-line")).toBeEnabled();
-  await expect(page.getByTestId("parts-list")).toBeVisible();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
-  await openWorkspaceLogic(page);
-  await page.keyboard.press("ControlOrMeta+i");
+  if (openLogic) {
+    await expect(page.getByTestId("parts-list")).toBeVisible();
+    await openWorkspaceLogic(page);
+    await page.keyboard.press("ControlOrMeta+i");
+  } else {
+    await openWorkspaceAgent(page);
+  }
   await expect(page.getByTestId("workspace-agent-panel")).toBeVisible();
 }
 async function documents(page: Page) {
@@ -75,7 +79,8 @@ for (const size of [
         .click();
       await page.keyboard.press("Home");
       for (let line = 0; line < 6; line++) await page.keyboard.press("Shift+ArrowDown");
-      await expect(panel.locator(".agent-panel__context")).toContainText("LOGIC 1 lines 12–18");
+      await expect(panel.locator(".agent-panel__context")).toBeVisible();
+      await expect(panel.locator(".agent-panel__context")).toContainText("LOGIC 1 lines 5–11");
     }
     const before = await documents(page);
     const cycle = (await textHook(page)).cycle;
@@ -143,7 +148,7 @@ for (const size of [
     });
     await page.getByTestId("agent-message").focus();
     await page.keyboard.press("ControlOrMeta+n");
-    await expect(page.getByRole("button", { name: "Chats", exact: true })).toHaveText("New chat ▾");
+    await expect(page.getByRole("button", { name: "Chats", exact: true })).toHaveText("New chat");
     await page.getByRole("button", { name: "Chats", exact: true }).click();
     await page.getByRole("button", { name: "Add a welcome sign", exact: true }).click();
     await expect(page.getByRole("button", { name: "Undo this", exact: true })).toBeVisible();
@@ -255,7 +260,7 @@ test("saved reviews reopen with previews and detect a changed base", async ({ pa
   await page.getByTestId("agent-message").fill("Add a welcome sign");
   await page.getByRole("button", { name: "Send", exact: true }).click();
   await expect(page.getByTestId("agent-review")).toBeVisible();
-  await workspaceSaved(page);
+  await workspaceUpdated(page);
   async function reopen() {
     await page.goto("/");
     await page.reload();
@@ -278,7 +283,71 @@ test("saved reviews reopen with previews and detect a changed base", async ({ pa
   await page.screenshot({ path: test.info().outputPath("stale-review.png") });
   await page.getByTestId("agent-reject").click();
   await expect(page.getByTestId("agent-review")).toHaveCount(0);
-  await workspaceSaved(page);
+  await workspaceUpdated(page);
   await reopen();
   await expect(page.getByTestId("agent-review")).toHaveCount(0);
+});
+
+test("the workspace composer offers reference art", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await start(page);
+  const attach = page.getByTestId("workspace-agent-panel").getByTestId("agent-attach-reference");
+  await expect(attach).toBeVisible();
+  await attach.click();
+  await expect(page.getByTestId("reference-upload")).toBeVisible();
+});
+
+test("a slow preview keeps Approve working through preview loading", async ({ page }) => {
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route("**/AgentResourceReview.vue*", async (route) => {
+    await held;
+    await route.continue();
+  });
+  await start(page, "stub", false);
+  await page.getByTestId("agent-message").fill("Add a welcome sign that answers look at sign");
+  await page.getByRole("button", { name: "Send", exact: true }).click();
+  await expect(page.getByTestId("agent-review-loading").first()).toBeVisible();
+  await expect(page.getByTestId("agent-review")).toBeVisible();
+  await expect(page.getByTestId("agent-approve")).toBeVisible();
+  await expect(page.getByTestId("agent-approve")).toBeEnabled();
+  await expect(page.getByTestId("agent-reject")).toBeVisible();
+  // Read the proposal, then press Approve while its previews are still loading.
+  await page.getByTestId("agent-review").getByRole("heading").scrollIntoViewIfNeeded();
+  const approve = page.getByTestId("agent-approve");
+  await approve.scrollIntoViewIfNeeded();
+  await expect(approve).toBeInViewport({ ratio: 1 });
+  await approve.evaluate((button) => {
+    button.setAttribute("data-pressed", "false");
+    button.addEventListener("mousedown", () => button.setAttribute("data-pressed", "true"), {
+      once: true,
+    });
+  });
+  const before = (await approve.boundingBox())!;
+  await page.mouse.move(before.x + before.width / 2, before.y + before.height / 2);
+  await page.mouse.down();
+  await expect(approve).toHaveAttribute("data-pressed", "true");
+  release();
+  await expect(page.getByTestId("agent-review-loading")).toHaveCount(0);
+  await page.mouse.up();
+  await expect(page.getByTestId("agent-review")).toHaveCount(0);
+  await expect
+    .poll(async () => (await documents(page))["logic:1"])
+    .toContain('said("look", "sign")');
+});
+
+test("a review whose preview code cannot load still offers Approve", async ({ page }) => {
+  await page.route("**/AgentResourceReview.vue*", (route) => route.abort());
+  await start(page);
+  await page.getByTestId("agent-message").fill("Add a welcome sign that answers look at sign");
+  await page.getByRole("button", { name: "Send", exact: true }).click();
+  await expect(page.getByTestId("agent-review")).toBeVisible();
+  await expect(page.getByTestId("agent-preview-missing").first()).toBeVisible();
+  await page.getByTestId("agent-approve").click();
+  await expect(page.getByTestId("agent-review")).toHaveCount(0);
+  await expect
+    .poll(async () => (await documents(page))["logic:1"])
+    .toContain('said("look", "sign")');
 });

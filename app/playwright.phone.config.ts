@@ -10,7 +10,13 @@ import base from "./playwright.config.ts";
 export default defineConfig({
   ...base,
   testMatch: [
+    "workspace-picture.spec.ts",
+    "workspace-stage.spec.ts",
     "workspace-layout.spec.ts",
+    "workspace-phone-controls.spec.ts",
+    "workspace-polish.spec.ts",
+    "workspace-parity.spec.ts",
+    "picture-palette.spec.ts",
     "workspace-readonly.spec.ts",
     "project-progress.spec.ts",
     "phone-input.spec.ts",
@@ -19,9 +25,13 @@ export default defineConfig({
     "kq-phone.spec.ts",
     "ai-settings.spec.ts",
     "menu-flow.spec.ts",
+    "crt-amount.spec.ts",
+    "amiga-region.spec.ts",
     "reference-art.spec.ts",
+    "reported-spend.spec.ts",
     "synthetic-walkthrough.spec.ts",
     "dialog-fit.spec.ts",
+    "disk-import.spec.ts",
   ],
   projects: [
     { name: "android-chromium", use: { browserName: "chromium" } },

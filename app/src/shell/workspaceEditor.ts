@@ -4,7 +4,9 @@ import { computed, inject, provide, ref, shallowRef, type InjectionKey } from "v
 import type { ProjectContent } from "../../../src/authoring/projectContent.ts";
 import type { EngineApi } from "../engine/engineContext.ts";
 import type { ChooserItem } from "./commands/chooserItems.ts";
+import type { StudioRequest } from "./useCreateWorkspace.ts";
 import type { ReplyFormatter } from "../agent/workspaceAgent.ts";
+import type { ComputedRoomRemovalReview } from "../project/projectSessionCore.ts";
 
 export function createWorkspaceEditor(engine: EngineApi) {
   const debugCommand =
@@ -14,11 +16,19 @@ export function createWorkspaceEditor(engine: EngineApi) {
   const debugging = ref(false);
   const debugStatus = ref("");
   const flush = shallowRef<() => Promise<void>>();
-  const discard = shallowRef<() => void>();
+  const discard = shallowRef<() => Promise<void>>();
   const retry = shallowRef<() => Promise<void>>();
-  const pictureLive = ref(false);
-  const gameHost = shallowRef<HTMLElement | null>(null);
+  const update = shallowRef<(restartRoom?: boolean) => Promise<void>>();
+  const discardDrafts = shallowRef<() => Promise<void>>();
+  const changeCount = ref(0);
+  const problemCount = ref(0);
+  const updatedParts = ref(0);
+  const stagePaused = ref(false);
+  const phonePlaytest = ref(false);
+  const removalReview = shallowRef<ComputedRoomRemovalReview>();
+  const studioRequests = shallowRef<Readonly<Record<string, StudioRequest>>>({});
   const selected = ref<string>();
+  const nameLocation = shallowRef<{ key: string; line: number; serial: number }>();
   const agentPrefill = shallowRef<{
     text: string;
     context?: string;
@@ -39,6 +49,7 @@ export function createWorkspaceEditor(engine: EngineApi) {
   const retained = ref<string[]>([]);
   const focus = ref(false);
   const partsOpen = ref(false);
+  const partsScroll = ref(0);
   const panel = ref(false);
   const history = ref(false);
   const parts = shallowRef<readonly ChooserItem[]>([]);
@@ -52,24 +63,46 @@ export function createWorkspaceEditor(engine: EngineApi) {
   const error = ref("");
   const exitRefusal = ref(false);
   const split = ref(50);
+  const chosenSplit = ref(false);
+  const splitAxis = ref<"horizontal" | "vertical">("horizontal");
+  try {
+    if (localStorage.getItem("monotio_agi.workspaceSplitAxis") === "vertical")
+      splitAxis.value = "vertical";
+  } catch {
+    /* Use side by side. */
+  }
+  function setSplitAxis(axis: "horizontal" | "vertical"): void {
+    splitAxis.value = axis;
+    try {
+      localStorage.setItem("monotio_agi.workspaceSplitAxis", axis);
+    } catch {
+      /* Remember for this page. */
+    }
+  }
   try {
     const stored = Number(localStorage.getItem("monotio_agi.workspaceSplit"));
-    if (stored >= 25 && stored <= 75) split.value = stored;
+    if (stored >= 25 && stored <= 75) {
+      split.value = stored;
+      chosenSplit.value = true;
+    }
   } catch {
     /* Use the default split. */
   }
   const effectiveSplit = computed(() =>
-    kind.value === "view"
-      ? Math.min(split.value, 30)
-      : kind.value === "sound"
-        ? Math.max(split.value, 60)
-        : split.value,
+    chosenSplit.value
+      ? split.value
+      : kind.value === "view"
+        ? Math.min(split.value, 30)
+        : kind.value === "sound"
+          ? Math.max(split.value, 60)
+          : split.value,
   );
   const kind = computed(() => selected.value?.split(":")[0] ?? "");
   function pin(key: string): void {
     if (preview.value === key) preview.value = undefined;
   }
   function open(key: string, pinned = false): void {
+    phonePlaytest.value = false;
     selected.value = key;
     agentContext.value = agentContexts[key] ?? null;
     if (!tabs.value.includes(key)) {
@@ -83,9 +116,9 @@ export function createWorkspaceEditor(engine: EngineApi) {
     if (!retained.value.includes(key)) retained.value.push(key);
     try {
       const pref = localStorage.getItem(`monotio_agi.workspaceFocus.${kind.value}`);
-      focus.value = pref === null ? window.innerWidth < 1280 : pref === "on";
+      focus.value = pref === "on";
     } catch {
-      focus.value = window.innerWidth < 1280;
+      focus.value = false;
     }
     if (focus.value) panel.value = history.value = false;
   }
@@ -108,6 +141,7 @@ export function createWorkspaceEditor(engine: EngineApi) {
     }
   }
   function resize(value: number): void {
+    chosenSplit.value = true;
     split.value = Math.min(75, Math.max(25, value));
     try {
       localStorage.setItem("monotio_agi.workspaceSplit", String(split.value));
@@ -115,16 +149,37 @@ export function createWorkspaceEditor(engine: EngineApi) {
       /* Remember for this page. */
     }
   }
-  async function step(direction: "undo" | "redo"): Promise<void> {
+  async function step(
+    direction: "undo" | "redo",
+    review?: ComputedRoomRemovalReview,
+  ): Promise<void> {
     const session = engine.getProjectSession();
     if (!session || busy.value || readOnly.value) return;
     busy.value = true;
+    updatedParts.value = 0;
     save.value = "Saving…";
     error.value = "";
     try {
-      const outcome = await session[direction]();
-      if (outcome && !["committed", "diagnostics", "unchanged"].includes(outcome.status))
-        error.value = "This change needs a fresh room. Return to the room and retry.";
+      const outcome = direction === "undo" ? await session.undo(review) : await session.redo();
+      if (outcome?.status === "reviewRequired") {
+        removalReview.value = outcome.review;
+        return;
+      }
+      removalReview.value = undefined;
+      if (outcome?.status === "diagnostics") {
+        const problem =
+          outcome.diagnostics.find(
+            (d) => d.severity === "error" && d.code !== "computed-room-jump",
+          ) ?? outcome.diagnostics.find((d) => d.severity === "error");
+        if (problem) error.value = `${problem.message} Change its references and try Undo again.`;
+      } else if (
+        outcome &&
+        !["committed", "diagnostics", "unchanged", "restartRequired"].includes(outcome.status)
+      )
+        error.value =
+          ("diagnostics" in outcome &&
+            outcome.diagnostics.find((d) => d.severity === "error")?.message) ||
+          "This change needs a fresh room. Return to the room and retry.";
     } catch (cause) {
       error.value = String(cause instanceof Error ? cause.message : cause);
     } finally {
@@ -151,7 +206,12 @@ export function createWorkspaceEditor(engine: EngineApi) {
     }
   }
   function reset(): void {
+    changeCount.value = problemCount.value = updatedParts.value = 0;
+    nameLocation.value = undefined;
+    studioRequests.value = {};
     selected.value = undefined;
+    removalReview.value = undefined;
+    phonePlaytest.value = false;
     agentContext.value = null;
     agentPrefill.value = null;
     agentMessages.value = [];
@@ -162,19 +222,28 @@ export function createWorkspaceEditor(engine: EngineApi) {
     retained.value = [];
     focus.value = false;
     partsOpen.value = false;
+    partsScroll.value = 0;
     panel.value = history.value = false;
     parts.value = [];
   }
   return {
+    studioRequests,
     debugCommand,
     debugging,
     debugStatus,
     flush,
     discard,
     retry,
-    pictureLive,
-    gameHost,
+    update,
+    discardDrafts,
+    changeCount,
+    problemCount,
+    updatedParts,
+    stagePaused,
+    phonePlaytest,
+    removalReview,
     selected,
+    nameLocation,
     agentContext,
     agentPrefill,
     returnFromAgent,
@@ -188,6 +257,7 @@ export function createWorkspaceEditor(engine: EngineApi) {
     retained,
     focus,
     partsOpen,
+    partsScroll,
     panel,
     history,
     parts,
@@ -202,6 +272,8 @@ export function createWorkspaceEditor(engine: EngineApi) {
     error,
     exitRefusal,
     split,
+    splitAxis,
+    setSplitAxis,
     kind,
     open,
     close,

@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./test.ts";
 import { readFile } from "node:fs/promises";
 import { createContainer, openContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
@@ -85,24 +85,36 @@ test("an installed-game remix survives immediate Menu, Resume, reload and projec
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
   await enterCreateMode(page);
   await openWorkspaceAgent(page);
-  await expect(page.getByTestId("agent-bubble-input")).toBeEnabled();
-  await page.getByTestId("agent-bubble-input").fill("Add an alligator");
-  await page.getByTestId("agent-bubble-send").click();
-  await expect(page.getByTestId("agent-bubble")).toBeHidden();
+  // Installed editions use the workspace's reviewed agent flow in Create.
+  const message = page.getByTestId("agent-message");
+  await expect(message).toBeVisible();
+  await expect(message).toBeEnabled();
+  await message.fill("Add an alligator");
+  await page.getByRole("button", { name: "Send", exact: true }).click();
+  await expect(page.getByTestId("agent-review")).toBeVisible();
+  await page.getByTestId("agent-approve").click();
+  await expect(page.getByTestId("agent-review")).toBeHidden();
   await expect.poll(async () => (await textHook(page)).rows.join(" ")).toContain("ALLIGATOR REMIX");
   // Delay actual IndexedDB completion callbacks: Menu must await storage, not just the worker reply.
   await page.evaluate(() => {
+    const gate = Promise.withResolvers<void>();
+    Reflect.set(window, "releaseCompletions", gate.resolve);
+    Reflect.set(window, "completionPending", false);
     const descriptor = Object.getOwnPropertyDescriptor(IDBTransaction.prototype, "oncomplete")!;
     Object.defineProperty(IDBTransaction.prototype, "oncomplete", {
       ...descriptor,
       set(this: IDBTransaction, handler: (event: Event) => void) {
         descriptor.set!.call(this, function (this: IDBTransaction, event: Event) {
-          setTimeout(() => handler.call(this, event), 250);
+          Reflect.set(window, "completionPending", true);
+          void gate.promise.then(() => handler.call(this, event));
         });
       },
     });
   });
   await page.getByTestId("btn-exit").click();
+  await page.waitForFunction(() => Reflect.get(window, "completionPending") === true);
+  await expect(page.getByTestId("btn-exit")).toBeVisible();
+  await page.evaluate(() => (Reflect.get(window, "releaseCompletions") as () => void)());
   const card = savedGameCard(page, "SAMPLE Remix");
   await expect(card.getByRole("button", { name: "Resume", exact: true })).toBeVisible();
   const record = await page.evaluate(() => {
@@ -137,7 +149,8 @@ test("an installed-game remix survives immediate Menu, Resume, reload and projec
     // The same 3x2 cel written as pixels, independent of the source compiler.
     buildView({ loops: [{ cels: [{ width: 3, height: 2, pixels: [4, 4, 4, 4, 0, 4] }] }] }),
   );
-  expect(JSON.stringify(archive.project?.transcript)).toContain("Add an alligator");
+  // The workspace stores each reviewed task in its exported chats.
+  expect(JSON.stringify(archive.project?.chats)).toContain("Add an alligator");
   expect(archive.roomGeneration).toBe(false);
   expect(requests).toBe(2);
 });

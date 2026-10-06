@@ -1,3 +1,4 @@
+import { imageTokenRates } from "./imageSpend.ts";
 /**
  * Optional BYOK OpenAI image transport for the creative workflow.
  *
@@ -144,6 +145,8 @@ export interface OpenAiImageModel {
   readonly label: string;
   /** Accepts image inputs on `/v1/images/edits`. */
   readonly edits: boolean;
+  /** Documented Image API partial-image events. */
+  readonly streaming?: boolean;
   /** Accepts a same-format/same-size PNG mask bound to the first image. */
   readonly mask: boolean;
   /** Accepts `input_fidelity` (gpt-image-2 always runs high and rejects the field). */
@@ -175,6 +178,7 @@ export const OPENAI_IMAGE_MODELS: Readonly<Record<string, OpenAiImageModel>> = O
     id: "gpt-image-2.5-sunburst",
     label: "GPT Image 2.5 Sunburst",
     edits: true,
+    streaming: true,
     mask: true,
     inputFidelity: true,
     qualities: QUALITIES_25,
@@ -186,6 +190,7 @@ export const OPENAI_IMAGE_MODELS: Readonly<Record<string, OpenAiImageModel>> = O
     id: "gpt-image-2.5-flare",
     label: "GPT Image 2.5 Flare",
     edits: true,
+    streaming: true,
     mask: true,
     inputFidelity: true,
     qualities: QUALITIES_25,
@@ -197,6 +202,7 @@ export const OPENAI_IMAGE_MODELS: Readonly<Record<string, OpenAiImageModel>> = O
     id: "gpt-image-2",
     label: "GPT Image 2",
     edits: true,
+    streaming: true,
     mask: true,
     inputFidelity: false,
     qualities: QUALITIES_2,
@@ -312,12 +318,14 @@ export interface PreparedOpenAiImage {
 }
 
 /** Token accounting the provider returned; absent stays absent, never a fabricated zero. */
-interface OpenAiImageUsage {
+export interface OpenAiImageUsage {
   readonly inputTokens?: number;
   readonly outputTokens?: number;
   readonly totalTokens?: number;
   readonly inputTextTokens?: number;
   readonly inputImageTokens?: number;
+  /** Cached image input, included in inputImageTokens by the provider. */
+  readonly inputCachedTokens?: number;
   readonly outputImageTokens?: number;
 }
 
@@ -381,7 +389,7 @@ export interface OpenAiImageProvider {
    */
   submit(
     prepared: PreparedOpenAiImage,
-    options?: { readonly signal?: AbortSignal },
+    options?: { readonly signal?: AbortSignal; readonly onPartial?: (bytes: Uint8Array) => void },
   ): Promise<OpenAiImageOffer>;
 }
 
@@ -872,6 +880,8 @@ function readUsage(value: unknown): OpenAiImageUsage | undefined {
   if (inputText !== undefined) usage.inputTextTokens = inputText;
   const inputImage = number(details["image_tokens"]);
   if (inputImage !== undefined) usage.inputImageTokens = inputImage;
+  const cached = number(details["cached_tokens"]);
+  if (cached !== undefined) usage.inputCachedTokens = cached;
   const outputImage = number(outDetails["image_tokens"]);
   if (outputImage !== undefined) usage.outputImageTokens = outputImage;
   return Object.keys(usage).length > 0 ? usage : undefined;
@@ -947,6 +957,107 @@ function parseOffer(
   };
 }
 
+/** Bounded SSE reader; response Content-Type detects streaming versus the JSON fallback. */
+async function readStreamedOffer(
+  response: Response,
+  captured: CapturedRequest,
+  secret: string,
+  signal: AbortSignal,
+  onPartial?: (bytes: Uint8Array) => void,
+): Promise<OpenAiImageOffer> {
+  if (!response.body) throw invalidOutput("The image stream is empty.", "missing-image");
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "",
+    total = 0,
+    partials = 0;
+  let completed: OpenAiImageOffer | null = null;
+  const abort = () => {
+    void reader.cancel().catch(() => undefined);
+  };
+  signal.addEventListener("abort", abort, { once: true });
+  function consume(frame: string) {
+    if (signal.aborted) throw new MintedImageError("cancelled", "The request was cancelled.");
+    const data = frame
+      .split(/\r?\n/)
+      .filter((line) => line.startsWith("data:"))
+      .map((line) => line.slice(5).trimStart())
+      .join("\n");
+    if (!data || data === "[DONE]") return;
+    let event: unknown;
+    try {
+      event = JSON.parse(data);
+    } catch {
+      throw invalidOutput("The image stream contains an unreadable event.", "json");
+    }
+    if (!isRecord(event))
+      throw invalidOutput("The image stream contains an invalid event.", "json");
+    const prefix =
+      captured.endpoint === "/v1/images/generations" ? "image_generation" : "image_edit";
+    if (event["type"] === `${prefix}.partial_image`) {
+      if (++partials > 3 || completed)
+        throw invalidOutput("The image stream contains too many previews.", "count");
+      if (typeof event["b64_json"] !== "string")
+        throw invalidOutput("The preview has no image bytes.", "missing-image");
+      const bytes = decodeBase64Strict(event["b64_json"], OPENAI_IMAGE_LIMITS.maxEncodedBytes);
+      const header = inspectCreativeImageHeader(bytes);
+      if (!header.ok || header.header.format !== "png" || header.header.animated)
+        throw invalidOutput("The preview is not a still PNG.", "format");
+      onPartial?.(bytes);
+    } else if (event["type"] === `${prefix}.completed`) {
+      if (completed)
+        throw invalidOutput("The image stream contains more than one result.", "count");
+      completed = parseOffer(
+        new TextEncoder().encode(
+          JSON.stringify({
+            data: [{ b64_json: event["b64_json"] }],
+            output_format: event["output_format"],
+            usage: event["usage"],
+            created: event["created_at"],
+          }),
+        ),
+        captured,
+        response.headers,
+        secret,
+      );
+    } else if (event["type"] === "error" || event["error"] !== undefined) {
+      throw classifyHttpError(
+        400,
+        new TextEncoder().encode(JSON.stringify({ error: event["error"] ?? event })),
+        response.headers.get("x-request-id") ?? undefined,
+        secret,
+      );
+    }
+  }
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.length;
+      if (total > OPENAI_IMAGE_LIMITS.maxResponseBytes * 4)
+        throw invalidOutput("The image stream passed its response limit.", "oversize");
+      buffer += decoder.decode(value, { stream: true });
+      let match: RegExpExecArray | null;
+      while ((match = /\r?\n\r?\n/.exec(buffer)) !== null) {
+        const frame = buffer.slice(0, match.index);
+        buffer = buffer.slice(match.index + match[0].length);
+        consume(frame);
+      }
+      if (buffer.length > OPENAI_IMAGE_LIMITS.maxResponseBytes)
+        throw invalidOutput("An image event passed its response limit.", "oversize");
+    }
+    buffer += decoder.decode();
+    if (buffer.trim()) consume(buffer);
+    if (completed === null)
+      throw invalidOutput("The image stream ended before the picture was ready.", "missing-image");
+    return completed;
+  } finally {
+    signal.removeEventListener("abort", abort);
+    await reader.cancel().catch(() => undefined);
+    reader.releaseLock();
+  }
+}
+
 function defaultBaseUrl(): string {
   if ((import.meta as ImportMeta & { env?: { MODE?: string } }).env?.MODE === "test")
     return `${globalThis.location.origin}/api/test-images`;
@@ -977,7 +1088,7 @@ export function createOpenAiImageProvider(
   const jobs = new WeakMap<PreparedOpenAiImage, CapturedRequest>();
   let activeJob = false;
 
-  function buildInit(captured: CapturedRequest, key: string): RequestInit {
+  function buildInit(captured: CapturedRequest, key: string, streaming: boolean): RequestInit {
     if (captured.endpoint === "/v1/images/generations") {
       return {
         method: "POST",
@@ -986,6 +1097,7 @@ export function createOpenAiImageProvider(
           "content-type": "application/json",
         },
         body: JSON.stringify({
+          ...(streaming ? { stream: true, partial_images: 2 } : {}),
           model: captured.model,
           prompt: captured.prompt,
           n: 1,
@@ -997,6 +1109,10 @@ export function createOpenAiImageProvider(
       };
     }
     const form = makeFormData();
+    if (streaming) {
+      form.append("stream", "true");
+      form.append("partial_images", "2");
+    }
     form.append("model", captured.model);
     form.append("prompt", captured.prompt);
     form.append("n", "1");
@@ -1013,7 +1129,11 @@ export function createOpenAiImageProvider(
     return { method: "POST", headers: { authorization: `Bearer ${key}` }, body: form };
   }
 
-  async function run(captured: CapturedRequest, signal?: AbortSignal): Promise<OpenAiImageOffer> {
+  async function run(
+    captured: CapturedRequest,
+    signal?: AbortSignal,
+    onPartial?: (bytes: Uint8Array) => void,
+  ): Promise<OpenAiImageOffer> {
     const size = parseSize(captured.size);
     const qualityScale =
       captured.quality === "max"
@@ -1082,13 +1202,22 @@ export function createOpenAiImageProvider(
       checkAborted();
       if (typeof key !== "string" || key.trim() === "")
         throw new MintedImageError("no-key", "Generation needs the project's OpenAI API key.");
-      const init = { ...buildInit(captured, key), signal: controller.signal };
+      const streaming = onPartial !== undefined && models[captured.model]?.streaming === true;
+      const init = { ...buildInit(captured, key, streaming), signal: controller.signal };
       const response = await Promise.race([
         transport(`${baseUrl}${captured.endpoint}`, init),
         halt,
       ]);
       // A late answer after cancel/timeout is consumed, never published.
       checkAborted();
+      if (response.ok && response.headers.get("content-type")?.includes("text/event-stream")) {
+        const offer = await Promise.race([
+          readStreamedOffer(response, captured, key, controller.signal, onPartial),
+          halt,
+        ]);
+        checkAborted();
+        return offer;
+      }
       const body = await Promise.race([readBodyBounded(response), halt]);
       checkAborted();
       if (!response.ok)
@@ -1162,7 +1291,10 @@ export function createOpenAiImageProvider(
     },
     async submit(
       prepared: PreparedOpenAiImage,
-      submitOptions?: { readonly signal?: AbortSignal },
+      submitOptions?: {
+        readonly signal?: AbortSignal;
+        readonly onPartial?: (bytes: Uint8Array) => void;
+      },
     ): Promise<OpenAiImageOffer> {
       const captured = jobs.get(prepared);
       if (captured === undefined || captured.consumed)
@@ -1175,7 +1307,7 @@ export function createOpenAiImageProvider(
       captured.consumed = true;
       activeJob = true;
       try {
-        return await run(captured, submitOptions?.signal);
+        return await run(captured, submitOptions?.signal, submitOptions?.onPartial);
       } finally {
         activeJob = false;
       }
@@ -1206,5 +1338,6 @@ export function estimateImageOutputCost(
   const whole = Math.floor(short);
   const rounded = short - whole === 0.5 ? whole + (whole % 2) : Math.round(short);
   const tokens = Math.ceil((edge * rounded * (2_000_000 + width * height)) / 4_000_000);
-  return (tokens * (model === "gpt-image-2" ? 15 : 30)) / 1_000_000;
+  const rate = imageTokenRates(model);
+  return rate ? (tokens * rate.output) / 1_000_000 : null;
 }

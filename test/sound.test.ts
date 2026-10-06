@@ -40,8 +40,8 @@ describe("sound resource decoder", () => {
 
   it("parses authentic multi-note channels with accurate frequencies and volume", () => {
     // Build a sound with 2 notes in channel 0:
-    // Note 1: A4 (divisor 226, freq ~440.0Hz), duration 30 ticks, attenuation 0 (full volume)
-    // Note 2: C4 (divisor 380, freq ~261.66Hz), duration 60 ticks, attenuation 2 (~-4dB)
+    // Note 1: A4 (divisor 254), duration 30 ticks, attenuation 0 (full volume)
+    // Note 2: C4 (divisor 428), duration 60 ticks, attenuation 2 (~-4dB)
     // Channel 1: rest (divisor 0, attenuation 15), duration 90 ticks
     const binary = buildSound([
       {
@@ -66,17 +66,16 @@ describe("sound resource decoder", () => {
 
     const n1 = ch0.notes[0]!;
     assert.equal(n1.duration, 30);
-    assert.equal(n1.freqDivisor, 226);
-    // 99431.67 / 226 = 439.963 Hz ~ 440 Hz
-    assert.ok(Math.abs(n1.frequency - 440) < 0.2);
+    assert.equal(n1.freqDivisor, 254);
+    // 3,579,545 / (32 * 254) = 440.39677657480314 Hz.
+    assert.ok(Math.abs(n1.frequency - 440.39677657480314) < 1e-12);
     assert.equal(n1.attenuation, 0);
     assert.equal(n1.volume, 1.0);
 
     const n2 = ch0.notes[1]!;
     assert.equal(n2.duration, 60);
-    assert.equal(n2.freqDivisor, 380);
-    // 99431.67 / 380 = 261.662 Hz ~ 261.66 Hz
-    assert.ok(Math.abs(n2.frequency - 261.66) < 0.2);
+    assert.equal(n2.freqDivisor, 428);
+    assert.ok(Math.abs(n2.frequency - 261.3569655373832) < 1e-12);
     assert.equal(n2.attenuation, 2);
     assert.ok(n2.volume > 0 && n2.volume < 1.0);
 

@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./test.ts";
 import { providerReply } from "../../test/provider-stream.ts";
 import { isolateStorage, openAiSettings, enterPlayMode, textHook } from "./engineProbe.ts";
 
@@ -15,6 +15,8 @@ test("one shared AI setup preserves the brief and keeps provider keys separate",
   const create = page.getByTestId("create-adventure-disclosure");
   await expect(create.getByTestId("api-key-input")).toHaveCount(0);
   await page.getByTestId("shelf-template-custom").click();
+  await page.getByTestId("local-create-kind-ai").click();
+  await page.getByTestId("template-custom").click();
   await expect(page.getByTestId("template-custom")).toHaveAttribute("aria-selected", "true");
   await page.getByTestId("local-create-title").fill("The Quiet Observatory");
   await page.getByTestId("custom-adventure-input").fill("Find the missing moon chart.");
@@ -116,7 +118,7 @@ test("AI settings pause only their own game interaction and preserve the assista
   await expect(page.getByTestId("settings-menu")).toBeFocused();
   expect((await textHook(page)).paused).toBe(true);
   expect(providerCalls).toBe(0);
-  await page.getByRole("button", { name: "Back to game", exact: true }).click();
+  await page.getByTestId("agent-bubble-close").click();
   await expect.poll(async () => (await textHook(page)).paused).toBe(false);
 });
 

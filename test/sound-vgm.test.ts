@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { importVgm } from "../src/sound/vgm.ts";
 
-function vgm(commands: number[], clock = 3181813, version = 0x150): Uint8Array {
+function vgm(commands: number[], clock = 3579545, version = 0x150): Uint8Array {
   const bytes = new Uint8Array(64 + commands.length);
   bytes.set([86, 103, 109, 32]);
   const view = new DataView(bytes.buffer);
@@ -31,7 +31,7 @@ test("VGM reconstructs latched PSG writes, waits, independent voices and noise t
 
 test("VGM accumulates sub-tick waits and scales a foreign PSG clock", () => {
   const doc = importVgm(
-    vgm([0x50, 0x84, 0x50, 0x1c, 0x50, 0x90, 0x63, 0x63, 0x63, 0x63, 0x63, 0x66], 6363626),
+    vgm([0x50, 0x84, 0x50, 0x1c, 0x50, 0x90, 0x63, 0x63, 0x63, 0x63, 0x63, 0x66], 7159090),
   ).document;
   assert.deepEqual([...doc.encode().slice(8, 13)], [6, 0, 14, 130, 144]);
   const short = importVgm(

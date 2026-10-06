@@ -303,7 +303,12 @@ export function useStudioWalk(options: StudioWalkOptions) {
     const outcome = logic.apply(op, label);
     if (!outcome.ok) {
       onRefusal?.(outcome.error);
-      return refuse("Door edit rejected. Open Details for the reason.", outcome.error);
+      return refuse(
+        outcome.error === "Fix the room’s LOGIC before changing its doors."
+          ? outcome.error
+          : "Door edit rejected. Open Details for the reason.",
+        outcome.error,
+      );
     }
     options.say({ tone: "ok", text: done });
     return true;
@@ -581,6 +586,7 @@ export function useStudioWalk(options: StudioWalkOptions) {
     result.value = null;
     failure.value = null;
     running.value = false;
+    options.say(null);
   }
 
   function setStart(at: Point, how?: string): void {
@@ -652,11 +658,13 @@ export function useStudioWalk(options: StudioWalkOptions) {
     if (!from || !to) return;
     if (!files || room.value < 1) {
       failure.value = "This picture is not framed by a room the game can enter.";
+      options.say({ tone: "warn", text: failure.value });
       return;
     }
     const mine = ++run;
     const version = draftVersion.value;
     running.value = true;
+    options.say({ tone: "ok", text: "Walking…" });
     result.value = null;
     failure.value = null;
     const plan = estimate.value;
@@ -743,7 +751,13 @@ export function useStudioWalk(options: StudioWalkOptions) {
       if (mine !== run) return;
       failure.value = error instanceof Error ? error.message : String(error);
     } finally {
-      if (mine === run) running.value = false;
+      if (mine === run) {
+        running.value = false;
+        options.say({
+          tone: failure.value ? "warn" : "ok",
+          text: failure.value ?? result.value?.title ?? "Click to start another walk.",
+        });
+      }
     }
   }
 

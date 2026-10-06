@@ -4,6 +4,7 @@ import { assembleLogic } from "../../src/logic/assembler.ts";
 import { buildWordsTok } from "../../src/logic/words.ts";
 import { buildZip } from "../src/archive/zip.ts";
 import {
+  gameHint,
   isolateStorage,
   openGameControls,
   savedGameCard,
@@ -144,7 +145,8 @@ test("browser reload restores shortcut labels and live menu enable state", async
   await page.keyboard.press("Escape");
   await waitForAutosaveAfter(page, (await textHook(page)).cycle);
   await page.reload();
-  await expect(page.getByTestId("resume-caption")).toBeVisible();
+  await expect(await gameHint(page, "resume-caption")).toBeVisible();
+  await page.mouse.move(0, 0);
   await openGameControls(page);
   await expect(controls.getByRole("button", { name: "Inspect F3", exact: true })).toBeDisabled();
   await expect(

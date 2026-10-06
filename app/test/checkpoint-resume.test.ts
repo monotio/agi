@@ -1,3 +1,5 @@
+import { waitUntil } from "./async.ts";
+import { scheduler as testScheduler } from "node:timers/promises";
 /**
  * Checkpoint resume runtime — the acknowledgement contract.
  *
@@ -77,14 +79,10 @@ const HOST = {
   takeKeys: () => [],
 };
 
-const tick = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0));
+const tick = (): Promise<void> => testScheduler.yield();
 
 async function until(pred: () => boolean, label: string): Promise<void> {
-  for (let i = 0; i < 400; i++) {
-    if (pred()) return;
-    await tick();
-  }
-  assert.fail(`timed out waiting for ${label}`);
+  await waitUntil(pred, `timed out waiting for ${label}`);
 }
 
 interface Rig {
@@ -970,10 +968,14 @@ test("the earlier-checkpoint service refuses a busy slot and a moved destination
   // the ephemeral record is never boot authority — revalidation refuses.
   const ejecting = h.lifecycle.ejectGame();
   // The eject's flush and history queries need the worker's real replies.
-  for (let i = 0; i < 60; i++) {
+  let ejected = false;
+  void ejecting.then(() => {
+    ejected = true;
+  });
+  await waitUntil(() => {
     h.workers[0]!.deliver();
-    await tick();
-  }
+    return ejected;
+  }, "the game did not eject");
   await ejecting;
   await clearCachedGame(destId);
   assert.equal(

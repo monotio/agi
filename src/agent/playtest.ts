@@ -6,7 +6,6 @@ import {
 /** Bounded, detached execution of authored resources using the real interpreter. */
 import { openContainer } from "../container/container.ts";
 import { parseWordsTok } from "../logic/words.ts";
-import { TIMER_INCREMENT_MS } from "../runtime/cycleClock.ts";
 import { Engine, type EngineHost } from "../runtime/engine.ts";
 import { AGI_KEY } from "../runtime/keys.ts";
 import { parseView } from "../view/view.ts";
@@ -257,10 +256,11 @@ export class Simulation {
   }
   private advanceRecordedClock(ticks: number): void {
     for (let i = 0; i < ticks; i++) {
-      this.engine.advanceClock(1000 / 60);
+      this.engine.advanceClock(1000 / this.engine.timing.soundHz);
       this.engine.soundTick();
     }
-    if (this.estimatedGameTimeMs !== null) this.estimatedGameTimeMs += (ticks * 1000) / 60;
+    if (this.estimatedGameTimeMs !== null)
+      this.estimatedGameTimeMs += (ticks * 1000) / this.engine.timing.soundHz;
   }
   replay(recording: RecordedReplay): void {
     this.engine.restoreReplayState(recording.state);
@@ -311,14 +311,14 @@ export class Simulation {
       throw new Error(
         `Simulation cycle limit (${this.cycleBudget}) exceeded. Increase cycleBudget for a longer sequence.`,
       );
-    // Each requested tick is a logic cycle. Positive v10 waits that many 50 ms
+    // Each requested tick is a logic cycle. Positive v10 waits that many profile
     // timer increments; zero is host-rate-dependent, so it has no wall-time claim.
     const delay = this.engine.vars[10]!;
     if (delay === 0) this.estimatedGameTimeMs = null;
     else if (this.estimatedGameTimeMs !== null)
-      this.estimatedGameTimeMs += delay * TIMER_INCREMENT_MS;
+      this.estimatedGameTimeMs += delay * this.engine.timing.timerIncrementMs;
     for (let i = 0; i < 3 * Math.max(1, delay); i++) {
-      this.engine.advanceClock(1000 / 60);
+      this.engine.advanceClock(1000 / this.engine.timing.soundHz);
       this.engine.soundTick();
     }
     this.engine.tick();
@@ -439,8 +439,7 @@ export class Simulation {
         origin: { kind: this.originKind, resourceSet: this.resourceSet },
         cycles: this.cycles,
         estimatedGameTimeMs: this.estimatedGameTimeMs,
-        timing:
-          "Ticks are logic cycles. Timing begins at boot; playtest_room restarts the estimate at the action sequence after room setup. Positive v10 uses 50 ms increments; v10=0 is host-rate-dependent and has no elapsed-time claim.",
+        timing: `Ticks are logic cycles. Timing begins at boot; playtest_room restarts the estimate at the action sequence after room setup. Positive v10 uses ${this.engine.timing.timerIncrementMs} ms increments; v10=0 is host-rate-dependent and has no elapsed-time claim.`,
         missingRooms: this.missingRooms,
         steps: this.steps,
         ...(navigation === undefined
@@ -910,7 +909,7 @@ export function playtestRoom(
         cycleDelay: engine.vars[10],
         millisecondsPerCel:
           engine.vars[10]! > 0
-            ? TIMER_INCREMENT_MS * engine.vars[10]! * Math.max(1, object.cycleTime)
+            ? engine.timing.timerIncrementMs * engine.vars[10]! * Math.max(1, object.cycleTime)
             : null,
         celBefore: object.cel,
         celAfter: object.cel,

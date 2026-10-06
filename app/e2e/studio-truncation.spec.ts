@@ -39,6 +39,7 @@ for (const [width, height] of [
   [1024, 600],
 ] as const) {
   test(`at ${width}×${height} Studio's lines of meaning are never cut short`, async ({ page }) => {
+    await page.clock.install();
     await page.setViewportSize({ width, height });
     await playTutorial(page);
     await openWorkspacePicture(page, 2);
@@ -71,7 +72,7 @@ for (const [width, height] of [
     await look("notice", studio.getByTestId("studio-notice"));
     // It stays in the status line, off the picture, until it is closed.
     await expect(studio.locator(".studio__status").getByTestId("studio-notice")).toBeVisible();
-    await page.waitForTimeout(5500);
+    await page.clock.runFor(5500);
     await expect(studio.getByTestId("studio-notice")).toBeVisible();
     await studio.getByTestId("studio-notice-close").click();
     await expect(studio.getByTestId("studio-notice")).toHaveCount(0);

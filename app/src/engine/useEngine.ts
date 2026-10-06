@@ -1,3 +1,4 @@
+import { requireProjectId } from "../../../src/gameIdentity.ts";
 import type { createExecutionDebugLink } from "./executionDebugLink.ts";
 import type * as PlayerSentenceTools from "../project/playerSentences.ts";
 import type { PlayerSentence } from "../project/playerSentences.ts";
@@ -29,6 +30,7 @@ import { useInputController } from "../play/useInputController.ts";
 import { useTestRecorder } from "../authoring/useTestRecorder.ts";
 import type { useAuthoringController } from "../authoring/useAuthoringController.ts";
 import type { LlmConfig } from "../agent/llmClient.ts";
+import { useAmigaRegion } from "../settings/amigaRegion.ts";
 import type { AgiAudio, AudioMode } from "../audio/AgiAudio.ts";
 import {
   autosaveKey,
@@ -42,6 +44,7 @@ import { clearCachedGame } from "../project/gameStorage.ts";
 import { bindProgressTarget, resolveProgressTarget } from "../project/progressBinding.ts";
 import {
   advanceAuthoring,
+  requireSaved,
   STALE_SAVE_MESSAGE,
   PROJECT_REMOVED_MESSAGE,
   watchProjectWrites,
@@ -105,9 +108,12 @@ export function useEngine(
 ) {
   let projectMode: "create" | "play" = "play";
   let projectSession: ProjectSession | null = null;
+  let projectSessionOpening: string | undefined;
   const pendingProjectRestart = shallowRef<PendingProjectRestart | null>(null);
   let projectOpenEpoch = 0;
   let audio: AgiAudio | null = null;
+  const amigaSettings = useAmigaRegion();
+
   let audioLoading: Promise<AgiAudio> | undefined;
 
   const state = reactive<EngineState>({
@@ -350,7 +356,9 @@ export function useEngine(
 
   const autosaveController = useAutosaveController({
     state,
-    getRunScope: () => projectSession?.runToken,
+    // The worker grants the run before the editor modules finish loading.
+    // Checkpoints keep that owner while its project session opens.
+    getRunScope: () => projectSessionOpening ?? projectSession?.runToken,
     getBootedGame: () => lifecycle.getBootedGame(),
     getWorker: link.getWorker,
     async prepareCheckpoint(game, files, checkpointRevision) {
@@ -399,7 +407,6 @@ export function useEngine(
     projectSession = null;
     pendingProjectRestart.value = null;
   };
-  let projectSessionOpening: string | undefined;
   async function openSession(
     grant: Extract<WorkerControl, { type: "booted" }>["projectAdmission"],
   ): Promise<void> {
@@ -430,6 +437,13 @@ export function useEngine(
     await Promise.all([import("../project/projectSession.ts"), import("./mainProjectAdmission.ts")])
       .then(async ([{ openProjectSession }, { createMainProjectAdmission }]) => {
         if (!current()) return;
+        // A room can finish while these modules load. Open the confirmed
+        // stored body, including its files, source claims and generation.
+        if (!game.installed) {
+          const saved = await requireSaved(game, { authoring: true, message: STALE_SAVE_MESSAGE });
+          if (!current()) return;
+          game.authoredGame = saved.data;
+        }
         const admission = createMainProjectAdmission({
           ...grant,
           query: link.query,
@@ -439,12 +453,19 @@ export function useEngine(
         projectSession = openProjectSession({
           data: game.authoredGame!,
           lifetime: game.historyLifetime!,
+          ...(game.installed && game.progressTarget
+            ? { forkParent: game.progressTarget.identity }
+            : {}),
           admission,
           current,
           forked(data, lifetime) {
             if (!current()) return;
+            state.copyCreated = { projectId: data.projectId, originalTitle: game.title };
             game = {
               ...game!,
+              installed: false,
+              revision: computeResourceRevision(data.files),
+              files: data.files,
               projectId: data.projectId,
               title: data.title,
               authoredGame: data,
@@ -474,8 +495,10 @@ export function useEngine(
               outcome?.status === "unchanged";
             if (running) {
               game.files = structuredClone(data.files);
-              game.revision = snapshot.lastAdmissibleBuild!.identity.revision;
-              bindProgressTarget(game);
+              if (!game.installed) {
+                game.revision = snapshot.lastAdmissibleBuild!.identity.revision;
+                bindProgressTarget(game);
+              }
               if (outcome?.replacementRunToken !== undefined)
                 state.profile = snapshot.lastAdmissibleBuild!.identity.profileId;
             }
@@ -506,7 +529,7 @@ export function useEngine(
             }
           },
           checkpointReady() {
-            if (current()) void autosaveController.flushAutosave();
+            if (current() && !game.installed) void autosaveController.flushAutosave();
           },
           changed() {
             if (current()) {
@@ -547,11 +570,13 @@ export function useEngine(
     if (data === null) throw new Error("The saved project is missing. Reopen the game.");
     const [
       { readProjectWorkspace },
+      { historyProjectDocuments },
       { readProjectDocuments },
       { diffProjectDocuments },
       { detectProfile },
     ] = await Promise.all([
       import("../../../src/authoring/projectWorkspace.ts"),
+      import("../history/historyProject.ts"),
       import("../../../src/authoring/projectDocuments.ts"),
       import("../../../src/authoring/projectContent.ts"),
       import("../../../src/runtime/profile.ts"),
@@ -559,12 +584,16 @@ export function useEngine(
     const files = Object.fromEntries(
       Object.entries(boot.files).map(([name, bytes]) => [name, base64ToBytes(bytes)]),
     );
-    const documents = boot.project
+    const recordedDocuments = boot.project
       ? readProjectWorkspace(boot.project.documents)
       : readProjectDocuments({
           files,
           profileId: detectProfile(new Map(Object.entries(files)), boot.profile).id,
         }).documents;
+    const documents = historyProjectDocuments(
+      recordedDocuments,
+      data.workspace ? readProjectWorkspace(data.workspace) : {},
+    );
     if (lifecycle.getBootedGame() !== game || link.getWorker() !== worker) return;
     const reply = await link.query("projectCreate");
     if (lifecycle.getBootedGame() !== game || link.getWorker() !== worker) return;
@@ -705,6 +734,7 @@ export function useEngine(
   };
 
   const lifecycle = useGameLifecycle({
+    getAmigaRegion: () => amigaSettings.region.value,
     state,
     hook,
     get audio() {
@@ -820,6 +850,20 @@ export function useEngine(
     }
   }
 
+  async function visitRoom(room: number | "back"): Promise<WorkerQueryPayload["playHere"]> {
+    pauseEngine("stageVisit");
+    try {
+      return await link.query("playHere", {
+        room: room === "back" ? 1 : room,
+        x: 0,
+        y: 0,
+        visit: room === "back" ? "back" : "start",
+      });
+    } finally {
+      resumeEngine("stageVisit");
+    }
+  }
+
   const openPowerUp: ReturnType<typeof useAuthoringController>["openPowerUp"] = async (...args) =>
     (await loadAuthoringController()).openPowerUp(...args);
   function closePowerUp(): void {
@@ -850,7 +894,8 @@ export function useEngine(
         .then(({ loadTapeOutline }) => loadTapeOutline(targetLocator))
         .then((outline) => outline?.segments.some((segment) => segment.extent > 0) ?? false)
         .catch(() => false),
-    // historyView is built below; the closure reads it once it exists.
+    // historyView is built by prepareRun, which Start over awaits first.
+    prepareTimeline: prepareRun,
     expectStartOver: (expected) => historyView!.expectStartOver(expected),
     bootFresh: (targetKey, config, admission) =>
       autosaveController.startOver(targetKey, config, admission),
@@ -874,7 +919,11 @@ export function useEngine(
   function loadAudio(): Promise<AgiAudio> {
     audioLoading ??= import("../audio/AgiAudio.ts")
       .then(({ AgiAudio }) => {
-        audio = new AgiAudio({ mode: state.soundMode, muted: state.soundMuted });
+        audio = new AgiAudio({
+          mode: state.soundMode,
+          muted: state.soundMuted,
+          amigaRegion: amigaSettings.region.value,
+        });
         audio.setPaused(state.paused);
         if (import.meta.env?.DEV)
           (window as unknown as { __AGI_AUDIO__: AgiAudio }).__AGI_AUDIO__ = audio;
@@ -1022,13 +1071,36 @@ export function useEngine(
         type: "observeSentences",
         enabled: mode === "create",
       } satisfies WorkerInbound);
-      const game = lifecycle.getBootedGame();
+      let game = lifecycle.getBootedGame();
       const worker = link.getWorker();
+      if (mode === "create" && game?.installed && !game.authoredGame && game.historyLifetime) {
+        const id = requireProjectId(`edition-${crypto.randomUUID()}`);
+        game = {
+          ...game,
+          projectId: id,
+          authoredGame: {
+            projectId: id,
+            title: game.title,
+            authoredAt: new Date().toISOString(),
+            files: game.files,
+            words: game.words,
+            imported: true,
+            roomGeneration: false,
+            library: {
+              version: 1,
+              revision: game.revision,
+              source: "folder",
+              profile: roomMap.value?.resources.value.profile?.id ?? "2.936",
+              validation: { status: "ready", message: "Ready to edit" },
+            },
+          },
+        };
+        lifecycle.setBootedGame(game);
+      }
       if (
         mode !== "create" ||
         projectSessionOpening ||
         !game?.authoredGame ||
-        game.installed ||
         state.phase !== "running"
       )
         return;
@@ -1090,6 +1162,7 @@ export function useEngine(
     ) {
       const session = projectSession;
       if (session === null) throw new Error("Open this game in Create to edit it.");
+      if (edit.author === "creator") return session.stage(edit.changes);
       const proposal = session.model.propose(session.model.capture(), edit.label, edit.changes);
       return session.submit({
         proposal,
@@ -1197,8 +1270,7 @@ export function useEngine(
     ) => (await loadAuthoringController()).getAgentRuntime(...args),
     updateAiConfig,
     openPowerUp(config: LlmConfig) {
-      if (projectMode !== "create" || lifecycle.getBootedGame()?.installed)
-        return openPowerUp(config);
+      if (projectMode !== "create") return openPowerUp(config);
       state.powerUp.open = true;
       state.powerUp.mode = "remix";
       state.powerUp.busy = false;
@@ -1279,6 +1351,7 @@ export function useEngine(
     debugWrite: async (...args: Parameters<ReturnType<typeof useEngineDebug>["debugWrite"]>) =>
       (await loadEngineDebug()).debugWrite(...args),
     playHere,
+    visitRoom,
     /** The live screen objects (ego first when animated): Room Studio's walkable estimate. */
     readObjects: () => link.query("objects"),
     debugEventsSince: async (

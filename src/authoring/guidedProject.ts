@@ -66,7 +66,7 @@ import {
   type TestExpr,
   type Token,
 } from "../logic/syntax.ts";
-import { actionSpec, CONDITION_BY_NAME, SAID_ANY_WORD, SAID_REST } from "../logic/opcodes.ts";
+import { actionSpec, conditionSpec, SAID_ANY_WORD, SAID_REST } from "../logic/opcodes.ts";
 import {
   compileProjectDocuments,
   ProjectDocumentCompileError,
@@ -457,7 +457,7 @@ function sourceStateUse(
     };
   }
   const visitArgs = (name: string, args: readonly Ref[]) => {
-    const spec = actionSpec(name, profile) ?? CONDITION_BY_NAME[name];
+    const spec = actionSpec(name, profile) ?? conditionSpec(name);
     if (spec === undefined) {
       // Unknown call: sigil refs still name state; positions for the rest
       // cannot be proven.
@@ -551,7 +551,7 @@ function salvageStateUse(
   for (let i = 0; i < tokens.length; i++) {
     const token = tokens[i]!;
     if (token.type !== "ident") continue;
-    const spec = actionSpec(token.text, profile) ?? CONDITION_BY_NAME[token.text];
+    const spec = actionSpec(token.text, profile) ?? conditionSpec(token.text);
     if (spec === undefined || spec.operands.length === 0) continue;
     if (tokens[i + 1]?.type !== "punct" || tokens[i + 1]!.text !== "(") continue;
     let cursor = i + 2;
@@ -1258,6 +1258,8 @@ export interface GuidedAddRoomInput {
   /** Explicit resource ids; defaults allocate the lowest free id 1..254. */
   readonly logicId?: number;
   readonly pictureId?: number;
+  /** Use an existing picture as the room's art. */
+  readonly existingPicture?: number;
   /** Optional named bindings for the new room logic and picture. */
   readonly roomName?: string;
   readonly pictureName?: string;
@@ -1278,7 +1280,13 @@ export function prepareGuidedAddRoom(ctx: GuidedContext, input: GuidedAddRoomInp
 
   const logic = allocateResourceId(env, "logic", input.logicId, label, kind);
   if (!("id" in logic)) return logic;
-  const picture = allocateResourceId(env, "picture", input.pictureId, label, kind);
+  const picture =
+    input.existingPicture === undefined
+      ? allocateResourceId(env, "picture", input.pictureId, label, kind)
+      : intIn(input.existingPicture, 0, 255) &&
+          env.documents[`picture:${input.existingPicture}`] !== undefined
+        ? { id: input.existingPicture }
+        : refuse(kind, label, "missing", "Choose an existing PICTURE for the room.");
   if (!("id" in picture)) return picture;
   const logicId = logic.id;
   const pictureId = picture.id;
@@ -1400,7 +1408,9 @@ export function prepareGuidedAddRoom(ctx: GuidedContext, input: GuidedAddRoomInp
 
   const changes: GuidedChange[] = [
     { key: `logic:${logicId}`, content: roomSource },
-    { key: `picture:${pictureId}`, content: picSource },
+    ...(input.existingPicture === undefined
+      ? [{ key: `picture:${pictureId}`, content: picSource }]
+      : []),
     { key: "world", content: worldDocument(world) },
   ];
   if (bindingsDocument(bindings) !== bindingsDocument(env.bindings))
@@ -1412,11 +1422,15 @@ export function prepareGuidedAddRoom(ctx: GuidedContext, input: GuidedAddRoomInp
     changes,
     new Map([
       [`logic:${logicId}`, [{ start: 0, end: roomSource.length }]],
-      [`picture:${pictureId}`, [{ start: 0, end: picSource.length }]],
+      ...(input.existingPicture === undefined
+        ? [[`picture:${pictureId}`, [{ start: 0, end: picSource.length }]] as const]
+        : []),
     ]),
     new Map([
       [`logic:${logicId}`, roomSource],
-      [`picture:${pictureId}`, picSource],
+      ...(input.existingPicture === undefined
+        ? [[`picture:${pictureId}`, picSource] as const]
+        : []),
     ]),
   );
 }
@@ -1772,7 +1786,7 @@ export function prepareGuidedRespondToCommand(
       kind,
       label,
       "invalid-input",
-      "Command must be 1 to 10 words of lowercase letters and digits.",
+      "Use 1 to 10 words with lowercase letters and digits for the sentence.",
     );
   const response = input.response;
   if (
@@ -1830,7 +1844,7 @@ export function prepareGuidedRespondToCommand(
         kind,
         label,
         "conflict",
-        `The room already answers '${retained.join(" ")}'. Choose another command or ask to replace its reply.`,
+        `The room already answers '${retained.join(" ")}'. Choose another sentence or replace its answer.`,
         key,
         {
           start: lineOf(source, handler.stmt.tok.start - room.base),
@@ -1852,7 +1866,7 @@ export function prepareGuidedRespondToCommand(
         kind,
         label,
         "custom-code",
-        "The existing handler for that command is not a plain said→print; edit it by hand.",
+        "This sentence uses custom LOGIC. Edit its answer in the code.",
         key,
         {
           start: lineOf(source, handler.stmt.tok.start - room.base),
@@ -1867,7 +1881,7 @@ export function prepareGuidedRespondToCommand(
       const span = stmtTokens(room, print).find((t) => t.type === "string") ?? null;
       if (!span)
         return refuse(kind, label, "custom-code", "The reply text is not a plain string.", key);
-      edit = { ...span, text: quoted };
+      edit = { start: span.start - room.base, end: span.end - room.base, text: quoted };
     } else {
       const num = arg.kind === "m" ? arg.index : numRef(arg);
       if (num === null)
@@ -1900,7 +1914,7 @@ export function prepareGuidedRespondToCommand(
       kind,
       label,
       "conflict",
-      `An earlier handler would answer '${retained.join(" ")}' first; pick different words or edit the source.`,
+      `An earlier rule answers '${retained.join(" ")}' first. Choose different words or edit the LOGIC.`,
       key,
       {
         start: lineOf(source, handler.stmt.tok.start - room.base),
@@ -2338,6 +2352,8 @@ export interface GuidedPlaySoundInput {
   /** An existing SOUND resource (number or sound binding name). */
   readonly sound: number | string;
   readonly on: GuidedCueTarget;
+  /** Teach a new command and create its handler when it has no earlier answer. */
+  readonly createCommand?: boolean;
   /** Optional message printed when the sound completes. */
   readonly completionMessage?: string;
   /** Completion flag binding name; defaults to a free `cue_done` variant. */
@@ -2427,13 +2443,25 @@ export function prepareGuidedPlaySound(
 
   const edits: TextEdit[] = [];
 
+  const entries = env.words.map((entry) => ({ ...entry }));
+  const dictionary = new Map(env.dictionary);
+  let newCommand: string[] = [];
+
   if (input.on.type === "command") {
     const tokens = typeof input.on.command === "string" ? normalizeCommand(input.on.command) : null;
     if (!tokens)
       return refuse(kind, label, "invalid-input", "The cue command must be 1 to 10 simple words.");
+    if (input.createCommand) {
+      const resolved = commandWordIds(tokens, entries, dictionary);
+      if (resolved === "ignored")
+        return refuse(kind, label, "invalid-input", "Type a sentence with a word the game keeps.");
+      if (resolved === "exhausted")
+        return refuse(kind, label, "occupied", "The dictionary has no free word ids left.");
+    }
     const seq: number[] = [];
+    const retainedWords: string[] = [];
     for (let index = 0; index < tokens.length;) {
-      const match = matchDictionaryPhrase(tokens, index, env.dictionary);
+      const match = matchDictionaryPhrase(tokens, index, dictionary);
       index += match.length;
       if (match.id === undefined)
         return refuse(
@@ -2443,19 +2471,23 @@ export function prepareGuidedPlaySound(
           `The room's dictionary does not know '${match.text}'.`,
           "words",
         );
-      if (match.id !== 0) seq.push(match.id);
+      if (match.id !== 0) {
+        seq.push(match.id);
+        retainedWords.push(match.text);
+      }
     }
     if (seq.length === 0)
       return refuse(kind, label, "invalid-input", "The cue command is only filler words.");
-    const matches = commandHandlers(room, env.dictionary).filter((handler) =>
+    const handlers = commandHandlers(room, dictionary);
+    const matches = handlers.filter((handler) =>
       handler.seqs.some((s) => s.length === seq.length && s.every((v, i) => v === seq[i])),
     );
-    if (matches.length === 0)
+    if (matches.length === 0 && !input.createCommand)
       return refuse(
         kind,
         label,
         "missing",
-        `No handler in this room answers '${tokens.join(" ")}'.`,
+        `This room needs an answer for '${tokens.join(" ")}'.`,
         key,
       );
     if (matches.length > 1)
@@ -2463,36 +2495,59 @@ export function prepareGuidedPlaySound(
         kind,
         label,
         "custom-code",
-        `More than one handler answers '${tokens.join(" ")}'; pick one by hand.`,
+        `More than one rule answers '${tokens.join(" ")}'; pick one by hand.`,
         key,
       );
-    const handler = matches[0]!.stmt;
-    if (actionsNamed(handler.then, "sound").length > 0)
-      return refuse(
-        kind,
-        label,
-        "conflict",
-        `The handler for '${tokens.join(" ")}' already plays a sound; one cue owns the channel.`,
-        key,
-        {
-          start: lineOf(source, handler.tok.start - room.base),
-          end: lineOf(source, handler.end - room.base),
-        },
-      );
-    // The cue starts before any modal print window in the handler opens.
-    const trigger = insertAtThenStart(room, handler, [
-      `load.sound(${ref.text});`,
-      `sound(${ref.text}, ${done.name});`,
-    ]);
-    if (trigger === "shared-line")
-      return refuse(
-        kind,
-        label,
-        "custom-code",
-        "The handler's body is not a plain braced block; place the cue by hand.",
-        key,
-      );
-    edits.push(trigger);
+    if (matches.length === 0) {
+      if (
+        handlers.some((handler) =>
+          handler.seqs.some((pattern) =>
+            saidSeqConsumes(pattern, seq, env.profile.wordSequenceTailTerminator),
+          ),
+        )
+      )
+        return refuse(
+          kind,
+          label,
+          "conflict",
+          "An earlier answer uses that sentence. Choose another sentence or edit its LOGIC.",
+          key,
+        );
+      newCommand = [
+        `if (said(${retainedWords.map(quoteLogicString).join(", ")})) {`,
+        `  load.sound(${ref.text});`,
+        `  sound(${ref.text}, ${done.name});`,
+        `}`,
+      ];
+    } else {
+      const handler = matches[0]!.stmt;
+      if (actionsNamed(handler.then, "sound").length > 0)
+        return refuse(
+          kind,
+          label,
+          "conflict",
+          `The answer for '${tokens.join(" ")}' already plays a sound. Choose another sentence.`,
+          key,
+          {
+            start: lineOf(source, handler.tok.start - room.base),
+            end: lineOf(source, handler.end - room.base),
+          },
+        );
+      // The cue starts before any modal print window in the handler opens.
+      const trigger = insertAtThenStart(room, handler, [
+        `load.sound(${ref.text});`,
+        `sound(${ref.text}, ${done.name});`,
+      ]);
+      if (trigger === "shared-line")
+        return refuse(
+          kind,
+          label,
+          "custom-code",
+          "This answer uses custom LOGIC. Add the sound in the code.",
+          key,
+        );
+      edits.push(trigger);
+    }
   } else {
     const wanted = input.on.rule;
     const scan = scanRules(source);
@@ -2587,6 +2642,7 @@ export function prepareGuidedPlaySound(
   }
 
   const completion = [
+    ...newCommand,
     `if (isset(${done.name})) {`,
     ...(message !== undefined ? [`  print(${quoteLogicString(message)});`] : []),
     `  reset(${done.name});`,
@@ -2605,6 +2661,8 @@ export function prepareGuidedPlaySound(
 
   const result = spliceText(source, edits);
   const changes: GuidedChange[] = [{ key, content: result.text }];
+  if (entries.length !== env.words.length)
+    changes.push({ key: "words", content: wordsDocument(entries) });
   if (bindingsDocument(bindings) !== bindingsDocument(env.bindings))
     changes.push({ key: "bindings", content: bindingsDocument(bindings) });
   const previews = new Map([

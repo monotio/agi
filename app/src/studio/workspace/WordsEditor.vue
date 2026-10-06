@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import UiIcon from "../../ui/UiIcon.vue";
 import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
 import { VOCABULARY, WORDS_EDITOR_COPY } from "../../../../src/vocabulary.ts";
 import { parseSentence } from "../../../../src/runtime/parser.ts";
@@ -19,6 +20,9 @@ import {
   type WordRows,
 } from "./wordsAnalysis.ts";
 import { runWordsTask, type WordsTask } from "./wordsAgent.ts";
+import type { ProjectSnapshot } from "../../../../src/authoring/projectModel.ts";
+import { prepareWorkspaceAction, type WorkspaceAction } from "./workspaceGuided.ts";
+import SentenceFields from "./SentenceFields.vue";
 const props = defineProps<{
   readOnly?: boolean;
   source: string;
@@ -26,6 +30,7 @@ const props = defineProps<{
   room: number;
   active: boolean;
   profile: AgiProfile;
+  snapshot: ProjectSnapshot;
 }>();
 const emit = defineEmits<{
   edit: [source: string];
@@ -35,6 +40,7 @@ const emit = defineEmits<{
   response: [room: number, command: string];
   task: [task: WordsTask];
   chat: [];
+  guided: [action: WorkspaceAction];
 }>();
 const engine = useEngineApi();
 void engine.loadPlayerSentences();
@@ -146,7 +152,46 @@ const unknown = computed(
   () => parsed.value.tokens.find((token) => token.status === "new")?.text ?? "",
 );
 const moving = ref<{ from: number; word: string; to: number; merge: boolean }>();
-const same = ref<{ word: string; id: number; entry?: PlayerSentence }>();
+const teaching = ref<{ word: string; room: number; row?: number }>();
+const teachCommand = ref("");
+const teachResponse = ref("");
+const teachAlso = ref<readonly string[]>([]);
+const teachMeaning = ref("new");
+const sameMeaning = ref("");
+const teachAction = computed<WorkspaceAction | undefined>(() =>
+  teaching.value
+    ? {
+        kind: "response",
+        room: teaching.value.room,
+        command: teachCommand.value,
+        response: teachResponse.value || "Your answer.",
+        alsoCommands: teachAlso.value,
+        teach: {
+          word: teaching.value.word,
+          ...(teachMeaning.value === "same" ? { sameAs: Number(sameMeaning.value) } : {}),
+        },
+      }
+    : undefined,
+);
+const teachPreview = computed(() => {
+  if (!teachAction.value) return undefined;
+  try {
+    return prepareWorkspaceAction(props.snapshot, props.profile.id, teachAction.value);
+  } catch {
+    return { ok: false as const, message: "Check Problems before adding this answer." };
+  }
+});
+const teachWords = computed(() => {
+  const prepared = teachPreview.value;
+  const words = prepared?.ok
+    ? prepared.changes.find((change) => change.key === "words")?.content
+    : undefined;
+  return typeof words === "string" ? (JSON.parse(words) as WordRows) : entries.value;
+});
+watch(entries, (words) => {
+  if (teaching.value && words.some(([word]) => word === teaching.value!.word))
+    teaching.value = undefined;
+});
 function label(id: number | undefined): string {
   return groups.value.find((group) => group.id === id)?.words[0] ?? String(id ?? "");
 }
@@ -230,34 +275,22 @@ function move(): void {
   emit("move", { from: value.from, to: value.to, ...(value.merge ? {} : { word: value.word }) });
   moving.value = undefined;
 }
-function closest(word: string): number {
-  // Edit distance is a spelling hint; the builder chooses the meaning.
-  function distance(a: string, b: string): number {
-    let row = Array.from({ length: b.length + 1 }, (_, index) => index);
-    for (let i = 0; i < a.length; i++) {
-      const next = [i + 1];
-      for (let j = 0; j < b.length; j++)
-        next.push(Math.min(next[j]! + 1, row[j + 1]! + 1, row[j]! + Number(a[i] !== b[j])));
-      row = next;
-    }
-    return row[b.length]!;
-  }
-  return (
-    [...entries.value]
-      .filter(([, id]) => ![0, 1, 9999].includes(id))
-      .sort(([a], [b]) => distance(word, a) - distance(word, b))[0]?.[1] ?? 0
-  );
-}
-function sameAs(word: string, entry?: PlayerSentence): void {
+function teach(word: string, entry?: PlayerSentence): void {
   if (props.readOnly) return;
-  same.value = { word, id: closest(word), ...(entry ? { entry } : {}) };
+  teaching.value = {
+    word,
+    room: entry?.room ?? props.room,
+    ...(entry ? { row: tried.value.indexOf(entry) } : {}),
+  };
+  teachCommand.value = entry?.text ?? sentence.value;
+  teachMeaning.value = "new";
+  sameMeaning.value = "";
+  teachResponse.value = "";
+  teachAlso.value = [];
 }
-function acceptSame(): void {
-  if (props.readOnly) return;
-  if (!same.value) return;
-  addWord(same.value.id, same.value.word);
-  if (!error.value && same.value.entry) engine.resolvePlayerSentence(same.value.entry);
-  if (!error.value) same.value = undefined;
+function addAnswer(): void {
+  if (!props.readOnly && teachAction.value && teachPreview.value?.ok)
+    emit("guided", teachAction.value);
 }
 async function task(value: WordsTask): Promise<void> {
   if (props.readOnly) return;
@@ -325,7 +358,7 @@ function typeInGame(): void {
 function dismissGhosts(event: KeyboardEvent): void {
   if (
     !moving.value &&
-    !same.value &&
+    !teaching.value &&
     adding.value === undefined &&
     !more.value &&
     !predictOpen.value &&
@@ -343,7 +376,7 @@ function dismissGhosts(event: KeyboardEvent): void {
   adding.value = undefined;
   more.value = false;
   moving.value = undefined;
-  same.value = undefined;
+  teaching.value = undefined;
 }
 </script>
 <template>
@@ -357,6 +390,7 @@ function dismissGhosts(event: KeyboardEvent): void {
       />
       <UiButton
         size="sm"
+        icon="sparkles"
         :disabled="readOnly || !!pendingTask"
         :title="
           readOnly
@@ -378,7 +412,9 @@ function dismissGhosts(event: KeyboardEvent): void {
     </header>
     <div v-if="toast" class="words-toast" role="status">
       {{ toast }} · <button class="words-link" @click="emit('chat')">{{ copy.openChat }}</button>
-      <button class="chip-remove" :aria-label="copy.dismiss" @click="toast = ''">×</button>
+      <button class="chip-remove" aria-label="Close" @click="toast = ''">
+        <UiIcon name="x" :size="16" />
+      </button>
     </div>
     <p v-if="error" class="words-error" role="alert">{{ error }}</p>
     <form v-if="moving" class="words-choice" @submit.prevent="move" aria-label="Move to…">
@@ -415,30 +451,6 @@ function dismissGhosts(event: KeyboardEvent): void {
         :title="readOnly ? 'Editing is paused in this tab' : undefined"
         >{{ moving.merge ? "Merge" : "Move" }}</UiButton
       ><UiButton size="sm" variant="ghost" @click="moving = undefined">Cancel</UiButton>
-    </form>
-    <form v-if="same" class="words-choice" @submit.prevent="acceptSame" aria-label="Same as…">
-      <strong>{{ same.word }} · {{ VOCABULARY.sameAs.label }}</strong>
-      <select
-        v-model.number="same.id"
-        :disabled="readOnly"
-        :title="readOnly ? 'Editing is paused in this tab' : undefined"
-        aria-label="Same meaning"
-      >
-        <option
-          v-for="group in groups.filter((row) => ![1, 9999].includes(row.id))"
-          :key="group.id"
-          :value="group.id"
-        >
-          {{ group.id === 0 ? VOCABULARY.skippedWords.label : label(group.id) }} · {{ group.id }}
-        </option>
-      </select>
-      <UiButton
-        size="sm"
-        type="submit"
-        :disabled="readOnly"
-        :title="readOnly ? 'Editing is paused in this tab' : undefined"
-        >Add word</UiButton
-      ><UiButton size="sm" variant="ghost" @click="same = undefined">Cancel</UiButton>
     </form>
     <div class="words-body">
       <section :aria-label="VOCABULARY.trySentence.label">
@@ -495,15 +507,20 @@ function dismissGhosts(event: KeyboardEvent): void {
                 <UiButton
                   size="sm"
                   variant="primary"
-                  @click="sameAs(unknown)"
+                  @click="teach(unknown)"
                   :disabled="readOnly"
                   :title="readOnly ? 'Editing is paused in this tab' : undefined"
                   >{{ copy.teach.replace("{word}", unknown) }}</UiButton
                 >
                 <div class="tester-more">
-                  <UiButton size="sm" variant="ghost" :aria-expanded="more" @click="more = !more">{{
-                    copy.more
-                  }}</UiButton>
+                  <UiButton
+                    size="sm"
+                    variant="ghost"
+                    trailing-icon="chevron-down"
+                    :aria-expanded="more"
+                    @click="more = !more"
+                    >{{ copy.more }}</UiButton
+                  >
                   <div v-if="more" class="tester-menu">
                     <UiButton
                       size="sm"
@@ -553,6 +570,75 @@ function dismissGhosts(event: KeyboardEvent): void {
               ></template
             >
           </div>
+          <Teleport
+            v-if="teaching"
+            :disabled="teaching.row === undefined"
+            :to="teaching.row === undefined ? 'body' : `#teach-row-${teaching.row}`"
+          >
+            <form
+              class="teach-form"
+              :aria-label="`Teach ${teaching.word}`"
+              @submit.prevent="addAnswer"
+            >
+              <h4>What is {{ teaching.word }}?</h4>
+              <div class="teach-meaning">
+                <label
+                  ><input v-model="teachMeaning" value="new" type="radio" :disabled="readOnly" /> A
+                  new thing</label
+                >
+                <label
+                  ><input v-model="teachMeaning" value="same" type="radio" :disabled="readOnly" />
+                  Same as…</label
+                >
+                <select
+                  v-if="teachMeaning === 'same'"
+                  v-model="sameMeaning"
+                  aria-label="Same meaning"
+                  :disabled="readOnly"
+                  required
+                >
+                  <option value="" disabled>Pick a meaning</option>
+                  <option
+                    v-for="group in groups.filter((row) => ![0, 1, 9999].includes(row.id))"
+                    :key="group.id"
+                    :value="String(group.id)"
+                  >
+                    {{ group.words.join(", ") }}
+                  </option>
+                </select>
+              </div>
+              <SentenceFields
+                v-model:command="teachCommand"
+                v-model:response="teachResponse"
+                v-model:also="teachAlso"
+                :words="teachWords"
+                :disabled="readOnly"
+              />
+              <details v-if="teachResponse && teachPreview?.ok" open>
+                <summary>LOGIC to add</summary>
+                <pre data-testid="guided-code-preview">{{
+                  teachPreview.showCode.map((preview) => preview.text).join("\n")
+                }}</pre>
+              </details>
+              <p v-else-if="teachResponse && teachPreview && !teachPreview.ok" role="status">
+                {{ teachPreview.message }}
+              </p>
+              <UiButton
+                size="sm"
+                type="submit"
+                :disabled="readOnly || !teachPreview?.ok"
+                :title="
+                  readOnly
+                    ? 'Editing is paused in this tab'
+                    : teachPreview && !teachPreview.ok
+                      ? teachPreview.message
+                      : undefined
+                "
+                >Add</UiButton
+              >
+              <UiButton size="sm" variant="ghost" @click="teaching = undefined">Cancel</UiButton>
+            </form>
+          </Teleport>
         </div>
       </section>
       <section v-if="predictOpen" class="words-predictions" aria-label="Predicted commands">
@@ -628,7 +714,7 @@ function dismissGhosts(event: KeyboardEvent): void {
             Play and type freely. Sentences the game misses show up here.
           </p>
           <div
-            v-for="entry in tried"
+            v-for="(entry, index) in tried"
             :key="`${entry.room}:${entry.text}`"
             class="tried-row"
             data-testid="player-sentence"
@@ -646,10 +732,10 @@ function dismissGhosts(event: KeyboardEvent): void {
               <UiButton
                 v-if="entry.unknown"
                 size="sm"
-                @click="sameAs(entry.unknown, entry)"
+                @click="teach(entry.unknown, entry)"
                 :disabled="readOnly"
                 :title="readOnly ? 'Editing is paused in this tab' : undefined"
-                >{{ VOCABULARY.sameAs.label }} {{ label(closest(entry.unknown)) }}</UiButton
+                >{{ copy.teach.replace("{word}", entry.unknown) }}</UiButton
               ><UiButton
                 size="sm"
                 @click="!readOnly && emit('response', entry.room, entry.text)"
@@ -663,9 +749,10 @@ function dismissGhosts(event: KeyboardEvent): void {
                 :disabled="readOnly"
                 :title="readOnly ? 'Editing is paused in this tab' : undefined"
               >
-                ×
+                <UiIcon name="x" :size="16" />
               </button>
             </div>
+            <div :id="`teach-row-${index}`" class="tried-teach"></div>
           </div>
         </div>
       </section>
@@ -717,7 +804,7 @@ function dismissGhosts(event: KeyboardEvent): void {
                 :disabled="readOnly"
                 :title="readOnly ? 'Editing is paused in this tab' : undefined"
               >
-                ↗</button
+                <UiIcon name="external-link" :size="16" /></button
               ><button
                 class="chip-remove"
                 :aria-label="`Remove ${word}`"
@@ -725,9 +812,8 @@ function dismissGhosts(event: KeyboardEvent): void {
                 :disabled="readOnly"
                 :title="readOnly ? 'Editing is paused in this tab' : undefined"
               >
-                ×
-              </button></span
-            >
+                <UiIcon name="x" :size="16" /></button
+            ></span>
             <button
               v-for="word in ghosts[String(group.id)] ?? []"
               :key="word"
@@ -736,7 +822,7 @@ function dismissGhosts(event: KeyboardEvent): void {
               :disabled="readOnly"
               :title="readOnly ? 'Editing is paused in this tab' : undefined"
             >
-              ✦ {{ word }}
+              <UiIcon name="sparkles" :size="16" /> {{ word }}
             </button>
             <template v-if="ghosts[String(group.id)]?.length">
               <button
@@ -784,7 +870,7 @@ function dismissGhosts(event: KeyboardEvent): void {
               "
               @click="task({ kind: 'suggest', group: group.id, words: group.words })"
             >
-              {{ VOCABULARY.suggestWords.label }}
+              <UiIcon name="sparkles" :size="16" /> {{ VOCABULARY.suggestWords.label }}
             </button>
             <span v-else class="words-note">{{ copy.suggesting }}</span>
             <div v-if="taskProblems[String(group.id)]" class="words-error" role="alert">
@@ -857,7 +943,7 @@ function dismissGhosts(event: KeyboardEvent): void {
               :disabled="readOnly"
               :title="readOnly ? 'Editing is paused in this tab' : undefined"
             >
-              ↗</button
+              <UiIcon name="external-link" :size="16" /></button
             ><button
               class="chip-remove"
               :aria-label="`Remove ${word}`"
@@ -865,8 +951,7 @@ function dismissGhosts(event: KeyboardEvent): void {
               :disabled="readOnly"
               :title="readOnly ? 'Editing is paused in this tab' : undefined"
             >
-              ×
-            </button></span
+              <UiIcon name="x" :size="16" /></button></span
           ><button
             v-if="adding !== 0"
             class="word-chip row-action"
@@ -905,6 +990,32 @@ function dismissGhosts(event: KeyboardEvent): void {
   </div>
 </template>
 <style scoped>
+.teach-form {
+  padding: var(--space-3);
+  margin-top: var(--space-3);
+  border: 1px solid var(--action-line);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+}
+.teach-form h4 {
+  margin: 0 0 var(--space-2);
+}
+.teach-meaning {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  font-size: var(--text-sm);
+}
+.teach-meaning label {
+  display: flex;
+  gap: var(--space-1);
+  align-items: center;
+}
+.teach-form pre {
+  overflow: auto;
+  font: var(--text-xs) var(--font-mono);
+  max-height: 160px;
+}
 .words-editor {
   height: 100%;
   overflow: auto;
@@ -1252,5 +1363,14 @@ code {
   display: flex;
   align-items: center;
   gap: var(--space-2);
+}
+</style>
+
+<style scoped>
+.tried-row {
+  flex-wrap: wrap;
+}
+.tried-teach {
+  flex-basis: 100%;
 }
 </style>

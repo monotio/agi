@@ -1,3 +1,4 @@
+import { scheduler as testScheduler } from "node:timers/promises";
 /**
  * An AI turn's install, end to end over fake ports: the real authoring
  * controller saves the turn, then installs it through the real worker link
@@ -243,7 +244,7 @@ async function rig(
   };
   tick(6);
   t.after(() => ctx.fns.stopTimers());
-  const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+  const settle = () => testScheduler.yield();
 
   /**
    * The old engine's next autosave: one more resource patched into it, so

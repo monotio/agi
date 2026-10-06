@@ -6,6 +6,7 @@ import UiIconButton from "../ui/UiIconButton.vue";
 import type { IconName } from "../ui/icons.ts";
 import StudioCurrentValues from "./StudioCurrentValues.vue";
 import type { LensUnlocks } from "./studioLocks.ts";
+import type { PaletteAction, PaletteValues } from "./useStudioPalette.ts";
 import { TOOL_SHORTCUTS, type CurrentValues, type StudioTool } from "./studioTools.ts";
 import type { StudioLens } from "./studioView.ts";
 
@@ -13,7 +14,7 @@ import type { StudioLens } from "./studioView.ts";
  * The tool rail on the canvas's left edge: select and point, the drawing
  * tools, the pipette, in the Walk view the test walk and door tools, the
  * actor probe and the hand, each with its key, and under them the values
- * new content draws with.
+ * for new drawing or the current selection.
  *
  * The tools scroll inside the rail's column when it is shorter than they are
  * (the Walk lens's three extra tools at 1280×720, any lens on a short
@@ -32,6 +33,7 @@ const {
   lens,
   unlocks,
   values,
+  paletteAction,
   cursorY = undefined,
   doorsEditable = false,
 } = defineProps<{
@@ -42,7 +44,8 @@ const {
   probeAvailable: boolean;
   lens: StudioLens;
   unlocks: LensUnlocks;
-  values: CurrentValues;
+  values: PaletteValues;
+  paletteAction: PaletteAction;
   cursorY?: number | undefined;
   /** The Walk view can add doors: the room's logic is editable. */
   doorsEditable?: boolean;
@@ -224,6 +227,8 @@ watch(scroller, (el) => {
       :lens
       :unlocks
       :values
+      :palette-action
+      :frozen
       :cursor-y="cursorY"
       @values="emit('values', $event)"
       @unlocks="emit('unlocks', $event)"

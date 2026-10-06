@@ -1,5 +1,5 @@
 import type { Page } from "@playwright/test";
-import { workspaceSaved } from "./engineProbe.ts";
+import { workspaceSaved, workspaceUpdated } from "./engineProbe.ts";
 import { prepareIsolatedPage, seedLocalProject } from "./logicDebugShared.ts";
 import { expect, reviewShot, test } from "./test.ts";
 import {
@@ -33,7 +33,7 @@ async function appendNativeGroup(page: Page, chunks: readonly string[]): Promise
   }, chunks);
 }
 
-test("grouped typing and a coordinated operation undo and redo as complete steps @webkit-desktop", async ({
+test("typing updates and a coordinated operation undo and redo as complete steps @webkit-desktop", async ({
   page,
 }) => {
   await prepareIsolatedPage(page);
@@ -47,11 +47,11 @@ test("grouped typing and a coordinated operation undo and redo as complete steps
   const before = await workspaceDocument(page, "logic:1");
   await appendNativeGroup(page, ["\n// First", " typing group"]);
   await expect.poll(() => workspaceDocument(page, "logic:1")).toContain("First typing group");
-  await workspaceSaved(page);
+  await workspaceUpdated(page);
   const first = await workspaceDocument(page, "logic:1");
   await appendNativeGroup(page, ["\n// Second", " typing group"]);
   await expect.poll(() => workspaceDocument(page, "logic:1")).toContain("Second typing group");
-  await workspaceSaved(page);
+  await workspaceUpdated(page);
   const second = await workspaceDocument(page, "logic:1");
   expect(first).not.toBe(before);
   expect(second).not.toBe(first);

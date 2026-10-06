@@ -14,9 +14,12 @@ import { usageText, type ViewUsage } from "../../../../src/agent/viewUsage.ts";
 import { engineKey, useEngineApi } from "../../engine/engineContext.ts";
 import { aiSettingsKey } from "../../settings/useAiSettings.ts";
 import PaletteStrip from "../workspace/PaletteStrip.vue";
+import UiButton from "../../ui/UiButton.vue";
+import UiChip from "../../ui/UiChip.vue";
 import UiExplain from "../../ui/UiExplain.vue";
 import UiIconButton from "../../ui/UiIconButton.vue";
 import UiSegmented from "../../ui/UiSegmented.vue";
+import type { LessonSession } from "../../lessons/lessonCheck.ts";
 import LessonCard from "../../lessons/LessonCard.vue";
 import { useStudioLesson } from "../../lessons/useStudioLesson.ts";
 import type { ResourceCommitResult, ViewEdit } from "../../project/resourceCommit.ts";
@@ -107,10 +110,12 @@ const {
   priorityBase = undefined,
   stagedReference = undefined,
   readOnly = false,
+  lessonSession = undefined,
   embedded = false,
   workspaceFocus = false,
 } = defineProps<{
   readOnly?: boolean;
+  lessonSession?: LessonSession | undefined;
   embedded?: boolean;
   workspaceFocus?: boolean;
   viewNumber: number;
@@ -140,6 +145,7 @@ const {
 const emit = defineEmits<{
   close: [];
   edit: [bytes: Uint8Array];
+  "use-staged": [bytes: Uint8Array];
   "agent-context": [context: { label: string; text: string }];
   "agent-ask": [];
   reopen: [fromStorage: boolean];
@@ -157,9 +163,23 @@ watch([draft.bytes, draft.gesturing], ([next, gesturing]) => {
     (next.length !== bytes.length || !next.every((value, index) => bytes[index] === value))
   )
     emit("edit", next.slice());
+  if (embedded && !gesturing) lesson.check({ kind: "view", num: viewNumber, after: next, profile });
 });
 /** A Help guide lesson Studio opened from: every successful Keep runs its challenge. */
-const lesson = useStudioLesson();
+const contextOpen = ref(false);
+const lesson = useStudioLesson(() => lessonSession);
+watch(
+  () => lessonSession,
+  (next) => {
+    if (next) contextOpen.value = true;
+  },
+  { immediate: true },
+);
+watch(
+  () => lessonSession,
+  () => lesson.check({ kind: "view", num: viewNumber, after: draft.bytes.value, profile }),
+  { immediate: true },
+);
 // A lesson can open on the loop and cel its steps speak of.
 const opened = lesson.session.value?.lesson.open;
 const openedDocument = draft.document.value;
@@ -639,7 +659,11 @@ const status = computed(() => {
   <div
     ref="root"
     class="sprite-studio"
-    :class="{ 'is-embedded': embedded, 'is-workspace-focus': workspaceFocus }"
+    :class="{
+      'is-embedded': embedded,
+      'is-workspace-focus': workspaceFocus,
+      'is-context-open': contextOpen,
+    }"
     data-testid="sprite-studio"
     tabindex="-1"
     role="region"
@@ -706,6 +730,23 @@ const status = computed(() => {
       </div>
       <StudioAssistCompare v-if="proposal" v-model="compare" :stale="assist.stale.value" />
       <span class="sprite-studio__spacer"></span>
+      <UiButton
+        v-if="embedded && stagedReference"
+        size="sm"
+        @click="emit('use-staged', draft.bytes.value)"
+        >Use VIEW</UiButton
+      >
+      <UiButton
+        v-if="embedded && workspaceFocus"
+        size="sm"
+        variant="ghost"
+        :aria-pressed="contextOpen"
+        @click="contextOpen = !contextOpen"
+        >Preview</UiButton
+      >
+      <UiChip v-if="embedded" data-testid="sprite-usage" :title="usageText(usage)">{{
+        usageChip(usage)
+      }}</UiChip>
       <SpriteViewBar
         v-model:sheet="sheet"
         v-model:prev="onionPrev"
@@ -1102,6 +1143,20 @@ const status = computed(() => {
 }
 .sprite-studio.is-workspace-focus .sprite-studio__panel {
   display: none;
+}
+.sprite-studio.is-context-open.is-workspace-focus .sprite-studio__panel {
+  display: block;
+  grid-column: 1 / -1;
+  grid-row: 1 / -1;
+  position: absolute;
+  z-index: 3;
+  right: 0;
+  top: 40px;
+  bottom: 28px;
+  width: min(300px, calc(100% - 44px));
+  background: var(--surface-1);
+  border-left: 1px solid var(--hairline);
+  box-shadow: var(--shadow-pop);
 }
 .sprite-workspace-palette {
   grid-column: 2;

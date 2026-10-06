@@ -1,15 +1,19 @@
 import type { Locator, Page } from "@playwright/test";
-import type { ProjectSession } from "../src/project/projectSession.ts";
 import { test, expect } from "./test.ts";
 import {
   configureAi,
   isolateStorage,
   workspaceSaved,
+  workspaceUpdated,
   textHook,
   openGameOptions,
   waitForRoom,
   canvasColors,
+  cacheGame,
 } from "./engineProbe.ts";
+import { createContainer } from "../../src/container/container.ts";
+import { assembleLogic } from "../../src/logic/assembler.ts";
+import { testProjectId } from "../test/identity.ts";
 import { openStoredWorkspace, openWorkspaceLogic } from "./workspaceShared.ts";
 
 const sizes = [
@@ -45,7 +49,7 @@ async function originalShot(page: Page, name: string) {
   await page.keyboard.press("Escape");
 }
 async function inside(page: Page, locator: Locator) {
-  expect.soft(await locator.isVisible()).toBe(true);
+  await expect.soft(locator).toBeVisible();
   const box = await locator.boundingBox();
   const viewport = page.viewportSize()!;
   expect.soft(box).not.toBeNull();
@@ -54,7 +58,7 @@ async function inside(page: Page, locator: Locator) {
     expect.soft(box.y).toBeGreaterThanOrEqual(0);
     expect.soft(box.x + box.width).toBeLessThanOrEqual(viewport.width);
     expect.soft(box.y + box.height).toBeLessThanOrEqual(viewport.height);
-    await locator.click({ trial: true });
+    if (await locator.isEnabled()) await locator.click({ trial: true });
   }
 }
 async function header(page: Page) {
@@ -224,12 +228,12 @@ for (const size of sizes) {
           await openStoredWorkspace(other, "My adventure");
           await other.getByTestId("part-notes").click();
           await other.getByLabel("Game notes", { exact: true }).fill("From the other tab");
-          await workspaceSaved(other);
+          await workspaceUpdated(other);
         }
         await page.bringToFront();
         const note = page.getByTestId(removed ? "removed-tab-note" : "stale-tab-note");
         await expect(note).toHaveCount(1);
-        await expect(note.getByRole("button", { name: "Dismiss", exact: true })).toHaveCount(0);
+        await expect(note.getByRole("button", { name: "Close", exact: true })).toHaveCount(0);
         await page.keyboard.press("Escape");
         await expect(note).toHaveCount(1);
         if ((await page.getByTestId("workspace-focus").getAttribute("aria-pressed")) !== "true")
@@ -273,22 +277,36 @@ for (const size of sizes) {
     test(`Saving keeps the editor still and a refused save offers Download ${size.width}`, async ({
       page,
     }) => {
+      const pageErrors: string[] = [];
+      page.on("pageerror", (error) => pageErrors.push(error.message));
       await page.setViewportSize(size);
       await start(page);
       if (size.width === 390) await page.getByTestId("workspace-parts").click();
       await page.getByTestId("part-notes").click();
       const before = await page.getByLabel("Game notes", { exact: true }).boundingBox();
       await page.evaluate(() => {
-        const session = (
-          window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }
-        ).__AGI_PROJECT__.getSession();
-        session.submit = () =>
-          new Promise((_, reject) =>
-            Object.assign(window, { refuseSave: () => reject(new Error("Writes refused")) }),
-          );
+        const put = IDBObjectStore.prototype.put;
+        const surface = window as unknown as { refuseSave?: () => void; draftRefused?: boolean };
+        surface.refuseSave = () => {
+          surface.draftRefused = true;
+        };
+        IDBObjectStore.prototype.put = function (...args) {
+          if (String((args[0] as { projectId?: string }).projectId).startsWith("part-drafts/")) {
+            const pump = () => {
+              if (surface.draftRefused) {
+                this.transaction.abort();
+                return;
+              }
+              this.get("__hold_draft__").onsuccess = pump;
+            };
+            pump();
+          }
+          return put.apply(this, args);
+        };
       });
       await page.getByLabel("Game notes", { exact: true }).fill("Current buffer");
-      await expect(page.getByTestId("workspace-saved")).toContainText("Saving");
+      await expect(page.getByTestId("workspace-saved")).toBeVisible();
+      await expect(page.getByTestId("workspace-saved")).toHaveText("Draft saving…");
       await shot(page, `saving-${size.width}`);
       await expect.soft(page.getByTestId("download-unsaved-edits")).toHaveCount(0);
       expect
@@ -302,7 +320,200 @@ for (const size of sizes) {
       await page.evaluate(() => (window as unknown as { refuseSave(): void }).refuseSave());
       await expect(page.getByTestId("workspace-saved")).toContainText("Could not save");
       await expect(page.getByTestId("download-unsaved-edits")).toBeVisible();
+      await expect(page.getByTestId("workspace-saved")).toHaveText("Could not save. Retry");
+      const download = page.waitForEvent("download");
+      await page.getByTestId("download-unsaved-edits").click();
+      expect((await download).suggestedFilename()).toMatch(/\.zip$/);
       await shot(page, `refused-${size.width}`);
+      expect(pageErrors).toEqual([]);
     });
   });
 }
+
+for (const size of [sizes[0]!, sizes[2]!, sizes[3]!]) {
+  test(`entry and header boxes ${size.width}`, async ({ page }) => {
+    await page.setViewportSize(size);
+    await isolateStorage(page);
+    await page.goto("/");
+    await configureAi(page, { provider: "stub" });
+    await shot(page, `home-${size.width}`);
+    await page.getByTestId("shelf-template-custom").scrollIntoViewIfNeeded();
+    await shot(page, `home-cards-${size.width}`);
+    await page.getByTestId("create-adventure-toggle").click();
+    const choices = page.getByRole("radiogroup", { name: "Starting point" });
+    await expect(choices).toBeVisible();
+    await shot(page, `new-game-${size.width}`);
+    await expect.soft(choices.locator('[aria-checked="true"]')).toHaveCount(0);
+    await expect.soft(page.getByTestId("local-create-submit")).toBeHidden();
+    await page.getByTestId("local-create-kind-starter").click();
+    await page.getByTestId("local-create-submit").click();
+    await expect(page.getByTestId("input-line")).toBeEnabled();
+    await workspaceSaved(page);
+    await waitForRoom(page, 1);
+    await shot(page, `header-${size.width}`);
+    await header(page);
+    if (size.width === 390) {
+      const boxes = await page.locator(".play-bar button:visible").evaluateAll((nodes) =>
+        nodes.map((node) => {
+          const box = node.getBoundingClientRect();
+          return {
+            name: node.getAttribute("aria-label"),
+            y: Math.round(box.y + box.height / 2),
+            right: box.right,
+          };
+        }),
+      );
+      const rows: number[] = [];
+      for (const box of boxes) if (!rows.some((y) => Math.abs(y - box.y) <= 2)) rows.push(box.y);
+      // The approved Update game storyboard adds a steady draft-status row.
+      expect.soft(rows.length).toBeLessThanOrEqual(3);
+      expect.soft(boxes.every((box) => box.right <= 390)).toBe(true);
+      const settings = boxes.find((box) => box.name === "Settings")!;
+      expect
+        .soft(boxes.filter((box) => Math.abs(box.y - settings.y) <= 2).length)
+        .toBeGreaterThan(1);
+      await page.getByTestId("workspace-parts").click();
+    }
+    await shot(page, `parts-${size.width}`);
+    await page.getByTestId("workspace-agent").click();
+    const panel = page.getByTestId("workspace-agent-panel");
+    await expect(panel).toBeVisible();
+    for (let index = 0; index < 3; index++) {
+      await page.getByTestId("agent-message").fill("Add a welcome sign");
+      await panel.getByRole("button", { name: "Send", exact: true }).click();
+      await expect(page.getByTestId("agent-review")).toBeVisible();
+      await page.getByTestId("agent-reject").click();
+      await expect(page.getByTestId("agent-review")).toBeHidden();
+    }
+    await panel.locator(".agent-panel__feed").evaluate((node) => {
+      node.scrollTop = 0;
+      node.dispatchEvent(new Event("scroll"));
+    });
+    await shot(page, `agent-reading-${size.width}`);
+  });
+}
+
+for (const size of [sizes[0]!, sizes[2]!, sizes[3]!]) {
+  test.describe(`${size.width} Create geometry`, () => {
+    test.use({ hasTouch: size.width === 390 });
+    test(`Create tools and Map heading fit ${size.width}`, async ({ page }) => {
+      await page.setViewportSize(size);
+      await start(page);
+      await shot(page, `tools-closed-${size.width}`);
+      for (const control of await page.locator(".play-bar__actions button:visible").all())
+        await inside(page, control);
+      if (size.width === 390) await page.getByTestId("workspace-parts").click();
+      await page.getByTestId("part-room:1:logic").click();
+      await expect(page.getByTestId("workspace-logic-editor")).toBeVisible();
+      await shot(page, `tools-editor-${size.width}`);
+      for (const control of await page.locator(".play-bar__actions button:visible").all())
+        await inside(page, control);
+      await page.getByTestId("btn-world-map").click();
+      const map = page.getByTestId("world-map");
+      await expect(map).toBeVisible();
+      const title = map.getByRole("heading", { name: "Map", exact: true });
+      const status = map.getByTestId("map-paused");
+      await expect(title).toBeVisible();
+      await expect(status).toBeVisible();
+      await expect(status).toHaveText("Game paused");
+      await shot(page, `map-heading-${size.width}`);
+      const headingBox = (await title.boundingBox())!;
+      const statusBox = (await status.boundingBox())!;
+      expect
+        .soft(
+          headingBox.x + headingBox.width <= statusBox.x ||
+            statusBox.x + statusBox.width <= headingBox.x ||
+            headingBox.y + headingBox.height <= statusBox.y ||
+            statusBox.y + statusBox.height <= headingBox.y,
+        )
+        .toBe(true);
+      await inside(page, status);
+      await inside(page, map.getByTestId("map-close"));
+      await map.getByTestId("map-close").click();
+      await expect(map).toBeHidden();
+    });
+  });
+}
+
+for (const size of [sizes[0]!, sizes[2]!, sizes[3]!]) {
+  test.describe(`${size.width} imported Map geometry`, () => {
+    test.use({ hasTouch: size.width === 390 });
+    test(`Imported Map heading fits ${size.width}`, async ({ page }) => {
+      await page.setViewportSize(size);
+      await isolateStorage(page);
+      await page.goto("/");
+      const game = createContainer();
+      game.putResource(
+        "logic",
+        0,
+        assembleLogic("accept.input();return;", { dictionary: new Map() }).payload,
+      );
+      await cacheGame(page, {
+        projectId: testProjectId("map-header"),
+        title: "Map header",
+        imported: true,
+        provider: "stub",
+        model: "stub",
+        files: Object.fromEntries(game.files),
+        words: [],
+      });
+      await page.reload();
+      await page.getByTestId("btn-resume-cached").click();
+      await expect(page.getByTestId("input-line")).toBeEnabled();
+      await page.getByRole("radio", { name: "Create", exact: true }).click();
+      await page.getByTestId("btn-world-map").click();
+      const map = page.getByTestId("world-map");
+      await expect(map).toBeVisible();
+      await expect(map.getByTestId("btn-world-plan")).toBeVisible();
+      await expect(map.getByTestId("btn-world-plan")).toHaveText("Full map");
+      const title = map.getByRole("heading", { name: "Map", exact: true });
+      const status = map.getByTestId("map-paused");
+      await expect(title).toBeVisible();
+      await expect(status).toBeVisible();
+      await shot(page, `imported-map-${size.width}`);
+      const titleBox = await title.evaluate((node) => {
+        const range = document.createRange();
+        range.selectNodeContents(node);
+        const box = range.getBoundingClientRect();
+        return { x: box.x, y: box.y, width: box.width, height: box.height };
+      });
+      const statusBox = (await status.boundingBox())!;
+      expect(
+        titleBox.x + titleBox.width + 8 <= statusBox.x ||
+          titleBox.y + titleBox.height <= statusBox.y,
+      ).toBe(true);
+    });
+  });
+}
+
+test("A native refused write rejects the deferred update and rolls back its records", async ({
+  page,
+}) => {
+  const pageErrors: string[] = [];
+  page.on("pageerror", (error) => pageErrors.push(error.message));
+  await isolateStorage(page);
+  await page.goto("/");
+  const result = await page.evaluate(async () => {
+    const { updateBodyRecords, readBodyRecordSet } =
+      await import("/src/project/gameBodyStorage.ts");
+    let errorName = "";
+    try {
+      await updateBodyRecords("native-refusal/head", () => ({
+        reads: ["native-refusal/part"],
+        complete: () => ({
+          result: undefined,
+          puts: [
+            { projectId: "native-refusal/head", value: "queued first" },
+            { projectId: "native-refusal/part", value: () => {} },
+          ],
+        }),
+      }));
+    } catch (error) {
+      errorName = error instanceof DOMException ? error.name : String(error);
+    }
+    const records = await readBodyRecordSet(["native-refusal/head", "native-refusal/part"]);
+    return { errorName, records: [...records.values()] };
+  });
+  expect(result).toEqual({ errorName: "DataCloneError", records: [undefined, undefined] });
+  expect(pageErrors).toEqual([]);
+});

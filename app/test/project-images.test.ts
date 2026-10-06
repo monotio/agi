@@ -10,10 +10,12 @@ import {
 import { readProjectHistory } from "../../src/authoring/projectHistoryCodec.ts";
 import {
   traceImageChanges,
+  traceOptionsChanges,
   makeCelsChanges,
   suggestImageFrames,
   imageTraceUnderlay,
 } from "../../src/creative/imageOperations.ts";
+import { readProjectImage, readImageReferences } from "../../src/creative/imageAttachments.ts";
 import { sha256Hex } from "../../src/crypto.ts";
 import { createContainer, openContainer } from "../../src/container/container.ts";
 import { PROFILES } from "../../src/runtime/profile.ts";
@@ -177,4 +179,42 @@ test("attachments autosave in History, undo/redo and private archives; public ex
     session.model.capture().read("view:0")!.content,
   );
   session.dispose();
+});
+
+test("new image rasters are PNG attachments and raw rasters remain readable", () => {
+  const changes = traceImageChanges({}, "picture:1", image);
+  const documents = Object.fromEntries(changes.map((c) => [c.key, c.content!]));
+  const record = readImageReferences(documents).images[sha256Hex(image.encoded)]!;
+  assert.deepEqual(
+    [...(documents[`attachment:${record.raster}`] as Uint8Array).slice(0, 8)],
+    [137, 80, 78, 71, 13, 10, 26, 10],
+  );
+  assert.deepEqual(readProjectImage(documents, record.encoded).rgba, image.rgba);
+  const raw = sha256Hex(image.rgba);
+  const legacy = { ...record, raster: raw };
+  delete (legacy as { rasterEncoding?: string }).rasterEncoding;
+  const oldDocuments = {
+    ...documents,
+    [`attachment:${raw}`]: image.rgba,
+    images: JSON.stringify({
+      format: "agi.image-references",
+      version: 1,
+      images: { [record.encoded]: legacy },
+      traces: {},
+    }),
+  };
+  assert.deepEqual(readProjectImage(oldDocuments, record.encoded).rgba, image.rgba);
+});
+
+test("trace display changes reuse the image bytes and retain unrelated references", () => {
+  const documents = Object.fromEntries(
+    traceImageChanges({}, "picture:1", image).map((c) => [c.key, c.content!]),
+  );
+  const changes = traceOptionsChanges(documents, "picture:1", 0.8, true);
+  assert.equal(changes.length, 1);
+  assert.equal(changes[0]!.key, "images");
+  const next = { ...documents, images: changes[0]!.content! };
+  assert.equal(readImageReferences(next).traces["picture:1"]!.opacity, 0.8);
+  assert.equal(readImageReferences(next).traces["picture:1"]!.behindArt, true);
+  assert.deepEqual(readProjectImage(next, sha256Hex(image.encoded)).rgba, image.rgba);
 });

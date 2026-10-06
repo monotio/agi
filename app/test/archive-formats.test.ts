@@ -7,6 +7,7 @@ import {
   readProjectContext,
   buildPublicGameZip,
 } from "../src/archive/projectArchive.ts";
+import { historyBootSemantic, historyFingerprint } from "../../src/agent/history.ts";
 import { progressEntries } from "../src/saves/gameProgress.ts";
 import { mapArchiveData } from "../src/world/roomMapStore.ts";
 import { historyArchiveData } from "../src/archive/historyArchive.ts";
@@ -132,6 +133,17 @@ test("a 1.0 Project download restores its session, map, progress and tests", asy
   assert.equal(project.history?.recording.profile, "2.936");
   assert.ok(project.history && project.history.recording.segments.length >= 1);
   assert.ok(project.map, "the world map is readable");
+
+  for (const segment of project.history!.recording.segments) {
+    assert.deepEqual(
+      historyFingerprint(historyBootSemantic(segment.boot)),
+      segment.boot.fingerprint,
+    );
+    assert.deepEqual(
+      historyFingerprint(historyBootSemantic({ ...segment.boot, amigaRegion: "ntsc" })),
+      segment.boot.fingerprint,
+    );
+  }
 
   // Re-exporting what was read writes the same sidecar bytes.
   assert.equal(mapArchiveData(project.map!), member(zip, "MAP.JSON"));

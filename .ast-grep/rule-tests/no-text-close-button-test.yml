@@ -1,0 +1,17 @@
+id: no-text-close-button
+valid:
+  - '<button aria-label="Close">×</button>'
+  - '<UiIconButton icon="x" label="Close" />'
+  - "<UiButton>Done</UiButton>"
+  - "<button>Cancel</button>"
+  - "<p>Close</p>"
+  - "<button>Close project</button>"
+invalid:
+  - '<UiButton :disabled="count > 0">Close</UiButton>'
+  - "<button>Close</button>"
+  - '<UiButton size="sm" @click="dismiss">Close</UiButton>'
+  - |
+    <UiButton size="sm">
+      Close
+    </UiButton
+    >

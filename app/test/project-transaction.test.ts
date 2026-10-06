@@ -1,3 +1,4 @@
+import { drainProjectNotices } from "./projectNotices.ts";
 /**
  * Two tabs on one project, each with a warm session. Tab A keeps an edit
  * that leaves the bytes alone — a label, a lock, a binding — so the
@@ -303,7 +304,7 @@ test("a tab that hears another tab's authoring edit is stale for authoring at on
 
   await EDITS.label.keep(a, revision);
   await a.controller.persistSessionState();
-  await new Promise((resolve) => setTimeout(resolve, 50));
+  await drainProjectNotices(channel);
   assert.equal(told, 1, "B heard it once");
   assert.equal(
     b.game.behindStorage,

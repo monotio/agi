@@ -1,3 +1,4 @@
+import { scheduler as testScheduler } from "node:timers/promises";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
@@ -85,7 +86,7 @@ function frozenBoot(id: number): BootMessage {
  * test keeps driving polls explicitly (and the process can exit).
  */
 async function flush(ctx: WorkerContext): Promise<void> {
-  await new Promise((resolve) => setTimeout(resolve, 0));
+  await testScheduler.yield();
   ctx.fns.stopTimers();
 }
 

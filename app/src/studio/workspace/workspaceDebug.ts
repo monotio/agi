@@ -48,6 +48,7 @@ export function createWorkspaceDebug(input: {
   const state = reactive({
     epoch: 0,
     busy: false,
+    stepping: false,
     error: "",
     breakpoints: [] as DebugBreakpointSpec[],
     statuses: [] as DebugBreakpointStatus[],
@@ -152,7 +153,14 @@ export function createWorkspaceDebug(input: {
   async function resume(action: DebugResumeAction): Promise<void> {
     const stop = input.link.stopped.value;
     if (!stop) return;
-    await input.link.query("debugResume", { epoch: state.epoch, stopId: stop.stopId, action });
+    const wasStepping = state.stepping;
+    state.stepping = action !== "continue";
+    try {
+      await input.link.query("debugResume", { epoch: state.epoch, stopId: stop.stopId, action });
+    } catch (error) {
+      state.stepping = wasStepping;
+      throw error;
+    }
   }
   async function stop(): Promise<void> {
     if (state.epoch) await input.link.query("debugDetach", { epoch: state.epoch });
@@ -203,15 +211,18 @@ export function createWorkspaceDebug(input: {
   const unsubscribe = input.link.subscribe((event) => {
     if (event.type === "debugDetached") {
       state.epoch = 0;
+      state.stepping = false;
       return;
     }
     if (event.type === "debugSessionReset") {
+      state.stepping = false;
       state.epoch = event.epoch;
       state.statuses = [...event.breakpoints];
       pendingBuildId = event.buildId;
       pendingSources = event.sources;
     }
     if (event.type === "debugStopped") {
+      state.stepping = false;
       input.stopped();
       const at = position.value;
       if (at) input.reveal(at);

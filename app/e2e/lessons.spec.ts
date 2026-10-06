@@ -82,6 +82,7 @@ async function nudge(page: Page, studio: Locator, row: string, steps: number): P
 test("the Help guide lists the three lessons and opens the mural PICTURE", async ({ page }) => {
   await playTutorial(page);
   const guide = await openLessons(page);
+  await expect(guide.getByTestId("help-section-lessons")).toBeVisible();
   await expect(guide.getByTestId("help-section-lessons")).toHaveText("Adventure Department");
   await expect(guide.locator('[data-testid^="help-lesson-ad-"]')).toHaveCount(3);
   for (const [id, title] of [
@@ -90,7 +91,9 @@ test("the Help guide lists the three lessons and opens the mural PICTURE", async
     [DEPTH, "Depth"],
   ] as const) {
     const lesson = guide.getByTestId(`help-lesson-${id}`);
+    await expect(lesson.getByRole("heading")).toBeVisible();
     await expect(lesson.getByRole("heading")).toContainText(title);
+    await expect(lesson.getByTestId("help-lesson-badge")).toBeVisible();
     await expect(lesson.getByTestId("help-lesson-badge")).toHaveText("Not yet done");
   }
   await shot(page, "lessons-help");
@@ -101,12 +104,20 @@ test("the Help guide lists the three lessons and opens the mural PICTURE", async
   await expect(studio).toBeVisible();
   await expect(page).toHaveURL(/#create\//);
   expect(await studioBytes(page)).toEqual(PIC_4);
+  await expect(studio.getByTestId("lesson-card")).toBeVisible();
   // The sun three pixels east: one object, and nothing outside it.
   await nudge(page, studio, "sun", 3);
   await workspaceSaved(page);
   expect(await studioBytes(page)).not.toEqual(PIC_4);
+  await expect(studio.getByTestId("lesson-card-verdict")).toBeVisible();
+  await expect(studio.getByTestId("lesson-card-verdict")).toContainText("Challenge complete");
   await closeWorkspaceEditor(page);
   await expect(studio).toBeHidden();
+  const completed = (await openLessons(page))
+    .getByTestId(`help-lesson-${MURAL}`)
+    .getByTestId("help-lesson-badge");
+  await expect(completed).toBeVisible();
+  await expect(completed).toHaveText("Done");
 });
 
 test("the VIEW lesson opens its resource and repainting a mirror preserves its source loop", async ({
@@ -118,6 +129,7 @@ test("the VIEW lesson opens its resource and repainting a mirror preserves its s
   await expect(studio).toBeVisible();
   expect(await spriteBytes(page)).toEqual(VIEW_2);
   await expect(page.getByTestId("project-tab-view:2")).toHaveAttribute("aria-selected", "true");
+  await expect(studio.getByTestId("sprite-loop-1-mirror")).toBeVisible();
   await expect(studio.getByTestId("sprite-loop-1-mirror")).toHaveText(/mirrors 0/);
   await studio.locator('[data-loop="1"][data-cel="0"]').click();
   // One pencil pixel at the keyboard cursor (the cel's centre) of that cel.
@@ -134,6 +146,8 @@ test("the VIEW lesson opens its resource and repainting a mirror preserves its s
   await page.keyboard.press("Space");
   await workspaceSaved(page);
   const edited = openSprite(await spriteBytes(page), DEFAULT_V2_PROFILE);
+  await expect(studio.getByTestId("lesson-card-verdict")).toBeVisible();
+  await expect(studio.getByTestId("lesson-card-verdict")).toContainText("Challenge complete");
   expect(edited.loops[1]!.alias).toBeNull();
   expect(edited.loops[0]!.cels.map((c) => [...c.pixels])).toEqual(
     original.loops[0]!.cels.map((c) => [...c.pixels]),
@@ -166,6 +180,7 @@ test("the Depth lesson opens the archive and a mid-order edit preserves the barr
   });
   await page.mouse.up();
   const verdict = studio.locator('[data-role="ghost-verdict"]');
+  await expect(verdict).toBeVisible();
   await expect(verdict).toContainText("Behind Counter depth");
   await expect(studio.getByTestId("ghost-probe")).toHaveAttribute("data-verdict", "behind");
   await shot(page, "lessons-archive-ghost-behind");
@@ -220,4 +235,12 @@ test("a game derived from the 1.0.0 tutorial shows no lesson section", async ({ 
   // A set would load within frames; give it the time, then check none did.
   await observe(page, 20);
   await expect(guide.getByTestId("help-section-lessons")).toHaveCount(0);
+});
+
+test("Help opens a visible lesson card on a phone", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await playTutorial(page);
+  await openLesson(page, MURAL);
+  await expect(page.getByTestId("room-studio")).toBeVisible();
+  await expect(page.getByTestId("lesson-card")).toBeVisible();
 });

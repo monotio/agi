@@ -135,7 +135,7 @@ defineExpose({ show, close });
         required
         data-testid="task-budget"
       />
-      <p class="budget-note">Maximum estimated spend for each creation or remix.</p>
+      <p class="budget-note">One budget covers agent requests and image generation.</p>
       <p v-if="error" class="dialog-error" role="alert">{{ error }}</p>
       <footer>
         <UiButton data-testid="ai-settings-cancel" :disabled="saving" @click="close">

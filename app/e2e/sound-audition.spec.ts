@@ -1,4 +1,5 @@
-import { expect, test } from "@playwright/test";
+import type * as BrowserSignals from "./browserSignals.ts";
+import { expect, test } from "./test.ts";
 
 // Real-browser audition evidence: the service drives its own SoundPlayback
 // into a private AgiAudio/AudioContext and must leave the gameplay instance —
@@ -22,11 +23,10 @@ test("audition plays a native cue on its own context and preserves the game's ho
   const result = await page.evaluate(async () => {
     const { AgiAudio } = await import("/src/audio/AgiAudio.ts");
     const { SoundAudition } = await import("/src/audio/soundAudition.ts");
-    const elapse = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
-    const until = async (predicate: () => boolean, tries = 200) => {
-      for (let i = 0; i < tries && !predicate(); i++) await elapse(20);
-      return predicate();
-    };
+    const signalsPath = "/e2e/browserSignals.ts";
+    const { audioState, waitForSignal }: typeof BrowserSignals = await import(
+      /* @vite-ignore */ signalsPath
+    );
     const unhandled: string[] = [];
     const onRejection = (event: PromiseRejectionEvent) => unhandled.push(String(event.reason));
     window.addEventListener("unhandledrejection", onRejection);
@@ -69,7 +69,7 @@ test("audition plays a native cue on its own context and preserves the game's ho
     const gameAudio = new AgiAudio({ contextFactory: () => gameContext });
     gameAudio.output({ kind: "speaker", divisor: 2712 });
     gameAudio.setPauseOwner("worker", true);
-    await until(() => gameContext.state === "suspended");
+    await audioState(gameContext, "suspended", 4000);
     const gameFrozenAt = gameContext.currentTime;
 
     // The private preview instance and its own context.
@@ -87,6 +87,16 @@ test("audition plays a native cue on its own context and preserves the game's ho
         };
       },
     });
+
+    const until = (predicate: () => boolean, tries = 200) =>
+      waitForSignal(
+        predicate,
+        (check) => {
+          const unsubscribe = audition.subscribe(() => queueMicrotask(check));
+          return unsubscribe;
+        },
+        tries * 20,
+      );
 
     // Measure wall-time event cadence: each notify while playing carries the
     // executed tick count, and each output stamps the context clock.
@@ -141,7 +151,7 @@ test("audition plays a native cue on its own context and preserves the game's ho
       gameState: { state: gameContext.state, drift: gameContext.currentTime - gameFrozenAt },
     };
     gameAudio.setPauseOwner("worker", false);
-    await until(() => gameContext.state === "running");
+    await audioState(gameContext, "running", 4000);
     await gameAudio.close();
     window.removeEventListener("unhandledrejection", onRejection);
     return {
@@ -215,11 +225,10 @@ test("audition pause suspends its context, seek stays silent, close during settl
   const result = await page.evaluate(async () => {
     const { AgiAudio } = await import("/src/audio/AgiAudio.ts");
     const { SoundAudition } = await import("/src/audio/soundAudition.ts");
-    const elapse = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
-    const until = async (predicate: () => boolean, tries = 200) => {
-      for (let i = 0; i < tries && !predicate(); i++) await elapse(20);
-      return predicate();
-    };
+    const signalsPath = "/e2e/browserSignals.ts";
+    const { audioState, audioWitness, waitForSignal }: typeof BrowserSignals = await import(
+      /* @vite-ignore */ signalsPath
+    );
     const unhandled: string[] = [];
     const onRejection = (event: PromiseRejectionEvent) => unhandled.push(String(event.reason));
     window.addEventListener("unhandledrejection", onRejection);
@@ -256,18 +265,26 @@ test("audition pause suspends its context, seek stays silent, close during settl
       profileId: "2.936",
       device: 1,
     });
+    const until = (predicate: () => boolean) =>
+      waitForSignal(
+        predicate,
+        (check) => {
+          return audition.subscribe(() => queueMicrotask(check));
+        },
+        4000,
+      );
     await audition.play();
     await until(() => audition.snapshot().positionTicks >= 20);
 
     // Pause suspends the private context outright — a gain mute could not
     // freeze scheduled work the way the suspended clock does.
     audition.pause();
-    const suspended = await until(() => context.state === "suspended");
+    const suspended = await audioState(context, "suspended", 4000);
     const frozenAt = context.currentTime;
-    await elapse(200);
+    await audioWitness(0.2);
     const pausedState = { state: context.state, drift: context.currentTime - frozenAt };
     await audition.resume();
-    const resumed = await until(() => context.state === "running");
+    const resumed = await audioState(context, "running", 4000);
     const positionAtResume = audition.snapshot().positionTicks;
 
     // Seek is silent reconstruction, then live playback continues.

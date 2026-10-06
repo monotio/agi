@@ -68,8 +68,8 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         id: "saving",
         title: "Saving and rewinding",
         body: [
-          "The game's own Save and Restore work as they always did: most Sierra games save with F5 and restore with F7. The app also autosaves, so Resume picks up where you stopped.",
-          "Every session records itself. Drag the timeline under the game to look back, then Resume from here to play on from that moment. Undo rewind takes you back if you went too far.",
+          "Most Sierra games save with F5 and restore with F7. In Create, click the game to use its keys. Click the editor to use F5 for debugging, or choose Run. The app also autosaves, so Resume picks up where you stopped.",
+          "Every session records itself. Open History under the game to look back, then Resume from here to play on from that moment. Undo rewind takes you back if you went too far.",
           "Start over keeps your earlier sessions: Undo start over, offered just after, returns to where you left off, and after that the timeline's mark where you started over is the way back.",
         ],
       },
@@ -100,6 +100,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         body: [
           VOCABULARY.playCreate.help,
           "Choose a part from the list to edit it beside the running game. Focus gives the editor the whole screen. The agent, debugger and History open beside your work.",
+          "Your drafts save automatically. Update game puts the changed parts in the game together. You can also press ⌘Enter or Ctrl+Enter.",
         ],
         action: { kind: "remix", label: "Switch to Create" },
       },
@@ -110,7 +111,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
           "Starter includes a hero, original art, menus and saving. Boilerplate includes start-up LOGIC, menus and death handling. Blank starts an empty project.",
           "Create with AI starts from a template or your own premise. Choose a model in Settings; the agent records a plan and builds the opening room.",
         ],
-        action: { kind: "create", label: "Go to Create" },
+        action: { kind: "create", label: "Make a new game" },
       },
       {
         id: "rooms",
@@ -293,9 +294,9 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
       },
       {
         id: "keys",
-        title: "Keys and cost",
+        title: "Keys and budget",
         body: [
-          "Your key is saved in this browser and sent to your provider, and only to your provider, with each request. Requests are billed to your provider account. Every task starts with a $5 estimated budget that you can change.",
+          "Your key is saved in this browser and sent to your provider, and only to your provider, with each request. Requests are billed to your provider account. Agent tasks and pictures share the budget you set.",
           "What the agent writes comes from your provider's model. Play through the game to review it before sharing, especially with children.",
         ],
         action: { kind: "ai-settings", label: "AI settings" },

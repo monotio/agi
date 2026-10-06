@@ -1,4 +1,5 @@
 import { installWebLocksFixture } from "./webLocksFixture.ts";
+import { installIndexedDbFixture } from "./indexedDbFixture.ts";
 import type { PreviewUpdateOutcome } from "../src/worker/workerProtocol.ts";
 import type { CachedGameData } from "../src/project/gameTypes.ts";
 import assert from "node:assert/strict";
@@ -11,6 +12,79 @@ import { writeProjectWorkspace } from "../../src/authoring/projectWorkspace.ts";
 import { requireProjectId } from "../../src/gameIdentity.ts";
 
 installWebLocksFixture();
+installIndexedDbFixture();
+
+test("an Undo removal respects unselected drafts before offering a computed jump review", async () => {
+  const documents = {
+    "logic:0": "return;",
+    "logic:99": 'get.num("Room",v20);new.room.v(v20);return;',
+  };
+  const compiled = compileProjectDocuments({
+    files: Object.fromEntries(createContainer().files),
+    documents,
+    profileId: "2.936",
+  });
+  const session = openProjectSession({
+    data: {
+      projectId: requireProjectId("room-undo-review"),
+      title: "Room review",
+      authoredAt: "",
+      files: Object.fromEntries(compiled.files()),
+      words: [],
+      workspace: writeProjectWorkspace(documents),
+    },
+    lifetime: "initial",
+    admission: {
+      runToken: "review-run",
+      admit: async () => ({
+        status: "committed",
+        expected: null,
+        current: null,
+        patchGeneration: 1,
+      }),
+    },
+  });
+  try {
+    await session.submit({
+      proposal: session.model.propose(session.model.capture(), "Room", [
+        { key: "logic:254", content: "return;" },
+      ]),
+      origin: "logic",
+      label: "Room",
+      author: "creator",
+    });
+    const before = session.model.capture();
+    const cursor = session.history.capture().cursor;
+    const drafts = session.drafts();
+    await drafts.ready;
+    drafts.stage([{ key: "logic:99", content: "new.room(254);return;" }]);
+    const refused = await session.undo();
+    assert.equal(refused?.status, "diagnostics");
+    assert.equal(session.model.capture().documentId, before.documentId);
+    assert.equal(session.history.capture().cursor, cursor);
+    await drafts.clear();
+    const warning = await session.undo();
+    assert.equal(warning?.status, "reviewRequired");
+    if (warning?.status !== "reviewRequired") throw new Error("Expected review");
+    assert.equal(session.model.capture().documentId, before.documentId);
+    assert.match(warning.review.messages[0]!, /Room 254.*LOGIC 99.*debug teleport/);
+    assert.equal((await session.undo(warning.review))?.status, "committed");
+    assert.equal(session.model.capture().read("logic:254"), undefined);
+    await session.redo();
+    assert.ok(session.model.capture().read("logic:254"));
+    await session.submit({
+      proposal: session.model.propose(session.model.capture(), "Changed entry", [
+        { key: "logic:0", content: "// A later change\nreturn;" },
+      ]),
+      origin: "logic",
+      label: "Changed entry",
+      author: "creator",
+    });
+    await assert.rejects(session.undo(warning.review), /This Undo changed/);
+  } finally {
+    session.dispose();
+  }
+});
 
 test("session admits before saving, keeps invalid source and restores History on reopen", async () => {
   const documents = { "logic:0": "return;" };
@@ -480,80 +554,84 @@ test("invalid typing retains the latest waiting runnable image and saves exact d
   }
 });
 
-test("catalog edits save to a remix and later writes keep that owner", async () => {
-  const documents = { "logic:0": "return;" };
-  const compiled = compileProjectDocuments({
-    files: Object.fromEntries(createContainer().files),
-    documents,
-    profileId: "2.936",
-  });
-  const original = requireProjectId("catalog-proof");
-  const requests: { projectId: string; expected: unknown }[] = [];
-  const session = openProjectSession({
-    data: {
-      projectId: original,
-      title: "Catalog",
-      authoredAt: "",
-      files: Object.fromEntries(compiled.files()),
-      words: [],
-      workspace: writeProjectWorkspace(documents),
-      library: {
-        version: 1,
-        source: "catalog",
-        revision: compiled.build.identity.revision,
-        catalog: { id: "proof", version: "1" },
-        validation: { status: "ready", message: "Ready" },
-      },
-    },
-    lifetime: "original",
-    admission: {
-      runToken: "catalog-run",
-      admit: async () => ({
-        status: "committed",
-        expected: null,
-        current: null,
-        patchGeneration: 1,
-      }),
-    },
-    write: async (request) => {
-      requests.push({ projectId: request.projectId, expected: request.expected });
-      assert.notEqual(request.projectId, original);
-      assert.equal(request.data.library?.source, "remix");
-      assert.equal(request.data.library?.parent?.project, original);
-      assert.equal(request.data.library?.catalog, undefined);
-      return {
-        commitId: request.commitId,
-        workspaceId: request.workspaceId,
-        candidateHash: "a",
-        documents: request.documents,
-        saved: {
-          projectId: request.projectId,
-          lifetime: "remix-owner",
-          generation: requests.length,
-          revision: compiled.build.identity.revision,
-          authoring: authoringFingerprint(undefined, request.data.workspace),
-          buildId: request.buildId,
-        },
-      };
-    },
-  });
-  for (const comment of ["first", "second"]) {
-    await session.submit({
-      proposal: session.model.propose(session.model.capture(), "Edit", [
-        { key: "logic:0", content: `// ${comment}\nreturn;` },
-      ]),
-      origin: "logic",
-      label: "Edit",
-      author: "creator",
+for (const source of ["catalog", "folder"] as const)
+  test(`${source} edits save to a remix and later writes keep that owner`, async () => {
+    const documents = { "logic:0": "return;" };
+    const compiled = compileProjectDocuments({
+      files: Object.fromEntries(createContainer().files),
+      documents,
+      profileId: "2.936",
     });
-    await session.flush();
-    assert.equal(session.saveStatus().state, "saved");
-  }
-  assert.equal(requests[0]!.expected, null);
-  assert.equal(requests[1]!.projectId, requests[0]!.projectId);
-  assert.equal(session.lifetime, "remix-owner");
-  session.dispose();
-});
+    const original = requireProjectId(`${source}-proof`);
+    const requests: { projectId: string; expected: unknown }[] = [];
+    const session = openProjectSession({
+      data: {
+        projectId: original,
+        title: "Catalog",
+        authoredAt: "",
+        files: Object.fromEntries(compiled.files()),
+        words: [],
+        workspace: writeProjectWorkspace(documents),
+        library: {
+          version: 1,
+          source,
+          revision: compiled.build.identity.revision,
+          ...(source === "catalog" ? { catalog: { id: "proof", version: "1" } } : {}),
+          validation: { status: "ready", message: "Ready" },
+        },
+      },
+      ...(source === "folder"
+        ? { forkParent: { project: original, revision: compiled.build.identity.revision } }
+        : {}),
+      lifetime: "original",
+      admission: {
+        runToken: "catalog-run",
+        admit: async () => ({
+          status: "committed",
+          expected: null,
+          current: null,
+          patchGeneration: 1,
+        }),
+      },
+      write: async (request) => {
+        requests.push({ projectId: request.projectId, expected: request.expected });
+        assert.notEqual(request.projectId, original);
+        assert.equal(request.data.library?.source, "remix");
+        assert.equal(request.data.library?.parent?.project, original);
+        assert.equal(request.data.library?.catalog, undefined);
+        return {
+          commitId: request.commitId,
+          workspaceId: request.workspaceId,
+          candidateHash: "a",
+          documents: request.documents,
+          saved: {
+            projectId: request.projectId,
+            lifetime: "remix-owner",
+            generation: requests.length,
+            revision: compiled.build.identity.revision,
+            authoring: authoringFingerprint(undefined, request.data.workspace),
+            buildId: request.buildId,
+          },
+        };
+      },
+    });
+    for (const comment of ["first", "second"]) {
+      await session.submit({
+        proposal: session.model.propose(session.model.capture(), "Edit", [
+          { key: "logic:0", content: `// ${comment}\nreturn;` },
+        ]),
+        origin: "logic",
+        label: "Edit",
+        author: "creator",
+      });
+      await session.flush();
+      assert.equal(session.saveStatus().state, "saved");
+    }
+    assert.equal(requests[0]!.expected, null);
+    assert.equal(requests[1]!.projectId, requests[0]!.projectId);
+    assert.equal(session.lifetime, "remix-owner");
+    session.dispose();
+  });
 
 test("a catalog save can create its remix while the next edit awaits admission", async () => {
   const documents = { "logic:0": "return;" };

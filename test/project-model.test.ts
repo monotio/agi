@@ -63,3 +63,23 @@ test("no-op application keeps document identity and versions; buffers stay detac
     /duplicate/i,
   );
 });
+
+test("captures reuse document hashes until that document's revision changes", () => {
+  let hashes = 0;
+  const model = new ProjectModel({
+    documents: { "logic:1": "return;", "view:1": Uint8Array.of(4) },
+    digest(bytes) {
+      hashes++;
+      return sha256Hex(bytes);
+    },
+  });
+  const first = model.capture();
+  const initial = hashes;
+  for (let i = 0; i < 10; i++) assert.equal(model.capture().documentId, first.documentId);
+  assert.equal(hashes, initial);
+  const proposal = model.propose(first, "Change", [{ key: "logic:1", content: "print(1);" }]);
+  model.apply(model.issueApplication(proposal));
+  const changed = hashes;
+  model.capture();
+  assert.equal(hashes, changed);
+});

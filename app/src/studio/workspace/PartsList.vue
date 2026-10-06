@@ -1,20 +1,116 @@
 <script setup lang="ts">
-import { computed, ref, useTemplateRef } from "vue";
+import UiIcon from "../../ui/UiIcon.vue";
+import {
+  computed,
+  ref,
+  shallowRef,
+  useTemplateRef,
+  watch,
+  onWatcherCleanup,
+  nextTick,
+  onMounted,
+} from "vue";
+import { useEngineApi } from "../../engine/engineContext.ts";
+import { useWorkspaceEditor } from "../../shell/workspaceEditor.ts";
+import BindingDetails from "../../shell/BindingDetails.vue";
+import { workspaceBindingInfos } from "../../shell/workspaceNames.ts";
+import type { BindingInfo } from "../../../../src/logic/projectNames.ts";
 import type { AgiProfile } from "../../../../src/runtime/profile.ts";
 import ViewThumbnail from "./ViewThumbnail.vue";
 import UiExplain from "../../ui/UiExplain.vue";
 import type { WorkspacePartGroup } from "../host/workspaceParts.ts";
+import { readBindingsDocument } from "../../../../src/authoring/projectDocuments.ts";
 const props = defineProps<{
+  active?: boolean;
   readOnly?: boolean;
   groups: readonly WorkspacePartGroup[];
   selected: string | undefined;
+  pending?: readonly string[];
+  bindings?: string | undefined;
   thumbnails: Readonly<Record<string, string>>;
   views?: Readonly<Record<string, Uint8Array>>;
   profile?: AgiProfile;
   addGroups?: readonly string[];
 }>();
-const emit = defineEmits<{ open: [key: string]; pin: [key: string]; add: [group: string] }>();
+const emit = defineEmits<{
+  open: [key: string, room?: number];
+  pin: [key: string, room?: number];
+  add: [group: string];
+}>();
+const engine = useEngineApi();
+const workspace = useWorkspaceEditor();
+const acceptedNames = shallowRef<BindingInfo[]>([]);
+const names = computed(() => {
+  if (props.bindings === undefined) return acceptedNames.value;
+  try {
+    return Object.entries(readBindingsDocument(props.bindings))
+      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+      .map(([name, binding]) => ({
+        name,
+        ...binding,
+        uses:
+          acceptedNames.value.find((info) => info.kind === binding.kind && info.num === binding.num)
+            ?.uses ?? [],
+      }));
+  } catch {
+    return acceptedNames.value;
+  }
+});
+const details = ref<BindingInfo>();
+const editingName = ref(false);
+const selectedName = computed(
+  () =>
+    details.value &&
+    (names.value.find((info) => info.name === details.value!.name) ?? details.value),
+);
+const stateNames = computed(() =>
+  names.value.filter((info) => ["flag", "variable"].includes(info.kind)),
+);
+watch(
+  () => [engine.state.phase, engine.state.patchTick],
+  () => {
+    const session = engine.getProjectSession();
+    function refresh(): void {
+      try {
+        acceptedNames.value = session
+          ? workspaceBindingInfos(session.model.capture(), props.profile?.id ?? "2.936")
+          : [];
+      } catch {
+        acceptedNames.value = [];
+      }
+    }
+    refresh();
+    const off = session?.subscribe(refresh);
+    onWatcherCleanup(() => off?.());
+  },
+  { immediate: true },
+);
+function resourceName(key: string): BindingInfo | undefined {
+  return names.value.find((info) => `${info.kind}:${info.num}` === key);
+}
+function closePartMenu(event: MouseEvent): void {
+  const button = event.currentTarget as HTMLButtonElement;
+  button.closest("details")?.removeAttribute("open");
+}
+function renamePart(key: string): void {
+  details.value = resourceName(key);
+  editingName.value = true;
+}
 const root = useTemplateRef("root");
+function rememberScroll(): void {
+  if (props.active !== false) workspace.partsScroll.value = root.value?.scrollTop ?? 0;
+}
+async function restoreScroll(): Promise<void> {
+  await nextTick();
+  if (root.value) root.value.scrollTop = workspace.partsScroll.value;
+}
+onMounted(restoreScroll);
+watch(
+  () => props.active,
+  (active) => {
+    if (active !== false) void restoreScroll();
+  },
+);
 const focused = ref("");
 const rows = computed(() => props.groups.flatMap((group) => group.entries));
 const roving = computed(
@@ -62,6 +158,7 @@ function onKey(event: KeyboardEvent): void {
     aria-label="Parts list"
     data-testid="parts-list"
     @keydown="onKey"
+    @scroll="rememberScroll"
   >
     <section v-for="group in groups" :key="group.label">
       <header>
@@ -97,33 +194,181 @@ function onKey(event: KeyboardEvent): void {
           +
         </button>
       </header>
-      <button
-        v-for="row in group.entries"
-        :key="row.id"
-        type="button"
-        class="part"
-        :class="{ 'part--child': row.child, 'part--selected': row.key === selected }"
-        :tabindex="roving === row.id ? 0 : -1"
-        :aria-current="row.key === selected ? 'true' : undefined"
-        :data-part-row="row.id"
-        :data-testid="`part-${row.id}`"
-        @focus="focused = row.id"
-        @click="emit('open', row.key)"
-        @dblclick="emit('pin', row.key)"
-      >
-        <img v-if="thumbnails[row.id]" :src="thumbnails[row.id]" alt="" />
-        <ViewThumbnail
-          v-if="views?.[row.key] && profile"
-          :bytes="views[row.key]!"
-          :profile="profile"
-        />
-        <span>{{ row.label }}</span
-        ><i v-if="row.live" class="live-dot" aria-label="Hero here"></i>
-      </button>
+      <div v-for="row in group.entries" :key="row.id" class="part-row">
+        <button
+          type="button"
+          class="part"
+          :class="{ 'part--child': row.child, 'part--selected': row.key === selected }"
+          :tabindex="roving === row.id ? 0 : -1"
+          :aria-current="row.key === selected ? 'true' : undefined"
+          :data-part-row="row.id"
+          :data-testid="`part-${row.id}`"
+          @focus="focused = row.id"
+          @click="emit('open', row.key, row.room)"
+          @dblclick="emit('pin', row.key, row.room)"
+        >
+          <img v-if="thumbnails[row.id]" :src="thumbnails[row.id]" alt="" />
+          <ViewThumbnail
+            v-if="views?.[row.key] && profile"
+            :bytes="views[row.key]!"
+            :profile="profile"
+          />
+          <span>{{
+            row.child && resourceName(row.key)
+              ? `${resourceName(row.key)!.name.replaceAll("_", " ")} · ${row.key.replace(":", " ").toUpperCase()}`
+              : row.label
+          }}</span
+          ><i v-if="pending?.includes(row.key)" class="draft-dot" aria-label="Pending change"></i
+          ><i v-if="row.live" class="live-dot" aria-label="Hero here"></i>
+        </button>
+        <details v-if="resourceName(row.key)" class="part-menu">
+          <summary :aria-label="`Actions for ${resourceName(row.key)!.name}`">
+            <UiIcon name="ellipsis" :size="16" />
+          </summary>
+          <button
+            class="part-rename"
+            :title="
+              readOnly
+                ? 'Editing is paused. Download your unsaved edits, then reload.'
+                : 'Rename this part'
+            "
+            :disabled="readOnly"
+            :aria-label="`Rename ${resourceName(row.key)!.name}`"
+            @click="
+              closePartMenu($event);
+              renamePart(row.key);
+            "
+          >
+            Rename
+          </button>
+        </details>
+      </div>
+      <section v-if="group.label === 'SHARED LOGIC' && stateNames.length" class="game-state">
+        <h2>Game state</h2>
+        <div v-for="info in stateNames" :key="info.name" class="state-row">
+          <button
+            class="part"
+            @click="
+              details = info;
+              editingName = false;
+            "
+          >
+            {{ info.name
+            }}<small>{{ info.kind === "flag" ? "Flag" : "Variable" }} {{ info.num }}</small>
+          </button>
+          <small v-for="role in ['Set', 'Checked'] as const" :key="role"
+            >{{ role }}:
+            {{
+              [
+                ...new Set(
+                  info.uses
+                    .filter((use) => use.role === role)
+                    .map((use) => use.key.replace(":", " ").toUpperCase()),
+                ),
+              ].join(", ") || "nowhere yet"
+            }}</small
+          >
+          <details class="part-menu">
+            <summary :aria-label="`Actions for ${info.name}`">
+              <UiIcon name="ellipsis" :size="16" />
+            </summary>
+            <button
+              class="part-rename"
+              :title="
+                readOnly
+                  ? 'Editing is paused. Download your unsaved edits, then reload.'
+                  : 'Rename this name'
+              "
+              :disabled="readOnly"
+              :aria-label="`Rename ${info.name}`"
+              @click="
+                closePartMenu($event);
+                details = info;
+                editingName = true;
+              "
+            >
+              Rename
+            </button>
+          </details>
+        </div>
+      </section>
     </section>
+    <BindingDetails
+      v-if="selectedName"
+      :info="selectedName"
+      :rename="editingName"
+      @close="details = undefined"
+      @renamed="
+        details = $event;
+        editingName = false;
+      "
+    />
   </nav>
 </template>
 <style scoped>
+.state-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  margin-block: var(--space-2);
+}
+.state-row .part {
+  grid-column: 1 / -1;
+  flex-direction: column;
+  align-items: flex-start;
+}
+.state-row small {
+  grid-column: 1;
+  color: var(--ink-3);
+  font-size: var(--text-2xs);
+  padding-inline: var(--space-3);
+}
+.state-row .part-menu {
+  grid-column: 2;
+  grid-row: 2 / 4;
+}
+.part-row {
+  display: flex;
+  align-items: center;
+}
+.part-row .part {
+  flex: 1;
+  min-width: 0;
+}
+.part-rename {
+  border: 0;
+  background: transparent;
+  color: var(--ink-3);
+  font: var(--text-2xs) var(--font-sans);
+  cursor: pointer;
+  padding: var(--space-1);
+}
+.part-menu {
+  position: relative;
+  flex: none;
+}
+.part-menu summary {
+  list-style: none;
+  cursor: pointer;
+  padding: var(--space-1) var(--space-2);
+  color: var(--ink-3);
+}
+.part-menu summary::-webkit-details-marker {
+  display: none;
+}
+.part-menu[open] .part-rename {
+  position: absolute;
+  z-index: 4;
+  right: 0;
+  top: 100%;
+  padding: var(--space-2) var(--space-3);
+  background: var(--surface-3);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  color: var(--ink);
+}
+.game-state {
+  margin-top: var(--space-3);
+}
 .parts-list {
   width: 100%;
   min-width: 0;
@@ -195,6 +440,13 @@ h2 {
 .part > span:not(.view-thumbnail) {
   flex: 1;
   min-width: 0;
+}
+.draft-dot {
+  width: 6px;
+  height: 6px;
+  flex: none;
+  border-radius: var(--radius-pill);
+  background: var(--action);
 }
 .live-dot {
   width: 6px;

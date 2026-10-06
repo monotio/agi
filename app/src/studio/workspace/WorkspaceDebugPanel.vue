@@ -1,11 +1,13 @@
 <script setup lang="ts">
+import UiIcon from "../../ui/UiIcon.vue";
 import { computed, ref } from "vue";
 import { VOCABULARY } from "../../../../src/vocabulary.ts";
 import type { WorkspaceDebug } from "./workspaceDebug.ts";
 import UiButton from "../../ui/UiButton.vue";
+import WorkspaceDebugControls from "./WorkspaceDebugControls.vue";
 import { reservedValues } from "./debugValues.ts";
 const props = defineProps<{ debug: WorkspaceDebug; problems: readonly { message: string }[] }>();
-const emit = defineEmits<{ close: []; reveal: [logic: number, line: number] }>();
+const emit = defineEmits<{ reveal: [logic: number, line: number] }>();
 const tabs = ["Problems", "Variables", "Watch", "Call stack", "Breakpoints"] as const;
 const tab = ref<(typeof tabs)[number]>(props.debug.stopped.value ? "Variables" : "Problems");
 const expression = ref("");
@@ -84,6 +86,7 @@ function tabKey(event: KeyboardEvent): void {
 </script>
 <template>
   <div class="workspace-debug-panel" data-testid="workspace-debug-panel">
+    <WorkspaceDebugControls v-if="debug.state.epoch" :debug="debug" />
     <header>
       <div role="tablist" aria-label="Debug panels" @keydown="tabKey">
         <button
@@ -98,9 +101,6 @@ function tabKey(event: KeyboardEvent): void {
           {{ name }}
         </button>
       </div>
-      <UiButton size="sm" variant="ghost" aria-label="Close panel" @click="emit('close')"
-        >×</UiButton
-      >
     </header>
     <p v-if="debug.state.error" role="alert">{{ debug.state.error }}</p>
     <div role="tabpanel" :aria-label="tab" class="workspace-debug-content">
@@ -180,8 +180,8 @@ function tabKey(event: KeyboardEvent): void {
             variant="ghost"
             :aria-label="`Remove watch ${watch.expression}`"
             @click="debug.removeWatch(watch.id)"
-            >×</UiButton
-          >
+            ><UiIcon name="x" :size="16"
+          /></UiButton>
         </div>
       </template>
       <template v-else-if="tab === 'Call stack'">
@@ -216,8 +216,8 @@ function tabKey(event: KeyboardEvent): void {
             variant="ghost"
             :aria-label="`Remove breakpoint ${point.id}`"
             @click="debug.run(() => debug.toggle(point.logic, point.line))"
-            >×</UiButton
-          >
+            ><UiIcon name="x" :size="16"
+          /></UiButton>
         </div>
       </template>
     </div>

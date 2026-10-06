@@ -7,6 +7,7 @@ import {
   AMIGA_ACTIONS,
   CONDITIONS,
   actionSpec,
+  conditionSpec,
 } from "../src/logic/opcodes.ts";
 import { PROFILES } from "../src/runtime/profile.ts";
 import { commandReference, formatCommandCatalog } from "../src/agent/commandReference.ts";
@@ -162,4 +163,12 @@ test("every exposed command has behavior help and exact searches lead with the r
   });
   const first = (result.details?.["commands"] as { name: string }[])[0];
   assert.equal(first?.name, "cycle.time");
+});
+
+test("action and condition names exclude inherited keys in every profile", () => {
+  for (const profile of Object.values(PROFILES))
+    for (const name of ["constructor", "toString", "__proto__"]) {
+      assert.equal(actionSpec(name, profile), undefined, `${profile.id} ${name}`);
+      assert.equal(conditionSpec(name), undefined, name);
+    }
 });

@@ -10,7 +10,7 @@ import {
   closeWorkspaceEditor,
   textHook,
   waitForCycles,
-  workspaceSaved,
+  workspaceUpdated,
 } from "./engineProbe.ts";
 import { expect, test } from "./test.ts";
 
@@ -167,7 +167,7 @@ test("keyboard only: an Art rectangle and a Walk wall line autosave @webkit-desk
   await expect(studio.getByTestId("studio-tool-filled")).toBeChecked();
   await canvas.focus();
   await page.keyboard.press("?");
-  const sheet = page.getByRole("dialog", { name: "Room Studio keys" });
+  const sheet = page.getByRole("dialog", { name: "PICTURE keys" });
   await expect(sheet).toContainText("Click at the cursor: starts; arrows size it; again finishes");
   await page.keyboard.press("Escape");
   await expect(sheet).toBeHidden();
@@ -191,10 +191,11 @@ test("keyboard only: an Art rectangle and a Walk wall line autosave @webkit-desk
     await page.locator(".studio-pane").count(),
   );
   await page.keyboard.press("Space");
-  await workspaceSaved(page);
+  await workspaceUpdated(page, true);
   await expect(studio.locator('[data-row="rect-1"]')).toHaveAttribute("aria-selected", "true");
 
   // Walk lens, the line tool: a barrier from 20,150 to 100,150.
+  await canvas.focus();
   await page.keyboard.press("3");
   await page.keyboard.press("l");
   await expect(studio.getByTestId("studio-value-priority")).toHaveAttribute("data-value", "0");
@@ -209,12 +210,11 @@ test("keyboard only: an Art rectangle and a Walk wall line autosave @webkit-desk
   await expect(announce).toHaveText("x 100 y 150");
   await page.keyboard.press("Enter");
   await expect(studio.getByTestId("studio-hint")).toContainText("Backspace");
-  await workspaceSaved(page);
   await page.keyboard.press("Enter");
-  await workspaceSaved(page);
+  await workspaceUpdated(page, true);
   await expect(studio.locator('[data-row="wall-line-1"]')).toContainText("Wall line 1");
 
-  await workspaceSaved(page);
+  await workspaceUpdated(page, true);
   const kept = planes(await storedPicture(page));
   const before = planes(PIC_5);
   for (let y = 120; y <= 140; y++)
@@ -230,7 +230,7 @@ test("keyboard only: an Art rectangle and a Walk wall line autosave @webkit-desk
   ).toBe(0);
 });
 
-test("while Studio is open the page holds still and Tab stays in Studio and the bar above it", async ({
+test("while Studio is open the page holds still and Tab stays in its workspace", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1280, height: 720 });
@@ -257,7 +257,7 @@ test("while Studio is open the page holds still and Tab stays in Studio and the 
       if (!focused || focused === document.body) return "body";
       if (
         focused.closest(
-          '[data-testid="room-studio"], .play-bar, [data-testid="parts-list"], [data-testid="workspace-editor"], .play-area',
+          '[data-testid="room-studio"], .play-bar, [data-testid="parts-list"], [data-testid="workspace-editor"], .workspace-splitter, .play-area',
         )
       )
         return null;

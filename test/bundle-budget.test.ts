@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  BUDGET_CEILING,
+  budgetVerdict,
   workerEntryImportBacks,
   workerStaticClosure,
   type GraphChunk,
@@ -26,6 +28,10 @@ test("Home excludes agent, debugger, editor, words analysis and sound preview co
     "src/agent/agentState.ts",
     "src/agent/history.ts",
     "src/agent/roomPictures.ts",
+    "src/agent/roomFlow.ts",
+    "src/agent/roomMap.ts",
+    "app/src/world/roomAnalysisRunner.ts",
+    "app/src/world/roomAnalysis.worker.ts",
     "src/agent/viewUsage.ts",
     "src/agent/worldPlan.ts",
     "src/agent/toolTransport.ts",
@@ -187,4 +193,12 @@ test("a lazy chunk importing only side-effect-free shared chunks is safe", () =>
     }),
   ];
   assert.deepEqual(workerEntryImportBacks(chunks), []);
+});
+
+test("a size over its budget warns and only a size beyond the ceiling fails", () => {
+  assert.equal(BUDGET_CEILING, 1.1);
+  assert.equal(budgetVerdict(474_000, 474_000), "within");
+  assert.equal(budgetVerdict(474_300, 474_000), "over");
+  assert.equal(budgetVerdict(521_400, 474_000), "over");
+  assert.equal(budgetVerdict(521_401, 474_000), "beyond");
 });

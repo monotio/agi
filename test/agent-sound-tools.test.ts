@@ -51,12 +51,12 @@ describe("compact music authoring tools", () => {
         attenuation: note.attenuation,
       })),
       [
-        { duration: 30, divisor: 226, attenuation: 0 },
-        { duration: 30, divisor: 226, attenuation: 0 },
+        { duration: 30, divisor: 254, attenuation: 0 },
+        { duration: 30, divisor: 254, attenuation: 0 },
       ],
     );
     assert.equal(sound.channels[2]!.notes[0]!.duration, 60);
-    assert.equal(sound.channels[2]!.notes[0]!.freqDivisor, 760);
+    assert.equal(sound.channels[2]!.notes[0]!.freqDivisor, 855);
     assert.equal(sound.channels[2]!.notes[0]!.attenuation, 10);
     assert.deepEqual(result?.details?.["writtenResources"], [{ kind: "sound", num: 5 }]);
     assert.equal(typeof result?.details?.["revision"], "string");
@@ -216,9 +216,9 @@ describe("compact music authoring tools", () => {
         {
           channel: 0,
           index: 1,
-          tone: 0x8315,
+          tone: 0x8d17,
           control: 0x92,
-          freqDivisor: 339,
+          freqDivisor: 381,
           duration: 20,
           attenuation: 2,
         },

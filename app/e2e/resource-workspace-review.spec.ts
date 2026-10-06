@@ -10,7 +10,7 @@ import {
   openWorkspaceView,
   textHook,
   waitForRoom,
-  workspaceSaved,
+  workspaceUpdated,
 } from "./engineProbe.ts";
 import { expect, reviewShot, test } from "./test.ts";
 import {
@@ -31,7 +31,7 @@ async function createLocal(
 ): Promise<string> {
   await page.getByTestId("create-adventure-toggle").click();
   const form = page.locator(".local-create");
-  await expect(form.getByRole("button", { name: "Start building", exact: true })).toBeEnabled();
+  await expect(form.getByRole("button", { name: "Start building", exact: true })).toBeHidden();
   await form.getByRole("textbox").fill(title);
   await form.getByRole("radio", { name: new RegExp(kind, "i") }).click();
   await form.getByRole("button", { name: "Start building", exact: true }).click();
@@ -166,8 +166,12 @@ test("PICTURE autosave preserves workspace claims for the next LOGIC edit @webki
 
   // A source-only LOGIC edit saves before the resource gesture.
   await editFromLibrary(page, "Workspace coherence");
+  if ((await textHook(page)).modal === "print") {
+    await page.locator(".screen").click();
+    await page.keyboard.press("Enter");
+  }
   await appendComment(page, "// kept before the room edit");
-  await workspaceSaved(page);
+  await workspaceUpdated(page);
   await closeWorkspaceEditor(page);
   if ((await textHook(page)).modal === "print") {
     await page.locator(".screen").click();
@@ -179,10 +183,10 @@ test("PICTURE autosave preserves workspace claims for the next LOGIC edit @webki
   const studio = page.getByTestId("room-studio");
   await expect(studio).toBeVisible();
   await drawRect(page, studio);
-  await workspaceSaved(page);
+  await workspaceUpdated(page);
   const draft = Uint8Array.from(await page.evaluate(() => [...window.__AGI_STUDIO__!.bytes()]));
   await reviewShot(page, "resource-workspace-room-draft");
-  await workspaceSaved(page);
+  await workspaceUpdated(page);
   await reviewShot(page, "resource-workspace-room-kept");
   await closeWorkspaceEditor(page);
 
@@ -204,7 +208,7 @@ test("PICTURE autosave preserves workspace claims for the next LOGIC edit @webki
     page.getByTestId("workspace-logic-editor").filter({ visible: true }).locator(".view-lines"),
   ).toContainText("kept before the room edit");
   await appendComment(page, "// kept after the room edit");
-  await workspaceSaved(page);
+  await workspaceUpdated(page);
   await reviewShot(page, "resource-workspace-logic-rekept");
   const again = await storedClaim(page, projectId, "picture", 1);
   expect(again.logicOne).toContain("// kept after the room edit");
@@ -242,9 +246,9 @@ test("VIEW autosave preserves workspace claims for the next LOGIC edit @webkit-d
   await page.keyboard.press("b");
   await page.keyboard.press("Space");
   await page.keyboard.press("Space");
-  await workspaceSaved(page);
+  await workspaceUpdated(page);
   await reviewShot(page, "resource-workspace-sprite-draft");
-  await workspaceSaved(page);
+  await workspaceUpdated(page);
   await reviewShot(page, "resource-workspace-sprite-kept");
   await closeWorkspaceEditor(page);
 
@@ -262,7 +266,7 @@ test("VIEW autosave preserves workspace claims for the next LOGIC edit @webkit-d
 
   await openWorkspaceLogic(page);
   await appendComment(page, "// kept after the sprite edit");
-  await workspaceSaved(page);
+  await workspaceUpdated(page);
   const again = await storedClaim(page, projectId, "view", 0);
   expect(again.logicOne).toContain("// kept after the sprite edit");
   expect(again.claim).toEqual(stored.claim);

@@ -29,7 +29,7 @@ import {
 } from "../../../src/authoring/projectWorkspace.ts";
 import { sha256Hex } from "../../../src/crypto.ts";
 import { computeResourceRevision } from "../../../src/authoring/resourceRevision.ts";
-import { requireProjectId } from "../../../src/gameIdentity.ts";
+import { requireProjectId, type GameIdentity } from "../../../src/gameIdentity.ts";
 import { inspectEditableProject } from "./projectWorkspaceSource.ts";
 import type {
   authoringFingerprint,
@@ -51,6 +51,8 @@ import {
   type ProjectJournalCapture,
 } from "./projectJournalCapture.ts";
 import type { ProjectJournalOperation } from "./projectJournalReplay.ts";
+import type { ProjectChange } from "../../../src/authoring/projectContent.ts";
+import { openProjectDrafts } from "./projectPartDrafts.ts";
 import type { PreviewUpdateOutcome } from "../worker/workerProtocol.ts";
 
 interface SessionSave {
@@ -87,6 +89,12 @@ interface SessionSave {
 export interface PendingProjectRestart {
   readonly action: "restart" | "reenter";
   readonly reason: string;
+}
+export interface ComputedRoomRemovalReview {
+  readonly documentId: string;
+  readonly cursor: string | null;
+  readonly resources: readonly string[];
+  readonly messages: readonly string[];
 }
 
 function restartReason(reason: string): string {
@@ -155,6 +163,7 @@ function createSession(
       ): Promise<PreviewUpdateOutcome>;
     };
     readonly openedAt?: number;
+    readonly forkParent?: GameIdentity;
     readonly workingDocumentId?: string;
     readonly current?: () => boolean;
     readonly boundary?: () => Promise<void>;
@@ -281,7 +290,9 @@ function createSession(
         });
   function requestFor(capture: SessionSave): ProjectCommitRequest {
     if (capture.request !== undefined) return capture.request;
-    const fork = data.library?.source === "catalog";
+    const fork =
+      (input.forkParent !== undefined && (forkId === undefined || data.projectId !== forkId)) ||
+      data.library?.source === "catalog";
     if (fork) forkId ??= requireProjectId(`remix-${crypto.randomUUID()}`);
     const saving = {
       ...capture.data,
@@ -296,7 +307,7 @@ function createSession(
               source: "remix" as const,
               catalog: undefined,
               preview: undefined,
-              parent: { project: data.projectId, revision: expected.revision },
+              parent: input.forkParent ?? { project: data.projectId, revision: expected.revision },
             },
           }
         : { title: data.title, library: capture.data.library }),
@@ -380,11 +391,18 @@ function createSession(
       if (!capture.attempted) {
         capture.request = {
           ...capture.request!,
-          expected: data.library?.source === "catalog" ? null : { ...expected },
+          expected:
+            (input.forkParent !== undefined && forkId !== undefined && data.projectId !== forkId) ||
+            data.library?.source === "catalog"
+              ? null
+              : { ...expected },
           data: {
             ...capture.request!.data,
             library: projectCommitLibrary(
-              data.library?.source === "catalog" ? capture.request!.data.library : data.library,
+              (input.forkParent !== undefined && data.projectId !== forkId) ||
+                data.library?.source === "catalog"
+                ? capture.request!.data.library
+                : data.library,
               {
                 revision: capture.snapshot.lastAdmissibleBuild!.identity.revision,
                 source: capture.request!.data.imported ? "zip" : "authored",
@@ -507,12 +525,22 @@ function createSession(
       operation: operationSerial,
     });
   }
+  let partDrafts: ReturnType<typeof openProjectDrafts> | undefined;
+  let draftProjectId: string | undefined;
+  function removalDrafts() {
+    return (partDrafts?.changes() ?? []).flatMap(({ key, content }) =>
+      content === null ? [] : [{ key, content }],
+    );
+  }
+  const draftObservers = new Set<() => void>();
   async function apply(
     proposal: ProjectProposal,
     metadata: ProjectCommitMetadata,
     action?: ProjectHistoryAction,
     preparedRoom = false,
     beforeCommit?: () => void,
+    updateMode?: "keep" | "reenter",
+    reviewedComputedRoomJumps?: readonly string[],
   ) {
     await ready;
     beforeCommit?.();
@@ -530,6 +558,8 @@ function createSession(
       proposal,
       profileId: inspection.profileId,
       allowMissingRooms: data.roomGeneration === true,
+      reviewedComputedRoomJumps,
+      drafts: removalDrafts(),
       current: () =>
         current() &&
         writeBlock === undefined &&
@@ -547,12 +577,45 @@ function createSession(
       },
       admit: (compiled, documents) => {
         beforeCommit?.();
+        if (updateMode !== undefined) {
+          const admit = updateMode === "reenter" ? input.admission.reenter : input.admission.admit;
+          if (admit === undefined)
+            throw new Error("This game cannot restart its room. Use Update game.");
+          return (async () => {
+            let outcome: PreviewUpdateOutcome;
+            do {
+              if (!current() || writeBlock !== undefined)
+                throw new Error("Reopen this game before updating.");
+              outcome = await admit(compiled, documents);
+              if (outcome.status === "deferred")
+                await (input.boundary?.() ??
+                  new Promise<void>((resolve) => setTimeout(resolve, 50)));
+            } while (outcome.status === "deferred");
+            return outcome;
+          })();
+        }
         return preparedRoom && input.admission.admitPreparedRoom
           ? input.admission.admitPreparedRoom(compiled, documents)
           : input.admission.admit(compiled, documents);
       },
     });
     beforeCommit?.();
+    if (
+      prepared.compiled === undefined &&
+      action !== undefined &&
+      prepared.removedResources.length
+    ) {
+      return { status: "diagnostics" as const, diagnostics: prepared.diagnostics };
+    }
+    if (
+      updateMode !== undefined &&
+      (prepared.compiled === undefined ||
+        (outcome !== undefined && !["committed", "unchanged"].includes(outcome.status)))
+    ) {
+      diagnostics = prepared.diagnostics;
+      notify();
+      return { ...(outcome ?? { status: "diagnostics" as const }), diagnostics };
+    }
     if (
       outcome !== undefined &&
       outcome.status !== "committed" &&
@@ -577,6 +640,7 @@ function createSession(
     else history.record(snapshot.documents(), metadata);
     recordOperation({
       kind: "edit",
+      ...(reviewedComputedRoomJumps === undefined ? {} : { reviewedComputedRoomJumps }),
       changes: changes.map((change) => ({ ...change, version: snapshot.version(change.key) })),
       metadata,
       ...(action === undefined
@@ -705,6 +769,79 @@ function createSession(
     model,
     history,
     ready,
+    drafts() {
+      if (draftProjectId !== data.projectId && partDrafts?.changes().length === 0) {
+        partDrafts.dispose();
+        partDrafts = undefined;
+      }
+      if (partDrafts === undefined) {
+        draftProjectId = data.projectId;
+        partDrafts = openProjectDrafts({
+          projectId: data.projectId,
+          lifetime: expected.lifetime,
+          currentImage: () => model.capture().documentId,
+          canWrite: () => current() && writeBlock === undefined,
+          changed() {
+            for (const observer of draftObservers) observer();
+          },
+        });
+      }
+      return partDrafts;
+    },
+    subscribeDrafts(observer: () => void) {
+      draftObservers.add(observer);
+      return () => {
+        draftObservers.delete(observer);
+      };
+    },
+    workingSnapshot(): ProjectSnapshot {
+      const base = model.capture();
+      const changes = Object.fromEntries(
+        (partDrafts?.changes() ?? []).map(({ key, content }) => [key, content]),
+      );
+      const keys = new Set(base.keys);
+      for (const [key, content] of Object.entries(changes)) {
+        if (content === null) keys.delete(key);
+        else keys.add(key);
+      }
+      return {
+        ...base,
+        keys: [...keys],
+        read(key) {
+          if (!Object.hasOwn(changes, key)) return base.read(key);
+          const content = changes[key];
+          return content == null ? undefined : { key, version: base.version(key) + 1, content };
+        },
+        documents() {
+          const documents = { ...base.documents() };
+          for (const [key, content] of Object.entries(changes)) {
+            if (content === null) delete documents[key];
+            else if (content !== undefined) documents[key] = content;
+          }
+          return documents;
+        },
+      };
+    },
+    async stage(changes: readonly ProjectChange[]) {
+      const drafts = session.drafts();
+      await drafts.ready;
+      if (!current() || writeBlock !== undefined)
+        throw new Error(session.saveStatus().message || "Reopen this game before editing.");
+      drafts.stage(changes);
+      return { status: "draft" as const, diagnostics: [] };
+    },
+    update(changes: readonly ProjectChange[], restartRoom = false) {
+      return schedule(() =>
+        apply(
+          model.propose(model.capture(), "Update game", changes),
+          { label: "Update game", origin: "logic", author: "creator", time: Date.now() },
+          undefined,
+          false,
+          undefined,
+          restartRoom ? "reenter" : "keep",
+        ),
+      );
+    },
     get closed() {
       return !current();
     },
@@ -769,16 +906,47 @@ function createSession(
       const { proposal, ...metadata } = edit;
       return schedule(() => apply(proposal, { ...metadata, time: Date.now() }, undefined, true));
     },
-    undo() {
+    undo(review?: ComputedRoomRemovalReview) {
       return schedule(async () => {
         const action = history.undo(model);
-        return action === undefined
-          ? undefined
-          : apply(
-              action.proposal,
-              { label: "Undo", origin: "history", author: "creator", time: Date.now() },
-              action,
-            );
+        if (action === undefined) return undefined;
+        const capture = model.capture();
+        const prepared = prepareProjectEdit({
+          model,
+          proposal: action.proposal,
+          profileId: inspection.profileId,
+          policy: { allowMissingRooms: data.roomGeneration === true },
+          drafts: removalDrafts(),
+        });
+        const errors = prepared.diagnostics.filter((d) => d.severity === "error");
+        if (
+          review &&
+          (review.documentId !== capture.documentId ||
+            review.cursor !== history.capture().cursor ||
+            prepared.removedResources.length !== review.resources.length ||
+            !prepared.removedResources.every((key) => review.resources.includes(key)))
+        )
+          throw new Error("This Undo changed. Choose Undo again to review it.");
+        if (!review && errors.length && errors.every((d) => d.code === "computed-room-jump")) {
+          return {
+            status: "reviewRequired" as const,
+            review: {
+              documentId: capture.documentId,
+              cursor: history.capture().cursor,
+              resources: prepared.removedResources,
+              messages: errors.map((d) => d.message),
+            },
+          };
+        }
+        return apply(
+          action.proposal,
+          { label: "Undo", origin: "history", author: "creator", time: Date.now() },
+          action,
+          false,
+          undefined,
+          undefined,
+          review?.resources,
+        );
       });
     },
     redo() {
@@ -883,6 +1051,7 @@ function createSession(
     },
     stopWrites(reason: "stale" | "removed" = "stale") {
       writeBlock = reason;
+      partDrafts?.dispose();
       if (journalFrame !== undefined) {
         if (typeof cancelAnimationFrame !== "undefined") cancelAnimationFrame(journalFrame);
         else clearTimeout(journalFrame);
@@ -922,6 +1091,10 @@ function createSession(
           model.propose(model.capture(), operation.metadata.label, operation.changes),
         operation.metadata,
         action,
+        false,
+        undefined,
+        undefined,
+        operation.reviewedComputedRoomJumps,
       );
     },
     discard() {
@@ -939,6 +1112,8 @@ function createSession(
         removeEventListener("pagehide", persistPending);
         document.removeEventListener("visibilitychange", hiddenJournal);
       }
+      partDrafts?.dispose();
+      draftObservers.clear();
       disposed = true;
       epoch++;
       autosave.dispose();

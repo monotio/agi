@@ -1,6 +1,12 @@
 import type { Page } from "@playwright/test";
 import { test, expect } from "./test.ts";
-import { isolateStorage, openGameOptions, textHook, waitForCycles } from "./engineProbe.ts";
+import {
+  isolateStorage,
+  openGameOptions,
+  textHook,
+  waitForCycles,
+  workspaceUpdated,
+} from "./engineProbe.ts";
 import type { ProjectSession } from "../src/project/projectSession.ts";
 
 async function projectState(page: Page) {
@@ -17,6 +23,24 @@ async function projectState(page: Page) {
     };
   });
 }
+
+test.afterEach(async ({ page }, info) => {
+  if (info.status === info.expectedStatus) return;
+  const diagnostic = await page.evaluate(async () => ({
+    text: window.__AGI_TEXT__,
+    phase: window.__AGI_STATE__?.phase,
+    status: window.__AGI_STATE__?.status,
+    busy: window.__AGI_STATE__?.powerUp.busy,
+    history: window.__AGI_STATE__?.historyView,
+    worker: await (
+      window as unknown as { __AGI_PROJECT__: { query: (type: "state") => Promise<unknown> } }
+    ).__AGI_PROJECT__.query("state"),
+  }));
+  await info.attach("rewind-state", {
+    body: JSON.stringify(diagnostic),
+    contentType: "application/json",
+  });
+});
 
 for (const action of ["Resume from here", "Undo rewind", "Undo start over"] as const) {
   test(`${action} in Create admits the next LOGIC edit and saves its History commit @webkit-desktop`, async ({
@@ -41,8 +65,11 @@ for (const action of ["Resume from here", "Undo rewind", "Undo start over"] as c
       await page.locator(".monaco-editor").click();
       await page.keyboard.press("ControlOrMeta+a");
       await page.keyboard.insertText(original.source + "\n// Before rewind");
+      expect((await projectState(page)).commits).toBe(original.commits);
+      await workspaceUpdated(page);
       await expect.poll(async () => (await projectState(page)).commits).toBe(original.commits + 1);
-      await expect(page.getByTestId("workspace-saved")).toContainText("Saved");
+      await expect(page.getByTestId("workspace-saved")).toBeVisible();
+      await expect(page.getByTestId("workspace-saved")).toHaveText(/^(?:Saved|Draft saved)$/);
       await page.getByTestId("workspace-show-game").click();
     }
     // The timeline is in Play; switching modes retains the Create session.
@@ -63,7 +90,50 @@ for (const action of ["Resume from here", "Undo rewind", "Undo start over"] as c
       await expect(page.getByTestId("btn-history-resume")).toBeEnabled();
       await page.getByTestId("btn-history-resume").click();
       await expect(page.getByTestId("btn-undo-rewind")).toBeVisible();
-      if (action === "Undo rewind") await page.getByTestId("btn-undo-rewind").click();
+      if (action === "Undo rewind") {
+        await expect
+          .poll(() => page.evaluate(() => window.__AGI_STATE__?.powerUp.busy))
+          .toBe(false);
+        await expect.poll(async () => (await textHook(page)).paused).toBe(false);
+        await page.evaluate(() => {
+          const gate = window as unknown as {
+            releaseBranchRead: () => void;
+            branchReadHeld: boolean;
+          };
+          const get = IDBObjectStore.prototype.get;
+          const set = Object.getOwnPropertyDescriptor(IDBTransaction.prototype, "oncomplete")!.set!;
+          let claimed = false;
+          IDBObjectStore.prototype.get = function (key) {
+            if (!claimed && typeof key === "string" && key.startsWith("history/")) {
+              claimed = true;
+              const transaction = this.transaction;
+              Object.defineProperty(transaction, "oncomplete", {
+                set(callback: (event: Event) => void) {
+                  set.call(transaction, (event: Event) => {
+                    gate.branchReadHeld = true;
+                    gate.releaseBranchRead = () => {
+                      IDBObjectStore.prototype.get = get;
+                      callback.call(transaction, event);
+                    };
+                  });
+                },
+              });
+            }
+            return get.call(this, key);
+          };
+        });
+        await page.getByTestId("btn-undo-rewind").click();
+        await expect
+          .poll(() =>
+            page.evaluate(() => (window as unknown as { branchReadHeld: boolean }).branchReadHeld),
+          )
+          .toBe(true);
+        await expect.poll(() => page.evaluate(() => window.__AGI_STATE__?.powerUp.busy)).toBe(true);
+        await expect(page.getByRole("radio", { name: "Create", exact: true })).toBeDisabled();
+        await page.evaluate(() =>
+          (window as unknown as { releaseBranchRead: () => void }).releaseBranchRead(),
+        );
+      }
     }
     await expect
       .poll(() =>
@@ -95,8 +165,11 @@ for (const action of ["Resume from here", "Undo rewind", "Undo start over"] as c
     await page.locator(".monaco-editor").click();
     await page.keyboard.press("ControlOrMeta+a");
     await page.keyboard.insertText(source);
+    expect((await projectState(page)).commits).toBe(before.commits);
+    await workspaceUpdated(page);
     await expect.poll(async () => (await projectState(page)).commits).toBe(before.commits + 1);
-    await expect(page.getByTestId("workspace-saved")).toContainText("Saved");
+    await expect(page.getByTestId("workspace-saved")).toBeVisible();
+    await expect(page.getByTestId("workspace-saved")).toHaveText(/^(?:Saved|Draft saved)$/);
     await page.getByTestId("workspace-show-game").click();
     await page.keyboard.press("Control+`");
     await page.keyboard.type("look");

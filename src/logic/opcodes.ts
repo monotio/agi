@@ -328,21 +328,30 @@ const ACTION_ALIASES: Readonly<Record<string, string>> = {
   "object.on.anything": "obj.on.anything",
 };
 
+function ownSpec<T>(table: Readonly<Record<string, T>>, name: string): T | undefined {
+  return Object.hasOwn(table, name) ? table[name] : undefined;
+}
+
+export function conditionSpec(name: string): ConditionSpec | undefined {
+  return ownSpec(CONDITION_BY_NAME, name);
+}
+
 export function actionSpec(
   opcode: number | string,
   profile: AgiProfile = DEFAULT_V2_PROFILE,
 ): ActionSpec | undefined {
   // The IIgs tail slots carry their own actions, not the PC v3 names.
   if (profile.extraActions === "iigs") {
-    const iigs = typeof opcode === "number" ? IIGS_BY_CODE.get(opcode) : IIGS_BY_NAME[opcode];
+    const iigs =
+      typeof opcode === "number" ? IIGS_BY_CODE.get(opcode) : ownSpec(IIGS_BY_NAME, opcode);
     if (iigs) return iigs;
   }
   const spec =
     typeof opcode === "number"
       ? (ACTION_BY_CODE.get(opcode) ?? V3_BY_CODE.get(opcode) ?? AMIGA_BY_CODE.get(opcode))
-      : (ACTION_BY_NAME[ACTION_ALIASES[opcode] ?? opcode] ??
-        V3_BY_NAME[opcode] ??
-        AMIGA_BY_NAME[opcode]);
+      : (ownSpec(ACTION_BY_NAME, ownSpec(ACTION_ALIASES, opcode) ?? opcode) ??
+        ownSpec(V3_BY_NAME, opcode) ??
+        ownSpec(AMIGA_BY_NAME, opcode));
   if (!spec || spec.code > profile.maxAction) return undefined;
   if (spec.code === 0x86 && profile.exitOperandBytes === 0) return { ...spec, operands: [] };
   if (spec.code >= 0xb0 && profile.extraActions === "none") return undefined;

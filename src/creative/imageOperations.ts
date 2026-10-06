@@ -1,16 +1,23 @@
 /** Image attachments and art operations shared by editors and agent tools. */
+import { snapImageToEga } from "./imageStyle.ts";
+import { encodePngRgba } from "./composite.ts";
 import { sha256Hex } from "../crypto.ts";
 import type { ProjectChange, ProjectContent } from "../authoring/projectContent.ts";
 import type { AgiProfile } from "../runtime/profile.ts";
 import { buildView, parseView, type BuildViewInput } from "../view/view.ts";
 import { prepareView, type ViewRecipeFrame } from "../view/preparation.ts";
-import { derivePicturePlacement, preparePictureUnderlay } from "../picture/preparation.ts";
 import type { Rect } from "./catalog.ts";
-import { readImageReferences, type ProjectImageInput } from "./imageAttachments.ts";
+import {
+  readImageReferences,
+  readProjectImage,
+  type ProjectImageInput,
+  type TraceTransform,
+} from "./imageAttachments.ts";
 export {
   readImageReferences,
   readProjectImage,
   type ProjectImageInput,
+  type TraceTransform,
 } from "./imageAttachments.ts";
 type Documents = Readonly<Record<string, ProjectContent>>;
 
@@ -22,21 +29,21 @@ export interface ImageFrame {
 }
 function attach(documents: Documents, image: ProjectImageInput) {
   const encoded = sha256Hex(image.encoded);
-  const raster = sha256Hex(image.rgba);
+  const png = encodePngRgba(image.width, image.height, image.rgba);
+  const raster = sha256Hex(png);
   const references = readImageReferences(documents);
   const record = {
     title: image.title,
     mime: image.mime,
     encoded,
     raster,
+    rasterEncoding: "png" as const,
     width: image.width,
     height: image.height,
   };
   const changes: ProjectChange[] = [
     { key: `attachment:${encoded}`, content: new Uint8Array(image.encoded) },
-    ...(raster === encoded
-      ? []
-      : [{ key: `attachment:${raster}`, content: new Uint8Array(image.rgba) }]),
+    ...(raster === encoded ? [] : [{ key: `attachment:${raster}`, content: png }]),
   ];
   const next = { ...references, images: { ...references.images, [encoded]: record } };
   readImageReferences({
@@ -59,7 +66,12 @@ export function traceImageChanges(
     ...attached.references,
     traces: {
       ...attached.references.traces,
-      [target]: { image: attached.encoded, opacity, behindArt },
+      [target]: {
+        image: attached.encoded,
+        opacity,
+        behindArt,
+        transform: { x: 0, y: 0, scale: 1 },
+      },
     },
   };
   const changes = [...attached.changes, { key: "images", content: JSON.stringify(references) }];
@@ -69,6 +81,28 @@ export function traceImageChanges(
   });
   return changes;
 }
+/** Change display options while reusing immutable image attachments. */
+export function traceOptionsChanges(
+  documents: Documents,
+  target: string,
+  opacity: number,
+  behindArt: boolean,
+  transform?: TraceTransform,
+): readonly ProjectChange[] {
+  const references = readImageReferences(documents);
+  const trace = references.traces[target];
+  if (!trace) throw new Error("Choose an image to trace first.");
+  const next = {
+    ...references,
+    traces: {
+      ...references.traces,
+      [target]: { ...trace, opacity, behindArt, ...(transform ? { transform } : {}) },
+    },
+  };
+  readImageReferences({ ...documents, images: JSON.stringify(next) });
+  return [{ key: "images", content: JSON.stringify(next) }];
+}
+
 /** Transparent sheets use alpha; opaque sheets use the most common corner colour. */
 export function detectImageBackground(
   image: Pick<ProjectImageInput, "width" | "height" | "rgba">,
@@ -317,52 +351,45 @@ export function makeCelsChanges(
   ];
 }
 
+/** Cover the native picture frame, preserving the source aspect at two display pixels per cell. */
+export function prepareTracePixels(
+  image: Pick<ProjectImageInput, "width" | "height" | "rgba">,
+  transform: TraceTransform = { x: 0, y: 0, scale: 1 },
+): Uint8Array {
+  const factor = Math.max(320 / image.width, 168 / image.height) * transform.scale;
+  const pixels = new Uint8Array(160 * 168 * 4);
+  for (let y = 0; y < 168; y++)
+    for (let x = 0; x < 160; x++) {
+      const sx = Math.floor(image.width / 2 + ((x + 0.5 - 80 - transform.x) * 2) / factor);
+      const sy = Math.floor(image.height / 2 + (y + 0.5 - 84 - transform.y) / factor);
+      if (sx >= 0 && sx < image.width && sy >= 0 && sy < image.height) {
+        const source = (sy * image.width + sx) * 4;
+        pixels.set(image.rgba.subarray(source, source + 4), (y * 160 + x) * 4);
+      }
+    }
+  return snapImageToEga(pixels);
+}
+
 /** Rebuild a saved tracing underlay from its immutable decoded raster. */
 export function imageTraceUnderlay(
   documents: Documents,
   target: string,
-): { pixels: Uint8Array; opacity: number; behindArt: boolean } | null {
+): { pixels: Uint8Array; opacity: number; behindArt: boolean; transform: TraceTransform } | null {
   const references = readImageReferences(documents),
     trace = references.traces[target];
   if (!trace) return null;
-  const image = references.images[trace.image]!;
-  const identity = { id: image.raster, incarnation: "image", revision: 0 };
-  const crop = { x: 0, y: 0, width: image.width, height: image.height };
-  const placement = derivePicturePlacement({
-    sourceWidth: image.width,
-    sourceHeight: image.height,
-    crop,
-    bounds: { x: 0, y: 0, width: 160, height: 168 },
-    fit: "contain",
-    intendedAspect: "native",
-  });
-  const underlay = preparePictureUnderlay(
-    {
-      identity,
-      width: image.width,
-      height: image.height,
-      rgba: documents[`attachment:${image.raster}`] as Uint8Array,
-    },
-    {
-      format: "agi.preparation",
-      version: 1,
-      identity,
-      sources: [identity],
-      algorithm: "manual-picture-underlay-v1",
-      preparation: {
-        kind: "picture-underlay",
-        source: identity,
-        ...placement,
-        fit: "contain",
-        intendedAspect: "native",
-        sample: "nearest-centre-v1",
-        opacity: trace.opacity,
-        palette: "ega-weighted-243-v1",
-        alpha: { threshold: 128, matte: 0 },
-        scope: "art",
-      },
-      destination: { kind: "picture", resourceId: Number(target.slice(8)) },
-    },
-  );
-  return { pixels: underlay.rgba, opacity: trace.opacity, behindArt: trace.behindArt ?? false };
+  const image = readProjectImage(documents, trace.image);
+  const transform = trace.transform ?? {
+    x: 0,
+    y: 0,
+    scale:
+      Math.min(320 / image.width, 168 / image.height) /
+      Math.max(320 / image.width, 168 / image.height),
+  };
+  return {
+    pixels: prepareTracePixels(image, transform),
+    opacity: trace.opacity,
+    behindArt: trace.behindArt ?? false,
+    transform,
+  };
 }

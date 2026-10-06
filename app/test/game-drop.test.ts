@@ -157,3 +157,32 @@ test("folder traversal rejects files beyond the import bounds", async () => {
 
   await assert.rejects(captureGameDrop(transfer([root])), /64 MB per-file limit/);
 });
+
+test("disk image drops accept several native entries and fallback handles", async () => {
+  const a = fileEntry("first.img", "disk");
+  const b = fileEntry("second.td0", "disk");
+  for (const data of [
+    transfer([a, b]),
+    transfer([], { files: [new File(["disk"], "first.img"), new File(["disk"], "second.td0")] }),
+  ]) {
+    const dropped = await captureGameDrop(data);
+    assert.equal(dropped.kind, "folder");
+    if (dropped.kind === "folder")
+      assert.deepEqual([...dropped.files.keys()], ["first.img", "second.td0"]);
+  }
+});
+
+test("a disk file handle survives a browser entry that cannot read detached files", async () => {
+  const disk = new File(["disk"], "original.img");
+  const entry: EntryLike = {
+    isFile: true,
+    isDirectory: false,
+    name: disk.name,
+    file(_success, failure) {
+      failure?.(new DOMException("Detached entry"));
+    },
+  };
+  const dropped = await captureGameDrop(transfer([entry], { fallbackItems: [disk] }));
+  assert.equal(dropped.kind, "folder");
+  if (dropped.kind === "folder") assert.equal(dropped.files.get(disk.name), disk);
+});

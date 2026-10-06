@@ -32,6 +32,7 @@ const {
   selectedIds,
   quietTag = undefined,
   groupable = false,
+  drawOrder = false,
 } = defineProps<{
   branches: readonly SceneBranch[];
   /** Draw-order sections over `branches`; empty for a short list. */
@@ -47,12 +48,14 @@ const {
   quietTag?: string | undefined;
   /** Two items or more are selected and may be grouped. */
   groupable?: boolean;
+  drawOrder?: boolean;
 }>();
 /** `extend`: Shift was held, so the row's items join the selection or leave it. */
 const emit = defineEmits<{
   hover: [id: string | undefined];
   select: [id: string, extend: boolean];
   group: [];
+  "draw-order": [];
 }>();
 const filter = defineModel<string>("filter", { required: true });
 
@@ -227,7 +230,12 @@ function onFilterKeydown(event: KeyboardEvent): void {
 <template>
   <UiPanel title="Items" flush class="scene-list">
     <template #actions>
-      <span class="scene-list__meta">Draw order <UiExplain v-bind="explain('order')" /></span>
+      <span class="scene-list__meta"
+        ><UiButton variant="ghost" size="sm" :aria-pressed="drawOrder" @click="emit('draw-order')"
+          >Draw order</UiButton
+        >
+        <UiExplain v-bind="explain('order')"
+      /></span>
       <UiButton
         v-if="folds.length > 0 && matches === null"
         variant="ghost"
@@ -349,7 +357,7 @@ function onFilterKeydown(event: KeyboardEvent): void {
         </li>
       </template>
       <li v-if="entries.length === 0" class="scene-list__empty" role="presentation">
-        No items match “{{ filter }}”.
+        {{ filter ? `No items match “${filter}”.` : "Nothing drawn yet. Pick a tool to start." }}
       </li>
     </ul>
     <template #footer>

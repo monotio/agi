@@ -31,6 +31,16 @@ test("GPT-6.1 Sol is the new-user default; Stop and budget pauses retain a stage
   const blocked = new Promise<void>((resolve) => {
     release = resolve;
   });
+  let reviewRequested = false;
+  let releaseReview!: () => void;
+  const reviewBlocked = new Promise<void>((resolve) => {
+    releaseReview = resolve;
+  });
+  await page.route("**/src/agent/AgentResourceReview.vue", async (route) => {
+    reviewRequested = true;
+    await reviewBlocked;
+    await route.continue();
+  });
   await page.route("**/api/openai/v1/responses", async (route) => {
     const request = ++requests;
     expect(route.request().postDataJSON().model).toBe("gpt-6.1-sol");
@@ -100,11 +110,13 @@ test("GPT-6.1 Sol is the new-user default; Stop and budget pauses retain a stage
     // the pointer:coarse media query.
     expect((await page.getByTestId("agent-stop").boundingBox())!.height).toBeGreaterThanOrEqual(40);
     await page.getByTestId("agent-stop").click();
+    await expect(page.getByTestId("agent-pause-reason")).toBeVisible();
     await expect(page.getByTestId("agent-pause-reason")).toContainText("Stopped");
     expect((await textHook(page)).paused).toBe(false);
     await page.screenshot({ path: test.info().outputPath("agent-stopped.png") });
     release();
     await page.getByTestId("agent-continue").click();
+    await expect(page.getByTestId("agent-pause-reason")).toBeVisible();
     await expect(page.getByTestId("agent-pause-reason")).toContainText("Budget");
     expect(requests).toBe(3);
     expect(
@@ -112,6 +124,11 @@ test("GPT-6.1 Sol is the new-user default; Stop and budget pauses retain a stage
     ).toBeGreaterThanOrEqual(0);
     await page.screenshot({ path: test.info().outputPath("agent-budget.png") });
     await page.getByTestId("agent-continue").click();
+    await expect.poll(() => reviewRequested).toBe(true);
+    await expect(page.getByTestId("agent-review")).toBeVisible();
+    await expect(page.getByTestId("agent-approve")).toBeVisible();
+    await expect(page.getByTestId("agent-approve")).toBeEnabled();
+    releaseReview();
     await expect(page.getByTestId("agent-review")).toBeVisible();
     await page.getByTestId("agent-approve").click();
     await expect(page.getByTestId("agent-review")).toHaveCount(0);
@@ -124,6 +141,7 @@ test("GPT-6.1 Sol is the new-user default; Stop and budget pauses retain a stage
     expect(words.map(([word]: [string, number]) => word)).toContain("sparkle");
   } finally {
     release();
+    releaseReview();
   }
 });
 
@@ -174,7 +192,12 @@ test("unknown spend waits for a request allowance in the real assistant", async 
   await configureAi(page, { provider: "openai", model: "gpt-6-sol", key: "placeholder" });
   await page.getByTestId("agent-message").fill("Inspect this room.");
   await page.getByRole("button", { name: "Send", exact: true }).click();
-  await expect(page.getByTestId("agent-pause-reason")).toContainText("Spend unknown");
+  await expect(page.getByTestId("agent-pause-reason")).toBeVisible();
+  await expect(page.getByTestId("agent-pause-reason")).toContainText("Choose how many requests");
+  const usage = page.getByRole("link", { name: "See your usage", exact: true });
+  await expect(usage).toBeVisible();
+  await expect(usage).toHaveCSS("color", "rgb(121, 229, 230)");
+  await expect(usage).toHaveAttribute("href", "https://platform.openai.com/usage");
   expect(requests).toBe(0);
   await page.getByTestId("agent-request-limit").fill("2");
   await page.screenshot({ path: test.info().outputPath("request-allowance.png") });

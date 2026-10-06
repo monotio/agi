@@ -62,6 +62,8 @@ export interface RoomLogicDraftOptions {
   readonly base: MaybeRefOrGetter<LogicDraftBase | null>;
   /** What an edit assembles against: dictionary, profile and the game's bindings. */
   readonly session: () => RuleSession | null;
+  /** Read the saved or pending workspace text only when a Walk edit starts. */
+  readonly currentSource?: (() => string | undefined) | undefined;
 }
 
 export type LogicOutcome = { readonly ok: true } | { readonly ok: false; readonly error: string };
@@ -100,6 +102,27 @@ export function useRoomLogicDraft(options: RoomLogicDraftOptions) {
     () => toValue(options.base),
     (base, old) => {
       if (base?.source === old?.source) return;
+      if (base && current.value) {
+        const { past, future } = stacks.value;
+        const acknowledged = past.findLastIndex((state) => state.source === base.source);
+        const undone = future.findLastIndex((state) => state.source === base.source);
+        // Embedded Studio writes asynchronously. An acknowledgement of an
+        // earlier draft advances the base without replacing later edits.
+        if (
+          current.value.source === base.source ||
+          (current.value.source !== kept.value?.source && acknowledged >= 0) ||
+          undone >= 0
+        ) {
+          kept.value = base;
+          keptDepth.value =
+            current.value.source === base.source
+              ? past.length
+              : undone >= 0
+                ? past.length + future.length - undone
+                : acknowledged;
+          return;
+        }
+      }
       kept.value = base;
       current.value = base && { ...base, label: "" };
       setStacks([], []);
@@ -149,7 +172,20 @@ export function useRoomLogicDraft(options: RoomLogicDraftOptions) {
   /** One rule edit, one undo step. */
   function apply(op: RuleEditOp, label: string): LogicOutcome {
     const at = session();
-    const state = current.value;
+    let state = current.value;
+    const latest = options.currentSource?.();
+    if (at && latest !== undefined && latest !== state?.source) {
+      try {
+        const compiled = assembleAuthoredLogic(at, latest);
+        state = { source: latest, bytes: compiled.payload, label: "" };
+        kept.value = state;
+        current.value = state;
+        setStacks([], []);
+        keptDepth.value = 0;
+      } catch {
+        return { ok: false, error: "Fix the room’s LOGIC before changing its doors." };
+      }
+    }
     if (!at || !state) return { ok: false, error: "This room's logic is read-only here." };
     const result = applyRuleEdit(document.value, op, at);
     if (!result.ok) return result;
@@ -161,6 +197,8 @@ export function useRoomLogicDraft(options: RoomLogicDraftOptions) {
   }
 
   function step(which: "undo" | "redo"): boolean {
+    const latest = options.currentSource?.();
+    if (latest !== undefined && latest !== current.value?.source) return false;
     const { past, future } = stacks.value;
     const from = which === "undo" ? past : future;
     const to = from.at(-1);

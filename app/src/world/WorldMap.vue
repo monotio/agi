@@ -34,6 +34,14 @@ const editor = useWorkspaceEditor();
 const shell = useShell();
 // Top-level refs unwrap in the template; .value stays in the script.
 const { unsaved, storageError } = map;
+const runtimeExits = computed(() =>
+  [...map.resources.value.scans.values()].some(
+    (scan) => scan.variableTarget || scan.unresolvedCall,
+  ),
+);
+const computedRoomJump = computed(() =>
+  [...map.resources.value.scans.values()].some((scan) => scan.variableTarget),
+);
 
 const graphView = useTemplateRef("graphView");
 const sideEl = useTemplateRef("sideEl");
@@ -109,8 +117,8 @@ function addStandaloneRoom(): void {
     flush
     class="world-map"
     close-testid="map-close"
-    close-label="Close map"
     data-testid="world-map"
+    :data-analysis="map.analysisStatus.value"
   >
     <template #actions>
       <span v-if="state.paused" class="map-paused" data-testid="map-paused">Game paused</span>
@@ -151,6 +159,16 @@ function addStandaloneRoom(): void {
         </UiButton>
       </span>
     </div>
+    <p
+      :class="{ 'is-clear': !runtimeExits }"
+      :aria-hidden="!runtimeExits"
+      class="map-runtime"
+      data-testid="map-runtime-exits"
+    >
+      Some exits are worked out while you play.<template v-if="computedRoomJump">
+        A computed room jump can reach a missing room.</template
+      >
+    </p>
     <div class="map-body">
       <section ref="sideEl" class="map-side" aria-label="Rooms">
         <div v-show="!selectedNode">
@@ -216,6 +234,15 @@ function addStandaloneRoom(): void {
   color: var(--danger);
   font-size: var(--text-xs);
 }
+.map-runtime {
+  margin: 0;
+  padding: 0 var(--space-6) var(--space-3);
+  color: var(--ink-3);
+  font-size: var(--text-sm);
+}
+.map-runtime.is-clear {
+  visibility: hidden;
+}
 .map-body {
   display: grid;
   flex: 1;
@@ -237,6 +264,17 @@ function addStandaloneRoom(): void {
 .map-back {
   align-self: flex-start;
   margin: var(--space-2) var(--space-3) 0;
+}
+@media (max-width: 520px) {
+  .world-map :deep(.ui-dialog__head) {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .world-map :deep(.ui-dialog__actions) {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    margin-left: 0;
+  }
 }
 @media (max-width: 700px) {
   .map-body {

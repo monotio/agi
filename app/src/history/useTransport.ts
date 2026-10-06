@@ -102,7 +102,7 @@ export interface TransportExtras {
   /** Source-scoped class on the active speed/story-pause button. */
   readonly speedActiveClass: string;
   readonly speedTitle: (speed: number) => string;
-  /** Position readout, e.g. "Room 4 · 62% · replaying…". */
+  /** Position readout, e.g. "Room 4 · 62%"; catching up shows as the seek dot. */
   readonly readout: string | undefined;
   readonly posTestid: string | undefined;
   /** >0 shows the "earlier history dropped" note. */
@@ -226,7 +226,9 @@ export function useTransport(source: TransportSource, extras: TransportExtras): 
     // Markers are visual-only: dense checkpoint clusters overlap beyond DOM
     // hit-testing's reach, so the pointer resolves the nearest mark itself —
     // the same mark the hover tooltip already named.
-    const mark = markNear(pct);
+    // The left endpoint names the exact boot moment, even when the first
+    // room marker sits inside the snap radius.
+    const mark = pct === 0 ? undefined : markNear(pct);
     ui.scrubPercent = mark ? mark.percent : pct;
     showHover(pct);
     if (mark) source.clickMark(mark);

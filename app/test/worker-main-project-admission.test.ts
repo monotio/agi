@@ -1,3 +1,4 @@
+import { waitUntil } from "./async.ts";
 import {
   writeProjectWorkspace,
   readProjectWorkspace,
@@ -32,7 +33,10 @@ test("MAIN Create grants a debugger-free physical run and Play revokes it", asyn
     words: [],
     projectMode: "create",
   });
-  await new Promise((resolve) => setTimeout(resolve, 100));
+  await waitUntil(
+    () => messages.some((m) => m.type === "booted"),
+    "the Create boot did not finish",
+  );
   ctx.fns.stopTimers();
   const ack = messages.find((m) => m.type === "booted");
   assert.ok(ack?.type === "booted" && ack.projectAdmission);

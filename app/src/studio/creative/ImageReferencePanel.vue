@@ -1,7 +1,9 @@
 <script setup lang="ts">
+import UiIcon from "../../ui/UiIcon.vue";
 import {
   computed,
   defineAsyncComponent,
+  nextTick,
   onBeforeUnmount,
   ref,
   shallowRef,
@@ -9,7 +11,11 @@ import {
   watch,
 } from "vue";
 import {
+  imageTraceUnderlay,
   traceImageChanges,
+  traceOptionsChanges,
+  prepareTracePixels,
+  type TraceTransform,
   readImageReferences,
   readProjectImage,
   makeCelsChanges,
@@ -30,6 +36,7 @@ import { readBindingsDocument } from "../../../../src/authoring/projectDocuments
 import { buildView } from "../../../../src/view/view.ts";
 import { nearestEgaIndex } from "../../../../src/view/spritesheet.ts";
 import { EGA_PALETTE } from "../../render/palette.ts";
+import { presentTrace, previewTrace } from "./tracePresentation.ts";
 import ImageFrameSheet from "./ImageFrameSheet.vue";
 import UiButton from "../../ui/UiButton.vue";
 import UiSwitch from "../../ui/UiSwitch.vue";
@@ -50,12 +57,15 @@ const image = shallowRef<ProjectImageInput>();
 const frames = ref<ImageFrame[]>([]);
 const opacity = ref(0.4);
 const behindArt = ref(false);
+const transform = ref<TraceTransform>({ x: 0, y: 0, scale: 1 });
 const error = ref("");
 const status = ref("");
 const previewing = ref(false);
 const busy = ref(false);
 const generateOpen = ref(props.generate);
 const file = useTemplateRef("file");
+let traceWrites = Promise.resolve();
+let pendingTraceWrites = 0;
 const isPicture = computed(() => props.target.startsWith("picture:"));
 const mirrors = shallowRef<readonly (number | null)[]>([]);
 const loopHeights = shallowRef<readonly number[]>([]);
@@ -82,7 +92,7 @@ const colourNames = [
   "White",
 ];
 const name = computed(() => {
-  const bindings = props.session.model.capture().read("bindings")?.content;
+  const bindings = props.session.workingSnapshot().read("bindings")?.content;
   if (typeof bindings === "string") {
     const entry = Object.entries(readBindingsDocument(bindings)).find(
       ([, binding]) => `${binding.kind}:${binding.num}` === props.target,
@@ -109,7 +119,7 @@ const sourceUrl = computed(() => {
 watch(
   () => props.resourceRevision,
   () => {
-    const content = props.session.model.capture().read(props.target)?.content;
+    const content = props.session.workingSnapshot().read(props.target)?.content;
     if (!isPicture.value && content !== undefined) {
       const sprite = openSprite(
         typeof content === "string" ? buildView(JSON.parse(content), props.profile) : content,
@@ -124,19 +134,28 @@ watch(
 watch(
   () => props.imageRevision,
   () => {
-    if (!props.target.startsWith("picture:")) return;
-    const documents = props.session.model.capture().documents();
+    if (!props.target.startsWith("picture:") || pendingTraceWrites > 0) return;
+    const documents = props.session.workingSnapshot().documents();
     const trace = readImageReferences(documents).traces[props.target];
     image.value = trace ? readProjectImage(documents, trace.image) : undefined;
     opacity.value = trace?.opacity ?? 0.4;
     behindArt.value = trace?.behindArt ?? false;
+    transform.value = imageTraceUnderlay(documents, props.target)?.transform ?? {
+      x: 0,
+      y: 0,
+      scale: 1,
+    };
+    previewPlacement();
   },
   { immediate: true },
 );
 let closed = false;
 let intakeEpoch = 0;
 function current() {
-  return !closed && props.active && engine.getProjectSession() === props.session;
+  return !closed && currentProject();
+}
+function currentProject() {
+  return props.active && engine.getProjectSession() === props.session;
 }
 const generation = shallowRef<ReturnType<typeof createImageGenerationMount>>();
 watch(
@@ -164,33 +183,35 @@ watch(
     generateOpen.value = value;
   },
 );
-async function commit(changes: Parameters<typeof props.session.model.propose>[2], label: string) {
-  if (!current()) throw new Error("Open this project again to use the image.");
-  const result = await props.session.submit({
-    proposal: props.session.model.propose(props.session.model.capture(), label, changes),
-    label,
-    origin: isPicture.value ? "picture" : "view",
-    author: "creator",
-  });
-  if (!["committed", "restartRequired"].includes(result.status))
+async function commit(changes: Parameters<typeof props.session.model.propose>[2], _label: string) {
+  if (!currentProject()) throw new Error("Open this project again to use the image.");
+  const result = await props.session.stage(changes);
+  if (!["draft", "committed", "restartRequired"].includes(result.status))
     throw new Error("The image could not be added. Check the frames and try again.");
   emit("changed");
 }
 async function useImage(value: ProjectImageInput) {
   image.value = value;
+  transform.value = { x: 0, y: 0, scale: 1 };
+  previewPlacement();
   status.value = "";
-  if (isPicture.value)
-    await commit(
-      traceImageChanges(
-        props.session.model.capture().documents(),
-        props.target,
-        value,
-        opacity.value,
-        behindArt.value,
-      ),
-      "Trace an image",
-    );
-  else {
+  if (isPicture.value) {
+    const target = props.target;
+    const nextOpacity = opacity.value;
+    const nextBehind = behindArt.value;
+    await queueTraceWrite(async () => {
+      await commit(
+        traceImageChanges(
+          props.session.workingSnapshot().documents(),
+          target,
+          value,
+          nextOpacity,
+          nextBehind,
+        ),
+        "Trace an image",
+      );
+    });
+  } else {
     background.value = detectImageBackground(value);
     backgroundTransparent.value = true;
     frames.value = [...suggestImageFrames(value)];
@@ -238,22 +259,65 @@ function paste(event: ClipboardEvent) {
     void intake(selected, "Pasted image");
   }
 }
-async function changeTrace(label: string) {
-  if (!image.value) return;
-  try {
-    await commit(
-      traceImageChanges(
-        props.session.model.capture().documents(),
-        props.target,
-        image.value,
-        opacity.value,
-        behindArt.value,
-      ),
-      label,
-    );
-  } catch (cause) {
-    error.value = String(cause);
-  }
+function queueTraceWrite(write: () => Promise<void>) {
+  pendingTraceWrites++;
+  const queued = traceWrites.then(write).finally(async () => {
+    // The revision watcher runs while these writes still own the live preview.
+    await nextTick();
+    pendingTraceWrites--;
+  });
+  traceWrites = queued.catch(() => {});
+  return queued;
+}
+function adjustTrace(next: TraceTransform, release: boolean) {
+  if (!current()) return;
+  transform.value = next;
+  previewPlacement();
+  if (release) changeTrace("Trace position");
+}
+function previewPlacement() {
+  if (!image.value || !isPicture.value) return;
+  presentTrace(props.session, props.target, {
+    pixels: prepareTracePixels(image.value, transform.value),
+    opacity: opacity.value,
+    behindArt: behindArt.value,
+    transform: transform.value,
+    adjust: adjustTrace,
+  });
+}
+function resetTrace() {
+  adjustTrace({ x: 0, y: 0, scale: 1 }, true);
+}
+function previewOpacity() {
+  previewTrace(props.session, props.target, opacity.value, behindArt.value);
+}
+function changeTrace(label: string) {
+  if (!current() || !image.value) return;
+  const target = props.target;
+  const nextOpacity = opacity.value;
+  const nextBehind = behindArt.value;
+  const nextTransform = { ...transform.value };
+  previewOpacity();
+  void queueTraceWrite(async () => {
+    if (!currentProject()) return;
+    error.value = "";
+    while (currentProject()) {
+      const capture = props.session.workingSnapshot();
+      try {
+        await commit(
+          traceOptionsChanges(capture.documents(), target, nextOpacity, nextBehind, nextTransform),
+          label,
+        );
+        break;
+      } catch (cause) {
+        if (capture.documentId === props.session.workingSnapshot().documentId) throw cause;
+      }
+    }
+    if (current()) previewOpacity();
+  }).catch(() => {
+    if (current())
+      error.value = "The trace settings could not be saved. Move the slider again to retry.";
+  });
 }
 const prepared = computed(() => {
   if (!image.value || isPicture.value) return null;
@@ -277,7 +341,7 @@ async function addCels() {
     stopPreview();
     await commit(
       makeCelsChanges(
-        props.session.model.capture().documents(),
+        props.session.workingSnapshot().documents(),
         props.target,
         image.value,
         frames.value,
@@ -327,6 +391,7 @@ watch(
 window.addEventListener("paste", paste);
 onBeforeUnmount(() => {
   window.removeEventListener("paste", paste);
+  previewTrace(props.session, props.target, opacity.value, behindArt.value, { adjust: undefined });
   closed = true;
   intakeEpoch++;
   generation.value?.dispose();
@@ -350,13 +415,10 @@ onBeforeUnmount(() => {
       <strong>{{
         isPicture ? "Trace an image" : `${name} VIEW ${target.slice(5)} · Cels from an image`
       }}</strong>
-      <UiButton size="sm" variant="ghost" @click="emit('close')">{{
-        isPicture ? "Close" : "Done"
-      }}</UiButton>
+      <UiButton size="sm" variant="ghost" @click="emit('close')">Done</UiButton>
     </header>
     <div v-if="isPicture || !image" class="image-reference__actions">
       <UiButton size="sm" :disabled="busy" @click="file?.click()">Bring in an image</UiButton>
-      <UiButton size="sm" @click="generateOpen = !generateOpen">Generate</UiButton>
       <span>Drop, paste or choose an image.</span>
     </div>
     <div v-if="image && !isPicture" class="image-source">
@@ -367,8 +429,8 @@ onBeforeUnmount(() => {
           variant="ghost"
           :aria-expanded="replaceOpen"
           @click="replaceOpen = !replaceOpen"
-          >Replace ▾</UiButton
-        >
+          >Replace <UiIcon name="chevron-down" :size="16"
+        /></UiButton>
         <div v-if="replaceOpen" class="image-source__popover">
           <UiButton
             size="sm"
@@ -379,14 +441,6 @@ onBeforeUnmount(() => {
               replaceOpen = false;
             "
             >Bring in an image</UiButton
-          >
-          <UiButton
-            size="sm"
-            @click="
-              generateOpen = !generateOpen;
-              replaceOpen = false;
-            "
-            >Generate</UiButton
           >
         </div>
       </div>
@@ -457,12 +511,17 @@ onBeforeUnmount(() => {
         max="1"
         step="0.05"
         data-testid="trace-opacity"
+        @input="previewOpacity"
         @change="changeTrace('Trace opacity')"
     /></label>
     <label v-if="image && isPicture">
       <input v-model="behindArt" type="checkbox" @change="changeTrace('Trace placement')" />
       Behind art
     </label>
+    <template v-if="image && isPicture">
+      <UiButton size="sm" aria-label="Reset trace" @click="resetTrace">Reset</UiButton>
+      <span>Drag the centre to move. Drag the corner to scale.</span>
+    </template>
     <template v-if="image && !isPicture">
       <ImageFrameSheet
         v-show="!generateOpen"
@@ -641,12 +700,5 @@ onBeforeUnmount(() => {
 .image-reference--cels > .generate {
   flex: 1;
   overflow: auto;
-}
-:global(
-  .workspace-editor:has(.image-reference--cels.image-reference--active)
-    > .workspace-editor__header
-    > button:not([data-testid])
-) {
-  display: none;
 }
 </style>

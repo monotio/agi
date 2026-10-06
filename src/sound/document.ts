@@ -40,6 +40,7 @@
 
 import { PROFILES } from "../runtime/profile.ts";
 import type { ProfileId } from "../runtime/profile.ts";
+import { PSG_BASE_FREQ } from "./sound.ts";
 
 const HEADER_BYTES = 8;
 const RECORD_BYTES = 5;
@@ -51,7 +52,6 @@ const MIN_TONE_DIVISOR = 1;
 const MAX_TONE_DIVISOR = 1023;
 const MIN_MIDI_NOTE = 0;
 const MAX_MIDI_NOTE = 127;
-const TONE_CLOCK_HZ = 99_431.67;
 const DEFAULT_TICKS = 6;
 const DEFAULT_TONE_DIVISOR = 226;
 const DEFAULT_ATTENUATION = 4;
@@ -332,7 +332,7 @@ function strictNoteToMidi(note: string | number): number {
 function toneDivisorOfNote(note: string | number): number {
   const midi = strictNoteToMidi(note);
   const frequency = 440 * Math.pow(2, (midi - 69) / 12);
-  const ideal = TONE_CLOCK_HZ / frequency;
+  const ideal = PSG_BASE_FREQ / frequency;
   if (ideal < MIN_TONE_DIVISOR || ideal > MAX_TONE_DIVISOR) {
     return fail(
       "invalid-value",

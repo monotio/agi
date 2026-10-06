@@ -225,7 +225,7 @@ test("Ask presents a local WAV while the model receives only sound data and a ti
   await expect(download).toBeInViewport();
   await page.screenshot({ path: test.info().outputPath("sound-feedback-phone.png") });
 
-  await page.getByRole("button", { name: "Back to game", exact: true }).first().click();
+  await page.getByTestId("agent-bubble-close").first().click();
   await expect(page.getByTestId("latest-sound-preview")).toBeVisible();
   await openDeveloperActivity(page);
   await expect(page.getByTestId("agent-panel").getByTestId("sound-preview-audio")).toBeVisible();

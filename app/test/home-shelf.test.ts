@@ -1,3 +1,4 @@
+import { scheduler as testScheduler } from "node:timers/promises";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { GAME_CATALOG } from "../src/library/gameCatalog.ts";
@@ -49,7 +50,7 @@ function controlledRenders() {
   return { started, pending, render };
 }
 
-const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
+const tick = () => testScheduler.yield();
 
 test("the thumbnail queue runs at most two renders at a time, in request order", async () => {
   const queue = createThumbnailQueue(2);

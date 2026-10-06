@@ -3,7 +3,7 @@ import { createSoundDocument } from "../../src/sound/document.ts";
 import { exportMidi } from "../../src/sound/midi.ts";
 import type { ProjectSession } from "../src/project/projectSession.ts";
 import { test, expect } from "./test.ts";
-import { isolateStorage, workspaceSaved } from "./engineProbe.ts";
+import { isolateStorage, workspaceSaved, workspaceUpdated } from "./engineProbe.ts";
 import { openStoredWorkspace } from "./workspaceShared.ts";
 
 async function documents(page: Page): Promise<unknown> {
@@ -55,7 +55,7 @@ for (const size of [
       await openStoredWorkspace(other, "My adventure");
       await other.getByTestId("part-notes").click();
       await other.getByLabel("Game notes", { exact: true }).fill("Other tab's version");
-      await workspaceSaved(other);
+      await workspaceUpdated(other);
       await page.bringToFront();
       const note = page.getByTestId("stale-tab-note");
       await expect(note).toBeVisible();
@@ -93,8 +93,10 @@ for (const size of [
         await zoom.getByRole("button", { name: "Zoom in", exact: true }).click();
         await expect(zoom).not.toHaveText(prior);
         if (kind === "view" && size.width === 1063) {
-          await page.getByTestId("workspace-focus").click();
+          const focus = page.getByTestId("workspace-focus");
+          if ((await focus.getAttribute("aria-pressed")) === "true") await focus.click();
           const details = editor.getByTestId("sprite-cel-details");
+          await expect(details).toBeVisible();
           if ((await details.getAttribute("aria-expanded")) !== "true") await details.click();
           await expect(editor.getByLabel("Width in pixels")).toBeDisabled();
           await expect(editor.getByTestId("sprite-transparent-colour")).toBeDisabled();
@@ -142,7 +144,7 @@ for (const size of [
       }
       expect(await documents(page)).toEqual(before);
       await page.keyboard.press("Escape");
-      await expect(note.getByRole("button", { name: "Dismiss", exact: true })).toHaveCount(0);
+      await expect(note.getByRole("button", { name: "Close", exact: true })).toHaveCount(0);
       for (const name of ["Download unsaved edits", "Download game", "Reload", "Exit"]) {
         const button = note.getByRole("button", { name, exact: true });
         await expect(button).toBeVisible();

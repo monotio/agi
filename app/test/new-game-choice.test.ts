@@ -4,7 +4,7 @@ import { createNewGameChoice } from "../src/home/newGameChoice.ts";
 
 test("manual templates select independently and AI reveals its outline", () => {
   const choice = createNewGameChoice();
-  assert.equal(choice.selected.value, "starter");
+  assert.equal(choice.selected.value, undefined);
   assert.equal(choice.aiVisible.value, false);
   for (const kind of ["boilerplate", "blank", "starter"] as const) {
     choice.select(kind);

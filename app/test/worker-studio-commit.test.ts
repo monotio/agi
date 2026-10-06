@@ -1,3 +1,4 @@
+import { scheduler as testScheduler } from "node:timers/promises";
 /**
  * Room Studio's and Sprite Studio's Keep, end to end over fake ports: the real authoring
  * controller commits through the real worker link into the real worker
@@ -289,7 +290,7 @@ function rig(
     remixes,
     game: () => game,
     tick,
-    settle: () => new Promise((resolve) => setTimeout(resolve, 0)),
+    settle: () => testScheduler.yield(),
     picturePixel() {
       const frame = presentation.findLast((m) => m.type === "frame");
       assert.ok(frame?.type === "frame" && frame.picVisual, "a frame carries the picture plane");

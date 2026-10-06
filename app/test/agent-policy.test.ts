@@ -1,9 +1,12 @@
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import { beforeEach, test } from "node:test";
 import { AgentRun } from "../src/agent/agentRun.ts";
+import { beginProviderTask } from "../src/agent/providerBudget.ts";
 import { MODEL_CAPABILITIES, defaultModelEffort } from "../../src/agent/modelEffort.ts";
 import { createAnthropicConversation, createOpenAiConversation } from "../src/agent/llmClient.ts";
 import { providerSse } from "../../test/provider-stream.ts";
+
+beforeEach(() => beginProviderTask(5));
 
 const settle = () => new Promise<void>((resolve) => setImmediate(resolve));
 
@@ -84,7 +87,7 @@ test("unpriced models require an explicit request allowance before a paid reques
   run.cancel();
   await work.catch(() => {});
   assert.equal(paused.status, "paused");
-  assert.match(paused.reason, /spend unknown.*request/i);
+  assert.equal(paused.reason, "Choose how many requests to allow, then Continue.");
   assert.equal(sends, 0);
 });
 
@@ -201,7 +204,7 @@ test("an unpriced task consumes exactly the user's request allowance", async () 
   await work.catch(() => {});
   assert.equal(sends, 2);
   assert.equal(state.status, "paused");
-  assert.match(state.reason, /Spend unknown/);
+  assert.match(state.reason, /Choose how many requests/);
 });
 
 test("a final Anthropic refusal ends the active task with a distinct cause", async (t) => {

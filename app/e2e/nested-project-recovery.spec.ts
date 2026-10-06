@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { testProjectId } from "../test/identity.ts";
 import { decodeJournalValue } from "../src/project/projectJournalCapture.ts";
-import { isolateStorage } from "./engineProbe.ts";
+import { isolateStorage, workspaceUpdated } from "./engineProbe.ts";
 import { expect, test } from "./test.ts";
 
 for (const state of ["unsupported", "corrupt"] as const) {
@@ -98,7 +98,9 @@ for (const damage of ["hash", "content"] as const) {
     await expect(page.getByTestId("parts-list")).toBeVisible();
     await page.getByTestId("part-notes").click();
     await page.getByLabel("Game notes", { exact: true }).fill("History entry");
-    await expect(page.getByTestId("workspace-saved")).toHaveText("Saved");
+    await expect(page.getByTestId("workspace-saved")).toBeVisible();
+    await expect(page.getByTestId("workspace-saved")).toHaveText(/^(?:Saved|Draft saved)$/);
+    await workspaceUpdated(page);
     await page.getByRole("button", { name: "Back to library", exact: true }).click();
     const id = await page.evaluate(async (damage) => {
       const storage = await import("/src/project/gameStorage.ts");

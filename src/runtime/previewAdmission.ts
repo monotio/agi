@@ -16,7 +16,12 @@ import {
   type GameContainer,
   type ResourceKind,
 } from "../types.ts";
-import { detectContainerFormat, openContainer, DIRECTORY_FILES } from "../container/container.ts";
+import {
+  detectContainerFormat,
+  openContainer,
+  DIRECTORY_FILES,
+  indexedResourceBytes,
+} from "../container/container.ts";
 import { parseLogicResource, type LogicResource } from "../logic/resource.ts";
 import { parseView, type AgiView } from "../view/view.ts";
 import { renderPicture } from "../picture/renderer.ts";
@@ -297,10 +302,27 @@ function readResourceEntry(
   return payload === null ? { status: "absent", payload: null } : { status: "ok", payload };
 }
 
+function sameUnreadableSlot(
+  installed: GameContainer,
+  candidate: GameContainer,
+  kind: ResourceKind,
+  num: number,
+): boolean {
+  const before = indexedResourceBytes(installed.files, kind, num);
+  const after = indexedResourceBytes(candidate.files, kind, num);
+  return (
+    bytesEqual(before.entry, after.entry) &&
+    (before.record === null || after.record === null
+      ? before.record === after.record
+      : bytesEqual(before.record, after.record))
+  );
+}
+
 /**
- * Enumerate every resource slot on both images. Candidate entries the
- * container cannot read are refusals; installed-but-corrupt entries compare
- * as changes the candidate must still validate.
+ * Enumerate every resource slot on both images. Existing unreadable slots
+ * stay opaque when their directory entry and indexed bytes are identical.
+ * New or changed unreadable slots are refused. Repairs compare as changes
+ * the candidate must validate.
  */
 export function diffResources(
   installed: GameContainer,
@@ -313,6 +335,13 @@ export function diffResources(
       const before = readResourceEntry(installed, kind, num);
       const after = readResourceEntry(candidate, kind, num);
       if (after.status === "corrupt") {
+        if (before.status === "corrupt") {
+          if (sameUnreadableSlot(installed, candidate, kind, num)) continue;
+          throw new PreviewBlock(
+            "refused",
+            `preview candidate ${kind} resource ${num} unreadable slot changed; preserve its directory entry and indexed bytes`,
+          );
+        }
         throw new PreviewBlock(
           "refused",
           `preview candidate ${kind} resource ${num} cannot be read`,

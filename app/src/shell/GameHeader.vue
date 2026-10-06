@@ -16,8 +16,9 @@ import PlayBar from "./PlayBar.vue";
 import SettingsSheet from "./SettingsSheet.vue";
 import UiButton from "../ui/UiButton.vue";
 import UiDialog from "../ui/UiDialog.vue";
+import UiToast from "../ui/UiToast.vue";
 import type { HelpActionKind, HelpRequest } from "./helpContent.ts";
-import { computed, ref, shallowRef, useTemplateRef, watch } from "vue";
+import { computed, onWatcherCleanup, ref, shallowRef, useTemplateRef, watch } from "vue";
 import { useEngineApi } from "../engine/engineContext.ts";
 import { useAiSettings } from "../settings/useAiSettings.ts";
 import { useShellBridge } from "./shellBridge.ts";
@@ -39,7 +40,7 @@ import {
 
 const {
   touchControls,
-  crtEnabled,
+  crtAmount,
   originalAspect,
   gpuBackend,
   debugOpen,
@@ -47,7 +48,7 @@ const {
   exportRefusal,
 } = defineProps<{
   touchControls: boolean;
-  crtEnabled: boolean;
+  crtAmount: number;
   originalAspect: boolean;
   gpuBackend: string | undefined;
   debugOpen: boolean;
@@ -57,7 +58,7 @@ const {
 
 const emit = defineEmits<{
   "update:touchControls": [value: boolean];
-  "update:crtEnabled": [value: boolean];
+  "update:crtAmount": [value: number];
   "update:originalAspect": [value: boolean];
   "update:debugOpen": [value: boolean];
   "trigger-key": [code: number];
@@ -86,6 +87,23 @@ const shell = useShell();
 const workspaceEditor = useWorkspaceEditor();
 const workspace = useCreateWorkspace();
 const { onStartOver: startGameOver } = useGameLibrary();
+
+watch(
+  () => [state.phase, state.patchTick, state.copyCreated] as const,
+  () => {
+    if (!state.copyCreated) return;
+    if (state.phase !== "running" || currentGame()?.projectId !== state.copyCreated.projectId) {
+      state.copyCreated = null;
+      return;
+    }
+    function dismissOnEscape(event: KeyboardEvent): void {
+      if (event.key !== "Escape") return;
+      state.copyCreated = null;
+    }
+    window.addEventListener("keydown", dismissOnEscape, true);
+    onWatcherCleanup(() => window.removeEventListener("keydown", dismissOnEscape, true));
+  },
+);
 
 const controlsOpen = ref(false);
 const helpGuide = useTemplateRef("helpGuide");
@@ -230,7 +248,7 @@ async function onEjectGame(
   closeNavMenus();
   try {
     if (retry) await workspaceEditor.retry.value?.();
-    if (leave === "abandonUnsaved") workspaceEditor.discard.value?.();
+    if (leave === "abandonUnsaved") await workspaceEditor.discard.value?.();
     else await workspaceEditor.flush.value?.();
     await ejectGame(
       leave === "abandonUnsaved"
@@ -263,6 +281,7 @@ async function onStartOver(anyway = false): Promise<void> {
   historyStartOver.value = false;
   // Room Studio's unkept changes are kept or thrown away before the game restarts.
   if (!(await workspace.confirmStudioLeave())) return;
+  if (!touchControls) bridge.focusGameInput();
   try {
     await startGameOver(anyway ? { abandonHistory: true } : undefined);
   } catch (error) {
@@ -445,6 +464,16 @@ async function onRecordSave(): Promise<void> {
     @trigger-key="triggerKey"
     @start-walkthrough="onStartWalkthrough"
   />
+  <div v-if="state.copyCreated" class="copy-created-anchor">
+    <UiToast
+      dismissible
+      class="copy-created-note"
+      data-testid="copy-created-note"
+      @dismiss="state.copyCreated = null"
+    >
+      Saved as your own copy of {{ state.copyCreated.originalTitle }}. The original stays unchanged.
+    </UiToast>
+  </div>
   <div class="shell-notices">
     <StaleTabNote />
     <div
@@ -634,13 +663,13 @@ async function onRecordSave(): Promise<void> {
   <SettingsSheet
     ref="settingsSheet"
     :touch-controls="touchControls"
-    :crt-enabled="crtEnabled"
+    :crt-amount="crtAmount"
     :original-aspect="originalAspect"
     :gpu-backend="gpuBackend"
     :debug-open="debugOpen"
     :export-busy="exportBusy"
     @update:touch-controls="emit('update:touchControls', $event)"
-    @update:crt-enabled="emit('update:crtEnabled', $event)"
+    @update:crt-amount="emit('update:crtAmount', $event)"
     @update:original-aspect="emit('update:originalAspect', $event)"
     @update:debug-open="emit('update:debugOpen', $event)"
     @export-zip="onExportAgiZip"
@@ -842,6 +871,40 @@ a.publisher:hover > span {
 }
 .shell-notices:not(:empty) {
   padding: var(--space-2) var(--space-4);
+}
+.copy-created-anchor {
+  position: relative;
+  z-index: calc(var(--z-dock) + 1);
+  flex: none;
+  height: 0;
+  pointer-events: none;
+}
+/* Desktop notices fit over Parts to leave the editor controls clear. */
+.copy-created-note {
+  position: absolute;
+  top: var(--space-2);
+  left: var(--space-2);
+  width: 236px;
+  max-width: calc(100% - var(--space-4));
+  box-sizing: border-box;
+  margin: 0;
+  align-items: flex-start;
+  background: var(--surface-2);
+  pointer-events: auto;
+}
+@media (max-width: 1280px) {
+  .copy-created-note {
+    width: 164px;
+  }
+}
+/* Phones keep the toolbar and Edit/Playtest toggle clear: the note sits at the bottom. */
+@media (max-width: 600px) {
+  .copy-created-note {
+    position: fixed;
+    top: auto;
+    bottom: calc(var(--space-3) + env(safe-area-inset-bottom, 0px));
+    width: calc(100% - var(--space-4));
+  }
 }
 .notice-actions {
   display: flex;

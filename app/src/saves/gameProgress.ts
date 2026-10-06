@@ -6,7 +6,7 @@
  */
 import type { EngineMenuState } from "../../../src/runtime/engine.ts";
 import { base64ToBytes, bytesToBase64 } from "../project/bytes.ts";
-import { readGameSaves, writeGameSave } from "./gameSaves.ts";
+import { readGameSaveRecord, writeGameSave } from "./gameSaves.ts";
 import { isProgressPreview, storeRecordWithPreviewFallback } from "./progressPreview.ts";
 import type { ZipFileInput } from "../archive/zip.ts";
 import type { ProjectId } from "../project/gameTypes.ts";
@@ -199,6 +199,7 @@ function isFutureAutosave(raw: string): boolean {
 /** Where a project archive keeps the player's progress. */
 export const AUTOSAVE_FILE = "SAVES/AUTOSAVE.JSON";
 export interface GameProgress {
+  amigaRegions?: Record<string, "ntsc" | "pal">;
   /** Slot number ("1" to "12") to the raw save image. */
   saves: Record<string, Uint8Array>;
   autosave: AutosaveRecord | null;
@@ -242,8 +243,9 @@ export function readGameProgress(
   }
   const saves: Record<string, Uint8Array> = {};
   let slots: Record<string, string>;
+  let amigaRegions: Record<string, "ntsc" | "pal"> = {};
   try {
-    slots = readGameSaves(storage, target);
+    ({ slots, amigaRegions } = readGameSaveRecord(storage, target));
   } catch {
     slots = {};
   }
@@ -267,7 +269,7 @@ export function readGameProgress(
       : autosaveOwnedByTarget(autosave.game, target))
   )
     autosave = null;
-  return { saves, autosave };
+  return { saves, autosave, ...(Object.keys(amigaRegions).length ? { amigaRegions } : {}) };
 }
 
 /**
@@ -282,6 +284,11 @@ export function progressEntries(progress: GameProgress): ZipFileInput[] {
     .sort((a, b) => a - b);
   for (const slot of slots)
     entries.push({ name: `SAVES/SG.${slot}`, data: progress.saves[String(slot)]! });
+  if (progress.amigaRegions && Object.keys(progress.amigaRegions).length)
+    entries.push({
+      name: "SAVES/TIMING.JSON",
+      data: JSON.stringify({ amigaRegions: progress.amigaRegions }),
+    });
   if (progress.autosave)
     entries.push({ name: AUTOSAVE_FILE, data: JSON.stringify(progress.autosave) });
   return entries;
@@ -348,7 +355,15 @@ export function storeImportedProgress(
     .filter((slot) => Number.isInteger(slot))
     .sort((a, b) => a - b);
   for (const slot of slots) {
-    if (writeGameSave(storage, locator, slot, bytesToBase64(progress.saves[String(slot)]!)))
+    if (
+      writeGameSave(
+        storage,
+        locator,
+        slot,
+        bytesToBase64(progress.saves[String(slot)]!),
+        progress.amigaRegions?.[String(slot)],
+      )
+    )
       report.slots.push(slot);
     else report.failedSlots.push(slot);
   }

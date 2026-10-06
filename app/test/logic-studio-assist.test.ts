@@ -1,3 +1,4 @@
+import { scheduler as testScheduler } from "node:timers/promises";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { computed, effectScope, nextTick, ref, shallowRef, type ShallowRef } from "vue";
@@ -483,7 +484,7 @@ test("cancel abandons an in-flight provider wait", async () => {
   harness.ws.value = await openEditableProject(projectId);
   const asking = assist.ask("work on the room");
   await nextTick();
-  await new Promise((resolve) => setTimeout(resolve, 0));
+  await testScheduler.yield();
   assist.cancel();
   await asking;
   assert.equal(assist.lastResult.value?.outcome, "cancelled");

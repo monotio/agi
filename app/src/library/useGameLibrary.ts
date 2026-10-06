@@ -1274,11 +1274,17 @@ export function createGameLibrary(
         files instanceof Map
           ? files
           : new Map(selected.map((file) => [file.webkitRelativePath || file.name, file]));
+      if (paths.size !== selected.length)
+        throw new Error(
+          "Two files have the same filename. Give each disk a different name and add them together.",
+        );
       for (const [path, file] of paths) entries.set(path, new Uint8Array(await file.arrayBuffer()));
       const { readGameFiles } = await import("../archive/gameZip.ts");
       const game = readGameFiles(entries);
       const firstPath = paths.keys().next().value as string | undefined;
-      const title = firstPath?.split("/")[0] || "Imported game";
+      const title =
+        firstPath?.split("/")[0]?.replace(/\.(?:img|ima|dsk|td0|adf|po|2mg)$/i, "") ||
+        "Imported game";
       const staged = await stageLibraryGame(game, title, "folder");
       importNotice.value = importedNotice(game, staged);
     } catch (error) {

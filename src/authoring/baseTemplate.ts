@@ -57,10 +57,6 @@ export const BASE_TEMPLATE_LOGIC0_SOURCE = `#define C_MENU 200
 #message 14 "Help"
 #message 15 "Help           F1"
 #message 16 "About"
-#message 17 "Type a command and press ENTER. Arrow keys walk. ESC opens the menu."
-#message 18 "An adventure written with AGI IS HERE."
-#message 19 "I don't know the word \\"%s11\\"."
-#message 20 "I don't understand that."
 if (!isset(f200)) {
   set(f200);
   configure.screen(1, 22, 0);
@@ -109,8 +105,8 @@ if (!isset(f202)) {
   if (controller(C_FASTEST)) { assignn(v10, 0); }
   if (controller(C_SOUND_ON)) { set(f9); }
   if (controller(C_SOUND_OFF)) { reset(f9); }
-  if (controller(C_HELP)) { print(m17); }
-  if (controller(C_ABOUT)) { print(m18); }
+  if (controller(C_HELP)) { print("Type a command and press ENTER. Arrow keys walk. ESC opens the menu."); }
+  if (controller(C_ABOUT)) { print("An adventure written with AGI IS HERE."); }
   if (controller(C_INVENTORY)) { status(); }
 }
 if (isset(f2) && !isset(f4) && !isset(f202)) {
@@ -126,9 +122,9 @@ if (isset(f2) && !isset(f4) && !isset(f202)) {
     if (equaln(v9, 9)) { word.to.string(s11, 9); }
     if (equaln(v9, 10)) { word.to.string(s11, 10); }
     if (equaln(v9, 11)) { word.to.string(s11, 11); }
-    print(m19);
+    print("I don't know the word \\"%s11\\".");
   } else {
-    print(m20);
+    print("I don't understand that.");
   }
 }
 return;
@@ -199,22 +195,22 @@ set.text.attribute(15, 0);
 return;
 `;
 
-/** The one death sound: a short descending sting on two tone channels. */
+/** A descending sting; stored divisors preserve the released resource bytes. */
 export const BASE_TEMPLATE_DEATH_TRACKS: readonly SoundTrackInput[] = [
   {
     notes: [
-      { note: "G4", duration: 6 },
-      { note: "E4", duration: 6 },
-      { note: "C4", duration: 6 },
-      { note: "G3", duration: 24 },
+      { freqDivisor: 254, duration: 6 },
+      { freqDivisor: 302, duration: 6 },
+      { freqDivisor: 380, duration: 6 },
+      { freqDivisor: 507, duration: 24 },
     ],
   },
   {
     notes: [
-      { note: "E4", duration: 6 },
-      { note: "C4", duration: 6 },
-      { note: "G3", duration: 6 },
-      { note: "C3", duration: 24 },
+      { freqDivisor: 302, duration: 6 },
+      { freqDivisor: 380, duration: 6 },
+      { freqDivisor: 507, duration: 6 },
+      { freqDivisor: 760, duration: 24 },
     ],
   },
   { notes: [{ note: "rest", duration: 42 }] },

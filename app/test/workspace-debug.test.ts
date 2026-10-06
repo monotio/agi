@@ -85,3 +85,33 @@ test("leaving Create during attach detaches the late MAIN session", async () => 
   );
   h.debug.dispose();
 });
+
+test("stepping stays active until a stop, continue or detach", async () => {
+  const h = setup();
+  await h.debug.start();
+  const stop = {
+    type: "debugStopped",
+    epoch: 1,
+    stopId: 1,
+    buildId: h.compiled.build.identity.buildId,
+    location: { logic: 0, pc: 0, kind: "action" },
+  } as Extract<WorkerControl, { type: "debugStopped" }>;
+  h.link.handle(stop);
+  await h.debug.resume("over");
+  assert.equal(h.link.stopped.value, null);
+  assert.equal(h.debug.state.stepping, true);
+  h.link.handle(stop);
+  assert.equal(h.debug.state.stepping, false);
+  await h.debug.resume("into");
+  h.link.handle({ type: "debugDetached", epoch: 1 } as Extract<
+    WorkerControl,
+    { type: "debugDetached" }
+  >);
+  assert.equal(h.debug.state.stepping, false);
+  h.link.handle(stop);
+  await h.debug.resume("out");
+  h.link.handle(stop);
+  await h.debug.resume("continue");
+  assert.equal(h.debug.state.stepping, false);
+  h.debug.dispose();
+});

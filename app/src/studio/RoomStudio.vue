@@ -1,6 +1,18 @@
 <script setup lang="ts">
+import { createPictureSurface } from "../../../src/types.ts";
+import { renderPicture } from "../../../src/picture/renderer.ts";
+import UiIcon from "../ui/UiIcon.vue";
 import { VOCABULARY } from "../../../src/vocabulary.ts";
-import { computed, inject, onMounted, ref, shallowRef, useTemplateRef, watch } from "vue";
+import {
+  computed,
+  inject,
+  onBeforeUnmount,
+  onMounted,
+  ref,
+  shallowRef,
+  useTemplateRef,
+  watch,
+} from "vue";
 import type { ResourceRevision } from "../../../src/gameIdentity.ts";
 import type { AgiProfile } from "../../../src/runtime/profile.ts";
 import { createAgentSessionState } from "../../../src/agent/agentState.ts";
@@ -8,6 +20,7 @@ import { openContainer } from "../../../src/container/container.ts";
 import {
   itemHandles,
   nearestInsertion,
+  type LineHandle,
   type PointInsertion,
 } from "../../../src/studio/editPoints.ts";
 import type { StudioFocus } from "../../../src/agent/studioAssistTools.ts";
@@ -34,10 +47,13 @@ import { ResourceCommitError } from "../project/projectTransaction.ts";
 import type { ResourceCommitResult } from "../project/resourceCommit.ts";
 import type { AuthoringFingerprint } from "../project/gameStorage.ts";
 import type { StudioRoomSource } from "../world/studioSource.ts";
+import type { LessonSession } from "../lessons/lessonCheck.ts";
 import LessonCard from "../lessons/LessonCard.vue";
 import { useStudioLesson } from "../lessons/useStudioLesson.ts";
+import UiChip from "../ui/UiChip.vue";
 import UiSegmented from "../ui/UiSegmented.vue";
 import PaletteStrip from "./workspace/PaletteStrip.vue";
+import { useStudioPalette } from "./useStudioPalette.ts";
 import DrawOrderScrubber from "./DrawOrderScrubber.vue";
 import GhostProbe from "./GhostProbe.vue";
 import GhostReadout from "./GhostReadout.vue";
@@ -66,6 +82,8 @@ import StudioTopBar from "./StudioTopBar.vue";
 import SharePictureMenu from "./share/SharePictureMenu.vue";
 import { shareFileBase, shareRoomName } from "./share/shareFrame.ts";
 import StudioViewBar from "./StudioViewBar.vue";
+import RoomViewsOverlay from "./RoomViewsOverlay.vue";
+import { pictureViewsOpacity as viewsOpacity } from "./pictureViews.ts";
 import StudioWalkOverlay from "./StudioWalkOverlay.vue";
 import StudioWalkPanel from "./StudioWalkPanel.vue";
 import StudioZoom from "./StudioZoom.vue";
@@ -153,15 +171,22 @@ const {
   keep: keepFn = undefined,
   files = undefined,
   walk = undefined,
+  currentRoomSource = undefined,
   underlay = null,
   readOnly = false,
+  lessonSession = undefined,
+  priorityBase = undefined,
   embedded = false,
-  liveGame = false,
+  figures = [],
+  runningBytes = undefined,
   workspaceFocus = false,
 } = defineProps<{
   readOnly?: boolean;
+  lessonSession?: LessonSession | undefined;
+  priorityBase?: number | undefined;
   embedded?: boolean;
-  liveGame?: boolean;
+  figures?: readonly import("../../../src/authoring/roomPlacements.ts").RoomPlacement[];
+  runningBytes?: Uint8Array | undefined;
   workspaceFocus?: boolean;
   pictureNumber: number;
   bytes: Uint8Array;
@@ -179,11 +204,23 @@ const {
   files?: ReadonlyMap<string, Uint8Array> | undefined;
   /** The room framing the picture: its logic (doors), bindings, plan and tests. */
   walk?: StudioRoomSource | null | undefined;
+  currentRoomSource?: (() => string | undefined) | undefined;
   /**
    * A prepared reference underlay (160x168 RGBA) from its project attachment,
    * blended over the art pane as a tracing guide — never a runtime bitmap.
    */
-  underlay?: { pixels: Uint8Array; opacity: number; behindArt?: boolean } | null;
+  underlay?: {
+    pixels: Uint8Array;
+    opacity: number;
+    behindArt?: boolean;
+    transform?: import("../../../src/creative/imageAttachments.ts").TraceTransform;
+    adjust?:
+      | ((
+          transform: import("../../../src/creative/imageAttachments.ts").TraceTransform,
+          release: boolean,
+        ) => void)
+      | undefined;
+  } | null;
 }>();
 /**
  * `reopen` asks for Studio again; `fromStorage` reloads the game from storage
@@ -192,7 +229,22 @@ const {
 const emit = defineEmits<{
   close: [];
   edit: [source: string];
-  "game-host": [host: HTMLElement];
+  "room-edit": [
+    room: number,
+    source: string,
+    bindings: Readonly<
+      Record<
+        string,
+        { kind: import("../../../src/agent/authoringState.ts").BindingKind; num: number }
+      >
+    >,
+    pictureSource: string | undefined,
+  ];
+  "place-figure": [
+    figure: import("../../../src/authoring/roomPlacements.ts").RoomPlacement,
+    x: number,
+    y: number,
+  ];
   "agent-context": [context: { label: string; text: string } | null];
   "agent-ask": [];
   reopen: [fromStorage: boolean];
@@ -203,16 +255,29 @@ const lens = ref<StudioLens>("art");
 const mode = ref<StudioViewMode>("blend");
 const showBands = ref(true);
 const filter = ref("");
+const side = ref("items");
+const drawOrder = ref(false);
+
+watch(lens, (next) => {
+  if (next === "walk") side.value = "inspector";
+});
 const unlocks = ref<LensUnlocks>(NO_UNLOCKS);
 /** More points than this and the item shows no handles (the inspector still lists them). */
 const MAX_HANDLES = 160;
 /** How near its line, in CSS pixels, an Alt+click adds a point. */
 const INSERT_REACH = 12;
 
-const resolved = computed(() => resolveStudioSource({ bytes, authoredSource, profile }));
+let localPictureSource: string | undefined;
+const resolved = computed(() =>
+  // The keyed write queue can publish older bytes while our newer text is pending.
+  embedded && authoredSource !== undefined && authoredSource === localPictureSource
+    ? { source: authoredSource, trusted: true, profile }
+    : resolveStudioSource({ bytes, authoredSource, profile }),
+);
 const draft = useStudioDraft({
   base: () => ({ source: resolved.value.source, revision: baseRevision }),
   profile: () => profile,
+  priorityBase: () => priorityBase,
   lens,
   unlocks,
 });
@@ -268,7 +333,26 @@ const shareCaption = computed(() => ({
 }));
 const shareFile = computed(() => shareFileBase(shareGame.value, shareRoom.value));
 /** A Help guide lesson Studio opened from: every successful Keep runs its challenge. */
-const lesson = useStudioLesson();
+const lesson = useStudioLesson(() => lessonSession);
+watch(
+  () => lessonSession,
+  (session) => {
+    if (embedded && session && window.innerWidth <= 600) side.value = "inspector";
+  },
+  { immediate: true },
+);
+watch(
+  () => lessonSession,
+  () =>
+    lesson.check({
+      kind: "picture",
+      num: pictureNumber,
+      after: draft.compiled.value.bytes,
+      afterSource: draft.source.value,
+      profile,
+    }),
+  { immediate: true },
+);
 
 /** The room's logic, editable while its annotated text is trusted (useRoomLogicDraft). */
 const ruleSession = computed<RuleSession | null>(() => {
@@ -285,6 +369,7 @@ const logic = useRoomLogicDraft({
       ? { source: walk.logicSource, bytes: walk.logicBytes }
       : null,
   session: () => ruleSession.value,
+  currentSource: () => currentRoomSource?.(),
 });
 /** Doors that follow picture art: Group and Ungroup keep them following. */
 const followingDoors = computed(() =>
@@ -375,12 +460,37 @@ const keeper = useStudioKeep({
   },
 });
 watch([draft.source, draft.gesturing], ([source, gesturing]) => {
-  if (embedded && !readOnly && !gesturing && source !== resolved.value.source) emit("edit", source);
+  if (!embedded || readOnly || gesturing) return;
+  // Receiving native bytes resets an untouched draft; it is not a drawing edit.
+  // Undo back to saved text still has a future step and must reach the queue.
+  if (!draft.dirty.value && !draft.canUndo.value && !draft.canRedo.value) return;
+  // The saved source can still match an Undo while a newer write is pending.
+  localPictureSource = source;
+  emit("edit", source);
+  lesson.check({
+    kind: "picture",
+    num: pictureNumber,
+    after: draft.compiled.value.bytes,
+    afterSource: source,
+    profile,
+  });
 });
 /** Editing is blocked: view only, or a Keep that needs a reload first. */
 const frozen = (): boolean =>
   readOnly || draft.kept.value.revision === undefined || keeper.needsReload.value;
 
+watch(logic.source, () => {
+  if (!embedded || readOnly) return;
+  if (walk && logic.editable.value && logic.dirty.value) {
+    const followed = logic.forKeep(keptDocument.value, draft.document.value);
+    if (!followed.ok) {
+      editing.say({ tone: "warn", text: followed.error });
+      return;
+    }
+    if ("source" in followed)
+      emit("room-edit", walk.room, followed.source, followed.newBindings, undefined);
+  }
+});
 // ---- Ask -------------------------------------------------------------------
 const aiSettings = inject(aiSettingsKey, null);
 const assistHost: StudioAssistHost | null =
@@ -508,16 +618,12 @@ const undoOrder = useUndoOrder([
 ]);
 
 const stage = useTemplateRef("stage");
-const gameHost = useTemplateRef("gameHost");
-watch(gameHost, (host) => {
-  if (host) emit("game-host", host);
-});
-const panes = computed(() =>
-  embedded ? panesFor(lens.value, "blend").slice(0, 1) : panesFor(lens.value, mode.value),
-);
+const panes = computed(() => panesFor(lens.value, mode.value));
 const { viewport, zoom, dpr, fitted, zoomBy, zoomToFit } = useStudioViewport(
   stage,
   () => panes.value.length,
+  undefined,
+  () => embedded,
 );
 const size = computed(() => pictureSize(draft.compiled.value.bytes.length, total.value));
 
@@ -555,6 +661,49 @@ const shown = computed(() =>
       : draft.compiled.value
     : (draft.preview.value?.compiled ?? surface.value),
 );
+const runningPicture = computed(() => {
+  if (!runningBytes) return null;
+  const surface = createPictureSurface();
+  renderPicture(runningBytes, surface, { profile });
+  return surface;
+});
+const draftMask = computed(() =>
+  embedded && runningPicture.value ? changedCells(runningPicture.value, shown.value) : null,
+);
+const hasStageDraft = computed(() => draftMask.value?.some((cell) => cell !== 0) ?? false);
+const stageDraftPaths = computed(() =>
+  hasStageDraft.value && draftMask.value ? pathsOf(draftMask.value) : null,
+);
+/** Keep the callout beside the changed cells, within the picture's text-free rows. */
+const stageDraftLabel = computed(() => {
+  const mask = draftMask.value;
+  if (!mask || !hasStageDraft.value) return null;
+  let left = 160;
+  let right = 0;
+  let top = 168;
+  let bottom = 0;
+  for (let i = 0; i < mask.length; i++) {
+    if (!mask[i]) continue;
+    left = Math.min(left, i % 160);
+    right = Math.max(right, (i % 160) + 1);
+    top = Math.min(top, Math.floor(i / 160));
+    bottom = Math.max(bottom, Math.floor(i / 160) + 1);
+  }
+  const width = 320 * zoom.value;
+  const height = 168 * zoom.value;
+  const labelWidth = Math.min(240, width - 8);
+  const anchor = (left + right) * zoom.value;
+  const x = Math.max(4, Math.min(width - labelWidth - 4, anchor - labelWidth / 2));
+  const above = bottom * zoom.value + 6 + 26 > height - 4;
+  const y = Math.max(
+    4,
+    Math.min(height - 30, above ? top * zoom.value - 32 : bottom * zoom.value + 6),
+  );
+  return {
+    above,
+    style: { left: `${x}px`, top: `${y}px`, "--draft-pointer": `${anchor - x}px` },
+  };
+});
 const assistChanges = computed(() => {
   const next = proposal.value;
   const scope = assist.asked.value?.scope;
@@ -620,6 +769,27 @@ function selectInside(box: { x1: number; y1: number; x2: number; y2: number }, a
       ? "No item lies wholly inside the box"
       : `${count} ${count === 1 ? "item" : "items"} selected`;
 }
+const selectedPoint = shallowRef<LineHandle | null>(null);
+watch(selectedId, () => {
+  selectedPoint.value = null;
+});
+function pressCanvas(press: import("./StudioCanvas.vue").PanePress): void {
+  selectedPoint.value = press.handle ?? null;
+  input.pointer.press(press);
+}
+function removePoint(): boolean {
+  const point = selectedPoint.value;
+  if (!point) return false;
+  const done = editing.removePoint(point.line, point.index);
+  if (done) {
+    selectedPoint.value = null;
+    editing.say({
+      tone: "ok",
+      text: editing.editable.value ? "Point deleted." : "Line deleted: it needed two points.",
+    });
+  }
+  return true;
+}
 const drag = useStudioDrag({
   draft,
   editableId: () => editableId.value,
@@ -643,6 +813,12 @@ watch(
   { flush: "sync" },
 );
 /** The canvas cursor is a crosshair for the tools that place points; Select and Point show the arrow. */
+function pointStyle(point: Point): Record<string, string> {
+  return {
+    left: `${Math.min(80, (100 * point.x) / 160)}%`,
+    top: `${Math.min(88, (100 * point.y) / 168)}%`,
+  };
+}
 const drawsOnCanvas = computed(() => !["select", "point", "hand"].includes(tools.tool.value));
 /** The move cursor: over the selection's pixels with Select, and while it is dragged. */
 const movable = computed(() => {
@@ -785,7 +961,12 @@ const input = useStudioInput({
   probe: () => views.value.length > 0 && ghost.toggle(),
 });
 const views = computed(() => (files ? listGameViews(files, profile) : []));
-const ghost = useGhostProbe({ views, picture: () => shown.value, profile: () => profile });
+const ghost = useGhostProbe({
+  views,
+  picture: () => shown.value,
+  profile: () => profile,
+  priorityBase: () => priorityBase,
+});
 /** The priority-plane item under a cell, named for the probe's verdict. */
 const describeCell = (x: number, y: number): string | undefined => {
   const id = doc.rowAt(x, y, "priority");
@@ -951,6 +1132,17 @@ watch(
 
 // ---- The Walk view ----------------------------------------------------------
 const walkTint = ref(true);
+const palette = useStudioPalette({
+  tool: tools.tool,
+  lens,
+  selected: () => selection.selectedIds.value.length > 0,
+  timeline: () => model.value.timeline,
+  editing,
+  current: tools.current,
+  setValues: tools.setValues,
+  frozen,
+});
+
 /** A walk tool in another lens hands back to Select. */
 watch(lens, (next) => {
   if (next !== "walk" && isWalkTool(tools.tool.value)) tools.setTool("select");
@@ -1031,7 +1223,7 @@ async function playHere(at: Point | PlayHereTarget): Promise<void> {
     editing.say({ tone: "warn", text: "This picture isn't shown by a room the game can enter." });
     return;
   }
-  if (!(await leave.confirm())) return;
+  if (!embedded && !(await leave.confirm())) return;
   emit("play-here", { room, x: at.x, y: at.y });
 }
 
@@ -1044,7 +1236,18 @@ const selectionMenu = computed<CanvasMenuItem[]>(() =>
     : [
         { id: "duplicate", label: "Duplicate" },
         ...(editing.several.value ? [] : [{ id: "priority", label: "Depth…" }]),
-        { id: "delete", label: "Delete" },
+        ...(selectedPoint.value ? [{ id: "delete-point", label: "Delete point" }] : []),
+        {
+          id: "delete",
+          label:
+            tools.tool.value === "line" ||
+            (editing.editable.value?.commandLines.some((line) =>
+              /^line|^polyline|^rel/.test(model.value.document.lines[line - 1] ?? ""),
+            ) ??
+              false)
+              ? "Delete line"
+              : "Delete shape",
+        },
         ...(editing.several.value
           ? [{ id: "combine", label: "Group…" }]
           : [{ id: "ungroup", label: "Ungroup" }]),
@@ -1076,6 +1279,12 @@ const menuItems = computed<CanvasMenuItem[]>(() => [
 ]);
 /** A right-click off the selection selects what is under it first, as a click would. */
 function openMenu(cell: Point, at: { x: number; y: number }): void {
+  selectedPoint.value =
+    handles.value?.find(
+      (handle) =>
+        Math.abs(handle.x - cell.x) * 2 <= 6 / zoom.value &&
+        Math.abs(handle.y - cell.y) <= 6 / zoom.value,
+    ) ?? null;
   if (selectionMask.value?.[cell.y * 160 + cell.x] !== 1 && tools.tool.value === "select")
     selection.pick(cell);
   menu.value = { cell, at };
@@ -1103,6 +1312,7 @@ function pickMenu(id: string): void {
   else if (id === "combine") openCombine();
   else if (id === "ungroup") editing.ungroup();
   else if (id === "ask") askAgent();
+  else if (id === "delete-point") removePoint();
   else if (id === "play") void playHere(cell);
   else if (id === "walk-from") {
     pickTool("walk");
@@ -1169,6 +1379,90 @@ const toolHint = computed(() => {
   if (tool === "select" && editing.editableItems.value.length > 0) return ROOM_EDIT_HINT;
   return ROOM_TOOL_HINTS[tool];
 });
+type TraceTransform = import("../../../src/creative/imageAttachments.ts").TraceTransform;
+let traceDrag: {
+  pointer: number;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  from: TraceTransform;
+  kind: "move" | "scale";
+} | null = null;
+let traceKeyTimer: ReturnType<typeof setTimeout> | undefined;
+let traceKeyCommit: (() => void) | undefined;
+function flushTraceKeys(): void {
+  clearTimeout(traceKeyTimer);
+  const commit = traceKeyCommit;
+  traceKeyCommit = undefined;
+  commit?.();
+}
+onBeforeUnmount(flushTraceKeys);
+function grabTrace(event: PointerEvent, kind: "move" | "scale") {
+  flushTraceKeys();
+  const button = event.currentTarget as HTMLButtonElement;
+  const bounds = button.parentElement!.getBoundingClientRect();
+  traceDrag = {
+    pointer: event.pointerId,
+    x: event.clientX,
+    y: event.clientY,
+    width: bounds.width,
+    height: bounds.height,
+    from: { ...(underlay?.transform ?? { x: 0, y: 0, scale: 1 }) },
+    kind,
+  };
+  button.setPointerCapture(event.pointerId);
+}
+function moveTrace(event: PointerEvent) {
+  if (!traceDrag || traceDrag.pointer !== event.pointerId) return;
+  const { x, y, width, height, from, kind } = traceDrag;
+  const dx = (event.clientX - x) / width;
+  const dy = (event.clientY - y) / height;
+  const next =
+    kind === "move"
+      ? {
+          ...from,
+          x: Math.max(-160, Math.min(160, from.x + dx * 160)),
+          y: Math.max(-168, Math.min(168, from.y + dy * 168)),
+        }
+      : { ...from, scale: Math.max(0.25, Math.min(4, from.scale + (dx + dy) * 2)) };
+  underlay?.adjust?.(next, false);
+}
+function releaseTrace(event: PointerEvent, cancel = false) {
+  if (!traceDrag || traceDrag.pointer !== event.pointerId) return;
+  if (cancel) underlay?.adjust?.(traceDrag.from, false);
+  else {
+    moveTrace(event);
+    underlay?.adjust?.(underlay.transform ?? traceDrag.from, true);
+  }
+  traceDrag = null;
+}
+function traceKey(event: KeyboardEvent, kind: "move" | "scale") {
+  const direction: Record<string, readonly [number, number]> = {
+    ArrowLeft: [-1, 0],
+    ArrowRight: [1, 0],
+    ArrowUp: [0, -1],
+    ArrowDown: [0, 1],
+  };
+  const step = direction[event.key];
+  if (!step) return;
+  event.preventDefault();
+  event.stopPropagation();
+  const from = underlay?.transform ?? { x: 0, y: 0, scale: 1 };
+  const next =
+    kind === "move"
+      ? {
+          ...from,
+          x: Math.max(-160, Math.min(160, from.x + step[0])),
+          y: Math.max(-168, Math.min(168, from.y + step[1])),
+        }
+      : { ...from, scale: Math.max(0.25, Math.min(4, from.scale + (step[0] - step[1]) * 0.05)) };
+  const adjust = underlay?.adjust;
+  adjust?.(next, false);
+  clearTimeout(traceKeyTimer);
+  traceKeyCommit = () => adjust?.(next, true);
+  traceKeyTimer = setTimeout(flushTraceKeys, 250);
+}
 const notesOnly = computed(() => draft.notesOnly.value && !logic.dirty.value);
 /** A tool change hands the status line back to the tool's hint (before anything it says). */
 watch(tools.tool, () => editing.say(null), { flush: "sync" });
@@ -1202,7 +1496,7 @@ const keys: StudioKeyActions = {
   nudge: editing.nudge,
   cursor: input.move,
   click: input.click,
-  remove: () => tools.backspace() || editing.remove(),
+  remove: () => tools.backspace() || removePoint() || editing.remove(),
   duplicate: editing.duplicate,
   group: openCombine,
   ungroup: () => void editing.ungroup(),
@@ -1253,7 +1547,6 @@ function onKeyup(event: KeyboardEvent): void {
     :class="{
       'is-focus': calm.focus.value,
       'is-embedded': embedded,
-      'is-live-game': liveGame,
       'has-reference': !!underlay,
       'is-workspace-focus': workspaceFocus,
       'is-art-idle': lens === 'art' && !draft.gesturing.value,
@@ -1262,7 +1555,7 @@ function onKeyup(event: KeyboardEvent): void {
     data-testid="room-studio"
     tabindex="-1"
     role="region"
-    :aria-label="`Room Studio: ${title}`"
+    :aria-label="`PICTURE: ${title}`"
     @keydown="onKeydown"
     @keyup="onKeyup"
     @keypress.stop
@@ -1307,34 +1600,22 @@ function onKeyup(event: KeyboardEvent): void {
       /></template>
     </StudioTopBar>
 
-    <PaletteStrip
-      v-if="embedded"
-      class="studio__scrubber"
-      :value="
-        lens === 'art'
-          ? (tools.current.value.visual ?? 0)
-          : typeof tools.current.value.priority === 'number'
-            ? tools.current.value.priority
-            : 4
-      "
-      @choose="tools.setValues(lens === 'art' ? { visual: $event } : { priority: $event })"
-    />
-    <SceneList
-      v-model:filter="filter"
-      class="studio__scene"
-      data-testid="studio-scene"
-      :branches="model.branches"
-      :sections="model.sections"
-      :matches="scene.matches"
-      :loose="scene.loose"
-      :hovered-id="hoveredId"
-      :selected-ids="selection.selectedIds.value"
-      :quiet-tag="lens === 'art' ? 'art' : undefined"
-      :groupable="editing.editableItems.value.length > 1"
-      @hover="selection.listHover.value = $event"
-      @select="(id, extend) => (extend ? selection.toggle(id) : (selectedId = id))"
-      @group="openCombine"
-    />
+    <div v-if="embedded" class="studio__scrubber studio__palette-row">
+      <PaletteStrip
+        :context="palette.context.value"
+        :value="lens === 'art' ? palette.values.value.visual : palette.values.value.priority"
+        :disabled="frozen()"
+        @choose="palette.choose(lens === 'art' ? { visual: $event } : { priority: $event })"
+      />
+      <DrawOrderScrubber
+        v-if="drawOrder"
+        v-model="playhead"
+        data-testid="studio-scrubber"
+        :ticks
+        :marked="selectedRow?.entries ?? []"
+        :command="current"
+      />
+    </div>
 
     <div
       ref="optionsBar"
@@ -1380,6 +1661,11 @@ function onKeyup(event: KeyboardEvent): void {
         :spilled="proposal.sideEffects !== null"
       />
       <span class="studio__spacer"></span>
+      <label v-if="embedded" class="studio__views-slider"
+        >Views
+        <input v-model.number="viewsOpacity" type="range" min="0" max="100" aria-label="Views" />
+        <output>{{ viewsOpacity }}%</output>
+      </label>
       <UiSegmented
         v-if="embedded"
         v-model="lens"
@@ -1392,7 +1678,6 @@ function onKeyup(event: KeyboardEvent): void {
         ]"
       />
       <StudioViewBar
-        v-else
         v-model:mode="mode"
         v-model:bands="showBands"
         :lens
@@ -1408,16 +1693,16 @@ function onKeyup(event: KeyboardEvent): void {
       :probe-available="views.length > 0"
       :lens
       :unlocks
-      :values="tools.current.value"
+      :values="palette.values.value"
+      :palette-action="palette.context.value.action"
       :cursor-y="tools.cursor.value?.y"
       :doors-editable="logic.editable.value"
       @update:tool="pickTool"
       @probe="ghost.toggle()"
-      @values="tools.setValues"
+      @values="palette.choose"
       @unlocks="(next) => !assist.holds.value && (unlocks = next)"
     />
     <main class="studio__frame">
-      <div v-if="embedded" ref="gameHost" class="studio__live-game"></div>
       <div
         ref="stage"
         class="studio__stage"
@@ -1450,19 +1735,69 @@ function onKeyup(event: KeyboardEvent): void {
             :handles
             :ghost="insertGhost"
             :flash="flashPaths"
-            :changed="changedPaths"
+            :changed="stageDraftPaths ?? changedPaths"
             :spilled="spilledPaths"
             :movable="movable"
             :marquee="drag.marqueeBox.value ?? null"
             :underlay="layer === 'art' ? underlay : null"
             @hover="input.pointer.hover"
-            @press="input.pointer.press"
+            @press="pressCanvas"
             @drag="input.pointer.drag"
             @release="input.pointer.release"
             @abort="input.pointer.abort"
             @dblclick="tools.finish()"
             @menu="openMenu"
           >
+            <span
+              v-if="embedded && stageDraftLabel && (layer === 'art' || panes.length === 1)"
+              class="studio__draft-label"
+              :class="{ 'is-above': stageDraftLabel.above }"
+              :style="stageDraftLabel.style"
+              data-testid="stage-draft"
+              >Draft · Update game to play it</span
+            >
+            <RoomViewsOverlay
+              v-if="viewsOpacity > 0 && (layer === 'art' || panes.length === 1)"
+              :figures
+              :views
+              :viewport
+              :opacity="viewsOpacity / 100"
+              :picture="shown"
+              :profile
+              :priority-base="priorityBase"
+              :read-only="readOnly"
+              @place="(figure, x, y) => emit('place-figure', figure, x, y)"
+              @pointerdown.stop
+              @pointermove.stop
+              @pointerup.stop
+              @keydown.stop
+              @click.stop
+            />
+            <template v-if="layer === 'art' && underlay?.adjust && lens === 'art'">
+              <button
+                v-for="kind in ['move', 'scale'] as const"
+                :key="kind"
+                type="button"
+                class="studio__trace-handle"
+                :class="`studio__trace-handle--${kind}`"
+                :aria-label="kind === 'move' ? 'Move trace' : 'Scale trace'"
+                :title="
+                  kind === 'move'
+                    ? 'Drag to move the trace. Arrow keys move it too.'
+                    : 'Drag to scale the trace. Arrow keys resize it too.'
+                "
+                @pointerdown.stop.prevent="grabTrace($event, kind)"
+                @pointermove.stop="moveTrace"
+                @pointerup.stop="releaseTrace($event)"
+                @pointercancel.stop="releaseTrace($event, true)"
+                @lostpointercapture="releaseTrace($event, true)"
+                @keydown="traceKey($event, kind)"
+                @blur="flushTraceKeys"
+                @click.stop
+              >
+                <UiIcon :name="kind === 'move' ? 'move' : 'expand'" :size="18" />
+              </button>
+            </template>
             <StudioWalkOverlay
               v-if="lens === 'walk' && index === panes.length - 1"
               :walk="walker"
@@ -1474,6 +1809,25 @@ function onKeyup(event: KeyboardEvent): void {
               @hover-item="(id) => (selection.listHover.value = id)"
             />
             <StudioToolOverlay v-if="tools.tool.value !== 'select'" v-bind="input.overlay.value" />
+            <button
+              v-if="
+                tools.path.value &&
+                tools.path.value.points.length >= (tools.path.value.tool === 'line' ? 2 : 3)
+              "
+              type="button"
+              class="studio__done"
+              :style="pointStyle(tools.path.value.points.at(-1)!)"
+              @pointerdown.stop
+              @click.stop="tools.finish()"
+            >
+              <UiIcon name="check" :size="16" /> Done
+            </button>
+            <span
+              v-if="tools.path.value && input.overlay.value.cursor"
+              class="studio__cursor-hint"
+              :style="pointStyle(input.overlay.value.cursor)"
+              >Click points · ✓ Done finishes</span
+            >
             <!-- The probe's own presses never reach the pane below. -->
             <GhostProbe
               v-if="index === 0"
@@ -1497,111 +1851,167 @@ function onKeyup(event: KeyboardEvent): void {
       :command="current"
     />
 
-    <PixelInspector
-      class="studio__inspector"
-      :row="selectedRow"
-      :commands="readout.commands.value"
-      :colours="drawn('visual')"
-      :priorities="drawn('priority')"
-      :pixel
-      :pinned="selection.canvasCell.value === undefined && pinnedCell !== undefined"
-      :fill
-      :editing="!!editing.editable.value && !editing.several.value"
-      :more="detailsMore"
-      :playhead
-      :label-of="labelOf"
-      :rename
-      :parts="groupParts"
-      :foot="editing.several.value && editing.editableItems.value.length > 1 ? ROOM_GROUP_HINT : ''"
-      @seek="seek"
-      @select="selectedId = $event"
-    >
-      <template #lead>
-        <!-- The lesson's card docks at the top of the inspector, off the stage. -->
-        <LessonCard
-          v-if="lesson.session.value"
-          :session="lesson.session.value"
-          :outcome="lesson.outcome.value"
-        />
-        <!-- The probe's readout docks here too: on the art, only the ghost and its handle. -->
-        <GhostReadout v-if="ghost.active.value" :probe="ghost" :describe-cell="describeCell" />
-        <StudioWalkPanel
-          v-if="lens === 'walk'"
-          v-model:tint="walkTint"
-          :walk="walker"
-          :tool="tools.tool.value"
-          :flags="flagNames"
-          :items="pictureItems"
-          @tool="pickTool"
-          @play-here="playHere"
-          @text="(line) => (logicText = { line })"
-        />
-      </template>
-      <template #editor>
-        <StudioGroupEditor
-          v-if="editing.several.value && editing.editableItems.value.length > 1"
-          :edit="editing"
-          @combine="openCombine"
-        />
-        <StudioItemEditor
-          v-else-if="editing.editable.value"
-          :item="editing.editable.value"
-          :visual="single('visual')"
-          :priority="single('priority')"
-          :locks="itemLocks"
-          :edit="editing"
-          :grouped="editing.grouped.value"
-          @ungroup="editing.ungroup()"
-        />
-      </template>
-      <template #more>
-        <StudioItemPoints
-          v-if="editing.editable.value && !editing.several.value"
-          :handles="handleList"
-          :edit="editing"
-          :locked="editing.editable.value.locked"
-        />
-        <section
-          v-else-if="editing.several.value && editing.editableItems.value.length > 1"
-          class="studio__depth-all"
-          data-role="depth-all"
-        >
-          <h3>Depth for all <UiExplain v-bind="explain('depth')" /></h3>
-          <StudioValuePicker
-            plane="priority"
-            label="Depth for all"
-            :value="single('priority')"
-            :disabled="itemLocks.priority !== null"
-            :title="itemLocks.priority ?? undefined"
-            :allowed="(v) => !itemLocks.depthValues || v < 4"
-            @pick="editing.setColour('priority', $event)"
+    <aside class="studio__side">
+      <UiSegmented
+        v-if="embedded"
+        v-model="side"
+        size="sm"
+        label="Side panel"
+        :options="[
+          { value: 'items', label: 'Items' },
+          { value: 'inspector', label: 'Inspector' },
+        ]"
+      />
+      <SceneList
+        v-show="!embedded || side === 'items'"
+        v-model:filter="filter"
+        class="studio__scene"
+        data-testid="studio-scene"
+        :branches="model.branches"
+        :sections="model.sections"
+        :matches="scene.matches"
+        :loose="scene.loose"
+        :hovered-id="hoveredId"
+        :selected-ids="selection.selectedIds.value"
+        :quiet-tag="lens === 'art' ? 'art' : undefined"
+        :groupable="editing.editableItems.value.length > 1"
+        @hover="selection.listHover.value = $event"
+        @select="
+          (id, extend) => {
+            extend ? selection.toggle(id) : (selectedId = id);
+          }
+        "
+        :draw-order="drawOrder"
+        @draw-order="drawOrder = !drawOrder"
+        @group="openCombine"
+      />
+      <PixelInspector
+        class="studio__inspector"
+        :class="{ 'is-compact': !selectedRow && lens !== 'walk' && !lesson.session.value }"
+        :row="selectedRow"
+        :commands="readout.commands.value"
+        :colours="drawn('visual')"
+        :priorities="drawn('priority')"
+        :pixel
+        :pinned="selection.canvasCell.value === undefined && pinnedCell !== undefined"
+        :fill
+        :editing="!!editing.editable.value && !editing.several.value"
+        :more="detailsMore"
+        :playhead
+        :label-of="labelOf"
+        :rename
+        :parts="groupParts"
+        :foot="
+          editing.several.value && editing.editableItems.value.length > 1 ? ROOM_GROUP_HINT : ''
+        "
+        @seek="seek"
+        @select="selectedId = $event"
+      >
+        <template #lead>
+          <!-- The lesson's card docks at the top of the inspector, off the stage. -->
+          <LessonCard
+            v-if="lesson.session.value"
+            :session="lesson.session.value"
+            :outcome="lesson.outcome.value"
           />
-        </section>
-      </template>
-      <template #assist>
-        <StudioAssistPanel
-          v-if="assistHost && !embedded"
-          ref="assistPanel"
-          :assist
-          :chips="assistChips"
-          :changes="assistChanges"
-          :also="assistAlso"
-          :reference-target="walk && walk.room > 0 ? { kind: 'room', num: walk.room } : null"
-          @reload="reopen(true)"
-          noun="picture"
-          empty="Select an item to ask about it."
-        >
-          <template #scope>
-            <StudioLockChip
-              v-model:unlocks="unlocks"
-              :lens
-              :held="assist.holds.value ? HOLD_TEXT : null"
+          <!-- The probe's readout docks here too: on the art, only the ghost and its handle. -->
+          <GhostReadout v-if="ghost.active.value" :probe="ghost" :describe-cell="describeCell" />
+          <StudioWalkPanel
+            v-if="lens === 'walk'"
+            v-model:tint="walkTint"
+            :walk="walker"
+            :tool="tools.tool.value"
+            :flags="flagNames"
+            :items="pictureItems"
+            @tool="pickTool"
+            @play-here="playHere"
+            @text="(line) => (logicText = { line })"
+          />
+        </template>
+        <template #editor>
+          <StudioGroupEditor
+            v-if="editing.several.value && editing.editableItems.value.length > 1"
+            :edit="editing"
+            @combine="openCombine"
+          />
+          <StudioItemEditor
+            v-else-if="editing.editable.value"
+            :item="editing.editable.value"
+            :visual="single('visual')"
+            :priority="single('priority')"
+            :locks="itemLocks"
+            :edit="editing"
+            :grouped="editing.grouped.value"
+            @ungroup="editing.ungroup()"
+          />
+        </template>
+        <template #more>
+          <StudioItemPoints
+            v-if="editing.editable.value && !editing.several.value"
+            :handles="handleList"
+            :edit="editing"
+            :locked="editing.editable.value.locked"
+          />
+          <section
+            v-else-if="editing.several.value && editing.editableItems.value.length > 1"
+            class="studio__depth-all"
+            data-role="depth-all"
+          >
+            <h3>Depth for all <UiExplain v-bind="explain('depth')" /></h3>
+            <StudioValuePicker
+              plane="priority"
+              label="Depth for all"
+              :value="single('priority')"
+              :disabled="itemLocks.priority !== null"
+              :title="itemLocks.priority ?? undefined"
+              :allowed="(v) => !itemLocks.depthValues || v < 4"
+              @pick="editing.setColour('priority', $event)"
             />
-          </template>
-        </StudioAssistPanel>
-      </template>
-    </PixelInspector>
+          </section>
+        </template>
+        <template #assist>
+          <!-- Ask is in the workspace agent when this editor is embedded. -->
+          <StudioAssistPanel
+            v-if="assistHost && !embedded"
+            ref="assistPanel"
+            :assist
+            :chips="assistChips"
+            :changes="assistChanges"
+            :also="assistAlso"
+            :reference-target="walk && walk.room > 0 ? { kind: 'room', num: walk.room } : null"
+            @reload="reopen(true)"
+            noun="picture"
+            empty="Select an item to ask about it."
+          >
+            <template #scope>
+              <StudioLockChip
+                v-model:unlocks="unlocks"
+                :lens
+                :held="assist.holds.value ? HOLD_TEXT : null"
+              />
+            </template>
+          </StudioAssistPanel>
+        </template>
+      </PixelInspector>
+    </aside>
 
+    <div v-if="embedded" class="studio__meta-bar">
+      <SharePictureMenu
+        :picture="model.compiled"
+        :timeline="model.timeline"
+        :profile
+        :caption="shareCaption"
+        :file-base="shareFile"
+      />
+      <span data-testid="studio-size">{{ size.full }}</span>
+      <UiChip :tone="model.diagnostics.length ? 'warn' : 'neutral'" data-testid="studio-issues"
+        >{{ model.diagnostics.length }} issues</UiChip
+      >
+      <span>AGI {{ profile.id }}</span>
+      <span v-if="!model.trusted" data-testid="studio-source-kind"
+        >Rebuilt <UiExplain v-bind="explain('rebuilt')"
+      /></span>
+    </div>
     <footer class="studio__status" aria-label="Status bar">
       <span data-role="status" data-testid="studio-status">{{ status }}</span>
       <!-- A notice or a failed Keep takes the hint's place, off the picture. -->
@@ -1622,10 +2032,10 @@ function onKeyup(event: KeyboardEvent): void {
         >{{ calm.tip.value ?? toolHint }}</span
       >
       <span class="studio__spacer"></span>
-      <span class="studio__meta" data-testid="studio-size">{{ size.full }}</span>
+      <span v-if="!embedded" class="studio__meta" data-testid="studio-size">{{ size.full }}</span>
       <span class="studio__meta">AGI {{ profile.id }}</span>
       <span
-        v-if="!model.trusted"
+        v-if="!embedded && !model.trusted"
         class="studio__meta studio__source"
         data-testid="studio-source-kind"
         >Rebuilt <UiExplain v-bind="explain('rebuilt')"
@@ -1634,7 +2044,7 @@ function onKeyup(event: KeyboardEvent): void {
       <span class="studio__status-sep" aria-hidden="true"></span>
       <UiIconButton
         icon="panel-left"
-        label="Focus mode"
+        :label="calm.focus.value ? 'Show side panel' : 'Hide side panel'"
         :shortcut="keyLabel('Mod+\\')"
         aria-keyshortcuts="Meta+Backslash Control+Backslash"
         :pressed="calm.focus.value"
@@ -1653,7 +2063,7 @@ function onKeyup(event: KeyboardEvent): void {
     </footer>
     <p class="studio__sr" aria-live="polite" data-role="announce">{{ input.spoken.value }}</p>
 
-    <StudioKeySheet v-model:open="calm.sheetOpen.value" name="Room Studio" :sections="keySheet" />
+    <StudioKeySheet v-model:open="calm.sheetOpen.value" name="PICTURE" :sections="keySheet" />
     <StudioKeepDialog
       v-if="!embedded"
       v-model:ask="dialog"
@@ -1667,7 +2077,7 @@ function onKeyup(event: KeyboardEvent): void {
     />
     <StudioSmallScreen
       v-if="!embedded"
-      name="Room Studio"
+      name="PICTURE"
       :draft="room"
       :keeper
       @close="emit('close')"
@@ -1885,11 +2295,154 @@ function onKeyup(event: KeyboardEvent): void {
   clip-path: inset(50%);
   white-space: nowrap;
 }
-/* Embedded drawing surrounds the same MAIN stage. The transparent art pane
-   takes editor gestures; only an unfinished gesture paints a preview over MAIN. */
+/* Embedded pictures use the editor's own canvas and tools. */
 .studio.is-embedded {
-  grid-template-columns: 0 44px minmax(0, 1fr) minmax(140px, 236px);
-  grid-template-rows: 0 minmax(40px, max-content) minmax(0, 1fr) 52px 28px;
+  container-type: inline-size;
+  grid-template-columns: 0 44px minmax(0, 1fr) clamp(140px, 30%, 260px);
+  grid-template-rows: auto minmax(40px, max-content) minmax(0, 1fr) auto 28px;
+}
+.studio__done,
+.studio__cursor-hint {
+  position: absolute;
+  z-index: 2;
+  transform: translate(8px, 10px);
+  border-radius: var(--radius);
+  background: var(--surface-overlay);
+  color: var(--ink);
+  font: var(--text-xs) / var(--leading) var(--font-sans);
+  padding: var(--space-1) var(--space-2);
+}
+.studio__done {
+  transform: translate(-100%, -140%);
+  border: 1px solid var(--action);
+  cursor: pointer;
+}
+.studio__cursor-hint {
+  transform: translate(12px, -24px);
+  pointer-events: none;
+  white-space: nowrap;
+}
+.studio__trace-handle {
+  display: grid;
+  place-items: center;
+  padding: 0;
+  position: absolute;
+  z-index: 2;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--action);
+  border-radius: var(--radius);
+  background: var(--surface-1);
+  color: var(--action);
+  touch-action: none;
+}
+.studio__trace-handle--move {
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  cursor: move;
+}
+.studio__trace-handle--scale {
+  right: 4px;
+  bottom: 4px;
+  cursor: nwse-resize;
+}
+.studio__meta-bar {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-1) var(--space-3);
+  color: var(--ink-3);
+  border-bottom: 1px solid var(--hairline);
+  font-size: var(--text-2xs);
+}
+.studio__palette-row {
+  display: grid;
+  min-width: 0;
+}
+.studio__side {
+  display: contents;
+}
+.studio.is-embedded .studio__side {
+  container-type: inline-size;
+  grid-column: 4;
+  grid-row: 3 / 5;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  border-left: 1px solid var(--hairline);
+}
+.studio.is-embedded .studio__side > .ui-seg {
+  flex-shrink: 0;
+  margin: var(--space-2);
+}
+.studio.is-embedded .studio__side > .scene-list,
+.studio.is-embedded .studio__side > .inspector {
+  flex: 1;
+  min-height: 0;
+  height: 0;
+}
+.studio.is-embedded .studio__side > .scene-list {
+  flex: 2;
+  min-height: 0;
+  min-width: 0;
+}
+.studio.is-embedded .studio__side > .scene-list :deep(.ui-panel__foot) {
+  padding-block: var(--space-1);
+}
+.studio.is-embedded
+  .studio__side:has(.scene-list:not([style*="display: none"]))
+  > .inspector.is-compact {
+  display: none;
+}
+.studio.is-embedded.is-focus {
+  grid-template-columns: 0 44px minmax(0, 1fr) 0;
+}
+.studio.is-embedded.is-focus .studio__side {
+  display: none;
+}
+@media (max-width: 600px) {
+  .studio.is-embedded {
+    grid-template-columns: 0 44px minmax(0, 1fr) 0;
+    grid-template-rows: auto auto minmax(180px, 1fr) auto minmax(240px, 0.8fr) 28px;
+    overflow-y: auto;
+  }
+  .studio.is-embedded .studio__palette-row {
+    grid-column: 1 / 4;
+  }
+  .studio.is-embedded .studio__palette-row :deep(.scrubber) {
+    grid-template-columns: auto minmax(0, 1fr) minmax(64px, 100px);
+    gap: var(--space-2);
+    padding-inline: var(--space-2);
+  }
+  .studio.is-embedded .studio__side {
+    grid-column: 2 / 4;
+    grid-row: 5;
+    border-top: 1px solid var(--hairline);
+  }
+  .studio.is-embedded .studio__status {
+    grid-row: 6;
+    position: sticky;
+    bottom: 0;
+    z-index: 3;
+  }
+  .studio.is-embedded .studio__side > .scene-list {
+    flex: 1;
+    height: 0;
+    min-height: 0;
+  }
+  .studio.is-embedded .studio__side:has(.scene-list:not([style*="display: none"])) > .inspector {
+    display: none;
+  }
+  .studio.is-embedded .studio__panes {
+    padding: var(--space-1);
+  }
+  .studio.is-embedded.is-focus {
+    grid-template-rows: auto auto minmax(0, 1fr) auto 0 28px;
+  }
 }
 .studio.is-embedded .studio__options {
   grid-column: 2 / 5;
@@ -1903,7 +2456,7 @@ function onKeyup(event: KeyboardEvent): void {
   border-left: 1px solid var(--hairline);
 }
 .studio.is-embedded .studio__inspector {
-  display: none;
+  display: block;
 }
 .studio.is-embedded .studio__status {
   min-width: 0;
@@ -1914,47 +2467,75 @@ function onKeyup(event: KeyboardEvent): void {
 .studio.is-embedded .studio__status-sep {
   display: none;
 }
-.studio.is-workspace-focus {
-  grid-template-columns: 0 44px minmax(0, 1fr) 0;
+@container (max-width: 232px) {
+  .studio.is-embedded .studio__side :deep(.walk-panel__sec h3),
+  .studio.is-embedded .studio__side :deep(.walk-panel__check) {
+    flex-wrap: wrap;
+  }
+  .studio.is-embedded .studio__side :deep(.ui-seg) {
+    max-width: 100%;
+    box-sizing: border-box;
+    flex-wrap: wrap;
+  }
+  .studio.is-embedded .studio__side :deep(.ui-panel__head) {
+    flex-wrap: wrap;
+    gap: var(--space-1);
+    padding: var(--space-2);
+  }
 }
-.studio.is-workspace-focus .studio__scene {
-  display: none;
+@container (max-width: 760px) {
+  .studio.is-embedded .studio__status [data-role="status"] {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .studio.is-embedded .studio__status .studio__hint {
+    display: none;
+  }
 }
-.studio__live-game {
+
+.studio__draft-label {
   position: absolute;
-  inset: 0;
+  z-index: 3;
+  box-sizing: border-box;
+  width: 240px;
+  max-width: calc(100% - 8px);
+  height: 26px;
+  padding: 4px 8px;
+  border: 1px dashed var(--action);
+  border-radius: var(--radius-sm);
+  color: var(--ink);
+  background: var(--surface-2);
+  font: var(--text-xs) / var(--space-5) var(--font-sans);
+  white-space: nowrap;
+  pointer-events: none;
 }
-.studio.is-live-game .studio__panes {
-  padding: 0;
-  transform: translateY(calc(-8px * var(--picture-zoom)));
-}
-.studio.is-live-game.is-art-idle:not(.has-reference) :deep(.studio-pane canvas) {
-  opacity: 0;
-}
-.studio.is-live-game .studio__frame {
-  background: var(--agi-0);
-}
-.studio__live-game :deep(.play-area) {
+.studio__draft-label::before {
+  content: "";
   position: absolute;
-  inset: 0;
-  overflow: hidden;
-  height: 100%;
-  --game-aspect: 8 / 5;
-  --game-ratio: 1.6;
+  left: clamp(4px, var(--draft-pointer), calc(100% - 4px));
+  bottom: 100%;
+  height: 6px;
+  border-left: 1px dashed var(--action);
 }
-.studio__live-game :deep(.play-strip) {
-  display: none;
+.studio__draft-label.is-above::before {
+  top: 100%;
+  bottom: auto;
 }
-.studio.is-live-game .studio__live-game :deep(.play-area .screen) {
-  --game-width: calc(320px * var(--picture-zoom));
-  width: calc(320px * var(--picture-zoom));
-  height: calc(200px * var(--picture-zoom));
-  max-width: none;
-  box-sizing: content-box;
+.studio__views-slider {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--ink-2);
+  font-size: var(--text-xs);
 }
-.studio__live-game :deep(.stage) {
-  min-height: 0;
-  padding: 0;
+.studio__views-slider input {
+  width: 76px;
+}
+.studio__views-slider output {
+  min-width: 3ch;
 }
 @media (max-height: 800px) {
   .studio.is-embedded :deep(.tool-rail__tool .ui-icon-btn) {

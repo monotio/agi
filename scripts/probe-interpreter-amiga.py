@@ -20,6 +20,8 @@ Subcommands:
   names     dump the embedded opcode name table (index == opcode)
   dispatch  locate action/condition dispatchers and their tables (capstone)
   hunk      dump one hunk as bytes and big-endian longwords
+  disasm    relocated m68k code, with build and hunk hashes
+  cia       census literal CIA-A port/DDR addresses in executable hunks
   census    walk every LOGIC resource, count action opcode usage
   extract   write one decompressed resource to a file
 
@@ -27,6 +29,7 @@ The census walker decodes linearly. A `quit` whose 0xff operand doubles as
 the next `if` marker (SQ1 logic 99) desyncs such a walk: counts of late
 opcodes stay reliable, stray high-byte tests are artifacts of that quirk.
 """
+import hashlib
 import argparse
 import struct
 import sys
@@ -405,6 +408,46 @@ def cmd_hunk(args):
         print(f"  +0x{off:04x}: 0x{u32(d, off):08x}")
 
 
+def cmd_disasm(args):
+    try:
+        import capstone
+    except ImportError:
+        raise SystemExit("disasm needs capstone (pip install capstone)")
+    hunks, _ = parse_hunks(args.exe)
+    h = next((h for h in hunks if h["i"] == args.index), None)
+    if h is None or h["t"] != HUNK_CODE:
+        raise SystemExit("select a CODE hunk from info")
+    print(f"executable sha256 {hashlib.sha256(args.exe.read_bytes()).hexdigest()}")
+    print(f"h{h['i']} base={h['base']:#x} sha256 "
+          f"{hashlib.sha256(h['data']).hexdigest()}")
+    data = bytearray(h["data"])
+    by_index = {item["i"]: item for item in hunks}
+    for offset, target in h["reloc32"].items():
+        struct.pack_into(">I", data, offset,
+                         u32(data, offset) + by_index[target]["base"])
+    md = capstone.Cs(capstone.CS_ARCH_M68K, capstone.CS_MODE_M68K_000)
+    end = len(data) if args.end is None else args.end
+    for ins in md.disasm(bytes(data[args.start:end]), h["base"] + args.start):
+        print(f"h{h['i']}+{ins.address - h['base']:04x} "
+              f"{ins.address:06x}: {ins.mnemonic} {ins.op_str}")
+
+
+def cmd_cia(args):
+    # Literal census only: indirect access and OS calls need separate analysis.
+    hunks, _ = parse_hunks(args.exe)
+    addresses = (0xBFE001, 0xBFE201, 0xBFE000, 0xBFE200)
+    print(f"executable sha256 {hashlib.sha256(args.exe.read_bytes()).hexdigest()}")
+    for address in addresses:
+        matches = []
+        needle = struct.pack(">I", address)
+        for h in hunks:
+            offset = h["data"].find(needle)
+            while offset >= 0:
+                matches.append(f"h{h['i']}+{offset:#x}")
+                offset = h["data"].find(needle, offset + 1)
+        print(f"{address:#x}: {', '.join(matches) if matches else 'no literal operands'}")
+
+
 def cmd_census(args):
     c = Container(args.folder)
     use, cuse, bad = {}, {}, []
@@ -454,6 +497,15 @@ def main():
     s.add_argument("exe", type=Path)
     s.add_argument("index", type=int, help="hunk index from `info`")
     s.set_defaults(fn=cmd_hunk)
+    s = sub.add_parser("disasm")
+    s.add_argument("exe", type=Path)
+    s.add_argument("index", type=int)
+    s.add_argument("--start", type=lambda v: int(v, 0), default=0)
+    s.add_argument("--end", type=lambda v: int(v, 0))
+    s.set_defaults(fn=cmd_disasm)
+    s = sub.add_parser("cia")
+    s.add_argument("exe", type=Path)
+    s.set_defaults(fn=cmd_cia)
     s = sub.add_parser("census")
     s.add_argument("folder", type=Path)
     s.set_defaults(fn=cmd_census)

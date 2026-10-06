@@ -30,6 +30,7 @@ import { createShellBridge, provideShellBridge } from "./shell/shellBridge.ts";
 import { createAiSettings, provideAiSettings } from "./settings/useAiSettings.ts";
 import { createGameLibrary, provideGameLibrary } from "./library/useGameLibrary.ts";
 import { createPresentation, providePresentation } from "./play/usePresentation.ts";
+import { readCrtAmount } from "./settings/crtPreference.ts";
 import SetupPanel from "./home/SetupPanel.vue";
 import { followEmptyProjectRoute } from "./home/emptyProjectRoute.ts";
 import StartOverNote from "./play/StartOverNote.vue";
@@ -65,11 +66,8 @@ const viewport = ref(
 watch(touchControls, (enabled) =>
   localStorage.setItem("monotio_agi.touchControls", enabled ? "on" : "off"),
 );
-const crtEnabled = ref<boolean>(
-  testMode
-    ? localStorage.getItem("monotio_agi.crt") === "on"
-    : localStorage.getItem("monotio_agi.crt") !== "off",
-);
+// Display fixtures start crisp; an explicit preference also exercises CRT.
+const crtAmount = ref(readCrtAmount(localStorage, testMode ? 0 : 1));
 
 // A 320×200 frame filled a 4:3 monitor, so its pixels stood taller than
 // wide; square pixels are the other choice. Display only: the frame, clicks
@@ -88,7 +86,7 @@ providePresentation(presentation);
 const { gpuBackend, debugOpen } = presentation;
 const playArea = useTemplateRef("playArea");
 
-watch(crtEnabled, (on) => localStorage.setItem("monotio_agi.crt", on ? "on" : "off"));
+watch(crtAmount, (amount) => localStorage.setItem("monotio_agi.crtAmount", String(amount)));
 
 function onMenuHashChange(): void {
   if (location.hash === "#create-adventure") shellBridge.openCreateSection(false);
@@ -175,6 +173,7 @@ const { exportBusy, exportRefusal } = lib;
 
 /** A phone held upright: Create is one view-only sheet instead of two docks. */
 const phone = computed(() => touchControls.value && viewport.value.height >= viewport.value.width);
+const workspacePhone = computed(() => viewport.value.width <= 600);
 /**
  * Room Studio needs a larger screen than the phone layouts give it: the touch
  * portrait and short-landscape layouts, and any window as narrow as a phone.
@@ -204,9 +203,18 @@ const shell = createShell({
 provideShell(shell);
 engine.setProjectMode(shell.mode.value);
 const creating = computed(() => state.phase === "running" && shell.mode.value === "create");
+watch(
+  () => state.phase,
+  (phase) => {
+    if (phase === "loading") {
+      // Load the surface alongside the worker. The async component owns mount and errors.
+      void import("./play/PlayArea.vue").catch(() => {});
+    }
+  },
+);
 /** CRT is a Play presentation; editing always shows the crisp frame. */
-const crtShown = computed(() => crtEnabled.value && !creating.value);
-watch(crtShown, (on) => presentation.setCrt(on));
+const crtShown = computed(() => (creating.value ? 0 : crtAmount.value));
+watch(crtShown, (amount) => presentation.setCrtAmount(amount));
 const createKeyboard = useTemplateRef("createKeyboard");
 const commands = createCommandRegistry(
   () => createKeyboard.value?.context() ?? emptyCommandContext(),
@@ -223,9 +231,13 @@ async function exportWorkspaceGame(project: boolean): Promise<void> {
 }
 watch(workspace.studio, (request) => {
   if (!request) return;
-  workspaceEditor.open(
-    request.kind === "picture" ? `picture:${request.pictureNumber}` : `view:${request.viewNumber}`,
-  );
+  const key =
+    request.kind === "picture" ? `picture:${request.pictureNumber}` : `view:${request.viewNumber}`;
+  workspaceEditor.studioRequests.value = {
+    ...workspaceEditor.studioRequests.value,
+    [key]: request,
+  };
+  workspaceEditor.open(key);
   workspace.closeStudio();
 });
 watch(
@@ -705,14 +717,14 @@ watch(
       />
       <GameHeader
         :touch-controls="touchControls"
-        :crt-enabled="crtEnabled"
+        :crt-amount="crtAmount"
         :original-aspect="originalAspect"
         :gpu-backend="gpuBackend"
         :debug-open="debugOpen"
         :export-busy="exportBusy"
         :export-refusal="exportRefusal"
         @update:touch-controls="touchControls = $event"
-        @update:crt-enabled="crtEnabled = $event"
+        @update:crt-amount="crtAmount = $event"
         @update:original-aspect="originalAspect = $event"
         @update:debug-open="debugOpen = $event"
         @trigger-key="(code) => playArea?.triggerKey(code)"
@@ -755,7 +767,7 @@ watch(
           'shell-body--no-editor': creating && !workspaceEditor.selected.value,
           'shell-body--logic': creating && workspaceEditor.kind.value === 'logic',
           'shell-body--sound': creating && workspaceEditor.kind.value === 'sound',
-          'shell-body--picture': creating && workspaceEditor.pictureLive.value,
+          'shell-body--stacked': creating && workspaceEditor.splitAxis.value === 'vertical',
           'shell-body--focus':
             creating && workspaceEditor.focus.value && !!workspaceEditor.selected.value,
           'shell-body--sheet': creating && phone,
@@ -771,76 +783,79 @@ watch(
           "
           :creating="creating"
         />
-        <Teleport
-          :to="workspaceEditor.gameHost.value ?? 'body'"
-          :disabled="
+        <PlayArea
+          v-if="state.phase === 'running'"
+          v-show="
             !creating ||
-            !workspaceEditor.pictureLive.value ||
-            workspaceEditor.focus.value ||
-            !workspaceEditor.gameHost.value
+            (!workspaceEditor.stagePaused.value &&
+              (!workspaceEditor.selected.value ||
+                (workspacePhone
+                  ? workspaceEditor.phonePlaytest.value
+                  : !workspaceEditor.focus.value)))
           "
+          ref="playArea"
+          :touch-controls="touchControls"
+          :crt-amount="crtShown"
+          :original-aspect="originalAspect"
+          :inspector-docked="creating"
         >
-          <PlayArea
-            v-if="state.phase === 'running'"
-            v-show="!creating || !workspaceEditor.focus.value || !workspaceEditor.selected.value"
-            ref="playArea"
-            :touch-controls="touchControls"
-            :crt-enabled="crtShown"
-            :original-aspect="originalAspect"
-            :inspector-docked="creating"
-          >
-            <template #stage-actions>
-              <UiToast
-                v-if="playHereFromStudio.note.value"
-                tone="warn"
-                dismissible
-                data-testid="play-here-note"
-                @dismiss="playHereFromStudio.dismiss()"
-              >
-                {{ playHereFromStudio.note.value }}
-              </UiToast>
-              <UiChip
-                v-if="creating && workspaceEditor.debugStatus.value"
-                tone="warn"
-                data-testid="workspace-debug-status"
-                >{{ workspaceEditor.debugStatus.value }}</UiChip
-              >
-              <UiChip
-                v-else-if="creating"
-                :tone="workspaceEditor.pendingAdmission.value ? 'warn' : 'ok'"
-                dot
-                data-testid="workspace-live"
-                >{{
-                  workspaceEditor.pendingAdmission.value ? VOCABULARY.waitingUpdate.label : "LIVE"
-                }}</UiChip
-              >
-              <ProjectRestartNotice v-if="creating && engine.pendingProjectRestart.value" />
-            </template>
-            <template #screen-notes>
-              <StartOverNote />
-            </template>
-            <template #strip-actions>
-              <UiButton
-                v-if="state.phase === 'running' && !creating"
-                icon="sparkles"
-                size="sm"
-                class="ask-button"
-                :class="{ 'ask-button--away': state.powerUp.open }"
-                data-testid="menu-assistant"
-                :aria-expanded="state.powerUp.open"
-                :title="VOCABULARY.agent.help"
-                :disabled="
-                  (state.powerUp.mode === 'room' && state.powerUp.open) ||
-                  state.recording.active ||
-                  state.historyView.active
-                "
-                @click="shell.toggleAsk()"
-              >
-                {{ VOCABULARY.agent.label }}
-              </UiButton>
-            </template>
-          </PlayArea>
-        </Teleport>
+          <template #stage-actions>
+            <UiToast
+              v-if="playHereFromStudio.note.value"
+              tone="warn"
+              dismissible
+              data-testid="play-here-note"
+              @dismiss="playHereFromStudio.dismiss()"
+            >
+              {{ playHereFromStudio.note.value }}
+            </UiToast>
+            <UiChip
+              v-if="creating && workspaceEditor.debugStatus.value"
+              tone="warn"
+              data-testid="workspace-debug-status"
+              >{{ workspaceEditor.debugStatus.value }}</UiChip
+            >
+            <UiChip
+              v-else-if="creating"
+              :tone="workspaceEditor.pendingAdmission.value ? 'warn' : 'ok'"
+              dot
+              data-testid="workspace-live"
+              :title="
+                workspaceEditor.pendingAdmission.value ? undefined : 'Timeline: present moment'
+              "
+              :aria-label="
+                workspaceEditor.pendingAdmission.value ? undefined : 'Timeline: present moment'
+              "
+              >{{
+                workspaceEditor.pendingAdmission.value ? VOCABULARY.waitingUpdate.label : "Now"
+              }}</UiChip
+            >
+            <ProjectRestartNotice v-if="creating && engine.pendingProjectRestart.value" />
+          </template>
+          <template #screen-notes>
+            <StartOverNote />
+          </template>
+          <template #strip-actions>
+            <UiButton
+              v-if="state.phase === 'running' && !creating"
+              icon="sparkles"
+              size="sm"
+              class="ask-button"
+              :class="{ 'ask-button--away': state.powerUp.open }"
+              data-testid="menu-assistant"
+              :aria-expanded="state.powerUp.open"
+              :title="VOCABULARY.agent.help"
+              :disabled="
+                (state.powerUp.mode === 'room' && state.powerUp.open) ||
+                state.recording.active ||
+                state.historyView.active
+              "
+              @click="shell.toggleAsk()"
+            >
+              {{ VOCABULARY.agent.label }}
+            </UiButton>
+          </template>
+        </PlayArea>
         <aside
           v-show="!creating || state.powerUp.open"
           class="shell-side"

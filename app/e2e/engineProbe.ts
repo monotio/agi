@@ -1,6 +1,21 @@
 import { expect, type Locator, type Page } from "@playwright/test";
 import type { CachedGameData } from "../src/project/gameTypes.ts";
 
+/** Reject the draft's actual background transaction, leaving its recovery journal available. */
+export async function refuseDraftWrites(page: Page, message: string): Promise<void> {
+  await page.evaluate((message) => {
+    const put = IDBObjectStore.prototype.put;
+    IDBObjectStore.prototype.put = function (...args) {
+      if (
+        this.name === "projects" &&
+        String((args[0] as { projectId?: string }).projectId).startsWith("part-drafts/")
+      )
+        throw new Error(message);
+      return put.apply(this, args);
+    };
+  }, message);
+}
+
 export interface AiConfiguration {
   provider: "anthropic" | "openai" | "stub";
   key?: string;
@@ -59,6 +74,39 @@ const EMPTY_HOOK: TextHook = {
 
 export async function textHook(page: Page): Promise<TextHook> {
   return page.evaluate((empty) => ({ ...empty, ...(window.__AGI_TEXT__ ?? {}) }), EMPTY_HOOK);
+}
+
+/** The async play surface has mounted and owns the player's keyboard. */
+export async function waitForGameInput(page: Page): Promise<void> {
+  const command = page.getByRole("textbox", { name: "Game command", exact: true });
+  await expect(command).toBeVisible();
+  await expect(command).toBeEnabled();
+  await expect(command).toBeFocused();
+  await expect.poll(async () => page.evaluate(() => window.__AGI_STATE__?.inputReady)).toBe(true);
+}
+
+/** Keyboard ownership and host activity alongside the worker heartbeat. */
+export async function gameInputProbe(page: Page) {
+  return page.evaluate(() => {
+    const state = window.__AGI_STATE__;
+    const active = document.activeElement;
+    return {
+      engine: window.__AGI_TEXT__,
+      focused: active
+        ? { tag: active.tagName, label: active.getAttribute("aria-label"), id: active.id }
+        : null,
+      phase: state?.phase,
+      inputReady: state?.inputReady,
+      inputEnabled: state?.inputEnabled,
+      waitingForKey: state?.waitingForKey,
+      prompt: state?.prompt,
+      paused: state?.paused,
+      hostRequests: state?.agentLog.filter(
+        (entry) => entry.kind === "request" || entry.kind === "response",
+      ),
+      agentTask: state?.agentTask,
+    };
+  });
 }
 
 export async function screenText(page: Page): Promise<string> {
@@ -360,25 +408,11 @@ export async function openAiSettings(page: Page): Promise<void> {
   await expect(page.getByTestId("ai-settings-dialog")).toBeVisible();
 }
 
-/**
- * Wait out the document scroll a card's scroll-into-view started: a late
- * scroll event moves the trigger and closes an open menu mid-click.
- */
-async function settleScroll(page: Page): Promise<void> {
-  await expect
-    .poll(async () => {
-      const a = await page.evaluate(() => window.scrollY);
-      await page.waitForTimeout(80);
-      return a === (await page.evaluate(() => window.scrollY));
-    })
-    .toBe(true);
-}
-
 /** Saved-game actions live in a popup outside the card's clipping boundary. */
 export async function openLibraryActions(page: Page, card: Locator): Promise<void> {
   const trigger = card.getByRole("button", { name: "Game actions", exact: true });
   await trigger.scrollIntoViewIfNeeded();
-  await settleScroll(page);
+  await trigger.click({ trial: true, timeout: 5000 });
   if ((await trigger.getAttribute("aria-expanded")) !== "true") await trigger.click();
   await expect(page.getByRole("menu", { name: "Game actions", exact: true })).toBeVisible();
 }
@@ -386,14 +420,14 @@ export async function openLibraryActions(page: Page, card: Locator): Promise<voi
 /**
  * Open a game card's action menu. Cards can sit deep in the library: the
  * trigger's scroll-into-view plus scroll-anchored layout shifts can still be
- * settling as the menu opens, and a late scroll event moves the trigger and
- * closes the menu mid-click. Wait for the document scroll to go quiet first.
+ * settling as the menu opens. The opening click checks actionability after
+ * scrolling; a second trial click repeats that browser work under load.
  */
 export async function openCardMenu(page: Page, testId: string): Promise<void> {
   const trigger = page.getByTestId(testId);
   await trigger.scrollIntoViewIfNeeded();
-  await settleScroll(page);
-  if ((await trigger.getAttribute("aria-expanded")) !== "true") await trigger.click();
+  if ((await trigger.getAttribute("aria-expanded")) !== "true")
+    await trigger.click({ timeout: 5000 });
 }
 
 /**
@@ -539,7 +573,7 @@ export async function closeWorkspaceEditor(page: Page): Promise<void> {
     .click();
 }
 
-/** Observe completed gesture publication and durable autosave. */
+/** Observe durable editor drafts and accepted project writes. */
 export async function workspaceSaved(page: Page): Promise<void> {
   await expect
     .poll(
@@ -558,14 +592,34 @@ export async function workspaceSaved(page: Page): Promise<void> {
       { intervals: [100] },
     )
     .toBe("saved");
-  await expect(page.getByTestId("workspace-saved")).toHaveText("Saved");
+  await expect(page.getByTestId("workspace-saved")).toBeVisible();
+  await expect(page.getByTestId("workspace-saved")).toHaveText(/^(?:Saved|Draft saved)$/);
   await page.evaluate(async () => {
     const probe = window as unknown as {
       __AGI_PROJECT__: { getSession(): { flush(): Promise<void> } };
     };
     await probe.__AGI_PROJECT__.getSession().flush();
   });
-  await expect(page.getByTestId("workspace-saved")).toHaveText("Saved");
+  await expect(page.getByTestId("workspace-saved")).toBeVisible();
+  await expect(page.getByTestId("workspace-saved")).toHaveText(/^(?:Saved|Draft saved)$/);
+}
+
+/** The approved storyboard replaces gesture publication with an explicit Update game. */
+export async function workspaceUpdated(page: Page, keyboard = false): Promise<void> {
+  await workspaceSaved(page);
+  const update = page.getByTestId("workspace-update");
+  if ((await update.isVisible()) && (await update.isEnabled())) {
+    const previousFocus = await page.evaluateHandle(() => document.activeElement);
+    await expect(update).toBeVisible();
+    if (keyboard) await page.keyboard.press("ControlOrMeta+Enter");
+    else await update.click();
+    await expect(page.getByTestId("workspace-updated")).toBeVisible();
+    await workspaceSaved(page);
+    await previousFocus.evaluate((element) => {
+      if (element instanceof HTMLElement && element.isConnected) element.focus();
+    });
+    await previousFocus.dispose();
+  }
 }
 
 export async function enterCreateMode(page: Page): Promise<void> {
@@ -646,4 +700,13 @@ export async function surfaceBox(
     const { x, y, width, height } = boxes[0]!;
     return { x, y, width, height };
   });
+}
+
+/** Situation hints live in the key help bubble, opened without moving game focus. */
+export async function gameHint(page: Page, id: string): Promise<Locator> {
+  const status = page.getByTestId("game-keys");
+  await expect(status).toBeVisible();
+  await status.hover();
+  await expect(page.getByTestId("game-key-help")).toBeVisible();
+  return page.getByTestId(id);
 }

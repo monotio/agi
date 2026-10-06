@@ -1687,6 +1687,7 @@ export interface HostPresentation {
 
 /** A host autosave taken apart (see Engine.autosaveImage). */
 export interface HostImage {
+  amigaRegion?: "ntsc" | "pal";
   /** The authentic save image, byte for byte what save.game writes. */
   image: Uint8Array;
   /**
@@ -1713,7 +1714,8 @@ export interface HostImage {
  * count, the pairs as block 4 encodes them, then a presence byte and optional
  * fixed-size presentation: f64 sequence, cells, u32 write stamps, and 256
  * draw records (f64 sequence and four i32 bounds). The envelope ends with a u32le
- * length and the parked-pass continuation as UTF-8 JSON (length 0: none).
+ * length and the parked-pass continuation as UTF-8 JSON (length 0: none),
+ * followed by optional UTF-8 JSON region metadata. Omission means NTSC.
  * All numbers are little-endian.
  */
 export function encodeHostImage(
@@ -1721,6 +1723,7 @@ export function encodeHostImage(
   screen: readonly ReplayPair[],
   presentation?: HostPresentation,
   continuation?: ParkedContinuation | null,
+  amigaRegion?: "ntsc" | "pal",
 ): Uint8Array {
   if (screen.length > 0xffff)
     throw new RangeError(`screen sequence has ${screen.length} pairs, more than the 65535 fit`);
@@ -1734,6 +1737,10 @@ export function encodeHostImage(
   const continuationBytes = continuation
     ? new TextEncoder().encode(JSON.stringify(continuation))
     : new Uint8Array(0);
+  const timingBytes =
+    amigaRegion === "pal"
+      ? new TextEncoder().encode(JSON.stringify({ amigaRegion }))
+      : new Uint8Array(0);
   const out = new Uint8Array(
     HOST_IMAGE_HEADER +
       image.length +
@@ -1742,7 +1749,8 @@ export function encodeHostImage(
       1 +
       (presentation ? HOST_PRESENTATION_BYTES : 0) +
       4 +
-      continuationBytes.length,
+      continuationBytes.length +
+      timingBytes.length,
   );
   for (let i = 0; i < HOST_IMAGE_MAGIC.length; i++) out[i] = HOST_IMAGE_MAGIC.charCodeAt(i);
   out[HOST_IMAGE_MAGIC.length] = HOST_IMAGE_VERSION;
@@ -1777,6 +1785,7 @@ export function encodeHostImage(
   }
   putU32(out, at, continuationBytes.length);
   out.set(continuationBytes, at + 4);
+  out.set(timingBytes, at + 4 + continuationBytes.length);
   return out;
 }
 
@@ -1846,13 +1855,14 @@ export function decodeHostImage(bytes: Uint8Array): HostImage {
     result.presentation = { cells, written, seq, draws };
   }
   const length = u32(bytes, presentationEnd);
-  if (presentationEnd + 4 + length !== bytes.length)
+  const continuationEnd = presentationEnd + 4 + length;
+  if (continuationEnd > bytes.length)
     throw new RangeError("host autosave continuation length is invalid");
   if (length > 0) {
     let parsed: unknown;
     try {
       parsed = JSON.parse(
-        new TextDecoder().decode(bytes.subarray(presentationEnd + 4, bytes.length)),
+        new TextDecoder().decode(bytes.subarray(presentationEnd + 4, continuationEnd)),
       );
     } catch {
       throw new RangeError("host autosave continuation is not valid JSON");
@@ -1864,6 +1874,19 @@ export function decodeHostImage(bytes: Uint8Array): HostImage {
         cause: error,
       });
     }
+  }
+  if (continuationEnd < bytes.length) {
+    const timing: unknown = JSON.parse(new TextDecoder().decode(bytes.subarray(continuationEnd)));
+    if (
+      timing === null ||
+      typeof timing !== "object" ||
+      Array.isArray(timing) ||
+      Object.keys(timing).length !== 1 ||
+      !("amigaRegion" in timing) ||
+      (timing.amigaRegion !== "pal" && timing.amigaRegion !== "ntsc")
+    )
+      throw new RangeError("host autosave region is invalid");
+    result.amigaRegion = timing.amigaRegion;
   }
   return result;
 }

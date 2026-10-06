@@ -29,7 +29,9 @@ ready to play in your browser.
 
 ![Adventure Department in Play with the CRT display](docs/media/play-crt-1.2.png)
 
-- **Play your own Sierra games.** **Add game** takes a ZIP or a game folder.
+- **Play your own Sierra games.** **Add game** takes a game folder, a ZIP, or its disk images.
+  Add all disks of a game together. PC sector and TeleDisk images, Amiga ADF,
+  and Apple IIgs ProDOS PO and 2MG images are supported.
   The files stay in your browser's storage. The app
   recognises the edition, picks the matching interpreter and checks that the
   game opens.
@@ -107,8 +109,15 @@ your own rooms and artwork. **Blank** opens an empty workspace. Choose
 first room. Every part of these starting games is editable.
 
 To edit a saved game, open its library card’s **Game actions → Create**.
-The workspace keeps the game running beside its editors. LOGIC has code completion,
-hover documentation, definition navigation and a Problems panel. Edits save
+The workspace keeps the game running on the stage. PICTURE opens its own canvas;
+opening another room’s PICTURE, LOGIC or VIEW visits that room. **Back to Room**
+returns to the saved moment. Unused art opens with **Make it a room**.
+Editors sit beside the stage or below it with **Stacked**. Phones switch between
+**Edit** and **Playtest**. **Update game** applies drafts together in one Undo step.
+LOGIC has code completion,
+hover documentation, definition navigation and a Problems panel. Resource names
+open their editors; flags and variables show where they are set and checked.
+**Game state** in the parts list shows these names with Rename. Edits save
 automatically; **Saved** confirms they are stored in this browser. A source error
 keeps the game on its last working build. **Undo** and
 **Redo** step across edits to every part, and **Saved** opens **History**.
@@ -163,11 +172,10 @@ it, and ask for revisions when something is off.
 **Your key and provider.** The app talks to your provider directly
 from the browser. Your key is saved in browser storage and sent only to the
 provider you choose, along with the game content each request needs. Requests
-are billed to your account; each task starts with an estimated $5 budget that
+are billed to your account; each task starts with a $5 budget that
 you can change. The agent pauses between requests when the remaining allowance
 is too small for another productive turn; one response may cross that allowance.
-Models with unverified prices ask for an allowance in requests and show spend
-as unknown. Long conversations compact their request context while keeping the
+Models with unverified prices ask for an allowance in requests. Long conversations compact their request context while keeping the
 full audit transcript. The provider's prompt cache reuses prior context at its
 lower cache-read price. What
 the agent writes comes from your provider's model. Review the story, puzzles and artwork before
@@ -178,12 +186,12 @@ sharing the game, especially with children. [Security](SECURITY.md) covers stora
 
 A running game has two modes, switched in the top bar. **Play** is the game as
 its players see it, with the rewind timeline. **Create** shows the parts list on
-the left and the same running game beside its editors. Open a PICTURE to draw
+the left and the same running game on the stage. Open a PICTURE to draw
 with the PICTURE editor’s tools, a LOGIC to edit its instructions, or a VIEW to edit its
 loops and cels. WORDS groups words by meaning, tests sentences with the game’s parser and
 keeps a local list of missed playtest commands. OBJECTS has a table editor; SOUND has a step
 grid, tracker, presets and playback, and imports MIDI and VGM. **Focus** gives an editor the
-workspace while the game keeps running.
+workspace while the game keeps running. **Done** returns to your chosen arrangement.
 Create works best on a larger screen; games play on phones too.
 
 **Trace an image** blends a dropped, pasted or chosen image over a PICTURE at
@@ -196,29 +204,30 @@ height and keeps the figure's proportions. Find frames again asks before replaci
 edited boxes; click the selected frame's dimensions to edit exact numbers. Try the
 animation on the running hero, then **Add cels** adds the frames and image in one
 History step. **Saved** confirms browser storage.
-**Generate** uses your OpenAI key and shows the model, quality, size and estimated
-cost before sending. These images autosave with History and travel in private
+**Generate** uses your OpenAI key to draw from your words in Sierra EGA style.
+Details holds the model, quality and size. One budget covers agent requests and images. These images autosave with History and travel in private
 project downloads. Public game exports carry the resulting AGI resources.
 
-Some Create edits need a fresh room or game start. **Re-enter room** runs the
-room's entry LOGIC with your changes; that LOGIC can reposition actors or change
-room state. **Restart with your changes** starts the game from the beginning,
-including its updated OBJECT list. The edit saves while the current game
-continues; **Saved** confirms browser storage, and earlier play stays on the rewind timeline.
+Editor changes save as drafts in the background. Dots mark parts waiting for
+**Update game**, which applies all changed parts together and adds one Undo step.
+The game keeps running your last update while you edit. **Update and play this room**
+runs the room's entry LOGIC with your changes. **Discard changes…** returns parts to
+that last update. **Saved** confirms browser storage for drafts; it keeps their dots.
 
 In Create, **⌘P** (Ctrl+P) opens the game’s parts and **⇧⌘P**
 (Ctrl+Shift+P) opens the command palette. Type **>** in quick open to find
 commands. **⌘B** toggles the parts list, **⌘I** opens the agent, and **⌘Enter**
-shows Play full size (use Ctrl in place of ⌘ elsewhere). **F6** and **Shift+F6**
-move between visible focus zones; **Ctrl+backtick** focuses the game. The game takes
+updates the game (use Ctrl in place of ⌘ elsewhere). **⇧⌘Enter** updates and restarts the current room. **F6** moves between
+visible focus zones from the editor; **Shift+F6** also leaves the game;
+**Ctrl+backtick** focuses the game. The game takes
 keys while its zone has focus. **Escape** closes the chooser and returns focus. **⌘K Z** toggles Focus; press
 **Escape** twice to return. Focus is remembered for each editor type.
 **⌘J** toggles the bottom panel: Problems, Variables, Watch, Call stack and
-Breakpoints. **F5** or **Debug** attaches to the running game and continues a
-stopped run. **F9** or a LOGIC gutter click toggles a breakpoint; **F10**, **F11**
+Breakpoints. **F5** in the editor attaches to the running game and continues a
+stopped run. With the game focused, **F5** saves and **F6** belongs to the game.
+**F9** or a LOGIC gutter click toggles a breakpoint; **F10**, **F11**
 and **Shift+F11** step over, into and out. **Shift+F5** stops debugging and leaves
-the game running. Stopped runs show their exact running source; live edits wait
-until Continue. **Help → Keyboard shortcuts** lists the registered commands and keys.
+the game running. Stopped runs show their exact running source; **Update game** waits for the next safe continuation point. **Help → Keyboard shortcuts** lists the registered commands and keys.
 
 <p align="center">
   <a href="docs/media/workspace-picture-1.2.png"><img src="docs/media/workspace-picture-1.2.png" width="49%" alt="Create workspace with the parts list, running Starter game and PICTURE editor"></a>
@@ -233,8 +242,11 @@ shows WORDS, SOUND, History, Play with CRT and Make a new game._
 
 - **PICTURE editor** shows a room's picture under three lenses: Art for what the
   player sees, Depth for what stands in front, and Walk for the lines that steer
-  the hero. The items list names what the picture draws. A stroke previews
-  over the running game until the gesture finishes.
+  the hero. The items list names what the picture draws. Strokes stay drafts
+  on the picture canvas until **Update game**. A dashed outline marks pending cells.
+  **Views** blends in static figures from the room's starting instructions.
+  Drag a figure with a plain-number position to draft its LOGIC placement;
+  computed and conditional placements show their cause and stay locked.
 - **Editing** works on items: click one to select it, or drag a box to select
   the items wholly inside it; drag the selection, or its points with the Point
   tool, nudge it with the arrow keys (a move stops at the picture's edge),
@@ -247,15 +259,18 @@ shows WORDS, SOUND, History, Play with CRT and Make a new game._
   The tool rail draws lines, rectangles, polygons, fills and brush strokes at
   the selected point in the draw order, and a stand-in shows whether a
   character would stand in front of the scene or behind it.
-- Completed gestures start saving through the workspace and update the running game.
+- Completed gestures save as drafts. **Update game** applies artwork and placements
+  together; **Update and play this room** starts the room from its entrance.
   Each lens locks painting on the other planes until you unlock them, while
   a whole item moves with all its planes. **Undo** steps back across parts.
 - **LOGIC** uses code intelligence, completion and diagnostics. Typing starts saving
   the source; **Saved** confirms browser storage. Errors leave the last working build running. **+ Add** guides
-  room creation, hero placement, responses, doors and sounds.
+  **Add a room**, **Place hero** with Start here or drag, a drawn **Door**,
+  **Answer a sentence**, and **Play a sound when…**.
 - **SOUND** opens beside the game. Draw the three voices and Drums on the **Grid**,
-  or type notes, tick lengths and hex volumes in the **Tracker**. Start from a preset,
-  set tempo and snap, and play a private audition with **Space**. Import MIDI type 0/1
+  or type notes, tick lengths and hex volumes in the **Tracker**. **Choose preset**
+  previews recipes and adds a new SOUND. Set tempo and snap, and play a private audition
+  with **Space**. Import MIDI type 0/1
   or SN76489 VGM 1.50/1.51 after reviewing the conversion summary; export type 1 MIDI.
   Drop music onto the editor or game to import it. **Details** exposes native ticks,
   divisors and attenuation. Musical views retain exact native values until edited.

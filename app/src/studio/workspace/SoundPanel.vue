@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import UiIcon from "../../ui/UiIcon.vue";
 import { computed, onBeforeUnmount, ref, shallowRef, useTemplateRef, watch } from "vue";
 import { VOCABULARY } from "../../../../src/vocabulary.ts";
 import type { ProfileId } from "../../../../src/runtime/profile.ts";
@@ -7,7 +8,9 @@ import {
   type SoundDocument,
   type SoundEvent,
 } from "../../../../src/sound/document.ts";
-import { applySoundPreset, SOUND_PRESETS } from "../../../../src/sound/presets.ts";
+import { applySoundPreset } from "../../../../src/sound/presets.ts";
+import { createSoundDocument } from "../../../../src/sound/document.ts";
+import SoundPicker, { type SoundChoice, type NamedSound } from "./SoundPicker.vue";
 import { createSoundPreview } from "../sound/soundPreview.ts";
 import {
   attenuationToVolume,
@@ -33,11 +36,13 @@ const props = defineProps<{
   tempo: number;
   active: boolean;
   importFile?: File | undefined;
+  sounds: readonly NamedSound[];
 }>();
 const emit = defineEmits<{
   edit: [bytes: Uint8Array, tempo: number];
   add: [bytes: Uint8Array, tempo: number];
   imported: [];
+  open: [sound: number];
 }>();
 const mode = ref("grid");
 const voice = ref(0);
@@ -156,9 +161,17 @@ function transport(): void {
   if (status.value === "playing") preview.stop();
   else preview.play();
 }
-function preset(id: string): void {
-  change((doc) => applySoundPreset(doc, id));
-  selected.value = undefined;
+const pickerOpen = ref(false);
+function chooseSound(choice: SoundChoice): void {
+  if (props.readOnly) return;
+  if (choice.preset)
+    emit(
+      "add",
+      applySoundPreset(createSoundDocument({ profileId: props.profileId }), choice.preset).encode(),
+      tempo.value,
+    );
+  else if (choice.sound !== undefined) emit("open", choice.sound);
+  pickerOpen.value = false;
 }
 function setTempo(after: number): void {
   change((doc) => {
@@ -257,7 +270,7 @@ onBeforeUnmount(() => {
           :aria-pressed="status === 'playing'"
           @click="transport"
         >
-          <span aria-hidden="true">{{ status === "playing" ? "■" : "▶" }}</span>
+          <UiIcon :name="status === 'playing' ? 'square' : 'play'" :size="16" />
         </button>
         <UiButton
           size="sm"
@@ -285,24 +298,16 @@ onBeforeUnmount(() => {
           >{{ VOCABULARY.tracker.label }}</UiButton
         >
       </div>
-      <label v-if="tracks" class="sound-preset"
-        >{{ VOCABULARY.startFrom.label }}
-        <select
-          aria-label="Start from"
-          :disabled="readOnly"
-          :title="readOnly ? 'Editing is paused in this tab' : undefined"
-          value=""
-          @change="
-            preset(value($event));
-            ($event.target as HTMLSelectElement).value = '';
-          "
-        >
-          <option value="" disabled>Choose preset</option>
-          <option v-for="entry in SOUND_PRESETS" :key="entry.id" :value="entry.id">
-            {{ entry.name }}
-          </option>
-        </select>
-      </label>
+      <UiButton
+        v-if="tracks"
+        size="sm"
+        variant="ghost"
+        :disabled="readOnly"
+        :title="readOnly ? 'Editing is paused in this tab' : undefined"
+        :aria-expanded="pickerOpen"
+        @click="pickerOpen = !pickerOpen"
+        >Choose preset</UiButton
+      >
       <UiButton
         size="sm"
         variant="ghost"
@@ -322,6 +327,14 @@ onBeforeUnmount(() => {
         @change="chooseFile"
       />
     </div>
+    <SoundPicker
+      v-if="pickerOpen"
+      class="sound-recipe-picker"
+      :sounds="sounds"
+      :profile-id="profileId"
+      :disabled="readOnly"
+      @choose="chooseSound"
+    />
     <SoundImport
       v-if="musicFile"
       :read-only="readOnly"

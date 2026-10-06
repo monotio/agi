@@ -4,7 +4,7 @@ import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import { buildView } from "../../src/view/view.ts";
 import { buildPublicGameZip } from "../src/archive/projectArchive.ts";
-import { isolateStorage, textHook, waitForCycles } from "./engineProbe.ts";
+import { gameHint, isolateStorage, textHook, waitForCycles } from "./engineProbe.ts";
 
 for (const hold of [false, true]) {
   test(`numpad directions preserve ${hold ? "held" : "toggle"} movement with numeric key values`, async ({
@@ -29,6 +29,11 @@ for (const hold of [false, true]) {
         ${hold ? "hold.key();" : ""}
       }
       if(controller(1)) {get.num("Number?",v61);display(4,0,"Number: %v61");}
+      get.dir(0,v62);display(5,0,"Direction: %v62");
+      get.posn(0,v63,v64);
+      if(lessn(v63,20) || greatern(v63,140) || lessn(v64,60) || greatern(v64,150)) {
+        position(0,80,120);
+      }
       return;`,
         { dictionary: new Map() },
       ).payload,
@@ -49,61 +54,54 @@ for (const hold of [false, true]) {
     await expect.poll(async () => (await textHook(page)).egoX).toBe(80);
     const input = page.getByTestId("input-line");
     await input.focus();
-    for (const [digit, navigation, dx, dy] of [
-      ["7", "Home", -1, -1],
-      ["9", "PageUp", 1, -1],
-      ["1", "End", -1, 1],
-      ["3", "PageDown", 1, 1],
-      ["8", "ArrowUp", 0, -1],
-      ["2", "ArrowDown", 0, 1],
-      ["4", "ArrowLeft", -1, 0],
-      ["6", "ArrowRight", 1, 0],
+    for (const [digit, navigation, direction] of [
+      ["7", "Home", 8],
+      ["9", "PageUp", 2],
+      ["1", "End", 6],
+      ["3", "PageDown", 4],
+      ["8", "ArrowUp", 1],
+      ["2", "ArrowDown", 5],
+      ["4", "ArrowLeft", 7],
+      ["6", "ArrowRight", 3],
     ] as const) {
-      const before = await textHook(page);
       const event = { key: digit, code: `Numpad${digit}`, location: 3 };
       // Num Lock on and Mac keyboards report digits, unlike the navigation-key aliases.
       await input.dispatchEvent("keydown", event);
-      // A batched cycle heartbeat may precede the worker receiving the key.
-      // Wait for the requested movement, not a fixed number of reported cycles.
+      // The game reads its actual heading. Position deltas can lose a component
+      // at the horizon, or hit an edge during a slow browser observation.
       await expect
-        .poll(
-          async () => {
-            const position = await textHook(page);
-            return [Math.sign(position.egoX - before.egoX), Math.sign(position.egoY - before.egoY)];
-          },
-          { message: `Numpad${digit} starts the requested direction` },
-        )
-        .toEqual([dx, dy]);
-      const moving = await textHook(page);
+        .poll(() => egoDirection(page), {
+          message: `Numpad${digit} starts the requested direction`,
+        })
+        .toBe(direction);
+      const moving = (await textHook(page)).cycle;
       await input.dispatchEvent("keydown", { ...event, repeat: true });
       await expect
         .poll(
           async () => {
-            const position = await textHook(page);
-            return [Math.sign(position.egoX - moving.egoX), Math.sign(position.egoY - moving.egoY)];
+            const hook = await textHook(page);
+            return hook.cycle > moving ? directionFrom(hook.rows) : null;
           },
           { message: `Numpad${digit} repeat does not stop movement` },
         )
-        .toEqual([dx, dy]);
-      const repeated = await textHook(page);
+        .toBe(direction);
+      const repeated = (await textHook(page)).cycle;
       // Releasing the same physical key must work even if Num Lock changed while held.
       await input.dispatchEvent("keyup", { ...event, key: navigation });
       if (!hold) {
         await expect
           .poll(
             async () => {
-              const position = await textHook(page);
-              return [
-                Math.sign(position.egoX - repeated.egoX),
-                Math.sign(position.egoY - repeated.egoY),
-              ];
+              const hook = await textHook(page);
+              return hook.cycle > repeated ? directionFrom(hook.rows) : null;
             },
             { message: `Numpad${digit} release preserves toggle movement` },
           )
-          .toEqual([dx, dy]);
+          .toBe(direction);
         await input.dispatchEvent("keydown", event);
         await input.dispatchEvent("keyup", event);
       }
+      await expect.poll(() => egoDirection(page)).toBe(0);
       await waitForCycles(page, 2);
       const stopped = await textHook(page);
       await waitForCycles(page, 2);
@@ -115,7 +113,8 @@ for (const hold of [false, true]) {
     await expect(input).toHaveValue("123");
     await input.fill("");
     await page.keyboard.press("F1");
-    await expect(page.getByTestId("prompt-hint")).toBeVisible();
+    await expect(await gameHint(page, "prompt-hint")).toBeVisible();
+    await page.mouse.move(0, 0);
     const permitsNumber = await input.evaluate((element) =>
       element.dispatchEvent(
         new KeyboardEvent("keydown", {
@@ -132,6 +131,16 @@ for (const hold of [false, true]) {
     await page.keyboard.press("Enter");
     await expect.poll(async () => (await textHook(page)).rows.join(" ")).toContain("Number: 19");
   });
+}
+
+function directionFrom(rows: readonly string[]): number {
+  const value = /^Direction:\s*(\d+)/.exec(rows[5] ?? "");
+  return value ? Number(value[1]) : -1;
+}
+
+async function egoDirection(page: Page): Promise<number> {
+  const hook = await textHook(page);
+  return directionFrom(hook.rows);
 }
 
 /**

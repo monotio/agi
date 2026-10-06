@@ -4,10 +4,11 @@
  * matching hostAnswer message delivers the response and resumes the pass.
  * Pure functions of the worker context — importable under Node.
  */
-import { HostWait } from "../../../src/runtime/engine.ts";
+import { Engine, HostWait } from "../../../src/runtime/engine.ts";
 import { prepareRoomPatch } from "../../../src/agent/roomPatch.ts";
 import { buildWordsTok, parseWordsTok } from "../../../src/logic/words.ts";
 import { openContainer } from "../../../src/container/container.ts";
+import { configureSessionTiming } from "./session.ts";
 import { base64ToBytes, bytesToBase64 } from "../project/bytes.ts";
 import type { HistoryCommittedPatch } from "../../../src/agent/history.ts";
 import type { HostRequestOp } from "./workerProtocol.ts";
@@ -171,7 +172,37 @@ export function createHostRequests(ctx: WorkerContext) {
         let bytes: Uint8Array | null = null;
         if (response) {
           try {
-            bytes = base64ToBytes(response);
+            const parsed: unknown = response.startsWith("{") ? JSON.parse(response) : null;
+            const region =
+              parsed !== null && typeof parsed === "object" && "amigaRegion" in parsed
+                ? parsed.amigaRegion
+                : "ntsc";
+            if (region !== "ntsc" && region !== "pal") throw new Error("Invalid saved region.");
+            const image =
+              parsed !== null && typeof parsed === "object" && "image" in parsed
+                ? parsed.image
+                : response;
+            if (typeof image !== "string") throw new Error("Invalid saved image.");
+            bytes = base64ToBytes(image);
+            // Validate on disposable state before session timing changes.
+            const candidate = new Engine(
+              openContainer(ctx.engine.containerFiles, { profile: ctx.engine.profile }),
+              {
+                print() {},
+                displayAt() {},
+                statusLine() {},
+                takeInputLine: () => null,
+                takeKeys: () => [],
+              },
+              undefined,
+              { profile: ctx.engine.profile },
+            );
+            try {
+              candidate.restoreImage(bytes);
+              ctx.engine.amigaRegion = region;
+            } catch {
+              // The original restore path reports invalid native images.
+            }
           } catch {
             bytes = null;
           }
@@ -316,6 +347,7 @@ export function createHostRequests(ctx: WorkerContext) {
     // own echo — observes the resumed state. A re-suspension (the
     // selector's next need) posts its request inside this tick.
     if (ctx.engine.hostInteractionReady) ctx.fns.tickEngine();
+    if (outcome?.restored === true) configureSessionTiming(ctx);
     // A restore's new image or a room patch's new bytes replace the run the
     // debug session pinned — rebind identity before another answer drains.
     if (outcome?.restored === true || outcome?.patch !== undefined) ctx.fns.debugSessionReplaced();

@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { testProjectId } from "../test/identity.ts";
 import {
+  gameHint,
   cacheGame,
   openDeveloperActivity,
   openLibraryActions,
@@ -43,7 +44,9 @@ test("a first visit leads with tutorial and creation while keeping import availa
   await expect(create).not.toHaveAttribute("open");
   await gallery.getByTestId("shelf-template-custom").click();
   await expect(create).toHaveAttribute("open");
-  await expect(page.getByTestId("template-custom")).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByRole("radiogroup", { name: "Starting point" })).toBeVisible();
+  await expect(page.getByRole("radio", { checked: true })).toHaveCount(0);
+  await expect(page.getByTestId("local-create-submit")).toBeHidden();
   expect(
     await create.evaluate((element) => {
       const importer = document.getElementById("open-game")!;
@@ -220,7 +223,8 @@ test("Resume shows the same saved scene and position, including after reopening 
   await page.reload();
   await expect(page.getByTestId("saved-game-gallery")).toBeVisible();
   await card.getByRole("button", { name: "Resume", exact: true }).click();
-  await expect(page.getByTestId("resume-caption")).toBeVisible();
+  await expect(await gameHint(page, "resume-caption")).toBeVisible();
+  await page.mouse.move(0, 0);
   await expect.poll(async () => (await textHook(page)).room).toBe(2);
   expect((await textHook(page)).egoX).toBeGreaterThan(spawnX + 12);
   await page.getByTestId("btn-exit").click();
@@ -275,7 +279,7 @@ test("one roomy library reflows across desktop, tablet and phone with accessible
     await page.getByTestId("hero-primary").evaluate(typography),
   );
 
-  for (const width of [1440, 1024, 768, 390]) {
+  for (const width of [1440, 1024, 768, 390] as const) {
     await page.setViewportSize({ width, height: 1000 });
     await gallery.scrollIntoViewIfNeeded();
     const bounds = await gallery.boundingBox();
@@ -298,8 +302,13 @@ test("one roomy library reflows across desktop, tablet and phone with accessible
         return { x: rect.x, y: rect.y, width: rect.width };
       }),
     );
-    const columns = { 1440: 5, 1024: 5, 768: 3, 390: 2 }[width];
-    expect(new Set(boxes.map((box) => Math.round(box.x))).size, `${width}px columns`).toBe(columns);
+    // Count the grid's own tracks: the shelf may hold fewer cards than columns.
+    const columns = { 1440: 5, 1024: 5, 768: 3, 390: 2 }[width] ?? 0;
+    const tracks = await gallery.evaluate(
+      (element) => getComputedStyle(element).gridTemplateColumns.split(" ").filter(Boolean).length,
+    );
+    expect(tracks, `${width}px columns`).toBe(columns);
+    expect(new Set(boxes.map((box) => Math.round(box.x))).size).toBeLessThanOrEqual(columns);
     expect(boxes.every((box) => box.width >= 150)).toBe(true);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
       true,

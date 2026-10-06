@@ -3,7 +3,7 @@ import { expect, type Page } from "@playwright/test";
 import { AGI_KEY, NAV_KEYS } from "../../src/runtime/keys.ts";
 import type { Action } from "../../test/speedrun/runner.ts";
 import type { ReplayObservation, ReplayBatchResult } from "../src/walkthrough/replay.ts";
-import { isolateStorage, revealFoldedBoot } from "./engineProbe.ts";
+import { gameHint, isolateStorage, revealFoldedBoot } from "./engineProbe.ts";
 
 const KEYS: Record<number, string> = {
   [AGI_KEY.BACKSPACE]: "Backspace",
@@ -144,7 +144,8 @@ export class BrowserReplay {
   async text(text: string): Promise<void> {
     const before = await this.read();
     if (before.blocked && before.blocked !== "waitkey")
-      await expect(this.page.getByTestId("prompt-hint")).toBeVisible();
+      await expect(await gameHint(this.page, "prompt-hint")).toBeVisible();
+    await this.page.mouse.move(0, 0);
     const input = this.page.getByTestId("input-line");
     await input.fill(text);
     if (this.phone)

@@ -636,17 +636,11 @@ test("a database open that finishes after being blocked closes its abandoned con
       },
     },
   });
-  const modulePath = "../src/project/gameStorage.ts?blocked-open";
+  const modulePath = "../src/project/gameBodyStorage.ts?blocked-open";
   const fresh = await import(modulePath);
-  assert.equal(
-    await fresh.saveAuthoredGame("blocked", {
-      title: "Blocked",
-      provider: "stub",
-      model: "offline-stub",
-      files: { "VOL.0": Uint8Array.of(1) },
-      words: [],
-    }),
-    false,
+  await assert.rejects(
+    fresh.bodyTransaction("readonly", (store: IDBObjectStore) => store.getAllKeys()),
+    /open in another tab/,
   );
   request.onsuccess?.();
   assert.equal(closed, 1);
@@ -676,7 +670,7 @@ test("a database a newer app upgraded asks for a reload instead of a raw Version
       },
     },
   });
-  const modulePath = "../src/project/gameStorage.ts?newer-database";
+  const modulePath = "../src/project/gameBodyStorage.ts?newer-database";
   const fresh = await import(modulePath);
   await assert.rejects(
     fresh.bodyTransaction("readonly", (store: IDBObjectStore) => store.getAllKeys()),

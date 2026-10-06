@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./test.ts";
 import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import { buildView } from "../../src/view/view.ts";
@@ -82,7 +82,6 @@ test("worker honors v10 pace while modal keys and pause remain responsive", asyn
           while (performance.now() < deadline) {
             const state = await read();
             if (predicate(state)) return state;
-            await new Promise((resolve) => setTimeout(resolve, 10));
           }
           throw new Error(`Worker state deadline exceeded: ${errors.join("; ")}`);
         };

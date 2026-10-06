@@ -19,6 +19,8 @@
  * scaling can beat against it into moiré, and beams merge into a flat field
  * when a scanline gets too few device pixels to resolve.
  */
+import { watch } from "vue";
+import { layoutDragging } from "../play/layoutDrag.ts";
 import * as THREE from "three";
 import { MeshBasicNodeMaterial, WebGPURenderer, type Node } from "three/webgpu";
 import {
@@ -47,6 +49,7 @@ import {
   vec3,
 } from "three/tsl";
 import { FRAME_HEIGHT, FRAME_WIDTH } from "../render/composite.ts";
+import { CRT_GLASS, CRT_STAGES } from "./crtAmount.ts";
 import { CRT_GLOW_HEIGHT, CRT_GLOW_WIDTH, crtGlow } from "./crtGlow.ts";
 import { pickThroughLayers, type StagePick } from "../inspector/explodedPick.ts";
 
@@ -73,13 +76,7 @@ export type { StagePick };
 
 /** The CRT tube's character. Sigmas are in frame pixels. */
 const CRT = {
-  /** Horizontal bow at the top and bottom edges, and vertical at the sides. */
-  curveX: 0.035,
-  curveY: 0.045,
-  /** Black border inside the glass, so the bowed edges never cut the frame. */
-  overscan: 0.04,
-  /** Corner radius as a fraction of the shorter side. */
-  cornerRadius: 0.03,
+  ...CRT_GLASS,
   /** Signal softness along a scanline. */
   signalSigma: 0.39,
   /** Beam height for black and for full white. */
@@ -135,7 +132,7 @@ export class AgiStage {
   private frameUploaded = false;
   private readonly glowRgba = new Uint8Array(CRT_GLOW_WIDTH * CRT_GLOW_HEIGHT * 4);
   private readonly glowTexture: THREE.DataTexture;
-  private crtOn = true;
+  private readonly amount = uniform(1).setName("crtAmount");
   /** Canvas size in device pixels. */
   private readonly outSize = uniform(new THREE.Vector2(FRAME_WIDTH * 2, FRAME_HEIGHT * 2));
   /** Device pixels per CSS pixel, capped at 2. */
@@ -181,6 +178,8 @@ export class AgiStage {
   private readonly vec2Tmp = new THREE.Vector2();
   private parallaxRaf: number | null = null;
 
+  private readonly stopLayoutWatch: () => void;
+
   private constructor(renderer: WebGPURenderer, isWebGpu: boolean, canvas: HTMLCanvasElement) {
     this.renderer = renderer;
     this.isWebGpu = isWebGpu;
@@ -188,6 +187,13 @@ export class AgiStage {
     this.observer =
       typeof ResizeObserver === "undefined" ? null : new ResizeObserver(() => this.fit(canvas));
     this.observer?.observe(canvas);
+    this.stopLayoutWatch = watch(
+      layoutDragging,
+      (dragging) => {
+        if (!dragging) this.fit(canvas);
+      },
+      { flush: "post" },
+    );
     this.texture = new THREE.DataTexture(this.rgba, FRAME_WIDTH, FRAME_HEIGHT);
     this.texture.magFilter = THREE.NearestFilter;
     this.texture.minFilter = THREE.NearestFilter;
@@ -211,7 +217,7 @@ export class AgiStage {
     const focusLevel = this.focusLevel;
     const wakeLevel = this.wakeLevel;
     /** Distance in device pixels outside a rounded rectangle (negative inside). */
-    const edgeDistance = (point: Node<"vec2">, cornerRadius: number) => {
+    const edgeDistance = (point: Node<"vec2">, cornerRadius: number | Node<"float">) => {
       const px = point.mul(outSize);
       const half = outSize.mul(0.5);
       const radius = min(outSize.x, outSize.y).mul(cornerRadius);
@@ -221,12 +227,14 @@ export class AgiStage {
         .sub(radius);
     };
     /** The keyboard light along the inside of an edge; `spread` scales its glow. */
-    const rimLight = (distance: Node<"float">, spread: number) => {
+    const rimLight = (distance: Node<"float">, spread: Node<"float">) => {
       const inside = max(distance.negate(), 0.0).div(dpr);
       const line = float(1.0)
         .sub(smoothstep(0.0, ATTENTION.line, inside))
         .mul(ATTENTION.lineStrength);
-      const glow = exp(inside.div(-ATTENTION.glow * spread)).mul(ATTENTION.glowStrength * spread);
+      const glow = exp(inside.div(spread.mul(-ATTENTION.glow))).mul(
+        spread.mul(ATTENTION.glowStrength),
+      );
       return vec3(...ATTENTION.rim)
         .mul(line.add(glow))
         .mul(focusLevel);
@@ -239,31 +247,33 @@ export class AgiStage {
       const sampleUv = vec2(p.x, float(1.0).sub(p.y));
       const picture = texture(frame, sampleUv).rgb.mul(wakeLevel);
       // The crisp frame has no border, so its glow stays close to the edge.
-      return picture.add(rimLight(edgeDistance(p, 0.0), 0.5));
+      return picture.add(rimLight(edgeDistance(p, 0.0), float(0.5)));
     })();
 
+    const crtAmount = this.amount;
     this.crtMaterial = new MeshBasicNodeMaterial();
     this.crtMaterial.colorNode = Fn(() => {
+      const phosphorAmount = smoothstep(...CRT_STAGES.phosphor, crtAmount);
+      const lightAmount = smoothstep(...CRT_STAGES.light, crtAmount);
+      const glassAmount = smoothstep(...CRT_STAGES.glass, crtAmount);
+      const overscan = glassAmount.mul(CRT.overscan);
       // Curved glass: each axis bows with the other's distance from the
       // centre, as a tube's face does. Quad UV has its origin bottom-left.
       const c = uv().sub(0.5).mul(2.0);
       const warped = vec2(
-        c.x.mul(float(1.0).add(c.y.mul(c.y).mul(CRT.curveX))),
-        c.y.mul(float(1.0).add(c.x.mul(c.x).mul(CRT.curveY))),
-      ).mul(1 + CRT.overscan);
+        c.x.mul(float(1.0).add(c.y.mul(c.y).mul(glassAmount.mul(CRT.curveX)))),
+        c.y.mul(float(1.0).add(c.x.mul(c.x).mul(glassAmount.mul(CRT.curveY)))),
+      ).mul(overscan.add(1));
       const q = warped.mul(0.5).add(0.5);
 
       // Rounded-rectangle edge of the visible tube face, antialiased over
       // one device pixel.
-      const edge = edgeDistance(q, CRT.cornerRadius);
+      const edge = edgeDistance(q, glassAmount.mul(CRT.cornerRadius));
       const face = clamp(float(0.5).sub(edge), 0.0, 1.0);
 
       // Keep the complete rectangular frame inside the rounded glass. The
       // overscan belongs to this black border, including the bowed corners.
-      const frameUv = q
-        .sub(0.5)
-        .mul(1 + 2 * CRT.overscan)
-        .add(0.5);
+      const frameUv = q.sub(0.5).mul(overscan.mul(2).add(1)).add(0.5);
       const frameFace = clamp(float(0.5).sub(edgeDistance(frameUv, 0.0)), 0.0, 1.0);
       // Source position in frame pixels, rows counted from the top.
       const sx = frameUv.x.mul(FRAME_WIDTH);
@@ -298,7 +308,7 @@ export class AgiStage {
         const sigma = mix(
           float(CRT.mergedSigma),
           mix(float(CRT.darkSigma), float(CRT.brightSigma), sqrt(luma)),
-          resolved,
+          resolved.mul(phosphorAmount),
         );
         const dy = line.add(0.5).sub(sy);
         const profile = exp(dy.mul(dy).div(sigma.mul(sigma).mul(-2.0))).div(sigma.mul(2.5066));
@@ -313,7 +323,9 @@ export class AgiStage {
       const sub = mod(device.x, 3.0);
       const triad = floor(device.x.div(3.0));
       const fine = step(1.5, dpr);
-      const strength = mix(float(CRT.maskStrengthLow), float(CRT.maskStrength), fine);
+      const strength = mix(float(CRT.maskStrengthLow), float(CRT.maskStrength), fine).mul(
+        phosphorAmount,
+      );
       const lit = float(1.0);
       const dim = float(1.0).sub(strength);
       const phosphor = vec3(
@@ -322,24 +334,34 @@ export class AgiStage {
         select(sub.greaterThanEqual(2.0), lit, dim),
       );
       const slotRow = mod(device.y.add(mod(triad, 2.0).mul(2.0)), 4.0);
-      const slotGap = step(2.5, slotRow).mul(fine).mul(CRT.slotGap);
+      const slotGap = step(2.5, slotRow).mul(fine).mul(phosphorAmount).mul(CRT.slotGap);
       const mask = phosphor.mul(float(1.0).sub(slotGap));
       // Lift the average back to the frame's brightness.
       const maskMean = float(1.0)
         .add(dim.mul(2.0))
         .div(3.0)
-        .mul(float(1.0).sub(fine.mul(CRT.slotGap / 4)));
+        .mul(float(1.0).sub(fine.mul(phosphorAmount).mul(CRT.slotGap / 4)));
 
       // Halation: the glass scatters every phosphor's light a little and
       // the brightest ones more.
       const scattered = texture(glow, vec2(frameUv.x, float(1.0).sub(frameUv.y))).rgb;
       const halation = scattered
         .mul(CRT.halation)
-        .add(scattered.sub(CRT.glowThreshold).max(0.0).mul(CRT.glow));
+        .add(scattered.sub(CRT.glowThreshold).max(0.0).mul(CRT.glow))
+        .mul(lightAmount);
 
-      const vignette = float(1.0).sub(dot(c, c).mul(CRT.vignette));
-      const tube = beams.mul(mask).div(maskMean).add(halation).mul(vignette).mul(wakeLevel);
-      return tube.mul(frameFace).add(rimLight(edge, 1)).mul(face);
+      const vignette = float(1.0).sub(dot(c, c).mul(lightAmount).mul(CRT.vignette));
+      const crisp = texture(frame, vec2(frameUv.x, float(1.0).sub(frameUv.y))).rgb;
+      const signal = select(
+        phosphorAmount.greaterThanEqual(1),
+        beams,
+        mix(crisp, beams, phosphorAmount),
+      );
+      const tube = signal.mul(mask).div(maskMean).add(halation).mul(vignette).mul(wakeLevel);
+      return tube
+        .mul(frameFace)
+        .add(rimLight(edge, mix(0.5, 1, glassAmount)))
+        .mul(face);
     })();
 
     this.quad = new THREE.Mesh(this.geometry, this.crtMaterial);
@@ -725,12 +747,16 @@ export class AgiStage {
     step(start);
   }
 
-  /** Enable or disable the CRT pass. */
-  set crt(on: boolean) {
+  /** The material reads this single amount uniform; Off uses the flat pass. */
+  get crtAmount(): number {
+    return this.amount.value;
+  }
+
+  set crtAmount(amount: number) {
     if (this.disposed) return;
-    this.crtOn = on;
-    this.quad.material = on ? this.crtMaterial : this.flatMaterial;
-    if (on) this.updateGlow();
+    this.amount.value = Number.isFinite(amount) ? Math.min(1, Math.max(0, amount)) : 0;
+    this.quad.material = this.amount.value > 0 ? this.crtMaterial : this.flatMaterial;
+    if (this.amount.value > CRT_STAGES.light[0]) this.updateGlow();
     // Static rooms and paused games may not emit another frame. Apply the
     // display setting immediately using the texture already on the GPU.
     this.renderPass();
@@ -766,11 +792,19 @@ export class AgiStage {
 
   /** Match the backing store to the displayed size in device pixels with a max DPR cap. */
   private fit(canvas: HTMLCanvasElement): void {
-    if (this.disposed) return;
+    if (this.disposed || layoutDragging.value) return;
     const rawDpr = typeof devicePixelRatio === "number" ? devicePixelRatio : 1;
     const dpr = Math.min(Math.max(1, rawDpr), 2);
     const width = Math.max(1, Math.round((canvas.clientWidth || FRAME_WIDTH * 2) * dpr));
     const height = Math.max(1, Math.round((canvas.clientHeight || FRAME_HEIGHT * 2) * dpr));
+    if (
+      this.outSize.value.x === width &&
+      this.outSize.value.y === height &&
+      this.dpr.value === dpr &&
+      canvas.width === width &&
+      canvas.height === height
+    )
+      return;
     this.renderer.setSize(width, height, false);
     this.outSize.value.set(width, height);
     this.dpr.value = dpr;
@@ -778,12 +812,24 @@ export class AgiStage {
     if (this.scene.children.length) this.renderPass();
   }
 
-  static async create(canvas: HTMLCanvasElement): Promise<AgiStage | null> {
-    const attempts: { forceWebGL: boolean }[] = [{ forceWebGL: false }, { forceWebGL: true }];
+  static async create(
+    canvas: HTMLCanvasElement,
+    context?: WebGL2RenderingContext,
+  ): Promise<AgiStage | null> {
+    // The stage moves between Play and picture tools. Keep a stationary
+    // WebGL frame readable after that move, including WebKit's compositor.
+    context ??=
+      typeof navigator !== "undefined" && !navigator.gpu
+        ? (canvas.getContext("webgl2", { antialias: false, preserveDrawingBuffer: true }) ??
+          undefined)
+        : undefined;
+    const attempts: { forceWebGL: boolean }[] = context
+      ? [{ forceWebGL: true }]
+      : [{ forceWebGL: false }, { forceWebGL: true }];
     for (const { forceWebGL } of attempts) {
       let renderer: WebGPURenderer | null = null;
       try {
-        renderer = new WebGPURenderer({ canvas, antialias: false, forceWebGL });
+        renderer = new WebGPURenderer({ canvas, antialias: false, forceWebGL, context });
         await renderer.init();
         const gpu =
           !forceWebGL &&
@@ -791,7 +837,13 @@ export class AgiStage {
         return new AgiStage(renderer, gpu, canvas);
       } catch {
         try {
-          renderer?.dispose();
+          // dispose() restarts initialization through setAnimationLoop on a
+          // failed renderer, leaving a rejected promise outside its return value.
+          if (renderer?.initialized) await renderer.dispose();
+          else {
+            const backend = renderer?.backend as { dispose?: () => Promise<void> } | undefined;
+            await backend?.dispose?.();
+          }
         } catch {
           // fall through to next backend
         }
@@ -821,7 +873,7 @@ export class AgiStage {
     this.rgba.set(frame);
     this.frameUploaded = true;
     this.texture.needsUpdate = true;
-    if (this.crtOn) this.updateGlow();
+    if (this.amount.value > CRT_STAGES.light[0]) this.updateGlow();
     if (immediate || typeof requestAnimationFrame === "undefined") {
       if (this.pendingRaf !== null && typeof cancelAnimationFrame !== "undefined") {
         cancelAnimationFrame(this.pendingRaf);
@@ -864,6 +916,7 @@ export class AgiStage {
       this.pendingRaf = null;
     }
     this.observer?.disconnect();
+    this.stopLayoutWatch();
     this.scene.remove(this.quad);
     if (this.explodedGroup) this.scene.remove(this.explodedGroup);
     this.explodedGeometry?.dispose();
@@ -879,7 +932,9 @@ export class AgiStage {
     this.texture.dispose();
     this.glowTexture.dispose();
     try {
-      this.renderer.dispose();
+      void this.renderer.dispose().catch(() => {
+        // A failed backend can also reject asynchronous teardown.
+      });
     } catch {
       // safe teardown
     }

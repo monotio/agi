@@ -5,7 +5,7 @@ import { assembleLogic } from "../../src/logic/assembler.ts";
 import { buildView } from "../../src/view/view.ts";
 import { buildObjectFile } from "../../src/agent/agentState.ts";
 import { buildPublicGameZip } from "../src/archive/projectArchive.ts";
-import { isolateStorage, textHook, waitForCycles } from "./engineProbe.ts";
+import { gameHint, isolateStorage, textHook, waitForCycles } from "./engineProbe.ts";
 
 test.use({ hasTouch: true, viewport: { width: 390, height: 844 } });
 
@@ -106,7 +106,8 @@ test("touch function keys cannot insert characters into a string prompt", async 
   const pad = page.getByTestId("touch-controls");
   await pad.getByText("Keys", { exact: true }).tap();
   await pad.getByRole("button", { name: "F1", exact: true }).tap();
-  await expect(page.getByTestId("prompt-hint")).toBeVisible();
+  await expect(await gameHint(page, "prompt-hint")).toBeVisible();
+  await page.mouse.move(0, 0);
   const input = page.getByTestId("input-line");
   await input.fill("Ada");
   await pad.getByRole("button", { name: "F2", exact: true }).tap();
@@ -214,12 +215,14 @@ test("phone text input answers string and numeric prompts without keydown", asyn
   const pad = page.getByTestId("touch-controls");
   await pad.getByText("Keys", { exact: true }).tap();
   await pad.getByRole("button", { name: "F1", exact: true }).tap();
-  await expect(page.getByTestId("prompt-hint")).toBeVisible();
+  await expect(await gameHint(page, "prompt-hint")).toBeVisible();
+  await page.mouse.move(0, 0);
   await page.getByTestId("input-line").fill("Rosella");
   await pad.getByRole("button", { name: "Enter", exact: true }).tap();
   await expect.poll(async () => (await textHook(page)).rows.join(" ")).toContain("Name: Rosella");
   await pad.getByRole("button", { name: "F1", exact: true }).tap();
-  await expect(page.getByTestId("prompt-hint")).toBeVisible();
+  await expect(await gameHint(page, "prompt-hint")).toBeVisible();
+  await page.mouse.move(0, 0);
   const input = page.getByTestId("input-line");
   await input.dispatchEvent("compositionstart", { data: "" });
   await input.fill("Graham");
@@ -227,15 +230,18 @@ test("phone text input answers string and numeric prompts without keydown", asyn
   await pad.getByRole("button", { name: "Enter", exact: true }).tap();
   await expect.poll(async () => (await textHook(page)).rows.join(" ")).toContain("Name: Graham");
   await pad.getByRole("button", { name: "F2", exact: true }).tap();
-  await expect(page.getByTestId("prompt-hint")).toBeVisible();
+  await expect(await gameHint(page, "prompt-hint")).toBeVisible();
+  await page.mouse.move(0, 0);
   await page.getByTestId("input-line").fill("42");
   await pad.getByRole("button", { name: "Enter", exact: true }).tap();
   await expect.poll(async () => (await textHook(page)).rows.join(" ")).toContain("Number: 42");
   await pad.getByRole("button", { name: "F1", exact: true }).tap();
-  await expect(page.getByTestId("prompt-hint")).toBeVisible();
+  await expect(await gameHint(page, "prompt-hint")).toBeVisible();
+  await page.mouse.move(0, 0);
   await page.getByTestId("input-line").fill("Cancel me");
   await pad.getByRole("button", { name: "Esc", exact: true }).tap();
-  await expect(page.getByTestId("prompt-hint")).toBeHidden();
+  await expect(await gameHint(page, "prompt-hint")).toBeHidden();
+  await page.mouse.move(0, 0);
 });
 
 test("touch pad exposes all eight walking directions", async ({ page }) => {
@@ -469,7 +475,8 @@ test("cancelling a native save description leaves the slot empty", async ({ page
   await pad.getByRole("button", { name: "F7", exact: true }).tap();
   await expect.poll(async () => (await textHook(page)).modal).toBe("save");
   await pad.getByRole("button", { name: "Enter", exact: true }).tap();
-  await expect(page.getByTestId("prompt-hint")).toBeVisible();
+  await expect(await gameHint(page, "prompt-hint")).toBeVisible();
+  await page.mouse.move(0, 0);
   await expect
     .poll(async () => (await textHook(page)).rows.join(" "))
     .toContain("Describe this saved game:");
@@ -513,7 +520,8 @@ test("touch inventory selects and cancels, and save restores carried items and v
   await pad.getByRole("button", { name: "F7", exact: true }).tap();
   await expect.poll(async () => (await textHook(page)).modal).toBe("save");
   await pad.getByRole("button", { name: "Enter", exact: true }).tap();
-  await expect(page.getByTestId("prompt-hint")).toBeVisible();
+  await expect(await gameHint(page, "prompt-hint")).toBeVisible();
+  await page.mouse.move(0, 0);
   await page.getByTestId("input-line").fill("Before change");
   await pad.getByRole("button", { name: "Enter", exact: true }).tap();
   await expect.poll(async () => (await textHook(page)).rows.join(" ")).toContain("Save in slot 1?");
@@ -525,7 +533,8 @@ test("touch inventory selects and cancels, and save restores carried items and v
   await expect.poll(async () => (await textHook(page)).modal).toBe("save");
   await pad.getByRole("button", { name: "Navigate south", exact: true }).tap();
   await pad.getByRole("button", { name: "Enter", exact: true }).tap();
-  await expect(page.getByTestId("prompt-hint")).toBeVisible();
+  await expect(await gameHint(page, "prompt-hint")).toBeVisible();
+  await page.mouse.move(0, 0);
   await page.getByTestId("input-line").fill("After change");
   await pad.getByRole("button", { name: "Enter", exact: true }).tap();
   await expect.poll(async () => (await textHook(page)).rows.join(" ")).toContain("Save in slot 2?");
@@ -561,7 +570,8 @@ test("touch keys navigate game menus and preserve raw text-screen answers", asyn
   await pad.getByRole("button", { name: "F3", exact: true }).tap();
   await expect.poll(async () => (await textHook(page)).modal).toBe("menu");
   await pad.getByRole("button", { name: "Enter", exact: true }).tap();
-  await expect(page.getByTestId("prompt-hint")).toBeVisible();
+  await expect(await gameHint(page, "prompt-hint")).toBeVisible();
+  await page.mouse.move(0, 0);
   await pad.getByRole("button", { name: "Esc", exact: true }).tap();
   await pad.getByRole("button", { name: "F4", exact: true }).tap();
   await expect.poll(async () => (await textHook(page)).modal).toBe("print");
@@ -604,7 +614,8 @@ for (const completion of ["touch Enter", "touch Esc", "native form submit"] as c
     await input.fill("look");
     await waitForCycles(page, 2);
     await page.keyboard.press("F1");
-    await expect(page.getByTestId("prompt-hint")).toBeVisible();
+    await expect(await gameHint(page, "prompt-hint")).toBeVisible();
+    await page.mouse.move(0, 0);
     await input.fill("Rosella");
     if (completion === "native form submit") {
       await input.evaluate((element) => (element as HTMLInputElement).form!.requestSubmit());
@@ -614,7 +625,8 @@ for (const completion of ["touch Enter", "touch Esc", "native form submit"] as c
         .getByRole("button", { name: completion === "touch Enter" ? "Enter" : "Esc", exact: true })
         .tap();
     }
-    await expect(page.getByTestId("prompt-hint")).toBeHidden();
+    await expect(await gameHint(page, "prompt-hint")).toBeHidden();
+    await page.mouse.move(0, 0);
     await expect(input).toHaveValue("look");
     await input.focus();
     await input.evaluate((element) => {
@@ -703,8 +715,10 @@ test("a text-screen string prompt shows answer instructions and accepts touch in
   await pad.getByRole("button", { name: "F5", exact: true }).tap();
   await expect.poll(async () => (await textHook(page)).textMode).toBe(true);
   await pad.getByRole("button", { name: "F1", exact: true }).tap();
-  await expect(page.getByTestId("prompt-hint")).toBeVisible();
-  await expect(page.getByTestId("text-mode-hint")).toBeHidden();
+  await expect(await gameHint(page, "prompt-hint")).toBeVisible();
+  await page.mouse.move(0, 0);
+  await expect(await gameHint(page, "text-mode-hint")).toBeHidden();
+  await page.mouse.move(0, 0);
   await page.getByTestId("input-line").fill("Player");
   await pad.getByRole("button", { name: "Enter", exact: true }).tap();
   await expect.poll(async () => (await textHook(page)).rows.join(" ")).toContain("Name: Player");

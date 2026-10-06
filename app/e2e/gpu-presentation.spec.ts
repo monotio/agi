@@ -6,9 +6,6 @@ import { assembleLogic } from "../../src/logic/assembler.ts";
 import { buildView } from "../../src/view/view.ts";
 import { textHook } from "./engineProbe.ts";
 
-// Use native WebGPU on macOS; CI also exercises the WebGL2 fallback.
-test.use({ headless: process.platform !== "darwin" });
-
 test("saved game keeps its message visible through resize, then changes rooms and draws ego", async ({
   page,
 }) => {
@@ -112,20 +109,14 @@ test("saved game keeps its message visible through resize, then changes rooms an
   await expect.poll(coloredPixels).toBeGreaterThan(1000);
   await page.screenshot({ path: test.info().outputPath("gpu-message-room-arrival.png") });
 
-  // Test that CRT shader can be toggled on and off via settings
+  // The stepped control previews while the game remains visible.
   await page.getByTestId("settings-menu").click();
-  const crtToggle = page.getByTestId("toggle-crt");
-  await expect(crtToggle).toBeVisible();
-  // By default in testMode, CRT is off
-  await expect(crtToggle).toHaveAttribute("aria-checked", "false");
-
-  // Toggle CRT ON and verify shaded pixels render
-  await crtToggle.click();
-  await expect(crtToggle).toHaveAttribute("aria-checked", "true");
+  const crtSlider = page.getByRole("slider", { name: "CRT", exact: true });
+  await expect(crtSlider).toBeVisible();
+  await crtSlider.fill("1");
+  await expect(crtSlider).toHaveValue("1");
   await expect.poll(coloredPixels).toBeGreaterThan(1000);
-
-  // Toggle CRT back OFF
-  await crtToggle.click();
-  await expect(crtToggle).toHaveAttribute("aria-checked", "false");
+  await crtSlider.press("Home");
+  await expect(crtSlider).toHaveValue("0");
   await expect.poll(coloredPixels).toBeGreaterThan(1000);
 });

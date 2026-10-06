@@ -8,6 +8,7 @@ import {
   screenText,
   textHook,
   workspaceSaved,
+  workspaceUpdated,
 } from "./engineProbe.ts";
 import { blockProviders, prepareIsolatedPage } from "./logicDebugShared.ts";
 import { expect, reviewShot, test } from "./test.ts";
@@ -99,14 +100,21 @@ return;
     await openLibraryActions(page, card);
     await page.getByTestId("edit-library-game").click();
     await expect(page.getByTestId("parts-list")).toBeVisible();
-    await replaceDocument(page, "words", JSON.stringify(words, null, 2));
+    if (kind === "boilerplate") {
+      await expect.poll(async () => (await textHook(page)).modal).toBe("print");
+      await page.locator(".screen").click();
+      await page.keyboard.press("Enter");
+      await expect.poll(async () => (await textHook(page)).modal).toBe(null);
+    }
+    await replaceDocument(page, "words", JSON.stringify(words, null, 2), false);
     await replaceDocument(
       page,
       "inventory",
       JSON.stringify([{ name: "bronze relic", startingRoom: 1 }], null, 2),
+      false,
     );
-    await replaceDocument(page, "logic:1", source);
-    await workspaceSaved(page);
+    await replaceDocument(page, "logic:1", source, false);
+    await workspaceUpdated(page);
     await reviewShot(page, `manual-inventory-${kind}-saved`);
     const kept = await storedProject(page, title);
     expect(kept.documents["logic:1"]).toBe(source);

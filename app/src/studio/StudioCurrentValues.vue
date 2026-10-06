@@ -1,19 +1,20 @@
 <script setup lang="ts">
 import { VOCABULARY } from "../../../src/vocabulary.ts";
-import { computed, ref, useTemplateRef } from "vue";
+import { computed, ref, useTemplateRef, watch } from "vue";
 import { priorityForY } from "../../../src/runtime/priority.ts";
 import { EGA_COLOUR_NAMES } from "../../../src/studio/sceneGroups.ts";
 import UiButton from "../ui/UiButton.vue";
 import UiExplain from "../ui/UiExplain.vue";
 import StudioValuePicker from "./StudioValuePicker.vue";
-import { depthValuesLocked, LOCKED_PLANES, lockedPlanes, type LensUnlocks } from "./studioLocks.ts";
+import { LOCKED_PLANES, lockedPlanes, type LensUnlocks } from "./studioLocks.ts";
 import { explain } from "./studioTerms.ts";
+import type { PaletteAction, PaletteValues } from "./useStudioPalette.ts";
 import { DEFAULT_BAND, type CurrentValues } from "./studioTools.ts";
 import { CONTROL_VALUES, patternOn, priorityMeaning, type StudioLens } from "./studioView.ts";
 
 /**
- * The values new shapes draw with, under the tool rail: an Art swatch and a
- * Depth swatch, each named under it and opening its picker. A plane the lens
+ * The tool rail's Art and Depth swatches set new drawing values, or recolour
+ * the selection in its current lens. Each swatch opens its picker. A plane the lens
  * locks says so, with Unlock for now; the Walk lens picks among the four walk
  * lines, the Depth lens can match the band under the cursor. The picker opens to the
  * rail's left, over the Scene list and away from the picture, when that
@@ -23,11 +24,15 @@ const {
   lens,
   unlocks,
   values,
+  paletteAction,
+  frozen,
   cursorY = undefined,
 } = defineProps<{
   lens: StudioLens;
   unlocks: LensUnlocks;
-  values: CurrentValues;
+  values: PaletteValues;
+  paletteAction: PaletteAction;
+  frozen: boolean;
   cursorY?: number | undefined;
 }>();
 const emit = defineEmits<{
@@ -36,6 +41,20 @@ const emit = defineEmits<{
 }>();
 
 const open = ref<"visual" | "priority">();
+watch(
+  () => [paletteAction, lens, frozen],
+  () => {
+    open.value = undefined;
+  },
+);
+const target = computed(() => (paletteAction === "recolour" ? "selection" : "new shapes"));
+function unavailable(plane: "visual" | "priority"): boolean {
+  return (
+    frozen ||
+    paletteAction === "hint" ||
+    (paletteAction === "recolour" && (plane === "visual" ? lens !== "art" : lens === "art"))
+  );
+}
 const locked = computed(() => lockedPlanes(lens, unlocks));
 const lockNote = (plane: "visual" | "priority"): string =>
   `${LOCKED_PLANES[plane]}. New shapes leave ${plane === "visual" ? "it as it is" : "them as they are"}.`;
@@ -43,16 +62,21 @@ function unlock(plane: "visual" | "priority"): void {
   emit("unlocks", { ...unlocks, [plane]: true });
   open.value = undefined;
 }
-/** Walk offers walk lines only while depth values are locked there. */
-const controlsOnly = computed(() => depthValuesLocked(lens, unlocks));
+/** The Walk lens offers its four control lines. */
+const controlsOnly = computed(() => lens === "walk");
 
 const band = computed(() => (cursorY === undefined ? DEFAULT_BAND : priorityForY(cursorY)));
 const priorityShown = computed(() => (values.priority === "band" ? band.value : values.priority));
 const visualText = computed(() =>
-  values.visual === null ? "Art off" : `Art ${values.visual}, ${EGA_COLOUR_NAMES[values.visual]}`,
+  values.visual === undefined
+    ? "Art: mixed"
+    : values.visual === null
+      ? "Art off"
+      : `Art ${values.visual}, ${EGA_COLOUR_NAMES[values.visual]}`,
 );
 const priorityText = computed(() => {
   const value = priorityShown.value;
+  if (value === undefined) return "Depth: mixed";
   if (value === null) return `${VOCABULARY.drawingDepth.label}: ${VOCABULARY.none.label}`;
   const meaning = `Depth ${value}, ${priorityMeaning(value)}`;
   return values.priority === "band" ? `${meaning} (the band under the cursor)` : meaning;
@@ -67,8 +91,10 @@ const root = useTemplateRef("root");
 /** Where the picker opens: over the Scene list when it fits there, with its width. */
 const side = ref<{ left: boolean; width: number }>({ left: false, width: POP_MAX });
 function toggle(plane: "visual" | "priority"): void {
+  if (unavailable(plane)) return;
   open.value = open.value === plane ? undefined : plane;
-  const room = (root.value?.getBoundingClientRect().left ?? 0) - 2 * POP_GAP;
+  const bounds = root.value?.closest(".studio")?.getBoundingClientRect();
+  const room = (root.value?.getBoundingClientRect().left ?? 0) - (bounds?.left ?? 0) - 2 * POP_GAP;
   side.value =
     room >= POP_MIN
       ? { left: true, width: Math.min(POP_MAX, room) }
@@ -91,29 +117,31 @@ function pick(patch: Partial<CurrentValues>): void {
       type="button"
       class="values__swatch"
       :class="{ 'is-off': values.visual === null, 'is-open': open === 'visual' }"
-      :style="values.visual === null ? undefined : { background: `var(--agi-${values.visual})` }"
-      :aria-label="`New shapes: ${visualText}. Change`"
+      :style="values.visual == null ? undefined : { background: `var(--agi-${values.visual})` }"
+      :aria-label="`${target}: ${visualText}. Change`"
+      :disabled="unavailable('visual')"
       :aria-expanded="open === 'visual'"
       :title="visualText"
       data-testid="studio-value-visual"
-      :data-value="values.visual ?? 'off'"
+      :data-value="values.visual === undefined ? 'mixed' : (values.visual ?? 'off')"
       @click="toggle('visual')"
     >
-      <span v-if="values.visual === null">off</span>
+      <span v-if="values.visual == null">{{ values.visual === undefined ? "mix" : "off" }}</span>
     </button>
     <span class="values__name" aria-hidden="true">Art</span>
     <button
       type="button"
       class="values__swatch values__swatch--priority"
       :class="{ 'is-off': priorityShown === null, 'is-open': open === 'priority' }"
-      :aria-label="`New shapes: ${priorityText}. Change`"
+      :aria-label="`${target}: ${priorityText}. Change`"
+      :disabled="unavailable('priority')"
       :aria-expanded="open === 'priority'"
       :title="priorityText"
       data-testid="studio-value-priority"
-      :data-value="values.priority ?? 'off'"
+      :data-value="values.priority === undefined ? 'mixed' : (values.priority ?? 'off')"
       @click="toggle('priority')"
     >
-      {{ priorityShown ?? VOCABULARY.none.label
+      {{ priorityShown === undefined ? "mixed" : (priorityShown ?? VOCABULARY.none.label)
       }}<small v-if="values.priority === 'band'">here</small>
     </button>
     <span class="values__name"
@@ -132,9 +160,9 @@ function pick(patch: Partial<CurrentValues>): void {
       :class="{ 'is-left': side.left }"
       :style="{ width: `${side.width}px` }"
       role="dialog"
-      :aria-label="open === 'visual' ? 'Art for new shapes' : 'Depth for new shapes'"
+      :aria-label="`${open === 'visual' ? 'Art' : 'Depth'} for ${target}`"
     >
-      <p class="values__title">{{ open === "visual" ? "Art" : "Depth" }} for new shapes</p>
+      <p class="values__title">{{ open === "visual" ? "Art" : "Depth" }} for {{ target }}</p>
       <template v-if="locked.includes(open)">
         <p class="values__note">{{ lockNote(open) }}</p>
         <UiButton size="sm" @click="unlock(open)">Unlock</UiButton>
@@ -142,13 +170,13 @@ function pick(patch: Partial<CurrentValues>): void {
       <template v-else-if="open === 'visual'">
         <StudioValuePicker
           plane="visual"
-          label="Art for new shapes"
+          :label="`Art for ${target}`"
           :value="values.visual"
           @pick="pick({ visual: $event })"
         />
       </template>
       <template v-else-if="controlsOnly">
-        <div class="values__controls" role="radiogroup" aria-label="Walk line for new shapes">
+        <div class="values__controls" role="radiogroup" :aria-label="`Walk line for ${target}`">
           <button
             v-for="control in CONTROL_VALUES"
             :key="control.value"
@@ -182,7 +210,7 @@ function pick(patch: Partial<CurrentValues>): void {
         </p>
       </template>
       <template v-else>
-        <span v-if="lens === 'depth'" class="values__with">
+        <span v-if="lens === 'depth' && paletteAction === 'draw'" class="values__with">
           <button
             type="button"
             role="radio"
@@ -197,7 +225,8 @@ function pick(patch: Partial<CurrentValues>): void {
         </span>
         <StudioValuePicker
           plane="priority"
-          label="Depth for new shapes"
+          :label="`Depth for ${target}`"
+          :minimum="lens === 'depth' ? 4 : 0"
           :value="values.priority === 'band' ? undefined : values.priority"
           @pick="pick({ priority: $event })"
         />
@@ -256,6 +285,10 @@ function pick(patch: Partial<CurrentValues>): void {
   font-size: var(--text-2xs);
   font-weight: var(--weight-medium);
   color: var(--ink-3);
+}
+.values__swatch:disabled {
+  opacity: 0.35;
+  cursor: default;
 }
 .values__swatch.is-off {
   color: var(--ink-3);

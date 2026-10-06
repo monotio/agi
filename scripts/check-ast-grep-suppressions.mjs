@@ -4,6 +4,9 @@
 // default roots.
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
+import { checkTestWallClock } from "./check-test-wall-clock.ts";
+
+if (process.argv.length === 2) checkTestWallClock();
 
 const defaultRoots = [
   "src",

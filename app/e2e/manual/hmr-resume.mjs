@@ -25,6 +25,7 @@
  *      while (a) and (b) still pass from localStorage.
  */
 import { chromium } from "playwright";
+import { expect } from "@playwright/test";
 import { fixtureSkip } from "../../../test/fixtures.ts";
 import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -36,12 +37,20 @@ if (missingFixture) {
   process.exit(0);
 }
 
+async function waitHint(id, timeout) {
+  await page.getByTestId("game-keys").hover();
+  try {
+    await page.getByTestId(id).waitFor({ timeout });
+  } finally {
+    await page.mouse.move(0, 0);
+  }
+}
+
 const PORT = process.env["AGI_HMR_PORT"] ?? "5301";
 const URL = `http://localhost:${PORT}/`;
 const HERE = dirname(fileURLToPath(import.meta.url));
 const APP = join(HERE, "../../src/App.vue");
 const MAIN = join(HERE, "../../src/main.ts");
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const browser = await chromium.launch();
 const ctx = await browser.newContext();
@@ -57,28 +66,31 @@ page.on("console", (m) => {
 const hook = () =>
   page.evaluate(() => ({ ...(window.__AGI_TEXT__ ?? {}), loadId: window.__LOAD_ID__ }));
 async function poll(fn, label, timeout = 30000) {
-  const end = Date.now() + timeout;
-  for (;;) {
-    const h = await hook().catch(() => ({}));
-    if (fn(h)) return h;
-    if (Date.now() > end)
-      throw new Error(
-        `timeout: ${label} (room=${h.room} cycle=${h.cycle} load=${String(h.loadId).slice(0, 8)})`,
-      );
-    await sleep(150);
-  }
+  let latest = {};
+  await expect
+    .poll(
+      async () => {
+        latest = await hook().catch(() => ({}));
+        return Boolean(fn(latest));
+      },
+      { timeout, message: label },
+    )
+    .toBe(true);
+  return latest;
 }
 async function playToRestedCourtyard() {
   await page.getByTestId("boot-kq1").click();
-  await page.getByTestId("title-prompt-hint").waitFor({ timeout: 20000 });
+  await waitHint("title-prompt-hint", 20000);
   await page.keyboard.press("Enter"); // a screen click only focuses the game
   await poll((h) => (h.rows?.[0] ?? "").includes("Score:"), "courtyard");
   await page.locator("canvas.game-surface:visible").click();
   await page.keyboard.down("ArrowLeft");
-  await sleep(700);
+  const start = await hook();
+  await poll((h) => Math.abs(h.egoX - start.egoX) >= 12, "walk across the courtyard");
   await page.keyboard.up("ArrowLeft");
   await page.keyboard.press("ArrowLeft"); // AGI: press the direction again to stop.
-  await sleep(400);
+  const stopped = await hook();
+  await poll((h) => h.cycle >= stopped.cycle + 4, "stopped cycles");
 }
 async function settledReference(label) {
   const now = await hook();
@@ -104,13 +116,13 @@ console.log("--- editing App.vue <script setup> ---");
 writeFileSync(
   APP,
   appSrc.replace(
-    'const inputLine = ref("");',
-    'const inputLine = ref("");\nconst HMR_PROBE = 1;\nvoid HMR_PROBE;',
+    '<script setup lang="ts">',
+    '<script setup lang="ts">\nconst HMR_PROBE = 1;\nvoid HMR_PROBE;',
   ),
 );
 let ok = true;
 try {
-  await page.getByTestId("resume-caption").waitFor({ timeout: 30000 });
+  await waitHint("resume-caption", 30000);
   const after = await poll((h) => h.room > 0, "room after App.vue hot update", 20000);
   const reloaded = after.loadId !== before.loadId;
   console.log(
@@ -138,16 +150,17 @@ try {
   );
   ok &&= !reloaded && after.room === before.room && dx <= 6 && dy <= 6;
 } finally {
+  const restored = page.waitForEvent("console", {
+    predicate: (message) => /hot updated.*App.vue/.test(message.text()),
+  });
   writeFileSync(APP, appSrc);
-  await sleep(2000);
+  await restored;
 }
 
-await page
-  .getByTestId("resume-caption")
-  .waitFor({ timeout: 30000 })
-  .catch(() => {});
+await waitHint("resume-caption", 30000).catch(() => {});
 await poll((h) => h.room > 0, "room after revert", 20000);
-await sleep(1200);
+const reverted = await hook();
+await poll((h) => h.cycle > reverted.cycle, "restored engine running");
 const before2 = await settledReference("BEFORE2");
 
 // ---- (a) full page reload: main.ts has no accepting importer
@@ -161,7 +174,7 @@ try {
     30000,
   );
   console.log("  page reloaded (new document id %s)", String(after.loadId).slice(0, 8));
-  await page.getByTestId("resume-caption").waitFor({ timeout: 30000 });
+  await waitHint("resume-caption", 30000);
   const done = await poll((h) => h.room > 0, "room after full reload", 20000);
   console.log(
     "AFTER-A load=%s room=%d ego=(%d,%d)",
@@ -190,10 +203,7 @@ try {
 }
 // ---- (c) the flush earns its keep: walk, then reload INSIDE the 5s cadence
 // window. Only a flush before the reload can carry the new position over.
-await page
-  .getByTestId("resume-caption")
-  .waitFor({ timeout: 30000 })
-  .catch(() => {});
+await waitHint("resume-caption", 30000).catch(() => {});
 await poll((h) => h.room > 0, "room after reload", 20000);
 const cadence = await hook();
 const fresh = await poll(
@@ -207,7 +217,8 @@ await page.keyboard.down("ArrowRight");
 await poll((h) => Math.abs(h.egoX - fresh.egoX) >= 12, "walk beyond the older snapshot");
 await page.keyboard.up("ArrowRight");
 await page.keyboard.press("ArrowRight"); // AGI: press the direction again to stop.
-await sleep(200);
+const stopped = await hook();
+await poll((h) => h.cycle > stopped.cycle, "stop processed");
 const moved = await hook();
 console.log(
   "MOVED   ego=(%d,%d) (last stored snapshot was at ego=(%d,%d))",
@@ -226,7 +237,7 @@ const mainSrc2 = readFileSync(MAIN, "utf8");
 writeFileSync(MAIN, mainSrc2 + "\n// hmr probe 2\n");
 try {
   await poll((h) => h.loadId && h.loadId !== moved.loadId, "full page reload", 30000);
-  await page.getByTestId("resume-caption").waitFor({ timeout: 30000 });
+  await waitHint("resume-caption", 30000);
   const done = await poll((h) => h.room > 0, "room after flush-window reload", 20000);
   const dNew = Math.abs(done.egoX - moved.egoX);
   const dOld = Math.abs(done.egoX - fresh.egoX);

@@ -62,6 +62,7 @@
 import {
   actionSpec,
   CONDITION_BY_NAME,
+  conditionSpec,
   GOTO,
   IF,
   NOT,
@@ -395,7 +396,7 @@ function emitCondition(
   dictionary: ReadonlyMap<string, number>,
   profile: AgiProfile,
 ): void {
-  const spec = CONDITION_BY_NAME[lit.cond.name];
+  const spec = conditionSpec(lit.cond.name);
   if (!spec) {
     throw new AssemblerError(
       `unknown condition '${lit.cond.name}' (known: ${[...Object.keys(CONDITION_BY_NAME)].join(", ")})`,

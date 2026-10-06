@@ -1,3 +1,4 @@
+import { useTestClock } from "./async.ts";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createWorkerContext, type WorkerContext } from "../src/worker/context.ts";
@@ -151,12 +152,10 @@ class ScriptedWorker implements TestWorkerLike {
 }
 
 async function flush(): Promise<void> {
-  await new Promise((resolve) => setTimeout(resolve, 0));
+  await clock.advance(0);
 }
 
-async function sleep(ms: number): Promise<void> {
-  await new Promise((resolve) => setTimeout(resolve, ms));
-}
+const clock = useTestClock();
 
 type Bindings = Record<string, { kind: string; num: number }>;
 
@@ -487,7 +486,7 @@ test("a lost request reconciles and retries — the lane's truth, not a guess", 
   h.edit(0, "increment(count);\nassignn(v42, 7);\nreturn;");
   h.workspace.noteDraftChanged();
   await flush();
-  await sleep(80); // the ack watchdog fires, then the status query answers
+  await clock.advance(80); // the ack watchdog fires, then the status query answers
   await flush();
 
   const statuses = worker.posts.filter((m) => m.type === "previewUpdateStatus");
@@ -595,7 +594,7 @@ test("silence through both deadlines keeps one unresolved proposal — silence i
 
   // ACK watchdog, then the status watchdog: both expire unanswered. The
   // status query itself is in `held` — the lane never produced evidence.
-  await sleep(140);
+  await clock.advance(140);
   assert.equal(updatesOf(worker).length, 1, "silence cannot authorize another mutation");
   assert.equal(h.workspace.state.update.status, "indeterminate");
   assert.equal(h.workspace.state.update.restartable, true);
@@ -611,7 +610,7 @@ test("silence through both deadlines keeps one unresolved proposal — silence i
   h.edit(0, "increment(count);\nassignn(v42, 20);\nreturn;");
   h.workspace.noteDraftChanged();
   await flush();
-  await sleep(60);
+  await clock.advance(60);
   assert.equal(updatesOf(worker).length, 1, "the queued edit cannot bypass the hold");
 
   // The held request reaches the worker: it commits, and its own late
@@ -657,7 +656,7 @@ test("a dropped request reconciles as untouched through the paced probe — newe
 
   // Both watchdogs expire with no answer: the attempt holds indeterminate
   // instead of retrying on the cached identity.
-  await sleep(140);
+  await clock.advance(140);
   assert.equal(h.workspace.state.update.status, "indeterminate");
   assert.equal(updatesOf(worker).length, 1, "no fresh mutation on silence");
 
@@ -666,7 +665,7 @@ test("a dropped request reconciles as untouched through the paced probe — newe
   h.edit(0, "increment(count);\nassignn(v42, 9);\nreturn;");
   h.workspace.noteDraftChanged();
   await flush();
-  await sleep(500);
+  await clock.advance(500);
 
   const statusPosts = worker.posts.filter((m) => m.type === "previewUpdateStatus");
   assert.ok(statusPosts.length >= 2, "reconciliation continued read-only while unknown");
@@ -800,7 +799,7 @@ test("an identity-proven commit publishes and repins both layers under retained 
     // The ACK watchdog's own status query lands on the wire — answered with
     // no retained outcome but a recomputed identity that proves the
     // candidate's exact build at the next serial on this physical run.
-    await sleep(80);
+    await clock.advance(80);
     const statusQuery = worker.posts.find((m) => m.type === "previewUpdateStatus") as
       { id: number; transactionId?: number } | undefined;
     assert.ok(statusQuery !== undefined);
@@ -849,7 +848,7 @@ test("a delayed commit result settles its attempt without demoting the newer ins
   await editAndFlush(h, SOURCE_B);
   assert.equal(worker.heldOutbound.length, 1, "B's real commit result is held");
   const b = updatesOf(worker)[0]!;
-  await sleep(65);
+  await clock.advance(65);
   assert.equal(run.buildId, b.candidate.buildId, "the status reconciliation proved B");
   assert.equal(h.workspace.state.frozenSources["0"], SOURCE_B);
 
@@ -931,7 +930,7 @@ test("a stale probe answer settles nothing once the late result already drained 
   worker.dropNextStatus = true;
   await editAndFlush(h, SOURCE_B);
   const b = updatesOf(worker)[0]!;
-  await sleep(100);
+  await clock.advance(100);
   assert.equal(h.workspace.state.update.status, "indeterminate");
   await editAndFlush(h, SOURCE_C);
   assert.equal(updatesOf(worker).length, 1, "C queues behind the unresolved B");
@@ -939,7 +938,7 @@ test("a stale probe answer settles nothing once the late result already drained 
   // Hold the probe's real answer — computed while B was still the newest
   // known authority — while B's own late result lands and drains C.
   worker.holdNextStatus = true;
-  for (let i = 0; i < 100 && worker.heldOutbound.length < 2; i++) await sleep(5);
+  await clock.advance(400);
   assert.equal(worker.heldOutbound.length, 2, "the paced probe's real answer is held");
   const ack = worker.heldOutbound.shift()!;
   assert.equal(ack.type, "previewUpdateResult");
@@ -993,7 +992,7 @@ test("a delayed same-build commit proves itself on serial and keeps the namespac
   await flush();
   const b = updatesOf(worker)[0]!;
   assert.equal(b.candidate.buildId, bootBuild, "kind-only drift keeps the captured identity");
-  await sleep(65); // the watchdog reconciles the held commit
+  await clock.advance(65); // the watchdog reconciles the held commit
   assert.equal(run.buildId, bootBuild);
   assert.equal(run.preview!.updateSerial, 1, "the same-build commit still installed");
   assert.equal(h.session.saves().length, 1, "the namespace is still the same build's");

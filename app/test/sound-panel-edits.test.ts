@@ -20,7 +20,7 @@ test("volume reverses every encoded attenuation level and rejects invalid values
   assert.throws(() => volumeToAttenuation(16), /0.*15/);
   assert.throws(() => volumeToAttenuation(1.5), /integer/);
   assert.throws(() => attenuationToVolume(-1), /0.*15/);
-  assert.equal(divisorNoteLabel(226), "A4");
+  assert.equal(divisorNoteLabel(226), "B4");
 });
 
 test("friendly note, length and volume edits produce exact native bytes", () => {
@@ -28,7 +28,7 @@ test("friendly note, length and volume edits produce exact native bytes", () => 
   doc = editSoundNote(doc, "e1", { note: "A4", beats: 1, volume: 12 }, 120);
   assert.deepEqual(
     [...doc.encode()],
-    [8, 0, 15, 0, 17, 0, 19, 0, 30, 0, 14, 130, 147, 255, 255, 255, 255, 255, 255, 255, 255],
+    [8, 0, 15, 0, 17, 0, 19, 0, 30, 0, 15, 142, 147, 255, 255, 255, 255, 255, 255, 255, 255],
   );
   const rest = editSoundNote(doc, "e1", { note: "Rest" }, 120);
   assert.deepEqual([...rest.encode().slice(8, 13)], [30, 0, 0, 128, 159]);
@@ -44,7 +44,7 @@ test("preset insertion supplies the same native cue for every entry point", () =
   assert.deepEqual(
     [...doc.encode()],
     [
-      8, 0, 25, 0, 27, 0, 29, 0, 10, 0, 9, 135, 148, 10, 0, 7, 143, 148, 20, 0, 5, 143, 148, 255,
+      8, 0, 25, 0, 27, 0, 29, 0, 10, 0, 10, 138, 148, 10, 0, 8, 143, 148, 20, 0, 6, 139, 148, 255,
       255, 255, 255, 255, 255, 255, 255,
     ],
   );
@@ -56,7 +56,7 @@ test("moving notes and changing tempo preserve pitches and encode reordered dura
     .insertEvent(0, 1, { ticks: 60, data: { kind: "tone", note: "C5", attenuation: 6 } });
   doc = moveSoundNote(doc, "e2", -1);
   doc = retimeSound(doc, 120, 240);
-  assert.deepEqual([...doc.encode().slice(8, 18)], [30, 0, 11, 142, 150, 15, 0, 14, 130, 147]);
+  assert.deepEqual([...doc.encode().slice(8, 18)], [30, 0, 13, 134, 150, 15, 0, 15, 142, 147]);
   assert.throws(() => retimeSound(doc, 120, 0));
 });
 

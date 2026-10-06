@@ -1,43 +1,27 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import type { Component } from "vue";
 import { createPanels, registerCreatePanel } from "../src/shell/createDocks.ts";
 
-const ids = (dock: "left" | "right") => createPanels(dock).map((panel) => panel.id);
-
-test("the shell's placeholders are World on the left and Assistant on the right", () => {
-  assert.deepEqual(ids("left"), ["world"]);
-  assert.deepEqual(ids("right"), ["assistant"]);
-  assert.equal(createPanels("left")[0]!.component, undefined);
-});
-
-test("panels add tabs by order, replace a placeholder by id, and unregister cleanly", () => {
-  const Inspect: Component = { render: () => null };
-  const World: Component = { render: () => null };
-  const offActivity = registerCreatePanel({
-    id: "activity",
+test("panel replacement keeps order and an old disposer preserves its replacement", () => {
+  const first = registerCreatePanel({
+    id: "inspect-test",
     dock: "right",
-    title: "Activity",
+    title: "First",
     order: 2,
   });
-  const offInspect = registerCreatePanel({
-    id: "inspect",
+  const second = registerCreatePanel({
+    id: "inspect-test",
     dock: "right",
-    title: "Inspect",
-    order: 1,
-    component: Inspect,
+    title: "Second",
+    order: -1,
   });
-  const offWorld = registerCreatePanel({
-    id: "world",
-    dock: "left",
-    title: "World",
-    component: World,
-  });
-  assert.deepEqual(ids("right"), ["assistant", "inspect", "activity"]);
-  assert.equal(createPanels("left")[0]!.component, World);
-  offInspect();
-  offActivity();
-  assert.deepEqual(ids("right"), ["assistant"]);
-  offWorld();
-  assert.deepEqual(ids("left"), []);
+  try {
+    first();
+    assert.equal(createPanels("right")[0]?.title, "Second");
+    assert.equal(createPanels("right").filter((panel) => panel.id === "inspect-test").length, 1);
+    assert.ok(!createPanels("left").some((panel) => panel.id === "inspect-test"));
+  } finally {
+    second();
+  }
+  assert.ok(!createPanels("right").some((panel) => panel.id === "inspect-test"));
 });

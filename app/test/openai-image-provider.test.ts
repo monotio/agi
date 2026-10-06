@@ -1,3 +1,4 @@
+import { scheduler as testScheduler } from "node:timers/promises";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { crc32, deflateSync } from "node:zlib";
@@ -276,10 +277,10 @@ function prepareError(
 
 test("prompt-only generation posts exact JSON and returns exact bytes with usage", async () => {
   const usage = {
-    input_tokens: 42,
-    input_tokens_details: { image_tokens: 0, text_tokens: 42 },
+    input_tokens: 3042,
+    input_tokens_details: { image_tokens: 3000, text_tokens: 42, cached_tokens: 1000 },
     output_tokens: 1290,
-    total_tokens: 1332,
+    total_tokens: 4332,
     output_tokens_details: { image_tokens: 1290, text_tokens: 0 },
   };
   const { provider, calls, keys } = harness((call) =>
@@ -325,11 +326,12 @@ test("prompt-only generation posts exact JSON and returns exact bytes with usage
   assert.equal(offer.requestId, "req_abc");
   assert.equal(offer.created, 1_700_000_000);
   assert.deepEqual(offer.usage, {
-    inputTokens: 42,
+    inputTokens: 3042,
     outputTokens: 1290,
-    totalTokens: 1332,
+    totalTokens: 4332,
     inputTextTokens: 42,
-    inputImageTokens: 0,
+    inputImageTokens: 3000,
+    inputCachedTokens: 1000,
     outputImageTokens: 1290,
   });
   assert.equal(offer.summary, prepared.summary);
@@ -600,20 +602,24 @@ test("one active job per provider; the second waits without consuming its handle
 });
 
 test("cancel and a late-arriving result stay contained", async () => {
-  const { provider } = harness(
-    () =>
-      new Promise<Response>((resolve) => {
-        // The mock ignores the abort and still answers late; submit must
-        // consume that answer quietly and still reject cancelled.
-        setTimeout(() => resolve(jsonResponse(imageBody(PNG_1x1))), 30);
-      }),
-  );
+  let release!: (response: Response) => void;
+  const late = new Promise<Response>((resolve) => {
+    release = resolve;
+  });
+  let first = true;
+  const { provider } = harness(() => {
+    if (!first) return Promise.resolve(jsonResponse(imageBody(PNG_1x1)));
+    first = false;
+    return late;
+  });
   const controller = new AbortController();
   const pending = provider.submit(provider.prepare(request()), { signal: controller.signal });
   controller.abort();
   const error = await errorOf(pending);
   assert.equal(error.reason, "cancelled");
-  await new Promise((resolve) => setTimeout(resolve, 60));
+  release(jsonResponse(imageBody(PNG_1x1)));
+  await late;
+  await testScheduler.yield();
   assert.equal(provider.busy, false);
   // The instance still works afterwards.
   await provider.submit(provider.prepare(request()));
@@ -934,7 +940,7 @@ test("image quality and pixel count extend the whole-job timeout", async (t) => 
         provider.prepare(request({ model: "gpt-image-2.5-sunburst", quality, size })),
       ),
     );
-    for (let i = 0; i < 10; i++) await Promise.resolve();
+    await testScheduler.yield();
     t.mock.timers.tick(180000);
     await Promise.resolve();
     assert.equal(provider.busy, true, "the baseline deadline allows long generation to continue");
@@ -947,7 +953,63 @@ test("image quality and pixel count extend the whole-job timeout", async (t) => 
 
 test("paid request estimates use the documented image output calculator", async () => {
   const { estimateImageOutputCost } = await import("../src/studio/creative/openaiImageProvider.ts");
+  assert.equal(estimateImageOutputCost("gpt-image-2", "low", "1024x1024"), 0.00588);
   assert.equal(estimateImageOutputCost("gpt-image-2.5-sunburst", "low", "1024x1024"), 0.00588);
   assert.equal(estimateImageOutputCost("gpt-image-2.5-flare", "high", "1024x1024"), 0.05268);
   assert.equal(estimateImageOutputCost("unknown", "low", "1024x1024"), null);
+});
+
+test("streaming publishes a bounded partial before accepting the final image", async () => {
+  const b64 = Buffer.from(PNG_1x1).toString("base64");
+  const partial = `data: ${JSON.stringify({ type: "image_generation.partial_image", partial_image_index: 0, b64_json: b64 })}\r\n\r\n`;
+  const final = `data: ${JSON.stringify({ type: "image_generation.completed", b64_json: b64, output_format: "png", usage: { input_tokens: 1, output_tokens: 2 } })}\n\n`;
+  const events: string[] = [];
+  const provider = createOpenAiImageProvider({
+    credentials: () => "test-key",
+    models: { [TINY.id]: { ...TINY, streaming: true } },
+    fetch: async (_url, init) => {
+      const wire = JSON.parse(init!.body as string);
+      assert.equal(wire.stream, true);
+      assert.equal(wire.partial_images, 2);
+      return new Response(
+        new ReadableStream({
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode(partial.slice(0, 19)));
+            controller.enqueue(new TextEncoder().encode(partial.slice(19)));
+            controller.enqueue(new TextEncoder().encode(final));
+            controller.close();
+          },
+        }),
+        { headers: { "content-type": "text/event-stream" } },
+      );
+    },
+  });
+  const offer = await provider.submit(provider.prepare(request()), {
+    onPartial(bytes) {
+      assert.deepEqual(bytes, PNG_1x1);
+      events.push("partial");
+    },
+  });
+  events.push("final");
+  assert.deepEqual(events, ["partial", "final"]);
+  assert.equal(offer.usage!.outputTokens, 2);
+});
+
+test("a streaming request accepts a provider's ordinary JSON response without another request", async () => {
+  let requests = 0;
+  const provider = createOpenAiImageProvider({
+    credentials: () => "test-key",
+    models: { [TINY.id]: { ...TINY, streaming: true } },
+    fetch: async () => {
+      requests++;
+      return jsonResponse(imageBody(PNG_1x1));
+    },
+  });
+  const offer = await provider.submit(provider.prepare(request()), {
+    onPartial() {
+      assert.fail("JSON has no partials");
+    },
+  });
+  assert.deepEqual(offer.encodedBytes, PNG_1x1);
+  assert.equal(requests, 1);
 });

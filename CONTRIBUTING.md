@@ -12,6 +12,8 @@ your first change. Hosting and production releases are covered in
 
 ## Development
 
+For independent tasks, see [Parallel agent lanes](docs/agent-lanes.md).
+
 Install Node.js 22.22 or newer, then:
 
 ```bash
@@ -140,15 +142,15 @@ local browser results establish behavior on your local platform. CI runs on
 leaves the full run to that pull request. New pushes cancel older runs for the
 same ref.
 
-| CI job                       | Coverage                                                                                                                                                                                           |
-| ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Prepare CI                   | Changed-file classification, CI helper tests and one installation of both package roots, cached by lockfiles                                                                                       |
-| Static checks and unit tests | Full `npm run check`, including offline eval replay                                                                                                                                                |
-| Build production artifact    | One production build, bundle boundaries and budgets, site and chunk-graph artifacts                                                                                                                |
-| Playwright                   | Ten Chromium shards and three tagged WebKit desktop shards balanced by measured spec durations, WebKit phone, and separate jobs for timing budgets and the storage benchmark, each with one worker |
-| Production browser           | Chromium and WebKit against the shared production artifact                                                                                                                                         |
-| PR burn-in                   | Up to 12 specs added or changed by the PR or its latest push, repeated five times in Chromium; tagged desktop tests also in WebKit; changed production specs in both engines                       |
-| Nightly browser burn-in      | Every browser suite repeated three times; one issue records tests with both passing and failing attempts                                                                                           |
+| CI job                       | Coverage                                                                                                                                                                                   |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Prepare CI                   | Changed-file classification, CI helper tests and one installation of both package roots, cached by lockfiles                                                                               |
+| Static checks and unit tests | Full `npm run check`, including offline eval replay                                                                                                                                        |
+| Build production artifact    | One production build, bundle boundaries and budgets, site and chunk-graph artifacts                                                                                                        |
+| Playwright                   | Ten Chromium shards and three tagged WebKit desktop shards balanced by measured spec durations, WebKit phone, and separate jobs for timing budgets and the storage benchmark on one worker |
+| Production browser           | Chromium and WebKit against the shared production artifact                                                                                                                                 |
+| PR burn-in                   | Up to 12 specs added or changed by the PR or its latest push, repeated five times in Chromium; tagged desktop tests also in WebKit; changed production specs in both engines               |
+| Nightly browser burn-in      | Every browser suite repeated three times; one issue records tests with both passing and failing attempts                                                                                   |
 
 The required contexts stay `Typecheck, lint, unit tests, build`,
 `Playwright (play, remix and export)` and the repository-managed `CodeQL`.
@@ -157,7 +159,13 @@ confined to Markdown or documentation assets skip browser jobs and development
 branch builds; required CI contexts still report success after the standard
 gate. Main builds and publishes each checked commit. Capture code
 under `docs/` still runs the browsers. CodeQL keeps its repository-managed policy.
-Browser JSON reports and failure traces are retained as run artifacts. See
+Browser jobs use the official Playwright Noble container pinned by digest in
+`scripts/ci/playwright-image.txt`. Setup checks its version against the restored
+`app/node_modules/playwright-core` package and the container metadata. When
+upgrading Playwright, update the image tag and digest together with the lockfile.
+The image supplies browsers, fonts and system packages; setup restores the shared
+Node dependency cache. Browser JSON reports, screenshots and failure traces are
+retained as run artifacts. See
 [CI browser checks](docs/testing.md#ci-browser-checks) for worker counts and
 repeat-run commands.
 
@@ -211,7 +219,7 @@ blobs; Undo and Redo submit changes through the same path. A validated edit that
 the model and History while MAIN runs the previous image. `pendingRestart` names
 the reason and action; `restartWithChanges()` validates the complete current
 image before replacing the Engine, and `reenterRoom()` admits it at the same
-strict idle boundary as live edits before running real room-entry semantics.
+strict idle boundary as explicit updates before running real room-entry semantics.
 The workspace flush barrier drains editor submissions and awaits the session's
 IndexedDB acknowledgement. Edits arriving during either await are included until
 the queue and durable owner are both settled; continuous typing can extend that
@@ -268,32 +276,32 @@ image, retaining the preceding run and its queued recording batches.
 Inside `app/src/`, `main.ts` mounts `App.vue`, the shell's root component, and
 each folder holds one responsibility:
 
-| Folder           | Responsibility                                                                          |
-| ---------------- | --------------------------------------------------------------------------------------- |
-| `engine/`        | The main thread's side of the engine: worker link, queries, lifecycle, `useEngine.ts`   |
-| `worker/`        | The engine worker: its entry, the message protocol, dispatch, clock and host            |
-| `play/`          | The Play screen: stage, keyboard and touch input, prompts and presentation              |
-| `render/`        | Frame composition: the EGA palette, the 8×8 font and the 320×200 compositor             |
-| `three/`         | GPU presentation and CRT effects                                                        |
-| `audio/`         | Sound output on the main thread                                                         |
-| `inspector/`     | The AGI inspector: its dock, overlay, coordinate mapping and layer picking              |
-| `history/`       | The always-on recording, its storage and the transport bar under the stage              |
-| `walkthrough/`   | Walkthrough playback and the replay driver the browser tests use                        |
-| `saves/`         | A player's progress: save slots, autosaves and their thumbnails                         |
-| `project/`       | The stored project: bodies, identities, metadata and the transactions every write takes |
-| `archive/`       | ZIP formats: project archives, published games and `HISTORY.JSON`                       |
-| `library/`       | The game library: imports, the hosted catalog, discovery, previews and profile choice   |
-| `home/`          | The Home screen: the shelf, its cards and the create panel                              |
-| `shell/`         | Page chrome, modes, commands, keyboard focus, Create docks, Settings, Help and routing  |
-| `settings/`      | AI provider, model and key settings                                                     |
-| `authoring/`     | The assistant's panels, the controller that runs AI turns, and recorded game tests      |
-| `agent/`         | Provider sessions, conversation transport and worker bridge; the stack loads on AI use  |
-| `references/`    | Reference art the player supplies for the agent to encode                               |
-| `world/`         | The world map, its room graph and plan, and the editor launchers                        |
-| `studio/`        | Workspace editors, loaded on first use in Create                                        |
-| `lessons/`       | Workspace lessons tied to catalog releases                                              |
-| `ui/`, `styles/` | Base controls, design tokens and global stylesheets                                     |
-| `types/`         | Ambient declarations                                                                    |
+| Folder           | Responsibility                                                                             |
+| ---------------- | ------------------------------------------------------------------------------------------ |
+| `engine/`        | The main thread's side of the engine: worker link, queries, lifecycle, `useEngine.ts`      |
+| `worker/`        | The engine worker: its entry, the message protocol, dispatch, clock and host               |
+| `play/`          | The Play screen: stage, keyboard and touch input, prompts and presentation                 |
+| `render/`        | Frame composition: the EGA palette, the 8×8 font and the 320×200 compositor                |
+| `three/`         | GPU presentation and CRT effects                                                           |
+| `audio/`         | Sound output on the main thread                                                            |
+| `inspector/`     | The AGI inspector: its dock, overlay, coordinate mapping and layer picking                 |
+| `history/`       | The always-on recording, its storage and the transport bar under the stage                 |
+| `walkthrough/`   | Walkthrough playback and the replay driver the browser tests use                           |
+| `saves/`         | A player's progress: save slots, autosaves and their thumbnails                            |
+| `project/`       | The stored project: bodies, identities, metadata and the transactions every write takes    |
+| `archive/`       | ZIP formats: project archives, published games and `HISTORY.JSON`                          |
+| `library/`       | The game library: folder, ZIP and disk imports, catalog, previews and profile choice       |
+| `home/`          | The Home screen: the shelf, its cards and the create panel                                 |
+| `shell/`         | Page chrome, modes, commands, keyboard focus, Create workspace, Settings, Help and routing |
+| `settings/`      | AI provider, model and key settings                                                        |
+| `authoring/`     | The assistant's panels, the controller that runs AI turns, and recorded game tests         |
+| `agent/`         | Provider sessions, conversation transport and worker bridge; the stack loads on AI use     |
+| `references/`    | Reference art the player supplies for the agent to encode                                  |
+| `world/`         | The world map, its room graph and plan, and the editor launchers                           |
+| `studio/`        | Workspace editors, loaded on first use in Create                                           |
+| `lessons/`       | Workspace lessons tied to catalog releases                                                 |
+| `ui/`, `styles/` | Base controls, design tokens and global stylesheets                                        |
+| `types/`         | Ambient declarations                                                                       |
 
 ## How it fits together
 
@@ -391,17 +399,18 @@ boxes connected figures across sheet gaps and derives cel width from one height.
 `src/creative/imageFrameGeometry.ts` owns pixel snapping, bounded drawing,
 linked edge resizing, unlinking, ordering and loop assignment. The sheet editor
 asks before replacing edited boxes and renders thumbnails from prepared cels.
-The marks stay local until Add cels submits one proposal. Editing a mirror loop gives it independent cels while
+The marks stay local until Add cels stages the VIEW. Update game submits the proposal. Editing a mirror loop gives it independent cels while
 preserving its displayed frames.
 
 **A LOGIC edit becomes a saved project**
 
 Library **Game actions → Create** opens the running workspace on a LOGIC.
 `studio/workspace/LogicEditor.vue` retains Monaco models and their view state,
-with code intelligence from the analysis worker. `workspaceWrites.ts` coalesces
-typing bursts and serializes completed gestures. `ProjectSession` stores invalid
-source alongside the last admissible build, so the game continues while errors
-are fixed. Every editor shares its Undo, Redo, History and autosave owner.
+with code intelligence from the analysis worker. `projectPartDrafts.ts` saves only
+the edited part after a short pause and journals pending writes for recovery.
+Invalid source remains a draft while the admitted game runs. Update game sends
+the changed parts together through `ProjectSession` admission and adds one
+History step. Every editor shares the same update and history owner.
 
 **Where authority lives.** Each of these is a check in code:
 
@@ -410,7 +419,7 @@ are fixed. Every editor shares its Undo, Redo, History and autosave owner.
 - `prepareRoomPatch` accepts a room only if it is whole: it parses every payload under the game's profile, lets the vocabulary only grow, and stages the result on a copy.
 - `editValidation.ts` checks Studio gestures by their decoded pixels. Workspace agent changes use `src/authoring/projectAgentCandidate.ts` to validate complete coordinated documents and native resources; `assistScope.ts` remains in detached Studio compatibility services.
 - `project/projectTransaction.ts` owns saved, installed and current: the base an edit was made from, what storage holds, and what the running game confirmed it installed. Every project write (an editor change, an AI turn, a room written mid-play, an autosave) is refused as stale unless storage still holds its base, and only an acknowledged install moves the booted game forward.
-- `project/projectSession.ts` owns Create’s current documents, diagnostics, live admission, autosave and History. Every workspace editor and agent change submits through it. Review selects a validated coordinated change set; Auto-approve records each valid proposal immediately. Chat checkpoints identify the change and its preceding History commit.
+- `project/projectSession.ts` owns Create’s current documents, diagnostics, live admission, autosave and History. Workspace editors store per-part drafts. Update game submits their complete change set; approved agent changes submit through the same admission pipeline. Review selects a validated coordinated change set; Auto-approve records each valid proposal immediately. Chat checkpoints identify the change and its preceding History commit.
 - `project/resourceCommit.ts` and `project/editableProject.ts` retain the compatibility and detached authoring services exercised by their unit tests.
 - The logic assembler and the container writer are the validators of last resort.
 

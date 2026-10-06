@@ -1,3 +1,4 @@
+import { scheduler as testScheduler } from "node:timers/promises";
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { AgiAudio } from "../src/audio/AgiAudio.ts";
@@ -130,7 +131,7 @@ function context(initial: "running" | "suspended" = "running") {
 }
 
 /** Let queued transition reconciles run. */
-const settle = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
+const settle = () => testScheduler.yield();
 
 describe("audio pause freezes the context clock", () => {
   it("suspends the running context on pause and resumes it on release", async () => {

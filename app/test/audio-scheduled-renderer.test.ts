@@ -51,9 +51,11 @@ function context() {
     },
     createBuffer: (_c: number, length: number, _r: number) => {
       const data = new Float32Array(length);
-      return { data, getChannelData: () => data };
+      return { data, length, getChannelData: () => data };
     },
     createBufferSource: () => ({ ...node(), buffer: null, loop: false, playbackRate: params() }),
+    createChannelMerger: () => node(),
+    createIIRFilter: () => node(),
     createBiquadFilter: () => ({ ...node(), type: "bandpass", Q: params(), frequency: params() }),
   };
   return {
@@ -129,7 +131,13 @@ for (const kind of ["speaker", "psg", "paula", "iigs"] as const) {
     audio.outputTick({ stream: "song", tick: 1, outputs: events, complete: false });
     const second = Math.max(...gains.flatMap(({ gain }) => gain.values.map(([, at]) => at)));
     assert.ok(Math.abs(second - first - 1 / 60) < 1e-10);
-    if (kind === "paula" || kind === "iigs") {
+    if (kind === "paula")
+      assert.equal(
+        gains[1]!.gain.values.at(-1)![1],
+        gains[2]!.gain.values.at(-1)![1],
+        "volume writes share the register tick independently of sample reload",
+      );
+    if (kind === "iigs") {
       assert.equal(gains[1]!.gain.values.at(-1)![1], gains[2]!.gain.values.at(-1)![1]);
     }
     ctx.currentTime += 2;
@@ -185,4 +193,28 @@ it("IIgs fallback note-off keeps its tick when completion retires the whole grap
     "graph retirement must preserve the earlier note-off",
   );
   assert.ok(Math.abs(oscillators[1]!.stops.at(-1)! - off - 2 / 60) < 1e-10);
+});
+
+it("PAL packets keep 20 ms between Paula writes in a delivered batch", () => {
+  const { audio, gains } = context();
+  const outputs = [{ kind: "paula" as const, channel: 0, period: 8000, volume: 40 }];
+  audio.outputTick({
+    stream: "pal",
+    tick: 0,
+    hz: 50,
+    amigaRegion: "pal",
+    outputs,
+    complete: false,
+  });
+  const first = gains[1]!.gain.values.at(-1)![1];
+  audio.outputTick({
+    stream: "pal",
+    tick: 1,
+    hz: 50,
+    amigaRegion: "pal",
+    outputs,
+    complete: false,
+  });
+  const second = gains[1]!.gain.values.at(-1)![1];
+  assert.ok(Math.abs(second - first - 0.02) < 1e-10);
 });

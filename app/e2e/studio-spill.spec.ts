@@ -14,7 +14,7 @@ import {
   openWorkspacePicture,
   textHook,
   waitForCycles,
-  workspaceSaved,
+  workspaceUpdated,
 } from "./engineProbe.ts";
 import { expect, reviewShot, test } from "./test.ts";
 
@@ -114,8 +114,9 @@ test("dragging an outline another item's fill pours around lands, names the fill
   for (const x of [22, 25, 28]) await page.mouse.move(...(await cell(page, x, 50)));
   await page.mouse.up();
 
-  await workspaceSaved(page);
+  await workspaceUpdated(page);
   const notice = studio.getByTestId("studio-notice");
+  await expect(notice).toBeVisible();
   await expect(notice).toHaveText(NOTE);
   const moved = planes(await draftBytes(page));
   const expected = planes(compilePictureSource(MOVED).bytes);
@@ -128,7 +129,7 @@ test("dragging an outline another item's fill pours around lands, names the fill
 
   await studio.locator(".studio__stage").focus();
   await page.keyboard.press("ControlOrMeta+z");
-  await workspaceSaved(page);
+  await workspaceUpdated(page);
   await expect(notice).toHaveCount(0);
   await expect.poll(() => draftBytes(page)).toEqual(original);
 });

@@ -13,7 +13,11 @@
  * (session, patchGeneration, cycle), which is how the map binds a thumbnail
  * to the room the frame actually shows.
  */
-import { EDGE_SIDES, type EdgeSide, type RoomTransitionCause } from "../../../src/agent/roomMap.ts";
+import {
+  EDGE_SIDES,
+  type EdgeSide,
+  type RoomTransitionCause,
+} from "../../../src/agent/roomGraph.ts";
 import type { WorkerContext } from "./context.ts";
 
 const V_ROOM = 0;

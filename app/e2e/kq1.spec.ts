@@ -1,4 +1,4 @@
-import { openGameOptions, enterCreateMode } from "./engineProbe.ts";
+import { gameHint, openGameOptions, enterCreateMode } from "./engineProbe.ts";
 import { fixtureSkip, KNOWN_GAME_HASH } from "../../test/fixtures.ts";
 import { readFile } from "node:fs/promises";
 import { readGameZip } from "../src/archive/gameZip.ts";
@@ -16,6 +16,7 @@ import {
   openLibraryActions,
   observe,
   probe,
+  progressStorageKey,
   screenText,
   settled,
   storedAutosave,
@@ -60,7 +61,8 @@ async function bootKq1(page: Page): Promise<void> {
     .first()
     .click();
   await expect(page.getByTestId("input-line")).toBeVisible({ timeout: 15_000 });
-  await expect(page.getByTestId("title-prompt-hint")).toBeVisible({ timeout: 15_000 });
+  await expect(await gameHint(page, "title-prompt-hint")).toBeVisible({ timeout: 15_000 });
+  await page.mouse.move(0, 0);
 }
 
 /**
@@ -69,12 +71,14 @@ async function bootKq1(page: Page): Promise<void> {
  * signal. A click on the screen only focuses the game; it never advances it.
  */
 async function advanceToCourtyard(page: Page): Promise<void> {
-  await expect(page.getByTestId("title-prompt-hint")).toBeVisible({ timeout: 15_000 });
+  await expect(await gameHint(page, "title-prompt-hint")).toBeVisible({ timeout: 15_000 });
+  await page.mouse.move(0, 0);
   await page.keyboard.press("Enter");
   await expect
     .poll(async () => (await textHook(page)).rows[0] ?? "", { timeout: 20_000 })
     .toContain("Score:");
-  await expect(page.getByTestId("title-prompt-hint")).toBeHidden();
+  await expect(await gameHint(page, "title-prompt-hint")).toBeHidden();
+  await page.mouse.move(0, 0);
 }
 
 test("boots authentic KQ1 to the title screen and advances to courtyard", async ({ page }) => {
@@ -119,7 +123,8 @@ test("a printable key wakes a graphics-mode have.key wait on the title screen", 
   await expect
     .poll(async () => (await textHook(page)).rows[0] ?? "", { timeout: 20_000 })
     .toContain("Score:");
-  await expect(page.getByTestId("title-prompt-hint")).toBeHidden();
+  await expect(await gameHint(page, "title-prompt-hint")).toBeHidden();
+  await page.mouse.move(0, 0);
 });
 
 test("intro credits in room 83 land on the engine's text rows below the picture", async ({
@@ -240,7 +245,8 @@ test("F1 help screen displays in text mode and is dismissed on key", async ({ pa
   // Use the game-registered F1 shortcut
   await clickGameKey(page, 15104);
   await expect.poll(async () => (await textHook(page)).textMode, { timeout: 5_000 }).toBe(true);
-  await expect(page.getByTestId("text-mode-hint")).toBeVisible();
+  await expect(await gameHint(page, "text-mode-hint")).toBeVisible();
+  await page.mouse.move(0, 0);
 
   // Verify help text contains "Help"
   expect(await screenText(page)).toContain("Help");
@@ -249,7 +255,8 @@ test("F1 help screen displays in text mode and is dismissed on key", async ({ pa
   // Dismiss help screen with a key
   await page.keyboard.press("Enter");
   await expect.poll(async () => (await textHook(page)).textMode, { timeout: 5_000 }).toBe(false);
-  await expect(page.getByTestId("text-mode-hint")).toBeHidden();
+  await expect(await gameHint(page, "text-mode-hint")).toBeHidden();
+  await page.mouse.move(0, 0);
 });
 
 test("Escape opens the authentic menu bar; arrows navigate; Escape closes it", async ({ page }) => {
@@ -291,19 +298,21 @@ test("saving with F5 writes a real save-file image and F7 restores it without lo
   await page.goto("/");
   await bootKq1(page);
   await advanceToCourtyard(page);
+  const saveKey = `monotio_agi.saves.${encodeURIComponent(await progressStorageKey(page, "kq1"))}`;
 
   // Save game (F5): select a slot, name it and confirm the engine's dialog.
   await clickGameKey(page, 16128);
   await expectModal(page, "save");
   await page.keyboard.press("Enter");
-  await expect(page.getByTestId("prompt-hint")).toBeVisible();
+  await expect(await gameHint(page, "prompt-hint")).toBeVisible();
+  await page.mouse.move(0, 0);
   await page.getByTestId("input-line").fill("Courtyard");
   await page.keyboard.press("Enter");
   await expect.poll(() => screenText(page)).toContain("Save in slot 1?");
   await expect.poll(() => screenText(page)).toContain("Courtyard");
   await page.keyboard.press("Enter");
   await expect
-    .poll(() => page.evaluate(() => localStorage.getItem("monotio_agi.saves.kq1") !== null), {
+    .poll(() => page.evaluate((key) => localStorage.getItem(key) !== null, saveKey), {
       timeout: 15_000,
     })
     .toBe(true);
@@ -311,12 +320,12 @@ test("saving with F5 writes a real save-file image and F7 restores it without lo
   // The stored value is the authentic save envelope, not a JSON snapshot:
   // base64 of a 31-byte description header followed by the 2.917 profile's
   // five u16le length-prefixed blocks, the first of which is 0x05e1 bytes.
-  const envelope = await page.evaluate(() => {
-    const stored = JSON.parse(localStorage.getItem("monotio_agi.saves.kq1") ?? "{}").slots["1"];
+  const envelope = await page.evaluate((key) => {
+    const stored = JSON.parse(localStorage.getItem(key) ?? "{}").slots["1"];
     if (!stored) return null;
     const binary = atob(stored);
     return { length: binary.length, block1: binary.charCodeAt(31) | (binary.charCodeAt(32) << 8) };
-  });
+  }, saveKey);
   expect(envelope).not.toBeNull();
   expect(envelope!.block1).toBe(0x05e1);
   expect(envelope!.length).toBeGreaterThan(31 + 2 + 0x05e1);
@@ -328,9 +337,9 @@ test("saving with F5 writes a real save-file image and F7 restores it without lo
   await page.keyboard.press("Enter");
 
   // Telemetry checks
-  await expect(page.locator(".agent-panel")).toContainText(
-    "Restoring saved game from local storage...",
-  );
+  await expect
+    .poll(() => agentActivity(page))
+    .toContain("Restoring saved game from local storage...");
 
   // Verify only 1 restore request was sent (infinite loop bug fixed): the
   // count must reach one and then STAY at one across an observation window.
@@ -408,12 +417,14 @@ test("an autosave resumes the courtyard across a browser reload", async ({ page 
 
   // No picker, no title screen: the same game comes back by itself.
   await expect(page.getByTestId("input-line")).toBeVisible({ timeout: 20_000 });
-  await expect(page.getByTestId("resume-caption")).toBeVisible({ timeout: 20_000 });
+  await expect(await gameHint(page, "resume-caption")).toBeVisible({ timeout: 20_000 });
+  await page.mouse.move(0, 0);
   await expect(page.locator(".setup-panel")).toBeHidden();
   await expect
     .poll(async () => (await textHook(page)).rows[0] ?? "", { timeout: 20_000 })
     .toContain("Score:");
-  await expect(page.getByTestId("title-prompt-hint")).toBeHidden();
+  await expect(await gameHint(page, "title-prompt-hint")).toBeHidden();
+  await page.mouse.move(0, 0);
 
   const after = await textHook(page);
   expect(after.room).toBe(1);
@@ -441,13 +452,16 @@ test("Start over discards the autosave and boots the game from the top", async (
   const walked = await textHook(page);
   await waitForAutosaveAfter(page, walked.cycle);
   await page.reload();
-  await expect(page.getByTestId("resume-caption")).toBeVisible({ timeout: 20_000 });
+  await expect(await gameHint(page, "resume-caption")).toBeVisible({ timeout: 20_000 });
+  await page.mouse.move(0, 0);
 
   // Start over throws the snapshot away and boots KQ1 from its title screen.
   await openGameOptions(page, "settings-menu");
   await page.getByTestId("btn-start-over").click();
-  await expect(page.getByTestId("title-prompt-hint")).toBeVisible({ timeout: 20_000 });
-  await expect(page.getByTestId("resume-caption")).toBeHidden();
+  await expect(await gameHint(page, "title-prompt-hint")).toBeVisible({ timeout: 20_000 });
+  await page.mouse.move(0, 0);
+  await expect(await gameHint(page, "resume-caption")).toBeHidden();
+  await page.mouse.move(0, 0);
   expect(await storedAutosave(page, "kq1")).toBeNull();
 });
 
@@ -487,7 +501,8 @@ test("typing after Start over while the input is unfocused does not double the f
 
   await openGameOptions(page, "settings-menu");
   await page.getByTestId("btn-start-over").click();
-  await expect(page.getByTestId("title-prompt-hint")).toBeVisible({ timeout: 20_000 });
+  await expect(await gameHint(page, "title-prompt-hint")).toBeVisible({ timeout: 20_000 });
+  await page.mouse.move(0, 0);
   await advanceToCourtyard(page);
 
   // With focus anywhere but the hidden input (the menu button holds it after
@@ -514,7 +529,8 @@ test("clicking the game screen only focuses it, never acts as Enter", async ({ p
 
   // On the title screen a click must not start the game.
   await page.locator(".screen").click();
-  await expect(page.getByTestId("title-prompt-hint")).toBeVisible();
+  await expect(await gameHint(page, "title-prompt-hint")).toBeVisible();
+  await page.mouse.move(0, 0);
   await waitForCycles(page, 4);
   expect((await textHook(page)).rows[0] ?? "").not.toContain("Score:");
 
@@ -544,7 +560,8 @@ test.describe("hybrid pointer", () => {
     await page.locator(".screen").click();
     await waitForCycles(page, 4);
     expect((await textHook(page)).rows[0] ?? "").not.toContain("Score:");
-    await expect(page.getByTestId("title-prompt-hint")).toBeVisible();
+    await expect(await gameHint(page, "title-prompt-hint")).toBeVisible();
+    await page.mouse.move(0, 0);
 
     await page.locator(".screen").tap();
     await expect
@@ -573,7 +590,9 @@ test("returning to the menu preserves the installed game autosave", async ({ pag
   await expect(page.locator(".screen")).toBeVisible();
 });
 
-test("a corrupt autosave is discarded and the game boots normally", async ({ page }) => {
+test("a corrupt autosave refuses recovery and preserves the stored checkpoint", async ({
+  page,
+}) => {
   await page.goto("/");
   await bootKq1(page);
   await advanceToCourtyard(page);
@@ -581,24 +600,25 @@ test("a corrupt autosave is discarded and the game boots normally", async ({ pag
   await waitForAutosaveAfter(page, walked.cycle);
 
   // Truncate the stored envelope past repair: the decode has to throw.
-  await page.evaluate(() => {
-    const raw = JSON.parse(localStorage.getItem("monotio_agi.autosave.kq1")!);
+  const autosaveKey = `monotio_agi.autosave.${await progressStorageKey(page, "kq1")}`;
+  const damaged = await page.evaluate((key) => {
+    const raw = JSON.parse(localStorage.getItem(key)!);
     raw.image = raw.image.slice(0, 40);
-    localStorage.setItem("monotio_agi.autosave.kq1", JSON.stringify(raw));
-  });
+    const serialized = JSON.stringify(raw);
+    localStorage.setItem(key, serialized);
+    return serialized;
+  }, autosaveKey);
 
   await page.reload();
-  // A normal boot, not a broken screen: KQ1 comes up on its title screen and
-  // the failure is a log line, not an error panel.
-  await expect(page.getByTestId("title-prompt-hint")).toBeVisible({ timeout: 20_000 });
-  await expect(page.getByTestId("error-panel")).toHaveCount(0);
-  await expect(page.getByTestId("resume-caption")).toBeHidden();
-  await expect.poll(() => agentActivity(page)).toContain("Autosave discarded");
+  // Recovery reports the unreadable image and keeps the contributor's bytes.
+  const error = page.getByTestId("error-panel");
+  await expect(error).toBeVisible();
+  await expect(error).toContainText("The checkpoint could not be restored");
+  await expect(page.locator(".screen")).toBeHidden();
+  expect(await page.evaluate((key) => localStorage.getItem(key), autosaveKey)).toBe(damaged);
 });
 
-test("game frame is hidden until game is running, clicking screen advances title screen, and menu button ejects", async ({
-  page,
-}) => {
+test("game frame follows boot and exit while New game preserves its draft", async ({ page }) => {
   await page.goto("/");
 
   // 1. Initially (idle), the screen container must be hidden
@@ -609,12 +629,15 @@ test("game frame is hidden until game is running, clicking screen advances title
   await openCreateAdventure(page);
   await page.getByTestId("template-knights-trial").click();
   await page.getByRole("button", { name: "Edit as text", exact: true }).click();
+  await expect(page.getByTestId("custom-adventure-input")).toBeVisible();
   const draft = await page.getByTestId("custom-adventure-input").inputValue();
   await page.getByTestId("connect-create-ai").click();
   await expect(page.getByTestId("ai-settings-dialog")).toBeVisible();
   await expect(page.getByTestId("custom-adventure-input")).toHaveValue(draft);
   await page.getByTestId("ai-settings-cancel").click();
   await expect(page.locator(".screen")).toBeHidden();
+  await page.getByTestId("create-adventure-close").click();
+  await expect(page.getByTestId("create-adventure-disclosure")).toBeHidden();
 
   // 3. Boot KQ1: screen becomes visible
   await bootKq1(page);
@@ -622,12 +645,14 @@ test("game frame is hidden until game is running, clicking screen advances title
   await expect(page.locator(".setup-panel")).toBeHidden();
 
   // 4. In Room 83 title screen, title prompt hint is visible
-  await expect(page.getByTestId("title-prompt-hint")).toBeVisible({ timeout: 15_000 });
+  await expect(await gameHint(page, "title-prompt-hint")).toBeVisible({ timeout: 15_000 });
+  await page.mouse.move(0, 0);
 
-  // 5. Clicking screen advances to courtyard (Room 1)
+  // 5. Enter advances to courtyard (Room 1).
   await advanceToCourtyard(page);
   await expect.poll(() => canvasColors(page), { timeout: 15_000 }).toBeGreaterThanOrEqual(8);
-  await expect(page.getByTestId("title-prompt-hint")).toBeHidden();
+  await expect(await gameHint(page, "title-prompt-hint")).toBeHidden();
+  await page.mouse.move(0, 0);
 
   // 6. Clicking Menu button returns to setup panel and hides screen
   await page.getByTestId("btn-exit").click();
@@ -643,14 +668,12 @@ test("KQ1 orientation accompanies the first question, Escape resumes", async ({ 
   await advanceToCourtyard(page);
   await expect.poll(async () => (await textHook(page)).cycle).toBeGreaterThan(0);
 
-  await enterCreateMode(page);
-  await page.getByTestId("power-up").click();
+  await page.getByTestId("menu-assistant").click();
   await expect(page.getByTestId("agent-bubble")).toBeVisible();
   await expect.poll(async () => (await textHook(page)).paused).toBe(true);
 
   await expect(page.getByTestId("agent-bubble-input")).toBeEnabled();
   await expect.poll(() => agentActivity(page)).not.toContain("[Orientation]");
-  await page.getByTestId("agent-mode-ask").click();
   await page.getByTestId("agent-bubble-input").fill("Where am I?");
   await page.getByTestId("agent-bubble-send").click();
   await expect(page.getByTestId("agent-bubble-input")).toBeEnabled();
@@ -707,23 +730,26 @@ test("a locally loaded patched game can be downloaded and imported", async ({ pa
 
   // Patch a real local game through the UI, then verify the downloaded bytes.
   await enterCreateMode(page);
-  await page.getByTestId("power-up").click();
-  await expect(page.getByTestId("agent-bubble")).toBeVisible();
-  await expect(page.getByTestId("agent-bubble-input")).toBeEnabled();
-  await page.getByTestId("agent-bubble-input").fill("put up a sign by the road");
-  await page.getByTestId("agent-bubble-send").click();
-  await expect(page.getByTestId("agent-bubble")).toBeHidden();
-  await openGameOptions(page, "settings-menu");
-  await expect(page.getByTestId("btn-export-game")).toBeVisible();
+  await page.getByTestId("workspace-agent").click();
+  const panel = page.getByTestId("workspace-agent-panel");
+  await expect(panel).toBeVisible();
+  await expect(page.getByTestId("agent-message")).toBeEnabled();
+  await page.getByTestId("agent-message").fill("Add a welcome sign that answers look at sign");
+  await panel.getByRole("button", { name: "Send", exact: true }).click();
+  await expect(page.getByTestId("agent-review")).toBeVisible();
+  await page.getByTestId("agent-approve").click();
+  await expect(page.getByTestId("agent-review")).toBeHidden();
+  await page.getByTestId("workspace-agent").click();
   const downloading = page.waitForEvent("download");
   await openGameOptions(page, "settings-menu");
+  await expect(page.getByTestId("btn-export-game")).toBeVisible();
   await page.getByTestId("btn-export-game").click();
   const download = await downloading;
   expect(download.suggestedFilename()).toMatch(/^agi-remix-[a-f0-9-]+-game\.zip$/);
   expect(await download.failure()).toBeNull();
   const imported = await readGameZip(await readFile((await download.path())!));
   const container = openContainer(new Map(Object.entries(imported.files)));
-  expect(disassembleLogic(container.getResource("logic", 1)!)).toContain("weathered sign");
+  expect(disassembleLogic(container.getResource("logic", 1)!)).toContain("Welcome sign");
   expect(await page.evaluate(() => localStorage.getItem("monotio_agi.authored.kq1"))).toBeNull();
   // The remix resumes into queued print windows ("press enter"). Exit leaves
   // with or without a fresh checkpoint of that moment: the remix project is

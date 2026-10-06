@@ -9,6 +9,7 @@ import { buildProjectZip } from "../src/archive/projectArchive.ts";
 import { buildZip } from "../src/archive/zip.ts";
 import { testProjectId } from "../test/identity.ts";
 import {
+  gameHint,
   configureAi,
   enterCreateMode,
   isolateStorage,
@@ -397,7 +398,8 @@ test("the offline tutorial has a cached thumbnail and fits a phone", async ({ pa
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
   await expect.poll(async () => (await textHook(page)).cycle).toBeGreaterThan(5);
   await expect.poll(async () => (await textHook(page)).rows.join(" ")).toContain("HELP");
-  await expect(page.getByTestId("resume-caption")).toHaveCount(0);
+  await expect(await gameHint(page, "resume-caption")).toHaveCount(0);
+  await page.mouse.move(0, 0);
   expect(providerCalls).toBe(0);
 });
 
@@ -593,6 +595,16 @@ test("a late Agent panel keeps Settings open @webkit-desktop", async ({ page }) 
   await enterCreateMode(page);
   await page.getByTestId("workspace-agent").click();
   await page.getByTestId("settings-menu").click();
+  await expect(page.getByTestId("settings-menu-menu")).toBeVisible();
+  await expect(page.getByTestId("toggle-mute")).toBeFocused();
+  // The shell can finish its queued focus move before the panel has loaded.
+  await page.locator(".assistant-host").focus();
+  await expect(page.getByTestId("settings-menu-menu")).toBeVisible();
+  await expect(page.getByTestId("toggle-mute")).toBeFocused();
+  const other = await page.context().newPage();
+  await other.bringToFront();
+  await page.bringToFront();
+  await other.close();
   await expect(page.getByTestId("settings-menu-menu")).toBeVisible();
   release();
   await expect(page.getByTestId("workspace-agent-panel")).toBeVisible();

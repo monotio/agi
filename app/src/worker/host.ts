@@ -177,7 +177,11 @@ export function createEngineHost(ctx: WorkerContext): EngineHost {
     },
     saveGame(bytes, slot = 1) {
       // The main thread owns localStorage; the image travels as base64.
-      return ctx.fns.postHostRequest("saveWrite", { slot, image: bytesToBase64(bytes) });
+      return ctx.fns.postHostRequest("saveWrite", {
+        slot,
+        image: bytesToBase64(bytes),
+        amigaRegion: ctx.engine?.amigaRegion ?? "ntsc",
+      });
     },
     /** 0x7e restore.game: the save lookup is a host request; null = cancelled. */
     restoreGame(slot = 1) {
@@ -215,6 +219,9 @@ export function createEngineHost(ctx: WorkerContext): EngineHost {
         type: "soundTick",
         stream: `${namespace}:${stream}`,
         tick: soundTick++,
+        ...(ctx.engine?.profile.frameTiming === "amiga-vblank"
+          ? { amigaRegion: ctx.engine.amigaRegion, hz: ctx.engine.timing.soundHz }
+          : {}),
         outputs,
         complete,
       });

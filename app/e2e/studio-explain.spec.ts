@@ -111,7 +111,9 @@ test("Room Studio: every explainer in every lens says its sentence and gives Esc
   // A mouse resting on an ⓘ opens it with focus left on the canvas; Esc then
   // closes the explainer, and only the explainer.
   const canvas = studio.getByRole("group", { name: /^Canvas/ });
+  await studio.getByRole("radio", { name: "Items", exact: true }).click();
   await canvas.focus();
+  await expect(studio.getByTestId("explain-order")).toBeVisible();
   await studio.getByTestId("explain-order").hover();
   const pop = page.getByTestId("explain-pop");
   await expect(pop).toHaveAttribute("data-term", "order");

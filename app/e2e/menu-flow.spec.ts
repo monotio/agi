@@ -23,6 +23,9 @@ test("first visit has one route per action and aligned sections", async ({ page 
     "https://en.wikipedia.org/wiki/Adventure_Game_Interpreter",
   );
   await page.getByTestId("create-adventure-toggle").click();
+  await expect(page.getByTestId("create-adventure-disclosure")).toBeVisible();
+  await expect(page.getByTestId("local-create-submit")).toBeHidden();
+  await page.getByTestId("local-create-kind-starter").click();
   await expect(page.getByTestId("create-adventure-disclosure")).toContainText(
     "Opens with the game running. Everything you change is saved as you go.",
   );

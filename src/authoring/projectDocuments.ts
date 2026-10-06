@@ -497,15 +497,12 @@ function indexedPayload(
   }
 }
 
-/** Whether a directory entry exists at all, corrupt records included. */
-function isIndexed(container: GameContainer, kind: ResourceKind, num: number): boolean {
+/** Readable entries can be removed by omission; unreadable imported slots stay indexed. */
+function hasReadablePayload(container: GameContainer, kind: ResourceKind, num: number): boolean {
   try {
     return container.getResource(kind, num) !== null;
-  } catch (error) {
-    throw new Error(
-      `Unreadable ${kind}:${num} cannot be removed implicitly. Repair its payload before building.`,
-      { cause: error },
-    );
+  } catch {
+    return false;
   }
 }
 
@@ -763,7 +760,7 @@ export function compileProjectDocuments(
   }
   for (const kind of RESOURCE_KINDS) {
     for (let num = 0; num < 256; num++) {
-      if (!desired.has(`${kind}:${num}`) && isIndexed(container, kind, num))
+      if (!desired.has(`${kind}:${num}`) && hasReadablePayload(container, kind, num))
         changes.push({ kind, num, payload: null });
     }
   }

@@ -1,3 +1,4 @@
+import { scheduler as testScheduler } from "node:timers/promises";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { useWorkerLink } from "../src/engine/useWorkerLink.ts";
@@ -91,7 +92,7 @@ function fakeContext() {
   };
 }
 
-const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
+const flush = () => testScheduler.yield();
 
 function rig() {
   const context = fakeContext();

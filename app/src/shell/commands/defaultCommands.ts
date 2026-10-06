@@ -47,13 +47,19 @@ const DEFAULTS = {
   },
   play: {
     id: "game.play",
-    title: "Play full size",
+    title: "Update game",
     key: "Mod+Enter",
     textInput: true,
     game: true,
     when: (c) => !c.agentFocus,
   },
-  run: { id: "debug.run", title: "Run or continue", key: "F5", textInput: true, game: true },
+  run: {
+    id: "debug.run",
+    title: "Run or continue",
+    key: "F5",
+    textInput: true,
+    when: (c) => !c.gameFocus,
+  },
   stop: {
     id: "debug.stop",
     title: "Stop debugging",
@@ -95,7 +101,7 @@ const DEFAULTS = {
     when: (c) => c.debugging,
   },
   focusGame: { id: "focus.game", title: "Focus game", key: "Ctrl+`", textInput: true, game: true },
-  nextZone: { id: "focus.next", title: "Next focus zone", key: "F6", textInput: true, game: true },
+  nextZone: { id: "focus.next", title: "Next focus zone", key: "F6", textInput: true },
   previousZone: {
     id: "focus.previous",
     title: "Previous focus zone",

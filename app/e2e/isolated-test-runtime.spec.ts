@@ -1,4 +1,5 @@
-import { test, expect } from "@playwright/test";
+import type * as BrowserSignals from "./browserSignals.ts";
+import { test, expect } from "./test.ts";
 import { createContainer } from "../../src/container/container.ts";
 import { compileProjectLogic } from "../../src/authoring/projectLogic.ts";
 import { captureProjectBuild } from "../../src/authoring/projectBuild.ts";
@@ -114,13 +115,16 @@ test("isolated test runs the real worker: frozen admission, ephemeral saves, gen
       profile: ProfileId;
     }) => {
       const { createTestSession } = await import("/src/studio/logic/debug/testSession.ts");
-      const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+      const signalsPath = "/e2e/browserSignals.ts";
+      const { waitForSignal }: typeof BrowserSignals = await import(/* @vite-ignore */ signalsPath);
+      const waiters = new Set<() => void>();
       const until = async (predicate: () => boolean, what: string) => {
-        const deadline = performance.now() + 5000;
-        while (!predicate()) {
-          if (performance.now() > deadline) throw new Error(`timed out waiting for ${what}`);
-          await sleep(10);
-        }
+        await waitForSignal(predicate, (check) => {
+          waiters.add(check);
+          return () => waiters.delete(check);
+        }).catch(() => {
+          throw new Error(`timed out waiting for ${what}`);
+        });
       };
       interface Outbound {
         type: string;
@@ -148,6 +152,7 @@ test("isolated test runs the real worker: frozen admission, ephemeral saves, gen
           const data = event.data as Outbound;
           observed.push({ type: data.type, ...(data.op ? { op: data.op } : {}) });
           self.onmessage?.({ data: event.data });
+          for (const check of waiters) check();
         };
         return self;
       }
@@ -160,7 +165,10 @@ test("isolated test runs the real worker: frozen admission, ephemeral saves, gen
           return { release: () => (lease.released = true) };
         },
       });
-      session.on((event) => events.push(event.type));
+      session.on((event) => {
+        events.push(event.type);
+        for (const check of waiters) check();
+      });
       const toGame = (g: (typeof games)["save"]) => ({
         files: Object.fromEntries(
           Object.entries(g.files).map(([name, bytes]) => [name, new Uint8Array(bytes)]),
@@ -186,18 +194,24 @@ test("isolated test runs the real worker: frozen admission, ephemeral saves, gen
       };
 
       // --- Frozen: real timers run in the browser, yet nothing cycles ---
-      await sleep(400);
+      // wall-clock: page.clock cannot advance the real frozen worker's timer realm.
+      await new Promise((resolve) => setTimeout(resolve, 400));
       const frozenCount = (await session.evaluate("count")) as number;
       session.key(0x0d);
       session.input("look");
       session.click(5, 5);
       session.direction(1);
-      await sleep(200);
+      // wall-clock: stopped input must remain inert across the worker's real cycle deadlines.
+      await new Promise((resolve) => setTimeout(resolve, 200));
       const stillFrozenCount = (await session.evaluate("count")) as number;
 
       // --- Continue releases real engine work; pause repins the stop ---
+      const cyclesBefore = observed.filter((m) => m.type === "cycle").length;
       await session.resume("continue");
-      await sleep(300);
+      await until(
+        () => observed.filter((m) => m.type === "cycle").length > cyclesBefore,
+        "live cycle",
+      );
       await session.pause();
       const liveCount = (await session.evaluate("count")) as number;
 

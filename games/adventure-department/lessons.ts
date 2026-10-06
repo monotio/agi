@@ -279,7 +279,7 @@ export const TUTORIAL_LESSONS: LessonSet = {
       title: "PICTURE steps",
       teaser: "A PICTURE is a list of drawing steps, like a recipe.",
       steps: [
-        "Drag the draw-order slider back to the start: the canvas is empty.",
+        "In the PICTURE editor, choose Draw order above Items. Drag the slider back to the start.",
         "Drag it forward slowly. Each step is one drawing command: a line, or a fill of colour.",
         "Watch the sky: it pours in last, because a fill only floods white.",
         "Click Sun in the list. Every step in it lights up.",
@@ -295,7 +295,7 @@ export const TUTORIAL_LESSONS: LessonSet = {
       title: "VIEW loops",
       teaser: "A VIEW holds loops and cels, like a flipbook. Edit the robot's left loop.",
       steps: [
-        "Loop 0 is the robot facing right: four cels that make his wave.",
+        "In the VIEW editor, loop 0 is the robot facing right: four cels that make his wave.",
         "Loop 1 faces left. It mirrors the cels in loop 0.",
         "Turn on Onion skin to see one cel over the next.",
         "Click a cel in the Loop 1 row first. Edit it: loop 1 becomes its own copy, and loop 0 stays as it was.",

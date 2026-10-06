@@ -8,6 +8,8 @@
  */
 import { test } from "node:test";
 import { Engine } from "../../src/runtime/engine.ts";
+import { createHistoryView } from "../src/worker/historyView.ts";
+import { openHistoryDrive } from "../src/worker/historyDrive.ts";
 import { installProjectRestart } from "../src/worker/projectRestart.ts";
 import assert from "node:assert/strict";
 import type { GameContainer } from "../../src/types.ts";
@@ -180,6 +182,7 @@ function viewHarness(
       presentation.push(message);
     },
     now: () => now,
+    seedWord: () => 0xbeef,
   } satisfies WorkerPorts);
   ctx.host = createEngineHost(ctx);
   // The host commits each batch and acks it; resent duplicates get acked
@@ -417,6 +420,119 @@ function playedSession(): { h: ViewHarness; recording: HistoryRecording; lastTic
   );
   return { h, recording: asRecording(segments), lastTick };
 }
+
+for (const delay of [0, 3]) {
+  test(`zero seek presents the first game frame after ${delay} cycles while preserving the boot replay state`, () => {
+    const h = viewHarness(
+      gameContainer(
+        [
+          `increment(v100); if (v100 > ${delay} && !isset(f200)) { set(f200); load.pic(v0); draw.pic(v0); show.pic(); } return;`,
+        ],
+        (c) => c.putResource("picture", 0, PICTURE_1),
+      ),
+      { rngSeed: 9 },
+    );
+    h.tick(30);
+    const firstFrame = h.presentation.find(
+      (m) => m.type === "frame" && m.visual.some((pixel) => pixel !== 15),
+    );
+    assert.ok(firstFrame?.type === "frame");
+    h.send({ type: "pause", paused: true });
+    const recording = asRecording(collectSegments(h.control));
+    h.send({ type: "historyViewStart", id: 1, recording, segment: 0, tick: 0 });
+    const report = finalView(h.control, 1);
+    assert.equal(report.tick, 0);
+    assert.equal(report.canResume, false);
+    const state = h.ctx.view.drive!.ctx.engine!.getPresentation();
+    assert.ok(state.visual.every((pixel) => pixel === 15));
+    const shown = h.presentation.at(-1);
+    assert.ok(shown?.type === "frame");
+    assert.equal(Buffer.compare(shown.visual, firstFrame.visual), 0);
+    assert.deepEqual(h.ctx.view.drive!.ctx.engine!.getPresentation(), state);
+    assert.equal(h.ctx.view.drive!.ctx.cycle.cycleCount, 0);
+  });
+}
+
+for (const deferred of [false, true]) {
+  test(`a throwing first-frame drive settles and closes the view (${deferred ? "next chunk" : "first chunk"})`, (t) => {
+    const { h, recording } = playedSession();
+    const live = h.ctx.engine;
+    const state = live!.captureReplayState();
+    t.after(() => h.ctx.fns.stopTimers());
+    t.mock.timers.enable({ apis: ["setTimeout"] });
+    let now = 0;
+    t.mock.method(h.ctx.ports, "now", () => (now += 13));
+    let drives = 0;
+    let previewContext: WorkerContext | null = null;
+    const view = createHistoryView(h.ctx, createWorkerContext, (...args) => {
+      const drive = openHistoryDrive(...args);
+      if (++drives === 2) {
+        previewContext = drive.ctx;
+        const step = drive.step.bind(drive);
+        let steps = 0;
+        t.mock.method(drive, "step", () => {
+          if (deferred && steps++ === 0) return step();
+          throw new Error("Injected first-frame failure");
+        });
+      }
+      return drive;
+    });
+    assert.doesNotThrow(() =>
+      view.onHistoryViewStart({
+        type: "historyViewStart",
+        id: 500,
+        recording,
+        segment: 0,
+        tick: 0,
+      }),
+    );
+    if (deferred) {
+      assert.equal(h.ctx.view.request, 500);
+      assert.doesNotThrow(() => t.mock.timers.tick(0));
+    }
+    const report = finalView(h.control, 500);
+    assert.match(report.error ?? "", /Injected first-frame failure/);
+    assert.equal(report.canResume, false);
+    assert.equal(
+      h.control.filter((m) => m.type === "historyView" && m.id === 500 && m.final).length,
+      1,
+    );
+    assert.equal(h.ctx.view.request, null);
+    assert.equal(h.ctx.view.timer, null);
+    assert.equal(h.ctx.view.drive, null);
+    assert.equal(h.ctx.view.recording, null);
+    assert.equal(h.ctx.replay.isSeeking, false);
+    assert.ok(previewContext);
+    assert.equal((previewContext as WorkerContext).replay.isSeeking, false);
+    assert.equal(h.ctx.engine, live);
+    assert.deepEqual(live!.captureReplayState(), state);
+  });
+}
+
+test("an existing anchor shows its exact moving-object frame", () => {
+  const h = viewHarness(
+    gameContainer(
+      [
+        `if (!isset(f230)) { set(f230); assignn(v10, 0); set(f218); } ${VIEW_LOGICS[0]}`,
+        ...VIEW_LOGICS.slice(1),
+      ],
+      populateViewResources,
+    ),
+    { rngSeed: 9 },
+  );
+  h.tick(6);
+  h.send({ type: "pause", paused: true });
+  const recording = asRecording(collectSegments(h.control));
+  const anchor = recording.segments[0]!.anchors[0]!;
+  assert.ok(anchor);
+  h.send({ type: "historyViewStart", id: 1, recording, segment: 0, tick: anchor.tick });
+  const shown = h.presentation.at(-1);
+  assert.ok(shown?.type === "frame");
+  assert.equal(
+    Buffer.compare(shown.visual, h.ctx.view.drive!.ctx.engine!.getPresentation().visual),
+    0,
+  );
+});
 
 test("viewing the tape replays it in a scratch session the live engine never feels", () => {
   const { h, recording, lastTick } = playedSession();
@@ -861,6 +977,17 @@ test("a take adopts the unknown-word slot said() still matches", () => {
   send({ type: "debugWrite", id: 4, flags: [[223, 1]] });
   tick(3);
   assert.equal(ctx.engine!.vars[102], 1, "said(1) matches in the adopted session");
+});
+
+test("worker history fixtures reseed independently of platform entropy", (t) => {
+  const h = viewHarness(viewGame(), { rngSeed: 0 });
+  t.mock.method(crypto, "getRandomValues", () => {
+    throw new Error("Fixture used live entropy");
+  });
+  h.tick(4);
+  h.send({ type: "debugWrite", id: 0, flags: [[202, 1]] });
+  h.tick(3);
+  assert.equal(h.ctx.history.rng, (0xbeef * 31821 + 1) & 0xffff);
 });
 
 test("restart at RNG zero consumes no clock read; the next draw records one", () => {
@@ -1462,3 +1589,25 @@ for (const replacement of [
     assert.equal(h.control.filter((m) => m.type === "recordingReset").length, 1);
   });
 }
+
+test("PAL boot fingerprints replay and reject a region switch", () => {
+  const h = viewHarness(viewGame(), {
+    rngSeed: 0xbeef,
+    profile: "amiga-2.316",
+    amigaRegion: "pal",
+  });
+  h.tick(4);
+  h.send({ type: "pause", paused: true });
+  const recording = asRecording(collectSegments(h.control));
+  assert.equal(recording.segments[0]!.boot.amigaRegion, "pal");
+  h.send({ type: "historyViewStart", id: 1, recording, segment: 0, tick: 0 });
+  assert.equal(finalView(h.control, 1).error, null);
+  assert.equal(h.ctx.view.drive!.ctx.engine!.amigaRegion, "pal");
+  h.send({ type: "historyViewSeek", id: 2, segment: 0, tick: 4 });
+  assert.equal(finalView(h.control, 2).error, null);
+  h.send({ type: "historyViewEnd" });
+  const switched = structuredClone(recording);
+  switched.segments[0]!.boot.amigaRegion = "ntsc";
+  h.send({ type: "historyViewStart", id: 3, recording: switched, segment: 0, tick: 0 });
+  assert.match(finalView(h.control, 3).error!, /fingerprint/);
+});

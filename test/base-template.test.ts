@@ -1225,6 +1225,20 @@ describe("base template engine behaviour", () => {
     const view = new DataView(payload.buffer, payload.byteOffset, payload.byteLength);
     const off = view.getUint16(0, true);
     assert.equal(off, 8);
+    // Preserve the released sting's stored native divisors.
+    assert.deepEqual(
+      [0, 1].map((channel) => {
+        const start = view.getUint16(channel * 2, true);
+        return [0, 1, 2, 3].map((note) => {
+          const at = start + note * 5;
+          return ((payload[at + 2]! & 0x3f) << 4) | (payload[at + 3]! & 15);
+        });
+      }),
+      [
+        [254, 302, 380, 507],
+        [302, 380, 507, 760],
+      ],
+    );
     for (let ch = 0; ch < 4; ch++) {
       const start = view.getUint16(ch * 2, true);
       const end = ch === 3 ? payload.length : view.getUint16((ch + 1) * 2, true);

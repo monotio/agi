@@ -14,7 +14,7 @@ import {
   textHook,
   waitForAutosaveAfter,
   waitForCycles,
-  workspaceSaved,
+  workspaceUpdated,
 } from "./engineProbe.ts";
 import { expect, keepDetectedProfile, test } from "./test.ts";
 
@@ -114,7 +114,7 @@ async function keepInTabB(page: Page): Promise<Locator> {
   await studio.locator('[data-row="occluder"]').click();
   await studio.getByRole("group", { name: /^Canvas/ }).focus();
   await tabB.keyboard.press("ArrowDown");
-  await workspaceSaved(tabB);
+  await workspaceUpdated(tabB);
   await waitForAutosaveAfter(tabB, (await textHook(tabB)).cycle);
   return studio;
 }
@@ -145,7 +145,7 @@ async function keepLabelInTabB(page: Page): Promise<void> {
     return result.status;
   });
   expect(result).toBe("committed");
-  await workspaceSaved(tabB);
+  await workspaceUpdated(tabB);
 }
 
 /** What storage holds for the project: its revision, its notes and its checkpoint's revision. */
@@ -207,7 +207,7 @@ test("a stale tab's Download game, Ask and Exit leave another tab's saved edit i
   expect(await stored(page)).toEqual(kept);
 
   // Leaving saves nothing over the edit, and is not refused for it.
-  await page.getByRole("button", { name: "Back to game", exact: true }).click();
+  await page.getByTestId("agent-bubble-close").click();
   await page.getByTestId("btn-exit").click();
   await expect(page.getByTestId("saved-game-gallery")).toBeVisible();
   expect(await stored(page)).toEqual(kept);
@@ -224,6 +224,7 @@ test("a tab running an older revision hears of another tab's saved edit at once 
 
   // Playing, assistant closed: the stage says so, once, and nothing is modal.
   const note = page.getByTestId("stale-tab-note");
+  await expect(note).toBeVisible();
   await expect(note).toHaveText(
     /Changed in another tab\. Editing is paused\. Download your unsaved edits, then reload\./,
   );
@@ -234,7 +235,7 @@ test("a tab running an older revision hears of another tab's saved edit at once 
   await expect.poll(async () => (await textHook(page)).cycle).toBeGreaterThan(cycle);
   await downloadGame(page);
   expect(await stored(page)).toEqual(kept);
-  await expect(note.getByRole("button", { name: "Dismiss" })).toHaveCount(0);
+  await expect(note.getByRole("button", { name: "Close", exact: true })).toHaveCount(0);
   await page.keyboard.press("Escape");
   for (const name of ["Download unsaved edits", "Download game", "Reload", "Exit"])
     await expect(note.getByRole("button", { name, exact: true })).toBeVisible();
@@ -272,6 +273,7 @@ test("a label saved in another tab is heard at once, and nothing this tab saves 
   expect(kept.authoringState).toContain("Low bench");
 
   const note = page.getByTestId("stale-tab-note");
+  await expect(note).toBeVisible();
   await expect(note).toHaveText(
     /Changed in another tab\. Editing is paused\. Download your unsaved edits, then reload\./,
   );
@@ -280,7 +282,7 @@ test("a label saved in another tab is heard at once, and nothing this tab saves 
     "Changed in another tab. Editing is paused.",
   );
   await expect(page.getByTestId("agent-bubble-reload")).toBeVisible();
-  await page.getByRole("button", { name: "Back to game", exact: true }).click();
+  await page.getByTestId("agent-bubble-close").click();
 
   // Leaving writes this tab's older notes over nothing, and is not refused.
   await page.getByTestId("btn-exit").click();

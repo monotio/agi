@@ -13,6 +13,7 @@ export type ProjectJournalOperation =
         readonly direction: "undo" | "redo" | "restore";
         readonly target: string;
       };
+      readonly reviewedComputedRoomJumps?: readonly string[];
     }
   | { readonly kind: "tag"; readonly name: string }
   | { readonly kind: "renameTag"; readonly name: string; readonly next: string | null }

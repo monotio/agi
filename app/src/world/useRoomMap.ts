@@ -16,13 +16,13 @@
 import { computed, reactive, ref, watch, type ComputedRef, type Ref } from "vue";
 import {
   mergeRoomGraph,
-  scanContainerExits,
   type MapExperience,
   type RoomGraph,
   type RoomMapSidecar,
   type RoomObservation,
   type StaticRoomScan,
-} from "../../../src/agent/roomMap.ts";
+} from "../../../src/agent/roomGraph.ts";
+import type { RoomAnalysisStarter } from "./roomAnalysisRunner.ts";
 import {
   createWorldDraft,
   draftAddExit,
@@ -148,6 +148,7 @@ function storedTestCoverage(
 }
 
 export interface RoomMapDeps {
+  readonly startAnalysis?: RoomAnalysisStarter;
   readonly state: EngineState;
   readonly hook: TextHook;
   readonly getBootedGame: () => BootedGame | null;
@@ -168,6 +169,7 @@ export interface RoomMapDeps {
 }
 
 export interface RoomMap {
+  readonly analysisStatus: Ref<"idle" | "pending" | "literal" | "resolved" | "failed">;
   readonly open: Ref<boolean>;
   readonly selected: Ref<number | undefined>;
   /**
@@ -415,9 +417,67 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
   const autoPositions = new Map<number, { x: number; y: number }>();
   let isolatedCursor = 0;
   let scanned: ScannedResources | null = null;
+  let scannedGame: BootedGame | null = null;
+  const analysisVersion = ref(0);
+  const analysisStatus = ref<"idle" | "pending" | "literal" | "resolved" | "failed">("idle");
+  let cancelAnalysis: (() => void) | undefined;
+  let analysisOwner: ScannedResources | null = null;
+  function cancelScan(): void {
+    cancelAnalysis?.();
+    cancelAnalysis = undefined;
+    analysisOwner = null;
+    analysisStatus.value = "idle";
+  }
+  const startAnalysis: RoomAnalysisStarter = (input, answer) => {
+    if (deps.startAnalysis) return deps.startAnalysis(input, answer);
+    let cancelled = false;
+    let terminate: (() => void) | undefined;
+    void import("./roomAnalysisRunner.ts")
+      .then(({ startRoomAnalysis }) => {
+        if (!cancelled) terminate = startRoomAnalysis(input, answer);
+      })
+      .catch(() => {
+        if (!cancelled) answer({ phase: "failed", error: "Room paths could not be read." });
+      });
+    return () => {
+      cancelled = true;
+      terminate?.();
+    };
+  };
+  function analyze(scan: ScannedResources, logics: ReadonlyMap<number, Uint8Array>): void {
+    if (analysisOwner === scan) return;
+    cancelScan();
+    analysisOwner = scan;
+    analysisStatus.value = "pending";
+    cancelAnalysis = startAnalysis(
+      { logics, ...(scan.profile ? { profile: scan.profile } : {}) },
+      (answer) => {
+        const game = deps.getBootedGame();
+        const key = game ? `${game.revision}:${game.authoredGame?.library?.profile ?? ""}` : "";
+        if (
+          analysisOwner !== scan ||
+          scanned !== scan ||
+          game !== scannedGame ||
+          key !== scan.key ||
+          game?.files !== scan.files
+        )
+          return;
+        analysisStatus.value = answer.phase;
+        if (answer.phase === "failed") return;
+        scanned = { ...scan, scans: answer.scans, shared: answer.shared };
+        // Keep the same owner across both staged answers.
+        scan = scanned;
+        analysisOwner = scan;
+        analysisVersion.value++;
+      },
+    );
+  }
+
+  let logicPayloadsForScan = new Map<number, Uint8Array>();
 
   /** The merged static scan of the booted resources — once per revision. */
-  function scanResources(): ScannedResources {
+  function scanResources(request = open.value || experience.value === "create"): ScannedResources {
+    void analysisVersion.value;
     const game = deps.getBootedGame();
     if (!game)
       return {
@@ -433,7 +493,13 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
     // The player's interpreter override, if any, is part of what was scanned.
     const override = game.authoredGame?.library?.profile;
     const key = `${game.revision}:${override ?? ""}`;
-    if (scanned && scanned.key === key && scanned.files === game.files) return scanned;
+    if (scanned && scannedGame === game && scanned.key === key && scanned.files === game.files) {
+      if (request && scanned.profile && analysisOwner !== scanned)
+        analyze(scanned, logicPayloadsForScan);
+      return scanned;
+    }
+    cancelScan();
+    scannedGame = game;
     const logicPayloads = new Map<number, Uint8Array>();
     const picture = new Set<number>();
     const profile = detectProfile(new Map(Object.entries(game.files)), override);
@@ -456,13 +522,16 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
         profile: null,
         testCoverage: storedTestCoverage(game.files, undefined),
       };
+      logicPayloadsForScan = new Map();
+      analysisOwner = scanned;
+      analysisStatus.value = "failed";
       return scanned;
     }
-    const { scans, shared } = scanContainerExits(logicPayloads, profile);
+    logicPayloadsForScan = logicPayloads;
     scanned = {
       key,
-      scans,
-      shared,
+      scans: new Map(),
+      shared: new Set([0]),
       logic: new Set(logicPayloads.keys()),
       picture,
       files: game.files,
@@ -470,6 +539,7 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
       testCoverage: storedTestCoverage(game.files, profile),
     };
     staticThumbs.clear();
+    if (request) analyze(scanned, logicPayloads);
     return scanned;
   }
 
@@ -684,7 +754,10 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
     pendingThumbs.clear();
     autoPositions.clear();
     isolatedCursor = 0;
+    cancelScan();
     scanned = null;
+    scannedGame = null;
+    logicPayloadsForScan.clear();
     selected.value = undefined;
     planError.value = "";
     planSaveError.value = "";
@@ -743,6 +816,21 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
     },
   );
   watch(() => state.roomJournal.length, drainJournal);
+  watch(
+    () => [state.patchTick, state.phase],
+    () => {
+      const game = deps.getBootedGame();
+      if (
+        scanned &&
+        (!game ||
+          game !== scannedGame ||
+          scanned.files !== game.files ||
+          scanned.key !== `${game.revision}:${game.authoredGame?.library?.profile ?? ""}`)
+      )
+        cancelScan();
+    },
+    { flush: "sync" },
+  );
 
   /**
    * The current room is live position, not history: a replay seek or Take
@@ -969,7 +1057,7 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
   const resources = computed(() => {
     void state.patchTick;
     void state.phase;
-    return scanResources();
+    return scanResources(true);
   });
 
   /**
@@ -1007,12 +1095,15 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
     }
     if (produced) thumbVersion.value++;
   }
+  let positionedAnalysisVersion = analysisVersion.value;
   watch(graph, () => {
-    // Evidence can improve for an already-placed room (a labeled edge arrives
-    // after the fallback anchored it): recompute auto positions against the
-    // current graph. Manual layout entries are unaffected.
-    autoPositions.clear();
-    isolatedCursor = 0;
+    // A staged analysis fills existing positions. Observed crossings can
+    // still improve the automatic layout when no analysis reply arrived.
+    if (positionedAnalysisVersion === analysisVersion.value) {
+      autoPositions.clear();
+      isolatedCursor = 0;
+    }
+    positionedAnalysisVersion = analysisVersion.value;
     layoutVersion.value++;
     prepareStaticThumbs();
   });
@@ -1044,6 +1135,7 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
   }
 
   function openMap(options?: { experience?: MapExperience }): void {
+    if (analysisStatus.value === "failed") cancelScan();
     if (open.value || state.phase !== "running") return;
     experience.value = options?.experience ?? "play";
     drainJournal();
@@ -1246,7 +1338,7 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
     return planOp(() => {
       const scan = scanResources();
       if (scan.logic.has(room) || scan.picture.has(room))
-        return `Room ${room} is already built. Change it in Remix.`;
+        return `Room ${room} is already built. Change it with the agent.`;
       if (
         discovered.rooms.has(room) ||
         journal.some((entry) => entry.to === room || entry.from === room)
@@ -1379,6 +1471,7 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
   }
 
   return {
+    analysisStatus,
     open,
     selected,
     followsPlayer,

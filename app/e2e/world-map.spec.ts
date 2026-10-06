@@ -14,7 +14,7 @@ import {
   waitForCycles,
 } from "./engineProbe.ts";
 
-test.use({ headless: process.platform !== "darwin" });
+test.use({ headless: true });
 
 /**
  * The world map reads three sources: the journal (observed), the authoring

@@ -72,7 +72,8 @@ test("Help, Game controls and the map close with the standard × button", async 
   const help = page.getByTestId("help-guide");
   await expect(help).toBeVisible();
   const helpClose = help.getByTestId("help-guide-close");
-  await expect(helpClose).toHaveAccessibleName("Close Help");
+  await expect(helpClose).toBeVisible();
+  await expect(helpClose).toHaveAccessibleName("Close");
   await expect(helpClose).toHaveText("");
   await helpClose.click();
   await expect(help).toBeHidden();
@@ -237,7 +238,7 @@ test("the Inspect tab groups its views as one segmented control with a caption",
 test.describe("phone", () => {
   test.use({ viewport: { width: 390, height: 844 }, hasTouch: true });
 
-  test("Play keeps its hint on one line, Ask in the strip and Keys a compact control", async ({
+  test("Play keeps its key status on one line, Ask in the strip and Keys a compact control", async ({
     page,
   }) => {
     await isolateStorage(page);
@@ -246,7 +247,10 @@ test.describe("phone", () => {
     await page.getByTestId("catalog-play-adventure-department").tap();
     await expect.poll(async () => (await textHook(page)).room).toBe(1);
     await waitForCycles(page, 2);
-    const help = page.locator("#game-input-help");
+    const status = page.getByTestId("game-keys");
+    await expect(status).toBeVisible();
+    const help = status.locator(".keys-led-label");
+    await expect(help).toBeVisible();
     const lineHeight = await help.evaluate((element) =>
       parseFloat(getComputedStyle(element).lineHeight),
     );

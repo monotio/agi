@@ -1,4 +1,5 @@
-import { expect, test, type Page } from "@playwright/test";
+import type { Page } from "@playwright/test";
+import { expect, test } from "./test.ts";
 import { fixtureSkip, KNOWN_GAME_HASH } from "../../test/fixtures.ts";
 import { getKnownGameByAlias } from "../../src/games/knownGames.ts";
 import {
@@ -50,6 +51,7 @@ test.describe("Walkthrough UI", () => {
     page,
   }) => {
     test.skip(Boolean(missing), missing || "");
+    await page.clock.install();
     await isolateStorage(page);
     await page.goto("/");
 
@@ -189,9 +191,11 @@ test.describe("Walkthrough UI", () => {
     await expect(pauseBtn).toHaveAttribute("aria-label", "Play");
 
     // While paused, verify virtual ticks do not advance
-    await page.waitForTimeout(100);
+    await expect
+      .poll(() => page.evaluate(() => window.__AGI_STATE__?.walkthrough.status))
+      .toBe("paused");
     const tickPaused = await page.evaluate(() => window.__AGI_REPLAY__?.latest?.tick ?? 0);
-    await page.waitForTimeout(500);
+    await page.clock.runFor(500);
     const tickStillPaused = await page.evaluate(() => window.__AGI_REPLAY__?.latest?.tick ?? 0);
     expect(tickStillPaused).toBe(tickPaused);
 
@@ -661,7 +665,9 @@ test.describe("Walkthrough UI", () => {
 
     // Forward seek lands in the Sewers (room 128); let the frame settle.
     await engineRoomIs(page, 128, 30_000);
-    await page.waitForTimeout(1000);
+    await expect
+      .poll(() => page.evaluate(() => window.__AGI_STATE__?.walkthrough.seeking))
+      .toBe(false);
 
     // Backward seek cleanly resets and reaches the Maze (room 126).
     await clickAt(mazePct);
@@ -711,10 +717,16 @@ test.describe("Walkthrough UI", () => {
       .locator('.walkthrough-marker[title*="Maze challenge completed"]')
       .boundingBox())!;
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-    await page.mouse.down();
-    await page.waitForTimeout(400);
-    await page.mouse.up();
     const back = await tickOf("Maze challenge completed");
+    await page.mouse.down();
+    await expect
+      .poll(
+        async () =>
+          (await page.evaluate(() => window.__AGI_STATE__?.walkthrough.seeking)) === false &&
+          (await replayTick()) === back,
+      )
+      .toBe(true);
+    await page.mouse.up();
     await expect.poll(replayTick, { timeout: 15_000 }).toBeGreaterThan(back + 300);
     await expect(page.getByTestId("walkthrough-label")).toContainText("Maze challenge completed");
   });
@@ -769,6 +781,7 @@ test.describe("Walkthrough UI", () => {
   }) => {
     // No fixture needed: the tutorial is code-assembled (builtin) and its tape
     // is generated from the same source the catalog entry builds.
+    await page.clock.install();
     await isolateStorage(page);
     await page.goto("/");
 
@@ -804,7 +817,7 @@ test.describe("Walkthrough UI", () => {
     await expect.poll(async () => (await walk()).seeking, { timeout: 45_000 }).toBe(false);
     await expect.poll(async () => (await walk()).status).toBe("paused");
     const landed = (await walk()).tick;
-    await page.waitForTimeout(600);
+    await page.clock.runFor(600);
     expect((await walk()).tick, "the walkthrough holds at the landing").toBe(landed);
     const button = page.getByTestId("btn-walkthrough-pause");
     await expect(button).toHaveAttribute("aria-label", "Play");
@@ -837,6 +850,7 @@ test.describe("Walkthrough UI", () => {
     await expect(resume).toBeVisible();
     await expect.poll(() => page.evaluate(() => window.__AGI_STATE__?.paused)).toBe(true);
     const held = await page.evaluate(() => window.__AGI_TEXT__?.cycle ?? 0);
+    // wall-clock: the handed-over game is timed by a real worker outside page.clock's realm.
     await page.waitForTimeout(600);
     expect(await page.evaluate(() => window.__AGI_TEXT__?.cycle ?? 0)).toBe(held);
 
@@ -847,6 +861,7 @@ test.describe("Walkthrough UI", () => {
   });
 
   test("a seek keeps a playing walkthrough playing and a paused one paused", async ({ page }) => {
+    await page.clock.install();
     await isolateStorage(page);
     await page.goto("/");
     await openCardMenu(page, "game-actions-adventure-department");
@@ -873,7 +888,7 @@ test.describe("Walkthrough UI", () => {
     };
     const holds = async (): Promise<void> => {
       const from = await landed();
-      await page.waitForTimeout(600);
+      await page.clock.runFor(600);
       const after = await walk();
       expect(after.tick, "the walkthrough holds at the landing").toBe(from);
       expect(after.status).toBe("paused");

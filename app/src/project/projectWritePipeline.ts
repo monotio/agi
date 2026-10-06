@@ -10,6 +10,9 @@ export async function prepareAndAdmitProjectEdit(input: {
   readonly proposal: ProjectProposal;
   readonly profileId: ProfileId;
   readonly allowMissingRooms: boolean;
+  readonly reviewedComputedRoomJumps?: readonly string[] | undefined;
+  readonly drafts?:
+    readonly { readonly key: string; readonly content: string | Uint8Array }[] | undefined;
   readonly current: () => boolean;
   readonly preflight: () => void;
   readonly admit: (
@@ -21,7 +24,11 @@ export async function prepareAndAdmitProjectEdit(input: {
     model: input.model,
     proposal: input.proposal,
     profileId: input.profileId,
-    policy: { allowMissingRooms: input.allowMissingRooms },
+    policy: {
+      allowMissingRooms: input.allowMissingRooms,
+      reviewedComputedRoomJumps: input.reviewedComputedRoomJumps,
+    },
+    drafts: input.drafts,
   });
   input.preflight();
   const before = input.model.capture();

@@ -41,7 +41,7 @@ test("flat unchanged frames keep the uploaded texture and avoid another GPU draw
     disposed: false,
     rgba,
     texture,
-    crtOn: true,
+    amount: { value: 1 },
     exploded: false,
     pendingRaf: null,
     renderPass: () => draws++,
@@ -110,4 +110,34 @@ test("a wrong-length ownership buffer is ignored, not truncated into", () => {
     texData(tex).every((v) => v === 255),
     "owner numbers clamp to the 8-bit mask",
   );
+});
+
+test("first fit matches the backing store even when output uniforms already match CSS", () => {
+  const canvas = { clientWidth: 640, clientHeight: 400, width: 960, height: 600 };
+  const outSize = { value: new THREE.Vector2(640, 400) };
+  const dpr = { value: 1 };
+  const sizes: number[][] = [];
+  const stage = Object.create(AgiStage.prototype) as AgiStage;
+  Object.assign(stage, {
+    disposed: false,
+    outSize,
+    dpr,
+    scene: { children: [] },
+    renderer: {
+      setSize(width: number, height: number, updateStyle: boolean) {
+        assert.equal(updateStyle, false);
+        sizes.push([width, height]);
+        canvas.width = width;
+        canvas.height = height;
+      },
+    },
+  });
+  const fit = stage as unknown as { fit(element: typeof canvas): void };
+  fit.fit(canvas);
+  assert.deepEqual(sizes, [[640, 400]]);
+  assert.deepEqual([canvas.width, canvas.height], [640, 400]);
+  assert.deepEqual(outSize.value.toArray(), [640, 400]);
+  assert.equal(dpr.value, 1);
+  fit.fit(canvas);
+  assert.equal(sizes.length, 1, "a matching backing store avoids another allocation");
 });

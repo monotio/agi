@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import UiIcon from "../ui/UiIcon.vue";
 /**
  * The AGI inspector's floating frame in Play mode (Create hosts the same
  * controls in its Inspect tab). Placement follows the usual inspector
@@ -99,7 +100,7 @@ function onHeadPointerUp(): void {
         data-testid="dbg-dock-back"
         @click="floating = false"
       >
-        ⇥
+        <UiIcon name="panel-right" :size="16" />
       </button>
       <button
         type="button"
@@ -108,15 +109,16 @@ function onHeadPointerUp(): void {
         data-testid="dbg-collapse"
         @click="collapsed = !collapsed"
       >
-        {{ collapsed ? "+" : "−" }}
+        <UiIcon :name="collapsed ? 'plus' : 'minus'" :size="16" />
       </button>
       <button
         type="button"
         class="dd-icon-btn dd-close"
-        title="Close inspector"
+        aria-label="Close"
+        title="Close"
         @click="emit('close')"
       >
-        ×
+        <UiIcon name="x" :size="16" />
       </button>
     </header>
     <InspectorView v-if="!collapsed" />

@@ -12,6 +12,7 @@ import {
   openWorkspacePicture,
   openWorkspaceView,
   workspaceSaved,
+  workspaceUpdated,
 } from "./engineProbe.ts";
 import { expect, reviewShot, test } from "./test.ts";
 import {
@@ -63,7 +64,7 @@ const visual = (bytes: Uint8Array): Uint8Array => {
 };
 const at = (plane: Uint8Array, x: number, y: number): number => plane[y * 160 + x]!;
 
-test("a starter PICTURE autosaves exact pixels and source and reopens cold @webkit-desktop", async ({
+test("Update game saves exact PICTURE pixels and source and reopens cold @webkit-desktop", async ({
   page,
 }) => {
   await isolateStorage(page);
@@ -95,8 +96,11 @@ test("a starter PICTURE autosaves exact pixels and source and reopens cold @webk
   expect(at(oldPlane, 147, 3)).toBe(14);
   expect(at(newPlane, 147, 3)).toBe(9);
 
-  // Autosave stores the source and compiled picture together.
-  await workspaceSaved(page);
+  // Update game stores the source and compiled picture together.
+  expect(openContainer(await storedFiles(page, projectId)).getResource("picture", 1)).toEqual(
+    before,
+  );
+  await workspaceUpdated(page);
   await closeWorkspaceEditor(page);
   await expect(room).toBeHidden();
   const storedPic = openContainer(await storedFiles(page, projectId)).getResource("picture", 1)!;
@@ -113,7 +117,7 @@ test("a starter PICTURE autosaves exact pixels and source and reopens cold @webk
   expect(providerCalls).toBe(0);
 });
 
-test("a VIEW recolour autosaves exact bytes and retains an unrelated LOGIC edit @webkit-desktop", async ({
+test("Update game saves exact VIEW recolour bytes and retains an unrelated LOGIC edit @webkit-desktop", async ({
   page,
 }) => {
   await isolateStorage(page);
@@ -163,7 +167,7 @@ test("a VIEW recolour autosaves exact bytes and retains an unrelated LOGIC edit 
     await page.evaluate(() => [...window.__AGI_SPRITE__!.bytes()]),
   );
 
-  await workspaceSaved(page);
+  await workspaceUpdated(page);
   await closeWorkspaceEditor(page);
   await expect(sprite).toBeHidden();
   expect(await workspaceDocument(page, "logic:1")).toBe(editedSource);

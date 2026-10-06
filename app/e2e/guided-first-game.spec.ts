@@ -6,6 +6,7 @@ import { openContainer } from "../../src/container/container.ts";
 import { DEFAULT_V2_PROFILE } from "../../src/runtime/profile.ts";
 import { readGameZip } from "../src/archive/gameZip.ts";
 import {
+  gameHint,
   closeWorkspaceEditor,
   isolateStorage,
   openLibraryActions,
@@ -14,7 +15,7 @@ import {
   savedGameCard,
   screenText,
   textHook,
-  workspaceSaved,
+  workspaceUpdated,
 } from "./engineProbe.ts";
 import { expect, reviewShot, test } from "./test.ts";
 import {
@@ -66,7 +67,7 @@ async function createStarter(page: Page, title: string): Promise<string> {
   await page.goto("/");
   await page.getByTestId("create-adventure-toggle").click();
   const form = page.locator(".local-create");
-  await expect(form.getByRole("button", { name: "Start building", exact: true })).toBeEnabled();
+  await expect(form.getByRole("button", { name: "Start building", exact: true })).toBeHidden();
   await form.getByRole("textbox").fill(title);
   await form.getByRole("radio", { name: /starter/i }).check();
   await form.getByRole("button", { name: "Start building", exact: true }).click();
@@ -216,7 +217,7 @@ test("the first guided game: starter, editors, five actions, play both ways and 
   await roomStudio.locator("[data-row]").first().click();
   await roomStudio.getByRole("group", { name: /^Canvas/ }).focus();
   await page.keyboard.press("ArrowDown");
-  await workspaceSaved(page);
+  await workspaceUpdated(page);
   await closeWorkspaceEditor(page);
 
   const sprite = await openWorkspaceView(page, 0);
@@ -227,7 +228,7 @@ test("the first guided game: starter, editors, five actions, play both ways and 
   await page.keyboard.press("Space");
   await recolor.getByRole("radio", { name: "To colour 2, green" }).click();
   await recolor.getByTestId("sprite-recolor-apply").click();
-  await workspaceSaved(page);
+  await workspaceUpdated(page);
   await closeWorkspaceEditor(page);
 
   await openWorkspaceLogic(page, 1);
@@ -257,14 +258,19 @@ test("the first guided game: starter, editors, five actions, play both ways and 
     "logic:1",
   );
   const beforeCue = await workspaceDocument(page, "logic:1");
-  await addWorkspaceAction(page, "Play sound", { SOUND: "1", Command: "sing" }, "logic:1");
+  await addWorkspaceAction(
+    page,
+    "Play a sound when…",
+    { SOUND: "1", "When the player types…": "sing" },
+    "logic:1",
+  );
   const withCue = await workspaceDocument(page, "logic:1");
   expect(withCue).toContain("sound(");
   await page.getByTestId("workspace-undo").click();
   await expect.poll(() => workspaceDocument(page, "logic:1"), { intervals: [100] }).toBe(beforeCue);
   await page.getByTestId("workspace-redo").click();
   await expect.poll(() => workspaceDocument(page, "logic:1"), { intervals: [100] }).toBe(withCue);
-  await workspaceSaved(page);
+  await workspaceUpdated(page);
   await reviewShot(page, "guided-workspace-saved");
 
   // Play for real: cross the door both directions, type the command, hear it.
@@ -307,7 +313,8 @@ test("the first guided game: starter, editors, five actions, play both ways and 
   await page.keyboard.press("Enter");
   await expect.poll(async () => (await textHook(page)).modal, { intervals: [100] }).toBe("save");
   await page.keyboard.press("Enter");
-  await expect(page.getByTestId("prompt-hint")).toBeVisible();
+  await expect(await gameHint(page, "prompt-hint")).toBeVisible();
+  await page.mouse.move(0, 0);
   await input.fill("Moonlit checkpoint");
   await input.press("Enter");
   await expect.poll(() => screenText(page), { intervals: [100] }).toContain("Save in slot 1?");
@@ -393,6 +400,8 @@ test("custom code stays precise: a rewritten entry block refuses Custom code, gu
   await page.getByTestId("workspace-add").click();
   await page.getByRole("menuitem", { name: "Place hero", exact: true }).click();
   const form = page.getByTestId("workspace-guided-form");
+  await expect(form).toBeVisible();
+  await form.getByText("Exact numbers", { exact: true }).click();
   await form.getByLabel("X", { exact: true }).fill("60");
   await form.getByLabel("Y", { exact: true }).fill("140");
   await form.getByRole("button", { name: "Add", exact: true }).click();

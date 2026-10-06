@@ -13,11 +13,19 @@
  * placed state. No event, field or format changes; saves are untouched.
  */
 
+import { Engine } from "../../../src/runtime/engine.ts";
 import { openContainer } from "../../../src/container/container.ts";
 import { placeEgo, playHereProblem } from "../../../src/runtime/playHere.ts";
 import type { Inbound, WorkerContext } from "./context.ts";
 
 export function createPlayHere(ctx: WorkerContext) {
+  let returnPoint: {
+    engine: NonNullable<WorkerContext["engine"]>;
+    room: number;
+    image: Uint8Array;
+    replay: ReturnType<NonNullable<WorkerContext["engine"]>["captureReplayState"]>;
+    rng: number;
+  } | null = null;
   function onPlayHere(msg: Inbound<"playHere">): void {
     const reply = (ok: boolean, reason?: string): void => {
       const engine = ctx.engine;
@@ -30,17 +38,88 @@ export function createPlayHere(ctx: WorkerContext) {
         x: ego?.x ?? 0,
         y: ego?.y ?? 0,
         ...(reason === undefined ? {} : { reason }),
+        ...(msg.visit && returnPoint ? { returnRoom: returnPoint.room } : {}),
       });
     };
     const engine = ctx.engine;
     if (!engine || ctx.replay.replay || ctx.view.drive)
       return reply(false, "Play here needs the live game. Leave the replay or history view first.");
+    if (returnPoint?.engine !== engine) returnPoint = null;
+    if (msg.visit === "back") {
+      if (!returnPoint) return reply(false, "The return point belongs to an earlier game.");
+      const patchGeneration = engine.patchGeneration;
+      try {
+        // Replay caches may include resources outside the displayed room.
+        // Validate them without touching the live engine or host.
+        const candidate = new Engine(
+          openContainer(engine.containerFiles, { profile: engine.profile }),
+          {
+            print() {},
+            displayAt() {},
+            statusLine() {},
+            takeInputLine() {
+              return null;
+            },
+            takeKeys() {
+              return [];
+            },
+          },
+          new Map(),
+          { profile: engine.profile },
+        );
+        candidate.restoreReplayState(returnPoint.replay);
+        ctx.fns.debugBeforeReplace();
+        ctx.fns.historyEnd("walkthrough");
+        if (engine.hostInteractionPending) {
+          engine.abortInteraction();
+          ctx.fns.abandonHostRequest();
+        }
+        engine.restoreImage(returnPoint.image, { preservePresentation: true });
+        engine.restoreReplayState({ ...returnPoint.replay, patchGeneration });
+      } catch {
+        return reply(
+          false,
+          "The saved room needs resources that changed. Undo the resource change and try Back again.",
+        );
+      }
+      ctx.history.rng = returnPoint.rng;
+      ctx.input.keyQueue.length = 0;
+      ctx.input.deferredMovement.length = 0;
+      ctx.input.inputBuffer.length = 0;
+      ctx.input.clickQueue.length = 0;
+      returnPoint = null;
+      ctx.fns.debugSessionReplaced();
+      ctx.fns.setKeyWaiting(engine.awaitingKey);
+      ctx.fns.markJump();
+      ctx.fns.captureStateDiffs();
+      ctx.fns.noteTransition();
+      ctx.fns.historyResume();
+      ctx.presentation.lastVisual = null;
+      ctx.fns.postFrame(true);
+      return reply(true);
+    }
     const problem = playHereProblem(msg);
     if (problem !== null) return reply(false, problem);
     if (engine.textModeActive) return reply(false, "The game is showing its text screen.");
     const files = openContainer(engine.containerFiles, { profile: engine.profile });
     if (!files.getResource("logic", msg.room))
       return reply(false, `Room ${msg.room} has no logic to enter.`);
+    if (msg.visit === "start" && engine.vars[0] === msg.room) return reply(true);
+    if (msg.visit && !returnPoint) {
+      try {
+        const image = engine.recordingImage();
+        if (!image) return reply(false, "Finish the game's question before visiting this room.");
+        returnPoint = {
+          engine,
+          room: engine.vars[0]!,
+          image,
+          replay: engine.captureReplayState(),
+          rng: ctx.history.rng,
+        };
+      } catch {
+        return reply(false, "Continue the game before visiting this room.");
+      }
+    }
 
     // The first request may have awaited a module import. Release the current
     // debugger latch only now, when the validated jump actually runs.
@@ -58,20 +137,38 @@ export function createPlayHere(ctx: WorkerContext) {
     // Clear the edge so the transition does not snap ego to a border first.
     engine.vars[2] = 0;
     // The room's logic exists, so an authored game's prepareRoom answers at once.
-    engine.reenterRoom(msg.room);
-    ctx.fns.debugSessionReplaced();
+    const authorRooms = ctx.boot.authorRooms;
+    if (msg.visit) ctx.boot.authorRooms = false;
     // The room's own entry pass: load, draw and position what it owns.
     // Armed execution control counts a completed entry pass inside
     // tickEngine and a stopped or suspended one nowhere — the explicit
     // finish belongs to the ordinary unarmed pass only.
-    ctx.fns.tickEngine();
+    try {
+      engine.reenterRoom(msg.room);
+      ctx.fns.debugSessionReplaced();
+      ctx.fns.tickEngine();
+    } catch (cause) {
+      if (!msg.visit) throw cause;
+      return reply(
+        false,
+        `Room ${msg.room} could not finish its entry. View its picture while paused.`,
+      );
+    } finally {
+      ctx.boot.authorRooms = authorRooms;
+    }
     if (engine.executionStopInfo !== null || engine.executionYieldPending)
       return reply(
         false,
         `Room ${msg.room} entry did not complete. Continue the game to finish setup.`,
       );
     if (!engine.executionControlActive) ctx.fns.finishCycle();
-    const verdict = engine.hostInteractionPending ? "busy" : placeEgo(engine, msg.x, msg.y);
+    const verdict = msg.visit
+      ? engine.hostInteractionPending || engine.vars[0] !== msg.room
+        ? "busy"
+        : "ok"
+      : engine.hostInteractionPending
+        ? "busy"
+        : placeEgo(engine, msg.x, msg.y);
     ctx.fns.captureStateDiffs();
     ctx.fns.historyResume();
     ctx.presentation.lastVisual = null;

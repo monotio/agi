@@ -94,6 +94,38 @@ Full resource-census tests require every volume referenced by the directories.
 Tests for individual rooms can use `checkVolumes: false` in the fixture helpers;
 resource readers still reject unavailable data if the scenario requests it.
 
+### Disk-image fixtures
+
+**Add game** accepts a game folder, a ZIP, or its disk images. Add every disk
+of a multi-disk game together, directly or inside one ZIP. Repeated playable
+filenames must have identical bytes. Native interpreter files provide profile
+hints, including executables above a disk's resource subdirectory.
+
+PC raw FAT12 images (`.img`, `.ima`, `.dsk`) and TeleDisk (`.td0`, normal or
+advanced compression), Amiga 880 KiB OFS/FFS (`.adf`), and Apple IIgs 800 KiB
+ProDOS-order (`.po`, `.2mg`) images have independent readers. A DOS-ordered 2MG
+needs conversion to ProDOS order before import. PC booter images use the existing
+booter extraction path. Readers leave original resource bytes intact.
+
+Place contributor-owned disk images in any immediate subfolder under `games/`.
+The optional tests resolve the **SHA-256 of the whole image**, rather than the
+folder or image name. [test/fixtures.ts](../test/fixtures.ts) registers original
+media hashes. `SOURCE.json` may sit beside local images to record their hashes;
+the content hash remains the test's authority. For example, a two-disk set may
+use `games/<edition>-disks/disk1.td0` and `disk2.td0`. Every missing image produces
+an explicit skip naming its hash and setup instructions.
+
+```bash
+node --test --experimental-strip-types test/disk.test.ts test/disk-fixtures.test.ts
+node --test --experimental-strip-types app/test/disk-import.test.ts
+npm --prefix app run e2e -- e2e/disk-import.spec.ts --workers=1 --retries=0
+```
+
+The registered sets cover Space Quest II PC/Tandy, Amiga, Apple IIgs 2MG and PO,
+and the Donald Duck's Playground PC booter. Disk tests compare WORDS.TOK and
+resource directories with contributor-owned unpacked editions, or report hashes
+when editions differ. Synthetic tests contain original byte patterns only.
+
 ### Fixture notes
 
 - **Demo pack.** `test/demopac4.test.ts` runs all six demonstrations in the
@@ -125,7 +157,7 @@ resource readers still reject unavailable data if the scenario requests it.
   the entries come from the matched directories themselves, as shipped. The
   strict volume check still reports them. Walkthrough tooling uses
   `checkVolumes: "shipped"`, which exempts exactly those volumes for exactly
-  those directory hashes ([test/fixtures.ts](../test/fixtures.ts)); a route
+  those directory hashes ([disk/volumes.ts](../src/container/disk/volumes.ts)); a route
   that requests one of the six resources still fails at the load. A
   fingerprint identifies the directory; the volume bytes and the resources a
   playthrough requests lie outside it.
@@ -183,9 +215,9 @@ inventory metadata. Filenames are case-insensitive. The JSON report records
 resource counts, selected profiles and individual findings; any finding produces
 a nonzero exit.
 
-- Image-only folders (`.img` or `.ima`) are reported as unsupported; the engine
-  requires resource files and a supported interpreter profile. Extraction alone
-  does not establish compatibility with an older interpreter.
+- The folder audit expects extracted resource files. Test image-only folders
+  with `test/disk-fixtures.test.ts`, or add their disks together in the Library.
+  Extraction alone does not establish compatibility with an interpreter profile.
 - The audit distinguishes decoding failures from unsupported contracts,
   including unknown interpreter versions and logic that cannot be reconstructed
   reliably.
@@ -262,9 +294,25 @@ at most 19 concurrent jobs, leaving one of the 20 public-runner slots free.
 
 CI installs the two package roots once and restores the resulting dependency
 cache in test and build jobs. The production build and chunk graph are shared
-with both production browser jobs. Playwright browser caches use the browser,
-version and runner OS; apt archives are cached too, while system dependencies
-are installed on each fresh runner.
+with both production browser jobs. Chromium shards, WebKit desktop and phone,
+production browsers, timing, storage, PR burn-in and deployed-site verification
+run in the official Playwright Noble image from `scripts/ci/playwright-image.txt`.
+The tag carries the Playwright version and the digest fixes the image contents.
+The image supplies browser binaries, fonts and system packages. Setup checks the
+installed `app/node_modules/playwright-core` version and the image metadata before
+testing; a mismatch fails with the file to update. Read-only mounts expose the
+Ubuntu 24.04 runner's `zstd` and `unzstd` tools so the container reads the same
+dependency cache as Node jobs. Browser hosts stay on Ubuntu 24.04 to match the
+Noble image's system libraries. Node jobs keep the runner setup.
+
+For a Playwright upgrade, install the updated package, obtain the matching Noble
+image digest from the Microsoft registry, and update `scripts/ci/playwright-image.txt`.
+Run the CI helper tests (`python3 -m unittest discover -s scripts/ci -p 'test_*.py'`),
+then compare the Linux screenshot artifacts and timing results with the previous
+image. Browser jobs print their font inventory. Screenshot artifacts retain PNGs
+from successful tests as well as failed ones; JSON reports retain measured test
+durations. Keep screenshot expectations and timing budgets tied to the observed
+behavior.
 
 Pull requests repeat added or changed specs five times: on a PR's first run
 the specs it changes, and on each later push the specs that push changes. A
@@ -322,16 +370,33 @@ CI runs WebKit on Linux, and its result is the one that counts. WebKit on macOS
 reports a Mac platform and uses Mac fonts, so results can differ, and it cannot
 launch while the display sleeps or the session is locked. To reproduce a Linux
 failure locally, run the suite in the Playwright image whose version matches
-`@playwright/test` in `app/package.json` (`npm ci` inside the container replaces any
-copied `node_modules`):
+the installed `playwright-core` package. Use the CI pin to reproduce its exact
+image (`npm ci` inside the container replaces any copied `node_modules`):
 
 ```bash
-docker run --rm --init --ipc=host -v "$PWD:/src:ro" mcr.microsoft.com/playwright:v<version>-noble \
+docker run --rm --init --ipc=host -v "$PWD:/src:ro" "$(cat scripts/ci/playwright-image.txt)" \
   bash -lc 'cp -r /src /w && cd /w && npm ci && npm --prefix app ci &&
     CI=1 xvfb-run -a npm --prefix app run e2e:webkit-desktop -- e2e/<file>.spec.ts'
 ```
 
 `--init` lets `xvfb-run` receive its ready signal; without it the run hangs.
+
+Stationary GPU captures need a separate native-browser check. With Playwright
+1.63.0 in the Linux Noble image under Xvfb, the saved Starter's GPU canvas
+captured zero coloured pixels at 1063×815, 1440×900 and 390×844, in both headed
+and headless WebKit. The composed engine-frame probe held more than eight
+colours at each size. Headed macOS WebKit showed the room and stationary hero
+at all three sizes, with both native WebGPU and the WebGL2 fallback. This
+comparison identifies a Linux software-rendering capture limit; it establishes
+the native macOS result for those configurations.
+
+For this check, save a Starter, open Play, wait for room 1 and four engine
+cycles, then capture the visible `gpu-canvas` and the whole page. Count coloured
+pixels in the PNG separately from `canvasColors(page)`, which reads the composed
+engine frame. A passing engine probe establishes composition; use native GPU
+captures to establish stationary presentation. The workspace screenshot tests
+check the engine frame and editor surfaces. Linux browser behavior remains a CI
+gate.
 
 The manual HMR proof in `app/e2e/manual/hmr-resume.mjs` temporarily edits
 source; run it in an isolated checkout as described in the script.
@@ -726,3 +791,96 @@ the same on every run. `scripts/capture-feedback.ts` generates tutorial feedback
 call. `app/playwright.capture.config.ts` records selected browser tests with
 original resources and mocked provider replies; generated recordings stay under
 `.captures/` until reviewed and edited.
+
+## Original interpreter audio comparison
+
+MAME can supply a second audio reference by running a contributor's original
+interpreter on reconstructed hardware. Keep ROMs, game images, extracted files,
+WAVs and screen captures private. Record the MAME version, system and BIOS,
+interpreter banner and hashes, resource hashes, input sequence, output-channel
+mapping and gain. Copy supplied media into a private working directory before
+booting it, so any emulated filesystem writes affect the working copy.
+
+1. Verify the selected ROM set. For a machine with several BIOS choices, record
+   the selected BIOS separately; absent optional BIOS files can make the whole-set
+   verification fail while the selected BIOS boots successfully.
+2. Boot with `-video none -sound none -nothrottle -seconds_to_run N -samplerate 48000`
+   and `-wavwrite capture.wav`. Supply ROM and disk paths as local arguments.
+   Use `-autoboot_script` for keyboard input and periodic screen snapshots.
+   Inspect the snapshots to establish that the intro is playing. Boot beeps and
+   disk-check dialogs alone supply no game-audio measurement.
+3. For PC games, boot the supplied DOS disk in A and launch the original game
+   from B with its Tandy option. Check the image's geometry against both drives.
+   Preserve copy-protection tracks; ordinary file extraction can recover resources
+   while losing the geometry required by the original loader.
+4. For Amiga games, prefer the original bootable disk. A privately built OFS disk
+   needs a bootblock, `s/startup-sequence`, the executable and its expected `data/`
+   layout. For IIgs games, try the original self-booting ProDOS 16 image. Select
+   the image that actually reaches the intro, and record its interpreter hash.
+5. Extract the resources from the successful image for the offline engine run.
+   Include the IIgs interpreter and `SIERRASTANDARD`, since together they supply
+   its instruments. Boot real LOGIC with a controlled RNG, advance `CycleClock`
+   and the selected profile/region sound heartbeat, and send the resulting packets through the
+   shipped audio graph into an `OfflineAudioContext`. Record the source revision
+   and master volume. A low capture gain preserves headroom for analysis.
+6. Inspect the WAV's channel count and identify game speaker outputs before
+   mixing. Retain 48 kHz raw-level pairs and make separate, explicitly level-matched
+   listening copies. State any DC removal and filter treatment. Preserve the
+   full boot captures as well as the compared 30–60 second span.
+7. Detect audible onsets, then align individual SOUND calls using spectral-energy
+   cross-correlation. Refine note boundaries with envelope correlation and onset/
+   offset slopes. Record pitch cents, timing residuals, attenuation contours,
+   voice levels, spectrum and onset/offset step metrics in a per-note table.
+   Label repeated effects, short notes, overlapping harmonics and low alignment
+   confidence as unresolved. A mixed-waveform step includes ordinary tone edges.
+8. Compare hardware region, output filters and clipping before attributing a
+   difference to the interpreter. Re-render the same packet stream after audio
+   presentation changes, and re-run LOGIC when scheduler behavior changes.
+
+For Amiga PAL timing, capture the same passage on `a500` and `a500n` with
+`-bios kick13`, separate configuration directories and working disk copies.
+Measure note attacks and pitch independently. A read-only Lua probe can locate
+the original timer's relocated operands and observe v11 and its callback counter
+on every frame. Record loaded addresses, counter deltas and frame counts; game
+LOGIC alone may reset v11. The original timer findings and measured intervals
+are in [Original Amiga sound player](fidelity.md#original-amiga-sound-player).
+A European release needs its own verified executable before making a regional
+patch claim.
+
+The portable regressions in `test/amiga-timing.test.ts` hand-count three frames
+per pacing increment and 60 per game second. `app/test/worker-amiga-timing.test.ts`
+covers PAL boot, tape adoption, autosave and numbered-save restoration, including
+restoring a PAL tape under an NTSC preference. Audio packet tests assert 20 ms
+PAL write spacing; the Amiga setting browser test checks the next-start rule.
+Released archive fixtures remain unchanged and continue to read as NTSC when
+region metadata is absent.
+
+MAME's [Lua device interface](https://docs.mamedev.org/luascript/ref-devices.html)
+documents screenshots and image devices. Its
+[audio menus](https://docs.mamedev.org/usingmame/mamemenus.html#audio-effects-menu)
+describe output effects and resampling. Findings belong in
+[Fidelity](fidelity.md#original-games-through-mame-audio), with the evidence class
+and any blocked game/machine pairs stated explicitly. The private automation
+may carry the contributor's input paths; public scripts and examples use portable
+arguments and bundle independently authored code only.
+
+### PSG and DOC corrections
+
+The audio unit tests use hand-computed frequencies for the separate Tandy PSG
+and PC-speaker PIT clocks. IIgs tests cover DOC resolution, table-size pointer
+masking, exclusive key splits, paired pitch carry and byte-volume conversion.
+The physical 32-oscillator sum bound is checked independently of any tune;
+`app/test/paula-offline.test.ts` additionally checks the real SQ2 intro at
+master volume 1 through `AgiAudio` and `OfflineAudioContext`. Its content-identified
+fixture check explicitly skips when the IIgs resources or instruments are absent.
+
+After a clock or synthesis change, re-render the same original LOGIC against
+the stored MAME capture at 48 kHz. Float WAVs at master 1 retain raw peaks
+and over-range values. Use the original window anchors for the before/after
+comparison, apply the same stated DC-removal filter to both spectrum inputs,
+and keep raw WAVs separate from level-matched listening copies. Isolated host
+channel renders measure relative voice balance; a mixed reference recording
+cannot establish individual reference voice levels. See
+[Tandy PSG clock](fidelity.md#tandy-psg-clock) and
+[IIgs DOC pitch, volume and headroom](fidelity.md#iigs-doc-pitch-volume-and-headroom)
+for inputs, addresses, findings and remaining limits.

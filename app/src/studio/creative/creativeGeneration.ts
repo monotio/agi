@@ -1,3 +1,5 @@
+import type { ReportedSpend } from "../../agent/reportedSpend.ts";
+import { imageReportedSpend } from "./imageSpend.ts";
 /**
  * The optional image-generation controller: review -> one explicit submit ->
  * detached offer -> explicit Use. It sits on the accepted OpenAI adapter and
@@ -161,6 +163,11 @@ export interface CreativeGenerationHost {
   hasCredential(): boolean;
   /** Open the existing AI settings so the user can save a key. */
   openSettings(): void;
+  /** Reserve the shared provider allowance at the paid boundary. */
+  reserveRequest?(
+    summary: OpenAiImageSummary,
+    approved: boolean,
+  ): (offer: OpenAiImageOffer | null) => ReportedSpend | void;
   /** Decode an offer through the shared intake; defaults to the upload path. */
   intakeOffer?: (offer: OpenAiImageOffer, signal?: AbortSignal) => Promise<CreativeImageIntake>;
   /**
@@ -189,6 +196,7 @@ export interface CreativeGenerationInput {
   readonly role: OpenAiImageRole;
   readonly model: string;
   readonly prompt: string;
+  readonly title?: string;
   readonly size: string;
   readonly quality: OpenAiImageQuality;
   readonly background: OpenAiImageBackground;
@@ -216,6 +224,7 @@ interface CreativeGenerationImageReview {
 /** @public The frozen review: what leaves, whom it names and the context it pinned. */
 export interface CreativeGenerationReview {
   readonly summary: OpenAiImageSummary;
+  readonly title?: string;
   readonly images: readonly CreativeGenerationImageReview[];
   readonly context: CreativeGenerationContext;
   readonly selection:
@@ -247,7 +256,8 @@ export type CreativeGenerationFailure =
   /** The issued capture was foreign, forged or revoked. */
   | "authority"
   /** Durable admission refused the write; the work may be retried. */
-  | "conflict";
+  | "conflict"
+  | "budget";
 
 /** @public Failure info. */
 export interface CreativeGenerationFailureInfo {
@@ -308,6 +318,8 @@ export interface CreativeGenerationController {
   readonly failure: CreativeGenerationFailureInfo | null;
   readonly review: CreativeGenerationReview | null;
   readonly offer: OpenAiImageOffer | null;
+  readonly partialImage: Uint8Array | null;
+  readonly spend: ReportedSpend | null;
   /** The offer arrived after the work moved: a comparison, it cannot stage. */
   readonly offerStale: boolean;
   readonly disposed: boolean;
@@ -330,7 +342,7 @@ export interface CreativeGenerationController {
   /** Freeze inputs, resolve materials and build the detached review. */
   prepareReview(input: CreativeGenerationInput): Promise<void>;
   /** Send the reviewed request once. The provider charges it. */
-  submit(): Promise<void>;
+  submit(approved?: boolean): Promise<void>;
   /** Leave the held or pending review without sending; the next send reviews again. */
   discardReview(): void;
   /** Abort the in-flight request locally; a late answer is dropped. */
@@ -389,6 +401,8 @@ class CreativeGenerationControllerImpl implements CreativeGenerationController {
   private failureInfo: CreativeGenerationFailureInfo | null = null;
   private reviewState: ReviewState | null = null;
   private offerState: OfferState | null = null;
+  private partialBytes: Uint8Array | null = null;
+  private spendState: ReportedSpend | null = null;
   private job: { readonly controller: AbortController; cancelled: boolean } | null = null;
   private isDisposed = false;
   private versionCount = 0;
@@ -420,6 +434,12 @@ class CreativeGenerationControllerImpl implements CreativeGenerationController {
   }
   get offer(): OpenAiImageOffer | null {
     return this.offerState?.offer ?? null;
+  }
+  get spend(): ReportedSpend | null {
+    return this.spendState ? { ...this.spendState } : null;
+  }
+  get partialImage(): Uint8Array | null {
+    return this.partialBytes;
   }
   get offerStale(): boolean {
     return this.offerState?.stale ?? false;
@@ -559,6 +579,7 @@ class CreativeGenerationControllerImpl implements CreativeGenerationController {
     if (this.phaseState === "offer")
       return this.refuse("invalid-request", "Settle the held offer before a new request.");
     const stamp = ++this.operationStamp;
+    this.spendState = null;
     this.phaseState = "preparing";
     this.failureInfo = null;
     this.reviewState = null;
@@ -713,6 +734,7 @@ class CreativeGenerationControllerImpl implements CreativeGenerationController {
       // reviewed decision must stay the one the user saw.
       const record: CreativeGenerationReview = Object.freeze({
         summary: Object.freeze(prepared.summary),
+        ...(input.title !== undefined ? { title: input.title } : {}),
         images: Object.freeze(
           prepared.summary.images.map((image, index) =>
             Object.freeze({
@@ -757,7 +779,7 @@ class CreativeGenerationControllerImpl implements CreativeGenerationController {
     }
   }
 
-  async submit(): Promise<void> {
+  async submit(approved = false): Promise<void> {
     if (this.isDisposed) return this.refuse("closed", "This generation panel is closed.");
     if (this.phaseState === "submitting" || this.phaseState === "using")
       return this.refuse("busy", "A generation is already running; wait for it or cancel it.");
@@ -767,10 +789,13 @@ class CreativeGenerationControllerImpl implements CreativeGenerationController {
     // The phase moves synchronously: a second click sees `submitting` and
     // refuses instead of sending a duplicate paid request.
     this.phaseState = "submitting";
+    this.partialBytes = null;
     this.failureInfo = null;
     const job = { controller: new AbortController(), cancelled: false };
     this.job = job;
     this.changed();
+    let settle: ((offer: OpenAiImageOffer | null) => ReportedSpend | void) | undefined;
+    let sent = false;
     try {
       await this.checkContext(review.record.context);
       await this.checkConsulted(review.consulted);
@@ -781,9 +806,20 @@ class CreativeGenerationControllerImpl implements CreativeGenerationController {
       if (!this.host.hasCredential())
         throw fail("no-key", "Generation needs a saved OpenAI API key.");
       if (job.cancelled) throw fail("cancelled", "The request was cancelled.");
+      settle = this.host.reserveRequest?.(review.record.summary, approved);
+      sent = true;
       const offer = await this.provider.submit(review.prepared, {
         signal: job.controller.signal,
+        onPartial: (bytes) => {
+          if (job.cancelled || this.isDisposed || this.job !== job) return;
+          this.partialBytes = bytes;
+          this.changed();
+        },
       });
+      const spend = settle?.(offer) ?? imageReportedSpend(offer.summary.model, offer.usage);
+      if (this.job === job) this.spendState = spend;
+      settle = undefined;
+      this.partialBytes = null;
       // A transport that settles after cancel/dispose is consumed by nobody.
       if (job.cancelled || this.isDisposed) return;
       const fresh = await this.host.context();
@@ -843,7 +879,7 @@ class CreativeGenerationControllerImpl implements CreativeGenerationController {
       // A missing key keeps the still-live reviewed request so the user can
       // save one and resubmit the identical summary; every other refusal
       // revokes the review and a new one is required.
-      if (reason === "no-key") {
+      if (reason === "no-key" || reason === "budget") {
         this.phaseState = "review";
       } else {
         this.reviewState = null;
@@ -852,7 +888,14 @@ class CreativeGenerationControllerImpl implements CreativeGenerationController {
       }
       this.refuse(reason, error instanceof Error ? error.message : String(error));
     } finally {
-      if (this.job === job) this.job = null;
+      const spend = settle?.(null);
+      if (this.job === job) {
+        if (sent && this.spendState === null)
+          this.spendState = spend ?? imageReportedSpend(review.record.summary.model);
+        this.partialBytes = null;
+        this.job = null;
+        if (!this.isDisposed) this.changed();
+      }
     }
   }
 
@@ -875,6 +918,7 @@ class CreativeGenerationControllerImpl implements CreativeGenerationController {
     if (this.phaseState === "submitting") {
       job.cancelled = true;
       job.controller.abort();
+      this.partialBytes = null;
       this.reviewState = null;
       this.phaseState = "compose";
       this.noticeText = "The request was cancelled.";

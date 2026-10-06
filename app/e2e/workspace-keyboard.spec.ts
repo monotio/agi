@@ -152,6 +152,10 @@ test("focus zones isolate game input and Help lists registered shortcuts @webkit
   await expect(input).toHaveValue("look");
   await input.fill("");
   await page.keyboard.press("F6");
+  await expect(input).toBeFocused();
+  await page.keyboard.press("Shift+F6");
+  await expect(page.getByTestId("workspace-editor")).toBeFocused();
+  await page.keyboard.press("Shift+F6");
   await expect(parts).toBeFocused();
   await page.keyboard.press("F6");
   await expect(page.getByTestId("workspace-editor")).toBeFocused();
@@ -178,6 +182,9 @@ test("focus zones isolate game input and Help lists registered shortcuts @webkit
   await page.keyboard.press("Escape");
   await parts.focus();
   await page.keyboard.press(`${modifier}+Enter`);
+  await expect(page).toHaveURL(/#create\//);
+  await expect(parts).toBeVisible();
+  await page.getByRole("radio", { name: "Play", exact: true }).click();
   await expect(page).toHaveURL(/#play\//);
   await expect(input).toBeFocused();
   await expect(parts).toBeHidden();

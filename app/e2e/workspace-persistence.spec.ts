@@ -1,8 +1,14 @@
 import { expect, test } from "./test.ts";
 import { readFile } from "node:fs/promises";
+import { openContainer } from "../../src/container/container.ts";
 import type { Page } from "@playwright/test";
 import type { ProjectSession } from "../src/project/projectSession.ts";
-import { isolateStorage, openGameOptions, workspaceSaved } from "./engineProbe.ts";
+import {
+  isolateStorage,
+  openGameOptions,
+  workspaceSaved,
+  workspaceUpdated,
+} from "./engineProbe.ts";
 import {
   openStoredWorkspace,
   openWorkspaceLogic,
@@ -11,7 +17,6 @@ import {
 } from "./workspaceShared.ts";
 
 async function downloadPendingEditsFromReadOnlyTab(page: Page): Promise<void> {
-  await expect(page.getByTestId("download-unsaved-edits")).toHaveCount(0);
   await page.evaluate(() => {
     (window as unknown as { __AGI_STATE__: { staleTab: boolean } }).__AGI_STATE__.staleTab = true;
   });
@@ -30,6 +35,7 @@ async function starter(page: Page) {
     .fill("Save boundaries");
   await page.getByTestId("local-create-kind-starter").click();
   await page.getByRole("button", { name: "Start building", exact: true }).click();
+  if (page.viewportSize()!.width <= 600) await page.getByTestId("workspace-parts").click();
   await expect(page.getByTestId("parts-list")).toBeVisible();
   await workspaceSaved(page);
 }
@@ -46,29 +52,31 @@ for (const successfulFirst of [false, true]) {
       await workspaceSaved(page);
     }
     await page.evaluate(() => {
-      const session = (
-        window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }
-      ).__AGI_PROJECT__.getSession();
-      const submit = session.submit;
-      let fail = true;
-      session.submit = (...args) => {
-        if (fail) {
-          fail = false;
-          return Promise.reject(new Error("Injected note admission failure"));
-        }
-        return submit(...args);
+      const put = IDBObjectStore.prototype.put;
+      IDBObjectStore.prototype.put = function (...args) {
+        if (String((args[0] as { projectId?: string }).projectId).startsWith("part-drafts/"))
+          throw new Error("Injected note draft write failure");
+        return put.apply(this, args);
       };
+      Object.assign(window, {
+        allowNoteWrites: () => {
+          IDBObjectStore.prototype.put = put;
+        },
+      });
     });
     await notes.fill("note kept after refusal");
     await openGameOptions(page, "settings-menu");
     await page.getByTestId("btn-exit").click();
+    await expect(page.getByTestId("eject-refusal")).toBeVisible();
     await expect(page.getByTestId("eject-refusal")).toContainText(
-      "Injected note admission failure",
+      "Injected note draft write failure",
     );
     await expect(page.getByTestId("parts-list")).toBeVisible();
     await expect(notes).toHaveValue("note kept after refusal");
+    await expect(page.getByTestId("workspace-saved")).toBeVisible();
     await expect(page.getByTestId("workspace-saved")).toHaveText("Could not save. Retry");
     await page.screenshot({ path: test.info().outputPath("failed-save.png") });
+    await page.evaluate(() => (window as unknown as { allowNoteWrites(): void }).allowNoteWrites());
     await page.getByTestId("eject-retry").click();
     await expect(page.getByTestId("saved-game-gallery")).toBeVisible();
     await openStoredWorkspace(page, "Save boundaries");
@@ -77,9 +85,7 @@ for (const successfulFirst of [false, true]) {
   });
 }
 
-test("Name this version drains pending LOGIC and names visible invalid source", async ({
-  page,
-}) => {
+test("Name this version saves the draft and names the running update", async ({ page }) => {
   await starter(page);
   await openWorkspaceLogic(page);
   await page.getByTestId("workspace-saved").click();
@@ -113,8 +119,8 @@ test("Name this version drains pending LOGIC and names visible invalid source", 
 });
 
 for (const key of ["notes", "logic", "words", "sound"] as const) {
-  for (const stage of ["before submission", "worker admission"] as const) {
-    test(`${key} stays visible and downloads before acceptance when read-only (${stage})`, async ({
+  for (const stage of ["draft storage", "worker admission"] as const) {
+    test(`${key} draft downloads and restores before Update game when read-only (${stage})`, async ({
       page,
     }) => {
       await starter(page);
@@ -131,14 +137,24 @@ for (const key of ["notes", "logic", "words", "sound"] as const) {
           .getByRole("button", { name: "+ Meaning", exact: true })
           .click();
       }
-      const originalSound =
+      const files =
         key === "sound"
           ? await page.evaluate(() => {
               const session = (
                 window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }
               ).__AGI_PROJECT__.getSession();
-              return [...(session.model.capture().read("sound:1")!.content as Uint8Array)];
+              return [...session.model.capture().lastAdmissibleBuild!.files()].map(
+                ([name, bytes]) => [name, Array.from(bytes)] as const,
+              );
             })
+          : [];
+      const originalSound =
+        key === "sound"
+          ? Array.from(
+              openContainer(
+                new Map(files.map(([name, bytes]) => [name, Uint8Array.from(bytes)])),
+              ).getResource("sound", 1)!,
+            )
           : [];
       if (key === "logic")
         await page.evaluate(async () => {
@@ -183,10 +199,14 @@ for (const key of ["notes", "logic", "words", "sound"] as const) {
       }
       await page.evaluate(
         ({ key, stage }) => {
-          const session = (
-            window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }
-          ).__AGI_PROJECT__.getSession();
-          if (stage === "before submission") session.submit = () => new Promise(() => {});
+          if (stage === "draft storage") {
+            const put = IDBObjectStore.prototype.put;
+            IDBObjectStore.prototype.put = function (...args) {
+              if (String((args[0] as { projectId?: string }).projectId).startsWith("part-drafts/"))
+                throw new Error("Draft storage refused");
+              return put.apply(this, args);
+            };
+          }
           if (key === "logic") {
             (window as unknown as { editImmediateLogic(): void }).editImmediateLogic();
           } else if (key === "notes") {
@@ -210,7 +230,9 @@ for (const key of ["notes", "logic", "words", "sound"] as const) {
         },
         { key, stage },
       );
-      await expect(page.getByTestId("workspace-saved")).toContainText("Saving");
+      await expect(page.getByTestId("workspace-pending")).toBeVisible();
+      if (stage === "draft storage")
+        await expect(page.getByTestId("workspace-saved")).toContainText("Could not save");
       const downloading = page.waitForEvent("download");
       await downloadPendingEditsFromReadOnlyTab(page);
       const downloaded = await downloading;
@@ -247,22 +269,21 @@ for (const key of ["notes", "logic", "words", "sound"] as const) {
       await page.reload();
       await expect(page.getByTestId("parts-list")).toBeVisible();
       await expect(page.getByTestId("pending-edit-recovery")).toHaveCount(0);
+      await expect(page.getByTestId("workspace-pending")).toBeVisible();
       if (key === "logic")
-        expect(await workspaceDocument(page, "logic:1")).not.toContain(
-          "invalid LOGIC immediate !!!",
-        );
+        expect(await workspaceDocument(page, "logic:1")).toContain("invalid LOGIC immediate !!!");
       else if (key === "notes") {
         await page.getByTestId("part-notes").click();
-        await expect(page.getByLabel("Game notes", { exact: true })).not.toHaveValue(
+        await expect(page.getByLabel("Game notes", { exact: true })).toHaveValue(
           "note from the edit event",
         );
       } else if (key === "words")
-        expect(await workspaceDocument(page, "words")).not.toContain("instantword");
+        expect(await workspaceDocument(page, "words")).toContain("instantword");
       else {
         await page.getByTestId("part-sound:1").click();
         await expect(
           page.getByTestId("workspace-sound").getByLabel("Tempo", { exact: true }),
-        ).toHaveValue("120");
+        ).toHaveValue("240");
       }
     });
   }
@@ -302,50 +323,73 @@ test("Read-only unsaved edits keeps tempo metadata for both retained SOUND buffe
   expect(music["255"].tempo).toBe(180);
 });
 
-test("a failed flush refuses a version name and Retry names the visible source", async ({
-  page,
-}) => {
-  await starter(page);
-  await openWorkspaceLogic(page);
-  await page.getByTestId("workspace-saved").click();
-  const history = page.getByTestId("workspace-history");
-  await history.getByLabel("Version name", { exact: true }).fill("Failed first");
-  await page.evaluate(async () => {
-    const session = (
-      window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }
-    ).__AGI_PROJECT__.getSession();
-    const submit = session.submit;
-    let fail = true;
-    session.submit = (...args) => {
-      if (fail) {
-        fail = false;
-        return Promise.reject(new Error("Injected LOGIC admission failure"));
-      }
-      return submit(...args);
-    };
-    const { monaco } = await import("/src/studio/logic/monacoLanguage.ts");
-    monaco.editor
-      .getModels()
-      .find((model) => model.uri.toString().includes("logic"))!
-      .setValue("invalid named draft !!!");
-    document
-      .querySelector<HTMLFormElement>("[data-testid='workspace-history'] form")!
-      .requestSubmit();
+for (const size of [
+  { width: 1440, height: 900 },
+  { width: 1063, height: 815 },
+  { width: 390, height: 844 },
+]) {
+  test(`a failed flush refuses a version name and Retry names the visible source at ${size.width}`, async ({
+    page,
+  }) => {
+    await page.setViewportSize(size);
+    await starter(page);
+    await openWorkspaceLogic(page);
+    await page.getByTestId("workspace-saved").click();
+    const history = page.getByTestId("workspace-history");
+    await expect(history).toBeVisible();
+    await history.getByLabel("Version name", { exact: true }).fill("Failed first");
+    await page.evaluate(async () => {
+      const session = (
+        window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }
+      ).__AGI_PROJECT__.getSession();
+      const drafts = session.drafts();
+      const flush = drafts.flush;
+      let fail = true;
+      drafts.flush = () => {
+        if (fail) {
+          fail = false;
+          return Promise.reject(new Error("Injected LOGIC draft write failure"));
+        }
+        return flush();
+      };
+      const { monaco } = await import("/src/studio/logic/monacoLanguage.ts");
+      monaco.editor
+        .getModels()
+        .find((model) => model.uri.toString().includes("logic"))!
+        .setValue("invalid named draft !!!");
+      document
+        .querySelector<HTMLFormElement>("[data-testid='workspace-history'] form")!
+        .requestSubmit();
+    });
+    const error = page.locator(".workspace-error[role=alert]");
+    await expect(error).toBeVisible();
+    await expect(error).toContainText("Injected LOGIC draft write failure");
+    await expect(history.locator(".workspace-history__name")).toHaveCount(0);
+    await expect(page.locator(".monaco-editor")).toBeVisible();
+    await expect(page.locator(".monaco-editor")).toContainText("invalid named draft !!!");
+    const retry = error.getByRole("button", { name: "Retry", exact: true });
+    await expect(retry).toBeVisible();
+    await page.screenshot({ path: test.info().outputPath(`history-error-${size.width}.png`) });
+    expect(
+      await retry.evaluate((button) => {
+        const box = button.getBoundingClientRect();
+        const top = document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2);
+        return top === button || button.contains(top);
+      }),
+    ).toBe(true);
+    await history.getByRole("button", { name: "Close", exact: true }).click();
+    await expect(history).toBeHidden();
+    await expect(error).toBeVisible();
+    await retry.click();
+    await workspaceSaved(page);
+    await page.getByTestId("workspace-saved").click();
+    await expect(history).toBeVisible();
+    await history.getByRole("button", { name: "Name this version", exact: true }).click();
+    await expect(history.locator(".workspace-history__name")).toBeVisible();
+    await expect(history.locator(".workspace-history__name")).toHaveText("Failed first");
+    expect(await workspaceDocument(page, "logic:1")).toBe("invalid named draft !!!");
   });
-  await expect(page.locator(".workspace-error[role=alert]")).toContainText(
-    "Injected LOGIC admission failure",
-  );
-  await expect(history.locator(".workspace-history__name")).toHaveCount(0);
-  await expect(page.locator(".monaco-editor")).toContainText("invalid named draft !!!");
-  await page
-    .locator(".workspace-error[role=alert]")
-    .getByRole("button", { name: "Retry", exact: true })
-    .click();
-  await workspaceSaved(page);
-  await history.getByRole("button", { name: "Name this version", exact: true }).click();
-  await expect(history.locator(".workspace-history__name")).toHaveText("Failed first");
-  expect(await workspaceDocument(page, "logic:1")).toBe("invalid named draft !!!");
-});
+}
 
 test("Discard and exit retires a refused draft and keeps the previous durable note", async ({
   page,
@@ -354,12 +398,12 @@ test("Discard and exit retires a refused draft and keeps the previous durable no
   await page.getByTestId("part-notes").click();
   const notes = page.getByLabel("Game notes", { exact: true });
   await notes.fill("previous durable note");
-  await workspaceSaved(page);
+  await workspaceUpdated(page);
   await page.evaluate(() => {
     const session = (
       window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }
     ).__AGI_PROJECT__.getSession();
-    session.submit = () => Promise.reject(new Error("Injected refused draft"));
+    session.drafts().flush = () => Promise.reject(new Error("Injected refused draft"));
   });
   await notes.fill("deliberately discarded note");
   await openGameOptions(page, "settings-menu");

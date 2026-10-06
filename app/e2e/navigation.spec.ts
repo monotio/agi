@@ -2,7 +2,7 @@ import type { Page } from "@playwright/test";
 import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import { buildZip } from "../src/archive/zip.ts";
-import { isolateStorage, textHook, waitForAutosaveAfter } from "./engineProbe.ts";
+import { gameHint, isolateStorage, textHook, waitForAutosaveAfter } from "./engineProbe.ts";
 import { expect, test } from "./test.ts";
 
 test("top navigation groups controls and follows game sound through shortcuts, app toggles and restore", async ({
@@ -87,7 +87,8 @@ test("top navigation groups controls and follows game sound through shortcuts, a
   await page.keyboard.press("Escape");
   await waitForAutosaveAfter(page, (await textHook(page)).cycle);
   await page.reload();
-  await expect(page.getByTestId("resume-caption")).toBeVisible();
+  await expect(await gameHint(page, "resume-caption")).toBeVisible();
+  await page.mouse.move(0, 0);
   await settings.click();
   await expect(sound).toHaveAttribute("aria-checked", "false");
 
@@ -194,8 +195,10 @@ test("the strip does not offer Esc for a menu Escape does not open", async ({ pa
     page,
     `set.key(0,60,2); set.menu("Game"); set.menu.item("Sound <F2>",2); submit.menu();`,
   );
-  const help = page.locator("#game-input-help");
-  await expect(help).toContainText("Arrows or numpad walk");
+  await page.getByTestId("game-keys").hover();
+  const help = page.getByTestId("game-key-help");
+  await expect(help).toBeVisible();
+  await expect(help).toContainText("Arrows or numpad to walk");
   await expect(help).not.toContainText("game menu");
 });
 
@@ -204,5 +207,8 @@ test("the strip names Esc as the game menu when Esc opens a submitted menu", asy
     page,
     `set.key(27,0,1); set.key(0,60,2); set.menu("Game"); set.menu.item("Sound <F2>",2); submit.menu();`,
   );
-  await expect(page.locator("#game-input-help")).toContainText("Esc game menu");
+  await page.getByTestId("game-keys").hover();
+  const help = page.getByTestId("game-key-help");
+  await expect(help).toBeVisible();
+  await expect(help).toContainText("Esc for the game menu");
 });

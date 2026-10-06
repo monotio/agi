@@ -1,3 +1,4 @@
+import { waitUntil } from "./async.ts";
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { providerSse } from "../../test/provider-stream.ts";
@@ -54,15 +55,10 @@ function room1Key(project: StarterProject): string {
 function grumbleChanges(project: StarterProject): { key: string; content: string }[] {
   const room1num = project.bindings["first_room"]!.num;
   const room1 = project.sources.logics.get(room1num)!;
-  const edited = room1
-    .replace(
-      '#message 3 "The ground gives way',
-      '#message 8 "The clearing grumbles back."\n#message 3 "The ground gives way',
-    )
-    .replace(
-      'if (said("die")) { print(m3); call(death_logic); }',
-      'if (said("grumble")) { print(m8); }\nif (said("die")) { print(m3); call(death_logic); }',
-    );
+  const edited = room1.replace(
+    'if (said("die"))',
+    'if (said("grumble")) { print("The clearing grumbles back."); }\nif (said("die"))',
+  );
   assert.notEqual(edited, room1);
   const nextId = Math.max(...project.sources.words.values()) + 1;
   const words = JSON.stringify([...project.sources.words, ["grumble", nextId]]);
@@ -904,8 +900,8 @@ describe("projectAssist: guard rails", () => {
       budgetUsd: 0.32,
     });
     const request = assist.request({ instruction: "inspect" });
-    for (let i = 0; i < 8 && requests.length < 1; i++) await settle();
-    for (let i = 0; i < 8 && assist.state().phase !== "paused"; i++) await settle();
+    await waitUntil(() => requests.length > 0, "the provider request did not start");
+    await waitUntil(() => assist.state().phase === "paused", "the agent did not pause");
     assert.equal(assist.state().phase, "paused");
     assert.match(assist.state().run?.reason ?? "", /Budget/i);
     assert.equal(requests.length, 1, "the second provider request waits for resume");

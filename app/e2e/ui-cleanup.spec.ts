@@ -91,13 +91,17 @@ test("the start page uses concise tutorial copy and readable primary actions", a
   await dialog.getByTestId("ai-settings-cancel").click();
 });
 
-test("Add game is one keyboard-friendly menu with ZIP and folder choices", async ({ page }) => {
+test("Add game is one keyboard-friendly menu with ZIP, disk and folder choices", async ({
+  page,
+}) => {
   const trigger = page.getByRole("button", { name: "Add game", exact: true });
   const zip = page.getByTestId("open-game-zip");
+  const disks = page.getByTestId("open-game-disks");
   const folder = page.getByTestId("open-game-folder");
 
   await expect(trigger).toHaveAttribute("aria-expanded", "false");
   await expect(zip).toBeHidden();
+  await expect(disks).toBeHidden();
   await expect(folder).toBeHidden();
 
   await trigger.focus();
@@ -106,8 +110,11 @@ test("Add game is one keyboard-friendly menu with ZIP and folder choices", async
   await expect(trigger).toHaveAttribute("data-testid", "open-game-menu");
   await expect(page.getByTestId("open-game-menu-menu")).toHaveRole("menu");
   await expect(zip).toBeFocused();
+  await expect(disks).toBeVisible();
   await expect(folder).toBeVisible();
   await zip.press("ArrowDown");
+  await expect(disks).toBeFocused();
+  await disks.press("ArrowDown");
   await expect(folder).toBeFocused();
   await folder.press("Escape");
   await expect(trigger).toHaveAttribute("aria-expanded", "false");

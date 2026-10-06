@@ -424,16 +424,21 @@ describe("guided respond to command", () => {
     const preview = op.showCode.find((p) => p.key === "logic:1")!;
     assert.equal(preview.lines[0]!.start, roomLines(room, 'said("wave")'));
     op.apply();
-    assert.match(docText(draft, "logic:1"), /if \(said\("look"\)\) \{ print\(m1\); \}/);
+    assert.match(docText(draft, "logic:1"), /if \(said\("look"\)\) \{ print\("You stand/);
   });
 
   test("keeps existing message numbers while adding a new handler", () => {
-    const { ctx } = workspace("starter");
+    const { ctx, draft } = workspace("starter");
+    const source = docText(draft, "logic:1");
+    const classic =
+      '#message 1 "The clearing."\n' + source.replace(/print\("[^"\n]*"\)/, "print(m1)");
+    draft.edit("logic:1", classic, draft.capture().version("logic:1"));
     const op = mustPrepare(
       prepareGuidedRespondToCommand(ctx, { room: 1, command: "sing", response: "La la." }),
     );
     const room = op.changes.find((c) => c.key === "logic:1")!.content as string;
-    for (const n of [1, 2, 3, 4]) assert.match(room, new RegExp(`#message ${n} "`));
+    assert.match(room, /#message 1 "The clearing\."/);
+    assert.match(room, /print\(m1\)/);
     assert.match(room, /said\("sing"\)/);
   });
 
@@ -451,8 +456,28 @@ describe("guided respond to command", () => {
     }
   });
 
-  test("replaceExisting rewrites only the reply text and keeps its message number", () => {
+  test("replaceExisting rewrites only inline reply text and keeps other handlers", () => {
     const { ctx } = workspace("starter");
+    const op = mustPrepare(
+      prepareGuidedRespondToCommand(ctx, {
+        room: 1,
+        command: "look",
+        response: "A quiet clearing.",
+        replaceExisting: true,
+      }),
+    );
+    const room = op.changes.find((c) => c.key === "logic:1")!.content as string;
+    assert.match(room, /if \(said\("look"\)\) \{ print\("A quiet clearing\."\); \}/);
+    assert.match(room, /said\("listen"\)/);
+    assert.equal(op.affectedKeys.includes("words"), false, "no reseeded vocabulary");
+  });
+
+  test("replaceExisting rewrites only the reply text and keeps its message number", () => {
+    const { ctx, draft } = workspace("starter");
+    const source = docText(draft, "logic:1");
+    const classic =
+      '#message 1 "The clearing."\n' + source.replace(/print\("[^"\n]*"\)/, "print(m1)");
+    draft.edit("logic:1", classic, draft.capture().version("logic:1"));
     const op = mustPrepare(
       prepareGuidedRespondToCommand(ctx, {
         room: 1,
@@ -480,7 +505,7 @@ describe("guided respond to command", () => {
     );
     op.apply();
     const room = docText(draft, "logic:1");
-    assert.match(room, /if \(said\("look"\)\) \{ print\(m1\); \}/);
+    assert.match(room, /if \(said\("look"\)\) \{ print\("You stand/);
     assert.match(room, /if \(said\("look", "north"\)\) \{\n {2}print\("Trees\."\);\n\}\nreturn;/);
   });
 
@@ -987,4 +1012,19 @@ describe("guided operation surface", () => {
     const on: GuidedCueTarget = { type: "command", command: "wave" };
     assert.equal(on.type, "command");
   });
+});
+
+test("guided state allocation tolerates inherited action and condition names in drafts", () => {
+  for (const name of ["constructor", "toString", "__proto__"])
+    for (const call of [`${name}(v40);`, `if (${name}(f40)) { return; }`]) {
+      const { ctx, draft } = workspace();
+      draft.edit("logic:3", `${call}\nreturn;`, 0);
+      const result = prepareGuidedPlaySound(ctx, {
+        room: 1,
+        sound: "chime_sound",
+        on: { type: "command", command: "wave" },
+        createCommand: true,
+      });
+      assert.ok(result.ok, result.ok === false ? result.message : "");
+    }
 });

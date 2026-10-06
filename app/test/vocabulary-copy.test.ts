@@ -97,11 +97,19 @@ function files(directory: string): string[] {
 function retiredPattern(retired: string): RegExp {
   return new RegExp(
     retired === "Keep"
-      ? "\\bKeep\\b(?! this tab open(?: until it says Saved)?(?:[.!?]|\\s*$))"
+      ? "\\bKeep\\b(?! it\\s*$| this tab open(?: until it says Saved)?(?:[.!?]|\\s*$))"
       : `\\b${retired}${["sprite", "proposal", "candidate", "drawing element"].includes(retired) ? "s?" : ""}\\b${retired === "Onion" ? "(?! skin)" : ""}`,
     retired === "Keep" ? "" : "i",
   );
 }
+
+test("Keep it names a room-removal choice while Keep remains retired for editor commits", () => {
+  const keep = retiredPattern("Keep");
+  assert.equal(keep.test("Keep it"), false);
+  assert.equal(keep.test("Keep"), true);
+  assert.equal(keep.test("Keep changes"), true);
+  assert.equal(keep.test("Keep it and apply"), true);
+});
 
 test("visible editor copy uses the shared vocabulary, allowing internal identifiers", () => {
   const violations: string[] = [];
@@ -131,7 +139,7 @@ test("editor action tooltips bind to shared action help", () => {
   assert.equal(ROOM_TOOL_NAMES.walk, VOCABULARY_ACTIONS.playtest_room.label);
   assert.equal(ROOM_TOOL_HINTS.walk, VOCABULARY_ACTIONS.playtest_room.help);
   const bindings: Readonly<Record<string, readonly string[]>> = {
-    "app/src/studio/workspace/GuidedAdd.vue": ['"play-sound": VOCABULARY_ACTIONS.play_sound.label'],
+    "app/src/studio/workspace/GuidedAdd.vue": ['"play-sound": "Play a sound when…"'],
     "app/src/studio/StudioToolRail.vue": [
       'if (entry.id === "walk") return VOCABULARY_ACTIONS.playtest_room.help;',
       "label: VOCABULARY_ACTIONS.playtest_room.label",

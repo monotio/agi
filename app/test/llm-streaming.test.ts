@@ -1,8 +1,12 @@
+import { waitUntil } from "./async.ts";
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import { beforeEach, test } from "node:test";
 import { AgentRun } from "../src/agent/agentRun.ts";
+import { beginProviderTask } from "../src/agent/providerBudget.ts";
 import { createAnthropicConversation, createOpenAiConversation } from "../src/agent/llmClient.ts";
 import { sseEvent, providerSse } from "../../test/provider-stream.ts";
+
+beforeEach(() => beginProviderTask(5));
 
 for (const provider of ["openai", "anthropic"] as const) {
   test(`${provider} Stop aborts the stream and Continue retries without keeping a draft`, async (t) => {
@@ -103,7 +107,10 @@ for (const provider of ["openai", "anthropic"] as const) {
     try {
       await Promise.race([ready, work]);
       // Drain queued provider events before stopping the still-open response.
-      for (let i = 0; i < 10; i++) await new Promise(setImmediate);
+      await waitUntil(
+        () => run.snapshot().progress?.text === "Discard this draft",
+        "the draft did not stream",
+      );
       assert.equal(run.snapshot().progress?.text, "Discard this draft");
       run.stop();
       await Promise.race([pause, work]);
@@ -111,6 +118,7 @@ for (const provider of ["openai", "anthropic"] as const) {
       assert.equal(requests, 1);
       assert.equal(run.snapshot().progress, null);
       assert.equal(run.snapshot().usageIncomplete, true);
+      assert.equal(run.snapshot().reportedSpent, 0, "unfinished usage is excluded from spent");
       assert.doesNotMatch(JSON.stringify(conversation.getTranscript()), /Discard this draft/);
       run.resume();
       await work;
@@ -186,8 +194,10 @@ for (const provider of ["openai", "anthropic"] as const) {
       // Every byte is a separate chunk, including the multi-byte é and SSE delimiters.
       for (const byte of new TextEncoder().encode(events.map(sseEvent).join("")))
         controller.enqueue(Uint8Array.of(byte));
-      for (let i = 0; i < 30 && run.snapshot().progress?.text !== "Hello, café"; i++)
-        await new Promise(setImmediate);
+      await waitUntil(
+        () => run.snapshot().progress?.text === "Hello, café",
+        "the UTF-8 draft did not stream",
+      );
       assert.equal(request["stream"], true);
       assert.equal(run.snapshot().progress?.text, "Hello, café");
       assert.equal(conversation.getTranscript().length, 1, "draft output must not enter history");
@@ -367,8 +377,7 @@ test("Opus 5.5 and Sonnet 5.5 show their thinking between tool calls instead of 
             .join(""),
         ),
       );
-      for (let i = 0; i < 30 && !run.snapshot().progress?.text; i++)
-        await new Promise(setImmediate);
+      await waitUntil(() => !!run.snapshot().progress?.text, "the tool explanation did not stream");
       assert.equal(run.snapshot().progress?.text, "Checking the moat's control lines.");
     } finally {
       run.cancel();

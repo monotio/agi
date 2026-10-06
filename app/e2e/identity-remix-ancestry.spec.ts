@@ -4,6 +4,9 @@ import type { Page } from "@playwright/test";
 import { expect, test, reviewShot, keepDetectedProfile } from "./test.ts";
 import { blockProviders, prepareIsolatedPage } from "./logicDebugShared.ts";
 import {
+  configureAi,
+  enterCreateMode,
+  openWorkspaceAgent,
   openLibraryActions,
   openSavedGameDetails,
   savedGameCard,
@@ -166,14 +169,35 @@ async function importDeclaredRemix(page: Page): Promise<GameIdentity> {
   return parent;
 }
 
+test("opening the agent on an existing remix shows no copy event", async ({ page }) => {
+  await prepareIsolatedPage(page);
+  await page.goto("/");
+  await configureAi(page, { provider: "stub" });
+  await importDeclaredRemix(page);
+  const card = savedGameCard(page, "Altered Remix");
+  await expect(card).toBeVisible();
+  await card.getByRole("button", { name: "Play", exact: true }).click();
+  await enterCreateMode(page);
+  await openWorkspaceAgent(page);
+  const panel = page.getByTestId("workspace-agent-panel");
+  await expect(panel).toBeVisible();
+  await expect(panel).not.toContainText("Your changes went into your own copy.");
+  await expect(page.getByTestId("copy-created-note")).toHaveCount(0);
+});
+
 test("a played remix exposes its origin in Details @webkit-desktop", async ({ page }) => {
   await prepareIsolatedPage(page);
   const providers = blockProviders(page);
   await page.goto("/");
   await importDeclaredRemix(page);
   const card = savedGameCard(page, "Altered Remix");
+  await expect(card).toBeVisible();
   await expect(card).toContainText("Remix of Origin Adventure");
   await card.getByRole("button", { name: "Play", exact: true }).click();
+  await expect(page.locator(".play-area .screen")).toBeVisible();
+  const origin = page.getByTestId("play-origin");
+  await expect(origin).toBeVisible();
+  await expect(origin).toHaveText("Your copy of Origin Adventure");
   await expect
     .poll(async () => (await textHook(page)).rows.join(" "))
     .toContain("ALTERED ADVENTURE");

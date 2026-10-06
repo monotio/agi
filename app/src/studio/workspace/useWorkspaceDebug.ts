@@ -102,9 +102,13 @@ export function useWorkspaceDebug(input: {
   watch(input.creating, (creating) => {
     if (!creating) void debug.value?.stop().catch(() => {});
   });
-  watch(editor.panel, (shown) => {
-    if (shown) void load();
-  });
+  watch(
+    editor.panel,
+    (shown) => {
+      if (shown) void load();
+    },
+    { immediate: true },
+  );
   onBeforeUnmount(() => {
     retired = true;
     debug.value?.dispose();

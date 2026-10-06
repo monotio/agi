@@ -1,11 +1,18 @@
 <script setup lang="ts">
+import { layoutDragging } from "../../play/layoutDrag.ts";
 import { onMounted, onBeforeUnmount, useTemplateRef, watch, ref, computed } from "vue";
+import type { BindingInfo } from "../../../../src/logic/projectNames.ts";
+import BindingDetails from "../../shell/BindingDetails.vue";
 import { parseWordsTok } from "../../../../src/logic/words.ts";
 import { VOCABULARY } from "../../../../src/vocabulary.ts";
 import { readInventoryObjects } from "../../../../src/authoring/inventory.ts";
 import { PROFILES } from "../../../../src/runtime/profile.ts";
 import type { ProfileId } from "../../../../src/runtime/profile.ts";
 import { readBindingsDocument } from "../../../../src/authoring/projectDocuments.ts";
+import {
+  sameProjectContent,
+  type ProjectContent,
+} from "../../../../src/authoring/projectContent.ts";
 import type { ProjectSnapshot } from "../../../../src/authoring/projectModel.ts";
 import { offsetAt } from "../../../../src/logic/lspTypes.ts";
 import type { WorkspaceEdit } from "../../../../src/logic/lspTypes.ts";
@@ -29,7 +36,24 @@ const emit = defineEmits<{
   edit: [source: string];
   breakpoint: [line: number];
   selection: [context: { label: string; text: string } | null];
+  problems: [entries: readonly { message: string; line: number }[]];
 }>();
+const binding = ref<BindingInfo>();
+const renameBinding = ref(false);
+function onBinding(info: BindingInfo, action: "open" | "rename"): void {
+  // Close the focused hover before the form opens: its close restores editor focus.
+  editor
+    ?.getContribution<monaco.editor.IEditorContribution & { hideContentHover(): void }>(
+      "editor.contrib.contentHover",
+    )
+    ?.hideContentHover();
+  if (action === "open" && ["sound", "picture", "view", "logic"].includes(info.kind)) {
+    workspace.open(`${info.kind}:${info.num}`, true);
+    return;
+  }
+  renameBinding.value = action === "rename";
+  binding.value = info;
+}
 const showRunning = ref(false);
 const differs = computed(
   () => props.runningSource !== undefined && props.runningSource !== props.source,
@@ -46,6 +70,7 @@ let syncing = false;
 let layoutFrame = 0;
 let decorations: monaco.editor.IEditorDecorationsCollection | undefined;
 let editView: monaco.editor.ICodeEditorViewState | null = null;
+let markerSubscription: monaco.IDisposable | undefined;
 function decorate(): void {
   if (!editor || !model) return;
   const exact = props.runningSource === undefined || model.getValue() === props.runningSource;
@@ -83,7 +108,11 @@ function syncSource(source: string): void {
   syncing = false;
   decorate();
 }
+watch(layoutDragging, (dragging) => {
+  if (!dragging) layout();
+});
 function layout(): void {
+  if (layoutDragging.value) return;
   cancelAnimationFrame(layoutFrame);
   layoutFrame = requestAnimationFrame(() => {
     editor?.layout();
@@ -94,6 +123,16 @@ function layout(): void {
       editor?.revealLineInCenterIfOutsideViewport(props.stoppedLine);
   });
 }
+let contextCache:
+  | {
+      profile: string;
+      inputs: readonly (ProjectContent | undefined)[];
+      words: [string, number][];
+      objects: string[];
+      bindings: Record<string, { num: number }>;
+      bindingSource: string;
+    }
+  | undefined;
 function analysis(): void {
   if (!model) return;
   const documents: Record<string, { version: number; source: string }> = {};
@@ -103,25 +142,40 @@ function analysis(): void {
       documents[key] = { version: doc.version, source: doc.content };
   }
   documents[props.documentKey] = { version: model.getVersionId(), source: model.getValue() };
-  let objects: string[] = [];
-  let words: [string, number][] = [];
-  let bindings: Record<string, { num: number }> = {};
-  try {
-    const text = props.snapshot.read("words")?.content;
-    if (typeof text === "string") words = JSON.parse(text) as [string, number][];
-    else if (text) words = parseWordsTok(text).map(({ word, id }) => [word, id]);
-    const inventory = props.snapshot.read("inventory")?.content;
-    if (typeof inventory === "string")
-      objects = (JSON.parse(inventory) as { name: string }[]).map((item) => item.name);
-    else if (inventory instanceof Uint8Array)
-      objects = readInventoryObjects(inventory, PROFILES[props.profileId]).map((item) => item.name);
-    const names = props.snapshot.read("bindings")?.content;
-    if (typeof names === "string") bindings = readBindingsDocument(names);
-  } catch {
-    client.invalidateContext("Fix the WORDS or names document to restore code intelligence.");
-    return;
+  const inputs = ["words", "inventory", "bindings"].map((key) => props.snapshot.read(key)?.content);
+  if (
+    contextCache?.profile !== props.profileId ||
+    inputs.some((value, index) => !sameProjectContent(value, contextCache?.inputs[index]))
+  ) {
+    let objects: string[] = [];
+    let words: [string, number][] = [];
+    let bindings: Record<string, { num: number }> = {};
+    let bindingSource = "{}";
+    try {
+      const text = props.snapshot.read("words")?.content;
+      if (typeof text === "string") words = JSON.parse(text) as [string, number][];
+      else if (text) words = parseWordsTok(text).map(({ word, id }) => [word, id]);
+      const inventory = props.snapshot.read("inventory")?.content;
+      if (typeof inventory === "string")
+        objects = (JSON.parse(inventory) as { name: string }[]).map((item) => item.name);
+      else if (inventory instanceof Uint8Array)
+        objects = readInventoryObjects(inventory, PROFILES[props.profileId]).map(
+          (item) => item.name,
+        );
+      const names = props.snapshot.read("bindings")?.content;
+      if (typeof names === "string") {
+        bindingSource = names;
+        bindings = readBindingsDocument(names);
+      }
+      contextCache = { profile: props.profileId, inputs, words, objects, bindings, bindingSource };
+    } catch {
+      contextCache = undefined;
+      client.invalidateContext("Fix the WORDS or names document to restore code intelligence.");
+      return;
+    }
   }
-  const changed = client.setProject({
+  const { words, objects, bindings, bindingSource } = contextCache;
+  client.setProject({
     revision: props.snapshot.revision,
     profileId: props.profileId,
     words,
@@ -129,17 +183,16 @@ function analysis(): void {
     bindings,
     bindingDocument: {
       uri: "agi-project:///bindings.json",
-      source: (props.snapshot.read("bindings")?.content as string | undefined) ?? "{}",
+      source: bindingSource,
     },
     documents,
   });
-  if (changed) void language?.refreshDiagnostics();
 }
-async function applyProjectEdit(edit: WorkspaceEdit, label: string): Promise<void> {
+async function applyProjectEdit(edit: WorkspaceEdit, _label: string): Promise<void> {
   const revision = props.snapshot.revision;
   await workspace.flush.value?.();
   const session = engine.getProjectSession();
-  const base = session?.model.capture();
+  const base = session?.workingSnapshot();
   if (!session || !base || base.revision !== revision)
     throw new Error("The project changed. Retry the rename.");
   const changes = edit.documentChanges.map((change) => {
@@ -166,14 +219,9 @@ async function applyProjectEdit(edit: WorkspaceEdit, label: string): Promise<voi
       content = content.slice(0, entry.start) + entry.text + content.slice(entry.end);
     return { key, content };
   });
-  const outcome = await session.submit({
-    proposal: session.model.propose(base, label, changes),
-    label,
-    origin: "logic",
-    author: "creator",
-  });
+  const outcome = await session.stage(changes);
   if (
-    !["committed", "unchanged", "diagnostics", "restartRequired", "deferred"].includes(
+    !["committed", "unchanged", "draft", "diagnostics", "restartRequired", "deferred"].includes(
       outcome.status,
     )
   )
@@ -189,6 +237,7 @@ onMounted(() => {
     client,
     documentKey: props.documentKey,
     applyProjectEdit,
+    onBinding,
   });
   editor = monaco.editor.create(root.value!, {
     readOnly: props.readOnly,
@@ -209,6 +258,16 @@ onMounted(() => {
     padding: { top: 16, bottom: 16 },
   });
   decorations = editor.createDecorationsCollection();
+  markerSubscription = monaco.editor.onDidChangeMarkers((uris) => {
+    if (!model || !uris.some((uri) => uri.toString() === model!.uri.toString())) return;
+    emit(
+      "problems",
+      monaco.editor
+        .getModelMarkers({ resource: model.uri })
+        .filter((entry) => entry.severity === monaco.MarkerSeverity.Error)
+        .map((entry) => ({ message: entry.message, line: entry.startLineNumber })),
+    );
+  });
   editor.onMouseDown((event) => {
     if (
       event.target.type === monaco.editor.MouseTargetType.GUTTER_GLYPH_MARGIN &&
@@ -230,7 +289,7 @@ onMounted(() => {
   model.onDidChangeContent(() => {
     if (!syncing && model) {
       emit("edit", model.getValue());
-      analysis();
+      client.changeDocument(props.documentKey, model.getVersionId(), model.getValue());
       decorate();
     }
   });
@@ -239,6 +298,7 @@ onMounted(() => {
   analysis();
   decorate();
   revealLocation();
+  revealName();
 });
 watch(
   () => props.source,
@@ -247,7 +307,7 @@ watch(
     const state = editor?.saveViewState();
     syncSource(source);
     if (state) editor?.restoreViewState(state);
-    analysis();
+    if (model) client.changeDocument(props.documentKey, model.getVersionId(), model.getValue());
   },
 );
 watch(
@@ -263,17 +323,21 @@ watch(showRunning, (show) => {
   if (show) editView = editor?.saveViewState() ?? null;
   editor?.updateOptions({ readOnly: show || props.readOnly, domReadOnly: show || props.readOnly });
   syncSource(show ? (props.runningSource ?? props.source) : props.source);
+  if (model) client.changeDocument(props.documentKey, model.getVersionId(), model.getValue());
   if (show && props.stoppedLine) navigate(props.stoppedLine);
   else if (editView) editor?.restoreViewState(editView);
 });
 watch(
   () => [props.breakpoints, props.stoppedLine, props.runningSource],
   () => {
-    if (showRunning.value) syncSource(props.runningSource ?? props.source);
+    if (showRunning.value) {
+      syncSource(props.runningSource ?? props.source);
+      if (model) client.changeDocument(props.documentKey, model.getVersionId(), model.getValue());
+    }
     decorate();
   },
 );
-watch(() => props.snapshot, analysis);
+watch(() => [props.snapshot, props.profileId], analysis);
 function revealLocation(): void {
   if (!props.location || !editor) return;
   editor.setPosition({ lineNumber: props.location.line, column: 1 });
@@ -281,6 +345,13 @@ function revealLocation(): void {
   editor.focus();
 }
 watch(() => props.location, revealLocation);
+function revealName(): void {
+  const location = workspace.nameLocation.value;
+  if (!props.active || location?.key !== props.documentKey) return;
+  navigate(location.line);
+  editor?.focus();
+}
+watch(() => [workspace.nameLocation.value, props.active], revealName, { flush: "post" });
 watch(
   () => props.active,
   (active) => {
@@ -293,6 +364,7 @@ onBeforeUnmount(() => {
   // Model-change listeners cancel their work before markers and providers retire.
   editor?.setModel(null);
   editor?.dispose();
+  markerSubscription?.dispose();
   language?.dispose();
   model?.dispose();
   client.dispose();
@@ -311,6 +383,16 @@ defineExpose({
       <button v-if="!showRunning" @click="showRunning = true">Show running source</button>
       <button v-else @click="showRunning = false">Return to editing</button>
     </div>
+    <BindingDetails
+      v-if="binding"
+      :info="binding"
+      :rename="renameBinding"
+      @close="binding = undefined"
+      @renamed="
+        binding = $event;
+        renameBinding = false;
+      "
+    />
     <div ref="root" class="workspace-monaco" data-testid="workspace-logic-editor"></div>
   </div>
 </template>

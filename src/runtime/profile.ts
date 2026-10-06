@@ -183,7 +183,16 @@ type SoundProfile =
  */
 type SoundEnvelope = "2.917" | "3.002" | "amiga-2.176" | "amiga-2.202";
 
+export type AmigaRegion = "ntsc" | "pal";
+
+/** Session timing from the fixed VBlank dividers; docs/fidelity.md "Original Amiga sound player". */
+export function interpreterTiming(profile: AgiProfile, region: AmigaRegion = "ntsc") {
+  const soundHz = profile.frameTiming === "amiga-vblank" && region === "pal" ? 50 : 60;
+  return { soundHz, timerIncrementMs: 3000 / soundHz, gameSecondMs: 60000 / soundHz };
+}
+
 export interface AgiProfile {
+  readonly frameTiming: "fixed" | "amiga-vblank";
   /** Promoted profile identifier, e.g. "2.936". */
   readonly id: ProfileId;
 
@@ -395,6 +404,8 @@ export interface AgiProfile {
   // ---- sound ----
   /** Sound scheduling/output family. */
   readonly sound: SoundProfile;
+  /** Representative PC sound hardware; docs/fidelity.md "PCjr and Tandy noise". */
+  readonly psgNoise: "sn76496" | "ncr8496";
   /** Decay-envelope selection for the "common" family (unused by early/booter sound). */
   readonly soundEnvelope: SoundEnvelope;
 }
@@ -449,7 +460,9 @@ const BASE_2936: AgiProfile = {
   heapDiagnosticExtraLine: true,
   saveBlocks: 5,
   saveBlock3Xor: false,
+  frameTiming: "fixed",
   sound: "common",
+  psgNoise: "ncr8496",
   soundEnvelope: "2.917",
 };
 
@@ -475,6 +488,7 @@ const BASE_EARLY: AgiProfile = {
   pictureMaxCommand: 0xf8,
   patternProfile: "none",
   sound: "early-2.089",
+  psgNoise: "sn76496",
 };
 
 /** Combined v3 container shape shared by the 3.002.x profiles. */
@@ -545,6 +559,7 @@ const BASE_AMIGA_31X: AgiProfile = {
   saveBlock3Xor: false,
   patternProfile: "center-row-320",
   heapDiagnosticExtraLine: false,
+  frameTiming: "amiga-vblank",
   sound: "amiga",
   soundEnvelope: "amiga-2.202",
   ...AMIGA_INVENTORY,
@@ -602,6 +617,7 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
     restartPromptBypassedByF16: false,
     heapDiagnosticExtraLine: false,
     sound: "early-2.411",
+    psgNoise: "sn76496",
   },
   // version_profiles.md "AGI 2.440 profile"; conformance matrix "2.440 variant selection".
   "2.440": {
@@ -612,6 +628,7 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
     directionLoops: "exact-four",
     heapDiagnosticExtraLine: false,
     sound: "early-2.440",
+    psgNoise: "sn76496",
   },
   // version_profiles.md "AGI 2.917 profile"; conformance matrix "2.917 variant selection".
   "2.917": {
@@ -697,6 +714,7 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
     // (docs/fidelity.md "Amiga interpreter profiles").
     movementClear: "later",
     saveBlocks: 5,
+    frameTiming: "amiga-vblank",
     sound: "amiga-2.082",
   },
   // Amiga "KQ2" 2.176 (KQ2 Amiga): 170 action slots through 0xa9, 19
@@ -736,6 +754,7 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
     patternProfile: "short-r1",
     heapDiagnosticExtraLine: false,
     saveBlocks: 5,
+    frameTiming: "amiga-vblank",
     sound: "amiga",
     soundEnvelope: "amiga-2.176",
   },
@@ -757,6 +776,7 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
     directionLoops: "exact-four",
     patternProfile: "short-r1",
     heapDiagnosticExtraLine: false,
+    frameTiming: "amiga-vblank",
     sound: "amiga",
     soundEnvelope: "amiga-2.202",
   },
