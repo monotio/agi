@@ -141,7 +141,7 @@ while the agent writes it. Along the way you can:
 - open **World map** to rename rooms, edit their
   briefs and pin notes the agent reads when it builds that part of the world;
 - use **Agent** in Play for hints and questions that leave the game untouched,
-  or open **Agent** (⌘I) beside any Create editor to change resources together;
+  or open **Agent** (⌘I) over any Create editor to change resources together;
 - review each changed resource and approve a coordinated change as one History
   commit, or turn on Auto-approve for the current game session;
 - start task chats, resume earlier chats, and edit the game's Notes to give every
