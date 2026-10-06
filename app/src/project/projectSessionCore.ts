@@ -22,6 +22,7 @@ import {
 } from "../../../src/authoring/projectEdit.ts";
 import { prepareAndAdmitProjectEdit } from "./projectWritePipeline.ts";
 import type { ProjectDocumentsCompile } from "../../../src/authoring/projectDocuments.ts";
+import type { RoomLaunchRequest } from "../worker/roomLaunch.ts";
 import type { ProjectCommitMetadata } from "../../../src/authoring/projectHistoryData.ts";
 import {
   readProjectWorkspace,
@@ -148,6 +149,7 @@ function createSession(
       admit(
         compiled: ProjectDocumentsCompile,
         versions: { key: string; version: number }[],
+        mode?: "keep",
       ): Promise<PreviewUpdateOutcome>;
       admitPreparedRoom?(
         compiled: ProjectDocumentsCompile,
@@ -160,6 +162,7 @@ function createSession(
       reenter?(
         compiled: ProjectDocumentsCompile,
         versions: { key: string; version: number }[],
+        launch?: RoomLaunchRequest,
       ): Promise<PreviewUpdateOutcome>;
     };
     readonly openedAt?: number;
@@ -541,6 +544,7 @@ function createSession(
     beforeCommit?: () => void,
     updateMode?: "keep" | "reenter",
     reviewedComputedRoomJumps?: readonly string[],
+    launch?: RoomLaunchRequest,
   ) {
     await ready;
     beforeCommit?.();
@@ -586,7 +590,12 @@ function createSession(
             do {
               if (!current() || writeBlock !== undefined)
                 throw new Error("Reopen this game before updating.");
-              outcome = await admit(compiled, documents);
+              outcome =
+                updateMode === "keep"
+                  ? await input.admission.admit(compiled, documents, "keep")
+                  : launch
+                    ? await input.admission.reenter!(compiled, documents, launch)
+                    : await admit(compiled, documents);
               if (outcome.status === "deferred")
                 await (input.boundary?.() ??
                   new Promise<void>((resolve) => setTimeout(resolve, 50)));
@@ -830,7 +839,7 @@ function createSession(
       drafts.stage(changes);
       return { status: "draft" as const, diagnostics: [] };
     },
-    update(changes: readonly ProjectChange[], restartRoom = false) {
+    update(changes: readonly ProjectChange[], restartRoom = false, launch?: RoomLaunchRequest) {
       return schedule(() =>
         apply(
           model.propose(model.capture(), "Update game", changes),
@@ -839,6 +848,8 @@ function createSession(
           false,
           undefined,
           restartRoom ? "reenter" : "keep",
+          undefined,
+          launch,
         ),
       );
     },

@@ -48,6 +48,7 @@ import {
 type CapturedBuild = ReturnType<typeof captureProjectBuild>;
 
 export function createDebugController(ctx: WorkerContext) {
+  let stopAtEntry = false;
   const control = ctx.ports.control;
   /**
    * A detach that could not unarm (parked mid-cycle) leaves the gate and
@@ -164,7 +165,11 @@ export function createDebugController(ctx: WorkerContext) {
     // published at the entry boundary (debugAfterEntry); the rebound plans
     // resume observing under the new epoch from the next boundary on.
     if (engine !== d.engine || engine.runResetSerial !== boundResetSerial) return false;
-    let stop = false;
+    let stop = stopAtEntry;
+    if (stopAtEntry) {
+      stopAtEntry = false;
+      d.pendingReasons.push({ kind: "runTo" });
+    }
     if (d.runTo !== null && boundary.logic === d.runTo.logic && boundary.pc === d.runTo.pc) {
       d.runTo = null;
       d.pendingReasons.push({ kind: "runTo" });
@@ -383,6 +388,7 @@ export function createDebugController(ctx: WorkerContext) {
    * the parked interaction they answered is abandoned by the replacement.
    */
   function debugBeforeReplace(): void {
+    stopAtEntry = false;
     const d = ctx.debugger;
     if (d.epoch === 0) return;
     const engine = d.engine;
@@ -412,7 +418,7 @@ export function createDebugController(ctx: WorkerContext) {
    * now stale. A build that cannot reproduce the session's sources ends the
    * session instead of binding breakpoints against unverifiable bytes.
    */
-  function debugSessionReplaced(): void {
+  function debugSessionReplaced(stopAtFirstInstruction = false): void {
     const d = ctx.debugger;
     if (d.epoch === 0) return;
     debugBeforeReplace();
@@ -427,6 +433,7 @@ export function createDebugController(ctx: WorkerContext) {
       detachInternal("replaced");
       return;
     }
+    if (d.engine !== engine) d.installed = false;
     d.engine = engine;
     boundResetSerial = engine.runResetSerial;
     d.epoch = ++d.epochCounter;
@@ -451,6 +458,7 @@ export function createDebugController(ctx: WorkerContext) {
     }
     refreshRichSnapshot();
     syncControlArming(engine);
+    stopAtEntry = stopAtFirstInstruction;
     control({
       type: "debugSessionReset",
       epoch: d.epoch,

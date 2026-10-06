@@ -864,6 +864,18 @@ export function useEngine(
     }
   }
 
+  async function launchRoom(
+    room: number,
+    launch: NonNullable<Extract<WorkerInbound, { type: "playHere" }>["launch"]> = {},
+  ): Promise<WorkerQueryPayload["playHere"]> {
+    pauseEngine("roomLaunch");
+    try {
+      return await link.query("playHere", { room, x: 0, y: 0, launch });
+    } finally {
+      resumeEngine("roomLaunch");
+    }
+  }
+
   const openPowerUp: ReturnType<typeof useAuthoringController>["openPowerUp"] = async (...args) =>
     (await loadAuthoringController()).openPowerUp(...args);
   function closePowerUp(): void {
@@ -1354,6 +1366,7 @@ export function useEngine(
       (await loadEngineDebug()).debugWrite(...args),
     playHere,
     visitRoom,
+    launchRoom,
     /** The live screen objects (ego first when animated): Room Studio's walkable estimate. */
     readObjects: () => link.query("objects"),
     debugEventsSince: async (

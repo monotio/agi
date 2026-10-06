@@ -521,7 +521,9 @@ export function openHistoryDrive(
         const files = new Map(
           Object.entries(cause.files).map(([name, data]) => [name, base64ToBytes(data)]),
         );
-        const result = engine!.commitPreviewUpdate(engine!.preparePreviewUpdate({ files }));
+        const result = engine!.commitPreviewUpdate(engine!.preparePreviewUpdate({ files }), {
+          messageWaiting: true,
+        });
         if (result.status !== "committed" && result.status !== "unchanged")
           throw new Error(`Recorded project image refused: ${result.status}`);
         ctx.boot.currentBootFiles = new Map(engine!.containerFiles);

@@ -17,6 +17,7 @@ import { Engine } from "../../../src/runtime/engine.ts";
 import { openContainer } from "../../../src/container/container.ts";
 import { placeEgo, playHereProblem } from "../../../src/runtime/playHere.ts";
 import type { Inbound, WorkerContext } from "./context.ts";
+import { launchRoom } from "./roomLaunch.ts";
 
 export function createPlayHere(ctx: WorkerContext) {
   let returnPoint: {
@@ -73,12 +74,36 @@ export function createPlayHere(ctx: WorkerContext) {
         x: ego?.x ?? 0,
         y: ego?.y ?? 0,
         ...(reason === undefined ? {} : { reason }),
-        ...(msg.visit && returnPoint ? { returnRoom: returnPoint.room } : {}),
+        ...((msg.visit || msg.launch) && returnPoint ? { returnRoom: returnPoint.room } : {}),
       });
     };
     const engine = ctx.engine;
     if (!engine || ctx.replay.replay || ctx.view.drive)
       return reply(false, "Play here needs the live game. Leave the replay or history view first.");
+    if (msg.launch) {
+      const baseline =
+        returnPoint?.engine === engine
+          ? returnPoint
+          : (() => {
+              try {
+                const image = engine.recordingImage();
+                return image
+                  ? {
+                      engine,
+                      room: engine.vars[0]!,
+                      image,
+                      replay: engine.captureReplayState(),
+                      rng: ctx.history.rng,
+                    }
+                  : null;
+              } catch {
+                return null;
+              }
+            })();
+      const problem = launchRoom(ctx, msg);
+      if (problem === null && baseline) returnPoint = { ...baseline, engine: ctx.engine! };
+      return reply(problem === null, problem ?? undefined);
+    }
     if (returnPoint?.engine !== engine || ctx.previewVisitEngine !== engine) returnPoint = null;
     if (msg.visit === "back") {
       if (!returnPoint) return reply(false, "The return point belongs to an earlier game.");
@@ -91,7 +116,7 @@ export function createPlayHere(ctx: WorkerContext) {
         );
       }
       returnPoint = null;
-      ctx.previewVisitEngine = null;
+      ctx.previewVisitEngine = ctx.projectAdmission ? engine : null;
       ctx.fns.debugSessionReplaced();
       ctx.fns.setKeyWaiting(engine.awaitingKey);
       ctx.fns.markJump();

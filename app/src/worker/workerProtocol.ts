@@ -1,3 +1,5 @@
+import type { RoomEntryState } from "../../../src/runtime/roomEntry.ts";
+import type { RoomLaunchRequest } from "./roomLaunch.ts";
 import type { PortableProjectWorkspace } from "../../../src/authoring/projectWorkspace.ts";
 import type { ResourceRevision } from "../../../src/gameIdentity.ts";
 /**
@@ -292,6 +294,12 @@ export type WorkerInbound =
       y: number;
       /** Create visits use the room's placement and keep an exact return point. */
       visit?: "start" | "back";
+      /** A Create launch applies sparse inputs before LOGIC 0, or cold-boots. */
+      launch?: {
+        state?: RoomEntryState;
+        beginning?: boolean;
+        debug?: boolean;
+      };
     }
   /**
    * Replace every listed resource, or none: the worker stages the whole set
@@ -535,7 +543,8 @@ export type WorkerInbound =
       runToken: string;
       expected: PreviewLaneIdentity;
       candidate: PreviewUpdateCandidateMessage;
-      mode?: "restart" | "reenter";
+      mode?: "restart" | "reenter" | "keep";
+      launch?: RoomLaunchRequest;
     }
   /**
    * Read-only reconciliation: reports the lane's actual current identity —

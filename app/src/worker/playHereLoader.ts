@@ -15,7 +15,10 @@ export function createPlayHereLoader(ctx: WorkerContext) {
     });
     void loading
       .then(() => {
-        if (ctx.engine === engine && (!msg.visit || ctx.previewVisitSerial === previewSerial))
+        if (
+          ctx.engine === engine &&
+          (!(msg.visit || msg.launch) || ctx.previewVisitSerial === previewSerial)
+        )
           handler!.onPlayHere(msg);
         else
           ctx.ports.control({

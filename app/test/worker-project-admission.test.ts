@@ -278,6 +278,7 @@ for (const wait of ["print", "key"] as const)
     onWorkerMessage(ctx, {
       type: "previewUpdate",
       id: 202,
+      mode: "reenter",
       runToken: ctx.projectAdmission!.runToken,
       expected: projectAdmissionIdentity(ctx, ctx.projectAdmission)!,
       candidate: edited,
@@ -286,9 +287,135 @@ for (const wait of ["print", "key"] as const)
     assert.ok(result?.type === "previewUpdateResult");
     assert.equal(result.status, "committed", JSON.stringify(result));
     assert.equal(ctx.input.keyWaiting, false, "the abandoned key wait is cleared on the host too");
+    assert.ok(ctx.previewVisitEngine === ctx.engine, "Update restart stays outside saved progress");
     ctx.fns.tickEngine();
     assert.equal(ctx.engine!.modalKind, "print", "the new entrance message is shown");
     ctx.engine!.ackPrint();
     ctx.fns.tickEngine();
     assert.equal(ctx.engine!.vars[80], 2, "the discarded old message never resumes into old code");
   });
+
+test("keep-playing Update settles during a message and resumes the old pass before using new code", async (t) => {
+  const control: WorkerControl[] = [];
+  const ctx = createWorkerContext({
+    control: (message) => control.push(message),
+    presentation() {},
+    now: () => 0,
+  });
+  ctx.host = createEngineHost(ctx);
+  t.after(() => ctx.fns.stopTimers());
+  const initial = candidate('if(isset(f5)){print("Waiting");assignn(v80,1);}return;');
+  onWorkerMessage(ctx, {
+    type: "boot",
+    files: initial.files,
+    words: [],
+    projectMode: "create",
+    projectDocuments: initial.documents!,
+  });
+  await ctx.projectLoader.loading;
+  ctx.fns.stopTimers();
+  ctx.fns.tickEngine();
+  const edited = candidate(
+    'if(isset(f5)){print("Changed");assignn(v80,2);}assignn(v81,9);return;',
+    "{}",
+    initial.files,
+  );
+  onWorkerMessage(ctx, {
+    type: "previewUpdate",
+    id: 301,
+    mode: "keep",
+    runToken: ctx.projectAdmission!.runToken,
+    expected: projectAdmissionIdentity(ctx, ctx.projectAdmission)!,
+    candidate: edited,
+  });
+  const result = control.findLast((m) => m.type === "previewUpdateResult");
+  assert.ok(
+    result?.type === "previewUpdateResult" && result.status === "committed",
+    JSON.stringify(result),
+  );
+  assert.equal(ctx.engine!.modalKind, "print");
+  assert.equal(ctx.engine!.vars[80], 0);
+  assert.equal(
+    ctx.engine!.recordingImage(),
+    null,
+    "the old pass cannot be saved against new instruction offsets",
+  );
+  ctx.engine!.ackPrint();
+  ctx.fns.tickEngine();
+  assert.equal(ctx.engine!.vars[80], 1, "the parked pass completes its own instructions");
+  ctx.fns.tickEngine();
+  assert.equal(ctx.engine!.vars[81], 9, "the following cycle runs the new instructions");
+});
+
+test("Update and launch refuses invalid entry inputs before changing resources or the current run", async (t) => {
+  const control: WorkerControl[] = [];
+  const ctx = createWorkerContext({
+    control: (m) => control.push(m),
+    presentation() {},
+    now: () => 0,
+  });
+  ctx.host = createEngineHost(ctx);
+  t.after(() => ctx.fns.stopTimers());
+  const initial = candidate("return;");
+  onWorkerMessage(ctx, {
+    type: "boot",
+    files: initial.files,
+    words: [],
+    projectMode: "create",
+    projectDocuments: initial.documents!,
+  });
+  await ctx.projectLoader.loading;
+  ctx.fns.stopTimers();
+  ctx.fns.tickEngine();
+  const engine = ctx.engine!;
+  const bytes = sha256Hex(engine.serialize());
+  const identity = projectAdmissionIdentity(ctx, ctx.projectAdmission)!;
+  onWorkerMessage(ctx, {
+    type: "previewUpdate",
+    id: 302,
+    mode: "reenter",
+    runToken: ctx.projectAdmission!.runToken,
+    expected: identity,
+    candidate: candidate("assignn(v70,99);return;", "{}", initial.files),
+    launch: { room: 0, state: { variables: { "70": 12 }, hero: { x: 160, y: 100 } } },
+  } as never);
+  const result = control.findLast((m) => m.type === "previewUpdateResult");
+  assert.ok(
+    result?.type === "previewUpdateResult" && result.status === "refused",
+    JSON.stringify(result),
+  );
+  assert.ok(ctx.engine === engine);
+  assert.equal(sha256Hex(engine.serialize()), bytes);
+  assert.deepEqual(projectAdmissionIdentity(ctx, ctx.projectAdmission), identity);
+});
+
+test("Update and launch uses the new LOGIC 0 with carried state, pause holds and random state", async (t) => {
+  const ctx = createWorkerContext({ control() {}, presentation() {}, now: () => 0 });
+  ctx.host = createEngineHost(ctx);
+  t.after(() => ctx.fns.stopTimers());
+  const initial = candidate("return;");
+  onWorkerMessage(ctx, {
+    type: "boot",
+    files: initial.files,
+    words: [],
+    projectMode: "create",
+    projectDocuments: initial.documents!,
+  });
+  await ctx.projectLoader.loading;
+  ctx.fns.stopTimers();
+  ctx.fns.tickEngine();
+  ctx.cycle.paused = true;
+  ctx.history.rng = 4321;
+  onWorkerMessage(ctx, {
+    type: "previewUpdate",
+    id: 303,
+    mode: "reenter",
+    runToken: ctx.projectAdmission!.runToken,
+    expected: projectAdmissionIdentity(ctx, ctx.projectAdmission)!,
+    candidate: candidate("assignv(v71,v70);return;", "{}", initial.files),
+    launch: { room: 0, state: { variables: { "70": 12 } } },
+  });
+  assert.equal(ctx.engine!.vars[71], 12, "new global code sees the Launch inputs");
+  assert.equal(ctx.cycle.paused, true, "the app still owns its pause hold");
+  assert.equal(ctx.history.rng, 4321, "Carry over keeps the random state");
+});

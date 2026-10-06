@@ -14,6 +14,7 @@
  */
 
 import { parseSentence } from "./parser.ts";
+import { roomEntryProblem, type RoomEntryState } from "./roomEntry.ts";
 import type { GameContainer } from "../types.ts";
 import {
   createPictureSurface,
@@ -1119,11 +1120,13 @@ export class Engine {
    * verdict is a real authority change and waits for the same idle
    * boundary instead of settling early; an exact no-change still reports
    * unchanged directly, and refused/restartRequired verdicts report
-   * honestly regardless.
+   * honestly regardless. `messageWaiting` also admits a print/key wait: the
+   * parked frames keep their old instructions until the pass finishes, and
+   * host snapshots wait for that boundary before using the new resources.
    */
   commitPreviewUpdate(
     plan: PreviewUpdatePlan,
-    admission?: { readonly sourceAuthorityChanged?: boolean },
+    admission?: { readonly sourceAuthorityChanged?: boolean; readonly messageWaiting?: boolean },
   ): PreviewUpdateResult {
     return this.commitPreparedPreview(plan, admission, false);
   }
@@ -1140,7 +1143,8 @@ export class Engine {
 
   private commitPreparedPreview(
     plan: PreviewUpdatePlan,
-    admission: { readonly sourceAuthorityChanged?: boolean } | undefined,
+    admission:
+      { readonly sourceAuthorityChanged?: boolean; readonly messageWaiting?: boolean } | undefined,
     roomReentry: boolean,
     beforeEntry?: () => void,
   ): PreviewUpdateResult {
@@ -1174,7 +1178,9 @@ export class Engine {
       if (
         issued.terminal.status === "unchanged" &&
         (admission?.sourceAuthorityChanged === true || roomReentry) &&
-        !(roomReentry ? this.roomReentryBoundary() : this.previewBoundaryIdle())
+        !(roomReentry || admission?.messageWaiting
+          ? this.roomReentryBoundary()
+          : this.previewBoundaryIdle())
       ) {
         return result("deferred");
       }
@@ -1187,7 +1193,11 @@ export class Engine {
       }
       return settle({ ...issued.terminal, patchGeneration: this.patchGen });
     }
-    if (!(roomReentry ? this.roomReentryBoundary() : this.previewBoundaryIdle()))
+    if (
+      !(roomReentry || admission?.messageWaiting
+        ? this.roomReentryBoundary()
+        : this.previewBoundaryIdle())
+    )
       return result("deferred");
     if (issued.staged === null) {
       return settle(result("refused", "preview plan carries no staged candidate"));
@@ -1205,6 +1215,7 @@ export class Engine {
         return settle(result("refused", "The current room needs a LOGIC to re-enter."));
       beforeEntry?.();
     }
+    if (!roomReentry && this.roomReentryWaiting()) this.messageUpdatePending = true;
     this.commitStagedPreview(issued.staged);
     if (roomReentry) this.reenterRoom();
     return settle(result("committed"));
@@ -1386,6 +1397,9 @@ export class Engine {
       this.resumedSequence === null
     );
   }
+
+  /** Parked LOGIC frames retain their own parsed instructions until the pass finishes. */
+  private messageUpdatePending = false;
 
   /** A host room change can discard a message or have.key pass after validation. */
   private roomReentryWaiting(): boolean {
@@ -3161,6 +3175,37 @@ export class Engine {
   /** Capture transient host-recording state at an autosave-safe boundary. */
   captureReplayState(): EngineReplayState {
     if (!this.autosaveImage()) throw new Error("Recording requires a resumable cycle boundary.");
+    return this.replayState();
+  }
+
+  /** Entry clones abandon the current pass; its old instruction offsets never enter the clone. */
+  captureRoomLaunchState(resetGlobalScanStart = false): {
+    image: Uint8Array;
+    replay: EngineReplayState;
+  } {
+    if (this.pendingInteraction !== null && this.pendingInteraction.kind !== "key")
+      throw new Error("Finish the game's question, then launch this room");
+    if (this.hostReplayOverflow) throw new Error("Choose From the beginning to launch this game");
+    const state = decodeSave(this.serialize(), this.profile);
+    state.objects = this.objects.map((_, num) => this.objectRecord(num));
+    state.replay = [];
+    state.replayActive = state.replayCheckpoint = 0;
+    state.logicResume = state.logicResume.filter(
+      (entry) => entry.logic === 0 && !resetGlobalScanStart,
+    );
+    return {
+      image: encodeHostImage(
+        encodeSave(state, this.profile),
+        [],
+        undefined,
+        undefined,
+        this.amigaRegion,
+      ),
+      replay: { ...this.replayState(null), sound: null, terminated: false },
+    };
+  }
+
+  private replayState(continuation = this.captureContinuation()): EngineReplayState {
     return {
       ...(this.amigaRegion === "pal" ? { amigaRegion: this.amigaRegion } : {}),
       clockRemainderMs: this.clockRemainderMs,
@@ -3200,7 +3245,7 @@ export class Engine {
             }
           : null,
       patchGeneration: this.patchGen,
-      continuation: this.captureContinuation(),
+      continuation,
     };
   }
 
@@ -3457,6 +3502,7 @@ export class Engine {
    * The caller skips this tick and tries the next one.
    */
   autosaveImage(): Uint8Array | null {
+    if (this.messageUpdatePending) return null;
     // Window and parked-pass state travels in the continuation record. A
     // boundary it cannot describe — a live host request, or surface-owning
     // state without a parked pass to resume — still refuses the snapshot.
@@ -4428,6 +4474,7 @@ export class Engine {
       // modal wait, termination, abort — skipped this point, so the serial
       // witnesses only a pass that truly ran its post-logic tail.
       this.completedCycles++;
+      this.messageUpdatePending = false;
       this.observePhase("cycle-end", null);
     }
   }
@@ -5971,6 +6018,21 @@ export class Engine {
 
   itemLocation(item: number): number {
     return this.itemLocations[item] ?? 0;
+  }
+
+  /** Host inventory writes use OBJECT identities; room 255 means carried (Objects and inventory items). */
+  setItemLocation(item: number, room: number): void {
+    if (
+      !Number.isInteger(item) ||
+      item < 0 ||
+      item >= this.itemNames().length ||
+      !Number.isInteger(room) ||
+      room < 0 ||
+      room > 255
+    )
+      throw new Error("Inventory location needs an OBJECT item and a room from 0 to 255.");
+    this.assertExecutionBoundary();
+    this.itemLocations[item] = room;
   }
 
   /**
@@ -7650,16 +7712,44 @@ export class Engine {
    * stack when the HOST calls this, so it is caught here and the same
    * post-switch sequence tick() runs is applied directly.
    */
-  reenterRoom(room: number = this.vars[V_ROOM]!): void {
+  reenterRoom(room: number = this.vars[V_ROOM]!, entry?: RoomEntryState): void {
+    if (entry !== undefined) {
+      const problem = roomEntryProblem(entry, this.itemNames().length);
+      if (problem) throw new Error(problem);
+    }
+    if (
+      !Number.isInteger(room) ||
+      room < 0 ||
+      room > 255 ||
+      (entry !== undefined && !this.container.getResource("logic", room))
+    )
+      throw new Error(`Room ${room} needs a LOGIC to enter.`);
     // A deliberate host visit abandons the old pass before the new room runs.
     if (this.roomReentryWaiting()) this.abortInteraction();
     this.assertExecutionBoundary();
+    if (entry !== undefined) this.vars[V_EDGE] = entry.cameFrom?.edge ?? 0;
     try {
       this.newRoom(room);
     } catch (rc) {
       if (!(rc instanceof RoomChange)) throw rc;
     }
     this.finishRoomChange(room);
+    this.messageUpdatePending = false;
+    if (entry !== undefined) {
+      // docs/fidelity.md: Changing rooms and Original new.room sequence.
+      for (const [num, value] of Object.entries(entry.variables ?? {}))
+        this.vars[Number(num)] = value;
+      for (const [num, value] of Object.entries(entry.flags ?? {}))
+        this.flags[Number(num)] = Number(value);
+      for (const [num, value] of Object.entries(entry.items ?? {}))
+        this.setItemLocation(Number(num), value);
+      if (entry.cameFrom) this.vars[V_PREV_ROOM] = entry.cameFrom.room;
+      if (entry.hero) {
+        const ego = this.objects[0]!;
+        ego.x = ego.prevX = entry.hero.x;
+        ego.y = ego.prevY = entry.hero.y;
+      }
+    }
     // A host-driven re-entry mutates outside a pass — attribute it like the
     // out-of-cycle clocks rather than blaming a later instruction.
     this.observePhase("room", null);
