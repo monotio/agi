@@ -354,7 +354,7 @@ const storedPicture = (files: Record<string, Uint8Array>) =>
 test("a patch is acked with the hint of the bytes the engine now holds", async (t) => {
   const { r } = await authoredRig(t, "studio-ack");
   const bytes = compile(RED);
-  const before = r.ctx.engine!.patchGeneration;
+  const before = r.ctx.run.engine!.patchGeneration;
   const expected = [{ kind: "picture" as const, num: 1, hint: resourceCacheHint(bytes) }];
   const acked = r.link.awaitPatched(expected, 500);
   r.link.getWorker()!.postMessage({
@@ -376,7 +376,7 @@ test("a patch is acked with the hint of the bytes the engine now holds", async (
 
 test("a patch whose second resource is refused leaves every resource on its old bytes", async (t) => {
   const { files, r } = await authoredRig(t, "studio-batch-refused");
-  const engine = r.ctx.engine!;
+  const engine = r.ctx.run.engine!;
   const before = engine.patchGeneration;
   const live = () => openContainer(new Map(engine.containerFiles));
   const oldLogic = live().getResource("logic", 1);
@@ -622,7 +622,7 @@ test("a kept picture re-renders the room and lands on the tape as patch then aut
     [],
   );
   r.controller.setSession(author);
-  assert.equal(r.ctx.engine!.vars[0], 1);
+  assert.equal(r.ctx.run.engine!.vars[0], 1);
   assert.equal(r.picturePixel(), 1, "room 1 shows the blue picture");
 
   const result = await r.controller.commitPictureEdit({
@@ -636,7 +636,7 @@ test("a kept picture re-renders the room and lands on the tape as patch then aut
   assert.equal(result.projectId, projectId);
   // The worker holds the edit, and the session and booted game describe it.
   assert.deepEqual(
-    openContainer(new Map(r.ctx.engine!.containerFiles)).getResource("picture", 1),
+    openContainer(new Map(r.ctx.run.engine!.containerFiles)).getResource("picture", 1),
     compile(RED),
   );
   assert.equal(authoredPictureSource(author.state, 1), RED);
@@ -644,7 +644,7 @@ test("a kept picture re-renders the room and lands on the tape as patch then aut
   assert.equal(result.revision, await gameRevision((await loadAuthoredGame(projectId))!.files));
 
   r.tick(4);
-  assert.equal(r.ctx.engine!.vars[0], 1);
+  assert.equal(r.ctx.run.engine!.vars[0], 1);
   assert.equal(r.picturePixel(), 4, "the re-entered room draws the red picture");
 
   // The tape: the patch, the room re-entry and the checkpoint naming the
@@ -660,12 +660,12 @@ test("a kept picture re-renders the room and lands on the tape as patch then aut
   const replayed = replayHistorySegment(segment);
   assert.equal(replayed.error, null);
   assert.equal(replayed.diverged, null);
-  assert.equal(historySyncDigest(replayed.ctx.engine!), historySyncDigest(r.ctx.engine!));
+  assert.equal(historySyncDigest(replayed.ctx.run.engine!), historySyncDigest(r.ctx.run.engine!));
 });
 
 test("Keep re-enters the room whose logic draws the picture, not the room of that number", async (t) => {
   const { revision, r } = await authoredRig(t, "studio-pic7", false, 7);
-  assert.equal(r.ctx.engine!.vars[0], 1);
+  assert.equal(r.ctx.run.engine!.vars[0], 1);
   assert.equal(r.picturePixel(), 1, "room 1 shows PIC 7, blue");
   const reentries = () => r.posted.filter((m) => m.type === "reenter");
 
@@ -690,13 +690,13 @@ test("Keep re-enters the room whose logic draws the picture, not the room of tha
   assert.equal(shown.status, "committed");
   assert.deepEqual(reentries(), [{ type: "reenter", room: 1 }]);
   r.tick(4);
-  assert.equal(r.ctx.engine!.vars[0], 1);
+  assert.equal(r.ctx.run.engine!.vars[0], 1);
   assert.equal(r.picturePixel(), 4, "the re-entered room draws the edited PIC 7");
 });
 
 test("a failed install after the save keeps storage as the source of truth", async (t) => {
   const { projectId, revision, r } = await authoredRig(t, "studio-install-fails");
-  t.mock.method(r.ctx.engine!, "patchResources", () => {
+  t.mock.method(r.ctx.run.engine!, "patchResources", () => {
     throw new Error("VOL.0 is full");
   });
   const { commit, lastError } = useStudioCommit(r.controller.commitPictureEdit);
@@ -941,7 +941,7 @@ test("a worker that never acks the patch fails the Keep as an install, after a b
   assert.equal(r.game().revision, revision, "the live side stays on the old revision");
   assert.equal(patches(r).length, 1);
   assert.deepEqual(
-    openContainer(new Map(r.ctx.engine!.containerFiles)).getResource("picture", 1),
+    openContainer(new Map(r.ctx.run.engine!.containerFiles)).getResource("picture", 1),
     compile(BLUE),
   );
 });
@@ -1032,7 +1032,7 @@ test("a kept view installs live and keeps its spec; only a room that bakes it re
     // The running engine re-parsed the loaded view in place (a baking room
     // loads it again on re-entry): loop 1 is its own copy now.
     r.tick(4);
-    const live = r.ctx.engine!.getView(3)!;
+    const live = r.ctx.run.engine!.getView(3)!;
     // Loop 1 shows [2, 1 / 3, ∅] mirrored; its top-left pixel is now colour 4.
     assert.deepEqual([...live.loops[1]!.cels[0]!.pixels], [4, 1, 3, 13]);
     assert.deepEqual([...live.loops[0]!.cels[0]!.pixels], [1, 2, 13, 3]);
@@ -1273,7 +1273,7 @@ test("a combined Keep installs the picture and the logic, each acked, and the do
 
   // The live game runs the new door: its old box does nothing, the new one leaves.
   r.tick(4);
-  const engine = r.ctx.engine!;
+  const engine = r.ctx.run.engine!;
   assert.equal(engine.vars[0], 1);
   assert.equal(placeEgo(engine, 125, 128), "ok");
   r.tick(3);
@@ -1324,7 +1324,7 @@ test("a logic-only Keep stores the bindings its rules reserved and installs one 
 
   // The door is shut until f32 is set.
   r.tick(2);
-  const engine = r.ctx.engine!;
+  const engine = r.ctx.run.engine!;
   assert.equal(placeEgo(engine, 125, 128), "ok");
   r.tick(3);
   assert.equal(engine.vars[0], 1);
@@ -1408,7 +1408,7 @@ async function autosaveNow(r: Rig, controller: ReturnType<typeof autosaves>) {
 
 /** The container resolves `pack` for anything but a logic, as a full volume would refuse it. */
 function refuseLogicPacks(t: TestContext, r: Rig): void {
-  const container = (r.ctx.engine as unknown as { container: { pack(arg: unknown): void } })
+  const container = (r.ctx.run.engine as unknown as { container: { pack(arg: unknown): void } })
     .container;
   const pack = container.pack.bind(container);
   t.mock.method(container, "pack", (arg: unknown) => {
@@ -1442,7 +1442,7 @@ test("a combined Keep whose logic fails to install leaves the running game on th
   assert.deepEqual(storedLogic(stored.files), logic.bytes);
   assert.equal(r.game().revision, revision, "the live side stays on the old revision");
   // Neither resource reached the running game: the picture waits with the logic.
-  const live = openContainer(new Map(r.ctx.engine!.containerFiles));
+  const live = openContainer(new Map(r.ctx.run.engine!.containerFiles));
   assert.deepEqual(live.getResource("picture", 1), storedPicture(files));
   assert.deepEqual(live.getResource("logic", 1), storedLogic(files));
   assert.equal(await gameRevision(Object.fromEntries(live.files)), revision);

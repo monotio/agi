@@ -235,7 +235,7 @@ async function rig(t: TestContext, name: string) {
     assert.ok(snapshot && !("endedBy" in snapshot), "the worker returned a recording");
     return snapshot;
   }
-  const workerTests = () => ctx.engine!.containerFiles.get("TESTS.JSON");
+  const workerTests = () => ctx.run.engine!.containerFiles.get("TESTS.JSON");
   return {
     projectId,
     files,
@@ -322,12 +322,12 @@ test("a stop handled after a run replacement ends the recording without a snapsh
   assert.equal(r.recorderState.recording.active, true);
   r.holdStopRecording();
   const pending = r.recorder.stopTestRecording();
-  const oldEngine = r.ctx.engine;
+  const oldEngine = r.ctx.run.engine;
   r.worker.postMessage({ type: "boot", files: r.files, words: [] });
   r.ctx.fns.stopTimers();
   r.tick(6);
   await Promise.resolve();
-  assert.notEqual(r.ctx.engine, oldEngine, "the worker replaced the engine");
+  assert.notEqual(r.ctx.run.engine, oldEngine, "the worker replaced the engine");
   assert.equal(r.recorderState.recording.active, false, "the reset reached the recorder");
   r.releaseStopRecording();
   assert.deepEqual(await pending, { endedBy: "replacement" });

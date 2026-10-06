@@ -157,7 +157,7 @@ export function createDebuggerHooks(ctx: WorkerContext): Partial<WorkerFns> {
         status: "refused",
         expected: null,
         current: null,
-        patchGeneration: ctx.engine?.patchGeneration ?? 0,
+        patchGeneration: ctx.run.engine?.patchGeneration ?? 0,
         reason: "this context has no play-preview lane",
       });
     },
@@ -179,18 +179,22 @@ export function createDebuggerHooks(ctx: WorkerContext): Partial<WorkerFns> {
     debugBeforeReplace: (): void => {
       /* A latch only exists under a real session — none ever installed. */
     },
+    prepareDebugReplacement: () => {
+      throw new Error("Open Debug before starting this launch.");
+    },
     debugSessionReplaced: (): void => {
       /* An epoch only exists under a real session — none ever installed. */
     },
     /** True while an attach owns this engine session. */
-    debugAttached: (): boolean => ctx.debugger.epoch !== 0,
+    debugAttached: (): boolean => ctx.run.debugger.epoch !== 0,
     /** The engine's stop latch is held — every entry point consults this. */
-    debugStoppedHeld: (): boolean => ctx.engine !== null && ctx.engine.executionStopInfo !== null,
+    debugStoppedHeld: (): boolean =>
+      ctx.run.engine !== null && ctx.run.engine.executionStopInfo !== null,
     /**
      * A resumable-boundary image (autosaveImage/recordingImage/
      * captureReplayState) cannot describe the run right now: the latch is
      * held, or an armed pass is parked or yielded mid-cycle.
      */
-    debugCaptureBlocked: (): boolean => ctx.engine !== null && captureBlocked(ctx.engine),
+    debugCaptureBlocked: (): boolean => ctx.run.engine !== null && captureBlocked(ctx.run.engine),
   };
 }

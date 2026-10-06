@@ -261,7 +261,11 @@ during saving or admission. Each acknowledgement requests a fresh checkpoint;
 preparation never waits for a future boundary or player input. Publication and clearing use a short
 per-project lock. Resume requires the exact executable revision, lifetime and
 compatible profile. An older position stays intact; Play and Create offer Start
-the latest version, explaining that a new saved position replaces the old one.
+the latest version. Play publishes progress under the current tab's writer generation.
+The newest tab takes control, and each physical progress or slot write checks that generation.
+Create captures the Play moment before it executes and uses temporary progress and save slots.
+From my game, Back and returning to Play adopt that moment on the current files.
+A changed resource that prevents exact return offers Restart.
 Home binds progress from the body and lifetime; History blobs load when opened.
 A rejected History read keeps the original data available through raw Download.
 Its advisory rejection cache is scoped to lifetime and generation and clears

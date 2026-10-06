@@ -110,8 +110,10 @@ const {
   snapshot,
   profile: () => profile.value.id,
   prepareLaunch: async () => {
-    if (editor.changeCount.value) await updateGame(false);
-    if (editor.error.value) throw new Error(editor.error.value);
+    if (editor.changeCount.value) {
+      await updateGame(false);
+      if (editor.error.value) throw new Error(editor.error.value);
+    }
   },
   launch: () => runSelectedLaunch(true),
 });
@@ -507,6 +509,7 @@ watch(
     editor.selectedLaunch.value =
       selected === "beginning" ||
       selected === "carry" ||
+      selected === "my-game" ||
       editor.launchChoices.value.some((entry) => entry.id === selected)
         ? selected
         : "carry";
@@ -539,7 +542,7 @@ editor.selectLaunch.value = async (id) => {
 let launchSerial = 0;
 async function runSelectedLaunch(
   debug = false,
-  entry?: { room: number; beginning: boolean; state?: Launch },
+  entry?: { room: number; beginning: boolean; fromMyGame: boolean; state?: Launch },
 ): Promise<void> {
   const serial = ++launchSerial;
   const room = entry?.room ?? editor.actionRoom.value;
@@ -550,6 +553,7 @@ async function runSelectedLaunch(
       : entry.state;
   const result = await engine.launchRoom(room, {
     beginning: entry?.beginning ?? editor.selectedLaunch.value === "beginning",
+    fromMyGame: entry?.fromMyGame ?? editor.selectedLaunch.value === "my-game",
     ...(state ? { state } : {}),
     debug,
   });
@@ -1012,7 +1016,9 @@ async function updateGame(restartRoom = true): Promise<void> {
     (entry) => entry.id === editor.selectedLaunch.value,
   );
   const beginning = editor.selectedLaunch.value === "beginning";
-  const launch = room === undefined ? undefined : { room, ...(state ? { state } : {}), beginning };
+  const fromMyGame = editor.selectedLaunch.value === "my-game";
+  const launch =
+    room === undefined ? undefined : { room, ...(state ? { state } : {}), beginning, fromMyGame };
   actionBusy.value = true;
   try {
     await writes.flush();
@@ -1028,7 +1034,11 @@ async function updateGame(restartRoom = true): Promise<void> {
     const updatedParts = pendingParts.parts(snapshot.value, changes).length;
     const waiting = engine.state.modal !== null || engine.state.waitingForKey;
     if (restartRoom && debug.value?.state.epoch) await debug.value.stop();
-    const result = await session.update(changes, restartRoom, restartRoom ? launch : undefined);
+    const result = await session.update(
+      changes,
+      restartRoom && !fromMyGame,
+      restartRoom && !fromMyGame ? launch : undefined,
+    );
     updateProblems.value = result.diagnostics;
     if (!["committed", "unchanged", "draft"].includes(result.status)) {
       editor.problemCount.value = Math.max(
@@ -1045,14 +1055,17 @@ async function updateGame(restartRoom = true): Promise<void> {
     }
     await session.flush();
     await session.drafts().clear();
+    if (restartRoom && fromMyGame) await runSelectedLaunch(false, launch);
     optimistic.value = {};
     draftKeys = "";
     editor.updatedParts.value = updatedParts;
     editor.updateResult.value = updatedParts
       ? restartRoom
-        ? beginning
-          ? "Updated · started from beginning"
-          : `Updated · ${roomName} restarted`
+        ? fromMyGame
+          ? "Updated · returned to my game"
+          : beginning
+            ? "Updated · started from beginning"
+            : `Updated · ${roomName} restarted`
         : waiting
           ? "Updated · applies after this message"
           : "Updated · kept your place"

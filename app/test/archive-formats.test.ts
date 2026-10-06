@@ -30,6 +30,7 @@ import {
 } from "../../src/creative/imageOperations.ts";
 import { encodePngRgba } from "../../src/creative/composite.ts";
 import { PROFILES } from "../../src/runtime/profile.ts";
+import { replayHistorySegment } from "./worker-ctx.ts";
 import { testProjectId } from "./identity.ts";
 import type { ProjectContent } from "../../src/authoring/projectContent.ts";
 import { gameRevision } from "../src/project/gameMetadata.ts";
@@ -150,6 +151,23 @@ test("a 1.0 Project download restores its session, map, progress and tests", asy
   assert.equal(historyArchiveData(project.history!), member(zip, "HISTORY.JSON"));
   const [autosaveEntry] = progressEntries(project.progress!);
   assert.equal(autosaveEntry?.data, member(zip, "SAVES/AUTOSAVE.JSON"));
+});
+
+test("the executed version-1 history in the released Project replays from its original bytes", async () => {
+  const original = fixture("project-v1.zip");
+  const before = original.slice();
+  const project = await readGameZip(original);
+  assert.equal(project.history?.recording.version, 1);
+  let actions = 0;
+  for (const segment of project.history!.recording.segments) {
+    actions += segment.events.length;
+    const drive = replayHistorySegment(segment);
+    assert.equal(drive.error, null);
+    assert.equal(drive.diverged, null);
+    assert.equal(drive.applied, segment.events.length);
+  }
+  assert.ok(actions > 0);
+  assert.deepEqual(original, before);
 });
 
 test("removed intermediate project formats refuse without changing their input", () => {

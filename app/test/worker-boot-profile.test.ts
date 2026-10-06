@@ -149,12 +149,12 @@ function overrideSession() {
 
 test("replay resets and seeks rebuild the engine under the boot override", () => {
   const { ctx, send, tick } = overrideSession();
-  assert.equal(ctx.engine!.profile.id, "2.411");
+  assert.equal(ctx.run.engine!.profile.id, "2.411");
   tick(4);
   send({ type: "resetReplay", seed: 7 });
-  assert.equal(ctx.engine!.profile.id, "2.411", "a reset keeps the override");
+  assert.equal(ctx.run.engine!.profile.id, "2.411", "a reset keeps the override");
   send({ type: "replayRestore", id: 1, tick: 0 });
-  assert.equal(ctx.engine!.profile.id, "2.411", "a seek keeps the override");
+  assert.equal(ctx.run.engine!.profile.id, "2.411", "a seek keeps the override");
 });
 
 test("the recorded boot carries the override and replays and adoptions use it", () => {
@@ -181,7 +181,7 @@ test("the recorded boot carries the override and replays and adoptions use it", 
     marks: [],
     sync: [],
   };
-  assert.equal(replayHistorySegment(segment).ctx.engine!.profile.id, "2.411");
+  assert.equal(replayHistorySegment(segment).ctx.run.engine!.profile.id, "2.411");
 
   send({ type: "pause", paused: true });
   send({ type: "historyRetain", id: 2 });
@@ -197,5 +197,9 @@ test("the recorded boot carries the override and replays and adoptions use it", 
       m.type === "historyViewRestored" && m.id === 3,
   );
   assert.ok(restored?.ok, JSON.stringify(restored));
-  assert.equal(ctx.engine!.profile.id, "2.411", "the adopted engine runs the recorded override");
+  assert.equal(
+    ctx.run.engine!.profile.id,
+    "2.411",
+    "the adopted engine runs the recorded override",
+  );
 });

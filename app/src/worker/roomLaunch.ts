@@ -1,32 +1,40 @@
-import { Engine, type EngineHost } from "../../../src/runtime/engine.ts";
+import { Engine } from "../../../src/runtime/engine.ts";
 import { openContainer } from "../../../src/container/container.ts";
 import { roomEntryProblem, type RoomEntryState } from "../../../src/runtime/roomEntry.ts";
 import { stageDictionary } from "../../../src/runtime/previewAdmission.ts";
 import type { AgiProfile } from "../../../src/runtime/profile.ts";
+import { detachedHost } from "./runSession.ts";
+import type { HostRngState } from "../../../src/runtime/rng.ts";
 import { installProjectRestart } from "./projectRestart.ts";
 import type { Inbound, WorkerContext } from "./context.ts";
+import type { PreviewPreparedSession } from "./debuggerState.ts";
 
 export interface RoomLaunchRequest {
   room: number;
   state?: RoomEntryState;
   beginning?: boolean;
   debug?: boolean;
+  fromMyGame?: boolean;
 }
 export interface PreparedRoomLaunch {
   engine: Engine;
   activate(): void;
-  seed: number | undefined;
+  rng: HostRngState;
+  beginning: boolean;
   debug: boolean;
+  debugSession?: PreviewPreparedSession;
 }
 
 /** Prepare a detached entry before changing any live state or host presentation. */
 export function prepareRoomLaunch(
   ctx: WorkerContext,
   request: RoomLaunchRequest,
-  files = ctx.engine!.containerFiles,
-  profile: AgiProfile = ctx.engine!.profile,
+  files = ctx.run.engine!.containerFiles,
+  profile: AgiProfile = ctx.run.engine!.profile,
+  authority?: Pick<PreviewPreparedSession, "sources" | "sourceBindings" | "bindings">,
 ): PreparedRoomLaunch {
-  const prior = ctx.engine!;
+  if (!ctx.run.owner.active) throw new Error("Take back to play this game");
+  const prior = ctx.run.engine!;
   if (!Number.isInteger(request.room) || request.room < 0 || request.room > 255)
     throw new Error("Choose a room between 0 and 255");
   for (const option of [request.beginning, request.debug])
@@ -34,30 +42,17 @@ export function prepareRoomLaunch(
       throw new Error("Launch options must be true or false");
   if (!request.beginning && profile.id !== prior.profile.id)
     throw new Error("Choose From the beginning to change the interpreter profile");
-  if (request.debug && !ctx.debugger.epoch)
+  if (request.debug && !ctx.run.debugger.epoch)
     throw new Error("Open Debug before starting this launch");
   const state = request.state === undefined ? {} : request.state;
-  let active = false;
-  // Restore/transition calls are private until admission; the installed host
-  // then forwards every callback through the same worker context.
-  const host: EngineHost = new Proxy(ctx.host!, {
-    get(target, key) {
-      const value: unknown = Reflect.get(target, key);
-      if (typeof value !== "function") return value;
-      return (...args: unknown[]) => {
-        if (active || key === "soundDevice") return Reflect.apply(value, target, args);
-        if (key === "takeKeys" || key === "takePointerClicks") return [];
-        if (key === "prepareRoom") return true;
-        return null;
-      };
-    },
-  });
+  const facade = detachedHost(ctx);
   const replacement = new Engine(
     openContainer(files, { profile }),
-    host,
+    facade.host,
     files.get("WORDS.TOK") ? stageDictionary(files.get("WORDS.TOK")!) : new Map(),
     { profile },
   );
+  if (request.beginning) replacement.flags[9] = 1;
   const inventory = replacement.readState().inventory;
   const priorItems = prior.readState().inventory.length;
   const problem = roomEntryProblem(state, inventory.length);
@@ -91,32 +86,31 @@ export function prepareRoomLaunch(
   }
   return {
     engine: replacement,
-    activate() {
-      active = true;
-    },
-    seed: state.seed,
+    activate: facade.activate,
+    beginning: request.beginning === true,
+    rng:
+      state.seed !== undefined
+        ? { word: state.seed, policy: { kind: "sequence", next: state.seed, cursor: 0 } }
+        : request.beginning
+          ? { word: 1, policy: { kind: "external" } }
+          : structuredClone(ctx.run.rng),
     debug: request.debug === true,
+    ...(request.debug
+      ? { debugSession: ctx.fns.prepareDebugReplacement(replacement, authority) }
+      : {}),
   };
 }
 
 /** Run a validated entry after its engine and source authority have moved together. */
 export function runRoomLaunch(ctx: WorkerContext, prepared: PreparedRoomLaunch): void {
   const { engine: replacement } = prepared;
-  // Only a Create run is temporary; a Launch while playing keeps saving progress.
-  ctx.previewVisitEngine = ctx.boot.progressMode === "create" ? replacement : null;
-  if (prepared.seed !== undefined) ctx.history.rng = prepared.seed;
-  ctx.history.launchReseed = prepared.seed;
-  ctx.history.launchEngine = replacement;
-  prepared.activate();
-  ctx.fns.markJump();
-  ctx.fns.debugSessionReplaced(prepared.debug);
+  if (!prepared.beginning) ctx.fns.markJump();
   ctx.fns.historyResume();
   ctx.fns.tickEngine();
   if (!replacement.executionControlActive) ctx.fns.finishCycle();
   ctx.fns.noteTransition();
   ctx.fns.captureStateDiffs();
   ctx.fns.postFrame(true);
-  ctx.fns.startTimers();
 }
 
 export function launchRoom(ctx: WorkerContext, msg: Inbound<"playHere">): string | null {
@@ -126,13 +120,14 @@ export function launchRoom(ctx: WorkerContext, msg: Inbound<"playHere">): string
   } catch (cause) {
     return `${cause instanceof Error ? cause.message : String(cause)}.`;
   }
-  const prior = ctx.engine!;
-  const paused = ctx.cycle.paused;
-  const rng = ctx.history.rng;
-  if (ctx.previewVisitEngine !== prior) ctx.fns.autosave(true);
-  installProjectRestart(ctx, prepared.engine);
-  ctx.cycle.paused = paused;
-  ctx.history.rng = rng;
+  ctx.fns.autosave(true);
+  installProjectRestart(ctx, prepared.engine, prepared.beginning ? "beginning" : "launch", {
+    rng: prepared.rng,
+    paused: ctx.run.cycle.paused,
+    activate: prepared.activate,
+    debug: prepared.debug,
+    ...(prepared.debugSession ? { debugSession: prepared.debugSession } : {}),
+  });
   runRoomLaunch(ctx, prepared);
   return null;
 }

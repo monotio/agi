@@ -5,8 +5,10 @@
  * archive (under `SAVES/`), never with a published game.
  */
 import type { EngineMenuState } from "../../../src/runtime/engine.ts";
+import { readHostRngState, type HostRngState } from "../../../src/runtime/rng.ts";
 import { base64ToBytes, bytesToBase64 } from "../project/bytes.ts";
 import { readGameSaveRecord, writeGameSave } from "./gameSaves.ts";
+import { progressWriterMatches } from "./progressWriter.ts";
 import { isProgressPreview, storeRecordWithPreviewFallback } from "./progressPreview.ts";
 import type { ZipFileInput } from "../archive/zip.ts";
 import type { ProjectId } from "../project/gameTypes.ts";
@@ -33,8 +35,8 @@ export function withCheckpointLock<T>(
   const project =
     locator?.kind === "project" ? locator.project : locator === null ? projectId(targetKey) : null;
   const locks = typeof navigator === "undefined" ? undefined : navigator.locks;
-  return project !== null && locks
-    ? locks.request(`monotio_agi.checkpoint.${project}`, operation)
+  return locks
+    ? locks.request(`monotio_agi.checkpoint.${project ?? targetKey}`, operation)
     : Promise.resolve(operation());
 }
 
@@ -60,6 +62,8 @@ export interface AutosaveRecord {
   preview?: string;
   /** Menus are session state and are not present in the AGI save envelope. */
   menus?: EngineMenuState;
+  rng?: HostRngState;
+  writerGeneration?: number;
   cycle: number;
   room: number;
   savedAt: number;
@@ -124,6 +128,12 @@ export function parseAutosaveRecord(raw: unknown): AutosaveRecord | null {
     if (typeof rawGame?.installed !== "boolean" || identity === null) return null;
     parsed.game = { installed: rawGame.installed, identity };
     if (!isProgressPreview(parsed.preview)) delete parsed.preview;
+    if (parsed.rng !== undefined) parsed.rng = readHostRngState(parsed.rng);
+    if (
+      parsed.writerGeneration !== undefined &&
+      (!Number.isSafeInteger(parsed.writerGeneration) || parsed.writerGeneration < 1)
+    )
+      return null;
     return parsed;
   } catch {
     return null;
@@ -174,6 +184,11 @@ export function writeAutosave(
     key = autosaveKey(target.locator);
   }
   try {
+    const locator =
+      record === undefined
+        ? autosaveTargetKey(stored.game)
+        : (targetOrRecord as ProgressTarget).locator;
+    if (!progressWriterMatches(storage, locator, stored.writerGeneration)) return null;
     const raw = storage.getItem(key);
     if (raw !== null && isFutureAutosave(raw)) return null;
     return storeRecordWithPreviewFallback(storage, key, stored);

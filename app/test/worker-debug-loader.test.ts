@@ -140,7 +140,7 @@ test("a debug demand kicks off the import; queued traffic drains in arrival orde
   assert.ok(booted > 0, "the boot drained after the refused attach");
   assert.ok(engineState > booted, "the state query drained after the boot");
   // The key drained into the running game's input queue.
-  assert.equal(h.ctx.input.keyQueue.length, 1);
+  assert.equal(h.ctx.run.input.keyQueue.length, 1);
   assert.equal(h.ctx.debuggerLoader.queue.length, 0);
 });
 
@@ -153,7 +153,7 @@ test("a refused module load reports and refuses every later demand", async () =>
   await flush(h.ctx);
 
   assert.equal(h.ctx.debuggerLoader.failed, true);
-  assert.equal(h.ctx.engine, null);
+  assert.equal(h.ctx.run.engine, null);
   const errors = controls(h, "error").map((m) => String(m["message"]));
   assert.ok(
     errors.some((m) => m.includes("execution debugger failed to load")),
@@ -172,7 +172,7 @@ test("a refused module load reports and refuses every later demand", async () =>
   // An ordinary boot is untouched by the failed debugger load.
   h.send(plainBoot());
   assert.equal(controls(h, "booted").length, 1, "a boot still runs the game");
-  assert.ok(h.ctx.engine !== null);
+  assert.ok(h.ctx.run.engine !== null);
 
   // Ordinary traffic still flows — a failed debugger cannot wedge the worker.
   h.send({ type: "state", id: 14 });

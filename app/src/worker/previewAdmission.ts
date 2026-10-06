@@ -7,10 +7,10 @@ import type { WorkerContext } from "./context.ts";
 
 export function createPreviewAdmission(ctx: WorkerContext) {
   return createProjectAdmission(ctx, {
-    lane: () => ctx.projectAdmission,
+    lane: () => ctx.run.projectAdmission,
     commitAtBoundary(commit) {
-      const d = ctx.debugger;
-      const engine = ctx.engine;
+      const d = ctx.run.debugger;
+      const engine = ctx.run.engine;
       if (!d.installed || engine === null || engine.executionStopInfo !== null) return commit();
       try {
         engine.setExecutionGate(null);
@@ -27,8 +27,8 @@ export function createPreviewAdmission(ctx: WorkerContext) {
       }
     },
     prepareSession(candidate) {
-      const d = ctx.debugger;
-      const engine = ctx.engine;
+      const d = ctx.run.debugger;
+      const engine = ctx.run.engine;
       if (d.epoch === 0 || engine === null || d.engine !== engine) return null;
       const breakpointPlan = createDebugBreakpointPlan({
         build: candidate.build,
@@ -43,7 +43,7 @@ export function createPreviewAdmission(ctx: WorkerContext) {
         { revision: 1, watchpoints: d.watchpointSpecs },
         debugPlanSnapshot(
           engine,
-          ctx.cycle.cycleCount,
+          ctx.run.cycle.cycleCount,
           engine.executionStopInfo?.location ?? null,
           d.richSnapshot,
         ),
@@ -51,7 +51,7 @@ export function createPreviewAdmission(ctx: WorkerContext) {
       const prepared: PreviewPreparedSession = { ...candidate, breakpointPlan, watchpointPlan };
       return () => {
         ctx.fns.previewSessionInstall(prepared);
-        return ctx.debugger.epoch;
+        return ctx.run.debugger.epoch;
       };
     },
   });

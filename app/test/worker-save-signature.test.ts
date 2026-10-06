@@ -82,7 +82,7 @@ function boot(restoreImage?: string) {
   const openSave = (slots: { slot: number; image: string }[]) => {
     send({ type: "debugWrite", id: 0, flags: [[208, 1]] });
     answer("saveList", JSON.stringify(slots));
-    return [3, 4, 5].map((row) => ctx.engine!.textRow(row).trim());
+    return [3, 4, 5].map((row) => ctx.run.engine!.textRow(row).trim());
   };
   return { ctx, control, presentation, send, tick, request, answer, openSave };
 }
@@ -107,7 +107,7 @@ test("a resumed autosave lists the game's slots and writes signed saves", () => 
   live.tick(2);
 
   // Leave: the page keeps the autosave.
-  live.ctx.cycle.cycleCount++;
+  live.ctx.run.cycle.cycleCount++;
   assert.equal(live.ctx.fns.autosave(true), true);
   const autosave = live.presentation.find((m) => m.type === "autosave");
   assert.ok(autosave?.type === "autosave");
@@ -115,7 +115,7 @@ test("a resumed autosave lists the game's slots and writes signed saves", () => 
   // Click the card: a new worker resumes that image, then F5.
   const resumed = boot(autosave.image);
   assert.ok(resumed.control.some((m) => m.type === "restored" && m.ok));
-  assert.equal(resumed.ctx.engine!.gameSignature, "DEMO");
+  assert.equal(resumed.ctx.run.engine!.gameSignature, "DEMO");
   resumed.tick(2);
   assert.deepEqual(resumed.openSave([{ slot: 1, image: courtyard }]).slice(0, 2), [
     "1. Courtyard",

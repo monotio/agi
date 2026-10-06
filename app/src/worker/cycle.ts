@@ -24,8 +24,8 @@ export function createCycle(ctx: WorkerContext) {
    * branch counts completion itself.
    */
   function runTickEntry(run: () => void): boolean {
-    const engine = ctx.engine;
-    if (!engine) return false;
+    const engine = ctx.run.engine;
+    if (!engine || !ctx.run.owner.active) return false;
     // The debugger's stop latch freezes every entry: a parked or yielded
     // pass counts zero, never reaches the tape or the unarmed completion
     // branch below.
@@ -46,7 +46,7 @@ export function createCycle(ctx: WorkerContext) {
     // The serial is per engine instance; a replaced engine can never be
     // mistaken for a completion the captured serial preceded.
     if (
-      ctx.engine !== engine ||
+      ctx.run.engine !== engine ||
       armedSerial === null ||
       engine.completedCycleSerial === armedSerial
     )
@@ -56,14 +56,14 @@ export function createCycle(ctx: WorkerContext) {
   }
 
   function tickEngine(): boolean {
-    const engine = ctx.engine;
-    if (!engine) return false;
-    ctx.cycle.initialLogicStarted = true;
+    const engine = ctx.run.engine;
+    if (!engine || !ctx.run.owner.active) return false;
+    ctx.run.cycle.initialLogicStarted = true;
     // A suspended interaction freezes the cycle until its answer lands — the
     // gate inside tick() is the same, but skipping here keeps the recorder's
     // operation list honest: a parked tick never runs.
     if (engine.hostInteractionPending && !engine.hostInteractionReady) return false;
-    const tape = ctx.recording.recording?.tape;
+    const tape = ctx.run.recording.recording?.tape;
     return runTickEntry(() => {
       if (tape) {
         tape.run("tick", () => engine.tick());
@@ -86,34 +86,34 @@ export function createCycle(ctx: WorkerContext) {
     // A debugger stop inside advanceClock/soundTick latches mid-batch: the
     // remaining discharge loop must not tape clocks the engine never ran —
     // the latch's own early-out is checked before each record.
-    if (ctx.fns.debugStoppedHeld()) return;
+    if (ctx.fns.debugStoppedHeld() || !ctx.run.owner.active) return;
     if (ctx.replay.replay === null && h.segment !== null) {
       if (h.inPoll) {
         h.pendingSound++;
       } else {
-        if (h.pendingSpill === 0) h.spillTick = ctx.cycle.tickCount - h.tickBase;
+        if (h.pendingSpill === 0) h.spillTick = ctx.run.cycle.tickCount - h.tickBase;
         h.pendingSpill++;
       }
     }
-    ctx.recording.recording?.tape.clock();
-    ctx.engine?.advanceClock(1000 / ctx.engine.timing.soundHz);
-    ctx.engine?.soundTick();
+    ctx.run.recording.recording?.tape.clock();
+    ctx.run.engine?.advanceClock(1000 / ctx.run.engine.timing.soundHz);
+    ctx.run.engine?.soundTick();
   }
 
   function stopTimers(): void {
-    if (ctx.cycle.timer !== null) {
-      clearInterval(ctx.cycle.timer);
-      ctx.cycle.timer = null;
+    if (ctx.run.cycle.timer !== null) {
+      clearInterval(ctx.run.cycle.timer);
+      ctx.run.cycle.timer = null;
     }
-    if (ctx.cycle.soundTimer !== null) {
-      clearInterval(ctx.cycle.soundTimer);
-      ctx.cycle.soundTimer = null;
+    if (ctx.run.cycle.soundTimer !== null) {
+      clearInterval(ctx.run.cycle.soundTimer);
+      ctx.run.cycle.soundTimer = null;
     }
   }
 
   /** Completed interpreter cycle: count it, attribute state writes, ship trace. */
   function finishCycle(): void {
-    ctx.cycle.cycleCount++;
+    ctx.run.cycle.cycleCount++;
     ctx.fns.captureStateDiffs();
     ctx.fns.noteTransition();
     ctx.fns.flushTraceBatch();
@@ -122,8 +122,8 @@ export function createCycle(ctx: WorkerContext) {
 
   function advanceSoundClock(authoring = false): void {
     if (ctx.replay.replay && !ctx.replay.historyReplay) return;
-    const frozen = authoring || ctx.cycle.paused;
-    const ticks = ctx.clocks.sound.advance(ctx.ports.now(), frozen);
+    const frozen = authoring || ctx.run.cycle.paused || !ctx.run.owner.active;
+    const ticks = ctx.run.clocks.sound.advance(ctx.ports.now(), frozen);
     for (let tick = 0; tick < ticks; tick++) {
       // The first discharge that stops execution ends the batch: the next
       // recordedClock would record a mutation the engine refused.
@@ -145,30 +145,30 @@ export function createCycle(ctx: WorkerContext) {
    * the live recorder folds that into the poll's clock observation.
    */
   function stepHostTick(now: number, obs?: { sound?: number; cycle?: boolean }): boolean {
-    const engine = ctx.engine;
+    const engine = ctx.run.engine;
     if (!engine) return false;
     // Discharges inside this boundary count toward its clock observation;
     // ones outside spill into the event stream in arrival order instead.
     ctx.history.inPoll = true;
     try {
-      if (ctx.cycle.paused || ctx.fns.debugStoppedHeld()) {
+      if (ctx.run.cycle.paused || !ctx.run.owner.active || ctx.fns.debugStoppedHeld()) {
         // An explicit debugger stop freezes like a pause: the clocks keep
         // their fractional carry and rebase wall time so a resume inherits
         // no backlog, and no parked pass runs.
         // The frozen clock still re-bases so a resume inherits no backlog;
         // stray discharges recorded under a paused poll still feed — the
         // pause landed after them on the live tick axis.
-        const parked = obs?.sound ?? ctx.clocks.sound.advance(now, true);
+        const parked = obs?.sound ?? ctx.run.clocks.sound.advance(now, true);
         for (let i = 0; i < parked; i++) recordedClock();
-        ctx.clocks.cycle.poll(now, engine.vars[10]!, true);
+        ctx.run.clocks.cycle.poll(now, engine.vars[10]!, true);
         return false;
       }
       // pause freezes the original pacing counter; ordinary modal waits do not.
-      if (engine.timerPaused) ctx.clocks.cycle.freeze(now);
-      else ctx.clocks.cycle.advance(now);
+      if (engine.timerPaused) ctx.run.clocks.cycle.freeze(now);
+      else ctx.run.clocks.cycle.advance(now);
       // The clock always advances — its carry stays honest across the tick —
       // but a recorded lane feeds its own count, never the re-derived one.
-      const discharged = ctx.clocks.sound.advance(now, false);
+      const discharged = ctx.run.clocks.sound.advance(now, false);
       const soundTicks = obs?.sound ?? discharged;
       for (let i = 0; i < soundTicks; i++) {
         // A clock or sound phase can stop mid-batch — the remaining due
@@ -189,12 +189,12 @@ export function createCycle(ctx: WorkerContext) {
         ctx.fns.noteTransition();
         ctx.fns.flushTraceBatch();
         ctx.fns.postFrame();
-        if (ctx.hostRequests.pendingReenter && !engine.hostInteractionPending) {
+        if (ctx.run.hostRequests.pendingReenter && !engine.hostInteractionPending) {
           // The suspended re-entered room has landed (or been declined).
-          ctx.hostRequests.pendingReenter = false;
+          ctx.run.hostRequests.pendingReenter = false;
           // A landed re-enter already consumed its cause; a declined one
           // must not leave it armed for the next real transition.
-          ctx.journal.pendingCause = null;
+          ctx.run.journal.pendingCause = null;
           ctx.fns.noteTransition();
           ctx.fns.postFrame(true);
         }
@@ -202,7 +202,7 @@ export function createCycle(ctx: WorkerContext) {
       }
       // The cycle clock always polls — its accumulators stay honest — but a
       // recorded lane decides whether the live poll fired.
-      const polled = ctx.clocks.cycle.poll(now, engine.vars[10]!);
+      const polled = ctx.run.clocks.cycle.poll(now, engine.vars[10]!);
       if (!(obs?.cycle ?? polled)) return false;
       ctx.fns.flushDeferredMovement();
       if (engine.executionControlActive) {
@@ -235,41 +235,34 @@ export function createCycle(ctx: WorkerContext) {
    */
   function hostTick(): void {
     const now = ctx.ports.now();
-    if (!ctx.engine) return;
+    if (!ctx.run.engine) return;
     // The recorded tick axis is the host poll, not the sound tick: a poll
     // carries as many sound ticks as elapsed wall time discharges — the
     // post-pause backlog burst replays inside this one boundary.
-    ctx.cycle.tickCount++;
+    ctx.run.cycle.tickCount++;
     const cycleFired = stepHostTick(now);
     // The poll's clock observation: the sound ticks wall time discharged
     // since the previous poll plus whether its cycle poll fired — the tape
     // records the scheduler's output, never the wall clock itself.
     ctx.fns.historyClockObs(cycleFired);
-    if (now - ctx.cycle.lastCycleReportAt >= CYCLE_REPORT_MS) {
-      ctx.cycle.lastCycleReportAt = now;
-      const scalars = ctx.engine.readState();
+    if (now - ctx.run.cycle.lastCycleReportAt >= CYCLE_REPORT_MS) {
+      ctx.run.cycle.lastCycleReportAt = now;
+      const scalars = ctx.run.engine.readState();
       ctx.ports.presentation({
         type: "cycle",
-        cycle: ctx.cycle.cycleCount,
+        cycle: ctx.run.cycle.cycleCount,
         room: scalars.room,
         egoX: scalars.egoX,
         egoY: scalars.egoY,
-        delay: ctx.engine.vars[10]!,
+        delay: ctx.run.engine.vars[10]!,
       });
-    }
-    if (
-      ctx.boot.progressMode === "create" &&
-      ctx.autosave.lastAutosaveCycle < 0 &&
-      ctx.previewVisitEngine !== ctx.engine
-    )
-      ctx.fns.autosave(true);
-    else if (Date.now() - ctx.autosave.lastAutosaveAt >= ctx.autosave.autosaveIntervalMs)
+    } else if (Date.now() - ctx.run.autosave.lastAutosaveAt >= ctx.run.autosave.autosaveIntervalMs)
       ctx.fns.autosave(false);
   }
 
   function startTimers(): void {
-    if (ctx.cycle.soundTimer === null) {
-      ctx.cycle.soundTimer = setInterval(() => {
+    if (ctx.run.cycle.soundTimer === null) {
+      ctx.run.cycle.soundTimer = setInterval(() => {
         try {
           advanceSoundClock();
         } catch (error) {
@@ -278,8 +271,8 @@ export function createCycle(ctx: WorkerContext) {
         }
       }, 1000 / 60) as unknown as number;
     }
-    if (ctx.cycle.timer === null) {
-      ctx.cycle.timer = setInterval(() => {
+    if (ctx.run.cycle.timer === null) {
+      ctx.run.cycle.timer = setInterval(() => {
         try {
           hostTick();
         } catch (e) {
@@ -291,24 +284,24 @@ export function createCycle(ctx: WorkerContext) {
   }
 
   function onPause(msg: Inbound<"pause">): void {
-    ctx.cycle.paused = msg.paused === true;
+    ctx.run.cycle.paused = msg.paused === true;
     // An adopted session carries its recorded clock across the parked
     // interval: restoring it at adopt time would lose the accumulators to
     // the first parked poll, so it lands now — once, on release.
-    if (!ctx.cycle.paused && ctx.cycle.pendingClock !== null) {
+    if (!ctx.run.cycle.paused && ctx.run.cycle.pendingClock !== null) {
       // The snapshot's own paused flag would re-discard the accumulators on
       // the next poll — the host is releasing, so the restored clock runs.
-      const { remainder, increments } = ctx.cycle.pendingClock;
-      ctx.clocks.cycle.restore({ remainder, increments, paused: false }, ctx.ports.now());
-      ctx.cycle.pendingClock = null;
+      const { remainder, increments } = ctx.run.cycle.pendingClock;
+      ctx.run.clocks.cycle.restore({ remainder, increments, paused: false }, ctx.ports.now());
+      ctx.run.cycle.pendingClock = null;
     }
     // The ack carries the authoritative cycle counter: the heartbeat only
     // reports every CYCLE_REPORT_MS, so a pause landing between reports
     // would leave the host asserting against a stale count.
     ctx.ports.control({
       type: "paused",
-      paused: ctx.cycle.paused,
-      cycle: ctx.cycle.cycleCount,
+      paused: ctx.run.cycle.paused,
+      cycle: ctx.run.cycle.cycleCount,
     });
   }
 

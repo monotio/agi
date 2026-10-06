@@ -18,9 +18,9 @@ test("image hero preview moves with the hero and leaves interpreter and saved fr
     ),
   );
   ctx.fns.tickEngine();
-  const before = ctx.engine!.getPresentation();
+  const before = ctx.run.engine!.getPresentation();
   const preview = createImageHeroPreview(
-    ctx.engine!,
+    ctx.run.engine!,
     buildView({
       loops: [
         {
@@ -33,13 +33,13 @@ test("image hero preview moves with the hero and leaves interpreter and saved fr
     }),
     0,
   );
-  const frame = ctx.engine!.getPresentation();
+  const frame = ctx.run.engine!.getPresentation();
   preview(frame, 0);
   assert.equal(frame.visual[100 * 160 + 20], 4);
   preview(frame, 3);
   assert.equal(frame.visual[100 * 160 + 20], 2);
-  assert.deepEqual(ctx.engine!.getPresentation(), before);
-  assert.equal(ctx.engine!.readObjects()[0]!.view, 1);
+  assert.deepEqual(ctx.run.engine!.getPresentation(), before);
+  assert.equal(ctx.run.engine!.readObjects()[0]!.view, 1);
 });
 
 test("worker image preview requires the current Create run, cancels pending loads and keeps recording pixels intact", async () => {
@@ -60,7 +60,7 @@ test("worker image preview requires the current Create run, cancels pending load
   const bytes = buildView({ loops: [{ cels: [{ width: 1, height: 1, pixels: [4] }] }] });
   onWorkerMessage(ctx, { type: "imageHeroPreview", runToken: "create", bytes });
   assert.equal(ctx.imageHeroPreview, undefined);
-  ctx.projectAdmission = newProjectAdmissionState("create", ctx.engine!);
+  ctx.run.projectAdmission = newProjectAdmissionState("create", ctx.run.engine!);
   onWorkerMessage(ctx, { type: "imageHeroPreview", runToken: "old", bytes });
   assert.equal(ctx.imagePreviewSerial, undefined);
   onWorkerMessage(ctx, { type: "imageHeroPreview", runToken: "create", bytes });
@@ -74,8 +74,8 @@ test("worker image preview requires the current Create run, cancels pending load
   ctx.fns.postFrame(true);
   const shown = presentation.filter((message) => message.type === "frame").at(-1)!;
   assert.equal(shown.visual[100 * 160 + 20], 4);
-  assert.equal(ctx.presentation.recentRing.take(1, 1, null)[0]!.visual[100 * 160 + 20], 5);
-  assert.equal(ctx.engine!.getPresentation().visual[100 * 160 + 20], 5);
+  assert.equal(ctx.run.presentation.recentRing.take(1, 1, null)[0]!.visual[100 * 160 + 20], 5);
+  assert.equal(ctx.run.engine!.getPresentation().visual[100 * 160 + 20], 5);
   onWorkerMessage(ctx, { type: "imageHeroPreview", runToken: "create", bytes: null });
   assert.equal(
     presentation.filter((message) => message.type === "frame").at(-1)!.visual[100 * 160 + 20],
@@ -102,13 +102,13 @@ test("hero preview follows assigned loop numbers and shows the first marked loop
       { cels: [{ width: 1, height: 1, pixels: [2] }] },
     ],
   });
-  const preview = createImageHeroPreview(ctx.engine!, bytes, 0, [0, 2]);
-  const frame = ctx.engine!.getPresentation();
+  const preview = createImageHeroPreview(ctx.run.engine!, bytes, 0, [0, 2]);
+  const frame = ctx.run.engine!.getPresentation();
   preview(frame, 0);
   assert.equal(frame.visual[100 * 160 + 20], 4);
-  ctx.engine!.flags[201] = 1;
+  ctx.run.engine!.flags[201] = 1;
   ctx.fns.tickEngine();
-  const changed = ctx.engine!.getPresentation();
+  const changed = ctx.run.engine!.getPresentation();
   preview(changed, 0);
   assert.equal(changed.visual[100 * 160 + 20], 2);
 });

@@ -112,6 +112,7 @@ export interface WalkthroughControllerContext {
   readonly isCurrentGame: (targetGame: string) => boolean;
   readonly nextSessionId: () => number;
   readonly getActiveSessionId: () => number;
+  readonly setActiveReplayRngVersion?: (version: 1 | 2) => void;
   readonly setActiveReplaySeed: (seed: number | null) => void;
   readonly observationListeners: Set<(obs: ReplayObservation) => void>;
   readonly cancelPendingPrompts: () => void;
@@ -538,6 +539,7 @@ export function useWalkthroughController(ctx: WalkthroughControllerContext): Wal
       ctx.audio?.setPaused(true);
     }
 
+    ctx.setActiveReplayRngVersion?.(artifact.schema === "monotio.agi.walkthrough.v2" ? 2 : 1);
     ctx.setActiveReplaySeed(artifact.seed);
     ctx.onWalkthroughReset();
 
@@ -578,6 +580,7 @@ export function useWalkthroughController(ctx: WalkthroughControllerContext): Wal
       worker.postMessage({
         type: "resetReplay",
         seed: artifact.seed,
+        rngVersion: artifact.schema === "monotio.agi.walkthrough.v2" ? 2 : 1,
         seeking: Boolean(target > 0),
         sessionId,
       } satisfies WorkerInbound);

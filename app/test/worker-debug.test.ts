@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { gameContainer, workerHarness } from "./worker-ctx.ts";
 import type { Inbound } from "../src/worker/context.ts";
-import { resetSession } from "../src/worker/session.ts";
+import { replaceRun } from "../src/worker/runSession.ts";
 
 // One tickEngine run emits ~INSTRUCTIONS trace records: a chain of plain
 // assignn ops, no conditions, so every instruction executes every cycle.
@@ -33,19 +33,19 @@ test("a stalled consumer bounds the backlog and counts the loss exactly", () => 
   const { ctx, presentation, control } = workerHarness(traceGame());
   armTrace(ctx);
   produce(ctx, 50);
-  const produced = ctx.debug.traceSeq; // monotonic counter: every record the listener saw
+  const produced = ctx.run.debug.traceSeq; // monotonic counter: every record the listener saw
 
   const batches = presentation.filter((m) => m.type === "trace");
   assert.equal(batches.length, 4, "posted batches are bounded by the in-flight credit cap");
-  for (const b of batches) assert.equal(b.epoch, ctx.debug.traceEpoch);
-  assert.equal(ctx.debug.traceInFlight, 4);
+  for (const b of batches) assert.equal(b.epoch, ctx.run.debug.traceEpoch);
+  assert.equal(ctx.run.debug.traceInFlight, 4);
 
   const delivered = batches.reduce((n, b) => n + (b.type === "trace" ? b.records.length : 0), 0);
-  const retained = ctx.debug.pendingTrace.length;
+  const retained = ctx.run.debug.pendingTrace.length;
   assert.ok(retained <= 2000, `pendingTrace bounded: ${retained}`);
   const dropped = batches.reduce(
     (n, b) => n + (b.type === "trace" ? b.dropped : 0),
-    ctx.debug.traceDropped,
+    ctx.run.debug.traceDropped,
   );
   assert.equal(delivered + retained + dropped, produced, "exact loss accounting");
 
@@ -74,7 +74,7 @@ test("an ack frees a credit, drains the backlog and reports the loss", () => {
   assert.equal(batches.length, 5, "one freed credit posts exactly one more batch");
   const fresh = batches[4]!;
   assert.ok(fresh.type === "trace" && fresh.dropped > 0, "the batch reports dropped records");
-  assert.equal(ctx.debug.traceInFlight, 4, "credit cap refills while records remain");
+  assert.equal(ctx.run.debug.traceInFlight, 4, "credit cap refills while records remain");
 });
 
 test("a stale ack frees no credit in a replaced stream", () => {
@@ -85,9 +85,9 @@ test("a stale ack frees no credit in a replaced stream", () => {
   assert.ok(old.type === "trace");
 
   ctx.fns.onDebug({ type: "debug", channels: { trace: false } });
-  assert.equal(ctx.debug.pendingTrace.length, 0, "disarm drops the unposted backlog");
-  assert.equal(ctx.debug.traceInFlight, 0);
-  assert.notEqual(ctx.debug.traceEpoch, old.type === "trace" ? old.epoch : -1);
+  assert.equal(ctx.run.debug.pendingTrace.length, 0, "disarm drops the unposted backlog");
+  assert.equal(ctx.run.debug.traceInFlight, 0);
+  assert.notEqual(ctx.run.debug.traceEpoch, old.type === "trace" ? old.epoch : -1);
 
   // Re-arm and generate again: the old epoch's ack must not free a credit.
   armTrace(ctx);
@@ -101,12 +101,18 @@ test("session reset clears the trace stream for the next game", () => {
   const { ctx } = workerHarness(traceGame());
   armTrace(ctx);
   produce(ctx, 10);
-  const epoch = ctx.debug.traceEpoch;
+  const epoch = ctx.run.debug.traceEpoch;
 
-  resetSession(ctx);
-  assert.notEqual(ctx.debug.traceEpoch, epoch);
-  assert.equal(ctx.debug.pendingTrace.length, 0);
-  assert.equal(ctx.debug.traceInFlight, 0);
-  assert.equal(ctx.debug.traceDropped, 0);
-  assert.equal(ctx.debug.traceRing.length, 0);
+  replaceRun(ctx, "restart", {
+    engine: ctx.run.engine!,
+    admission: ctx.run.projectAdmission,
+    project: ctx.boot.project,
+    rng: ctx.run.rng,
+    paused: false,
+  });
+  assert.notEqual(ctx.run.debug.traceEpoch, epoch);
+  assert.equal(ctx.run.debug.pendingTrace.length, 0);
+  assert.equal(ctx.run.debug.traceInFlight, 0);
+  assert.equal(ctx.run.debug.traceDropped, 0);
+  assert.equal(ctx.run.debug.traceRing.length, 0);
 });

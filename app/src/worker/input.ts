@@ -8,25 +8,28 @@ import type { Inbound, WorkerContext } from "./context.ts";
 
 export function createInput(ctx: WorkerContext) {
   function setKeyWaiting(waiting: boolean): void {
-    if (waiting === ctx.input.keyWaiting) return;
-    ctx.input.keyWaiting = waiting;
+    if (waiting === ctx.run.input.keyWaiting) return;
+    ctx.run.input.keyWaiting = waiting;
     ctx.ports.presentation({ type: "waitingForKey", waiting });
   }
 
   function flushDeferredMovement(): void {
     if (
-      !ctx.engine ||
-      ctx.engine.modalKind !== null ||
-      ctx.engine.continuationPending ||
+      !ctx.run.engine ||
+      !ctx.run.owner.active ||
+      ctx.run.engine.modalKind !== null ||
+      ctx.run.engine.continuationPending ||
       ctx.fns.debugStoppedHeld()
     )
       return;
-    for (const key of ctx.input.deferredMovement.splice(0)) {
+    for (const key of ctx.run.input.deferredMovement.splice(0)) {
       if (key === 0) {
-        if (ctx.recording.recording)
-          ctx.recording.recording.tape.run("release", () => ctx.engine!.releaseTrackedKey(true));
-        else ctx.engine.releaseTrackedKey(true);
-      } else ctx.input.keyQueue.push(key);
+        if (ctx.run.recording.recording)
+          ctx.run.recording.recording.tape.run("release", () =>
+            ctx.run.engine!.releaseTrackedKey(true),
+          );
+        else ctx.run.engine.releaseTrackedKey(true);
+      } else ctx.run.input.keyQueue.push(key);
     }
     // Keys flushed while an interaction is parked still feed its key wait.
     deliverQueuedKey();
@@ -41,35 +44,36 @@ export function createInput(ctx: WorkerContext) {
   function deliverQueuedKey(): void {
     // Keys queued before the stop keep their acceptance: they wait in the
     // queue and deliver when the resumed pass asks again.
-    if (!ctx.engine?.awaitingKey || ctx.fns.debugStoppedHeld()) return;
-    const queued = ctx.input.keyQueue.shift();
+    if (!ctx.run.owner.active || !ctx.run.engine?.awaitingKey || ctx.fns.debugStoppedHeld()) return;
+    const queued = ctx.run.input.keyQueue.shift();
     if (queued === undefined) return;
     setKeyWaiting(false);
-    if (ctx.recording.recording) {
+    if (ctx.run.recording.recording) {
       // The answer and the resumed pass belong to one recorded operation —
       // the same shape a live suspension produces. Recording the delivery
       // inside the tick run keeps it in the list: outside a run, tape.host
       // drops calls, and a recording that started on this wait would lose it.
       // runTickEntry counts the pass's controlled completion at this entry.
       ctx.fns.runTickEntry(() =>
-        ctx.recording.recording!.tape.run("tick", () => {
-          ctx.recording.recording!.tape.host(["waitKey", queued]);
-          ctx.engine!.deliverHostAnswer(queued);
-          ctx.engine!.tick();
+        ctx.run.recording.recording!.tape.run("tick", () => {
+          ctx.run.recording.recording!.tape.host(["waitKey", queued]);
+          ctx.run.engine!.deliverHostAnswer(queued);
+          ctx.run.engine!.tick();
         }),
       );
-      if (ctx.engine.awaitingHostAnswer) ctx.recording.recording.tape.holdTick();
+      if (ctx.run.engine.awaitingHostAnswer) ctx.run.recording.recording.tape.holdTick();
     } else {
-      ctx.engine.deliverHostAnswer(queued);
-      if (ctx.engine.hostInteractionReady) ctx.fns.tickEngine();
+      ctx.run.engine.deliverHostAnswer(queued);
+      if (ctx.run.engine.hostInteractionReady) ctx.fns.tickEngine();
     }
     // A seek only needs the revision bump and blocking flag — skip the
     // full state serialization until playback is live again.
-    if (ctx.replay.replay && !ctx.engine.awaitingHostAnswer)
+    if (ctx.replay.replay && !ctx.run.engine.awaitingHostAnswer)
       ctx.fns.postReplay(null, !ctx.replay.isSeeking);
   }
 
   function onKey(msg: Inbound<"key">): void {
+    if (!ctx.run.owner.active) return;
     if (
       ctx.replay.replay &&
       typeof msg.sessionId === "number" &&
@@ -87,20 +91,20 @@ export function createInput(ctx: WorkerContext) {
     ctx.fns.historyRecord({ kind: "key", code: key });
     // A parked key wait answers from the queue directly — any key,
     // including a navigation key that would otherwise defer.
-    const keyWaitParked = ctx.engine?.awaitingKey === true;
+    const keyWaitParked = ctx.run.engine?.awaitingKey === true;
     if (
       !keyWaitParked &&
-      ctx.input.deferredMovement.length > 0 &&
-      ctx.engine?.modalKind === null &&
+      ctx.run.input.deferredMovement.length > 0 &&
+      ctx.run.engine?.modalKind === null &&
       NAV_KEYS[key] !== undefined
     ) {
-      if (ctx.input.deferredMovement.length < 19) ctx.input.deferredMovement.push(key);
-    } else ctx.input.keyQueue.push(key);
+      if (ctx.run.input.deferredMovement.length < 19) ctx.run.input.deferredMovement.push(key);
+    } else ctx.run.input.keyQueue.push(key);
     deliverQueuedKey();
   }
 
   function onDirection(msg: Inbound<"direction">): void {
-    if (!ctx.engine) return;
+    if (!ctx.run.engine || !ctx.run.owner.active) return;
     if (
       ctx.replay.replay &&
       typeof msg.sessionId === "number" &&
@@ -114,7 +118,7 @@ export function createInput(ctx: WorkerContext) {
       // A release for a direction accepted before the stop is cleanup, not
       // new input: queue it for delivery when the latch releases.
       if (ctx.fns.debugStoppedHeld()) {
-        if (ctx.input.deferredMovement.length < 19) ctx.input.deferredMovement.push(0);
+        if (ctx.run.input.deferredMovement.length < 19) ctx.run.input.deferredMovement.push(0);
         return;
       }
       // The main thread captures the gate even while save/restore blocks us.
@@ -122,11 +126,12 @@ export function createInput(ctx: WorkerContext) {
       // truth; the mirrored holdToMove goes stale while frames are
       // suppressed during seeking.
       const eligible = ctx.replay.replay
-        ? ctx.engine.releaseGate !== 0
+        ? ctx.run.engine.releaseGate !== 0
         : typeof msg.releaseEligible === "boolean"
           ? msg.releaseEligible
-          : ctx.engine.releaseGate !== 0;
-      if (eligible && ctx.input.deferredMovement.length < 19) ctx.input.deferredMovement.push(0);
+          : ctx.run.engine.releaseGate !== 0;
+      if (eligible && ctx.run.input.deferredMovement.length < 19)
+        ctx.run.input.deferredMovement.push(0);
       if (eligible) {
         ctx.fns.historyRecord({ kind: "release" });
       }
@@ -136,14 +141,14 @@ export function createInput(ctx: WorkerContext) {
     // New directional presses are rejected while the latch holds the run.
     if (ctx.fns.debugStoppedHeld()) return;
     const dirKey = DIRECTION_KEYS[dir];
-    if (ctx.engine.modalKind !== null) {
+    if (ctx.run.engine.modalKind !== null) {
       // Arrows steer the open modal (inventory selection, menu) instead of
       // ego; the direction key word replays the same navigation.
       if (dirKey !== undefined) {
         ctx.fns.historyRecord({ kind: "key", code: dirKey });
       }
-      ctx.recording.recording?.tape.record(["navigate", dir]);
-      ctx.engine.modalNavigate(dir);
+      ctx.run.recording.recording?.tape.record(["navigate", dir]);
+      ctx.run.engine.modalNavigate(dir);
       ctx.fns.postFrame();
       return;
     }
@@ -151,14 +156,14 @@ export function createInput(ctx: WorkerContext) {
     if (dirKey !== undefined) {
       // Hold-to-move games keep the heading until the release; tap games
       // toggle it with the key word itself, exactly as the runner replays.
-      if (ctx.engine.releaseGate !== 0) {
+      if (ctx.run.engine.releaseGate !== 0) {
         ctx.fns.historyRecord({ kind: "direction", dir });
       } else {
         ctx.fns.historyRecord({ kind: "key", code: dirKey });
       }
-      if (ctx.input.deferredMovement.length > 0 && !ctx.engine.awaitingKey) {
-        if (ctx.input.deferredMovement.length < 19) ctx.input.deferredMovement.push(dirKey);
-      } else ctx.input.keyQueue.push(dirKey);
+      if (ctx.run.input.deferredMovement.length > 0 && !ctx.run.engine.awaitingKey) {
+        if (ctx.run.input.deferredMovement.length < 19) ctx.run.input.deferredMovement.push(dirKey);
+      } else ctx.run.input.keyQueue.push(dirKey);
       deliverQueuedKey();
     }
   }
@@ -170,8 +175,8 @@ export function createInput(ctx: WorkerContext) {
    * any boundary and queue for the next input-phase drain.
    */
   function onClick(msg: Inbound<"click">): void {
-    const engine = ctx.engine;
-    if (engine === null) return;
+    const engine = ctx.run.engine;
+    if (engine === null || !ctx.run.owner.active) return;
     if (
       ctx.replay.replay &&
       typeof msg.sessionId === "number" &&
@@ -193,42 +198,42 @@ export function createInput(ctx: WorkerContext) {
     )
       return;
     ctx.fns.historyRecord({ kind: "click", x, y });
-    ctx.input.clickQueue.push([x, y]);
+    ctx.run.input.clickQueue.push([x, y]);
   }
 
   function onInput(msg: Inbound<"input">): void {
-    if (ctx.fns.debugStoppedHeld()) return;
+    if (!ctx.run.owner.active || ctx.fns.debugStoppedHeld()) return;
     const text = String(msg.text);
     ctx.fns.historyRecord({ kind: "input", text });
-    ctx.input.inputBuffer.push(text);
+    ctx.run.input.inputBuffer.push(text);
   }
 
   function onEdit(msg: Inbound<"edit">): void {
-    if (!ctx.engine || ctx.fns.debugStoppedHeld()) return;
+    if (!ctx.run.engine || !ctx.run.owner.active || ctx.fns.debugStoppedHeld()) return;
     // Live mirror of the host's input widget onto the engine's input row.
     ctx.fns.historyRecord({ kind: "edit", text: String(msg.text) });
-    ctx.recording.recording?.tape.record(["edit", String(msg.text)]);
-    ctx.engine.setEditLine(String(msg.text));
+    ctx.run.recording.recording?.tape.record(["edit", String(msg.text)]);
+    ctx.run.engine.setEditLine(String(msg.text));
     // Host typing is already in the input widget. Publish only edits made by game logic.
-    ctx.presentation.lastInputEdit = ctx.engine.inputEdit;
+    ctx.run.presentation.lastInputEdit = ctx.run.engine.inputEdit;
     ctx.fns.postFrame();
   }
 
   function onDismissPrint(): void {
-    if (!ctx.engine || ctx.fns.debugStoppedHeld()) return;
-    ctx.recording.recording?.tape.record(["ack"]);
+    if (!ctx.run.engine || !ctx.run.owner.active || ctx.fns.debugStoppedHeld()) return;
+    ctx.run.recording.recording?.tape.record(["ack"]);
     ctx.fns.historyRecord({ kind: "dismiss" });
-    const pending = ctx.engine.hostInteraction;
+    const pending = ctx.run.engine.hostInteraction;
     // A click on the suspended selector or confirmation answers with its
     // cancel key; a request still in flight resolves into a dropped answer.
-    if (pending !== null && ctx.engine.awaitingHostAnswer) {
+    if (pending !== null && ctx.run.engine.awaitingHostAnswer) {
       if (pending.kind === "saveDialog" || pending.kind === "confirm") {
         setKeyWaiting(false);
         ctx.fns.abandonHostRequest();
-        ctx.engine.deliverHostAnswer(AGI_KEY.ESCAPE);
+        ctx.run.engine.deliverHostAnswer(AGI_KEY.ESCAPE);
       }
     }
-    ctx.engine.ackPrint();
+    ctx.run.engine.ackPrint();
     ctx.fns.postFrame();
   }
 

@@ -170,6 +170,8 @@ export interface EngineHost {
   takeInputLine(): string | null;
   /** Raw key events pending since last cycle (low byte values). */
   takeKeys(): number[];
+  /** Ordered drain of host queues at an accepted room transition. */
+  roomInputBoundary?(): void;
   /**
    * Left-button-down clicks pending since last cycle, as [x, y] in the
    * 320x200 screen's pixels. Profiles without click-to-walk ignore them
@@ -876,6 +878,8 @@ export class Engine {
    * CycleCursor. Session-local; never serialized.
    */
   private cycleCursor: CycleCursor | null = null;
+  /** Host room entry owes LOGIC 0 without another input phase. */
+  private hostRoomEntryPending = false;
   private resumedSequence: number | null = null;
   private executionSequence = 0;
   private invocationSequence = 0;
@@ -3187,6 +3191,7 @@ export class Engine {
       throw new Error("Finish the game's question, then launch this room");
     if (this.hostReplayOverflow) throw new Error("Choose From the beginning to launch this game");
     const state = decodeSave(this.serialize(), this.profile);
+    if (this.soundDoneFlag !== null) state.flags[this.soundDoneFlag] = 1;
     state.objects = this.objects.map((_, num) => this.objectRecord(num));
     state.replay = [];
     state.replayActive = state.replayCheckpoint = 0;
@@ -3502,6 +3507,7 @@ export class Engine {
    * The caller skips this tick and tries the next one.
    */
   autosaveImage(): Uint8Array | null {
+    if (this.hostRoomEntryPending) return null;
     if (this.messageUpdatePending) return null;
     // Window and parked-pass state travels in the continuation record. A
     // boundary it cannot describe — a live host request, or surface-owning
@@ -4272,7 +4278,9 @@ export class Engine {
     // The pass is a phase sequence; a debugger stop between phases parks the
     // owed remainder on the session-local cycle cursor and resumes here.
     let stage: CycleCursor["phase"] | "entry" =
-      cursor?.phase ?? (this.pendingLogic === null ? "entry" : "logic");
+      cursor?.phase ??
+      (this.pendingLogic === null && !this.hostRoomEntryPending ? "entry" : "logic");
+    this.hostRoomEntryPending = false;
 
     if (stage === "entry") {
       this.presentationDirty = true;
@@ -4486,7 +4494,7 @@ export class Engine {
    * whether reached inline or from the parked cursor; returns true when the
    * phase observation stopped the pass (logic re-entry is owed next).
    */
-  private runRoomPhase(room: number): boolean {
+  private runRoomPhase(room: number, entry?: RoomEntryState): boolean {
     this.finishRoomChange(room);
     this.vars[V_OBJ_HIT] = 0;
     this.vars[V_OBJ_EDGE] = 0;
@@ -4495,6 +4503,7 @@ export class Engine {
     // agi-re "Top-level cycle order" refreshes remembered v3 only on reentry;
     // retain the pre-logic f9 comparison so sound changes still redraw at the tail.
     this.cycleStatusScore = this.vars[V_SCORE]!;
+    if (entry !== undefined) this.applyRoomEntry(entry);
     return this.observePhase("room", { phase: "logic" });
   }
 
@@ -7304,6 +7313,7 @@ export class Engine {
     // The original's input-flush step drains the BIOS buffer and event queues.
     this.inputQueue.clear();
     this.loadLogic(room);
+    this.host.roomInputBoundary?.();
     throw new RoomChange(room);
   }
 
@@ -7733,26 +7743,25 @@ export class Engine {
     } catch (rc) {
       if (!(rc instanceof RoomChange)) throw rc;
     }
-    this.finishRoomChange(room);
+    this.runRoomPhase(room, entry);
     this.messageUpdatePending = false;
-    if (entry !== undefined) {
-      // docs/fidelity.md: Changing rooms and Original new.room sequence.
-      for (const [num, value] of Object.entries(entry.variables ?? {}))
-        this.vars[Number(num)] = value;
-      for (const [num, value] of Object.entries(entry.flags ?? {}))
-        this.flags[Number(num)] = Number(value);
-      for (const [num, value] of Object.entries(entry.items ?? {}))
-        this.setItemLocation(Number(num), value);
-      if (entry.cameFrom) this.vars[V_PREV_ROOM] = entry.cameFrom.room;
-      if (entry.hero) {
-        const ego = this.objects[0]!;
-        ego.x = ego.prevX = entry.hero.x;
-        ego.y = ego.prevY = entry.hero.y;
-      }
+    this.hostRoomEntryPending = true;
+  }
+
+  private applyRoomEntry(entry: RoomEntryState): void {
+    // docs/fidelity.md: Changing rooms and Original new.room sequence.
+    for (const [num, value] of Object.entries(entry.variables ?? {}))
+      this.vars[Number(num)] = value;
+    for (const [num, value] of Object.entries(entry.flags ?? {}))
+      this.flags[Number(num)] = Number(value);
+    for (const [num, value] of Object.entries(entry.items ?? {}))
+      this.setItemLocation(Number(num), value);
+    if (entry.cameFrom) this.vars[V_PREV_ROOM] = entry.cameFrom.room;
+    if (entry.hero) {
+      const ego = this.objects[0]!;
+      ego.x = ego.prevX = entry.hero.x;
+      ego.y = ego.prevY = entry.hero.y;
     }
-    // A host-driven re-entry mutates outside a pass — attribute it like the
-    // out-of-cycle clocks rather than blaming a later instruction.
-    this.observePhase("room", null);
   }
 }
 

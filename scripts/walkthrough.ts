@@ -17,7 +17,7 @@ if (missing) {
 } else {
   const output = resolve(process.argv[3] ?? `/tmp/agi-${route.alias}-speedrun.json`);
   const started = performance.now();
-  const run = new Speedrun(route.hash, route.seed ?? 1, { dwellModals: true });
+  const run = new Speedrun(route.hash, route.seed ?? 1, { dwellModals: true, rngVersion: 2 });
   const fixtureHashes = walkthroughFixtureHashes(route.hash);
   const servedRevisions = await walkthroughServedRevisions(route.hash);
   let failure: string | null = null;
@@ -29,7 +29,7 @@ if (missing) {
   }
   const elapsedMs = Math.round(performance.now() - started);
   const artifact: WalkthroughArtifact = {
-    schema: "monotio.agi.walkthrough.v1",
+    schema: "monotio.agi.walkthrough.v2",
     identity: { project: requireProjectId(route.alias), revision: servedRevisions[0]! },
     supportedRevisions: servedRevisions,
     coverage: route.coverage,

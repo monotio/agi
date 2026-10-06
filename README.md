@@ -211,10 +211,11 @@ project downloads. Public game exports carry the resulting AGI resources.
 Editor changes save as drafts in the background. Dots mark parts waiting for
 **Update and restart**, which applies all changed parts together, adds one Undo
 step, and runs the open room’s entry LOGIC. The game keeps running your last
-update while you edit. The action menu selects **Carry over**, **From the beginning**,
+update while you edit. The action menu selects **Carry over**, **From my game**, **From the beginning**,
 or a saved room Launch. **Update and keep playing** preserves the game’s moment;
-a waiting message finishes before its changed LOGIC runs. Launches in Create
-keep play progress temporary until you choose Play. **Discard changes…** returns parts to
+a waiting message finishes before its changed LOGIC runs. Create keeps the moment you left Play. **From my game**, Back and returning to Play
+restore that moment on your updated files. Create uses temporary progress and save slots.
+With two tabs open, the newest tab plays; **Take back** returns control to the older tab. **Discard changes…** returns parts to
 that last update. **Saved** confirms browser storage for drafts; it keeps their dots.
 
 In Create, **⌘P** (Ctrl+P) opens the game’s parts and **⇧⌘P**

@@ -58,8 +58,8 @@ export function workerHarness(container: GameContainer): WorkerHarness {
   installDebugController(ctx, createDebugController(ctx));
   Object.assign(ctx.fns, createPlayHere(ctx));
   ctx.host = createEngineHost(ctx);
-  ctx.engine = new Engine(container, ctx.host, new Map());
-  ctx.engine.flags[9] = 1;
+  ctx.run.engine = new Engine(container, ctx.host, new Map());
+  ctx.run.engine.flags[9] = 1;
   return { ctx, control, presentation, transfers };
 }
 

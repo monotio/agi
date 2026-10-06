@@ -15,11 +15,13 @@ import { decodeHostImage, decodeSave } from "../runtime/persistence.ts";
 import type { AgiProfile } from "../runtime/profile.ts";
 
 export const GAME_TESTS_FILE = "TESTS.JSON";
-export const GAME_TESTS_FORMAT = "monotio.agi.tests.v1";
+export const GAME_TESTS_FORMAT = "monotio.agi.tests.v2";
+const RELEASED_GAME_TESTS_FORMAT = "monotio.agi.tests.v1";
 /** TESTS.JSON is bounded on reading and writing by a game archive entry (gameZip MAX_ENTRY_BYTES). */
 export const GAME_TESTS_MAX_BYTES = 64 * 1024 * 1024;
 
 export interface GameTest {
+  readonly rngVersion?: 1 | 2;
   readonly name: string;
   readonly room: number;
   readonly spawnX: number | null;
@@ -37,7 +39,7 @@ export interface GameTest {
 }
 
 export interface GameTestsDocument {
-  readonly format: typeof GAME_TESTS_FORMAT;
+  readonly format: typeof GAME_TESTS_FORMAT | typeof RELEASED_GAME_TESTS_FORMAT;
   readonly tests: readonly GameTest[];
 }
 
@@ -52,7 +54,17 @@ function integerOrNull(value: unknown, label: string, min: number, max: number):
   return value;
 }
 /** Top-level fields of one stored test; anything else is a typo, not an option. */
-const TEST_FIELDS = ["name", "room", "spawnX", "spawnY", "steps", "expect", "cycleBudget", "setup"];
+const TEST_FIELDS = [
+  "name",
+  "room",
+  "spawnX",
+  "spawnY",
+  "steps",
+  "expect",
+  "cycleBudget",
+  "setup",
+  "rngVersion",
+];
 
 /**
  * Strictly shape-check one stored test, including every step and expectation,
@@ -62,7 +74,12 @@ const TEST_FIELDS = ["name", "room", "spawnX", "spawnY", "steps", "expect", "cyc
  * image is also decoded through the runtime persistence layer (decodeSave):
  * a malformed image fails here, loudly, never mid-replay.
  */
-export function validateGameTest(value: unknown, label: string, profile?: AgiProfile): GameTest {
+export function validateGameTest(
+  value: unknown,
+  label: string,
+  profile?: AgiProfile,
+  version: 1 | 2 = 2,
+): GameTest {
   if (!value || typeof value !== "object" || Array.isArray(value))
     fail(`${label} must be an object.`);
   const test = value as Record<string, unknown>;
@@ -89,7 +106,12 @@ export function validateGameTest(value: unknown, label: string, profile?: AgiPro
       );
     }
   }
+  if (test["rngVersion"] != null && test["rngVersion"] !== 1 && test["rngVersion"] !== 2)
+    fail(`${label}.rngVersion must be 1 or 2.`);
   return {
+    ...(test["rngVersion"] === 1 || (test["rngVersion"] == null && version === 1)
+      ? { rngVersion: 1 as const }
+      : {}),
     name,
     room,
     spawnX: integerOrNull(test["spawnX"], `${label}.spawnX`, 0, 159),
@@ -117,18 +139,23 @@ export function parseGameTests(
   if (!raw || typeof raw !== "object" || Array.isArray(raw))
     fail(`${GAME_TESTS_FILE} must hold an object.`);
   const doc = raw as Record<string, unknown>;
-  if (doc["format"] !== GAME_TESTS_FORMAT)
+  if (doc["format"] !== GAME_TESTS_FORMAT && doc["format"] !== RELEASED_GAME_TESTS_FORMAT)
     fail(`${GAME_TESTS_FILE} format must be ${GAME_TESTS_FORMAT}.`);
   if (!Array.isArray(doc["tests"])) fail(`${GAME_TESTS_FILE} must list its tests.`);
   const tests = doc["tests"].map((test, index) =>
-    validateGameTest(test, `tests[${index}]`, profile),
+    validateGameTest(
+      test,
+      `tests[${index}]`,
+      profile,
+      doc["format"] === RELEASED_GAME_TESTS_FORMAT ? 1 : 2,
+    ),
   );
   const names = new Set<string>();
   for (const test of tests) {
     if (names.has(test.name)) fail(`Game test names must be unique: ${JSON.stringify(test.name)}.`);
     names.add(test.name);
   }
-  return { format: GAME_TESTS_FORMAT, tests };
+  return { format: doc["format"], tests };
 }
 export function serializeGameTests(tests: readonly GameTest[]): Uint8Array {
   const bytes = new TextEncoder().encode(

@@ -1,5 +1,31 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+
+test("autosave reload continues the host RNG word and reseed cursor", (t) => {
+  const container = gameContainer(["load.pic(v0);draw.pic(v0);show.pic();return;"], (c) =>
+    c.putResource("picture", 0, Uint8Array.of(0xff)),
+  );
+  const { ctx, presentation } = workerHarness(container);
+  t.after(() => ctx.fns.stopTimers());
+  ctx.fns.tickEngine();
+  ctx.run.rng = { word: 0, policy: { kind: "sequence", next: 58235, cursor: 3 } };
+  ctx.host.randomByte!();
+  ctx.fns.autosave(true);
+  const save = presentation.findLast((m) => m.type === "autosave");
+  assert.ok(save?.type === "autosave");
+  const expected = [ctx.host.randomByte!(), ctx.host.randomByte!()];
+  const resumed = workerHarness(container).ctx;
+  t.after(() => resumed.fns.stopTimers());
+  onWorkerMessage(resumed, {
+    type: "boot",
+    files: Object.fromEntries(container.files),
+    words: [],
+    restoreImage: save.image,
+    ...(save.rng ? { restoreRng: save.rng } : {}),
+  });
+  assert.deepEqual([resumed.host.randomByte!(), resumed.host.randomByte!()], expected);
+  assert.deepEqual(resumed.run.rng, ctx.run.rng);
+});
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import { gameContainer, workerHarness } from "./worker-ctx.ts";
 import { onWorkerMessage } from "../src/worker/dispatch.ts";
@@ -26,8 +52,8 @@ test("a restored room window starts both clocks and its answering key resumes cy
   );
   const { ctx, control, presentation } = workerHarness(container);
   ctx.fns.tickEngine();
-  assert.equal(ctx.engine!.modalKind, "print");
-  const image = ctx.engine!.autosaveImage();
+  assert.equal(ctx.run.engine!.modalKind, "print");
+  const image = ctx.run.engine!.autosaveImage();
   assert.ok(image);
   let now = 0;
   ctx.ports.now = () => now;
@@ -39,8 +65,8 @@ test("a restored room window starts both clocks and its answering key resumes cy
   });
   t.after(() => ctx.fns.stopTimers());
   assert.ok(control.some((message) => message.type === "restored" && message.ok));
-  assert.notEqual(ctx.cycle.timer, null);
-  assert.notEqual(ctx.cycle.soundTimer, null);
+  assert.notEqual(ctx.run.cycle.timer, null);
+  assert.notEqual(ctx.run.cycle.soundTimer, null);
   now = 250;
   t.mock.timers.tick(250);
   assert.ok(
@@ -48,14 +74,14 @@ test("a restored room window starts both clocks and its answering key resumes cy
       (message) => message.type === "cycle" && message.room === 2 && message.cycle === 0,
     ),
   );
-  assert.equal(ctx.engine!.modalKind, "print");
+  assert.equal(ctx.run.engine!.modalKind, "print");
   onWorkerMessage(ctx, { type: "key", code: 13 });
   now += 250;
   t.mock.timers.tick(250);
-  assert.equal(ctx.engine!.modalKind, null);
-  assert.equal(ctx.engine!.vars[0], 2);
-  assert.ok(ctx.engine!.vars[100]! > 0);
-  assert.ok(ctx.cycle.cycleCount > 0);
+  assert.equal(ctx.run.engine!.modalKind, null);
+  assert.equal(ctx.run.engine!.vars[0], 2);
+  assert.ok(ctx.run.engine!.vars[100]! > 0);
+  assert.ok(ctx.run.cycle.cycleCount > 0);
 });
 
 function drawnGame() {
@@ -74,9 +100,9 @@ function drawnGame() {
 test("autosave(false) skips when the cycle has not advanced", () => {
   const { ctx, presentation } = workerHarness(drawnGame());
   ctx.fns.tickEngine();
-  assert.ok(ctx.engine!.autosaveImage(), "room 1 has drawn, so the boundary is snapshottable");
+  assert.ok(ctx.run.engine!.autosaveImage(), "room 1 has drawn, so the boundary is snapshottable");
 
-  ctx.autosave.lastAutosaveCycle = ctx.cycle.cycleCount;
+  ctx.run.autosave.lastAutosaveCycle = ctx.run.cycle.cycleCount;
   assert.equal(ctx.fns.autosave(false), false);
   assert.equal(
     presentation.filter((m) => m.type === "autosave").length,
@@ -88,19 +114,19 @@ test("autosave(false) skips when the cycle has not advanced", () => {
 test("the autosave message carries files only when patchGeneration changed", () => {
   const { ctx, presentation } = workerHarness(drawnGame());
   ctx.fns.tickEngine();
-  ctx.autosave.autosaveFiles = true;
-  ctx.autosave.lastPatchGeneration = ctx.engine!.patchGeneration;
+  ctx.run.autosave.autosaveFiles = true;
+  ctx.run.autosave.lastPatchGeneration = ctx.run.engine!.patchGeneration;
 
-  ctx.cycle.cycleCount++;
+  ctx.run.cycle.cycleCount++;
   assert.equal(ctx.fns.autosave(false), true);
   const first = presentation.find((m) => m.type === "autosave");
   assert.ok(first);
   assert.equal("files" in first, false, "no resource snapshot without a patch");
 
-  ctx.engine!.patchResources([
+  ctx.run.engine!.patchResources([
     { kind: "logic", num: 9, payload: assembleLogic("return;", { dictionary: new Map() }).payload },
   ]);
-  ctx.cycle.cycleCount++;
+  ctx.run.cycle.cycleCount++;
   assert.equal(ctx.fns.autosave(false), true);
   const posted = presentation.filter((m) => m.type === "autosave");
   assert.equal(posted.length, 2);
@@ -110,7 +136,7 @@ test("the autosave message carries files only when patchGeneration changed", () 
 test("a forced flush's autosave survives a seek in flight", () => {
   const { ctx, presentation } = workerHarness(drawnGame());
   ctx.fns.tickEngine();
-  assert.ok(ctx.engine!.autosaveImage(), "room 1 has drawn, so the boundary is snapshottable");
+  assert.ok(ctx.run.engine!.autosaveImage(), "room 1 has drawn, so the boundary is snapshottable");
 
   // A pagehide flush lands mid-seek: the transient stream is suppressed but
   // the snapshot must still post, or the last position is lost on reload.
@@ -140,13 +166,13 @@ test("a game that quits leaves no autosave of its ended interpreter", () => {
     ),
   );
   ctx.fns.tickEngine();
-  ctx.engine!.flags[201] = 1;
+  ctx.run.engine!.flags[201] = 1;
   ctx.fns.tickEngine();
   assert.ok(
     presentation.some((m) => m.type === "quit"),
     "the quit reaches the page",
   );
-  ctx.cycle.cycleCount++;
+  ctx.run.cycle.cycleCount++;
   assert.equal(ctx.fns.autosave(true), false, "an ended game cannot be resumed");
   assert.equal(presentation.filter((m) => m.type === "autosave").length, 0);
 });
@@ -164,7 +190,7 @@ test("an all-black screen autosaves without a card preview", () => {
     ),
   );
   ctx.fns.tickEngine();
-  ctx.cycle.cycleCount++;
+  ctx.run.cycle.cycleCount++;
   assert.equal(ctx.fns.autosave(true), true, "the position itself is still saved");
   const posted = presentation.find((m) => m.type === "autosave");
   assert.ok(posted);
@@ -172,7 +198,7 @@ test("an all-black screen autosaves without a card preview", () => {
 
   const { ctx: drawn, presentation: drawnPresentation } = workerHarness(drawnGame());
   drawn.fns.tickEngine();
-  drawn.cycle.cycleCount++;
+  drawn.run.cycle.cycleCount++;
   drawn.fns.autosave(true);
   const shown = drawnPresentation.find((m) => m.type === "autosave");
   assert.ok(shown && "preview" in shown, "a drawn room keeps its preview");
@@ -183,9 +209,10 @@ test("a quit replayed from a recording plays to its end instead of sending the p
     gameContainer([`if (isset(f201)) { quit(1); } return;`]),
   );
   // Walkthroughs and the history timeline run the worker in replay mode.
-  ctx.replay.replay = { tick: 0, revision: 0, random: 1 };
-  ctx.engine!.flags[201] = 1;
-  ctx.engine!.tick();
-  assert.equal(ctx.engine!.readLeanState().terminated, true);
+  ctx.replay.replay = { tick: 0, revision: 0 };
+  ctx.run.rng.word = 1;
+  ctx.run.engine!.flags[201] = 1;
+  ctx.run.engine!.tick();
+  assert.equal(ctx.run.engine!.readLeanState().terminated, true);
   assert.equal(presentation.filter((m) => m.type === "quit").length, 0);
 });

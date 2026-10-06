@@ -1,5 +1,6 @@
 /** Browser storage for the engine's twelve authentic save images, scoped per game. */
 import type { ProgressTarget } from "../project/progressTarget.ts";
+import { progressWriterMatches } from "./progressWriter.ts";
 type SaveStorage = Pick<Storage, "getItem" | "setItem">;
 
 function gameSavesKey(targetKey: string): string {
@@ -62,9 +63,18 @@ export function writeGameSave(
   slot: number,
   image: string,
   amigaRegion: "ntsc" | "pal" = "ntsc",
+  writerGeneration?: number,
 ): boolean {
   if (!Number.isInteger(slot) || slot < 1 || slot > 12) return false;
   try {
+    if (
+      !progressWriterMatches(
+        storage,
+        typeof target === "string" ? target : target.locator,
+        writerGeneration,
+      )
+    )
+      return false;
     const { slots, amigaRegions } = readGameSaveRecord(storage, target);
     if (amigaRegion === "pal") amigaRegions[String(slot)] = amigaRegion;
     else delete amigaRegions[String(slot)];

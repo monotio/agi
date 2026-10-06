@@ -57,6 +57,7 @@ const OUTBOUND_TYPES = [
   "exportFiles",
   "restored",
   "booted",
+  "projectPlayed",
   "projectCreated",
   "roomTransition",
   "flushed",
@@ -527,6 +528,11 @@ test("every WorkerOutbound member reaches its handler once", async () => {
         }
         assert.ok(!audioCalls.some((call) => call.startsWith("setMode:")));
         break;
+      case "projectPlayed": {
+        const result = await roundTrip(link, w, "projectPlay", { type, id: 0, ok: true });
+        assert.equal((result as { ok: boolean }).ok, true);
+        break;
+      }
       case "projectCreated": {
         const result = await roundTrip(link, w, "projectCreate", {
           type,

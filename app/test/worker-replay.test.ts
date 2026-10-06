@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { gameContainer, workerHarness } from "./worker-ctx.ts";
 import { onWorkerMessage } from "../src/worker/dispatch.ts";
 import type { GameContainer } from "../../src/types.ts";
+import { buildSound } from "../../src/sound/build.ts";
 
 // Blue box outline (10,10)-(60,40), filled — the same fixture bytes
 // worker-autosave.test.ts uses to reach a resumable boundary.
@@ -31,11 +32,12 @@ test("advanceReplay parked on a prompt holds the tick until the answer lands", (
   const { ctx, control } = workerHarness(
     gameContainer([`#message 1 "How many?"\nget.num(1, v100);\nassignn(v101, 7);\nreturn;`]),
   );
-  ctx.replay.replay = { tick: 0, revision: 0, random: 0 };
+  ctx.replay.replay = { tick: 0, revision: 0 };
+  ctx.run.rng.word = 0;
   ctx.fns.tickEngine(); // parks on get.num; postHostRequest posts the blocked observation
 
   const observations = () => control.filter((m) => m.type === "replay").map((m) => m.observation);
-  assert.equal(ctx.engine!.awaitingHostAnswer, true);
+  assert.equal(ctx.run.engine!.awaitingHostAnswer, true);
   assert.equal(observations().length, 1);
   assert.equal(observations()[0]!.blocked, "getnum");
   assert.equal(observations()[0]!.revision, 1);
@@ -49,8 +51,8 @@ test("advanceReplay parked on a prompt holds the tick until the answer lands", (
   );
 
   ctx.fns.onHostAnswer({ type: "hostAnswer", id: 1, response: "42" });
-  assert.equal(ctx.engine!.vars[100], 42);
-  assert.equal(ctx.engine!.vars[101], 7, "the resumed pass completed");
+  assert.equal(ctx.run.engine!.vars[100], 42);
+  assert.equal(ctx.run.engine!.vars[101], 7, "the resumed pass completed");
   const after = observations();
   assert.equal(after.length, 2, "the answer's delivery posts the unblocked observation");
   assert.equal(after[1]!.blocked, null);
@@ -63,33 +65,34 @@ test("a checkpoint snapshot restores the replay head and replays the gap identic
   ctx.boot.currentBootFiles = new Map(container.files);
   ctx.boot.currentDictionary = new Map();
   ctx.boot.liveDictionary = new Map();
-  ctx.replay.replay = { tick: 0, revision: 0, random: 1 };
+  ctx.replay.replay = { tick: 0, revision: 0 };
+  ctx.run.rng.word = 1;
   ctx.replay.currentSessionId = 7;
 
   ctx.fns.onReplayAdvance({ type: "replayAdvance", id: 1, ticks: 60, sessionId: 7 });
   assert.equal(ctx.replay.replay.tick, 60);
-  const atSnapshot = ctx.engine!.vars[100]!;
+  const atSnapshot = ctx.run.engine!.vars[100]!;
   assert.ok(atSnapshot > 0, "the tape advanced the counter");
   ctx.fns.onReplaySnapshot({ type: "replaySnapshot", sessionId: 7 });
   assert.equal(ctx.replay.snapshots.size, 1);
 
   ctx.fns.onReplayAdvance({ type: "replayAdvance", id: 2, ticks: 40, sessionId: 7 });
   ctx.fns.onReplaySnapshot({ type: "replaySnapshot", sessionId: 7 });
-  const atHundred = ctx.engine!.vars[100]!;
+  const atHundred = ctx.run.engine!.vars[100]!;
   assert.ok(atHundred > atSnapshot);
   assert.equal(ctx.replay.snapshots.size, 2);
 
   // A seek to tick 80 lands on the tick-60 snapshot — the nearest at or before.
   ctx.fns.onReplayRestore({ type: "replayRestore", id: 9, tick: 80, sessionId: 7 });
   assert.equal(ctx.replay.replay.tick, 60);
-  assert.equal(ctx.engine!.vars[100], atSnapshot, "the captured state returns");
+  assert.equal(ctx.run.engine!.vars[100], atSnapshot, "the captured state returns");
   const restored = control.filter((m) => m.type === "replay").at(-1)!;
   assert.equal(restored.id, 9, "the restored observation answers the query");
   assert.equal(restored.observation.tick, 60);
 
   ctx.fns.onReplayAdvance({ type: "replayAdvance", id: 3, ticks: 40, sessionId: 7 });
   assert.equal(ctx.replay.replay.tick, 100);
-  assert.equal(ctx.engine!.vars[100], atHundred, "the gap replays deterministically");
+  assert.equal(ctx.run.engine!.vars[100], atHundred, "the gap replays deterministically");
 });
 
 test("replayRestore without a covering snapshot reboots to tick 0, and a reset drops them", () => {
@@ -98,7 +101,8 @@ test("replayRestore without a covering snapshot reboots to tick 0, and a reset d
   ctx.boot.currentBootFiles = new Map(container.files);
   ctx.boot.currentDictionary = new Map();
   ctx.boot.liveDictionary = new Map();
-  ctx.replay.replay = { tick: 0, revision: 0, random: 1 };
+  ctx.replay.replay = { tick: 0, revision: 0 };
+  ctx.run.rng.word = 1;
   ctx.replay.currentSessionId = 7;
 
   ctx.fns.onReplayAdvance({ type: "replayAdvance", id: 1, ticks: 60, sessionId: 7 });
@@ -109,7 +113,7 @@ test("replayRestore without a covering snapshot reboots to tick 0, and a reset d
   // rebuilds from the boot.
   ctx.fns.onReplayRestore({ type: "replayRestore", id: 9, tick: 30, sessionId: 7 });
   assert.equal(ctx.replay.replay.tick, 0);
-  assert.equal(ctx.engine!.vars[100], 0, "a fresh engine carries no tape progress");
+  assert.equal(ctx.run.engine!.vars[100], 0, "a fresh engine carries no tape progress");
 
   // Snapshots from a previous tape must never land on a new trajectory.
   ctx.fns.onReplayAdvance({ type: "replayAdvance", id: 2, ticks: 60, sessionId: 7 });
@@ -122,7 +126,8 @@ test("replayRestore without a covering snapshot reboots to tick 0, and a reset d
 test("an acknowledged replay pause cancels every scheduled advance tick", (t) => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
   const { ctx, control } = workerHarness(countingGame());
-  ctx.replay.replay = { tick: 0, revision: 0, random: 1 };
+  ctx.replay.replay = { tick: 0, revision: 0 };
+  ctx.run.rng.word = 1;
   ctx.replay.currentSessionId = 7;
   onWorkerMessage(ctx, { type: "replayAdvance", id: 1, ticks: 1000, sessionId: 7 });
   onWorkerMessage(ctx, { type: "replayPause", id: 99, sessionId: 8 });
@@ -145,4 +150,37 @@ test("an acknowledged replay pause cancels every scheduled advance tick", (t) =>
   onWorkerMessage(ctx, { type: "replayAdvance", id: 3, ticks: 1000 - stoppedTick, sessionId: 7 });
   t.mock.timers.runAll();
   assert.equal(ctx.replay.replay.tick, 1000, "resume consumes exactly the remaining tape ticks");
+});
+
+test("a rejected tape snapshot preserves the live sound, parked print and replay head", () => {
+  const container = gameContainer(['load.sound(0);sound(0,f60);print("Wait");return;'], (c) =>
+    c.putResource(
+      "sound",
+      0,
+      buildSound([{ notes: [{ duration: 1000, freqDivisor: 226, attenuation: 0 }] }]),
+    ),
+  );
+  const { ctx, control, presentation } = workerHarness(container);
+  ctx.boot.currentBootFiles = new Map(container.files);
+  ctx.boot.currentDictionary = new Map();
+  ctx.fns.tickEngine();
+  ctx.replay.replay = { tick: 27, revision: 4 };
+  ctx.replay.currentSessionId = 7;
+  ctx.fns.onReplaySnapshot({ type: "replaySnapshot", sessionId: 7 });
+  const snapshot = ctx.replay.snapshots.get(27);
+  assert.ok(snapshot);
+  snapshot.image = Uint8Array.of(0);
+  const run = ctx.run;
+  const before = structuredClone(ctx.replay);
+  const output = [control.length, presentation.length];
+  assert.equal(run.engine!.flags[60], 0);
+  assert.equal(run.engine!.modalKind, "print");
+  assert.throws(() =>
+    ctx.fns.onReplayRestore({ type: "replayRestore", id: 9, tick: 27, sessionId: 8 }),
+  );
+  assert.equal(ctx.run, run);
+  assert.equal(run.engine!.flags[60], 0);
+  assert.equal(run.engine!.modalKind, "print");
+  assert.deepEqual(ctx.replay, before);
+  assert.deepEqual([control.length, presentation.length], output);
 });
