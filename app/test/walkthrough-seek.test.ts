@@ -318,3 +318,34 @@ test("a refused walkthrough leaves the running tape's batch and seek intact", as
     controller.abort();
   }
 });
+
+test("pause reports the worker's acknowledged tick before playback can resume", async () => {
+  const { state, driver, controller } = harness();
+  state.walkthrough.active = true;
+  state.walkthrough.status = "playing";
+  state.walkthrough.totalTicks = 100;
+  const pending = Promise.withResolvers<ReplayObservation>();
+  driver.pause = () => pending.promise;
+  controller.pauseWalkthrough();
+  assert.equal(state.walkthrough.pausePending, true, "pause waits for the in-flight advance");
+  const stopped = fakeObservation(32, 0);
+  driver.latest = stopped;
+  pending.resolve(stopped);
+  await flush();
+  assert.equal(state.walkthrough.pausePending, false);
+  assert.equal(state.walkthrough.status, "paused");
+  assert.equal(state.walkthrough.tick, 32);
+  assert.equal(state.walkthrough.requestedTick, 32);
+  controller.resumeWalkthrough();
+  assert.equal(state.walkthrough.status, "playing");
+  const late = Promise.withResolvers<ReplayObservation>();
+  driver.pause = () => late.promise;
+  controller.pauseWalkthrough();
+  controller.resumeWalkthrough();
+  state.walkthrough.tick = 40;
+  late.resolve(stopped);
+  await flush();
+  assert.equal(state.walkthrough.status, "playing", "a late pause reply keeps the resumed intent");
+  assert.equal(state.walkthrough.tick, 40, "a late pause reply keeps the resumed position");
+  assert.equal(state.walkthrough.pausePending, false);
+});

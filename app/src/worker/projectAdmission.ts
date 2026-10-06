@@ -488,7 +488,12 @@ export function createProjectAdmission(ctx: WorkerContext, options: ProjectAdmis
     }
     const candidate = validated.candidate;
     const profile = PROFILES[candidate.profile ?? engine.profile.id]!;
-    if (msg.mode !== undefined && msg.mode !== "restart" && msg.mode !== "reenter") {
+    if (
+      msg.mode !== undefined &&
+      msg.mode !== "restart" &&
+      msg.mode !== "reenter" &&
+      msg.mode !== "adoptRoom"
+    ) {
       settleRefused("Unknown project admission action.");
       return;
     }
@@ -546,6 +551,15 @@ export function createProjectAdmission(ctx: WorkerContext, options: ProjectAdmis
     }
     if (captured.identity.revision !== candidate.revision) {
       settleRefused("claimed resource revision does not match the verified capture");
+      return;
+    }
+
+    const adoptingRoom = msg.mode === "adoptRoom";
+    if (
+      adoptingRoom &&
+      (candidate.revision !== prior.revision || profile.id !== engine.profile.id)
+    ) {
+      settleRefused("The authored room image changed before its project commit. Reload the game.");
       return;
     }
 
@@ -735,7 +749,8 @@ export function createProjectAdmission(ctx: WorkerContext, options: ProjectAdmis
     }
     const roomReentry =
       msg.mode === "reenter" ||
-      (ctx.projectAdmission === lane &&
+      (!adoptingRoom &&
+        ctx.projectAdmission === lane &&
         engine.continuationPending &&
         (engine.modalKind === "print" || engine.awaitingKey));
     const commit = () =>
@@ -746,7 +761,11 @@ export function createProjectAdmission(ctx: WorkerContext, options: ProjectAdmis
             ctx.fns.abandonHostRequest();
             ctx.fns.markReenter();
           })
-        : engine.commitPreviewUpdate(plan, { sourceAuthorityChanged });
+        : engine.commitPreviewUpdate(plan, {
+            // Adoption publishes sources for bytes the room answer installed.
+            // The exact native-image check above preserves its parked pass.
+            sourceAuthorityChanged: sourceAuthorityChanged && !adoptingRoom,
+          });
     const result = options.commitAtBoundary ? options.commitAtBoundary(commit) : commit();
 
     if (result.status === "deferred") {

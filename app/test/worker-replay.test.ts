@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { gameContainer, workerHarness } from "./worker-ctx.ts";
+import { onWorkerMessage } from "../src/worker/dispatch.ts";
 import type { GameContainer } from "../../src/types.ts";
 
 // Blue box outline (10,10)-(60,40), filled — the same fixture bytes
@@ -116,4 +117,32 @@ test("replayRestore without a covering snapshot reboots to tick 0, and a reset d
   assert.equal(ctx.replay.snapshots.size, 1);
   ctx.fns.onResetReplay({ type: "resetReplay", sessionId: 8 });
   assert.equal(ctx.replay.snapshots.size, 0, "a new tape starts without stale restore points");
+});
+
+test("an acknowledged replay pause cancels every scheduled advance tick", (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const { ctx, control } = workerHarness(countingGame());
+  ctx.replay.replay = { tick: 0, revision: 0, random: 1 };
+  ctx.replay.currentSessionId = 7;
+  onWorkerMessage(ctx, { type: "replayAdvance", id: 1, ticks: 1000, sessionId: 7 });
+  onWorkerMessage(ctx, { type: "replayPause", id: 99, sessionId: 8 });
+  assert.equal(ctx.replay.replayRequest, 1, "a stale session cannot interrupt the advance");
+  const stoppedTick = ctx.replay.replay.tick;
+  assert.ok(stoppedTick > 0 && stoppedTick < 1000, "the advance is between chunks");
+  onWorkerMessage(ctx, { type: "replayPause", id: 2, sessionId: 7 });
+  const ack = control.at(-1);
+  assert.ok(ack?.type === "replay" && ack.id === 2);
+  assert.equal(ack.observation.tick, stoppedTick);
+  const interrupted = control.find((msg) => msg.type === "replay" && msg.id === 1);
+  assert.ok(interrupted?.type === "replay");
+  assert.equal(
+    interrupted.observation.tick,
+    stoppedTick,
+    "the advance settles at its partial position",
+  );
+  t.mock.timers.runAll();
+  assert.equal(ctx.replay.replay.tick, stoppedTick, "zero ticks after the pause acknowledgement");
+  onWorkerMessage(ctx, { type: "replayAdvance", id: 3, ticks: 1000 - stoppedTick, sessionId: 7 });
+  t.mock.timers.runAll();
+  assert.equal(ctx.replay.replay.tick, 1000, "resume consumes exactly the remaining tape ticks");
 });

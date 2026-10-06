@@ -331,6 +331,7 @@ export type WorkerInbound =
       renderFinal?: boolean;
       fullState?: boolean;
     }
+  | { type: "replayPause"; id: number; sessionId: number }
   | { type: "resetReplay"; seed?: number; seeking?: boolean; sessionId?: number }
   /**
    * Record a restore point at the replay's current position — sent by the
@@ -535,7 +536,7 @@ export type WorkerInbound =
       runToken: string;
       expected: PreviewLaneIdentity;
       candidate: PreviewUpdateCandidateMessage;
-      mode?: "restart" | "reenter";
+      mode?: "restart" | "reenter" | "adoptRoom";
     }
   /**
    * Read-only reconciliation: reports the lane's actual current identity —
@@ -989,6 +990,7 @@ interface WorkerQueryReplies {
   stopRecording: Extract<WorkerControl, { type: "recordingStopped" }>;
   replayAdvance: Extract<WorkerControl, { type: "replay" }>;
   replayRestore: Extract<WorkerControl, { type: "replay" }>;
+  replayPause: Extract<WorkerControl, { type: "replay" }>;
   historyViewStart: Extract<WorkerControl, { type: "historyView" }>;
   historyViewSeek: Extract<WorkerControl, { type: "historyView" }>;
   historyViewAdvance: Extract<WorkerControl, { type: "historyView" }>;
@@ -1028,6 +1030,7 @@ export interface WorkerQueryPayload {
   stopRecording: WorkerQueryReplies["stopRecording"];
   replayAdvance: WorkerQueryReplies["replayAdvance"]["observation"];
   replayRestore: WorkerQueryReplies["replayRestore"]["observation"];
+  replayPause: WorkerQueryReplies["replayPause"]["observation"];
   historyViewStart: WorkerQueryReplies["historyViewStart"];
   historyViewSeek: WorkerQueryReplies["historyViewSeek"];
   historyViewAdvance: WorkerQueryReplies["historyViewAdvance"];

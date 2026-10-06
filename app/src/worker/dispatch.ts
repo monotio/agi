@@ -219,6 +219,10 @@ export function onWorkerMessage(ctx: WorkerContext, msg: WorkerInbound): void {
       ctx.fns.onReplayAdvance(msg);
       return;
     }
+    if (msg.type === "replayPause") {
+      ctx.fns.onReplayPause(msg);
+      return;
+    }
     if (msg.type === "replaySnapshot") {
       ctx.fns.onReplaySnapshot(msg);
       return;

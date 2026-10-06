@@ -437,6 +437,7 @@ export interface WorkerFns {
   // replay.ts
   postReplay(blocked: string | null, fullState?: boolean): void;
   onReplayAdvance(msg: Inbound<"replayAdvance">): void;
+  onReplayPause(msg: Inbound<"replayPause">): void;
   onReplaySnapshot(msg: Inbound<"replaySnapshot">): void;
   onReplayRestore(msg: Inbound<"replayRestore">): void;
   onResetReplay(msg: Inbound<"resetReplay">): void;

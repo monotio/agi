@@ -99,6 +99,8 @@ export interface ReplayDriver {
   latest: ReplayObservation | null;
   status?: ReplayStatus;
   advance(ticks: number, options?: ReplayAdvanceOptions): Promise<ReplayObservation>;
+  /** Cancel an in-flight advance and acknowledge the stopped host tick. */
+  pause?(sessionId: number): Promise<ReplayObservation>;
   /** Queue a key word exactly as the App.vue keyboard handler would. */
   key(code: number, sessionId: number): void;
   /** Set or release (dir 0) the held movement heading. */

@@ -42,6 +42,8 @@ export interface WalkthroughUiState {
   totalTicks: number;
   percent: number;
   status: "idle" | "playing" | "paused" | "completed" | "stopped" | "error";
+  /** True until the worker acknowledges the stopped tick. */
+  pausePending: boolean;
   seeking: boolean;
   scrubbing: boolean;
   error: string;
@@ -81,6 +83,7 @@ export function createInitialWalkthroughState(): WalkthroughUiState {
     totalTicks: 0,
     percent: 0,
     status: "idle",
+    pausePending: false,
     seeking: false,
     scrubbing: false,
     error: "",
@@ -150,6 +153,7 @@ export function useWalkthroughController(ctx: WalkthroughControllerContext): Wal
   const { state, replayDriver } = ctx;
   let walkthroughAbortController: AbortController | null = null;
   let seekTargetTick: number | null = null;
+  let pauseRequest = 0;
   const resumeWaiters = new Set<() => void>();
   let skipDialogDwell: (() => void) | null = null;
   /** The artifact under play — a backward seek replays its suffix. */
@@ -190,6 +194,8 @@ export function useWalkthroughController(ctx: WalkthroughControllerContext): Wal
   }
 
   function abort(): void {
+    pauseRequest++;
+    state.walkthrough.pausePending = false;
     startRequest += 1;
     transport.dispose();
     batchActive = false;
@@ -275,6 +281,7 @@ export function useWalkthroughController(ctx: WalkthroughControllerContext): Wal
           if (ctx.getActiveSessionId() !== sessionId || abortController.signal.aborted) return;
           seekTargetTick = null;
           state.walkthrough.seeking = false;
+          state.walkthrough.pausePending = false;
           if (replayDriver.latest) {
             state.walkthrough.tick = replayDriver.latest.tick;
             state.walkthrough.requestedTick = replayDriver.latest.tick;
@@ -696,6 +703,8 @@ export function useWalkthroughController(ctx: WalkthroughControllerContext): Wal
       options?.keepPaused ??
       (state.walkthrough.status === "paused" || state.walkthrough.status === "completed");
 
+    pauseRequest++;
+    state.walkthrough.pausePending = false;
     seekTargetTick = clamped;
     state.walkthrough.seeking = true;
     state.walkthrough.requestedTick = clamped;
@@ -745,6 +754,36 @@ export function useWalkthroughController(ctx: WalkthroughControllerContext): Wal
   function pauseWalkthrough(): void {
     if (state.walkthrough.active && state.walkthrough.status === "playing") {
       state.walkthrough.status = "paused";
+      const request = ++pauseRequest;
+      const sessionId = ctx.getActiveSessionId();
+      state.walkthrough.pausePending = true;
+      if (!state.walkthrough.seeking) {
+        const pending = replayDriver.pause?.(sessionId);
+        if (pending) {
+          void pending
+            .then((observation) => {
+              if (request !== pauseRequest || ctx.getActiveSessionId() !== sessionId) return;
+              state.walkthrough.tick = observation.tick;
+              state.walkthrough.requestedTick = observation.tick;
+              state.walkthrough.room = observation.state.room;
+              state.walkthrough.score = observation.state.vars[3] ?? 0;
+              state.walkthrough.percent =
+                state.walkthrough.totalTicks > 0
+                  ? Math.min(
+                      100,
+                      Math.round((observation.tick / state.walkthrough.totalTicks) * 100),
+                    )
+                  : 0;
+              state.walkthrough.pausePending = false;
+            })
+            .catch((error: unknown) => {
+              if (request !== pauseRequest || ctx.getActiveSessionId() !== sessionId) return;
+              abort();
+              state.walkthrough.status = "error";
+              state.walkthrough.error = String(error instanceof Error ? error.message : error);
+            });
+        } else state.walkthrough.pausePending = false;
+      }
       state.soundPlaying = false;
       ctx.audio?.stop();
       ctx.audio?.setPaused(true);
@@ -758,6 +797,8 @@ export function useWalkthroughController(ctx: WalkthroughControllerContext): Wal
 
   function resumeWalkthrough(): void {
     if (state.walkthrough.active && state.walkthrough.status === "paused") {
+      pauseRequest++;
+      state.walkthrough.pausePending = false;
       state.walkthrough.status = "playing";
       ctx.audio?.setPaused(false);
       notifyResume();

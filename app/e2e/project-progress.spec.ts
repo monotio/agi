@@ -19,9 +19,12 @@ import {
   savedGameCard,
   storedAutosave,
   textHook,
+  type TextHook,
   waitForAutosaveAfter,
   waitForCycles,
 } from "./engineProbe.ts";
+
+type TextFrame = Pick<TextHook, "cycle" | "frame" | "room" | "modal" | "rows">;
 
 const TUTORIAL_PROJECT_ID = "catalog-adventure-department-1.2.0";
 
@@ -409,6 +412,26 @@ test("a reload resumes the parked window in an agent-authored room @webkit-deskt
       rate: Number(process.env["AGI_PROGRESS_CPU_RATE"] ?? 6),
     });
   }
+  await page.addInitScript(() => {
+    let value: Window["__AGI_TEXT__"];
+    const frames: TextFrame[] = [];
+    Object.defineProperty(window, "__AGI_FRAME_LOG__", { value: frames });
+    Object.defineProperty(window, "__AGI_TEXT__", {
+      configurable: true,
+      get: () => value,
+      set: (next: Window["__AGI_TEXT__"]) => {
+        value = next;
+        if (next)
+          frames.push({
+            cycle: next.cycle,
+            frame: next.frame,
+            room: next.room,
+            modal: next.modal,
+            rows: [...next.rows],
+          });
+      },
+    });
+  });
   await isolateStorage(page);
   await page.goto("/");
   await openDeveloperActivity(page);
@@ -457,10 +480,27 @@ test("a reload resumes the parked window in an agent-authored room @webkit-deskt
       body: JSON.stringify({
         hook: await textHook(page),
         stored: await storedAutosave(page, "custom"),
+        frames: await page.evaluate(() => Reflect.get(window, "__AGI_FRAME_LOG__") as TextFrame[]),
       }),
       contentType: "application/json",
     });
   }
+
+  const frames = await page.evaluate(() => Reflect.get(window, "__AGI_FRAME_LOG__") as TextFrame[]);
+  const firstPrint = frames.findIndex(
+    (frame) => frame.room === 2 && frame.rows.join(" ").includes("generated room 2"),
+  );
+  expect(firstPrint).toBeGreaterThanOrEqual(0);
+  expect(
+    frames
+      .slice(firstPrint)
+      .filter(
+        (frame) => frame.modal !== "print" || !frame.rows.join(" ").includes("generated room 2"),
+      ),
+    "every published frame keeps the parked room window",
+  ).toEqual([]);
+
+  await page.screenshot({ path: test.info().outputPath("parked-room.png") });
 
   const stored = await storedAutosave(page, "custom");
   // Publication and the cycle acknowledgement belong to the room-2 parked image.
