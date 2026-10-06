@@ -77,11 +77,23 @@ import { expandProjectLogic } from "./projectLogic.ts";
 import { inspectProjectReferences } from "./projectReferences.ts";
 import { inspectProjectSourceDependencies } from "./projectSourceDependencies.ts";
 import { allocateProjectIds } from "./resourceAllocation.ts";
-
+import {
+  BOILERPLATE_PART_LABEL,
+  BOILERPLATE_PART_STEMS,
+  gameOverSource,
+  menusSource,
+  scoreSource,
+  type BoilerplatePart,
+} from "./boilerplateParts.ts";
 // ---------- Public types ----------
 
 export type GuidedOperationKind =
-  "add-room" | "place-hero" | "respond-to-command" | "connect-door" | "play-sound";
+  | "add-room"
+  | "place-hero"
+  | "respond-to-command"
+  | "connect-door"
+  | "play-sound"
+  | "add-boilerplate";
 
 /** What the operations need beyond their arguments: draft, kept image, profile. */
 export interface GuidedContext {
@@ -1399,7 +1411,7 @@ export function prepareGuidedAddRoom(ctx: GuidedContext, input: GuidedAddRoomInp
   const picVarName = freeBindingName(bindings, "pic_num");
   const picVar = allocateState(env, label, kind, "variable", bindings);
   if (!("num" in picVar)) return picVar;
-  bindings[picVarName] = { kind: "variable", num: picVar.num };
+  bindings[picVarName] = { kind: "variable", num: picVar.num, builtin: true };
 
   const picRef = input.pictureName !== undefined ? input.pictureName : String(pictureId);
   const lines: string[] = [
@@ -1460,6 +1472,84 @@ export function prepareGuidedAddRoom(ctx: GuidedContext, input: GuidedAddRoomInp
         ? [[`picture:${pictureId}`, picSource] as const]
         : []),
     ]),
+  );
+}
+
+// ---------- 1b. Boilerplate part ----------
+
+export interface GuidedBoilerplateInput {
+  readonly part: BoilerplatePart;
+}
+
+/**
+ * Add a ready shared-code part: one named LOGIC holding the menus and
+ * Save/Restore, the game over box or a score screen, readable and editable.
+ * Every binding the part needs is marked built in so Game state folds it.
+ */
+export function prepareGuidedBoilerplate(
+  ctx: GuidedContext,
+  input: GuidedBoilerplateInput,
+): GuidedOutcome {
+  const kind: GuidedOperationKind = "add-boilerplate";
+  const partLabel = BOILERPLATE_PART_LABEL[input.part];
+  if (partLabel === undefined)
+    return refuse(
+      kind,
+      "Add shared code",
+      "invalid-input",
+      "Choose one of the ready parts: Menus and Save/Restore, game over or score screen.",
+    );
+  const label = `Add ${partLabel}`;
+  const consulted = consult(ctx, kind, label);
+  if ("code" in consulted) return consulted;
+  const env: Env = { ...consulted, kind, label };
+
+  const logic = allocateResourceId(env, "logic", undefined, label, kind);
+  if (!("id" in logic)) return logic;
+  const bindings: Bindings = { ...env.bindings };
+  const logicName = freeBindingName(bindings, BOILERPLATE_PART_STEMS[input.part][0]!);
+  bindings[logicName] = { kind: "logic", num: logic.id, builtin: true };
+
+  const state = (stateKind: "flag" | "variable", stem: string) => {
+    const name = freeBindingName(bindings, stem);
+    const allocated = allocateState(env, label, kind, stateKind, bindings);
+    if (!("num" in allocated)) return allocated;
+    bindings[name] = { kind: stateKind, num: allocated.num, builtin: true };
+    return { name };
+  };
+
+  let source: string;
+  if (input.part === "menus") {
+    const ready = state("flag", "menus_ready");
+    if (!("name" in ready)) return ready;
+    source = menusSource({ menusLogic: logicName, menusReady: ready.name });
+  } else if (input.part === "game-over") {
+    const dead = state("flag", "dead");
+    if (!("name" in dead)) return dead;
+    const chosen = state("flag", "game_over_chosen");
+    if (!("name" in chosen)) return chosen;
+    const cursor = state("variable", "game_over_cursor");
+    if (!("name" in cursor)) return cursor;
+    source = gameOverSource({
+      gameOverLogic: logicName,
+      dead: dead.name,
+      chosen: chosen.name,
+      cursor: cursor.name,
+    });
+  } else {
+    source = scoreSource(logicName);
+  }
+
+  const key = `logic:${logic.id}`;
+  return finish(
+    ctx,
+    env,
+    [
+      { key, content: source },
+      { key: "bindings", content: bindingsDocument(bindings) },
+    ],
+    new Map([[key, [{ start: 0, end: source.length }]]]),
+    new Map([[key, source]]),
   );
 }
 
@@ -2463,7 +2553,11 @@ export function prepareGuidedPlaySound(
     if (existing) return { num: existing.num, name: chosen };
     const allocated = allocateState(env, label, kind, "flag", bindings);
     if (!("num" in allocated)) return allocated;
-    bindings[chosen] = { kind: "flag", num: allocated.num };
+    bindings[chosen] = {
+      kind: "flag",
+      num: allocated.num,
+      ...(name === undefined ? { builtin: true } : {}),
+    };
     return { num: allocated.num, name: chosen };
   };
 

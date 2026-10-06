@@ -192,16 +192,17 @@ test("guided room creation reads a detached snapshot and returns one coordinated
 
 test("guided sound preset creates a cue and command playback in one detached change", () => {
   const starter = createStarterProject("starter");
-  const documents = {
-    ...Object.fromEntries(
-      emptyWorkspaceChanges("room").map((change) => [change.key, change.content!]),
-    ),
-    "logic:1": starter.sources.logics.get(1)!,
-    "view:0": buildView(starter.sources.views.get(0)!),
-    "sound:1": JSON.stringify(starter.sources.sounds.get(1)),
+  const documents: Record<string, string | Uint8Array> = {
     words: JSON.stringify([...starter.sources.words]),
+    inventory: JSON.stringify(starter.sources.objects),
     bindings: JSON.stringify(starter.bindings),
+    world: JSON.stringify({ rooms: {}, facts: {}, quests: {} }),
   };
+  for (const [num, source] of starter.sources.logics) documents[`logic:${num}`] = source;
+  for (const [num, source] of starter.sources.pictures) documents[`picture:${num}`] = source;
+  for (const [num, source] of starter.sources.sounds)
+    documents[`sound:${num}`] = JSON.stringify(source);
+  documents["view:0"] = buildView(starter.sources.views.get(0)!);
   const build = compileProjectDocuments({ files: {}, documents, profileId: "2.936" });
   const model = new ProjectModel({ documents, build, digest: sha256Hex });
   const snapshot = model.capture();
