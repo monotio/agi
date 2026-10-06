@@ -205,7 +205,8 @@ export function readWorldLaunches(value: unknown): WorldLaunches {
     }
     const room = fields(read[key], ROOM_LAUNCH_FIELDS, `launches for room '${key}'`);
     const entries = room["entries"];
-    if (!Array.isArray(entries)) throw new Error(`Invalid launches entries for room '${key}'.`);
+    if (!Array.isArray(entries) || entries.length > 256)
+      throw new Error(`Invalid launches entries for room '${key}'.`);
     const used = new Set<string>();
     const list = entries.map((entry) => {
       const launch = readEntry(entry, key, used);
