@@ -19,7 +19,7 @@ import type { DraftStatus } from "./StudioDraftControls.vue";
 import { useStudioCommit } from "./useStudioCommit.ts";
 
 /** Room Studio's Keep transaction. */
-export type KeepFn = (edit: PictureEdit) => Promise<ResourceCommitResult>;
+type KeepFn = (edit: PictureEdit) => Promise<ResourceCommitResult>;
 
 /** What a Keep reads from a Studio draft and tells it back. */
 export interface KeepableDraft {

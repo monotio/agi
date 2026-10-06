@@ -66,7 +66,7 @@ export interface StudioAssistOptions {
 }
 
 export const STALE_TEXT = "You changed the picture while the AI worked. Follow up.";
-export const STALE_VIEW_TEXT = "You changed the view while the AI worked. Follow up.";
+const STALE_VIEW_TEXT = "You changed the view while the AI worked. Follow up.";
 
 type Violation = { readonly constraint?: string; readonly plane?: string };
 
@@ -340,4 +340,4 @@ export function useStudioAssist(options: StudioAssistOptions) {
   };
 }
 
-export type StudioAssist = ReturnType<typeof useStudioAssist>;
+type StudioAssist = ReturnType<typeof useStudioAssist>;
