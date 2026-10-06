@@ -688,6 +688,21 @@ describe("useStudioDrag", () => {
     assert.equal(draft.history.value.past.length, 1);
   });
 
+  it("moves by the pointer displacement at fractional zoom, with one undo step", () => {
+    const { draft, drag, frames, at } = dragRig();
+    // At fractional zoom, integer browser coordinates can put the endpoints
+    // four cells apart even when the pointer moves three cell widths.
+    drag.press(at(59, 95));
+    drag.drag({ ...at(63, 95), delta: { x: 3, y: 0 } });
+    frames.shift()!();
+    assert.match(draft.preview.value!.source, /rect 43,90 122,105/);
+    drag.release({ ...at(57, 96), delta: { x: -3, y: 2 } });
+    assert.equal(line(draft, 12), "rect 37,92 116,107");
+    assert.equal(draft.history.value.past.length, 1);
+    draft.undo();
+    assert.equal(draft.source.value, SOURCE);
+  });
+
   it("adds a point with an Alt+press by the line, placed by the drag, as one step each", () => {
     const { draft } = setup("walk");
     const frames: (() => void)[] = [];

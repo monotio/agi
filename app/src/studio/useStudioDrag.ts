@@ -240,7 +240,7 @@ export function useStudioDrag(options: StudioDragOptions) {
     lasso = { start: cell, add: false, moved: false };
   }
 
-  function drag({ cell }: PanePress): void {
+  function drag({ cell, delta }: PanePress): void {
     if (lasso) {
       lasso.moved ||= cell.x !== lasso.start.x || cell.y !== lasso.start.y;
       if (!lasso.moved) return;
@@ -251,9 +251,9 @@ export function useStudioDrag(options: StudioDragOptions) {
     }
     const current = armed;
     if (!current) return;
-    current.latest = cell;
+    current.latest = delta ? { x: current.start.x + delta.x, y: current.start.y + delta.y } : cell;
     if (!current.started) {
-      if (cell.x === current.start.x && cell.y === current.start.y) return;
+      if (current.latest.x === current.start.x && current.latest.y === current.start.y) return;
       start(current);
     }
     pending ??= frame(preview);
@@ -283,7 +283,9 @@ export function useStudioDrag(options: StudioDragOptions) {
     // A click on the selection, without a drag, selects just the item clicked.
     if (current && !current.started && !current.handle) options.pick(current.start);
     if (!current?.started) return;
-    current.latest = press.cell;
+    current.latest = press.delta
+      ? { x: current.start.x + press.delta.x, y: current.start.y + press.delta.y }
+      : press.cell;
     dragging.value = false;
     const limit = limitOf(current);
     const stopped = stoppedDead(current, limit);
