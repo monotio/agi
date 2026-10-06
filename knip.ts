@@ -29,7 +29,6 @@ const config: KnipConfig = {
         // (`/src/...`) that knip does not follow from html entry files.
         "src/ui/gallery.ts",
         "src/studio/harness.ts",
-        "src/studio/sprite/harness.ts",
         // The default playwright.config.ts is auto-detected; the variant
         // configs (phone/capture/production/speedrun/media) are not.
         "playwright*.config.ts",

@@ -492,7 +492,7 @@ icon buttons) live in `app/src/ui/`. `npm run lint:tokens` is a ratchet that
 fails on new raw colours, font sizes and radii outside the tokens file, so
 new chrome should reach for a token or a `ui/` component first. After a reviewed
 cleanup, `npm run lint:tokens -- --update` records the new baseline.
-`app/ui-gallery.html`, `app/studio-harness.html` and `app/sprite-harness.html`
+`app/ui-gallery.html` and `app/studio-harness.html?probe=1`
 are dev/test pages. Run `npm run dev`, then open their corresponding URLs.
 
 ### UI fonts
