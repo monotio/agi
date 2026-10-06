@@ -8,6 +8,34 @@ import {
   workspaceUpdated,
 } from "./engineProbe.ts";
 
+for (const [width, height] of [
+  [1063, 815],
+  [1440, 900],
+  [390, 844],
+] as const)
+  test(`WORDS shortcut opens the shared agent at ${width}`, async ({ page }) => {
+    await page.setViewportSize({ width, height });
+    await isolateStorage(page);
+    await page.goto("/");
+    await configureAi(page, { provider: "stub" });
+    await page.goto("/#create-adventure");
+    await page.getByTestId("local-create-kind-starter").click();
+    await page.getByRole("button", { name: "Start building", exact: true }).click();
+    if (width === 390) await page.getByTestId("workspace-parts").click();
+    await page.getByTestId("part-words").click();
+    const words = page.getByTestId("workspace-words-editor");
+    await expect(words).toBeVisible();
+    await page.screenshot({ path: test.info().outputPath(`words-${width}-before.png`) });
+    await words.getByRole("button", { name: "Suggest sentences", exact: true }).click();
+    const panel = page.getByTestId("workspace-agent-panel");
+    await expect(panel).toBeVisible();
+    await expect(panel.getByTestId("agent-message")).toHaveValue(
+      "Predict what players will try in Meadow",
+    );
+    await expect(panel.getByRole("button", { name: "Send", exact: true })).toBeEnabled();
+    await page.screenshot({ path: test.info().outputPath(`words-${width}-after.png`) });
+  });
+
 for (const width of [1440, 1280])
   test(`Words sentence, local playtest miss and Same as at ${width}`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });
@@ -96,7 +124,9 @@ for (const width of [1440, 1280])
     await expect(page.locator(".play-area")).toBeVisible();
   });
 
-test("WORDS row actions, in-place stub suggestions and tester choices", async ({ page }) => {
+test("WORDS row actions hand prompts to the shared agent and retain suggestion chips", async ({
+  page,
+}) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await isolateStorage(page);
   await page.goto("/");
@@ -126,7 +156,13 @@ test("WORDS row actions, in-place stub suggestions and tester choices", async ({
   await expect(row.getByRole("textbox")).toHaveCount(0);
   await suggest.click();
   const panel = page.getByTestId("workspace-agent-panel");
-  await expect(panel).toBeHidden();
+  await expect(panel).toBeVisible();
+  await expect(panel.getByTestId("agent-message")).toHaveValue("Suggest words for look");
+  await panel.getByRole("button", { name: "Send", exact: true }).click();
+  await expect(panel).toBeVisible();
+  await expect(panel).toContainText("Suggested inspect, check");
+  await panel.getByRole("button", { name: "Close", exact: true }).click();
+  await expect(row.locator(".word-suggestion").first()).toBeVisible();
   await expect(row.locator(".word-suggestion")).toHaveText(["inspect", "check"]);
   await expect(row.locator(".word-suggestion").first()).toHaveCSS("border-style", "dashed");
   await expect(words.getByRole("status")).toContainText("Suggestions from");
@@ -149,8 +185,12 @@ test("WORDS row actions, in-place stub suggestions and tester choices", async ({
   await page.getByRole("button", { name: "Redo", exact: true }).click();
   await expect(page.getByTestId("sentence-parse")).toContainText("· 100");
   await words.getByRole("button", { name: "Suggest sentences", exact: true }).click();
-  await expect(panel).toBeHidden();
+  await expect(panel).toBeVisible();
+  await panel.getByRole("button", { name: "Send", exact: true }).click();
+  await expect(panel).toContainText("Predicted 2 commands");
+  await panel.getByRole("button", { name: "Close", exact: true }).click();
   const predicted = words.getByRole("region", { name: "Predicted commands" });
+  await expect(predicted).toBeVisible();
   await expect(predicted).toContainText("climb tree");
   await expect(predicted).toContainText("✦ look tree");
   await expect(page.getByTestId("workspace-saved")).toBeVisible();
@@ -204,6 +244,7 @@ test("WORDS row actions, in-place stub suggestions and tester choices", async ({
   await words.getByRole("button", { name: "Open chat", exact: true }).click();
   await expect(panel).toBeVisible();
   await expect(panel).toContainText("Suggest words for look");
+  await expect(panel).toBeVisible();
   await expect(panel).toContainText("Suggested inspect, check · shown in WORDS");
   await expect(panel).toContainText("Predict what players will try in Meadow");
   await expect(page.getByTestId("workspace-saved")).toBeVisible();
@@ -213,12 +254,11 @@ test("WORDS row actions, in-place stub suggestions and tester choices", async ({
   await page.getByTestId("part-words").click();
   await expect(words.locator('[data-word-group="100"]')).toContainText("inspect");
   await page.getByTestId("workspace-agent").click();
+  await expect(panel).toBeVisible();
   await expect(panel).toContainText("Suggested inspect, check · shown in WORDS");
 });
 
-test("WORDS suggestions show progress, inline failures and retry while chat stays closed", async ({
-  page,
-}) => {
+test("WORDS shared agent replies show failures and prepare retries", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await isolateStorage(page);
   await page.goto("/");
@@ -264,19 +304,33 @@ test("WORDS suggestions show progress, inline failures and retry while chat stay
   const row = words.locator('[data-word-group="100"]');
   await row.hover();
   await row.getByRole("button", { name: "Suggest", exact: true }).click();
-  await expect(row).toContainText("Suggesting…");
-  await expect(page.getByTestId("workspace-agent-panel")).toBeHidden();
+  const drawer = page.getByTestId("workspace-agent-panel");
+  await expect(drawer).toBeVisible();
+  await drawer.getByRole("button", { name: "Send", exact: true }).click();
+  await expect.poll(() => requests).toBe(1);
   await page.screenshot({ path: test.info().outputPath("words-suggesting-1440.png") });
   release();
+  await expect(drawer).toContainText("The reply’s JSON could not be read.");
+  await drawer.getByRole("button", { name: "Close", exact: true }).click();
+  await expect(row.getByRole("alert")).toBeVisible();
   await expect(row.getByRole("alert")).toContainText("The reply’s JSON could not be read.");
   await page.screenshot({ path: test.info().outputPath("words-retry-1440.png") });
   await row.getByRole("button", { name: "Retry", exact: true }).click();
+  await expect(drawer).toBeVisible();
+  await drawer.getByRole("button", { name: "Send", exact: true }).click();
+  await expect(drawer).toContainText("Suggested inspect");
+  await drawer.getByRole("button", { name: "Close", exact: true }).click();
   await expect(row.locator(".word-suggestion")).toHaveText("inspect");
   await expect(words.getByRole("status")).toContainText("Suggestions from GPT-6.1 Sol · Open chat");
   await row.getByRole("button", { name: "Dismiss", exact: true }).focus();
   await page.keyboard.press("Escape");
   await expect(row.locator(".word-suggestion")).toHaveCount(0);
   await words.getByRole("button", { name: "Suggest sentences", exact: true }).click();
+  await expect(drawer).toBeVisible();
+  await drawer.getByRole("button", { name: "Send", exact: true }).click();
+  await expect(drawer).toContainText("Predicted 1 command");
+  await drawer.getByRole("button", { name: "Close", exact: true }).click();
+  await expect(words.getByRole("region", { name: "Predicted commands" })).toBeVisible();
   await expect(words.getByRole("region", { name: "Predicted commands" })).toContainText(
     "look tree",
   );
@@ -286,6 +340,7 @@ test("WORDS suggestions show progress, inline failures and retry while chat stay
   await words.getByRole("button", { name: "Open chat", exact: true }).click();
   const panel = page.getByTestId("workspace-agent-panel");
   const user = panel.locator(".agent-panel__message--user").first();
+  await expect(user).toBeVisible();
   await expect(user.locator("p").first()).toHaveText("Suggest words for look");
   await expect(user.locator("details")).not.toHaveAttribute("open", "");
   await user.locator("summary").click();
@@ -294,9 +349,11 @@ test("WORDS suggestions show progress, inline failures and retry while chat stay
     .locator(".agent-panel__message")
     .filter({ hasText: "Suggested inspect · shown in WORDS" });
   await reply.locator("summary").click();
+  await expect(reply.locator("pre")).toBeVisible();
   await expect(reply.locator("pre")).toHaveText('{"synonyms":["inspect"]}');
   await page.reload();
   await page.getByTestId("workspace-agent").click();
+  await expect(panel).toBeVisible();
   await expect(panel).toContainText("Suggested inspect · shown in WORDS");
 });
 

@@ -23,7 +23,9 @@ export interface LogicLanguageProject {
   readonly profileId: ProfileId;
   readonly words: readonly (readonly [string, number])[];
   readonly objects?: readonly string[];
-  readonly bindings: Readonly<Record<string, { readonly num: number; readonly kind?: string }>>;
+  readonly bindings: Readonly<
+    Record<string, { readonly num: number; readonly kind?: string; readonly logic?: number }>
+  >;
   readonly documents: Readonly<
     Record<string, { readonly source: string; readonly version?: number; readonly uri?: string }>
   >;

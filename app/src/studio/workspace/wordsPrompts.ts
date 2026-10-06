@@ -95,36 +95,6 @@ export function wordsTaskReply(reply: string, task: WordsTask): ReturnType<Reply
   }
   return { text, context: reply };
 }
-/** Ask through the shared task chat while the editor keeps its focus. */
-export async function runWordsTask(input: {
-  task: Exclude<WordsTask, { kind: "review" }>;
-  documents: Readonly<Record<string, ProjectContent>>;
-  engine: EngineApi;
-  config: () => LlmConfig;
-}): Promise<{ values: string[]; problem: string }> {
-  const session = input.engine.getProjectSession();
-  if (!session) throw new Error("Open a project to suggest words.");
-  const [{ borrowWorkspaceAgent }, runtime] = await Promise.all([
-    import("../../agent/workspaceAgent.ts"),
-    input.engine.getAgentRuntime(),
-  ]);
-  if (input.engine.getProjectSession() !== session)
-    throw new Error("The project changed. Try again in the current project.");
-  const agent = borrowWorkspaceAgent({
-    session,
-    profileId: input.engine.roomMap.resources.value.profile?.id ?? "2.936",
-    config: input.config,
-    runtime: () => runtime,
-  });
-  const request = wordsTaskRequest(input.task, input.documents);
-  let raw = "";
-  await agent.ask(request.text, request.context, (reply) => {
-    raw = reply;
-    return wordsTaskReply(reply, input.task);
-  });
-  const values = readWordSuggestions(raw, input.task.kind);
-  return { values, problem: values.length ? "" : wordsTaskReply(raw, input.task).text };
-}
 /** One prefilled handoff point for the workspace's existing agent surface. */
 export async function openWordsTask(input: {
   task: WordsTask;

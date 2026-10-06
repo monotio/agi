@@ -93,7 +93,7 @@ export function executeAuthoringTool(
 
       for (const item of items) {
         const symbol = item.name;
-        const kind = item.kind as BindingKind;
+        const kind = item.kind as Exclude<BindingKind, "object" | "inventory" | "message">;
         if (
           typeof symbol !== "string" ||
           !/^[a-z][a-z0-9_]{0,63}$/.test(symbol) ||

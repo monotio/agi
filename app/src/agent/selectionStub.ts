@@ -1,78 +1,18 @@
-/**
- * The Studio assist task: the creator selects something in Room Studio or
- * Sprite Studio and asks for a change to just that. The session runs it with
- * read_edit_context, propose_changes, withdraw_changes and read-only inspection
- * (STUDIO_ASSIST_TASK_TOOLS); every other tool is denied. The result's
- * candidate is data: the UI shows its before | after preview and applies
- * `candidate.draft` as one undo step when the creator accepts.
- *
- * The deterministic stub below scripts the model side for offline tests and
- * the eval harness's dry run: "walkable" turns the selection's barrier into
- * the walkable control value beside it (control 0–3 only, as the default
- * Walk locks allow), "eyes" recolours the selected cels' rarest colour blue,
- * "bad" first recolours the selected art under the lens lock, reads the
- * refusal, then retries with the walkable change, "move" moves the first
- * selected item 8 pixels right (whatever that does to fills drawn after
- * it), "withdraw" proposes the walkable change and then withdraws it with withdraw_changes, as a model does
- * that concludes its own candidate should be rejected, "impossible" reads
- * the selection and declines with an explanation, proposing nothing, and
- * "reference" views the reference art attached to the request with
- * read_reference_image, reads the selection and declines, saying which art it
- * viewed and what images the request itself carried (a manifest's contact
- * strip, never the art), so a test can see the handles arrive.
- */
-import {
-  STUDIO_ASSIST_TOOLS,
-  type StudioCandidate,
-  type StudioFocus,
-} from "../../../src/agent/studioAssistTools.ts";
+/** Deterministic selection scenarios inside the workspace provider; no network. */
+import { SELECTION_TOOLS } from "../../../src/agent/selectionTools.ts";
 import type { AgentToolImage, AgentToolResult } from "../../../src/agent/agentState.ts";
 import type { LlmTurnResult, UnifiedConversation } from "./llmClient.ts";
 import { describeImages, MANIFEST_LINE } from "./referenceStub.ts";
-
-export interface StudioAssistRequest {
-  /** The creator's words. */
-  readonly instruction: string;
-  readonly focus: StudioFocus;
-  /** Optional caller-requested proposal ceiling. */
-  readonly maxProposals?: number;
-  /** Stored reference records the creator attached to this request. */
-  readonly referenceIds?: readonly string[];
-}
-
-export interface StudioAssistResult {
-  /** The model's closing sentence. */
-  readonly text: string;
-  /** The latest candidate that passed its scope and was not withdrawn, or null. */
-  readonly candidate: StudioCandidate | null;
-  readonly proposals: number;
-  readonly refusals: number;
-}
-
-/** Provider turns with tool calls one request may take: a ceiling, not a target. */
-
-/** The user turn of a Studio assist request; the cached system prompt stays unchanged. */
-export function createStudioAssistPrompt(instruction: string, focus: StudioFocus): string {
-  const { kind, num } = focus.scope;
-  const studio = kind === "picture" ? "Room Studio" : "Sprite Studio";
-  return `### STUDIO ASSIST REQUEST
-
-The creator is editing ${kind} ${num} in ${studio}${focus.lens ? ` (${focus.lens} lens)` : ""} and asks about their selection:
-
-"${instruction.trim()}"
-
-You may change only the selection. Call read_edit_context, then propose_changes with the operations that make exactly this change. The host checks each candidate on decoded pixels and refuses edits to unselected items, drawing outside the selection, changes on a locked plane or protected loop, a candidate over the byte budget, and one that draws the same pixels as the draft: read the refusal, fix that, and propose again. It reports side effects, cells of other items that change (a fill that pours differently), for you and the creator to judge. If you conclude that no change can meet the request, or you would tell the creator to reject your own candidate, call withdraw_changes so they are not offered it. Nothing is applied until the creator accepts. Finish with one sentence describing the change, or saying what blocks it.`;
-}
 
 type Scenario =
   "walkable" | "eyes" | "bad" | "move" | "withdraw" | "impossible" | "reference" | "none";
 
 /** The stub's explanation when it declines ("impossible"): nothing is proposed. */
-export const STUB_DECLINE_TEXT =
+const STUB_DECLINE_TEXT =
   "I can't do that within your selection: the change would need cells outside it, so I left the draft as it is.";
 
 /** The stub's reason for withdrawing its own candidate ("withdraw"). */
-export const STUB_WITHDRAW_REASON =
+const STUB_WITHDRAW_REASON =
   "The walkway would not reach the floor the player walks on, so it should not be accepted.";
 
 function scenarioOf(instruction: string): Scenario {
@@ -87,7 +27,7 @@ function scenarioOf(instruction: string): Scenario {
   return "none";
 }
 
-const propose = STUDIO_ASSIST_TOOLS.find((tool) => tool.name === "propose_changes")!;
+const propose = SELECTION_TOOLS.find((tool) => tool.name === "edit_selection")!;
 const opFields = (list: "pictureOps" | "spriteOps") =>
   (propose.parameters.properties[list] as { items: { required: readonly string[] } }).items
     .required;
@@ -270,16 +210,19 @@ function eyesProposal(context: ViewContext) {
 }
 
 /**
- * A scripted conversation for the Studio assist loop: the same tool calls a
+ * A scripted conversation for workspace selection tools: the same tool calls a
  * model makes, decided from the tool results it is shown. No network.
  */
-export function createStudioAssistStub(instruction: string): UnifiedConversation {
+export function createSelectionStub(
+  instruction: string,
+  initial: readonly unknown[] = [],
+): UnifiedConversation {
   const scenario = scenarioOf(instruction);
-  const transcript: unknown[] = [];
+  const transcript: unknown[] = [...initial];
   const names = new Map<string, string>();
   let context: PictureContext | ViewContext | null = null;
   const outcomes: boolean[] = [];
-  /** "withdraw": what withdraw_changes answered, once called. */
+  /** "withdraw": what withdraw_selection answered, once called. */
   let withdrawn: AgentToolResult | null = null;
   let calls = 0;
   /** "reference": the attached art's id, what read_reference_image answered, and the request's images. */
@@ -289,7 +232,7 @@ export function createStudioAssistStub(instruction: string): UnifiedConversation
   const call = (name: string, input: Record<string, unknown>): LlmTurnResult => {
     const id = `stub-${++calls}`;
     names.set(id, name);
-    transcript.push({ role: "assistant", tool: name, input });
+    transcript.push({ role: "assistant", text: JSON.stringify({ tool: name, input }) });
     return { toolCalls: [{ id, name, input }] };
   };
   const say = (text: string): LlmTurnResult => {
@@ -328,19 +271,19 @@ export function createStudioAssistStub(instruction: string): UnifiedConversation
     if (context.kind === "view") {
       if (scenario !== "eyes" || outcomes.length > 0)
         return say("I could not make that change within the selection.");
-      return call("propose_changes", eyesProposal(context));
+      return call("edit_selection", eyesProposal(context));
     }
     if (scenario === "none" || scenario === "eyes")
-      return say("The stub has no Studio change for that request.");
+      return say("The stub has no selection change for that request.");
     if (scenario === "move")
       return outcomes.length === 0
-        ? call("propose_changes", moveProposal(context))
+        ? call("edit_selection", moveProposal(context))
         : say("I could not make that change within the selection.");
     const walkable = walkableProposal(context);
     if (outcomes.length === 0 && scenario === "bad")
-      return call("propose_changes", artProposal(context));
+      return call("edit_selection", artProposal(context));
     if (walkable && outcomes.length === (scenario === "bad" ? 1 : 0))
-      return call("propose_changes", walkable);
+      return call("edit_selection", walkable);
     return say("I could not make that change within the selection.");
   };
   return {
@@ -358,20 +301,24 @@ export function createStudioAssistStub(instruction: string): UnifiedConversation
     appendToolResults(results: { toolCallId: string; result: AgentToolResult }[]) {
       for (const { toolCallId, result } of results) {
         transcript.push({
-          role: "tool",
-          toolCallId,
-          success: result.success,
-          images: describeImages(result.images),
+          role: "assistant",
+          text: JSON.stringify({
+            toolCallId,
+            result: { ...result, images: describeImages(result.images) },
+          }),
         });
         const name = names.get(toolCallId);
         if (name === "read_reference_image") viewed = result;
         if (name === "read_edit_context" && result.success) context = asEditContext(result.details);
-        if (name === "propose_changes") outcomes.push(result.success);
+        if (name === "edit_selection") outcomes.push(result.success);
         if (name === "withdraw_changes") withdrawn = result;
       }
     },
     async complete() {
       return next();
+    },
+    recordInterruption(text) {
+      transcript.push({ role: "user", text });
     },
     getTranscript() {
       return structuredClone(transcript);

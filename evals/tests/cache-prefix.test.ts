@@ -13,8 +13,6 @@
  *   remix-references  openai      100%            95.4%
  *   room-build        anthropic   100% within each background task
  *   room-build        openai      100% within each background task
- *   studio-assist     anthropic   100%            96.8%
- *   studio-assist     openai      100%            96.8%
  *   ask               anthropic   100%            96.1%
  *   ask               openai      100%            96.1%
  *
@@ -34,7 +32,6 @@ import { installScriptedProvider, queueScript } from "../lib/scripted-provider.t
 const CACHEABLE_FLOOR: Record<string, number> = {
   "remix-references": 0.92,
   "room-build": 0.9,
-  "studio-assist": 0.94,
   ask: 0.93,
 };
 

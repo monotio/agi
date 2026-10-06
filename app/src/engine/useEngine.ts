@@ -1171,9 +1171,6 @@ export function useEngine(
         author: edit.author,
       });
     },
-    runStudioAssist: async (
-      ...args: Parameters<ReturnType<typeof useAuthoringController>["runStudioAssist"]>
-    ) => (await loadAuthoringController()).runStudioAssist(...args),
     stopAgent: () => authoringController?.getSession()?.task.stop(),
     continueAgent: (requestLimit?: number) =>
       authoringController?.getSession()?.task.resume(requestLimit),

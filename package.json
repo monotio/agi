@@ -47,7 +47,6 @@
     "eval:image-style": "node --experimental-strip-types evals/image-style.ts",
     "eval:picture": "node --experimental-strip-types evals/picture-fidelity.ts",
     "eval:remix": "node --experimental-strip-types evals/remix-benchmark.ts",
-    "eval:studio": "node --experimental-strip-types evals/studio-assist-benchmark.ts",
     "eval:references": "node --experimental-strip-types evals/reference-benchmark.ts",
     "eval:cache": "node --experimental-strip-types evals/cache-probe.ts",
     "eval:matrix": "node --experimental-strip-types evals/genesis-matrix.ts",

@@ -921,6 +921,24 @@ export const VOCABULARY_ACTIONS = {
     tool: "read_reference_image",
   },
   write_room: { ...VOCABULARY.room, id: "write_room", label: "Write room", tool: "write_room" },
+  edit_selection: {
+    ...VOCABULARY.editContext,
+    id: "edit_selection",
+    label: "Edit selection",
+    tool: "edit_selection",
+  },
+  withdraw_selection: {
+    ...VOCABULARY.editContext,
+    id: "withdraw_selection",
+    label: "Withdraw selection",
+    tool: "withdraw_selection",
+  },
+  propose_names: {
+    ...VOCABULARY.reserveName,
+    id: "propose_names",
+    label: "Name game parts",
+    tool: "propose_names",
+  },
   read_edit_context: {
     ...VOCABULARY.editContext,
     id: "read_edit_context",

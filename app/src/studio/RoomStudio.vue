@@ -86,7 +86,7 @@ import { explain } from "./studioTerms.ts";
 import { isWalkTool, TOOL_KEYS, type StudioTool } from "./studioTools.ts";
 import { studioKey, type StudioKeyActions } from "./studioKeys.ts";
 import { lensItemLocks, lockedPlanes, NO_UNLOCKS, type LensUnlocks } from "./studioLocks.ts";
-import { changedCells } from "./studioAssistText.ts";
+import { changedCells } from "./changedCells.ts";
 import {
   bandGuides,
   controlLabels,
@@ -373,14 +373,14 @@ const askTargets = computed<string[]>(() => {
 const itemLabel = (id: string): string =>
   draft.document.value.items.find((item) => item.id === id)?.label ?? id;
 watch(
-  [askTargets, lens],
-  ([ids, currentLens]) => {
+  [askTargets, lens, unlocks],
+  ([ids, currentLens, currentUnlocks]) => {
     emit(
       "agent-context",
       ids.length
         ? {
             label: `PICTURE ${pictureNumber} · ${ids.map(itemLabel).join(", ")}`,
-            text: `Selected item ids: ${ids.join(", ")}. Lens: ${currentLens}.`,
+            text: `Selected item ids: ${ids.join(", ")}. Lens: ${currentLens}. Unlocks: ${JSON.stringify(currentUnlocks)}.`,
           }
         : null,
     );

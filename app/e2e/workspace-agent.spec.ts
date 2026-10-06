@@ -370,6 +370,56 @@ test("saved reviews reopen with previews and detect a changed base", async ({ pa
   await expect(page.getByTestId("agent-review")).toHaveCount(0);
 });
 
+test("stored workspace reference art sends a handle and thumbnail to the shared provider", async ({
+  page,
+}) => {
+  const { encodePngRgb } = await import("../../src/picture/png.ts");
+  let request:
+    { input?: { content?: { type: string; text?: string; image_url?: string }[] }[] } | undefined;
+  await page.route("**/api/openai/v1/responses", async (route) => {
+    request = route.request().postDataJSON() as typeof request;
+    await route.fulfill(
+      providerReply("openai", {
+        id: "reference-preview",
+        output: [
+          {
+            type: "message",
+            role: "assistant",
+            content: [{ type: "output_text", text: "Reference received." }],
+          },
+        ],
+      }),
+    );
+  });
+  await start(page, "openai");
+  const panel = page.getByTestId("workspace-agent-panel");
+  await panel.getByTestId("agent-attach-reference").click();
+  const upload = page.getByTestId("reference-upload");
+  await expect(upload).toBeVisible();
+  await upload.getByTestId("reference-room-file").setInputFiles({
+    name: "bridge.png",
+    mimeType: "image/png",
+    buffer: Buffer.from(encodePngRgb(1, 1, new Uint8Array([0, 0, 170]))),
+  });
+  await upload.getByTestId("reference-attach").click();
+  await expect(upload.getByTestId("reference-staged")).toBeVisible();
+  await upload.getByRole("button", { name: "Close", exact: true }).click();
+  await page.goto("/");
+  await page.reload();
+  await openStoredWorkspace(page, "Agent proof");
+  await openWorkspaceAgent(page);
+  await expect(panel).toBeVisible();
+  await panel.getByTestId("agent-message").fill("Describe the attached reference");
+  await panel.getByRole("button", { name: "Send", exact: true }).click();
+  await expect(panel).toContainText("Reference received.");
+  const content = request?.input?.flatMap((entry) => entry.content ?? []) ?? [];
+  expect(content.map((entry) => entry.text ?? "").join("\n")).toMatch(/art-[0-9a-f]{10}/);
+  const images = content.filter((entry) => entry.type === "input_image");
+  expect(images).toHaveLength(1);
+  const png = Buffer.from(images[0]!.image_url!.split(",")[1]!, "base64");
+  expect([png.readUInt32BE(16), png.readUInt32BE(20)]).toEqual([72, 72]);
+});
+
 test("the workspace composer offers reference art", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await start(page);

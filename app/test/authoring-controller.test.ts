@@ -38,11 +38,6 @@ import type { DecodedImage } from "../src/references/referenceArt.ts";
 import { base64ToBytes, bytesToBase64 } from "../src/project/bytes.ts";
 import { resourceSetHint } from "../../src/agent/authoringState.ts";
 import type { HistoryBoot } from "../../src/agent/history.ts";
-import { pictureAssistScope } from "../../src/studio/assistScope.ts";
-import { compileEditDocument } from "../../src/studio/editValidation.ts";
-import { parsePictureDocument } from "../../src/studio/pictureDocument.ts";
-import { DEFAULT_V2_PROFILE } from "../../src/runtime/profile.ts";
-import { BRIDGE_SOURCE } from "../../test/studioAssistFixtures.ts";
 import type { BootedGame } from "../src/project/gameTypes.ts";
 import type { AwaitPatchedFn } from "../src/engine/workerQueries.ts";
 
@@ -1652,29 +1647,6 @@ test("a stale tab's Ask says the game changed elsewhere and never saves over the
   await untouched();
 });
 
-test("a stale tab's Studio assist request refuses as stale and never saves over the newer project", async (t) => {
-  const { controller, untouched } = await staleTab(t, "two-tab-studio-assist");
-  const compiled = compileEditDocument(
-    parsePictureDocument(BRIDGE_SOURCE).document,
-    DEFAULT_V2_PROFILE,
-  );
-  await assert.rejects(
-    controller.runStudioAssist(
-      {
-        instruction: "impossible: walk onto the ceiling",
-        focus: {
-          scope: pictureAssistScope({ num: 1, compiled, targetIds: ["bridge"], lens: "walk" }),
-          draft: () => ({ kind: "picture", source: BRIDGE_SOURCE }),
-          lens: "walk",
-        },
-      },
-      mockConfig,
-    ),
-    staleSave,
-  );
-  await untouched();
-});
-
 test("a stale tab's world-plan save refuses as stale and never saves over the newer project", async (t) => {
   const { controller, untouched } = await staleTab(t, "two-tab-plan");
   await assert.rejects(controller.persistSessionState(), staleSave);
@@ -1939,110 +1911,4 @@ test("a history adoption with no session stores the adopted files over the recor
   const stored = (await loadAuthoredGame(projectId))!;
   assert.equal(await gameRevision(stored.files), await gameRevision(files));
   assert.equal(game.revision, await gameRevision(files));
-});
-
-test("runStudioAssist asks the game's session, returns its candidate and saves only the conversation", async (t) => {
-  installLocalStorageMock(t);
-  const projectId = testProjectId("studio-assist-controller");
-  const files = createTestFiles();
-  const sources = { logics: [], pictures: [[1, BRIDGE_SOURCE]] };
-  await saveAuthoredGame(projectId, {
-    title: "Bridge",
-    provider: "stub",
-    model: "offline-stub",
-    files,
-    words: [],
-    authoringState: {
-      authoring: { version: 1, bindings: {}, world: { rooms: {}, facts: {}, quests: {} } },
-      sources,
-    },
-  });
-  t.after(() => void clearCachedGame(projectId));
-  const game: BootedGame = {
-    installed: false,
-    projectId,
-    title: "Bridge",
-    revision: await gameRevision(files),
-    files,
-    words: [],
-    historyLifetime: await readHistoryLifetime(projectId),
-  };
-  const ui = {
-    phase: "running" as const,
-    powerUp: createMockPowerUp(),
-    agentTask: null,
-    agentLog: [],
-    profile: "2.936",
-    worldTick: 0,
-    planDurableRev: "",
-  };
-  let loads = 0;
-  const controller = useAuthoringController({
-    state: ui,
-    getWorker: () => ({ postMessage() {} }) as unknown as Worker,
-    query: async <T>() => null as T,
-    logAgent: () => {},
-    readFrames: async () => [],
-    pauseEngine: () => {},
-    resumeEngine: () => {},
-    getBootedGame: () => game,
-    setBootedGame: () => {},
-    flushAutosave: async () => {},
-    getAutosaveWrite: async () => true,
-    clearAutosave: () => {},
-    awaitPatched: ackPatch,
-    loadAuthoring: async () => {
-      loads++;
-      return authoringStack;
-    },
-  });
-  const instruction = "Make this bridge walkable without changing the art";
-  const request = {
-    instruction,
-    focus: {
-      scope: pictureAssistScope({
-        num: 1,
-        compiled: compileEditDocument(
-          parsePictureDocument(BRIDGE_SOURCE).document,
-          DEFAULT_V2_PROFILE,
-        ),
-        targetIds: ["bridge"],
-        lens: "walk" as const,
-      }),
-      draft: () => ({ kind: "picture" as const, source: BRIDGE_SOURCE }),
-      lens: "walk" as const,
-    },
-  };
-
-  // Refused before any session: an agent turn owns the game, or no model is connected.
-  ui.powerUp.busy = true;
-  await assert.rejects(controller.runStudioAssist(request, mockConfig), /Wait for the current/);
-  ui.powerUp.busy = false;
-  await assert.rejects(
-    controller.runStudioAssist(request, { provider: "openai", apiKey: " ", model: "gpt-6" }),
-    /Connect an API key/,
-  );
-  assert.equal(loads, 0, "the authoring stack loads only for a request that runs");
-  assert.equal(controller.getSession(), null);
-
-  // The first request creates the game's session; the candidate is data for the Studio.
-  const result = await controller.runStudioAssist(request, mockConfig);
-  const session = controller.getSession();
-  assert.ok(session, "the session stays for the next request");
-  assert.equal(result.candidate?.kind, "picture");
-  assert.equal(result.proposals, 1);
-  await controller.runStudioAssist(request, mockConfig);
-  assert.equal(controller.getSession(), session, "later requests reuse it");
-  assert.equal(loads, 1);
-
-  // Only the conversation was written: the stored sources describe the bytes as before.
-  const stored = (await loadAuthoredGame(projectId))!;
-  assert.deepEqual(stored.authoringState!["sources"], sources);
-  assert.deepEqual(
-    (stored.authoringState!["chat"] as { role: string; text: string }[])
-      .filter(({ role }) => role === "user")
-      .map(({ text }) => text),
-    [instruction, instruction],
-  );
-  assert.equal(await gameRevision(stored.files), game.revision);
 });

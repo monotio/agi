@@ -21,7 +21,7 @@
       }
     ]
   },
-  "tool": "propose_changes",
+  "tool": "edit_selection",
   "args": {
     "baseRevision": "view-51-54876f40",
     "summary": "Blue eyes on the left-facing loop.",

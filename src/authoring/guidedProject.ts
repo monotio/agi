@@ -1043,7 +1043,7 @@ function bindingsDocument(bindings: Bindings): string {
     Object.fromEntries(
       Object.entries(bindings)
         .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-        .map(([name, binding]) => [name, { kind: binding.kind, num: binding.num }]),
+        .map(([name, binding]) => [name, { ...binding }]),
     ),
   );
 }

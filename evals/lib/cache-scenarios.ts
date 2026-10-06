@@ -10,23 +10,16 @@
  *                     player message is where a viewed image could be
  *                     rewritten
  *   room-build        two just-in-time room builds, the second from the first
- *   studio-assist     a Studio request whose first proposal the host refuses
- *                     and a retry lands, then a second request
  *   ask               three Ask turns with inspection between them
  */
 import { AgentSession } from "../../app/src/agent/agentSession.ts";
 import type { LlmConfig } from "../../app/src/agent/llmClient.ts";
-import { createStudioAssistStub } from "../../app/src/agent/studioAssist.ts";
 import { roomReference, type DecodedImage } from "../../app/src/references/referenceArt.ts";
 import { referenceSource } from "../../app/src/references/referenceHandles.ts";
-import { buildTutorial, TUTORIAL_PICTURE_SOURCES } from "../../games/adventure-department/game.ts";
+import { buildTutorial } from "../../games/adventure-department/game.ts";
 import { requireProjectId, requireResourceRevision } from "../../src/gameIdentity.ts";
 import { referenceArtId } from "../../src/agent/referenceTools.ts";
-import type { StudioFocus } from "../../src/agent/studioAssistTools.ts";
 import { EGA_RGB, encodePngRgb } from "../../src/picture/png.ts";
-import { pictureAssistScope } from "../../src/studio/assistScope.ts";
-import { compileEditDocument } from "../../src/studio/editValidation.ts";
-import { parsePictureDocument } from "../../src/studio/pictureDocument.ts";
 import { decodePng } from "./decode-png.ts";
 import {
   installScriptedProvider,
@@ -57,8 +50,6 @@ const IDENTITY = {
   project: requireProjectId("cache-probe"),
   revision: requireResourceRevision("0".repeat(64)),
 };
-/** The tutorial rooms' walk horizon (sceneArt.ts FLOOR_Y). */
-const HORIZON = 112;
 const PLATE_ID = "ref-plate";
 
 /** A 320x168 room plate: sky, a sun and a green floor, drawn by script. */
@@ -101,21 +92,6 @@ const picture = (sky: number, floor: number) =>
 const roomLogic = (west: number) =>
   "if (isset(f5)) { load.pic(v0); draw.pic(v0); show.pic(); load.view(0); animate.obj(0); set.view(0,0); position(0,80,130); draw(0); accept.input(); }\n" +
   `if (v2 == 4) { new.room(${west}); }\nreturn;`;
-
-function pictureFocus(session: Session, num: number, targetIds: string[]): StudioFocus {
-  const source = TUTORIAL_PICTURE_SOURCES[num]!;
-  const compiled = compileEditDocument(
-    parsePictureDocument(source).document,
-    session.state.profile,
-  );
-  return {
-    scope: pictureAssistScope({ num, compiled, targetIds, lens: "walk" }),
-    draft: () => ({ kind: "picture", source }),
-    lens: "walk",
-    room: num,
-    horizon: HORIZON,
-  };
-}
 
 const view = (size: "thumb" | "small" | "full", region: boolean): ScriptedTurn => ({
   calls: [
@@ -220,33 +196,6 @@ export const SCENARIOS: readonly Scenario[] = [
           HANDOVER,
         ],
         run: (session) => session.handle({ op: "room", context: { room: 5, from: 4 } }),
-      },
-    ],
-  },
-  {
-    id: "studio-assist",
-    turns: [
-      {
-        label: "walkable rope with a refused first proposal",
-        script: [],
-        // The stub's "bad" script proposes an art change the lens refuses,
-        // then the walkable one; the request itself reads naturally.
-        stub: () => createStudioAssistStub("bad: walk through the rope barrier"),
-        run: (session) =>
-          session.runStudioAssist({
-            instruction: "Let the player walk through the rope barrier without changing the art.",
-            focus: pictureFocus(session, 1, ["rope-barrier"]),
-          }),
-      },
-      {
-        label: "second request on the same selection",
-        script: [],
-        stub: () => createStudioAssistStub("walk through the rope barrier"),
-        run: (session) =>
-          session.runStudioAssist({
-            instruction: "Open the rope barrier so the player can walk through it.",
-            focus: pictureFocus(session, 1, ["rope-barrier"]),
-          }),
       },
     ],
   },

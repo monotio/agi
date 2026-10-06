@@ -89,12 +89,20 @@ export function projectBindingInfos(project: LogicLanguageProject): BindingInfo[
       const name = snapshot.definitionAt(token.start);
       const matches = infos.filter(
         (info) =>
-          (name?.kind === "binding" && name.name === info.name) ||
-          (operand &&
-            !operand.declaration &&
-            !operand.name &&
-            operand.num === info.num &&
-            operand.kind === (info.kind === "flag" ? "f" : info.kind === "variable" ? "v" : "")),
+          (project.bindings[info.name]?.logic === undefined ||
+            key === `logic:${project.bindings[info.name]?.logic}`) &&
+          ((name?.kind === "binding" && name.name === info.name) ||
+            (operand &&
+              !operand.declaration &&
+              !operand.name &&
+              operand.num === info.num &&
+              operand.kind ===
+                (
+                  { flag: "f", variable: "v", object: "o", inventory: "i", message: "m" } as Record<
+                    string,
+                    string
+                  >
+                )[info.kind])),
       );
       const call = frames.at(-1);
       const role =
