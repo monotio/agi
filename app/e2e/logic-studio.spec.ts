@@ -8,6 +8,7 @@ import {
   textHook,
   workspaceSaved,
   workspaceUpdated,
+  savePlayProgress,
 } from "./engineProbe.ts";
 import { expect, reviewShot, test } from "./test.ts";
 import {
@@ -242,6 +243,7 @@ test("library Edit opens LOGIC: completion, hover, definition, diagnostics and a
   await page.keyboard.type("// still working");
   await expect.poll(() => workspaceDocument(page, "logic:1")).toContain("still working");
   await workspaceSaved(page);
+  await savePlayProgress(page);
   await page.getByTestId("btn-exit").click();
   await openStoredWorkspace(page, "Edit me");
   await openWorkspaceLogic(page);
