@@ -10,7 +10,7 @@ import base from "./playwright.config.ts";
 export default defineConfig({
   ...base,
   testMatch: [
-    "words.spec.ts",
+    "words-phone.spec.ts",
     "workspace-picture.spec.ts",
     "workspace-stage.spec.ts",
     "workspace-layout.spec.ts",

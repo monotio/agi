@@ -1,3 +1,4 @@
+import { checkWordsAgentHandoff } from "./wordsAgentShared.ts";
 import { providerReply } from "../../test/provider-stream.ts";
 import { test, expect } from "./test.ts";
 import {
@@ -11,33 +12,15 @@ import {
 for (const [width, height] of [
   [1063, 815],
   [1440, 900],
-  [390, 844],
 ] as const)
-  test(`WORDS shortcut opens the shared agent at ${width}`, async ({ page }) => {
-    await page.setViewportSize({ width, height });
-    await isolateStorage(page);
-    await page.goto("/");
-    await configureAi(page, { provider: "stub" });
-    await page.goto("/#create-adventure");
-    await page.getByTestId("local-create-kind-starter").click();
-    await page.getByRole("button", { name: "Start building", exact: true }).click();
-    if (width === 390) await page.getByTestId("workspace-parts").click();
-    await page.getByTestId("part-words").click();
-    const words = page.getByTestId("workspace-words-editor");
-    await expect(words).toBeVisible();
-    await page.screenshot({ path: test.info().outputPath(`words-${width}-before.png`) });
-    await words.getByRole("button", { name: "Suggest sentences", exact: true }).click();
-    const panel = page.getByTestId("workspace-agent-panel");
-    await expect(panel).toBeVisible();
-    await expect(panel.getByTestId("agent-message")).toHaveValue(
-      "Predict what players will try in Meadow",
-    );
-    await expect(panel.getByRole("button", { name: "Send", exact: true })).toBeEnabled();
-    await page.screenshot({ path: test.info().outputPath(`words-${width}-after.png`) });
+  test(`WORDS shortcut opens the shared agent at ${width} @webkit-desktop`, async ({ page }) => {
+    await checkWordsAgentHandoff(page, width, height);
   });
 
 for (const width of [1440, 1280])
-  test(`Words sentence, local playtest miss and Same as at ${width}`, async ({ page }) => {
+  test(`Words sentence, local playtest miss and Same as at ${width} @webkit-desktop`, async ({
+    page,
+  }) => {
     await page.setViewportSize({ width, height: 900 });
     await isolateStorage(page);
     await page.goto("/#create-adventure");
@@ -124,7 +107,7 @@ for (const width of [1440, 1280])
     await expect(page.locator(".play-area")).toBeVisible();
   });
 
-test("WORDS row actions hand prompts to the shared agent and retain suggestion chips", async ({
+test("WORDS row actions hand prompts to the shared agent and retain suggestion chips @webkit-desktop", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -258,7 +241,9 @@ test("WORDS row actions hand prompts to the shared agent and retain suggestion c
   await expect(panel).toContainText("Suggested inspect, check · shown in WORDS");
 });
 
-test("WORDS shared agent replies show failures and prepare retries", async ({ page }) => {
+test("WORDS shared agent replies show failures and prepare retries @webkit-desktop", async ({
+  page,
+}) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await isolateStorage(page);
   await page.goto("/");
@@ -357,7 +342,9 @@ test("WORDS shared agent replies show failures and prepare retries", async ({ pa
   await expect(panel).toContainText("Suggested inspect · shown in WORDS");
 });
 
-test("Create keeps a missed sentence across reload before WORDS first opens", async ({ page }) => {
+test("Create keeps a missed sentence across reload before WORDS first opens @webkit-desktop", async ({
+  page,
+}) => {
   await isolateStorage(page);
   await page.goto("/#create-adventure");
   await page.getByTestId("local-create-kind-starter").click();
