@@ -102,9 +102,11 @@ export function prepareRoomLaunch(
 /** Run a validated entry after its engine and source authority have moved together. */
 export function runRoomLaunch(ctx: WorkerContext, prepared: PreparedRoomLaunch): void {
   const { engine: replacement } = prepared;
-  ctx.previewVisitEngine = replacement;
+  // Only a Create run is temporary; a Launch while playing keeps saving progress.
+  ctx.previewVisitEngine = ctx.boot.progressMode === "create" ? replacement : null;
   if (prepared.seed !== undefined) ctx.history.rng = prepared.seed;
   ctx.history.launchReseed = prepared.seed;
+  ctx.history.launchEngine = replacement;
   prepared.activate();
   ctx.fns.markJump();
   ctx.fns.debugSessionReplaced(prepared.debug);

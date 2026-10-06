@@ -33,7 +33,7 @@ export function createEngineHost(ctx: WorkerContext): EngineHost {
           // per port so tests stay deterministic, crypto in production —
           // labeled different from Sierra's source per the plan.
           const fixed =
-            ctx.previewVisitEngine === ctx.engine ? ctx.history.launchReseed : undefined;
+            ctx.history.launchEngine === ctx.engine ? ctx.history.launchReseed : undefined;
           const word =
             (fixed ??
               ctx.ports.seedWord?.() ??

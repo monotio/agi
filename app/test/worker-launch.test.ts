@@ -31,6 +31,7 @@ function game() {
 test("Launch applies origin after reset and edge placement before LOGIC 0, with items and flags", (t) => {
   const { ctx, control } = workerHarness(game());
   t.after(() => ctx.fns.stopTimers());
+  ctx.boot.progressMode = "create";
   ctx.fns.tickEngine();
   ctx.fns.onPlayHere({
     type: "playHere",
@@ -173,6 +174,7 @@ test("Debug Launch stops before its first LOGIC 0 instruction and carries edit a
 test("repeated death Launches stay outside saved progress, including flush", (t) => {
   const { ctx, control, presentation } = workerHarness(game());
   t.after(() => ctx.fns.stopTimers());
+  ctx.boot.progressMode = "create";
   ctx.fns.tickEngine();
   assert.equal(ctx.fns.autosave(true), true);
   const baseline = presentation.find((m) => m.type === "autosave");
@@ -260,4 +262,16 @@ test("Debug Launch stops at the first instruction when LOGIC 0 has set.scan.star
   assert.equal(stop.location?.logic, 0);
   assert.equal(stop.location?.pc, 4);
   assert.equal(ctx.engine!.vars[80], before);
+});
+
+test("a Launch while playing keeps saving progress", (t) => {
+  const { ctx, control } = workerHarness(game());
+  t.after(() => ctx.fns.stopTimers());
+  ctx.fns.tickEngine();
+  ctx.fns.onPlayHere({ type: "playHere", id: 40, room: 2, x: 0, y: 0, launch: { state: {} } });
+  assert.ok(control.findLast((m) => m.type === "playedHere")?.ok);
+  assert.equal(ctx.fns.autosave(true), true, "Play progress keeps saving after a Launch");
+  ctx.fns.onFlush({ type: "flush", id: 41 });
+  const flush = control.findLast((m) => m.type === "flushed");
+  assert.ok(flush?.type === "flushed" && flush.taken);
 });
