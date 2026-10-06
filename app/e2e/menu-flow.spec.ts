@@ -3,6 +3,7 @@ import {
   enterCreateMode,
   isolateStorage,
   openLibraryActions,
+  openPlayMore,
   openWorkspaceAgent,
   savedGameCard,
   textHook,
@@ -119,25 +120,32 @@ test("library puts rename inline and secondary actions into menus", async ({ pag
   const renamed = savedGameCard(page, "My tutorial");
   await expect(renamed).toBeVisible();
   await expect(page.getByTestId("start-library-game-over")).toBeHidden();
-  await expect(page.getByTestId("download-library-game")).toBeHidden();
   await openLibraryActions(page, renamed);
   const menu = page.getByRole("menu", { name: "Game actions", exact: true });
-  await expect(menu.getByRole("menuitem", { name: "Start over", exact: true })).toBeVisible();
+  await expect(menu.getByRole("menuitem", { name: "Edit in Create", exact: true })).toBeVisible();
   await page.keyboard.press("End");
   await expect(menu.getByRole("menuitem", { name: "Remove game…", exact: true })).toBeFocused();
   await page.keyboard.press("Escape");
   await expect(renamed.getByRole("button", { name: "Game actions", exact: true })).toBeFocused();
   await expect(renamed.getByRole("button", { name: "Download", exact: true })).toHaveCount(0);
+  // Start over and the walkthrough moved to the play button's ▾ half.
+  const more = await openPlayMore(page, renamed);
+  await expect(more.getByRole("menuitem", { name: "Start over", exact: true })).toBeVisible();
+  await page.keyboard.press("Escape");
   await openLibraryActions(page, renamed);
-  await expect(menu.getByTestId("export-library-game")).toBeVisible();
-  await expect(menu.getByTestId("download-library-game")).toBeVisible();
+  await expect(menu.getByTestId("open-game-download")).toBeVisible();
   await expect(menu.getByRole("separator")).toHaveCount(2);
   const items = await menu.getByRole("menuitem").allInnerTexts();
-  // A saved copy of the tutorial keeps its walkthrough action at the top.
-  expect(items[0]).toMatch(/^Run walkthrough/);
-  expect(items).toContain("Start over");
-  expect(items.at(-1)).toBe("Remove game…");
-  expect(items.indexOf("Make a copy")).toBeLessThan(items.findIndex((t) => /Export game/.test(t)));
+  // The ⋯ menu is the flat list: edit, rename, copy, then download and
+  // details, then remove.
+  expect(items).toEqual([
+    "Edit in Create",
+    "Rename…",
+    "Make a copy",
+    "Download…",
+    "Details…",
+    "Remove game…",
+  ]);
   for (const width of [1440, 390]) {
     await page.keyboard.press("Escape");
     await page.setViewportSize({ width, height: 900 });

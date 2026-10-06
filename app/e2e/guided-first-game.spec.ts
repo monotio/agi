@@ -9,7 +9,8 @@ import {
   gameHint,
   closeWorkspaceEditor,
   isolateStorage,
-  openLibraryActions,
+  openGameDownload,
+  openPlayMore,
   openWorkspacePicture,
   openWorkspaceView,
   savedGameCard,
@@ -276,8 +277,8 @@ test("the first guided game: starter, editors, five actions, play both ways and 
   // Play for real: cross the door both directions, type the command, hear it.
   await page.getByTestId("btn-exit").click();
   const card = savedGameCard(page, "Guided grove");
-  await openLibraryActions(page, card);
-  await page.getByTestId("start-library-game-over").click();
+  const more = await openPlayMore(page, card);
+  await more.getByTestId("start-library-game-over").click();
   await expect.poll(async () => (await textHook(page)).room, { intervals: [100] }).toBe(1);
   const input = page.getByTestId("input-line");
   await expect(input).toBeEnabled();
@@ -345,8 +346,8 @@ test("the first guided game: starter, editors, five actions, play both ways and 
   // Reload keeps the saved game; export/import re-imports the same project.
   await page.goto("/");
   const download = page.waitForEvent("download");
-  await openLibraryActions(page, card);
-  await page.getByTestId("download-library-game").click();
+  const downloadDialog = await openGameDownload(page, card);
+  await downloadDialog.getByTestId("download-library-game").click();
   const archive = test.info().outputPath("guided-grove-project.zip");
   await (await download).saveAs(archive);
   const downloaded = await readGameZip(new Uint8Array(await readFile(archive)));

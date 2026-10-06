@@ -204,14 +204,14 @@ test("Words editor copy binds to the approved vocabulary", () => {
 
 test("download descriptions qualify available data and report limitations", () => {
   const help = visibleCopy("app/src/shell/helpContent.ts").find((copy) =>
-    copy.includes("Download game adds"),
+    copy.includes("The project file adds"),
   );
   assert.ok(help);
   assert.match(help, /\bavailable\b/);
   assert.match(help, /\blimitations\b/);
   const readme = readFileSync("README.md", "utf8")
     .split("\n")
-    .find((line) => line.includes("**Download game…**"));
+    .find((line) => line.includes("**Project file**"));
   assert.ok(readme);
   assert.match(readme, /\bavailable\b/);
   assert.match(readme, /\blimitations\b/);

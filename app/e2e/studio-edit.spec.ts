@@ -12,8 +12,8 @@ import { testProjectId } from "../test/identity.ts";
 import {
   cacheGame,
   closeWorkspaceEditor,
+  downloadFromSettings,
   enterCreateMode,
-  openGameOptions,
   openWorkspacePicture,
   textHook,
   waitForCycles,
@@ -232,8 +232,7 @@ test("a depth drag changes only the priority plane, undoes, keeps, reloads, expo
   await closeWorkspaceEditor(page);
 
   const downloading = page.waitForEvent("download");
-  await openGameOptions(page, "settings-menu");
-  await page.getByTestId("btn-export-game").click();
+  await downloadFromSettings(page);
   const exported = await readGameZip(await readFile((await (await downloading).path())!));
   expect(openContainer(new Map(Object.entries(exported.files))).getResource("picture", 5)).toEqual(
     kept,

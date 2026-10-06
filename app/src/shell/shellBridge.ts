@@ -39,10 +39,6 @@ export interface ShellBridge {
    * Open the stored project in Create on its LOGIC editor.
    */
   openLogicProject(projectId: ProjectId): void;
-  /**
-   * Open the stored project in Create on its SOUND editor.
-   */
-  openSoundProject(projectId: ProjectId): void;
 }
 
 /** Inject it with a null default where the shell may be absent (the Studio harness). */
@@ -61,7 +57,6 @@ export function createShellBridge(): ShellBridge {
     openHelp: () => {},
     openSettings: () => {},
     openLogicProject: () => {},
-    openSoundProject: () => {},
   };
 }
 

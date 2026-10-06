@@ -12,8 +12,8 @@ import {
   gameHint,
   isolateStorage,
   agentActivity,
+  downloadFromSettings,
   openDeveloperActivity,
-  openGameOptions,
   openLibraryActions,
   progressStorageKey,
   savedGameCard,
@@ -254,8 +254,7 @@ test("the project archive moves the autosave to another browser; the game export
 
   // The project download from the running game carries the checkpoint.
   const projectDownload = page.waitForEvent("download");
-  await openGameOptions(page, "settings-menu");
-  await page.getByTestId("btn-download-game").click();
+  await downloadFromSettings(page, true);
   const saved = await projectDownload;
   const savedPath = (await saved.path())!;
   const project = await readGameZip(new Uint8Array(await readFile(savedPath)));
@@ -265,8 +264,7 @@ test("the project archive moves the autosave to another browser; the game export
 
   // The game export is for publishing: no progress in it.
   const publicDownload = page.waitForEvent("download");
-  await openGameOptions(page, "settings-menu");
-  await page.getByTestId("btn-export-game").click();
+  await downloadFromSettings(page);
   const published = await publicDownload;
   const publicGame = await readGameZip(new Uint8Array(await readFile((await published.path())!)));
   // Publication safety: tests, saves and authoring context each excluded on their own.

@@ -27,7 +27,9 @@ jobs:
     defaults:
       run:
         shell: bash
-    timeout-minutes: ${{ inputs.repeat > 1 && 45 || 15 }}
+    # The webkit phone suite alone measures 11–14.9 minutes across runners;
+    # 15 minutes kills green runs on a slow one.
+    timeout-minutes: ${{ inputs.repeat > 1 && 45 || 20 }}
     strategy:
       fail-fast: false
       # At most 20 jobs including quality, production and one PR burn-in job.

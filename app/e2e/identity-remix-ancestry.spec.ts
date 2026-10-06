@@ -7,6 +7,7 @@ import {
   configureAi,
   enterCreateMode,
   openWorkspaceAgent,
+  openGameDownload,
   openLibraryActions,
   openSavedGameDetails,
   savedGameCard,
@@ -291,9 +292,9 @@ test("copies with identical content retain their immediate parent through real d
   await page.keyboard.press("Escape");
 
   for (const kind of ["game", "project"] as const) {
-    await openLibraryActions(page, secondCard);
+    const downloadDialog = await openGameDownload(page, secondCard);
     const pending = page.waitForEvent("download");
-    await page
+    await downloadDialog
       .getByTestId(kind === "game" ? "export-library-game" : "download-library-game")
       .click();
     const download = await pending;

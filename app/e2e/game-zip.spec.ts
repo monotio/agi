@@ -7,10 +7,11 @@ import { readGameZip } from "../src/archive/gameZip.ts";
 import { buildZip } from "../src/archive/zip.ts";
 import {
   configureAi,
+  downloadFromSettings,
   enterCreateMode,
   isolateStorage,
   openDeveloperActivity,
-  openGameOptions,
+  openGameDownload,
   openLibraryActions,
   openWorkspaceAgent,
   savedGameCard,
@@ -43,8 +44,7 @@ test("a friend opens an exported world in a fresh browser without a key @webkit-
     .poll(async () => (await textHook(page)).rows.join(" "))
     .toContain("generated room 2");
   const downloading = page.waitForEvent("download");
-  await openGameOptions(page, "settings-menu");
-  await page.getByTestId("btn-export-game").click();
+  await downloadFromSettings(page);
   const zip = await downloading;
   const context = await browser.newContext();
   try {
@@ -197,8 +197,7 @@ test("a friend opens an exported world in a fresh browser without a key @webkit-
     await friend.keyboard.press("Enter");
     await expect.poll(async () => (await textHook(friend)).modal).toBeNull();
     const remixDownloading = friend.waitForEvent("download");
-    await openGameOptions(friend, "settings-menu");
-    await friend.getByTestId("btn-export-game").click();
+    await downloadFromSettings(friend);
     const remixedZip = await remixDownloading;
     const remixedArchive = await readGameZip(await readFile((await remixedZip.path())!));
     const remixedLogic = openContainer(new Map(Object.entries(remixedArchive.files))).getResource(
@@ -295,8 +294,7 @@ test("a v3 game can be imported, remixed, exported and opened in a fresh session
     .poll(async () => (await textHook(page)).rows.join(" "))
     .toContain("A remixed v3 adventure.");
   const downloading = page.waitForEvent("download");
-  await openGameOptions(page, "settings-menu");
-  await page.getByTestId("btn-export-game").click();
+  await downloadFromSettings(page);
   const download = await downloading;
   const downloaded = await readFile((await download.path())!);
   const imported = await readGameZip(downloaded);
@@ -398,8 +396,8 @@ test("rename preserves a saved game and travels with its ZIP", async ({ page, br
   await page.reload();
   await expect(renamedCard.getByTestId("saved-game-title")).toHaveText("The Midnight Appointment");
   const downloading = page.waitForEvent("download");
-  await openLibraryActions(page, renamedCard);
-  await page.getByTestId("export-library-game").click();
+  const downloadDialog = await openGameDownload(page, renamedCard);
+  await downloadDialog.getByTestId("export-library-game").click();
   const exported = await downloading;
   const content = await readGameZip(new Uint8Array(await readFile((await exported.path())!)));
   expect(content.title).toBe("The Midnight Appointment");

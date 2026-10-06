@@ -232,13 +232,12 @@ function onScreenClick(): void {
   transition: opacity var(--duration-fast) var(--ease-out);
 }
 .game-card__media--playable:hover .game-card__pill,
-.game-card:has(.game-card__actions > :first-child:focus-visible) .game-card__pill {
+.game-card:has(.game-card__actions > :first-child:focus-within) .game-card__pill {
   opacity: 1;
   transform: translate(-50%, -50%);
 }
 .game-card__media--playable:hover::after,
-.game-card:has(.game-card__actions > :first-child:focus-visible)
-  .game-card__media--playable::after {
+.game-card:has(.game-card__actions > :first-child:focus-within) .game-card__media--playable::after {
   opacity: 0.5;
 }
 .game-card__body {

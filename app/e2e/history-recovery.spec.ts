@@ -4,7 +4,13 @@ import type { Page } from "@playwright/test";
 import { expect, test } from "./test.ts";
 import { readFile } from "node:fs/promises";
 import { readGameZip } from "../src/archive/gameZip.ts";
-import { isolateStorage, openGameOptions, textHook, waitForCycles } from "./engineProbe.ts";
+import {
+  downloadFromSettings,
+  isolateStorage,
+  openGameOptions,
+  textHook,
+  waitForCycles,
+} from "./engineProbe.ts";
 
 function entries(bytes: Uint8Array): Map<string, Uint8Array> {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
@@ -34,8 +40,7 @@ async function boot(page: Page): Promise<void> {
 
 async function download(page: Page) {
   const pending = page.waitForEvent("download");
-  await openGameOptions(page, "settings-menu");
-  await page.getByTestId("btn-download-game").click();
+  await downloadFromSettings(page, true);
   const path = (await (await pending).path())!;
   const bytes = new Uint8Array(await readFile(path));
   return { path, opened: await readGameZip(bytes), files: entries(bytes) };

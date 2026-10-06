@@ -2,7 +2,12 @@ import { readFile } from "node:fs/promises";
 import type { Download } from "@playwright/test";
 import { expect, test } from "./test.ts";
 import { readGameZip } from "../src/archive/gameZip.ts";
-import { isolateStorage, openGameOptions, workspaceSaved } from "./engineProbe.ts";
+import {
+  downloadFromSettings,
+  isolateStorage,
+  openGameOptions,
+  workspaceSaved,
+} from "./engineProbe.ts";
 import { openWorkspaceLogic } from "./workspaceShared.ts";
 
 test("project download preserves the last update while LOGIC stays a draft", async ({ page }) => {
@@ -30,8 +35,8 @@ test("project download preserves the last update while LOGIC stays a draft", asy
   page.on("download", (download) => downloads.push(download));
   await page.evaluate(() => {
     (window as unknown as { editExportSource(): void }).editExportSource();
-    document.querySelector<HTMLButtonElement>("[data-testid='btn-download-game']")!.click();
   });
+  await downloadFromSettings(page, true);
   await expect
     .poll(async () => ({
       downloads: downloads.length,

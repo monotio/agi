@@ -592,7 +592,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
         const files = await link.query("exportFiles");
         if (!files)
           throw new Error(
-            "The current game could not be saved. Try Settings → This game → Download game… before leaving.",
+            "The current game could not be saved. Try Settings → This game → Download… before leaving.",
           );
         await options.authoring!.persistRemix(game, session, files).catch((error: unknown) => {
           if (!(error instanceof ResourceCommitError && error.code === "stale")) throw error;
@@ -609,11 +609,11 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
         const flushResult = await autosave.flushAutosaveDetailed(2000);
         if (flushResult.status === "storage_failure") {
           throw new Error(
-            "Browser storage could not save latest progress. Use Settings → This game → Download game… for a development backup, or leave with previously saved progress.",
+            "Browser storage could not save latest progress. Use Settings → This game → Download… for a development backup, or leave with previously saved progress.",
           );
         } else if (flushResult.status === "timeout") {
           throw new Error(
-            "Autosave timed out. Try again, use Settings → This game → Download game… for a development backup, or leave with previously saved progress.",
+            "Autosave timed out. Try again, use Settings → This game → Download… for a development backup, or leave with previously saved progress.",
           );
         }
       }
@@ -767,7 +767,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
     if (historyLifetime === null)
       logAgent(
         "error",
-        "Browser storage could not save this world. Use Settings → This game → Download game… to keep it.",
+        "Browser storage could not save this world. Use Settings → This game → Download… to keep it.",
       );
     if (historyLifetime !== null)
       logAgent(

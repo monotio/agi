@@ -6,8 +6,8 @@ import { readGameZip } from "../src/archive/gameZip.ts";
 import {
   configureAi,
   enterCreateMode,
+  downloadFromSettings,
   isolateStorage,
-  openGameOptions,
   openWorkspaceAgent,
   textHook,
   waitForRoom,
@@ -151,8 +151,7 @@ test("record a playthrough, break and repair it, and rerun it in a fresh browser
 
   // Export the project; the recorded test travels only in the project archive.
   const download = page.waitForEvent("download");
-  await openGameOptions(page, "settings-menu");
-  await page.getByTestId("btn-download-game").click();
+  await downloadFromSettings(page, true);
   const projectPath = await (await download).path();
   const project = await readGameZip(new Uint8Array(await readFile(projectPath!)));
   const testsJson = new TextDecoder().decode(project.files["TESTS.JSON"]);

@@ -9,6 +9,7 @@ import {
   openGameControls,
   openGameOptions,
   openLibraryActions,
+  openSavedGameDetails,
   savedGameCard,
   textHook,
 } from "./engineProbe.ts";
@@ -123,15 +124,15 @@ for (const [width, height] of [
     await expect(page.getByTestId("remove-game-dialog")).toBeHidden();
 
     await openLibraryActions(page, card);
-    await page.getByTestId("interpreter-profile-menu-item").click();
+    await page.getByTestId("open-game-download").click();
+    await expectButtonsOnScreen(page, "game-download-dialog");
+    await page.keyboard.press("Escape");
+
+    const details = await openSavedGameDetails(card);
+    await expectButtonsOnScreen(page, (await details.getAttribute("data-testid"))!);
+    await details.getByTestId("interpreter-profile-menu-item").click();
     await expectButtonsOnScreen(page, "profile-picker-dialog");
     await page.getByTestId("profile-picker-keep").click();
-
-    await openLibraryActions(page, card);
-    await page.getByTestId("game-details-item").click();
-    const details = page.locator("dialog[data-testid^='game-details-']");
-    await expectButtonsOnScreen(page, (await details.getAttribute("data-testid"))!);
-    await page.keyboard.press("Escape");
 
     await page.getByTestId("btn-help").click();
     await expectButtonsOnScreen(page, "help-guide");

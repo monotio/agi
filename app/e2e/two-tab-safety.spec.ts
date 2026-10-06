@@ -8,8 +8,8 @@ import { testProjectId } from "../test/identity.ts";
 import {
   cacheGame,
   configureAi,
+  downloadFromSettings,
   isolateStorage,
-  openGameOptions,
   openWorkspacePicture,
   textHook,
   waitForAutosaveAfter,
@@ -170,9 +170,8 @@ function stored(page: Page) {
 }
 
 async function downloadGame(page: Page): Promise<void> {
-  await openGameOptions(page, "settings-menu");
   const download = page.waitForEvent("download");
-  await page.getByTestId("btn-download-game").click();
+  await downloadFromSettings(page, true);
   expect((await download).suggestedFilename()).toMatch(/\.zip$/);
   await page.keyboard.press("Escape");
 }

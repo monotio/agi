@@ -177,9 +177,14 @@ test("in-game ZIP exports the live game after a patch and reload", async ({ page
   await expect.poll(async () => (await textHook(page)).modal).toBe(null);
   const downloadPromise = page.waitForEvent("download");
   await openGameOptions(page, "settings-menu");
+  await page.getByTestId("btn-download-game").click();
+  const downloadDialog = page.getByTestId("settings-download-dialog");
+  await expect(downloadDialog).toBeVisible();
   // A growing world says what a published copy of it is before it is exported.
-  await expect(page.getByTestId("export-work-in-progress")).toContainText("work in progress");
-  await page.getByTestId("btn-export-game").click();
+  await expect(downloadDialog.getByTestId("export-work-in-progress")).toContainText(
+    "work in progress",
+  );
+  await downloadDialog.getByTestId("export-library-game").click();
   const download = await downloadPromise;
   expect(download.suggestedFilename()).toBe("agi-custom-game.zip");
   const bytes = await readFile((await download.path())!);
@@ -223,7 +228,7 @@ test("in-game ZIP exports the live game after a patch and reload", async ({ page
   await expect.poll(async () => (await textHook(page)).room).toBe(2);
   await expect.poll(async () => (await textHook(page)).modal).toBe(null);
   await openGameOptions(page, "settings-menu");
-  await expect(page.getByTestId("btn-export-game")).toBeVisible();
+  await expect(page.getByTestId("btn-download-game")).toBeVisible();
   await expect.poll(async () => (await textHook(page)).cycle).toBeGreaterThan(0);
   // Re-entering room 2 runs its patched entry code: the sign is really there.
   await typeCommand(page, "west");

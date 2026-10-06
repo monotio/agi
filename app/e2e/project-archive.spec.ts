@@ -67,6 +67,9 @@ test("Download project resumes private history in a fresh browser; Download game
   const projectDownload = page.waitForEvent("download");
   await openGameOptions(page, "settings-menu");
   await page.getByTestId("btn-download-game").click();
+  const projectDialog = page.getByTestId("settings-download-dialog");
+  await expect(projectDialog).toBeVisible();
+  await projectDialog.getByTestId("download-library-game").click();
   // This authoring-only fixture has no drawn room or resumable player state.
   await expect(page.getByTestId("export-refusal")).toContainText(
     "download again to include the newest one",
@@ -81,7 +84,10 @@ test("Download project resumes private history in a fresh browser; Download game
   expect(data.project?.authoringState).toEqual(context.authoringState);
   const publicDownload = page.waitForEvent("download");
   await openGameOptions(page, "settings-menu");
-  await page.getByTestId("btn-export-game").click();
+  await page.getByTestId("btn-download-game").click();
+  const publicDialog = page.getByTestId("settings-download-dialog");
+  await expect(publicDialog).toBeVisible();
+  await publicDialog.getByTestId("export-library-game").click();
   const published = await publicDownload;
   const publicBytes = new Uint8Array(await readFile((await published.path())!));
   expect(new TextDecoder().decode(publicBytes)).not.toContain("Private genesis idea");
@@ -155,6 +161,9 @@ test("Download project resumes private history in a fresh browser; Download game
     const continuationDownload = other.waitForEvent("download");
     await openGameOptions(other, "settings-menu");
     await other.getByTestId("btn-download-game").click();
+    const continuationDialog = other.getByTestId("settings-download-dialog");
+    await expect(continuationDialog).toBeVisible();
+    await continuationDialog.getByTestId("download-library-game").click();
     await expect(other.getByTestId("export-refusal")).toContainText(
       "download again to include the newest one",
     );

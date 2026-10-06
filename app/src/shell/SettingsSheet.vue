@@ -10,6 +10,7 @@
  * from dialogs).
  */
 import { nextTick, onBeforeUnmount, ref, useId, useTemplateRef } from "vue";
+import GameDownloadDialog from "../home/GameDownloadDialog.vue";
 import { useAmigaRegion } from "../settings/amigaRegion.ts";
 import { CRT_STEPS } from "../settings/crtPreference.ts";
 import UiIcon from "../ui/UiIcon.vue";
@@ -159,6 +160,17 @@ function act(run: () => void): void {
   run();
 }
 
+/** Download… asks which file before the sheet's export-zip goes out. */
+const downloadOpen = ref(false);
+function openDownload(): void {
+  close("stay");
+  downloadOpen.value = true;
+}
+/** The dialog replaced the sheet; its close returns focus to the gear. */
+function onDownloadClosed(): void {
+  trigger?.focus({ preventScroll: true });
+}
+
 onBeforeUnmount(() => {
   window.removeEventListener("pointerdown", onOutsidePointerDown, true);
   window.removeEventListener("keydown", onWindowKeydown, true);
@@ -270,24 +282,10 @@ defineExpose({ toggle, close, open });
           type="button"
           class="settings-row"
           data-testid="btn-download-game"
-          :disabled="exportBusy || state.powerUp.busy"
-          @click="act(() => emit('export-zip', true))"
+          :disabled="state.powerUp.busy"
+          @click="openDownload"
         >
-          <span>Download game…<small>Project files and available saves and history</small></span>
-        </button>
-        <button
-          type="button"
-          class="settings-row"
-          data-testid="btn-export-game"
-          :disabled="exportBusy || state.powerUp.busy"
-          @click="act(() => emit('export-zip', false))"
-        >
-          <span v-if="currentGame()?.workInProgress"
-            >Export game…<small data-testid="export-work-in-progress"
-              >ZIP, work in progress: exits to unbuilt rooms stop the game</small
-            ></span
-          >
-          <span v-else>Export game…<small>The playable game, ready to share</small></span>
+          <span>Download…<small>Project file or the playable game</small></span>
         </button>
         <button
           type="button"
@@ -377,6 +375,15 @@ defineExpose({ toggle, close, open });
       </section>
     </template>
   </dialog>
+  <GameDownloadDialog
+    v-model:open="downloadOpen"
+    :title="currentGame()?.title ?? 'This game'"
+    :busy="exportBusy"
+    :work-in-progress="currentGame()?.workInProgress === true"
+    test-id="settings-download-dialog"
+    @choose="(project) => emit('export-zip', project)"
+    @closed="onDownloadClosed"
+  />
 </template>
 
 <style scoped>

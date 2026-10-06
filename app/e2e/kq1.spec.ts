@@ -11,9 +11,10 @@ import {
   configureAi,
   isolateStorage,
   agentActivity,
+  downloadFromSettings,
   openCreateAdventure,
   openGameControls,
-  openLibraryActions,
+  openGameDownload,
   observe,
   probe,
   progressStorageKey,
@@ -741,9 +742,7 @@ test("a locally loaded patched game can be downloaded and imported", async ({ pa
   await expect(page.getByTestId("agent-review")).toBeHidden();
   await page.getByTestId("workspace-agent").click();
   const downloading = page.waitForEvent("download");
-  await openGameOptions(page, "settings-menu");
-  await expect(page.getByTestId("btn-export-game")).toBeVisible();
-  await page.getByTestId("btn-export-game").click();
+  await downloadFromSettings(page);
   const download = await downloading;
   expect(download.suggestedFilename()).toMatch(/^agi-remix-[a-f0-9-]+-game\.zip$/);
   expect(await download.failure()).toBeNull();
@@ -767,6 +766,6 @@ test("a locally loaded patched game can be downloaded and imported", async ({ pa
     Object.keys(localStorage).filter((k) => k.includes("kq1") && !k.startsWith("monotio_agi.map.")),
   );
   expect(stored).toEqual([]);
-  await openLibraryActions(page, savedCard);
-  await expect(page.getByTestId("export-library-game")).toBeVisible();
+  const downloadDialog = await openGameDownload(page, savedCard);
+  await expect(downloadDialog.getByTestId("export-library-game")).toBeVisible();
 });

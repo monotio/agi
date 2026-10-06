@@ -117,7 +117,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         title: "Rooms appear as you walk",
         body: [
           "Walk into a room that is still unbuilt and play pauses while the agent writes it. Everything it makes is real AGI: pictures, views, logic and sound that you can inspect, download and play again.",
-          "Export game makes a playable ZIP of the rooms you have built. An unfinished room stops play there. Download game carries the editable project so you can keep building after importing it.",
+          "Download… offers both files. The playable game is a ZIP of the rooms you have built; an unfinished room stops play there. The project file carries the editable project so you can keep building after importing it.",
         ],
       },
       {
@@ -326,9 +326,9 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
       },
       {
         id: "share",
-        title: "Export and share",
+        title: "Download and share",
         body: [
-          "Both live in Settings → This game. Export game makes a ZIP of the playable game and its public details. Download game adds available conversation, images, notes, tests, history and saves. A backup reports its limitations. These downloads contain accepted content. Download unsaved edits keeps current editor buffers separately. Game and project downloads open with Add game.",
+          "Both files live in Settings → This game → Download…. The playable game is a ZIP of the game and its public details. The project file adds available conversation, images, notes, tests, history and saves. A backup reports its limitations. These downloads contain accepted content. Download unsaved edits keeps current editor buffers separately. Game and project downloads open with Add game.",
         ],
       },
       {
