@@ -11,6 +11,7 @@ import {
   configureAi,
   workspaceUpdated,
   openWorkspaceAgent,
+  openWorkspacePicture,
 } from "./engineProbe.ts";
 import type { Page } from "@playwright/test";
 async function start(page: Page, provider: "stub" | "openai" = "stub", openLogic = true) {
@@ -148,7 +149,7 @@ for (const size of [
     });
     await page.getByTestId("agent-message").focus();
     await page.keyboard.press("ControlOrMeta+n");
-    await expect(page.getByRole("button", { name: "Chats", exact: true })).toHaveText("New chat");
+    await expect(page.getByRole("button", { name: "Chats", exact: true })).toHaveText("Chats");
     await page.getByRole("button", { name: "Chats", exact: true }).click();
     await page.getByRole("button", { name: "Add a welcome sign", exact: true }).click();
     await expect(page.getByRole("button", { name: "Undo this", exact: true })).toBeVisible();
@@ -173,10 +174,9 @@ test("Agent toggles from composer, editor and game and Escape returns to the ori
   await expect(composer).toBeFocused();
   await composer.fill("Keep this draft");
   await composer.press("Escape");
-  await expect(composer).toBeFocused();
-  await composer.fill("");
-  await composer.press("Escape");
+  await expect(panel).toBeHidden();
   await expect(logic).toBeFocused();
+  await page.keyboard.press("ControlOrMeta+i");
   await expect(panel).toBeVisible();
   await page.screenshot({ path: test.info().outputPath("keyboard-1440.png") });
   await page.keyboard.press("ControlOrMeta+i");
@@ -185,6 +185,84 @@ test("Agent toggles from composer, editor and game and Escape returns to the ori
   await page.keyboard.press("ControlOrMeta+i");
   await expect(composer).toBeFocused();
 });
+
+for (const size of [
+  { width: 1440, height: 900 },
+  { width: 1063, height: 815 },
+  { width: 390, height: 844 },
+]) {
+  test(`agent panel opaque header, single New chat, Close button and Escape ${size.width}`, async ({
+    page,
+  }) => {
+    await page.setViewportSize(size);
+    await isolateStorage(page);
+    await page.goto("/");
+    await configureAi(page, { provider: "stub" });
+    await page.goto("/#create-adventure");
+    await page
+      .getByTestId("create-adventure-disclosure")
+      .getByLabel("Name", { exact: true })
+      .fill("Agent proof");
+    await page.getByTestId("local-create-kind-starter").click();
+    await page.getByRole("button", { name: "Start building", exact: true }).click();
+    await expect(page.getByTestId("create-adventure-disclosure")).toBeHidden();
+    await expect.poll(async () => (await textHook(page)).room).toBe(1);
+
+    if (size.width <= 600) {
+      await page.getByTestId("workspace-parts").click();
+    }
+    await openWorkspacePicture(page, 1);
+    await openWorkspaceAgent(page);
+    const panel = page.getByTestId("workspace-agent-panel");
+    await expect(panel).toBeVisible();
+    const header = panel.locator(".agent-panel__header");
+    await expect(header).toBeVisible();
+
+    const bg = await header.evaluate((el) => window.getComputedStyle(el).backgroundColor);
+    expect(bg).not.toBe("rgba(0, 0, 0, 0)");
+    expect(bg).not.toBe("transparent");
+
+    await expect(header.getByRole("button", { name: "New chat", exact: true })).toHaveCount(1);
+    await expect(header.getByText("New chat", { exact: true })).toHaveCount(1);
+
+    const closeBtn = panel.getByRole("button", { name: "Close", exact: true });
+    await expect(closeBtn).toBeVisible();
+
+    await page.screenshot({ path: test.info().outputPath(`agent-panel-${size.width}-after.png`) });
+
+    // Recreate before bug state (transparent header and panel, duplicate New chat title, no close button)
+    await page.evaluate(() => {
+      const h = document.querySelector(".agent-panel__header") as HTMLElement | null;
+      const p = document.querySelector(".agent-panel") as HTMLElement | null;
+      const c = document.querySelector("[data-testid=agent-panel-close]") as HTMLElement | null;
+      const t = document.querySelector(".agent-panel__chat-title") as HTMLElement | null;
+      if (h) h.style.background = "transparent";
+      if (p) p.style.background = "transparent";
+      if (c) c.style.display = "none";
+      if (t && t.childNodes[0]) t.childNodes[0].nodeValue = "New chat ";
+    });
+    await page.screenshot({ path: test.info().outputPath(`agent-panel-${size.width}-before.png`) });
+
+    await page.evaluate(() => {
+      const h = document.querySelector(".agent-panel__header") as HTMLElement | null;
+      const p = document.querySelector(".agent-panel") as HTMLElement | null;
+      const c = document.querySelector("[data-testid=agent-panel-close]") as HTMLElement | null;
+      const t = document.querySelector(".agent-panel__chat-title") as HTMLElement | null;
+      if (h) h.style.background = "";
+      if (p) p.style.background = "";
+      if (c) c.style.display = "";
+      if (t && t.childNodes[0]) t.childNodes[0].nodeValue = "Chats ";
+    });
+
+    await closeBtn.click();
+    await expect(panel).toBeHidden();
+
+    await openWorkspaceAgent(page);
+    await expect(panel).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(panel).toBeHidden();
+  });
+}
 
 test("Approve admits a said response before Create game input", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });

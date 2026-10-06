@@ -29,6 +29,7 @@ import { compileProjectDocuments } from "../../../src/authoring/projectDocuments
 import { openContainer } from "../../../src/container/container.ts";
 import UiChip from "../ui/UiChip.vue";
 import UiButton from "../ui/UiButton.vue";
+import UiIconButton from "../ui/UiIconButton.vue";
 import UiSegmented from "../ui/UiSegmented.vue";
 import AgentTaskControls from "../authoring/AgentTaskControls.vue";
 import "./agentPanel.css";
@@ -66,6 +67,7 @@ const taskContext = ref("");
 const formatReply = shallowRef<ReplyFormatter>();
 const composer = useTemplateRef("composer");
 onMounted(() => {
+  window.addEventListener("keydown", onEscapeKey);
   if (!document.querySelector("dialog[open]")) composer.value?.focus();
 });
 watch(
@@ -307,15 +309,30 @@ async function approve() {
   if (editor.readOnly.value) return;
   await action(() => agent.value?.approve(selected.value));
 }
+function close() {
+  engine.closePowerUp();
+  void nextTick().then(() => {
+    editor.returnFromAgent.value?.();
+  });
+}
 function newChat() {
   void action(() => agent.value?.newChat());
   chatList.value = false;
 }
+function onEscapeKey(event: KeyboardEvent) {
+  if (event.key !== "Escape") return;
+  if (document.querySelector("dialog[open]")) return;
+  event.preventDefault();
+  event.stopPropagation();
+  if (chatList.value) {
+    chatList.value = false;
+    return;
+  }
+  close();
+}
 function keys(event: KeyboardEvent) {
-  if (event.key === "Escape" && event.target === composer.value && !input.value.trim()) {
-    event.preventDefault();
-    event.stopPropagation();
-    editor.returnFromAgent.value?.();
+  if (event.key === "Escape") {
+    onEscapeKey(event);
     return;
   }
   if (!(event.metaKey || event.ctrlKey)) return;
@@ -331,6 +348,10 @@ function keys(event: KeyboardEvent) {
     newChat();
   }
 }
+const chatTitle = computed(() => {
+  const title = current.value?.title;
+  return title && title !== "New chat" ? title : "Chats";
+});
 const commands = useOptionalCommands();
 const offApprove = commands?.register({
   id: "agent.approve",
@@ -350,6 +371,7 @@ const offNewChat = commands?.register({
   run: newChat,
 });
 onBeforeUnmount(() => {
+  window.removeEventListener("keydown", onEscapeKey);
   retired = true;
   off?.();
   offApprove?.();
@@ -365,7 +387,7 @@ onBeforeUnmount(() => {
   >
     <header class="agent-panel__header">
       <button class="agent-panel__chat-title" @click="chatList = !chatList" aria-label="Chats">
-        {{ current?.title ?? "Agent" }} <UiIcon name="chevron-down" :size="16" /></button
+        {{ chatTitle }} <UiIcon name="chevron-down" :size="16" /></button
       ><UiButton
         size="sm"
         variant="ghost"
@@ -384,7 +406,14 @@ onBeforeUnmount(() => {
           bridge.startPlaytest();
         "
         >Playtest</UiButton
-      >
+      ><UiIconButton
+        icon="x"
+        label="Close"
+        shortcut="Esc"
+        size="sm"
+        data-testid="agent-panel-close"
+        @click="close"
+      />
     </header>
     <div class="agent-panel__mode">
       <UiSegmented
