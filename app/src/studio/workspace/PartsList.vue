@@ -33,11 +33,15 @@ const props = defineProps<{
   views?: Readonly<Record<string, Uint8Array>>;
   profile?: AgiProfile;
   addGroups?: readonly string[];
+  /** A room whose name is being edited in place (a fresh add starts there). */
+  renameRoom?: number | undefined;
 }>();
 const emit = defineEmits<{
   open: [key: string, room?: number];
-  add: [group: string];
+  add: [group: string, option?: string];
   nameState: [kind: "flag" | "variable", num: number, name: string];
+  rename: [room: number, title: string];
+  renameCancel: [];
 }>();
 const engine = useEngineApi();
 const workspace = useWorkspaceEditor();
@@ -105,6 +109,48 @@ const selectedName = computed(
 const stateNames = computed(() =>
   names.value.filter((info) => ["flag", "variable"].includes(info.kind)),
 );
+const creatorNames = computed(() => stateNames.value.filter((info) => !info.builtin));
+const builtinNames = computed(() => stateNames.value.filter((info) => info.builtin));
+/** In-place room naming: a fresh add pre-fills "Room N" selected, typing replaces it. */
+const editingRoomLocal = ref<number>();
+const editingRoom = computed(() => editingRoomLocal.value ?? props.renameRoom);
+const roomTitle = ref("");
+const renameInput = useTemplateRef<HTMLInputElement>("renameInput");
+function roomLabel(room: number): string {
+  const row = rows.value.find((row) => row.id === `room:${room}`);
+  return row?.label.split(" · ROOM ")[0] || `Room ${room}`;
+}
+function startRoomRename(room: number): void {
+  roomTitle.value = roomLabel(room);
+  editingRoomLocal.value = room;
+}
+watch(
+  () => props.renameRoom,
+  (room) => {
+    if (room !== undefined) roomTitle.value = roomLabel(room);
+  },
+  { immediate: true },
+);
+watch(
+  renameInput,
+  (element) => {
+    if (!element) return;
+    element.focus();
+    element.select();
+  },
+  { flush: "post" },
+);
+function commitRoomRename(room: number): void {
+  if (editingRoom.value === undefined) return;
+  const title = roomTitle.value.trim();
+  editingRoomLocal.value = undefined;
+  if (title) emit("rename", room, title);
+  else emit("renameCancel");
+}
+function cancelRoomRename(): void {
+  editingRoomLocal.value = undefined;
+  emit("renameCancel");
+}
 watch(
   () => [engine.state.phase, engine.state.patchTick],
   () => {
@@ -236,7 +282,24 @@ function onKey(event: KeyboardEvent): void {
         </button>
       </header>
       <div v-for="row in group.entries" :key="row.id" class="part-row">
+        <form
+          v-if="row.id === `room:${row.room}` && editingRoom === row.room"
+          class="part part-rename-form"
+          data-testid="room-rename-form"
+          @submit.prevent="commitRoomRename(row.room!)"
+        >
+          <input
+            ref="renameInput"
+            v-model="roomTitle"
+            data-testid="room-rename-input"
+            aria-label="Room name"
+            maxlength="160"
+            @keydown.esc.stop="cancelRoomRename"
+            @blur="commitRoomRename(row.room!)"
+          />
+        </form>
         <button
+          v-else
           type="button"
           class="part"
           :class="{ 'part--child': row.child, 'part--selected': row.key === selected }"
@@ -246,6 +309,9 @@ function onKey(event: KeyboardEvent): void {
           :data-testid="`part-${row.id}`"
           @focus="focused = row.id"
           @click="emit('open', row.key, row.room)"
+          @dblclick.stop.prevent="
+            row.id === `room:${row.room}` && !readOnly && startRoomRename(row.room!)
+          "
         >
           <img v-if="thumbnails[row.id]" :src="thumbnails[row.id]" alt="" />
           <ViewThumbnail
@@ -322,7 +388,7 @@ function onKey(event: KeyboardEvent): void {
         </div>
       </form>
       <section v-if="group.label === 'GAME STATE' && stateNames.length" class="game-state">
-        <div v-for="info in stateNames" :key="info.name" class="state-row">
+        <div v-for="info in creatorNames" :key="info.name" class="state-row">
           <button
             class="part"
             @click="
@@ -368,6 +434,55 @@ function onKey(event: KeyboardEvent): void {
             </button>
           </details>
         </div>
+        <details v-if="builtinNames.length" class="game-state-builtin" data-testid="game-state-builtin">
+          <summary>Built-in</summary>
+          <div v-for="info in builtinNames" :key="info.name" class="state-row">
+            <button
+              class="part"
+              @click="
+                details = info;
+                editingName = false;
+              "
+            >
+              {{ info.name
+              }}<small>{{ info.kind === "flag" ? "Flag" : "Variable" }} {{ info.num }}</small>
+            </button>
+            <small v-for="role in ['Set', 'Checked'] as const" :key="role"
+              >{{ role }}:
+              {{
+                [
+                  ...new Set(
+                    info.uses
+                      .filter((use) => use.role === role)
+                      .map((use) => use.key.replace(":", " ").toUpperCase()),
+                  ),
+                ].join(", ") || "nowhere yet"
+              }}</small
+            >
+            <details class="part-menu">
+              <summary :aria-label="`Actions for ${info.name}`">
+                <UiIcon name="ellipsis" :size="16" />
+              </summary>
+              <button
+                class="part-rename"
+                :title="
+                  readOnly
+                    ? 'Editing is paused. Download your unsaved edits, then reload.'
+                    : 'Rename this name'
+                "
+                :disabled="readOnly"
+                :aria-label="`Rename ${info.name}`"
+                @click="
+                  closePartMenu($event);
+                  details = info;
+                  editingName = true;
+                "
+              >
+                Rename
+              </button>
+            </details>
+          </div>
+        </details>
       </section>
     </section>
     <BindingDetails
@@ -445,6 +560,30 @@ function onKey(event: KeyboardEvent): void {
 }
 .game-state {
   margin-top: var(--space-3);
+}
+.part-rename-form {
+  padding: 0;
+}
+.part-rename-form input {
+  width: 100%;
+  box-sizing: border-box;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  padding: 0;
+  outline: none;
+}
+.game-state-builtin {
+  margin-top: var(--space-3);
+}
+.game-state-builtin > summary {
+  cursor: pointer;
+  color: var(--ink-3);
+  font-size: var(--text-2xs);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding-inline: var(--space-1);
 }
 .game-state-naming {
   display: grid;

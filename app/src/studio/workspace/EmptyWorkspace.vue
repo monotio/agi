@@ -45,12 +45,15 @@ async function start(
   busy.value = true;
   error.value = "";
   try {
-    if (openKey) {
+    const openTab = openKey ?? (action === "room" ? "picture:1" : undefined);
+    if (openTab) {
       localStorage.setItem(
         `monotio_agi.workspaceTabs.${project.projectId}`,
-        JSON.stringify({ tabs: [openKey], selected: openKey }),
+        JSON.stringify({ tabs: [openTab], selected: openTab }),
       );
     }
+    if (action === "room")
+      localStorage.setItem(`monotio_agi.workspaceRename.${project.projectId}`, "1");
     const session = await emptyStageSession(project);
     if (!session || !active) return;
     const changes = [...emptyWorkspaceChanges(action)];

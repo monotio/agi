@@ -6,6 +6,7 @@ import {
   type Launch,
 } from "../../../../src/authoring/launches.ts";
 import type { AuthoringState } from "../../../../src/authoring/authoringState.ts";
+import { renameRoomTitle } from "../../../../src/authoring/world.ts";
 import UiDialog from "../../ui/UiDialog.vue";
 import GuidedAdd from "./GuidedAdd.vue";
 import {
@@ -106,6 +107,16 @@ function nameState(kind: "flag" | "variable", num: number, name: string): void {
   edit("bindings", JSON.stringify({ ...bindings, [name]: { kind, num } }));
   openPart("state");
 }
+/** The Parts room row names the room in place; the world keeps everything else. */
+function renameRoom(room: number, title: string): void {
+  renamingRoom.value = undefined;
+  const current = content("world");
+  const world =
+    typeof current === "string"
+      ? (JSON.parse(current) as AuthoringState["world"])
+      : { rooms: {}, facts: {}, quests: {} };
+  edit("world", JSON.stringify(renameRoomTitle(world, room, title)));
+}
 /** The ⋯ menu's rare actions for the open tab, plus the frame's own. */
 const frameMenuItems = computed(() => {
   const key = editor.selected.value;
@@ -196,6 +207,12 @@ watch(
         if (!editor.retained.value.includes(key)) editor.retained.value.push(key);
       if (saved?.selected && editor.tabs.value.includes(saved.selected))
         editor.selected.value = saved.selected;
+      const rename = localStorage.getItem(`monotio_agi.workspaceRename.${project}`);
+      if (rename !== null) {
+        localStorage.removeItem(`monotio_agi.workspaceRename.${project}`);
+        const room = Number(rename);
+        if (Number.isInteger(room) && room > 0 && room <= 255) renamingRoom.value = room;
+      }
     } catch {
       /* Open empty. */
     }
@@ -1401,6 +1418,8 @@ const acceptedDocuments = computed(() => snapshot.value?.documents() ?? {});
 const workingDocuments = computed(() => ({ ...acceptedDocuments.value, ...optimistic.value }));
 const guidedKind = ref<WorkspaceAction["kind"]>();
 const guidedCommand = ref("");
+/** The room whose name is being edited in place in Parts (a fresh add starts there). */
+const renamingRoom = ref<number>();
 const unknownSentence = computed(() =>
   engine.playerSentences.value.findLast(
     (entry) => entry.unknown && entry.room === engine.roomMap.currentRoom.value,
@@ -1485,7 +1504,11 @@ async function guidedAction(action: WorkspaceAction): Promise<void> {
       if (key) openPart(key);
     }
     if (action.kind === "add-room") {
-      const key = prepared.changes.find((change) => change.key.startsWith("logic:"))?.key;
+      const logicKey = prepared.changes.find((change) => change.key.startsWith("logic:"))?.key;
+      const room = logicKey ? Number(logicKey.slice(6)) : undefined;
+      if (room !== undefined) renamingRoom.value = room;
+      const key =
+        prepared.changes.find((change) => change.key.startsWith("picture:"))?.key ?? logicKey;
       if (key) openPart(key);
     }
     draftChanged(true);
@@ -1567,14 +1590,12 @@ async function add(group: string): Promise<void> {
     openPart(`logic:${num}`);
     return;
   }
+  if (group === "ROOMS") {
+    await guidedAction({ kind: "add-room", title: "" });
+    return;
+  }
   const kind =
-    group === "ROOMS"
-      ? "logic"
-      : group === "PICTURES"
-        ? "picture"
-        : group === "VIEWS"
-          ? "view"
-          : "sound";
+    group === "PICTURES" ? "picture" : group === "VIEWS" ? "view" : "sound";
   const used = new Set(snapshot.value?.keys ?? []);
   let num = 1;
   while (used.has(`${kind}:${num}`) && num < 256) num++;
@@ -1582,12 +1603,7 @@ async function add(group: string): Promise<void> {
     editor.error.value = "This resource group is full. Edit an existing part.";
     return;
   }
-  if (kind === "logic") {
-    openPart(`logic:${engine.roomMap.currentRoom.value ?? 0}`);
-    guidedKind.value = "add-room";
-    return;
-  }
-  if (kind === "picture") edit(`picture:${num}`, "vis 15\nfill 0,0\nend\n");
+  if (kind === "picture") edit(`picture:${num}`, "end\n");
   else if (kind === "view") {
     const { buildView } = await import("../../../../src/view/view.ts");
     edit(
@@ -1829,9 +1845,12 @@ onBeforeUnmount(() => {
     :thumbnails="thumbnails"
     :views="viewThumbnails"
     :profile="profile"
+    :rename-room="renamingRoom"
     @open="(key, room) => openPart(key, room)"
     @add="add"
     @name-state="nameState"
+    @rename="renameRoom"
+    @rename-cancel="renamingRoom = undefined"
   />
   <div
     v-show="creating && editor.selected.value && !editor.focus.value && !phoneWidth"
