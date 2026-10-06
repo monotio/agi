@@ -1,28 +1,17 @@
-/** Isolated test previews adapt project admission to their attached debugger plans. */
-import { createProjectAdmission, projectAdmissionIdentity } from "./projectAdmission.ts";
+/** Play previews adapt project admission to their attached debugger plans. */
+import { createProjectAdmission } from "./projectAdmission.ts";
 import { createDebugBreakpointPlan } from "../../../src/runtime/debugBreakpoints.ts";
 import { createDebugWatchpointPlan } from "../../../src/runtime/debugWatchpoints.ts";
 import { debugPlanSnapshot, type PreviewPreparedSession } from "./debuggerState.ts";
 import type { WorkerContext } from "./context.ts";
 
-export function previewLaneIdentity(ctx: WorkerContext) {
-  return projectAdmissionIdentity(ctx, ctx.debugger.preview);
-}
-
 export function createPreviewAdmission(ctx: WorkerContext) {
   return createProjectAdmission(ctx, {
-    lane: () => ctx.projectAdmission ?? ctx.debugger.preview,
-    legacyPreview: ctx.projectAdmission === null,
+    lane: () => ctx.projectAdmission,
     commitAtBoundary(commit) {
       const d = ctx.debugger;
       const engine = ctx.engine;
-      if (
-        ctx.projectAdmission === null ||
-        !d.installed ||
-        engine === null ||
-        engine.executionStopInfo !== null
-      )
-        return commit();
+      if (!d.installed || engine === null || engine.executionStopInfo !== null) return commit();
       try {
         engine.setExecutionGate(null);
         engine.setExecutionObserver(null);

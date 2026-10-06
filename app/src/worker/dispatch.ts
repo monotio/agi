@@ -10,141 +10,11 @@ import { Engine } from "../../../src/runtime/engine.ts";
 import { resourceCacheHint } from "../../../src/agent/authoringState.ts";
 import { base64ToBytes, bytesToBase64 } from "../project/bytes.ts";
 import { AUTOSAVE_INTERVAL_MS } from "./autosave.ts";
-import type { Inbound, WorkerContext } from "./context.ts";
+import type { WorkerContext } from "./context.ts";
 import { resetSession, configureSessionTiming } from "./session.ts";
-import { newDebuggerState, newPreviewLane, mintPreviewRunToken } from "./debuggerState.ts";
-import { newProjectAdmissionState } from "./projectAdmissionState.ts";
+import { newProjectAdmissionState, mintPreviewRunToken } from "./projectAdmissionState.ts";
 import { controllerDemand, ensureDebugController } from "./debugLoader.ts";
-import type { BootMessage, FrozenTestBoot, WorkerInbound } from "./workerProtocol.ts";
-
-/** A plain object check for boot-policy fields arriving off the wire. */
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-/**
- * Structural validation for a frozen-test boot — checked before the boot
- * touches any session state, so a refused message leaves the worker a clean
- * shell: no engine, no timers, no recording. Deep validation of sources and
- * bindings happens in the attach/configure admission steps themselves.
- */
-function frozenBootError(boot: BootMessage, frozen: FrozenTestBoot): string | null {
-  if (!Number.isSafeInteger(frozen.id)) return "frozenTest.id must be an integer";
-  if (frozen.lane !== undefined && frozen.lane !== "debug" && frozen.lane !== "play-preview")
-    return "frozenTest.lane must be 'debug' or 'play-preview'";
-  if (boot.replaySeed !== undefined)
-    return "a test boot cannot carry a replay seed; it runs the shipped LOGIC 0";
-  if (boot.restoreImage !== undefined || boot.restoreMenus !== undefined)
-    return "a test boot cannot resume a stored image; it runs the shipped LOGIC 0";
-  if (boot.sessionId !== undefined) return "a test boot does not join a replay session";
-  if (
-    frozen.sources !== undefined &&
-    (!isRecord(frozen.sources) ||
-      Object.values(frozen.sources).some((source) => typeof source !== "string"))
-  )
-    return "frozenTest.sources must map logic numbers to source text";
-  if (frozen.bindings !== undefined && !isRecord(frozen.bindings))
-    return "frozenTest.bindings must be a name map";
-  if (frozen.sourceBindings !== undefined && !isRecord(frozen.sourceBindings))
-    return "frozenTest.sourceBindings must be a name map";
-  if (frozen.breakpoints !== undefined && !Array.isArray(frozen.breakpoints))
-    return "frozenTest.breakpoints must be a list";
-  if (frozen.watchpoints !== undefined && !Array.isArray(frozen.watchpoints))
-    return "frozenTest.watchpoints must be a list";
-  return null;
-}
-
-/**
- * A refused test boot answers on the reliable debug channel — the id lets
- * the launcher match the refusal to its admission — and reports on the
- * ordinary error channel too. Posted before any session state moved.
- */
-function refuseFrozenBoot(ctx: WorkerContext, frozen: FrozenTestBoot, error: string): void {
-  const id = Number.isSafeInteger(frozen.id) ? frozen.id : 0;
-  ctx.ports.control({
-    type: "debugError",
-    id,
-    epoch: null,
-    buildId: null,
-    code: "invalidRequest",
-    error,
-  });
-  ctx.ports.control({ type: "error", message: `isolated test boot refused: ${error}` });
-}
-
-/**
- * Frozen-test admission, driven synchronously inside the boot branch so it
- * completes before any timer, sound clock, input or logic cycle can run:
- * attach under the verified build, one atomic configuration, then (unless
- * stopOnEntry is explicitly false) the idle stop latch. A refusal discards
- * the half-admitted run — the engine leaves, the session state resets and
- * no `booted` posts — never a fallback to running play.
- */
-function admitFrozenTest(ctx: WorkerContext, frozen: FrozenTestBoot): boolean {
-  const fail = (step: string): boolean => {
-    ctx.ports.control({ type: "error", message: `isolated test boot refused: ${step}` });
-    ctx.engine = null;
-    ctx.debugger = newDebuggerState();
-    return false;
-  };
-  if (frozen.lane === "play-preview") {
-    // The lane is physical-run authority, not session decoration: minted
-    // for this exact engine instance before the attach so the verified
-    // build identity lands on it and `debugAttached` can publish the run
-    // token. `stopOnEntry:false` alone never mints one — only the explicit
-    // lane grant does.
-    ctx.debugger.preview = newPreviewLane(mintPreviewRunToken(), ctx.engine!);
-  }
-  ctx.fns.onDebugAttach({
-    type: "debugAttach",
-    id: frozen.id,
-    ...(frozen.sources !== undefined ? { sources: frozen.sources } : {}),
-    ...(frozen.bindings !== undefined ? { bindings: frozen.bindings } : {}),
-    ...(frozen.sourceBindings !== undefined ? { sourceBindings: frozen.sourceBindings } : {}),
-  });
-  if (ctx.debugger.epoch === 0) return fail("debugger attach failed");
-  if (frozen.breakpoints !== undefined || frozen.watchpoints !== undefined) {
-    ctx.fns.onDebugConfigure({
-      type: "debugConfigure",
-      id: frozen.id,
-      epoch: ctx.debugger.epoch,
-      revision: 1,
-      ...(frozen.breakpoints !== undefined ? { breakpoints: frozen.breakpoints } : {}),
-      ...(frozen.watchpoints !== undefined ? { watchpoints: frozen.watchpoints } : {}),
-    });
-    if (ctx.debugger.configRevision !== 1) return fail("debugger configuration failed");
-  }
-  if (frozen.stopOnEntry !== false) {
-    ctx.fns.onDebugPause({ type: "debugPause", id: frozen.id, epoch: ctx.debugger.epoch });
-    if (!ctx.fns.debugStoppedHeld()) return fail("the entry pause did not hold");
-  }
-  return true;
-}
-
-/**
- * A frozen test keeps no ordinary recording: end any predecessor segment,
- * then leave `segment` null so every history hook is inert for the run —
- * the ephemeral host, not the tape, owns test saves. The RNG seed a test
- * supplies still feeds the live draw state historyBoot would have seeded.
- */
-function disableTestRecording(ctx: WorkerContext, boot: BootMessage): void {
-  ctx.fns.historyEnd("boot");
-  const h = ctx.history;
-  h.epoch++;
-  h.session = "";
-  h.rng = (typeof boot.rngSeed === "number" ? boot.rngSeed : 1) & 0xffff;
-  h.sent = [];
-  h.queue = [];
-  h.queuedBytes = 0;
-  h.queuedEvents = 0;
-  h.resumePending = false;
-  h.resumedFrom = null;
-  h.pendingEndReply = null;
-  if (h.resendTimer !== null) {
-    ctx.ports.cancelSchedule?.(h.resendTimer);
-    h.resendTimer = null;
-  }
-}
+import type { BootMessage, WorkerInbound } from "./workerProtocol.ts";
 
 /**
  * Replay the messages the gate held while the controller module loaded —
@@ -157,44 +27,15 @@ function drainDebugQueue(ctx: WorkerContext): void {
 }
 
 /**
- * The controller's module load already failed once: a frozen-test boot
- * cannot admit its stopped first-instruction session, so refuse it on the
- * debug channel the session awaits (the frozen policy's `id` matches the
- * refusal to its admission) and on the error channel — the worker stays
- * un-booted rather than silently starting a running game.
- */
-function refuseFrozenBootLoad(ctx: WorkerContext, msg: Inbound<"boot">): void {
-  const frozen = msg.frozenTest;
-  const error = "the execution debugger failed to load; the frozen test cannot run";
-  ctx.ports.control({
-    type: "debugError",
-    id: frozen !== undefined && Number.isSafeInteger(frozen.id) ? frozen.id : 0,
-    epoch: null,
-    buildId: null,
-    code: "unavailable",
-    error,
-  });
-  ctx.ports.control({ type: "error", message: `isolated test boot refused: ${error}` });
-}
-
-/**
  * Whether an inbound must wait on the controller's one-shot lazy load:
- * every `debug*` command and a frozen-test boot demands it — and kicks the
- * import off — while everything else queues only behind an in-flight load,
- * so no timer, input or host-answer work can slip a first tick in under an
- * incomplete boot policy. A settled failure is refused explicitly instead
- * of being retried per message.
+ * every `debug*` command demands it — and kicks the import off — while
+ * everything else queues only behind an in-flight load. A settled failure
+ * falls through to the inert hooks, which refuse explicitly.
  */
 function debugLoadGate(ctx: WorkerContext, msg: WorkerInbound): boolean {
   const loader = ctx.debuggerLoader;
   if (loader.installed) return false;
-  if (loader.failed) {
-    if (msg.type === "boot" && msg.frozenTest !== undefined) {
-      refuseFrozenBootLoad(ctx, msg);
-      return true;
-    }
-    return false;
-  }
+  if (loader.failed) return false;
   if (loader.loading === null && !controllerDemand(msg)) return false;
   if (loader.loading === null) {
     void ensureDebugController(ctx).then(() => drainDebugQueue(ctx));
@@ -535,17 +376,6 @@ export function onWorkerMessage(ctx: WorkerContext, msg: WorkerInbound): void {
     }
     if (msg.type === "boot") {
       const boot: BootMessage = msg;
-      // A frozen-test policy validates before any session state moves: a
-      // refused admission leaves the worker a clean shell — no engine, no
-      // timers, never a fallback into running play.
-      const frozen = boot.frozenTest;
-      if (frozen !== undefined) {
-        const error = frozenBootError(boot, frozen);
-        if (error !== null) {
-          refuseFrozenBoot(ctx, frozen, error);
-          return;
-        }
-      }
       // A fresh session discards any open history view — its scratch engine
       // and pending request settle before the reset wipes the live one.
       ctx.fns.onHistoryViewEnd();
@@ -564,11 +394,8 @@ export function onWorkerMessage(ctx: WorkerContext, msg: WorkerInbound): void {
       ctx.replay.lastReplaySeed = Number.isInteger(boot.replaySeed) ? boot.replaySeed! : null;
       ctx.boot.authoredWords = null;
       ctx.boot.project = undefined;
-      // A test run never installs room authoring: already-built rooms
-      // transition through the real engine and a missing one reports the
-      // engine's deterministic outcome — no generation request, no fallback.
-      ctx.boot.authorRooms = frozen === undefined && boot.authorRooms === true;
-      ctx.boot.createAllowed = frozen === undefined;
+      ctx.boot.authorRooms = boot.authorRooms === true;
+      ctx.boot.createAllowed = true;
       ctx.boot.selectedSoundDevice = boot.soundDevice === 0 ? 0 : 1;
       ctx.boot.profile = boot.profile ?? null;
       ctx.boot.amigaRegion = boot.amigaRegion ?? "ntsc";
@@ -582,7 +409,7 @@ export function onWorkerMessage(ctx: WorkerContext, msg: WorkerInbound): void {
         },
       );
       ctx.projectAdmission =
-        boot.projectMode === "create" && frozen === undefined
+        boot.projectMode === "create"
           ? newProjectAdmissionState(mintPreviewRunToken(), ctx.engine)
           : null;
       if (ctx.projectAdmission !== null) loader.initialize?.(boot);
@@ -602,12 +429,6 @@ export function onWorkerMessage(ctx: WorkerContext, msg: WorkerInbound): void {
       ctx.autosave.lastAutosaveAt = Date.now();
       ctx.autosave.lastAutosaveCycle = -1;
       ctx.autosave.lastPatchGeneration = ctx.engine.patchGeneration;
-      if (frozen !== undefined) {
-        // Test saves are ephemeral and host-served — the autosave cadence is
-        // disabled outright rather than posting images nobody persists.
-        ctx.autosave.autosaveIntervalMs = Number.POSITIVE_INFINITY;
-        ctx.autosave.autosaveFiles = false;
-      }
       // Autosave resume: replay the stored image into the engine before it has
       // run a single cycle, through the same restore path restore.game uses.
       // A corrupt or profile-mismatched image throws out of the decode with no
@@ -632,17 +453,10 @@ export function onWorkerMessage(ctx: WorkerContext, msg: WorkerInbound): void {
         }
       }
       configureSessionTiming(ctx);
-      if (frozen === undefined) {
-        // The always-on recording opens its segment once the engine is
-        // restored: the boot record carries the image the session resumed
-        // from.
-        ctx.fns.historyBoot(boot);
-      } else {
-        // Test admission lands before any timer can fire: the recording is
-        // left inert, then attach → configure → pause complete synchronously.
-        disableTestRecording(ctx, boot);
-        if (!admitFrozenTest(ctx, frozen)) return;
-      }
+      // The always-on recording opens its segment once the engine is
+      // restored: the boot record carries the image the session resumed
+      // from.
+      ctx.fns.historyBoot(boot);
       if (!ctx.replay.replay) ctx.fns.startTimers();
       control({
         type: "booted",
@@ -657,11 +471,9 @@ export function onWorkerMessage(ctx: WorkerContext, msg: WorkerInbound): void {
             }
           : {}),
       });
-      // A live debug session survives a normal boot under a fresh epoch,
-      // rebound against the new image. The frozen admission just installed
-      // its own session — rebinding would mint a second epoch and strand the
-      // stop the launcher was handed.
-      if (frozen === undefined) ctx.fns.debugSessionReplaced();
+      // A live debug session survives a boot under a fresh epoch, rebound
+      // against the new image.
+      ctx.fns.debugSessionReplaced();
       ctx.fns.postReplay(null);
       return;
     }

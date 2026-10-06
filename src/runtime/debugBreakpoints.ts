@@ -88,7 +88,7 @@ interface DebugEmittedLocation {
   readonly endPc: number;
 }
 
-export type DebugBinding =
+type DebugBinding =
   | {
       readonly bound: true;
       readonly logic: number;

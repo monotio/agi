@@ -153,11 +153,11 @@ export type SourceBindingKind = BindingKind | "string";
 
 // ---------- same-Engine Play-preview admission protocol ----------
 //
-// A frozen-test boot may grant the play-preview lane (`lane:
-// "play-preview"`): the attached session then also owns live update
-// authority for the physical run the boot minted, named by its `runToken`.
-// Every `previewUpdate` settles in exactly one `previewUpdateResult`; a
-// `previewUpdateStatus` query is a read-only reconciliation answer.
+// A `projectMode: "create"` boot grants the play-preview lane: the MAIN run
+// then owns live update authority for the physical run the boot minted,
+// named by its `runToken`. Every `previewUpdate` settles in exactly one
+// `previewUpdateResult`; a `previewUpdateStatus` query is a read-only
+// reconciliation answer.
 
 /**
  * The identity tuple a preview request pins and a result reports: the
@@ -165,7 +165,7 @@ export type SourceBindingKind = BindingKind | "string";
  * resource revision and the lane-local update serial.
  */
 export interface PreviewLaneIdentity {
-  /** Complete project document identity; legacy isolated previews omit it. */
+  /** Complete project document identity, set once the lane installed a document set. */
   documentId?: string;
   epoch: number;
   buildId: string;
@@ -209,40 +209,6 @@ export interface PreviewUpdateCandidateMessage {
   origins: { key: string; version: number }[];
 }
 
-/**
- * Isolated-test admission policy, consumed synchronously inside the boot
- * branch BEFORE any timer, input, sound clock or logic runs: the debugger
- * attaches under the verified build, the initial breakpoint/watchpoint
- * configuration lands atomically, and (unless `stopOnEntry` is explicitly
- * false) the engine latches an idle stop — `booted` posts only after all of
- * it. A refused admission posts `debugError` under `id` and never falls back
- * to running play: no timers start and no `booted` is posted. The policy
- * also pins room authoring off and disables ordinary history recording and
- * autosave for the run.
- */
-export interface FrozenTestBoot {
-  /** Correlates the admission replies (debugAttached / debugConfigured / debugAck / debugError). */
-  id: number;
-  /**
-   * The lane this isolated run serves. Absent or `"debug"` is the frozen
-   * test session; `"play-preview"` additionally grants same-Engine preview
-   * update authority — the `debugAttached` reply then carries the run's
-   * `preview` block (token + lane identity) the update protocol pins.
-   * `stopOnEntry:false` alone does not grant the lane.
-   */
-  lane?: "debug" | "play-preview";
-  /** Authored source per LOGIC number (string keys); each must reproduce the booted bytes. */
-  sources?: Record<string, string>;
-  /** The complete authored binding map — every kind, verified as the capture identity. */
-  sourceBindings?: Record<string, { kind: SourceBindingKind; num: number }>;
-  /** The expression-evaluator subview of sourceBindings; must agree exactly where they overlap. */
-  bindings?: Record<string, { kind: "variable" | "flag" | "string"; num: number }>;
-  breakpoints?: DebugBreakpointSpec[];
-  watchpoints?: DebugWatchSpec[];
-  /** Latch the pre-first-cycle idle stop at admission (default true). */
-  stopOnEntry?: boolean;
-}
-
 export interface BootMessage {
   amigaRegion?: "ntsc" | "pal";
   type: "boot";
@@ -276,18 +242,9 @@ export interface BootMessage {
   /**
    * Live-session PRNG seed for the recorded history stream — the original's
    * 16-bit word (docs/fidelity.md, "Original RNG"); recorded into the
-   * segment's boot so the same random sequence replays offline. Under a
-   * frozenTest policy it seeds the run's RNG directly.
+   * segment's boot so the same random sequence replays offline.
    */
   rngSeed?: number;
-  /**
-   * Isolated-test admission: when present the boot is a frozen test run —
-   * debugger attached, configured and paused before the first tick, room
-   * authoring pinned off, history/autosave disabled. Replay seeds, autosave
-   * resume images and session ids are refused: a test run boots the actual
-   * LOGIC 0 of the shipped build, never a parked continuation.
-   */
-  frozenTest?: FrozenTestBoot;
   /** Explicit live authoring authority for the MAIN run. */
   projectMode?: "create";
   projectDocuments?: PortableProjectWorkspace;
@@ -563,8 +520,8 @@ export type WorkerInbound =
   | { type: "authoring"; snapshot: Record<string, unknown> }
   /**
    * Project admission pins one complete candidate to the running identity.
-   * Create boots and isolated play-preview boots grant it; deliberate
-   * restart and room-entry actions require Create authority. Every settled request is
+   * Create boots grant it; deliberate restart and room-entry actions require
+   * Create authority. Every settled request is
    * answered by exactly one `previewUpdateResult`. `id` is a strictly
    * increasing run-local transaction id; the exact request digest dedupes
    * retransmission, so a duplicate replays its settled outcome and an id
@@ -764,18 +721,12 @@ export type WorkerControl =
       resourceSet?: string;
     }
   // ---------- execution-controller replies and events ----------
-  /**
-   * The attach handshake: session epoch and verified build identity. On a
-   * play-preview boot the `preview` block reports the granted lane's own
-   * identity — its physical run token and the tuple every previewUpdate
-   * pins its `expected` claim against.
-   */
+  /** The attach handshake: session epoch and verified build identity. */
   | {
       type: "debugAttached";
       id: number;
       epoch: number;
       buildId: string;
-      preview?: PreviewLaneIdentity & { runToken: string };
     }
   /** Success reply for detach/pause/resume/runTo. */
   | { type: "debugAck"; id: number; epoch: number; buildId: string }

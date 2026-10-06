@@ -20,11 +20,6 @@ import type { DebugResumeAction, DebugStopReason, SourceBindingKind } from "./wo
 type CapturedBuild = ReturnType<typeof captureProjectBuild>;
 type StepPlan = ReturnType<typeof createDebugStepPlan>;
 
-export {
-  newProjectAdmissionState as newPreviewLane,
-  mintPreviewRunToken,
-} from "./projectAdmissionState.ts";
-import type { ProjectAdmissionState as PreviewLaneState } from "./projectAdmissionState.ts";
 /**
  * The fully verified, still-detached session authority a committed preview
  * update installs: captured build, sources and binding maps plus the
@@ -87,9 +82,8 @@ export interface DebuggerState {
   inspected: { state: EngineStateReport; objects: ScreenObjectState[] } | null;
   /** Gate + observer installed on the owned engine. */
   installed: boolean;
-  /** Install/uninstall awaiting the next completed-cycle boundary. */
+  /** Install awaiting the next completed-cycle boundary. */
   armDeferred: boolean;
-  unarmDeferred: boolean;
   /** The live recording's debugger hiatus: its segment ended with "debugger". */
   hiatus: boolean;
   /** The posted `debugAudio` hold this epoch owns. */
@@ -100,12 +94,6 @@ export interface DebuggerState {
   queuedAnswers: { id: number; op: string; response: string }[];
   /** debugSetValues wrote to this run. */
   modified: boolean;
-  /**
-   * The play-preview lane this run was booted with, or null on every other
-   * context. Carried across session detach/re-attach (the token names the
-   * physical run, not the session); cleared by a fresh boot.
-   */
-  preview: PreviewLaneState | null;
 }
 
 export function newDebuggerState(): DebuggerState {
@@ -133,13 +121,11 @@ export function newDebuggerState(): DebuggerState {
     inspected: null,
     installed: false,
     armDeferred: false,
-    unarmDeferred: false,
     hiatus: false,
     audioHold: false,
     richSnapshot: false,
     queuedAnswers: [],
     modified: false,
-    preview: null,
   };
 }
 

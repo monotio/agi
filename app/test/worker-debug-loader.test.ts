@@ -10,23 +10,17 @@ import { createEngineHost } from "../src/worker/host.ts";
 import { createDebugController } from "../src/worker/debugController.ts";
 import { ensureDebugController } from "../src/worker/debugLoader.ts";
 import { onWorkerMessage } from "../src/worker/dispatch.ts";
-import type {
-  BootMessage,
-  FrozenTestBoot,
-  WorkerControl,
-  WorkerInbound,
-} from "../src/worker/workerProtocol.ts";
+import type { WorkerControl, WorkerInbound } from "../src/worker/workerProtocol.ts";
 import { createContainer } from "../../src/container/container.ts";
 import { compileProjectLogic } from "../../src/authoring/projectLogic.ts";
 import { PROFILES, type AgiProfile } from "../../src/runtime/profile.ts";
 
 /**
- * The lazy controller boundary: a `debug*` command or a frozen-test boot
- * starts the one-shot import and queues behind it in arrival order, while
- * ordinary traffic passes through. Nothing ticks, inputs or answers under
- * an incomplete boot policy, and a refused load refuses every later demand
- * explicitly — never a silent running game. The fake-port context injects
- * the module so the loader's order, not the network, is under test.
+ * The lazy controller boundary: a `debug*` command starts the one-shot
+ * import and queues behind it in arrival order, while ordinary traffic
+ * passes through. A refused load refuses every later demand explicitly —
+ * and never wedges an ordinary boot. The fake-port context injects the
+ * module so the loader's order, not the network, is under test.
  */
 
 const PROFILE = "2.411";
@@ -75,9 +69,8 @@ function game(): { files: Record<string, Uint8Array> } {
   return { files: Object.fromEntries(container.files) };
 }
 
-function frozenBoot(id: number): BootMessage {
-  const frozenTest: FrozenTestBoot = { id };
-  return { type: "boot", files: game().files, words: [], profile: PROFILE, frozenTest };
+function plainBoot(): WorkerInbound {
+  return { type: "boot", files: game().files, words: [], profile: PROFILE };
 }
 
 /**
@@ -125,7 +118,7 @@ test("a debug demand kicks off the import; queued traffic drains in arrival orde
   assert.deepEqual(h.ctx.debuggerLoader.queue.length, 1);
 
   // Traffic that lands mid-load queues behind the demand, in order.
-  h.send(frozenBoot(3));
+  h.send(plainBoot());
   h.send({ type: "key", code: 0x0d });
   h.send({ type: "state", id: 4 });
   assert.deepEqual(h.ctx.debuggerLoader.queue.length, 4);
@@ -136,49 +129,19 @@ test("a debug demand kicks off the import; queued traffic drains in arrival orde
 
   const order = h.control.map((m) => m.type);
   // Arrival order held across the load: the attach drained first — refused
-  // `noEngine` since its boot had not run yet — then the frozen boot's own
-  // admission (attach → stop → booted), then the ordinary query.
+  // `noEngine` since its boot had not run yet — then the boot, then the
+  // ordinary query.
   const refused = h.control.find((m) => m.type === "debugError") as
     { id: number; code: string } | undefined;
   assert.equal(refused?.["id"], 2);
   assert.equal(refused?.["code"], "noEngine");
-  const attached = order.indexOf("debugAttached");
-  const stopped = order.indexOf("debugStopped");
   const booted = order.indexOf("booted");
   const engineState = order.lastIndexOf("engineState");
-  assert.ok(attached >= 0 && stopped > attached, "the admission's attach then entry stop");
-  assert.ok(booted > stopped, "the admission completed before booted");
+  assert.ok(booted > 0, "the boot drained after the refused attach");
   assert.ok(engineState > booted, "the state query drained after the boot");
-  // The key drained into the latched entry stop: refused, never queued.
-  assert.equal(h.ctx.input.keyQueue.length, 0);
+  // The key drained into the running game's input queue.
+  assert.equal(h.ctx.input.keyQueue.length, 1);
   assert.equal(h.ctx.debuggerLoader.queue.length, 0);
-});
-
-test("no first tick runs under an incomplete boot policy", async () => {
-  const h = harness();
-  const gate = deferredModule(h.ctx);
-
-  h.send(frozenBoot(7));
-  // While the import resolves there is no engine and no timers: polls,
-  // sound clock and any queued input are all inert.
-  h.tick();
-  h.tick();
-  h.send({ type: "key", code: 0x0d });
-  assert.equal(h.ctx.engine, null);
-  assert.equal(h.ctx.cycle.cycleCount, 0);
-  assert.equal(controls(h, "booted").length, 0);
-
-  gate.resolve();
-  await flush(h.ctx);
-  assert.equal(controls(h, "booted").length, 1);
-  const stopped = controls(h, "debugStopped").at(-1);
-  assert.ok(stopped !== undefined, "the entry stop published before booted");
-
-  // The drained key hits the latched entry stop: refused, never queued.
-  h.tick();
-  h.tick();
-  assert.equal(h.ctx.cycle.cycleCount, 0);
-  assert.equal(h.ctx.input.keyQueue.length, 0);
 });
 
 test("a refused module load reports and refuses every later demand", async () => {
@@ -206,16 +169,10 @@ test("a refused module load reports and refuses every later demand", async () =>
   assert.equal(controls(h, "debugError").length, 2);
   assert.equal(controls(h, "debugError")[1]!["code"], "unavailable");
 
-  // And a frozen-test boot is refused outright — no engine, no booted.
-  h.send(frozenBoot(13));
-  const after = controls(h, "debugError").at(-1)!;
-  assert.equal(after["id"], 13);
-  assert.ok(
-    String(after["error"]).includes("failed to load"),
-    "the frozen boot's refusal names the load failure",
-  );
-  assert.equal(controls(h, "booted").length, 0, "no silent running game after the refusal");
-  assert.equal(h.ctx.engine, null);
+  // An ordinary boot is untouched by the failed debugger load.
+  h.send(plainBoot());
+  assert.equal(controls(h, "booted").length, 1, "a boot still runs the game");
+  assert.ok(h.ctx.engine !== null);
 
   // Ordinary traffic still flows — a failed debugger cannot wedge the worker.
   h.send({ type: "state", id: 14 });
