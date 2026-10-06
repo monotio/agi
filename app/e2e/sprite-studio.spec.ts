@@ -378,7 +378,9 @@ test("a loop's cyan recoloured to blue by keys is saved, and the walking ego sho
     expect(frame.pixels).toEqual(celPixels(frame, original.loops[1]!.cels[frame.ego.cel]!));
 });
 
-test.describe("on the harness", () => {
+// The standalone VIEW editor's Keep and close hooks are gone; the workspace
+// port of these scenarios replaces this block.
+test.describe.fixme("on the harness", () => {
   test("Edit both on the mirror loop changes both facings; undo, redo and Keep", async ({
     page,
   }) => {

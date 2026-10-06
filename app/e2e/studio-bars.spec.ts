@@ -98,10 +98,6 @@ test("at 1024 no part of a Studio bar runs under another", async ({ page }) => {
   await page.keyboard.press("b");
   await look("sprite top", page.locator(".workspace-editor__header"));
   await look("sprite options", sprite.getByTestId("sprite-options-bar"));
-
-  // A view many rooms use: its usage keeps clear of Undo, Redo and Keep.
-  await page.goto("/sprite-harness.html?view=0&rooms=14");
-  await look("sprite top, 14 rooms", page.getByTestId("sprite-studio").locator(".sprite-top"));
   expect(seen).toEqual([]);
 });
 
