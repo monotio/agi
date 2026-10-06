@@ -1,3 +1,5 @@
+import { readWorldLaunches, type WorldLaunches } from "./launches.ts";
+
 /** Portable authoring intent and stable names; game behavior remains in AGI resources. */
 export type BindingKind = "logic" | "picture" | "view" | "sound" | "flag" | "variable";
 export interface AuthoringState {
@@ -9,6 +11,8 @@ export interface AuthoringState {
     rooms: Record<string, { title: string; description: string; exits: Record<string, number> }>;
     facts: Record<string, string>;
     quests: Record<string, { description: string; requires: string[]; completedFlag?: string }>;
+    /** Per-room launch configurations; absent means none are saved. */
+    launches?: WorldLaunches;
   };
 }
 
@@ -156,5 +160,6 @@ export function validateAuthoringState(value: unknown): AuthoringState {
         : { completedFlag: text(item["completedFlag"], "completion flag", 64) }),
     };
   }
+  if (world["launches"] !== undefined) result.world.launches = readWorldLaunches(world["launches"]);
   return result;
 }
