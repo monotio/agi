@@ -384,6 +384,8 @@ export function createHistoryView(
     if (boot.fingerprint.v !== HISTORY_FINGERPRINT_VERSION)
       throw new Error(`history boot carries fingerprint version ${boot.fingerprint.v}`);
     const semantic = historyBootSemantic(boot);
+    if (candidate.amigaRegion === "pal") semantic.amigaRegion = "pal";
+    else delete semantic.amigaRegion;
     if (semantic.image !== undefined) {
       const image = candidate.recordingImage();
       if (image === null) throw new Error("the adopted state is not a resumable boundary");

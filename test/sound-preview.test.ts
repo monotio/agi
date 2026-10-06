@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { describe, it } from "node:test";
+import { describe, it, test } from "node:test";
 import { detectProfile, type ProfileId } from "../src/runtime/profile.ts";
 import { renderSoundPreview } from "../src/sound/preview.ts";
 
@@ -266,4 +266,27 @@ describe("offline AGI sound preview", () => {
     assert.ok(energy(pcm(common.wav).subarray(0, 400)) > energy(pcm(early.wav)) * 1.3);
     assert.notDeepEqual(common.wav, early.wav);
   });
+});
+
+test("preview periodic noise uses chip delay stages and clock/512, /1024, /2048", () => {
+  for (const [id, stages, sign] of [
+    ["2.089", 16, 1],
+    ["2.936", 15, -1],
+  ] as const) {
+    for (const rate of [0, 1, 2]) {
+      const samples = pcm(
+        renderSoundPreview(
+          sound([[], [], [], [{ duration: 1, divisor: rate, attenuation: 0 }]]),
+          profile(id),
+        ).wav,
+      );
+      // 3,579,545 Hz / (512 << rate); first output bit follows 16 TI or 15 NCR shifts.
+      const first = Math.ceil((stages * 24000 * (512 << rate)) / 3579545);
+      assert.ok(
+        samples.subarray(0, first).every((sample) => sample === 0),
+        `${id} rate ${rate}`,
+      );
+      assert.equal(samples[first], Math.round(sign * 0.14 * 32767), `${id} rate ${rate}`);
+    }
+  }
 });

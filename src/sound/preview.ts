@@ -6,6 +6,7 @@
  * small approximation of analog output for previews, not exact AGI hardware audio.
  */
 
+import { PsgNoise } from "./psgNoise.ts";
 import type { AgiProfile } from "../runtime/profile.ts";
 import { PIT_BASE_FREQ, PSG_BASE_FREQ, SoundPlayback, type SoundOutput } from "./sound.ts";
 
@@ -42,7 +43,7 @@ interface SynthState {
   noiseControl: number;
   noiseAttenuation: number;
   noisePhase: number;
-  noiseLfsr: number;
+  noise: PsgNoise;
   priorMixed: number;
   highPass: number;
 }
@@ -93,6 +94,7 @@ function applyOutput(state: SynthState, output: SoundOutput): void {
         : (prior & 15) | ((byte & 63) << 4);
     } else {
       state.noiseControl = byte & 7;
+      state.noise.write(state.noiseControl);
     }
   }
 }
@@ -131,17 +133,13 @@ function synthSample(state: SynthState, speaker: boolean): number {
   if (state.noiseAttenuation !== 15) {
     const rate = state.noiseControl & 3;
     const divisor = state.toneDivisors[2]!;
-    const frequency = rate === 3 ? PSG_BASE_FREQ / Math.max(1, divisor) : 4000 / (1 << rate);
+    const frequency =
+      rate === 3 ? PSG_BASE_FREQ / (divisor || 1024) : (PSG_BASE_FREQ * 32) / (512 << rate);
     const gain = Math.pow(10, -state.noiseAttenuation / 10) * 0.14;
-    mixed += (state.noiseLfsr & 1) !== 0 ? gain : -gain;
+    mixed += state.noise.output * gain;
     state.noisePhase += frequency / SAMPLE_RATE;
     while (state.noisePhase >= 1) {
-      const feedback =
-        (state.noiseControl & 4) !== 0
-          ? (state.noiseLfsr ^ (state.noiseLfsr >> 1)) & 1
-          : state.noiseLfsr & 1;
-      state.noiseLfsr = (state.noiseLfsr >> 1) | (feedback << 14);
-      if (state.noiseLfsr === 0) state.noiseLfsr = 0x4000;
+      state.noise.shift();
       state.noisePhase--;
     }
   }
@@ -217,7 +215,7 @@ export function renderSoundPreview(
     noiseControl: 0,
     noiseAttenuation: 15,
     noisePhase: 0,
-    noiseLfsr: 0x4000,
+    noise: new PsgNoise(profile.psgNoise),
     priorMixed: 0,
     highPass: 0,
   };

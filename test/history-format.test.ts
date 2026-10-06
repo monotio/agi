@@ -14,6 +14,8 @@ import {
   HISTORY_FORMAT_READ_VERSIONS,
   HISTORY_FORMAT_VERSION,
   stampBoot,
+  historyBootSemantic,
+  historyFingerprint,
   validateHistoryRecording,
   type HistoryEndReason,
 } from "../src/agent/history.ts";
@@ -143,4 +145,16 @@ test("atomic project images are admitted only by recording version 2", () => {
   ) as ReturnType<typeof endedRecording>;
   assert.throws(() => validateHistoryRecording({ ...input, version: 1 }));
   assert.equal(validateHistoryRecording(input).segments[0]!.events[0]!.cause.kind, "projectImage");
+});
+
+test("boot fingerprints distinguish PAL while preserving every NTSC semantic value", () => {
+  const legacy = historyBootSemantic(BOOT);
+  assert.deepEqual(BOOT.fingerprint, { v: 1, hash: "b0a444137a6d189d" });
+  assert.equal(Object.hasOwn(legacy, "amigaRegion"), false);
+  assert.deepEqual(stampBoot({ ...BOOT, amigaRegion: "ntsc" }).fingerprint, BOOT.fingerprint);
+  assert.deepEqual(stampBoot(BOOT).fingerprint, historyFingerprint(legacy));
+  assert.notDeepEqual(stampBoot({ ...BOOT, amigaRegion: "pal" }).fingerprint, BOOT.fingerprint);
+  const recording = endedRecording(2);
+  recording.segments[0]!.boot = { ...BOOT, amigaRegion: "pal" };
+  assert.throws(() => validateHistoryRecording(recording), /fingerprint/);
 });

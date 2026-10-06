@@ -175,6 +175,7 @@ function captureSemanticState(
     soundDevice: ctx.boot.selectedSoundDevice,
     resourceSet: resourceSetHint({ getFiles: () => files }),
   };
+  if (template.amigaRegion !== undefined) out.amigaRegion = engine.amigaRegion;
   if (template.documentId !== undefined) {
     if (ctx.boot.project === undefined)
       throw new Error("project documents are missing at the restored boundary");

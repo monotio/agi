@@ -10,7 +10,7 @@ import {
 import { workspaceDocument } from "./workspaceShared.ts";
 import { decodePng } from "../../scripts/png.ts";
 
-async function start(page: Page): Promise<void> {
+async function start(page: Page, onHome?: () => Promise<void>): Promise<void> {
   await isolateStorage(page);
   await page.goto("/");
   await page.evaluate(async () => {
@@ -18,6 +18,7 @@ async function start(page: Page): Promise<void> {
     await prepareLocalProject({ title: "Sunny clearing", kind: "starter" }).save();
   });
   await page.reload();
+  await onHome?.();
   await openLibraryActions(page, savedGameCard(page, "Sunny clearing"));
   await page.getByTestId("edit-library-game").click();
   await expect(page.getByTestId("workspace-add")).toBeVisible();
@@ -291,3 +292,78 @@ test("message preview draws a fallback when drawing throws", async ({ page }) =>
   expect(decodePng(await preview.screenshot()).rgba).not.toEqual(first);
   expect(errors).toEqual([]);
 });
+
+for (const [width, height] of [
+  [1063, 815],
+  [1440, 900],
+  [390, 844],
+] as const) {
+  test(`guided placement stays crisp with CRT Full saved at ${width} @webkit-desktop`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height });
+    await page.addInitScript(() => {
+      localStorage.clear();
+      localStorage.setItem("monotio_agi.e2e.isolated", "1");
+      localStorage.setItem("monotio_agi.crtAmount", "1");
+    });
+    await start(page, async () =>
+      page.evaluate(async () => {
+        const { AgiStage } = await import("/src/three/AgiStage.ts");
+        const descriptor = Object.getOwnPropertyDescriptor(AgiStage.prototype, "crtAmount")!;
+        Object.defineProperty(AgiStage.prototype, "crtAmount", {
+          ...descriptor,
+          set(value: number) {
+            descriptor.set!.call(this, value);
+            (window as unknown as { placementStage: unknown }).placementStage = this;
+          },
+        });
+      }),
+    );
+    const amount = () =>
+      page.evaluate(
+        () =>
+          (window as unknown as { placementStage?: { crtAmount: number } }).placementStage
+            ?.crtAmount,
+      );
+    await page.getByRole("radio", { name: "Play", exact: true }).click();
+    await expect(page.getByTestId("gpu-canvas")).toBeVisible();
+    await expect.poll(amount).toBe(1);
+    await page.getByRole("radio", { name: "Create", exact: true }).click();
+    await expect.poll(amount).toBe(0);
+    await parts(page);
+    await page.getByTestId("part-room:1:picture:1").click();
+    await parts(page);
+    await page.getByTestId("part-room:1:logic").click();
+    let form = await open(page, "Place hero");
+    await expect.poll(amount).toBe(0);
+    await form.getByRole("button", { name: "Drag to place", exact: true }).click();
+    const overlay = page.getByTestId("guided-placement");
+    await expect(overlay).toBeVisible();
+    await expect.poll(amount).toBe(0);
+    await overlay.getByRole("button", { name: "Cancel", exact: true }).click();
+    await expect(form).toBeVisible();
+    await form.getByRole("button", { name: "Cancel", exact: true }).click();
+    form = await open(page, "Add a room");
+    await form.getByLabel("Room name", { exact: true }).fill("Moonlit grove");
+    await form.getByRole("button", { name: "Add", exact: true }).click();
+    await expect(form).toBeHidden();
+    await workspaceUpdated(page);
+    await parts(page);
+    await page.getByTestId("part-room:1:logic").click();
+    form = await open(page, "Door");
+    await expect.poll(amount).toBe(0);
+    await form
+      .getByRole("group", { name: "Destination room", exact: true })
+      .getByRole("button", { name: /Moonlit grove/ })
+      .click();
+    for (const label of ["Drag a door box", "and arrive here"]) {
+      await form.getByRole("button", { name: label, exact: true }).click();
+      await expect(overlay).toBeVisible();
+      await expect.poll(amount).toBe(0);
+      await overlay.getByRole("button", { name: "Cancel", exact: true }).click();
+      await expect(form).toBeVisible();
+    }
+    expect(await page.evaluate(() => localStorage.getItem("monotio_agi.crtAmount"))).toBe("1");
+  });
+}

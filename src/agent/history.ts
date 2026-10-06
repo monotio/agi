@@ -453,6 +453,7 @@ export interface HistoryFingerprint {
  *   in-flight interaction, not resumable state.
  */
 export interface HistorySemanticState {
+  amigaRegion?: "ntsc" | "pal";
   documentId?: string;
   authorRooms?: boolean;
   dictionary?: [string, number][];
@@ -507,6 +508,7 @@ export function historyBootSemantic(boot: Omit<HistoryBoot, "fingerprint">): His
     soundDevice: boot.soundDevice,
     resourceSet: boot.resourceSet,
   };
+  if (boot.amigaRegion === "pal") out.amigaRegion = "pal";
   if (boot.project !== undefined) out.documentId = boot.project.documentId;
   if (boot.image !== undefined) out.image = boot.image;
   if (boot.replay !== undefined) out.replay = boot.replay;

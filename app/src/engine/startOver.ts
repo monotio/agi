@@ -137,6 +137,7 @@ export function createStartOver(deps: StartOverDeps) {
       await deps.prepareTimeline?.();
     } catch (error) {
       releaseOwnHold();
+      if (!stillOwner()) return;
       throw error;
     }
     if (!stillOwner()) {

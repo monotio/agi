@@ -1589,3 +1589,25 @@ for (const replacement of [
     assert.equal(h.control.filter((m) => m.type === "recordingReset").length, 1);
   });
 }
+
+test("PAL boot fingerprints replay and reject a region switch", () => {
+  const h = viewHarness(viewGame(), {
+    rngSeed: 0xbeef,
+    profile: "amiga-2.316",
+    amigaRegion: "pal",
+  });
+  h.tick(4);
+  h.send({ type: "pause", paused: true });
+  const recording = asRecording(collectSegments(h.control));
+  assert.equal(recording.segments[0]!.boot.amigaRegion, "pal");
+  h.send({ type: "historyViewStart", id: 1, recording, segment: 0, tick: 0 });
+  assert.equal(finalView(h.control, 1).error, null);
+  assert.equal(h.ctx.view.drive!.ctx.engine!.amigaRegion, "pal");
+  h.send({ type: "historyViewSeek", id: 2, segment: 0, tick: 4 });
+  assert.equal(finalView(h.control, 2).error, null);
+  h.send({ type: "historyViewEnd" });
+  const switched = structuredClone(recording);
+  switched.segments[0]!.boot.amigaRegion = "ntsc";
+  h.send({ type: "historyViewStart", id: 3, recording: switched, segment: 0, tick: 0 });
+  assert.match(finalView(h.control, 3).error!, /fingerprint/);
+});
