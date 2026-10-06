@@ -39,6 +39,9 @@ const runtimeExits = computed(() =>
     (scan) => scan.variableTarget || scan.unresolvedCall,
   ),
 );
+const computedRoomJump = computed(() =>
+  [...map.resources.value.scans.values()].some((scan) => scan.variableTarget),
+);
 
 const graphView = useTemplateRef("graphView");
 const sideEl = useTemplateRef("sideEl");
@@ -162,7 +165,9 @@ function addStandaloneRoom(): void {
       class="map-runtime"
       data-testid="map-runtime-exits"
     >
-      Some exits are worked out while you play.
+      Some exits are worked out while you play.<template v-if="computedRoomJump">
+        A computed room jump can reach a missing room.</template
+      >
     </p>
     <div class="map-body">
       <section ref="sideEl" class="map-side" aria-label="Rooms">

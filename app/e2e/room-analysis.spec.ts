@@ -71,7 +71,7 @@ test("the full map and ROOMS include shared and picture-free rooms @webkit-deskt
   await expect(page.getByTestId("map-room-4")).toBeVisible();
   await expect(page.getByTestId("map-runtime-exits")).toBeVisible();
   await expect(page.getByTestId("map-runtime-exits")).toHaveText(
-    "Some exits are worked out while you play.",
+    "Some exits are worked out while you play. A computed room jump can reach a missing room.",
   );
   await page.getByTestId("map-close").click();
   await page.setViewportSize({ width: 1440, height: 900 });

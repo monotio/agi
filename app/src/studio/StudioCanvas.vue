@@ -51,9 +51,7 @@ const {
   underlay = null,
   movable = false,
   marquee = null,
-  transparentMask = null,
 } = defineProps<{
-  transparentMask?: Uint8Array | null;
   layer: PaneLayer;
   visual: Uint8Array;
   priority: Uint8Array;
@@ -146,9 +144,6 @@ watchEffect(
     scratch.width = SCREEN_WIDTH;
     scratch.height = SCREEN_HEIGHT;
     paintLayer(layer, visual, priority, image.data);
-    if (transparentMask)
-      for (let i = 0; i < transparentMask.length; i++)
-        if (!transparentMask[i]) image.data[i * 4 + 3] = 0;
     scratch.getContext("2d")!.putImageData(image, 0, 0);
     // Reading the size here re-paints after a zoom or ratio change resets the canvas.
     if (target.width !== backingWidth.value) target.width = backingWidth.value;
@@ -156,8 +151,7 @@ watchEffect(
     const context = target.getContext("2d")!;
     context.imageSmoothingEnabled = false;
     context.fillStyle = `rgb(${EGA_PALETTE[15]!.join(" ")})`;
-    if (transparentMask) context.clearRect(0, 0, target.width, target.height);
-    else context.fillRect(0, 0, target.width, target.height);
+    context.fillRect(0, 0, target.width, target.height);
     if (!underlay?.behindArt) context.drawImage(scratch, 0, 0, target.width, target.height);
     if (underlay !== null && underlay.opacity > 0) {
       underlayScratch ??= document.createElement("canvas");

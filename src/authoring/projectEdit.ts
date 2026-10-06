@@ -16,6 +16,8 @@ import { inspectProjectDocumentDependencies } from "./projectSelection.ts";
 
 export interface ProjectValidationPolicy {
   readonly allowMissingRooms?: boolean;
+  /** Exact removed LOGIC keys whose unknown new.room.v risks the creator reviewed. */
+  readonly reviewedComputedRoomJumps?: readonly string[] | undefined;
 }
 interface ProjectEditDiagnostic {
   readonly document: string;
@@ -40,6 +42,8 @@ export function prepareProjectEdit(input: {
   readonly proposal: ProjectProposal;
   readonly profileId: ProfileId;
   readonly policy: ProjectValidationPolicy;
+  readonly drafts?:
+    readonly { readonly key: string; readonly content: string | Uint8Array }[] | undefined;
 }): PreparedProjectEdit {
   // Check ownership and freshness before any compilation or diagnostics.
   const sourceApplication = input.model.issueApplication(input.proposal);
@@ -142,14 +146,22 @@ export function prepareProjectEdit(input: {
         authoring,
         tests: documents["tests"],
         references: documents["references"],
-        drafts: [],
-        keptBindings: authoring.bindings,
+        drafts: (input.drafts ?? []).filter(
+          (draft) => !input.proposal.changes().some((change) => change.key === draft.key),
+        ),
+        keptBindings: readBindingsDocument(
+          typeof beforeBindings === "string" ? beforeBindings : "{}",
+        ),
         profile,
       }))
         diagnostics.push({
           ...finding,
-          code: "removal-use",
-          severity: "error",
+          code: finding.computedRoomJump ? "computed-room-jump" : "removal-use",
+          severity:
+            finding.computedRoomJump &&
+            input.policy.reviewedComputedRoomJumps?.includes(finding.computedRoomJump)
+              ? "warning"
+              : "error",
           preExisting: false,
         });
     }

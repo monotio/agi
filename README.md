@@ -109,10 +109,11 @@ your own rooms and artwork. **Blank** opens an empty workspace. Choose
 first room. Every part of these starting games is editable.
 
 To edit a saved game, open its library card’s **Game actions → Create**.
-The workspace keeps the game running on the stage. PICTURE tools frame the game;
+The workspace keeps the game running on the stage. PICTURE opens its own canvas;
 opening another room’s PICTURE, LOGIC or VIEW visits that room. **Back to Room**
 returns to the saved moment. Unused art opens with **Make it a room**.
-Other editors sit beside the stage or below it with **Stacked**. Phones stack their panels.
+Editors sit beside the stage or below it with **Stacked**. Phones switch between
+**Edit** and **Playtest**. **Update game** applies drafts together in one Undo step.
 LOGIC has code completion,
 hover documentation, definition navigation and a Problems panel. Resource names
 open their editors; flags and variables show where they are set and checked.
@@ -190,7 +191,7 @@ with the PICTURE editor’s tools, a LOGIC to edit its instructions, or a VIEW t
 loops and cels. WORDS groups words by meaning, tests sentences with the game’s parser and
 keeps a local list of missed playtest commands. OBJECTS has a table editor; SOUND has a step
 grid, tracker, presets and playback, and imports MIDI and VGM. **Focus** gives an editor the
-workspace while the game keeps running.
+workspace while the game keeps running. **Done** returns to your chosen arrangement.
 Create works best on a larger screen; games play on phones too.
 
 **Trace an image** blends a dropped, pasted or chosen image over a PICTURE at
@@ -209,7 +210,7 @@ project downloads. Public game exports carry the resulting AGI resources.
 
 Editor changes save as drafts in the background. Dots mark parts waiting for
 **Update game**, which applies all changed parts together and adds one Undo step.
-The game keeps running your last update while you edit. **Update and restart this room**
+The game keeps running your last update while you edit. **Update and play this room**
 runs the room's entry LOGIC with your changes. **Discard changes…** returns parts to
 that last update. **Saved** confirms browser storage for drafts; it keeps their dots.
 
@@ -241,8 +242,11 @@ shows WORDS, SOUND, History, Play with CRT and Make a new game._
 
 - **PICTURE editor** shows a room's picture under three lenses: Art for what the
   player sees, Depth for what stands in front, and Walk for the lines that steer
-  the hero. The items list names what the picture draws. A stroke previews
-  over the running game until the gesture finishes.
+  the hero. The items list names what the picture draws. Strokes stay drafts
+  on the picture canvas until **Update game**. A dashed outline marks pending cells.
+  **Views** blends in static figures from the room's starting instructions.
+  Drag a figure with a plain-number position to draft its LOGIC placement;
+  computed and conditional placements show their cause and stay locked.
 - **Editing** works on items: click one to select it, or drag a box to select
   the items wholly inside it; drag the selection, or its points with the Point
   tool, nudge it with the arrow keys (a move stops at the picture's edge),
@@ -255,7 +259,8 @@ shows WORDS, SOUND, History, Play with CRT and Make a new game._
   The tool rail draws lines, rectangles, polygons, fills and brush strokes at
   the selected point in the draw order, and a stand-in shows whether a
   character would stand in front of the scene or behind it.
-- Completed gestures start saving through the workspace and update the running game.
+- Completed gestures save as drafts. **Update game** applies artwork and placements
+  together; **Update and play this room** starts the room from its entrance.
   Each lens locks painting on the other planes until you unlock them, while
   a whole item moves with all its planes. **Undo** steps back across parts.
 - **LOGIC** uses code intelligence, completion and diagnostics. Typing starts saving

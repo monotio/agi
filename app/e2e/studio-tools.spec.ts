@@ -284,7 +284,12 @@ test("a fill drawn last on painted ground says why, and Draw before moves the dr
 
   // The fix: the scrubber moves before the Wall, where the spot is still white, and
   // Filled goes on, so the shape brings its own inside.
-  await bar.getByTestId("bar-notice-action").click();
+  await why.click();
+  const fix = bar
+    .getByTestId("bar-notice-detail")
+    .getByRole("button", { name: "Draw before Wall", exact: true });
+  await expect(fix).toBeVisible();
+  await fix.click();
   await expect(bar.getByTestId("studio-bar-notice")).toHaveCount(0);
   await expect(studio.getByTestId("studio-notice")).toHaveText(
     "New shapes now go before Wall. Filled is on: draw a rectangle or polygon there.",

@@ -230,7 +230,7 @@ test("keyboard only: an Art rectangle and a Walk wall line autosave @webkit-desk
   ).toBe(0);
 });
 
-test("while Studio is open the page holds still and Tab stays in Studio and the bar above it", async ({
+test("while Studio is open the page holds still and Tab stays in its workspace", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1280, height: 720 });
@@ -257,7 +257,7 @@ test("while Studio is open the page holds still and Tab stays in Studio and the 
       if (!focused || focused === document.body) return "body";
       if (
         focused.closest(
-          '[data-testid="room-studio"], .play-bar, [data-testid="parts-list"], [data-testid="workspace-editor"], .play-area',
+          '[data-testid="room-studio"], .play-bar, [data-testid="parts-list"], [data-testid="workspace-editor"], .workspace-splitter, .play-area',
         )
       )
         return null;

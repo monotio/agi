@@ -27,7 +27,8 @@ test("one running workspace retains editors and opens Focus with a chord @webkit
   await expect.poll(async () => (await textHook(page)).cycle).toBeGreaterThan(before);
   await expect(page.getByTestId("studio-keep")).toHaveCount(0);
   await page.getByTestId("workspace-focus").click();
-  await expect(page.locator(".play-area")).toBeVisible();
+  await expect(page.locator(".play-area")).toBeHidden();
+  await expect(page.getByTestId("workspace-show-game")).toBeVisible();
   const focused = (await textHook(page)).cycle;
   await expect.poll(async () => (await textHook(page)).cycle).toBeGreaterThan(focused);
   await reviewShot(page, "workspace-picture-focus");
@@ -576,8 +577,9 @@ test("adding a room waits for Update before its PICTURE opens on the visited sta
   await expect(page.getByTestId("room-studio").locator(".studio-pane")).toBeVisible();
   const cycle = (await textHook(page)).cycle;
   await expect.poll(async () => (await textHook(page)).cycle).toBeGreaterThan(cycle);
-  await expect(page.getByTestId("room-studio")).toHaveClass(/is-live-game/);
-  await expect(page.getByTestId("room-studio").locator(".play-area")).toBeVisible();
+  await expect(page.getByTestId("room-studio")).not.toHaveClass(/is-live-game/);
+  await expect(page.getByTestId("room-studio").locator(".play-area")).toHaveCount(0);
+  await expect(page.locator(".play-area")).toBeVisible();
   await expect.poll(async () => (await textHook(page)).room).toBe(2);
   await expect(page.getByTestId("workspace-visit")).toBeVisible();
   await expect(page.getByRole("button", { name: "Back to Room 1", exact: true })).toBeVisible();

@@ -17,7 +17,7 @@ async function start(page: Page) {
   await page.getByRole("button", { name: "Start building", exact: true }).click();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
   await page.getByTestId("part-room:1:picture:1").click();
-  await expect(page.getByTestId("room-studio")).toHaveClass(/is-live-game/);
+  await expect(page.getByTestId("room-studio")).not.toHaveClass(/is-live-game/);
 }
 async function upload(page: Page) {
   const rgba = new Uint8Array(160 * 168 * 4);
@@ -135,7 +135,7 @@ test("Trace and Generate retain the PICTURE split and canvas size", async ({ pag
   await page.getByRole("button", { name: "Trace an image", exact: true }).click();
   await upload(page);
   await shot(page, "picture-layout");
-  await expect(studio).toHaveClass(/is-live-game/);
+  await expect(studio).not.toHaveClass(/is-live-game/);
   expect((await editor.boundingBox())!.width).toBe(normalEditor.width);
   expect((await editor.boundingBox())!.x).toBe(normalEditor.x);
   expect((await canvas.boundingBox())!.width).toBe(normalCanvas.width);

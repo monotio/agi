@@ -177,6 +177,7 @@ for (const [width, height] of [
         .toHaveCount(1);
       await expect(page.getByTestId("workspace-saved")).toBeVisible();
       await expect.soft(page.getByTestId("workspace-saved")).toHaveText("Draft saved");
+      if (width <= 600) await page.getByRole("button", { name: "Playtest", exact: true }).click();
       await expect(page.getByTestId("workspace-live")).toBeVisible();
       await expect.soft(page.getByTestId("workspace-live")).toHaveText("Now");
       await expect(page.getByTestId("workspace-live")).toHaveAttribute(
@@ -194,6 +195,7 @@ for (const [width, height] of [
       const egoX = (await textHook(page)).egoX;
       await expect.poll(async () => (await textHook(page)).cycle).toBeGreaterThan(cycle);
       await expect.poll(async () => (await textHook(page)).egoX).not.toBe(egoX);
+      if (width <= 600) await page.getByRole("button", { name: "Edit", exact: true }).click();
       const shot = await page.screenshot({
         path: test.info().outputPath(`update-${width}.png`),
         animations: "disabled",
@@ -309,7 +311,7 @@ test("Update shortcuts keep the room state and the restart menu starts it again 
     .poll(() => runningWorkspaceDocument(page, "logic:1"))
     .toContain("position(o0, 64, 140)");
   await page.getByTestId("workspace-update-menu").click();
-  const restart = page.getByRole("menuitem", { name: "Update and restart this room", exact: true });
+  const restart = page.getByRole("menuitem", { name: "Update and play this room", exact: true });
   await expect(restart).toBeVisible();
   await restart.click();
   await expect.poll(async () => (await textHook(page)).egoX).toBe(64);

@@ -1,6 +1,12 @@
 <script setup lang="ts">
 import UiIcon from "../../ui/UiIcon.vue";
+import UiDialog from "../../ui/UiDialog.vue";
 import GuidedAdd from "./GuidedAdd.vue";
+import {
+  roomPlacements,
+  moveRoomPlacement,
+  type RoomPlacement,
+} from "../../../../src/authoring/roomPlacements.ts";
 import { soundProjectChanges } from "../sound/soundEdits.ts";
 import { VOCABULARY } from "../../../../src/vocabulary.ts";
 import "./workspace.css";
@@ -526,9 +532,7 @@ watch(engine.roomMap.currentRoom, (room) => {
 watch(
   [editor.selected, unusedArt, () => props.creating, stageNote],
   () => {
-    editor.pictureLive.value = editor.kind.value === "picture";
-    editor.stageSolo.value = unusedArt.value;
-    editor.stagePaused.value = unusedArt.value || !!stageNote.value;
+    editor.stagePaused.value = !!stageNote.value;
     if (props.creating && editor.stagePaused.value) engine.pauseEngine("stageArt");
     else engine.resumeEngine("stageArt");
   },
@@ -654,14 +658,139 @@ const guidedSounds = computed(() =>
     bytes: soundBytes(row.key),
   })),
 );
-const gameHosts = new Map<string, HTMLElement>();
-function gameHost(key: string, host: HTMLElement): void {
-  gameHosts.set(key, host);
-  if (editor.selected.value === key) editor.gameHost.value = host;
-}
-watch(editor.selected, (key) => {
-  editor.gameHost.value = key ? (gameHosts.get(key) ?? null) : null;
+const placementInput = computed(() => {
+  try {
+    return {
+      room: selectedRoom.value ?? 0,
+      sources: Object.fromEntries(
+        (snapshot.value?.keys ?? [])
+          .filter((key) => key.startsWith("logic:"))
+          .flatMap((key) => {
+            const source = text(key);
+            return source === undefined ? [] : [[key, source]];
+          }),
+      ),
+      bindings: readBindingsDocument(
+        String(groupMetadata.value.bindings ?? text("bindings") ?? "{}"),
+      ),
+    };
+  } catch {
+    // An unfinished bindings draft supplies no provable figures.
+    return undefined;
+  }
 });
+const figures = computed(() => {
+  if (selectedRoom.value === undefined || !placementInput.value) return [];
+  return roomPlacements(placementInput.value);
+});
+const placementPreviews = ref<
+  Record<
+    string,
+    {
+      room: number;
+      logic: number;
+      object: number;
+      startX: number;
+      startY: number;
+      x: number;
+      y: number;
+      command: string;
+    }
+  >
+>({});
+const visiblePlacementPreviews = computed(() =>
+  Object.fromEntries(
+    Object.entries(placementPreviews.value).flatMap(([key, preview]) => {
+      const figure = figures.value.find(
+        (figure) =>
+          figure.object === preview.object &&
+          figure.logic === preview.logic &&
+          figure.x === preview.x &&
+          figure.y === preview.y,
+      );
+      return preview.room === selectedRoom.value &&
+        figure &&
+        draftMembership.value.includes(`logic:${preview.logic}`)
+        ? [
+            [
+              key,
+              `LOGIC ${preview.logic} · ${preview.command}(o${preview.object}, ${preview.startX}, ${preview.startY}) → (${preview.x}, ${preview.y})`,
+            ],
+          ]
+        : [];
+    }),
+  ),
+);
+function changedRoomPlacement(): boolean {
+  const room = engine.roomMap.currentRoom.value;
+  if (
+    room === null ||
+    !placementInput.value ||
+    !Object.values(placementPreviews.value).some((preview) => preview.room === room)
+  )
+    return false;
+  const documents = snapshot.value?.lastAdmissibleBuild?.documents() ?? {};
+  const words = documents["words"];
+  const dictionary =
+    typeof words === "string"
+      ? (JSON.parse(words) as [string, number][])
+      : words instanceof Uint8Array
+        ? parseWordsTok(words).map(({ word, id }) => [word, id] as [string, number])
+        : [];
+  const sources = Object.fromEntries(
+    Object.entries(documents).flatMap(([key, value]) =>
+      key.startsWith("logic:")
+        ? [
+            [
+              key,
+              typeof value === "string"
+                ? value
+                : derivedLogicSource(value, profile.value.id, dictionary).source,
+            ],
+          ]
+        : [],
+    ),
+  );
+  const bindings = documents["bindings"];
+  const before = roomPlacements({
+    room,
+    sources,
+    bindings: readBindingsDocument(typeof bindings === "string" ? bindings : "{}"),
+  });
+  const after = roomPlacements({ ...placementInput.value, room });
+  return after.some((figure) => {
+    const original = before.find((old) => old.object === figure.object);
+    return original && !figure.reason && (original.x !== figure.x || original.y !== figure.y);
+  });
+}
+function placeFigure(figure: RoomPlacement, x: number, y: number): void {
+  if (!placementInput.value) return;
+  try {
+    const source = moveRoomPlacement(placementInput.value, figure, x, y);
+    const key = `logic:${figure.logic}`;
+    const previewKey = `${selectedRoom.value}:${figure.object}`;
+    const previous = placementPreviews.value[previewKey];
+    placementPreviews.value = {
+      ...placementPreviews.value,
+      [previewKey]: {
+        room: selectedRoom.value!,
+        logic: figure.logic,
+        object: figure.object,
+        startX: previous?.startX ?? figure.x!,
+        startY: previous?.startY ?? figure.y!,
+        x,
+        y,
+        command: figure.command,
+      },
+    };
+    edit(key, source);
+    editor.pin(editor.selected.value!);
+    if (!editor.tabs.value.includes(key)) editor.tabs.value.push(key);
+    draftChanged(true);
+  } catch (cause) {
+    editor.error.value = cause instanceof Error ? cause.message : String(cause);
+  }
+}
 const pendingNative: Record<string, { content: ProjectContent; bytes: Uint8Array }> = {};
 function native(key: string): Uint8Array | undefined {
   const [kind, num] = key.split(":");
@@ -729,15 +858,19 @@ function changedPartKeys(changes: readonly ProjectChange[], fallback = true): st
         if (JSON.stringify(before.traces?.[key]) !== JSON.stringify(after.traces?.[key]))
           parts.add(key);
     } else if (change.key === "bindings" && typeof change.content === "string") {
-      const before = readBindingsDocument(
-        String(snapshot.value?.read("bindings")?.content ?? "{}"),
-      );
-      const after = readBindingsDocument(change.content);
-      for (const name of new Set([...Object.keys(before), ...Object.keys(after)])) {
-        if (JSON.stringify(before[name]) === JSON.stringify(after[name])) continue;
-        const binding = after[name] ?? before[name];
-        if (binding && ["logic", "picture", "view", "sound"].includes(binding.kind))
-          parts.add(`${binding.kind}:${binding.num}`);
+      try {
+        const before = readBindingsDocument(
+          String(snapshot.value?.read("bindings")?.content ?? "{}"),
+        );
+        const after = readBindingsDocument(change.content);
+        for (const name of new Set([...Object.keys(before), ...Object.keys(after)])) {
+          if (JSON.stringify(before[name]) === JSON.stringify(after[name])) continue;
+          const binding = after[name] ?? before[name];
+          if (binding && ["logic", "picture", "view", "sound"].includes(binding.kind))
+            parts.add(`${binding.kind}:${binding.num}`);
+        }
+      } catch {
+        parts.add(change.key);
       }
     } else if (change.key === "world" && typeof change.content === "string") {
       const before = JSON.parse(
@@ -859,9 +992,14 @@ async function updateGame(restartRoom = false): Promise<void> {
   try {
     await writes.flush();
     const changes = pendingParts.changes(snapshot.value, session.drafts().changes());
-    if (!changes.length && !restartRoom) return;
+    if (!changes.length && !restartRoom) {
+      editor.phonePlaytest.value = true;
+      return;
+    }
     const updatedParts = pendingParts.parts(snapshot.value, changes).length;
-    const result = await session.update(changes, restartRoom);
+    // Placement edits change room-entry instructions. The interpreter must
+    // enter that setup to show the new baseline, through its existing re-entry path.
+    const result = await session.update(changes, restartRoom || changedRoomPlacement());
     updateProblems.value = result.diagnostics;
     if (!["committed", "unchanged", "draft"].includes(result.status)) {
       editor.problemCount.value = Math.max(
@@ -872,8 +1010,8 @@ async function updateGame(restartRoom = false): Promise<void> {
       editor.error.value = first
         ? `${first.message.replace(/[.]+$/, "")}. Fix this part, then Update game.`
         : "reason" in result && typeof result.reason === "string"
-          ? `${result.reason.replace(/[.]+$/, "")}. Choose Update and restart this room.`
-          : "The game needs a fresh room. Choose Update and restart this room.";
+          ? `${result.reason.replace(/[.]+$/, "")}. Choose Update and play this room.`
+          : "The game needs a fresh room. Choose Update and play this room.";
       return;
     }
     await session.flush();
@@ -883,6 +1021,8 @@ async function updateGame(restartRoom = false): Promise<void> {
     editor.updatedParts.value = updatedParts;
     editor.problemCount.value = 0;
     editor.error.value = "";
+    placementPreviews.value = {};
+    editor.phonePlaytest.value = true;
     if (stageNote.value === "Update game to open this room.")
       stageNote.value = "Choose this room in Parts to play it.";
     refresh();
@@ -901,6 +1041,7 @@ async function discardChanges(): Promise<void> {
     optimistic.value = {};
     draftKeys = "";
     coordinatedChanges.clear();
+    placementPreviews.value = {};
     editorEpoch.value++;
     updateProblems.value = [];
     for (const key of Object.keys(typingProblems)) delete typingProblems[key];
@@ -1439,14 +1580,50 @@ onBeforeUnmount(() => {
   window.removeEventListener("keydown", escape, true);
   window.removeEventListener("dragover", musicDrag, true);
   window.removeEventListener("drop", dropMusic, true);
-  editor.gameHost.value = null;
-  editor.pictureLive.value = false;
-  editor.stageSolo.value = false;
   editor.stagePaused.value = false;
   engine.resumeEngine("stageArt");
 });
 </script>
 <template>
+  <UiDialog
+    :open="!!editor.removalReview.value"
+    title="Remove room"
+    @update:open="
+      (value) => {
+        if (!value) editor.removalReview.value = undefined;
+      }
+    "
+  >
+    <p v-for="message in editor.removalReview.value?.messages" :key="message">{{ message }}</p>
+    <template #footer>
+      <UiButton variant="ghost" @click="editor.removalReview.value = undefined">Keep it</UiButton>
+      <UiButton
+        :disabled="editor.busy.value || writeConflict"
+        @click="editor.step('undo', editor.removalReview.value)"
+        >Remove anyway</UiButton
+      >
+    </template>
+  </UiDialog>
+  <div
+    v-if="creating && phoneWidth && editor.selected.value"
+    class="workspace-phone-toggle"
+    aria-label="Picture workspace"
+  >
+    <UiButton
+      size="sm"
+      variant="ghost"
+      :aria-pressed="!editor.phonePlaytest.value"
+      @click="editor.phonePlaytest.value = false"
+      >Edit</UiButton
+    >
+    <UiButton
+      size="sm"
+      variant="ghost"
+      :aria-pressed="editor.phonePlaytest.value"
+      @click="editor.phonePlaytest.value = true"
+      >Playtest</UiButton
+    >
+  </div>
   <PausedPicture
     v-if="
       creating &&
@@ -1498,7 +1675,7 @@ onBeforeUnmount(() => {
     @add="add"
   />
   <div
-    v-show="creating && editor.selected.value && !editor.focus.value"
+    v-show="creating && editor.selected.value && !editor.focus.value && !phoneWidth"
     class="workspace-splitter"
     role="separator"
     :aria-label="stacked ? 'Editor height' : 'Editor width'"
@@ -1524,7 +1701,7 @@ onBeforeUnmount(() => {
     ></Teleport
   >
   <section
-    v-show="creating && editor.selected.value"
+    v-show="creating && editor.selected.value && (!phoneWidth || !editor.phonePlaytest.value)"
     class="workspace-editor"
     :class="{ 'workspace-editor--focus': editor.focus.value }"
     data-testid="workspace-editor"
@@ -1539,11 +1716,7 @@ onBeforeUnmount(() => {
         @pin="editor.pin"
         @close="editor.close"
       />
-      <div
-        v-if="editor.kind.value !== 'picture' && !unusedArt"
-        class="workspace-axis"
-        aria-label="Editor layout"
-      >
+      <div v-if="!phoneWidth" class="workspace-axis" aria-label="Editor layout">
         <UiButton
           size="sm"
           variant="ghost"
@@ -1623,7 +1796,7 @@ onBeforeUnmount(() => {
         :aria-pressed="editor.focus.value"
         :title="VOCABULARY.focus.help"
         @click="editor.toggleFocus"
-        >Focus</UiButton
+        >{{ editor.focus.value ? "Done" : "Focus" }}</UiButton
       >
       <ImageReferencePanel
         v-if="
@@ -1740,16 +1913,10 @@ onBeforeUnmount(() => {
       <RoomStudio
         :read-only="writeConflict || actionBusy"
         v-if="key.startsWith('picture:') && native(key) && profile"
-        :live-game="
-          creating &&
-          key === editor.selected.value &&
-          editor.pictureLive.value &&
-          !editor.stagePaused.value &&
-          selectedRoom === engine.roomMap.currentRoom.value
-        "
-        :workspace-focus="editor.focus.value"
+        :workspace-focus="editor.focus.value || phoneWidth"
+        :figures="key === editor.selected.value ? figures : []"
+        @place-figure="placeFigure"
         embedded
-        @game-host="gameHost(key, $event)"
         @agent-context="editor.setAgentContext(key, $event)"
         @agent-ask="openAgent"
         :underlay="traceUnderlays[key] ?? null"
@@ -1877,16 +2044,24 @@ onBeforeUnmount(() => {
         @edit="edit(key, $event)"
       />
       <p v-else class="workspace-error">Open an authored part to edit it.</p>
+      <p
+        v-for="(preview, object) in key === editor.selected.value && key.startsWith('picture:')
+          ? visiblePlacementPreviews
+          : {}"
+        :key="object"
+        class="workspace-placement-preview"
+        data-testid="placement-preview"
+      >
+        {{ preview }}
+      </p>
     </div>
     <button
-      v-if="editor.focus.value"
+      v-if="editor.focus.value && !phoneWidth"
       class="workspace-game-chip"
       data-testid="workspace-show-game"
       @click="editor.toggleFocus"
     >
-      {{
-        editor.stagePaused.value ? "Done" : `${editor.debugStatus.value || "Game running"} · Show`
-      }}
+      Game · Room {{ engine.roomMap.currentRoom.value }} · Show
     </button>
   </section>
   <section

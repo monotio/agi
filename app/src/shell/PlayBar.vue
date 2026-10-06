@@ -209,7 +209,7 @@ const shortcutsBlocked = computed(
           :disabled="editor.busy.value || editor.readOnly.value"
         >
           <button type="button" role="menuitem" @click="editor.update.value?.(true)">
-            Update and restart this room
+            Update and play this room
           </button>
           <button
             type="button"

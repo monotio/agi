@@ -173,6 +173,7 @@ const { exportBusy, exportRefusal } = lib;
 
 /** A phone held upright: Create is one view-only sheet instead of two docks. */
 const phone = computed(() => touchControls.value && viewport.value.height >= viewport.value.width);
+const workspacePhone = computed(() => viewport.value.width <= 600);
 /**
  * Room Studio needs a larger screen than the phone layouts give it: the touch
  * portrait and short-landscape layouts, and any window as narrow as a phone.
@@ -766,8 +767,6 @@ watch(
           'shell-body--no-editor': creating && !workspaceEditor.selected.value,
           'shell-body--logic': creating && workspaceEditor.kind.value === 'logic',
           'shell-body--sound': creating && workspaceEditor.kind.value === 'sound',
-          'shell-body--picture': creating && workspaceEditor.pictureLive.value,
-          'shell-body--solo': creating && workspaceEditor.stageSolo.value,
           'shell-body--stacked': creating && workspaceEditor.splitAxis.value === 'vertical',
           'shell-body--focus':
             creating && workspaceEditor.focus.value && !!workspaceEditor.selected.value,
@@ -784,88 +783,79 @@ watch(
           "
           :creating="creating"
         />
-        <Teleport
-          :to="workspaceEditor.gameHost.value ?? 'body'"
-          :disabled="
+        <PlayArea
+          v-if="state.phase === 'running'"
+          v-show="
             !creating ||
-            !workspaceEditor.pictureLive.value ||
-            workspaceEditor.stageSolo.value ||
-            !workspaceEditor.gameHost.value
+            (!workspaceEditor.stagePaused.value &&
+              (!workspaceEditor.selected.value ||
+                (workspacePhone
+                  ? workspaceEditor.phonePlaytest.value
+                  : !workspaceEditor.focus.value)))
           "
+          ref="playArea"
+          :touch-controls="touchControls"
+          :crt-amount="crtShown"
+          :original-aspect="originalAspect"
+          :inspector-docked="creating"
         >
-          <PlayArea
-            v-if="state.phase === 'running'"
-            v-show="
-              !creating ||
-              (!workspaceEditor.stagePaused.value &&
-                (!workspaceEditor.focus.value ||
-                  workspaceEditor.pictureLive.value ||
-                  !workspaceEditor.selected.value))
-            "
-            ref="playArea"
-            :touch-controls="touchControls"
-            :crt-amount="crtShown"
-            :original-aspect="originalAspect"
-            :inspector-docked="creating"
-          >
-            <template #stage-actions>
-              <UiToast
-                v-if="playHereFromStudio.note.value"
-                tone="warn"
-                dismissible
-                data-testid="play-here-note"
-                @dismiss="playHereFromStudio.dismiss()"
-              >
-                {{ playHereFromStudio.note.value }}
-              </UiToast>
-              <UiChip
-                v-if="creating && workspaceEditor.debugStatus.value"
-                tone="warn"
-                data-testid="workspace-debug-status"
-                >{{ workspaceEditor.debugStatus.value }}</UiChip
-              >
-              <UiChip
-                v-else-if="creating"
-                :tone="workspaceEditor.pendingAdmission.value ? 'warn' : 'ok'"
-                dot
-                data-testid="workspace-live"
-                :title="
-                  workspaceEditor.pendingAdmission.value ? undefined : 'Timeline: present moment'
-                "
-                :aria-label="
-                  workspaceEditor.pendingAdmission.value ? undefined : 'Timeline: present moment'
-                "
-                >{{
-                  workspaceEditor.pendingAdmission.value ? VOCABULARY.waitingUpdate.label : "Now"
-                }}</UiChip
-              >
-              <ProjectRestartNotice v-if="creating && engine.pendingProjectRestart.value" />
-            </template>
-            <template #screen-notes>
-              <StartOverNote />
-            </template>
-            <template #strip-actions>
-              <UiButton
-                v-if="state.phase === 'running' && !creating"
-                icon="sparkles"
-                size="sm"
-                class="ask-button"
-                :class="{ 'ask-button--away': state.powerUp.open }"
-                data-testid="menu-assistant"
-                :aria-expanded="state.powerUp.open"
-                :title="VOCABULARY.agent.help"
-                :disabled="
-                  (state.powerUp.mode === 'room' && state.powerUp.open) ||
-                  state.recording.active ||
-                  state.historyView.active
-                "
-                @click="shell.toggleAsk()"
-              >
-                {{ VOCABULARY.agent.label }}
-              </UiButton>
-            </template>
-          </PlayArea>
-        </Teleport>
+          <template #stage-actions>
+            <UiToast
+              v-if="playHereFromStudio.note.value"
+              tone="warn"
+              dismissible
+              data-testid="play-here-note"
+              @dismiss="playHereFromStudio.dismiss()"
+            >
+              {{ playHereFromStudio.note.value }}
+            </UiToast>
+            <UiChip
+              v-if="creating && workspaceEditor.debugStatus.value"
+              tone="warn"
+              data-testid="workspace-debug-status"
+              >{{ workspaceEditor.debugStatus.value }}</UiChip
+            >
+            <UiChip
+              v-else-if="creating"
+              :tone="workspaceEditor.pendingAdmission.value ? 'warn' : 'ok'"
+              dot
+              data-testid="workspace-live"
+              :title="
+                workspaceEditor.pendingAdmission.value ? undefined : 'Timeline: present moment'
+              "
+              :aria-label="
+                workspaceEditor.pendingAdmission.value ? undefined : 'Timeline: present moment'
+              "
+              >{{
+                workspaceEditor.pendingAdmission.value ? VOCABULARY.waitingUpdate.label : "Now"
+              }}</UiChip
+            >
+            <ProjectRestartNotice v-if="creating && engine.pendingProjectRestart.value" />
+          </template>
+          <template #screen-notes>
+            <StartOverNote />
+          </template>
+          <template #strip-actions>
+            <UiButton
+              v-if="state.phase === 'running' && !creating"
+              icon="sparkles"
+              size="sm"
+              class="ask-button"
+              :class="{ 'ask-button--away': state.powerUp.open }"
+              data-testid="menu-assistant"
+              :aria-expanded="state.powerUp.open"
+              :title="VOCABULARY.agent.help"
+              :disabled="
+                (state.powerUp.mode === 'room' && state.powerUp.open) ||
+                state.recording.active ||
+                state.historyView.active
+              "
+              @click="shell.toggleAsk()"
+            >
+              {{ VOCABULARY.agent.label }}
+            </UiButton>
+          </template>
+        </PlayArea>
         <aside
           v-show="!creating || state.powerUp.open"
           class="shell-side"

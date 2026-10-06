@@ -16,7 +16,7 @@ for (const [name, logic, variable, offset] of [
   ["LSL1", 52, 45, 245],
 ] as const) {
   test(
-    `${name} refuses a fresh unconnected LOGIC because its numeric room jump remains computed`,
+    `${name} identifies the computed jump review for a fresh unconnected room`,
     { skip: fixtureSkip(KNOWN_GAME_HASH[name]) },
     () => {
       const { container, files } = loadGame(KNOWN_GAME_HASH[name], { interpreterFiles: true });
@@ -47,9 +47,12 @@ for (const [name, logic, variable, offset] of [
       });
       assert.ok(
         findings.some(
-          ({ document, message }) =>
+          ({ document, message, computedRoomJump }) =>
             document === `logic:${logic}` &&
-            message.includes(`at offset ${offset} (new.room.v)`) &&
+            computedRoomJump === "logic:254" &&
+            message.includes(
+              `Room 254 can still be reached by a computed room jump in LOGIC ${logic}`,
+            ) &&
             message.includes("computed"),
         ),
         JSON.stringify(findings),

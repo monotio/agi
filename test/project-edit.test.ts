@@ -26,6 +26,100 @@ function setup() {
   });
 }
 
+test("computed room jumps require a scoped review; literal uses and plans still refuse", () => {
+  const model = setup();
+  const add = prepareProjectEdit({
+    model,
+    proposal: model.propose(model.capture(), "Room", [
+      { key: "logic:0", content: "return;" },
+      { key: "logic:99", content: 'get.num("Room",v20);new.room.v(v20);return;' },
+      { key: "logic:254", content: "return;" },
+      { key: "tests", content: '{"format":"monotio.agi.tests.v1","tests":[]}' },
+      { key: "references", content: "[]" },
+    ]),
+    profileId: "2.936",
+    policy: {},
+  });
+  assert.equal(add.status, "ready");
+  model.apply(add.application);
+  const proposal = model.propose(model.capture(), "Remove", [{ key: "logic:254", content: null }]);
+  const blocked = prepareProjectEdit({ model, proposal, profileId: "2.936", policy: {} });
+  assert.equal(blocked.status, "diagnostics");
+  assert.ok(
+    blocked.diagnostics.some((d) => d.code === "computed-room-jump" && d.document === "logic:99"),
+  );
+  const approved = prepareProjectEdit({
+    model,
+    proposal,
+    profileId: "2.936",
+    policy: { reviewedComputedRoomJumps: ["logic:254"] },
+  });
+  assert.equal(approved.status, "ready");
+  assert.equal(
+    prepareProjectEdit({
+      model,
+      proposal,
+      profileId: "2.936",
+      policy: { reviewedComputedRoomJumps: ["logic:253"] },
+    }).status,
+    "diagnostics",
+  );
+  for (const [key, content] of [
+    ["logic:99", "new.room(254);return;"],
+    ["logic:99", "call.v(v20);return;"],
+    ["bindings", '{"garden":{"kind":"logic","num":254}}'],
+    [
+      "world",
+      '{"rooms":{"254":{"title":"Garden","description":"","exits":{}}},"facts":{},"quests":{}}',
+    ],
+  ]) {
+    const hard = model.propose(model.capture(), "Remove", [
+      { key: "logic:254", content: null },
+      { key: key!, content: content! },
+    ]);
+    const refused = prepareProjectEdit({
+      model,
+      proposal: hard,
+      profileId: "2.936",
+      policy: { reviewedComputedRoomJumps: ["logic:254"] },
+    });
+    assert.equal(refused.status, "diagnostics");
+    assert.ok(refused.diagnostics.some((d) => d.severity === "error"));
+  }
+});
+test("a remapped binding preserves an open draft's original room reference", () => {
+  const model = setup();
+  const add = prepareProjectEdit({
+    model,
+    proposal: model.propose(model.capture(), "Rooms", [
+      { key: "logic:0", content: "return;" },
+      { key: "logic:1", content: "return;" },
+      { key: "logic:254", content: "return;" },
+      { key: "bindings", content: '{"garden":{"kind":"logic","num":254}}' },
+      { key: "tests", content: '{"format":"monotio.agi.tests.v1","tests":[]}' },
+      { key: "references", content: "[]" },
+    ]),
+    profileId: "2.936",
+    policy: {},
+  });
+  assert.equal(add.status, "ready");
+  model.apply(add.application);
+  const remove = prepareProjectEdit({
+    model,
+    proposal: model.propose(model.capture(), "Remap", [
+      { key: "logic:254", content: null },
+      { key: "bindings", content: '{"garden":{"kind":"logic","num":1}}' },
+    ]),
+    drafts: [{ key: "logic:99", content: "new.room(garden);return;" }],
+    profileId: "2.936",
+    policy: { reviewedComputedRoomJumps: ["logic:254"] },
+  });
+  assert.equal(remove.status, "diagnostics");
+  assert.ok(
+    remove.diagnostics.some((d) => d.document === "logic:99" && /logic:254/.test(d.message)),
+  );
+});
+
 test("invalid current source survives while the last admissible image stays fixed", () => {
   const model = setup();
   const before = model.capture();

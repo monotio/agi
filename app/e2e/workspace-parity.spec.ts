@@ -38,10 +38,13 @@ for (const width of [1063, 1440, 390]) {
         height: width === 1063 ? 815 : width === 1440 ? 900 : 844,
       });
       const studio = await picture(page);
-      if (width === 1440)
-        expect((await page.getByTestId("workspace-editor").boundingBox())!.width).toBeGreaterThan(
-          1000,
-        );
+      if (width === 1440) {
+        await expect(page.locator(".play-area")).toBeVisible();
+        const game = (await page.locator(".play-area").boundingBox())!;
+        const editor = (await page.getByTestId("workspace-editor").boundingBox())!;
+        expect(editor.x).toBeGreaterThanOrEqual(game.x + game.width);
+        expect(editor.width).toBeCloseTo(game.width, 0);
+      }
       await page.evaluate(() => document.fonts.ready);
       await page.screenshot({ path: test.info().outputPath(`picture-${width}.png`) });
       await studio.getByRole("radio", { name: "Inspector", exact: true }).click();
@@ -386,8 +389,16 @@ test("Walk edits a door box and an edge exit and shows drawing errors beside the
   page,
 }) => {
   const studio = await picture(page);
-  const show = page.getByTestId("workspace-show-game");
-  if (await show.isVisible()) await show.click();
+  const level = studio.locator(".studio-zoom__level");
+  await expect(level).toBeVisible();
+  await studio.getByRole("button", { name: "Zoom out", exact: true }).click();
+  await expect(level).toHaveText("100%");
+  await studio.getByRole("button", { name: "Zoom in", exact: true }).click();
+  await expect(level).toHaveText("200%");
+  const focus = page.getByTestId("workspace-focus");
+  await expect(focus).toBeVisible();
+  await focus.click();
+  await expect(page.locator(".play-area")).toBeHidden();
   await studio
     .getByRole("radiogroup", { name: "Lens", exact: true })
     .getByRole("radio", { name: "Walk", exact: true })
@@ -403,6 +414,8 @@ test("Walk edits a door box and an edge exit and shows drawing errors beside the
   await page.mouse.move(to.x, to.y, { steps: 4 });
   await page.mouse.up();
   await expect(studio.locator('[data-testid="walk-door"][data-door="door-1"]')).toBeVisible();
+  await focus.click();
+  await expect(page.locator(".play-area")).toBeVisible();
   const box = studio.getByTestId("door-box-x1");
   await expect(box).toBeVisible();
   await box.fill("121");
@@ -440,6 +453,8 @@ test("Walk edits a door box and an edge exit and shows drawing errors beside the
   await workspaceUpdated(page);
   await expect(box).toHaveValue("121");
   await expect(right).toHaveValue("144");
+  await focus.click();
+  await expect(page.locator(".play-area")).toBeHidden();
   const edge = studio.locator('button[data-tool="edge"]');
   await expect(edge).toBeVisible();
   await edge.click();
@@ -448,7 +463,8 @@ test("Walk edits a door box and an edge exit and shows drawing errors beside the
   await expect(studio.locator('[data-testid="walk-door"][data-door="exit-west-1"]')).toBeVisible();
   await workspaceUpdated(page);
   await door.click();
-  await page.mouse.click(from.x, from.y);
+  const spot = await cell(page, 120, 130);
+  await page.mouse.click(spot.x, spot.y);
   const notice = studio.getByTestId("studio-notice");
   await expect(notice).toBeVisible();
   await expect(notice).toContainText("needs some width and height");

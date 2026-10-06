@@ -177,6 +177,28 @@ test("journal writes coalesce on a frame and omit unedited resources and documen
   assert.equal(reopened.projectHistory!.commits.length, 3);
   assert.equal(journals().length, 0);
 });
+test("closing before a reviewed room removal commits recovers the accepted Undo", async () => {
+  const owner = await session("compact-reviewed-room");
+  await edit(owner, 'get.num("Room",v20);new.room.v(v20);return;', "logic:99");
+  await edit(owner, "return;", "logic:254");
+  const warning = await owner.undo();
+  assert.equal(warning?.status, "reviewRequired");
+  if (warning?.status !== "reviewRequired") throw new Error("Expected review");
+  assert.equal((await owner.undo(warning.review))?.status, "committed");
+  const cursor = owner.history.capture().cursor;
+  paint();
+  const capture = captured();
+  owner.dispose();
+  const request = await rebuildProjectJournal(baseData, capture, {
+    commit: commitProject,
+    fingerprint: authoringFingerprint,
+  });
+  assert.equal(
+    request.data.workspace!.documents.find((doc) => doc.key === "logic:254"),
+    undefined,
+  );
+  assert.equal(request.data.projectHistory!.cursor, cursor);
+});
 test("a quota failure retains the previous recovery journal and Saving awaits IndexedDB", async () => {
   const owner = await session("compact-quota");
   await edit(owner, 'print("first"); return;');

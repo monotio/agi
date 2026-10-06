@@ -6,6 +6,7 @@ import type { EngineApi } from "../engine/engineContext.ts";
 import type { ChooserItem } from "./commands/chooserItems.ts";
 import type { StudioRequest } from "./useCreateWorkspace.ts";
 import type { ReplyFormatter } from "../agent/workspaceAgent.ts";
+import type { ComputedRoomRemovalReview } from "../project/projectSessionCore.ts";
 
 export function createWorkspaceEditor(engine: EngineApi) {
   const debugCommand =
@@ -22,10 +23,9 @@ export function createWorkspaceEditor(engine: EngineApi) {
   const changeCount = ref(0);
   const problemCount = ref(0);
   const updatedParts = ref(0);
-  const pictureLive = ref(false);
-  const stageSolo = ref(false);
   const stagePaused = ref(false);
-  const gameHost = shallowRef<HTMLElement | null>(null);
+  const phonePlaytest = ref(false);
+  const removalReview = shallowRef<ComputedRoomRemovalReview>();
   const studioRequests = shallowRef<Readonly<Record<string, StudioRequest>>>({});
   const selected = ref<string>();
   const nameLocation = shallowRef<{ key: string; line: number; serial: number }>();
@@ -102,6 +102,7 @@ export function createWorkspaceEditor(engine: EngineApi) {
     if (preview.value === key) preview.value = undefined;
   }
   function open(key: string, pinned = false): void {
+    phonePlaytest.value = false;
     selected.value = key;
     agentContext.value = agentContexts[key] ?? null;
     if (!tabs.value.includes(key)) {
@@ -148,7 +149,10 @@ export function createWorkspaceEditor(engine: EngineApi) {
       /* Remember for this page. */
     }
   }
-  async function step(direction: "undo" | "redo"): Promise<void> {
+  async function step(
+    direction: "undo" | "redo",
+    review?: ComputedRoomRemovalReview,
+  ): Promise<void> {
     const session = engine.getProjectSession();
     if (!session || busy.value || readOnly.value) return;
     busy.value = true;
@@ -156,12 +160,26 @@ export function createWorkspaceEditor(engine: EngineApi) {
     save.value = "Saving…";
     error.value = "";
     try {
-      const outcome = await session[direction]();
-      if (
+      const outcome = direction === "undo" ? await session.undo(review) : await session.redo();
+      if (outcome?.status === "reviewRequired") {
+        removalReview.value = outcome.review;
+        return;
+      }
+      removalReview.value = undefined;
+      if (outcome?.status === "diagnostics") {
+        const problem =
+          outcome.diagnostics.find(
+            (d) => d.severity === "error" && d.code !== "computed-room-jump",
+          ) ?? outcome.diagnostics.find((d) => d.severity === "error");
+        if (problem) error.value = `${problem.message} Change its references and try Undo again.`;
+      } else if (
         outcome &&
         !["committed", "diagnostics", "unchanged", "restartRequired"].includes(outcome.status)
       )
-        error.value = "This change needs a fresh room. Return to the room and retry.";
+        error.value =
+          ("diagnostics" in outcome &&
+            outcome.diagnostics.find((d) => d.severity === "error")?.message) ||
+          "This change needs a fresh room. Return to the room and retry.";
     } catch (cause) {
       error.value = String(cause instanceof Error ? cause.message : cause);
     } finally {
@@ -192,6 +210,8 @@ export function createWorkspaceEditor(engine: EngineApi) {
     nameLocation.value = undefined;
     studioRequests.value = {};
     selected.value = undefined;
+    removalReview.value = undefined;
+    phonePlaytest.value = false;
     agentContext.value = null;
     agentPrefill.value = null;
     agentMessages.value = [];
@@ -219,10 +239,9 @@ export function createWorkspaceEditor(engine: EngineApi) {
     changeCount,
     problemCount,
     updatedParts,
-    pictureLive,
-    stageSolo,
     stagePaused,
-    gameHost,
+    phonePlaytest,
+    removalReview,
     selected,
     nameLocation,
     agentContext,

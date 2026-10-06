@@ -24,6 +24,10 @@ async function start(page: Page): Promise<void> {
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
 }
 async function open(page: Page, name: string) {
+  if (page.viewportSize()!.width <= 600) {
+    const edit = page.getByRole("button", { name: "Edit", exact: true });
+    if (await edit.isVisible()) await edit.click();
+  }
   await page.getByTestId("workspace-add").click();
   await page.getByRole("menuitem", { name, exact: true }).click();
   await expect(page.getByRole("menu")).toBeHidden();

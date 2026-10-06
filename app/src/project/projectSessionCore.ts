@@ -90,6 +90,12 @@ export interface PendingProjectRestart {
   readonly action: "restart" | "reenter";
   readonly reason: string;
 }
+export interface ComputedRoomRemovalReview {
+  readonly documentId: string;
+  readonly cursor: string | null;
+  readonly resources: readonly string[];
+  readonly messages: readonly string[];
+}
 
 function restartReason(reason: string): string {
   return reason
@@ -521,6 +527,11 @@ function createSession(
   }
   let partDrafts: ReturnType<typeof openProjectDrafts> | undefined;
   let draftProjectId: string | undefined;
+  function removalDrafts() {
+    return (partDrafts?.changes() ?? []).flatMap(({ key, content }) =>
+      content === null ? [] : [{ key, content }],
+    );
+  }
   const draftObservers = new Set<() => void>();
   async function apply(
     proposal: ProjectProposal,
@@ -529,6 +540,7 @@ function createSession(
     preparedRoom = false,
     beforeCommit?: () => void,
     updateMode?: "keep" | "reenter",
+    reviewedComputedRoomJumps?: readonly string[],
   ) {
     await ready;
     beforeCommit?.();
@@ -546,6 +558,8 @@ function createSession(
       proposal,
       profileId: inspection.profileId,
       allowMissingRooms: data.roomGeneration === true,
+      reviewedComputedRoomJumps,
+      drafts: removalDrafts(),
       current: () =>
         current() &&
         writeBlock === undefined &&
@@ -587,6 +601,13 @@ function createSession(
     });
     beforeCommit?.();
     if (
+      prepared.compiled === undefined &&
+      action !== undefined &&
+      prepared.removedResources.length
+    ) {
+      return { status: "diagnostics" as const, diagnostics: prepared.diagnostics };
+    }
+    if (
       updateMode !== undefined &&
       (prepared.compiled === undefined ||
         (outcome !== undefined && !["committed", "unchanged"].includes(outcome.status)))
@@ -619,6 +640,7 @@ function createSession(
     else history.record(snapshot.documents(), metadata);
     recordOperation({
       kind: "edit",
+      ...(reviewedComputedRoomJumps === undefined ? {} : { reviewedComputedRoomJumps }),
       changes: changes.map((change) => ({ ...change, version: snapshot.version(change.key) })),
       metadata,
       ...(action === undefined
@@ -884,16 +906,47 @@ function createSession(
       const { proposal, ...metadata } = edit;
       return schedule(() => apply(proposal, { ...metadata, time: Date.now() }, undefined, true));
     },
-    undo() {
+    undo(review?: ComputedRoomRemovalReview) {
       return schedule(async () => {
         const action = history.undo(model);
-        return action === undefined
-          ? undefined
-          : apply(
-              action.proposal,
-              { label: "Undo", origin: "history", author: "creator", time: Date.now() },
-              action,
-            );
+        if (action === undefined) return undefined;
+        const capture = model.capture();
+        const prepared = prepareProjectEdit({
+          model,
+          proposal: action.proposal,
+          profileId: inspection.profileId,
+          policy: { allowMissingRooms: data.roomGeneration === true },
+          drafts: removalDrafts(),
+        });
+        const errors = prepared.diagnostics.filter((d) => d.severity === "error");
+        if (
+          review &&
+          (review.documentId !== capture.documentId ||
+            review.cursor !== history.capture().cursor ||
+            prepared.removedResources.length !== review.resources.length ||
+            !prepared.removedResources.every((key) => review.resources.includes(key)))
+        )
+          throw new Error("This Undo changed. Choose Undo again to review it.");
+        if (!review && errors.length && errors.every((d) => d.code === "computed-room-jump")) {
+          return {
+            status: "reviewRequired" as const,
+            review: {
+              documentId: capture.documentId,
+              cursor: history.capture().cursor,
+              resources: prepared.removedResources,
+              messages: errors.map((d) => d.message),
+            },
+          };
+        }
+        return apply(
+          action.proposal,
+          { label: "Undo", origin: "history", author: "creator", time: Date.now() },
+          action,
+          false,
+          undefined,
+          undefined,
+          review?.resources,
+        );
       });
     },
     redo() {
@@ -1038,6 +1091,10 @@ function createSession(
           model.propose(model.capture(), operation.metadata.label, operation.changes),
         operation.metadata,
         action,
+        false,
+        undefined,
+        undefined,
+        operation.reviewedComputedRoomJumps,
       );
     },
     discard() {

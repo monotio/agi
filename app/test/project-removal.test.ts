@@ -214,7 +214,7 @@ test("an unselected dirty draft use blocks until the draft is repaired", async (
   assert.equal(soundBytes(await storedBody(projectId), 42), null);
 });
 
-test("a computed room jump refuses native removal with its offset and preserves the saved image", async () => {
+test("a computed room jump names its room and LOGIC while native removal preserves the saved image", async () => {
   const projectId = await seedProject("rm-computed-room");
   const ws = await openEditableProject(projectId);
   edit(ws, "logic:0", "call(1);return;");
@@ -225,7 +225,7 @@ test("a computed room jump refuses native removal with its offset and preserves 
   edit(ws, "logic:9", null);
   await assert.rejects(
     ws.keepCandidate(ws.buildSelected(["logic:9"]), { reviewedRemovals: ["logic:9"] }),
-    /logic:1 at offset 3.*new.room.v.*computed/,
+    /Room 9.*computed room jump in LOGIC 1 \(the debug teleport\).*Remove anyway/,
   );
   const after = await storedBody(projectId);
   assert.equal(after.generation, before.generation);

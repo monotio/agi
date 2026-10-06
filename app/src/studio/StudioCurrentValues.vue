@@ -93,7 +93,8 @@ const side = ref<{ left: boolean; width: number }>({ left: false, width: POP_MAX
 function toggle(plane: "visual" | "priority"): void {
   if (unavailable(plane)) return;
   open.value = open.value === plane ? undefined : plane;
-  const room = (root.value?.getBoundingClientRect().left ?? 0) - 2 * POP_GAP;
+  const bounds = root.value?.closest(".studio")?.getBoundingClientRect();
+  const room = (root.value?.getBoundingClientRect().left ?? 0) - (bounds?.left ?? 0) - 2 * POP_GAP;
   side.value =
     room >= POP_MIN
       ? { left: true, width: Math.min(POP_MAX, room) }
