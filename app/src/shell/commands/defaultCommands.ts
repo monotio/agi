@@ -23,7 +23,7 @@ const DEFAULTS = {
   },
   panel: {
     id: "panel.toggle",
-    title: "Toggle bottom panel",
+    title: "Toggle Problems tab",
     key: "Mod+J",
     textInput: true,
     game: true,

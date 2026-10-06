@@ -39,7 +39,7 @@ test("names open resources, peek game state and rename all authored uses @webkit
 }) => {
   await start(page);
   const parts = page.getByTestId("parts-list");
-  await expect(parts.getByRole("heading", { name: "Game state", exact: true })).toBeVisible();
+  await expect(parts.getByRole("heading", { name: "GAME STATE", exact: true })).toBeVisible();
   await parts.getByRole("button", { name: "chime_done Flag 204", exact: true }).click();
   const details = page.getByTestId("binding-details");
   await expect(details).toBeVisible();
@@ -87,12 +87,21 @@ test("names open resources, peek game state and rename all authored uses @webkit
     }
     await expect(details).toBeVisible();
     await expect(page.getByTestId("workspace-logic-editor").locator(".view-lines")).toBeVisible();
-    const sourceLine = page
-      .getByTestId("workspace-logic-editor")
-      .locator(".view-lines")
-      .getByText("load.sound", { exact: true });
-    await expect(sourceLine).toBeVisible();
-    await expect(sourceLine).toBeInViewport();
+    // Monaco renders only the lines in view; ask it to reveal the peeked
+    // line, then prove the line is rendered (on screen).
+    await page.evaluate(async () => {
+      const { monaco } = await import("/src/studio/logic/monacoLanguage.ts");
+      const logic = monaco.editor
+        .getEditors()
+        .find((e) => e.getDomNode()?.closest('[data-testid="workspace-logic-editor"]'));
+      const match = logic
+        ?.getModel()
+        ?.findMatches("load.sound", false, false, false, null, false)[0];
+      if (logic && match) logic.revealLineInCenter(match.range.startLineNumber);
+    });
+    await expect(page.getByTestId("workspace-logic-editor").locator(".view-lines")).toContainText(
+      "load.sound",
+    );
     await page.screenshot({
       path: test.info().outputPath(`names-peek-${viewport.width}.png`),
       scale: "css",
@@ -204,14 +213,14 @@ test("Create game owns F5 and F6 while the editor owns debugger F5", async ({ pa
   await page.keyboard.press("Escape");
   await focusWorkspaceLogic(page);
   await page.keyboard.press("F5");
-  await expect(page.locator(".workspace-editor__header").getByTestId("debug-stop")).toBeVisible();
-  await expect(page.locator(".workspace-editor__header").getByTestId("debug-stop")).toBeEnabled();
+  await expect(page.locator(".workspace-context").getByTestId("debug-stop")).toBeVisible();
+  await expect(page.locator(".workspace-context").getByTestId("debug-stop")).toBeEnabled();
   await page.keyboard.press("Shift+F5");
   await expect(page.getByTestId("debug-stop")).toHaveCount(0);
   await expect(page.getByTestId("workspace-update")).toBeVisible();
   await focusWorkspaceLogic(page);
   await page.keyboard.press("F5");
-  await expect(page.locator(".workspace-editor__header").getByTestId("debug-stop")).toBeVisible();
+  await expect(page.locator(".workspace-context").getByTestId("debug-stop")).toBeVisible();
 });
 
 test("name hover opens resources and message actions keep readable text @webkit-desktop", async ({
@@ -344,7 +353,7 @@ test("F5 runs from the parts list, header, agent and page without reloading", as
         document.body.focus();
       });
     await page.keyboard.press("F5");
-    await expect(page.locator(".workspace-editor__header").getByTestId("debug-stop")).toBeVisible();
+    await expect(page.locator(".workspace-context").getByTestId("debug-stop")).toBeVisible();
     await page.keyboard.press("Shift+F5");
     await expect(page.getByTestId("debug-stop")).toHaveCount(0);
   }

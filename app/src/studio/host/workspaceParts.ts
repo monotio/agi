@@ -14,7 +14,7 @@ export interface WorkspacePartGroup {
   readonly entries: readonly WorkspacePart[];
 }
 const HELP: Record<string, string> = {
-  GAME: "Notes hold your game’s style, tone and rules.",
+  "GAME STATE": "Flags and variables hold what your game remembers.",
   ROOMS: VOCABULARY.room.help,
   "SHARED LOGIC": VOCABULARY.sharedLogic.help,
   PICTURES: VOCABULARY.picture.help,
@@ -32,6 +32,8 @@ export function workspaceParts(input: {
   }[];
   readonly names?: Readonly<Record<string, string>>;
   readonly currentRoom: number | null;
+  /** While a debug session runs, its views join the data rows. */
+  readonly debugging?: boolean;
 }): readonly WorkspacePartGroup[] {
   const keys = new Set(input.keys);
   const owned = new Set<number>();
@@ -96,7 +98,20 @@ export function workspaceParts(input: {
         return row(key, name ? `${name} · ${label} ${num}` : `${label} ${num}`);
       });
   return [
-    group("GAME", [row("notes", "Notes")]),
+    group("GAME STATE", [
+      row("state", "Game state"),
+      row("problems", "Problems"),
+      row("messages", "Messages"),
+      row("notes", "Notes"),
+      ...(input.debugging
+        ? [
+            row("debug:variables", "Variables"),
+            row("debug:watch", "Watch"),
+            row("debug:stack", "Call stack"),
+            row("debug:breakpoints", "Breakpoints"),
+          ]
+        : []),
+    ]),
     group("ROOMS", roomRows),
     group(
       "SHARED LOGIC",
@@ -108,8 +123,8 @@ export function workspaceParts(input: {
     ),
     group("VIEWS", resources("view", "VIEW")),
     group("SOUNDS", resources("sound", "SOUND")),
-    group("OBJECTS", keys.has("inventory") ? [row("inventory", "OBJECTS")] : []),
-    group("WORDS", keys.has("words") ? [row("words", "WORDS")] : []),
+    group("OBJECTS", [row("inventory", "OBJECTS")]),
+    group("WORDS", [row("words", "WORDS")]),
   ];
 }
 

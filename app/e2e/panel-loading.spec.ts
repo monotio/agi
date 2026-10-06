@@ -28,8 +28,9 @@ test("Problems opens its debugger when requested before the workspace loads", as
   } finally {
     release.resolve();
   }
+  // Problems is a workspace tab now: its tab and view both appear.
+  await expect(page.getByTestId("project-tab-problems")).toBeVisible();
   await expect(page.getByTestId("workspace-problems")).toBeVisible();
-  await expect(page.getByTestId("workspace-debug-panel")).toBeVisible();
 });
 
 test("Problems stays dismissible while its panel module loads", async ({ page }) => {
@@ -54,8 +55,9 @@ test("Problems stays dismissible while its panel module loads", async ({ page })
     return isApplePlatform(navigator) ? "Meta" : "Control";
   });
   await page.keyboard.press(`${modifier}+j`);
-  const panel = page.getByTestId("workspace-problems");
-  await expect(panel).toBeVisible();
+  // The tab opens at once, even while the problems view loads.
+  const tab = page.getByTestId("project-tab-problems");
+  await expect(tab).toBeVisible();
   await requested.promise;
   try {
     if (process.env["AGI_E2E_REVIEW_SHOTS"] === "1") {
@@ -66,39 +68,30 @@ test("Problems stays dismissible while its panel module loads", async ({ page })
         { width: 390, height: 844 },
       ]) {
         await page.setViewportSize(viewport);
-        await expect(panel).toBeVisible();
+        await expect(tab).toBeVisible();
         await page.screenshot({ path: test.info().outputPath(`problems-${viewport.width}.png`) });
       }
       await page.setViewportSize({ width: 1440, height: 900 });
     }
     await page.setViewportSize({ width: 390, height: 844 });
-    await expect(panel).toBeVisible();
-    const bounds = (await panel.boundingBox())!;
+    const bounds = (await page.getByTestId("workspace-editor").boundingBox())!;
     expect(bounds.x).toBe(0);
     expect(bounds.x + bounds.width).toBeLessThanOrEqual(390);
     await page.setViewportSize({ width: 1440, height: 900 });
-    const close = panel.getByRole("button", { name: "Close", exact: true });
+    // Tabs close with their × only.
+    const close = page.getByTestId("project-tab-close-problems");
     await expect(close).toBeVisible();
-    await close.focus();
-    await page.keyboard.press("Escape");
-    await expect(panel).toBeHidden();
-    await page.keyboard.press(`${modifier}+j`);
-    await expect(panel).toBeVisible();
     await close.click();
-    await expect(panel).toBeHidden();
+    await expect(tab).toHaveCount(0);
     await page.keyboard.press(`${modifier}+j`);
-    await expect(panel).toBeVisible();
-    await close.focus();
+    await expect(tab).toBeVisible();
     release.resolve();
-    await expect(panel.getByRole("tab", { name: "Problems", exact: true })).toBeVisible();
-    await expect(close).toBeFocused();
-    await page.keyboard.press("Escape");
-    await expect(panel).toBeHidden();
+    const panel = page.getByTestId("workspace-problems");
+    await expect(panel).toBeVisible();
+    await expect(panel).toContainText("unresolved");
   } finally {
     release.resolve();
   }
   await page.keyboard.press(`${modifier}+j`);
-  await expect(panel).toBeVisible();
-  await expect(panel.getByRole("tab", { name: "Problems", exact: true })).toBeVisible();
-  await expect(panel.getByRole("button", { name: "Close", exact: true })).toBeVisible();
+  await expect(page.getByTestId("workspace-problems")).toBeHidden();
 });

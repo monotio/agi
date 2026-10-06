@@ -175,7 +175,7 @@ test("an outline and its fill, selected together, move as one and keep exactly t
   await expect(bar.getByTestId("selection-name")).toHaveText("Element 1");
   await canvas.focus();
   await page.keyboard.press("Shift+ArrowRight");
-  await expect(studio.getByTestId("studio-notice")).toHaveText(
+  await expect(page.locator(".workspace-status").getByTestId("studio-notice")).toHaveText(
     /^Element 1 part 2 flows differently: [\d,]+ cells changed\. (⌘|Ctrl\+)Z undoes it\.$/,
   );
   await workspaceUpdated(page);
@@ -196,7 +196,7 @@ test("an outline and its fill, selected together, move as one and keep exactly t
   for (const key of ["ArrowRight", "ArrowRight", "ArrowRight", "ArrowRight", "ArrowUp", "ArrowUp"])
     await page.keyboard.press(key);
   await workspaceUpdated(page);
-  await expect(studio.getByTestId("studio-notice")).toHaveCount(0);
+  await expect(page.locator(".workspace-status").getByTestId("studio-notice")).toHaveCount(0);
   await page.screenshot({ path: test.info().outputPath("group-move-selection.png") });
 
   await workspaceUpdated(page);
@@ -296,7 +296,7 @@ test("Group names the bush, keeps the bytes, stays one item after a reload, and 
   studio = await openStudio(page);
   expect(await rows(studio)).toEqual(["bush", "el-3"]);
   // The picture's own source: nothing says Rebuilt.
-  await expect(studio.getByTestId("studio-source-kind")).toHaveCount(0);
+  await expect(page.locator(".workspace-status").getByTestId("studio-source-kind")).toHaveCount(0);
   expect(await draftBytes(page)).toEqual(PIC_5);
 
   // Ungroup, in the bar for a group: the parts come back as they were, selected, same bytes.

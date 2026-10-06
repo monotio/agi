@@ -716,7 +716,7 @@ watch(
           'shell-body--no-editor': creating && !workspaceEditor.selected.value,
           'shell-body--logic': creating && workspaceEditor.kind.value === 'logic',
           'shell-body--sound': creating && workspaceEditor.kind.value === 'sound',
-          'shell-body--stacked': creating && workspaceEditor.splitAxis.value === 'vertical',
+          'shell-body--stacked': creating && workspaceEditor.stackedLayout.value,
           'shell-body--focus':
             creating && workspaceEditor.focus.value && !!workspaceEditor.selected.value,
           'shell-body--sheet': creating && phone,

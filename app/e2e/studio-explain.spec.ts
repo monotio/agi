@@ -140,7 +140,7 @@ test("Room Studio's chrome says depth, walk lines and steps", async ({ page }) =
   const pane = studio.locator(".studio-pane").last();
   const box = (await pane.boundingBox())!;
   await page.mouse.move(box.x + box.width * 0.3, box.y + box.height * 0.4);
-  await expect(studio.getByTestId("studio-status")).toContainText("depth");
+  await expect(page.getByTestId("studio-status")).toContainText("depth");
   for (const key of ["1", "2", "3"]) {
     await studio.getByRole("group", { name: /^Canvas/ }).focus();
     await page.keyboard.press(key);

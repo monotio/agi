@@ -6,23 +6,26 @@ import type { WorkspaceDebug } from "./workspaceDebug.ts";
 import UiButton from "../../ui/UiButton.vue";
 import WorkspaceDebugControls from "./WorkspaceDebugControls.vue";
 import { reservedValues } from "./debugValues.ts";
-const props = defineProps<{ debug: WorkspaceDebug; problems: readonly { message: string }[] }>();
+/** One debug view inside the frame: the workspace tab names which one. */
+const props = defineProps<{
+  debug?: WorkspaceDebug | undefined;
+  problems: readonly { message: string }[];
+  view: "problems" | "variables" | "watch" | "stack" | "breakpoints";
+}>();
 const emit = defineEmits<{ reveal: [logic: number, line: number] }>();
-const tabs = ["Problems", "Variables", "Watch", "Call stack", "Breakpoints"] as const;
-const tab = ref<(typeof tabs)[number]>(props.debug.stopped.value ? "Variables" : "Problems");
 const expression = ref("");
 const filter = ref("");
 const slots = computed(() => {
+  const debug = props.debug;
   const names: Record<string, string[]> = {};
-  for (const [name, binding] of Object.entries(props.debug.bindings.value)) {
+  if (!debug) return [];
+  for (const [name, binding] of Object.entries(debug.bindings.value)) {
     const key = `${binding.kind}:${binding.num}`;
     (names[key] ??= []).push(name);
   }
   return (["variable", "flag"] as const).flatMap((kind) =>
     Array.from({ length: 256 }, (_, slot) => {
-      const used = props.debug.usedValues.value.find(
-        (row) => row.kind === kind && row.slot === slot,
-      );
+      const used = debug.usedValues.value.find((row) => row.kind === kind && row.slot === slot);
       const reserved = reservedValues[kind][slot];
       const bindingNames = used?.names || (names[`${kind}:${slot}`] ?? []).join(", ");
       const label = `${kind === "variable" ? "v" : "f"}${slot}`;
@@ -34,7 +37,7 @@ const slots = computed(() => {
         title: bindingNames || reserved || label,
         reserved,
         used: used !== undefined,
-        value: props.debug.stopped.value?.state[kind === "variable" ? "vars" : "flags"][slot] ?? 0,
+        value: debug.stopped.value?.state[kind === "variable" ? "vars" : "flags"][slot] ?? 0,
       };
     }),
   );
@@ -72,43 +75,22 @@ const allGroups = computed(() =>
 function editValue(kind: "variable" | "flag", slot: number, event: Event): void {
   const element = event.target as HTMLInputElement;
   const value = kind === "flag" ? Number(element.checked) : Number(element.value);
-  void props.debug.run(() => props.debug.setValue(kind, slot, value));
-}
-function tabKey(event: KeyboardEvent): void {
-  const direction = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0;
-  if (!direction) return;
-  event.preventDefault();
-  tab.value = tabs[(tabs.indexOf(tab.value) + direction + tabs.length) % tabs.length]!;
-  (event.currentTarget as HTMLElement)
-    .querySelector<HTMLButtonElement>(`[data-tab="${tab.value}"]`)
-    ?.focus();
+  void props.debug?.run(() => props.debug!.setValue(kind, slot, value));
 }
 </script>
 <template>
-  <div class="workspace-debug-panel" data-testid="workspace-debug-panel">
-    <WorkspaceDebugControls v-if="debug.state.epoch" :debug="debug" />
-    <header>
-      <div role="tablist" aria-label="Debug panels" @keydown="tabKey">
-        <button
-          v-for="name in tabs"
-          :key="name"
-          role="tab"
-          :data-tab="name"
-          :aria-selected="tab === name"
-          :tabindex="tab === name ? 0 : -1"
-          @click="tab = name"
-        >
-          {{ name }}
-        </button>
-      </div>
-    </header>
-    <p v-if="debug.state.error" role="alert">{{ debug.state.error }}</p>
-    <div role="tabpanel" :aria-label="tab" class="workspace-debug-content">
-      <template v-if="tab === 'Problems'">
+  <div
+    class="workspace-debug-panel"
+    :data-testid="view === 'problems' ? 'workspace-problems' : 'workspace-debug-panel'"
+  >
+    <WorkspaceDebugControls v-if="debug?.state.epoch" :debug="debug" />
+    <p v-if="debug?.state.error" role="alert">{{ debug.state.error }}</p>
+    <div :aria-label="view" class="workspace-debug-content">
+      <template v-if="view === 'problems'">
         <p v-if="problems.length === 0">Everything builds.</p>
         <p v-for="(problem, index) in problems" :key="index">{{ problem.message }}</p>
       </template>
-      <template v-else-if="tab === 'Variables'">
+      <template v-else-if="view === 'variables' && debug">
         <label class="workspace-debug-filter"
           >Find a value <input v-model="filter" aria-label="Find a value"
         /></label>
@@ -155,13 +137,16 @@ function tabKey(event: KeyboardEvent): void {
           </div>
         </component>
       </template>
-      <template v-else-if="tab === 'Watch'">
+      <template v-else-if="view === 'watch' && debug">
         <form
           @submit.prevent="
-            debug.run(async () => {
-              await debug.addWatch(expression);
-              expression = '';
-            })
+            () => {
+              const panel = debug;
+              panel?.run(async () => {
+                await panel.addWatch(expression);
+                expression = '';
+              });
+            }
           "
         >
           <input
@@ -184,7 +169,7 @@ function tabKey(event: KeyboardEvent): void {
           /></UiButton>
         </div>
       </template>
-      <template v-else-if="tab === 'Call stack'">
+      <template v-else-if="view === 'stack' && debug">
         <p v-if="!debug.stopped.value">Pause the game to inspect calls.</p>
         <button
           v-for="frame in [...(debug.stopped.value?.location?.frames ?? [])].reverse()"
@@ -198,7 +183,7 @@ function tabKey(event: KeyboardEvent): void {
           ><span v-else>, byte {{ frame.pc }}</span>
         </button>
       </template>
-      <template v-else>
+      <template v-else-if="view === 'breakpoints' && debug">
         <p>{{ VOCABULARY.breakpoint.help }}</p>
         <div v-for="point in debug.state.breakpoints" :key="point.id" class="workspace-debug-row">
           <button @click="emit('reveal', point.logic, point.line)">
@@ -215,7 +200,12 @@ function tabKey(event: KeyboardEvent): void {
             size="sm"
             variant="ghost"
             :aria-label="`Remove breakpoint ${point.id}`"
-            @click="debug.run(() => debug.toggle(point.logic, point.line))"
+            @click="
+              () => {
+                const panel = debug;
+                panel?.run(() => panel.toggle(point.logic, point.line));
+              }
+            "
             ><UiIcon name="x" :size="16"
           /></UiButton>
         </div>
@@ -234,10 +224,6 @@ header {
   justify-content: space-between;
   align-items: center;
 }
-[role="tablist"] {
-  display: flex;
-  gap: var(--space-2);
-}
 button {
   color: var(--ink-3);
   background: transparent;
@@ -246,13 +232,10 @@ button {
   cursor: pointer;
   font: inherit;
 }
-[role="tab"][aria-selected="true"] {
-  color: var(--ink);
-  border-bottom: 2px solid var(--action);
-}
 .workspace-debug-content {
   overflow: auto;
-  max-height: 210px;
+  flex: 1;
+  min-height: 0;
 }
 .workspace-debug-filter,
 .workspace-debug-content form {

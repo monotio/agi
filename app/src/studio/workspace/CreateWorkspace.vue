@@ -38,6 +38,8 @@ import { useCreateWorkspace } from "../../shell/useCreateWorkspace.ts";
 import { useWorkspaceEditor } from "../../shell/workspaceEditor.ts";
 import { openExplainer } from "../../ui/explain.ts";
 import UiButton from "../../ui/UiButton.vue";
+import UiIconButton from "../../ui/UiIconButton.vue";
+import ActionMenu from "../../ui/ActionMenu.vue";
 import PartsList from "./PartsList.vue";
 import ProjectTabs from "../host/ProjectTabs.vue";
 import { workspaceParts, workspaceOpenParts } from "../host/workspaceParts.ts";
@@ -71,6 +73,9 @@ const SpriteStudio = defineAsyncComponent(() => import("../sprite/SpriteStudio.v
 const LogicEditor = defineAsyncComponent(() => import("./LogicEditor.vue"));
 const DebugPanel = defineAsyncComponent(() => import("./WorkspaceDebugPanel.vue"));
 const DebugControls = defineAsyncComponent(() => import("./WorkspaceDebugControls.vue"));
+const StudioKeySheet = defineAsyncComponent(() => import("../StudioKeySheet.vue"));
+const GameStateTab = defineAsyncComponent(() => import("./GameStateTab.vue"));
+const MessagesTab = defineAsyncComponent(() => import("./MessagesTab.vue"));
 const engine = useEngineApi();
 const workspace = useCreateWorkspace();
 const editor = useWorkspaceEditor();
@@ -82,16 +87,134 @@ function phoneLayout(event: MediaQueryListEvent): void {
   phoneWidth.value = event.matches;
 }
 phoneQuery.addEventListener("change", phoneLayout);
-const stacked = computed(() => phoneWidth.value || editor.splitAxis.value === "vertical");
+const stacked = computed(() => phoneWidth.value || editor.stackedLayout.value);
 const roomHint = shallowRef<{ key: string; room: number }>();
-function openPart(key: string, pinned = false, room?: number): void {
+function openPart(key: string, room?: number): void {
   roomHint.value = room === undefined ? undefined : { key, room };
   if (window.innerWidth <= 1280 && engine.state.powerUp.open) engine.closePowerUp();
-  editor.open(key, pinned);
+  if ((key === "words" || key === "inventory") && text(key) === undefined) edit(key, "[]\n");
+  editor.open(key);
   if (window.innerWidth <= 600) {
     editor.partsOpen.value = false;
   }
 }
+/** The Game state + row names a flag or variable: it joins the bindings. */
+function nameState(kind: "flag" | "variable", num: number, name: string): void {
+  const current = content("bindings");
+  const bindings = typeof current === "string" ? readBindingsDocument(current) : {};
+  edit("bindings", JSON.stringify({ ...bindings, [name]: { kind, num } }));
+  openPart("state");
+}
+/** The ⋯ menu's rare actions for the open tab, plus the frame's own. */
+const frameMenuItems = computed(() => {
+  const key = editor.selected.value;
+  return [
+    ...(key ? (editor.frameActions.value[key]?.() ?? []) : []),
+    {
+      id: "history",
+      label: "History",
+      testId: "workspace-more-history",
+      disabled: undefined,
+      title: undefined,
+      run: () => (editor.history.value = true),
+    },
+  ];
+});
+/** One shortcut sheet for the workspace, opened at the tab's own section. */
+const keySheet = computed(() => {
+  const key = editor.selected.value;
+  return (
+    (key ? editor.keySheets.value[key]?.() : undefined) ?? {
+      name: "Workspace",
+      sections: [],
+    }
+  );
+});
+/** Quiet right side of the shared status bar: size, then the AGI profile. */
+const statusMeta = computed(() => {
+  const key = editor.selected.value;
+  if (!key || !profile.value) return "";
+  const registered = editor.statusMeta.value[key]?.();
+  const size =
+    registered ??
+    (key.includes(":")
+      ? native(key)?.length
+      : ["words", "inventory", "notes", "bindings"].includes(key)
+        ? text(key)?.length
+        : undefined);
+  return [
+    size === undefined
+      ? ""
+      : typeof size === "string"
+        ? size
+        : `${size.toLocaleString("en")} bytes`,
+    `AGI ${profile.value.id}`,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+});
+/** The game bar's room label: the room the game is in by name. */
+const currentRoomLabel = computed(() => {
+  const room = engine.roomMap.currentRoom.value;
+  if (room === null) return "";
+  const label = groups.value
+    .flatMap((group) => group.entries)
+    .find((entry) => entry.room === room && !entry.child)?.label;
+  const title = label?.includes("·") ? label.split("·")[0]!.trim() : "";
+  return `Room ${room}${title ? ` · ${title}` : ""}`;
+});
+/** The keys dot in the game bar: on while the game has focus. */
+const gameFocused = ref(false);
+function trackGameFocus(): void {
+  gameFocused.value = !!document.querySelector(".play-area")?.contains(document.activeElement);
+}
+document.addEventListener("focusin", trackGameFocus);
+document.addEventListener("focusout", trackGameFocus);
+function focusGameInput(): void {
+  document.getElementById("game-command")?.focus();
+}
+/** Open tabs live with the project: they come back on reload and leave on ×. */
+let tabsProject = "";
+watch(
+  [() => engine.state.phase, () => props.creating],
+  ([, creating]) => {
+    const project = engine.currentGame()?.projectId;
+    if (!creating || !project) return;
+    const storageKey = `monotio_agi.workspaceTabs.${project}`;
+    if (tabsProject === storageKey) return;
+    tabsProject = storageKey;
+    if (editor.tabs.value.length) return;
+    try {
+      const saved = JSON.parse(localStorage.getItem(storageKey) ?? "null") as {
+        tabs?: string[];
+        selected?: string;
+      } | null;
+      for (const key of saved?.tabs ?? [])
+        if (!editor.tabs.value.includes(key)) editor.tabs.value.push(key);
+      for (const key of editor.tabs.value)
+        if (!editor.retained.value.includes(key)) editor.retained.value.push(key);
+      if (saved?.selected && editor.tabs.value.includes(saved.selected))
+        editor.selected.value = saved.selected;
+    } catch {
+      /* Open empty. */
+    }
+  },
+  { immediate: true },
+);
+watch(
+  () => [editor.tabs.value.join("\u0000"), editor.selected.value],
+  () => {
+    if (!props.creating || !tabsProject) return;
+    try {
+      localStorage.setItem(
+        tabsProject,
+        JSON.stringify({ tabs: editor.tabs.value, selected: editor.selected.value }),
+      );
+    } catch {
+      /* Keep this session's tabs only. */
+    }
+  },
+);
 const snapshot = shallowRef<ProjectSnapshot>();
 const languageSnapshot = shallowRef<ProjectSnapshot>();
 let languageInputs: readonly (ProjectContent | undefined)[] = [];
@@ -340,7 +463,13 @@ const groups = computed(() => {
       /* Resource ids remain reachable. */
     }
   }
-  return workspaceParts({ keys, rooms, names, currentRoom: engine.roomMap.currentRoom.value });
+  return workspaceParts({
+    keys,
+    rooms,
+    names,
+    currentRoom: engine.roomMap.currentRoom.value,
+    debugging: editor.debugging.value,
+  });
 });
 const roomThumbs = useNodeThumbs(engine.roomMap, () => engine.roomMap.graph.value.nodes);
 const thumbnails = computed<Readonly<Record<string, string>>>(() => {
@@ -364,20 +493,30 @@ watch(
   },
   { immediate: true },
 );
+const DATA_LABELS: Record<string, string> = {
+  state: "Game state",
+  problems: "Problems",
+  messages: "Messages",
+  "debug:variables": "Variables",
+  "debug:watch": "Watch",
+  "debug:stack": "Call stack",
+  "debug:breakpoints": "Breakpoints",
+};
 const tabRows = computed(() =>
   editor.tabs.value.map((key) => ({
     key,
     label:
-      key === "words"
+      DATA_LABELS[key] ??
+      (key === "words"
         ? "WORDS"
         : key === "inventory"
           ? "OBJECTS"
           : key === "notes"
             ? "Notes"
-            : key.replace(":", " ").toUpperCase(),
+            : key.replace(":", " ").toUpperCase()),
     dirty: draftMembership.value.includes(key),
-    preview: key === editor.preview.value,
     missing:
+      DATA_LABELS[key] === undefined &&
       !snapshot.value?.keys.includes(key) &&
       (key !== "notes" || (optimistic.value[key]?.length ?? 0) > 0),
   })),
@@ -564,6 +703,19 @@ const unusedArt = computed(
     (editor.kind.value === "picture" || editor.kind.value === "view") &&
     selectedRoom.value === undefined,
 );
+/** The context row shows only when the open tab has tools to offer. */
+const contextRow = computed(() => {
+  const kind = editor.kind.value;
+  return (
+    kind === "picture" ||
+    kind === "view" ||
+    (kind === "logic" && snapshot.value !== undefined) ||
+    (debug.value?.state.epoch !== undefined &&
+      debug.value.state.epoch > 0 &&
+      (kind === "logic" || debug.value.stopped.value || debug.value.state.stepping)) ||
+    unusedArt.value
+  );
+});
 const madeRoomArt: Record<string, string> = {};
 const returnRoom = ref<number>();
 const visitingRoom = ref<number>();
@@ -798,7 +950,6 @@ function placeFigure(figure: RoomPlacement, x: number, y: number): void {
       },
     };
     edit(key, source);
-    editor.pin(editor.selected.value!);
     if (!editor.tabs.value.includes(key)) editor.tabs.value.push(key);
     draftChanged(true);
   } catch (cause) {
@@ -998,8 +1149,8 @@ async function updateGame(restartRoom = true): Promise<void> {
     const first = updateProblems.value.find((entry) => entry.severity === "error");
     const typed = Object.entries(typingProblems).find(([, entries]) => entries.length);
     if (typed) openWordLogic(Number(typed[0].slice(6)), typed[1][0]!.line);
-    else if (first) openPart(first.document, true);
-    editor.panel.value = true;
+    else if (first) openPart(first.document);
+    editor.open("problems");
     editor.error.value =
       typed || first
         ? `${(typed?.[1][0]?.message ?? first!.message).replace(/[.]+$/, "")}. Fix this part, then update.`
@@ -1139,7 +1290,6 @@ function edit(key: string, value: ProjectContent): void {
   )
     return;
   editor.error.value = "";
-  editor.pin(key);
   const changes = editorChanges(key, value);
   session?.drafts().stage(changes);
   for (const change of changes)
@@ -1296,7 +1446,7 @@ async function wordChange(
     if (!["committed", "unchanged", "draft"].includes(result.status))
       throw new Error("Check Problems before changing this meaning.");
     draftChanged(true);
-    editor.pin("words");
+    if (!editor.tabs.value.includes("words")) editor.tabs.value.push("words");
     editor.error.value = "";
     refresh();
   } catch (cause) {
@@ -1562,6 +1712,8 @@ editor.unsavedEdits.value = () => {
   return buffers;
 };
 onBeforeUnmount(() => {
+  document.removeEventListener("focusin", trackGameFocus);
+  document.removeEventListener("focusout", trackGameFocus);
   offDrafts?.();
   editor.update.value = undefined;
   editor.selectLaunch.value = undefined;
@@ -1580,6 +1732,8 @@ onBeforeUnmount(() => {
   editor.discard.value = undefined;
   editor.retry.value = undefined;
   unsubscribe?.();
+  document.removeEventListener("focusin", trackGameFocus);
+  document.removeEventListener("focusout", trackGameFocus);
   window.removeEventListener("keydown", escape, true);
   window.removeEventListener("dragover", musicDrag, true);
   window.removeEventListener("drop", dropMusic, true);
@@ -1674,9 +1828,9 @@ onBeforeUnmount(() => {
     :thumbnails="thumbnails"
     :views="viewThumbnails"
     :profile="profile"
-    @open="(key, room) => openPart(key, false, room)"
-    @pin="(key, room) => openPart(key, true, room)"
+    @open="(key, room) => openPart(key, room)"
     @add="add"
+    @name-state="nameState"
   />
   <div
     v-show="creating && editor.selected.value && !editor.focus.value && !phoneWidth"
@@ -1704,6 +1858,34 @@ onBeforeUnmount(() => {
       >Teach this</UiButton
     ></Teleport
   >
+  <Teleport defer to=".play-area">
+    <div v-if="creating" class="workspace-game-bar" data-testid="workspace-game-bar">
+      <span class="workspace-game-bar__room" data-testid="workspace-room">{{
+        currentRoomLabel
+      }}</span>
+      <UiButton
+        v-if="visitingRoom !== undefined && returnRoom !== undefined"
+        size="sm"
+        variant="ghost"
+        :disabled="visitBusy"
+        :title="visitBusy ? 'Entering the room' : ''"
+        @click="backToGame()"
+        >Back to Room {{ returnRoom }}</UiButton
+      >
+      <!-- The play lane's action button mounts here (rc4-s1-play). -->
+      <span id="workspace-game-actions" class="workspace-game-bar__actions"></span>
+      <button
+        type="button"
+        class="workspace-game-keys"
+        :class="{ on: gameFocused }"
+        data-testid="workspace-game-keys"
+        @click="focusGameInput"
+      >
+        <span class="led" aria-hidden="true"></span>
+        <span>{{ gameFocused ? "Keys go to the game" : "Click the game to play" }}</span>
+      </button>
+    </div>
+  </Teleport>
   <section
     v-show="creating && editor.selected.value && (!phoneWidth || !editor.phonePlaytest.value)"
     class="workspace-editor"
@@ -1717,29 +1899,63 @@ onBeforeUnmount(() => {
         :tabs="tabRows"
         :selected-key="editor.selected.value ?? null"
         @select="(key) => openPart(key)"
-        @pin="editor.pin"
         @close="editor.close"
       />
-      <div v-if="!phoneWidth" class="workspace-axis" aria-label="Editor layout">
-        <UiButton
+      <div class="workspace-frame-controls">
+        <UiIconButton
+          v-if="!phoneWidth"
+          icon="panel-left"
           size="sm"
-          variant="ghost"
-          aria-label="Side by side"
-          title="Side by side"
+          label="Side by side"
+          data-testid="workspace-layout"
           :aria-pressed="editor.splitAxis.value === 'horizontal'"
-          @click="editor.setSplitAxis('horizontal')"
-          ><UiIcon name="panel-left" :size="16"
-        /></UiButton>
-        <UiButton
+          :title="editor.narrowFrame.value ? 'Side by side needs a wider window' : 'Side by side'"
+          :disabled="editor.narrowFrame.value"
+          @click="
+            editor.setSplitAxis(editor.splitAxis.value === 'horizontal' ? 'vertical' : 'horizontal')
+          "
+        />
+        <UiIconButton
+          icon="keyboard"
           size="sm"
-          variant="ghost"
-          aria-label="Stacked"
-          title="Stacked"
-          :aria-pressed="editor.splitAxis.value === 'vertical'"
-          @click="editor.setSplitAxis('vertical')"
-          ><UiIcon name="panel-left" :size="16" style="transform: rotate(90deg)"
-        /></UiButton>
+          label="Keyboard shortcuts"
+          data-testid="workspace-keys"
+          aria-keyshortcuts="?"
+          aria-haspopup="dialog"
+          @click="editor.keysOpen.value = true"
+        />
+        <UiIconButton
+          icon="expand"
+          size="sm"
+          label="Focus"
+          :title="VOCABULARY.focus.help"
+          data-testid="workspace-focus"
+          :aria-pressed="editor.focus.value"
+          @click="editor.toggleFocus"
+        />
+        <ActionMenu
+          label="More actions"
+          test-id="workspace-more"
+          icon-only
+          icon="ellipsis"
+          size="sm"
+        >
+          <button
+            v-for="item in frameMenuItems"
+            :key="item.id"
+            type="button"
+            role="menuitem"
+            :data-testid="item.testId ?? `workspace-more-${item.id}`"
+            :disabled="item.disabled"
+            :title="item.title"
+            @click="item.run()"
+          >
+            {{ item.label }}
+          </button>
+        </ActionMenu>
       </div>
+    </header>
+    <div v-if="contextRow" class="workspace-context" data-testid="workspace-context">
       <template v-if="editor.kind.value === 'picture' || editor.kind.value === 'view'">
         <UiButton
           size="sm"
@@ -1821,14 +2037,19 @@ onBeforeUnmount(() => {
         :sounds="guidedSounds"
         @add="guidedAction"
       />
+      <span v-if="unusedArt" class="workspace-context__note" data-testid="workspace-unused"
+        >Not used by a room yet</span
+      >
       <UiButton
+        v-if="unusedArt"
         size="sm"
         variant="ghost"
-        data-testid="workspace-focus"
-        :aria-pressed="editor.focus.value"
-        :title="VOCABULARY.focus.help"
-        @click="editor.toggleFocus"
-        >{{ editor.focus.value ? "Done" : "Focus" }}</UiButton
+        :disabled="actionBusy || writeConflict"
+        :title="
+          writeConflict ? 'Resolve the project conflict first' : actionBusy ? 'Saving the room' : ''
+        "
+        @click="guidedAction({ kind: 'make-room', key: editor.selected.value! })"
+        >Make it a room</UiButton
       >
       <ImageReferencePanel
         v-if="
@@ -1851,36 +2072,19 @@ onBeforeUnmount(() => {
           refresh();
         "
       />
-    </header>
-    <div v-if="unusedArt" class="workspace-stage-note" data-testid="workspace-unused">
-      <span>Not used by a room yet</span>
-      <UiButton
-        size="sm"
-        variant="ghost"
-        :disabled="actionBusy || writeConflict"
-        :title="
-          writeConflict ? 'Resolve the project conflict first' : actionBusy ? 'Saving the room' : ''
-        "
-        @click="guidedAction({ kind: 'make-room', key: editor.selected.value! })"
-        >Make it a room</UiButton
-      >
-      <UiButton
-        v-if="returnRoom !== undefined"
-        size="sm"
-        variant="ghost"
-        :disabled="visitBusy"
-        :title="visitBusy ? 'Entering the room' : ''"
-        @click="backToGame()"
-        >Back to Room {{ returnRoom }}</UiButton
-      >
     </div>
+    <!-- While the game pauses for editing the game bar hides with the
+         play area, so Back repeats here. -->
     <div
-      v-else-if="visitingRoom !== undefined && returnRoom !== undefined"
+      v-if="
+        visitingRoom !== undefined &&
+        returnRoom !== undefined &&
+        (editor.stagePaused.value || editor.focus.value || phoneWidth)
+      "
       class="workspace-stage-note"
       data-testid="workspace-visit"
     >
       <span>Visiting Room {{ visitingRoom }}</span>
-      <span v-if="editor.kind.value === 'picture' && !stageNote">· running your last update</span>
       <UiButton
         size="sm"
         variant="ghost"
@@ -1893,15 +2097,6 @@ onBeforeUnmount(() => {
     <p v-if="stageNote" class="workspace-stage-note" data-testid="workspace-stage-note">
       {{ stageNote }}
     </p>
-    <div
-      v-else-if="
-        editor.kind.value === 'picture' && selectedRoom !== undefined && returnRoom === undefined
-      "
-      class="workspace-stage-note"
-      data-testid="workspace-room-live"
-    >
-      Room {{ selectedRoom }} · running your last update
-    </div>
     <p
       v-if="
         diagnostics.some((entry) => entry.severity === 'error') && editor.kind.value === 'logic'
@@ -1945,6 +2140,7 @@ onBeforeUnmount(() => {
       <RoomStudio
         :read-only="writeConflict || actionBusy"
         v-if="key.startsWith('picture:') && native(key) && profile"
+        :active="creating && key === editor.selected.value"
         :figures="key === editor.selected.value ? figures : []"
         @place-figure="placeFigure"
         @agent-context="editor.setAgentContext(key, $event)"
@@ -1975,6 +2171,7 @@ onBeforeUnmount(() => {
         v-else-if="key.startsWith('view:') && (native(key) || stagedRequest(key)) && profile"
         v-show="imagePanel !== key"
         :workspace-focus="editor.focus.value || phoneWidth"
+        :active="creating && key === editor.selected.value"
         embedded
         :usage="spriteContexts[key]?.usage ?? { rooms: [], logics: [], dynamic: false }"
         :rooms="spriteContexts[key]?.rooms ?? []"
@@ -2067,6 +2264,33 @@ onBeforeUnmount(() => {
         :source="text(key) ?? ''"
         @edit="edit(key, $event)"
       />
+      <GameStateTab
+        v-else-if="key === 'state'"
+        :active="creating && key === editor.selected.value"
+        :bindings="typeof content('bindings') === 'string' ? String(content('bindings')) : ''"
+        :state="livePreview.state"
+        :profile="profile"
+      />
+      <MessagesTab
+        v-else-if="key === 'messages'"
+        :container="container"
+        :keys="snapshot?.keys ?? []"
+        :profile="profile"
+      />
+      <Suspense v-else-if="key === 'problems' || key.startsWith('debug:')">
+        <DebugPanel
+          v-if="key === 'problems' || debug"
+          :debug="debug ?? undefined"
+          :problems="diagnostics"
+          :view="
+            key === 'problems'
+              ? 'problems'
+              : (key.slice(6) as 'variables' | 'watch' | 'stack' | 'breakpoints')
+          "
+          @reveal="revealDebug"
+        />
+        <template #fallback><p>Loading…</p></template>
+      </Suspense>
       <p v-else class="workspace-error">Open an authored part to edit it.</p>
       <p
         v-for="(preview, object) in key === editor.selected.value && key.startsWith('picture:')
@@ -2087,38 +2311,26 @@ onBeforeUnmount(() => {
     >
       Game · Room {{ engine.roomMap.currentRoom.value }} · Show
     </button>
+    <footer class="workspace-status" data-testid="workspace-status" aria-label="Status bar">
+      <div id="workspace-status-left" class="workspace-status__left"></div>
+      <button
+        v-if="editor.problemCount.value"
+        type="button"
+        class="workspace-status__problems"
+        data-testid="workspace-status-problems"
+        @click="editor.open('problems')"
+      >
+        ⚠ {{ editor.problemCount.value }}
+        {{ editor.problemCount.value === 1 ? "problem" : "problems" }}
+      </button>
+      <div class="workspace-status__right">{{ statusMeta }}</div>
+    </footer>
   </section>
-  <section
-    v-if="creating && editor.panel.value"
-    class="workspace-problems"
-    aria-label="Problems"
-    data-testid="workspace-problems"
-    @keydown.esc.stop.prevent="editor.panel.value = false"
-  >
-    <UiButton
-      class="workspace-problems-close"
-      size="sm"
-      variant="ghost"
-      aria-label="Close"
-      @click="editor.panel.value = false"
-      ><UiIcon name="x" :size="16"
-    /></UiButton>
-    <Suspense v-if="debug">
-      <DebugPanel :debug="debug" :problems="diagnostics" @reveal="revealDebug" />
-      <template #fallback>
-        <header>
-          <h2>Problems</h2>
-        </header>
-      </template>
-    </Suspense>
-    <template v-else>
-      <header>
-        <h2>Problems</h2>
-      </header>
-      <p v-if="diagnostics.length === 0">Everything builds.</p>
-      <p v-for="(entry, index) in diagnostics" :key="index">{{ entry.message }}</p>
-    </template>
-  </section>
+  <StudioKeySheet
+    v-model:open="editor.keysOpen.value"
+    :name="keySheet.name"
+    :sections="keySheet.sections"
+  />
   <aside
     v-if="creating && editor.history.value"
     class="workspace-history"
@@ -2222,23 +2434,14 @@ onBeforeUnmount(() => {
   width: min(440px, 90%);
   z-index: var(--z-popover);
 }
-.workspace-editor__header:has(.workspace-debug-controls) {
+.workspace-context:has(.workspace-debug-controls) {
   flex-wrap: wrap;
 }
-.workspace-problems:has(.workspace-debug-panel) {
-  max-height: 290px;
-  overflow: hidden;
-}
-.workspace-problems {
+.workspace-context {
   position: relative;
 }
-.workspace-problems-close {
-  position: absolute;
-  top: var(--space-3);
-  right: var(--space-5);
-  z-index: 1;
-}
-.workspace-problems :deep(header) {
-  padding-right: var(--space-8);
+.workspace-game-bar__room {
+  flex: 1;
+  min-width: 0;
 }
 </style>

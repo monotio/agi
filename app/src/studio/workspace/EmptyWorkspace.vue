@@ -28,14 +28,41 @@ const busy = ref(false);
 const error = ref("");
 let active = true;
 const openAgent = useOpenAgent();
-async function start(action: "room" | "boilerplate"): Promise<void> {
+/** The tab each section's + lands on once the first room exists. */
+const OPEN_TAB: Record<string, string> = {
+  "GAME STATE": "state",
+  "SHARED LOGIC": "logic:0",
+  PICTURES: "picture:1",
+  OBJECTS: "inventory",
+  WORDS: "words",
+};
+async function start(
+  action: "room" | "boilerplate",
+  openKey?: string,
+  named?: { kind: "flag" | "variable"; num: number; name: string },
+): Promise<void> {
   if (busy.value) return;
   busy.value = true;
   error.value = "";
   try {
+    if (openKey) {
+      localStorage.setItem(
+        `monotio_agi.workspaceTabs.${project.projectId}`,
+        JSON.stringify({ tabs: [openKey], selected: openKey }),
+      );
+    }
     const session = await emptyStageSession(project);
     if (!session || !active) return;
-    const changes = emptyWorkspaceChanges(action);
+    const changes = [...emptyWorkspaceChanges(action)];
+    if (named) {
+      const at = changes.findIndex((change) => change.key === "bindings");
+      const content = changes[at]?.content;
+      if (at >= 0 && typeof content === "string") {
+        const bindings = JSON.parse(content) as Record<string, unknown>;
+        bindings[named.name] = { kind: named.kind, num: named.num };
+        changes[at] = { key: "bindings", content: JSON.stringify(bindings) };
+      }
+    }
     const result = await session.submit({
       proposal: session.model.propose(session.model.capture(), "Added a room", changes),
       label: action === "room" ? "Added a room" : "Used Boilerplate",
@@ -93,8 +120,9 @@ function goHome(): void {
         :groups="groups"
         :selected="undefined"
         :thumbnails="{}"
-        :add-groups="['ROOMS']"
-        @add="start('room')"
+        @open="(key) => start('room', key)"
+        @add="(label) => start('room', OPEN_TAB[label])"
+        @name-state="(kind, num, name) => start('room', 'state', { kind, num, name })"
       />
       <div class="empty-stage">
         <div>

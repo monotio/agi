@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { nextTick, useTemplateRef, watch } from "vue";
+import { nextTick, ref, useTemplateRef, watch } from "vue";
 import type { Point } from "../../../src/studio/shapes.ts";
 
 /**
@@ -27,10 +27,19 @@ const menu = useTemplateRef("menu");
 function buttons(): HTMLButtonElement[] {
   return [...(menu.value?.querySelectorAll<HTMLButtonElement>("button:not(:disabled)") ?? [])];
 }
+/** The menu's spot, pulled back onto the screen when the point is near an edge. */
+const pos = ref({ x: at.x, y: at.y });
 watch(
   () => at,
   async () => {
+    pos.value = { x: at.x, y: at.y };
     await nextTick();
+    const box = menu.value?.getBoundingClientRect();
+    if (box)
+      pos.value = {
+        x: Math.max(8, Math.min(at.x, innerWidth - box.width - 8)),
+        y: Math.max(8, Math.min(at.y, innerHeight - box.height - 8)),
+      };
     buttons()[0]?.focus();
   },
   { immediate: true },
@@ -55,7 +64,7 @@ function onKeydown(event: KeyboardEvent): void {
     role="menu"
     :aria-label="`At ${cell.x},${cell.y}`"
     data-testid="canvas-menu"
-    :style="{ left: `${at.x}px`, top: `${at.y}px` }"
+    :style="{ left: `${pos.x}px`, top: `${pos.y}px` }"
     @keydown="onKeydown"
     @focusout="(event) => !menu?.contains(event.relatedTarget as Node) && emit('close')"
   >

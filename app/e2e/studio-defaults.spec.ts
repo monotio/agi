@@ -53,7 +53,7 @@ for (const [width, height] of [
 
     await expect(studio.getByTestId("selection-name")).toHaveText("2 items");
     await expect(studio.locator('[data-role="scene-count"]')).toHaveText("30 items");
-    await expect(studio.getByTestId("studio-status")).toHaveText("Point at a pixel");
+    await expect(page.getByTestId("studio-status")).toHaveText("Point at a pixel");
     // Nothing in Studio scrolls sideways.
     expect(await sidewaysScrollers(studio)).toEqual([]);
     expect(
@@ -64,7 +64,7 @@ for (const [width, height] of [
     const pane = studio.locator(".studio-pane").last();
     const box = (await pane.boundingBox())!;
     await page.mouse.move(box.x + (35.5 / 160) * box.width, box.y + (50.5 / 168) * box.height);
-    await expect(studio.getByTestId("studio-status")).toHaveText(
+    await expect(page.getByTestId("studio-status")).toHaveText(
       /^x 35 y 50 · colour \d+ · depth \d+( · step \d+)?$/,
     );
     await page.mouse.move(box.x + box.width + 40, box.y);

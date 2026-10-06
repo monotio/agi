@@ -115,7 +115,7 @@ test("dragging an outline another item's fill pours around lands, names the fill
   await page.mouse.up();
 
   await workspaceUpdated(page);
-  const notice = studio.getByTestId("studio-notice");
+  const notice = page.locator(".workspace-status").getByTestId("studio-notice");
   await expect(notice).toBeVisible();
   await expect(notice).toHaveText(NOTE);
   const moved = planes(await draftBytes(page));

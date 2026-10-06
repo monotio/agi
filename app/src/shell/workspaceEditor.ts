@@ -61,6 +61,26 @@ export interface StudioRequest {
   readonly staged?: StagedViewRequest | undefined;
 }
 
+/** One group in the shared shortcut sheet (structural twin of KeySection). */
+export interface KeySheetSection {
+  readonly title: string;
+  readonly rows: readonly { keys: readonly string[]; does: string }[];
+}
+/** An editor's contribution to the shared shortcut sheet. */
+export interface KeySheet {
+  readonly name: string;
+  readonly sections: readonly KeySheetSection[];
+}
+/** One rare action in the frame's ⋯ menu (Share a clip, Export…). */
+export interface WorkspaceFrameAction {
+  readonly id: string;
+  readonly label: string;
+  readonly disabled?: boolean | undefined;
+  readonly title?: string | undefined;
+  readonly testId?: string | undefined;
+  readonly run: () => void;
+}
+
 export function createWorkspaceEditor(engine: EngineApi) {
   const debugCommand =
     shallowRef<
@@ -113,6 +133,43 @@ export function createWorkspaceEditor(engine: EngineApi) {
   }
 
   const selected = ref<string>();
+  /** The one shortcut sheet: open flag and per-tab section providers. */
+  const keysOpen = ref(false);
+  const keySheets = shallowRef<
+    Record<string, () => { name: string; sections: readonly KeySheetSection[] } | undefined>
+  >({});
+  /** Register an editor's key-sheet provider under its tab key; returns unregister. */
+  function registerKeySheet(tabKey: string, provider: () => KeySheet | undefined): () => void {
+    keySheets.value = { ...keySheets.value, [tabKey]: provider };
+    return () => {
+      const next = { ...keySheets.value };
+      delete next[tabKey];
+      keySheets.value = next;
+    };
+  }
+  /** The shared status bar's quiet size note per tab (e.g. "2.1 KB · 214 commands"). */
+  const statusMeta = shallowRef<Record<string, () => string>>({});
+  function registerStatusMeta(tabKey: string, provider: () => string): () => void {
+    statusMeta.value = { ...statusMeta.value, [tabKey]: provider };
+    return () => {
+      const next = { ...statusMeta.value };
+      delete next[tabKey];
+      statusMeta.value = next;
+    };
+  }
+  /** Rare frame actions an editor contributes under its tab key (the ⋯ menu). */
+  const frameActions = shallowRef<Record<string, () => readonly WorkspaceFrameAction[]>>({});
+  function registerFrameActions(
+    tabKey: string,
+    actions: () => readonly WorkspaceFrameAction[],
+  ): () => void {
+    frameActions.value = { ...frameActions.value, [tabKey]: actions };
+    return () => {
+      const next = { ...frameActions.value };
+      delete next[tabKey];
+      frameActions.value = next;
+    };
+  }
   const nameLocation = shallowRef<{ key: string; line: number; serial: number }>();
   const agentPrefill = shallowRef<{
     text: string;
@@ -129,13 +186,11 @@ export function createWorkspaceEditor(engine: EngineApi) {
     if (selected.value === key) agentContext.value = context;
   }
   const tabs = ref<string[]>([]);
-  const preview = ref<string>();
   const pendingAdmission = ref(false);
   const retained = ref<string[]>([]);
   const focus = ref(false);
   const partsOpen = ref(false);
   const partsScroll = ref(0);
-  const panel = ref(false);
   const history = ref(false);
   const parts = shallowRef<readonly ChooserItem[]>([]);
   const save = ref("Saved");
@@ -149,13 +204,29 @@ export function createWorkspaceEditor(engine: EngineApi) {
   const exitRefusal = ref(false);
   const split = ref(50);
   const chosenSplit = ref(false);
-  const splitAxis = ref<"horizontal" | "vertical">("horizontal");
+  const splitAxis = ref<"horizontal" | "vertical">("vertical");
   try {
-    if (localStorage.getItem("monotio_agi.workspaceSplitAxis") === "vertical")
-      splitAxis.value = "vertical";
+    if (localStorage.getItem("monotio_agi.workspaceSplitAxis") === "horizontal")
+      splitAxis.value = "horizontal";
   } catch {
-    /* Use side by side. */
+    /* Stay stacked. */
   }
+  /** Viewport queries the frame layout shares: phones, and the narrow
+      fallback that turns Side by side into Stacked instead of squeezing. */
+  const phoneFrame = ref(false);
+  const narrowFrame = ref(false);
+  if (typeof window !== "undefined" && typeof window.matchMedia === "function") {
+    const narrow = window.matchMedia("(max-width: 1023px)");
+    const phone = window.matchMedia("(max-width: 600px)");
+    narrowFrame.value = narrow.matches;
+    phoneFrame.value = phone.matches;
+    narrow.addEventListener("change", (event) => (narrowFrame.value = event.matches));
+    phone.addEventListener("change", (event) => (phoneFrame.value = event.matches));
+  }
+  /** The arrangement the frame actually shows. */
+  const stackedLayout = computed(
+    () => phoneFrame.value || narrowFrame.value || splitAxis.value === "vertical",
+  );
   function setSplitAxis(axis: "horizontal" | "vertical"): void {
     splitAxis.value = axis;
     try {
@@ -183,21 +254,12 @@ export function createWorkspaceEditor(engine: EngineApi) {
           : split.value,
   );
   const kind = computed(() => selected.value?.split(":")[0] ?? "");
-  function pin(key: string): void {
-    if (preview.value === key) preview.value = undefined;
-  }
-  function open(key: string, pinned = false): void {
+  /** Open or focus a tab; tabs stay until the person closes them. */
+  function open(key: string): void {
     phonePlaytest.value = false;
     selected.value = key;
     agentContext.value = agentContexts[key] ?? null;
-    if (!tabs.value.includes(key)) {
-      if (!pinned && preview.value !== undefined) {
-        const index = tabs.value.indexOf(preview.value);
-        tabs.value.splice(index, 1, key);
-      } else tabs.value.push(key);
-      preview.value = pinned ? preview.value : key;
-    }
-    if (pinned) pin(key);
+    if (!tabs.value.includes(key)) tabs.value.push(key);
     if (!retained.value.includes(key)) retained.value.push(key);
     try {
       const pref = localStorage.getItem(`monotio_agi.workspaceFocus.${kind.value}`);
@@ -205,11 +267,10 @@ export function createWorkspaceEditor(engine: EngineApi) {
     } catch {
       focus.value = false;
     }
-    if (focus.value) panel.value = history.value = false;
+    if (focus.value) history.value = false;
   }
 
   function close(key: string): void {
-    if (preview.value === key) preview.value = undefined;
     const index = tabs.value.indexOf(key);
     tabs.value = tabs.value.filter((tab) => tab !== key);
     if (selected.value === key)
@@ -218,7 +279,7 @@ export function createWorkspaceEditor(engine: EngineApi) {
   function toggleFocus(): void {
     if (selected.value === undefined) return;
     focus.value = !focus.value;
-    if (focus.value) panel.value = history.value = false;
+    if (focus.value) history.value = false;
     try {
       localStorage.setItem(`monotio_agi.workspaceFocus.${kind.value}`, focus.value ? "on" : "off");
     } catch {
@@ -310,13 +371,16 @@ export function createWorkspaceEditor(engine: EngineApi) {
     agentMessages.value = [];
     for (const key of Object.keys(agentContexts)) delete agentContexts[key];
     tabs.value = [];
-    preview.value = undefined;
     pendingAdmission.value = false;
     retained.value = [];
     focus.value = false;
     partsOpen.value = false;
     partsScroll.value = 0;
-    panel.value = history.value = false;
+    keysOpen.value = false;
+    keySheets.value = {};
+    statusMeta.value = {};
+    frameActions.value = {};
+    history.value = false;
     parts.value = [];
   }
   return {
@@ -353,15 +417,22 @@ export function createWorkspaceEditor(engine: EngineApi) {
     agentMessages,
     setAgentContext,
     tabs,
-    preview,
-    pin,
     pendingAdmission,
     effectiveSplit,
     retained,
     focus,
     partsOpen,
     partsScroll,
-    panel,
+    keysOpen,
+    keySheets,
+    registerKeySheet,
+    statusMeta,
+    registerStatusMeta,
+    frameActions,
+    registerFrameActions,
+    stackedLayout,
+    narrowFrame,
+    phoneFrame,
     history,
     parts,
     save,
@@ -394,4 +465,8 @@ export function useWorkspaceEditor() {
   const editor = inject(key);
   if (!editor) throw new Error("The workspace editor is unavailable.");
   return editor;
+}
+/** The frame's editor, or null where an editor mounts outside the workspace (dev harness). */
+export function useMaybeWorkspaceEditor() {
+  return inject(key, null);
 }

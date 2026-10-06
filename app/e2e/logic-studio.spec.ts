@@ -164,7 +164,8 @@ test("library Edit opens LOGIC: completion, hover, definition, diagnostics and a
   await explorer.getByTestId("part-room:1:logic").click();
   const editor = page.getByTestId("workspace-logic-editor").filter({ visible: true });
   await expect(editor.locator(".monaco-editor")).toBeVisible();
-  await expect(editor.locator(".view-lines")).toContainText("sunny clearing");
+  // Monaco renders only the lines in view; assert on a line near the top.
+  await expect(editor.locator(".view-lines")).toContainText("set.horizon");
 
   // Completion lists the game's vocabulary inside a said() string. The pairs
   // auto-close as they type; End plus a block finishes a valid statement.
@@ -184,7 +185,15 @@ test("library Edit opens LOGIC: completion, hover, definition, diagnostics and a
   await page.keyboard.press(
     (await page.evaluate(() => /mac/i.test(navigator.platform))) ? "Meta+ArrowUp" : "Control+Home",
   );
-  await editor.locator(".view-lines").getByText("set.view").first().hover();
+  // Hover needs a real pointer move: park the cursor elsewhere first so
+  // Monaco sees it arrive over the token.
+  const hoverToken = editor.locator(".view-lines").getByText("set.view").first();
+  await expect(hoverToken).toBeVisible();
+  const hoverBox = (await hoverToken.boundingBox())!;
+  await page.mouse.move(hoverBox.x - 60, hoverBox.y);
+  await page.mouse.move(hoverBox.x + hoverBox.width / 2, hoverBox.y + hoverBox.height / 2, {
+    steps: 4,
+  });
   const hover = page.locator(".monaco-hover:not(.hidden)");
   await expect(hover).toBeVisible();
   await expect(hover).toContainText("set.view");
@@ -226,7 +235,8 @@ test("library Edit opens LOGIC: completion, hover, definition, diagnostics and a
   });
   await reviewShot(page, "logic-studio-problems");
 
-  // Delete the broken line and wait for the valid source to autosave.
+  // Problems is its own tab now; go back to LOGIC 1 to keep editing.
+  await page.getByTestId("project-tab-logic:1").click();
   await focusWorkspaceLogic(page);
   await page.keyboard.press("ControlOrMeta+Shift+K");
   await workspaceSaved(page);

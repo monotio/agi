@@ -7,6 +7,7 @@ import { ProjectModel } from "../../src/authoring/projectModel.ts";
 import { createContainer } from "../../src/container/container.ts";
 import { sha256Hex } from "../../src/crypto.ts";
 import type {
+  DebugStopReason,
   WorkerQueryFn,
   WorkerQueryType,
   WorkerControl,
@@ -64,6 +65,7 @@ test("stopped source positions use only the captured build and its authored offs
     type: "debugStopped",
     epoch: 1,
     buildId: "another build",
+    reasons: [] as readonly DebugStopReason[],
     location: { logic: 0, pc: 0, kind: "action" },
   } as Extract<WorkerControl, { type: "debugStopped" }>);
   assert.equal(h.debug.position.value, null);
@@ -94,6 +96,7 @@ test("stepping stays active until a stop, continue or detach", async () => {
     epoch: 1,
     stopId: 1,
     buildId: h.compiled.build.identity.buildId,
+    reasons: [] as readonly DebugStopReason[],
     location: { logic: 0, pc: 0, kind: "action" },
   } as Extract<WorkerControl, { type: "debugStopped" }>;
   h.link.handle(stop);

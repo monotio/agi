@@ -57,7 +57,7 @@ for (const size of [
     await page.keyboard.press("F9");
     await expect(editor.locator(".workspace-breakpoint")).toHaveCount(1);
     await page.keyboard.press("F5");
-    await expect(page.locator(".workspace-editor__header").getByTestId("debug-stop")).toBeEnabled();
+    await expect(page.locator(".workspace-context").getByTestId("debug-stop")).toBeEnabled();
     await expect(page.getByTestId("workspace-debug-status")).toBeVisible();
     await page.getByRole("button", { name: "Continue", exact: true }).first().click();
     await page.keyboard.press("Control+`");
@@ -68,8 +68,11 @@ for (const size of [
     );
     // Monaco repeats this decoration for wrapped line fragments; one visible fragment proves the stop.
     await expect(editor.locator(".workspace-stopped-line").first()).toBeVisible();
+    // The debugger's views open as workspace tabs from Parts.
+    await page.getByTestId("part-debug:variables").click();
     await expect(page.getByRole("tab", { name: "Variables", exact: true })).toBeVisible();
-    const panel = page.getByTestId("workspace-debug-panel");
+    // Several debug views stay mounted; the open tab shows one.
+    const panel = page.locator('[data-testid="workspace-debug-panel"]:visible');
     await expect(panel.getByRole("heading", { name: "Used here", exact: true })).toBeVisible();
     await expect(panel.getByRole("heading", { name: "Game", exact: true })).toBeVisible();
     await expect(panel.getByRole("spinbutton", { name: "v255", exact: true })).toHaveCount(0);
@@ -77,7 +80,7 @@ for (const size of [
     await expect(panel.getByRole("spinbutton", { name: "v255", exact: true })).toBeVisible();
     await panel.getByText("All variables", { exact: true }).click();
     const toolbar = page
-      .locator(".workspace-editor__header")
+      .locator(".workspace-context")
       .getByRole("group", { name: "Debug controls", exact: true });
     await expect(toolbar).toBeVisible();
     expect(
@@ -85,6 +88,11 @@ for (const size of [
         .getByRole("button")
         .evaluateAll((buttons) => buttons.map((button) => button.getAttribute("aria-label"))),
     ).toEqual(["Continue", "Step over (F10)", "Step into (F11)", "Step out (⇧F11)", "Stop (⇧F5)"]);
+    await page.getByTestId("part-debug:watch").click();
+    await expect(page.getByRole("tab", { name: "Watch", exact: true })).toBeVisible();
+    await page.getByTestId("part-debug:stack").click();
+    await expect(page.getByRole("tab", { name: "Call stack", exact: true })).toBeVisible();
+    await page.getByTestId("project-tab-debug:variables").click();
     await panel.locator(".workspace-debug-content").evaluate((element) => {
       element.scrollTop = 0;
     });
@@ -97,9 +105,10 @@ for (const size of [
     await page.keyboard.press("Enter");
     await expect(page.getByTestId("workspace-debug-status")).toContainText("Paused");
     await page.keyboard.press("ControlOrMeta+j");
-    await expect(page.getByTestId("workspace-debug-panel")).toBeHidden();
+    await expect(page.getByTestId("workspace-problems")).toBeVisible();
+    await expect(page.locator('[data-testid="workspace-debug-panel"]:visible')).toBeHidden();
     await page.keyboard.press("ControlOrMeta+j");
-    await expect(page.getByTestId("workspace-debug-panel")).toBeVisible();
+    await expect(page.locator('[data-testid="workspace-debug-panel"]:visible')).toBeVisible();
     await reviewShot(page, `debugger-${size.width}-step`);
     await page.keyboard.press("Shift+F5");
     await expect(page.getByTestId("workspace-debug-status")).toHaveCount(0);
@@ -147,13 +156,14 @@ test("stopped edits keep the running source, value edits and watches inspect MAI
   await page.keyboard.press("F9");
   await expect(editor.locator(".workspace-breakpoint")).toHaveCount(1);
   await page.keyboard.press("F5");
-  await expect(page.locator(".workspace-editor__header").getByTestId("debug-stop")).toBeEnabled();
+  await expect(page.locator(".workspace-context").getByTestId("debug-stop")).toBeEnabled();
   await expect(page.getByTestId("workspace-debug-status")).toBeVisible();
   await page.getByRole("button", { name: "Continue", exact: true }).first().click();
   await page.keyboard.press("Control+`");
   await page.keyboard.type("look");
   await page.keyboard.press("Enter");
   await expect(page.getByTestId("workspace-debug-status")).toContainText("Paused at LOGIC 1");
+  await page.getByTestId("part-debug:variables").click();
   await page.getByLabel("Find a value", { exact: true }).fill("v40");
   await page.getByRole("spinbutton", { name: "v40", exact: true }).fill("77");
   await page.getByRole("spinbutton", { name: "v40", exact: true }).press("Tab");
@@ -162,11 +172,11 @@ test("stopped edits keep the running source, value edits and watches inspect MAI
   const namedFlag = page.getByRole("checkbox", { name: /^f\d+ chime_done$/ });
   await namedFlag.check();
   await expect(namedFlag).toBeChecked();
-  await page.getByRole("tab", { name: "Watch", exact: true }).click();
+  await page.getByTestId("part-debug:watch").click();
   await page.getByLabel("Watch expression", { exact: true }).fill("v40");
   await page.getByRole("button", { name: "Add watch", exact: true }).click();
   await expect(page.locator(".workspace-debug-row output")).toHaveText("77");
-  await page.getByRole("tab", { name: "Call stack", exact: true }).click();
+  await page.getByTestId("part-debug:stack").click();
   await expect(page.locator(".workspace-debug-frame")).toHaveCount(2);
   await expect(page.locator(".workspace-debug-frame").first()).toContainText("LOGIC 1");
   const token = await page.evaluate(
@@ -175,6 +185,8 @@ test("stopped edits keep the running source, value edits and watches inspect MAI
         window as unknown as { __AGI_PROJECT__: { getSession(): { runToken: string } } }
       ).__AGI_PROJECT__.getSession().runToken,
   );
+  // The Call stack is its own tab: go back to LOGIC 1 to edit it.
+  await page.getByTestId("project-tab-logic:1").click();
   await editor.getByRole("textbox", { name: "Editor content", exact: true }).focus();
   await page.keyboard.press("ControlOrMeta+a");
   await page.keyboard.insertText(

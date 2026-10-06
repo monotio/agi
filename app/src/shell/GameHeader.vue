@@ -892,7 +892,10 @@ a.publisher:hover > span {
   .copy-created-note {
     position: fixed;
     top: auto;
-    bottom: calc(var(--space-3) + env(safe-area-inset-bottom, 0px));
+    /* The workspace's thin status bar owns the bottom edge in Create. */
+    bottom: calc(
+      var(--workspace-status-h, 0px) + var(--space-3) + env(safe-area-inset-bottom, 0px)
+    );
     width: calc(100% - var(--space-4));
   }
 }

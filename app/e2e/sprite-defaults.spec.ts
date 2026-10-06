@@ -80,8 +80,8 @@ for (const [width, height] of [
     await expect(studio.getByTestId("sprite-cel-details-body")).toHaveCount(0);
     await expect(studio.getByTestId("sprite-tool-options")).toBeVisible();
     await expect(studio.getByTestId("sprite-tool-options")).toHaveText(/^Pencil\s*11 light cyan/);
-    await expect(studio.locator('[data-testid="sprite-bytes"]')).toBeVisible();
-    await expect(studio.locator('[data-testid="sprite-bytes"]')).toHaveText(/^[\d,]+ bytes$/);
+    // Byte size sits quietly in the shared status bar.
+    await expect(page.getByTestId("workspace-status")).toContainText(/^[\s\S]*[\d,]+ bytes/);
 
     // Both previews remain reachable in the shared panel at each height.
     for (const id of ["sprite-preview", "sprite-room-preview"]) {

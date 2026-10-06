@@ -330,6 +330,7 @@ for (const size of [
     await page.keyboard.press("ControlOrMeta+j");
     await expect(page.getByTestId("workspace-problems")).toBeVisible();
     await shot("logic-error");
+    await page.getByTestId("project-tab-logic:1").click();
     await page.getByTestId("workspace-focus").click();
     await expect
       .poll(async () => (await page.locator(".monaco-editor").boundingBox())?.width ?? 0)
@@ -619,26 +620,22 @@ test("Home Continue resumes the Starter in its room", async ({ page }) => {
   await expect.poll(async () => (await textHook(page)).cycle).toBeGreaterThan(resumed);
 });
 
-test("parts preview replaces, double click and editing pin, close uses the keyboard", async ({
-  page,
-}) => {
+test("tabs persist until closed, close uses the keyboard or the tab's ×", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await starter(page);
   await page.getByTestId("part-room:1:picture:1").click();
-  await expect(page.getByTestId("project-tab-picture:1")).toHaveCSS("font-style", "italic");
+  await expect(page.getByTestId("project-tab-picture:1")).toBeVisible();
+  // Choosing another part adds a tab; the first stays open.
   await page.getByTestId("part-view:0").click();
-  await expect(page.getByTestId("project-tab-picture:1")).toHaveCount(0);
-  await page.getByTestId("part-view:0").dblclick();
-  await expect(page.getByTestId("project-tab-view:0")).toHaveCSS("font-style", "normal");
+  await expect(page.getByTestId("project-tab-picture:1")).toBeVisible();
+  await expect(page.getByTestId("project-tab-view:0")).toBeVisible();
   await page.getByTestId("part-words").click();
   await expect(page.getByTestId("project-tab-view:0")).toBeVisible();
-  await page.getByTestId("project-tab-words").dblclick();
-  await expect(page.getByTestId("project-tab-words")).toHaveCSS("font-style", "normal");
+  await expect(page.getByTestId("project-tab-words")).toBeVisible();
   await page.getByTestId("part-room:1:logic").click();
   await page.locator(".monaco-editor").click();
   await page.keyboard.press("ControlOrMeta+End");
-  await page.keyboard.insertText("\n// Pinned by typing");
-  await expect(page.getByTestId("project-tab-logic:1")).toHaveCSS("font-style", "normal");
+  await page.keyboard.insertText("\n// Edited");
   await page.keyboard.press("ControlOrMeta+w");
   await expect(page.getByTestId("project-tab-logic:1")).toHaveCount(0);
   const parts = await page
@@ -731,9 +728,12 @@ for (const size of [
       .boundingBox())!;
     expect(lens.y).toBeGreaterThanOrEqual(options.y);
     expect(lens.y + lens.height).toBeLessThanOrEqual(options.y + options.height);
-    const footer = (await studio.locator(".studio__status").boundingBox())!;
-    const palette = (await studio.locator(".workspace-palette").boundingBox())!;
-    expect(footer.y).toBeGreaterThanOrEqual(palette.y + palette.height);
+    const footer = (await page.getByTestId("workspace-status").boundingBox())!;
+    const palette = studio.locator(".workspace-palette");
+    // The studio scrolls when the window is short; the palette still clears the shared bar.
+    await palette.scrollIntoViewIfNeeded();
+    const paletteBox = (await palette.boundingBox())!;
+    expect(footer.y + 1).toBeGreaterThanOrEqual(paletteBox.y + paletteBox.height);
     await expect(studio.getByTestId("studio-value-priority")).toBeVisible();
     await expect(studio.getByTestId("studio-value-priority")).toHaveText("None");
     await expect(studio.getByTestId("studio-value-priority")).toBeDisabled();
@@ -750,7 +750,9 @@ for (const size of [
     expect(optionsFit).toBe(true);
     const edit = (await page.getByTestId("workspace-editor").boundingBox())!;
     const game = (await page.locator(".play-area").boundingBox())!;
-    expect(edit.width).toBeGreaterThan(game.width);
+    // Stacked is the default: the editor sits under the game at the same width.
+    expect(edit.y).toBeGreaterThan(game.y);
+    expect(edit.width).toBe(game.width);
     await shot("view");
     await page.getByTestId("part-words").click();
     await expect(
@@ -772,11 +774,15 @@ for (const size of [
     await page.getByTestId("part-inventory").click();
     await expect(page.getByRole("columnheader", { name: "Object", exact: true })).toBeVisible();
     await expect(page.getByRole("columnheader", { name: "Room", exact: true })).toBeVisible();
-    await page.getByTestId("part-view:0").dblclick();
-    await page.getByTestId("part-words").dblclick();
+    await page.getByTestId("part-view:0").click();
+    await page.getByTestId("part-words").click();
     await page.getByTestId("part-room:1:picture:1").click();
-    await expect(page.getByTestId("project-tab-picture:1")).toHaveCSS("font-style", "italic");
-    await shot("preview-tabs");
+    // Tabs persist until closed: every opened part keeps its tab.
+    await expect(page.getByTestId("project-tab-picture:1")).toBeVisible();
+    await expect(page.getByTestId("project-tab-view:0")).toBeVisible();
+    await expect(page.getByTestId("project-tab-words")).toBeVisible();
+    await expect(page.getByTestId("project-tab-inventory")).toBeVisible();
+    await shot("persistent-tabs");
   });
 }
 

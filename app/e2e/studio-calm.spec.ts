@@ -108,7 +108,7 @@ for (const [width, height] of [
     expect(await coveredPoints(pane, stage, allowed)).toEqual([]);
     // Select with the item: its actions dock in the options bar, off the picture.
     await page.keyboard.press("v");
-    await expect(studio.getByTestId("studio-hint")).toHaveText(/^Arrows nudge/);
+    await expect(page.getByTestId("studio-hint")).toHaveText(/^Arrows nudge/);
     expect(await coveredPoints(pane, stage, allowed)).toEqual([]);
     await expect(bar.getByTestId("studio-selection-bar")).toBeVisible();
     await expect(studio.getByRole("treeitem", { name: /^West doorway/ })).toHaveAttribute(
@@ -209,8 +209,8 @@ test("? lists every key in a dialog, and Esc puts it away without leaving Studio
   await expect(canvas).toBeFocused();
   await expect(studio.getByTestId("studio-tool-options")).toHaveAttribute("data-tool", "line");
 
-  // The status bar's ? button opens it too, and focus returns to the button.
-  const button = studio.getByRole("button", { name: "Keys", exact: true });
+  // The frame's one Keys button opens it too, and focus returns to the button.
+  const button = page.getByTestId("workspace-keys");
   await expect(button).toHaveAttribute("aria-keyshortcuts", "?");
   await button.click();
   await expect(sheet).toBeVisible();
