@@ -5,7 +5,9 @@ import { analyzeLogicSyntax, scanLogicTokens } from "../logic/syntax.ts";
 interface ProjectLogicContext {
   readonly profile: AgiProfile;
   readonly dictionary: ReadonlyMap<string, number>;
-  readonly bindings: Readonly<Record<string, { readonly num: number }>>;
+  readonly bindings: Readonly<
+    Record<string, { readonly num: number; readonly kind?: string; readonly logic?: number }>
+  >;
   readonly sourceMap?: boolean;
 }
 

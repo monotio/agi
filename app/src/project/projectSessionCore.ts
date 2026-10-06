@@ -781,6 +781,7 @@ function createSession(
           lifetime: expected.lifetime,
           currentImage: () => model.capture().documentId,
           canWrite: () => current() && writeBlock === undefined,
+          read: (key) => model.capture().read(key)?.content,
           changed() {
             for (const observer of draftObservers) observer();
           },
@@ -906,8 +907,10 @@ function createSession(
       const { proposal, ...metadata } = edit;
       return schedule(() => apply(proposal, { ...metadata, time: Date.now() }, undefined, true));
     },
-    undo(review?: ComputedRoomRemovalReview) {
+    undo(review?: ComputedRoomRemovalReview, scope: "working" | "game" = "working") {
       return schedule(async () => {
+        if (scope === "working" && partDrafts?.undo())
+          return { status: "draft" as const, diagnostics: [] };
         const action = history.undo(model);
         if (action === undefined) return undefined;
         const capture = model.capture();
@@ -951,6 +954,7 @@ function createSession(
     },
     redo() {
       return schedule(async () => {
+        if (partDrafts?.redo()) return { status: "draft" as const, diagnostics: [] };
         const action = history.redo(model);
         return action === undefined
           ? undefined

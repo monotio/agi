@@ -192,7 +192,7 @@ const positionAt = (text: string, offset: number) => {
 const diagnosticMessage = (entry: Diagnostic): string =>
   typeof entry.message === "string" ? entry.message : entry.message.value;
 
-test("numbered operands navigate across a two-LOGIC v2 project without becoming rename targets", async () => {
+test("numbered operands navigate and become binding rename targets across a two-LOGIC v2 project", async () => {
   const { createContainer } = await import("../src/container/container.ts");
   const { assembleLogic } = await import("../src/logic/assembler.ts");
   const { PROFILES } = await import("../src/runtime/profile.ts");
@@ -216,6 +216,13 @@ test("numbered operands navigate across a two-LOGIC v2 project without becoming 
   for (const [name, bytes] of container.files) writeFileSync(join(dir, name), bytes);
   writeFileSync(join(dir, "AGIDATA.OVL"), "Version 2.936");
   writeFileSync(join(dir, "WORDS.TOK"), buildWordsTok([{ word: "look", id: 100 }]));
+  const { buildObjectFile } = await import("../src/authoring/inventory.ts");
+  writeFileSync(
+    join(dir, "OBJECT"),
+    buildObjectFile(
+      Array.from({ length: 8 }, (_, num) => ({ name: `item ${num}`, startingRoom: 23 })),
+    ),
+  );
   writeFileSync(
     join(dir, "bindings.json"),
     JSON.stringify({ room_pic: { kind: "variable", num: 0 } }),
@@ -262,8 +269,11 @@ test("numbered operands navigate across a two-LOGIC v2 project without becoming 
     assert.deepEqual(await refs('12 "First"', true), messages);
     const binding = await server.connection.sendRequest(DefinitionRequest.type, at("v0"));
     assert.equal((binding as Location).uri, pathToFileURL(join(dir, "bindings.json")).href);
-    assert.equal(await server.connection.sendRequest(DefinitionRequest.type, at("f5")), null);
-    assert.deepEqual(await refs("0);\nprint"), []);
+    assert.deepEqual(
+      await server.connection.sendRequest(DefinitionRequest.type, at("f5")),
+      await refs("f5"),
+    );
+    assert.equal((await refs("0);\nprint")).length, 1);
     const highlights = (await server.connection.sendRequest(
       "textDocument/documentHighlight",
       at("v0"),
@@ -274,14 +284,18 @@ test("numbered operands navigate across a two-LOGIC v2 project without becoming 
     assert.match(JSON.stringify(hover), /room_pic/);
     assert.match(JSON.stringify(hover), /local/);
     assert.match(JSON.stringify(hover), /5 uses/);
-    await assert.rejects(
-      server.connection.sendRequest(PrepareRenameRequest.type, at("v0")),
-      /Numbered operands.*named binding/,
+    assert.match(
+      JSON.stringify(await server.connection.sendRequest(HoverRequest.type, at("i7"))),
+      /Starting room: 23/,
     );
-    await assert.rejects(
-      server.connection.sendRequest(RenameRequest.type, { ...at("v0"), newName: "picture" }),
-      /Numbered operands/,
-    );
+    const prepared = await server.connection.sendRequest(PrepareRenameRequest.type, at("v0"));
+    assert.ok(prepared && "placeholder" in prepared);
+    assert.equal(prepared.placeholder, "room_pic");
+    const numberedRename = await server.connection.sendRequest(RenameRequest.type, {
+      ...at("v0"),
+      newName: "picture",
+    });
+    assert.equal(numberedRename?.documentChanges?.length, 3);
     const renamed = await server.connection.sendRequest(RenameRequest.type, {
       ...at("local);"),
       newName: "scratch",
@@ -292,7 +306,7 @@ test("numbered operands navigate across a two-LOGIC v2 project without becoming 
       ...at("room_pic);"),
       newName: "picture",
     });
-    assert.equal(shared?.documentChanges?.length, 2);
+    assert.equal(shared?.documentChanges?.length, 3);
     const diagnostics = (await server.connection.sendRequest("textDocument/diagnostic", {
       textDocument: { uri },
     })) as { items: unknown[] };
@@ -1248,6 +1262,10 @@ test("tutorial compilation through the server matches the app compiler and shipp
   const { openContainer } = await import("../src/container/container.ts");
   const tutorial = buildTutorial();
   const input = readProjectLanguageInput(tutorial);
+  assert.deepEqual(
+    input.inventory?.map((item) => item.name),
+    input.objects,
+  );
   const dir = mkdtempSync(join(tmpdir(), "agi-lsp-compile-"));
   const archive = join(dir, "tutorial.zip");
   writeFileSync(

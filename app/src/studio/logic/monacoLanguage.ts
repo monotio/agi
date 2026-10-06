@@ -133,6 +133,7 @@ interface ModelRegistration {
   readonly documentKey: string;
   readonly applyProjectEdit: ((edit: WorkspaceEdit, label: string) => Promise<void>) | undefined;
   readonly onBinding: ((info: BindingInfo, action: "open" | "rename") => void) | undefined;
+  readonly onResource: ((key: string) => void) | undefined;
   readonly bindingTargets: Map<string, BindingInfo>;
   readonly previews: Map<string, monaco.editor.ITextModel>;
   waitForAnalysis(): Promise<void>;
@@ -163,7 +164,10 @@ monaco.editor.onDidCreateEditor((editor) => {
 
 function locationUri(registration: ModelRegistration, uri: string): monaco.Uri {
   if (uri === registration.model.uri.toString()) return registration.model.uri;
-  const source = registration.client.documentSource(uri);
+  const resource = /^agi-resource:\/\/\/(logic|picture|view|sound)\/(\d+)$/.exec(uri);
+  const source =
+    registration.client.documentSource(uri) ??
+    (resource ? `${resource[1]!.toUpperCase()} ${resource[2]}` : undefined);
   if (source === undefined) return monaco.Uri.parse(uri);
   let preview = registration.previews.get(uri);
   if (!preview) {
@@ -174,7 +178,7 @@ function locationUri(registration: ModelRegistration, uri: string): monaco.Uri {
       monaco.Uri.from({
         scheme: "agi-preview",
         authority: encodeURIComponent(registration.model.uri.toString()),
-        path: `/${target.path.split("/").at(-1)}`,
+        path: resource ? `/resource${target.path}` : `/${target.path.split("/").at(-1)}`,
       }),
     );
     registration.previews.set(uri, preview);
@@ -343,10 +347,39 @@ monaco.editor.registerCommand(
     if (registration && stillCurrent(registration)) registration.onBinding?.(info, action);
   },
 );
+monaco.editor.registerCommand(
+  "agi.nameOperand",
+  (_accessor, modelId: string, position: monaco.IPosition) => {
+    const registration = [...registrations.values()].find((entry) => entry.model.id === modelId);
+    if (!registration || !stillCurrent(registration)) return;
+    const editor = monaco.editor
+      .getEditors()
+      .find((editor) => editor.getModel() === registration.model);
+    editor?.setPosition(position);
+    editor?.focus();
+    editor?.trigger("agi-logic", "editor.action.rename", {});
+  },
+);
 monaco.languages.registerHoverProvider(LOGIC_LANGUAGE_ID, {
   async provideHover(model, position, token) {
     const session = openQuery(model, token);
     if (!session) return null;
+    const hover = await queryWorker(
+      session.registration,
+      "textDocument/hover",
+      { position: protocolPosition(position) },
+      token,
+    );
+    if (!hover || !queryIsLive(session, model, token)) return null;
+    const contents: monaco.IMarkdownString[] = [
+      {
+        value: hover.contents.value.replace(
+          "Name it… F2",
+          `[Name it…](command:agi.nameOperand?${encodeURIComponent(JSON.stringify([model.id, position]))}) F2`,
+        ),
+        isTrusted: { enabledCommands: ["agi.nameOperand"] },
+      },
+    ];
     if (session.registration.onBinding) {
       const info = await queryWorker(
         session.registration,
@@ -358,26 +391,15 @@ monaco.languages.registerHoverProvider(LOGIC_LANGUAGE_ID, {
       if (info) {
         const link = (action: "open" | "rename") =>
           `command:agi.binding?${encodeURIComponent(JSON.stringify([model.id, action, info]))}`;
-        return {
-          contents: [
-            {
-              value: `${info.name} · ${info.kind.toUpperCase()} ${info.num} · used in ${info.uses.length} ${info.uses.length === 1 ? "place" : "places"}\n\n[Open](${link("open")}) · [Rename](${link("rename")})`,
-              isTrusted: { enabledCommands: ["agi.binding"] },
-            },
-          ],
-        };
+        contents.push({
+          value: `[Open](${link("open")}) · [Rename](${link("rename")})`,
+          isTrusted: { enabledCommands: ["agi.binding"] },
+        });
       }
     }
-    const hover = await queryWorker(
-      session.registration,
-      "textDocument/hover",
-      { position: protocolPosition(position) },
-      token,
-    );
-    if (!hover || !queryIsLive(session, model, token)) return null;
     return {
       range: editorRange(hover.range),
-      contents: [{ value: hover.contents.value, isTrusted: false }],
+      contents,
     };
   },
 });
@@ -385,7 +407,18 @@ monaco.languages.registerDefinitionProvider(LOGIC_LANGUAGE_ID, {
   async provideDefinition(model, position, token) {
     const session = openQuery(model, token);
     if (!session) return null;
-    if (session.registration.onBinding) {
+    const definition = await queryWorker(
+      session.registration,
+      "textDocument/definition",
+      { position: protocolPosition(position) },
+      token,
+    );
+    if (!definition || !queryIsLive(session, model, token)) return null;
+    if (
+      session.registration.onBinding &&
+      !Array.isArray(definition) &&
+      definition.uri === "agi-project:///bindings.json"
+    ) {
       const info = await queryWorker(
         session.registration,
         "agi/bindingInfo",
@@ -416,19 +449,11 @@ monaco.languages.registerDefinitionProvider(LOGIC_LANGUAGE_ID, {
         return { uri, range: new monaco.Range(1, 1, 1, info.name.length + 1) };
       }
     }
-    const definition = await queryWorker(
-      session.registration,
-      "textDocument/definition",
-      { position: protocolPosition(position) },
-      token,
-    );
-    if (!definition || !queryIsLive(session, model, token)) return null;
-    if (session.registration.onBinding && definition.uri === "agi-project:///bindings.json")
-      return null;
-    return {
-      uri: locationUri(session.registration, definition.uri),
-      range: editorRange(definition.range),
-    };
+    const locations = Array.isArray(definition) ? definition : [definition];
+    return locations.map((entry) => ({
+      uri: locationUri(session.registration, entry.uri),
+      range: editorRange(entry.range),
+    }));
   },
 });
 monaco.languages.registerReferenceProvider(LOGIC_LANGUAGE_ID, {
@@ -496,14 +521,17 @@ monaco.languages.registerRenameProvider(LOGIC_LANGUAGE_ID, {
   async provideRenameEdits(model, position, newName, token) {
     const session = openQuery(model, token);
     if (!session) return { edits: [] };
+    let rejectReason = "Choose an unused name and fix the source errors.";
     const edit = await queryWorker(
       session.registration,
       "textDocument/rename",
       { position: protocolPosition(position), newName },
       token,
+      (message) => {
+        rejectReason = message;
+      },
     );
-    if (!edit || !queryIsLive(session, model, token))
-      return { edits: [], rejectReason: "Choose an unused name and fix the source errors." };
+    if (!edit || !queryIsLive(session, model, token)) return { edits: [], rejectReason };
     if (
       session.registration.applyProjectEdit &&
       edit.documentChanges.some((change) => change.textDocument.uri !== model.uri.toString())
@@ -663,6 +691,7 @@ export function registerLogicModel(
     readonly client: LogicAnalysisClient;
     readonly documentKey: string;
     readonly onBinding?: (info: BindingInfo, action: "open" | "rename") => void;
+    readonly onResource?: (key: string) => void;
     readonly applyProjectEdit?: (edit: WorkspaceEdit, label: string) => Promise<void>;
   },
 ): LogicModelHandle {
@@ -676,6 +705,7 @@ export function registerLogicModel(
     documentKey: options.documentKey,
     applyProjectEdit: options.applyProjectEdit,
     onBinding: options.onBinding,
+    onResource: options.onResource,
     previews: new Map(),
     bindingTargets: new Map(),
     waitForAnalysis: () => analysisSchedule.settled(),
@@ -691,6 +721,32 @@ export function registerLogicModel(
   const modelDisposal = model.onWillDispose(dispose);
   const opener = monaco.editor.registerEditorOpener({
     openCodeEditor(source, resource) {
+      if (source?.getModel() === model && registration.onResource) {
+        const target = /^agi-resource:\/\/\/(logic|picture|view|sound)\/(\d+)$/.exec(
+          resource.toString(),
+        );
+        if (target) {
+          registration.onResource(`${target[1]}:${target[2]}`);
+          return true;
+        }
+        if (
+          resource.toString() === "agi-project:///OBJECT.json" ||
+          registration.previews.get("agi-project:///OBJECT.json")?.uri.toString() ===
+            resource.toString()
+        ) {
+          registration.onResource("inventory");
+          return true;
+        }
+        const entry = [...registration.previews].find(
+          ([, preview]) => preview.uri.toString() === resource.toString(),
+        );
+        const previewTarget =
+          entry && /^agi-resource:\/\/\/(logic|picture|view|sound)\/(\d+)$/.exec(entry[0]);
+        if (previewTarget) {
+          registration.onResource(`${previewTarget[1]}:${previewTarget[2]}`);
+          return true;
+        }
+      }
       const binding = registration.bindingTargets.get(resource.toString());
       if (source?.getModel() === model && binding && registration.onBinding) {
         registration.onBinding(binding, "open");

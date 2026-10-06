@@ -4,6 +4,88 @@ import { installIndexedDbFixture } from "./indexedDbFixture.ts";
 import { openProjectDrafts } from "../src/project/projectPartDrafts.ts";
 
 const records = installIndexedDbFixture();
+
+test("a coordinated draft edit undoes and redoes as one transaction", async () => {
+  const drafts = openProjectDrafts({
+    projectId: "draft-transaction",
+    lifetime: "initial",
+    journal: journal(),
+    read: (key) => (key === "logic:1" ? "set(f36);" : "{}"),
+  });
+  await drafts.ready;
+  drafts.stage([
+    { key: "logic:1", content: "set(gate_open);" },
+    { key: "bindings", content: '{"gate_open":36}' },
+  ]);
+  await drafts.flush();
+  assert.equal(drafts.status().canUndo, true);
+  assert.equal(drafts.undo(), true);
+  assert.deepEqual(drafts.changes(), [
+    { key: "logic:1", content: "set(f36);" },
+    { key: "bindings", content: "{}" },
+  ]);
+  assert.equal(drafts.status().canUndo, false);
+  assert.equal(drafts.status().canRedo, true);
+  assert.equal(drafts.redo(), true);
+  assert.deepEqual(drafts.changes(), [
+    { key: "logic:1", content: "set(gate_open);" },
+    { key: "bindings", content: '{"gate_open":36}' },
+  ]);
+  drafts.undo();
+  drafts.stage([{ key: "notes", content: "new edit" }]);
+  assert.equal(drafts.status().canRedo, false);
+  await drafts.flush();
+  await drafts.clear();
+  assert.equal(drafts.status().canUndo, false);
+  drafts.dispose();
+});
+
+test("closing after draft Undo recovers every reverted document", async () => {
+  const storage = journal();
+  const drafts = openProjectDrafts({
+    projectId: "draft-undo-close",
+    lifetime: "initial",
+    journal: storage,
+    read: () => "before",
+  });
+  await drafts.ready;
+  drafts.stage([
+    { key: "logic:1", content: "after" },
+    { key: "bindings", content: "after" },
+  ]);
+  drafts.undo();
+  drafts.dispose();
+  const reopened = open("draft-undo-close", storage);
+  await reopened.ready;
+  assert.deepEqual(
+    reopened.changes().map(({ content }) => content),
+    ["before", "before"],
+  );
+  await reopened.flush();
+  await reopened.clear();
+  reopened.dispose();
+});
+
+test("draft Undo keeps its transaction when writing is blocked", async () => {
+  let writable = true;
+  const drafts = openProjectDrafts({
+    projectId: "draft-undo-blocked",
+    lifetime: "initial",
+    journal: journal(),
+    canWrite: () => writable,
+  });
+  await drafts.ready;
+  drafts.stage([{ key: "notes", content: "after" }]);
+  writable = false;
+  assert.throws(() => drafts.undo(), /another tab/);
+  assert.equal(drafts.status().canUndo, true);
+  assert.equal(drafts.changes()[0]?.content, "after");
+  writable = true;
+  drafts.undo();
+  await drafts.flush();
+  await drafts.clear();
+  drafts.dispose();
+});
 function journal() {
   const entries = new Map<string, string>();
   return {

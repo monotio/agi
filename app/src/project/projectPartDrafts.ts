@@ -56,6 +56,7 @@ export function openProjectDrafts(input: {
   delay?: number;
   currentImage?(): string;
   canWrite?(): boolean;
+  read?(key: string): ProjectContent | undefined;
 }) {
   const storage = input.journal ?? (typeof localStorage === "undefined" ? undefined : localStorage);
   const manifest = `part-drafts/${input.projectId}`;
@@ -74,6 +75,8 @@ export function openProjectDrafts(input: {
   let error = "";
   let busy = false;
   let blocked = false;
+  const past: { before: ProjectChange[]; after: ProjectChange[] }[] = [];
+  const future: { before: ProjectChange[]; after: ProjectChange[] }[] = [];
   const observers = new Set<() => void>();
   const notify = () => {
     input.changed?.();
@@ -229,6 +232,34 @@ export function openProjectDrafts(input: {
     tail = result.catch(() => {});
     return result;
   }
+  function stage(changes: readonly ProjectChange[]): void {
+    checkWriter();
+    for (const { key } of changes) checkProjectDocumentKey(key);
+    for (const { key, content } of changes) {
+      const draft: PartDraft = {
+        projectId: `${manifest}/${key}`,
+        format: "monotio.agi.part-draft",
+        version: 1,
+        key,
+        lifetime: input.lifetime,
+        receipt: crypto.randomUUID(),
+        parent: receipts[key] ?? null,
+        baseImage: input.currentImage?.(),
+        content: content instanceof Uint8Array ? content.slice() : content,
+      };
+      drafts[key] = draft;
+      pending.add(key);
+      try {
+        storage?.setItem(journalKey(key), encode(draft));
+      } catch {
+        error = "Browser storage could not keep a recovery copy. Retry saving before closing.";
+      }
+    }
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      void flush().catch(() => {});
+    }, input.delay ?? 250);
+  }
   return {
     ready,
     subscribe(observer: () => void) {
@@ -238,39 +269,48 @@ export function openProjectDrafts(input: {
       };
     },
     stage(changes: readonly ProjectChange[]) {
-      if (disposed) throw new Error("Open this project again to edit it.");
-      for (const { key, content } of changes) {
-        checkProjectDocumentKey(key);
-        const draft: PartDraft = {
-          projectId: `${manifest}/${key}`,
-          format: "monotio.agi.part-draft",
-          version: 1,
-          key,
-          lifetime: input.lifetime,
-          receipt: crypto.randomUUID(),
-          parent: receipts[key] ?? null,
-          baseImage: input.currentImage?.(),
-          content: content instanceof Uint8Array ? content.slice() : content,
-        };
-        drafts[key] = draft;
-        pending.add(key);
-        try {
-          storage?.setItem(journalKey(key), encode(draft));
-        } catch {
-          error = "Browser storage could not keep a recovery copy. Retry saving before closing.";
-        }
-      }
+      if (changes.length === 0) return;
+      const before = changes.map(({ key }) => ({
+        key,
+        content: Object.hasOwn(drafts, key) ? drafts[key]!.content : (input.read?.(key) ?? null),
+      }));
+      stage(changes);
+      past.push({
+        before,
+        after: changes.map(({ key }) => ({ key, content: drafts[key]!.content })),
+      });
+      future.length = 0;
       notify();
-      clearTimeout(timer);
-      timer = setTimeout(() => {
-        void flush().catch(() => {});
-      }, input.delay ?? 250);
+    },
+    undo(): boolean {
+      const edit = past.at(-1);
+      if (!edit) return false;
+      stage(edit.before);
+      past.pop();
+      future.push(edit);
+      notify();
+      return true;
+    },
+    redo(): boolean {
+      const edit = future.at(-1);
+      if (!edit) return false;
+      stage(edit.after);
+      future.pop();
+      past.push(edit);
+      notify();
+      return true;
     },
     changes(): readonly ProjectChange[] {
       return Object.values(drafts).map(({ key, content }) => ({ key, content }));
     },
     status() {
-      return { busy, pending: pending.size > 0, error };
+      return {
+        busy,
+        pending: pending.size > 0,
+        error,
+        canUndo: past.length > 0,
+        canRedo: future.length > 0,
+      };
     },
     flush,
     async clear() {
@@ -306,6 +346,8 @@ export function openProjectDrafts(input: {
         delete recoveredJournals[key];
       }
       pending.clear();
+      past.length = 0;
+      future.length = 0;
       error = "";
       blocked = false;
       notify();

@@ -129,6 +129,7 @@ let contextCache:
       inputs: readonly (ProjectContent | undefined)[];
       words: [string, number][];
       objects: string[];
+      inventory: { name: string; startingRoom: number }[];
       bindings: Record<string, { num: number }>;
       bindingSource: string;
     }
@@ -147,7 +148,7 @@ function analysis(): void {
     contextCache?.profile !== props.profileId ||
     inputs.some((value, index) => !sameProjectContent(value, contextCache?.inputs[index]))
   ) {
-    let objects: string[] = [];
+    let items: { name: string; startingRoom: number }[] = [];
     let words: [string, number][] = [];
     let bindings: Record<string, { num: number }> = {};
     let bindingSource = "{}";
@@ -157,29 +158,42 @@ function analysis(): void {
       else if (text) words = parseWordsTok(text).map(({ word, id }) => [word, id]);
       const inventory = props.snapshot.read("inventory")?.content;
       if (typeof inventory === "string")
-        objects = (JSON.parse(inventory) as { name: string }[]).map((item) => item.name);
+        items = JSON.parse(inventory) as { name: string; startingRoom: number }[];
       else if (inventory instanceof Uint8Array)
-        objects = readInventoryObjects(inventory, PROFILES[props.profileId]).map(
-          (item) => item.name,
-        );
+        items = readInventoryObjects(inventory, PROFILES[props.profileId]);
+      const objects = items.map((item) => item.name);
       const names = props.snapshot.read("bindings")?.content;
       if (typeof names === "string") {
         bindingSource = names;
         bindings = readBindingsDocument(names);
       }
-      contextCache = { profile: props.profileId, inputs, words, objects, bindings, bindingSource };
+      contextCache = {
+        profile: props.profileId,
+        inputs,
+        words,
+        objects,
+        inventory: items,
+        bindings,
+        bindingSource,
+      };
     } catch {
       contextCache = undefined;
       client.invalidateContext("Fix the WORDS or names document to restore code intelligence.");
       return;
     }
   }
-  const { words, objects, bindings, bindingSource } = contextCache;
+  const { words, objects, inventory, bindings, bindingSource } = contextCache;
   client.setProject({
     revision: props.snapshot.revision,
     profileId: props.profileId,
     words,
     objects,
+    inventory,
+    resources: Object.fromEntries(
+      props.snapshot.keys
+        .filter((key) => /^(logic|picture|view|sound):/.test(key))
+        .map((key) => [key, { uri: `agi-resource:///${key.replace(":", "/")}` }]),
+    ),
     bindings,
     bindingDocument: {
       uri: "agi-project:///bindings.json",
@@ -190,6 +204,12 @@ function analysis(): void {
 }
 async function applyProjectEdit(edit: WorkspaceEdit, _label: string): Promise<void> {
   const revision = props.snapshot.revision;
+  const expected = new Map(
+    edit.documentChanges.map((change) => [
+      change.textDocument.uri,
+      client.documentSource(change.textDocument.uri),
+    ]),
+  );
   await workspace.flush.value?.();
   const session = engine.getProjectSession();
   const base = session?.workingSnapshot();
@@ -204,6 +224,8 @@ async function applyProjectEdit(edit: WorkspaceEdit, _label: string): Promise<vo
           );
     const source = key ? base.read(key)?.content : undefined;
     if (!key || typeof source !== "string")
+      throw new Error("The source changed. Retry the rename.");
+    if (source !== expected.get(change.textDocument.uri))
       throw new Error("The source changed. Retry the rename.");
     if (key === props.documentKey && source !== model?.getValue())
       throw new Error("The source changed. Retry the rename.");
@@ -238,6 +260,7 @@ onMounted(() => {
     documentKey: props.documentKey,
     applyProjectEdit,
     onBinding,
+    onResource: (key) => workspace.open(key, true),
   });
   editor = monaco.editor.create(root.value!, {
     readOnly: props.readOnly,
@@ -249,6 +272,7 @@ onMounted(() => {
     editContext: false,
     autoIndent: "none",
     minimap: { enabled: false },
+    hover: { above: false },
     fontSize: 13,
     lineNumbers: "on",
     glyphMargin: true,

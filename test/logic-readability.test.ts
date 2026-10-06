@@ -24,7 +24,7 @@ function request(method: string, params: Record<string, unknown> = {}) {
     params: { textDocument: { uri: "agi-project:///logic.1.lgc" }, ...params },
   });
 }
-test("project names describe resource targets and state writes and checks without changing LSP definitions", () => {
+test("project names describe state evidence and resource definitions open their resource", () => {
   const at = { position: positionAt(source, source.indexOf("chime")) };
   const info = request("agi/bindingInfo", at)?.result as {
     name: string;
@@ -46,7 +46,7 @@ test("project names describe resource targets and state writes and checks withou
     ["Checked", "Set", "Set"],
   );
   const definition = request("textDocument/definition", at)?.result as { uri: string };
-  assert.equal(definition.uri, "agi-project:///bindings.json");
+  assert.equal(definition.uri, "agi-project:///sound.1");
 });
 test("classic message calls have inlay text and can put text inline", () => {
   const hints = request("textDocument/inlayHint")?.result as { label: string }[];

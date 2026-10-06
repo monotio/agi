@@ -86,6 +86,9 @@ export class LogicAnalysisClient {
       revision: project.revision,
       profileId: project.profileId,
       objects: [...(project.objects ?? [])],
+      ...(project.inventory ? { inventory: project.inventory.map((item) => ({ ...item })) } : {}),
+      ...(project.inventoryDocument ? { inventoryDocument: { ...project.inventoryDocument } } : {}),
+      ...(project.resources ? { resources: { ...project.resources } } : {}),
       words: project.words.map(([word, group]) => [word, group] as const),
       bindings: Object.fromEntries(
         Object.entries(project.bindings).map(([name, binding]) => [name, { ...binding }]),
@@ -207,6 +210,13 @@ export class LogicAnalysisClient {
       source: JSON.stringify(project.bindings, null, 2),
     };
     if (bindings.uri === uri) return bindings.source;
+    if (project.inventoryDocument?.uri === uri) return project.inventoryDocument.source;
+    if (uri === "agi-project:///OBJECT.json")
+      return JSON.stringify(
+        project.inventory ?? (project.objects ?? []).map((name) => ({ name })),
+        null,
+        2,
+      );
     return Object.values(project.documents).find((document) => document.uri === uri)?.source;
   }
 

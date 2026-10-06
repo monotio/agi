@@ -58,7 +58,7 @@ test("an Undo removal respects unselected drafts before offering a computed jump
     const drafts = session.drafts();
     await drafts.ready;
     drafts.stage([{ key: "logic:99", content: "new.room(254);return;" }]);
-    const refused = await session.undo();
+    const refused = await session.undo(undefined, "game");
     assert.equal(refused?.status, "diagnostics");
     assert.equal(session.model.capture().documentId, before.documentId);
     assert.equal(session.history.capture().cursor, cursor);

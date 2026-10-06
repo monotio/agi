@@ -87,7 +87,7 @@ export interface LspOperations {
   "textDocument/completion": CompletionItem[] | null;
   "textDocument/signatureHelp": SignatureHelp | null;
   "textDocument/hover": Hover | null;
-  "textDocument/definition": Location | null;
+  "textDocument/definition": Location | Location[] | null;
   "textDocument/references": Location[] | null;
   "textDocument/prepareRename": { range: Range; placeholder: string } | null;
   "textDocument/rename": WorkspaceEdit | null;

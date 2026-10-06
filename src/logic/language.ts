@@ -10,6 +10,7 @@ import { quoteLogicString } from "./disassembler.ts";
 import { analyzeLogicSyntax, scanLogicTokens, type Token } from "./syntax.ts";
 import { collectLogicOperands, OPERAND_NAMES } from "./languageOperands.ts";
 import type { AgiProfile } from "../runtime/profile.ts";
+import { SYSTEM_FLAGS, SYSTEM_VARIABLES } from "./systemNames.ts";
 
 interface TextEdit {
   readonly start: number;
@@ -28,7 +29,7 @@ export function createLogicLanguageSnapshot(input: {
   const dictionary = new Map(input.dictionary);
   const syntax = analyzeLogicSyntax(source);
   const commands = commandReference(profile);
-  const operands = collectLogicOperands(syntax, commands);
+  const operands = collectLogicOperands(syntax, commands, profile);
   const byName = new Map(commands.map((command) => [command.name, command]));
   const diagnostics = syntax.diagnostics.map((entry) => ({
     ...entry,
@@ -147,6 +148,9 @@ export function createLogicLanguageSnapshot(input: {
     const end = at?.type === "ident" ? at.end : offset;
     const prefix = source.slice(start, offset);
     if (context.call) {
+      const operandKind = byName.get(context.call.name)?.operands[context.call.parameter];
+      const system =
+        operandKind === "flag" ? SYSTEM_FLAGS : operandKind === "var" ? SYSTEM_VARIABLES : {};
       const inventory =
         byName.get(context.call.name)?.operands[context.call.parameter] === "item"
           ? (input.objects ?? []).flatMap((name, index) =>
@@ -157,6 +161,15 @@ export function createLogicLanguageSnapshot(input: {
           : [];
       return [
         ...inventory,
+        ...Object.entries(system)
+          .filter(([, name]) => name.startsWith(prefix))
+          .map(([num, name]) => ({
+            label: name,
+            detail: `${operandKind === "flag" ? "Flag" : "Variable"} ${num} · system`,
+            start,
+            end,
+            text: `${operandKind === "flag" ? "f" : "v"}${num}`,
+          })),
         ...syntax.definitions
           .filter(
             (entry) =>
