@@ -92,6 +92,25 @@ function enter(ctx: ReturnType<typeof workerHarness>["ctx"]) {
   enterProjectCreate(ctx, { type: "projectCreate", id: 1, documents: writeProjectWorkspace({}) });
 }
 
+test("Create captures an undrawn game and returns to its exact running state", (t) => {
+  const { ctx, control } = workerHarness(gameContainer(["assignn(v80,42);accept.input();return;"]));
+  t.after(() => ctx.fns.stopTimers());
+  ctx.fns.tickEngine();
+  const before = ctx.run.engine!.readState();
+  enter(ctx);
+  const grant = control.findLast((m) => m.type === "projectCreated");
+  assert.ok(
+    grant?.type === "projectCreated" && grant.grant,
+    grant?.reason ?? "Create grant missing",
+  );
+  ctx.run.engine!.vars[80] = 99;
+  onWorkerMessage(ctx, { type: "projectPlay", id: 2 });
+  assert.ok(control.findLast((m) => m.type === "projectPlayed")?.ok);
+  assert.equal(ctx.run.engine!.vars[80], 42);
+  assert.deepEqual(ctx.run.engine!.readState(), before);
+  assert.equal(ctx.run.engine!.autosaveImage(), null);
+});
+
 test("Create boot excludes the first later death checkpoint and pagehide flush", async (t) => {
   const { ctx, presentation, control } = workerHarness(game());
   t.after(() => ctx.fns.stopTimers());

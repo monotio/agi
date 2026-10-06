@@ -56,6 +56,7 @@ export function enterCreateRun(ctx: WorkerContext, cold = false): void {
     throw new Error("Finish the game's question, then open Create.");
   const returnPoint = ctx.fns.historySnapshot(
     cold || (!ctx.run.cycle.initialLogicStarted && ctx.run.cycle.cycleCount === 0),
+    true,
   );
   if (!returnPoint) throw new Error("Continue the game, then open Create.");
   if (!cold) ctx.fns.autosave(true);

@@ -3161,8 +3161,8 @@ export class Engine {
   }
 
   /** A recorder covers every runtime object, including ones outside save.game's allocation. */
-  recordingImage(): Uint8Array | null {
-    const snapshot = this.autosaveImage();
+  recordingImage(allowUndrawn = false): Uint8Array | null {
+    const snapshot = this.captureHostImage(allowUndrawn);
     if (!snapshot) return null;
     const { image, screen, presentation, continuation } = decodeHostImage(snapshot);
     const state = decodeSave(image, this.profile);
@@ -3177,8 +3177,9 @@ export class Engine {
   }
 
   /** Capture transient host-recording state at an autosave-safe boundary. */
-  captureReplayState(): EngineReplayState {
-    if (!this.autosaveImage()) throw new Error("Recording requires a resumable cycle boundary.");
+  captureReplayState(allowUndrawn = false): EngineReplayState {
+    if (!this.captureHostImage(allowUndrawn))
+      throw new Error("Recording requires a resumable cycle boundary.");
     return this.replayState();
   }
 
@@ -3507,6 +3508,11 @@ export class Engine {
    * The caller skips this tick and tries the next one.
    */
   autosaveImage(): Uint8Array | null {
+    return this.captureHostImage(false);
+  }
+
+  /** Create can capture an undrawn return point without publishing Play progress. */
+  private captureHostImage(allowUndrawn: boolean): Uint8Array | null {
     if (this.hostRoomEntryPending) return null;
     if (this.messageUpdatePending) return null;
     // Window and parked-pass state travels in the continuation record. A
@@ -3526,7 +3532,7 @@ export class Engine {
     // script buffer (f7, the demo pack does) records no replay pairs at all,
     // and a resumed one has the sequence that rebuilt its screen but no
     // show.pic of its own yet.
-    if (this.hostReplay.length === 0 && !this.pictureShown) return null;
+    if (!allowUndrawn && this.hostReplay.length === 0 && !this.pictureShown) return null;
     // The host envelope wraps save.game's own image with the shadow record:
     // every load and draw since the room began, including the ones f7 kept out
     // of the game's sequence, so the resume rebuilds the room the game drew
