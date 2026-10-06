@@ -360,8 +360,6 @@ export function initializeProjectAdmission(
 export interface ProjectAdmissionOptions {
   /** The host grants authority explicitly for this physical run; null denies it. */
   readonly lane: () => ProjectAdmissionState | null;
-  /** Legacy isolated previews carry LOGIC source rather than a complete document image. */
-  readonly legacyPreview?: boolean;
   /** Release debugger control only for the synchronous idle-boundary commit. */
   readonly commitAtBoundary?: (commit: () => PreviewUpdateResult) => PreviewUpdateResult;
   /** Prepare any attached debugger plans before mutation; return bounded installation. */
@@ -510,38 +508,32 @@ export function createProjectAdmission(ctx: WorkerContext, options: ProjectAdmis
           Object.entries(candidate.sourceBindings).map(([name, b]) => [name, { num: b.num }]),
         ),
       });
+      const documents = readProjectWorkspace(msg.candidate.documents);
+      admittedDocuments = writeProjectWorkspace(documents);
+      documentId = projectDocumentId(documents, sha256Hex);
+      if (documentId !== msg.candidate.documentId)
+        throw new Error("claimed project document identity differs from its documents");
+      const compiled = compileProjectDocuments({
+        files: candidate.record,
+        profileId: profile.id,
+        documents,
+      });
       if (
-        !options.legacyPreview ||
-        msg.candidate.documents !== undefined ||
-        msg.candidate.documentId !== undefined
-      ) {
-        const documents = readProjectWorkspace(msg.candidate.documents);
-        admittedDocuments = writeProjectWorkspace(documents);
-        documentId = projectDocumentId(documents, sha256Hex);
-        if (documentId !== msg.candidate.documentId)
-          throw new Error("claimed project document identity differs from its documents");
-        const compiled = compileProjectDocuments({
-          files: candidate.record,
-          profileId: profile.id,
-          documents,
-        });
-        if (
-          compiled.build.identity.revision !== candidate.revision ||
-          compiled.build.identity.buildId !== candidate.buildId ||
-          projectDocumentId(compiled.documents(), sha256Hex) !== documentId
-        )
-          throw new Error("project documents do not reproduce the candidate image");
-        const bindings = compiled.documents()["bindings"];
-        if (bindings !== undefined && typeof bindings === "string") {
-          const complete = JSON.parse(bindings) as Record<
-            string,
-            { kind: SourceBindingKind; num: number }
-          >;
-          if (!sameSourceBindings(complete, candidate.sourceBindings))
-            throw new Error("project bindings differ from candidate bindings");
-        } else if (Object.keys(candidate.sourceBindings).length > 0)
-          throw new Error("candidate bindings lack project documents");
-      }
+        compiled.build.identity.revision !== candidate.revision ||
+        compiled.build.identity.buildId !== candidate.buildId ||
+        projectDocumentId(compiled.documents(), sha256Hex) !== documentId
+      )
+        throw new Error("project documents do not reproduce the candidate image");
+      const bindings = compiled.documents()["bindings"];
+      if (bindings !== undefined && typeof bindings === "string") {
+        const complete = JSON.parse(bindings) as Record<
+          string,
+          { kind: SourceBindingKind; num: number }
+        >;
+        if (!sameSourceBindings(complete, candidate.sourceBindings))
+          throw new Error("project bindings differ from candidate bindings");
+      } else if (Object.keys(candidate.sourceBindings).length > 0)
+        throw new Error("candidate bindings lack project documents");
     } catch (error) {
       settleRefused(
         `candidate build capture failed: ${String(error instanceof Error ? error.message : error)}`,

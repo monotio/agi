@@ -1,12 +1,12 @@
 /**
  * The execution controller's lazy loader and inert hooks — the lightweight
  * seam the normal Play path carries. Nothing here imports the controller's
- * plans, expression evaluator or build capture: a first `debug*` command or
- * a frozen-test boot pulls `debugController.ts` through one dynamic import,
- * held in the loader's promise so later commands share the flight. Messages
- * that arrive while it resolves queue in order (dispatch.ts drains them);
- * an installed table costs one flag check, and a failed load stays failed —
- * refused explicitly, never a silent boot.
+ * plans, expression evaluator or build capture: a first `debug*` command
+ * pulls `debugController.ts` through one dynamic import, held in the
+ * loader's promise so later commands share the flight. Messages that arrive
+ * while it resolves queue in order (dispatch.ts drains them); an installed
+ * table costs one flag check, and a failed load stays failed — refused
+ * explicitly, never a silent retry.
  */
 import type { WorkerInbound } from "./workerProtocol.ts";
 import type { createDebugController } from "./debugController.ts";
@@ -40,7 +40,7 @@ export function newDebuggerLoaderState(): DebuggerLoaderState {
   return { queue: [], loading: null, installed: false, failed: false };
 }
 
-/** Commands the controller's own function table must serve (a frozen-test boot admits it). */
+/** Commands the controller's own function table must serve. */
 const CONTROLLER_COMMANDS: Record<string, true> = {
   debugAttach: true,
   debugDetach: true,
@@ -53,15 +53,9 @@ const CONTROLLER_COMMANDS: Record<string, true> = {
   debugSetValues: true,
 };
 
-/**
- * Whether a message needs the real controller: a `debug*` command, or a
- * boot carrying the frozen-test policy, whose attach → configure → pause
- * admission must complete inside the boot dispatch.
- */
+/** Whether a message needs the real controller: a `debug*` command. */
 export function controllerDemand(msg: WorkerInbound): boolean {
-  return (
-    CONTROLLER_COMMANDS[msg.type] === true || (msg.type === "boot" && msg.frozenTest !== undefined)
-  );
+  return CONTROLLER_COMMANDS[msg.type] === true;
 }
 
 /**

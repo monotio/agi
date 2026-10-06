@@ -1,9 +1,8 @@
 /**
- * Presentation helpers for the guided panel: option lists for its pickers, the
- * room's annotated regions for the cue target, a tolerant picture lookup for
- * the placement preview, and the small unified line diff shown before Apply.
- * These describe; they never decide — the backend's prepare outcome stays the
- * sole authority over what is safe to write.
+ * Presentation helpers for the guided panel: a tolerant picture lookup for
+ * the placement preview and the entry block's literal VIEW. These describe;
+ * they never decide — the backend's prepare outcome stays the sole authority
+ * over what is safe to write.
  */
 import {
   actionsNamed,
@@ -12,19 +11,9 @@ import {
   numRef,
   parseRoomSource,
 } from "../../../../../src/authoring/guidedSource.ts";
-import { documentLabel } from "../logicWorkspace.ts";
-
-export interface GuidedOption {
-  readonly value: number;
-  readonly label: string;
-}
 
 /** A binding table mid-edit: values are unknown until each entry is checked. */
 type GuidedBindings = Readonly<Record<string, unknown>>;
-
-interface GuidedWorld {
-  readonly rooms: Record<string, unknown>;
-}
 
 /** True for a plain object (JSON object), false for null and arrays. */
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -48,65 +37,6 @@ function bindingNumber(binding: unknown, kind: string): number | null {
   return binding["kind"] === kind && Number.isInteger(binding["num"])
     ? (binding["num"] as number)
     : null;
-}
-
-function readWorld(text: string | undefined): GuidedWorld {
-  if (text === undefined) return { rooms: {} };
-  try {
-    const parsed: unknown = JSON.parse(text);
-    if (!isRecord(parsed)) return { rooms: {} };
-    const rooms = parsed["rooms"];
-    return isRecord(rooms) ? { rooms } : { rooms: {} };
-  } catch {
-    return { rooms: {} };
-  }
-}
-
-/** `logic:1..254` documents as rooms, titled from the world document. */
-export function roomOptions(
-  documents: Readonly<Record<string, unknown>>,
-  worldText: string | undefined,
-): GuidedOption[] {
-  const world = readWorld(worldText);
-  return Object.keys(documents)
-    .map((key) => /^logic:(\d+)$/.exec(key))
-    .filter((match): match is RegExpExecArray => match !== null)
-    .map((match) => Number(match[1]))
-    .filter((num) => num >= 1 && num <= 254)
-    .sort((a, b) => a - b)
-    .map((num) => {
-      const room = world.rooms[String(num)];
-      const title = isRecord(room) ? room["title"] : undefined;
-      return {
-        value: num,
-        label: `Room ${num}${typeof title === "string" && title !== "" ? ` · ${title}` : ""}`,
-      };
-    });
-}
-
-/** Existing `view:N`/`sound:N`/`picture:N` documents, labeled by their bindings. */
-export function resourceOptions(
-  documents: Readonly<Record<string, unknown>>,
-  bindingsText: string | undefined,
-  kind: "view" | "sound" | "picture",
-): GuidedOption[] {
-  const bindings = readBindings(bindingsText);
-  const names: Record<number, string[]> = {};
-  for (const [name, binding] of Object.entries(bindings)) {
-    const num = bindingNumber(binding, kind);
-    if (num === null) continue;
-    (names[num] ??= []).push(name);
-  }
-  return Object.keys(documents)
-    .map((key) => new RegExp(`^${kind}:(\\d+)$`).exec(key))
-    .filter((match): match is RegExpExecArray => match !== null)
-    .map((match) => Number(match[1]))
-    .sort((a, b) => a - b)
-    .map((num) => {
-      const named = names[num];
-      const label = documentLabel(`${kind}:${num}`);
-      return { value: num, label: named ? `${label} · ${named.join(", ")}` : label };
-    });
 }
 
 /**

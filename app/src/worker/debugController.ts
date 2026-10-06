@@ -44,7 +44,6 @@ import {
   type DebuggerState,
   type PreviewPreparedSession,
 } from "./debuggerState.ts";
-import { previewLaneIdentity } from "./previewAdmission.ts";
 
 type CapturedBuild = ReturnType<typeof captureProjectBuild>;
 
@@ -84,58 +83,23 @@ export function createDebugController(ctx: WorkerContext) {
   }
 
   /**
-   * Whether the session's gate/observer can actually stop a pass right now.
-   * The debug lane keeps control permanently armed — its frozen contract —
-   * but the play-preview lane arms only while a plan could fire: an idle
-   * observer left installed would mark `executionArmed` and defer every
-   * preview commit at the strict idle boundary, forever.
-   */
-  function controlWanted(): boolean {
-    const d = ctx.debugger;
-    return (
-      d.preview === null ||
-      d.breakpointSpecs.length > 0 ||
-      d.watchpointSpecs.length > 0 ||
-      d.step !== null ||
-      d.runTo !== null
-    );
-  }
-
-  /**
-   * Reconcile the installed gate/observer with controlWanted: install at a
-   * completed-cycle boundary (or defer to the next entry) when a plan can
-   * fire, disarm when nothing can. The engine refuses control changes at a
-   * non-boundary — the deferred flags retry through debugAfterEntry.
+   * Reconcile the installed gate/observer with the session: an attached
+   * session keeps control permanently armed, installed at a completed-cycle
+   * boundary or deferred to the next entry. The engine refuses control
+   * changes at a non-boundary — the deferred flag retries through
+   * debugAfterEntry.
    */
   function syncControlArming(engine: Engine): void {
     const d = ctx.debugger;
-    if (d.epoch === 0 || engine !== d.engine) return;
-    if (controlWanted()) {
-      d.unarmDeferred = false;
-      if (d.installed) {
-        d.armDeferred = false;
-      } else if (boundaryClear(engine)) {
-        try {
-          install(engine);
-        } catch {
-          d.armDeferred = true;
-        }
-      } else {
+    if (d.epoch === 0 || engine !== d.engine || d.installed) return;
+    if (boundaryClear(engine)) {
+      try {
+        install(engine);
+      } catch {
         d.armDeferred = true;
       }
     } else {
-      d.armDeferred = false;
-      if (!d.installed) {
-        d.unarmDeferred = false;
-      } else if (boundaryClear(engine)) {
-        try {
-          uninstall(engine);
-        } catch {
-          d.unarmDeferred = true;
-        }
-      } else {
-        d.unarmDeferred = true;
-      }
+      d.armDeferred = true;
     }
   }
 
@@ -152,9 +116,7 @@ export function createDebugController(ctx: WorkerContext) {
   function uninstall(engine: Engine): void {
     engine.setExecutionGate(null);
     engine.setExecutionObserver(null);
-    const d = ctx.debugger;
-    d.installed = false;
-    d.unarmDeferred = false;
+    ctx.debugger.installed = false;
   }
 
   /**
@@ -395,22 +357,13 @@ export function createDebugController(ctx: WorkerContext) {
       if (ctx.debugger.epoch === 0) return;
     }
     const session = ctx.debugger;
-    if ((session.armDeferred || session.unarmDeferred) && boundaryClear(engine)) {
+    if (session.armDeferred && boundaryClear(engine)) {
       // The cursor/fault states boundaryClear cannot see still refuse: keep
       // the deferred flag and retry after the next entry.
-      if (session.armDeferred) {
-        try {
-          install(engine);
-        } catch {
-          /* still not a completed-cycle boundary */
-        }
-      }
-      if (session.unarmDeferred) {
-        try {
-          uninstall(engine);
-        } catch {
-          /* still not a completed-cycle boundary */
-        }
+      try {
+        install(engine);
+      } catch {
+        /* still not a completed-cycle boundary */
       }
     }
     publishStop();
@@ -474,10 +427,6 @@ export function createDebugController(ctx: WorkerContext) {
       detachInternal("replaced");
       return;
     }
-    // A new engine instance is a new physical run: the preview lane minted
-    // for the old one must not follow — only a lane still bound to this
-    // engine keeps its authority across a session rebind.
-    if (d.preview !== null && d.preview.engine !== engine) d.preview = null;
     d.engine = engine;
     boundResetSerial = engine.runResetSerial;
     d.epoch = ++d.epochCounter;
@@ -499,14 +448,6 @@ export function createDebugController(ctx: WorkerContext) {
     } catch (error) {
       detachInternal(`replaced: ${String(error instanceof Error ? error.message : error)}`);
       return;
-    }
-    // A foreign image change (patch/restore) re-pins the lane to the
-    // recaptured source authority: stale expected identities then fail the
-    // admission check against the fresh epoch/build.
-    const lane = d.preview;
-    if (lane !== null) {
-      lane.epoch = d.epoch;
-      lane.buildId = d.buildId!;
     }
     refreshRichSnapshot();
     syncControlArming(engine);
@@ -564,11 +505,6 @@ export function createDebugController(ctx: WorkerContext) {
     const engine = ctx.engine;
     if (engine === null) return;
     if (engine.executionStopInfo !== null) engine.resumeExecution();
-    // The preview lane alone reconciles control between unlatch and pass:
-    // a step/run-to needs the gate armed, a plain continue may disarm it —
-    // before tickEngine consumes the resumed pass. The debug lane keeps its
-    // permanently armed contract untouched.
-    if (ctx.debugger.preview !== null) syncControlArming(engine);
     releaseAudio();
     drainQueuedAnswers();
     ctx.fns.tickEngine();
@@ -599,12 +535,8 @@ export function createDebugController(ctx: WorkerContext) {
     releaseAudio();
     const hiatus = d.hiatus;
     const epochCounter = d.epochCounter;
-    // The preview lane outlives a session — it names the physical run, not
-    // the attach — but only while the run it was minted for is still live.
-    const preview = d.preview !== null && d.preview.engine === ctx.engine ? d.preview : null;
     ctx.debugger = newDebuggerState();
     ctx.debugger.epochCounter = epochCounter;
-    ctx.debugger.preview = preview;
     boundResetSerial = -1;
     if (hiatus) {
       // Normal recording restarts at the next representable boundary.
@@ -757,29 +689,12 @@ export function createDebugController(ctx: WorkerContext) {
     const rec = ctx.recording.recording;
     if (rec !== null && rec.tainted === null)
       rec.tainted = "The debugger interrupted the recording.";
-    // A seeded play-preview lane adopts the freshly verified session
-    // authority: the lane's epoch/build/sources are exactly what this
-    // attach proved, and `debugAttached` hands the host the identity and
-    // run token every previewUpdate must pin.
-    const lane = d.preview;
-    if (lane !== null && lane.engine === engine) {
-      lane.epoch = d.epoch;
-      lane.buildId = d.buildId!;
-      lane.sources = { ...sources };
-      lane.sourceBindings = sourceBindings;
-      lane.bindings = bindings;
-    } else if (lane !== null) {
-      // A lane minted for a run this engine is not is dead authority.
-      d.preview = null;
-    }
     syncControlArming(engine);
-    const preview = previewLaneIdentity(ctx);
     control({
       type: "debugAttached",
       id: msg.id,
       epoch: d.epoch,
       buildId: d.buildId!,
-      ...(preview !== null ? { preview: { ...preview, runToken: lane!.runToken } } : {}),
     });
   }
 
@@ -847,8 +762,7 @@ export function createDebugController(ctx: WorkerContext) {
     d.watchpointSpecs = [...watchpoints];
     d.configRevision = msg.revision;
     refreshRichSnapshot();
-    // A preview lane's control follows the plans: newly configured specs arm
-    // it, an emptied configuration disarms back to the committable boundary.
+    // Control follows the session: the gate stays armed for the new plans.
     syncControlArming(engine);
     control({
       type: "debugConfigured",
@@ -1067,14 +981,12 @@ export function createDebugController(ctx: WorkerContext) {
    * The play-preview lane's prevalidated install: a committed update's
    * captured build, sources and already-rebound plans land by bounded
    * assignment only, with a source-reset event for MAIN workspace consumers.
-   * Isolated previews adopt the identity from previewUpdateResult. Detached sessions keep
-   * their authority on the lane record itself. A fresh session epoch
-   * retires every command, stop snapshot and queued answer minted under
-   * the old source identity.
+   * A fresh session epoch retires every command, stop snapshot and queued
+   * answer minted under the old source identity.
    */
   function previewSessionInstall(prepared: PreviewPreparedSession): void {
     const d = ctx.debugger;
-    const lane = ctx.projectAdmission ?? d.preview;
+    const lane = ctx.projectAdmission;
     if (lane === null || lane.engine !== ctx.engine || d.epoch === 0) return;
     d.epoch = ++d.epochCounter;
     d.build = prepared.build;
@@ -1085,15 +997,14 @@ export function createDebugController(ctx: WorkerContext) {
     d.breakpointPlan = prepared.breakpointPlan;
     d.watchpointPlan = prepared.watchpointPlan;
     refreshRichSnapshot();
-    if (ctx.projectAdmission !== null)
-      control({
-        type: "debugSessionReset",
-        epoch: d.epoch,
-        buildId: d.buildId,
-        breakpoints: d.breakpointPlan.status(),
-        watchpoints: d.watchpointPlan.status(),
-        sources: { ...d.sources },
-      });
+    control({
+      type: "debugSessionReset",
+      epoch: d.epoch,
+      buildId: d.buildId,
+      breakpoints: d.breakpointPlan.status(),
+      watchpoints: d.watchpointPlan.status(),
+      sources: { ...d.sources },
+    });
   }
 
   function onDebugSetValues(msg: Inbound<"debugSetValues">): void {
