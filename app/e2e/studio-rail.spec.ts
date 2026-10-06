@@ -10,8 +10,8 @@ import { expect, test } from "./test.ts";
 /**
  * Room Studio's tool rail fits its column. The Walk lens adds three tools,
  * so the rail's tools scroll inside the column while the values under them
- * stay put. At a laptop's 1280×720 and at Studio's shortest layout (a touch
- * screen must be taller than 600 to host it, App.vue studioFits), in every
+ * stay put. At a laptop's 1280×720 and at the editor's shortest layout (a
+ * touch screen 601 tall), in every
  * lens, each rail button brought into view (by focus, or by scrolling a
  * disabled one) sits inside the rail column, above the draw-order scrubber,
  * and is the element under its own centre; the page never scrolls.

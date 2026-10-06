@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { computed, nextTick, useTemplateRef, watch, type Ref } from "vue";
-import { useOptionalCreateCenter } from "../shell/useCreateWorkspace.ts";
 import UiButton from "../ui/UiButton.vue";
 import type { useStudioKeep } from "./useStudioKeep.ts";
 
@@ -19,9 +18,8 @@ const { name, draft, keeper } = defineProps<{
   keeper: ReturnType<typeof useStudioKeep>;
 }>();
 const emit = defineEmits<{ close: [] }>();
-const center = useOptionalCreateCenter();
-/** The shell's layout cannot host Studio (never outside the shell, as in the harness). */
-const open = computed(() => center?.studioFits.value === false);
+/** Nothing reports a Studio fit any more: the workspace owns small screens. */
+const open = computed(() => false);
 const changes = computed(() => draft.changes.value);
 const dialog = useTemplateRef("dialog");
 /** Why Keep is off, on its button. */

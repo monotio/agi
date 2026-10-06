@@ -429,10 +429,9 @@ const pictureWalks = computed(() =>
         const room =
           roomHint.value?.key === key
             ? roomHint.value.room
-            : request?.kind === "picture"
-              ? request.room
-              : (uses.find((row) => row.room === engine.roomMap.currentRoom.value)?.room ??
-                uses[0]?.room);
+            : (request?.room ??
+              uses.find((row) => row.room === engine.roomMap.currentRoom.value)?.room ??
+              uses[0]?.room);
         return [key, room === undefined || room < 1 ? null : studioContext.value.room(room)];
       }),
   ),
@@ -634,9 +633,8 @@ async function playHere(target: PlayHereTarget): Promise<void> {
     editor.error.value = cause instanceof Error ? cause.message : String(cause);
   }
 }
-function spriteRequest(key: string) {
-  const request = editor.studioRequests.value[key];
-  return request?.kind === "sprite" ? request : undefined;
+function stagedRequest(key: string) {
+  return editor.studioRequests.value[key]?.staged;
 }
 const coordinatedChanges = new Map<string, readonly ProjectChange[]>();
 function editRoom(
@@ -661,17 +659,20 @@ function editRoom(
   edit(key, value);
 }
 function editView(key: string, bytes: Uint8Array): void {
-  const request = spriteRequest(key);
-  if (request?.stagedReference && request.baseRevision !== revision.value) {
+  const staged = stagedRequest(key);
+  if (staged && staged.baseRevision !== revision.value) {
     editor.error.value = "The game changed since this sheet was staged. Attach the sheet again.";
     return;
   }
   edit(key, bytes);
-  if (request?.stagedReference)
-    editor.studioRequests.value = {
-      ...editor.studioRequests.value,
-      [key]: { ...request, stagedReference: undefined },
-    };
+  if (staged) {
+    const request = editor.studioRequests.value[key];
+    if (request)
+      editor.studioRequests.value = {
+        ...editor.studioRequests.value,
+        [key]: { ...request, staged: undefined },
+      };
+  }
 }
 const nativeCache = new Map<string, Uint8Array>();
 const viewThumbnails = computed(() =>
@@ -1974,9 +1975,7 @@ onBeforeUnmount(() => {
       />
       <SpriteStudio
         :read-only="writeConflict || actionBusy"
-        v-else-if="
-          key.startsWith('view:') && (native(key) || spriteRequest(key)?.stagedReference) && profile
-        "
+        v-else-if="key.startsWith('view:') && (native(key) || stagedRequest(key)) && profile"
         v-show="imagePanel !== key"
         :workspace-focus="editor.focus.value || phoneWidth"
         embedded
@@ -1985,13 +1984,13 @@ onBeforeUnmount(() => {
         :speed="livePreview.state?.vars[10] ?? 2"
         :cyclers="previewCyclers"
         :priority-base="livePreview.state?.priorityBase"
-        :staged-reference="spriteRequest(key)?.stagedReference"
+        :staged-reference="stagedRequest(key)?.reference"
         :lesson-session="editor.studioRequests.value[key]?.lesson"
         :view-number="Number(key.split(':')[1])"
         @agent-context="editor.setAgentContext(key, $event)"
         @agent-ask="openAgent"
         @use-staged="editView(key, $event)"
-        :bytes="spriteRequest(key)?.stagedReference ? spriteRequest(key)!.bytes : native(key)!"
+        :bytes="stagedRequest(key)?.bytes ?? native(key)!"
         :profile="profile"
         :base-revision="revision"
         :files="files"

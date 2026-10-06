@@ -8,7 +8,6 @@ import { emptyCommandContext, provideCommands } from "./shell/commands/commandCo
 import UiButton from "./ui/UiButton.vue";
 import UiDialog from "./ui/UiDialog.vue";
 import UiChip from "./ui/UiChip.vue";
-import UiToast from "./ui/UiToast.vue";
 import {
   computed,
   defineAsyncComponent,
@@ -39,7 +38,6 @@ import { createShell, provideShell } from "./shell/useShell.ts";
 import { isGameRoute, parseGameHash } from "./shell/shellRoute.ts";
 import { createCreateWorkspace, provideCreateWorkspace } from "./shell/useCreateWorkspace.ts";
 import { useCreateMode } from "./shell/useCreateMode.ts";
-import { usePlayHereFromStudio } from "./shell/usePlayHere.ts";
 import { createInspector, provideInspector } from "./inspector/useInspector.ts";
 import { referenceUpload } from "./references/referenceUploadState.ts";
 
@@ -174,21 +172,12 @@ const { exportBusy, exportRefusal } = lib;
 /** A phone held upright: Create is one view-only sheet instead of two docks. */
 const phone = computed(() => touchControls.value && viewport.value.height >= viewport.value.width);
 const workspacePhone = computed(() => viewport.value.width <= 600);
-/**
- * Room Studio needs a larger screen than the phone layouts give it: the touch
- * portrait and short-landscape layouts, and any window as narrow as a phone.
- */
-const studioFits = computed(() => {
-  const { width, height } = viewport.value;
-  return width > 600 && !(touchControls.value && (height >= width || height <= 600));
-});
-/** The Create docks' tabs and folds, and the centre's Studio (shell/useCreateWorkspace.ts). */
+const workspaceEditor = createWorkspaceEditor(engine);
+provideWorkspaceEditor(workspaceEditor);
+/** The Create docks' tabs and folds (shell/useCreateWorkspace.ts). */
 const workspace = createCreateWorkspace({
-  pauseEngine: () => {},
-  resumeEngine: () => {},
-  focusGame: () => shellBridge.focusGameInput(),
+  panelDock: (id) => workspaceEditor.panelDock(id),
   viewOnly: () => phone.value,
-  studioFits: () => studioFits.value,
 });
 provideCreateWorkspace(workspace);
 /** Play or Create for the loaded game; the URL names both (shell/shellRoute.ts). */
@@ -220,8 +209,6 @@ const commands = createCommandRegistry(
   () => createKeyboard.value?.context() ?? emptyCommandContext(),
 );
 provideCommands(commands);
-const workspaceEditor = createWorkspaceEditor(engine);
-provideWorkspaceEditor(workspaceEditor);
 async function exportWorkspaceGame(project: boolean): Promise<void> {
   try {
     await lib.onExportAgiZip(true, project);
@@ -229,17 +216,6 @@ async function exportWorkspaceGame(project: boolean): Promise<void> {
     exportRefusal.value = cause instanceof Error ? cause.message : String(cause);
   }
 }
-watch(workspace.studio, (request) => {
-  if (!request) return;
-  const key =
-    request.kind === "picture" ? `picture:${request.pictureNumber}` : `view:${request.viewNumber}`;
-  workspaceEditor.studioRequests.value = {
-    ...workspaceEditor.studioRequests.value,
-    [key]: request,
-  };
-  workspaceEditor.open(key);
-  workspace.closeStudio();
-});
 watch(
   () => state.phase,
   (phase) => {
@@ -247,12 +223,6 @@ watch(
   },
 );
 const sheetOpen = workspace.sheetOpen;
-/** Room Studio's Play here: leave Studio, show Play, jump the game to the spot. */
-const playHereFromStudio = usePlayHereFromStudio({
-  closeStudio: () => workspace.closeStudio(),
-  showPlay: () => shell.setMode("play"),
-  playHere: (target) => engine.playHere(target),
-});
 const { onDockKey } = useCreateMode({
   state,
   workspace,
@@ -272,10 +242,6 @@ const { onKeydown: onGlobalKeydown, onKeyup: onGlobalKeyup } = useGameKeys({
     (creating.value &&
       (createKeyboard.value?.blocksGame(ev) ?? ev.target !== playArea.value?.inputEl)),
 });
-/** The stored-project studios' keyup gets the same isolation as its keydown. */
-function onShellKeyup(ev: KeyboardEvent): void {
-  onGlobalKeyup(ev);
-}
 /**
  * Developer activity is off the page everywhere: Settings → Advanced opens
  * it as a dialog.
@@ -346,7 +312,6 @@ async function onPopState(): Promise<void> {
 }
 
 async function onStartWalkthrough(targetGame: string): Promise<void> {
-  if (!(await workspace.confirmStudioLeave())) return;
   await resumeAudio();
   clearPlayHash();
   await startWalkthrough(targetGame);
@@ -536,7 +501,7 @@ async function mountApplication(): Promise<void> {
   window.visualViewport?.addEventListener("resize", resizeViewport);
   window.addEventListener("resize", resizeViewport);
   window.addEventListener("keydown", onGlobalKeydown);
-  window.addEventListener("keyup", onShellKeyup);
+  window.addEventListener("keyup", onGlobalKeyup);
   window.addEventListener("hashchange", onMenuHashChange);
   window.addEventListener("popstate", onPopState);
   document.addEventListener("visibilitychange", onPageHidden);
@@ -650,7 +615,7 @@ onUnmounted(() => {
   window.removeEventListener("resize", resizeViewport);
   presentation.dispose();
   window.removeEventListener("keydown", onGlobalKeydown);
-  window.removeEventListener("keyup", onShellKeyup);
+  window.removeEventListener("keyup", onGlobalKeyup);
   window.removeEventListener("hashchange", onMenuHashChange);
   window.removeEventListener("popstate", onPopState);
   document.removeEventListener("visibilitychange", onPageHidden);
@@ -703,7 +668,7 @@ watch(
       'layout-portrait': viewport.height >= viewport.width,
       'layout-landscape-short': viewport.width > viewport.height && viewport.height <= 600,
       'original-aspect': originalAspect,
-      'studio-open': creating && workspaceEditor.focus.value,
+      'workspace-focus': creating && workspaceEditor.focus.value,
     }"
     :style="{ '--layout-height': `${viewport.height}px` }"
   >
@@ -800,15 +765,6 @@ watch(
           :inspector-docked="creating"
         >
           <template #stage-actions>
-            <UiToast
-              v-if="playHereFromStudio.note.value"
-              tone="warn"
-              dismissible
-              data-testid="play-here-note"
-              @dismiss="playHereFromStudio.dismiss()"
-            >
-              {{ playHereFromStudio.note.value }}
-            </UiToast>
             <UiChip
               v-if="creating && workspaceEditor.debugStatus.value"
               tone="warn"
@@ -891,7 +847,7 @@ watch(
       :unsupported-project="unsupportedRouteProject"
     />
 
-    <!-- Below the fold: while Studio holds the page still they wait hidden,
+    <!-- Below the fold: while Focus holds the page still they wait hidden,
          out of Tab's reach. -->
     <SoundPreview
       v-if="!state.powerUp.open && latestAgentAudio.length"

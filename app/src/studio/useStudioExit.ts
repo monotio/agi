@@ -1,14 +1,11 @@
 /**
  * Every way out of a Studio, shared by Room and Sprite Studio: the Keep /
- * Discard / Cancel question before leaving (useStudioLeave), the shell's
- * guard on the Create centre, the line the centre opened Studio with, Keep
- * and Discard from the top bar, and the recoveries a failed Keep offers
+ * Discard / Cancel question before leaving (useStudioLeave), Keep and
+ * Discard from the top bar, and the recoveries a failed Keep offers
  * (retry, or reopen on the running game or on the game reloaded from
  * storage, leaving the draft behind).
  */
 
-import { onScopeDispose, watch } from "vue";
-import { useOptionalCreateCenter } from "../shell/useCreateWorkspace.ts";
 import type { KeepRecovery } from "./useStudioKeep.ts";
 import { useStudioLeave } from "./useStudioLeave.ts";
 import type { StudioNotice } from "./useStudioNotice.ts";
@@ -41,14 +38,6 @@ export function useStudioExit(options: StudioExitOptions) {
     keep: () => keepChanges(),
     discard: () => draft.discard(),
   });
-  const center = useOptionalCreateCenter();
-  if (center && !options.embedded) onScopeDispose(center.guardStudio(leave));
-  // The line the centre opened Studio with (the game was just reloaded from storage).
-  watch(
-    () => center?.studio.value?.notice,
-    (text) => text && say({ tone: "ok", text }),
-    { immediate: true },
-  );
 
   async function requestClose(): Promise<void> {
     if (options.embedded || (await leave.confirm())) options.close();

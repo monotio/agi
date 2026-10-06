@@ -17,7 +17,7 @@ import type { LessonSession } from "../../lessons/lessonCheck.ts";
 import LessonCard from "../../lessons/LessonCard.vue";
 import { useStudioLesson } from "../../lessons/useStudioLesson.ts";
 import type { ResourceCommitResult, ViewEdit } from "../../project/resourceCommit.ts";
-import type { SpriteRoom } from "../../shell/useCreateWorkspace.ts";
+import type { SpriteRoom } from "../../world/studioSource.ts";
 import StudioKeySheet from "../StudioKeySheet.vue";
 import { SPRITE_TOOL_HINTS, SPRITE_TOOL_NAMES, spriteKeySheet } from "../studioHelp.ts";
 import { readViewerPref, useStudioCalm, writeViewerPref } from "../useStudioCalm.ts";

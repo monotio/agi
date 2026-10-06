@@ -1,12 +1,64 @@
 /** Presentation shared by the Create host, top bar and keyboard adapter. */
 import { buildZip } from "../archive/zip.ts";
-import { computed, inject, provide, ref, shallowRef, type InjectionKey } from "vue";
+import {
+  computed,
+  inject,
+  markRaw,
+  provide,
+  ref,
+  shallowReactive,
+  shallowRef,
+  type Component,
+  type InjectionKey,
+} from "vue";
 import type { ProjectContent } from "../../../src/authoring/projectContent.ts";
+import type { ResourceRevision } from "../../../src/gameIdentity.ts";
 import type { EngineApi } from "../engine/engineContext.ts";
 import type { ChooserItem } from "./commands/chooserItems.ts";
-import type { StudioRequest } from "./useCreateWorkspace.ts";
+import type { LessonSession } from "../lessons/lessonCheck.ts";
 import type { ReplyFormatter } from "../agent/workspaceAgent.ts";
 import type { ComputedRoomRemovalReview } from "../project/projectSessionCore.ts";
+import type { IconName } from "../ui/icons.ts";
+
+/** The dock a Create panel sits in. */
+export type DockSide = "left" | "right";
+
+/** A dock panel: one tab in the left or right dock. */
+export interface CreatePanel {
+  /** Stable id; the tab's test id is `dock-tab-<id>`. */
+  readonly id: string;
+  readonly dock: DockSide;
+  readonly title: string;
+  readonly icon?: IconName | undefined;
+  /** Tabs sort by order, then registration. */
+  readonly order?: number | undefined;
+  /** The panel body. Without one the dock shows an empty placeholder. */
+  readonly component?: Component | undefined;
+}
+
+/** A staged character-sheet candidate opened in the VIEW editor to repair before keeping. */
+interface StagedViewRequest {
+  /** The reference art the candidate was staged from. */
+  readonly reference: string;
+  readonly bytes: Uint8Array;
+  /** The booted game's resource revision the bytes were read at. */
+  readonly baseRevision: ResourceRevision;
+}
+
+/**
+ * What a studio tab carries from whoever opened it: the Help guide lesson it
+ * came from, the room that frames a picture, or a staged candidate.
+ * Everything else the workspace reads live from the project.
+ */
+export interface StudioRequest {
+  /** The tab key: `picture:N` or `view:N`. */
+  readonly key: string;
+  /** The room framing a picture: its Walk view and the room Update plays. */
+  readonly room?: number | undefined;
+  /** The Help guide lesson the editor opened from: its card and challenge. */
+  readonly lesson?: LessonSession | undefined;
+  readonly staged?: StagedViewRequest | undefined;
+}
 
 export function createWorkspaceEditor(engine: EngineApi) {
   const debugCommand =
@@ -27,6 +79,25 @@ export function createWorkspaceEditor(engine: EngineApi) {
   const phonePlaytest = ref(false);
   const removalReview = shallowRef<ComputedRoomRemovalReview>();
   const studioRequests = shallowRef<Readonly<Record<string, StudioRequest>>>({});
+  const panels = shallowReactive(new Map<string, CreatePanel>());
+  /** Add (or replace, by id) a dock panel. Returns the unregister function. */
+  function registerPanel(panel: CreatePanel): () => void {
+    const entry: CreatePanel = panel.component
+      ? { ...panel, component: markRaw(panel.component) }
+      : panel;
+    panels.set(panel.id, entry);
+    return () => {
+      if (panels.get(panel.id) === entry) panels.delete(panel.id);
+    };
+  }
+  // The shell's docks: the world map left, the assistant right.
+  registerPanel({ id: "world", dock: "left", title: "World", icon: "map", order: 0 });
+  registerPanel({ id: "assistant", dock: "right", title: "Assistant", icon: "sparkles", order: 0 });
+  /** The dock a panel id sits in, when it is registered. */
+  function panelDock(id: string): DockSide | undefined {
+    return panels.get(id)?.dock;
+  }
+
   const selected = ref<string>();
   const nameLocation = shallowRef<{ key: string; line: number; serial: number }>();
   const agentPrefill = shallowRef<{
@@ -228,6 +299,8 @@ export function createWorkspaceEditor(engine: EngineApi) {
   }
   return {
     studioRequests,
+    registerPanel,
+    panelDock,
     debugCommand,
     debugging,
     debugStatus,
