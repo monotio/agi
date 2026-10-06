@@ -858,6 +858,11 @@ a.publisher:hover > span {
   align-items: center;
   gap: var(--space-2);
   flex: none;
+  /* The band spans the window; only the notices themselves take clicks. */
+  pointer-events: none;
+}
+.shell-notices > * {
+  pointer-events: auto;
 }
 .shell-notices:not(:empty) {
   padding: var(--space-2) var(--space-4);
