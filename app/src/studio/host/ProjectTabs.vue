@@ -2,15 +2,25 @@
 import UiIcon from "../../ui/UiIcon.vue";
 /**
  * The project frame's open-document tabs. Pure: the host supplies the tab
- * rows (projectStudioDocuments.ts `projectStudioTabs` output) and the
- * selected key; the component reports `select` and `close` requests. `close`
- * names the tab to hide — the host decides what that means for the document
- * surface, and it never implies Keep, deletion or draft mutation. A tab
- * whose key left the document set stays listed, marked missing.
+ * rows and the selected key; the component reports `select` and `close`
+ * requests. `close` names the tab to hide — the host decides what that
+ * means for the document surface, and it never implies Keep, deletion or
+ * draft mutation. A tab whose key left the document set stays listed,
+ * marked missing.
  */
 import { computed, nextTick, ref, useTemplateRef, watch } from "vue";
 import UiChip from "../../ui/UiChip.vue";
-import type { ProjectStudioTab } from "./projectStudioDocuments.ts";
+
+/** One open tab: identity, resolved name, draft and availability state. */
+interface ProjectStudioTab {
+  readonly preview?: boolean;
+  readonly key: string;
+  readonly label: string;
+  readonly name?: string;
+  readonly dirty: boolean;
+  /** The key no longer names a document in the current set — a shown state. */
+  readonly missing: boolean;
+}
 
 const {
   tabs,
