@@ -32,11 +32,11 @@ async function openGallery(page: Page, fixedZoom = false): Promise<Locator> {
   await expect(studio).toBeVisible();
   await expect(studio.locator('[data-row="frame"]')).toHaveCount(1);
   if (fixedZoom) {
-    const level = studio.locator(".studio-zoom__level");
+    const level = page.locator(".workspace-status").locator(".studio-zoom__level");
     await expect(level).toBeVisible();
-    await studio.getByRole("button", { name: "Zoom out", exact: true }).click();
+    await page.getByRole("button", { name: "Zoom out", exact: true }).click();
     await expect(level).toHaveText("100%");
-    await studio.getByRole("button", { name: "Zoom in", exact: true }).click();
+    await page.getByRole("button", { name: "Zoom in", exact: true }).click();
     const focus = page.getByTestId("workspace-focus");
     await expect(focus).toBeVisible();
     await focus.click();
@@ -97,7 +97,7 @@ test("a plain drag off the selection draws a box that replaces it with the items
   // A box that catches nothing clears the selection and says so.
   await drag(page, await cell(page, 150, 60), await cell(page, 155, 65));
   expect(await selectedRows(studio)).toEqual([]);
-  await expect(studio.getByTestId("studio-notice")).toHaveText(
+  await expect(page.locator(".workspace-status").getByTestId("studio-notice")).toHaveText(
     "No item lies wholly inside the box.",
   );
   await expect.poll(() => source(page)).toBe(original);
@@ -160,7 +160,7 @@ test("a drag toward the edge stops at it and is kept; one past the edge says whi
   expect(await source(page)).toContain("rect 63,0 96,2");
   // At the edge, a drag further up goes nowhere and names the item there.
   await drag(page, await cell(page, 80, 31), await cell(page, 80, 26));
-  await expect(studio.getByTestId("studio-notice")).toHaveText(
+  await expect(page.locator(".workspace-status").getByTestId("studio-notice")).toHaveText(
     "Picture light is at the picture's top edge. Move it inward.",
   );
   await workspaceUpdated(page);

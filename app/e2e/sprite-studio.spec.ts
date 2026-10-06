@@ -221,7 +221,7 @@ test("a mirrored actor is repaired without changing its source loop, saved, relo
   // One pixel in loop 1: it becomes a separate copy, and loop 0 is as it was.
   await paintCentre(page, studio, 1);
   await workspaceSaved(page);
-  await expect(studio.getByTestId("studio-notice")).toHaveText(
+  await expect(page.getByTestId("studio-notice")).toHaveText(
     "Loop 1 is now a separate copy; the loop it mirrored kept its pixels.",
   );
   await expect(studio.getByTestId("sprite-loop-1-mirror")).toHaveCount(0);
@@ -333,7 +333,7 @@ test("a loop's cyan recoloured to blue by keys is saved, and the walking ego sho
   await page.keyboard.press("Enter");
   await workspaceSaved(page);
   // The edit's notice shows in the status line while the popover is still open.
-  await expect(studio.locator(".sprite-studio__status").getByTestId("studio-notice")).toBeVisible();
+  await expect(page.locator(".sprite-studio__status").getByTestId("studio-notice")).toBeVisible();
   await expect(recolor.getByTestId("sprite-recolor-count")).toHaveText(
     "colour 3, cyan is unused in this loop. Choose a colour used here.",
   );
@@ -556,7 +556,7 @@ test.describe.fixme("on the harness", () => {
     await page.goto("/sprite-harness.html?view=0");
     const studio = page.getByTestId("sprite-studio");
     const keep = studio.getByTestId("studio-keep");
-    const cue = studio.getByTestId("sprite-pen-down");
+    const cue = page.getByTestId("sprite-pen-down");
     await studio.locator(`[data-colour="${RED}"]`).click();
     await studio.getByTestId("sprite-stage").focus();
     await expect(cue).toHaveCount(0);

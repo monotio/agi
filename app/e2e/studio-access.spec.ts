@@ -209,7 +209,7 @@ test("keyboard only: an Art rectangle and a Walk wall line autosave @webkit-desk
   await repeat(page, "Shift+ArrowRight", 10);
   await expect(announce).toHaveText("x 100 y 150");
   await page.keyboard.press("Enter");
-  await expect(studio.getByTestId("studio-hint")).toContainText("Backspace");
+  await expect(page.getByTestId("studio-hint")).toContainText("Backspace");
   await page.keyboard.press("Enter");
   await workspaceUpdated(page, true);
   await expect(studio.locator('[data-row="wall-line-1"]')).toContainText("Wall line 1");

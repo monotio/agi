@@ -13,16 +13,16 @@ function memoryStorage(seed: Record<string, string> = {}) {
   };
 }
 
-test("workspace split orientation defaults side by side and remembers stacked", () => {
+test("workspace split orientation defaults stacked and remembers side by side", () => {
   const storage = memoryStorage();
   const previous = globalThis.localStorage;
   Object.assign(globalThis, { localStorage: storage });
   try {
     const editor = createWorkspaceEditor({} as EngineApi);
-    assert.equal(editor.splitAxis.value, "horizontal");
-    editor.setSplitAxis("vertical");
-    assert.equal(storage.data.get("monotio_agi.workspaceSplitAxis"), "vertical");
-    assert.equal(createWorkspaceEditor({} as EngineApi).splitAxis.value, "vertical");
+    assert.equal(editor.splitAxis.value, "vertical");
+    editor.setSplitAxis("horizontal");
+    assert.equal(storage.data.get("monotio_agi.workspaceSplitAxis"), "horizontal");
+    assert.equal(createWorkspaceEditor({} as EngineApi).splitAxis.value, "horizontal");
   } finally {
     Object.assign(globalThis, { localStorage: previous });
   }

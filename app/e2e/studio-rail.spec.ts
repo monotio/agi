@@ -53,7 +53,14 @@ for (const viewport of VIEWPORTS) {
         tools,
       );
       const column = (await rail.boundingBox())!;
-      const scrubberTop = (await studio.locator(".studio__status").boundingBox())!.y;
+      // The palette row rides inside the studio's own scroll: track its
+      // content position so an ancestor's reveal-scroll stays honest.
+      const paletteY = async () => {
+        const row = await page.locator(".studio__palette-row").boundingBox();
+        const scroll = await studio.evaluate((element) => element.scrollTop);
+        return row!.y + scroll;
+      };
+      const scrubberTop = await paletteY();
       expect(bottom(column), `${lens}: the rail ends above the scrubber`).toBeLessThanOrEqual(
         scrubberTop,
       );
@@ -80,7 +87,7 @@ for (const viewport of VIEWPORTS) {
         expect(hit, `${name} is under its own centre`).toBe(true);
       }
       // No ancestor scrolled to reveal a tool: the scrubber stayed where it was.
-      expect((await studio.locator(".studio__status").boundingBox())!.y).toBe(scrubberTop);
+      expect(await paletteY()).toBe(scrubberTop);
     }
     // A tool picked by its key scrolls into view: back at the top, H is out of sight.
     const tools = studio.getByTestId("studio-rail-tools");

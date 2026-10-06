@@ -177,14 +177,22 @@ watchEffect(
 let last: ViewportPoint | undefined;
 /** The pointer this pane captured on a press, until release or cancel. */
 let captured: number | null = null;
+/** The pane's screen origin at the press: a reflow during the drag must not move its cells. */
+let anchor: { left: number; top: number } | undefined;
 
-function cellAt(event: MouseEvent): ViewportPoint | undefined {
-  const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
-  return toLogical(viewport, event.clientX - rect.left, event.clientY - rect.top) ?? undefined;
+function cellAt(
+  rect: { left: number; top: number },
+  x: number,
+  y: number,
+): ViewportPoint | undefined {
+  return toLogical(viewport, x - rect.left, y - rect.top) ?? undefined;
 }
 /** The logical cell under the pointer, off the surface too (a drag may leave the pane). */
-function rawCell(event: MouseEvent): ViewportPoint {
-  const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+function rawCell(event: PointerEvent): ViewportPoint {
+  const rect =
+    event.pointerId === captured && anchor !== undefined
+      ? anchor
+      : (event.currentTarget as HTMLElement).getBoundingClientRect();
   return {
     x: Math.floor((event.clientX - rect.left) / (viewport.pixelAspect * viewport.zoom)),
     y: Math.floor((event.clientY - rect.top) / viewport.zoom),
@@ -197,36 +205,42 @@ function handleAt(event: PointerEvent): LineHandle | undefined {
 }
 function onDown(event: PointerEvent): void {
   if (event.button !== 0 || captured !== null) return;
-  const cell = rawCell(event);
+  const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
   const handle = handleAt(event);
-  if (!handle && !cellAt(event)) return;
+  if (!handle && cellAt(rect, event.clientX, event.clientY) === undefined) return;
   captured = event.pointerId;
+  anchor = { left: rect.left, top: rect.top };
   (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
-  emit("press", { event, cell, handle });
+  emit("press", { event, cell: rawCell(event), handle });
 }
 function onMove(event: PointerEvent): void {
   if (event.pointerId === captured) {
     emit("drag", { event, cell: rawCell(event), handle: undefined });
     return;
   }
-  const cell = cellAt(event);
+  const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+  const cell = cellAt(rect, event.clientX, event.clientY);
   if (cell?.x === last?.x && cell?.y === last?.y) return;
   last = cell;
   emit("hover", cell);
 }
 function onUp(event: PointerEvent): void {
   if (event.pointerId !== captured) return;
+  const cell = rawCell(event);
   captured = null;
-  emit("release", { event, cell: rawCell(event), handle: undefined });
+  anchor = undefined;
+  emit("release", { event, cell, handle: undefined });
 }
 /** The browser took the pointer (a cancel, or capture lost without a release). */
 function onLost(event: PointerEvent): void {
   if (event.pointerId !== captured) return;
   captured = null;
+  anchor = undefined;
   emit("abort");
 }
 function onMenu(event: MouseEvent): void {
-  const cell = cellAt(event);
+  const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+  const cell = cellAt(rect, event.clientX, event.clientY);
   if (!cell) return;
   event.preventDefault();
   emit("menu", cell, { x: event.clientX, y: event.clientY });

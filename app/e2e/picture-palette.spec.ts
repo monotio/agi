@@ -97,7 +97,7 @@ for (const width of [1063, 1440, 390]) {
       const band = strip.getByRole("radio", { name: /^Depth 8:/ });
       await expect(band).toBeVisible();
       await band.click();
-      const notice = studio.getByTestId("studio-notice");
+      const notice = page.locator(".workspace-status").getByTestId("studio-notice");
       await expect(notice).toBeVisible();
       await expect(notice).toContainText(
         "Sun has no depth band. Add depth or select a shape with depth.",
@@ -162,7 +162,7 @@ test("lenses, rail wells and colour keys share the selection context", async ({ 
   await options.getByRole("radio", { name: "Depth", exact: true }).click();
   const beforeRefusal = await history(page);
   await bands.getByRole("radio", { name: /^Depth 8:/ }).click();
-  const notice = studio.getByTestId("studio-notice");
+  const notice = page.locator(".workspace-status").getByTestId("studio-notice");
   await expect(notice).toBeVisible();
   await expect(notice).toContainText(
     "Sun has no depth band. Add depth or select a shape with depth.",

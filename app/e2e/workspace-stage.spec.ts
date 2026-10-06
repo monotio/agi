@@ -34,8 +34,7 @@ test("opening pictures visits their rooms and Back restores the prior moment", a
   const before = await textHook(page);
   await open(page, "part-room:8:picture:8");
   await expect.poll(async () => (await textHook(page)).room).toBe(8);
-  await expect(page.getByTestId("workspace-visit")).toBeVisible();
-  await expect(page.getByTestId("workspace-visit")).toContainText("Visiting Room 8");
+  await expect(page.getByTestId("workspace-room")).toContainText("Room 8");
   await expect(page.locator(".play-area:visible")).toHaveCount(1);
   await expect(page.getByTestId("room-studio").filter({ visible: true })).not.toHaveClass(
     /is-live-game/,
@@ -96,10 +95,11 @@ test("phone VIEW editing keeps a usable drawing canvas", async ({ page }) => {
     await expect(canvas).toBeVisible();
     expect((await canvas.boundingBox())!.width).toBeGreaterThan(200);
   }
+  // Focus is an icon-only toggle on the tab bar.
   await page.getByTestId("workspace-focus").click();
   const done = page.getByTestId("workspace-focus");
   await expect(done).toBeVisible();
-  await expect(done).toHaveText("Done");
+  await expect(done).toHaveAttribute("aria-pressed", "true");
   await done.click();
   await expect.poll(async () => (await textHook(page)).paused).toBe(false);
 });
@@ -318,7 +318,9 @@ test("stacked persists on reload and its splitter drags vertically", async ({ pa
   await page.setViewportSize({ width: 1063, height: 815 });
   await start(page);
   await open(page, "part-room:1:logic");
-  await page.getByRole("button", { name: "Stacked", exact: true }).click();
+  // Stacked is the default: the toggle turns Side by side on.
+  const layout = page.getByTestId("workspace-layout");
+  if ((await layout.getAttribute("aria-pressed")) === "true") await layout.click();
   const splitter = page.getByRole("separator", { name: "Editor height" });
   await expect(splitter).toBeVisible();
   const panel = page.getByTestId("workspace-editor");
@@ -332,10 +334,7 @@ test("stacked persists on reload and its splitter drags vertically", async ({ pa
   await page.reload();
   await waitForRoom(page, 1);
   await open(page, "part-room:1:logic");
-  await expect(page.getByRole("button", { name: "Stacked", exact: true })).toHaveAttribute(
-    "aria-pressed",
-    "true",
-  );
+  await expect(page.getByTestId("workspace-layout")).toHaveAttribute("aria-pressed", "false");
   await expect(splitter).toBeVisible();
 });
 
@@ -354,7 +353,7 @@ for (const size of [
     await expect(page.getByTestId("room-studio")).toBeVisible();
     await shot(page, "picture");
     await open(page, "part-room:8:picture:8");
-    await expect(page.getByTestId("workspace-visit")).toBeVisible();
+    await expect(page.getByTestId("workspace-room")).toContainText("Room 8");
     await shot(page, "visiting");
     await page.getByRole("button", { name: "Back to Room 1", exact: true }).click();
     await expect.poll(async () => (await textHook(page)).room).toBe(1);
@@ -397,7 +396,10 @@ for (const size of [
     expect(ratio).toBeCloseTo(1.6, 1);
     await shot(page, "side-by-side");
     if (size.width > 600) {
-      await page.getByRole("button", { name: "Stacked", exact: true }).click();
+      // Stacked is the default: the toggle turns Side by side on and is
+      // remembered per viewer.
+      const layoutToggle = page.getByTestId("workspace-layout");
+      if ((await layoutToggle.getAttribute("aria-pressed")) === "true") await layoutToggle.click();
       const panel = (await page.getByTestId("workspace-editor").boundingBox())!;
       const stage = (await page.locator(".play-area").boundingBox())!;
       expect(panel.width).toBeCloseTo(stage.width, 0);
@@ -407,6 +409,11 @@ for (const size of [
           (el) => el.getBoundingClientRect().width / el.getBoundingClientRect().height,
         ),
       ).toBeCloseTo(1.6, 1);
+      await layoutToggle.click();
+      expect(
+        await page.evaluate(() => localStorage.getItem("monotio_agi.workspaceSplitAxis")),
+      ).toBe("horizontal");
+      await layoutToggle.click();
       expect(
         await page.evaluate(() => localStorage.getItem("monotio_agi.workspaceSplitAxis")),
       ).toBe("vertical");

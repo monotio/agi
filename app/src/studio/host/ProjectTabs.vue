@@ -13,7 +13,6 @@ import UiChip from "../../ui/UiChip.vue";
 
 /** One open tab: identity, resolved name, draft and availability state. */
 interface ProjectStudioTab {
-  readonly preview?: boolean;
   readonly key: string;
   readonly label: string;
   readonly name?: string;
@@ -36,7 +35,6 @@ const {
 const emit = defineEmits<{
   select: [key: string];
   close: [key: string];
-  pin: [key: string];
 }>();
 
 const root = useTemplateRef("root");
@@ -163,7 +161,6 @@ function tabLabel(tab: ProjectStudioTab): string {
         role="tab"
         class="project-tabs__name"
         :aria-selected="tab.key === selectedKey"
-        :class="{ 'project-tabs__name--preview': tab.preview }"
         :aria-label="tabLabel(tab)"
         aria-keyshortcuts="Delete"
         :tabindex="rovingKey === tab.key ? 0 : -1"
@@ -171,7 +168,6 @@ function tabLabel(tab: ProjectStudioTab): string {
         :data-testid="`project-tab-${tab.key}`"
         :title="tab.name !== undefined ? `${tab.label}: ${tab.name}` : tab.label"
         @click="emit('select', tab.key)"
-        @dblclick="emit('pin', tab.key)"
         @focus="focusKey = tab.key"
       >
         <span
@@ -232,9 +228,6 @@ function tabLabel(tab: ProjectStudioTab): string {
   background: transparent;
   font: var(--text-sm) / var(--leading) var(--font-sans);
   cursor: pointer;
-}
-.project-tabs__name--preview {
-  font-style: italic;
 }
 .project-tabs__tab--active .project-tabs__name {
   color: var(--ink);

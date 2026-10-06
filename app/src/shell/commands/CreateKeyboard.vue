@@ -118,7 +118,8 @@ const offDefaults = registerDefaultCommands(props.registry, {
   palette: () => showChooser("palette"),
   parts: () => workspace.toggleDock("left"),
   panel: () => {
-    editor.panel.value = !editor.panel.value;
+    if (editor.selected.value === "problems") editor.close("problems");
+    else editor.open("problems");
   },
   undo: () => editor.step("undo"),
   redo: () => editor.step("redo"),

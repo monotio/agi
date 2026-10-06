@@ -84,8 +84,9 @@
   grid-row: 2;
   cursor: row-resize;
 }
-.shell-body--stacked > .workspace-problems {
-  grid-row: 4;
+/* The game sits at the top of its column in Side by side. */
+.shell-body--workspace:not(.shell-body--stacked):not(.shell-body--focus) > .play-area .stage {
+  align-items: start;
 }
 .shell-body--workspace.shell-body--focus {
   grid-template-columns: minmax(0, 1fr) !important;
@@ -125,8 +126,23 @@
   flex: 1 1 120px;
   min-width: 0;
 }
-.workspace-axis {
+.workspace-frame-controls {
   display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 0 var(--space-2);
+}
+.workspace-context {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-1) var(--space-3);
+  border-bottom: 1px solid var(--hairline);
+  font-size: var(--text-xs);
+}
+.workspace-context__note {
+  color: var(--ink-2);
 }
 .workspace-stage-note {
   display: flex;
@@ -196,26 +212,116 @@
 .workspace-splitter:hover {
   background: var(--action);
 }
-.shell-body--focus .workspace-problems {
-  grid-column: 1 / -1;
+/* Fixed notes ride above the shared status bar on phones. */
+.shell:has(.workspace-status) {
+  --workspace-status-h: 36px;
 }
-.workspace-problems {
-  grid-column: 2 / -1;
-  grid-row: 2;
-  max-height: 180px;
-  overflow: auto;
+.workspace-status {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex: none;
+  min-height: 26px;
+  padding: 0 var(--space-3) 0 var(--space-4);
   border-top: 1px solid var(--hairline);
-  padding: var(--space-3) var(--space-5);
-  background: var(--surface-1);
-  font-size: var(--text-sm);
+  background: var(--surface-0);
+  color: var(--ink-3);
+  font: var(--text-2xs) var(--font-mono);
+  white-space: nowrap;
+  overflow: hidden;
 }
-.workspace-problems header,
+.workspace-status__left {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  /* A moved status can be wider than the bar: it scrolls, nothing is lost. */
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.workspace-status__left::-webkit-scrollbar {
+  display: none;
+}
+.workspace-status__problems {
+  flex: none;
+  border: 0;
+  background: transparent;
+  color: var(--warn);
+  font: inherit;
+  cursor: pointer;
+  padding: 0;
+}
+.workspace-status__right {
+  flex: none;
+}
+#workspace-status-left .studio__status,
+#workspace-status-left .sprite-studio__status {
+  grid-row: auto;
+  position: static;
+  border-top: 0;
+  padding: 0;
+  background: transparent;
+  /* Fill the bar so the moved spacer pins its controls to the right edge; a
+     wider status scrolls inside __left instead of being cut. */
+  flex: 0 0 auto;
+  width: max-content;
+  min-width: 100%;
+  overflow: visible;
+}
+/* The bar stays thin: a moved status' buttons take its small size. */
+.workspace-status .ui-icon-btn {
+  width: 24px;
+  height: 24px;
+}
+.workspace-status .ui-icon-btn svg {
+  width: 14px;
+  height: 14px;
+}
+.workspace-game-bar {
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex: none;
+  padding: var(--space-1) var(--space-3);
+  border-top: 1px solid var(--hairline);
+  background: var(--surface-0);
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+}
+.workspace-game-bar__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.workspace-game-keys {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-left: auto;
+  border: 0;
+  background: transparent;
+  color: var(--ink-3);
+  font: inherit;
+  cursor: pointer;
+  padding: var(--space-1);
+}
+.workspace-game-keys .led {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-pill);
+  background: var(--hairline-strong);
+}
+.workspace-game-keys.on .led {
+  background: var(--ok);
+}
+
 .workspace-history header {
   display: flex;
   justify-content: space-between;
   align-items: center;
 }
-.workspace-problems h2,
 .workspace-history h2 {
   font: var(--weight-semibold) var(--text-md) / var(--leading) var(--font-sans);
   margin: 0;
@@ -337,7 +443,8 @@
     grid-column: 1;
     overflow: auto;
   }
-  .in-game .shell-body--workspace:not(.shell-body--no-editor) {
+  .in-game .shell-body--workspace:not(.shell-body--no-editor),
+  .in-game .shell-body--workspace.shell-body--stacked:not(.shell-body--focus) {
     grid-template-rows: auto minmax(0, 1fr) auto;
   }
   .in-game .shell-body--workspace > .workspace-phone-toggle {
@@ -356,18 +463,14 @@
   .in-game .shell-body--workspace > .workspace-splitter {
     display: none;
   }
-  .workspace-axis {
-    display: none;
-  }
+
   .workspace-editor__header {
     flex-wrap: wrap;
   }
   .workspace-editor__header .project-tabs {
     flex-basis: 100%;
   }
-  .in-game .shell-body--workspace > .workspace-problems {
-    grid-column: 1 / -1;
-  }
+
   .in-game .shell-body--workspace > .parts-list {
     position: absolute;
     top: 0;

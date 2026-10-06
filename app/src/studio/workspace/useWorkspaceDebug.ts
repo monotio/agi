@@ -40,7 +40,7 @@ export function useWorkspaceDebug(input: {
           void reveal(at.logic, at.line);
         },
         stopped: () => {
-          editor.panel.value = true;
+          editor.open("debug:variables");
         },
       });
       debug.value = controller;
@@ -56,7 +56,7 @@ export function useWorkspaceDebug(input: {
       logicEditors.get(key)?.displayedSource() !== controller.sources.value[key.slice(6)]
     ) {
       controller.state.error = "Show running source to set a breakpoint in this build.";
-      editor.panel.value = true;
+      editor.open("debug:breakpoints");
       return;
     }
     await controller.run(() => controller.toggle(Number(key.slice(6)), line, column));
@@ -96,16 +96,16 @@ export function useWorkspaceDebug(input: {
   watch(
     () => debug.value?.state.error,
     (error) => {
-      if (error) editor.panel.value = true;
+      if (error) editor.open("problems");
     },
   );
   watch(input.creating, (creating) => {
     if (!creating) void debug.value?.stop().catch(() => {});
   });
   watch(
-    editor.panel,
-    (shown) => {
-      if (shown) void load();
+    editor.selected,
+    (key) => {
+      if (key === "problems" || key?.startsWith("debug:")) void load();
     },
     { immediate: true },
   );

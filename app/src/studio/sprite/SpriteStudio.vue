@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, ref, shallowRef, useTemplateRef, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, ref, shallowRef, useTemplateRef, watch } from "vue";
 import type { ResourceRevision } from "../../../../src/gameIdentity.ts";
 import type { AgiProfile } from "../../../../src/runtime/profile.ts";
 import { EGA_COLOUR_NAMES } from "../../../../src/studio/sceneGroups.ts";
@@ -12,13 +12,11 @@ import PaletteStrip from "../workspace/PaletteStrip.vue";
 import UiButton from "../../ui/UiButton.vue";
 import UiChip from "../../ui/UiChip.vue";
 import UiExplain from "../../ui/UiExplain.vue";
-import UiIconButton from "../../ui/UiIconButton.vue";
 import type { LessonSession } from "../../lessons/lessonCheck.ts";
 import LessonCard from "../../lessons/LessonCard.vue";
 import { useStudioLesson } from "../../lessons/useStudioLesson.ts";
 import type { ResourceCommitResult, ViewEdit } from "../../project/resourceCommit.ts";
 import type { SpriteRoom } from "../../world/studioSource.ts";
-import StudioKeySheet from "../StudioKeySheet.vue";
 import { SPRITE_TOOL_HINTS, SPRITE_TOOL_NAMES, spriteKeySheet } from "../studioHelp.ts";
 import { readViewerPref, useStudioCalm, writeViewerPref } from "../useStudioCalm.ts";
 import { useFold } from "../useFold.ts";
@@ -28,6 +26,7 @@ import { useStudioFocus } from "../useStudioFocus.ts";
 import { useStudioNotice } from "../useStudioNotice.ts";
 import { useStudioViewport } from "../useStudioViewport.ts";
 import { explain } from "../studioTerms.ts";
+import { useMaybeWorkspaceEditor } from "../../shell/workspaceEditor.ts";
 import SpriteCanvas, { type OnionSkin } from "./SpriteCanvas.vue";
 import SpriteCelPanel, { type CelEdit } from "./SpriteCelPanel.vue";
 import SpriteContactSheet from "./SpriteContactSheet.vue";
@@ -90,12 +89,15 @@ const {
   readOnly = false,
   lessonSession = undefined,
   workspaceFocus = false,
+  active = true,
 } = defineProps<{
   readOnly?: boolean;
   lessonSession?: LessonSession | undefined;
   /** Accepted while the dev harness mounts the editor outside the workspace. */
   embedded?: boolean;
   workspaceFocus?: boolean;
+  /** Whether this tab is showing: its status bar and keys join the frame's. */
+  active?: boolean;
   viewNumber: number;
   bytes: Uint8Array;
   profile: AgiProfile;
@@ -387,16 +389,26 @@ function history(which: "undo" | "redo"): void {
 
 const keepFocus = useStudioFocus(useTemplateRef("root"));
 const calm = useStudioCalm();
-/**
- * The status bar's Keys button. Safari leaves a clicked button unfocused, so
- * activation takes its focus first: the sheet returns focus to what had it when the sheet opened.
- */
-function openKeySheet(event: MouseEvent): void {
-  if (event.currentTarget instanceof HTMLElement)
-    event.currentTarget.focus({ preventScroll: true });
-  calm.sheetOpen.value = true;
-}
+/** The frame's editor when the studio mounts in the workspace (the harness has none). */
+const workspaceEditor = useMaybeWorkspaceEditor();
+const inWorkspace = workspaceEditor !== null;
+/** The workspace's one Keys sheet: `?` opens it at this editor's section. */
+const sheetOpen = workspaceEditor?.keysOpen ?? calm.sheetOpen;
 const keySheet = spriteKeySheet();
+if (workspaceEditor) {
+  onBeforeUnmount(
+    workspaceEditor.registerKeySheet(`view:${viewNumber}`, () => ({
+      name: "VIEW editor",
+      sections: keySheet,
+    })),
+  );
+  onBeforeUnmount(
+    workspaceEditor.registerStatusMeta(
+      `view:${viewNumber}`,
+      () => `${draft.bytes.value.length.toLocaleString("en")} bytes`,
+    ),
+  );
+}
 /**
  * The options bar folds what it cannot fit, least used first: the backdrop,
  * the grid and the baseline into More, then the "1 px" note, then the contact
@@ -438,12 +450,12 @@ const keys: SpriteKeyActions = {
     return next !== undefined;
   },
   ask: askAgent,
-  keySheet: () => (calm.sheetOpen.value = true),
+  keySheet: () => (sheetOpen.value = true),
 };
 /** Every key stops here so the game never sees it. */
 function onKeydown(event: KeyboardEvent): void {
   event.stopPropagation();
-  if (calm.sheetOpen.value) return;
+  if (sheetOpen.value) return;
   if (spriteKey(event, keys)) event.preventDefault();
   keepFocus();
 }
@@ -659,38 +671,25 @@ const status = computed(() => {
       />
     </aside>
 
-    <footer class="sprite-studio__status" aria-label="Status bar">
-      <span data-role="status">{{ status }}</span>
-      <span
-        v-if="tools.penDown.value"
-        class="sprite-studio__hint is-pen"
-        data-testid="sprite-pen-down"
-        >{{ PEN_DOWN }}</span
-      >
-      <!-- A notice takes the hint's place, off the cel. -->
-      <StudioStatusNotice v-else-if="notice" :banner="null" :notice @dismiss="dismissNotice" />
-      <span v-else class="sprite-studio__hint" data-testid="sprite-hint">{{
-        SPRITE_TOOL_HINTS[tools.tool.value]
-      }}</span>
-      <span class="sprite-studio__spacer"></span>
-      <span data-testid="sprite-bytes"
-        >{{ draft.bytes.value.length.toLocaleString("en") }} bytes</span
-      >
-      <span>AGI {{ profile.id }}</span>
-      <StudioZoom :zoom :fitted @zoom="(to) => (to === 'fit' ? zoomToFit() : zoomBy(to))" />
-      <UiIconButton
-        icon="help"
-        label="Keyboard shortcuts"
-        shortcut="?"
-        aria-keyshortcuts="?"
-        aria-haspopup="dialog"
-        data-testid="studio-keys-button"
-        @click="openKeySheet"
-      />
-    </footer>
+    <Teleport :disabled="!active || !inWorkspace" defer to="#workspace-status-left">
+      <footer class="sprite-studio__status" aria-label="Status bar">
+        <span data-role="status">{{ status }}</span>
+        <span
+          v-if="tools.penDown.value"
+          class="sprite-studio__hint is-pen"
+          data-testid="sprite-pen-down"
+          >{{ PEN_DOWN }}</span
+        >
+        <!-- A notice takes the hint's place, off the cel. -->
+        <StudioStatusNotice v-else-if="notice" :banner="null" :notice @dismiss="dismissNotice" />
+        <span v-else class="sprite-studio__hint" data-testid="sprite-hint">{{
+          SPRITE_TOOL_HINTS[tools.tool.value]
+        }}</span>
+        <span class="sprite-studio__spacer"></span>
+        <StudioZoom :zoom :fitted @zoom="(to) => (to === 'fit' ? zoomToFit() : zoomBy(to))" />
+      </footer>
+    </Teleport>
     <p class="sprite-studio__sr" aria-live="polite">{{ spoken }}</p>
-
-    <StudioKeySheet v-model:open="calm.sheetOpen.value" name="VIEW editor" :sections="keySheet" />
   </div>
 </template>
 

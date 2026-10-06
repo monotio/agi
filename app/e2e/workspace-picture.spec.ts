@@ -265,7 +265,10 @@ for (const size of [
     };
     await take("picture");
     if (size.width > 600) {
-      await page.getByRole("button", { name: "Stacked", exact: true }).click();
+      // Stacked is the default: the toggle turns Side by side on.
+      const layout = page.getByTestId("workspace-layout");
+      await expect(layout).toBeVisible();
+      if ((await layout.getAttribute("aria-pressed")) === "true") await layout.click();
       await take("stacked");
       const frame = page.getByTestId("workspace-editor");
       await expect(frame).toBeVisible();
@@ -292,10 +295,7 @@ for (const size of [
       await take("focus");
       await page.getByTestId("workspace-focus").click();
       await expect(page.locator(".play-area")).toBeVisible();
-      await expect(page.getByRole("button", { name: "Stacked", exact: true })).toHaveAttribute(
-        "aria-pressed",
-        "true",
-      );
+      await expect(page.getByTestId("workspace-layout")).toHaveAttribute("aria-pressed", "false");
     } else {
       await page.getByRole("button", { name: "Playtest", exact: true }).click();
       await expect(page.locator(".play-area")).toBeVisible();
@@ -428,12 +428,15 @@ test("the picture fits its 1063px side panel", async ({ page }) => {
   await expect(order).toBeVisible();
   const control = (await order.boundingBox())!;
   expect.soft(control.x + control.width).toBeLessThanOrEqual(frame.x + frame.width);
-  for (const name of ["Zoom out", "Zoom in", "Zoom to fit", "Keys"]) {
-    const button = studio.getByRole("button", { name, exact: true });
+  for (const name of ["Zoom out", "Zoom in", "Zoom to fit"]) {
+    // Zoom rides the shared status bar; keep it inside the window.
+    const button = page.getByRole("button", { name, exact: true });
     await expect(button).toBeVisible();
     const box = (await button.boundingBox())!;
-    expect.soft(box.x + box.width).toBeLessThanOrEqual(frame.x + frame.width);
+    expect.soft(box.x + box.width).toBeLessThanOrEqual(page.viewportSize()!.width);
   }
+  // The one Keys button lives on the workspace tab bar.
+  await expect(page.getByTestId("workspace-keys")).toBeVisible();
   const sun = studio.locator('[role="treeitem"][data-row="sun"]');
   await expect(sun).toBeVisible();
   await sun.click();

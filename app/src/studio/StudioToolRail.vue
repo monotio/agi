@@ -247,6 +247,13 @@ watch(scroller, (el) => {
   padding: 0 0 var(--space-2);
   border-right: 1px solid var(--hairline);
   background: var(--surface-1);
+  /* A very short rail scrolls as a whole: the tools keep room for two and the
+     values slide below the fold instead of covering them. */
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+.tool-rail::-webkit-scrollbar {
+  display: none;
 }
 /* The tools' column: the scrolling list with its chevrons laid over its edges. */
 .tool-rail__column {
@@ -255,7 +262,8 @@ watch(scroller, (el) => {
   flex: 0 1 auto;
   flex-direction: column;
   align-self: stretch;
-  min-height: 0;
+  /* At least two tools stay fully in reach; the rail scrolls for the rest. */
+  min-height: calc(2 * var(--control-h-sm) + var(--space-2));
 }
 .tool-rail__more {
   position: absolute;
@@ -289,7 +297,8 @@ watch(scroller, (el) => {
   --fade: var(--space-5);
   flex: 0 1 auto;
   align-self: stretch;
-  min-height: 0;
+  /* At least two tools stay fully in reach; the rail scrolls for the rest. */
+  min-height: calc(2 * var(--control-h-sm) + var(--space-2));
   overflow: hidden auto;
   overscroll-behavior: contain;
   scroll-padding-block: var(--fade);

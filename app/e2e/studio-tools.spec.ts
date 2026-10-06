@@ -291,7 +291,7 @@ test("a fill drawn last on painted ground says why, and Draw before moves the dr
   await expect(fix).toBeVisible();
   await fix.click();
   await expect(bar.getByTestId("studio-bar-notice")).toHaveCount(0);
-  await expect(studio.getByTestId("studio-notice")).toHaveText(
+  await expect(page.locator(".workspace-status").getByTestId("studio-notice")).toHaveText(
     "New shapes now go before Wall. Filled is on: draw a rectangle or polygon there.",
   );
   await expect(studio.getByTestId("studio-insert-at")).toHaveText("Before step 1");

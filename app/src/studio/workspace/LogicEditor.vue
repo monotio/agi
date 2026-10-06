@@ -48,7 +48,7 @@ function onBinding(info: BindingInfo, action: "open" | "rename"): void {
     )
     ?.hideContentHover();
   if (action === "open" && ["sound", "picture", "view", "logic"].includes(info.kind)) {
-    workspace.open(`${info.kind}:${info.num}`, true);
+    workspace.open(`${info.kind}:${info.num}`);
     return;
   }
   renameBinding.value = action === "rename";

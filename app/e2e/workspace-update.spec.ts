@@ -80,11 +80,10 @@ test("invalid drafts report a problem and discard restores the editor @webkit-de
   await expect(page.getByTestId("workspace-update")).toHaveText("1 problem");
   expect(await runningWorkspaceDocument(page, "logic:1")).toBe(before);
   await page.getByTestId("workspace-update").click();
+  // The Problems tab opens; it closes with its own ×.
   await expect(page.getByTestId("workspace-problems")).toBeVisible();
-  await page
-    .getByTestId("workspace-problems")
-    .getByRole("button", { name: "Close", exact: true })
-    .click();
+  await page.getByRole("button", { name: "Close Problems", exact: true }).click();
+  await expect(page.getByTestId("workspace-problems")).toBeHidden();
   await page.getByTestId("workspace-update-menu").click();
   await expect(page.getByRole("menuitem", { name: "Discard changes…", exact: true })).toBeVisible();
   await page.getByRole("menuitem", { name: "Discard changes…", exact: true }).click();
@@ -170,11 +169,8 @@ for (const [width, height] of [
         .toBeLessThanOrEqual(12);
       expect.soft(label.x).toBeLessThan(outline.x + outline.width);
       expect.soft(label.x + label.width).toBeGreaterThan(outline.x);
-      const stageRow = page.getByTestId("workspace-room-live");
-      await expect(stageRow).toBeVisible();
-      await expect
-        .soft(page.getByText("Room 1 · running your last update", { exact: true }))
-        .toHaveCount(1);
+      // The game bar names the room the game is in.
+      await expect(page.getByTestId("workspace-room")).toContainText("Room 1");
       await expect(page.getByTestId("workspace-saved")).toBeVisible();
       await expect.soft(page.getByTestId("workspace-saved")).toHaveText("Draft saved");
       if (width <= 600) await page.getByRole("button", { name: "Playtest", exact: true }).click();
@@ -213,15 +209,16 @@ for (const [width, height] of [
         await expect(
           page.getByTestId("workspace-logic-editor").locator(".view-lines"),
         ).toBeVisible();
-        await expect(page.getByRole("button", { name: "Side by side", exact: true })).toBeVisible();
-        await page.getByRole("button", { name: "Side by side", exact: true }).click();
+        const layout = page.getByTestId("workspace-layout");
+        await expect(layout).toBeVisible();
+        if ((await layout.getAttribute("aria-pressed")) !== "true") await layout.click();
         await page.screenshot({
           path: test.info().outputPath(`update-${width}-side-by-side.png`),
           animations: "disabled",
           scale: "css",
         });
-        await expect(page.getByRole("button", { name: "Stacked", exact: true })).toBeVisible();
-        await page.getByRole("button", { name: "Stacked", exact: true }).click();
+        await expect(layout).toHaveAttribute("aria-pressed", "true");
+        await layout.click();
         await expect
           .poll(async () => {
             const surface = (await page

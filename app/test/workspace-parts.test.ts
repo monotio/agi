@@ -21,11 +21,16 @@ test("rooms own their pictures; shared logic and unowned resources stay reachabl
   });
   assert.deepEqual(
     groups.map((g) => g.label),
-    ["GAME", "ROOMS", "SHARED LOGIC", "PICTURES", "VIEWS", "SOUNDS", "OBJECTS", "WORDS"],
+    ["GAME STATE", "ROOMS", "SHARED LOGIC", "PICTURES", "VIEWS", "SOUNDS", "OBJECTS", "WORDS"],
   );
   assert.deepEqual(
     groups[0]?.entries.map((entry) => [entry.label, entry.key]),
-    [["Notes", "notes"]],
+    [
+      ["Game state", "state"],
+      ["Problems", "problems"],
+      ["Messages", "messages"],
+      ["Notes", "notes"],
+    ],
   );
   assert.deepEqual(
     groups[1]?.entries.map((e) => [e.label, e.key, e.live]),

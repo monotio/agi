@@ -18,6 +18,8 @@ import type { BindingInfo } from "../../../../src/logic/projectNames.ts";
 import type { AgiProfile } from "../../../../src/runtime/profile.ts";
 import ViewThumbnail from "./ViewThumbnail.vue";
 import UiExplain from "../../ui/UiExplain.vue";
+import UiButton from "../../ui/UiButton.vue";
+import UiSegmented from "../../ui/UiSegmented.vue";
 import type { WorkspacePartGroup } from "../host/workspaceParts.ts";
 import { readBindingsDocument } from "../../../../src/authoring/projectDocuments.ts";
 const props = defineProps<{
@@ -34,8 +36,8 @@ const props = defineProps<{
 }>();
 const emit = defineEmits<{
   open: [key: string, room?: number];
-  pin: [key: string, room?: number];
   add: [group: string];
+  nameState: [kind: "flag" | "variable", num: number, name: string];
 }>();
 const engine = useEngineApi();
 const workspace = useWorkspaceEditor();
@@ -58,6 +60,43 @@ const names = computed(() => {
 });
 const details = ref<BindingInfo>();
 const editingName = ref(false);
+/** The Game state + row: name a flag or variable in place. */
+const namingOpen = ref(false);
+const namingKind = ref<"flag" | "variable">("flag");
+const namingNum = ref(0);
+const namingName = ref("");
+const namingError = ref("");
+const nextFree = computed(() => {
+  const used = new Set(
+    names.value.filter((info) => info.kind === namingKind.value).map((info) => info.num),
+  );
+  let num = 16;
+  while (used.has(num) && num < 256) num++;
+  return num;
+});
+function openNaming(): void {
+  namingOpen.value = true;
+  namingNum.value = nextFree.value;
+  namingName.value = "";
+  namingError.value = "";
+}
+function nameState(): void {
+  const name = namingName.value.trim();
+  if (!name) {
+    namingError.value = "Give it a name first.";
+    return;
+  }
+  if (names.value.some((info) => info.name === name)) {
+    namingError.value = "That name is taken.";
+    return;
+  }
+  emit("nameState", namingKind.value, namingNum.value, name);
+  namingOpen.value = false;
+}
+function sectionAdd(label: string): void {
+  if (label === "GAME STATE") openNaming();
+  else emit("add", label);
+}
 const selectedName = computed(
   () =>
     details.value &&
@@ -174,6 +213,7 @@ function onKey(event: KeyboardEvent): void {
           v-if="
             (
               addGroups ?? [
+                'GAME STATE',
                 'ROOMS',
                 'SHARED LOGIC',
                 'PICTURES',
@@ -187,9 +227,10 @@ function onKey(event: KeyboardEvent): void {
           type="button"
           class="parts-add"
           :disabled="readOnly"
+          :data-testid="group.label === 'GAME STATE' ? 'add-game-state' : undefined"
           :title="readOnly ? 'Editing is paused. Download your unsaved edits, then reload.' : ''"
-          :aria-label="`Add ${group.label === 'ROOMS' ? 'a room' : group.label === 'SHARED LOGIC' ? 'shared logic' : group.label === 'PICTURES' ? 'a picture' : group.label === 'VIEWS' ? 'a view' : group.label === 'OBJECTS' ? 'an object' : group.label === 'WORDS' ? 'a word' : 'a sound'}`"
-          @click="emit('add', group.label)"
+          :aria-label="`Add ${group.label === 'GAME STATE' ? 'a flag or variable' : group.label === 'ROOMS' ? 'a room' : group.label === 'SHARED LOGIC' ? 'shared logic' : group.label === 'PICTURES' ? 'a picture' : group.label === 'VIEWS' ? 'a view' : group.label === 'OBJECTS' ? 'an object' : group.label === 'WORDS' ? 'a word' : 'a sound'}`"
+          @click="sectionAdd(group.label)"
         >
           +
         </button>
@@ -205,7 +246,6 @@ function onKey(event: KeyboardEvent): void {
           :data-testid="`part-${row.id}`"
           @focus="focused = row.id"
           @click="emit('open', row.key, row.room)"
-          @dblclick="emit('pin', row.key, row.room)"
         >
           <img v-if="thumbnails[row.id]" :src="thumbnails[row.id]" alt="" />
           <ViewThumbnail
@@ -243,8 +283,45 @@ function onKey(event: KeyboardEvent): void {
           </button>
         </details>
       </div>
-      <section v-if="group.label === 'SHARED LOGIC' && stateNames.length" class="game-state">
-        <h2>Game state</h2>
+      <form
+        v-if="group.label === 'GAME STATE' && namingOpen"
+        class="game-state-naming"
+        data-testid="game-state-naming"
+        @submit.prevent="nameState"
+      >
+        <div class="game-state-naming__row">
+          <UiSegmented
+            v-model="namingKind"
+            label="Kind"
+            :options="[
+              { value: 'flag', label: 'Flag' },
+              { value: 'variable', label: 'Variable' },
+            ]"
+          />
+        </div>
+        <div class="game-state-naming__row">
+          <input
+            v-model.number="namingNum"
+            type="number"
+            min="0"
+            max="255"
+            data-testid="game-state-num"
+            :aria-label="namingKind === 'flag' ? 'Flag number' : 'Variable number'"
+          />
+          <input
+            v-model="namingName"
+            data-testid="game-state-name"
+            aria-label="Name"
+            placeholder="name_it_like_this"
+          />
+        </div>
+        <p v-if="namingError" class="game-state-naming__error" role="alert">{{ namingError }}</p>
+        <div class="game-state-naming__row">
+          <UiButton size="sm" type="submit">Name it</UiButton>
+          <UiButton size="sm" variant="ghost" @click="namingOpen = false">Cancel</UiButton>
+        </div>
+      </form>
+      <section v-if="group.label === 'GAME STATE' && stateNames.length" class="game-state">
         <div v-for="info in stateNames" :key="info.name" class="state-row">
           <button
             class="part"
@@ -368,6 +445,36 @@ function onKey(event: KeyboardEvent): void {
 }
 .game-state {
   margin-top: var(--space-3);
+}
+.game-state-naming {
+  display: grid;
+  gap: var(--space-2);
+  margin: var(--space-2) 0;
+  padding: var(--space-3);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  background: var(--surface-0);
+}
+.game-state-naming__row {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+}
+.game-state-naming__row input {
+  min-width: 0;
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  background: var(--surface-1);
+  color: var(--ink);
+}
+.game-state-naming__row input[type="number"] {
+  width: 64px;
+}
+.game-state-naming__error {
+  margin: 0;
+  color: var(--warn);
+  font-size: var(--text-xs);
 }
 .parts-list {
   width: 100%;

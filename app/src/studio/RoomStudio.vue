@@ -36,12 +36,12 @@ import { followedItem } from "../../../src/studio/rules/ruleBinding.ts";
 import type { RuleSession } from "../../../src/studio/rules/ruleEdit.ts";
 import type { Point } from "../../../src/studio/shapes.ts";
 import { engineKey } from "../engine/engineContext.ts";
+import { useMaybeWorkspaceEditor } from "../shell/workspaceEditor.ts";
 import { aiSettingsKey } from "../settings/useAiSettings.ts";
 import type { StudioRoomSource } from "../world/studioSource.ts";
 import type { LessonSession } from "../lessons/lessonCheck.ts";
 import LessonCard from "../lessons/LessonCard.vue";
 import { useStudioLesson } from "../lessons/useStudioLesson.ts";
-import UiChip from "../ui/UiChip.vue";
 import UiSegmented from "../ui/UiSegmented.vue";
 import PaletteStrip from "./workspace/PaletteStrip.vue";
 import { useStudioPalette } from "./useStudioPalette.ts";
@@ -56,7 +56,6 @@ import StudioCombineDialog from "./StudioCombineDialog.vue";
 import StudioGroupEditor from "./StudioGroupEditor.vue";
 import StudioItemEditor from "./StudioItemEditor.vue";
 import StudioItemPoints from "./StudioItemPoints.vue";
-import StudioKeySheet from "./StudioKeySheet.vue";
 import StudioLogicText from "./StudioLogicText.vue";
 import StudioSelectionBar from "./StudioSelectionBar.vue";
 import StudioStatusNotice from "./StudioStatusNotice.vue";
@@ -73,7 +72,6 @@ import StudioWalkOverlay from "./StudioWalkOverlay.vue";
 import StudioWalkPanel from "./StudioWalkPanel.vue";
 import StudioZoom from "./StudioZoom.vue";
 import UiExplain from "../ui/UiExplain.vue";
-import UiIconButton from "../ui/UiIconButton.vue";
 import { fillFix, fillNotice } from "./fillAdvice.ts";
 import {
   ROOM_EDIT_HINT,
@@ -94,7 +92,6 @@ import {
   maskOutlinePath,
   PANE_LABELS,
   panesFor,
-  pictureSize,
   type StudioLens,
   type StudioViewMode,
 } from "./studioView.ts";
@@ -143,12 +140,15 @@ const {
   currentRoomSource = undefined,
   underlay = null,
   readOnly = false,
+  active = true,
   lessonSession = undefined,
   priorityBase = undefined,
   figures = [],
   runningBytes = undefined,
 } = defineProps<{
   readOnly?: boolean;
+  /** Whether this tab is showing: its status bar and keys join the frame's. */
+  active?: boolean;
   lessonSession?: LessonSession | undefined;
   priorityBase?: number | undefined;
   figures?: readonly import("../../../src/authoring/roomPlacements.ts").RoomPlacement[];
@@ -257,6 +257,9 @@ const readout = useStudioReadout({ doc, selection });
 const { ticks, current, drawn, single, pixel, fill, labelOf, status } = readout;
 /** The engine, when Studio runs in the app (the harness has none). */
 const engineApi = inject(engineKey, null);
+const workspaceEditor = useMaybeWorkspaceEditor();
+/** In the frame this tab reports its sheet and shares to the frame's bars. */
+const inWorkspace = workspaceEditor !== null;
 /**
  * Share's caption and file name: the game, and the room by its title in the
  * world plan or on the map (Studio's title, unless it only names the
@@ -446,7 +449,6 @@ const { viewport, zoom, dpr, fitted, zoomBy, zoomToFit } = useStudioViewport(
   undefined,
   true,
 );
-const size = computed(() => pictureSize(draft.compiled.value.bytes.length, total.value));
 
 /** The planes on screen: the drag's preview while one runs, else the scrubbed draft. */
 const shown = computed(() => draft.preview.value?.compiled ?? surface.value);
@@ -872,8 +874,14 @@ function applyFillFix(): void {
 
 /** The options bar folds what it cannot fit: see StudioSelectionBar and StudioToolOptions. */
 const optionsBar = useTemplateRef("optionsBar");
-const optionsFold = useFold(optionsBar, 4, (bar) =>
-  [bar, ...bar.children].every((element) => element.scrollWidth <= element.clientWidth + 1),
+const optionsFold = useFold(
+  optionsBar,
+  4,
+  (bar) =>
+    // A wrapped second row roughly doubles the bar; a child a few pixels
+    // taller than the row still counts as fitting.
+    bar.scrollHeight <= bar.clientHeight * 1.5 &&
+    [bar, ...bar.children].every((element) => element.scrollWidth <= element.clientWidth + 1),
 );
 watch(
   () => [
@@ -1082,18 +1090,41 @@ function seek(k: number): void {
 const keepFocus = useStudioFocus(useTemplateRef("root"));
 exposeStudioDraft(draft, () => logic.source.value);
 
-/** The status bar's Keys sheet (its `?` key opens the same one). */
-const sheetOpen = ref(false);
-/**
- * The status bar's Keys button. Safari leaves a clicked button unfocused, so
- * activation takes its focus first: the sheet returns focus to what had it when the sheet opened.
- */
-function openKeySheet(event: MouseEvent): void {
-  if (event.currentTarget instanceof HTMLElement)
-    event.currentTarget.focus({ preventScroll: true });
-  sheetOpen.value = true;
-}
+/** The workspace's one Keys sheet: `?` opens it at this editor's section. */
+const sheetOpen = workspaceEditor?.keysOpen ?? ref(false);
 const keySheet = computed(() => roomKeySheet(tools.tool.value));
+if (workspaceEditor)
+  onBeforeUnmount(
+    workspaceEditor.registerKeySheet(`picture:${pictureNumber}`, () => ({
+      name: "PICTURE",
+      sections: keySheet.value,
+    })),
+  );
+
+/** Share sits behind the frame's ⋯ menu; the menu asks the menu component to run. */
+const shareMenu = useTemplateRef("shareMenu");
+if (workspaceEditor)
+  onBeforeUnmount(
+    workspaceEditor.registerFrameActions(`picture:${pictureNumber}`, () => [
+      {
+        id: "share-clip",
+        label: "Share a clip…",
+        testId: "studio-share-clip",
+        disabled: !(shareMenu.value?.clipAvailable() ?? true),
+        title:
+          (shareMenu.value?.clipAvailable() ?? true)
+            ? undefined
+            : "Video recording is unavailable in this browser",
+        run: () => shareMenu.value?.start("clip"),
+      },
+      {
+        id: "share-still",
+        label: "Share a still…",
+        testId: "studio-share-still",
+        run: () => shareMenu.value?.start("still"),
+      },
+    ]),
+  );
 /** The status bar's line for the active tool (the editing keys while an item is selected). */
 const toolHint = computed(() => {
   const tool = tools.tool.value;
@@ -1626,50 +1657,36 @@ function onKeyup(event: KeyboardEvent): void {
       </PixelInspector>
     </aside>
 
-    <div class="studio__meta-bar">
-      <SharePictureMenu
-        :picture="model.compiled"
-        :timeline="model.timeline"
-        :profile
-        :caption="shareCaption"
-        :file-base="shareFile"
-      />
-      <span data-testid="studio-size">{{ size.full }}</span>
-      <UiChip :tone="model.diagnostics.length ? 'warn' : 'neutral'" data-testid="studio-issues"
-        >{{ model.diagnostics.length }} issues</UiChip
-      >
-      <span>AGI {{ profile.id }}</span>
-      <span v-if="!model.trusted" data-testid="studio-source-kind"
-        >Rebuilt <UiExplain v-bind="explain('rebuilt')"
-      /></span>
-    </div>
-    <footer class="studio__status" aria-label="Status bar">
-      <span data-role="status" data-testid="studio-status">{{ status }}</span>
-      <!-- A notice takes the hint's place, off the picture. -->
-      <StudioStatusNotice
-        v-if="editing.notice.value"
-        :notice="editing.notice.value"
-        @dismiss="editing.dismiss"
-      />
-      <span v-else class="studio__hint" data-testid="studio-hint" :data-tool="tools.tool.value">{{
-        toolHint
-      }}</span>
-      <span class="studio__spacer"></span>
-      <StudioZoom :zoom :fitted @zoom="(step) => (step === 'fit' ? zoomToFit() : zoomBy(step))" />
-      <UiIconButton
-        icon="help"
-        label="Keys"
-        title="Keys · ?"
-        shortcut="?"
-        aria-keyshortcuts="?"
-        aria-haspopup="dialog"
-        data-testid="studio-keys-button"
-        @click="openKeySheet"
-      />
-    </footer>
+    <Teleport :disabled="!active || !inWorkspace" defer to="#workspace-status-left">
+      <footer class="studio__status" aria-label="Status bar">
+        <span data-role="status" data-testid="studio-status">{{ status }}</span>
+        <!-- A notice takes the hint's place, off the picture. -->
+        <StudioStatusNotice
+          v-if="editing.notice.value"
+          :notice="editing.notice.value"
+          @dismiss="editing.dismiss"
+        />
+        <span v-else class="studio__hint" data-testid="studio-hint" :data-tool="tools.tool.value">{{
+          toolHint
+        }}</span>
+        <span class="studio__spacer"></span>
+        <span v-if="!model.trusted" data-testid="studio-source-kind"
+          >Rebuilt <UiExplain v-bind="explain('rebuilt')"
+        /></span>
+        <StudioZoom :zoom :fitted @zoom="(step) => (step === 'fit' ? zoomToFit() : zoomBy(step))" />
+      </footer>
+    </Teleport>
     <p class="studio__sr" aria-live="polite" data-role="announce">{{ input.spoken.value }}</p>
 
-    <StudioKeySheet v-model:open="sheetOpen" name="PICTURE" :sections="keySheet" />
+    <SharePictureMenu
+      ref="shareMenu"
+      bare
+      :picture="model.compiled"
+      :timeline="model.timeline"
+      :profile
+      :caption="shareCaption"
+      :file-base="shareFile"
+    />
     <StudioCombineDialog
       v-model:open="combineOpen"
       :count="editing.targets.value.length"
@@ -1706,7 +1723,7 @@ function onKeyup(event: KeyboardEvent): void {
      28px and grows to fit its controls. The canvas keeps a floor because the
      side panel rides its row: below it the studio scrolls, like the phone
      layout, instead of squeezing the panel's list under a row. */
-  grid-template-rows: auto minmax(40px, max-content) minmax(160px, 1fr) auto minmax(28px, auto);
+  grid-template-rows: minmax(40px, max-content) minmax(160px, 1fr) auto;
   grid-template-columns: 0 44px minmax(0, 1fr) clamp(140px, 30%, 260px);
   width: 100%;
   height: 100%;
@@ -1721,14 +1738,14 @@ function onKeyup(event: KeyboardEvent): void {
 }
 /* The rail stops above the palette row, which keeps the full width under it. */
 .studio__rail {
-  grid-row: 3;
+  grid-row: 2;
   grid-column: 2;
 }
 /* The options bar docks over the rail and the canvas: nothing floats on the picture. */
 .studio__options {
   position: relative;
   z-index: var(--z-dock);
-  grid-row: 2;
+  grid-row: 1;
   grid-column: 2 / 5;
   display: flex;
   flex-wrap: wrap;
@@ -1741,7 +1758,7 @@ function onKeyup(event: KeyboardEvent): void {
 }
 .studio__frame {
   position: relative;
-  grid-row: 3;
+  grid-row: 2;
   grid-column: 3;
   min-width: 0;
   min-height: 0;
@@ -1773,12 +1790,10 @@ function onKeyup(event: KeyboardEvent): void {
   padding: var(--space-7);
 }
 .studio__scrubber {
-  grid-row: 4;
+  grid-row: 3;
   grid-column: 2 / 4;
 }
 .studio__status {
-  grid-row: 5;
-  grid-column: 1 / -1;
   display: flex;
   align-items: center;
   gap: var(--space-3);
@@ -1887,17 +1902,6 @@ function onKeyup(event: KeyboardEvent): void {
   bottom: 4px;
   cursor: nwse-resize;
 }
-.studio__meta-bar {
-  grid-column: 1 / -1;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-3);
-  padding: var(--space-1) var(--space-3);
-  color: var(--ink-3);
-  border-bottom: 1px solid var(--hairline);
-  font-size: var(--text-2xs);
-}
 .studio__palette-row {
   display: grid;
   min-width: 0;
@@ -1905,7 +1909,7 @@ function onKeyup(event: KeyboardEvent): void {
 .studio__side {
   container-type: inline-size;
   grid-column: 4;
-  grid-row: 3 / 5;
+  grid-row: 2 / 4;
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -1936,9 +1940,7 @@ function onKeyup(event: KeyboardEvent): void {
 @media (max-width: 600px) {
   .studio {
     grid-template-columns: 0 44px minmax(0, 1fr) 0;
-    grid-template-rows:
-      auto auto minmax(180px, 1fr) auto minmax(240px, 0.8fr)
-      minmax(28px, auto);
+    grid-template-rows: auto minmax(180px, 1fr) auto minmax(240px, 0.8fr);
   }
   .studio .studio__palette-row {
     grid-column: 1 / 4;
@@ -1950,11 +1952,8 @@ function onKeyup(event: KeyboardEvent): void {
   }
   .studio .studio__side {
     grid-column: 2 / 4;
-    grid-row: 5;
+    grid-row: 4;
     border-top: 1px solid var(--hairline);
-  }
-  .studio .studio__status {
-    grid-row: 6;
   }
   .studio .studio__side > .scene-list {
     flex: 1;

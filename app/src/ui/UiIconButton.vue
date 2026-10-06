@@ -11,6 +11,8 @@ const {
   icon: IconName;
   label: string;
   size?: "sm" | "md";
+  /** The tooltip when it differs from the label, e.g. why the button is disabled. */
+  title?: string | undefined;
   /** Set for toggle buttons (tools, visibility); leave undefined for actions. */
   pressed?: boolean | undefined;
   shortcut?: string | undefined;
@@ -24,7 +26,7 @@ const {
     :class="[`ui-icon-btn--${size}`]"
     :aria-label="label"
     :aria-pressed="pressed"
-    :title="shortcut ? `${label} (${shortcut})` : label"
+    :title="title ?? (shortcut ? `${label} (${shortcut})` : label)"
   >
     <UiIcon :name="icon" :size="size === 'sm' ? 16 : 18" />
   </button>

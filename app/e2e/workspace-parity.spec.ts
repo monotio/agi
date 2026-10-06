@@ -42,7 +42,8 @@ for (const width of [1063, 1440, 390]) {
         await expect(page.locator(".play-area")).toBeVisible();
         const game = (await page.locator(".play-area").boundingBox())!;
         const editor = (await page.getByTestId("workspace-editor").boundingBox())!;
-        expect(editor.x).toBeGreaterThanOrEqual(game.x + game.width);
+        // Stacked is the default arrangement: the editor sits under the game.
+        expect(editor.y).toBeGreaterThanOrEqual(game.y + game.height);
         expect(editor.width).toBeCloseTo(game.width, 0);
       }
       await page.evaluate(() => document.fonts.ready);
@@ -50,12 +51,14 @@ for (const width of [1063, 1440, 390]) {
       await studio.getByRole("radio", { name: "Inspector", exact: true }).click();
       await expect(studio.locator(".studio__inspector")).toBeVisible();
       await page.screenshot({ path: test.info().outputPath(`inspector-${width}.png`) });
-      await expect(studio.getByTestId("studio-size")).toBeVisible();
-      await expect(studio.getByTestId("studio-issues")).toBeVisible();
-      await expect(
-        studio.locator(".studio__meta-bar").getByText("AGI 2.936", { exact: true }),
-      ).toBeVisible();
-      await expect(studio.getByRole("button", { name: "Share picture" })).toBeVisible();
+      // Size and the AGI profile sit quietly in the shared status bar.
+      const status = page.getByTestId("workspace-status");
+      await expect(status).toContainText("bytes");
+      await expect(status).toContainText("AGI 2.936");
+      // Share is a rare action in the frame's ⋯ menu.
+      await page.getByTestId("workspace-more").click();
+      await expect(page.getByTestId("studio-share-still")).toBeVisible();
+      await page.keyboard.press("Escape");
     });
   });
 }
@@ -73,7 +76,7 @@ test.describe("phone Items", () => {
     await studio.getByRole("radio", { name: "Inspector", exact: true }).click();
     await expect(studio.getByTestId("item-label")).toBeVisible();
     await expect(studio.getByTestId("item-label")).toHaveValue("Marble bust");
-    await expect(studio.getByTestId("studio-status")).toBeInViewport();
+    await expect(page.getByTestId("studio-status")).toBeInViewport();
     await page.screenshot({ path: test.info().outputPath("phone-selected-item.png") });
   });
 });
@@ -84,7 +87,7 @@ for (const width of [1063, 1440, 390]) {
       hasTouch: width === 390,
     });
     test("a native picture explains its Rebuilt source in the workspace", async ({ page }) => {
-      const studio = await picture(page);
+      await picture(page);
       const bytes = openContainer(new Map(Object.entries(buildTutorial().files))).getResource(
         "picture",
         1,
@@ -108,7 +111,7 @@ for (const width of [1063, 1440, 390]) {
       // The first accepted edit saves a personal copy and updates the workspace header.
       await workspaceSaved(page);
       await expect(page).toHaveURL(/#create\/remix-/);
-      const rebuilt = studio.getByTestId("studio-source-kind");
+      const rebuilt = page.getByTestId("studio-source-kind");
       await expect(rebuilt).toBeVisible();
       await expect(rebuilt).toContainText("Rebuilt");
       const term = rebuilt.locator('[data-term="rebuilt"]');
@@ -209,7 +212,7 @@ test("Walk shows doors and runs a real test with Play here", async ({ page }) =>
   await expect(studio.getByTestId("walk-result")).toBeVisible();
   await expect(studio.getByTestId("walk-result-title")).toBeVisible();
   await expect(studio.getByTestId("walk-result-title")).toHaveText("Reached");
-  const status = studio.locator(".studio__status");
+  const status = page.locator(".studio__status");
   await expect(status).toBeVisible();
   await expect(status).toContainText("Reached");
   await expect(studio.getByTestId("walk-play-here")).toBeVisible();
@@ -246,16 +249,16 @@ test("splitter saves once on release and keeps the game buffer during drag", asy
   await picture(page);
   await page.getByTestId("part-room:1:logic").click();
   await expect(page.getByTestId("workspace-logic-editor").locator(".monaco-editor")).toBeVisible();
-  const separator = page.getByRole("separator", { name: "Editor width" });
+  const separator = page.getByRole("separator", { name: "Editor height" });
   await expect(separator).toBeVisible();
   const before = await page.evaluate(() => ({
     stored: localStorage.getItem("monotio_agi.workspaceSplit"),
     width: document.querySelector<HTMLCanvasElement>('[data-testid="gpu-canvas"]')!.width,
   }));
   const box = (await separator.boundingBox())!;
-  await page.mouse.move(box.x + box.width / 2, box.y + 40);
+  await page.mouse.move(box.x + 40, box.y + box.height / 2);
   await page.mouse.down();
-  await page.mouse.move(box.x + 160, box.y + 40, { steps: 20 });
+  await page.mouse.move(box.x + 40, box.y + 160, { steps: 20 });
   expect(await page.evaluate(() => localStorage.getItem("monotio_agi.workspaceSplit"))).toBe(
     before.stored,
   );
@@ -350,9 +353,9 @@ test("a point's context menu offers Delete point and Delete line", async ({ page
 });
 
 test("Share picture downloads a Still and a Clip when recording is supported", async ({ page }) => {
-  const studio = await picture(page);
+  await picture(page);
   for (const kind of ["still", "clip"] as const) {
-    await studio.getByTestId("studio-share").click();
+    await page.getByTestId("workspace-more").click();
     await expect(page.getByTestId(`studio-share-${kind}`)).toBeVisible();
     if (kind === "clip") {
       const supported = await page.evaluate(async () => {
@@ -389,11 +392,12 @@ test("Walk edits a door box and an edge exit and shows drawing errors beside the
   page,
 }) => {
   const studio = await picture(page);
-  const level = studio.locator(".studio-zoom__level");
+  // The zoom control rides the shared status bar.
+  const level = page.locator(".studio-zoom__level");
   await expect(level).toBeVisible();
-  await studio.getByRole("button", { name: "Zoom out", exact: true }).click();
+  await page.getByRole("button", { name: "Zoom out", exact: true }).click();
   await expect(level).toHaveText("100%");
-  await studio.getByRole("button", { name: "Zoom in", exact: true }).click();
+  await page.getByRole("button", { name: "Zoom in", exact: true }).click();
   await expect(level).toHaveText("200%");
   const focus = page.getByTestId("workspace-focus");
   await expect(focus).toBeVisible();
@@ -446,7 +450,7 @@ test("Walk edits a door box and an edge exit and shows drawing errors beside the
   const right = studio.getByTestId("door-box-x2");
   await right.fill("999");
   await right.press("Tab");
-  await expect(studio.getByTestId("studio-notice")).toContainText("Door edit rejected");
+  await expect(page.getByTestId("studio-notice")).toContainText("Door edit rejected");
   await expect(right, "a refused field keeps the text for correction").toHaveValue("999");
   await right.fill("144");
   await right.press("Tab");
@@ -465,7 +469,7 @@ test("Walk edits a door box and an edge exit and shows drawing errors beside the
   await door.click();
   const spot = await cell(page, 120, 130);
   await page.mouse.click(spot.x, spot.y);
-  const notice = studio.getByTestId("studio-notice");
+  const notice = page.getByTestId("studio-notice");
   await expect(notice).toBeVisible();
   await expect(notice).toContainText("needs some width and height");
   await page.screenshot({ path: test.info().outputPath("walk-doors.png") });
@@ -593,7 +597,7 @@ test("drawing preserves invalid room LOGIC and Walk refuses to overwrite it", as
   await page.mouse.down();
   await page.mouse.move(to.x, to.y, { steps: 4 });
   await page.mouse.up();
-  const notice = studio.getByTestId("studio-notice");
+  const notice = page.getByTestId("studio-notice");
   await expect(notice).toBeVisible();
   await expect(notice).toContainText("Fix the room’s LOGIC before changing its doors.");
   expect(await workspaceDocument(page, "logic:1")).toBe(source);

@@ -56,7 +56,7 @@ async function save(): Promise<void> {
   }
 }
 function openUse(use: BindingInfo["uses"][number]): void {
-  workspace.open(use.key, true);
+  workspace.open(use.key);
   workspace.nameLocation.value = {
     key: use.key,
     line: use.range.start.line + 1,

@@ -223,9 +223,12 @@ export function createWorkspaceDebug(input: {
     }
     if (event.type === "debugStopped") {
       state.stepping = false;
-      input.stopped();
-      const at = position.value;
-      if (at) input.reveal(at);
+      // A value write re-announces the stop: refresh values, keep the open view.
+      if (!event.reasons.length || !event.reasons.every((reason) => reason.kind === "mutated")) {
+        input.stopped();
+        const at = position.value;
+        if (at) input.reveal(at);
+      }
       void evaluateWatches();
     }
   });

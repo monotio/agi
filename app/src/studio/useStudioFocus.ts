@@ -10,7 +10,12 @@
 import { nextTick, onMounted, type ShallowRef } from "vue";
 
 export function useStudioFocus(root: Readonly<ShallowRef<HTMLElement | null>>): () => void {
-  onMounted(() => root.value?.focus({ preventScroll: true }));
+  onMounted(() => {
+    const active = document.activeElement;
+    // An open menu or dialog owns focus: the studio waits for it to close.
+    if (active instanceof HTMLElement && active.closest('[role="menu"], [role="dialog"]')) return;
+    root.value?.focus({ preventScroll: true });
+  });
   return function keepFocus(): void {
     void nextTick(() => {
       const element = root.value;

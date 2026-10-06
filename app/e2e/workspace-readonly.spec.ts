@@ -88,7 +88,8 @@ for (const size of [
         await expect(
           editor.getByRole("button", { name: kind === "picture" ? "Line" : "Pencil", exact: true }),
         ).toBeDisabled();
-        const zoom = editor.getByRole("group", { name: "Zoom", exact: true });
+        // Zoom rides the shared status bar now.
+        const zoom = page.getByRole("group", { name: "Zoom", exact: true });
         const prior = await zoom.innerText();
         await zoom.getByRole("button", { name: "Zoom in", exact: true }).click();
         await expect(zoom).not.toHaveText(prior);
