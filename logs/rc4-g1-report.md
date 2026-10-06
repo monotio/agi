@@ -1,14 +1,18 @@
 # rc4-g1 — RoomStudio debris and window fit
 
-Verdict: green on all selective gates; ready for integration after CI. One
-commit on `lane/rc4-g1` off `rc/1.2-rc.4` (7ef1e74): Room Studio is now
-workspace-native only — the standalone top bar, Keep/exit chain, local
-assist panel, focus mode and every `embedded` branch are gone, and the
-editor grid scrolls instead of clipping its controls. Deleted
-`StudioTopBar.vue` and `StudioLockChip.vue`; the shared assist modules stay
-for Sprite Studio. Gates: app+root typecheck, eslint, prettier, knip,
-lint:ast, lint:deps, lint:tokens, build+check:bundle, 132 affected e2e
-tests on one worker, e2e:perf — all pass under Node 22.23.3.
+Verdict: green — full Linux CI run
+https://github.com/monotio/agi/actions/runs/37479513513 passed all jobs
+(static checks, unit tests, build, 10 chromium shards, 3 webkit-desktop
+shards, webkit phone, timing budgets, storage benchmark) on the head
+commit. Three commits on `lane/rc4-g1` off `rc/1.2-rc.4` (7ef1e74): Room Studio
+is now workspace-native only — the standalone top bar, Keep/exit chain,
+local assist panel, focus mode and every `embedded` branch are gone, and
+the editor grid scrolls instead of clipping its controls. Deleted
+`StudioTopBar.vue` and `StudioLockChip.vue`; the shared assist modules
+stay for Sprite Studio. Gates: app+root typecheck, eslint, prettier,
+knip, lint:ast, lint:deps, lint:tokens, build+check:bundle, over 100
+affected e2e tests on one worker, e2e:perf — all pass under Node
+22.23.3.
 
 ## A — Standalone-only branches removed
 
@@ -76,16 +80,20 @@ Fix, in `RoomStudio.vue` CSS:
 - Status row `28px` → `minmax(28px, auto)`; it grows to fit its controls.
 - `.studio` gets `overflow-y: auto`; the status bar is `position: sticky;
 bottom: 0` so it stays visible while the studio scrolls.
-- The canvas row stays `minmax(0, 1fr)`: the picture shrinks first; only
-  controls take fixed room.
+- The canvas row is `minmax(160px, 1fr)`: the picture shrinks first, then
+  the studio scrolls. The floor matters because the side panel rides the
+  canvas row — a `0` floor let a 308px-tall studio squeeze the Scene
+  list's tree to 14px (CI shard 5/10: `picture storyboard 1063` expected
+  ≥30px). With the floor the tree keeps ≥1 row and the studio scrolls
+  ~17px, exactly like the phone layout's `minmax(180px, 1fr)` already did.
 - The ≤600px phone layout keeps flexible rows
   (`minmax(180px,1fr)` canvas, `minmax(240px,0.8fr)` side panel,
   `minmax(28px,auto)` status) with the side panel below the palette.
 
 Verified at 1440×900, 1063×815 side-by-side, 1063×815 stacked and
 390×844: zero controls outside the studio box (`clipped: []` sweep over
-every button/radio/input/scrubber), `scrollHeight === clientHeight`
-except phone where the studio scrolls as designed. Screenshots:
+every button/radio/input/scrubber); the studio scrolls ~17px stacked and
+at phone size, with the sticky status bar always in view. Screenshots:
 `logs/rc4-g1-shots/g1-before-*.png` (earlier session) vs
 `g1-after-{1440x900,1063x815,390x844}.png` and
 `g1-after-stacked-1063x815.png`.
