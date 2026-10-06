@@ -292,3 +292,22 @@ for (const wait of ["print", "key"] as const)
     ctx.fns.tickEngine();
     assert.equal(ctx.engine!.vars[80], 2, "the discarded old message never resumes into old code");
   });
+
+test("adopting an authored room refuses a changed native image", () => {
+  const h = harness();
+  h.ctx.projectAdmission = h.state;
+  const before = projectAdmissionIdentity(h.ctx, h.state)!;
+  h.admission.onPreviewUpdate({
+    type: "previewUpdate",
+    id: 1,
+    mode: "adoptRoom",
+    runToken: h.state.runToken,
+    expected: before,
+    candidate: candidate("assignn(v100, 1); return;"),
+  });
+  const result = h.control.at(-1);
+  assert.ok(result?.type === "previewUpdateResult");
+  assert.equal(result.status, "refused");
+  assert.match(result.reason!, /authored room image changed/);
+  assert.deepEqual(projectAdmissionIdentity(h.ctx, h.state), before);
+});

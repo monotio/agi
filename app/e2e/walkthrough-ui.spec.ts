@@ -192,8 +192,13 @@ test.describe("Walkthrough UI", () => {
 
     // While paused, verify virtual ticks do not advance
     await expect
-      .poll(() => page.evaluate(() => window.__AGI_STATE__?.walkthrough.status))
-      .toBe("paused");
+      .poll(() =>
+        page.evaluate(() => {
+          const walkthrough = window.__AGI_STATE__?.walkthrough;
+          return [walkthrough?.status, walkthrough?.pausePending];
+        }),
+      )
+      .toEqual(["paused", false]);
     const tickPaused = await page.evaluate(() => window.__AGI_REPLAY__?.latest?.tick ?? 0);
     await page.clock.runFor(500);
     const tickStillPaused = await page.evaluate(() => window.__AGI_REPLAY__?.latest?.tick ?? 0);

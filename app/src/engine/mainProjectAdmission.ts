@@ -77,7 +77,7 @@ export function createMainProjectAdmission(input: {
     try {
       const reply = await input.query("previewUpdate", {
         runToken: expectedRun,
-        ...(mode === undefined ? {} : { mode }),
+        ...(preparedRoom ? { mode: "adoptRoom" as const } : mode === undefined ? {} : { mode }),
         expected: expectedIdentity,
         candidate,
       });

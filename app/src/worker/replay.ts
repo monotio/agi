@@ -139,6 +139,20 @@ export function createReplay(ctx: WorkerContext) {
     });
   }
 
+  /** Stop at the current host-tick boundary and settle the interrupted advance before the pause. */
+  function onReplayPause(msg: Inbound<"replayPause">): void {
+    if (!ctx.replay.replay || !ctx.engine || msg.sessionId !== ctx.replay.currentSessionId) return;
+    const blocked =
+      ctx.hostRequests.hostRequestOutstanding?.op ?? (ctx.input.keyWaiting ? "waitkey" : null);
+    // Clearing the request invalidates every already-scheduled chunk. Its
+    // caller receives the partial position and resumes the remaining tape.
+    ctx.replay.isSeeking = false;
+    ctx.fns.postFrame();
+    if (ctx.replay.replayRequest !== null) postReplay(blocked);
+    ctx.replay.replayRequest = msg.id;
+    postReplay(blocked);
+  }
+
   /**
    * Store the current replay position as a seek target. Only resumable
    * boundaries snapshot — a live host request owns the answer and a text
@@ -339,6 +353,7 @@ export function createReplay(ctx: WorkerContext) {
   return {
     postReplay,
     onReplayAdvance,
+    onReplayPause,
     onReplaySnapshot,
     onReplayRestore,
     onResetReplay,
