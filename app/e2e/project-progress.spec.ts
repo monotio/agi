@@ -643,6 +643,14 @@ test("page hide stores play progress when the document flush fails", async ({ pa
     return listCachedGames().find((game) => game.title === "Hide progress")!.projectId;
   });
   await page.getByRole("radio", { name: "Play", exact: true }).click();
+  await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  // The last Create frame can still be visible while cold Play starts.
+  await waitForCycles(page, 2, 5000);
+  // Establish ordinary Play progress before testing the pagehide failure path.
+  await page.evaluate(() => {
+    const probe = window as unknown as { __AGI_PROJECT__: { getWorker(): Worker } };
+    probe.__AGI_PROJECT__.getWorker().postMessage({ type: "flush", id: 77778 });
+  });
   await expect.poll(() => storedAutosave(page, project)).not.toBeNull();
   const storedCycle = (await storedAutosave(page, project))!.cycle;
   await expect.poll(async () => (await textHook(page)).cycle).toBeGreaterThan(storedCycle);

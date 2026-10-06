@@ -231,9 +231,11 @@ test("a tab running an older revision hears of another tab's saved edit at once 
   await expect(note).toHaveAttribute("role", "status");
   await expect(page.getByTestId("agent-bubble")).toHaveCount(0);
   await expect(page.locator("dialog[open]")).toHaveCount(0);
+  await expect(page.getByTestId("other-tab-notice")).toBeVisible();
+  await expect.poll(async () => (await textHook(page)).paused).toBe(true);
   const cycle = (await textHook(page)).cycle;
-  await expect.poll(async () => (await textHook(page)).cycle).toBeGreaterThan(cycle);
   await downloadGame(page);
+  expect((await textHook(page)).cycle).toBe(cycle);
   expect(await stored(page)).toEqual(kept);
   await expect(note.getByRole("button", { name: "Close", exact: true })).toHaveCount(0);
   await page.keyboard.press("Escape");

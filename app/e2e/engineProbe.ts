@@ -364,7 +364,7 @@ export async function openSavedGameDetails(card: Locator): Promise<Locator> {
 /** Open a card's play split-button menu (Resume/Play, Start over, Watch walkthrough). */
 export async function openPlayMore(page: Page, card: Locator): Promise<Locator> {
   const trigger = card.getByRole("button", { name: "More ways to play", exact: true });
-  await trigger.scrollIntoViewIfNeeded();
+  await expect(trigger).toBeVisible();
   await trigger.click({ trial: true, timeout: 5000 });
   if ((await trigger.getAttribute("aria-expanded")) !== "true") await trigger.click();
   const menu = page.getByRole("menu", { name: "More ways to play", exact: true });

@@ -14,6 +14,8 @@ test("draw, audition, track and import MIDI beside the game @webkit-desktop", as
   await page.getByRole("button", { name: "Start building", exact: true }).click();
   await expect(page.getByTestId("parts-list")).toBeVisible();
   await page.getByTestId("part-sound:1").click();
+  await page.getByTestId("workspace-focus").click();
+  await expect(page.getByTestId("workspace-show-game")).toBeVisible();
   const panel = page.getByTestId("workspace-sound").filter({ visible: true });
   const grid = panel.getByTestId("sound-grid");
   await expect(grid).toBeVisible();
@@ -135,6 +137,8 @@ test("draw, audition, track and import MIDI beside the game @webkit-desktop", as
   await panel.getByRole("button", { name: "Tracker", exact: true }).click();
   await expect(panel.getByLabel("Voice 1, tick 11, note", { exact: true })).toHaveValue("Rest");
   // Drop on the game while another editor is open creates a SOUND only after review.
+  await page.getByTestId("workspace-show-game").click();
+  await expect(page.getByTestId("parts-list")).toBeVisible();
   await page.getByTestId("part-room:1:logic").click();
   const transfer = await page.evaluateHandle(
     (data) => {
@@ -144,6 +148,7 @@ test("draw, audition, track and import MIDI beside the game @webkit-desktop", as
     },
     [...midi],
   );
+  await expect(page.locator(".play-area")).toBeVisible();
   await page.locator(".play-area").dispatchEvent("drop", { dataTransfer: transfer });
   await expect(page.getByTestId("sound-import-summary").filter({ visible: true })).toBeVisible();
   await expect(page.getByTestId("part-sound:2")).toHaveCount(0);

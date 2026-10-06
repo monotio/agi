@@ -10,7 +10,7 @@ import {
   closeWorkspaceEditor,
   isolateStorage,
   openGameDownload,
-  openPlayMore,
+  storedAutosave,
   openWorkspacePicture,
   openWorkspaceView,
   savedGameCard,
@@ -277,8 +277,9 @@ test("the first guided game: starter, editors, five actions, play both ways and 
   // Play for real: cross the door both directions, type the command, hear it.
   await page.getByTestId("btn-exit").click();
   const card = savedGameCard(page, "Guided grove");
-  const more = await openPlayMore(page, card);
-  await more.getByTestId("start-library-game-over").click();
+  await expect(card).toBeVisible();
+  expect(await storedAutosave(page, projectId)).toBeNull();
+  await card.getByTestId("btn-resume-cached").click();
   await expect.poll(async () => (await textHook(page)).room, { intervals: [100] }).toBe(1);
   const input = page.getByTestId("input-line");
   await expect(input).toBeEnabled();

@@ -1,5 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
-import { isolateStorage, openGameOptions, textHook } from "./engineProbe.ts";
+import { isolateStorage, openGameOptions, openPlayMore, textHook } from "./engineProbe.ts";
 import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import { buildSound } from "../../src/agent/tools.ts";
@@ -101,11 +101,14 @@ for (const viewport of [
         return w.__AGI_AUDIO__.paulaSources[0] === w.regionSource;
       }),
     ).toBe(true);
+    // Exit records the running region; a fresh start applies the saved preference.
+    await page.getByTestId("btn-exit").click();
+    await expect(page.getByTestId("saved-game-gallery")).toBeVisible();
     await page.reload();
-    await page
-      .locator("[data-testid^='saved-game-card-']", { hasText: "region-sound" })
-      .getByTestId("btn-resume-cached")
-      .click();
+    const card = page.locator("[data-testid^='saved-game-card-']", { hasText: "region-sound" });
+    await expect(card).toBeVisible();
+    const more = await openPlayMore(page, card);
+    await more.getByTestId("start-library-game-over").click();
     await expect.poll(async () => (await textHook(page)).profile).toBe("amiga-2.310");
     await openAdvanced(page);
     await expect(region).toBeVisible();

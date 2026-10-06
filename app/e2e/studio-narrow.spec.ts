@@ -142,6 +142,8 @@ test("Sprite Studio at 1024×600: the options bar folds its view options into Mo
   await page.setViewportSize({ width: 1024, height: 600 });
   await playTutorial(page);
   await openWorkspaceView(page, 0);
+  await page.getByTestId("workspace-layout").click();
+  await expect(page.getByTestId("workspace-layout")).toHaveAttribute("aria-pressed", "true");
   const studio = page.getByTestId("sprite-studio");
   await expect(studio).toBeVisible();
   const bar = studio.getByTestId("sprite-options-bar");
