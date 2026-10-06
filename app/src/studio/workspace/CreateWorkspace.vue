@@ -13,6 +13,7 @@ import {
   moveRoomPlacement,
   type RoomPlacement,
 } from "../../../../src/authoring/roomPlacements.ts";
+import { lineOf } from "../../../../src/authoring/guidedSource.ts";
 import { soundProjectChanges } from "../sound/soundEdits.ts";
 import { VOCABULARY } from "../../../../src/vocabulary.ts";
 import "./workspace.css";
@@ -1412,6 +1413,21 @@ function openWordLogic(logic: number, line: number): void {
   logicLocation.value = { key, line, serial: (logicLocation.value?.serial ?? 0) + 1 };
   openPart(key);
 }
+/** The Views list's "Set in": the LOGIC line that places the figure. */
+function revealFigure(figure: RoomPlacement): void {
+  const key = `logic:${figure.logic}`;
+  const source = text(key);
+  if (source === undefined || figure.offset < 0) {
+    openPart(key);
+    return;
+  }
+  logicLocation.value = {
+    key,
+    line: lineOf(source, figure.offset),
+    serial: (logicLocation.value?.serial ?? 0) + 1,
+  };
+  openPart(key);
+}
 function wordResponse(room: number, command: string): void {
   openPart(`logic:${room}`);
   guidedCommand.value = command;
@@ -1587,7 +1603,8 @@ async function add(group: string): Promise<void> {
     guidedKind.value = "add-room";
     return;
   }
-  if (kind === "picture") edit(`picture:${num}`, "vis 15\nfill 0,0\nend\n");
+  // A new picture is blank and white: `end` alone compiles to one 0xff byte.
+  if (kind === "picture") edit(`picture:${num}`, "end\n");
   else if (kind === "view") {
     const { buildView } = await import("../../../../src/view/view.ts");
     edit(
@@ -2147,6 +2164,7 @@ onBeforeUnmount(() => {
         :active="creating && key === editor.selected.value"
         :figures="key === editor.selected.value ? figures : []"
         @place-figure="placeFigure"
+        @reveal-figure="revealFigure"
         @agent-context="editor.setAgentContext(key, $event)"
         :underlay="traceUnderlays[key] ?? null"
         :walk="pictureWalks[key]"

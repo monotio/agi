@@ -57,7 +57,7 @@ function key(event: KeyboardEvent, index: number): void {
       :class="`is-${state.lens}`"
       role="radiogroup"
       :aria-label="
-        state.lens === 'art' ? 'Palette' : state.lens === 'depth' ? 'Depth bands' : 'Walk lines'
+        state.lens === 'art' ? 'Palette' : state.lens === 'depth' ? 'Distance bands' : 'Walk lines'
       "
     >
       <button

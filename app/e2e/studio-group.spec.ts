@@ -172,11 +172,11 @@ test("an outline and its fill, selected together, move as one and keep exactly t
   // its new inside. The edit lands and says so; one undo takes it all back.
   const original = await draftBytes(page);
   await studio.locator('[data-row="el-1"]').click();
-  await expect(bar.getByTestId("selection-name")).toHaveText("Element 1");
+  await expect(bar.getByTestId("selection-name")).toHaveText("Green line · 7 points");
   await canvas.focus();
   await page.keyboard.press("Shift+ArrowRight");
   await expect(page.locator(".workspace-status").getByTestId("studio-notice")).toHaveText(
-    /^Element 1 part 2 flows differently: [\d,]+ cells changed\. (⌘|Ctrl\+)Z undoes it\.$/,
+    /^Light green fill · part 2 flows differently: [\d,]+ cells changed\. (⌘|Ctrl\+)Z undoes it\.$/,
   );
   await workspaceUpdated(page);
   await page.keyboard.press("ControlOrMeta+z");
@@ -220,7 +220,9 @@ test("from the keyboard alone: step to an item, grow the run with Shift+Alt+arro
   const canvas = studio.getByRole("group", { name: /^Canvas/ });
   await canvas.focus();
   await page.keyboard.press("Alt+ArrowDown");
-  await expect(studio.locator('[data-role="announce"]')).toHaveText("Element 1, art, 2 steps");
+  await expect(studio.locator('[data-role="announce"]')).toHaveText(
+    "Green line · 7 points, art, 2 steps",
+  );
   await page.keyboard.press("Shift+Alt+ArrowDown");
   await page.keyboard.press("Shift+Alt+ArrowDown");
   await expect(studio.locator('[data-role="announce"]')).toHaveText("3 items, art, 6 steps");
@@ -270,7 +272,7 @@ test("Group names the bush, keeps the bytes, stays one item after a reload, and 
   await expect(page.getByTestId("combine-name")).toHaveValue("Group");
   // The trunk is drawn between the outline and its fill: only neighbours can be one item.
   await expect(page.getByTestId("combine-gap")).toHaveText(
-    "“Element 2” is drawn between them. Only neighbours in the draw order can be grouped.",
+    "“Brown line · 2 points” is drawn between them. Only neighbours in the draw order can be grouped.",
   );
   await expect(page.getByTestId("combine-make")).toBeDisabled();
   await page.getByTestId("combine-include").click();

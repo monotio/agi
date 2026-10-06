@@ -78,8 +78,8 @@ for (const viewport of [
     const below = studio.getByTestId("studio-rail-more-below");
     const above = studio.getByTestId("studio-rail-more-above");
     for (const [key, name] of [
-      ["1", "Art"],
-      ["2", "Depth"],
+      ["1", "Visual"],
+      ["2", "Priority"],
       ["3", "Walk"],
     ] as const) {
       await page.keyboard.press(key);
@@ -89,8 +89,8 @@ for (const viewport of [
       );
       const context = `${name} at ${viewport.width}×${viewport.height}`;
       const top = await boxes([
-        ["Art tab", lens.getByRole("radio", { name: /Art/ })],
-        ["Depth tab", lens.getByRole("radio", { name: /Depth/ })],
+        ["Visual tab", lens.getByRole("radio", { name: /Visual/ })],
+        ["Priority tab", lens.getByRole("radio", { name: /Priority/ })],
         ["Walk tab", lens.getByRole("radio", { name: /Walk/ })],
       ]);
       expect(top.length, `${context}: all lens tabs show`).toBe(3);

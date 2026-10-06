@@ -120,33 +120,24 @@ export function movedWith(
   return `Moved ${what} with ${several ? "their" : "its"} ${list}.`;
 }
 
-/** Where the drawing tools put new shapes: `index` steps draw before them, of `steps`. */
-export function insertionText(index: number, steps: number): string {
-  if (steps === 0) return "New steps are the first steps.";
-  if (index >= steps) return `New steps go last, after step ${steps}, on top of everything.`;
-  const where = index === 0 ? "first, before step 1" : `after step ${index}`;
-  return `New steps go ${where} of ${steps}; the steps after them paint over them.`;
-}
-
-/** insertionText for the options bar: where new shapes go, in a few words. */
-export function insertionShort(index: number, steps: number): string {
-  if (steps === 0 || index === 0) return "Before step 1";
-  return `After step ${Math.min(index, steps)}`;
-}
-
 /**
  * What an accepted edit did to other items, for the status line, with the
  * undo key: "Grass flows differently: 17,802 cells changed. ⌘Z undoes it.";
  * "3 other items change: 17,802 cells. ⌘Z undoes it."
  */
-export function sideEffectNote(report: SideEffectReport, undo: string): string {
+export function sideEffectNote(
+  report: SideEffectReport,
+  undo: string,
+  name?: (itemId: string | null) => string | undefined,
+): string {
   const cells = `${report.cells.toLocaleString("en-US")} ${report.cells === 1 ? "cell" : "cells"}`;
   const [only, ...more] = report.items;
+  const onlyName = only ? (name?.(only.itemId) ?? only.label) : "";
   const what =
     only && more.length === 0
       ? only.fill
-        ? `${only.label} flows differently: ${cells} changed.`
-        : `${only.label} changes too: ${cells}.`
+        ? `${onlyName} flows differently: ${cells} changed.`
+        : `${onlyName} changes too: ${cells}.`
       : `${report.items.length} other items change: ${cells}.`;
   return `${what} ${undo} undoes it.`;
 }

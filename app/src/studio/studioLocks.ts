@@ -29,7 +29,7 @@ import {
   type LensUnlocks,
 } from "../../../src/studio/lensRules.ts";
 import { SCREEN_HEIGHT, SCREEN_WIDTH } from "../../../src/types.ts";
-import type { StudioLens } from "./studioView.ts";
+import { LENS_NAMES, type StudioLens } from "./studioView.ts";
 
 const CELLS = SCREEN_WIDTH * SCREEN_HEIGHT;
 
@@ -52,8 +52,8 @@ export function lensItemLocks(lens: StudioLens, unlocks: LensUnlocks) {
  * plane holds both depth and walk lines.
  */
 export const LOCKED_PLANES: Record<PicturePlane, string> = {
-  visual: "Art is locked",
-  priority: "Depth and walk lines are locked",
+  visual: "Visual is locked",
+  priority: "Priority is locked",
 };
 
 /** One reason an edit was refused, with the cells to highlight. */
@@ -77,7 +77,7 @@ export interface StudioCheck {
   readonly violations: readonly StudioViolation[];
 }
 
-const lensName = (lens: StudioLens): string => `${lens[0]!.toUpperCase()}${lens.slice(1)}`;
+const lensName = (lens: StudioLens): string => LENS_NAMES[lens].label;
 
 const where = (count: number, bbox: CellBox): string =>
   `${count} cell${count === 1 ? "" : "s"} at ${bbox.x0},${bbox.y0}..${bbox.x1},${bbox.y1}`;
@@ -214,21 +214,21 @@ export function violationCells(check: StudioCheck): Uint8Array {
 
 /**
  * What moving `ids` carried that `lens` does not paint, in the lock chip's
- * words: "depth" and "walk lines" (priority 4–15 and 0–3) in the Art lens,
- * "art" in the Depth lens, "art" and "depth" in the Walk lens. Read from the
- * cells the items own in `compiled`, so lines drawn over entirely count for
- * nothing.
+ * words: "priority" and "walk lines" (values 4–15 and 0–3) in the Visual
+ * lens, "visual" in the Priority lens, "visual" and "priority" in the Walk
+ * lens. Read from the cells the items own in `compiled`, so lines drawn over
+ * entirely count for nothing.
  */
 export function carriedPlanes(
   compiled: CompiledDocument,
   ids: readonly string[],
   lens: StudioLens,
 ): string[] {
-  let art = false;
+  let visual = false;
   let depth = false;
   let walk = false;
   for (const id of ids) {
-    art ||= footprintMask(compiled, id, "visual").includes(1);
+    visual ||= footprintMask(compiled, id, "visual").includes(1);
     const priority = footprintMask(compiled, id, "priority");
     for (let i = 0; i < CELLS; i++) {
       if (priority[i] !== 1) continue;
@@ -239,14 +239,14 @@ export function carriedPlanes(
   const hidden: readonly [string, boolean][] =
     lens === "art"
       ? [
-          ["depth", depth],
+          ["priority", depth],
           ["walk lines", walk],
         ]
       : lens === "depth"
-        ? [["art", art]]
+        ? [["visual", visual]]
         : [
-            ["art", art],
-            ["depth", depth],
+            ["visual", visual],
+            ["priority", depth],
           ];
   return hidden.flatMap(([name, carried]) => (carried ? [name] : []));
 }

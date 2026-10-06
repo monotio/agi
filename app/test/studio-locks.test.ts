@@ -303,19 +303,16 @@ describe("refusalText", () => {
       art.verdict.violations.map((v) => v.rule),
       ["locked-plane"],
     );
-    assert.equal(
-      refusalText(art.verdict).message,
-      "Depth and walk lines are locked in the Art lens.",
-    );
+    assert.equal(refusalText(art.verdict).message, "Priority is locked in the Visual lens.");
   });
 
-  it("keeps the Art lens lock: painting depth on an art item is refused", () => {
+  it("keeps the Visual lens lock: painting depth on a visual item is refused", () => {
     const painted = check(
       FRAME.concat("end"),
       { type: "setItemColor", itemId: "frame", plane: "priority", value: 9 },
       "art",
     ).verdict;
-    assert.deepEqual(messages(painted), ["Depth and walk lines are locked in the Art lens."]);
+    assert.deepEqual(messages(painted), ["Priority is locked in the Visual lens."]);
     assert.equal(painted.violations[0]!.rule, "locked-plane");
     assert.equal(painted.violations[0]!.count, 200, "the frame's 200 outline cells");
   });

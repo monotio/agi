@@ -4,24 +4,28 @@ import UiButton from "../ui/UiButton.vue";
 import UiExplain from "../ui/UiExplain.vue";
 import UiIcon from "../ui/UiIcon.vue";
 import UiSegmented from "../ui/UiSegmented.vue";
+import UiSelect from "../ui/UiSelect.vue";
 import { explain } from "./studioTerms.ts";
-import type { StudioLens, StudioViewMode } from "./studioView.ts";
+import { CONTROL_VALUES, type StudioLens, type StudioViewMode } from "./studioView.ts";
+import type { PriorityFilter } from "./studioView.ts";
 
 /**
- * The Depth and Walk lenses' view toggles, docked at the right of the
- * options bar: how the planes show (blend, split, depth only) and the band
- * guides. The walk lines' legend is a row of the Walk panel. The Art lens
- * shows only its visual plane and needs none of them. Short of room (`fold`
- * 3 and up) they all fold into one View menu.
+ * The Priority and Walk lenses' view toggles, docked at the right of the
+ * options bar: how the planes show (blend, split, priority only), what of
+ * it shows (all, the distance bands, or one value), and the band guides.
+ * The walk lines' legend is a row of the Walk panel. The Visual lens shows
+ * only its plane and needs none of them. Short of room (`fold` 3 and up)
+ * they all fold into one View menu.
  */
 const { lens, fold = 0 } = defineProps<{ lens: StudioLens; fold?: number }>();
 const mode = defineModel<StudioViewMode>("mode", { required: true });
 const bands = defineModel<boolean>("bands", { required: true });
+const filter = defineModel<PriorityFilter>("filter", { required: true });
 
 const MODES = [
   { value: "blend", label: "Blend" },
   { value: "split", label: "Split" },
-  { value: "priority", label: "Depth only" },
+  { value: "priority", label: "Priority" },
 ] as const;
 </script>
 
@@ -40,10 +44,26 @@ const MODES = [
       </button>
       <div role="separator"></div>
       <button type="button" role="menuitemcheckbox" :aria-checked="bands" @click="bands = !bands">
-        <UiIcon name="check" :size="16" class="view-more__check" />Depth bands
+        <UiIcon name="check" :size="16" class="view-more__check" />Distance bands
       </button>
     </ActionMenu>
     <UiSegmented v-else v-model="mode" size="sm" label="Picture view" :options="MODES" />
+    <UiSelect
+      v-if="fold < 3"
+      v-model="filter"
+      size="sm"
+      aria-label="Show priority"
+      data-testid="priority-filter"
+    >
+      <option value="all">All priority</option>
+      <option value="bands">Distance bands</option>
+      <optgroup label="One value">
+        <option v-for="control in CONTROL_VALUES" :key="control.value" :value="control.value">
+          {{ control.name }}
+        </option>
+        <option v-for="band in 12" :key="band + 3" :value="band + 3">Band {{ band + 3 }}</option>
+      </optgroup>
+    </UiSelect>
     <template v-if="fold < 3">
       <UiButton
         variant="ghost"
@@ -51,7 +71,7 @@ const MODES = [
         :aria-pressed="bands"
         @click="bands = !bands"
       >
-        Depth bands
+        Distance bands
       </UiButton>
       <UiExplain v-bind="explain('bands')" />
     </template>

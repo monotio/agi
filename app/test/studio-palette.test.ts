@@ -134,13 +134,13 @@ for (const [lens, ids, patch, message] of [
     "art",
     ["a", "w"],
     { visual: 4 },
-    "Wall has no art colour. Select a shape with art to recolour it.",
+    "Wall has no visual colour. Select a shape with visual colour to recolour it.",
   ],
   [
     "depth",
     ["a"],
     { priority: 10 },
-    "Art has no depth band. Add depth or select a shape with depth.",
+    "Art has no depth band. Paint a depth band or select a shape with one.",
   ],
   [
     "walk",

@@ -740,7 +740,7 @@ for (const size of [
     await page.getByTestId("part-room:1:picture:1").click();
     const studio = page.getByTestId("room-studio");
     await expect(studio.getByRole("radiogroup", { name: "Lens", exact: true })).toBeVisible();
-    await expect(studio.getByRole("radio", { name: "Art", exact: true })).toHaveAttribute(
+    await expect(studio.getByRole("radio", { name: "Visual", exact: true })).toHaveAttribute(
       "aria-checked",
       "true",
     );

@@ -6,41 +6,38 @@ import UiExplain from "../ui/UiExplain.vue";
 import type { BarNotice } from "./fillAdvice.ts";
 import StudioBarNotice from "./StudioBarNotice.vue";
 import { ROOM_TOOL_NAMES } from "./studioHelp.ts";
-import { insertionShort, insertionText } from "./studioMessages.ts";
 import { explain } from "./studioTerms.ts";
-import { isDrawingTool, type InsertionPoint, type StudioTool } from "./studioTools.ts";
+import { isDrawingTool, type StudioTool } from "./studioTools.ts";
+import type { DrawingPosition } from "./useStudioReadout.ts";
 
 /**
  * The active tool's options, docked in the options bar above the canvas:
  * the tool's name, Filled for rect and polygon, the brush size, where in the
- * draw order new shapes go ("After step 12", with → Last), and a notice (a
- * fill that would flood nothing: what the spot holds, Why?, and the fix).
+ * draw order new shapes go ("Drawing after Red line", with Back to the end),
+ * and a notice (a fill that would flood nothing: what the spot holds and Why?).
  * How the tool is used by pointer and keys is the status bar's line and the
  * `?` sheet, never here. Short of room (`fold`), where new shapes go gives
- * way first, then the notice's fix moves into its popover, then → Last, then
- * the notice says itself in a few words (Why? still has it all).
+ * way first, then the notice's fix moves into its popover, then Back to the
+ * end, then the notice says itself in a few words (Why? still has it all).
  */
 const {
   tool,
-  insertion,
-  commands,
+  at,
   notice = null,
   fold = 0,
 } = defineProps<{
   tool: StudioTool;
-  insertion: InsertionPoint;
-  /** Steps in the picture. */
-  commands: number;
+  /** Where new shapes draw, in words: "Drawing before Cottage". */
+  at: DrawingPosition;
   notice?: BarNotice | null;
   fold?: number;
 }>();
-const emit = defineEmits<{ end: []; fix: [] }>();
+const emit = defineEmits<{ end: [] }>();
 const filled = defineModel<boolean>("filled", { required: true });
 const radius = defineModel<number>("radius", { required: true });
 const stipple = defineModel<boolean>("stipple", { required: true });
 const seed = defineModel<number>("seed", { required: true });
 const draws = computed(() => isDrawingTool(tool));
-const atEnd = computed(() => insertion.index >= commands);
 const clampSeed = (value: number): number => Math.min(239, Math.max(0, Math.round(value) || 0));
 </script>
 
@@ -85,32 +82,21 @@ const clampSeed = (value: number): number => Math.min(239, Math.max(0, Math.roun
     </template>
     <span v-if="draws && fold < 1" class="tool-options__sep" aria-hidden="true"></span>
     <span v-if="draws && fold < 1" class="tool-options__with">
-      <span
-        class="tool-options__at"
-        :title="insertionText(insertion.index, commands)"
-        data-testid="studio-insert-at"
-        >{{ insertionShort(insertion.index, commands) }}</span
-      >
+      <span class="tool-options__at" :title="at.text" data-testid="studio-insert-at">{{
+        at.text
+      }}</span>
       <UiExplain v-bind="explain('insert-at')" />
     </span>
     <UiButton
-      v-if="draws && !atEnd && fold < 3"
+      v-if="draws && !at.atEnd && fold < 3"
       variant="ghost"
       class="tool-options__end"
-      aria-label="Draw on top of everything"
-      title="Draw on top of everything"
       data-testid="studio-playhead-end"
       @click="emit('end')"
     >
-      <UiIcon name="arrow-right" :size="16" /> Last
+      <UiIcon name="arrow-right" :size="16" /> Back to the end
     </UiButton>
-    <StudioBarNotice
-      v-if="notice"
-      :notice
-      :compact="fold > 1"
-      :terse="fold > 3"
-      @act="emit('fix')"
-    />
+    <StudioBarNotice v-if="notice" :notice :compact="fold > 1" :terse="fold > 3" />
   </div>
 </template>
 

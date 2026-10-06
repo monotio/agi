@@ -157,7 +157,7 @@ export function roomKeySheet(tool: StudioTool): KeySection[] {
     {
       title: "View",
       rows: [
-        { keys: ["1", "2", "3"], does: "Art, Depth, Walk lens" },
+        { keys: ["1", "2", "3"], does: "Visual, Priority, Walk lens" },
         { keys: [",", "."], does: "Step the draw order back or forward" },
         { keys: ["Home", "End"], does: "Draw order to the start or the end" },
         { keys: ["+", "−", "0"], does: "Zoom in, out, to fit" },

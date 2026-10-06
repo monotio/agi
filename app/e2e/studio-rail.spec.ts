@@ -44,8 +44,8 @@ for (const viewport of VIEWPORTS) {
     const studio = await openLabStudio(page);
     const rail = studio.getByRole("toolbar", { name: "Tools" });
     for (const [key, lens, tools] of [
-      ["1", "Art", 10],
-      ["2", "Depth", 10],
+      ["1", "Visual", 10],
+      ["2", "Priority", 10],
       ["3", "Walk", 13],
     ] as const) {
       await page.keyboard.press(key);
@@ -125,8 +125,8 @@ test("at 1024×600 nothing in Room Studio's top bar or stage bars overlaps, in e
     zoom: studio.getByRole("group", { name: "Zoom" }),
   };
   for (const [key, lens] of [
-    ["1", "Art"],
-    ["2", "Depth"],
+    ["1", "Visual"],
+    ["2", "Priority"],
     ["3", "Walk"],
   ] as const) {
     await page.keyboard.press(key);

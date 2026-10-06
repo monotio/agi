@@ -201,6 +201,11 @@ for (const deviceScaleFactor of [1, 2]) {
     const page = await context.newPage();
     await bootReadonlyGame(page);
     await openRoomStudio(page, 1);
+    await page
+      .getByRole("radiogroup", { name: "Side panel", exact: true })
+      .getByRole("radio", { name: "Inspector", exact: true })
+      .click();
+    await page.getByTestId("inspector-details").click();
     const zoomLevel = page.getByRole("group", { name: "Zoom" });
     const zooms: string[] = [];
     for (const step of ["fit", "+"]) {
@@ -216,7 +221,7 @@ for (const deviceScaleFactor of [1, 2]) {
         "data-row",
         "bench-occluder",
       );
-      await expect(page.locator('[data-role="status"]')).toContainText("x 80  y 97");
+      await expect(page.locator('[data-role="pixel"]')).toContainText("Pixel 80,97");
       // 80,60 is bare wall: the Depth lens falls back to the visual owner.
       await hoverCell(page, 80, 60);
       await expect(page.locator(".scene-list__row.is-hover")).toHaveAttribute("data-row", "wall");
@@ -366,13 +371,13 @@ test("studio shortcuts keep working after clicking studio controls", async ({ pa
       .getByRole("radio", { name: new RegExp(`^${name}`) });
   await lens("Walk").click();
   await page.keyboard.press("2");
-  await expect(lens("Depth")).toHaveAttribute("aria-checked", "true");
-  // Bands shows only under Depth and Walk: after "1" hides it, keys still land in the studio.
-  await page.getByRole("button", { name: "Depth bands", exact: true }).click();
+  await expect(lens("Priority")).toHaveAttribute("aria-checked", "true");
+  // Bands shows only under Priority and Walk: after "1" hides it, keys still land in the studio.
+  await page.getByRole("button", { name: "Distance bands", exact: true }).click();
   await page.keyboard.press("1");
-  await expect(lens("Art")).toHaveAttribute("aria-checked", "true");
+  await expect(lens("Visual")).toHaveAttribute("aria-checked", "true");
   await page.keyboard.press("2");
-  await expect(lens("Depth")).toHaveAttribute("aria-checked", "true");
+  await expect(lens("Priority")).toHaveAttribute("aria-checked", "true");
   await page.getByRole("button", { name: "Zoom in" }).click();
   await page.keyboard.press("0");
   await expect(page.getByRole("button", { name: "Zoom to fit" })).toHaveAttribute(
@@ -381,25 +386,26 @@ test("studio shortcuts keep working after clicking studio controls", async ({ pa
   );
 });
 
-test("dragging the scrubber to command k paints exactly renderUpTo(k)", async ({ page }) => {
+test("dragging the transport to a shape paints exactly renderUpTo(k)", async ({ page }) => {
   await bootReadonlyGame(page);
   await openRoomStudio(page, 5);
-  await page.getByRole("button", { name: "Draw order", exact: true }).click();
   const slider = page.getByRole("slider", { name: "Draw order", exact: true });
+  await expect(slider).toBeVisible();
   const total = Number(await slider.getAttribute("aria-valuemax"));
   const scene1Document = parsePictureDocument(ORIGINAL_SCENE_PICTURES[1]!).document;
   const scene1Compiled = compileDocument(scene1Document, profile);
   expect(total).toBe(scene1Compiled.spans.length - 1);
 
-  const k = 38;
   const box = (await slider.boundingBox())!;
   await page.mouse.move(box.x + 2, box.y + box.height / 2);
   await page.mouse.down();
   await page.mouse.move(box.x + box.width * 0.2, box.y + box.height / 2, { steps: 4 });
-  await page.mouse.move(box.x + (box.width * k) / total, box.y + box.height / 2, { steps: 4 });
   await page.mouse.up();
-  await expect(slider).toHaveAttribute("aria-valuenow", String(k));
-  await expect(page.getByTestId("scrubber-step")).toHaveText(`Step ${k} of ${total}`);
+  // The marker lands on a shape boundary, wherever the drag stopped.
+  const k = Number(await slider.getAttribute("aria-valuenow"));
+  expect(k).toBeGreaterThan(0);
+  expect(k).toBeLessThan(total);
+  await expect(page.getByTestId("scrubber-position")).toHaveText(/^Drawing /);
 
   const expectedVisual = renderUpTo(scene1Compiled, k, profile).visual;
   const mismatches = await page.locator(".studio-pane canvas").evaluate(
@@ -442,7 +448,7 @@ test("lens keys switch lenses and studio keys never reach a window listener", as
       .getByRole("radiogroup", { name: "Lens", exact: true })
       .getByRole("radio", { name: new RegExp(`^${name}`) });
   await page.keyboard.press("2");
-  await expect(lens("Depth")).toHaveAttribute("aria-checked", "true");
+  await expect(lens("Priority")).toHaveAttribute("aria-checked", "true");
   await expect(page.locator('[data-role="band-guides"]')).toHaveCount(1);
   await page.keyboard.press("3");
   await expect(lens("Walk")).toHaveAttribute("aria-checked", "true");
@@ -451,18 +457,20 @@ test("lens keys switch lenses and studio keys never reach a window listener", as
     "0 · Wall",
   );
   await page.keyboard.press("1");
-  await expect(lens("Art")).toHaveAttribute("aria-checked", "true");
+  await expect(lens("Visual")).toHaveAttribute("aria-checked", "true");
 
   // The Walk lens docked the side panel on Inspector; Items brings the list back.
   await page
     .getByRole("radiogroup", { name: "Side panel", exact: true })
     .getByRole("radio", { name: "Items", exact: true })
     .click();
-  await page.getByRole("button", { name: "Draw order", exact: true }).click();
   const slider = page.getByRole("slider", { name: "Draw order", exact: true });
+  await expect(slider).toBeVisible();
   const total = Number(await slider.getAttribute("aria-valuemax"));
   await page.keyboard.press(",");
   await expect(slider).toHaveAttribute("aria-valuenow", String(total - 1));
+  // Home and End belong to a focused radiogroup; the canvas gives them to the studio.
+  await page.getByRole("group", { name: /^Canvas/ }).focus();
   await page.keyboard.press("Home");
   await expect(slider).toHaveAttribute("aria-valuenow", "0");
 
@@ -472,7 +480,7 @@ test("lens keys switch lenses and studio keys never reach a window listener", as
     .evaluate((root) =>
       root.dispatchEvent(new KeyboardEvent("keydown", { key: "2", bubbles: true })),
     );
-  await expect(lens("Depth")).toHaveAttribute("aria-checked", "true");
+  await expect(lens("Priority")).toHaveAttribute("aria-checked", "true");
   expect(await page.evaluate(() => (window as unknown as { seenKeys: string[] }).seenKeys)).toEqual(
     [],
   );

@@ -138,17 +138,17 @@ function pick(value: number | null): void {
         :aria-expanded="open"
         :aria-controls="pickerId"
         :title="
-          priorityLocked ?? `Set the depth ${several ? 'these items draw' : 'this item draws'}`
+          priorityLocked ?? `Set the priority ${several ? 'these items draw' : 'this item draws'}`
         "
         data-testid="selection-priority"
         @click="open = !open"
       >
-        Depth {{ priority === undefined ? "mixed" : priority === null ? "off" : priority }}
+        Priority {{ priority === undefined ? "mixed" : priority === null ? "off" : priority }}
       </UiButton>
       <div v-if="open" :id="pickerId" class="selection-bar__picker" data-testid="selection-picker">
         <StudioValuePicker
           plane="priority"
-          label="Depth value"
+          label="Priority value"
           :value="priority"
           :disabled="priorityLocked !== null"
           :allowed="(v) => !depthValuesLocked || v < 4"

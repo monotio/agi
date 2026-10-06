@@ -159,7 +159,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         title: "Locks",
         body: [
           VOCABULARY.lock.help,
-          "Each lens protects the other parts while you paint. Moving, copying or deleting a whole item carries its Art, Depth and Walk together. Unlock enables editing until you close the editor.",
+          "Each lens protects the other parts while you paint. Moving, copying or deleting a whole item carries its Visual, Priority and Walk together. Unlock enables editing until you close the editor.",
         ],
       },
       {

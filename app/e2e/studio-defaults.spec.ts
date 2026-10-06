@@ -4,7 +4,7 @@ import { expect, reviewShot, test } from "./test.ts";
 
 /**
  * Room Studio opens at its essentials: with two items selected the inspector
- * shows exactly their name, one line ("Art · 6 steps"), three actions, Ask
+ * shows exactly their name, one line ("Visual · 6 steps"), three actions, Ask
  * and a closed Details, with the movement hint at its foot, at 1440×900 and
  * at 1024×600, where nothing in the side panels or the page scrolls
  * sideways or runs out of its column. The lock is a chip by the lens tabs.
@@ -53,20 +53,23 @@ for (const [width, height] of [
 
     await expect(studio.getByTestId("selection-name")).toHaveText("2 items");
     await expect(studio.locator('[data-role="scene-count"]')).toHaveText("30 items");
-    await expect(page.getByTestId("studio-status")).toHaveText("Point at a pixel");
+    await expect(page.getByTestId("studio-status")).toHaveText("Drawing after Bust barrier");
     // Nothing in Studio scrolls sideways.
     expect(await sidewaysScrollers(studio)).toEqual([]);
     expect(
       await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth),
     ).toBeLessThanOrEqual(0);
 
-    // The pixel under the pointer reads in plain words in the status bar.
+    // The pixel under the pointer reads in Inspector → Details, never the status.
+    await studio.getByTestId("inspector-details").click();
     const pane = studio.locator(".studio-pane").last();
+    await pane.scrollIntoViewIfNeeded();
     const box = (await pane.boundingBox())!;
-    await page.mouse.move(box.x + (35.5 / 160) * box.width, box.y + (50.5 / 168) * box.height);
-    await expect(page.getByTestId("studio-status")).toHaveText(
-      /^x 35 y 50 · colour \d+ · depth \d+( · step \d+)?$/,
-    );
+    const mx = box.x + (35.5 / 160) * box.width;
+    const my = box.y + (50.5 / 168) * box.height;
+    await page.mouse.move(mx, my);
+    await expect(studio.locator('[data-role="pixel"]')).toContainText("Pixel 35,50");
+    await expect(page.getByTestId("studio-status")).toHaveText("Drawing after Bust barrier");
     await page.mouse.move(box.x + box.width + 40, box.y);
     await reviewShot(page, `room-${width}-selection`);
   });

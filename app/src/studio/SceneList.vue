@@ -7,7 +7,7 @@ import UiIcon from "../ui/UiIcon.vue";
 import UiPanel from "../ui/UiPanel.vue";
 import { explain } from "./studioTerms.ts";
 import { keyLabel } from "../ui/keyLabel.ts";
-import { labelParts, type LabelParts } from "./studioView.ts";
+import { labelParts, LENS_NAMES, type LabelParts } from "./studioView.ts";
 import type { SceneBranch, SceneGroupRow, SceneRow, SceneSectionRow } from "./useStudioDocument.ts";
 
 /**
@@ -33,6 +33,7 @@ const {
   quietTag = undefined,
   groupable = false,
   drawOrder = false,
+  movable = undefined,
 } = defineProps<{
   branches: readonly SceneBranch[];
   /** Draw-order sections over `branches`; empty for a short list. */
@@ -49,6 +50,8 @@ const {
   /** Two items or more are selected and may be grouped. */
   groupable?: boolean;
   drawOrder?: boolean;
+  /** Whether a row is a picture item a drag may reorder; absent, no rows drag. */
+  movable?: ((id: string) => boolean) | undefined;
 }>();
 /** `extend`: Shift was held, so the row's items join the selection or leave it. */
 const emit = defineEmits<{
@@ -56,6 +59,8 @@ const emit = defineEmits<{
   select: [id: string, extend: boolean];
   group: [];
   "draw-order": [];
+  /** A dropped item: it goes before `target`, or after it. */
+  move: [id: string, target: string, edge: "before" | "after"];
 }>();
 const filter = defineModel<string>("filter", { required: true });
 
@@ -136,7 +141,7 @@ const entries = computed<(Entry & { label: LabelParts })[]>(() => {
   if (loose) out.push({ row: loose, level: 1 });
   return out.map((entry) => ({
     ...entry,
-    label: labelParts(entry.row === loose ? "Loose steps" : entry.row.label),
+    label: labelParts(entry.row === loose ? "Loose steps" : entry.row.display),
   }));
 });
 const allOpen = computed(() => folds.value.every((fold) => expanded.value.has(fold.id)));
@@ -163,11 +168,17 @@ function shownFor(id: string | undefined): string | undefined {
 function reveal(id: string | undefined): void {
   const shown = shownFor(id);
   if (shown === undefined) return;
-  void nextTick(() =>
-    list.value
-      ?.querySelector(`#${CSS.escape(optionId(shown))}`)
-      ?.scrollIntoView({ block: "nearest" }),
-  );
+  void nextTick(() => {
+    const view = list.value;
+    const row = view?.querySelector<HTMLElement>(`#${CSS.escape(optionId(shown))}`);
+    if (!view || !row) return;
+    // Scroll only this list: scrollIntoView would also scroll outer
+    // containers (the whole studio when it overflows), moving the canvas.
+    const rowBox = row.getBoundingClientRect();
+    const viewBox = view.getBoundingClientRect();
+    if (rowBox.top < viewBox.top) view.scrollTop += rowBox.top - viewBox.top;
+    else if (rowBox.bottom > viewBox.bottom) view.scrollTop += rowBox.bottom - viewBox.bottom;
+  });
 }
 watch(
   () => hoveredId,
@@ -224,6 +235,50 @@ function onFilterKeydown(event: KeyboardEvent): void {
     filter.value = "";
     event.preventDefault();
   }
+}
+
+/** A drag in the list reorders items: `dragRow` moves, `dropAt` shows where it lands. */
+const dragRow = ref<string>();
+const dropAt = ref<{ id: string; edge: "before" | "after" }>();
+/** Item rows drag while the list is in draw order (not filtered flat, not the loose steps). */
+const canDrag = (entry: Entry): boolean =>
+  matches === null && entry.fold === undefined && entry.row !== loose && movable !== undefined
+    ? movable(entry.row.id)
+    : false;
+const dropsOn = (entry: Entry): boolean => canDrag(entry) && dragRow.value !== entry.row.id;
+
+function onDragStart(entry: Entry, event: DragEvent): void {
+  if (!canDrag(entry)) {
+    event.preventDefault();
+    return;
+  }
+  dragRow.value = entry.row.id;
+  event.dataTransfer!.effectAllowed = "move";
+  event.dataTransfer!.setData("text/plain", entry.row.id);
+}
+function onDragOver(entry: Entry, event: DragEvent): void {
+  if (dragRow.value === undefined || !dropsOn(entry)) return;
+  event.preventDefault();
+  event.dataTransfer!.dropEffect = "move";
+  const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+  dropAt.value = {
+    id: entry.row.id,
+    edge: event.clientY - rect.top < rect.height / 2 ? "before" : "after",
+  };
+}
+function onDragLeave(entry: Entry): void {
+  if (dropAt.value?.id === entry.row.id) dropAt.value = undefined;
+}
+function onDragEnd(): void {
+  dragRow.value = undefined;
+  dropAt.value = undefined;
+}
+function onDrop(entry: Entry, event: DragEvent): void {
+  if (dragRow.value !== undefined && dropAt.value) {
+    event.preventDefault();
+    emit("move", dragRow.value, dropAt.value.id, dropAt.value.edge);
+  }
+  onDragEnd();
 }
 </script>
 
@@ -283,6 +338,9 @@ function onFilterKeydown(event: KeyboardEvent): void {
             'is-hover': isHover(entry),
             'is-cursor': entry.row.id === cursor,
             'is-dim': entry.row.entries.length === 0,
+            'is-dragged': entry.row.id === dragRow,
+            'is-drop-before': dropAt?.id === entry.row.id && dropAt.edge === 'before',
+            'is-drop-after': dropAt?.id === entry.row.id && dropAt.edge === 'after',
           }"
           role="treeitem"
           :aria-level="entry.level"
@@ -292,6 +350,12 @@ function onFilterKeydown(event: KeyboardEvent): void {
             (entry.parent !== undefined && selectedIds.includes(entry.parent))
           "
           :data-row="entry.row.id"
+          :draggable="canDrag(entry)"
+          @dragstart="onDragStart(entry, $event)"
+          @dragover="onDragOver(entry, $event)"
+          @dragleave="onDragLeave(entry)"
+          @drop="onDrop(entry, $event)"
+          @dragend="onDragEnd"
           @pointerenter="emit('hover', entry.row.id)"
           @click="emit('select', entry.row.id, $event.shiftKey)"
         >
@@ -333,8 +397,8 @@ function onFilterKeydown(event: KeyboardEvent): void {
               v-for="lens in entry.row.lenses"
               :key="lens"
               role="img"
-              :aria-label="VOCABULARY[lens].label"
-              :title="`${VOCABULARY[lens].label}: ${VOCABULARY[lens].help}`"
+              :aria-label="LENS_NAMES[lens].label"
+              :title="`${LENS_NAMES[lens].label}: ${LENS_NAMES[lens].help}`"
               ><UiIcon
                 :name="lens === 'art' ? 'eye' : lens === 'depth' ? 'layers' : 'footprints'"
                 :size="12"
@@ -522,6 +586,18 @@ function onFilterKeydown(event: KeyboardEvent): void {
   width: 2px;
   border-radius: var(--radius-sm);
   background: var(--action);
+}
+.scene-list__row[draggable="true"] {
+  cursor: grab;
+}
+.scene-list__row.is-dragged {
+  opacity: 0.4;
+}
+.scene-list__row.is-drop-before {
+  box-shadow: inset 0 2px 0 0 var(--action);
+}
+.scene-list__row.is-drop-after {
+  box-shadow: inset 0 -2px 0 0 var(--action);
 }
 .scene-list__swatch {
   grid-column: 2;

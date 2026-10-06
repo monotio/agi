@@ -71,11 +71,11 @@ export function useStudioPalette(options: {
     if (missing) {
       const reason =
         lens === "art"
-          ? "has no art colour. Select a shape with art to recolour it."
+          ? "has no visual colour. Select a shape with visual colour to recolour it."
           : lens === "depth"
-            ? "has no depth band. Add depth or select a shape with depth."
+            ? "has no depth band. Paint a depth band or select a shape with one."
             : "has no walk line. Select a Wall, Gate, Trigger or Water shape.";
-      options.editing.say({ tone: "warn", text: `${missing.label} ${reason}` });
+      options.editing.say({ tone: "warn", text: `${options.editing.name(missing)} ${reason}` });
       return;
     }
     options.editing.setColour(plane, value);

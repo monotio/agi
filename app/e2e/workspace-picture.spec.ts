@@ -77,7 +77,8 @@ test("Views are static at 0, 50 and 100; dragging drafts LOGIC and Update places
       .drafts()
       .stage([{ key: "picture:8", content: "vis 5\nfill 0,0\nend\n" }]),
   );
-  await expect(studio.getByTestId("stage-draft")).toBeVisible();
+  // No floating draft label: the changed cells alone wear a dashed outline.
+  await expect(studio.locator(".studio-pane__changed-line").first()).toBeVisible();
   await workspaceUpdated(page);
   await expect
     .poll(async () => {
@@ -96,7 +97,7 @@ test("Views are static at 0, 50 and 100; dragging drafts LOGIC and Update places
   await page.getByTestId("workspace-undo").click();
   await expect.poll(() => runningWorkspaceDocument(page, "logic:8")).toBe(initial);
   await expect.poll(() => runningWorkspaceDocument(page, "picture:8")).toBe(initialPicture);
-  await expect(studio.getByTestId("stage-draft")).toHaveCount(0);
+  await expect(studio.locator(".studio-pane__changed-line")).toHaveCount(0);
   await workspaceSaved(page);
   await page.goto("/");
   await openLibraryActions(page, savedGameCard(page, "My adventure"));
@@ -110,7 +111,7 @@ test("Views are static at 0, 50 and 100; dragging drafts LOGIC and Update places
   await expect(page.getByRole("slider", { name: "Views", exact: true })).toHaveValue("100");
 });
 
-test("computed placements are dashed and locked, and game motion never paints the picture", async ({
+test("computed placements move a preview, and game motion never paints the picture", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -158,35 +159,47 @@ test("computed placements are dashed and locked, and game motion never paints th
     (el as HTMLInputElement).value = "100";
     el.dispatchEvent(new Event("input", { bubbles: true }));
   });
-  const locked = studio.locator('[data-object="0"]');
-  await expect(locked).toBeVisible();
-  await expect(locked).toHaveClass(/is-locked/);
-  await expect(locked).toHaveAttribute("aria-disabled", "true");
-  await expect(locked).toHaveAttribute("aria-label", /position.v uses variables/);
+  // A computed spot draws as in the game, moves a preview, never the line.
+  const figure = studio.locator('[data-object="0"]');
+  await expect(figure).toBeVisible();
+  await expect(figure).toHaveClass(/is-preview/);
+  await expect(figure).toHaveAttribute("aria-label", /position\.v uses variables/);
   await page.screenshot({
     path: test.info().outputPath("computed-placement.png"),
     animations: "disabled",
   });
   const source = await workspaceDocument(page, "logic:8");
-  const at = (await locked.boundingBox())!;
+  const at = (await figure.boundingBox())!;
+  const pane = (await studio.locator('.studio-pane[data-layer="art"]').boundingBox())!;
   await page.mouse.move(at.x + at.width / 2, at.y + at.height / 2);
   await page.mouse.down();
-  await page.mouse.move(at.x + at.width, at.y);
+  await page.mouse.move(at.x + at.width / 2 + (10 * pane.width) / 160, at.y + at.height / 2);
   await page.mouse.up();
   expect(await workspaceDocument(page, "logic:8")).toBe(source);
-  await expect(locked).toHaveAttribute("data-x", "60");
+  await expect(figure).toHaveAttribute("data-x", "70");
+  // The Views list shows the preview, with Reset and Copy position.
+  await studio
+    .getByRole("radiogroup", { name: "Side panel", exact: true })
+    .getByRole("radio", { name: "Views", exact: true })
+    .click();
+  const list = studio.getByTestId("views-panel");
+  await expect(list).toBeVisible();
+  await expect(list).toContainText("position.v uses variables");
+  await expect(list).toContainText("70, 140");
+  await list.getByTestId("view-reset").click();
+  await expect(figure).toHaveAttribute("data-x", "60");
   await page.evaluate(() =>
     (window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }).__AGI_PROJECT__
       .getSession()
       .drafts()
       .stage([{ key: "picture:8", content: "vis 4\npri 7\nfill 0,0\nend\n" }]),
   );
-  for (const lens of ["Art", "Depth", "Walk"]) {
+  for (const lens of ["Visual", "Priority", "Walk"]) {
     await studio
       .getByTestId("studio-options-bar")
       .getByRole("radio", { name: lens, exact: true })
       .click();
-    await expect(studio.getByTestId("stage-draft")).toBeVisible();
+    await expect(studio.locator(".studio-pane__changed-line").first()).toBeVisible();
   }
 });
 test("an unfinished bindings draft leaves the picture available", async ({ page }) => {
@@ -231,7 +244,7 @@ for (const size of [
       (el as HTMLInputElement).value = "100";
       el.dispatchEvent(new Event("input", { bubbles: true }));
     });
-    for (const lens of ["Art", "Depth", "Walk"]) {
+    for (const lens of ["Visual", "Priority", "Walk"]) {
       await studio
         .getByRole("radiogroup", { name: "Lens", exact: true })
         .getByRole("radio", { name: lens, exact: true })

@@ -162,26 +162,18 @@ for (const [width, height] of [
       await page.mouse.down();
       await page.mouse.move(box.x + 24.5 * 2 * zoom, box.y + 114.5 * zoom, { steps: 4 });
       await page.mouse.up();
-      await expect(page.getByTestId("stage-draft")).toBeVisible();
+      // The draft shows on the picture itself: the changed cells' dashed
+      // outline; there is no floating label any more.
+      const outline = pane.locator(".studio-pane__changed-line").first();
+      await expect(outline).toBeVisible();
       await page.screenshot({
         path: test.info().outputPath(`before-update-${width}.png`),
         animations: "disabled",
         scale: "css",
       });
-      const label = (await page.getByTestId("stage-draft").boundingBox())!;
-      const outline = (await pane.locator(".studio-pane__changed-line").boundingBox())!;
-      expect.soft(label.y).toBeGreaterThanOrEqual(box.y);
-      expect.soft(label.y + label.height).toBeLessThanOrEqual(box.y + box.height);
-      expect
-        .soft(
-          Math.min(
-            Math.abs(label.y - (outline.y + outline.height)),
-            Math.abs(outline.y - (label.y + label.height)),
-          ),
-        )
-        .toBeLessThanOrEqual(12);
-      expect.soft(label.x).toBeLessThan(outline.x + outline.width);
-      expect.soft(label.x + label.width).toBeGreaterThan(outline.x);
+      const outlineBox = (await outline.boundingBox())!;
+      expect.soft(outlineBox.y).toBeGreaterThanOrEqual(box.y);
+      expect.soft(outlineBox.y + outlineBox.height).toBeLessThanOrEqual(box.y + box.height);
       // The game bar names the room the game is in.
       await expect(page.getByTestId("workspace-room")).toContainText("Room 1");
       await expect(page.getByTestId("workspace-saved")).toBeVisible();
@@ -213,7 +205,7 @@ for (const [width, height] of [
       if (process.env["CI"] && browserName === "webkit" && width === 390)
         console.log(`PHONE_SHOT:${shot.toString("base64")}`);
       await page.getByTestId("workspace-update").click();
-      await expect(page.getByTestId("stage-draft")).toBeHidden();
+      await expect(page.locator(".studio-pane__changed-line")).toHaveCount(0);
       await expect
         .poll(() => page.evaluate(() => window.__AGI_FRAME__?.()?.visual[112 * 160 + 22]))
         .toBe(4);

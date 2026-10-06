@@ -103,7 +103,7 @@ test("a ghost dragged behind the bench occluder is hidden exactly where probeAct
   expect(want.hidden.length).toBeGreaterThan(0);
   expect(await pathCells(page, '[data-role="ghost-hidden"]')).toEqual(want.hidden);
   await expect(readout.locator('[data-role="ghost-band"]')).toContainText(
-    "x 60 y 100 → depth band 9",
+    "x 60 y 100 → distance band 9",
   );
   const verdict = readout.locator('[data-role="ghost-verdict"]');
   await expect(verdict).toHaveAttribute("data-kind", "behind");

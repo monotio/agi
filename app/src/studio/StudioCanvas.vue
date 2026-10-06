@@ -198,15 +198,36 @@ function rawCell(event: PointerEvent): ViewportPoint {
     y: Math.floor((event.clientY - rect.top) / viewport.zoom),
   };
 }
-function handleAt(event: PointerEvent): LineHandle | undefined {
-  const hit = (event.target as Element | null)?.closest("[data-handle]");
-  const index = hit === null || hit === undefined ? -1 : Number(hit.getAttribute("data-handle"));
-  return index >= 0 ? handles?.[index] : undefined;
+/**
+ * The handle under a press. A hit box is a fixed 24 CSS px square, so at a
+ * fractional zoom neighbouring points' boxes overlap: the press belongs to
+ * the nearest handle centre, not to whichever box the DOM finds on top.
+ */
+function handleAt(
+  event: PointerEvent,
+  rect: { left: number; top: number },
+): LineHandle | undefined {
+  if (!handles?.length) return undefined;
+  const px = event.clientX - rect.left;
+  const py = event.clientY - rect.top;
+  const { pixelAspect, zoom } = viewport;
+  let best: LineHandle | undefined;
+  let dist = Infinity;
+  for (const handle of handles) {
+    const dx = px - (handle.x + 0.5) * pixelAspect * zoom;
+    const dy = py - (handle.y + 0.5) * zoom;
+    const square = dx * dx + dy * dy;
+    if (Math.abs(dx) <= 12 && Math.abs(dy) <= 12 && square < dist) {
+      dist = square;
+      best = handle;
+    }
+  }
+  return best;
 }
 function onDown(event: PointerEvent): void {
   if (event.button !== 0 || captured !== null) return;
   const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
-  const handle = handleAt(event);
+  const handle = handleAt(event, rect);
   if (!handle && cellAt(rect, event.clientX, event.clientY) === undefined) return;
   captured = event.pointerId;
   anchor = { left: rect.left, top: rect.top };

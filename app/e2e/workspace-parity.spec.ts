@@ -26,7 +26,15 @@ async function picture(page: Page) {
   return studio;
 }
 async function cell(page: Page, x: number, y: number) {
-  const box = (await page.locator(".studio-pane").last().boundingBox())!;
+  const pane = page.locator(".studio-pane").last();
+  // The workspace can still be settling (the game revealing, the tool bar
+  // growing): a box measured mid-transition gives stale click points.
+  await expect(async () => {
+    const before = (await pane.boundingBox())!;
+    await page.waitForTimeout(80);
+    expect(await pane.boundingBox()).toEqual(before);
+  }).toPass();
+  const box = (await pane.boundingBox())!;
   return { x: box.x + ((x + 0.5) * box.width) / 160, y: box.y + ((y + 0.5) * box.height) / 168 };
 }
 for (const width of [1063, 1440, 390]) {
@@ -67,6 +75,8 @@ test.describe("phone Items", () => {
   test("Items rows remain visible and select an item on a phone", async ({ page }) => {
     const studio = await picture(page);
     const row = studio.locator('[role="treeitem"][data-row]').first();
+    // The transport sits under the canvas; on a phone the Items list scrolls to it.
+    await row.scrollIntoViewIfNeeded();
     await expect(row).toBeVisible();
     await expect(row).toBeInViewport({ ratio: 1 });
     await studio.getByRole("searchbox", { name: "Filter items" }).fill("Marble bust");
@@ -136,17 +146,21 @@ test("Focus gives the PICTURE canvas more room", async ({ page }) => {
   const after = (await studio.locator(".studio__stage").boundingBox())!;
   expect(after.width * after.height).toBeGreaterThan(before.width * before.height * 1.2);
 });
-test("draw order, Split and Depth bands are reachable in the workspace", async ({ page }) => {
+test("draw order, Split and Distance bands are reachable in the workspace", async ({ page }) => {
   const studio = await picture(page);
+  // The draw-order transport is on by default; the button can still hide it.
+  await expect(studio.getByTestId("studio-scrubber")).toBeVisible();
+  await studio.getByRole("button", { name: "Draw order", exact: true }).click();
+  await expect(studio.getByTestId("studio-scrubber")).toHaveCount(0);
   await studio.getByRole("button", { name: "Draw order", exact: true }).click();
   await expect(studio.getByTestId("studio-scrubber")).toBeVisible();
   await studio
     .getByTestId("studio-options-bar")
-    .getByRole("radio", { name: "Depth", exact: true })
+    .getByRole("radio", { name: "Priority", exact: true })
     .click();
   await studio.getByRole("radio", { name: "Split", exact: true }).click();
   await expect(studio.locator(".studio-pane")).toHaveCount(2);
-  await expect(studio.getByRole("button", { name: "Depth bands", exact: true })).toBeVisible();
+  await expect(studio.getByRole("button", { name: "Distance bands", exact: true })).toBeVisible();
 });
 test("a line offers Done and finishes by clicking its last point", async ({ page }) => {
   const studio = await picture(page);
@@ -300,7 +314,7 @@ test("item inspector saves name, colour, Lock and points and seeks a pixel's ste
   await name.fill("Ridge");
   await name.press("Enter");
   const colour = studio
-    .getByRole("radiogroup", { name: "Art colour", exact: true })
+    .getByRole("radiogroup", { name: "Visual colour", exact: true })
     .getByRole("radio", { name: /^Colour 12,/ });
   await expect(colour).toBeVisible();
   await colour.click();
@@ -520,14 +534,17 @@ test("stand-in readout and an item's depth controls are reachable", async ({ pag
   await studio.getByRole("radio", { name: "Inspector", exact: true }).click();
   await studio
     .getByTestId("studio-options-bar")
-    .getByRole("radio", { name: "Depth", exact: true })
+    .getByRole("radio", { name: "Priority", exact: true })
     .click();
-  const value = studio
-    .getByRole("radiogroup", { name: "Depth value", exact: true })
-    .getByRole("radio", { name: /^Depth 8,/ });
-  await expect(value).toBeVisible();
-  await value.click();
-  await expect(value).toHaveAttribute("aria-checked", "true");
+  const pen = studio.getByRole("radiogroup", { name: "Priority pen", exact: true });
+  const distance = pen.getByRole("radio", { name: "Distance", exact: true });
+  await expect(distance).toBeVisible();
+  await distance.click();
+  await expect(distance).toHaveAttribute("aria-checked", "true");
+  const band = studio.getByRole("slider", { name: "Distance band", exact: true });
+  await expect(band).toBeVisible();
+  await band.fill("8");
+  await expect(band).toHaveValue("8");
   await studio.getByTestId("studio-probe-toggle").click();
   await expect(studio.getByTestId("ghost-probe-readout")).toBeVisible();
 });
@@ -641,7 +658,7 @@ test("drawing cannot resubmit a Walk edit over a newer pending LOGIC draft", asy
   await page.getByTestId("part-room:1:picture:1").click();
   await studio
     .getByRole("radiogroup", { name: "Lens", exact: true })
-    .getByRole("radio", { name: "Art", exact: true })
+    .getByRole("radio", { name: "Visual", exact: true })
     .click();
   await studio.locator('button[data-tool="line"]').click();
   for (const [x, y] of [

@@ -17,18 +17,18 @@ const topic = (id: string): HelpTarget => ({ section: "creating", topic: id });
 
 export const STUDIO_TERMS = {
   "lens-lock-depth": {
-    name: "Depth & Walk",
-    says: "The Art lens paints what the player sees. Moving an item carries its Depth and Walk along.",
+    name: "Priority & Walk",
+    says: "The Visual lens paints what the player sees. Moving an item carries its Priority and Walk along.",
     help: topic("studio-locks"),
   },
   "lens-lock-art": {
-    name: "Art locked",
-    says: "The Depth lens paints only depth. The art stays as it is. Moving a whole item takes its art along.",
+    name: "Visual locked",
+    says: "The Priority lens paints only depth. The visual stays as it is. Moving a whole item takes its visual along.",
     help: topic("studio-locks"),
   },
   "lens-lock-walk": {
     name: "Walk lens locks",
-    says: "The Walk lens draws Walls, Gates, Triggers and Water. Moving an item carries its Art and Depth along.",
+    says: "The Walk lens draws Walls, Gates, Triggers and Water. Moving an item carries its Visual and Priority along.",
     help: topic("studio-locks"),
   },
   "item-lock": {
@@ -68,8 +68,8 @@ export const STUDIO_TERMS = {
     help: topic("studio-order"),
   },
   "insert-at": {
-    name: "Insert steps",
-    says: "New steps go here in the draw order; later steps paint over them.",
+    name: "Drawing here",
+    says: "New shapes draw at the marker; shapes after it paint over them.",
     help: topic("studio-order"),
   },
   loose: {

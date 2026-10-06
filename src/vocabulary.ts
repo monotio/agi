@@ -193,19 +193,19 @@ export const VOCABULARY = {
   lens: {
     id: "lens",
     label: "Lens",
-    help: "Shows Art, Depth or Walk while you draw.",
+    help: "Shows Visual, Priority or Walk while you draw.",
     technical: "",
   },
   drawingDepth: {
     id: "drawingDepth",
-    label: "Drawing depth",
-    help: "The depth the drawing tools also paint. None leaves the existing depth as you draw.",
+    label: "Priority",
+    help: "The priority the drawing tools also paint. None leaves the existing priority as you draw.",
     technical: "PICTURE priority drawing value.",
   },
   none: {
     id: "none",
     label: "None",
-    help: "Leaves the existing depth as you draw.",
+    help: "Leaves the existing priority as you draw.",
     technical: "Priority plane disabled.",
   },
   waitingUpdate: {
@@ -331,14 +331,14 @@ export const VOCABULARY = {
   art: { id: "art", label: "Art", help: "What the player sees.", technical: "Visual plane." },
   depth: {
     id: "depth",
-    label: "Depth",
+    label: "Priority",
     help: "What stands in front. Lower on the screen is nearer.",
     technical: "AGI calls this priority.",
   },
   depthBand: {
     id: "depthBand",
-    label: "depth band",
-    help: "Each row of the screen has a depth. A character's depth comes from the row its feet are on.",
+    label: "distance band",
+    help: "Each row of the screen sits in a distance band. A character's priority comes from the row its feet are on.",
     technical: "Priority band from set.pri.base.",
   },
   walk: {

@@ -324,7 +324,7 @@ test("a lock refusal, keyboard nudges, Delete with undo, and draw-order keys sta
   await canvas.focus();
   await page.keyboard.press("ArrowUp");
   await expect(page.locator(".workspace-status").getByTestId("studio-notice")).toHaveText(
-    "Moved Bench with its art.",
+    "Moved Bench with its visual.",
   );
   await workspaceUpdated(page);
   await page.keyboard.press("ControlOrMeta+z");
@@ -336,10 +336,10 @@ test("a lock refusal, keyboard nudges, Delete with undo, and draw-order keys sta
   await page.keyboard.press("a");
   await dragHandle(page, BENCH_LINE, 0, 0, -1);
   await expect(page.locator(".workspace-status").getByTestId("studio-notice")).toHaveText(
-    "Art is locked in the Depth lens.",
+    "Visual is locked in the Priority lens.",
   );
   await expect(page.locator(".workspace-status").getByTestId("studio-notice-detail")).toContainText(
-    "Art is locked in the Depth lens: 144 cells at 44,91..116,92 would change.",
+    "Visual is locked in the Priority lens: 144 cells at 44,91..116,92 would change.",
   );
   await expect(studio.locator('[data-role="refused"]')).toHaveCount(1);
   await workspaceUpdated(page);

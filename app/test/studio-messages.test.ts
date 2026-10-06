@@ -3,7 +3,7 @@ import { describe, it } from "node:test";
 import { DEFAULT_V2_PROFILE } from "../../src/runtime/profile.ts";
 import { applyEdit, type EditOperation } from "../../src/studio/editOperations.ts";
 import { parsePictureDocument } from "../../src/studio/pictureDocument.ts";
-import { insertionText, kernelDetail, plainKernelRefusal } from "../src/studio/studioMessages.ts";
+import { kernelDetail, plainKernelRefusal } from "../src/studio/studioMessages.ts";
 
 const { document } = parsePictureDocument(
   [
@@ -75,20 +75,9 @@ describe("plainKernelRefusal", () => {
   });
 });
 
-describe("insertionText", () => {
-  it("names the step new shapes follow, in 1-based steps", () => {
-    assert.equal(
-      insertionText(7, 303),
-      "New steps go after step 7 of 303; the steps after them paint over them.",
-    );
-    assert.equal(
-      insertionText(0, 12),
-      "New steps go first, before step 1 of 12; the steps after them paint over them.",
-    );
-    assert.equal(insertionText(12, 12), "New steps go last, after step 12, on top of everything.");
-    assert.equal(insertionText(0, 0), "New steps are the first steps.");
-  });
-});
+// "insertionText" is gone: the drawing position is useStudioReadout's
+// `position` ("Drawing before Cottage"), whose naming plainItemName covers in
+// studio-view.test.ts and the browser suite asserts in studio-tools.spec.ts.
 
 describe("kernelDetail", () => {
   it("names items by their labels, never their ids", () => {

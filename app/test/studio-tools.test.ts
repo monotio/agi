@@ -197,11 +197,11 @@ describe("insertionPoint", () => {
   });
 });
 
-function setup(lens: StudioLens) {
+function setup(lens: StudioLens, source = SOURCE) {
   const lensRef = ref(lens);
   const unlocks = ref<LensUnlocks>(NO_UNLOCKS);
   const draft = useStudioDraft({
-    base: { source: SOURCE, revision: testRevision("tools") },
+    base: { source, revision: testRevision("tools") },
     profile: DEFAULT_V2_PROFILE,
     lens: lensRef,
     unlocks,
@@ -301,26 +301,41 @@ describe("useStudioTools", () => {
     assert.equal(draft.document.value.items.at(-1)!.label, "Depth rect 1");
   });
 
-  it("explains a fill that would flood nothing and inserts nothing; a white seed fills", async () => {
+  it("recolours the painter on a painted spot; a locked painter explains; a white seed fills", async () => {
     const { draft, doc, tools, press } = setup("art");
     tools.setTool("fill");
     tools.setValues({ visual: 2 });
     tools.press(press(80, 50));
-    assert.equal(draft.source.value, SOURCE, "grey (7) wall: nothing inserted");
-    assert.equal(tools.fillWhy.value?.value, 7);
-    assert.equal(tools.fillWhy.value?.plane, "visual");
-    assert.equal(tools.fillWhy.value?.line, 4);
-    // The reason held where the scrubber stood: moving it lets go of the reason.
-    doc.playhead.value = 0;
-    await nextTick();
+    // The grey wall's painter is `fill 80,40` under `vis 7`: the bucket
+    // recolours it by setting green before that step.
+    assert.match(draft.source.value, /vis 2\nfill 80,40/);
     assert.equal(tools.fillWhy.value, null);
-    doc.playhead.value = doc.total.value;
-    tools.press(press(80, 50));
-    assert.equal((tools.fillWhy.value as { value: number } | null)?.value, 7);
-    tools.press(press(80, 140));
-    assert.equal(tools.fillWhy.value, null);
-    assert.equal(draft.compiled.value.visual[at(80, 140)], 2);
+    assert.equal(draft.compiled.value.visual[at(80, 50)], 2);
     assert.equal(draft.history.value.past.length, 1);
+
+    // A locked wall's painter cannot be recoloured: the bucket explains.
+    const locked = setup(
+      "art",
+      SOURCE.replace('item wall "Wall" art', 'item wall "Wall" art locked'),
+    );
+    locked.tools.setTool("fill");
+    locked.tools.setValues({ visual: 2 });
+    locked.tools.press(locked.press(80, 50));
+    assert.equal(locked.tools.fillWhy.value?.value, 7);
+    assert.equal(locked.tools.fillWhy.value?.plane, "visual");
+    assert.equal(locked.tools.fillWhy.value?.line, 4);
+    // The reason held where the scrubber stood: moving it lets go of the reason.
+    locked.doc.playhead.value = 0;
+    await nextTick();
+    assert.equal(locked.tools.fillWhy.value, null);
+    locked.doc.playhead.value = doc.total.value;
+    locked.tools.press(locked.press(80, 50));
+    assert.equal((locked.tools.fillWhy.value as { value: number } | null)?.value, 7);
+    // A white spot still seeds a fill.
+    locked.tools.press(locked.press(80, 140));
+    assert.equal(locked.tools.fillWhy.value, null);
+    assert.equal(locked.draft.compiled.value.visual[at(80, 140)], 2);
+    assert.equal(locked.draft.history.value.past.length, 1);
   });
 
   it("previews a fill's flood with a trial edit that changes nothing", () => {

@@ -12,6 +12,7 @@ import {
   paintLayer,
   panesFor,
   pictureSize,
+  plainItemName,
   spanIndexAt,
   tickFor,
 } from "../src/studio/studioView.ts";
@@ -167,6 +168,90 @@ test("a Scene label ellipsizes before the numbers that tell rows apart, never in
     head: "Window 12 left",
     tail: " pane part 3",
   });
+});
+
+test("generated labels read in plain words: colour, noun, points", () => {
+  const lines = ["vis 4", "line 10,10 20,10 30,20", "fill 15,15", "pri 0", "line 5,5 9,5"];
+  const entry = (over: Partial<TimelineEntry>): TimelineEntry => ({
+    line: 1,
+    op: "line",
+    visual: null,
+    priority: null,
+    ...over,
+  });
+  // A red line of three points.
+  assert.equal(
+    plainItemName({
+      label: "Element 12",
+      kind: "art",
+      entries: [
+        entry({ line: 1, op: "vis", visual: 4 }),
+        entry({ line: 2, op: "line", visual: 4 }),
+      ],
+      lines,
+    }),
+    "Red line · 3 points",
+  );
+  // A red fill names no points; state steps never join in.
+  assert.equal(
+    plainItemName({
+      label: "Fill 2",
+      kind: "art",
+      entries: [entry({ line: 3, op: "fill", visual: 4 })],
+      lines,
+    }),
+    "Red fill",
+  );
+  // Depth and walk items name their band or control value.
+  assert.equal(
+    plainItemName({
+      label: "Depth polygon 1",
+      kind: "depth",
+      entries: [entry({ line: 2, op: "polygon", priority: 9 })],
+      lines,
+    }),
+    "Depth band 9 polygon · 3 points",
+  );
+  assert.equal(
+    plainItemName({
+      label: "Wall line 1",
+      kind: "walk",
+      entries: [entry({ line: 5, op: "line", priority: 0 })],
+      lines,
+    }),
+    "Wall line · 2 points",
+  );
+  // Parts and copies keep their tail; authored labels stand as written.
+  assert.equal(
+    plainItemName({
+      label: "Element 4 part 2",
+      kind: "art",
+      entries: [entry({ line: 3, op: "fill", visual: 1 })],
+      lines,
+    }),
+    "Blue fill · part 2",
+  );
+  assert.equal(
+    plainItemName({
+      label: "Line 7 copy",
+      kind: "art",
+      entries: [entry({ line: 2, op: "line", visual: 14 })],
+      lines,
+    }),
+    "Yellow line · 3 points · copy",
+  );
+  assert.equal(plainItemName({ label: "Cottage", kind: "art", entries: [entry({})], lines }), null);
+  // Several colours, or none, or no drawing at all: the label stays.
+  assert.equal(
+    plainItemName({
+      label: "Element 3",
+      kind: "art",
+      entries: [entry({ op: "line", visual: 4 }), entry({ op: "fill", visual: 1 })],
+      lines,
+    }),
+    null,
+  );
+  assert.equal(plainItemName({ label: "Line 9", kind: "art", entries: [], lines }), null);
 });
 
 test("a picture's size in plain words: bytes and steps, thousands separated", () => {

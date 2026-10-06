@@ -9,12 +9,45 @@ import { EGA_PALETTE } from "../render/palette.ts";
 import { priorityForY } from "../../../src/runtime/priority.ts";
 import { SCREEN_HEIGHT, SCREEN_WIDTH } from "../../../src/types.ts";
 import type { PictureSourceSpan } from "../../../src/picture/source.ts";
+import { linePoints } from "../../../src/studio/editPoints.ts";
+import type { PictureItemKind } from "../../../src/studio/pictureDocument.ts";
 import type { TimelineEntry } from "../../../src/studio/pictureQuery.ts";
+import { EGA_COLOUR_NAMES } from "../../../src/studio/sceneGroups.ts";
 
 import type { StudioLens } from "../../../src/studio/lensRules.ts";
 
 export type { StudioLens };
 export type StudioViewMode = "blend" | "split" | "priority";
+
+/**
+ * The lenses' names, as Sierra named the planes: Visual is what the player
+ * sees; Priority holds the distance bands and the control lines (walls,
+ * gates, triggers, water) the player never sees; Walk is the editor's view
+ * of those control lines alone.
+ */
+export const LENS_NAMES: Record<StudioLens, { label: string; help: string }> = {
+  art: { label: "Visual", help: "What players see." },
+  depth: {
+    label: "Priority",
+    help: "Where things are near or far, and where walls, water and triggers are. The picture hides it from players.",
+  },
+  walk: { label: "Walk", help: "Where characters can go." },
+};
+
+/** What the Priority view shows: all of it, the distance bands, or one value. */
+export type PriorityFilter = "all" | "bands" | number;
+
+/** The priority plane as `filter` leaves it: kept cells stay, the rest read as background. */
+export function filterPriority(priority: Uint8Array, filter: PriorityFilter): Uint8Array {
+  if (filter === "all") return priority;
+  const out = new Uint8Array(priority.length);
+  for (let i = 0; i < priority.length; i++) {
+    const value = priority[i]! & 0x0f;
+    const keep = filter === "bands" ? value >= 4 : value === filter;
+    out[i] = keep ? value : 4;
+  }
+  return out;
+}
 /** What one canvas pane shows. */
 export type PaneLayer = "art" | "depth" | "depth-only" | "walk" | "walk-only";
 
@@ -82,8 +115,8 @@ export function patternOn(pattern: ControlValue["pattern"], x: number, y: number
 /** Each pane's accessible name. */
 export const PANE_LABELS: Record<PaneLayer, string> = {
   art: "Picture",
-  depth: "Picture with its depth blended over it",
-  "depth-only": "Depth",
+  depth: "Picture with its priority blended over it",
+  "depth-only": "Priority",
   walk: "Picture dimmed, with its walk lines",
   "walk-only": "Walk lines",
 };
@@ -401,4 +434,72 @@ export function labelParts(full: string): LabelParts {
     head: words.slice(0, start).join(" "),
     tail: ` ${words.slice(start).join(" ")}`,
   };
+}
+
+/**
+ * Labels the Studio itself generates: "Element 5", "Element 5 part 2",
+ * "Line 3", "Depth polygon 1", "Wall line 1", each with a " copy" tail.
+ */
+const GENERATED_LABEL =
+  /^(?:Element (\d+)(?: part (\d+))?|(?:Line|Rect|Polygon|Fill|Brush) \d+|(?:Depth|Wall|Gate|Trigger|Water) (?:line|rect|polygon|fill|brush) \d+)( copy(?: \d+)?)?$/;
+
+/** The noun a drawing command's plain name takes. */
+const NOUNS: Record<string, string> = {
+  line: "line",
+  polyline: "line",
+  rel: "line",
+  xcorner: "line",
+  ycorner: "line",
+  rect: "rectangle",
+  polygon: "polygon",
+  fill: "fill",
+  plot: "brush",
+};
+
+/**
+ * A generated label as the calm UI says it: "Red line · 6 points", "Blue
+ * fill", "Depth band 9 polygon", "Wall line". The value is the one colour or
+ * priority the item draws with; an item drawing several keeps its generated
+ * label, as does one with no drawing commands. Null keeps the label.
+ */
+export function plainItemName(input: {
+  label: string;
+  kind: PictureItemKind | "loose";
+  /** The item's drawing timeline entries (state steps included; they are skipped). */
+  entries: readonly TimelineEntry[];
+  /** The document's source lines, for point counts. */
+  lines: readonly string[];
+}): string | null {
+  const generated = GENERATED_LABEL.exec(input.label);
+  if (!generated) return null;
+  const drawing = input.entries.filter((entry) => tickFor(entry).kind !== "state");
+  if (drawing.length === 0) return null;
+  const nouns = new Set(drawing.map((entry) => NOUNS[entry.op] ?? "shape"));
+  const noun = nouns.size === 1 ? [...nouns][0]! : "shape";
+  const points =
+    noun === "line" || noun === "rectangle" || noun === "polygon"
+      ? drawing.reduce(
+          (sum, entry) => sum + linePoints(input.lines[entry.line - 1] ?? "").length,
+          0,
+        )
+      : 0;
+  const single = (values: readonly (number | null)[]): number | null | undefined => {
+    const set = new Set(values.filter((value): value is number => value !== null));
+    return set.size === 0 ? null : set.size === 1 ? [...set][0] : undefined;
+  };
+  const visual = single(drawing.map((entry) => entry.visual));
+  const priority = single(drawing.map((entry) => entry.priority));
+  let name: string | null = null;
+  if (input.kind !== "depth" && input.kind !== "walk" && visual !== undefined && visual !== null)
+    name = `${EGA_COLOUR_NAMES[visual]!} ${noun}`;
+  if (name === null && priority !== undefined && priority !== null)
+    name =
+      priority < 4 ? `${CONTROL_VALUES[priority]!.name} ${noun}` : `depth band ${priority} ${noun}`;
+  if (name === null) return null;
+  const parts = [name];
+  if (points > 0) parts.push(`${points} ${points === 1 ? "point" : "points"}`);
+  if (generated[2] !== undefined) parts.push(`part ${generated[2]}`);
+  if (generated[3] !== undefined) parts.push("copy");
+  const joined = parts.join(" · ");
+  return `${joined[0]!.toUpperCase()}${joined.slice(1)}`;
 }

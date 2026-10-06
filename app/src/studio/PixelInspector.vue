@@ -68,8 +68,8 @@ const {
 const emit = defineEmits<{ seek: [count: number]; select: [id: string] }>();
 
 const KIND_NAMES: Record<SceneRow["kind"], string> = {
-  art: "Art",
-  depth: "Depth",
+  art: "Visual",
+  depth: "Priority",
   walk: "Walk",
   mixed: "Mixed",
   loose: "Loose steps",
@@ -89,6 +89,7 @@ const detailsHint = computed(() =>
     fill && "Fill",
     row && !editing && colours.length > 0 && "Colours",
     more,
+    "Picture",
   ]
     .filter(Boolean)
     .join(" · "),
@@ -96,9 +97,9 @@ const detailsHint = computed(() =>
 const planes = computed(() =>
   pixel
     ? ([
-        ["Art", pixel.visual, String(pixel.visual.value)],
+        ["Visual", pixel.visual, String(pixel.visual.value)],
         [
-          "Depth",
+          "Priority",
           pixel.priority,
           `${pixel.priority.value} · ${priorityMeaning(pixel.priority.value)}`,
         ],

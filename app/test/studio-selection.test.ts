@@ -7,6 +7,7 @@ import { describeRow, useStudioSelection } from "../src/studio/useStudioSelectio
 const row = (id: string, label: string, kind: SceneRow["kind"], commands: number): SceneRow => ({
   id,
   label,
+  display: label,
   kind,
   locked: false,
   entries: Array.from({ length: commands }, (_, k) => k),

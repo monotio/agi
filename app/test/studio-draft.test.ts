@@ -193,10 +193,10 @@ describe("useStudioDraft", () => {
       "Colour Box",
     );
     assert.ok(!art.ok && art.refusal.kind === "lock");
-    assert.equal(art.refusal.message, "Art is locked in the Depth lens.");
+    assert.equal(art.refusal.message, "Visual is locked in the Priority lens.");
     assert.equal(
       art.refusal.detail,
-      "Art is locked in the Depth lens: 80 cells at 10,10..30,30 would change.",
+      "Visual is locked in the Priority lens: 80 cells at 10,10..30,30 would change.",
     );
     assert.ok(art.refusal.cells.includes(1));
     assert.equal(draft.source.value, SOURCE);
@@ -206,10 +206,10 @@ describe("useStudioDraft", () => {
     const priority = { type: "setItemColor", itemId: "occ", plane: "priority", value: 12 } as const;
     const depth = draft.apply(priority, "Priority 12");
     assert.ok(!depth.ok && depth.refusal.kind === "lock");
-    assert.equal(depth.refusal.message, "Depth and walk lines are locked in the Art lens.");
+    assert.equal(depth.refusal.message, "Priority is locked in the Visual lens.");
     assert.equal(
       depth.refusal.detail,
-      "Depth and walk lines are locked in the Art lens: 188 cells at 40,90..119,105 would change.",
+      "Priority is locked in the Visual lens: 188 cells at 40,90..119,105 would change.",
     );
     // A point of its outline is editing within the plane too.
     const point = draft.apply(
@@ -252,7 +252,7 @@ describe("useStudioDraft", () => {
       "Priority 3",
     );
     assert.ok(!paint.ok && paint.refusal.kind === "lock");
-    assert.equal(paint.refusal.message, "Depth and walk lines are locked in the Art lens.");
+    assert.equal(paint.refusal.message, "Priority is locked in the Visual lens.");
     // So does a fill that would flood depth along with the art.
     const fill = mixed.draft.apply(
       {
@@ -268,7 +268,7 @@ describe("useStudioDraft", () => {
       "Fill",
     );
     assert.ok(!fill.ok && fill.refusal.kind === "lock");
-    assert.equal(fill.refusal.message, "Depth and walk lines are locked in the Art lens.");
+    assert.equal(fill.refusal.message, "Priority is locked in the Visual lens.");
     assert.equal(mixed.draft.history.value.past.length, 3);
     function both() {
       return [move("box", 0, 1), move("paint", 0, 1)];
@@ -292,11 +292,11 @@ describe("useStudioDraft", () => {
     // The Depth lens shows the barrier and hides the water.
     lens.value = "depth";
     assert.equal(editing.nudge(1, 0), true);
-    assert.equal(editing.notice.value?.text, "Moved Pond with its art.");
+    assert.equal(editing.notice.value?.text, "Moved Pond with its visual.");
     scope.stop();
     assert.equal(
-      movedWith("3 items", true, ["depth", "walk lines"]),
-      "Moved 3 items with their depth and walk lines.",
+      movedWith("3 items", true, ["priority", "walk lines"]),
+      "Moved 3 items with their priority and walk lines.",
     );
     assert.equal(movedWith("Box", false, []), null);
   });
@@ -768,7 +768,7 @@ describe("several items as one", () => {
       "Colour 2 items",
     );
     assert.ok(!outcome.ok && outcome.refusal.kind === "lock");
-    assert.equal(outcome.refusal.message, "Art is locked in the Depth lens.");
+    assert.equal(outcome.refusal.message, "Visual is locked in the Priority lens.");
     assert.equal(draft.source.value, SOURCE, "the occluder did not change either");
     assert.equal(draft.history.value.past.length, 0);
   });
