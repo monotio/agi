@@ -695,7 +695,7 @@ class EditableProjectService implements EditableProject {
  * the editable-content fingerprint and the detected interpreter profile —
  * the same triple projectDrafts matches.
  */
-export function recoveryBaseOf(data: CachedGameData): RecoveryBase {
+function recoveryBaseOf(data: CachedGameData): RecoveryBase {
   const revision = data.library?.revision;
   if (revision === undefined) throw new Error("The saved project has invalid library metadata.");
   return Object.freeze({
