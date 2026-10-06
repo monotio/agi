@@ -110,6 +110,17 @@ test("blank game to Meadow, Room 2, a door drawn on the game and Play Room 2 @we
   await expect(form).toBeHidden();
   expect(await workspaceDocument(page, "logic:1")).toContain("new.room(2)");
   expect((await textHook(page)).room).toBe(1); // the game stays in Meadow
+  // A right-click on the game offers the same room actions.
+  const gpu = page.getByTestId("gpu-canvas");
+  if (await gpu.isVisible()) {
+    const at = (await gpu.boundingBox())!;
+    await page.mouse.click(at.x + at.width / 2, at.y + at.height / 2, { button: "right" });
+    const menu = page.getByTestId("game-room-menu");
+    await expect(menu).toBeVisible();
+    await expect(menu.getByRole("menuitem", { name: "Door", exact: true })).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(menu).toBeHidden();
+  }
   // Update publishes the work; then the action button offers Play Room 2.
   const action = page.getByTestId("workspace-update");
   await expect(action).toHaveText("Update and restart Meadow");

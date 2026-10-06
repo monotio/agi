@@ -17,6 +17,7 @@ import type { WorkspacePartGroup } from "../host/workspaceParts.ts";
 import ViewThumbnail from "./ViewThumbnail.vue";
 import SoundPicker, { type SoundChoice, type NamedSound } from "./SoundPicker.vue";
 import SentenceFields from "./SentenceFields.vue";
+import ActionMenu from "../../ui/ActionMenu.vue";
 import UiButton from "../../ui/UiButton.vue";
 const props = defineProps<{
   room: number;
@@ -308,10 +309,25 @@ const inputComplete = computed(() =>
 function add(): void {
   if (action.value && !props.busy && doorReady.value) emit("add", action.value);
 }
+const narrowQuery = window.matchMedia("(max-width: 600px)");
+const narrow = ref(narrowQuery.matches);
+narrowQuery.addEventListener("change", (event) => (narrow.value = event.matches));
 </script>
 <template>
   <div class="workspace-guided">
-    <div class="workspace-guided__actions" role="group" aria-label="Room actions">
+    <ActionMenu v-if="narrow" label="Room actions" size="sm" test-id="room-actions-menu">
+      <button
+        v-for="(label, actionKind) in labels"
+        :key="actionKind"
+        type="button"
+        role="menuitem"
+        :data-testid="`room-action-${actionKind}`"
+        @click="kind = actionKind as RoomActionKind"
+      >
+        {{ label }}
+      </button>
+    </ActionMenu>
+    <div v-else class="workspace-guided__actions" role="group" aria-label="Room actions">
       <UiButton
         v-for="(label, actionKind) in labels"
         :key="actionKind"
