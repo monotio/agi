@@ -2024,3 +2024,51 @@ test("selected art carries reference handles and thumbnails once, then reuses th
   assert.ok(!lastRequest.text.includes("### REFERENCE ART"));
   session.dispose();
 });
+
+test("the agent creates a Launch from a request, proposed for review with one Undo", async () => {
+  const { session } = fixture();
+  const capture = session.model.capture();
+  await session.submit({
+    proposal: session.model.propose(capture, "Add room 8", [
+      { key: "logic:8", content: "return;" },
+      { key: "picture:8", content: "vis 1\nfill 0,0\nend\n" },
+    ]),
+    label: "Add room 8",
+    origin: "logic",
+    author: "creator",
+  });
+  const agent = createWorkspaceAgent({
+    session,
+    profileId: "2.936",
+    config: () => ({ provider: "stub", model: "stub", apiKey: "" }),
+  });
+
+  await agent.send("make a launch for the vacuum death in Room 8", "Current room 8");
+  const pending = agent.pending();
+  assert.ok(pending, "a proposal is held for review");
+  const changes = pending.changes();
+  const worldChange = changes.find((change) => change.key === "world");
+  assert.ok(worldChange, "the proposal changes the world document");
+  const world = JSON.parse(String(worldChange.content));
+  assert.ok(world.launches?.["8"], "room 8 has launches");
+  const launch = world.launches["8"].entries[0];
+  assert.equal(launch.name, "Vacuum death");
+  assert.deepEqual(launch.cameFrom, { room: 7, edge: 4 });
+  assert.deepEqual(launch.flags, { "77": true });
+  assert.deepEqual(launch.variables, { "90": 123 });
+
+  // Approve the proposal
+  await agent.approve();
+  const committedContent = session.model.capture().read("world")?.content;
+  assert.ok(committedContent, "world document is committed");
+  const committedWorld = JSON.parse(String(committedContent));
+  assert.equal(committedWorld.launches?.["8"]?.entries[0]?.name, "Vacuum death");
+
+  // One Undo removes the launch
+  await session.undo();
+  const undoneContent = session.model.capture().read("world")?.content;
+  const undoneWorld = undoneContent ? JSON.parse(String(undoneContent)) : undefined;
+  assert.equal(undoneWorld?.launches?.["8"], undefined, "one Undo removes the launched state");
+
+  session.dispose();
+});

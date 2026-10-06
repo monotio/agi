@@ -33,6 +33,7 @@ type World = AuthoringState["world"];
 
 /** The fields one may write when adding or updating a launch. */
 export type LaunchFields = Omit<Launch, "id"> & { id?: string };
+export type LaunchPatch = { [K in keyof LaunchFields]?: LaunchFields[K] | undefined };
 
 const ROOM_MAX = 255;
 const NAME_MAX = 60;
@@ -205,12 +206,7 @@ export function addLaunch(world: World, room: number, fields: LaunchFields): Wor
 }
 
 /** Replaces fields of one launch; a `undefined` patch field drops it. */
-export function updateLaunch(
-  world: World,
-  room: number,
-  id: string,
-  patch: Partial<LaunchFields>,
-): World {
+export function updateLaunch(world: World, room: number, id: string, patch: LaunchPatch): World {
   const key = checkedRoom(room, "update launch");
   const current = world.launches?.[key];
   const index = current?.entries.findIndex((entry) => entry.id === id) ?? -1;
@@ -275,4 +271,77 @@ export function selectLaunch(world: World, room: number, selected: string): Worl
   const next: RoomLaunches = { entries: current?.entries ?? [] };
   if (selected !== "carry") next.selected = selected;
   return withRoomLaunches(world, key, next);
+}
+
+/**
+ * Drops a removed room's own launches and strips any surviving cameFrom or
+ * item placements targeting that room. Keeps the resulting world valid.
+ */
+export function pruneRoomLaunches(world: World, room: number): World {
+  if (!world.launches) return world;
+  const key = String(room);
+  let changed = false;
+  const nextLaunches: Record<string, RoomLaunches> = {};
+
+  for (const [rKey, rLaunches] of Object.entries(world.launches)) {
+    if (rKey === key) {
+      changed = true;
+      continue;
+    }
+    let entriesChanged = false;
+    const nextEntries: Launch[] = [];
+    for (const entry of rLaunches.entries) {
+      let entryChanged = false;
+      const patched: Launch = { ...entry };
+      if (patched.cameFrom?.room === room) {
+        delete patched.cameFrom;
+        entryChanged = true;
+      }
+      if (patched.items) {
+        const remainingItems: Record<string, number> = {};
+        let itemsChanged = false;
+        for (const [itemId, targetRoom] of Object.entries(patched.items)) {
+          if (targetRoom === room) {
+            itemsChanged = true;
+          } else {
+            remainingItems[itemId] = targetRoom;
+          }
+        }
+        if (itemsChanged) {
+          entryChanged = true;
+          if (Object.keys(remainingItems).length > 0) {
+            patched.items = remainingItems;
+          } else {
+            delete patched.items;
+          }
+        }
+      }
+      if (entryChanged) entriesChanged = true;
+      nextEntries.push(patched);
+    }
+    if (entriesChanged) {
+      changed = true;
+      nextLaunches[rKey] = {
+        ...rLaunches,
+        entries: nextEntries,
+      };
+    } else {
+      nextLaunches[rKey] = rLaunches;
+    }
+  }
+
+  if (!changed) return world;
+
+  for (const [rKey, rLaunches] of Object.entries(nextLaunches)) {
+    if (rLaunches.entries.length === 0 && rLaunches.selected === undefined) {
+      delete nextLaunches[rKey];
+    }
+  }
+
+  if (Object.keys(nextLaunches).length === 0) {
+    const next = { ...world };
+    delete next.launches;
+    return next;
+  }
+  return { ...world, launches: ordered(nextLaunches) };
 }
