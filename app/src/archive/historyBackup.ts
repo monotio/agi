@@ -39,8 +39,11 @@ export async function collectHistoryBackup(
   let history: ProjectHistory | null = null;
   try {
     history = await load();
-  } catch {
-    report.notes.push("Saved play history could not be read. Try downloading again to keep it.");
+  } catch (error) {
+    const cause = (error instanceof Error ? error.message : String(error)).replace(/[.\s]+$/, "");
+    report.notes.push(
+      `Saved play history could not be read: ${cause}. Keep this tab open and try downloading again.`,
+    );
   }
   report.complete = report.notes.length === 0;
   return { history, report };
