@@ -71,6 +71,9 @@ test("invalid drafts report a problem and discard restores the editor @webkit-de
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await starter(page);
+  // The session can trail the first room on a slow engine; poll like the
+  // sibling tests do.
+  await expect.poll(() => runningWorkspaceDocument(page, "logic:1")).not.toBe("");
   const before = await runningWorkspaceDocument(page, "logic:1");
   await draft(page, "if (");
   await expect(page.getByTestId("workspace-update")).toBeVisible();

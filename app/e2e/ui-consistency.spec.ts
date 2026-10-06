@@ -67,7 +67,9 @@ test("the hero and Save settings share the one filled primary; card actions stay
   const card = savedGameCard(page, "Adventure Department");
   const resume = card.getByRole("button", { name: "Resume", exact: true });
   await expect(resume).toBeVisible();
-  expect(await resume.evaluate(appearance)).toEqual(cardAction);
+  // The same quiet secondary action; the split button's ▾ half shares the
+  // outline, so the outer corners alone keep the radius.
+  expect(await resume.evaluate(appearance)).toEqual({ ...cardAction, radius: "6px 0px 0px 6px" });
   await openAiSettings(page);
   expect(await page.getByTestId("ai-settings-save").evaluate(appearance)).toEqual(primary);
   await page.screenshot({
