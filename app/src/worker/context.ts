@@ -513,7 +513,7 @@ export interface WorkerFns {
   historyResume(): void;
   historyFlush(reason?: HistoryAnchor["reason"]): void;
   /** The parked live session's resume point — the retained original. */
-  historySnapshot(cold?: boolean): HistoryBoot | null;
+  historySnapshot(cold?: boolean, allowUndrawn?: boolean): HistoryBoot | null;
   onHistoryAck(msg: Inbound<"historyAck">): void;
   /** The eject handshake: end the segment, reply once the tail is durable. */
   onHistoryEnd(msg: Inbound<"historyEnd">): void;

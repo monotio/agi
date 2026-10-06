@@ -56,6 +56,7 @@ export function enterCreateRun(ctx: WorkerContext, cold = false): void {
     throw new Error("Finish the game's question, then open Create.");
   const returnPoint = ctx.fns.historySnapshot(
     cold || (!ctx.run.cycle.initialLogicStarted && ctx.run.cycle.cycleCount === 0),
+    true,
   );
   if (!returnPoint) throw new Error("Continue the game, then open Create.");
   if (!cold) ctx.fns.autosave(true);
@@ -227,6 +228,8 @@ export function adoptResumePoint(
 export function returnToPlay(ctx: WorkerContext, restart = false): void {
   const progress = ctx.run.progress;
   if (progress.mode === "play") return;
+  if (ctx.replay.replay || ctx.view.drive)
+    throw new Error("Play needs the live game. Leave the replay or history view first.");
   if (restart) {
     const prepared = prepareRoomLaunch(ctx, { room: 0, beginning: true });
     replaceRun(ctx, "beginning", {

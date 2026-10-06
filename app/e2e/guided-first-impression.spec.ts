@@ -78,7 +78,8 @@ test("a fresh Starter opens on its room's real source, not the LOGIC 0 boilerpla
     .getByTestId("workspace-logic-editor")
     .filter({ visible: true })
     .locator(".view-lines");
-  await expect(viewLines).toContainText("sunny clearing");
+  await expect(viewLines).toBeVisible();
+  await expect(viewLines).toContainText("draw the clearing and place the hero");
   await expect(viewLines).not.toContainText("set.menu(");
   await reviewShot(page, "first-impression-room-source");
 });

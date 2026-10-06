@@ -175,6 +175,10 @@ test("the game bar names the running room; Play visits and Back returns @webkit-
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await starter(page);
+  // Capture a running Play moment for the visit and Back assertion.
+  await page.getByRole("radio", { name: "Play", exact: true }).click();
+  await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  await page.getByRole("radio", { name: "Create", exact: true }).click();
   const bar = page.getByTestId("workspace-game-bar");
   await expect(bar).toBeVisible();
   await expect(bar.getByTestId("workspace-room")).toBeVisible();
@@ -259,6 +263,9 @@ for (const [width, height] of [
       .toBe(true);
     const position = await textHook(page);
     await here.click();
+    const confirmation = form.getByRole("status");
+    await expect(confirmation).toBeVisible();
+    await expect(confirmation).toHaveText("The hero will start at this spot.");
     const code = form.getByTestId("guided-code-preview");
     await expect(code).toBeVisible();
     await expect(code).toContainText(`position(o0, ${position.egoX}, ${position.egoY})`);

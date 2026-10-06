@@ -12,6 +12,8 @@ import { buildSound } from "../../src/sound/build.ts";
 import { buildObjectFile } from "../../src/authoring/inventory.ts";
 import { installProjectRestart } from "../src/worker/projectRestart.ts";
 import { PROFILES } from "../../src/runtime/profile.ts";
+import { openHistoryDrive } from "../src/worker/historyDrive.ts";
+import { createWorkerContext } from "../src/worker/context.ts";
 
 test("exact return refusals name the changed resource and keep the temporary run", (t) => {
   const cached = gameContainer(
@@ -89,6 +91,25 @@ function enter(ctx: ReturnType<typeof workerHarness>["ctx"]) {
   ctx.boot.createAllowed = true;
   enterProjectCreate(ctx, { type: "projectCreate", id: 1, documents: writeProjectWorkspace({}) });
 }
+
+test("Create captures an undrawn game and returns to its exact running state", (t) => {
+  const { ctx, control } = workerHarness(gameContainer(["assignn(v80,42);accept.input();return;"]));
+  t.after(() => ctx.fns.stopTimers());
+  ctx.fns.tickEngine();
+  const before = ctx.run.engine!.readState();
+  enter(ctx);
+  const grant = control.findLast((m) => m.type === "projectCreated");
+  assert.ok(
+    grant?.type === "projectCreated" && grant.grant,
+    grant?.reason ?? "Create grant missing",
+  );
+  ctx.run.engine!.vars[80] = 99;
+  onWorkerMessage(ctx, { type: "projectPlay", id: 2 });
+  assert.ok(control.findLast((m) => m.type === "projectPlayed")?.ok);
+  assert.equal(ctx.run.engine!.vars[80], 42);
+  assert.deepEqual(ctx.run.engine!.readState(), before);
+  assert.equal(ctx.run.engine!.autosaveImage(), null);
+});
 
 test("Create boot excludes the first later death checkpoint and pagehide flush", async (t) => {
   const { ctx, presentation, control } = workerHarness(game());
@@ -206,4 +227,58 @@ test("Create entry refuses a pending host question before granting edits", (t) =
   const reply = control.findLast((m) => m.type === "projectCreated");
   assert.ok(reply?.type === "projectCreated" && !reply.grant);
   assert.match(reply.reason!, /Finish the game's question/);
+});
+
+for (const history of [false, true]) {
+  test(`leaving Create refuses an active ${history ? "history" : "walkthrough"} replay before autosaving`, (t) => {
+    const { ctx, control, presentation } = workerHarness(game());
+    t.after(() => ctx.fns.stopTimers());
+    ctx.fns.tickEngine();
+    enter(ctx);
+    ctx.boot.currentBootFiles = new Map(game().files);
+    ctx.boot.currentDictionary = new Map();
+    ctx.fns.onResetReplay({ type: "resetReplay", seed: 0, rngVersion: 2 });
+    ctx.replay.historyReplay = history;
+    ctx.fns.tickEngine();
+    ctx.run.engine!.vars[80] = 199;
+    const prior = ctx.run;
+    presentation.length = 0;
+    for (const restart of [false, true]) {
+      onWorkerMessage(ctx, { type: "projectPlay", id: 90, restart });
+      const reply = control.findLast((m) => m.type === "projectPlayed");
+      assert.ok(reply?.type === "projectPlayed" && !reply.ok);
+      assert.match(reply.reason!, /Leave the replay or history view first/);
+      assert.equal(ctx.run, prior);
+      ctx.fns.onFlush({ type: "flush", id: 91 });
+      assert.equal(presentation.filter((m) => m.type === "autosave").length, 0);
+    }
+  });
+}
+
+test("leaving Create refuses the separate history-view drive before autosaving", (t) => {
+  const { ctx, control, presentation } = workerHarness(game());
+  t.after(() => {
+    ctx.fns.onHistoryViewEnd();
+    ctx.fns.stopTimers();
+  });
+  ctx.fns.tickEngine();
+  enter(ctx);
+  const boot = ctx.fns.historySnapshot(true)!;
+  ctx.view.drive = openHistoryDrive(
+    { id: "view", boot, events: [], anchors: [], marks: [], sync: [] },
+    createWorkerContext,
+  );
+  assert.equal(ctx.view.drive.error, null);
+  assert.ok(ctx.view.drive.ctx.run.engine instanceof Engine);
+  ctx.view.drive.ctx.run.engine.vars[80] = 199;
+  assert.equal(ctx.replay.replay, null);
+  const prior = ctx.run;
+  presentation.length = 0;
+  onWorkerMessage(ctx, { type: "projectPlay", id: 90 });
+  const reply = control.findLast((m) => m.type === "projectPlayed");
+  assert.ok(reply?.type === "projectPlayed" && !reply.ok);
+  assert.match(reply.reason!, /Leave the replay or history view first/);
+  assert.equal(ctx.run, prior);
+  ctx.fns.onFlush({ type: "flush", id: 91 });
+  assert.equal(presentation.filter((m) => m.type === "autosave").length, 0);
 });

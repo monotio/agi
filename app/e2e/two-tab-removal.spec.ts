@@ -63,12 +63,13 @@ function held(page: Page, locator: string) {
   return page.evaluate(
     async ({ id, locator }) => {
       const { loadAuthoredGame } = await import("/src/project/gameStorage.ts");
+      const { progressWriterKey } = await import("/src/saves/progressWriter.ts");
       const { autosaveKey } = await import("/src/saves/gameProgress.ts");
       const { readResumePointer } = await import("/src/saves/resumePointer.ts");
       const { readProjectSaveRecoveries } = await import("/src/project/projectSaveJournal.ts");
       return {
         projectNamedKeys: Object.keys(localStorage)
-          .filter((key) => /[.:/]a(?:[.:/]|$)/.test(key))
+          .filter((key) => /[.:/]a(?:[.:/]|$)/.test(key) && key !== progressWriterKey(locator))
           .sort(),
         record: (await loadAuthoredGame(id)) !== null,
         checkpoint: localStorage.getItem(autosaveKey(locator)) !== null,
@@ -161,6 +162,12 @@ test("a game removed in another tab stops storing, says so once, and never comes
   await expect.poll(async () => (await textHook(tabB)).room).toBe(1);
   await expect.poll(() => storedAutosave(tabB, PROJECT), { timeout: 20_000 }).not.toBeNull();
 
+  const writerFence = await tabB.evaluate(
+    (locator) => localStorage.getItem(`monotio_agi.writer.${locator}`),
+    locator,
+  );
+  expect(writerFence).not.toBeNull();
+
   // Tab A removes it, confirmed.
   await page.reload();
   const card = savedGameCard(page, TITLE);
@@ -240,6 +247,12 @@ test("a game removed in another tab stops storing, says so once, and never comes
     files: game(),
     words: [["look", 1]],
   });
+  expect(
+    await page.evaluate(
+      (locator) => localStorage.getItem(`monotio_agi.writer.${locator}`),
+      locator,
+    ),
+  ).toBe(writerFence);
   const replacement = await progressStorageKey(page, PROJECT);
   expect(replacement).not.toBe(locator);
   expect(await storedAutosave(page, PROJECT)).toBeNull();

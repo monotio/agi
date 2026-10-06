@@ -12,7 +12,7 @@ import { RETURN } from "../src/logic/opcodes.ts";
 import { buildLogicResource } from "../src/logic/resource.ts";
 import { Engine, type EngineHost } from "../src/runtime/engine.ts";
 import { PROFILES } from "../src/runtime/profile.ts";
-import { rngDraw } from "../src/runtime/rng.ts";
+import { rngDraw, readRngPolicy } from "../src/runtime/rng.ts";
 import { buildView } from "../src/view/view.ts";
 
 const hostDefaults: EngineHost = {
@@ -213,4 +213,14 @@ test("restart preserves the RNG stream — no draw, no reseed", () => {
   engine.execute(0);
   assert.equal(engine.vars[50], 92, "the stream continued across the restart");
   assert.equal(rng.state, 11127);
+});
+
+test("host seed lifetime is optional and preserves released sequence metadata", () => {
+  const legacy = { kind: "sequence", next: 0, cursor: 2 };
+  assert.deepEqual(readRngPolicy(legacy), legacy);
+  const scoped = { ...legacy, untilRoomChange: true };
+  assert.deepEqual(readRngPolicy(scoped), scoped);
+  for (const untilRoomChange of [false, 1, "room"])
+    assert.throws(() => readRngPolicy({ ...legacy, untilRoomChange }), /invalid state/);
+  assert.throws(() => readRngPolicy({ ...scoped, unknown: true }), /invalid state/);
 });

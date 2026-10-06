@@ -4,7 +4,7 @@ import { openContainer } from "../../src/container/container.ts";
 import { parseWordsTok } from "../../src/logic/words.ts";
 import {
   openLibraryActions,
-  openPlayMore,
+  storedAutosave,
   savedGameCard,
   screenText,
   textHook,
@@ -132,9 +132,10 @@ return;
     expect(kept.files["OBJECT"]).not.toEqual(before.files["OBJECT"]);
     await page.getByTestId("btn-exit").click();
     await expect(page.getByTestId("parts-list")).toBeHidden();
-    // Playtest the newly kept bytes from the opening; earlier progress remains separate.
-    const more = await openPlayMore(page, savedGameCard(page, title));
-    await more.getByTestId("start-library-game-over").click();
+    // Play the kept project from its cold opening; Create has no Play progress.
+    await expect(card).toBeVisible();
+    expect(await storedAutosave(page, kept.id)).toBeNull();
+    await card.getByTestId("btn-resume-cached").click();
     await expect.poll(async () => (await textHook(page)).room).toBe(1);
     if (kind === "boilerplate") {
       await expect.poll(async () => (await textHook(page)).modal).toBe("print");

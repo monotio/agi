@@ -629,7 +629,7 @@ export function createHistory(ctx: WorkerContext) {
    * set, the resumable image plus host replay state, queues, RNG, the cycle
    * clock accumulators and the resource-set identity.
    */
-  function snapshotBoot(cold = false): HistoryBoot | null {
+  function snapshotBoot(cold = false, allowUndrawn = false): HistoryBoot | null {
     const engine = ctx.run.engine;
     if (!engine) return null;
     // A debugger-parked or armed mid-pass engine has no resumable boundary —
@@ -639,7 +639,7 @@ export function createHistory(ctx: WorkerContext) {
     if (ctx.fns.debugCaptureBlocked()) return null;
     let image: Uint8Array | null;
     try {
-      image = engine.recordingImage();
+      image = engine.recordingImage(allowUndrawn);
     } catch {
       return null;
     }
@@ -653,7 +653,9 @@ export function createHistory(ctx: WorkerContext) {
       authorRooms: ctx.boot.authorRooms,
       profile: engine.profile.id,
       ...(ctx.run.engine?.amigaRegion === "pal" ? { amigaRegion: "pal" as const } : {}),
-      ...(image ? { image: bytesToBase64(image), replay: engine.captureReplayState() } : {}),
+      ...(image
+        ? { image: bytesToBase64(image), replay: engine.captureReplayState(allowUndrawn) }
+        : {}),
       menus: engine.readMenuState(),
       inputQueue: [...ctx.run.input.keyQueue],
       directionQueue: [...ctx.run.input.deferredMovement],

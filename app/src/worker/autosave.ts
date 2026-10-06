@@ -93,7 +93,7 @@ export function createAutosave(ctx: WorkerContext) {
     }
     ctx.ports.presentation(msg);
     ctx.run.autosave.lastAutosaveCycle = ctx.run.cycle.cycleCount;
-    ctx.run.autosave.lastAutosaveAt = Date.now();
+    ctx.run.autosave.lastAutosaveAt = ctx.ports.now();
     // The autosave cadence is the history anchor cadence — same boundary.
     ctx.fns.historyAnchor("autosave");
     return true;

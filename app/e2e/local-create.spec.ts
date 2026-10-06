@@ -1,4 +1,4 @@
-import { isolateStorage, textHook, waitForAutosaveAfter } from "./engineProbe.ts";
+import { isolateStorage, storedAutosave, textHook, workspaceSaved } from "./engineProbe.ts";
 import { expect, reviewShot, test } from "./test.ts";
 
 for (const kind of ["starter", "boilerplate"] as const) {
@@ -50,10 +50,12 @@ for (const kind of ["starter", "boilerplate"] as const) {
     expect(project.keys).toContain("logic:1");
     expect(project.keys?.includes("view:0")).toBe(kind === "starter");
     await reviewShot(page, `local-${kind}-workspace`);
-    // Create keeps its opening checkpoint while the game runs temporarily.
-    await waitForAutosaveAfter(page, 0);
+    // Create saves the project while its preview leaves Play progress empty.
+    await workspaceSaved(page);
+    expect(await storedAutosave(page, project.id)).toBeNull();
     await page.reload();
     await expect.poll(async () => (await textHook(page)).room).toBe(1);
+    expect(await storedAutosave(page, project.id)).toBeNull();
     expect(providerCalls).toBe(0);
   });
 }

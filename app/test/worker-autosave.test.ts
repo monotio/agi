@@ -97,6 +97,33 @@ function drawnGame() {
   );
 }
 
+test("a replacement waits for the autosave interval on the host clock", (t) => {
+  const { ctx, presentation } = workerHarness(drawnGame());
+  t.after(() => ctx.fns.stopTimers());
+  let now = 1000;
+  ctx.ports.now = () => now;
+  onWorkerMessage(ctx, {
+    type: "boot",
+    files: Object.fromEntries(drawnGame().files),
+    words: [],
+  });
+  ctx.fns.stopTimers();
+  ctx.fns.tickEngine();
+  ctx.fns.finishCycle();
+  for (now = 1020; now < 6000; now += 20) ctx.fns.hostTick();
+  assert.equal(presentation.filter((m) => m.type === "autosave").length, 0);
+  now = 6000;
+  ctx.fns.hostTick();
+  now = 6020;
+  ctx.fns.hostTick();
+  assert.equal(presentation.filter((m) => m.type === "autosave").length, 1);
+  for (now = 6040; now < 11000; now += 20) ctx.fns.hostTick();
+  assert.equal(presentation.filter((m) => m.type === "autosave").length, 1);
+  now = 11040;
+  ctx.fns.hostTick();
+  assert.equal(presentation.filter((m) => m.type === "autosave").length, 2);
+});
+
 test("autosave(false) skips when the cycle has not advanced", () => {
   const { ctx, presentation } = workerHarness(drawnGame());
   ctx.fns.tickEngine();

@@ -1634,7 +1634,14 @@ function onKeyup(event: KeyboardEvent): void {
     </aside>
 
     <Teleport :disabled="!active || !inWorkspace" defer to="#workspace-status-left">
-      <footer class="studio__status" aria-label="Status bar">
+      <footer
+        class="studio__status"
+        aria-label="Status bar"
+        @keydown="onKeydown"
+        @keyup="onKeyup"
+        @keypress.stop
+        @click="keepFocus"
+      >
         <span data-role="status" data-testid="studio-status">{{ status }}</span>
         <!-- A notice takes the hint's place, off the picture. -->
         <StudioStatusNotice

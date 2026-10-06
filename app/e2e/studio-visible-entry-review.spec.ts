@@ -1,4 +1,4 @@
-import { openLibraryActions, savedGameCard } from "./engineProbe.ts";
+import { openLibraryActions, savedGameCard, storedAutosave } from "./engineProbe.ts";
 import { blockProviders, createProjectViaUi, prepareIsolatedPage } from "./logicDebugShared.ts";
 import { expect, reviewShot, test } from "./test.ts";
 
@@ -24,7 +24,7 @@ test("a manually created game has a Edit action in its game menu @webkit-desktop
   expect(providers.count()).toBe(0);
 });
 
-test("leaving during creation keeps the opening checkpoint when editors finish loading @webkit-desktop", async ({
+test("leaving during cold creation saves the project without Play progress when editors finish loading @webkit-desktop", async ({
   page,
 }) => {
   await prepareIsolatedPage(page);
@@ -36,25 +36,6 @@ test("leaving during creation keeps the opening checkpoint when editors finish l
     await editor;
     await route.continue();
   });
-  await page.addInitScript(() => {
-    const request = navigator.locks.request.bind(navigator.locks);
-    const gate = new Promise<void>((resolve) => {
-      Object.assign(window, { releaseCheckpoint: resolve });
-    });
-    Object.defineProperty(navigator, "locks", {
-      value: {
-        request(name: string, callback: LockGrantedCallback<unknown>) {
-          return request(name, async (lock) => {
-            if (name.startsWith("monotio_agi.checkpoint.")) {
-              Object.assign(window, { checkpointWaiting: true });
-              await gate;
-            }
-            return callback(lock);
-          });
-        },
-      },
-    });
-  });
   await page.goto("/#create-adventure");
   const title = "Early departure";
   await page.getByTestId("local-create-title").fill(title);
@@ -63,12 +44,17 @@ test("leaving during creation keeps the opening checkpoint when editors finish l
   const exit = page.getByTestId("btn-exit");
   await expect(exit).toBeVisible();
   await exit.click();
-  await page.waitForFunction(() => Reflect.get(window, "checkpointWaiting") === true);
+  const loaded = page.waitForResponse("**/src/project/projectSession.ts");
   releaseEditor();
-  await page.waitForFunction(() => {
-    const probe = Reflect.get(window, "__AGI_PROJECT__");
-    return probe?.getSession() != null;
-  });
-  await page.evaluate(() => Reflect.get(window, "releaseCheckpoint")());
-  await expect(savedGameCard(page, title)).toBeVisible();
+  await loaded;
+  const card = savedGameCard(page, title);
+  await expect(card).toBeVisible();
+  const id = await page.evaluate(async (title) => {
+    const { listStoredProjects } = await import("/src/project/gameStorage.ts");
+    return (await listStoredProjects()).find((project) => project.title === title)!.projectId;
+  }, title);
+  expect(await storedAutosave(page, id)).toBeNull();
+  await openLibraryActions(page, card);
+  await page.getByTestId("edit-library-game").click();
+  await expect(page.getByTestId("parts-list")).toBeVisible();
 });

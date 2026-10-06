@@ -1314,3 +1314,43 @@ test("checkpoint preparation returns not ready before a future admission boundar
     finish?.();
   }
 });
+
+test("a missing room restart names Update and keep playing", async () => {
+  const documents = { "logic:0": "return;" };
+  const compiled = compileProjectDocuments({
+    files: Object.fromEntries(createContainer().files),
+    documents,
+    profileId: "2.936",
+  });
+  const session = openProjectSession({
+    data: {
+      projectId: requireProjectId("restart-action-copy"),
+      title: "Test",
+      authoredAt: "",
+      files: Object.fromEntries(compiled.files()),
+      words: [],
+      workspace: writeProjectWorkspace(documents),
+    },
+    lifetime: "initial",
+    admission: {
+      runToken: "copy-run",
+      admit: async () => ({
+        status: "committed",
+        expected: null,
+        current: null,
+        patchGeneration: 1,
+      }),
+    },
+    write: async () => {
+      throw new Error("Room restart refusal must precede storage.");
+    },
+  });
+  try {
+    await assert.rejects(
+      session.update([{ key: "logic:0", content: "// Changed\nreturn;" }], true),
+      /Use Update and keep playing/,
+    );
+  } finally {
+    session.dispose();
+  }
+});

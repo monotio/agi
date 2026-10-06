@@ -89,6 +89,9 @@ export function createJournal(ctx: WorkerContext) {
    * transition path, but its honest cause is the authoring re-entry.
    */
   function onRoomTransition(_from: number, to: number, edge: number, restarted: boolean): void {
+    const policy = ctx.run.rng.policy;
+    if (policy.kind === "sequence" && policy.untilRoomChange)
+      ctx.run.rng.policy = { kind: "external" };
     if (ctx.replay.replay) return; // scratch replay traffic stays out
     const j = ctx.run.journal;
     if (j.lastRoom === null) {

@@ -2,6 +2,7 @@ import { expect, test } from "@playwright/test";
 import { clickTimelineMark, isolateStorage, openCardMenu } from "./engineProbe.ts";
 
 test.describe("Synthetic Walkthrough", () => {
+  test.use({ hasTouch: true });
   test("runs synthetic walkthrough from game actions menu with speed, seek, and take-control", async ({
     page,
   }) => {
@@ -22,8 +23,40 @@ test.describe("Synthetic Walkthrough", () => {
     await expect(bar).toBeVisible({ timeout: 15_000 });
     await expect(bar).toContainText("Walkthrough");
 
+    const pause = page.getByTestId("btn-walkthrough-pause");
+    await expect(pause).toBeVisible();
+    await pause.click();
+    await expect
+      .poll(() => page.evaluate(() => window.__AGI_STATE__?.walkthrough.status))
+      .toBe("paused");
+    for (const [width, height] of [
+      [1063, 815],
+      [1440, 900],
+      [390, 844],
+    ] as const) {
+      await page.setViewportSize({ width, height });
+      await page.getByRole("radio", { name: "Play", exact: true }).scrollIntoViewIfNeeded();
+      await expect(page.getByRole("radio", { name: "Play", exact: true })).toBeVisible();
+      await expect(page.getByRole("radio", { name: "Create", exact: true })).toBeVisible();
+      const bytes = await page.screenshot({
+        path: test.info().outputPath(`walkthrough-modes-${width}.png`),
+        animations: "disabled",
+        scale: "css",
+      });
+      if (process.env["CI"])
+        console.log(`FOLLOWUP_SHOT:walkthrough-modes-${width}:${bytes.toString("base64")}`);
+    }
+    await page.setViewportSize({ width: 1280, height: 720 });
+    for (const name of ["Play", "Create"]) {
+      const mode = page.getByRole("radio", { name, exact: true });
+      await expect(mode).toBeVisible();
+      await expect(mode).toBeDisabled();
+    }
+
     const transport = page.getByTestId("walkthrough-transport");
     await expect(transport).toBeVisible();
+
+    await pause.click();
 
     // Verify speed controls
     const speed4 = page.getByTestId("walkthrough-speed-4");

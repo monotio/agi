@@ -94,7 +94,7 @@ test("switching Play and Create follows the running room without moving it", asy
   await expect(page.getByTestId("workspace-visit")).toBeHidden();
 });
 
-test("a room visit reply arriving after Play keeps Create on the adopted room", async ({
+test("a late room visit reply preserves the captured Play room and selected editor", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -137,11 +137,14 @@ test("a room visit reply arriving after Play keeps Create on the adopted room", 
     .toBe(true);
   await expect.poll(async () => (await textHook(page)).room).toBe(8);
   await page.getByRole("radio", { name: "Play", exact: true }).click();
+  await expect.poll(async () => (await textHook(page)).room).toBe(1);
   await page.evaluate(() => (window as unknown as { releaseRoomVisit(): void }).releaseRoomVisit());
   await page.getByRole("radio", { name: "Create", exact: true }).click();
   await expect(page.getByTestId("room-studio").filter({ visible: true })).toBeVisible();
   await expect(page.getByTestId("workspace-visit")).toBeHidden();
-  await expect.poll(async () => (await textHook(page)).room).toBe(8);
+  await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  await expect(page.getByTestId("project-tab-picture:8")).toBeVisible();
+  await expect(page.getByTestId("project-tab-picture:8")).toHaveAttribute("aria-selected", "true");
 });
 
 test("room changes during Create keep the selected picture editor open", async ({ page }) => {
@@ -542,8 +545,8 @@ for (const size of [
       await shot(page, name);
     }
     await page.getByRole("radio", { name: "Play", exact: true }).click();
-    await expect.poll(async () => (await textHook(page)).room).toBe(8);
-    await shot(page, "play");
+    await expect.poll(async () => (await textHook(page)).room).toBe(1);
+    await shot(page, "play", [0, 170, 0]);
   });
 }
 

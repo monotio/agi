@@ -18,6 +18,7 @@ import {
   textHook,
   waitForCycles,
   workspaceUpdated,
+  waitForAutosaveAfter,
 } from "./engineProbe.ts";
 import { expect, test } from "./test.ts";
 
@@ -223,6 +224,11 @@ test("a depth drag changes only the priority plane, undoes, keeps, reloads, expo
   await closeWorkspaceEditor(page);
   await expect(studio).toBeHidden();
   await expect.poll(() => framePriority(page, 80, 106)).toBe(10);
+
+  // Return to Play on the kept files before recording progress for reload.
+  await page.getByRole("radio", { name: "Play", exact: true }).click();
+  await expect.poll(() => framePriority(page, 80, 106)).toBe(10);
+  await waitForAutosaveAfter(page, (await textHook(page)).cycle);
 
   // A reload boots the stored project: Studio opens on the kept bytes.
   await page.reload();
