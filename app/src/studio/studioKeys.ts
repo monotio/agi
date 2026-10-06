@@ -22,9 +22,8 @@
  * - the tool rail's letters (studioTools.ts TOOL_SHORTCUTS: V A L R P F B I, the
  *   Walk view's T D E, which open it first, and G H); Enter finishes a line
  *   or polygon, Backspace drops its last point
- * - `/` asks the workspace agent about the selection; `?`
- *   opens the key sheet (StudioKeySheet.vue); Tab and Shift+Tab only ever
- *   move focus
+ * - `?` opens the key sheet (StudioKeySheet.vue); Tab and Shift+Tab only
+ *   ever move focus
  */
 
 import type { StudioLens } from "./studioView.ts";
@@ -70,8 +69,6 @@ export interface StudioKeyActions {
   tool(key: string): boolean;
   /** Enter: finish what a tool is drawing; true when there was something. */
   finish(): boolean;
-  /** `/`: tell the agent about the selection; false when there is no agent. */
-  ask(): boolean;
   /** Insert: add a point to the selected line nearest the cursor; false when none was added. */
   insertPoint(): boolean;
   /** `?`: the key sheet. */
@@ -131,7 +128,6 @@ export function studioKey(event: KeyboardEvent, act: StudioKeyActions): boolean 
     return true;
   }
   if (event.altKey) return false;
-  if (key === "/") return act.ask();
   if (key === "?") {
     act.keySheet();
     return true;

@@ -752,18 +752,18 @@ test("Ask stores a formatted reply with raw context and keeps ordinary follow-up
     await agent.ask("Suggest words for look", "WORDS", (text) =>
       wordsTaskReply(text, { kind: "suggest", group: 100, words: ["look"] }),
     ),
-    "Suggested inspect · shown in WORDS",
+    "Suggested inspect",
   );
   const message = agent.current().messages.at(-1)!;
   assert.deepEqual(message, {
     id: message.id,
     role: "assistant",
-    text: "Suggested inspect · shown in WORDS",
+    text: "Suggested inspect",
     context: raw,
   });
   assert.deepEqual(session.chats().chats[0]!.messages.at(-1), message);
   assert.deepEqual(agent.current().transcript, [{ role: "assistant", text: raw }]);
-  assert.deepEqual(agent.progress, ["Suggested inspect · shown in WORDS"]);
+  assert.deepEqual(agent.progress, ["Suggested inspect"]);
   reply = "Try looking around.";
   await agent.ask("Where next?");
   assert.equal(agent.current().messages.at(-1)!.text, reply);

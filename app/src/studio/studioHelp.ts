@@ -152,7 +152,6 @@ export function roomKeySheet(tool: StudioTool): KeySection[] {
         { keys: [keyLabel("Mod+Shift+G")], does: "Ungroup the selected group" },
         { keys: ["[", "]"], does: "Move one item back or forward in draw order" },
         { keys: [keyLabel("Mod+Z"), keyLabel("Mod+Shift+Z")], does: "Undo, redo" },
-        { keys: ["/"], does: "Tell the agent about the selection" },
       ],
     },
     {
@@ -202,7 +201,6 @@ export function spriteKeySheet(): KeySection[] {
         { keys: ["<", ">"], does: "Previous or next loop" },
         { keys: ["+", "−", "0"], does: "Zoom in, out, to fit" },
         { keys: [keyLabel("Mod+Z"), keyLabel("Mod+Shift+Z")], does: "Undo, redo" },
-        { keys: ["/"], does: "Tell the agent about the cel or loop" },
         { keys: ["?"], does: "This list" },
       ],
     },

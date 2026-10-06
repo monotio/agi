@@ -31,7 +31,6 @@ function actions(drawing: boolean) {
     redo: () => calls.push("redo"),
     tool: () => false,
     finish: () => calls.push("finish") > 0,
-    ask: () => calls.push("ask") > 0,
     insertPoint: () => calls.push("insert point") > 0,
     keySheet: () => calls.push("key sheet"),
   } satisfies Record<keyof StudioKeyActions, unknown>;
@@ -113,19 +112,6 @@ test("Esc in a text field leaves the field; elsewhere, with nothing in hand, it 
   assert.equal(studioKey(key("Escape", ELSEWHERE), act), true);
   assert.deepEqual(calls, ["blur"]);
 });
-
-test("/ focuses the Ask box from anywhere but a text field", () => {
-  const { act, calls } = actions(false);
-  assert.equal(studioKey(key("/", ELSEWHERE), act), true);
-  assert.equal(studioKey(key("/", CANVAS), act), true);
-  const field = Object.assign(Object.create(HTMLElement.prototype) as HTMLElement, {
-    tagName: "TEXTAREA",
-    isContentEditable: false,
-  });
-  assert.equal(studioKey(key("/", field), act), false);
-  assert.deepEqual(calls, ["ask", "ask"]);
-});
-
 test("Insert adds a point to the selected line; + stays zoom", () => {
   const { act, calls } = actions(false);
   assert.equal(studioKey(key("Insert", CANVAS), act), true);

@@ -176,7 +176,10 @@ test("the context chip follows the selection and its × asks about the whole gam
   await page.getByRole("button", { name: "Send", exact: true }).click();
   await expect(messages.last()).toContainText(`Answer ${sent + 1}.`);
   expect(prompts.slice(sent).join("\n")).not.toContain("Selection: LOGIC 1");
-  await logic.locator(".view-line").nth(5).click({ position: { x: 24, y: 8 } });
+  await logic
+    .locator(".view-line")
+    .nth(5)
+    .click({ position: { x: 24, y: 8 } });
   await expect(chip).toContainText("LOGIC 1 · line 6");
   sent = prompts.length;
   await composer.fill("And this line?");
