@@ -1607,6 +1607,7 @@ onBeforeUnmount(() => {
   <div
     v-if="creating && phoneWidth && editor.selected.value"
     class="workspace-phone-toggle"
+    role="group"
     aria-label="Picture workspace"
   >
     <UiButton

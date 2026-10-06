@@ -92,6 +92,20 @@ for (const viewport of [
       const subtitle = page.getByTestId("play-origin");
       await expect(subtitle).toBeVisible();
       await expect(subtitle).toHaveText("Your copy of Sample edition");
+      if (viewport.width === 390) {
+        // On a phone, Update switches to Playtest (Picture editor storyboard);
+        // return to Edit to compare the same surfaces.
+        const modes = page.getByRole("group", { name: "Picture workspace" });
+        const playtest = modes.getByRole("button", { name: "Playtest", exact: true });
+        await expect(playtest).toHaveAttribute("aria-pressed", "true");
+        // The note must leave the mode toggle reachable.
+        const [toggle, noteBox] = await Promise.all([modes.boundingBox(), note.boundingBox()]);
+        expect(
+          noteBox!.y >= toggle!.y + toggle!.height || noteBox!.y + noteBox!.height <= toggle!.y,
+        ).toBe(true);
+        await modes.getByRole("button", { name: "Edit", exact: true }).click();
+        await expect(canvas).toBeVisible();
+      }
       await page.screenshot({
         path: test.info().outputPath(`fork-note-${viewport.width}-after.png`),
         animations: "disabled",
