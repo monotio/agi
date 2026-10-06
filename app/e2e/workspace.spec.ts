@@ -587,12 +587,10 @@ test("adding a room leaves play in place until Update and restart enters it @web
     .getByTestId("parts-list")
     .getByRole("button", { name: "Add a room", exact: true })
     .click();
-  await expect(page.getByTestId("workspace-guided-form")).toBeVisible();
-  await page.getByLabel("Room name", { exact: true }).fill("Garden");
-  await page
-    .getByTestId("workspace-guided-form")
-    .getByRole("button", { name: "Add", exact: true })
-    .click();
+  const rename = page.getByTestId("room-rename-input");
+  await expect(rename).toBeVisible();
+  await rename.fill("Garden");
+  await rename.press("Enter");
   await expect(page.getByTestId("part-room:2:picture:2")).toBeVisible();
   await page.getByTestId("part-room:2:picture:2").click();
   await expect(page.getByTestId("room-studio")).toBeVisible();

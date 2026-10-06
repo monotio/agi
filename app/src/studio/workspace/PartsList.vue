@@ -33,11 +33,15 @@ const props = defineProps<{
   views?: Readonly<Record<string, Uint8Array>>;
   profile?: AgiProfile;
   addGroups?: readonly string[];
+  /** A room whose name is being edited in place (a fresh add starts there). */
+  renameRoom?: number | undefined;
 }>();
 const emit = defineEmits<{
   open: [key: string, room?: number];
-  add: [group: string];
+  add: [group: string, option?: string];
   nameState: [kind: "flag" | "variable", num: number, name: string];
+  rename: [room: number, title: string];
+  renameCancel: [];
 }>();
 const engine = useEngineApi();
 const workspace = useWorkspaceEditor();
@@ -93,9 +97,15 @@ function nameState(): void {
   emit("nameState", namingKind.value, namingNum.value, name);
   namingOpen.value = false;
 }
+const sharedOpen = ref(false);
 function sectionAdd(label: string): void {
   if (label === "GAME STATE") openNaming();
+  else if (label === "SHARED LOGIC") sharedOpen.value = !sharedOpen.value;
   else emit("add", label);
+}
+function addShared(option: string): void {
+  sharedOpen.value = false;
+  emit("add", "SHARED LOGIC", option);
 }
 const selectedName = computed(
   () =>
@@ -105,6 +115,56 @@ const selectedName = computed(
 const stateNames = computed(() =>
   names.value.filter((info) => ["flag", "variable"].includes(info.kind)),
 );
+const creatorNames = computed(() => stateNames.value.filter((info) => !info.builtin));
+const builtinNames = computed(() => stateNames.value.filter((info) => info.builtin));
+/** In-place room naming: a fresh add pre-fills "Room N" selected, typing replaces it. */
+const editingRoomLocal = ref<number>();
+const editingRoom = computed(() => editingRoomLocal.value ?? props.renameRoom);
+const roomTitle = ref("");
+const renameInput = useTemplateRef("renameInput");
+function roomLabel(room: number): string {
+  const row = props.groups
+    .flatMap((group) => group.entries)
+    .find((row) => row.id === `room:${room}`);
+  return row?.label.split(" · ROOM ")[0] || `Room ${room}`;
+}
+function startRoomRename(room: number): void {
+  roomTitle.value = roomLabel(room);
+  editingRoomLocal.value = room;
+}
+watch(
+  () => props.renameRoom,
+  (room) => {
+    if (room !== undefined) roomTitle.value = roomLabel(room);
+  },
+  { immediate: true },
+);
+watch(
+  renameInput,
+  (element) => {
+    // A ref inside v-for collects an array; one rename form shows at a time.
+    const target = Array.isArray(element) ? element[0] : element;
+    if (!target) return;
+    target.focus();
+    target.select();
+  },
+  { flush: "post" },
+);
+function commitRoomRename(room: number): void {
+  if (editingRoom.value === undefined) return;
+  const title = roomTitle.value.trim();
+  editingRoomLocal.value = undefined;
+  if (title) emit("rename", room, title);
+  else emit("renameCancel");
+}
+function cancelRoomRename(): void {
+  editingRoomLocal.value = undefined;
+  emit("renameCancel");
+}
+/** An add-armed naming survives the editors settling; a double-click edit ends on blur. */
+function blurRename(room: number): void {
+  if (editingRoomLocal.value !== undefined) commitRoomRename(room);
+}
 watch(
   () => [engine.state.phase, engine.state.patchTick],
   () => {
@@ -235,8 +295,41 @@ function onKey(event: KeyboardEvent): void {
           +
         </button>
       </header>
+      <div
+        v-if="group.label === 'SHARED LOGIC' && sharedOpen"
+        class="shared-add"
+        role="menu"
+        aria-label="Shared code"
+        data-testid="shared-add"
+        @keydown.esc.stop="sharedOpen = false"
+      >
+        <button type="button" role="menuitem" @click="addShared('menus')">
+          Menus and Save/Restore
+        </button>
+        <button type="button" role="menuitem" @click="addShared('game-over')">Game over</button>
+        <button type="button" role="menuitem" @click="addShared('score')">Score screen</button>
+        <button type="button" role="menuitem" @click="addShared('empty')">Empty shared code</button>
+      </div>
       <div v-for="row in group.entries" :key="row.id" class="part-row">
+        <form
+          v-if="row.id === `room:${row.room}` && editingRoom === row.room"
+          class="part part-rename-form"
+          data-testid="room-rename-form"
+          @submit.prevent="commitRoomRename(row.room!)"
+        >
+          <input
+            ref="renameInput"
+            v-model="roomTitle"
+            data-testid="room-rename-input"
+            aria-label="Room name"
+            maxlength="160"
+            @focus="($event.target as HTMLInputElement).select()"
+            @keydown.esc.stop="cancelRoomRename"
+            @blur="blurRename(row.room!)"
+          />
+        </form>
         <button
+          v-else
           type="button"
           class="part"
           :class="{ 'part--child': row.child, 'part--selected': row.key === selected }"
@@ -246,6 +339,9 @@ function onKey(event: KeyboardEvent): void {
           :data-testid="`part-${row.id}`"
           @focus="focused = row.id"
           @click="emit('open', row.key, row.room)"
+          @dblclick.stop.prevent="
+            row.id === `room:${row.room}` && !readOnly && startRoomRename(row.room!)
+          "
         >
           <img v-if="thumbnails[row.id]" :src="thumbnails[row.id]" alt="" />
           <ViewThumbnail
@@ -322,7 +418,7 @@ function onKey(event: KeyboardEvent): void {
         </div>
       </form>
       <section v-if="group.label === 'GAME STATE' && stateNames.length" class="game-state">
-        <div v-for="info in stateNames" :key="info.name" class="state-row">
+        <div v-for="info in creatorNames" :key="info.name" class="state-row">
           <button
             class="part"
             @click="
@@ -368,6 +464,59 @@ function onKey(event: KeyboardEvent): void {
             </button>
           </details>
         </div>
+        <details
+          v-if="builtinNames.length"
+          class="game-state-builtin"
+          data-testid="game-state-builtin"
+        >
+          <summary>Built-in</summary>
+          <div v-for="info in builtinNames" :key="info.name" class="state-row">
+            <button
+              class="part"
+              @click="
+                details = info;
+                editingName = false;
+              "
+            >
+              {{ info.name
+              }}<small>{{ info.kind === "flag" ? "Flag" : "Variable" }} {{ info.num }}</small>
+            </button>
+            <small v-for="role in ['Set', 'Checked'] as const" :key="role"
+              >{{ role }}:
+              {{
+                [
+                  ...new Set(
+                    info.uses
+                      .filter((use) => use.role === role)
+                      .map((use) => use.key.replace(":", " ").toUpperCase()),
+                  ),
+                ].join(", ") || "nowhere yet"
+              }}</small
+            >
+            <details class="part-menu">
+              <summary :aria-label="`Actions for ${info.name}`">
+                <UiIcon name="ellipsis" :size="16" />
+              </summary>
+              <button
+                class="part-rename"
+                :title="
+                  readOnly
+                    ? 'Editing is paused. Download your unsaved edits, then reload.'
+                    : 'Rename this name'
+                "
+                :disabled="readOnly"
+                :aria-label="`Rename ${info.name}`"
+                @click="
+                  closePartMenu($event);
+                  details = info;
+                  editingName = true;
+                "
+              >
+                Rename
+              </button>
+            </details>
+          </div>
+        </details>
       </section>
     </section>
     <BindingDetails
@@ -445,6 +594,53 @@ function onKey(event: KeyboardEvent): void {
 }
 .game-state {
   margin-top: var(--space-3);
+}
+.part-rename-form {
+  padding: 0;
+}
+.part-rename-form input {
+  width: 100%;
+  box-sizing: border-box;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  padding: 0;
+  outline: none;
+}
+.game-state-builtin {
+  margin-top: var(--space-3);
+}
+.game-state-builtin > summary {
+  cursor: pointer;
+  color: var(--ink-3);
+  font-size: var(--text-2xs);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding-inline: var(--space-1);
+}
+.shared-add {
+  display: grid;
+  gap: var(--space-1);
+  margin: var(--space-2) 0;
+  padding: var(--space-2);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  background: var(--surface-1);
+}
+.shared-add button {
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+.shared-add button:hover,
+.shared-add button:focus-visible {
+  background: var(--action-soft);
 }
 .game-state-naming {
   display: grid;

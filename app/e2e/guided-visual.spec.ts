@@ -21,7 +21,11 @@ async function start(page: Page, onHome?: () => Promise<void>): Promise<void> {
   await onHome?.();
   await openLibraryActions(page, savedGameCard(page, "Sunny clearing"));
   await page.getByTestId("edit-library-game").click();
-  await expect(page.getByTestId("workspace-add")).toBeVisible();
+  await expect(
+    page.getByTestId(
+      page.viewportSize()!.width <= 600 ? "room-actions-menu" : "room-action-place-hero",
+    ),
+  ).toBeVisible();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
 }
 async function open(page: Page, name: string) {
@@ -29,12 +33,29 @@ async function open(page: Page, name: string) {
     const edit = page.getByRole("button", { name: "Edit", exact: true });
     if (await edit.isVisible()) await edit.click();
   }
-  await page.getByTestId("workspace-add").click();
-  await page.getByRole("menuitem", { name, exact: true }).click();
-  await expect(page.getByRole("menu")).toBeHidden();
+  const testId = (
+    {
+      "Place hero": "room-action-place-hero",
+      "Answer a sentence": "room-action-response",
+      Door: "room-action-door",
+      "Play a sound when…": "room-action-play-sound",
+    } as Record<string, string>
+  )[name]!;
+  if (page.viewportSize()!.width <= 600) await page.getByTestId("room-actions-menu").click();
+  await page.getByTestId(testId).click();
   const form = page.getByTestId("workspace-guided-form");
-  await expect(form).toBeVisible();
+  // A door starts on the game; its form appears once the draw ends.
+  if (name !== "Door") await expect(form).toBeVisible();
   return form;
+}
+async function addRoom(page: Page, name: string): Promise<void> {
+  await parts(page);
+  await page.getByRole("button", { name: "Add a room", exact: true }).click();
+  const rename = page.getByTestId("room-rename-input");
+  await expect(rename).toBeVisible();
+  await rename.fill(name);
+  await rename.press("Enter");
+  await workspaceUpdated(page);
 }
 async function parts(page: Page): Promise<void> {
   const show = page.getByTestId("workspace-show-game");
@@ -92,6 +113,7 @@ for (const [width, height] of [
     await shot(page, `${width}-Hero-drag`);
     await overlay.getByRole("button", { name: "Done", exact: true }).click();
     await expect(form).toBeVisible();
+    await form.getByText("Show code", { exact: true }).click();
     const code = form.getByTestId("guided-code-preview");
     await expect(code).toBeVisible();
     await expect(code).toContainText("position(o0, 90, 140)");
@@ -114,19 +136,11 @@ for (const [width, height] of [
     await shot(page, `${width}-Response`);
     await form.getByRole("button", { name: "Cancel", exact: true }).click();
 
-    form = await open(page, "Add a room");
-    await form.getByLabel("Room name", { exact: true }).fill("Moonlit grove");
-    await form.getByRole("button", { name: "Add", exact: true }).click();
-    await expect(form).toBeHidden();
-    await workspaceUpdated(page);
+    await addRoom(page, "Moonlit grove");
     await parts(page);
     await page.getByTestId("part-room:1:logic").click();
     form = await open(page, "Door");
-    await form
-      .getByRole("group", { name: "Destination room", exact: true })
-      .getByRole("button", { name: /Moonlit grove/ })
-      .click();
-    await form.getByRole("button", { name: "Drag a door box", exact: true }).click();
+    // A door starts on the game: drag the box where the hero leaves, then Done.
     await expect(overlay).toBeVisible();
     await overlay.hover({ position: { x: 4, y: 4 } });
     const doorBox = (await overlay.boundingBox())!;
@@ -142,6 +156,10 @@ for (const [width, height] of [
     await shot(page, `${width}-Door-drag`);
     await overlay.getByRole("button", { name: "Done", exact: true }).click();
     await expect(form).toBeVisible();
+    await form
+      .getByRole("group", { name: "Destination room", exact: true })
+      .getByRole("button", { name: /Moonlit grove/ })
+      .click();
     await form.getByRole("button", { name: "and arrive here", exact: true }).click();
     await expect(overlay).toBeVisible();
     await expect(overlay.getByRole("img", { name: "Destination room", exact: true })).toBeVisible();
@@ -150,6 +168,7 @@ for (const [width, height] of [
     await overlay.getByRole("button", { name: "Done", exact: true }).click();
     await expect(form).toBeVisible();
     await shot(page, `${width}-Door`);
+    await form.getByText("Show code", { exact: true }).click();
     const doorPreview = form.getByTestId("guided-code-preview");
     await expect(doorPreview).toBeVisible();
     await expect(doorPreview).toContainText("new.room(2)");
@@ -344,20 +363,20 @@ for (const [width, height] of [
     await overlay.getByRole("button", { name: "Cancel", exact: true }).click();
     await expect(form).toBeVisible();
     await form.getByRole("button", { name: "Cancel", exact: true }).click();
-    form = await open(page, "Add a room");
-    await form.getByLabel("Room name", { exact: true }).fill("Moonlit grove");
-    await form.getByRole("button", { name: "Add", exact: true }).click();
-    await expect(form).toBeHidden();
-    await workspaceUpdated(page);
+    await addRoom(page, "Moonlit grove");
     await parts(page);
     await page.getByTestId("part-room:1:logic").click();
     form = await open(page, "Door");
     await expect.poll(amount).toBe(0);
+    // The door starts on the game; cancel the draw, then drive the form.
+    await expect(overlay).toBeVisible();
+    await overlay.getByRole("button", { name: "Cancel", exact: true }).click();
+    await expect(form).toBeVisible();
     await form
       .getByRole("group", { name: "Destination room", exact: true })
       .getByRole("button", { name: /Moonlit grove/ })
       .click();
-    for (const label of ["Drag a door box", "and arrive here"]) {
+    for (const label of ["Drag the box on the game", "and arrive here"]) {
       await form.getByRole("button", { name: label, exact: true }).click();
       await expect(overlay).toBeVisible();
       await expect.poll(amount).toBe(0);

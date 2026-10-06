@@ -90,7 +90,7 @@ export function workspaceParts(input: {
           input.names?.[key] ??
           (kind === "logic"
             ? num === 0
-              ? "Start-up and menus"
+              ? "Start-up"
               : num === 255
                 ? "Game over"
                 : undefined

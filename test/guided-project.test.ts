@@ -20,6 +20,7 @@ import {
   type PreparedGuidedOperation,
 } from "../src/authoring/guidedProject.ts";
 import { parseWordsTok } from "../src/logic/words.ts";
+import { renameRoomTitle } from "../src/authoring/world.ts";
 
 /** A draft workspace over a real starter seed, with its authored sources claimed. */
 function workspace(kind: StarterKind = "starter") {
@@ -109,7 +110,7 @@ return;
     const bindingsChange = JSON.parse(
       op.changes.find((c) => c.key === "bindings")!.content as string,
     );
-    assert.deepEqual(bindingsChange.pic_num, { kind: "variable", num: 32 });
+    assert.deepEqual(bindingsChange.pic_num, { kind: "variable", num: 32, builtin: true });
 
     const tx = op.apply();
     assert.equal(tx.keys.length, 4);
@@ -189,7 +190,11 @@ return;
       /assignn\(pic_num, 2\);\n {2}load\.pic\(pic_num\);\n {2}draw\.pic\(pic_num\);/,
     );
     const bindings = JSON.parse(op.changes.find((c) => c.key === "bindings")!.content as string);
-    assert.deepEqual(bindings.pic_num, { kind: "variable", num: 33 }, "v32 stays with the draft");
+    assert.deepEqual(
+      bindings.pic_num,
+      { kind: "variable", num: 33, builtin: true },
+      "v32 stays with the draft",
+    );
   });
 
   test("refuses when a draft source's variable access is unprovable", () => {
@@ -209,7 +214,11 @@ return;
     bindNames(draft, { coins: { kind: "variable", num: 32 } });
     const op = mustPrepare(prepareGuidedAddRoom(ctx, { title: "Safe room" }));
     const bindings = JSON.parse(op.changes.find((c) => c.key === "bindings")!.content as string);
-    assert.deepEqual(bindings.pic_num, { kind: "variable", num: 33 }, "coins keeps v32");
+    assert.deepEqual(
+      bindings.pic_num,
+      { kind: "variable", num: 33, builtin: true },
+      "coins keeps v32",
+    );
   });
 
   test("the picture variable skips slots used as bare numbers or v0NN spellings", () => {
@@ -220,7 +229,7 @@ return;
     const bindings = JSON.parse(op.changes.find((c) => c.key === "bindings")!.content as string);
     assert.deepEqual(
       bindings.pic_num,
-      { kind: "variable", num: 34 },
+      { kind: "variable", num: 34, builtin: true },
       "v32 (bare) and v33 (v0NN) both stay occupied",
     );
   });
@@ -231,7 +240,7 @@ return;
     draft.edit("logic:9", "if (isset(f5)) {\n  assignn(32, 7);\n", 0);
     const op = mustPrepare(prepareGuidedAddRoom(ctx, { title: "Safe room" }));
     const bindings = JSON.parse(op.changes.find((c) => c.key === "bindings")!.content as string);
-    assert.deepEqual(bindings.pic_num, { kind: "variable", num: 33 });
+    assert.deepEqual(bindings.pic_num, { kind: "variable", num: 33, builtin: true });
   });
 
   test("numbers outside state positions do not reserve variable slots", () => {
@@ -244,7 +253,7 @@ return;
     );
     const op = mustPrepare(prepareGuidedAddRoom(ctx, { title: "Safe room" }));
     const bindings = JSON.parse(op.changes.find((c) => c.key === "bindings")!.content as string);
-    assert.deepEqual(bindings.pic_num, { kind: "variable", num: 32 });
+    assert.deepEqual(bindings.pic_num, { kind: "variable", num: 32, builtin: true });
   });
 
   test("a local #define alias reserves the variable it names", () => {
@@ -252,7 +261,7 @@ return;
     draft.edit("logic:9", "#define coins 32\nassignn(coins, 7);\nreturn;\n", 0);
     const op = mustPrepare(prepareGuidedAddRoom(ctx, { title: "Safe room" }));
     const bindings = JSON.parse(op.changes.find((c) => c.key === "bindings")!.content as string);
-    assert.deepEqual(bindings.pic_num, { kind: "variable", num: 33 });
+    assert.deepEqual(bindings.pic_num, { kind: "variable", num: 33, builtin: true });
   });
 
   test("a completed #define keeps its variable through an unfinished prefix", () => {
@@ -260,7 +269,7 @@ return;
     draft.edit("logic:9", "#define coins 32\nif (isset(f5)) {\n  assignn(coins, 7);\n", 0);
     const op = mustPrepare(prepareGuidedAddRoom(ctx, { title: "Safe room" }));
     const bindings = JSON.parse(op.changes.find((c) => c.key === "bindings")!.content as string);
-    assert.deepEqual(bindings.pic_num, { kind: "variable", num: 33 });
+    assert.deepEqual(bindings.pic_num, { kind: "variable", num: 33, builtin: true });
   });
 
   test("a local #define shadows the external binding of the same name", () => {
@@ -271,7 +280,7 @@ return;
     draft.edit("logic:9", "#define coins 35\nassignn(coins, 7);\nreturn;\n", 0);
     const op = mustPrepare(prepareGuidedAddRoom(ctx, { title: "Safe room" }));
     const bindings = JSON.parse(op.changes.find((c) => c.key === "bindings")!.content as string);
-    assert.deepEqual(bindings.pic_num, { kind: "variable", num: 32 });
+    assert.deepEqual(bindings.pic_num, { kind: "variable", num: 32, builtin: true });
   });
 
   test("an invalid or ambiguous alias refuses instead of guessing", () => {
@@ -300,7 +309,11 @@ return;
       }),
     );
     const bindings = JSON.parse(op.changes.find((c) => c.key === "bindings")!.content as string);
-    assert.deepEqual(bindings.cue_done, { kind: "flag", num: 33 }, "f32 stays with the draft");
+    assert.deepEqual(
+      bindings.cue_done,
+      { kind: "flag", num: 33, builtin: true },
+      "f32 stays with the draft",
+    );
   });
 
   test("refuses a missing hero view and an off-picture spawn", () => {
@@ -711,6 +724,76 @@ describe("guided connect door", () => {
       assert.equal(op.code, "custom-code");
       assert.match(op.message, /no @end/);
     }
+  });
+});
+
+describe("world metadata keeps the names the creator gave", () => {
+  test("a door never resets the title or description of either room", () => {
+    const { ctx, draft } = workspace("starter");
+    mustPrepare(prepareGuidedAddRoom(ctx, { heroView: "ego_view" })).apply();
+    // The creator renamed the new room and wrote a description for room 1.
+    const before = draft.capture();
+    const world = JSON.parse(before.read("world")!.content as string);
+    world.rooms["1"] = {
+      title: "Meadow",
+      description: "Where the path begins.",
+      exits: world.rooms["1"]?.exits ?? {},
+    };
+    world.rooms["2"] = { ...world.rooms["2"], title: "Forest", description: "Dense pines." };
+    draft.edit("world", JSON.stringify(world), before.version("world"));
+    const op = mustPrepare(
+      prepareGuidedConnectDoor(ctx, {
+        room: 1,
+        destination: 2,
+        box: { x1: 70, y1: 150, x2: 90, y2: 167 },
+      }),
+    );
+    const changed = JSON.parse(op.changes.find((c) => c.key === "world")!.content as string);
+    assert.equal(changed.rooms["1"].title, "Meadow");
+    assert.equal(changed.rooms["1"].description, "Where the path begins.");
+    assert.equal(changed.rooms["2"].title, "Forest", "the door keeps the room's own name");
+    assert.equal(changed.rooms["2"].description, "Dense pines.");
+    assert.equal(changed.rooms["1"].exits["door-2"], 2);
+  });
+
+  test("add a room keeps exits and descriptions the world already planned", () => {
+    const { ctx, draft } = workspace("starter");
+    const before = draft.capture();
+    const world = JSON.parse(
+      (before.read("world")?.content as string | undefined) ??
+        '{"rooms":{},"facts":{},"quests":{}}',
+    );
+    world.rooms["1"] = { title: "Meadow", description: "", exits: {} };
+    world.rooms["2"] = {
+      title: "Planned annex",
+      description: "Reached from the meadow.",
+      exits: { "door-1": 1 },
+    };
+    draft.edit("world", JSON.stringify(world), before.version("world"));
+    const op = mustPrepare(prepareGuidedAddRoom(ctx, {}));
+    const changed = JSON.parse(op.changes.find((c) => c.key === "world")!.content as string);
+    assert.deepEqual(changed.rooms["2"].exits, { "door-1": 1 }, "planned exits survive");
+    assert.equal(changed.rooms["1"].title, "Meadow", "the first room's name is untouched");
+  });
+
+  test("renaming a room keeps its exits, description, facts and quests", () => {
+    const world = {
+      rooms: {
+        "1": {
+          title: "Room 1",
+          description: "Where the path begins.",
+          exits: { "door-2": 2 },
+        },
+      },
+      facts: { intro: "Seen the sign." },
+      quests: { main: { description: "Leave the meadow", requires: [] } },
+    };
+    const renamed = renameRoomTitle(world, 1, "Meadow");
+    assert.deepEqual(renamed, {
+      ...world,
+      rooms: { "1": { ...world.rooms["1"], title: "Meadow" } },
+    });
+    assert.equal(world.rooms["1"]!.title, "Room 1", "the input world is not mutated");
   });
 });
 

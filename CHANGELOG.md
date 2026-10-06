@@ -25,6 +25,14 @@ Released notes are also available on [GitHub Releases](https://github.com/monoti
   editors. Project ZIPs and AGI game folders open directly.
 - Documentation index, a first-game tutorial, editor setup, LOGIC reference and
   extension guides; issue forms, support and security policies.
+- Room-first authoring: + on Rooms adds an empty named room (blank LOGIC and
+  white PICTURE) with no form, the first room on a blank game brings a minimal
+  readable Start-up, and room names edit in place. Room actions (Door, Answer a
+  sentence, Place hero, Sound when…) live in the room's context row and on a
+  right-click on the game; a door is drawn on the game with the code behind
+  Show code. SHARED LOGIC + offers ready parts: Menus and Save/Restore, game
+  over and a score screen. Game state folds template and part state under
+  Built-in.
 
 ### Changed
 

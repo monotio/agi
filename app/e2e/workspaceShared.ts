@@ -168,8 +168,7 @@ export async function addWorkspaceResponse(
   command: string,
   response: string,
 ): Promise<void> {
-  await page.getByTestId("workspace-add").click();
-  await page.getByRole("menuitem", { name: "Answer a sentence", exact: true }).click();
+  await page.getByTestId("room-action-response").click();
   const form = page.getByTestId("workspace-guided-form");
   await expect(form).toBeVisible();
   await form.getByLabel("When the player types…", { exact: true }).fill(command);
@@ -187,8 +186,33 @@ export async function addWorkspaceAction(
   changedKey: string,
 ): Promise<void> {
   const before = await workspaceDocument(page, changedKey);
-  await page.getByTestId("workspace-add").click();
-  await page.getByRole("menuitem", { name: label, exact: true }).click();
+  if (label === "Add a room") {
+    await page.getByRole("button", { name: "Add a room", exact: true }).click();
+    const input = page.getByTestId("room-rename-input");
+    await expect(input).toBeVisible();
+    const name = fields["Room name"];
+    if (name !== undefined) await input.fill(name);
+    await input.press("Enter");
+    await expect.poll(() => workspaceDocument(page, changedKey)).not.toBe(before);
+    await workspaceUpdated(page);
+    return;
+  }
+  const testId = (
+    {
+      "Place hero": "room-action-place-hero",
+      "Answer a sentence": "room-action-response",
+      Door: "room-action-door",
+      "Play a sound when…": "room-action-play-sound",
+    } as Record<string, string>
+  )[label]!;
+  await page.getByTestId(testId).click();
+  if (label === "Door") {
+    // A door starts on the game; drive the form by exact numbers instead.
+    const overlay = page.getByTestId("guided-placement");
+    await expect(overlay).toBeVisible();
+    await overlay.press("Escape");
+    await expect(overlay).toBeHidden();
+  }
   const form = page.getByTestId("workspace-guided-form");
   await expect(form).toBeVisible();
   if (

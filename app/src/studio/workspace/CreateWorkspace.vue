@@ -8,6 +8,8 @@ import {
   type RoomLaunches,
 } from "../../../../src/authoring/launches.ts";
 import type { AuthoringState } from "../../../../src/authoring/authoringState.ts";
+import { renameRoomTitle } from "../../../../src/authoring/world.ts";
+import { gameRoomMenu, roomMenuArmed } from "../../play/roomActionMenu.ts";
 import UiDialog from "../../ui/UiDialog.vue";
 import GuidedAdd from "./GuidedAdd.vue";
 import {
@@ -18,7 +20,16 @@ import {
 import { soundProjectChanges } from "../sound/soundEdits.ts";
 import { VOCABULARY } from "../../../../src/vocabulary.ts";
 import "./workspace.css";
-import { computed, defineAsyncComponent, onBeforeUnmount, ref, shallowRef, watch } from "vue";
+import {
+  computed,
+  defineAsyncComponent,
+  onBeforeUnmount,
+  onMounted,
+  onWatcherCleanup,
+  ref,
+  shallowRef,
+  watch,
+} from "vue";
 import { compilePictureSource } from "../../../../src/picture/source.ts";
 import { openContainer } from "../../../../src/container/container.ts";
 import {
@@ -108,6 +119,16 @@ function nameState(kind: "flag" | "variable", num: number, name: string): void {
   edit("bindings", JSON.stringify({ ...bindings, [name]: { kind, num } }));
   openPart("state");
 }
+/** The Parts room row names the room in place; the world keeps everything else. */
+function renameRoom(room: number, title: string): void {
+  renamingRoom.value = undefined;
+  const current = content("world");
+  const world =
+    typeof current === "string"
+      ? (JSON.parse(current) as AuthoringState["world"])
+      : { rooms: {}, facts: {}, quests: {} };
+  edit("world", JSON.stringify(renameRoomTitle(world, room, title)));
+}
 /** The ⋯ menu's rare actions for the open tab, plus the frame's own. */
 const frameMenuItems = computed(() => {
   const key = editor.selected.value;
@@ -176,6 +197,8 @@ document.addEventListener("focusout", trackGameFocus);
 function focusGameInput(): void {
   document.getElementById("game-command")?.focus();
 }
+/** The room whose name is being edited in place in Parts (a fresh add starts there). */
+const renamingRoom = ref<number>();
 /** Open tabs live with the project: they come back on reload and leave on ×. */
 let tabsProject = "";
 watch(
@@ -186,6 +209,15 @@ watch(
     const storageKey = `monotio_agi.workspaceTabs.${project}`;
     if (tabsProject === storageKey) return;
     tabsProject = storageKey;
+    const rename = localStorage.getItem(`monotio_agi.workspaceRename.${project}`);
+    if (rename !== null) {
+      localStorage.removeItem(`monotio_agi.workspaceRename.${project}`);
+      const room = Number(rename);
+      if (Number.isInteger(room) && room > 0 && room <= 255) {
+        renamingRoom.value = room;
+        editor.partsOpen.value = true;
+      }
+    }
     if (editor.tabs.value.length) return;
     try {
       const saved = JSON.parse(localStorage.getItem(storageKey) ?? "null") as {
@@ -1513,6 +1545,31 @@ const acceptedDocuments = computed(() => snapshot.value?.documents() ?? {});
 const workingDocuments = computed(() => ({ ...acceptedDocuments.value, ...optimistic.value }));
 const guidedKind = ref<WorkspaceAction["kind"]>();
 const guidedCommand = ref("");
+/** Guided previews validate against the working snapshot, drafts included. */
+const guidedSnapshot = computed(() => {
+  void editor.changeCount.value;
+  void snapshot.value;
+  return workingSnapshot();
+});
+/** Right-click on the game offers the current room's actions, whichever editor is open. */
+onMounted(() => {
+  roomMenuArmed.value = true;
+});
+watch(gameRoomMenu, (open) => {
+  if (!open) return;
+  const keys = (event: KeyboardEvent) => {
+    if (event.key === "Escape") gameRoomMenu.value = undefined;
+  };
+  window.addEventListener("keydown", keys);
+  onWatcherCleanup(() => window.removeEventListener("keydown", keys));
+});
+function pickRoomAction(kind: "door" | "response" | "place-hero" | "play-sound"): void {
+  const menu = gameRoomMenu.value;
+  gameRoomMenu.value = undefined;
+  if (!menu) return;
+  openPart(`logic:${menu.room}`);
+  guidedKind.value = kind;
+}
 const unknownSentence = computed(() =>
   engine.playerSentences.value.findLast(
     (entry) => entry.unknown && entry.room === engine.roomMap.currentRoom.value,
@@ -1597,6 +1654,18 @@ async function guidedAction(action: WorkspaceAction): Promise<void> {
       if (key) openPart(key);
     }
     if (action.kind === "add-room") {
+      const logicKey = prepared.changes.find((change) => change.key.startsWith("logic:"))?.key;
+      const room = logicKey ? Number(logicKey.slice(6)) : undefined;
+      const key =
+        prepared.changes.find((change) => change.key.startsWith("picture:"))?.key ?? logicKey;
+      if (key) openPart(key);
+      if (room !== undefined) {
+        renamingRoom.value = room;
+        // Naming in place stays visible where the + lives, also on the phone.
+        editor.partsOpen.value = true;
+      }
+    }
+    if (action.kind === "boilerplate") {
       const key = prepared.changes.find((change) => change.key.startsWith("logic:"))?.key;
       if (key) openPart(key);
     }
@@ -1654,8 +1723,12 @@ async function clearName(name: string): Promise<void> {
     }
   });
 }
-async function add(group: string): Promise<void> {
+async function add(group: string, option?: string): Promise<void> {
   if (writeConflict.value || actionBusy.value) return;
+  if (group === "SHARED LOGIC" && option !== undefined && option !== "empty") {
+    await guidedAction({ kind: "boilerplate", part: option as "menus" | "game-over" | "score" });
+    return;
+  }
   if (group === "WORDS" || group === "OBJECTS") {
     const key = group === "WORDS" ? "words" : "inventory";
     const source = text(key);
@@ -1679,14 +1752,11 @@ async function add(group: string): Promise<void> {
     openPart(`logic:${num}`);
     return;
   }
-  const kind =
-    group === "ROOMS"
-      ? "logic"
-      : group === "PICTURES"
-        ? "picture"
-        : group === "VIEWS"
-          ? "view"
-          : "sound";
+  if (group === "ROOMS") {
+    await guidedAction({ kind: "add-room", title: "" });
+    return;
+  }
+  const kind = group === "PICTURES" ? "picture" : group === "VIEWS" ? "view" : "sound";
   const used = new Set(snapshot.value?.keys ?? []);
   let num = 1;
   while (used.has(`${kind}:${num}`) && num < 256) num++;
@@ -1694,12 +1764,7 @@ async function add(group: string): Promise<void> {
     editor.error.value = "This resource group is full. Edit an existing part.";
     return;
   }
-  if (kind === "logic") {
-    openPart(`logic:${engine.roomMap.currentRoom.value ?? 0}`);
-    guidedKind.value = "add-room";
-    return;
-  }
-  if (kind === "picture") edit(`picture:${num}`, "vis 15\nfill 0,0\nend\n");
+  if (kind === "picture") edit(`picture:${num}`, "end\n");
   else if (kind === "view") {
     const { buildView } = await import("../../../../src/view/view.ts");
     edit(
@@ -1825,6 +1890,8 @@ editor.unsavedEdits.value = () => {
   return buffers;
 };
 onBeforeUnmount(() => {
+  roomMenuArmed.value = false;
+  gameRoomMenu.value = undefined;
   document.removeEventListener("focusin", trackGameFocus);
   document.removeEventListener("focusout", trackGameFocus);
   offDrafts?.();
@@ -1928,9 +1995,12 @@ onBeforeUnmount(() => {
     :thumbnails="thumbnails"
     :views="viewThumbnails"
     :profile="profile"
+    :rename-room="renamingRoom"
     @open="(key, room) => openPart(key, room)"
     @add="add"
     @name-state="nameState"
+    @rename="renameRoom"
+    @rename-cancel="renamingRoom = undefined"
   />
   <div
     v-show="creating && editor.selected.value && !editor.focus.value && !phoneWidth"
@@ -2127,12 +2197,16 @@ onBeforeUnmount(() => {
         editor.debugStatus.value
       }}</UiChip>
       <GuidedAdd
-        v-if="editor.kind.value === 'logic' && snapshot"
+        v-if="
+          (editor.kind.value === 'logic' || editor.kind.value === 'picture') &&
+          selectedRoom !== undefined &&
+          snapshot
+        "
         v-model:action="guidedKind"
-        :room="Number(editor.selected.value?.split(':')[1] ?? 0)"
+        :room="selectedRoom"
         :initial-command="guidedCommand"
         :busy="editor.busy.value || writeConflict"
-        :snapshot
+        :snapshot="guidedSnapshot ?? snapshot"
         :profile-id="profile.id"
         :groups
         :thumbnails
@@ -2538,6 +2612,32 @@ onBeforeUnmount(() => {
       @cancel="musicDrop = undefined"
     />
   </aside>
+  <div
+    v-if="creating && gameRoomMenu"
+    class="game-room-menu__backdrop"
+    @click="gameRoomMenu = undefined"
+    @contextmenu.prevent="gameRoomMenu = undefined"
+  >
+    <div
+      class="game-room-menu"
+      role="menu"
+      aria-label="Room actions"
+      data-testid="game-room-menu"
+      :style="{ left: `${gameRoomMenu.x}px`, top: `${gameRoomMenu.y}px` }"
+      @click.stop
+    >
+      <button type="button" role="menuitem" @click="pickRoomAction('door')">Door</button>
+      <button type="button" role="menuitem" @click="pickRoomAction('response')">
+        Answer a sentence
+      </button>
+      <button type="button" role="menuitem" @click="pickRoomAction('place-hero')">
+        Place hero
+      </button>
+      <button type="button" role="menuitem" @click="pickRoomAction('play-sound')">
+        Sound when…
+      </button>
+    </div>
+  </div>
 </template>
 
 <style scoped>
@@ -2558,5 +2658,34 @@ onBeforeUnmount(() => {
 .workspace-game-bar__room {
   flex: 1;
   min-width: 0;
+}
+.game-room-menu__backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-popover);
+}
+.game-room-menu {
+  position: fixed;
+  display: grid;
+  min-width: 180px;
+  padding: var(--space-2);
+  background: var(--surface-3);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-popover, 0 8px 24px rgb(0 0 0 / 0.35));
+}
+.game-room-menu button {
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm, 4px);
+  cursor: pointer;
+}
+.game-room-menu button:hover,
+.game-room-menu button:focus-visible {
+  background: var(--action-soft);
 }
 </style>
