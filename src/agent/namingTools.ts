@@ -1,5 +1,6 @@
 /** Evidence-backed names share the LOGIC editor's binding ownership model. */
 import type { ToolDefinition } from "./tools.ts";
+import { toolDescription, parameterDescriptions } from "../vocabulary.ts";
 import type { AuthoringState, BindingKind } from "./authoringState.ts";
 import { readBindingsDocument } from "../authoring/projectDocuments.ts";
 import { createProjectLogicLanguageSnapshot } from "../authoring/projectLanguage.ts";
@@ -28,9 +29,11 @@ const KINDS = [
 ];
 export const NAMING_TOOL: ToolDefinition = {
   name: "propose_names",
-  description:
+  description: toolDescription(
+    "propose_names",
     "Propose a batch of names or renames for flags, variables, objects (oN), inventory items (iN), resources and messages (mN). Read LOGIC first. Each name needs exact evidence with LOGIC, line, role and nearby messages. Thin evidence means leave it unnamed. Message names also identify their LOGIC. Explicit rename is the old binding name. The batch joins project review and one Undo; compiled bytes stay identical.",
-  parameters: {
+  ),
+  parameters: parameterDescriptions("propose_names", {
     type: "object",
     additionalProperties: false,
     properties: {
@@ -68,7 +71,7 @@ export const NAMING_TOOL: ToolDefinition = {
       },
     },
     required: ["names"],
-  },
+  }),
 };
 interface NameProposal {
   name: string;

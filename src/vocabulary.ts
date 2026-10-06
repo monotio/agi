@@ -936,7 +936,7 @@ export const VOCABULARY_ACTIONS = {
   propose_names: {
     ...VOCABULARY.reserveName,
     id: "propose_names",
-    label: "Name game parts",
+    label: "Propose names",
     tool: "propose_names",
   },
   read_edit_context: {
