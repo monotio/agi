@@ -1809,6 +1809,11 @@ test("evidence naming batches all binding kinds for review with byte-preserving 
               name: "reserve_name",
               input: { name: "extra_state", kind: "flag", id: 37, bindings: null },
             },
+            {
+              id: "reuse",
+              name: "reserve_name",
+              input: { name: "key_found", kind: "flag", id: 36, bindings: null },
+            },
           ],
         };
       },
@@ -1833,6 +1838,18 @@ test("evidence naming batches all binding kinds for review with byte-preserving 
         .changes()
         .find((c) => c.key === "bindings")?.content,
     ).includes("brass_key"),
+  );
+  assert.deepEqual(
+    JSON.parse(
+      String(
+        agent
+          .pending()!
+          .changes()
+          .find((change) => change.key === "bindings")!.content,
+      ),
+    ).key_found.evidence,
+    names[0]!.evidence,
+    "reusing a reservation retains its reviewed evidence",
   );
   assert.equal(session.model.capture().documentId, before.documentId);
   await agent.approve();

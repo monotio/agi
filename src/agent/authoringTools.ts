@@ -128,7 +128,7 @@ export function executeAuthoringTool(
         }
         if (typeof num !== "number" || !Number.isInteger(num) || num < 0 || num > 255)
           throw new Error("id must be null or an integer in 0..255.");
-        state.authoring.bindings[symbol] = { kind, num };
+        state.authoring.bindings[symbol] = existing ?? { kind, num };
         reservedList.push({
           name: symbol,
           kind,

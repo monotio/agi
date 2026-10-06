@@ -12,6 +12,7 @@ import {
   type AgentToolDeps,
 } from "../../src/agent/tools.ts";
 import { proposeNames, NAMING_TOOL } from "../../src/agent/namingTools.ts";
+import { readBindingsDocument } from "../../src/authoring/projectDocuments.ts";
 import { validateToolArguments } from "../../src/agent/schemaValidate.ts";
 import { createSelectionEdit } from "../../src/agent/selectionTools.ts";
 import { referenceUnderFetch, type ReferenceSource } from "../../src/agent/referenceTools.ts";
@@ -138,13 +139,22 @@ describe("stored bad cases regression suite (evals/fixtures/bad-cases)", () => {
         assert.equal(content.tool, "propose_names");
         assert.deepEqual(validateToolArguments(NAMING_TOOL.parameters, content.args), []);
         const before = JSON.stringify(content.naming);
-        if (content.expectedSuccess)
-          proposeNames({
+        if (content.expectedSuccess) {
+          const changes = proposeNames({
             documents: content.naming,
             profile: session.profile,
             names: content.args.names,
           });
-        else
+          session.authoring.bindings = readBindingsDocument(
+            String(changes.find((change) => change.key === "bindings")!.content),
+          );
+          for (const step of content.after ?? []) {
+            const result = executeAgentTool(session, step.tool, step.args);
+            assert.equal(result.success, true, result.error ?? step.tool);
+          }
+          if (content.expectedBindings)
+            assert.deepEqual(session.authoring.bindings, content.expectedBindings);
+        } else
           assert.throws(
             () =>
               proposeNames({
