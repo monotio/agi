@@ -356,3 +356,97 @@ test("Play here loads on demand and refuses a command whose game was replaced du
   assert.equal(reply.id, 901);
   assert.equal(reply.ok, false);
 });
+
+test("a visit closes a parked message and draws the next room before acknowledging it", () => {
+  const { ctx, send, tick, control } = harness();
+  tick(6);
+  send({ type: "playHere", id: 101, room: 2, x: 0, y: 0, visit: "start" });
+  const engine = ctx.engine!;
+  assert.equal(engine.modalKind, "print");
+  assert.equal(engine.continuationPending, true);
+  send({ type: "playHere", id: 102, room: 1, x: 0, y: 0, visit: "start" });
+  const reply = control.findLast((m) => m.type === "playedHere");
+  assert.ok(reply?.type === "playedHere" && reply.ok);
+  assert.equal(reply.room, 1);
+  assert.equal(engine.vars[0], 1);
+  assert.equal(engine.modalKind, null);
+  assert.equal(engine.screenObjects[0]!.x, 20);
+  assert.equal(engine.continuationPending, false);
+  tick(6);
+  assert.equal(engine.vars[0], 1);
+  assert.equal(engine.modalKind, null);
+});
+
+test("preview deaths stay out of autosave, including pagehide, until Back restores play", () => {
+  const { ctx, send, tick, control } = harness();
+  const saves: unknown[] = [];
+  ctx.ports.presentation = (msg) => {
+    if (msg.type === "autosave") saves.push(msg);
+  };
+  tick(6);
+  assert.equal(ctx.fns.autosave(true), true, "ordinary play still saves");
+  send({ type: "playHere", id: 103, room: 2, x: 0, y: 0, visit: "start" });
+  const baseline = saves.length;
+  ctx.engine!.flags[200] = 1;
+  assert.equal(ctx.engine!.modalKind, "print");
+  assert.equal(ctx.fns.autosave(true), false, "preview state stays temporary");
+  ctx.fns.onFlush({ type: "flush", id: 104 });
+  const flush = control.findLast((m) => m.type === "flushed");
+  assert.ok(flush?.type === "flushed" && !flush.taken);
+  assert.equal(saves.length, baseline);
+  send({ type: "playHere", id: 105, room: 1, x: 0, y: 0, visit: "back" });
+  assert.equal(ctx.engine!.flags[200], 0);
+  assert.equal(ctx.fns.autosave(true), true);
+  assert.equal(saves.length, baseline + 1);
+});
+
+test("a room visit leaves an armed message wait at a completed new entry", () => {
+  const { ctx, send, tick, control } = harness();
+  tick(6);
+  ctx.engine!.setExecutionGate(() => false);
+  send({ type: "playHere", id: 106, room: 2, x: 0, y: 0, visit: "start" });
+  assert.equal(ctx.engine!.modalKind, "print");
+  send({ type: "playHere", id: 107, room: 1, x: 0, y: 0, visit: "start" });
+  const reply = control.findLast((m) => m.type === "playedHere");
+  assert.ok(reply?.type === "playedHere" && reply.ok, JSON.stringify(reply));
+  assert.equal(ctx.engine!.modalKind, null);
+  assert.equal(ctx.engine!.vars[0], 1);
+  assert.equal(ctx.engine!.screenObjects[0]!.x, 20);
+});
+
+test("choosing Play after a preview visit resumes ordinary autosave in that room", () => {
+  const { ctx, send, tick } = harness();
+  tick(6);
+  send({ type: "playHere", id: 108, room: 2, x: 0, y: 0, visit: "start" });
+  assert.equal(ctx.fns.autosave(true), false);
+  send({ type: "projectPlay" });
+  assert.equal(ctx.fns.autosave(true), true);
+  send({ type: "playHere", id: 109, room: 1, x: 0, y: 0, visit: "back" });
+  assert.equal(ctx.engine!.vars[0], 2, "a promoted visit has no old return point");
+});
+
+test("a preview death's global state cannot poison the next room visit", () => {
+  const container = gameContainer(
+    [
+      'if(!isset(f200)){set(f200);new.room(1);}if(isset(f220)){print("Death branch");return;}call.v(v0);return;',
+      "if(isset(f5)){load.pic(v0);draw.pic(v0);show.pic();}return;",
+      'if(isset(f5)){load.pic(v0);draw.pic(v0);show.pic();set(f220);print("Preview death");}return;',
+    ],
+    (c) => {
+      c.putResource("picture", 1, Uint8Array.of(0xf0, 1, 0xf8, 0, 0, 0xff));
+      c.putResource("picture", 2, Uint8Array.of(0xf0, 2, 0xf8, 0, 0, 0xff));
+    },
+  );
+  const { ctx, control } = workerHarness(container);
+  ctx.fns.tickEngine();
+  ctx.fns.onPlayHere({ type: "playHere", id: 110, room: 2, x: 0, y: 0, visit: "start" });
+  assert.equal(ctx.engine!.modalKind, "print");
+  assert.equal(ctx.engine!.flags[220], 1);
+  ctx.fns.onPlayHere({ type: "playHere", id: 111, room: 1, x: 0, y: 0, visit: "start" });
+  const reply = control.findLast((m) => m.type === "playedHere");
+  assert.ok(reply?.type === "playedHere" && reply.ok);
+  assert.equal(reply.room, 1);
+  assert.equal(ctx.engine!.flags[220], 0);
+  assert.equal(ctx.engine!.modalKind, null);
+  assert.equal(ctx.engine!.getPictureSurface().visual[0], 1);
+});

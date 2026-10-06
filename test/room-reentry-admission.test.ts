@@ -117,7 +117,7 @@ test("only the current room's scan.start blocker can use room re-entry; LOGIC 0 
   assert.match(result.reason!, /logic 0/);
 });
 
-test("room re-entry keeps strict idle admission and refuses a mixed OBJECT rename without writing", () => {
+test("room re-entry accepts a message wait and refuses a mixed OBJECT rename without writing", () => {
   const engine = fixture();
   engine.vars[90] = 1;
   engine.tick();
@@ -125,11 +125,11 @@ test("room re-entry keeps strict idle admission and refuses a mixed OBJECT renam
   const candidate = openContainer(engine.containerFiles);
   candidate.putResource("view", 1, view(4, 2));
   const plan = engine.prepareRoomReentry({ files: candidate.files });
-  assert.equal(engine.commitRoomReentry(plan).status, "deferred");
-  assert.deepEqual(new Map(engine.containerFiles), before);
-  engine.ackPrint();
-  engine.tick();
   assert.equal(engine.commitRoomReentry(plan).status, "committed");
+  assert.equal(engine.modalKind, null);
+  assert.equal(engine.continuationPending, false);
+  assert.notDeepEqual(new Map(engine.containerFiles), before);
+  engine.tick();
   const mixed = openContainer(engine.containerFiles);
   mixed.putFile("OBJECT", buildObjectFile([{ name: "coin", startingRoom: 1 }]));
   const installed = new Map(engine.containerFiles);
@@ -141,17 +141,38 @@ test("room re-entry keeps strict idle admission and refuses a mixed OBJECT renam
   assert.equal(engine.itemLocation(0), 255);
 });
 
-test("a byte-identical room entry also waits for idle and seals the old state only at the accepted boundary", () => {
+test("a byte-identical room entry seals the waiting message before discarding its continuation", () => {
   const engine = fixture();
   engine.vars[90] = 1;
   engine.tick();
   const plan = engine.prepareRoomReentry({ files: engine.containerFiles });
   let sealed = 0;
-  assert.equal(engine.commitRoomReentry(plan, () => sealed++).status, "deferred");
-  assert.equal(sealed, 0);
-  engine.ackPrint();
-  engine.tick();
-  assert.equal(engine.commitRoomReentry(plan, () => sealed++).status, "committed");
+  assert.equal(
+    engine.commitRoomReentry(plan, () => {
+      assert.equal(engine.modalKind, "print");
+      assert.equal(engine.continuationPending, true);
+      sealed++;
+    }).status,
+    "committed",
+  );
+  assert.equal(engine.modalKind, null);
+  assert.equal(engine.continuationPending, false);
   assert.equal(sealed, 1);
   assert.equal(engine.flags[5], 1);
+});
+
+test("room re-entry discards an armed message pass and keeps execution control for the new entry", () => {
+  const engine = fixture();
+  engine.setExecutionGate(() => false);
+  engine.vars[90] = 1;
+  engine.tick();
+  assert.equal(engine.modalKind, "print");
+  const plan = engine.prepareRoomReentry({ files: engine.containerFiles });
+  assert.equal(engine.commitRoomReentry(plan).status, "committed");
+  assert.equal(engine.executionControlActive, true);
+  assert.equal(engine.continuationPending, false);
+  assert.equal(engine.modalKind, null);
+  engine.tick();
+  assert.equal(engine.flags[5], 0);
+  assert.equal(engine.readState().egoX, 40);
 });

@@ -31,7 +31,7 @@ export function createAutosave(ctx: WorkerContext) {
    * advanced since the last one, so a parked or idle game costs nothing.
    */
   function autosave(force: boolean): boolean {
-    if (!ctx.engine) return false;
+    if (!ctx.engine || ctx.previewVisitEngine === ctx.engine) return false;
     if (!force && ctx.cycle.cycleCount === ctx.autosave.lastAutosaveCycle) return false;
     // A debugger-parked or armed mid-pass engine has no resumable boundary:
     // the engine would throw on capture, so the last good image is kept.

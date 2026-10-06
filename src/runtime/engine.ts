@@ -1128,7 +1128,7 @@ export class Engine {
     return this.commitPreparedPreview(plan, admission, false);
   }
 
-  /** Explicit room-entry admission uses the same detached candidate and strict idle boundary. */
+  /** Explicit room-entry admission also accepts a message or have.key wait. */
   prepareRoomReentry(candidate: PreviewUpdateCandidate): PreviewUpdatePlan {
     return this.preparePreviewUpdate(candidate);
   }
@@ -1174,7 +1174,7 @@ export class Engine {
       if (
         issued.terminal.status === "unchanged" &&
         (admission?.sourceAuthorityChanged === true || roomReentry) &&
-        !this.previewBoundaryIdle()
+        !(roomReentry ? this.roomReentryBoundary() : this.previewBoundaryIdle())
       ) {
         return result("deferred");
       }
@@ -1187,7 +1187,8 @@ export class Engine {
       }
       return settle({ ...issued.terminal, patchGeneration: this.patchGen });
     }
-    if (!this.previewBoundaryIdle()) return result("deferred");
+    if (!(roomReentry ? this.roomReentryBoundary() : this.previewBoundaryIdle()))
+      return result("deferred");
     if (issued.staged === null) {
       return settle(result("refused", "preview plan carries no staged candidate"));
     }
@@ -1384,6 +1385,27 @@ export class Engine {
       this.saveDialogMode === null &&
       this.resumedSequence === null
     );
+  }
+
+  /** A host room change can discard a message or have.key pass after validation. */
+  private roomReentryWaiting(): boolean {
+    return (
+      !this.terminated &&
+      this.executionFault === null &&
+      this.stopLatch === null &&
+      !this.yieldedExecution &&
+      this.pendingLogic !== null &&
+      this.pendingAnswer === undefined &&
+      this.persistentWindow === null &&
+      this.saveDialogMode === null &&
+      this.resumedSequence === null &&
+      ((this.modal?.kind === "print" && this.pendingInteraction === null) ||
+        (this.modal === null && this.pendingInteraction?.kind === "key"))
+    );
+  }
+
+  private roomReentryBoundary(): boolean {
+    return this.previewBoundaryIdle() || this.roomReentryWaiting();
   }
 
   /**
@@ -2105,6 +2127,7 @@ export class Engine {
   abortInteraction(): void {
     if (this.stopLatch !== null)
       throw new Error("Execution is stopped; resume before abandoning the interaction.");
+    const roomWait = this.roomReentryWaiting();
     const pending = this.pendingInteraction;
     this.pendingInteraction = null;
     this.pendingAnswer = undefined;
@@ -2115,7 +2138,13 @@ export class Engine {
     }
     if (pending?.kind === "confirm" && this.modal?.serial === pending.modalSerial)
       this.closeModal();
-    if (pending !== null) this.pendingLogic = null;
+    if (pending !== null || roomWait) this.pendingLogic = null;
+    if (roomWait) {
+      while (this.modal !== null) this.closeModal();
+      this.cycleCursor = null;
+      this.parkedModalWait = false;
+      this.parkedClockWait = false;
+    }
   }
 
   /**
@@ -7622,6 +7651,8 @@ export class Engine {
    * post-switch sequence tick() runs is applied directly.
    */
   reenterRoom(room: number = this.vars[V_ROOM]!): void {
+    // A deliberate host visit abandons the old pass before the new room runs.
+    if (this.roomReentryWaiting()) this.abortInteraction();
     this.assertExecutionBoundary();
     try {
       this.newRoom(room);

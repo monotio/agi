@@ -26,6 +26,41 @@ export function createPlayHere(ctx: WorkerContext) {
     replay: ReturnType<NonNullable<WorkerContext["engine"]>["captureReplayState"]>;
     rng: number;
   } | null = null;
+  function restoreReturnPoint(point: NonNullable<typeof returnPoint>): void {
+    const engine = point.engine;
+    const patchGeneration = engine.patchGeneration;
+    // Replay caches may include resources outside the displayed room.
+    // Validate them without touching the live engine or host.
+    const candidate = new Engine(
+      openContainer(engine.containerFiles, { profile: engine.profile }),
+      {
+        print() {},
+        displayAt() {},
+        statusLine() {},
+        takeInputLine() {
+          return null;
+        },
+        takeKeys() {
+          return [];
+        },
+      },
+      new Map(),
+      { profile: engine.profile },
+    );
+    candidate.restoreReplayState(point.replay);
+    ctx.fns.debugBeforeReplace();
+    ctx.fns.historyEnd("walkthrough");
+    engine.abortInteraction();
+    ctx.fns.abandonHostRequest();
+    engine.restoreImage(point.image, { preservePresentation: true });
+    engine.restoreReplayState({ ...point.replay, patchGeneration });
+    ctx.history.rng = point.rng;
+    ctx.input.keyQueue.length = 0;
+    ctx.input.deferredMovement.length = 0;
+    ctx.input.inputBuffer.length = 0;
+    ctx.input.clickQueue.length = 0;
+  }
+
   function onPlayHere(msg: Inbound<"playHere">): void {
     const reply = (ok: boolean, reason?: string): void => {
       const engine = ctx.engine;
@@ -44,50 +79,19 @@ export function createPlayHere(ctx: WorkerContext) {
     const engine = ctx.engine;
     if (!engine || ctx.replay.replay || ctx.view.drive)
       return reply(false, "Play here needs the live game. Leave the replay or history view first.");
-    if (returnPoint?.engine !== engine) returnPoint = null;
+    if (returnPoint?.engine !== engine || ctx.previewVisitEngine !== engine) returnPoint = null;
     if (msg.visit === "back") {
       if (!returnPoint) return reply(false, "The return point belongs to an earlier game.");
-      const patchGeneration = engine.patchGeneration;
       try {
-        // Replay caches may include resources outside the displayed room.
-        // Validate them without touching the live engine or host.
-        const candidate = new Engine(
-          openContainer(engine.containerFiles, { profile: engine.profile }),
-          {
-            print() {},
-            displayAt() {},
-            statusLine() {},
-            takeInputLine() {
-              return null;
-            },
-            takeKeys() {
-              return [];
-            },
-          },
-          new Map(),
-          { profile: engine.profile },
-        );
-        candidate.restoreReplayState(returnPoint.replay);
-        ctx.fns.debugBeforeReplace();
-        ctx.fns.historyEnd("walkthrough");
-        if (engine.hostInteractionPending) {
-          engine.abortInteraction();
-          ctx.fns.abandonHostRequest();
-        }
-        engine.restoreImage(returnPoint.image, { preservePresentation: true });
-        engine.restoreReplayState({ ...returnPoint.replay, patchGeneration });
+        restoreReturnPoint(returnPoint);
       } catch {
         return reply(
           false,
           "The saved room needs resources that changed. Undo the resource change and try Back again.",
         );
       }
-      ctx.history.rng = returnPoint.rng;
-      ctx.input.keyQueue.length = 0;
-      ctx.input.deferredMovement.length = 0;
-      ctx.input.inputBuffer.length = 0;
-      ctx.input.clickQueue.length = 0;
       returnPoint = null;
+      ctx.previewVisitEngine = null;
       ctx.fns.debugSessionReplaced();
       ctx.fns.setKeyWaiting(engine.awaitingKey);
       ctx.fns.markJump();
@@ -105,10 +109,22 @@ export function createPlayHere(ctx: WorkerContext) {
     if (!files.getResource("logic", msg.room))
       return reply(false, `Room ${msg.room} has no logic to enter.`);
     if (msg.visit === "start" && engine.vars[0] === msg.room) return reply(true);
+    if (msg.visit && returnPoint) {
+      try {
+        // Each preview starts from play, so a prior visit's death stays there.
+        restoreReturnPoint(returnPoint);
+      } catch {
+        return reply(
+          false,
+          "The saved play state needs resources that changed. Undo the resource change and try this room again.",
+        );
+      }
+    }
     if (msg.visit && !returnPoint) {
       try {
         const image = engine.recordingImage();
         if (!image) return reply(false, "Finish the game's question before visiting this room.");
+        ctx.fns.autosave(true);
         returnPoint = {
           engine,
           room: engine.vars[0]!,
@@ -121,6 +137,8 @@ export function createPlayHere(ctx: WorkerContext) {
       }
     }
 
+    if (msg.visit) ctx.previewVisitEngine = engine;
+
     // The first request may have awaited a module import. Release the current
     // debugger latch only now, when the validated jump actually runs.
     ctx.fns.debugBeforeReplace();
@@ -130,7 +148,12 @@ export function createPlayHere(ctx: WorkerContext) {
       ctx.fns.setKeyWaiting(false);
       ctx.fns.abandonHostRequest();
     }
-    for (let guard = 0; engine.modalKind !== null && guard < 16; guard++) engine.ackPrint();
+    for (
+      let guard = 0;
+      engine.modalKind !== null && engine.modalKind !== "print" && guard < 16;
+      guard++
+    )
+      engine.ackPrint();
     ctx.fns.historyEnd("walkthrough");
     ctx.input.deferredMovement.length = 0;
     ctx.fns.markJump();
@@ -145,6 +168,8 @@ export function createPlayHere(ctx: WorkerContext) {
     // finish belongs to the ordinary unarmed pass only.
     try {
       engine.reenterRoom(msg.room);
+      ctx.fns.setKeyWaiting(false);
+      ctx.fns.abandonHostRequest();
       ctx.fns.debugSessionReplaced();
       ctx.fns.tickEngine();
     } catch (cause) {

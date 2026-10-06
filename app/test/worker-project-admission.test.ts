@@ -229,3 +229,66 @@ test("plain Play has no admission grant; forged document identities and stale ru
   h.admission.onPreviewUpdate({ ...request, id: 2, runToken: "stale-run" });
   assert.equal(h.state.highWater, 1);
 });
+
+for (const wait of ["print", "key"] as const)
+  test(`Update during a ${wait} wait closes its old continuation and re-enters with the new code`, async (t) => {
+    const control: WorkerControl[] = [];
+    const ctx = createWorkerContext({
+      control: (msg) => control.push(msg),
+      presentation: () => {},
+      now: () => 0,
+    });
+    ctx.host = createEngineHost(ctx);
+    t.after(() => ctx.fns.stopTimers());
+    const initial = candidate(
+      wait === "print"
+        ? 'if (isset(f5)) { print("Old message"); assignn(v80,1); } return;'
+        : "if (isset(f5)) { wait: if (!have.key()) { goto wait; } assignn(v80,1); } return;",
+    );
+    onWorkerMessage(ctx, {
+      type: "boot",
+      files: initial.files,
+      words: [],
+      projectMode: "create",
+      projectDocuments: initial.documents!,
+    });
+    await ctx.projectLoader.loading;
+    ctx.fns.stopTimers();
+    ctx.fns.tickEngine();
+    assert.equal(ctx.engine!.modalKind, wait === "print" ? "print" : null);
+    assert.equal(ctx.engine!.awaitingKey, wait === "key");
+    const text = ctx.engine!.textCells.slice();
+    const image = ctx.engine!.recordingImage();
+    const edited = candidate(
+      'if (isset(f5)) { print("New message"); assignn(v80,2); } return;',
+      "{}",
+      initial.files,
+    );
+    // Refusal must leave the old message and its continuation intact.
+    onWorkerMessage(ctx, {
+      type: "previewUpdate",
+      id: 201,
+      runToken: ctx.projectAdmission!.runToken,
+      expected: projectAdmissionIdentity(ctx, ctx.projectAdmission)!,
+      candidate: { ...edited, buildId: "wrong" },
+    });
+    assert.deepEqual(ctx.engine!.recordingImage(), image);
+    assert.deepEqual(ctx.engine!.textCells, text);
+    assert.equal(ctx.engine!.continuationPending, true);
+    onWorkerMessage(ctx, {
+      type: "previewUpdate",
+      id: 202,
+      runToken: ctx.projectAdmission!.runToken,
+      expected: projectAdmissionIdentity(ctx, ctx.projectAdmission)!,
+      candidate: edited,
+    });
+    const result = control.findLast((msg) => msg.type === "previewUpdateResult");
+    assert.ok(result?.type === "previewUpdateResult");
+    assert.equal(result.status, "committed", JSON.stringify(result));
+    assert.equal(ctx.input.keyWaiting, false, "the abandoned key wait is cleared on the host too");
+    ctx.fns.tickEngine();
+    assert.equal(ctx.engine!.modalKind, "print", "the new entrance message is shown");
+    ctx.engine!.ackPrint();
+    ctx.fns.tickEngine();
+    assert.equal(ctx.engine!.vars[80], 2, "the discarded old message never resumes into old code");
+  });

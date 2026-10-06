@@ -462,7 +462,12 @@ let visitQueue = Promise.resolve();
 let selectionSerial = 0;
 watch([editor.selected, roomHint, () => props.creating], ([, , creating], [, , wasCreating]) => {
   const serial = ++selectionSerial;
-  if (!creating || makingRoom) return;
+  if (!creating) {
+    returnRoom.value = visitingRoom.value = undefined;
+    stageNote.value = "";
+    return;
+  }
+  if (makingRoom) return;
   if (
     !wasCreating &&
     selectedRoom.value !== undefined &&

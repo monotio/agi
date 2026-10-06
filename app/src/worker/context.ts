@@ -607,6 +607,8 @@ export interface WorkerContext {
   recording: RecordingState;
   /** The execution-controller session (debugController.ts). */
   projectAdmission: ProjectAdmissionState | null;
+  /** A Create visit keeps play progress at its return point until Back. */
+  previewVisitEngine: Engine | null;
   projectLoader: {
     loading: Promise<void> | null;
     installed: boolean;
@@ -775,6 +777,7 @@ export function createWorkerContext(ports: WorkerPorts): WorkerContext {
     },
     recording: { recording: null },
     projectAdmission: null,
+    previewVisitEngine: null,
     projectLoader: { loading: null, installed: false, queue: [] },
     debugger: newDebuggerState(),
     debuggerLoader: newDebuggerLoaderState(),

@@ -69,6 +69,7 @@ test("switching Play and Create follows the running room without moving it", asy
     /is-live-game/,
   );
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  await expect(page.getByTestId("workspace-visit")).toBeHidden();
 });
 
 test("room changes during Create keep the picture editor on the running room", async ({ page }) => {
