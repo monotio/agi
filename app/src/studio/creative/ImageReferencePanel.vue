@@ -68,7 +68,7 @@ const file = useTemplateRef("file");
 let traceWrites = Promise.resolve();
 let pendingTraceWrites = 0;
 const isPicture = computed(() => props.target.startsWith("picture:"));
-const panel = useTemplateRef<HTMLElement>("panel");
+const panel = useTemplateRef("panel");
 const generationHeight = ref<string>();
 watch(
   panel,

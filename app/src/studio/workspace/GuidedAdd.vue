@@ -32,7 +32,7 @@ const props = defineProps<{
 }>();
 const emit = defineEmits<{ add: [action: WorkspaceAction] }>();
 const kind = defineModel<WorkspaceAction["kind"] | undefined>("action");
-const form = useTemplateRef<HTMLFormElement>("form");
+const form = useTemplateRef("form");
 const formHeight = ref<string>();
 watch(
   form,
