@@ -169,6 +169,21 @@ function inspectWorldPlan(
         report(document, `${exit} is still the '${name}' exit of planned room ${num}.`);
     }
   }
+  for (const [num, launches] of Object.entries(world.launches ?? {})) {
+    if (removedKeys.has(`logic:${num}`))
+      report(document, `logic:${num} still has a launch saved on it.`);
+    for (const launch of launches.entries) {
+      const entry = `launch '${launch.name}'`;
+      const cameFrom = roomUse(launch.cameFrom?.room, removedKeys);
+      if (cameFrom !== undefined)
+        report(document, `${entry} still comes from removed ${cameFrom}.`);
+      for (const [item, where] of Object.entries(launch.items ?? {})) {
+        const placed = roomUse(where, removedKeys);
+        if (placed !== undefined)
+          report(document, `${entry} still places item ${item} in removed ${placed}.`);
+      }
+    }
+  }
 }
 
 function inspectBindingReservations(
