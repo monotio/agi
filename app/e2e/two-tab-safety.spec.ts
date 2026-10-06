@@ -115,6 +115,7 @@ async function keepInTabB(page: Page): Promise<Locator> {
   await studio.getByRole("group", { name: /^Canvas/ }).focus();
   await tabB.keyboard.press("ArrowDown");
   await workspaceUpdated(tabB);
+  await tabB.getByRole("radio", { name: "Play", exact: true }).click();
   await waitForAutosaveAfter(tabB, (await textHook(tabB)).cycle);
   return studio;
 }

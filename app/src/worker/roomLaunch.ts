@@ -36,7 +36,7 @@ export function prepareRoomLaunch(
     throw new Error("Choose From the beginning to change the interpreter profile");
   if (request.debug && !ctx.debugger.epoch)
     throw new Error("Open Debug before starting this launch");
-  const state = request.state ?? {};
+  const state = request.state === undefined ? {} : request.state;
   let active = false;
   // Restore/transition calls are private until admission; the installed host
   // then forwards every callback through the same worker context.

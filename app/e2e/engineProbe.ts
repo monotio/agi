@@ -626,6 +626,17 @@ export async function workspaceUpdated(page: Page, keyboard = false): Promise<vo
   }
 }
 
+/** Record ordinary Play progress, then return to the editor's mode. */
+export async function savePlayProgress(page: Page): Promise<void> {
+  const create = page.getByRole("radio", { name: "Create", exact: true });
+  const play = page.getByRole("radio", { name: "Play", exact: true });
+  await expect(create).toBeVisible();
+  const creating = (await create.getAttribute("aria-checked")) === "true";
+  if (creating) await play.click();
+  await waitForAutosaveAfter(page, (await textHook(page)).cycle);
+  if (creating) await create.click();
+}
+
 export async function enterCreateMode(page: Page): Promise<void> {
   const create = page.getByRole("radio", { name: "Create", exact: true });
   if ((await create.getAttribute("aria-checked")) !== "true") await create.click();

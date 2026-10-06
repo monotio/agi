@@ -17,6 +17,7 @@ import {
   storedAutosave,
   textHook,
   waitForAutosaveAfter,
+  savePlayProgress,
   enterCreateMode,
   openWorkspaceAgent,
   workspaceSaved,
@@ -215,7 +216,7 @@ test("in-game ZIP exports the live game after a patch and reload", async ({ page
   expect(gameJson.roomGeneration, "the export marks the world as still growing").toBe(true);
   expect(Object.keys(files)).not.toContain("PROJECT.JSON");
   expect(Object.keys(files)).not.toContain("transcript.json");
-  await waitForAutosaveAfter(page, (await textHook(page)).cycle);
+  await savePlayProgress(page);
   await page.reload();
   // The live patch travels with the autosave, so the reload resumes the
   // patched world where the player left it (room 2) without reauthoring.

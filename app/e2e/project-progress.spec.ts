@@ -603,6 +603,7 @@ test("page hide stores play progress when the document flush fails", async ({ pa
     const { listCachedGames } = await import("/src/project/gameStorage.ts");
     return listCachedGames().find((game) => game.title === "Hide progress")!.projectId;
   });
+  await page.getByRole("radio", { name: "Play", exact: true }).click();
   await expect.poll(() => storedAutosave(page, project)).not.toBeNull();
   const storedCycle = (await storedAutosave(page, project))!.cycle;
   await expect.poll(async () => (await textHook(page)).cycle).toBeGreaterThan(storedCycle);

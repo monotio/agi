@@ -774,7 +774,7 @@ export function createProjectAdmission(ctx: WorkerContext, options: ProjectAdmis
     const commit = () =>
       roomReentry
         ? engine.commitRoomReentry(plan, () => {
-            if (ctx.projectAdmission === lane) {
+            if (ctx.projectAdmission === lane && ctx.boot.progressMode === "create") {
               ctx.fns.autosave(true);
               ctx.previewVisitEngine = engine;
             }
@@ -928,8 +928,13 @@ export function enterProjectCreate(ctx: WorkerContext, msg: Inbound<"projectCrea
       initializeProjectAdmission(ctx, lane, msg.documents, msg.history);
       ctx.projectAdmission = lane;
     }
-    if (ctx.previewVisitEngine !== ctx.engine) ctx.fns.autosave(true);
-    ctx.previewVisitEngine = ctx.engine;
+    ctx.boot.progressMode = msg.progressMode ?? "create";
+    if (
+      ctx.boot.progressMode === "create" &&
+      ctx.previewVisitEngine !== ctx.engine &&
+      (ctx.autosave.lastAutosaveCycle >= 0 || ctx.fns.autosave(true))
+    )
+      ctx.previewVisitEngine = ctx.engine;
     ctx.ports.control({
       type: "projectCreated",
       id: msg.id,

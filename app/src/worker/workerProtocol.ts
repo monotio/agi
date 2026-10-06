@@ -249,6 +249,8 @@ export interface BootMessage {
   rngSeed?: number;
   /** Explicit live authoring authority for the MAIN run. */
   projectMode?: "create";
+  /** Play progress remains durable; Create keeps its opening checkpoint. */
+  progressMode?: "create" | "play";
   projectDocuments?: PortableProjectWorkspace;
   projectHistory?: PortableProjectHistory;
 }
@@ -560,6 +562,7 @@ export type WorkerInbound =
   | {
       type: "projectCreate";
       id: number;
+      progressMode?: "create" | "play";
       documents?: PortableProjectWorkspace;
       history?: PortableProjectHistory;
     };
@@ -652,6 +655,7 @@ export type WorkerControl =
       id: number;
       taken: boolean;
       cycle: number;
+      temporary?: true;
     }
   | { type: "metadataPatched" }
   /**

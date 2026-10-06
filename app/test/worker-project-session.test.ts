@@ -212,7 +212,7 @@ test("one MAIN run admits PICTURE, LOGIC, WORDS and Undo; autosave reopens exact
   again.dispose();
 });
 
-test("Update closes a waiting message and installs all parts with one Undo", async () => {
+test("Update and restart closes a waiting message and installs all parts with one Undo", async () => {
   const documents = {
     "logic:0":
       'if (isset(f5)) { load.pic(0); draw.pic(0); show.pic(); } if (v40 == 0) { assignn(v40,1); print("Wait"); } return;',
@@ -299,10 +299,13 @@ test("Update closes a waiting message and installs all parts with one Undo", asy
   assert.equal(session.history.capture().commits.length, originalHistory);
   assert.equal(
     (
-      await session.update([
-        { key: "picture:0", content: "vis 4\nfill 1,1\nend\n" },
-        { key: "words", content: '[["look",10],["inspect",10]]' },
-      ])
+      await session.update(
+        [
+          { key: "picture:0", content: "vis 4\nfill 1,1\nend\n" },
+          { key: "words", content: '[["look",10],["inspect",10]]' },
+        ],
+        true,
+      )
     ).status,
     "committed",
   );

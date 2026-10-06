@@ -424,6 +424,7 @@ test("the session keeps the pending notice and running token until replacement a
 test("Create keeps progress temporary and Play autosave leaves the saved pending candidate to the session", async () => {
   const f = await fixture("restart-autosave-owner");
   try {
+    onWorkerMessage(f.ctx, { type: "projectCreate", id: 900 });
     assert.equal((await f.edit("picture:0", "vis 4\nfill 1,1\nend\n")).status, "committed");
     await f.edit("inventory", '[{"name":"key","startingRoom":1}]');
     await f.session.flush();

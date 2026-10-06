@@ -245,6 +245,7 @@ export interface AutosaveControllerContext {
 }
 
 type AutosaveFlushResult =
+  | { status: "temporary"; cycle: number }
   | { status: "saved"; cycle: number }
   | { status: "already_durable"; cycle: number }
   | { status: "not_checkpointable" }
@@ -369,7 +370,12 @@ export interface AutosaveController {
     room: number;
     files?: Record<string, Uint8Array>;
   }): void;
-  handleFlushed(msg: { id: number; taken: boolean; cycle?: number | undefined }): void;
+  handleFlushed(msg: {
+    id: number;
+    taken: boolean;
+    cycle?: number | undefined;
+    temporary?: true;
+  }): void;
   handleRestored(msg: {
     ok: boolean;
     room?: number;
@@ -865,11 +871,28 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
       .catch(() => false);
   }
 
-  function handleFlushed(msg: { id: number; taken: boolean; cycle?: number | undefined }): void {
+  function handleFlushed(msg: {
+    id: number;
+    taken: boolean;
+    cycle?: number | undefined;
+    temporary?: true;
+  }): void {
     const cycle = Number(msg.cycle ?? lastSeenCycle);
     lastSeenCycle = cycle;
     const simpleResolve = flushWaiters.get(Number(msg.id));
     const detailedResolve = flushDetailedWaiters.get(Number(msg.id));
+
+    if (msg.temporary && !msg.taken) {
+      void autosaveWrite.then((saved) => {
+        simpleResolve?.(saved);
+        detailedResolve?.(
+          saved
+            ? { status: "temporary", cycle }
+            : { status: preparationNotReady ? "not_ready" : "storage_failure" },
+        );
+      });
+      return;
+    }
 
     if (msg.taken) {
       void autosaveWrite.then((saved) => {
@@ -1123,7 +1146,7 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
 
   async function flushAutosave(timeoutMs = 500): Promise<boolean> {
     const res = await flushAutosaveDetailed(timeoutMs);
-    return res.status === "saved" || res.status === "already_durable";
+    return res.status === "saved" || res.status === "already_durable" || res.status === "temporary";
   }
 
   function lastAutosaveRecord(): AutosaveRecord | null {

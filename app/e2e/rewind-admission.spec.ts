@@ -1,3 +1,4 @@
+import { savePlayProgress } from "./engineProbe.ts";
 import type { Page } from "@playwright/test";
 import { test, expect } from "./test.ts";
 import {
@@ -176,6 +177,7 @@ for (const action of ["Resume from here", "Undo rewind", "Undo start over"] as c
     await page.keyboard.press("Enter");
     await expect.poll(async () => (await textHook(page)).rows.join("\n")).toContain(message);
     await page.keyboard.press("Enter");
+    await savePlayProgress(page);
     await page.reload();
     await expect(page.getByTestId("parts-list")).toBeVisible();
     await expect.poll(async () => (await projectState(page)).source).toBe(source);

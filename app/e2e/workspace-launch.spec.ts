@@ -219,6 +219,11 @@ test("F5 in room LOGIC debugs the selected Launch before its first instruction @
     .getByRole("button", { name: "Close", exact: true })
     .click();
   await page.reload();
+  const latest = page.getByTestId("start-latest-version");
+  await expect
+    .poll(async () => (await latest.isVisible()) || (await textHook(page)).room === 1)
+    .toBe(true);
+  if (await latest.isVisible()) await latest.click();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
   await open(page, "part-room:8:logic");
   await page.getByTestId("workspace-update-menu").click();

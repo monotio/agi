@@ -90,6 +90,7 @@ test("Launch validates its room and options before creating an entry", (t) => {
     { room: 256, beginning: true },
     { room: 2, beginning: "yes" },
     { room: 2, debug: "yes" },
+    { room: 2, state: null },
   ])
     assert.throws(() => prepareRoomLaunch(ctx, request as RoomLaunchRequest));
   assert.equal(ctx.engine, engine);
@@ -111,6 +112,20 @@ test("Launch carries state within a profile and starts fresh when the profile ch
   assert.equal(fresh.engine.profile.id, "2.917");
   assert.equal(fresh.engine.vars[0], 0);
   assert.equal(ctx.engine, engine);
+});
+
+test("Create keeps one opening checkpoint before its temporary play", (t) => {
+  const { ctx, presentation, control } = workerHarness(game());
+  t.after(() => ctx.fns.stopTimers());
+  ctx.boot.progressMode = "create";
+  ctx.fns.tickEngine();
+  assert.equal(ctx.fns.autosave(true), true);
+  assert.equal(presentation.filter((m) => m.type === "autosave").length, 1);
+  assert.ok(ctx.previewVisitEngine === ctx.engine, "the opening checkpoint starts temporary play");
+  assert.equal(ctx.fns.autosave(true), false);
+  ctx.fns.onFlush({ type: "flush", id: 60 });
+  const reply = control.findLast((m) => m.type === "flushed");
+  assert.ok(reply?.type === "flushed" && reply.temporary && !reply.taken);
 });
 
 test("same Launch seed repeats a random sequence including zero-state reseeds", (t) => {

@@ -80,6 +80,14 @@ for (const [width, height] of [
           },
         ]);
       });
+      const savedProgress = await page.evaluate(() =>
+        Object.fromEntries(
+          Object.keys(localStorage)
+            .filter((key) => key.startsWith("monotio_agi.autosave."))
+            .map((key) => [key, localStorage.getItem(key)]),
+        ),
+      );
+      expect(Object.keys(savedProgress).length).toBeGreaterThan(0);
       await open(page, "part-room:8:logic");
       expect((await textHook(page)).room).toBe(1);
       await expect(page.getByTestId("workspace-update")).toBeVisible();
@@ -90,6 +98,18 @@ for (const [width, height] of [
       await page.getByTestId("workspace-update").click();
       await expect.poll(() => screenText(page)).toContain("Preview death");
       await page.reload();
+      const latest = page.getByTestId("start-latest-version");
+      await expect(latest).toBeVisible();
+      expect(
+        await page.evaluate(() =>
+          Object.fromEntries(
+            Object.keys(localStorage)
+              .filter((key) => key.startsWith("monotio_agi.autosave."))
+              .map((key) => [key, localStorage.getItem(key)]),
+          ),
+        ),
+      ).toEqual(savedProgress);
+      await latest.click();
       await expect.poll(async () => (await textHook(page)).room).toBe(1);
       await expect.poll(() => screenText(page)).toContain("New waiting message");
     });

@@ -251,6 +251,7 @@ for (const wait of ["print", "key"] as const)
       words: [],
       projectMode: "create",
       projectDocuments: initial.documents!,
+      progressMode: "create",
     });
     await ctx.projectLoader.loading;
     ctx.fns.stopTimers();

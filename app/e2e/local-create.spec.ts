@@ -50,9 +50,8 @@ for (const kind of ["starter", "boilerplate"] as const) {
     expect(project.keys).toContain("logic:1");
     expect(project.keys?.includes("view:0")).toBe(kind === "starter");
     await reviewShot(page, `local-${kind}-workspace`);
-    // A reload resumes only through a stored autosave; the worker writes its
-    // first one on a 5s cadence, so wait for the host to have stored it.
-    await waitForAutosaveAfter(page, (await textHook(page)).cycle);
+    // Create keeps its opening checkpoint while the game runs temporarily.
+    await waitForAutosaveAfter(page, 0);
     await page.reload();
     await expect.poll(async () => (await textHook(page)).room).toBe(1);
     expect(providerCalls).toBe(0);

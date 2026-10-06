@@ -257,7 +257,13 @@ export function createCycle(ctx: WorkerContext) {
         delay: ctx.engine.vars[10]!,
       });
     }
-    if (Date.now() - ctx.autosave.lastAutosaveAt >= ctx.autosave.autosaveIntervalMs)
+    if (
+      ctx.boot.progressMode === "create" &&
+      ctx.autosave.lastAutosaveCycle < 0 &&
+      ctx.previewVisitEngine !== ctx.engine
+    )
+      ctx.fns.autosave(true);
+    else if (Date.now() - ctx.autosave.lastAutosaveAt >= ctx.autosave.autosaveIntervalMs)
       ctx.fns.autosave(false);
   }
 

@@ -86,6 +86,7 @@ export interface WorkerPorts {
 
 /** Settings the boot message owns; a replay reset keeps them. */
 interface BootState {
+  progressMode: "create" | "play";
   project: HistoryProjectDocuments | undefined;
   authorRooms: boolean;
   createAllowed: boolean;
@@ -647,6 +648,7 @@ export function createWorkerContext(ports: WorkerPorts): WorkerContext {
     engine: null,
     host: undefined as unknown as EngineHost,
     boot: {
+      progressMode: "play",
       project: undefined,
       authorRooms: false,
       createAllowed: false,

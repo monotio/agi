@@ -595,7 +595,7 @@ export function useEngine(
       data.workspace ? readProjectWorkspace(data.workspace) : {},
     );
     if (lifecycle.getBootedGame() !== game || link.getWorker() !== worker) return;
-    const reply = await link.query("projectCreate");
+    const reply = await link.query("projectCreate", { progressMode: projectMode });
     if (lifecycle.getBootedGame() !== game || link.getWorker() !== worker) return;
     if (!reply.grant) throw new Error(reply.reason ?? "Open this game in Create to edit it.");
     game.authoredGame = data;
@@ -1121,6 +1121,7 @@ export function useEngine(
       const data = game.authoredGame;
       void link
         .query("projectCreate", {
+          progressMode: projectMode,
           ...(data.workspace ? { documents: data.workspace } : {}),
           ...(data.projectHistory ? { history: data.projectHistory } : {}),
         })
