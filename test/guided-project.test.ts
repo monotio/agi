@@ -603,6 +603,7 @@ describe("guided connect door", () => {
       /if \(equaln\(v1, 2\)\) \{\n {4}position\(o0, 80, 140\);\n {4}assignn\(v6, 0\);\n {2}\}/,
     );
     const world = JSON.parse(op.changes.find((c) => c.key === "world")!.content as string);
+    assert.equal(world.rooms["1"].title, "Meadow");
     assert.equal(world.rooms["1"].exits["door-2"], 2);
     assert.equal(world.rooms["2"].exits["door-1"], 1);
     op.apply();

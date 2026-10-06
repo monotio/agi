@@ -1252,6 +1252,34 @@ function roomSourceOf(
   }
 }
 
+function roomTitle(
+  env: Env,
+  num: number,
+  srcFound?: { ok: true; key: string; source: string; room: ParsedRoom },
+): string {
+  const planned = env.world.rooms[String(num)]?.title;
+  if (planned && planned.trim()) return planned.trim();
+  const src = srcFound?.key === `logic:${num}` ? srcFound : roomSourceOf(env, num);
+  if (src.ok) {
+    const inits = initBlocks(src.room.program);
+    const picNum = (inits[0] ? roomPicture(src.room, inits[0]) : null) ?? num;
+    const picDoc = env.documents[`picture:${picNum}`];
+    if (typeof picDoc === "string") {
+      const match = /^#\s*([^:\n—]+)(?::|—)/.exec(picDoc);
+      if (match?.[1]?.trim()) return match[1].trim();
+    }
+    const logicMatch = /^\/\/\s*([^:\n—]+)(?::|—)/.exec(src.source);
+    if (logicMatch?.[1]?.trim()) return logicMatch[1].trim();
+  } else {
+    const picDoc = env.documents[`picture:${num}`];
+    if (typeof picDoc === "string") {
+      const match = /^#\s*([^:\n—]+)(?::|—)/.exec(picDoc);
+      if (match?.[1]?.trim()) return match[1].trim();
+    }
+  }
+  return `Room ${num}`;
+}
+
 // ---------- 1. Add room ----------
 
 export interface GuidedAddRoomInput {
@@ -2094,8 +2122,17 @@ export function prepareGuidedConnectDoor(
   srcEdits.push(inserted);
 
   const world: World = JSON.parse(JSON.stringify(env.world)) as World;
-  const ensureRoomMeta = (num: number) =>
-    (world.rooms[String(num)] ??= { title: `Room ${num}`, description: "", exits: {} });
+  const ensureRoomMeta = (num: number) => {
+    let entry = world.rooms[String(num)];
+    if (!entry) {
+      entry = { title: roomTitle(env, num, src), description: "", exits: {} };
+      world.rooms[String(num)] = entry;
+    } else if (entry.title === `Room ${num}`) {
+      const better = roomTitle(env, num, src);
+      if (better !== `Room ${num}`) entry.title = better;
+    }
+    return entry;
+  };
   ensureRoomMeta(input.room).exits[srcId] = input.destination;
 
   if (input.returnDoor !== undefined || input.arrival !== undefined) {
