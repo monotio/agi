@@ -20,6 +20,9 @@ async function starter(page: Page): Promise<void> {
   await waitForRoom(page, 1);
   if (page.viewportSize()!.width <= 600) await page.getByTestId("workspace-parts").click();
   await expect(page.getByTestId("parts-list")).toBeVisible();
+  // The session can trail the first room on a slow engine; callers read it
+  // directly, so wait it out here.
+  await expect.poll(() => runningWorkspaceDocument(page, "logic:1")).not.toBe("");
 }
 async function draft(page: Page, source: string): Promise<void> {
   await openWorkspaceLogic(page);
@@ -71,9 +74,6 @@ test("invalid drafts report a problem and discard restores the editor @webkit-de
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await starter(page);
-  // The session can trail the first room on a slow engine; poll like the
-  // sibling tests do.
-  await expect.poll(() => runningWorkspaceDocument(page, "logic:1")).not.toBe("");
   const before = await runningWorkspaceDocument(page, "logic:1");
   await draft(page, "if (");
   await expect(page.getByTestId("workspace-update")).toBeVisible();
