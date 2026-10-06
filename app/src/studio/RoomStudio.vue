@@ -1757,7 +1757,7 @@ function onKeyup(event: KeyboardEvent): void {
               >Draft · Update game to play it</span
             >
             <RoomViewsOverlay
-              v-if="layer === 'art' && viewsOpacity > 0"
+              v-if="viewsOpacity > 0 && (layer === 'art' || panes.length === 1)"
               :figures
               :views
               :viewport
@@ -2468,6 +2468,10 @@ function onKeyup(event: KeyboardEvent): void {
   display: none;
 }
 @container (max-width: 232px) {
+  .studio.is-embedded .studio__side :deep(.walk-panel__sec h3),
+  .studio.is-embedded .studio__side :deep(.walk-panel__check) {
+    flex-wrap: wrap;
+  }
   .studio.is-embedded .studio__side :deep(.ui-seg) {
     max-width: 100%;
     box-sizing: border-box;

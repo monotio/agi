@@ -217,6 +217,40 @@ for (const size of [
   { width: 1063, height: 815 },
   { width: 390, height: 844 },
 ]) {
+  test(`Views stay available in every picture lens at ${size.width}`, async ({ page }) => {
+    await page.setViewportSize(size);
+    await start(page);
+    await open(page, "part-room:8:picture:8");
+    const studio = page.getByTestId("room-studio").filter({ visible: true });
+    await expect(studio).toBeVisible();
+    const slider = studio.getByRole("slider", { name: "Views", exact: true });
+    await expect(slider).toBeVisible();
+    await slider.evaluate((el) => {
+      (el as HTMLInputElement).value = "100";
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    for (const lens of ["Art", "Depth", "Walk"]) {
+      await studio
+        .getByRole("radiogroup", { name: "Lens", exact: true })
+        .getByRole("radio", { name: lens, exact: true })
+        .click();
+      await page.screenshot({
+        path: test.info().outputPath(`views-${lens.toLowerCase()}-${size.width}.png`),
+        animations: "disabled",
+      });
+      const figure = studio.locator('[data-object="0"]');
+      await expect.soft(figure).toBeVisible();
+      await expect.soft(figure).toHaveAttribute("data-x", "60");
+      await expect.soft(figure).toHaveAttribute("data-y", "140");
+    }
+  });
+}
+
+for (const size of [
+  { width: 1440, height: 900 },
+  { width: 1063, height: 815 },
+  { width: 390, height: 844 },
+]) {
   test(`picture storyboard ${size.width}`, async ({ page }) => {
     await page.setViewportSize(size);
     await start(page);
@@ -410,6 +444,14 @@ test("the picture fits its 1063px side panel", async ({ page }) => {
     const box = (await button.boundingBox())!;
     expect.soft(box.x + box.width).toBeLessThanOrEqual(frame.x + frame.width);
   }
+  await studio
+    .getByRole("radiogroup", { name: "Lens", exact: true })
+    .getByRole("radio", { name: "Walk", exact: true })
+    .click();
+  const startWalk = studio.locator('[data-role="test-walk"] button').first();
+  await expect(startWalk).toBeVisible();
+  const startBox = (await startWalk.boundingBox())!;
+  expect(startBox.x + startBox.width).toBeLessThanOrEqual(frame.x + frame.width);
 });
 
 test("phone Edit and Playtest alternate the picture and game; Update plays", async ({ page }) => {
