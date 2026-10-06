@@ -259,10 +259,6 @@ for (const failure of ["flush", "admission", "journal"] as const) {
       page.on("pageerror", (error) => errors.push(error.message));
       await starter(page);
       await page.getByTestId("part-room:1:logic").click();
-      await page.getByTestId("workspace-add").click();
-      await page.getByRole("menuitem", { name: "Add a room", exact: true }).click();
-      const form = page.getByTestId("workspace-guided-form");
-      await form.getByLabel("Room name", { exact: true }).fill("Recovered room");
       await page.evaluate((failure) => {
         const session = (
           window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }
@@ -282,8 +278,12 @@ for (const failure of ["flush", "admission", "journal"] as const) {
           };
         }
       }, failure);
-      await form.getByRole("button", { name: "Add", exact: true }).click();
+      await page.getByRole("button", { name: "Add a room", exact: true }).click();
       if (failure === "journal") {
+        const rename = page.getByTestId("room-rename-input");
+        await expect(rename).toBeVisible();
+        await rename.fill("Recovered room");
+        await rename.press("Enter");
         await expect(page.getByTestId("parts-list")).toContainText("Recovered room");
         await workspaceSaved(page);
         expect(
@@ -302,7 +302,8 @@ for (const failure of ["flush", "admission", "journal"] as const) {
             .join("\n"),
         );
         expect(journal).not.toContain("Recovered room");
-        await expect(form).toBeVisible();
+        await expect(page.getByTestId("room-rename-input")).toHaveCount(0);
+        await expect(page.getByRole("button", { name: "Add a room", exact: true })).toBeEnabled();
       }
     },
   );
@@ -576,8 +577,7 @@ test("a guided action finishing keeps Draft saving while LOGIC typing is pending
       return put.apply(this, args);
     };
   });
-  await page.getByTestId("workspace-add").click();
-  await page.getByRole("menuitem", { name: "Place hero", exact: true }).click();
+  await page.getByTestId("room-action-place-hero").click();
   const form = page.getByTestId("workspace-guided-form");
   await expect(form).toBeVisible();
   await form.getByText("Exact numbers", { exact: true }).click();

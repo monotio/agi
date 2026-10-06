@@ -121,9 +121,11 @@ const builtinNames = computed(() => stateNames.value.filter((info) => info.built
 const editingRoomLocal = ref<number>();
 const editingRoom = computed(() => editingRoomLocal.value ?? props.renameRoom);
 const roomTitle = ref("");
-const renameInput = useTemplateRef<HTMLInputElement>("renameInput");
+const renameInput = useTemplateRef<HTMLInputElement | HTMLInputElement[]>("renameInput");
 function roomLabel(room: number): string {
-  const row = rows.value.find((row) => row.id === `room:${room}`);
+  const row = props.groups
+    .flatMap((group) => group.entries)
+    .find((row) => row.id === `room:${room}`);
   return row?.label.split(" · ROOM ")[0] || `Room ${room}`;
 }
 function startRoomRename(room: number): void {
@@ -140,9 +142,11 @@ watch(
 watch(
   renameInput,
   (element) => {
-    if (!element) return;
-    element.focus();
-    element.select();
+    // A ref inside v-for collects an array; one rename form shows at a time.
+    const target = Array.isArray(element) ? element[0] : element;
+    if (!target) return;
+    target.focus();
+    target.select();
   },
   { flush: "post" },
 );
@@ -156,6 +160,10 @@ function commitRoomRename(room: number): void {
 function cancelRoomRename(): void {
   editingRoomLocal.value = undefined;
   emit("renameCancel");
+}
+/** An add-armed naming survives the editors settling; a double-click edit ends on blur. */
+function blurRename(room: number): void {
+  if (editingRoomLocal.value !== undefined) commitRoomRename(room);
 }
 watch(
   () => [engine.state.phase, engine.state.patchTick],
@@ -315,8 +323,9 @@ function onKey(event: KeyboardEvent): void {
             data-testid="room-rename-input"
             aria-label="Room name"
             maxlength="160"
+            @focus="($event.target as HTMLInputElement).select()"
             @keydown.esc.stop="cancelRoomRename"
-            @blur="commitRoomRename(row.room!)"
+            @blur="blurRename(row.room!)"
           />
         </form>
         <button

@@ -158,8 +158,7 @@ test("sound presets, note keyboard edits and guided cue creation share the works
   await expect(page.getByTestId("workspace-saved")).toHaveText(/^(?:Saved|Draft saved)$/);
   await reviewShot(page, "sound-notes");
   await page.getByTestId("part-room:1:logic").click();
-  await page.getByTestId("workspace-add").click();
-  await page.getByRole("menuitem", { name: "Play a sound when…", exact: true }).click();
+  await page.getByTestId("room-action-play-sound").click();
   const form = page.getByTestId("workspace-guided-form");
   await expect(form).toBeVisible();
   await form.getByLabel("When the player types…", { exact: true }).fill("help");

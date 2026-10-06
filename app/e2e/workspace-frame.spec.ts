@@ -184,12 +184,10 @@ test("the game bar names the running room; Play visits and Back returns @webkit-
     .getByTestId("parts-list")
     .getByRole("button", { name: "Add a room", exact: true })
     .click();
-  await expect(page.getByTestId("workspace-guided-form")).toBeVisible();
-  await page.getByLabel("Room name", { exact: true }).fill("Garden");
-  await page
-    .getByTestId("workspace-guided-form")
-    .getByRole("button", { name: "Add", exact: true })
-    .click();
+  const rename = page.getByTestId("room-rename-input");
+  await expect(rename).toBeVisible();
+  await rename.fill("Garden");
+  await rename.press("Enter");
   await workspaceSaved(page);
   await page.getByTestId("workspace-update-menu").click();
   await page.getByRole("menuitem", { name: "Update and keep playing", exact: true }).click();
@@ -227,8 +225,7 @@ for (const [width, height] of [
     await page.getByTestId("part-room:1:logic").click();
     const context = page.getByTestId("workspace-context");
     await expect(context).toBeVisible();
-    await context.getByTestId("workspace-add").click();
-    await page.getByRole("menuitem", { name: "Place hero", exact: true }).click();
+    await context.getByTestId("room-action-place-hero").click();
     const form = context.getByTestId("workspace-guided-form");
     const here = form.getByRole("button", { name: "Start here", exact: true });
     await expect(form).toBeVisible();
@@ -259,6 +256,7 @@ for (const [width, height] of [
       .toBe(true);
     const position = await textHook(page);
     await here.click();
+    await form.getByText("Show code", { exact: true }).click();
     const code = form.getByTestId("guided-code-preview");
     await expect(code).toBeVisible();
     await expect(code).toContainText(`position(o0, ${position.egoX}, ${position.egoY})`);

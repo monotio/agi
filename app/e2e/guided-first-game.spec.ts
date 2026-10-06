@@ -239,7 +239,7 @@ test("the first guided game: starter, editors, five actions, play both ways and 
   await addWorkspaceAction(page, "Add a room", { "Room name": "Moonlit grove" }, "world");
   await expect(page.getByTestId("part-room:2:picture:2")).toBeVisible();
   await openWorkspaceLogic(page, 2);
-  expect(await workspaceDocument(page, "logic:2")).toContain("Moonlit grove");
+  expect(await workspaceDocument(page, "world")).toContain("Moonlit grove");
   await addWorkspaceAction(page, "Place hero", { VIEW: "0", X: "60", Y: "120" }, "logic:2");
   await addWorkspaceAction(
     page,
@@ -379,7 +379,7 @@ test("the first guided game: starter, editors, five actions, play both ways and 
   expect(room1).toContain("sound(");
   expect(room1).toContain("position(o0, 90, 140)");
   const room2 = await storedDocument(page, importedId, "logic:2");
-  expect(room2).toContain("Moonlit grove");
+  expect(await storedDocument(page, importedId, "world")).toContain("Moonlit grove");
   expect(room2).toContain("new.room(1)");
   const words = await storedDocument(page, importedId, "words");
   expect(words).toContain("sing");
@@ -398,8 +398,7 @@ test("custom code stays precise: a rewritten entry block refuses Custom code, gu
   );
   expect(custom).not.toBe(source);
   await replaceWorkspaceDocument(page, "logic:1", custom);
-  await page.getByTestId("workspace-add").click();
-  await page.getByRole("menuitem", { name: "Place hero", exact: true }).click();
+  await page.getByTestId("room-action-place-hero").click();
   const form = page.getByTestId("workspace-guided-form");
   await expect(form).toBeVisible();
   await form.getByText("Exact numbers", { exact: true }).click();

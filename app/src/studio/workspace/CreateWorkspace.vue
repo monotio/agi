@@ -195,6 +195,8 @@ document.addEventListener("focusout", trackGameFocus);
 function focusGameInput(): void {
   document.getElementById("game-command")?.focus();
 }
+/** The room whose name is being edited in place in Parts (a fresh add starts there). */
+const renamingRoom = ref<number>();
 /** Open tabs live with the project: they come back on reload and leave on ×. */
 let tabsProject = "";
 watch(
@@ -205,6 +207,15 @@ watch(
     const storageKey = `monotio_agi.workspaceTabs.${project}`;
     if (tabsProject === storageKey) return;
     tabsProject = storageKey;
+    const rename = localStorage.getItem(`monotio_agi.workspaceRename.${project}`);
+    if (rename !== null) {
+      localStorage.removeItem(`monotio_agi.workspaceRename.${project}`);
+      const room = Number(rename);
+      if (Number.isInteger(room) && room > 0 && room <= 255) {
+        renamingRoom.value = room;
+        editor.partsOpen.value = true;
+      }
+    }
     if (editor.tabs.value.length) return;
     try {
       const saved = JSON.parse(localStorage.getItem(storageKey) ?? "null") as {
@@ -217,12 +228,6 @@ watch(
         if (!editor.retained.value.includes(key)) editor.retained.value.push(key);
       if (saved?.selected && editor.tabs.value.includes(saved.selected))
         editor.selected.value = saved.selected;
-      const rename = localStorage.getItem(`monotio_agi.workspaceRename.${project}`);
-      if (rename !== null) {
-        localStorage.removeItem(`monotio_agi.workspaceRename.${project}`);
-        const room = Number(rename);
-        if (Number.isInteger(room) && room > 0 && room <= 255) renamingRoom.value = room;
-      }
     } catch {
       /* Open empty. */
     }
@@ -1428,8 +1433,12 @@ const acceptedDocuments = computed(() => snapshot.value?.documents() ?? {});
 const workingDocuments = computed(() => ({ ...acceptedDocuments.value, ...optimistic.value }));
 const guidedKind = ref<WorkspaceAction["kind"]>();
 const guidedCommand = ref("");
-/** The room whose name is being edited in place in Parts (a fresh add starts there). */
-const renamingRoom = ref<number>();
+/** Guided previews validate against the working snapshot, drafts included. */
+const guidedSnapshot = computed(() => {
+  void editor.changeCount.value;
+  void snapshot.value;
+  return workingSnapshot();
+});
 /** Right-click on the game offers the current room's actions, whichever editor is open. */
 onMounted(() => {
   roomMenuArmed.value = true;
@@ -1535,10 +1544,14 @@ async function guidedAction(action: WorkspaceAction): Promise<void> {
     if (action.kind === "add-room") {
       const logicKey = prepared.changes.find((change) => change.key.startsWith("logic:"))?.key;
       const room = logicKey ? Number(logicKey.slice(6)) : undefined;
-      if (room !== undefined) renamingRoom.value = room;
       const key =
         prepared.changes.find((change) => change.key.startsWith("picture:"))?.key ?? logicKey;
       if (key) openPart(key);
+      if (room !== undefined) {
+        renamingRoom.value = room;
+        // Naming in place stays visible where the + lives, also on the phone.
+        editor.partsOpen.value = true;
+      }
     }
     if (action.kind === "boilerplate") {
       const key = prepared.changes.find((change) => change.key.startsWith("logic:"))?.key;
@@ -2094,7 +2107,7 @@ onBeforeUnmount(() => {
         :room="selectedRoom"
         :initial-command="guidedCommand"
         :busy="editor.busy.value || writeConflict"
-        :snapshot
+        :snapshot="guidedSnapshot ?? snapshot"
         :profile-id="profile.id"
         :groups
         :thumbnails

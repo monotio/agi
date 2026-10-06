@@ -551,8 +551,10 @@ test("draft room logic counts in picture usage check", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await start(page);
   await page.getByRole("button", { name: "Add a room", exact: true }).click();
-  await page.getByLabel("Room name").fill("Cave");
-  await page.getByRole("button", { name: "Add", exact: true }).click();
+  const rename = page.getByTestId("room-rename-input");
+  await expect(rename).toBeVisible();
+  await rename.fill("Cave");
+  await rename.press("Enter");
 
   // Room 2 was added in draft (staged). Open its picture (picture 2).
   await open(page, "part-room:2:picture:2");
