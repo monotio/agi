@@ -14,12 +14,11 @@
 
 import { computed, shallowRef, type Ref } from "vue";
 import type { ResourceRevision } from "../../../src/gameIdentity.ts";
-import type { PictureEdit, ResourceCommitResult } from "../project/resourceCommit.ts";
+import type { ResourceCommitResult } from "../project/resourceCommit.ts";
 import type { DraftStatus } from "./StudioDraftControls.vue";
 import { useStudioCommit } from "./useStudioCommit.ts";
 
 /** Room Studio's Keep transaction. */
-type KeepFn = (edit: PictureEdit) => Promise<ResourceCommitResult>;
 
 /** What a Keep reads from a Studio draft and tells it back. */
 export interface KeepableDraft {

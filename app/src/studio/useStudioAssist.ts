@@ -339,5 +339,3 @@ export function useStudioAssist(options: StudioAssistOptions) {
     reject,
   };
 }
-
-type StudioAssist = ReturnType<typeof useStudioAssist>;
