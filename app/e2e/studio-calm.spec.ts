@@ -15,9 +15,10 @@ import { expect, test } from "./test.ts";
  * The calm canvas on the real app: nothing covers the picture, not even the
  * selection's actions, at three window sizes; the tool's options and the
  * selection's actions dock in a bar above the canvas, folding into More
- * rather than running out of it, and the tool's help sits in the status bar; `?` lists every key and Esc puts the list away; ⌘\ (Ctrl+\
- * off a Mac, and labelled so) hides the side panels while Tab and Shift+Tab only move focus; and
- * Sprite Studio's drawing backdrop is view only, never the view's bytes.
+ * rather than running out of it, and the tool's help sits in the status bar; `?` lists every key and Esc puts the list away; the
+ * workspace's one Focus hides the game so the picture grows, while Tab and
+ * Shift+Tab only move focus; and Sprite Studio's drawing backdrop is view
+ * only, never the view's bytes.
  */
 
 async function playTutorial(page: Page): Promise<void> {
@@ -116,9 +117,15 @@ for (const [width, height] of [
     );
     await expect(bar.getByTestId("selection-priority")).toBeVisible();
     await expect.poll(barFits).toBe(true);
-    // Ask is in the bar or, short of room, in its More menu.
-    const ask = bar.getByTestId("selection-ask");
-    if (!(await ask.isVisible())) await expect(bar.getByTestId("selection-more")).toBeVisible();
+    // The selection's agent path is the canvas menu (the workspace agent owns Ask).
+    const selection = (await pane.locator('[data-role="selection"]').boundingBox())!;
+    await page.mouse.click(selection.x + selection.width / 2, selection.y + selection.height / 2, {
+      button: "right",
+    });
+    await expect(
+      page.getByRole("menuitem", { name: "Tell the agent about the selection", exact: true }),
+    ).toBeVisible();
+    await page.keyboard.press("Escape");
     // Depth and Walk: the view switch and the legend toggle sit in the options bar.
     for (const lens of ["2", "3"]) {
       await page.keyboard.press(lens);
@@ -144,50 +151,38 @@ for (const [width, height] of [
   });
 }
 
-// The labels follow the viewer's platform; both chords work on either.
-for (const { platform } of [{ platform: "MacIntel" }, { platform: "Linux x86_64" }]) {
-  test(`Hide side panel works by shortcut and pointer on ${platform}; Tab and Shift+Tab move focus`, async ({
-    page,
-  }) => {
-    await page.addInitScript((reported) => {
-      Object.defineProperty(Navigator.prototype, "platform", { get: () => reported });
-      Object.defineProperty(Navigator.prototype, "userAgentData", { get: () => undefined });
-    }, platform);
-    await page.setViewportSize({ width: 1440, height: 900 });
-    await playTutorial(page);
-    const studio = await openRoomStudio(page, 2);
-    const canvas = studio.getByRole("group", { name: /^Canvas/ });
-    const scene = studio.locator(".studio__scene");
-    const toggle = studio.getByRole("button", { name: /^(Hide|Show) side panel/ });
-    const pane = studio.locator(".studio__stage");
-    const before = (await pane.boundingBox())!.width;
-    await canvas.focus();
-    const shortcut = platform === "MacIntel" ? "Meta+Backslash" : "Control+Backslash";
-    await page.keyboard.press(shortcut);
-    await expect(scene).toBeHidden();
-    await expect(toggle).toHaveAttribute("aria-pressed", "true");
-    await expect.poll(async () => (await pane.boundingBox())!.width).toBeGreaterThan(before);
-    await page.keyboard.press(shortcut);
-    await expect(scene).toBeVisible();
-    await expect(toggle).toHaveAttribute("aria-pressed", "false");
-    await canvas.focus();
-    // Tab and Shift+Tab are never taken: each moves focus off the canvas and back.
-    await page.keyboard.press("Tab");
-    await expect(canvas).not.toBeFocused();
-    await expect(scene).toBeVisible();
-    await page.keyboard.press("Shift+Tab");
-    await expect(canvas).toBeFocused();
-    await page.keyboard.press("Shift+Tab");
-    await expect(canvas).not.toBeFocused();
-    await expect(scene).toBeVisible();
-
-    // The status bar's button does the same by pointer.
-    await toggle.click();
-    await expect(scene).toBeHidden();
-    await toggle.click();
-    await expect(scene).toBeVisible();
-  });
-}
+// The workspace's one Focus hides the game so the picture grows; the
+// studio's own side panels stay (they fold on their own under 601px).
+test("Focus hides the game and widens the picture; Tab and Shift+Tab move focus", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await playTutorial(page);
+  const studio = await openRoomStudio(page, 2);
+  const canvas = studio.getByRole("group", { name: /^Canvas/ });
+  const scene = studio.locator(".studio__scene");
+  const focus = page.getByTestId("workspace-focus");
+  const pane = studio.locator(".studio__stage");
+  const before = (await pane.boundingBox())!.width;
+  await canvas.focus();
+  await focus.click();
+  await expect(focus).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator(".play-area")).toBeHidden();
+  await expect.poll(async () => (await pane.boundingBox())!.width).toBeGreaterThan(before);
+  await focus.click();
+  await expect(focus).toHaveAttribute("aria-pressed", "false");
+  await expect(page.locator(".play-area")).toBeVisible();
+  await canvas.focus();
+  // Tab and Shift+Tab are never taken: each moves focus off the canvas and back.
+  await page.keyboard.press("Tab");
+  await expect(canvas).not.toBeFocused();
+  await expect(scene).toBeVisible();
+  await page.keyboard.press("Shift+Tab");
+  await expect(canvas).toBeFocused();
+  await page.keyboard.press("Shift+Tab");
+  await expect(canvas).not.toBeFocused();
+  await expect(scene).toBeVisible();
+});
 
 test("? lists every key in a dialog, and Esc puts it away without leaving Studio", async ({
   page,
@@ -207,7 +202,7 @@ test("? lists every key in a dialog, and Esc puts it away without leaving Studio
   await expect(sheet).toContainText(
     "Click at the cursor: adds a point; on the last point, finishes",
   );
-  await expect(sheet).toContainText("Hide or show the side panels (focus mode)");
+  await expect(sheet).toContainText("Tell the agent about the selection");
   await page.keyboard.press("Escape");
   await expect(sheet).toBeHidden();
   await expect(studio).toBeVisible();

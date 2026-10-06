@@ -125,13 +125,13 @@ for (const width of [1063, 1440, 390]) {
     });
   });
 }
-test("side panel collapse widens the PICTURE canvas", async ({ page }) => {
+test("Focus gives the PICTURE canvas more room", async ({ page }) => {
   await page.setViewportSize({ width: 1063, height: 815 });
   const studio = await picture(page);
-  const before = (await studio.locator(".studio__stage").boundingBox())!.width;
-  await studio.getByRole("button", { name: /Hide side panel/ }).click();
-  const after = (await studio.locator(".studio__stage").boundingBox())!.width;
-  expect(after).toBeGreaterThan(before + 100);
+  const before = (await studio.locator(".studio__stage").boundingBox())!;
+  await page.getByTestId("workspace-focus").click();
+  const after = (await studio.locator(".studio__stage").boundingBox())!;
+  expect(after.width * after.height).toBeGreaterThan(before.width * before.height * 1.2);
 });
 test("draw order, Split and Depth bands are reachable in the workspace", async ({ page }) => {
   const studio = await picture(page);

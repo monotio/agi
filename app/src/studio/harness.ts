@@ -8,8 +8,8 @@
 // character VIEWs as its game (the full studio gets the same VIEWs for its
 // probe). The kernel is exposed on
 // `window.studioHarness` so browser tests compute expectations independently.
-// Keep succeeds in memory (each kept edit lands in `studioHarness.kept`);
-// `&keep=stale|install|storage` makes it refuse with that code instead.
+// Edits write back as the workspace does: the emitted source becomes the
+// picture's authored source and lands in `studioHarness.edits`.
 import { createApp, defineComponent, h, ref } from "vue";
 import "../styles/tokens.css";
 import RoomStudio from "./RoomStudio.vue";
@@ -18,9 +18,6 @@ import { ORIGINAL_SCENE_PICTURES } from "../../../games/adventure-department/sce
 import { compilePictureSource, disassemblePicture } from "../../../src/picture/source.ts";
 import { requireResourceRevision } from "../../../src/gameIdentity.ts";
 import { DEFAULT_V2_PROFILE } from "../../../src/runtime/profile.ts";
-import { authoringFingerprint } from "../project/gameStorage.ts";
-import { ResourceCommitError } from "../project/projectTransaction.ts";
-import type { PictureEdit } from "../project/resourceCommit.ts";
 import { inferNativeItems } from "../../../src/studio/nativeItems.ts";
 import { parsePictureDocument } from "../../../src/studio/pictureDocument.ts";
 import { compileDocument, itemAt, itemMask, renderUpTo } from "../../../src/studio/pictureQuery.ts";
@@ -76,28 +73,16 @@ const authored =
 const source = authored ? written : disassemblePicture(bytes, { profile });
 const pictureNumber =
   pic === "demo" ? 0 : pic === "injected" ? (input?.pictureNumber ?? 0) : Number(pic);
-const closes = ref(0);
 const probeMode = params.get("probe") === "1";
 /** The probe's game: the tutorial's character VIEWs, as container files. */
 const ghostViewBytes = new Map(
   Object.entries(CHARACTER_VIEWS).map(([n, input]) => [Number(n), buildView(input)] as const),
 );
 const ghostFiles = containerFromResources({ view: ghostViewBytes }).files;
-const reopens = ref(0);
-const kept: PictureEdit[] = [];
-const refusal = params.get("keep");
 const revision = (n: number) => requireResourceRevision(n.toString(16).padStart(64, "0"));
-async function keep(edit: PictureEdit) {
-  if (refusal === "stale" || refusal === "install" || refusal === "storage")
-    throw new ResourceCommitError(refusal, `The harness refuses with ${refusal}.`);
-  kept.push(edit);
-  return {
-    status: "committed" as const,
-    projectId: null,
-    revision: revision(kept.length + 1),
-    authoring: authoringFingerprint(undefined),
-  };
-}
+/** The workspace's write-back: each `edit` emit becomes the authored source. */
+const liveSource = ref<string | undefined>(authored ? source : undefined);
+const edits: string[] = [];
 
 const probe = {
   pic,
@@ -105,13 +90,7 @@ const probe = {
   bytes,
   profile,
   authored,
-  get closes(): number {
-    return closes.value;
-  },
-  get reopens(): number {
-    return reopens.value;
-  },
-  kept,
+  edits,
   kernel: {
     compilePictureSource,
     disassemblePicture,
@@ -189,15 +168,14 @@ createApp({
       : h(RoomStudio, {
           pictureNumber,
           bytes,
-          authoredSource: authored ? source : undefined,
+          authoredSource: liveSource.value,
           profile,
           title: TITLES[pic] ?? `Picture ${pic}`,
-          subtitle:
-            pic === "demo" ? "demo · shapes" : pic === "injected" ? "" : `room ${pic} · PIC ${pic}`,
           baseRevision: revision(1),
-          keep,
           files: ghostFiles,
-          onClose: () => closes.value++,
-          onReopen: () => reopens.value++,
+          onEdit: (next: string) => {
+            liveSource.value = next;
+            edits.push(next);
+          },
         }),
 }).mount("#studio");

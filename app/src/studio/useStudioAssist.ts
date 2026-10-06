@@ -66,8 +66,6 @@ export interface StudioAssistOptions {
 }
 
 export const STALE_TEXT = "You changed the picture while the AI worked. Follow up.";
-/** Why the lens and the unlocks wait while a request runs or its proposal awaits a verdict. */
-export const HOLD_TEXT = "Finish or reject the AI's change first";
 export const STALE_VIEW_TEXT = "You changed the view while the AI worked. Follow up.";
 
 type Violation = { readonly constraint?: string; readonly plane?: string };

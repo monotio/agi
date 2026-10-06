@@ -1914,10 +1914,8 @@ onBeforeUnmount(() => {
       <RoomStudio
         :read-only="writeConflict || actionBusy"
         v-if="key.startsWith('picture:') && native(key) && profile"
-        :workspace-focus="editor.focus.value || phoneWidth"
         :figures="key === editor.selected.value ? figures : []"
         @place-figure="placeFigure"
-        embedded
         @agent-context="editor.setAgentContext(key, $event)"
         @agent-ask="openAgent"
         :underlay="traceUnderlays[key] ?? null"
