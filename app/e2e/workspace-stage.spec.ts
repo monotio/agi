@@ -10,6 +10,7 @@ async function playRoom(page: Page): Promise<void> {
   const action = page.getByTestId("workspace-update");
   await expect(action).toBeVisible();
   await action.click();
+  await expect(action).toBeEnabled();
 }
 async function updateKeepPlaying(page: Page): Promise<void> {
   const pending = page.getByTestId("workspace-pending");
@@ -390,7 +391,9 @@ for (const size of [
     await expect.poll(async () => (await textHook(page)).room).toBe(1);
     if (size.width <= 600) await page.getByRole("button", { name: "Edit", exact: true }).click();
     await expect(page.getByTestId("workspace-logic-editor")).toBeVisible();
-    await expect(page.getByRole("tab", { selected: true })).toHaveText("LOGIC 8");
+    const selectedTab = page.getByRole("tab", { selected: true });
+    await expect(selectedTab).toBeVisible();
+    await expect(selectedTab).toHaveText("LOGIC 8");
     await expect(page.getByTestId("workspace-update")).toHaveText("Play Garden");
     await expect.poll(async () => (await textHook(page)).paused).toBe(false);
     await page.screenshot({
