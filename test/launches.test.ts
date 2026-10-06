@@ -99,6 +99,8 @@ test("every launch field range refuses with a named reason", () => {
     [{ "3": { entries: [{ id: "a", name: "n", items: { "2": 256 } }] } }, /item|room/i],
     [{ "3": { entries: [{ id: "a", name: "n", hero: { x: 160, y: 0 } }] } }, /hero|x/i],
     [{ "3": { entries: [{ id: "a", name: "n", hero: { x: 0, y: 168 } }] } }, /hero|y/i],
+    [{ "3": { entries: [{ id: "a", name: "n", cameFrom: { room: "8" } }] } }, /room/i],
+    [{ "3": { entries: [{ id: "a", name: "n", seed: "42" }] } }, /seed/i],
     [{ "3": { entries: [{ id: "a", name: "n", seed: 65536 }] } }, /seed/i],
     [{ "3": { entries: [{ id: "a", name: "n", seed: -1 }] } }, /seed/i],
     [{ "3": { entries: [{ id: "a", name: "n", future: true }] } }, /field|unknown/i],
