@@ -267,8 +267,12 @@ export function createLogicLspServer(
   function rename(doc: Document, offset: number, name: string): WorkspaceEdit {
     const snapshot = language(doc);
     const operand = snapshot.operandAt(offset);
-    if (operand && (!operand.name || snapshot.definitionAt(offset)?.kind === "binding"))
+    if (operand && (!operand.name || snapshot.definitionAt(offset)?.kind === "binding")) {
+      const binding = operand.name ? project.bindings[operand.name] : undefined;
+      if (binding?.kind && binding.kind !== BINDING_KINDS[operand.kind])
+        return renameBinding(operand.name!, name);
       return nameOperand(doc, operand, name);
+    }
     const definition = snapshot.definitionAt(offset);
     if (definition?.kind !== "binding")
       return {
@@ -361,15 +365,27 @@ export function createLogicLspServer(
       },
     ];
     for (const candidate of allDocuments()) {
-      if (operand.kind === "m" && candidate.uri !== doc.uri) continue;
-      const edits = language(candidate)
-        .operands.filter(
-          (entry) =>
-            !entry.declaration &&
-            entry.kind === operand.kind &&
-            entry.num === operand.num &&
-            (!entry.name || entry.bindingName === old),
+      const snapshot = language(candidate);
+      const ranges = snapshot.operands.filter(
+        (entry) =>
+          !entry.declaration &&
+          entry.kind === operand.kind &&
+          entry.num === operand.num &&
+          (operand.kind !== "m" || candidate.uri === doc.uri) &&
+          (!entry.name || entry.bindingName === old),
+      );
+      // A binding is also a numeric constant in scalar operands. Keep every
+      // reference owned by its declaration when replacing the bindings key.
+      for (const reference of analyzeLogicSyntax(candidate.source).references) {
+        if (
+          reference.name === old &&
+          snapshot.definitionAt(reference.start)?.kind === "binding" &&
+          !ranges.some((range) => range.start === reference.start)
         )
+          ranges.push({ ...reference, kind: operand.kind, num: operand.num, declaration: false });
+      }
+      const edits = ranges
+        .sort((a, b) => a.start - b.start)
         .map((entry) => ({
           range: rangeAt(candidate.source, entry.start, entry.end),
           newText: name,

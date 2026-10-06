@@ -346,3 +346,81 @@ test("agent evidence keeps named ownership while numbered hover includes local a
   assert.match(JSON.stringify(hover?.result), /Set \(1\)/);
   assert.match(JSON.stringify(hover?.result), /Reset \(1\)/);
 });
+
+for (const operand of ["f36", "gate_open"]) {
+  test(`renaming ${operand} keeps every owned constant reference compilable`, () => {
+    const docs = {
+      "logic:1": { source: `set(${operand}); return;` },
+      "logic:2": { source: "position(o0, gate_open, 12); return;" },
+    };
+    const bindings = { gate_open: { kind: "flag", num: 36 } };
+    const server = createLogicLspServer({ project: { ...project, bindings, documents: docs } });
+    const edit = server.handle({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "textDocument/rename",
+      params: { textDocument: { uri }, position: { line: 0, character: 5 }, newName: "gate_ready" },
+    })?.result as WorkspaceEdit;
+    assert.equal(edit.documentChanges.length, 3);
+    assert.deepEqual(edit.documentChanges[2]!.edits, [
+      {
+        range: { start: { line: 0, character: 13 }, end: { line: 0, character: 22 } },
+        newText: "gate_ready",
+      },
+    ]);
+    const nextBindings = JSON.parse(edit.documentChanges[0]!.edits[0]!.newText) as typeof bindings;
+    for (const [key, doc] of Object.entries(docs)) {
+      const change = edit.documentChanges.find(
+        (change) => change.textDocument.uri === `agi-project:///logic.${key.slice(6)}.lgc`,
+      )!;
+      let source = doc.source;
+      for (const entry of [...change.edits].reverse())
+        source =
+          source.slice(0, offsetAt(source, entry.range.start)) +
+          entry.newText +
+          source.slice(offsetAt(source, entry.range.end));
+      assert.deepEqual(
+        compileProjectLogic(source, {
+          profile: PROFILES["2.936"],
+          dictionary: new Map(),
+          bindings: nextBindings,
+        }).assembly.payload,
+        compileProjectLogic(doc.source, {
+          profile: PROFILES["2.936"],
+          dictionary: new Map(),
+          bindings,
+        }).assembly.payload,
+      );
+    }
+  });
+}
+
+test("renaming a binding from another operand kind preserves its declared kind", () => {
+  const server = createLogicLspServer({
+    project: {
+      ...project,
+      bindings: { gate_open: { kind: "flag", num: 36 } },
+      bindingDocument: {
+        uri: "agi-project:///bindings.json",
+        source: '{"gate_open":{"kind":"flag","num":36}}',
+      },
+      documents: { "logic:1": { source: "assignn(gate_open, 1); return;" } },
+    },
+  });
+  const edit = server.handle({
+    jsonrpc: "2.0",
+    id: 1,
+    method: "textDocument/rename",
+    params: { textDocument: { uri }, position: { line: 0, character: 9 }, newName: "gate_ready" },
+  })?.result as WorkspaceEdit;
+  const change = edit.documentChanges.find((change) =>
+    change.textDocument.uri.endsWith("bindings.json"),
+  )!;
+  let source = '{"gate_open":{"kind":"flag","num":36}}';
+  for (const entry of [...change.edits].reverse())
+    source =
+      source.slice(0, offsetAt(source, entry.range.start)) +
+      entry.newText +
+      source.slice(offsetAt(source, entry.range.end));
+  assert.deepEqual(JSON.parse(source), { gate_ready: { kind: "flag", num: 36 } });
+});
