@@ -30,13 +30,14 @@ jobs:
     timeout-minutes: ${{ inputs.repeat > 1 && 45 || 15 }}
     strategy:
       fail-fast: false
-      # At most 19 jobs including quality, production and one PR burn-in job.
+      # At most 20 jobs including quality, production and one PR burn-in job.
       max-parallel: 15
       matrix:
         include:
           - { browser: chromium, index: perf, label: timing budgets }
           - { browser: chromium, index: benchmark, label: storage benchmark }
-          - { browser: webkit, index: phone, label: webkit phone }
+          - { browser: webkit, index: phone-1, phone: 1, label: webkit phone 1/2 }
+          - { browser: webkit, index: phone-2, phone: 2, label: webkit phone 2/2 }
           - { browser: chromium, index: 1, label: chromium 1/10 }
           - { browser: chromium, index: 2, label: chromium 2/10 }
           - { browser: chromium, index: 3, label: chromium 3/10 }
@@ -77,10 +78,11 @@ jobs:
           REPEAT: ${{ inputs.repeat }}
         run: python3 scripts/ci/tools.py isolated --repeat "$REPEAT" --report app/test-results/ci-reports/chromium-benchmark.json
       - name: WebKit phone
-        if: matrix.index == 'phone'
+        if: matrix.phone != ''
         env:
           REPEAT: ${{ inputs.repeat }}
-        run: npm --prefix app run e2e:phone -- --project=iphone-webkit --repeat-each="$REPEAT" --reporter=list,json
+          INDEX: ${{ matrix.phone }}
+        run: npm --prefix app run e2e:phone -- --project=iphone-webkit --shard="$INDEX/2" --repeat-each="$REPEAT" --reporter=list,json
       - name: WebKit desktop
         if: matrix.shard != '' && matrix.browser == 'webkit'
         env:
