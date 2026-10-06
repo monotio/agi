@@ -77,11 +77,11 @@ for (const size of [
         .getByTestId("workspace-logic-editor")
         .locator(".view-line")
         .filter({ hasText: "draw.pic(v50);" })
-        .click();
+        .click({ position: { x: 24, y: 8 } });
       await page.keyboard.press("Home");
       for (let line = 0; line < 6; line++) await page.keyboard.press("Shift+ArrowDown");
       await expect(panel.locator(".agent-panel__context")).toBeVisible();
-      await expect(panel.locator(".agent-panel__context")).toContainText("LOGIC 1 lines 5–11");
+      await expect(panel.locator(".agent-panel__context")).toContainText("LOGIC 1 · lines 5–11");
     }
     const before = await documents(page);
     const cycle = (await textHook(page)).cycle;

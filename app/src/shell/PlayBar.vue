@@ -254,6 +254,7 @@ const shortcutsBlocked = computed(
             variant="ghost"
             icon="sparkles"
             aria-label="Agent"
+            :aria-pressed="state.powerUp.open"
             data-testid="workspace-agent"
             :title="`${VOCABULARY.agent.help} (⌘I)`"
             :disabled="!commands?.commands.value.some((command) => command.id === 'agent.focus')"

@@ -33,6 +33,17 @@ import UiIconButton from "../ui/UiIconButton.vue";
 import UiSegmented from "../ui/UiSegmented.vue";
 import AgentTaskControls from "../authoring/AgentTaskControls.vue";
 import "./agentPanel.css";
+import type { ProjectSession } from "../project/projectSession.ts";
+import type { ProfileId } from "../../../src/runtime/profile.ts";
+/**
+ * The drawer's panel. With no session prop it works on the running project's
+ * session; the blank stage passes its own (home/emptyStageSession.ts).
+ */
+const props = defineProps<{
+  session?: ProjectSession | null | undefined;
+  profileId?: ProfileId | undefined;
+}>();
+const emit = defineEmits<{ close: [] }>();
 const engine = useEngineApi();
 const editor = useWorkspaceEditor();
 const settings = useAiSettings();
@@ -92,14 +103,17 @@ let off: (() => void) | undefined;
 let retired = false;
 let sentReferenceIds: readonly string[] = [];
 async function attach() {
-  const session = engine.getProjectSession();
+  const session = props.session ?? engine.getProjectSession();
   if (!session) return;
   const runtime = await engine.getAgentRuntime();
-  if (retired || engine.getProjectSession() !== session || agent.value) return;
+  if (retired || (props.session ?? engine.getProjectSession()) !== session || agent.value) return;
   off?.();
   agent.value = borrowWorkspaceAgent({
     session,
-    profileId: engine.roomMap.resources.value.profile?.id ?? "2.936",
+    profileId:
+      props.profileId ??
+      (engine.state.phase === "running" ? engine.roomMap.resources.value.profile?.id : undefined) ??
+      "2.936",
     config: settings.llmConfig,
     runtime: () => ({
       ...runtime,
@@ -115,7 +129,7 @@ async function attach() {
   tick.value++;
 }
 watch(
-  () => [engine.state.phase, engine.state.patchTick],
+  () => [engine.state.phase, engine.state.patchTick, props.session],
   () => {
     if (!agent.value) attach();
   },
@@ -223,6 +237,7 @@ const approvalModes = computed(() => [
   },
 ]);
 const roomName = computed(() => {
+  if (engine.state.phase !== "running") return null;
   const room = engine.roomMap.currentRoom.value ?? 0;
   return (
     engine.roomMap.graph.value.nodes.find((node) => node.room === room)?.title ||
@@ -230,12 +245,27 @@ const roomName = computed(() => {
     `ROOM ${room}`
   );
 });
+/** The selection the agent is looking at; × dismisses it until it changes. */
+const dismissedChip = ref<string>();
+const chip = computed(() => {
+  const context = editor.agentContext.value;
+  return context && context.label !== dismissedChip.value ? context : null;
+});
 function contextName(key: string): string {
   const name = editor.parts.value.find((part) => part.id === key)?.title;
   if (name && !name.includes(" · ROOM ") && !name.startsWith("ROOM ")) return name;
   return key === "inventory" ? "OBJECT" : key.replace(":", " ").toUpperCase();
 }
-const profile = computed(() => PROFILES[engine.roomMap.resources.value.profile?.id ?? "2.936"]!);
+const profile = computed(
+  () =>
+    PROFILES[
+      props.profileId ??
+        (engine.state.phase === "running"
+          ? engine.roomMap.resources.value.profile?.id
+          : undefined) ??
+        "2.936"
+    ]!,
+);
 const images = computed(() => {
   const proposal = review.value?.proposal;
   if (!proposal) return null;
@@ -287,11 +317,11 @@ async function send() {
     await editor.flush.value?.();
     const context = [
       scoped,
-      `Current room ${engine.roomMap.currentRoom.value ?? 0}`,
-      ...contexts.value,
-      ...(editor.agentContext.value
-        ? [`Selection: ${editor.agentContext.value.label}\n${editor.agentContext.value.text}`]
+      ...(engine.state.phase === "running"
+        ? [`Current room ${engine.roomMap.currentRoom.value ?? 0}`]
         : []),
+      ...contexts.value,
+      ...(chip.value ? [`Selection: ${chip.value.label}\n${chip.value.text}`] : []),
       ...(contexts.value.includes("Current problems")
         ? (engine
             .getProjectSession()
@@ -310,6 +340,7 @@ async function approve() {
 }
 function close() {
   engine.closePowerUp();
+  emit("close");
   void nextTick().then(() => {
     editor.returnFromAgent.value?.();
   });
@@ -395,6 +426,7 @@ onBeforeUnmount(() => {
         title="New chat (⌘N)"
         >New chat</UiButton
       ><UiButton
+        v-if="engine.state.phase === 'running'"
         size="sm"
         variant="ghost"
         data-testid="btn-record-test"
@@ -587,6 +619,13 @@ onBeforeUnmount(() => {
     >
     <p v-if="!settings.aiConfigured.value" class="agent-panel__intro agent-panel__setup">
       Connect your AI provider in Settings to start a task.
+      <UiButton
+        size="sm"
+        variant="ghost"
+        data-testid="agent-open-ai-settings"
+        @click="settings.openAiSettings($event, 'assistant')"
+        >Open AI settings</UiButton
+      >
     </p>
     <p v-if="error" class="agent-panel__error" role="alert">{{ error }}</p>
     <AgentTaskControls
@@ -599,12 +638,20 @@ onBeforeUnmount(() => {
     <form class="agent-panel__composer" @submit.prevent="send">
       <PendingReferences
         :busy
-        :room="engine.roomMap.currentRoom.value ?? 0"
+        :room="engine.state.phase === 'running' ? (engine.roomMap.currentRoom.value ?? 0) : 0"
         :allow-attach="!readOnly"
       />
       <div class="agent-panel__context">
-        <span>{{ roomName }}</span
-        ><span v-if="editor.agentContext.value">{{ editor.agentContext.value.label }}</span
+        <span v-if="roomName">{{ roomName }}</span
+        ><span v-if="chip" class="agent-panel__context-selection" data-testid="agent-context-chip"
+          >{{ chip.label
+          }}<button
+            type="button"
+            aria-label="Ask about the whole game"
+            title="Ask about the whole game"
+            @click="dismissedChip = chip.label"
+          >
+            <UiIcon name="x" :size="16" /></button></span
         ><button
           v-for="context in contexts"
           :key="context"
