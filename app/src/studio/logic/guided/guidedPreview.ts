@@ -49,19 +49,32 @@ export function roomPictureNumber(source: string, bindingsText: string | undefin
   const locals = new Map<number, number>();
   let picture: number | null = null;
   for (const line of source.split("\n")) {
-    const assign = /\bassignn\(\s*v(\d+)\s*,\s*([a-zA-Z0-9_]+)\s*\)/.exec(line);
+    const assign = /\bassignn\(\s*([a-zA-Z0-9_]+)\s*,\s*([a-zA-Z0-9_]+)\s*\)/.exec(line);
     if (assign) {
-      const target = Number(assign[1]);
+      const targetName = assign[1]!;
+      const target = /^v\d+$/.test(targetName)
+        ? Number(targetName.slice(1))
+        : bindingNumber(bindings[targetName], "variable");
       const operand = assign[2]!;
       const value = /^\d+$/.test(operand)
         ? Number(operand)
         : bindingNumber(bindings[operand], "picture");
-      if (value !== null) locals.set(target, value);
+      if (target !== null && value !== null) locals.set(target, value);
       continue;
     }
-    const draw = /\bdraw\.pic\(\s*(?:v(\d+)|(\d+))\s*\)/.exec(line);
+    const draw = /\b(?:draw|load)\.pic\(\s*([a-zA-Z0-9_]+)\s*\)/.exec(line);
     if (draw) {
-      const value = draw[1] !== undefined ? locals.get(Number(draw[1])) : Number(draw[2]);
+      const arg = draw[1]!;
+      let value: number | null | undefined;
+      if (/^\d+$/.test(arg)) {
+        value = Number(arg);
+      } else if (/^v\d+$/.test(arg)) {
+        value = locals.get(Number(arg.slice(1)));
+      } else {
+        const varNum = bindingNumber(bindings[arg], "variable");
+        if (varNum !== null) value = locals.get(varNum);
+        else value = bindingNumber(bindings[arg], "picture");
+      }
       if (value !== undefined && value !== null) {
         picture = value;
         break;

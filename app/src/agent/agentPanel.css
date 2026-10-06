@@ -5,6 +5,7 @@
   min-height: 0;
   color: var(--ink);
   font-family: var(--font-sans);
+  background: var(--surface-1);
 }
 .agent-panel__header,
 .agent-panel__mode {
@@ -13,9 +14,16 @@
   gap: var(--space-3);
   padding: var(--space-4);
   border-bottom: 1px solid var(--hairline);
+  background: var(--surface-1);
+}
+.agent-panel__header {
+  flex: none;
+  position: relative;
+  z-index: 1;
 }
 .agent-panel__chat-title {
   flex: 1;
+  min-width: 0;
   text-align: left;
   overflow: hidden;
   text-overflow: ellipsis;

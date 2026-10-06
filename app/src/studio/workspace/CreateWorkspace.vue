@@ -263,28 +263,58 @@ const groups = computed(() => {
     ...[...scan.scans.values()].flatMap((logic) => logic.targets.map((target) => target.to)),
     ...Object.keys(plan).map(Number),
   ]);
+  for (const key of draftMembership.value) {
+    if (key.startsWith("logic:")) {
+      const room = Number(key.slice(6));
+      if (room > 0 && room <= 255 && !scan.shared.has(room)) roomIds.add(room);
+    }
+  }
   const rooms = [...roomIds]
     .filter((room) => room > 0 && room <= 255)
     .map((room) => {
       const node = engine.roomMap.graph.value.nodes.find((node) => node.room === room);
-      const pictures = roomPictureUse(room, {
-        scans: scan.scans,
-        shared: scan.shared,
-        pictures: scan.picture,
-      })
-        .pictures.filter((use) => use.exists)
-        .map((use) => use.picture);
+      const draftLogic = optimistic.value[`logic:${room}`];
+      const draftText =
+        typeof draftLogic === "string"
+          ? draftLogic
+          : draftLogic instanceof Uint8Array
+            ? new TextDecoder().decode(draftLogic)
+            : undefined;
+      const bound = groupMetadata.value.bindings ?? snapshot.value?.read("bindings")?.content;
+      const boundText =
+        typeof bound === "string"
+          ? bound
+          : bound instanceof Uint8Array
+            ? new TextDecoder().decode(bound)
+            : undefined;
+      const draftPicture = draftText !== undefined ? roomPictureNumber(draftText, boundText) : null;
+      const pictures =
+        draftPicture !== null
+          ? [draftPicture]
+          : roomPictureUse(room, {
+              scans: scan.scans,
+              shared: scan.shared,
+              pictures: scan.picture,
+            })
+              .pictures.filter((use) => use.exists)
+              .map((use) => use.picture);
       const logic = admitted[`logic:${room}`];
-      const bound = snapshot.value?.read("bindings")?.content;
       if (pictures.length === 0 && typeof logic === "string") {
-        const picture = roomPictureNumber(logic, typeof bound === "string" ? bound : undefined);
+        const picture = roomPictureNumber(logic, boundText);
         if (picture !== null) pictures.push(picture);
       }
       const art =
         pictures[0] === undefined
           ? undefined
-          : snapshot.value?.read(`picture:${pictures[0]}`)?.content;
-      const heading = typeof art === "string" ? /^# ([^:\n]+):/.exec(art)?.[1] : undefined;
+          : (optimistic.value[`picture:${pictures[0]}`] ??
+            snapshot.value?.read(`picture:${pictures[0]}`)?.content);
+      const artText =
+        typeof art === "string"
+          ? art
+          : art instanceof Uint8Array
+            ? new TextDecoder().decode(art)
+            : undefined;
+      const heading = artText ? /^#\s*([^:\n—]+)(?::|—)/.exec(artText)?.[1]?.trim() : undefined;
       const title = plan[String(room)]?.title || heading || node?.title;
       return { room, ...(title ? { title } : {}), pictures };
     });
