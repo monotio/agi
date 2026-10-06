@@ -7,7 +7,6 @@ import type { AgentSession } from "../agent/agentSession.ts";
 import { loadAuthoringStack, type AuthoringLoader } from "../agent/authoringLoader.ts";
 import type { AgentHandler, LlmRequest } from "../agent/hostRequests.ts";
 import type { AgentRunState } from "../agent/agentRun.ts";
-import type { StudioAssistRequest, StudioAssistResult } from "../agent/studioAssist.ts";
 import type { AgentLogEntry } from "../agent/agentLog.ts";
 import type { LlmConfig } from "../agent/llmClient.ts";
 import type { AgentFrame, FrameRequest } from "../../../src/agent/frames.ts";
@@ -283,7 +282,6 @@ export interface AuthoringController {
    * Ask the game's session about a Studio selection. Resolves with the
    * candidate (or none) and the model's sentence; rejects when stopped.
    */
-  runStudioAssist(request: StudioAssistRequest, config: LlmConfig): Promise<StudioAssistResult>;
 }
 
 export function useAuthoringController(options: AuthoringControllerOptions): AuthoringController {
@@ -413,7 +411,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
 
   /**
    * Save only the conversation `author` grew (see ConversationUpdate) —
-   * an Ask, a Studio assist request, an AI settings change. The stored
+   * an Ask, an AI settings change. The stored
    * authoring content is left as it is, so another tab's label, lock or
    * binding survives it; the record must still hold this game's revision.
    */
@@ -889,43 +887,6 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
       throw new Error(
         "Conversation could not be saved. Use Settings → This game → Download game… to keep it.",
       );
-  }
-
-  /**
-   * One Studio assist request from Room Studio or Sprite Studio on the game's
-   * session (created on first use, as the assistant's is). The candidate it
-   * returns is data for the Studio to preview; no resource is written here.
-   * A conversation that cannot be saved is logged, never a failed request —
-   * except over a newer save: that refuses as stale (STALE_SAVE_MESSAGE),
-   * the request's answer with it, and only a reload from storage continues.
-   */
-  async function runStudioAssist(
-    request: StudioAssistRequest,
-    config: LlmConfig,
-  ): Promise<StudioAssistResult> {
-    if (state.powerUp.busy) throw new Error("Wait for the current agent task to finish.");
-    const booted = getBootedGame();
-    if (!booted) throw new Error("No game is running.");
-    if (!session) {
-      if (config.provider !== "stub" && !config.apiKey.trim())
-        throw new Error("Connect an API key in AI settings before asking the Studio assistant.");
-      const created = await createGameSession(booted, config);
-      if (getBootedGame() !== booted || session)
-        throw new Error("The game changed while connecting the AI. Try again.");
-      attachSessionRuntime(created, booted);
-      session = created;
-    }
-    const author = session;
-    const result = await author.runStudioAssist(request);
-    if (getBootedGame() === booted && session === author)
-      await saveConversation(booted, author).catch((error: unknown) => {
-        if (error instanceof ResourceCommitError) throw error;
-        logAgent(
-          "error",
-          `Browser storage could not save the Studio conversation: ${String(error)}`,
-        );
-      });
-    return result;
   }
 
   /**
@@ -1686,6 +1647,5 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
     commitPictureEdit,
     commitRoomEdit,
     commitViewEdit,
-    runStudioAssist,
   };
 }

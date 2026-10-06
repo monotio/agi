@@ -62,7 +62,6 @@ server is already running, give the browser tests their own port:
 | `npm run eval:genesis`                                       | Authoring evaluation: genesis; see evals/README.md                    |
 | `npm run eval:picture`                                       | Authoring evaluation: picture; see evals/README.md                    |
 | `npm run eval:remix`                                         | Authoring evaluation: remix; see evals/README.md                      |
-| `npm run eval:studio`                                        | Authoring evaluation: studio; see evals/README.md                     |
 | `npm run eval:references`                                    | Authoring evaluation: references; see evals/README.md                 |
 | `npm run eval:cache`                                         | Authoring evaluation: cache; see evals/README.md                      |
 | `npm run eval:matrix`                                        | Authoring evaluation: matrix; see evals/README.md                     |

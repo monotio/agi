@@ -32,7 +32,7 @@ import { useCreateWorkspace } from "../../shell/useCreateWorkspace.ts";
 import { useWorkspaceEditor } from "../../shell/workspaceEditor.ts";
 import { openExplainer } from "../../ui/explain.ts";
 import { useAiSettings } from "../../settings/useAiSettings.ts";
-import type { WordsTask } from "./wordsAgent.ts";
+import type { WordsTask } from "./wordsPrompts.ts";
 import UiButton from "../../ui/UiButton.vue";
 import PartsList from "./PartsList.vue";
 import ProjectTabs from "../host/ProjectTabs.vue";
@@ -1274,7 +1274,7 @@ async function openWordsChat(): Promise<void> {
 }
 async function wordsTask(task: WordsTask): Promise<void> {
   editor.focus.value = false;
-  const { openWordsTask } = await import("./wordsAgent.ts");
+  const { openWordsTask } = await import("./wordsPrompts.ts");
   const scoped =
     task.kind === "suggest"
       ? task

@@ -25,7 +25,7 @@ import { buildView } from "../src/view/view.ts";
 import { openContainer } from "../src/container/container.ts";
 import { Engine } from "../src/runtime/engine.ts";
 import { assertNoImageData } from "./modelText.ts";
-import { createStudioAssist, STUDIO_ASSIST_TOOLS } from "../src/agent/studioAssistTools.ts";
+import { createSelectionEdit, SELECTION_TOOLS } from "../src/agent/selectionTools.ts";
 import { draftRevision, pictureAssistScope } from "../src/studio/assistScope.ts";
 import { compileEditDocument } from "../src/studio/editValidation.ts";
 import { parsePictureDocument } from "../src/studio/pictureDocument.ts";
@@ -436,7 +436,7 @@ test("every catalog tool produces bounded binary-free transport on real success 
   // The Studio tools run against a creator's selection: the river-and-bridge
   // fixture in the Walk lens, attached to the shared deps below.
   const bridge = compileEditDocument(parsePictureDocument(BRIDGE_SOURCE).document, session.profile);
-  const studio = createStudioAssist({
+  const studio = createSelectionEdit({
     scope: pictureAssistScope({
       num: 1,
       compiled: bridge,
@@ -446,7 +446,7 @@ test("every catalog tool produces bounded binary-free transport on real success 
     draft: () => ({ kind: "picture", source: BRIDGE_SOURCE }),
     lens: "walk",
   });
-  const proposeTool = STUDIO_ASSIST_TOOLS.find((tool) => tool.name === "propose_changes")!;
+  const proposeTool = SELECTION_TOOLS.find((tool) => tool.name === "edit_selection")!;
   const opFields = (
     proposeTool.parameters.properties["pictureOps"] as { items: { required: string[] } }
   ).items.required;
@@ -486,12 +486,12 @@ test("every catalog tool produces bounded binary-free transport on real success 
     good: { id: "art-0123456789", size: "small", region: null, grid: true },
     bad: { id: "art-0000000000", size: "small", region: null, grid: null },
   };
-  cases["propose_changes"] = {
+  cases["edit_selection"] = {
     good: proposal(draftRevision({ kind: "picture", source: BRIDGE_SOURCE })),
     bad: proposal("picture-1-00000000"),
   };
-  // After propose_changes's candidate: the first call withdraws it, the second finds none.
-  cases["withdraw_changes"] = {
+  // After edit_selection's candidate: the first call withdraws it, the second finds none.
+  cases["withdraw_selection"] = {
     good: { reason: "It cannot meet the request." },
     bad: { reason: "It cannot meet the request." },
   };
@@ -514,7 +514,7 @@ test("every catalog tool produces bounded binary-free transport on real success 
   }
   const deps = {
     allowedTools: AGENT_TOOLS.map((tool) => tool.name),
-    studio,
+    selection: studio,
     references: {
       art: [
         {
@@ -565,7 +565,7 @@ test("every catalog tool produces bounded binary-free transport on real success 
     "edit_cels",
     "playtest_room",
     "play_sound",
-    "propose_changes",
+    "edit_selection",
     "read_authoring_guide",
     "read_command_reference",
     "read_diagnostic",
@@ -581,7 +581,7 @@ test("every catalog tool produces bounded binary-free transport on real success 
     "run_game_tests",
     "update_plan",
     "read_reference_image",
-    "withdraw_changes",
+    "withdraw_selection",
     "write_game_tests",
     "write_objects",
     "write_logic",

@@ -8,10 +8,13 @@ import {
   AUTHORING_TOOL_NAMES,
   executeAgentTool,
   executeAgentToolAsync,
-  STUDIO_ASSIST_TASK_TOOLS,
+  SELECTION_TASK_TOOLS,
   type AgentToolDeps,
 } from "../../src/agent/tools.ts";
-import { createStudioAssist } from "../../src/agent/studioAssistTools.ts";
+import { proposeNames, NAMING_TOOL } from "../../src/agent/namingTools.ts";
+import { readBindingsDocument } from "../../src/authoring/projectDocuments.ts";
+import { validateToolArguments } from "../../src/agent/schemaValidate.ts";
+import { createSelectionEdit } from "../../src/agent/selectionTools.ts";
 import { referenceUnderFetch, type ReferenceSource } from "../../src/agent/referenceTools.ts";
 import { pictureAssistScope, viewAssistScope } from "../../src/studio/assistScope.ts";
 import { compileEditDocument } from "../../src/studio/editValidation.ts";
@@ -82,8 +85,8 @@ function studioDeps(session: AgentSessionState, studio: StudioCase): AgentToolDe
     const compiled = compileEditDocument(parsePictureDocument(source).document, session.profile);
     const draft = studio.draftSource ?? source;
     return {
-      allowedTools: STUDIO_ASSIST_TASK_TOOLS,
-      studio: createStudioAssist({
+      allowedTools: SELECTION_TASK_TOOLS,
+      selection: createSelectionEdit({
         scope: pictureAssistScope({
           num: studio.num,
           compiled,
@@ -99,8 +102,8 @@ function studioDeps(session: AgentSessionState, studio: StudioCase): AgentToolDe
   }
   const payload = Uint8Array.from(studio.payload ?? []);
   return {
-    allowedTools: STUDIO_ASSIST_TASK_TOOLS,
-    studio: createStudioAssist({
+    allowedTools: SELECTION_TASK_TOOLS,
+    selection: createSelectionEdit({
       scope: viewAssistScope({
         num: studio.num,
         document: openSprite(payload, session.profile),
@@ -132,6 +135,38 @@ describe("stored bad cases regression suite (evals/fixtures/bad-cases)", () => {
         return;
       }
       const session = createAgentSessionState();
+      if (content.naming) {
+        assert.equal(content.tool, "propose_names");
+        assert.deepEqual(validateToolArguments(NAMING_TOOL.parameters, content.args), []);
+        const before = JSON.stringify(content.naming);
+        if (content.expectedSuccess) {
+          const changes = proposeNames({
+            documents: content.naming,
+            profile: session.profile,
+            names: content.args.names,
+          });
+          session.authoring.bindings = readBindingsDocument(
+            String(changes.find((change) => change.key === "bindings")!.content),
+          );
+          for (const step of content.after ?? []) {
+            const result = executeAgentTool(session, step.tool, step.args);
+            assert.equal(result.success, true, result.error ?? step.tool);
+          }
+          if (content.expectedBindings)
+            assert.deepEqual(session.authoring.bindings, content.expectedBindings);
+        } else
+          assert.throws(
+            () =>
+              proposeNames({
+                documents: content.naming,
+                profile: session.profile,
+                names: content.args.names,
+              }),
+            new RegExp(content.expectedErrorSnippet),
+          );
+        assert.equal(JSON.stringify(content.naming), before);
+        return;
+      }
       for (const setup of content.setup ?? []) {
         const result = executeAgentTool(session, setup.tool, setup.args);
         assert.equal(result.success, true, `${file}: setup ${setup.tool}: ${result.error ?? ""}`);
@@ -162,7 +197,7 @@ describe("stored bad cases regression suite (evals/fixtures/bad-cases)", () => {
 
       if ("expectedCandidate" in content)
         assert.equal(
-          studio?.studio?.candidate?.candidateId ?? null,
+          studio?.selection?.candidate?.candidateId ?? null,
           content.expectedCandidate,
           `${file}: the candidate the creator is left with`,
         );

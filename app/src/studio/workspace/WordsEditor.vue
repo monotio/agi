@@ -19,7 +19,12 @@ import {
   sentenceOutcomes,
   type WordRows,
 } from "./wordsAnalysis.ts";
-import { runWordsTask, type WordsTask } from "./wordsAgent.ts";
+import {
+  readWordSuggestions,
+  wordsTaskRequest,
+  wordsTaskReply,
+  type WordsTask,
+} from "./wordsPrompts.ts";
 import type { ProjectSnapshot } from "../../../../src/authoring/projectModel.ts";
 import { prepareWorkspaceAction, type WorkspaceAction } from "./workspaceGuided.ts";
 import SentenceFields from "./SentenceFields.vue";
@@ -109,7 +114,6 @@ const predictionRows = computed(() =>
     };
   }),
 );
-const pendingTask = ref<WordsTask>();
 const predictOpen = ref(false);
 const dismissedTask = ref(false);
 const groups = computed(() => {
@@ -292,65 +296,53 @@ function addAnswer(): void {
   if (!props.readOnly && teachAction.value && teachPreview.value?.ok)
     emit("guided", teachAction.value);
 }
+const receivedReplies = new Set<string>();
+const taskSources: Record<string, { source: string; room: number }> = {};
+const chatSession = engine.getProjectSession();
+const stopChatWatch = chatSession?.subscribe(() => {
+  if (retired || dismissedTask.value) return;
+  for (const chat of chatSession.chats().chats) {
+    for (const [index, message] of chat.messages.entries()) {
+      if (message.role !== "assistant" || receivedReplies.has(message.id) || !message.context)
+        continue;
+      const request = chat.messages.slice(0, index).findLast((entry) => entry.role === "user");
+      const match = Object.entries(taskRequests.value).find(
+        ([, value]) => wordsTaskRequest(value, props.documents).text === request?.text,
+      );
+      if (!match) continue;
+      const [key, value] = match;
+      receivedReplies.add(message.id);
+      if (taskSources[key]?.source !== props.source || taskSources[key]?.room !== props.room) {
+        taskProblems.value[key] = copy.changed;
+        continue;
+      }
+      const values = readWordSuggestions(message.context, value.kind);
+      taskProblems.value[key] = values.length ? "" : wordsTaskReply(message.context, value).text;
+      if (value.kind === "suggest") {
+        ghosts.value[key] = values.filter(
+          (word) => !entries.value.some(([existing]) => existing === word),
+        );
+        if (values.length && !ghosts.value[key]!.length) taskProblems.value[key] = copy.existing;
+      } else {
+        predictions.value = values;
+        predictOpen.value = true;
+      }
+      if (values.length)
+        toast.value = copy.suggestionsFrom.replace("{model}", ai.aiModelLabel.value);
+    }
+  }
+});
+onBeforeUnmount(() => stopChatWatch?.());
 async function task(value: WordsTask): Promise<void> {
   if (props.readOnly) return;
-  if (value.kind !== "suggest") value = { ...value, roomName: roomName.value };
-  if (value.kind === "review") {
-    emit("task", value);
-    return;
-  }
-  if (pendingTask.value) return;
-  if (!ai.aiConfigured.value) {
-    await ai.openAiSettings(null, "assistant");
-    return;
-  }
-  const key = value.kind === "suggest" ? String(value.group) : "predict";
-  const source = props.source;
-  const modelLabel = ai.aiModelLabel.value;
-  const room = props.room;
-  taskRequests.value[key] = value;
-  taskProblems.value[key] = "";
-  pendingTask.value = value;
+  await editor.flush.value?.();
+  const scoped = value.kind === "suggest" ? value : { ...value, roomName: roomName.value };
+  const key = scoped.kind === "suggest" ? String(scoped.group) : "predict";
+  taskRequests.value[key] = scoped;
+  taskSources[key] = { source: props.source, room: props.room };
   dismissedTask.value = false;
-  if (value.kind === "suggest") ghosts.value[key] = [];
-  else {
-    predictions.value = [];
-    predictOpen.value = true;
-  }
-  try {
-    await editor.flush.value?.();
-    const result = await runWordsTask({
-      task:
-        value.kind === "predict"
-          ? {
-              ...value,
-              pictures: engine.roomMap.resources.value.scans.get(room)?.pictures ?? [],
-            }
-          : value,
-      documents: props.documents,
-      engine,
-      config: ai.llmConfig,
-    });
-    if (retired || dismissedTask.value) return;
-    if (source !== props.source || room !== props.room) {
-      taskProblems.value[key] = copy.changed;
-      return;
-    }
-    taskProblems.value[key] = result.problem;
-    if (value.kind === "suggest") {
-      ghosts.value[key] = result.values.filter(
-        (word) => !entries.value.some(([existing]) => existing === word),
-      );
-      if (result.values.length && !ghosts.value[key]!.length)
-        taskProblems.value[key] = copy.existing;
-    } else predictions.value = result.values;
-    if (result.values.length) toast.value = copy.suggestionsFrom.replace("{model}", modelLabel);
-  } catch (cause) {
-    if (!retired && !dismissedTask.value)
-      taskProblems.value[key] = cause instanceof Error ? cause.message : String(cause);
-  } finally {
-    pendingTask.value = undefined;
-  }
+  taskProblems.value[key] = "";
+  emit("task", scoped);
 }
 function typeInGame(): void {
   engine.sendInput(sentence.value);
@@ -362,7 +354,6 @@ function dismissGhosts(event: KeyboardEvent): void {
     adding.value === undefined &&
     !more.value &&
     !predictOpen.value &&
-    !pendingTask.value &&
     !Object.values(ghosts.value).some((words) => words.length) &&
     !Object.values(taskProblems.value).some(Boolean)
   )
@@ -391,14 +382,8 @@ function dismissGhosts(event: KeyboardEvent): void {
       <UiButton
         size="sm"
         icon="sparkles"
-        :disabled="readOnly || !!pendingTask"
-        :title="
-          readOnly
-            ? 'Editing is paused in this tab'
-            : pendingTask
-              ? copy.suggesting
-              : VOCABULARY.predictCommands.help
-        "
+        :disabled="readOnly"
+        :title="readOnly ? 'Editing is paused in this tab' : VOCABULARY.predictCommands.help"
         @click="task({ kind: 'predict', room })"
         >{{ VOCABULARY.predictCommands.label }}</UiButton
       >
@@ -654,19 +639,12 @@ function dismissGhosts(event: KeyboardEvent): void {
             >{{ copy.dismiss }}</UiButton
           >
         </div>
-        <p v-if="pendingTask?.kind === 'predict'">{{ copy.suggesting }}</p>
         <div v-if="taskProblems['predict']" class="words-error" role="alert">
           {{ taskProblems["predict"] }}
           <button
             class="words-link"
-            :disabled="readOnly || !!pendingTask"
-            :title="
-              readOnly
-                ? 'Editing is paused in this tab'
-                : pendingTask
-                  ? copy.suggesting
-                  : copy.retry
-            "
+            :disabled="readOnly"
+            :title="readOnly ? 'Editing is paused in this tab' : copy.retry"
             @click="task(taskRequests['predict']!)"
           >
             {{ copy.retry }}
@@ -858,33 +836,19 @@ function dismissGhosts(event: KeyboardEvent): void {
               @keydown="wordKey($event, group.id, group.words)"
             />
             <button
-              v-if="pendingTask?.kind !== 'suggest' || pendingTask.group !== group.id"
               class="words-link suggest row-action"
-              :disabled="readOnly || !!pendingTask"
-              :title="
-                readOnly
-                  ? 'Editing is paused in this tab'
-                  : pendingTask
-                    ? copy.suggesting
-                    : VOCABULARY.suggestWords.help
-              "
+              :disabled="readOnly"
+              :title="readOnly ? 'Editing is paused in this tab' : VOCABULARY.suggestWords.help"
               @click="task({ kind: 'suggest', group: group.id, words: group.words })"
             >
               <UiIcon name="sparkles" :size="16" /> {{ VOCABULARY.suggestWords.label }}
             </button>
-            <span v-else class="words-note">{{ copy.suggesting }}</span>
             <div v-if="taskProblems[String(group.id)]" class="words-error" role="alert">
               {{ taskProblems[String(group.id)] }}
               <button
                 class="words-link"
-                :disabled="readOnly || !!pendingTask"
-                :title="
-                  readOnly
-                    ? 'Editing is paused in this tab'
-                    : pendingTask
-                      ? copy.suggesting
-                      : copy.retry
-                "
+                :disabled="readOnly"
+                :title="readOnly ? 'Editing is paused in this tab' : copy.retry"
                 @click="task(taskRequests[String(group.id)]!)"
               >
                 {{ copy.retry }}

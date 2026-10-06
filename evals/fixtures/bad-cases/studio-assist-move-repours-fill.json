@@ -9,7 +9,7 @@
     "targetIds": ["island"],
     "lens": "art"
   },
-  "tool": "propose_changes",
+  "tool": "edit_selection",
   "args": {
     "baseRevision": "picture-114-a2f47569",
     "summary": "Moved the island 8 pixels right.",

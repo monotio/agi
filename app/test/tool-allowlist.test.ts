@@ -16,7 +16,7 @@ import {
   GENESIS_TOOLS,
   REMIX_TOOLS,
   ROOM_AUTHORING_TOOLS,
-  STUDIO_ASSIST_TASK_TOOLS,
+  SELECTION_TASK_TOOLS,
   type AgentToolDeps,
 } from "../../src/agent/tools.ts";
 
@@ -97,11 +97,11 @@ test("every task type names its own allowlist", () => {
   // The Studio tools need a creator's selection: no writing task lists them.
   for (const [task, list] of Object.entries({ GENESIS_TOOLS, ROOM_AUTHORING_TOOLS, REMIX_TOOLS })) {
     assert.ok(list.includes("finish"), `${task} can finish its turn`);
-    for (const studio of ["read_edit_context", "propose_changes", "withdraw_changes"])
+    for (const studio of ["read_edit_context", "edit_selection", "withdraw_selection"])
       assert.ok(!list.includes(studio), `${task} lists ${studio}`);
   }
-  assert.ok(STUDIO_ASSIST_TASK_TOOLS.includes("withdraw_changes"));
-  for (const [task, list] of Object.entries({ ASK_TOOLS, STUDIO_ASSIST_TASK_TOOLS }))
+  assert.ok(SELECTION_TASK_TOOLS.includes("withdraw_selection"));
+  for (const [task, list] of Object.entries({ ASK_TOOLS, SELECTION_TASK_TOOLS }))
     assert.ok(!list.includes("write_words") && !list.includes("finish"), task);
 });
 
@@ -111,7 +111,7 @@ test("read_reference_image is listed for the reference tasks and offered only wh
     ROOM_AUTHORING_TOOLS,
     REMIX_TOOLS,
     ASK_TOOLS,
-    STUDIO_ASSIST_TASK_TOOLS,
+    SELECTION_TASK_TOOLS,
   }))
     assert.ok(list.includes("read_reference_image"), task);
   const bodies = scriptProvider(t, "read_words", {

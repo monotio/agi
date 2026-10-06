@@ -6,7 +6,7 @@
  * request bodies are captured verbatim, so a probe measures exactly the
  * bytes the app would send, offline and without a key.
  *
- * Scripts are the same shape as the app's stub conversations (studioAssist.ts,
+ * Scripts are the same shape as the app's stub conversations (selectionStub.ts,
  * referenceStub.ts): sendUserMessage answers a player message, complete
  * answers tool results. `queueScript` builds one from a list of steps.
  */

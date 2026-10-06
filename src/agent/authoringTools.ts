@@ -93,7 +93,7 @@ export function executeAuthoringTool(
 
       for (const item of items) {
         const symbol = item.name;
-        const kind = item.kind as BindingKind;
+        const kind = item.kind as Exclude<BindingKind, "object" | "inventory" | "message">;
         if (
           typeof symbol !== "string" ||
           !/^[a-z][a-z0-9_]{0,63}$/.test(symbol) ||
@@ -128,7 +128,7 @@ export function executeAuthoringTool(
         }
         if (typeof num !== "number" || !Number.isInteger(num) || num < 0 || num > 255)
           throw new Error("id must be null or an integer in 0..255.");
-        state.authoring.bindings[symbol] = { kind, num };
+        state.authoring.bindings[symbol] = existing ?? { kind, num };
         reservedList.push({
           name: symbol,
           kind,

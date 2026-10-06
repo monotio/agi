@@ -5,7 +5,7 @@ import {
   wordsTaskRequest,
   readWordSuggestions,
   wordsTaskReply,
-} from "../src/studio/workspace/wordsAgent.ts";
+} from "../src/studio/workspace/wordsPrompts.ts";
 test("word tasks scope optional help to meanings or real room resources", () => {
   const documents = {
     "logic:1": 'if(said("look")){print("Tree");}return;',

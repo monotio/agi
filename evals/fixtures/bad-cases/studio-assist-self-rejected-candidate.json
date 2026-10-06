@@ -22,7 +22,7 @@
   "reply": "The lever plate cannot be made walkable within this selection: it ends at y108, above the room's y112 walking horizon, and changing its priority leaves no walkable baseline cells. The proposed priority change should not be accepted.",
   "steps": [
     {
-      "tool": "propose_changes",
+      "tool": "edit_selection",
       "args": {
         "baseRevision": "picture-4702-be91202e",
         "summary": "Give the lever plate walkable control priority while preserving its visual pixels.",
@@ -57,7 +57,7 @@
       "expectedMessageSnippet": "priority 1052 cells at 26,65..51,108. Walkable baseline cells in the selection: 0 → 0."
     },
     {
-      "tool": "withdraw_changes",
+      "tool": "withdraw_selection",
       "args": {
         "reason": "The lever plate sits above the room's y112 horizon, so no change within the selection makes it walkable."
       }

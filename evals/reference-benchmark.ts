@@ -74,7 +74,6 @@ import { EGA_RGB, encodePngRgb } from "../src/picture/png.ts";
 import { renderPicture } from "../src/picture/renderer.ts";
 import { createPictureSurface } from "../src/types.ts";
 import { parseView } from "../src/view/view.ts";
-import { pictureAssistScope } from "../src/studio/assistScope.ts";
 import { compileEditDocument, footprintMask } from "../src/studio/editValidation.ts";
 import { parsePictureDocument } from "../src/studio/pictureDocument.ts";
 import { decodePng } from "./lib/decode-png.ts";
@@ -457,21 +456,13 @@ const CASES: Record<string, ReferenceCase> = {
       const source = TUTORIAL_PICTURE_SOURCES[3]!;
       const profile = session.state.profile;
       const compiled = compileEditDocument(parsePictureDocument(source).document, profile);
-      const result = await session.runStudioAssist({
-        instruction: "Recolour the selected ledger stand to the colour of the attached swatch.",
-        focus: {
-          scope: pictureAssistScope({ num: 3, compiled, targetIds: ["ledger-stand"], lens: "art" }),
-          draft: () => ({ kind: "picture", source }),
-          lens: "art",
-          room: 3,
-        },
-        referenceIds: attachments.referenceIds ?? [],
-      });
-      const candidate = result.candidate;
-      if (candidate?.kind !== "picture")
-        return { text: result.text, scores: { swatchShare: null }, match: false };
+      const result = await session.runPowerUp(
+        "Recolour only the ledger-stand item in PICTURE 3 to the attached swatch. Preserve other items.",
+        3,
+        attachments,
+      );
       const after = compileEditDocument(
-        parsePictureDocument(candidate.draft.source).document,
+        parsePictureDocument(session.state.sources.pictures.get(3) ?? source).document,
         profile,
       );
       const area = footprintMask(compiled, "ledger-stand", "visual");

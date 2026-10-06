@@ -41,12 +41,12 @@ import {
 } from "./authoringTools.ts";
 import { SPRITE_TOOLS, executeSpriteTool } from "./spriteTools.ts";
 import {
-  executeStudioAssistTool,
-  STUDIO_ASSIST_TOOL_NAMES,
-  STUDIO_ASSIST_TOOLS,
-  STUDIO_ONLY,
-  type StudioAssist,
-} from "./studioAssistTools.ts";
+  executeSelectionEditTool,
+  SELECTION_TOOL_NAMES,
+  SELECTION_TOOLS,
+  SELECTION_REQUIRED,
+  type SelectionEdit,
+} from "./selectionTools.ts";
 import { compileViewSource, viewSourceWarnings } from "../view/viewSource.ts";
 import { SOUND_TOOLS, executeSoundTool } from "./soundTools.ts";
 import { PICTURE_TOOLS, executePictureTool } from "./pictureTools.ts";
@@ -131,17 +131,16 @@ export const AGENT_TOOLS: readonly ToolDefinition[] = [
   AUTHORING_GUIDE_TOOL,
   ...GAME_TEST_TOOLS,
   ...CORE_AGENT_TOOLS,
-  ...STUDIO_ASSIST_TOOLS,
+  ...SELECTION_TOOLS,
   VIEW_REFERENCE_TOOL,
 ];
 
 /**
- * Every tool except the Studio assist tools: the availability of Genesis,
- * room authoring and Remix. The studio tools need a creator's selection and
- * are refused wherever no StudioAssist is attached.
+ * Whole-game authoring tools for Genesis, room creation and Remix.
+ * Selection tools require the editor context supplied by the workspace.
  */
 export const AUTHORING_TOOL_NAMES: readonly string[] = AGENT_TOOLS.map((tool) => tool.name).filter(
-  (name) => !STUDIO_ASSIST_TOOL_NAMES.includes(name),
+  (name) => !SELECTION_TOOL_NAMES.includes(name),
 );
 
 const STANDARD_NAV_WORDS = [
@@ -431,8 +430,8 @@ function executeValidatedAgentTool(
   /** Ask-mode context: withhold creator intent. */
   readOnly = false,
 ): AgentToolResult {
-  if (STUDIO_ASSIST_TOOL_NAMES.includes(name))
-    return { success: false, error: `'${name}' ${STUDIO_ONLY}` };
+  if (SELECTION_TOOL_NAMES.includes(name))
+    return { success: false, error: `'${name}' ${SELECTION_REQUIRED}` };
   // Reference pixels come from the host's source, which only the async dispatcher carries.
   if (name === "read_reference_image") return { success: false, error: NO_REFERENCES };
   if (name === "read_command_reference") return readCommandReference(session.profile, args);
@@ -1488,10 +1487,10 @@ export interface AgentRuntimeDeps {
    */
   readonly roomNotes?: ((room: number) => readonly string[]) | undefined;
   /**
-   * A Studio assist request's selection, draft and candidate slot. Only with
-   * it do the Studio assist tools run; see studioAssistTools.ts.
+   * A captured editor selection, draft and candidate slot.
+   * Selection tools require this host-owned context.
    */
-  readonly studio?: StudioAssist | undefined;
+  readonly selection?: SelectionEdit | undefined;
   /**
    * The reference art this task may view (referenceTools.ts). Without it
    * read_reference_image refuses, and withReferences leaves it off the task's list.
@@ -1561,11 +1560,11 @@ export const ROOM_AUTHORING_TOOLS: readonly string[] = AUTHORING_TOOL_NAMES;
 export const REMIX_TOOLS: readonly string[] = AUTHORING_TOOL_NAMES;
 
 /**
- * A Studio assist task: the Studio tools plus read-only inspection.
+ * Offline selection checks: selection tools plus read-only inspection.
  * Everything else is denied before dispatch.
  */
-export const STUDIO_ASSIST_TASK_TOOLS: readonly string[] = [
-  ...STUDIO_ASSIST_TOOL_NAMES,
+export const SELECTION_TASK_TOOLS: readonly string[] = [
+  ...SELECTION_TOOL_NAMES,
   "read_picture",
   "read_view",
   "read_logic",
@@ -1578,6 +1577,7 @@ export const STUDIO_ASSIST_TASK_TOOLS: readonly string[] = [
 
 /** Explicit capabilities for a discussion turn; new tools require deliberate approval here. */
 export const ASK_TOOLS: readonly string[] = [
+  "read_edit_context",
   "read_room",
   "read_reference_image",
   "read_diagnostic",
@@ -1712,10 +1712,10 @@ export async function executeAgentToolAsync(
   const call = prepareAgentToolCall(name, args);
   if (!call.success) return call;
   args = call.args;
-  if (STUDIO_ASSIST_TOOL_NAMES.includes(name))
-    return deps?.studio
-      ? executeStudioAssistTool(session, deps.studio, name, args)!
-      : { success: false, error: `'${name}' ${STUDIO_ONLY}` };
+  if (SELECTION_TOOL_NAMES.includes(name))
+    return deps?.selection
+      ? executeSelectionEditTool(session, deps.selection, name, args)!
+      : { success: false, error: `'${name}' ${SELECTION_REQUIRED}` };
   if (name === "read_reference_image") return viewReference(deps.references, args);
   if (name === "read_room") {
     const stateArg = args["state"] as Record<string, unknown> | null | undefined;

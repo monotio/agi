@@ -1,5 +1,5 @@
 /**
- * Images for the Studio assist tools (studioAssistTools.ts): the before |
+ * Images for the selection tools (selectionTools.ts): the before |
  * after | diff sheet a candidate returns, the selection crop and the room
  * overview `read_edit_context` returns. Every image keeps AGI's 2:1 logical
  * pixel aspect. Pure; dimensions are fixed by the inputs so tests can state

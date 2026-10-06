@@ -27,9 +27,7 @@ export interface AllocationContext {
   readonly profile: AgiProfile;
   /** The same lowercase word -> id map logic disassembly renders said() against. */
   readonly dictionary: ReadonlyMap<string, number>;
-  readonly bindings: Readonly<
-    Record<string, { readonly kind: AllocationKind; readonly num: number }>
-  >;
+  readonly bindings: Readonly<Record<string, { readonly kind: string; readonly num: number }>>;
 }
 
 /** Discover static operands; refuse automatic allocation where runtime indirection obscures usage. */

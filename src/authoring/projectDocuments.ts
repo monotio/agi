@@ -387,7 +387,7 @@ function bindingsText(bindings: AuthoringState["bindings"]): string {
   const sorted = Object.fromEntries(
     Object.entries(bindings)
       .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-      .map(([name, binding]) => [name, { kind: binding.kind, num: binding.num }]),
+      .map(([name, binding]) => [name, { ...binding }]),
   );
   return JSON.stringify(sorted);
 }

@@ -89,10 +89,6 @@ const HARNESSES: readonly { file: string; args: (dir: string) => string[] }[] = 
     args: () => ["--provider", "openai", "--budget-usd", "1"],
   },
   {
-    file: "evals/studio-assist-benchmark.ts",
-    args: () => ["--provider", "openai", "--budget-usd", "1"],
-  },
-  {
     file: "evals/remix-benchmark.ts",
     args: (dir) => ["--game", dir, "--provider", "openai", "--budget-usd", "1"],
   },

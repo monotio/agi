@@ -1,34 +1,9 @@
 import { toolDescription, parameterDescriptions } from "../vocabulary.ts";
 /**
- * Studio assist tools: the model changes just what the creator selected in
- * Room Studio or Sprite Studio. Offered only in a Studio assist task; every
- * other phase, and any call without a `StudioAssist` attached, is refused.
- *
- * API (the UI and the session call these; the model calls the tools):
- *
- *   createStudioAssist(focus, { maxProposals? })  the request's tool state
- *     focus.scope    the scope contract (src/studio/assistScope.ts), built
- *                    with pictureAssistScope / viewAssistScope
- *     focus.draft()  the Studio's CURRENT draft, read on every call, so an
- *                    edit the creator makes mid-request is a stale base
- *     focus.lens, .room, .ghost, .horizon   context for read_edit_context
- *                    (a picture's lens and unlocks live in its scope)
- *   executeAgentToolAsync(session, name, args, { studio: assist, ... })
- *     read_edit_context  the bounded focus: selection, excerpt or cel rows,
- *                        protected cells, room context, crop and overview
- *     propose_changes       ops on a detached copy of the draft, checked by
- *                        checkCandidate: a candidate with a before | after |
- *                        diff PNG and its side effects on other items, or a
- *                        refusal in plain words
- *     withdraw_changes      clears the candidate: the model's own verdict that
- *                        no change meets the request, or that the creator
- *                        should reject what it proposed
- *   assist.candidate     the latest candidate that passed its scope and was
- *                        not withdrawn, or null; `candidate.draft` holds the
- *                        edited source or payload
- *
- * Nothing here writes the session, the live draft or the game's resources:
- * a candidate is data until the creator accepts it in the UI.
+ * Selection operations for the workspace agent. The host captures the editor's
+ * draft and scope. Operations run on detached documents; decoded pixels,
+ * item locks, planes, protected cels, byte limits and revisions validate each
+ * candidate. The workspace combines a candidate with project edits for review.
  */
 
 import type { AgiProfile } from "../runtime/profile.ts";
@@ -85,7 +60,7 @@ import {
   pictureOverviewPng,
   spriteSheetPng,
   type CelPair,
-} from "./studioAssistPreview.ts";
+} from "./selectionPreview.ts";
 import type { AgentSessionState, AgentToolImage, AgentToolResult } from "./agentState.ts";
 import type { ToolDefinition } from "./tools.ts";
 
@@ -99,8 +74,8 @@ const MAX_ROW_PIXELS = 65536;
 /** Rows a sprite candidate sheet shows at most. */
 const MAX_SHEET_ROWS = 8;
 
-/** A ghost actor placed in Room Studio: one cel standing at one place. */
-interface StudioGhost {
+/** A ghost actor placed in PICTURE editor: one cel standing at one place. */
+interface SelectionGhost {
   readonly view: number;
   readonly loop: number;
   readonly cel: number;
@@ -110,19 +85,19 @@ interface StudioGhost {
 }
 
 /** What the creator selected and asked about; built by the UI per request. */
-export interface StudioFocus {
+export interface SelectionFocus {
   readonly scope: AssistScope;
-  /** The Studio's current draft; read on every tool call. */
+  /** The editor's current draft; read on every tool call. */
   readonly draft: () => AssistDraft;
-  /** The Studio lens ("art" | "depth" | "walk" in Room Studio), reported as is. */
+  /** The Studio lens ("art" | "depth" | "walk" in PICTURE editor), reported as is. */
   readonly lens?: string | undefined;
-  /** The room the Studio was opened from. */
+  /** The room the editor was opened from. */
   readonly room?: number | undefined;
-  readonly ghost?: StudioGhost | undefined;
+  readonly ghost?: SelectionGhost | undefined;
   /** The room's horizon for the walkable estimate; AGI's default 36 otherwise. */
   readonly horizon?: number | undefined;
   /**
-   * The draft's interpreter profile — the one the Studio compiles and
+   * The draft's interpreter profile — the one the editor compiles and
    * Accept re-checks with. The request's tools read the draft and the game
    * under it, so a candidate the tools accept is the one Accept sees.
    */
@@ -144,7 +119,7 @@ interface CandidateBase {
   readonly check: AssistCheck;
 }
 
-export type StudioCandidate =
+type SelectionCandidate =
   | (CandidateBase & {
       readonly kind: "picture";
       readonly ops: readonly EditOperation[];
@@ -162,24 +137,24 @@ export type StudioCandidate =
       readonly draft: { readonly kind: "view"; readonly payload: Uint8Array };
     });
 
-/** The tool state of one Studio assist request. */
-export interface StudioAssist {
-  readonly focus: StudioFocus;
+/** The tool state of one selection edit. */
+export interface SelectionEdit {
+  readonly focus: SelectionFocus;
   /**
    * The latest candidate that passed the scope check; a refusal never clears
-   * it, withdraw_changes does.
+   * it, withdraw_selection does.
    */
-  candidate: StudioCandidate | null;
-  /** propose_changes calls so far, and how many of them were refused. */
+  candidate: SelectionCandidate | null;
+  /** edit_selection calls so far, and how many of them were refused. */
   proposals: number;
   refusals: number;
   readonly maxProposals: number | undefined;
 }
 
-export function createStudioAssist(
-  focus: StudioFocus,
+export function createSelectionEdit(
+  focus: SelectionFocus,
   options: { readonly maxProposals?: number } = {},
-): StudioAssist {
+): SelectionEdit {
   const maxProposals = options.maxProposals;
   if (maxProposals !== undefined && (!Number.isInteger(maxProposals) || maxProposals < 1))
     throw new RangeError("maxProposals must be a positive integer");
@@ -368,13 +343,13 @@ const SPRITE_OP = {
   ],
 } as const;
 
-/** Strict-compatible schemas; offered only in a Studio assist task. */
-export const STUDIO_ASSIST_TOOLS: readonly ToolDefinition[] = [
+/** Strict-compatible schemas; offered only in a selection context. */
+export const SELECTION_TOOLS: readonly ToolDefinition[] = [
   {
     name: "read_edit_context",
     description: toolDescription(
       "read_edit_context",
-      "Selected editing context. What the creator selected and may let you change: the picture or view, the lens and locked planes, the selected items (ids, labels, kinds, footprints) with an annotated-source excerpt of just those items and their neighbours (1-based line numbers for setPoint, insertPoint and atLine), or the selected cels as hex rows; the cells or cels you may not change; the room context; and the `baseRevision` propose_changes needs. `images` (default true) attaches a crop of the selection and a room overview. Source is returned whole up to 65,536 characters; use `sourceOffset` with `nextSourceOffset` to read larger selections.",
+      "Selected editing context. What the creator selected and may let you change: the picture or view, the lens and locked planes, the selected items (ids, labels, kinds, footprints) with an annotated-source excerpt of just those items and their neighbours (1-based line numbers for setPoint, insertPoint and atLine), or the selected cels as hex rows; the cells or cels you may not change; the room context; and the `baseRevision` edit_selection needs. `images` (default true) attaches a crop of the selection and a room overview. Source is returned whole up to 65,536 characters; use `sourceOffset` with `nextSourceOffset` to read larger selections.",
     ),
     parameters: parameterDescriptions("read_edit_context", {
       type: "object",
@@ -387,12 +362,12 @@ export const STUDIO_ASSIST_TOOLS: readonly ToolDefinition[] = [
     }),
   },
   {
-    name: "propose_changes",
+    name: "edit_selection",
     description: toolDescription(
-      "propose_changes",
-      "Selected editing context. Propose a candidate change to the selection as ordered edit operations; nothing is applied. Send `baseRevision` from read_edit_context, a one-sentence `summary`, and `pictureOps` for a picture (Room Studio kernel ops: moveItem itemId dx dy; setPoint line pointIndex x y; insertPoint itemId line pointIndex x y (adds a vertex to a line, polyline, polygon or rel line of the item, before the point now at pointIndex; the point count appends, on a polygon its closing edge); setItemColor itemId plane value (null value turns the plane off); deleteItem itemId; duplicateItem itemId dx dy id label; reorderItem itemId toIndex; insertShape atLine shape id label kind; insertFill atLine x y visual priority id label; insertPlot atLine pen points seed visual priority id label; setItemMeta itemId label kind locked (locked stays null: only the creator locks or unlocks items)) or `spriteOps` for a view (Sprite Studio kernel ops on loop/cel: setPixels changes; fillCel x y color; recolor from to over recolorScope cels|loop|view; flipCel axis; shiftCel dx dy; resizeCel width height anchor; setTransparent color remap; addCel loop at source; deleteCel; moveCel to; unlinkMirror loop; propagate edits a shared mirror block). Unused fields are null. The ops run on a detached copy and the result is checked on decoded pixels against the selection, the locked planes, the protected cels and loops and the byte budget; a candidate that draws the same pixels as the draft is refused unless its ops are only setItemMeta, setTransparent or unlinkMirror. Returns a candidateId with a before | after | diff image and any side effects: cells of other items' output it changes (a fill that pours differently around a moved outline), reported, not refused, so you can judge them. Or a refusal naming the broken constraint: fix that and call again. Each accepted call replaces the candidate.",
+      "edit_selection",
+      "Selected editing context. Propose a candidate change to the selection as ordered edit operations; nothing is applied. Send `baseRevision` from read_edit_context, a one-sentence `summary`, and `pictureOps` for a picture (PICTURE editor kernel ops: moveItem itemId dx dy; setPoint line pointIndex x y; insertPoint itemId line pointIndex x y (adds a vertex to a line, polyline, polygon or rel line of the item, before the point now at pointIndex; the point count appends, on a polygon its closing edge); setItemColor itemId plane value (null value turns the plane off); deleteItem itemId; duplicateItem itemId dx dy id label; reorderItem itemId toIndex; insertShape atLine shape id label kind; insertFill atLine x y visual priority id label; insertPlot atLine pen points seed visual priority id label; setItemMeta itemId label kind locked (locked stays null: only the creator locks or unlocks items)) or `spriteOps` for a view (VIEW editor kernel ops on loop/cel: setPixels changes; fillCel x y color; recolor from to over recolorScope cels|loop|view; flipCel axis; shiftCel dx dy; resizeCel width height anchor; setTransparent color remap; addCel loop at source; deleteCel; moveCel to; unlinkMirror loop; propagate edits a shared mirror block). Unused fields are null. The ops run on a detached copy and the result is checked on decoded pixels against the selection, the locked planes, the protected cels and loops and the byte budget; a candidate that draws the same pixels as the draft is refused unless its ops are only setItemMeta, setTransparent or unlinkMirror. Returns a candidateId with a before | after | diff image and any side effects: cells of other items' output it changes (a fill that pours differently around a moved outline), reported, not refused, so you can judge them. Or a refusal naming the broken constraint: fix that and call again. Each accepted call replaces the candidate.",
     ),
-    parameters: parameterDescriptions("propose_changes", {
+    parameters: parameterDescriptions("edit_selection", {
       type: "object",
       additionalProperties: false,
       properties: {
@@ -405,12 +380,12 @@ export const STUDIO_ASSIST_TOOLS: readonly ToolDefinition[] = [
     }),
   },
   {
-    name: "withdraw_changes",
+    name: "withdraw_selection",
     description: toolDescription(
-      "withdraw_changes",
-      "Selected editing context. Withdraw your current candidate: the creator then sees no proposal, only your reply. Call it when you conclude that no change can meet the request, or when you would tell the creator to reject your own candidate. `reason` is one sentence. A later propose_changes in this request may still propose.",
+      "withdraw_selection",
+      "Selected editing context. Withdraw your current candidate: the creator then sees no proposal, only your reply. Call it when you conclude that no change can meet the request, or when you would tell the creator to reject your own candidate. `reason` is one sentence. A later edit_selection in this request may still propose.",
     ),
-    parameters: parameterDescriptions("withdraw_changes", {
+    parameters: parameterDescriptions("withdraw_selection", {
       type: "object",
       additionalProperties: false,
       properties: { reason: { type: "string", minLength: 1, maxLength: 240 } },
@@ -419,11 +394,10 @@ export const STUDIO_ASSIST_TOOLS: readonly ToolDefinition[] = [
   },
 ];
 
-export const STUDIO_ASSIST_TOOL_NAMES: readonly string[] = STUDIO_ASSIST_TOOLS.map((t) => t.name);
+export const SELECTION_TOOL_NAMES: readonly string[] = SELECTION_TOOLS.map((t) => t.name);
 
-/** The refusal outside a Studio assist task. */
-export const STUDIO_ONLY =
-  "is only available in a Studio assist task, where the creator's selection defines what may change.";
+/** The refusal outside a selection context. */
+export const SELECTION_REQUIRED = "requires an editor selection attached to this task.";
 
 class OpError extends Error {}
 
@@ -693,7 +667,7 @@ function openPicture(
   session: AgentSessionState,
   draft: AssistDraft,
 ): { document: PictureDocument; compiled: CompiledDocument } {
-  if (draft.kind !== "picture") throw new OpError("the Studio draft is not a picture");
+  if (draft.kind !== "picture") throw new OpError("the editor draft is not a picture");
   const { document, diagnostics } = parsePictureDocument(draft.source);
   const problem = diagnostics[0];
   if (problem)
@@ -710,7 +684,7 @@ function openPicture(
 }
 
 function openView(session: AgentSessionState, draft: AssistDraft): SpriteDocument {
-  if (draft.kind !== "view") throw new OpError("the Studio draft is not a view");
+  if (draft.kind !== "view") throw new OpError("the editor draft is not a view");
   try {
     return openSprite(draft.payload, session.profile);
   } catch (error) {
@@ -732,7 +706,7 @@ function egoSize(session: AgentSessionState): { width: number; height: number } 
 /** Walkable cells for the ego inside `area` and overall, or null without an ego view. */
 function walkable(
   session: AgentSessionState,
-  focus: StudioFocus,
+  focus: SelectionFocus,
   priority: Uint8Array,
   area: Uint8Array,
 ): { inSelection: number; overall: number } | null {
@@ -766,7 +740,7 @@ const CONTROL_NAMES = ["barrier", "conditional barrier", "signal", "water"];
 
 function roomContext(
   session: AgentSessionState,
-  focus: StudioFocus,
+  focus: SelectionFocus,
   planes: { visual: Uint8Array; priority: Uint8Array } | null,
 ): Record<string, unknown> | null {
   const out: Record<string, unknown> = {};
@@ -851,7 +825,7 @@ function excerpt(document: PictureDocument, targets: readonly string[]): string 
 
 function readPictureContext(
   session: AgentSessionState,
-  focus: StudioFocus,
+  focus: SelectionFocus,
   scope: PictureAssistScope,
   draft: AssistDraft,
   images: boolean,
@@ -1018,7 +992,7 @@ function celRows(document: SpriteDocument, targets: readonly CelRef[]) {
 
 function readViewContext(
   session: AgentSessionState,
-  focus: StudioFocus,
+  focus: SelectionFocus,
   scope: ViewAssistScope,
   draft: AssistDraft,
   images: boolean,
@@ -1118,7 +1092,7 @@ const HINTS: Record<string, string> = {
 };
 
 function refusal(
-  assist: StudioAssist,
+  assist: SelectionEdit,
   reason: string,
   violations: readonly { constraint: string; message: string }[],
 ): AgentToolResult {
@@ -1140,7 +1114,7 @@ function refusal(
 
 /**
  * Operations that are edits in their own right though they draw nothing: a
- * picture item's label or kind (setItemMeta; the Studio's item list and
+ * picture item's label or kind (setItemMeta; the editor's item list and
  * lenses read them), a cel's transparent colour where no opaque pixel uses
  * the new one (setTransparent; it frees the old colour for opaque use) and a
  * mirror split (unlinkMirror; the loops can then differ). Every other
@@ -1153,7 +1127,7 @@ const NON_PIXEL_OPS: readonly string[] = ["setItemMeta", "setTransparent", "unli
  * The refusal of a candidate that renders like the draft: nothing for the
  * creator to accept, whatever its bytes or annotations.
  */
-function noChange(assist: StudioAssist, unchanged: string, requested: string): AgentToolResult {
+function noChange(assist: SelectionEdit, unchanged: string, requested: string): AgentToolResult {
   return refusal(
     assist,
     `the operations draw the same pixels as the draft (${unchanged}). Propose a change that alters ${requested} within the selection, or reply with one sentence explaining why none can work within the selection and locks`,
@@ -1165,7 +1139,7 @@ const signed = (n: number) => `${n >= 0 ? "+" : ""}${n}`;
 
 function proposePicture(
   session: AgentSessionState,
-  assist: StudioAssist,
+  assist: SelectionEdit,
   scope: PictureAssistScope,
   draft: AssistDraft,
   rawOps: readonly Raw[],
@@ -1241,7 +1215,7 @@ function proposePicture(
   };
   return {
     success: true,
-    message: `Candidate ${candidateId} for picture ${scope.num}: ${summary}\nChanged: visual ${box(changed.visual)}; priority ${box(changed.priority)}.${walk ? ` Walkable baseline cells in the selection: ${walk.before} → ${walk.after}.` : ""} ${after.bytes.length} bytes (${signed(after.bytes.length - before.compiled.bytes.length)}).${effects ? `\n${sideEffectLine(effects)}` : ""}\nThe creator sees the attached before | after | diff and accepts or rejects it. Call propose_changes again to replace it, or reply with one sentence describing the change.`,
+    message: `Candidate ${candidateId} for picture ${scope.num}: ${summary}\nChanged: visual ${box(changed.visual)}; priority ${box(changed.priority)}.${walk ? ` Walkable baseline cells in the selection: ${walk.before} → ${walk.after}.` : ""} ${after.bytes.length} bytes (${signed(after.bytes.length - before.compiled.bytes.length)}).${effects ? `\n${sideEffectLine(effects)}` : ""}\nThe creator sees the attached before | after | diff and accepts or rejects it. Call edit_selection again to replace it, or reply with one sentence describing the change.`,
     details: {
       ok: true,
       candidateId,
@@ -1261,7 +1235,7 @@ function proposePicture(
 
 function proposeView(
   session: AgentSessionState,
-  assist: StudioAssist,
+  assist: SelectionEdit,
   scope: ViewAssistScope,
   draft: AssistDraft,
   rawOps: readonly Raw[],
@@ -1338,7 +1312,7 @@ function proposeView(
   const split = [...isolated].sort((a, b) => a - b);
   return {
     success: true,
-    message: `Candidate ${candidateId} for view ${scope.num}: ${summary}\nChanged: ${changedCels.map((c) => `L${c.loop} C${c.cel} ${c.pixels} px`).join(", ") || "metadata only"}.${split.length ? ` Loop ${split.join(", ")} now has its own data block (split from its mirror).` : ""} ${document.payload.length} bytes.\nThe creator sees the attached before | after | diff and accepts or rejects it. Call propose_changes again to replace it, or reply with one sentence describing the change.`,
+    message: `Candidate ${candidateId} for view ${scope.num}: ${summary}\nChanged: ${changedCels.map((c) => `L${c.loop} C${c.cel} ${c.pixels} px`).join(", ") || "metadata only"}.${split.length ? ` Loop ${split.join(", ")} now has its own data block (split from its mirror).` : ""} ${document.payload.length} bytes.\nThe creator sees the attached before | after | diff and accepts or rejects it. Call edit_selection again to replace it, or reply with one sentence describing the change.`,
     details: {
       ok: true,
       candidateId,
@@ -1361,7 +1335,7 @@ function proposeView(
 }
 
 /** Clear the candidate on the model's own verdict; nothing else changes. */
-function withdraw(assist: StudioAssist, reason: string): AgentToolResult {
+function withdraw(assist: SelectionEdit, reason: string): AgentToolResult {
   const withdrawn = assist.candidate;
   if (!withdrawn)
     return {
@@ -1373,31 +1347,31 @@ function withdraw(assist: StudioAssist, reason: string): AgentToolResult {
   assist.candidate = null;
   return {
     success: true,
-    message: `Withdrew candidate ${withdrawn.candidateId}: the creator sees no proposal, only your reply. Call propose_changes to propose something else, or explain what blocks the change.`,
+    message: `Withdrew candidate ${withdrawn.candidateId}: the creator sees no proposal, only your reply. Call edit_selection to propose something else, or explain what blocks the change.`,
     details: { ok: true, withdrawn: withdrawn.candidateId, reason, candidateId: null },
   };
 }
 
 /**
- * Execute read_edit_context, propose_changes or withdraw_changes for `assist`, or
+ * Execute read_edit_context, edit_selection or withdraw_selection for `assist`, or
  * return undefined for any other name. Arguments are already
  * schema-validated.
  */
-export function executeStudioAssistTool(
+export function executeSelectionEditTool(
   session: AgentSessionState,
-  assist: StudioAssist,
+  assist: SelectionEdit,
   name: string,
   args: Record<string, unknown>,
 ): AgentToolResult | undefined {
-  if (!STUDIO_ASSIST_TOOL_NAMES.includes(name)) return undefined;
-  if (name === "withdraw_changes") return withdraw(assist, String(args["reason"]).trim());
+  if (!SELECTION_TOOL_NAMES.includes(name)) return undefined;
+  if (name === "withdraw_selection") return withdraw(assist, String(args["reason"]).trim());
   const { scope } = assist.focus;
   try {
     const draft = assist.focus.draft();
     if (draft.kind !== scope.kind)
       return {
         success: false,
-        error: `The Studio draft is a ${draft.kind}, but the request is about a ${scope.kind}.`,
+        error: `The editor draft is a ${draft.kind}, but the request is about a ${scope.kind}.`,
       };
     if (name === "read_edit_context") {
       const images = args["images"] !== false;
@@ -1451,7 +1425,7 @@ export function executeStudioAssistTool(
       : proposeView(session, assist, scope, draft, ops, summary);
   } catch (error) {
     if (error instanceof OpError) {
-      if (name === "propose_changes") return refusal(assist, error.message, []);
+      if (name === "edit_selection") return refusal(assist, error.message, []);
       return { success: false, error: `read_edit_context failed: ${error.message}` };
     }
     throw error;

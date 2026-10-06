@@ -11,13 +11,13 @@ import {
   AUTHORING_TOOL_NAMES,
   executeAgentTool,
   executeAgentToolAsync,
-  STUDIO_ASSIST_TASK_TOOLS,
+  SELECTION_TASK_TOOLS,
 } from "../src/agent/tools.ts";
 import {
-  createStudioAssist,
-  STUDIO_ASSIST_TOOLS,
-  type StudioAssist,
-} from "../src/agent/studioAssistTools.ts";
+  createSelectionEdit,
+  SELECTION_TOOLS,
+  type SelectionEdit,
+} from "../src/agent/selectionTools.ts";
 import {
   draftRevision,
   pictureAssistScope,
@@ -57,7 +57,7 @@ function bridgeAssist(
     parsePictureDocument(BRIDGE_SOURCE).document,
     DEFAULT_V2_PROFILE,
   );
-  return createStudioAssist({
+  return createSelectionEdit({
     scope: pictureAssistScope({
       num: 1,
       compiled,
@@ -76,14 +76,14 @@ const loop1 = [
 
 function robotAssist() {
   const document = openSprite(ROBOT_VIEW, DEFAULT_V2_PROFILE);
-  return createStudioAssist({
+  return createSelectionEdit({
     scope: viewAssistScope({ num: 2, document, targetCels: loop1 }),
     draft: () => ({ kind: "view", payload: ROBOT_VIEW }),
   });
 }
 
 const fields = (list: "pictureOps" | "spriteOps") => {
-  const propose = STUDIO_ASSIST_TOOLS.find((tool) => tool.name === "propose_changes")!;
+  const propose = SELECTION_TOOLS.find((tool) => tool.name === "edit_selection")!;
   return (propose.parameters.properties[list] as { items: { required: string[] } }).items.required;
 };
 const op = (list: "pictureOps" | "spriteOps", given: Record<string, unknown>) =>
@@ -110,24 +110,24 @@ const crossing = op("pictureOps", {
 
 function run(
   state: AgentSessionState,
-  assist: StudioAssist,
+  assist: SelectionEdit,
   name: string,
   args: Record<string, unknown>,
 ) {
   return executeAgentToolAsync(state, name, args, {
-    allowedTools: STUDIO_ASSIST_TASK_TOOLS,
-    studio: assist,
+    allowedTools: SELECTION_TASK_TOOLS,
+    selection: assist,
   });
 }
 
 function propose(
   state: AgentSessionState,
-  assist: StudioAssist,
+  assist: SelectionEdit,
   ops: Record<string, unknown>[],
   base = draftRevision(assist.focus.draft()),
 ): Promise<AgentToolResult> {
   const picture = assist.focus.scope.kind === "picture";
-  return run(state, assist, "propose_changes", {
+  return run(state, assist, "edit_selection", {
     baseRevision: base,
     summary: "A test change.",
     pictureOps: picture ? ops : null,
@@ -136,13 +136,13 @@ function propose(
 }
 
 test("the Studio tools are catalogued with strict schemas", () => {
-  for (const name of ["read_edit_context", "propose_changes", "withdraw_changes"]) {
+  for (const name of ["read_edit_context", "edit_selection", "withdraw_selection"]) {
     const tool = AGENT_TOOLS.find((candidate) => candidate.name === name)!;
     assert.ok(tool, name);
     assert.deepEqual(tool.parameters.required, Object.keys(tool.parameters.properties));
   }
   for (const list of ["pictureOps", "spriteOps"] as const) {
-    const propose = AGENT_TOOLS.find((tool) => tool.name === "propose_changes")!;
+    const propose = AGENT_TOOLS.find((tool) => tool.name === "edit_selection")!;
     const items = (
       propose.parameters.properties[list] as {
         items: { properties: object; required: string[]; additionalProperties: boolean };
@@ -156,35 +156,35 @@ test("the Studio tools are catalogued with strict schemas", () => {
 test("outside a Studio assist task the Studio tools are denied", async () => {
   const state = session();
   const args = { images: null };
-  const refused = /only available in a Studio assist task/;
+  const refused = /requires an editor selection/;
   assert.match(executeAgentTool(state, "read_edit_context", args).error ?? "", refused);
   assert.match(
     (
       await executeAgentToolAsync(state, "read_edit_context", args, {
-        allowedTools: STUDIO_ASSIST_TASK_TOOLS,
+        allowedTools: SELECTION_TASK_TOOLS,
       })
     ).error ?? "",
     refused,
   );
   // Genesis, room authoring and Remix: not in the phase's availability.
-  assert.ok(!AUTHORING_TOOL_NAMES.includes("propose_changes"));
+  assert.ok(!AUTHORING_TOOL_NAMES.includes("edit_selection"));
   const phase = await executeAgentToolAsync(
     state,
-    "propose_changes",
+    "edit_selection",
     {},
     {
       allowedTools: AUTHORING_TOOL_NAMES,
-      studio: bridgeAssist(),
+      selection: bridgeAssist(),
     },
   );
   assert.match(phase.error ?? "", /not available in this phase/);
   // Ask: read-only, and the Studio tools are not among its reads.
-  assert.ok(!ASK_TOOLS.includes("read_edit_context"));
+  assert.ok(ASK_TOOLS.includes("read_edit_context"));
   const ask = await executeAgentToolAsync(state, "read_edit_context", args, {
     readOnly: true,
     allowedTools: ASK_TOOLS,
   });
-  assert.match(ask.error ?? "", /Ask mode is read-only/);
+  assert.match(ask.error ?? "", /requires an editor selection/);
   // Inside the task, writers stay denied.
   const writer = await run(state, bridgeAssist(), "write_words", { words: ["x"], groups: null });
   assert.match(writer.error ?? "", /not available in this phase/);
@@ -228,7 +228,7 @@ test("read_edit_context is bounded to the selection and its neighbours", async (
   );
 });
 
-test("propose_changes works on a detached copy and returns a before | after | diff candidate", async () => {
+test("edit_selection works on a detached copy and returns a before | after | diff candidate", async () => {
   const state = session();
   const files = [...state.getFiles()].map(([name, bytes]) => [name, [...bytes]]);
   let reads = 0;
@@ -264,8 +264,8 @@ test("propose_changes works on a detached copy and returns a before | after | di
   assert.deepEqual(candidate.kind === "picture" && candidate.walkable, { before: 880, after: 960 });
 });
 
-test("propose_changes takes insertPoint: a new vertex on the selected item's line", async () => {
-  const propose_ = STUDIO_ASSIST_TOOLS.find((tool) => tool.name === "propose_changes")!;
+test("edit_selection takes insertPoint: a new vertex on the selected item's line", async () => {
+  const propose_ = SELECTION_TOOLS.find((tool) => tool.name === "edit_selection")!;
   const types = (
     propose_.parameters.properties["pictureOps"] as {
       items: { properties: { type: { enum: string[] } } };
@@ -279,7 +279,7 @@ test("propose_changes takes insertPoint: a new vertex on the selected item's lin
     parsePictureDocument(BRIDGE_SOURCE).document,
     DEFAULT_V2_PROFILE,
   );
-  const assist = createStudioAssist({
+  const assist = createSelectionEdit({
     scope: pictureAssistScope({ num: 1, compiled, targetIds: ["bridge"], lens: "art" }),
     draft: () => ({ kind: "picture", source: BRIDGE_SOURCE }),
     lens: "art",
@@ -332,7 +332,7 @@ test("a move that re-pours another item's fill is a candidate, the side effect i
     parsePictureDocument(ISLAND_SOURCE).document,
     DEFAULT_V2_PROFILE,
   );
-  const assist = createStudioAssist({
+  const assist = createSelectionEdit({
     scope: pictureAssistScope({ num: 1, compiled, targetIds: ["island"], lens: "art" }),
     draft: () => ({ kind: "picture", source: ISLAND_SOURCE }),
     lens: "art",
@@ -429,7 +429,7 @@ test("a stale base is refused: an old revision, or a draft changed mid-request",
 
 test("proposals stop at the request's ceiling", async () => {
   const state = session();
-  const assist = createStudioAssist(bridgeAssist().focus, { maxProposals: 1 });
+  const assist = createSelectionEdit(bridgeAssist().focus, { maxProposals: 1 });
   assert.equal((await propose(state, assist, [crossing])).success, true);
   const over = await propose(state, assist, [crossing]);
   assert.match(over.error ?? "", /allows 1 proposals and all were used/);
@@ -491,7 +491,7 @@ const sameRender = (atLine: number, shape: Record<string, unknown>, lens: "walk"
     parsePictureDocument(BRIDGE_SOURCE).document,
     DEFAULT_V2_PROFILE,
   );
-  const assist = createStudioAssist({
+  const assist = createSelectionEdit({
     scope: pictureAssistScope({ num: 1, compiled, targetIds: ["bridge"], lens }),
     draft: () => ({ kind: "picture", source: BRIDGE_SOURCE }),
     lens,
@@ -593,10 +593,10 @@ test("a sprite edit that changes no pixel is refused; a mirror split or transpar
   assert.deepEqual([assist.proposals, assist.refusals], [4, 2]);
 });
 
-test("withdraw_changes clears the candidate, and a later proposal can still be made", async () => {
+test("withdraw_selection clears the candidate, and a later proposal can still be made", async () => {
   const state = session();
   const assist = bridgeAssist();
-  const withdraw = (reason: string) => run(state, assist, "withdraw_changes", { reason });
+  const withdraw = (reason: string) => run(state, assist, "withdraw_selection", { reason });
   const empty = await withdraw("Nothing proposed yet.");
   assert.equal(empty.success, false);
   assert.match(empty.error ?? "", /^There is no candidate to withdraw\./);
@@ -607,7 +607,7 @@ test("withdraw_changes clears the candidate, and a later proposal can still be m
   assert.equal(withdrawn.success, true, withdrawn.error ?? "");
   assert.equal(
     withdrawn.message,
-    "Withdrew candidate c1: the creator sees no proposal, only your reply. Call propose_changes to propose something else, or explain what blocks the change.",
+    "Withdrew candidate c1: the creator sees no proposal, only your reply. Call edit_selection to propose something else, or explain what blocks the change.",
   );
   assert.deepEqual(withdrawn.details, {
     ok: true,
@@ -629,14 +629,14 @@ test("default Studio proposals continue beyond four and carry no countdown", asy
   for (let i = 0; i < 6; i++) {
     const result = await executeAgentToolAsync(
       state,
-      "propose_changes",
+      "edit_selection",
       {
         baseRevision: draftRevision(assist.focus.draft()),
         summary: "Make a crossing",
         pictureOps: [crossing],
         spriteOps: null,
       },
-      { studio: assist, allowedTools: STUDIO_ASSIST_TASK_TOOLS },
+      { selection: assist, allowedTools: SELECTION_TASK_TOOLS },
     );
     assert.equal(result.success, true, result.error ?? "");
     assert.doesNotMatch(JSON.stringify(result), /proposalsLeft|\d+ proposals? left|\d+ left/);
@@ -674,7 +674,7 @@ test("selected source includes ordinary long items and offers character paging",
 });
 
 test("sprite pixel edits permit a complete largest cel", () => {
-  const propose = STUDIO_ASSIST_TOOLS.find((tool) => tool.name === "propose_changes")!;
+  const propose = SELECTION_TOOLS.find((tool) => tool.name === "edit_selection")!;
   const sprite = propose.parameters.properties["spriteOps"] as {
     items: { properties: { changes: { maxItems: number } } };
   };
