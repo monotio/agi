@@ -11,12 +11,12 @@ const props = defineProps<{
   state: EngineStateReport | null;
   profile: AgiProfile;
 }>();
-
 interface StateRow {
   readonly name: string;
   readonly kind: "flag" | "variable";
   readonly num: number;
   readonly label: string;
+  readonly builtin: boolean;
 }
 
 const rows = computed<StateRow[]>(() => {
@@ -29,11 +29,15 @@ const rows = computed<StateRow[]>(() => {
         kind: binding.kind as "flag" | "variable",
         num: binding.num,
         label: `${binding.kind === "flag" ? "f" : "v"}${binding.num}`,
+        builtin: binding.builtin === true,
       }));
   } catch {
     return [];
   }
 });
+/** The creator's names list first; template and ready-part state folds under Built-in. */
+const creatorRows = computed(() => rows.value.filter((row) => !row.builtin));
+const builtinRows = computed(() => rows.value.filter((row) => row.builtin));
 function value(row: StateRow): string {
   if (!props.state) return "—";
   return String(
@@ -53,7 +57,7 @@ function value(row: StateRow): string {
         </tr>
       </thead>
       <tbody>
-        <tr v-for="row in rows" :key="row.name">
+        <tr v-for="row in creatorRows" :key="row.name">
           <td>{{ row.name }}</td>
           <td>
             <span class="workspace-state__kind">{{
@@ -65,7 +69,24 @@ function value(row: StateRow): string {
         </tr>
       </tbody>
     </table>
-    <p v-else class="workspace-state__empty">
+    <details v-if="builtinRows.length" class="workspace-state__builtin" data-testid="state-builtin">
+      <summary>Built-in</summary>
+      <table>
+        <tbody>
+          <tr v-for="row in builtinRows" :key="row.name">
+            <td>{{ row.name }}</td>
+            <td>
+              <span class="workspace-state__kind">{{
+                row.kind === "flag" ? "Flag" : "Variable"
+              }}</span>
+              {{ row.label }}
+            </td>
+            <td class="workspace-state__value">{{ value(row) }}</td>
+          </tr>
+        </tbody>
+      </table>
+    </details>
+    <p v-if="!rows.length" class="workspace-state__empty">
       No named flags or variables yet. Add one with + next to Game state in Parts.
     </p>
     <p v-if="!state" class="workspace-state__note">Values show while the game runs.</p>
@@ -103,5 +124,15 @@ th {
 .workspace-state__empty,
 .workspace-state__note {
   color: var(--ink-3);
+}
+.workspace-state__builtin {
+  margin-top: var(--space-4);
+}
+.workspace-state__builtin > summary {
+  cursor: pointer;
+  color: var(--ink-3);
+  font: var(--weight-semibold) var(--text-xs) / var(--leading) var(--font-sans);
+  letter-spacing: var(--tracking-caps);
+  margin-bottom: var(--space-2);
 }
 </style>

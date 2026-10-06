@@ -12,6 +12,7 @@ import {
 } from "vue";
 import { layoutDragging } from "./layoutDrag.ts";
 import { guidedPlacement } from "./guidedPlacement.ts";
+import { gameRoomMenu, roomMenuArmed } from "./roomActionMenu.ts";
 import { PAGE_CONTROLS } from "./useGameKeys.ts";
 
 import TouchControls from "./TouchControls.vue";
@@ -239,6 +240,15 @@ let screenPointerType = "mouse";
 
 function onScreenPointerDown(ev: PointerEvent): void {
   screenPointerType = ev.pointerType;
+}
+
+/** Right-click offers the current room's actions while Create is armed; Play keeps the browser menu. */
+function onScreenContextMenu(ev: MouseEvent): void {
+  if (!roomMenuArmed.value) return;
+  const room = engine.roomMap?.currentRoom.value ?? null;
+  if (room === null) return;
+  ev.preventDefault();
+  gameRoomMenu.value = { x: ev.clientX, y: ev.clientY, room };
 }
 
 function onScreenClick(ev: MouseEvent): void {
@@ -678,6 +688,7 @@ defineExpose({
           remixing: state.powerUp.open && state.powerUp.mode !== 'ask',
         }"
         @click="onScreenClick"
+        @contextmenu="onScreenContextMenu"
         @pointerdown="onScreenPointerDown"
         @pointermove="presentation.onScreenPointerMove"
       >

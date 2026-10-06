@@ -97,9 +97,15 @@ function nameState(): void {
   emit("nameState", namingKind.value, namingNum.value, name);
   namingOpen.value = false;
 }
+const sharedOpen = ref(false);
 function sectionAdd(label: string): void {
   if (label === "GAME STATE") openNaming();
+  else if (label === "SHARED LOGIC") sharedOpen.value = !sharedOpen.value;
   else emit("add", label);
+}
+function addShared(option: string): void {
+  sharedOpen.value = false;
+  emit("add", "SHARED LOGIC", option);
 }
 const selectedName = computed(
   () =>
@@ -281,6 +287,21 @@ function onKey(event: KeyboardEvent): void {
           +
         </button>
       </header>
+      <div
+        v-if="group.label === 'SHARED LOGIC' && sharedOpen"
+        class="shared-add"
+        role="menu"
+        aria-label="Shared code"
+        data-testid="shared-add"
+        @keydown.esc.stop="sharedOpen = false"
+      >
+        <button type="button" role="menuitem" @click="addShared('menus')">
+          Menus and Save/Restore
+        </button>
+        <button type="button" role="menuitem" @click="addShared('game-over')">Game over</button>
+        <button type="button" role="menuitem" @click="addShared('score')">Score screen</button>
+        <button type="button" role="menuitem" @click="addShared('empty')">Empty shared code</button>
+      </div>
       <div v-for="row in group.entries" :key="row.id" class="part-row">
         <form
           v-if="row.id === `room:${row.room}` && editingRoom === row.room"
@@ -434,7 +455,11 @@ function onKey(event: KeyboardEvent): void {
             </button>
           </details>
         </div>
-        <details v-if="builtinNames.length" class="game-state-builtin" data-testid="game-state-builtin">
+        <details
+          v-if="builtinNames.length"
+          class="game-state-builtin"
+          data-testid="game-state-builtin"
+        >
           <summary>Built-in</summary>
           <div v-for="info in builtinNames" :key="info.name" class="state-row">
             <button
@@ -584,6 +609,29 @@ function onKey(event: KeyboardEvent): void {
   text-transform: uppercase;
   letter-spacing: 0.04em;
   padding-inline: var(--space-1);
+}
+.shared-add {
+  display: grid;
+  gap: var(--space-1);
+  margin: var(--space-2) 0;
+  padding: var(--space-2);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  background: var(--surface-1);
+}
+.shared-add button {
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+.shared-add button:hover,
+.shared-add button:focus-visible {
+  background: var(--action-soft);
 }
 .game-state-naming {
   display: grid;
