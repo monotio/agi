@@ -16,6 +16,8 @@ export function useWorkspaceDebug(input: {
   editor: ReturnType<typeof createWorkspaceEditor>;
   snapshot: ShallowRef<ProjectSnapshot | undefined>;
   profile(): ProfileId;
+  prepareLaunch?(): Promise<void>;
+  launch?(): Promise<void>;
 }) {
   const { engine, editor, snapshot } = input;
   const debug = shallowRef<WorkspaceDebug>();
@@ -72,13 +74,20 @@ export function useWorkspaceDebug(input: {
     }
     const controller = await load();
     if (!input.creating()) return;
-    await controller.run(() =>
-      action === "start"
-        ? controller.start()
-        : action === "stop"
-          ? controller.stop()
-          : controller.resume(action),
-    );
+    await controller.run(async () => {
+      if (action === "start" && !controller.state.epoch) {
+        engine.pauseEngine("debugLaunch");
+        try {
+          await input.prepareLaunch?.();
+          await controller.start();
+          await input.launch?.();
+        } finally {
+          engine.resumeEngine("debugLaunch");
+        }
+      } else if (action === "start") await controller.start();
+      else if (action === "stop") await controller.stop();
+      else await controller.resume(action);
+    });
   };
   watch(
     () => debug.value?.status.value ?? "",

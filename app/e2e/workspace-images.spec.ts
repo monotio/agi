@@ -286,8 +286,7 @@ test("make a four-cel walk loop and preview it on the running hero", async ({ pa
         .capture().history.commits.length,
   );
   await page.getByTestId("image-add-cels").click();
-  await page.getByTestId("workspace-update-menu").click();
-  await page.getByRole("menuitem", { name: "Update and play this room", exact: true }).click();
+  await page.getByTestId("workspace-update").click();
   await expect(page.getByTestId("workspace-updated")).toBeVisible();
   await expect(page.getByTestId("workspace-saved")).toBeVisible();
   await expect(page.getByTestId("workspace-saved")).toHaveText(/^(?:Saved|Draft saved)$/);

@@ -608,7 +608,11 @@ export async function workspaceSaved(page: Page): Promise<void> {
 export async function workspaceUpdated(page: Page, keyboard = false): Promise<void> {
   await workspaceSaved(page);
   const update = page.getByTestId("workspace-update");
-  if ((await update.isVisible()) && (await update.isEnabled())) {
+  if (
+    (await update.isVisible()) &&
+    (await page.getByTestId("workspace-pending").isVisible()) &&
+    (await update.isEnabled())
+  ) {
     const previousFocus = await page.evaluateHandle(() => document.activeElement);
     await expect(update).toBeVisible();
     if (keyboard) await page.keyboard.press("ControlOrMeta+Enter");

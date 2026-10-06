@@ -1,4 +1,3 @@
-import { workspaceUpdated } from "./engineProbe.ts";
 import { test, expect, reviewShot } from "./test.ts";
 import { isolateStorage, textHook } from "./engineProbe.ts";
 import type { Page, Locator } from "@playwright/test";
@@ -59,6 +58,8 @@ for (const size of [
     await expect(editor.locator(".workspace-breakpoint")).toHaveCount(1);
     await page.keyboard.press("F5");
     await expect(page.locator(".workspace-editor__header").getByTestId("debug-stop")).toBeEnabled();
+    await expect(page.getByTestId("workspace-debug-status")).toBeVisible();
+    await page.getByRole("button", { name: "Continue", exact: true }).first().click();
     await page.keyboard.press("Control+`");
     await page.keyboard.type("look");
     await page.keyboard.press("Enter");
@@ -147,6 +148,8 @@ test("stopped edits keep the running source, value edits and watches inspect MAI
   await expect(editor.locator(".workspace-breakpoint")).toHaveCount(1);
   await page.keyboard.press("F5");
   await expect(page.locator(".workspace-editor__header").getByTestId("debug-stop")).toBeEnabled();
+  await expect(page.getByTestId("workspace-debug-status")).toBeVisible();
+  await page.getByRole("button", { name: "Continue", exact: true }).first().click();
   await page.keyboard.press("Control+`");
   await page.keyboard.type("look");
   await page.keyboard.press("Enter");
@@ -193,7 +196,11 @@ test("stopped edits keep the running source, value edits and watches inspect MAI
   await expect.poll(async () => (await textHook(page)).rows.join("\n")).toContain("sunny clearing");
   await page.keyboard.press("Control+`");
   await page.keyboard.press("Enter");
-  await workspaceUpdated(page);
+  await page.getByTestId("workspace-update-menu").click();
+  const keep = page.getByRole("menuitem", { name: "Update and keep playing", exact: true });
+  await expect(keep).toBeVisible();
+  await keep.click();
+  await expect(page.getByTestId("workspace-pending")).toBeHidden();
   await expect(page.getByRole("button", { name: "Show running source", exact: true })).toHaveCount(
     0,
   );

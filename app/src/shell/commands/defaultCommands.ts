@@ -47,7 +47,7 @@ const DEFAULTS = {
   },
   play: {
     id: "game.play",
-    title: "Update game",
+    title: "Update and restart room",
     key: "Mod+Enter",
     textInput: true,
     game: true,

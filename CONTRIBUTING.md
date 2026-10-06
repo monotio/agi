@@ -399,7 +399,7 @@ boxes connected figures across sheet gaps and derives cel width from one height.
 `src/creative/imageFrameGeometry.ts` owns pixel snapping, bounded drawing,
 linked edge resizing, unlinking, ordering and loop assignment. The sheet editor
 asks before replacing edited boxes and renders thumbnails from prepared cels.
-The marks stay local until Add cels stages the VIEW. Update game submits the proposal. Editing a mirror loop gives it independent cels while
+The marks stay local until Add cels stages the VIEW. Update and restart submits the proposal. Editing a mirror loop gives it independent cels while
 preserving its displayed frames.
 
 **A LOGIC edit becomes a saved project**
@@ -408,9 +408,9 @@ Library **Game actions → Create** opens the running workspace on a LOGIC.
 `studio/workspace/LogicEditor.vue` retains Monaco models and their view state,
 with code intelligence from the analysis worker. `projectPartDrafts.ts` saves only
 the edited part after a short pause and journals pending writes for recovery.
-Invalid source remains a draft while the admitted game runs. Update game sends
-the changed parts together through `ProjectSession` admission and adds one
-History step. Every editor shares the same update and history owner.
+Invalid source remains a draft while the admitted game runs. Update and restart sends the changed parts together through `ProjectSession`
+admission, adds one History step, and launches the open room. Its menu offers
+Update and keep playing at a message or completed cycle boundary. Every editor shares the same update and history owner.
 
 **Where authority lives.** Each of these is a check in code:
 
@@ -419,7 +419,7 @@ History step. Every editor shares the same update and history owner.
 - `prepareRoomPatch` accepts a room only if it is whole: it parses every payload under the game's profile, lets the vocabulary only grow, and stages the result on a copy.
 - `editValidation.ts` checks Studio gestures by their decoded pixels. Workspace agent changes use `src/authoring/projectAgentCandidate.ts` to validate complete coordinated documents and native resources; `assistScope.ts` remains in detached Studio compatibility services.
 - `project/projectTransaction.ts` owns saved, installed and current: the base an edit was made from, what storage holds, and what the running game confirmed it installed. Every project write (an editor change, an AI turn, a room written mid-play, an autosave) is refused as stale unless storage still holds its base, and only an acknowledged install moves the booted game forward.
-- `project/projectSession.ts` owns Create’s current documents, diagnostics, live admission, autosave and History. Workspace editors store per-part drafts. Update game submits their complete change set; approved agent changes submit through the same admission pipeline. Review selects a validated coordinated change set; Auto-approve records each valid proposal immediately. Chat checkpoints identify the change and its preceding History commit.
+- `project/projectSession.ts` owns Create’s current documents, diagnostics, live admission, autosave and History. Workspace editors store per-part drafts. Update and restart submits their complete change set; approved agent changes submit through the same admission pipeline. Review selects a validated coordinated change set; Auto-approve records each valid proposal immediately. Chat checkpoints identify the change and its preceding History commit.
 - `project/resourceCommit.ts` and `project/editableProject.ts` retain the compatibility and detached authoring services exercised by their unit tests.
 - The logic assembler and the container writer are the validators of last resort.
 

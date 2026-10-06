@@ -1,5 +1,11 @@
 <script setup lang="ts">
 import UiIcon from "../../ui/UiIcon.vue";
+import {
+  selectLaunch,
+  readWorldLaunches,
+  type Launch,
+} from "../../../../src/authoring/launches.ts";
+import type { AuthoringState } from "../../../../src/authoring/authoringState.ts";
 import UiDialog from "../../ui/UiDialog.vue";
 import GuidedAdd from "./GuidedAdd.vue";
 import {
@@ -109,6 +115,11 @@ const {
   editor,
   snapshot,
   profile: () => profile.value.id,
+  prepareLaunch: async () => {
+    if (editor.changeCount.value) await updateGame(false);
+    if (editor.error.value) throw new Error(editor.error.value);
+  },
+  launch: () => runSelectedLaunch(true),
 });
 const historyState = shallowRef<ProjectHistoryState>();
 const optimistic = shallowRef<Record<string, ProjectContent>>({});
@@ -470,12 +481,91 @@ const selectedRoom = computed(() => {
     return current;
   return uses.find((room) => room === current) ?? uses[0];
 });
+watch(
+  [selectedRoom, engine.roomMap.currentRoom, snapshot, groupMetadata, groups],
+  () => {
+    const room = selectedRoom.value ?? engine.roomMap.currentRoom.value ?? undefined;
+    editor.actionRoom.value = room;
+    let world: {
+      rooms?: Record<string, { title?: string }>;
+      launches?: Record<string, { selected?: string; entries: Launch[] }>;
+    } = {};
+    try {
+      world = JSON.parse(
+        String(groupMetadata.value.world ?? snapshot.value?.read("world")?.content ?? "{}"),
+      );
+    } catch {
+      /* Room identities stay available. */
+    }
+    editor.actionRoomName.value =
+      room === undefined
+        ? ""
+        : world.rooms?.[room]?.title ||
+          groups.value
+            .flatMap((group) => group.entries)
+            .find((entry) => entry.id === `room:${room}`)
+            ?.label.split(" · ROOM ")[0] ||
+          `Room ${room}`;
+    const launches = world.launches ? readWorldLaunches(world.launches) : {};
+    const choices = room === undefined ? undefined : launches[room];
+    editor.launchChoices.value = choices?.entries ?? [];
+    const selected = room === undefined ? "carry" : (choices?.selected ?? "carry");
+    editor.selectedLaunch.value =
+      selected === "beginning" ||
+      selected === "carry" ||
+      editor.launchChoices.value.some((entry) => entry.id === selected)
+        ? selected
+        : "carry";
+  },
+  { immediate: true },
+);
+editor.selectLaunch.value = async (id) => {
+  const room = editor.actionRoom.value;
+  if (room === undefined || !session) return;
+  try {
+    const capture = session.model.capture();
+    const world = JSON.parse(
+      String(capture.read("world")?.content ?? "{}"),
+    ) as AuthoringState["world"];
+    const content = JSON.stringify(selectLaunch(world, room, id));
+    const result = await session.submit({
+      proposal: session.model.propose(capture, "Select launch", [{ key: "world", content }]),
+      label: "Select launch",
+      origin: "logic",
+      author: "creator",
+    });
+    if (!["committed", "unchanged"].includes(result.status))
+      throw new Error("Launch selection could not save. Try again.");
+    editor.selectedLaunch.value = id;
+    refresh();
+  } catch (cause) {
+    editor.error.value = cause instanceof Error ? cause.message : String(cause);
+  }
+};
+let launchSerial = 0;
+async function runSelectedLaunch(debug = false): Promise<void> {
+  const serial = ++launchSerial;
+  const room = editor.actionRoom.value;
+  if (room === undefined) throw new Error("Open a room to play it.");
+  const state = editor.launchChoices.value.find(
+    (entry) => entry.id === editor.selectedLaunch.value,
+  );
+  const result = await engine.launchRoom(room, {
+    beginning: editor.selectedLaunch.value === "beginning",
+    ...(state ? { state } : {}),
+    debug,
+  });
+  if (!result.ok) throw new Error(result.reason ?? "Launch could not start. Try again.");
+  if (serial === launchSerial && props.creating) {
+    returnRoom.value = result.returnRoom;
+    visitingRoom.value = result.room;
+  }
+}
 const unusedArt = computed(
   () =>
     (editor.kind.value === "picture" || editor.kind.value === "view") &&
     selectedRoom.value === undefined,
 );
-let makingRoom = false;
 const madeRoomArt: Record<string, string> = {};
 const returnRoom = ref<number>();
 const visitingRoom = ref<number>();
@@ -487,82 +577,15 @@ const pausedPicture = computed(() => {
     .find((entry) => entry.room === visitingRoom.value && entry.key.startsWith("picture:"));
   return row ? native(row.key) : undefined;
 });
-let visitQueue = Promise.resolve();
-let selectionSerial = 0;
-watch([editor.selected, roomHint, () => props.creating], ([, , creating], [, , wasCreating]) => {
-  const serial = ++selectionSerial;
-  if (!creating) {
-    returnRoom.value = visitingRoom.value = undefined;
-    stageNote.value = "";
-    return;
-  }
-  if (makingRoom) return;
-  if (
-    !wasCreating &&
-    selectedRoom.value !== undefined &&
-    selectedRoom.value !== engine.roomMap.currentRoom.value
-  ) {
-    stageNote.value = "";
-    const room = engine.roomMap.currentRoom.value;
-    const part = groups.value
-      .flatMap((group) => group.entries)
-      .find(
-        (row) =>
-          row.room === room &&
-          row.key.startsWith(editor.kind.value === "logic" ? "logic:" : "picture:"),
-      );
-    if (part) openPart(part.key);
-    else editor.selected.value = undefined;
-    if (returnRoom.value !== undefined) visitingRoom.value = room ?? undefined;
-    return;
-  }
-  visitQueue = visitQueue.then(async () => {
-    if (serial !== selectionSerial || retired) return;
-    const room = selectedRoom.value;
-    stageNote.value = "";
-    if (room === undefined || room === engine.roomMap.currentRoom.value) return;
-    if (!snapshot.value?.keys.includes(`logic:${room}`)) {
-      stageNote.value = "Update game to open this room.";
-      return;
-    }
-    visitBusy.value = true;
-    try {
-      await flushWorkspace();
-      if (serial !== selectionSerial || retired) return;
-      const result = await engine.visitRoom(room);
-      if (serial !== selectionSerial || retired) return;
-      returnRoom.value = result.returnRoom;
-      visitingRoom.value = room;
-      if (!result.ok)
-        stageNote.value = `Room ${room} needs more game state. The picture is paused for editing.`;
-    } catch {
-      stageNote.value = `Room ${room} could not open. The picture is paused for editing.`;
-    } finally {
-      visitBusy.value = false;
-    }
-  });
-});
-watch(engine.roomMap.currentRoom, (room) => {
-  if (
-    !props.creating ||
-    visitBusy.value ||
-    makingRoom ||
-    stageNote.value ||
-    room === null ||
-    selectedRoom.value === undefined ||
-    selectedRoom.value === room
-  )
-    return;
-  const part = groups.value
-    .flatMap((group) => group.entries)
-    .find(
-      (row) =>
-        row.room === room &&
-        row.key.startsWith(editor.kind.value === "logic" ? "logic:" : "picture:"),
-    );
-  if (part) openPart(part.key, false, room);
-  else editor.selected.value = undefined;
-  if (returnRoom.value !== undefined) visitingRoom.value = room;
+watch(
+  () => props.creating,
+  () => {
+    launchSerial++;
+  },
+);
+watch([editor.selected, roomHint, () => props.creating], () => {
+  stageNote.value = "";
+  if (!props.creating) returnRoom.value = visitingRoom.value = undefined;
 });
 watch(
   [editor.selected, unusedArt, () => props.creating, stageNote],
@@ -597,8 +620,6 @@ watch(snapshot, async (current) => {
   }
 });
 async function backToGame(openRoom = true): Promise<void> {
-  ++selectionSerial;
-  await visitQueue;
   visitBusy.value = true;
   try {
     await flushWorkspace();
@@ -758,48 +779,6 @@ const visiblePlacementPreviews = computed(() =>
     }),
   ),
 );
-function changedRoomPlacement(): boolean {
-  const room = engine.roomMap.currentRoom.value;
-  if (
-    room === null ||
-    !placementInput.value ||
-    !Object.values(placementPreviews.value).some((preview) => preview.room === room)
-  )
-    return false;
-  const documents = snapshot.value?.lastAdmissibleBuild?.documents() ?? {};
-  const words = documents["words"];
-  const dictionary =
-    typeof words === "string"
-      ? (JSON.parse(words) as [string, number][])
-      : words instanceof Uint8Array
-        ? parseWordsTok(words).map(({ word, id }) => [word, id] as [string, number])
-        : [];
-  const sources = Object.fromEntries(
-    Object.entries(documents).flatMap(([key, value]) =>
-      key.startsWith("logic:")
-        ? [
-            [
-              key,
-              typeof value === "string"
-                ? value
-                : derivedLogicSource(value, profile.value.id, dictionary).source,
-            ],
-          ]
-        : [],
-    ),
-  );
-  const bindings = documents["bindings"];
-  const before = roomPlacements({
-    room,
-    sources,
-    bindings: readBindingsDocument(typeof bindings === "string" ? bindings : "{}"),
-  });
-  const after = roomPlacements({ ...placementInput.value, room });
-  return after.some((figure) => {
-    const original = before.find((old) => old.object === figure.object);
-    return original && !figure.reason && (original.x !== figure.x || original.y !== figure.y);
-  });
-}
 function placeFigure(figure: RoomPlacement, x: number, y: number): void {
   if (!placementInput.value) return;
   try {
@@ -1011,9 +990,9 @@ function reportProblems(key: string, entries: readonly { message: string; line: 
     0,
   );
 }
-async function updateGame(restartRoom = false): Promise<void> {
+async function updateGame(restartRoom = true): Promise<void> {
   if (!session || actionBusy.value || writeConflict.value) return;
-  if (editor.problemCount.value && !restartRoom) {
+  if (editor.problemCount.value) {
     const first = updateProblems.value.find((entry) => entry.severity === "error");
     const typed = Object.entries(typingProblems).find(([, entries]) => entries.length);
     if (typed) openWordLogic(Number(typed[0].slice(6)), typed[1][0]!.line);
@@ -1021,7 +1000,7 @@ async function updateGame(restartRoom = false): Promise<void> {
     editor.panel.value = true;
     editor.error.value =
       typed || first
-        ? `${(typed?.[1][0]?.message ?? first!.message).replace(/[.]+$/, "")}. Fix this part, then Update game.`
+        ? `${(typed?.[1][0]?.message ?? first!.message).replace(/[.]+$/, "")}. Fix this part, then update.`
         : editor.error.value;
     return;
   }
@@ -1029,14 +1008,30 @@ async function updateGame(restartRoom = false): Promise<void> {
   try {
     await writes.flush();
     const changes = pendingParts.changes(snapshot.value, session.drafts().changes());
-    if (!changes.length && !restartRoom) {
+    if (!changes.length && !session.pendingRestart) {
+      if (restartRoom) {
+        if (debug.value?.state.epoch) await debug.value.stop();
+        await runSelectedLaunch();
+      }
       editor.phonePlaytest.value = true;
       return;
     }
     const updatedParts = pendingParts.parts(snapshot.value, changes).length;
-    // Placement edits change room-entry instructions. The interpreter must
-    // enter that setup to show the new baseline, through its existing re-entry path.
-    const result = await session.update(changes, restartRoom || changedRoomPlacement());
+    const waiting = engine.state.modal !== null || engine.state.waitingForKey;
+    if (restartRoom && debug.value?.state.epoch) await debug.value.stop();
+    const room = editor.actionRoom.value;
+    const roomName = editor.actionRoomName.value;
+    const state = editor.launchChoices.value.find(
+      (entry) => entry.id === editor.selectedLaunch.value,
+    );
+    const beginning = editor.selectedLaunch.value === "beginning";
+    const result = await session.update(
+      changes,
+      restartRoom,
+      restartRoom && room !== undefined
+        ? { room, ...(state ? { state } : {}), beginning }
+        : undefined,
+    );
     updateProblems.value = result.diagnostics;
     if (!["committed", "unchanged", "draft"].includes(result.status)) {
       editor.problemCount.value = Math.max(
@@ -1045,10 +1040,10 @@ async function updateGame(restartRoom = false): Promise<void> {
       );
       const first = result.diagnostics.find((entry) => entry.severity === "error");
       editor.error.value = first
-        ? `${first.message.replace(/[.]+$/, "")}. Fix this part, then Update game.`
+        ? `${first.message.replace(/[.]+$/, "")}. Fix this part, then update.`
         : "reason" in result && typeof result.reason === "string"
-          ? `${result.reason.replace(/[.]+$/, "")}. Choose Update and play this room.`
-          : "The game needs a fresh room. Choose Update and play this room.";
+          ? `${result.reason.replace(/[.]+$/, "")}. Choose Update and restart.`
+          : "The game needs a fresh room. Choose Update and restart.";
       return;
     }
     await session.flush();
@@ -1056,12 +1051,20 @@ async function updateGame(restartRoom = false): Promise<void> {
     optimistic.value = {};
     draftKeys = "";
     editor.updatedParts.value = updatedParts;
+    editor.updateResult.value = updatedParts
+      ? restartRoom
+        ? beginning
+          ? "Updated · started from beginning"
+          : `Updated · ${roomName} restarted`
+        : waiting
+          ? "Updated · applies after this message"
+          : "Updated · kept your place"
+      : "";
     editor.problemCount.value = 0;
     editor.error.value = "";
     placementPreviews.value = {};
     editor.phonePlaytest.value = true;
-    if (stageNote.value === "Update game to open this room.")
-      stageNote.value = "Choose this room in Parts to play it.";
+
     refresh();
     draftChanged(true);
   } catch (cause) {
@@ -1332,7 +1335,6 @@ async function wordChange(
 async function guidedAction(action: WorkspaceAction): Promise<void> {
   if (writeConflict.value || actionBusy.value) return;
   actionBusy.value = true;
-  makingRoom = action.kind === "make-room";
   try {
     await writes.flush();
     const capture = workingSnapshot();
@@ -1358,14 +1360,7 @@ async function guidedAction(action: WorkspaceAction): Promise<void> {
       refresh();
       const key = prepared.changes.find((change) => change.key.startsWith("logic:"))?.key;
       if (key) madeRoomArt[key] = action.key;
-      if (key && props.creating && result.status !== "draft") {
-        const room = Number(key.slice(6));
-        const result = await engine.visitRoom(room);
-        returnRoom.value = result.returnRoom;
-        visitingRoom.value = room;
-        if (!result.ok)
-          stageNote.value = `Room ${room} needs more game state. The picture is paused for editing.`;
-      }
+      if (key) openPart(key);
     }
     if (action.kind === "add-room") {
       const key = prepared.changes.find((change) => change.key.startsWith("logic:"))?.key;
@@ -1377,7 +1372,6 @@ async function guidedAction(action: WorkspaceAction): Promise<void> {
   } catch (cause) {
     editor.error.value = String(cause instanceof Error ? cause.message : cause);
   } finally {
-    makingRoom = false;
     actionBusy.value = false;
     refresh();
   }
@@ -1599,6 +1593,7 @@ editor.unsavedEdits.value = () => {
 onBeforeUnmount(() => {
   offDrafts?.();
   editor.update.value = undefined;
+  editor.selectLaunch.value = undefined;
   editor.discardDrafts.value = undefined;
   editor.changeCount.value = 0;
   phoneQuery.removeEventListener("change", phoneLayout);
@@ -1804,6 +1799,34 @@ onBeforeUnmount(() => {
             imageGenerate = true;
           "
           >Generate</UiButton
+        >
+      </template>
+      <template
+        v-if="editor.kind.value === 'logic' && selectedRoom !== undefined && !debug?.state.epoch"
+      >
+        <UiButton
+          size="sm"
+          variant="ghost"
+          :disabled="actionBusy || writeConflict"
+          :title="
+            writeConflict
+              ? 'Editing is paused. Download your unsaved edits, then reload.'
+              : 'Play the selected launch'
+          "
+          @click="updateGame()"
+          >▶ Play {{ editor.actionRoomName.value }}</UiButton
+        >
+        <UiButton
+          size="sm"
+          variant="ghost"
+          :disabled="actionBusy || writeConflict"
+          :title="
+            writeConflict
+              ? 'Editing is paused. Download your unsaved edits, then reload.'
+              : 'Debug (F5)'
+          "
+          @click="editor.debugCommand.value?.('start')"
+          >Debug {{ editor.actionRoomName.value }}</UiButton
         >
       </template>
       <DebugControls
