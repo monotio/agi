@@ -31,12 +31,16 @@ export function clearItemDepth(ctx: Context, item: PictureItem): EditSuccess {
  * Replace all of the item's painted priority with its visual coverage's band.
  * Horizontal runs cost at most five bytes each (three for a single pixel).
  * Lines overwrite existing priority, so other items' depth cannot stop a fill.
+ * With `wall` (Stand in the room) a control-0 line along the base row is
+ * drawn too: the item stands on it, and the wall is regenerated with the
+ * coverage. The marker `# @depth ... wall` keeps the choice on the item.
  */
 export function addDepth(
   ctx: Context,
   itemId: string,
   baseY?: number,
   priorityBase = 48,
+  wall?: boolean,
 ): EditSuccess {
   const item = editableItem(ctx, itemId);
   refuseCopiesOf(ctx, item, "setting depth for");
@@ -51,6 +55,7 @@ export function addDepth(
     throw new EditRefusal("priorityBase must be a surface row 0..167");
   }
   const effectiveBase = ctx.profile.priorityBaseAction === "effect" ? priorityBase : 48;
+  const withWall = wall ?? item.depth?.wall ?? false;
   const originalEnd = stateBefore(ctx, item.closeLine);
   const body = bodyOf(ctx, item).filter((line) => {
     const from = line.from!;
@@ -72,7 +77,7 @@ export function addDepth(
     return true;
   });
   const depth = [
-    `# @depth base=${base}${effectiveBase === 48 ? "" : ` pri-base=${effectiveBase}`}`,
+    `# @depth base=${base}${effectiveBase === 48 ? "" : ` pri-base=${effectiveBase}`}${withWall ? " wall" : ""}`,
     "vis off",
     `pri ${priorityForY(base, effectiveBase)}`,
   ];
@@ -82,6 +87,15 @@ export function addDepth(
       const start = x;
       while (x + 1 < SCREEN_WIDTH && mask[y * SCREEN_WIDTH + x + 1]) x++;
       depth.push(`line ${start},${y}${start === x ? "" : ` ${x},${y}`}`);
+    }
+  }
+  if (withWall) {
+    depth.push("pri 0");
+    for (let x = 0; x < SCREEN_WIDTH; x++) {
+      if (!mask[base * SCREEN_WIDTH + x]) continue;
+      const start = x;
+      while (x + 1 < SCREEN_WIDTH && mask[base * SCREEN_WIDTH + x + 1]) x++;
+      depth.push(`line ${start},${base}${start === x ? "" : ` ${x},${base}`}`);
     }
   }
   depth.push(
@@ -100,4 +114,18 @@ export function addDepth(
     ctx,
   );
   return result;
+}
+
+/**
+ * Stand in the room: the item's derived depth takes the band of its base row
+ * and a control-0 wall line is drawn along that base, both inside the item's
+ * depth block so they travel and regenerate with it.
+ */
+export function standInRoom(
+  ctx: Context,
+  itemId: string,
+  baseY?: number,
+  priorityBase = 48,
+): EditSuccess {
+  return addDepth(ctx, itemId, baseY, priorityBase, true);
 }

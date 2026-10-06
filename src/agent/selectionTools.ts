@@ -611,7 +611,8 @@ function opItems(
   document: PictureDocument,
 ): { edits: string[]; creates: string[] } {
   switch (op.type) {
-    case "setPoint": {
+    case "setPoint":
+    case "setStepColor": {
       const item = document.items.find((i) => i.openLine < op.line && op.line < i.closeLine);
       return { edits: item ? [item.id] : [`line ${op.line}`], creates: [] };
     }

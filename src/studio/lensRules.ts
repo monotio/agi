@@ -38,6 +38,7 @@ export const WHOLE_ITEM_OPERATIONS: readonly string[] = [
   "duplicateItem",
   "deleteItem",
   "addDepth",
+  "standInRoom",
 ];
 
 /**
@@ -71,7 +72,13 @@ export function editOperationUnlocks(
         op.plane === "visual" && document.items.some((item) => item.id === op.itemId && item.depth)
       );
     }
-    if (op.type !== "setPoint" && op.type !== "insertPoint" && op.type !== "removePoint")
+    if (op.type === "setStepColor" && op.plane !== "visual") return false;
+    if (
+      op.type !== "setPoint" &&
+      op.type !== "insertPoint" &&
+      op.type !== "removePoint" &&
+      op.type !== "setStepColor"
+    )
       return false;
     const item = pictureItemAtLine(document, op.line);
     return (

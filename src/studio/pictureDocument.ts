@@ -4,11 +4,13 @@
  *
  *   # @item <id> "<label>" [art|depth|walk|mixed] [locked]   opens an item
  *   # @end                                                   closes it
- *   # @depth base=<y> [pri-base=<y>] ... # @depth end         derived depth
+ *   # @depth base=<y> [pri-base=<y>] [wall] ... # @depth end  derived depth
  *
  * A depth block inside an item holds ordinary priority commands and their
  * register restoration. Its base is a surface row; pri-base records the
- * effective set.pri.base (48 when omitted). Edits regenerate its raster
+ * effective set.pri.base (48 when omitted). `wall` marks the block Stand in
+ * the room made: it also paints a control-0 line along the base, regenerated
+ * with the rest. Edits regenerate its raster
  * coverage and shift the chosen base by the change in the lowest art row.
  * Removing the two markers makes those commands hand-painted. Older readers
  * treat these annotations as comments and compile the same bytes. Group and
@@ -41,6 +43,8 @@ interface DerivedPictureDepth {
   readonly priorityBase: number;
   readonly openLine: number;
   readonly closeLine: number;
+  /** Stand in the room's control-0 line along the base row. */
+  readonly wall?: boolean;
 }
 
 export interface PictureItem {
@@ -243,13 +247,18 @@ export function parsePictureDocument(source: string): {
   }
   const annotated = items.map((item) => {
     let depth: DerivedPictureDepth | undefined;
-    let start: { baseY: number; priorityBase: number; openLine: number } | undefined;
+    let start: { baseY: number; priorityBase: number; openLine: number; wall: boolean } | undefined;
     for (let line = item.openLine + 1; line < item.closeLine; line++) {
       const text = lines[line - 1]!.trim();
       if (!/^#\s*@depth(?=\s|$)/.test(text)) continue;
-      const match = /^#\s*@depth base=(\d+)(?: pri-base=(\d+))?$/.exec(text);
+      const match = /^#\s*@depth base=(\d+)(?: pri-base=(\d+))?( wall)?$/.exec(text);
       if (match && !start && !depth && Number(match[1]) <= 167 && Number(match[2] ?? 48) <= 167) {
-        start = { baseY: Number(match[1]), priorityBase: Number(match[2] ?? 48), openLine: line };
+        start = {
+          baseY: Number(match[1]),
+          priorityBase: Number(match[2] ?? 48),
+          openLine: line,
+          wall: match[3] !== undefined,
+        };
       } else if (/^#\s*@depth end$/.test(text) && start) {
         depth = { ...start, closeLine: line };
         start = undefined;

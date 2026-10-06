@@ -41,7 +41,7 @@ import {
   type PictureItemKind,
 } from "./pictureDocument.ts";
 import { itemVisualFootprint, type PicturePlane } from "./pictureQuery.ts";
-import { clearItemDepth, addDepth } from "./pictureDepth.ts";
+import { clearItemDepth, addDepth, standInRoom } from "./pictureDepth.ts";
 import { shapeSource, validateSimplePolygon, type Point, type SceneShape } from "./shapes.ts";
 import { linePoints } from "./editPoints.ts";
 import { commandHead, registerLine, registersRead } from "./editState.ts";
@@ -87,6 +87,17 @@ export type EditOperation =
       /** Defaults to the lowest drawn visual row. */
       readonly baseY?: number;
     }
+  | {
+      /**
+       * Stand in the room: the item's derived depth takes the band of its
+       * base row and a control-0 wall line runs along that base, both inside
+       * the item's depth block so they travel and regenerate with it.
+       */
+      readonly type: "standInRoom";
+      readonly itemId: string;
+      /** Defaults to the lowest drawn visual row. */
+      readonly baseY?: number;
+    }
   | { readonly type: "moveItem"; readonly itemId: string; readonly dx: number; readonly dy: number }
   | {
       readonly type: "setPoint";
@@ -118,6 +129,18 @@ export type EditOperation =
       readonly itemId: string;
       readonly plane: PicturePlane;
       /** 0..15, or null to turn the plane off for the item. */
+      readonly value: number | null;
+    }
+  | {
+      /**
+       * Recolour the one drawing step on `line` (1-based): a register line
+       * goes before it and the state it saw is restored after, so everything
+       * that step painted takes the new colour and nothing else changes.
+       */
+      readonly type: "setStepColor";
+      readonly line: number;
+      readonly plane: PicturePlane;
+      /** 0..15, or null to stop the step painting the plane. */
       readonly value: number | null;
     }
   | { readonly type: "deleteItem"; readonly itemId: string }
@@ -358,6 +381,54 @@ const PLANE_COMMANDS: Record<PicturePlane, readonly number[]> = {
   visual: [0xf0, 0xf1],
   priority: [0xf2, 0xf3],
 };
+
+/** Command words that paint where the registers point: a step `setStepColor` can recolour. */
+const STEP_HEADS = [
+  "line",
+  "polyline",
+  "polygon",
+  "rect",
+  "rel",
+  "xcorner",
+  "ycorner",
+  "fill",
+  "plot",
+];
+
+function setStepColor(
+  ctx: Context,
+  op: Extract<EditOperation, { type: "setStepColor" }>,
+): EditResult {
+  requireIntegers({ line: op.line });
+  requireValue(op.plane, op.value);
+  if (op.line < 1 || op.line > ctx.lines.length) throw new EditRefusal(`no line ${op.line}`);
+  if (!STEP_HEADS.includes(commandHead(ctx.lines[op.line - 1]!))) {
+    throw new EditRefusal(`line ${op.line} is not a drawing step`);
+  }
+  const item = pictureItemAtLine(ctx.document, op.line);
+  if (item?.locked) {
+    throw new EditRefusal(`line ${op.line} belongs to locked item '${item.id}'`);
+  }
+  if (item?.depth && op.line > item.depth.openLine && op.line < item.depth.closeLine) {
+    throw new EditRefusal(`line ${op.line} is derived depth; recolour the item's art instead`);
+  }
+  if (item) refuseCopiesOf(ctx, item, "recolouring a step of");
+  const state = stateBefore(ctx, op.line);
+  if (state[op.plane] === null) {
+    throw new EditRefusal(`line ${op.line} paints no ${op.plane}`);
+  }
+  if (state[op.plane] === op.value) return { document: ctx.document, changedLines: [] };
+  return finish(
+    [
+      ...inputLines(ctx, 1, op.line - 1),
+      newLine(ctx, registerLine(op.plane, { ...state, [op.plane]: op.value }, ctx.profile)),
+      inputLines(ctx, op.line, op.line)[0]!,
+      { expected: state, scope: "document" },
+      ...inputLines(ctx, op.line + 1, ctx.lines.length),
+    ],
+    ctx,
+  );
+}
 
 function setItemColor(
   ctx: Context,
@@ -762,6 +833,13 @@ function dispatch(ctx: Context, op: EditOperation, options?: EditOptions): EditR
         op.baseY,
         options?.priorityBase ?? findItem(ctx, op.itemId).depth?.priorityBase,
       );
+    case "standInRoom":
+      return standInRoom(
+        ctx,
+        op.itemId,
+        op.baseY,
+        options?.priorityBase ?? findItem(ctx, op.itemId).depth?.priorityBase,
+      );
     case "moveItem":
       return moveItems(ctx, [op]);
     case "setPoint":
@@ -772,6 +850,8 @@ function dispatch(ctx: Context, op: EditOperation, options?: EditOptions): EditR
       return removePoint(ctx, op);
     case "setItemColor":
       return setItemColor(ctx, op.itemId, op.plane, op.value);
+    case "setStepColor":
+      return setStepColor(ctx, op);
     case "deleteItem":
       return deleteItem(ctx, op.itemId);
     case "duplicateItem":
@@ -804,7 +884,7 @@ function maintainDepth(
   let result = initial;
   for (const op of ops) {
     const oldItem =
-      op.type === "setPoint"
+      op.type === "setPoint" || op.type === "setStepColor"
         ? pictureItemAtLine(ctx.document, op.line)
         : "itemId" in op
           ? ctx.document.items.find((item) => item.id === op.itemId)
@@ -819,7 +899,7 @@ function maintainDepth(
     const depth = oldItem.depth;
     const point = op.type === "setPoint" || op.type === "insertPoint" || op.type === "removePoint";
     const manual =
-      (op.type === "setItemColor" && op.plane === "priority") ||
+      ((op.type === "setItemColor" || op.type === "setStepColor") && op.plane === "priority") ||
       (point &&
         ((op.line > depth.openLine && op.line < depth.closeLine) ||
           (stateBefore(ctx, op.line).visual === null &&
@@ -835,7 +915,8 @@ function maintainDepth(
       op.type === "moveItem" ||
       op.type === "duplicateItem" ||
       point ||
-      (op.type === "setItemColor" && op.plane === "visual")
+      (op.type === "setItemColor" && op.plane === "visual") ||
+      (op.type === "setStepColor" && op.plane === "visual" && op.value === null)
     ) {
       const oldBottom = itemVisualFootprint(ctx.document, oldItem.id, ctx.profile).bottom;
       const newBottom = itemVisualFootprint(result.document, target, ctx.profile).bottom;
