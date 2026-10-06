@@ -3,7 +3,6 @@ import UiIcon from "../../ui/UiIcon.vue";
 import {
   addLaunch,
   newLaunchId,
-  selectLaunch,
   readWorldLaunches,
   type Launch,
   type RoomLaunches,
@@ -649,7 +648,7 @@ const selectedRoom = computed(() => {
     return current;
   return uses.find((room) => room === current) ?? uses[0];
 });
-const rememberedLaunches: Record<string, string> = {};
+const rememberedLaunches = ref<Record<string, string>>({});
 watch(
   [selectedRoom, engine.roomMap.currentRoom, snapshot, groupMetadata, groups],
   () => {
@@ -681,9 +680,10 @@ watch(
     const selectionKey = `monotio_agi.workspaceLaunch.${engine.currentGame()?.projectId}.${room}`;
     let selected = choices?.selected ?? "carry";
     try {
-      selected = rememberedLaunches[selectionKey] ?? localStorage.getItem(selectionKey) ?? selected;
+      selected =
+        rememberedLaunches.value[selectionKey] ?? localStorage.getItem(selectionKey) ?? selected;
     } catch {
-      selected = rememberedLaunches[selectionKey] ?? selected;
+      selected = rememberedLaunches.value[selectionKey] ?? selected;
     }
     editor.selectedLaunch.value =
       selected === "beginning" ||
@@ -697,15 +697,7 @@ watch(
 );
 editor.selectLaunch.value = async (id) => {
   const room = editor.actionRoom.value;
-  if (room === undefined) return;
-  const key = `monotio_agi.workspaceLaunch.${engine.currentGame()?.projectId}.${room}`;
-  rememberedLaunches[key] = id;
-  editor.selectedLaunch.value = id;
-  try {
-    localStorage.setItem(key, id);
-  } catch {
-    /* Keep this session's selection, like its open tabs. */
-  }
+  if (room !== undefined) await selectRoomLaunch(room, id);
 };
 let launchSerial = 0;
 async function runSelectedLaunch(
@@ -1391,6 +1383,15 @@ function roomLaunches(room: number): RoomLaunches | undefined {
   return launches[room];
 }
 function roomSelectedLaunch(room: number): string | undefined {
+  const key = `monotio_agi.workspaceLaunch.${engine.currentGame()?.projectId}.${room}`;
+  const remembered = rememberedLaunches.value[key];
+  if (remembered !== undefined) return remembered;
+  try {
+    const stored = localStorage.getItem(key);
+    if (stored !== null) return stored;
+  } catch {
+    /* Fall back to the project's default. */
+  }
   const launches = parsedWorld.value.launches ? readWorldLaunches(parsedWorld.value.launches) : {};
   return launches[room]?.selected;
 }
@@ -1450,35 +1451,14 @@ function editRoomLaunches(room: number, launches: RoomLaunches): void {
   edit("world", JSON.stringify(currentWorld, null, 2));
 }
 async function selectRoomLaunch(room: number, id: string): Promise<void> {
-  if (editor.actionRoom.value === room && editor.selectLaunch.value) {
-    await editor.selectLaunch.value(id);
-    return;
-  }
-  if (!session) return;
+  // The choice is a browser preference (it never joins the project or its Undo).
+  const key = `monotio_agi.workspaceLaunch.${engine.currentGame()?.projectId}.${room}`;
+  rememberedLaunches.value = { ...rememberedLaunches.value, [key]: id };
+  if (editor.actionRoom.value === room) editor.selectedLaunch.value = id;
   try {
-    const capture = session.model.capture();
-    const currentWorldStr =
-      groupMetadata.value.world ?? content("world") ?? capture.read("world")?.content ?? "{}";
-    const world = JSON.parse(String(currentWorldStr)) as AuthoringState["world"];
-    const nextWorld = selectLaunch(world, room, id);
-    if (draftMembership.value.includes("world")) {
-      edit("world", JSON.stringify(nextWorld, null, 2));
-    } else {
-      const contentStr = JSON.stringify(nextWorld, null, 2);
-      const result = await session.submit({
-        proposal: session.model.propose(capture, "Select launch", [
-          { key: "world", content: contentStr },
-        ]),
-        label: "Select launch",
-        origin: "logic",
-        author: "creator",
-      });
-      if (!["committed", "unchanged"].includes(result.status))
-        throw new Error("Launch selection could not save. Try again.");
-      refresh();
-    }
-  } catch (cause) {
-    editor.error.value = cause instanceof Error ? cause.message : String(cause);
+    localStorage.setItem(key, id);
+  } catch {
+    /* Keep this session's selection, like its open tabs. */
   }
 }
 editor.openLaunchEditor.value = (mode: "new" | "edit", room: number) => {
