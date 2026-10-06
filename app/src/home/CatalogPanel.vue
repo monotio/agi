@@ -138,7 +138,7 @@ function catalogImage(entry: GameCatalogEntry) {
           data-testid="run-walkthrough"
           @click="bridge.startWalkthrough(game.folder ?? game.hash)"
         >
-          <span>Run walkthrough<small>Watch real-time playthrough</small></span>
+          Watch walkthrough
         </button>
         <button
           v-if="localAutosave(game)"
@@ -206,7 +206,7 @@ function catalogImage(entry: GameCatalogEntry) {
           :disabled="catalogBusy[entry.id] || libraryActionBusy || importBusy"
           @click="playCatalogWalkthrough(entry.id)"
         >
-          <span>Run walkthrough<small>Watch real-time playthrough</small></span>
+          Watch walkthrough
         </button>
         <button type="button" role="menuitem" @click="showDetails(catalogDetails(entry))">
           Details…

@@ -720,7 +720,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
     const original = saved?.data ?? null;
     const revision = await gameRevision(files);
     const unavailable = new Error(
-      "Browser storage could not save this remix. Use Settings → This game → Download game… to keep it.",
+      "Browser storage could not save this remix. Use Settings → This game → Download… to keep it.",
     );
     const catalogChanged =
       original?.library?.source === "catalog" && original.library.revision !== revision;
@@ -887,7 +887,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
   async function saveConversation(booted: BootedGame, author: AgentSession): Promise<void> {
     if (!(await saveConversationRecord(booted, author)))
       throw new Error(
-        "Conversation could not be saved. Use Settings → This game → Download game… to keep it.",
+        "Conversation could not be saved. Use Settings → This game → Download… to keep it.",
       );
   }
 

@@ -123,18 +123,19 @@ async function changeInterpreter(): Promise<void> {
           <dd>
             {{
               liveGame.library?.validation.status === "unverified"
-                ? "Ready to check."
-                : (liveGame.library?.validation.message ?? "Ready to check.")
+                ? "Not checked yet"
+                : (liveGame.library?.validation.message ?? "Not checked yet")
             }}
             <UiButton
               v-if="liveGame.library?.validation.status === 'unverified'"
               size="sm"
               variant="ghost"
+              aria-label="Check opening"
               data-testid="check-library-game"
               :disabled="libraryActionBusy"
               @click="onCheckLibraryGame(liveGame)"
             >
-              {{ libraryActionBusy ? "Checking opening…" : "Check opening" }}
+              {{ libraryActionBusy ? "Checking…" : "Check" }}
             </UiButton>
           </dd>
         </template>

@@ -317,7 +317,7 @@ async function onStartWalkthrough(targetGame: string): Promise<void> {
   await startWalkthrough(targetGame);
 }
 shellBridge.startWalkthrough = (target) => void onStartWalkthrough(target);
-async function openProjectPart(projectId: ProjectId, family: "logic" | "sound"): Promise<void> {
+async function openLogicProject(projectId: ProjectId): Promise<void> {
   engine.setProjectMode("create");
   if (engine.currentGame()?.projectId !== projectId) {
     const stored = lib.savedGames.value.find((game) => game.projectId === projectId);
@@ -331,16 +331,13 @@ async function openProjectPart(projectId: ProjectId, family: "logic" | "sound"):
   const { inspectEditableProject } = await import("./project/projectWorkspaceSource.ts");
   const keys = data
     ? Object.keys(inspectEditableProject(data).documents)
-        .filter((key) => key.startsWith(`${family}:`))
+        .filter((key) => key.startsWith("logic:"))
         .sort((a, b) => Number(a.split(":")[1]) - Number(b.split(":")[1]))
     : [];
-  workspaceEditor.open(keys.includes(`${family}:1`) ? `${family}:1` : (keys[0] ?? `${family}:1`));
+  workspaceEditor.open(keys.includes("logic:1") ? "logic:1" : (keys[0] ?? "logic:1"));
 }
 shellBridge.openLogicProject = (id) => {
-  void openProjectPart(id, "logic");
-};
-shellBridge.openSoundProject = (id) => {
-  void openProjectPart(id, "sound");
+  void openLogicProject(id);
 };
 
 const WATCH_HASH_PREFIX = "#watch/";

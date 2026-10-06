@@ -64,7 +64,7 @@ async function focusPlay(): Promise<void> {
 
 <template>
   <SavedGameCard v-if="saved" :game="saved" :featured="entry" :featured-meta="TUTORIAL_META">
-    <template #menu>
+    <template v-if="installedCopies.length > 0" #menu>
       <button
         v-for="game in installedCopies"
         :key="`local-${game.hash}`"
@@ -143,7 +143,7 @@ async function focusPlay(): Promise<void> {
           :disabled="busy"
           @click="playCatalogWalkthrough(entry.id)"
         >
-          <span>Run walkthrough<small>Watch real-time playthrough</small></span>
+          Watch walkthrough
         </button>
         <button
           v-for="game in installedCopies"
