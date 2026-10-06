@@ -961,7 +961,7 @@ function handleCanvasDrag(event: MouseEvent): void {
     <UiDialog
       v-model:open="confirmRemoveOpen"
       title="Remove launch"
-      :description="`Remove “${activeLaunch?.name || 'this launch'}”? This cannot be undone.`"
+      :description="`Removes “${activeLaunch?.name || 'this launch'}” from ${roomName}.`"
     >
       <template #footer>
         <UiButton variant="ghost" @click="confirmRemoveOpen = false">Cancel</UiButton>
