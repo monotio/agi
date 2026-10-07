@@ -51,11 +51,11 @@ for (const [width, height] of [
       seen.push(...(await clipped(target)).map((line) => `${name}: ${line}`));
     };
 
-    // The drawing position in the status line and the Select tool's hint.
+    // The pointer's place in the status line and the Select tool's hint.
     await studio.getByRole("treeitem", { name: /^West doorway/ }).click();
     await page.getByTestId("workspace-focus").click();
     await page.mouse.move(...(await cell(page, 80, 120)));
-    await expect(page.getByTestId("studio-status")).toContainText(/^Drawing /);
+    await expect(page.getByTestId("studio-status")).toHaveText("x 80 · y 120");
     await look("status", page.getByTestId("studio-status"));
     await look("hint", page.getByTestId("studio-hint"));
 

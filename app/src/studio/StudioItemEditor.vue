@@ -42,8 +42,6 @@ const {
   locks: {
     visual: string | null;
     priority: string | null;
-    /** Depth values 4–15 are locked (the Walk lens). */
-    depthValues: boolean;
   };
   edit: StudioEditing;
   /** The item was grouped here: Ungroup gives its parts back. */
@@ -51,10 +49,14 @@ const {
 }>();
 const emit = defineEmits<{ ungroup: [] }>();
 
-const KINDS = PICTURE_ITEM_KINDS.map((kind) => ({
-  value: kind,
-  label: `${kind[0]!.toUpperCase()}${kind.slice(1)}`,
-}));
+/** Item kinds in the layers' own words. */
+const KIND_LABELS: Record<PictureItemKind, string> = {
+  art: "Visual",
+  depth: "Priority",
+  walk: "Walls",
+  mixed: "Mixed",
+};
+const KINDS = PICTURE_ITEM_KINDS.map((kind) => ({ value: kind, label: KIND_LABELS[kind] }));
 
 /** The first row whose band is `value`, or undefined. */
 function bandTop(value: number): number | undefined {
@@ -67,7 +69,7 @@ const depthNote = computed(() => {
   if (value === undefined) return "mixed";
   if (value === null) return "off";
   const control = CONTROL_VALUES[value];
-  if (control) return `${control.name} walk line`;
+  if (control) return control.name;
   if (value === 4) return "behind every character";
   const top = bandTop(value);
   return top === undefined ? "hides every character" : `hides characters above y ${top}`;
@@ -133,9 +135,6 @@ const penReason = computed(
         <em v-if="locks.priority" class="item-editor__lock"
           ><UiIcon name="lock" :size="12" />locked</em
         >
-        <em v-else-if="locks.depthValues" class="item-editor__lock"
-          ><UiIcon name="lock" :size="12" />walk lines only</em
-        >
         <em v-else>{{ depthNote }}</em>
       </h3>
       <div
@@ -161,14 +160,8 @@ const penReason = computed(
           role="radio"
           class="item-editor__choice"
           :aria-checked="typeof priority === 'number' && priority >= 4"
-          :disabled="penDisabled || locks.depthValues"
-          :title="
-            locks.depthValues
-              ? 'The Walk lens draws walk lines only.'
-              : penDisabled
-                ? penReason
-                : undefined
-          "
+          :disabled="penDisabled"
+          :title="penDisabled ? penReason : undefined"
           data-value="distance"
           @click="edit.setColour('priority', band)"
         >
@@ -193,7 +186,7 @@ const penReason = computed(
         v-if="typeof priority === 'number' && priority >= 4"
         class="item-editor__slider"
         :class="{ 'is-locked': penDisabled }"
-        >Near
+        ><span>Far</span>
         <input
           type="range"
           min="4"
@@ -205,7 +198,8 @@ const penReason = computed(
           data-testid="priority-band"
           @input="edit.setColour('priority', Number(($event.target as HTMLInputElement).value))"
         />
-        Far <b>{{ priority }}</b>
+        <span>Near</span>
+        <b class="item-editor__band">{{ priority }}</b>
       </label>
     </section>
 
@@ -325,6 +319,12 @@ const penReason = computed(
 .item-editor__slider input {
   flex: 1;
   min-width: 0;
+}
+.item-editor__band {
+  min-width: 2ch;
+  color: var(--ink);
+  font-family: var(--font-mono);
+  text-align: right;
 }
 .item-editor__slider.is-locked {
   opacity: 0.45;

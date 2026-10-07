@@ -1743,7 +1743,7 @@ test("selected art tools use the workspace review and one Undo", async () => {
   });
   await agent.send(
     "bad: make this bridge walkable",
-    "Current room 1\nSelection: PICTURE 1 · Bridge\nSelected item ids: bridge. Lens: walk.",
+    "Current room 1\nSelection: PICTURE 1 · Bridge\nSelected item ids: bridge. Lens: depth.",
   );
   assert.equal(agent.pending()?.changes().length, 1);
   assert.equal(agent.pending()?.changes()[0]?.key, "picture:1");
@@ -1871,7 +1871,7 @@ test("read-only agent inspects selected art and withdraw clears every pending ed
     author: "creator",
   });
   const context =
-    "Current room 1\nSelection: PICTURE 1 · Bridge\nSelected item ids: bridge. Lens: walk.";
+    "Current room 1\nSelection: PICTURE 1 · Bridge\nSelected item ids: bridge. Lens: depth.";
   const agent = createWorkspaceAgent({
     session,
     profileId: "2.936",
@@ -1914,7 +1914,7 @@ test("selection context carries the live horizon and actor probe", async () => {
   });
   await agent.ask(
     "impossible: change the selection",
-    "Current room 1\nSelection: PICTURE 1 · Bridge\nSelected item ids: bridge. Lens: walk.",
+    "Current room 1\nSelection: PICTURE 1 · Bridge\nSelected item ids: bridge. Lens: depth.",
   );
   const result = agent
     .current()
@@ -2004,7 +2004,7 @@ test("selected art carries reference handles and thumbnails once, then reuses th
     }),
   });
   const context =
-    "Current room 1\nSelection: PICTURE 1 · Bridge\nSelected item ids: bridge. Lens: walk.";
+    "Current room 1\nSelection: PICTURE 1 · Bridge\nSelected item ids: bridge. Lens: depth.";
   await agent.send("Match the reference", context);
   assert.match(
     agent.current().messages.at(-1)!.text,

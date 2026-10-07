@@ -17,18 +17,13 @@ const topic = (id: string): HelpTarget => ({ section: "creating", topic: id });
 
 export const STUDIO_TERMS = {
   "lens-lock-depth": {
-    name: "Priority & Walk",
-    says: "The Visual lens paints what the player sees. Moving an item carries its Priority and Walk along.",
+    name: "Priority locked",
+    says: "The Visual lens paints what players see. Moving an item carries its priority along.",
     help: topic("studio-locks"),
   },
   "lens-lock-art": {
     name: "Visual locked",
-    says: "The Priority lens paints only depth. The visual stays as it is. Moving a whole item takes its visual along.",
-    help: topic("studio-locks"),
-  },
-  "lens-lock-walk": {
-    name: "Walk lens locks",
-    says: "The Walk lens draws Walls, Gates, Triggers and Water. Moving an item carries its Visual and Priority along.",
+    says: "The Priority lens paints only priority: distance, walls, water, triggers and gates. Moving a whole item takes its visual along.",
     help: topic("studio-locks"),
   },
   "item-lock": {
@@ -50,7 +45,7 @@ export const STUDIO_TERMS = {
     help: topic("studio-depth"),
   },
   "walk-lines": {
-    name: VOCABULARY.walk.label,
+    name: "Walls, water, triggers, gates",
     says: VOCABULARY.walk.help,
     technical: VOCABULARY.walk.technical,
     help: topic("studio-walk"),
@@ -91,7 +86,7 @@ export const STUDIO_TERMS = {
   },
   fill: {
     name: "Fill",
-    says: "An AGI fill spreads over white only, so it has to come before the colour under it.",
+    says: "On white, the bucket fills the area. On a colour, it recolours the shape that painted it, everywhere that shape painted.",
     help: topic("studio-fill"),
   },
   stipple: {

@@ -19,13 +19,13 @@ interface InspectorCommand {
 /**
  * The inspector: what the selection needs, and the rest under Details. On
  * top, the selection's name (editable while `rename` is given) and one line,
- * "Art · 9 steps"; then the Studio's editor (`editor` slot: the item's kind,
+ * "Visual · locked"; then the Studio's editor (`editor` slot: the item's kind,
  * lock, art and depth, and its actions), then Ask (`assist`). Details, closed
  * by default and remembered per viewer, holds the expert read-outs: the
  * selection's steps (click one to scrub there), the pixel under the pointer
  * or clicked, with the step that last wrote each plane, whether a fill at the
  * marker reaches it, the colours and depth values an item draws, and what
- * the Studio adds (`more` slot: an item's points, several items' depth). A view's own panel (the Walk view's, the ghost's,
+ * the Studio adds (`more` slot: an item's points, several items' depth). A view's own panel (the room tools', the ghost's,
  * a lesson's card) goes in the `lead` slot above it all, and `foot` says in
  * one line how the selection moves.
  */
@@ -70,16 +70,15 @@ const emit = defineEmits<{ seek: [count: number]; select: [id: string] }>();
 const KIND_NAMES: Record<SceneRow["kind"], string> = {
   art: "Visual",
   depth: "Priority",
-  walk: "Walk",
+  walk: "Walls",
   mixed: "Mixed",
   loose: "Loose steps",
 };
-const steps = (n: number): string => `${n} ${n === 1 ? "step" : "steps"}`;
+/** The header's one line: what the selection is. Its steps wait under Details. */
 const summary = computed(() => {
   if (!row) return "";
-  const n = row.entries.length;
   const head = parts !== undefined ? `Group · ${parts} parts` : KIND_NAMES[row.kind];
-  return `${head} · ${steps(n)}${row.locked ? " · locked" : ""}`;
+  return `${head}${row.locked ? " · locked" : ""}`;
 });
 /** What Details holds, for its closed row: the pixel shows once the pointer is on the picture. */
 const detailsHint = computed(() =>
@@ -135,10 +134,7 @@ function commitName(event: Event): void {
       />
       <h2 v-else>{{ row ? row.label : "Select an item to inspect its steps and colours." }}</h2>
       <p class="inspector__sub" data-testid="inspector-subtitle">
-        <template v-if="row"
-          ><span>{{ summary }}</span
-          ><UiExplain v-bind="explain('step')"
-        /></template>
+        <span v-if="row">{{ summary }}</span>
         <template v-else>Click an item or a pixel.</template>
       </p>
     </header>

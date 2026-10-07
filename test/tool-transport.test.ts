@@ -434,17 +434,17 @@ test("every catalog tool produces bounded binary-free transport on real success 
     },
   };
   // The Studio tools run against a creator's selection: the river-and-bridge
-  // fixture in the Walk lens, attached to the shared deps below.
+  // fixture in the Priority lens, attached to the shared deps below.
   const bridge = compileEditDocument(parsePictureDocument(BRIDGE_SOURCE).document, session.profile);
   const studio = createSelectionEdit({
     scope: pictureAssistScope({
       num: 1,
       compiled: bridge,
       targetIds: ["bridge"],
-      lens: "walk",
+      lens: "depth",
     }),
     draft: () => ({ kind: "picture", source: BRIDGE_SOURCE }),
-    lens: "walk",
+    lens: "depth",
   });
   const proposeTool = SELECTION_TOOLS.find((tool) => tool.name === "edit_selection")!;
   const opFields = (

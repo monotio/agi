@@ -68,7 +68,14 @@ for (const width of [1063, 1440, 390]) {
     await start(page, width);
     await picture(page);
     const studio = page.getByTestId("room-studio");
-    await studio.getByRole("radio", { name: "Walk", exact: true }).click();
+    await studio
+      .getByRole("radiogroup", { name: "Lens", exact: true })
+      .getByRole("radio", { name: "Priority", exact: true })
+      .click();
+    await studio
+      .getByRole("radiogroup", { name: "Side panel", exact: true })
+      .getByRole("radio", { name: "Inspector", exact: true })
+      .click();
     await studio.locator('[data-role="test-walk"] button').first().click();
     for (const x of [80, 100]) {
       const box = (await studio.locator(".studio-pane").last().boundingBox())!;

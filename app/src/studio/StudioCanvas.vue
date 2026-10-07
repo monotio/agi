@@ -4,13 +4,7 @@ import { EGA_PALETTE } from "../render/palette.ts";
 import { SCREEN_HEIGHT, SCREEN_WIDTH } from "../../../src/types.ts";
 import type { LineHandle, LinePoint } from "../../../src/studio/editPoints.ts";
 import { toLogical, type Viewport, type ViewportPoint } from "../../../src/studio/viewport.ts";
-import {
-  CONTROL_VALUES,
-  paintLayer,
-  type BandGuide,
-  type ControlLabel,
-  type PaneLayer,
-} from "./studioView.ts";
+import { paintLayer, type BandGuide, type PaneLayer } from "./studioView.ts";
 
 export interface MaskPaths {
   fill: string;
@@ -27,7 +21,7 @@ export interface PanePress {
 /**
  * One picture pane: the engine's pixels on a <canvas> at integer zoom (2:1
  * AGI pixels, backing store scaled by devicePixelRatio) under an SVG overlay
- * in logical coordinates for highlights, band guides, control labels and the
+ * in logical coordinates for highlights, band guides and the
  * selected item's handles. A press captures the pointer, so a drag keeps
  * reporting cells past the pane's edge; the slot holds overlays placed in
  * CSS pixels (the contextual toolbar).
@@ -42,7 +36,6 @@ const {
   highlight = null,
   selection = null,
   guides = null,
-  labels = null,
   handles = null,
   ghost = null,
   flash = null,
@@ -61,7 +54,6 @@ const {
   highlight?: MaskPaths | null;
   selection?: MaskPaths | null;
   guides?: readonly BandGuide[] | null;
-  labels?: readonly ControlLabel[] | null;
   /** The selected item's points, drawn as draggable handles. */
   handles?: readonly LineHandle[] | null;
   /** Where an Alt+click adds a point to the selected line: a "+" mark. */
@@ -97,38 +89,11 @@ const width = computed(() => SCREEN_WIDTH * viewport.pixelAspect * viewport.zoom
 const height = computed(() => SCREEN_HEIGHT * viewport.zoom);
 const backingWidth = computed(() => Math.round(width.value * dpr));
 const backingHeight = computed(() => Math.round(height.value * dpr));
-/** Logical units per 1 CSS px vertically, for text and strokes drawn in the overlay. */
-const unit = computed(() => 1 / viewport.zoom);
 /** Handle sizes in logical units: an 8 CSS px mark inside a 24 CSS px hit area, at any zoom. */
 const handleBox = computed(() => {
   const x = 1 / (viewport.pixelAspect * viewport.zoom);
   const y = 1 / viewport.zoom;
   return { markW: 8 * x, markH: 8 * y, hitW: 24 * x, hitH: 24 * y };
-});
-
-/** Control label text size and a monospace glyph's advance, in CSS px. */
-const LABEL_PX = 11;
-const LABEL_ADVANCE = 0.6 * LABEL_PX;
-/**
- * The control labels that read on their own at this zoom. Labels come
- * largest run first; one whose text would overlap another's columns within
- * two text lines of it would read as that label's second line, so it is
- * left out (the legend still names every value).
- */
-const readableLabels = computed(() => {
-  if (!labels) return null;
-  const { pixelAspect, zoom } = viewport;
-  const placed: { x0: number; x1: number; y: number }[] = [];
-  return labels.filter((tag) => {
-    const half = ((CONTROL_VALUES[tag.value]?.name.length ?? 0) * LABEL_ADVANCE) / 2;
-    const x = (tag.x + 0.5) * pixelAspect * zoom;
-    const box = { x0: x - half, x1: x + half, y: tag.y * zoom };
-    const stacks = placed.some(
-      (other) => box.x0 < other.x1 && other.x0 < box.x1 && Math.abs(box.y - other.y) < 2 * LABEL_PX,
-    );
-    if (!stacks) placed.push(box);
-    return !stacks;
-  });
 });
 
 let image: ImageData | undefined;
@@ -309,29 +274,6 @@ function onLeave(): void {
           :y2="guide.y"
           vector-effect="non-scaling-stroke"
         />
-        <!-- Bands are 12 rows apart; below zoom 2 their numbers would overlap. -->
-        <text
-          v-for="guide in viewport.zoom >= 2 ? guides : []"
-          :key="`t${guide.y}`"
-          class="studio-pane__text"
-          text-anchor="end"
-          :font-size="10 * unit"
-          :transform="`translate(${SCREEN_WIDTH - 1} ${guide.y - unit * 2}) scale(0.5 1)`"
-        >
-          {{ guide.band }}
-        </text>
-      </g>
-      <g v-if="readableLabels" data-role="control-labels">
-        <text
-          v-for="tag in readableLabels"
-          :key="`${tag.x},${tag.y}`"
-          class="studio-pane__text studio-pane__text--control"
-          text-anchor="middle"
-          :font-size="LABEL_PX * unit"
-          :transform="`translate(${tag.x + 0.5} ${tag.y - unit * 3}) scale(0.5 1)`"
-        >
-          {{ CONTROL_VALUES[tag.value]?.name }}
-        </text>
       </g>
       <g v-if="selection" data-role="selection">
         <path class="studio-pane__sel-fill" :d="selection.fill" />
@@ -461,19 +403,6 @@ function onLeave(): void {
   stroke-opacity: 0.35;
   stroke-width: 1px;
   stroke-dasharray: 3 3;
-}
-.studio-pane__text {
-  font-family: var(--font-mono);
-  fill: var(--ink-2);
-  paint-order: stroke;
-  stroke: var(--surface-0);
-  stroke-width: 3px;
-  stroke-linejoin: round;
-  vector-effect: non-scaling-stroke;
-}
-.studio-pane__text--control {
-  fill: var(--ink);
-  font-weight: var(--weight-semibold);
 }
 .studio-pane__hl-fill {
   fill: var(--ink);

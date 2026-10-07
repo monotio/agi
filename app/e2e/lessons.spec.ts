@@ -201,7 +201,7 @@ test("the Depth lesson opens the archive and a mid-order edit preserves the barr
   await page.keyboard.press("r");
   // The playhead stands just after the counter's depth: the next shape goes
   // before what draws next, the globe's depth.
-  await expect(studio.getByTestId("studio-insert-at")).toHaveText("Drawing before Globe depth");
+  await expect(page.getByTestId("studio-insert-at")).toHaveText("Drawing before Globe depth");
   await studio.getByTestId("studio-tool-filled").check();
   await studio.locator('.workspace-palette [data-colour="11"]').click();
   await page.mouse.move(...(await cell(page, 38, 84)));

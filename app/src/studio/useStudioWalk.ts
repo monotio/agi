@@ -1,5 +1,5 @@
 /**
- * Room Studio's Walk view: where the player can stand (an estimate), test
+ * Room Studio's room tools (Priority lens): where the player can stand (an estimate), test
  * walks the real game runs, and the room's doors.
  *
  * - The tint is `walkableMask` for ego's size on the planes on screen: an

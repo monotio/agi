@@ -15,27 +15,33 @@ const {
 }>();
 const emit = defineEmits<{ choose: [value: number] }>();
 const state = computed(() => context ?? { action: "draw", lens: "art" });
+/**
+ * Visual offers the 16 colours. Priority offers the four control lines
+ * (wall, gate, trigger, water), then the distance bands 4–15, each marked
+ * with the colour the canvas paints it in.
+ */
 const options = computed(() => {
-  if (state.value.lens === "walk")
-    return CONTROL_VALUES.map((control) => ({
-      value: control.value,
-      colour: control.colour,
-      label: control.name,
-      text: control.name,
-    }));
-  const start = state.value.lens === "art" ? 0 : 4;
-  return Array.from({ length: 16 - start }, (_, k) => {
-    const value = k + start;
-    return {
+  if (state.value.lens === "art")
+    return Array.from({ length: 16 }, (_, value) => ({
       value,
       colour: value,
-      label:
-        state.value.lens === "art"
-          ? `Colour ${value}: ${EGA_COLOUR_NAMES[value]}`
-          : `Depth ${value}: ${priorityMeaning(value)}`,
-      text: state.value.lens === "art" ? "" : String(value),
-    };
-  });
+      label: `Colour ${value}: ${EGA_COLOUR_NAMES[value]}`,
+      text: "",
+    }));
+  return [
+    ...CONTROL_VALUES.map((control) => ({
+      value: control.value as number,
+      colour: control.colour,
+      label: `${control.name}: ${control.help}`,
+      text: String(control.value),
+    })),
+    ...Array.from({ length: 12 }, (_, k) => ({
+      value: k + 4,
+      colour: k + 4,
+      label: `Depth ${k + 4}: ${priorityMeaning(k + 4)}`,
+      text: String(k + 4),
+    })),
+  ];
 });
 function key(event: KeyboardEvent, index: number): void {
   const offset = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0;
@@ -56,9 +62,7 @@ function key(event: KeyboardEvent, index: number): void {
       class="workspace-palette__choices"
       :class="`is-${state.lens}`"
       role="radiogroup"
-      :aria-label="
-        state.lens === 'art' ? 'Palette' : state.lens === 'depth' ? 'Distance bands' : 'Walk lines'
-      "
+      :aria-label="state.lens === 'art' ? 'Palette' : 'Priority'"
     >
       <button
         v-for="(option, index) in options"
@@ -76,10 +80,11 @@ function key(event: KeyboardEvent, index: number): void {
         :title="option.label"
         :disabled
         :data-colour="option.value"
+        :class="{ 'is-band-start': state.lens !== 'art' && option.value === 4 }"
         :style="
           state.lens === 'art'
             ? { background: `rgb(${EGA_PALETTE[option.colour]!.join(',')})` }
-            : undefined
+            : { '--mark': `var(--agi-${option.colour})` }
         "
         @click="emit('choose', option.value)"
         @keydown="key($event, index)"
@@ -139,9 +144,12 @@ button {
   font: var(--text-xs) var(--font-mono);
   cursor: pointer;
 }
-.is-walk button {
-  max-width: none;
-  font-family: var(--font-sans);
+/* Priority values keep their number readable over a strip of the canvas colour. */
+.is-depth button {
+  box-shadow: inset 0 -4px 0 0 var(--mark);
+}
+.is-depth .is-band-start {
+  margin-left: var(--space-2);
 }
 button[aria-checked="true"] {
   outline: 2px solid var(--ink);

@@ -98,7 +98,7 @@ for (const width of [1063, 1440, 390]) {
       const notice = page.locator(".workspace-status").getByTestId("studio-notice");
       await expect(notice).toBeVisible();
       await expect(notice).toContainText(
-        "Sun has no depth band. Paint a depth band or select a shape with one.",
+        "Sun has no priority. Give it a Priority pen in the Inspector, or select a shape with one.",
       );
       expect(await history(page)).toEqual(beforeRefusal);
     });
@@ -112,9 +112,10 @@ test("lenses, rail wells and colour keys share the selection context", async ({ 
   const options = studio.getByTestId("studio-options-bar");
   await studio.locator('button[data-tool="brush"]').click();
   await options.getByRole("radio", { name: "Priority", exact: true }).click();
-  const bands = strip.getByRole("radiogroup", { name: "Distance bands", exact: true });
+  // Priority: the four control lines, then the distance bands 4–15.
+  const bands = strip.getByRole("radiogroup", { name: "Priority", exact: true });
   await expect(bands).toBeVisible();
-  await expect(bands.getByRole("radio")).toHaveCount(12);
+  await expect(bands.getByRole("radio")).toHaveCount(16);
   await page.screenshot({ path: test.info().outputPath("depth-1063.png"), animations: "disabled" });
   await bands.getByRole("radio", { name: /^Depth 8:/ }).click();
   const well = studio.getByTestId("studio-value-priority");
@@ -126,15 +127,13 @@ test("lenses, rail wells and colour keys share the selection context", async ({ 
     exact: true,
   });
   await expect(depthPicker).toBeVisible();
-  await expect(depthPicker.locator('[data-value="0"]')).toHaveCount(0);
+  // The picker offers the control lines beside the bands.
+  await expect(
+    depthPicker.getByRole("radiogroup", { name: "Wall, gate, trigger or water for new shapes" }),
+  ).toBeVisible();
   await depthPicker.getByRole("radio", { name: /^Depth 9,/ }).click();
   await expect(well).toHaveAttribute("data-value", "9");
-  await options.getByRole("radio", { name: "Walk", exact: true }).click();
-  const walk = strip.getByRole("radiogroup", { name: "Walk lines", exact: true });
-  await expect(walk).toBeVisible();
-  await expect(walk.getByRole("radio")).toHaveCount(4);
-  await page.screenshot({ path: test.info().outputPath("walk-1063.png"), animations: "disabled" });
-  await walk.getByRole("radio", { name: "Water", exact: true }).click();
+  await bands.getByRole("radio", { name: /^Water:/ }).click();
   await expect(well).toHaveAttribute("data-value", "3");
   await options.getByRole("radio", { name: "Visual", exact: true }).click();
   await studio.locator('button[data-tool="select"]').click();
@@ -166,7 +165,7 @@ test("lenses, rail wells and colour keys share the selection context", async ({ 
   const notice = page.locator(".workspace-status").getByTestId("studio-notice");
   await expect(notice).toBeVisible();
   await expect(notice).toContainText(
-    "Sun has no depth band. Paint a depth band or select a shape with one.",
+    "Sun has no priority. Give it a Priority pen in the Inspector, or select a shape with one.",
   );
   expect(await history(page)).toEqual(beforeRefusal);
 });

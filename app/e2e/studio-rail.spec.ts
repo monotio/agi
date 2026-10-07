@@ -8,7 +8,7 @@ import {
 import { expect, test } from "./test.ts";
 
 /**
- * Room Studio's tool rail fits its column. The Walk lens adds three tools,
+ * Room Studio's tool rail fits its column. The Priority lens adds three tools,
  * so the rail's tools scroll inside the column while the values under them
  * stay put. At a laptop's 1280×720 and at the editor's shortest layout (a
  * touch screen 601 tall), in every
@@ -45,8 +45,8 @@ for (const viewport of VIEWPORTS) {
     const rail = studio.getByRole("toolbar", { name: "Tools" });
     for (const [key, lens, tools] of [
       ["1", "Visual", 10],
-      ["2", "Priority", 10],
-      ["3", "Walk", 13],
+      // The Priority lens adds the room tools: test walk, door box, edge exit.
+      ["2", "Priority", 13],
     ] as const) {
       await page.keyboard.press(key);
       await expect(rail.locator("[data-tool], [data-testid=studio-probe-toggle]")).toHaveCount(
@@ -127,7 +127,6 @@ test("at 1024×600 nothing in Room Studio's top bar or stage bars overlaps, in e
   for (const [key, lens] of [
     ["1", "Visual"],
     ["2", "Priority"],
-    ["3", "Walk"],
   ] as const) {
     await page.keyboard.press(key);
     await expect(top.lens.getByRole("radio", { name: new RegExp(lens) })).toHaveAttribute(

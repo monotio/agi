@@ -193,7 +193,7 @@ export const VOCABULARY = {
   lens: {
     id: "lens",
     label: "Lens",
-    help: "Shows Visual, Priority or Walk while you draw.",
+    help: "Shows Visual or Priority while you draw.",
     technical: "",
   },
   drawingDepth: {

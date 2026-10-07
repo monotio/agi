@@ -369,11 +369,11 @@ test("studio shortcuts keep working after clicking studio controls", async ({ pa
     page
       .getByRole("radiogroup", { name: "Lens", exact: true })
       .getByRole("radio", { name: new RegExp(`^${name}`) });
-  await lens("Walk").click();
+  await lens("Visual").click();
   await page.keyboard.press("2");
   await expect(lens("Priority")).toHaveAttribute("aria-checked", "true");
-  // Bands shows only under Priority and Walk: after "1" hides it, keys still land in the studio.
-  await page.getByRole("button", { name: "Distance bands", exact: true }).click();
+  // Band lines shows only under Priority: after "1" hides it, keys still land in the studio.
+  await page.getByRole("button", { name: "Band lines", exact: true }).click();
   await page.keyboard.press("1");
   await expect(lens("Visual")).toHaveAttribute("aria-checked", "true");
   await page.keyboard.press("2");
@@ -450,16 +450,14 @@ test("lens keys switch lenses and studio keys never reach a window listener", as
   await page.keyboard.press("2");
   await expect(lens("Priority")).toHaveAttribute("aria-checked", "true");
   await expect(page.locator('[data-role="band-guides"]')).toHaveCount(1);
-  await page.keyboard.press("3");
-  await expect(lens("Walk")).toHaveAttribute("aria-checked", "true");
-  // The Walk panel lists the walk lines, off the picture.
+  // The Priority lens's room panel lists the control lines, off the picture.
   await expect(page.locator('.studio__inspector [data-role="control-legend"]')).toContainText(
     "0 · Wall",
   );
   await page.keyboard.press("1");
   await expect(lens("Visual")).toHaveAttribute("aria-checked", "true");
 
-  // The Walk lens docked the side panel on Inspector; Items brings the list back.
+  // Items shows the list.
   await page
     .getByRole("radiogroup", { name: "Side panel", exact: true })
     .getByRole("radio", { name: "Items", exact: true })

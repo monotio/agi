@@ -15,8 +15,9 @@ import { CONTROL_VALUES, patternOn, priorityMeaning, type StudioLens } from "./s
 /**
  * The tool rail's Visual and Priority swatches set new drawing values, or
  * recolour the selection in its current lens. Each swatch opens its picker. A
- * plane the lens locks says so, with Unlock for now; the Walk lens picks among
- * the four walk lines, the Priority lens can match the band under the cursor.
+ * plane the lens locks says so, with Unlock for now. The Priority picker
+ * offers the band under the cursor, the four control lines (wall, gate,
+ * trigger, water) and the distance bands 4–15.
  * The picker opens to the
  * rail's left, over the Scene list and away from the picture, when that
  * column has room for it (focus mode hides it: then it opens to the right).
@@ -63,8 +64,6 @@ function unlock(plane: "visual" | "priority"): void {
   emit("unlocks", { ...unlocks, [plane]: true });
   open.value = undefined;
 }
-/** The Walk lens offers its four control lines. */
-const controlsOnly = computed(() => lens === "walk");
 
 const band = computed(() => (cursorY === undefined ? DEFAULT_BAND : priorityForY(cursorY)));
 const priorityShown = computed(() => (values.priority === "band" ? band.value : values.priority));
@@ -176,8 +175,28 @@ function pick(patch: Partial<CurrentValues>): void {
           @pick="pick({ visual: $event })"
         />
       </template>
-      <template v-else-if="controlsOnly">
-        <div class="values__controls" role="radiogroup" :aria-label="`Walk line for ${target}`">
+      <template v-else>
+        <span v-if="lens === 'depth' && paletteAction === 'draw'" class="values__with">
+          <button
+            type="button"
+            role="radio"
+            class="values__control"
+            :aria-checked="values.priority === 'band'"
+            data-value="band"
+            @click="pick({ priority: 'band' })"
+          >
+            <span>Match the band here · {{ band }}</span>
+          </button>
+          <UiExplain v-bind="explain('bands')" />
+        </span>
+        <p class="values__note values__with">
+          Walls, water, triggers, gates <UiExplain v-bind="explain('walk-lines')" />
+        </p>
+        <div
+          class="values__controls"
+          role="radiogroup"
+          :aria-label="`Wall, gate, trigger or water for ${target}`"
+        >
           <button
             v-for="control in CONTROL_VALUES"
             :key="control.value"
@@ -206,28 +225,10 @@ function pick(patch: Partial<CurrentValues>): void {
             <span>{{ control.value }} · {{ control.name }}</span>
           </button>
         </div>
-        <p class="values__note values__with">
-          Wall / Gate / Trigger / Water <UiExplain v-bind="explain('walk-lines')" />
-        </p>
-      </template>
-      <template v-else>
-        <span v-if="lens === 'depth' && paletteAction === 'draw'" class="values__with">
-          <button
-            type="button"
-            role="radio"
-            class="values__control"
-            :aria-checked="values.priority === 'band'"
-            data-value="band"
-            @click="pick({ priority: 'band' })"
-          >
-            <span>Match the band here · {{ band }}</span>
-          </button>
-          <UiExplain v-bind="explain('bands')" />
-        </span>
         <StudioValuePicker
           plane="priority"
           :label="`Priority for ${target}`"
-          :minimum="lens === 'depth' ? 4 : 0"
+          :minimum="4"
           :value="values.priority === 'band' ? undefined : values.priority"
           @pick="pick({ priority: $event })"
         />

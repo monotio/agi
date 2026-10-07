@@ -4,7 +4,7 @@ import type { Point } from "../../../src/studio/shapes.ts";
 
 /**
  * The canvas's context menu (right-click, the Menu key or Shift+F10 at the
- * keyboard cursor): Play here from that spot, and in the Walk view a test
+ * keyboard cursor): Play here from that spot, and in the Priority lens a test
  * walk from or to it. Arrow keys move between items, Enter picks one, Esc
  * closes it; focus goes back to the canvas.
  */

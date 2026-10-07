@@ -10,6 +10,8 @@ const {
   icon = "chevron-down",
   disabled = false,
   size = "md",
+  buttonSize = "md",
+  variant = "secondary",
 } = defineProps<{
   label: string;
   testId?: string | undefined;
@@ -18,6 +20,10 @@ const {
   disabled?: boolean;
   /** The icon-only trigger's size, as UiIconButton's. */
   size?: "sm" | "md";
+  /** The text trigger's size, as UiButton's. */
+  buttonSize?: "sm" | "md";
+  /** The text trigger's look, as UiButton's. */
+  variant?: "secondary" | "ghost";
 }>();
 
 const trigger = useTemplateRef("trigger");
@@ -217,6 +223,8 @@ onBeforeUnmount(removeWindowListeners);
       v-else
       ref="trigger"
       class="action-menu__trigger"
+      :size="buttonSize"
+      :variant
       :trailing-icon="icon"
       aria-haspopup="menu"
       :aria-expanded="open"

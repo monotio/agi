@@ -11,6 +11,7 @@ import GuidedAdd from "./GuidedAdd.vue";
 import {
   roomPlacements,
   moveRoomPlacement,
+  type PlacementLine,
   type RoomPlacement,
 } from "../../../../src/authoring/roomPlacements.ts";
 import { lineOf } from "../../../../src/authoring/guidedSource.ts";
@@ -1413,19 +1414,16 @@ function openWordLogic(logic: number, line: number): void {
   logicLocation.value = { key, line, serial: (logicLocation.value?.serial ?? 0) + 1 };
   openPart(key);
 }
-/** The Views list's "Set in": the LOGIC line that places the figure. */
-function revealFigure(figure: RoomPlacement): void {
-  const key = `logic:${figure.logic}`;
+/** The Views list's "Set in": one LOGIC line that places the figure. */
+function revealFigure(place: PlacementLine): void {
+  const key = `logic:${place.logic}`;
   const source = text(key);
-  if (source === undefined || figure.offset < 0) {
-    openPart(key);
-    return;
-  }
-  logicLocation.value = {
-    key,
-    line: lineOf(source, figure.offset),
-    serial: (logicLocation.value?.serial ?? 0) + 1,
-  };
+  if (source !== undefined)
+    logicLocation.value = {
+      key,
+      line: lineOf(source, place.offset),
+      serial: (logicLocation.value?.serial ?? 0) + 1,
+    };
   openPart(key);
 }
 function wordResponse(room: number, command: string): void {
@@ -2072,6 +2070,8 @@ onBeforeUnmount(() => {
         @click="guidedAction({ kind: 'make-room', key: editor.selected.value! })"
         >Make it a room</UiButton
       >
+      <!-- The open editor's own context (the picture's drawing place) teleports here. -->
+      <span id="workspace-context-editor" class="workspace-context__editor"></span>
       <ImageReferencePanel
         v-if="
           !writeConflict &&

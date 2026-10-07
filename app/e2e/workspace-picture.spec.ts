@@ -194,7 +194,7 @@ test("computed placements move a preview, and game motion never paints the pictu
       .drafts()
       .stage([{ key: "picture:8", content: "vis 4\npri 7\nfill 0,0\nend\n" }]),
   );
-  for (const lens of ["Visual", "Priority", "Walk"]) {
+  for (const lens of ["Visual", "Priority"]) {
     await studio
       .getByTestId("studio-options-bar")
       .getByRole("radio", { name: lens, exact: true })
@@ -244,7 +244,7 @@ for (const size of [
       (el as HTMLInputElement).value = "100";
       el.dispatchEvent(new Event("input", { bubbles: true }));
     });
-    for (const lens of ["Visual", "Priority", "Walk"]) {
+    for (const lens of ["Visual", "Priority"]) {
       await studio
         .getByRole("radiogroup", { name: "Lens", exact: true })
         .getByRole("radio", { name: lens, exact: true })
@@ -470,7 +470,7 @@ test("the picture fits its 1063px side panel", async ({ page }) => {
   }
   await studio
     .getByRole("radiogroup", { name: "Lens", exact: true })
-    .getByRole("radio", { name: "Walk", exact: true })
+    .getByRole("radio", { name: "Priority", exact: true })
     .click();
   const startWalk = studio.locator('[data-role="test-walk"] button').first();
   await expect(startWalk).toBeVisible();

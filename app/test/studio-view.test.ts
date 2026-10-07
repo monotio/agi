@@ -4,7 +4,7 @@ import { SCREEN_HEIGHT, SCREEN_WIDTH } from "../../src/types.ts";
 import type { TimelineEntry } from "../../src/studio/pictureQuery.ts";
 import {
   bandGuides,
-  controlLabels,
+  filterPriority,
   labelParts,
   maskBox,
   maskFillPath,
@@ -54,24 +54,36 @@ test("Depth blends priority 5-15 half over the art and leaves background 4 alone
   assert.deepEqual(rgb(out, 0, 0), [0, 0, 0, 255]);
 });
 
-test("Walk dims the art and paints control values in their colour and pattern", () => {
+test("Priority paints control lines in their colour and pattern over undimmed art", () => {
   const { visual, priority, out } = planes();
-  priority[at(0, 0)] = 0; // barrier: solid EGA 12
-  priority[at(1, 0)] = 1; // conditional: dashed, (1+0)%2 is off, EGA 14 faded 0.55 to black
-  priority[at(2, 0)] = 1; // (2+0)%2 is on
-  paintLayer("walk", visual, priority, out);
+  priority[at(0, 0)] = 0; // wall: solid EGA 12, ff,55,55
+  priority[at(1, 0)] = 1; // gate: dashed, (1+0)%2 is off, so the art shows
+  priority[at(2, 0)] = 1; // (2+0)%2 is on: EGA 14, ff,ff,55
+  paintLayer("depth", visual, priority, out);
   assert.deepEqual(rgb(out, 0, 0), [0xff, 0x55, 0x55, 255]);
-  assert.deepEqual(rgb(out, 1, 0), [115, 115, 38, 255]);
+  assert.deepEqual(rgb(out, 1, 0), [0xff, 0xff, 0xff, 255]);
   assert.deepEqual(rgb(out, 2, 0), [0xff, 0xff, 0x55, 255]);
-  // Art white faded 0.7 toward black: 255 * 0.3 = 76.5, rounded up.
-  assert.deepEqual(rgb(out, 5, 5), [77, 77, 77, 255]);
+  // The art elsewhere stays as players see it: white, never faded.
+  assert.deepEqual(rgb(out, 5, 5), [0xff, 0xff, 0xff, 255]);
+  // Alone, an off cell of the pattern is the black background.
+  paintLayer("depth-only", visual, priority, out);
+  assert.deepEqual(rgb(out, 1, 0), [0, 0, 0, 255]);
+  assert.deepEqual(rgb(out, 2, 0), [0xff, 0xff, 0x55, 255]);
+});
+
+test("the Priority filter keeps all, the bands, the control lines or one value", () => {
+  const priority = Uint8Array.from([0, 1, 2, 3, 4, 9, 15]);
+  assert.equal(filterPriority(priority, "all"), priority);
+  assert.deepEqual([...filterPriority(priority, "bands")], [4, 4, 4, 4, 4, 9, 15]);
+  assert.deepEqual([...filterPriority(priority, "controls")], [0, 1, 2, 3, 4, 4, 4]);
+  assert.deepEqual([...filterPriority(priority, 2)], [4, 4, 2, 4, 4, 4, 4]);
 });
 
 test("panes follow the lens and view mode", () => {
   assert.deepEqual(panesFor("art", "split"), ["art"]);
   assert.deepEqual(panesFor("depth", "blend"), ["depth"]);
   assert.deepEqual(panesFor("depth", "split"), ["art", "depth-only"]);
-  assert.deepEqual(panesFor("walk", "priority"), ["walk-only"]);
+  assert.deepEqual(panesFor("depth", "priority"), ["depth-only"]);
 });
 
 test("mask geometry: box, row runs and the traced outline", () => {
@@ -108,15 +120,8 @@ test("ticks: state lines short and neutral, fills tall, colour from the drawing 
   assert.deepEqual(tickFor(entry("end", 6, null)), { kind: "state", colour: null });
   assert.deepEqual(tickFor(entry("fill", 6, 10)), { kind: "fill", colour: 6 });
   assert.deepEqual(tickFor(entry("line", null, 10)), { kind: "draw", colour: 10 });
-  // A barrier line takes the Walk lens barrier colour, EGA 12.
+  // A wall line takes its control colour, EGA 12.
   assert.deepEqual(tickFor(entry("line", null, 0)), { kind: "draw", colour: 12 });
-});
-
-test("control labels: one per run of at least four cells, at the run's middle cell", () => {
-  const priority = new Uint8Array(CELLS).fill(4);
-  for (let x = 10; x <= 14; x++) priority[at(x, 10)] = 0;
-  for (let x = 30; x <= 32; x++) priority[at(x, 20)] = 2;
-  assert.deepEqual(controlLabels(priority), [{ value: 0, x: 12, y: 10, cells: 5 }]);
 });
 
 test("spanIndexAt finds the span holding a byte offset", () => {

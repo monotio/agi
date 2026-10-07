@@ -35,7 +35,7 @@ const SMALL = text(
   "end",
 );
 
-test("item lens marks follow drawing commands including all three lenses", () => {
+test("item lens marks follow drawing commands, a control line marking Priority", () => {
   const source = text(
     '# @item all "All lenses" mixed',
     "vis 4",
@@ -47,7 +47,10 @@ test("item lens marks follow drawing commands including all three lenses", () =>
     "end",
   );
   const model = buildStudioModel({ bytes: bytesOf(source), authoredSource: source, profile });
-  assert.deepEqual(model.rows[0]?.lenses, ["art", "depth", "walk"]);
+  assert.deepEqual(model.rows[0]?.lenses, ["art", "depth"]);
+  const wall = text('# @item w "Wall" walk', "vis off", "pri 0", "line 1,2 3,2", "# @end", "end");
+  const walls = buildStudioModel({ bytes: bytesOf(wall), authoredSource: wall, profile });
+  assert.deepEqual(walls.rows[0]?.lenses, ["depth"]);
   const single = buildStudioModel({ bytes: bytesOf(SMALL), authoredSource: SMALL, profile });
   assert.deepEqual(single.rows[0]?.lenses, ["art"]);
 });

@@ -175,11 +175,9 @@ test("a filled rect drawn in the Art lens keeps as those pixels and leaves prior
   const studio = await openStudio(page);
   await page.keyboard.press("r");
   await expect(studio.locator('button[data-tool="rect"]')).toHaveAttribute("aria-pressed", "true");
-  await expect(studio.getByTestId("studio-insert-at")).toHaveText("Drawing after Bench occluder");
-  await expect(studio.getByTestId("studio-insert-at")).toHaveAttribute(
-    "title",
-    "Drawing after Bench occluder",
-  );
+  // At the end the context row stays quiet and the transport says where shapes draw.
+  await expect(page.getByTestId("studio-insert-at")).toHaveCount(0);
+  await expect(studio.getByTestId("scrubber-position")).toHaveText("Drawing after Bench occluder");
   await studio.getByTestId("studio-tool-filled").check();
   await pickColour(studio, 4);
   await dragCells(page, [20, 120], [40, 140]);
@@ -219,12 +217,16 @@ test("a filled rect drawn in the Art lens keeps as those pixels and leaves prior
     );
 });
 
-test("a barrier line clicked out in the Walk lens writes priority 0 and not one art byte", async ({
+test("a wall line clicked out in the Priority lens writes priority 0 and not one art byte", async ({
   page,
 }) => {
   const studio = await openStudio(page);
-  await page.keyboard.press("3");
+  await page.keyboard.press("2");
   await page.keyboard.press("l");
+  await studio
+    .getByRole("radiogroup", { name: "Priority", exact: true })
+    .getByRole("radio", { name: /^Wall:/ })
+    .click();
   await expect(studio.getByTestId("studio-value-priority")).toHaveAttribute("data-value", "0");
   await clickCell(page, 20, 150);
   await clickCell(page, 100, 150);
@@ -314,8 +316,10 @@ test("an insert at a mid playhead lands at that draw-order position under later 
   await page.keyboard.press("Home");
   for (let k = 0; k < 6; k++) await page.keyboard.press(".");
   await page.keyboard.press("r");
-  await expect(studio.getByTestId("studio-insert-at")).toHaveText("Drawing before Bench");
-  await expect(studio.getByTestId("studio-insert-at")).toHaveAttribute(
+  // The frame's context row says where new shapes draw.
+  const context = page.getByTestId("workspace-context");
+  await expect(context.getByTestId("studio-insert-at")).toHaveText("Drawing before Bench");
+  await expect(context.getByTestId("studio-insert-at")).toHaveAttribute(
     "title",
     "Drawing before Bench",
   );
@@ -330,14 +334,11 @@ test("an insert at a mid playhead lands at that draw-order position under later 
   expect(drawn.visual[at(60, 95)]).toBe(1);
   // The playhead stays after the new item; the way back to the end is one click.
   // vis, pri off and 13 rows: 15 commands after the first 6.
-  await expect(studio.getByTestId("studio-insert-at")).toHaveText("Drawing before Bench");
-  await expect(studio.getByTestId("studio-playhead-end")).toHaveAccessibleName("Back to the end");
-  await studio.getByTestId("studio-playhead-end").click();
-  await expect(studio.getByTestId("studio-insert-at")).toHaveText("Drawing after Bench occluder");
-  await expect(studio.getByTestId("studio-insert-at")).toHaveAttribute(
-    "title",
-    "Drawing after Bench occluder",
-  );
+  await expect(context.getByTestId("studio-insert-at")).toHaveText("Drawing before Bench");
+  await expect(context.getByTestId("studio-playhead-end")).toHaveAccessibleName("Back to the end");
+  await context.getByTestId("studio-playhead-end").click();
+  await expect(context.getByTestId("studio-insert-at")).toHaveCount(0);
+  await expect(studio.getByTestId("scrubber-position")).toHaveText("Drawing after Bench occluder");
 });
 
 test("G stands the ghost actor on the draft; dragged behind the occluder it reads Behind", async ({

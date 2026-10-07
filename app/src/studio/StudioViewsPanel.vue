@@ -1,16 +1,21 @@
 <script setup lang="ts">
+import ActionMenu from "../ui/ActionMenu.vue";
 import UiButton from "../ui/UiButton.vue";
 import UiPanel from "../ui/UiPanel.vue";
 import UiSelect from "../ui/UiSelect.vue";
-import type { PlacementSpot, RoomPlacement } from "../../../src/authoring/roomPlacements.ts";
+import type {
+  PlacementLine,
+  PlacementSpot,
+  RoomPlacement,
+} from "../../../src/authoring/roomPlacements.ts";
 
 /**
  * The Views list: every figure the room's entry draws, as a legend for the
  * canvas overlay. A figure set with fixed numbers drags on the canvas and
  * edits that line as a draft; one computed at run time drags a preview
  * instead, with Reset and Copy position; a conditional one picks its preview
- * spot from the places the room may use. Every row's Set in opens the line
- * that places it.
+ * spot from the places the room may use. Every row's Set in opens a line
+ * that places it, or lists them all when there are several.
  */
 const {
   figures,
@@ -26,12 +31,20 @@ const emit = defineEmits<{
   preview: [figure: RoomPlacement, x: number, y: number];
   reset: [figure: RoomPlacement];
   copy: [figure: RoomPlacement, x: number, y: number];
-  reveal: [figure: RoomPlacement];
+  reveal: [line: PlacementLine];
 }>();
 
-/** The spot a figure stands at now: the preview first, then its line. */
+/** A fixed figure's line holds plain numbers: dragging it edits that line. */
+const fixed = (figure: RoomPlacement): boolean =>
+  figure.reason === null && figure.x !== null && figure.y !== null;
+
+/** The spot a figure stands at now: the preview first, then its line, then its first spot. */
 function spotOf(figure: RoomPlacement): { x: number | null; y: number | null } {
-  return previews[figure.object] ?? figure;
+  return (
+    previews[figure.object] ??
+    (figure.x === null || figure.y === null ? figure.spots[0] : undefined) ??
+    figure
+  );
 }
 function spotText(figure: RoomPlacement): string {
   const spot = spotOf(figure);
@@ -83,7 +96,7 @@ function pick(figure: RoomPlacement, key: string): void {
               {{ spot.x }}, {{ spot.y }} · {{ spot.command }}
             </option>
           </UiSelect>
-          <template v-if="figure.reason !== null">
+          <template v-if="!fixed(figure)">
             <UiButton
               v-if="previews[figure.object]"
               size="sm"
@@ -106,13 +119,32 @@ function pick(figure: RoomPlacement, key: string): void {
             >
           </template>
           <UiButton
-            v-if="figure.offset >= 0"
+            v-if="figure.lines.length === 1"
             size="sm"
             variant="ghost"
             data-testid="view-set-in"
-            @click="emit('reveal', figure)"
-            >Set in LOGIC {{ figure.logic }}</UiButton
+            :title="figure.lines[0]!.text"
+            @click="emit('reveal', figure.lines[0]!)"
+            >Set in LOGIC {{ figure.lines[0]!.logic }}</UiButton
           >
+          <ActionMenu
+            v-else-if="figure.lines.length > 1"
+            label="Set in"
+            button-size="sm"
+            variant="ghost"
+            test-id="view-set-in"
+          >
+            <button
+              v-for="line in figure.lines"
+              :key="`${line.logic}:${line.offset}`"
+              type="button"
+              role="menuitem"
+              data-testid="view-set-in-line"
+              @click="emit('reveal', line)"
+            >
+              LOGIC {{ line.logic }} · {{ line.text }}
+            </button>
+          </ActionMenu>
         </div>
       </li>
       <li v-if="figures.length === 0" class="views-panel__empty">

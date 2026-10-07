@@ -62,10 +62,10 @@ function bridgeAssist(
       num: 1,
       compiled,
       targetIds: ["bridge"],
-      lens: "walk",
+      lens: "depth",
     }),
     draft,
-    lens: "walk",
+    lens: "depth",
   });
 }
 
@@ -208,7 +208,6 @@ test("read_edit_context is bounded to the selection and its neighbours", async (
   // on rows 121..138 (2 x 18); the water inside is walkable. Under the
   // bridge that leaves 960 - 80 bank cells.
   assert.deepEqual(details["walkable"], { inSelection: 880, overall: 131 * 160 - 356 });
-  assert.deepEqual(details["depthValuesLocked"], true);
   assert.deepEqual(details["controls"], [
     { value: 0, cells: 80, bbox: { x0: 60, y0: 120, x1: 99, y1: 139 } },
     { value: 3, cells: 720, bbox: { x0: 60, y0: 121, x1: 99, y1: 138 } },
@@ -392,17 +391,15 @@ test("art under the lock is refused in plain words, and a retry replaces nothing
   assert.deepEqual([assist.proposals, assist.refusals], [2, 1]);
 });
 
-test("depth painted in the Walk lens is refused at proposal time, so the model can retry", async () => {
+test("depth painted under the selection in the Priority lens is proposed", async () => {
+  // The Priority lens paints distance and control lines alike: floor (4)
+  // over the river under the bridge passes where only control lines once did.
   const state = session();
   const assist = bridgeAssist();
   const floor = { ...crossing, shape: { ...(crossing["shape"] as object), priority: 4 } };
-  const refused = await propose(state, assist, [floor]);
-  assert.match(
-    refused.error ?? "",
-    /^Refused; nothing was proposed: depth values 4–15 are locked in the Walk lens, but 800 cells at 60,120\.\.99,139 would change\. In the Walk lens paint only control values 0–3/,
-  );
-  assert.equal(assist.candidate, null);
-  assert.equal((await propose(state, assist, [crossing])).success, true);
+  const proposed = await propose(state, assist, [floor]);
+  assert.equal(proposed.success, true, proposed.error ?? "");
+  assert.notEqual(assist.candidate, null);
 });
 
 test("an operation on an unselected item is refused before it runs", async () => {
@@ -486,7 +483,7 @@ test("a propagated recolor reaching the unselected mirror is refused", async () 
  * A rect over cells that already hold its value, or under art that covers it,
  * draws the same planes: the candidate would add bytes and show no diff.
  */
-const sameRender = (atLine: number, shape: Record<string, unknown>, lens: "walk" | "art") => {
+const sameRender = (atLine: number, shape: Record<string, unknown>, lens: "depth" | "art") => {
   const compiled = compileEditDocument(
     parsePictureDocument(BRIDGE_SOURCE).document,
     DEFAULT_V2_PROFILE,
@@ -511,7 +508,11 @@ test("a candidate that draws the same pixels is refused, and an earlier candidat
   const state = session();
   // Open floor (4) over the sky rows 118..119 under the bridge, which are 4
   // already: the plate-horizon pattern, a walk rect that changes no cell.
-  const equal = sameRender(AFTER_BRIDGE, { priority: 4, x1: 60, y1: 118, x2: 99, y2: 119 }, "walk");
+  const equal = sameRender(
+    AFTER_BRIDGE,
+    { priority: 4, x1: 60, y1: 118, x2: 99, y2: 119 },
+    "depth",
+  );
   const refused = await propose(state, equal.assist, [equal.insert]);
   assert.equal(refused.success, false);
   assert.match(
@@ -540,7 +541,7 @@ test("a candidate that draws the same pixels is refused, and an earlier candidat
 
 test("a label or kind change is a candidate though it draws the same pixels", async () => {
   const state = session();
-  const { assist } = sameRender(AFTER_BRIDGE, {}, "walk");
+  const { assist } = sameRender(AFTER_BRIDGE, {}, "depth");
   const meta = op("pictureOps", { type: "setItemMeta", itemId: "bridge", label: "Old bridge" });
   const renamed = await propose(state, assist, [meta]);
   assert.equal(renamed.success, true, renamed.error ?? "");
@@ -552,7 +553,7 @@ test("a label or kind change is a candidate though it draws the same pixels", as
   const { insert } = sameRender(
     AFTER_BRIDGE,
     { priority: 4, x1: 60, y1: 118, x2: 99, y2: 119 },
-    "walk",
+    "depth",
   );
   const mixed = await propose(state, assist, [
     op("pictureOps", { type: "setItemMeta", itemId: "bridge", label: "New bridge" }),

@@ -43,6 +43,8 @@ export interface DrawingPosition {
   readonly after: string | null;
   /** New shapes go last: nothing paints over them. */
   readonly atEnd: boolean;
+  /** The step new shapes draw before, or null when they draw last. */
+  readonly index: number | null;
 }
 
 export function useStudioReadout(options: {
@@ -128,19 +130,27 @@ export function useStudioReadout(options: {
     const { document, compiled } = model.value;
     const { index } = insertionPoint(document, compiled.spans, total.value, playhead.value);
     if (total.value === 0)
-      return { text: "Drawing the first steps", before: null, after: null, atEnd: true };
+      return {
+        text: "Drawing the first steps",
+        before: null,
+        after: null,
+        atEnd: true,
+        index: null,
+      };
     if (index >= total.value)
       return {
         text: `Drawing after ${nameAt(total.value - 1)}`,
         before: null,
         after: nameAt(total.value - 1),
         atEnd: true,
+        index: null,
       };
     return {
       text: `Drawing before ${nameAt(index)}`,
       before: nameAt(index),
       after: null,
       atEnd: false,
+      index,
     };
   });
 
@@ -179,13 +189,10 @@ export function useStudioReadout(options: {
   });
   const labelOf = (id: string): string =>
     [...model.value.rows, ...model.value.folds].find((row) => row.id === id)?.display ?? id;
-  /** The status bar's line: the inspected pixel in plain words. */
+  /** The status bar's readout: where the pointer is on the picture. */
   const status = computed(() => {
-    const info = pixel.value;
-    if (!info) return "Point at a pixel";
-    const writer = info.visual.entry ?? info.priority.entry;
-    const step = writer === null ? "" : ` · step ${writer + 1}`;
-    return `x ${info.x} y ${info.y} · colour ${info.visual.value} · depth ${info.priority.value}${step}`;
+    const cell = selection.canvasCell.value;
+    return cell ? `x ${cell.x} · y ${cell.y}` : "";
   });
 
   return { ticks, stops, current, drawn, single, commands, pixel, fill, labelOf, status, position };

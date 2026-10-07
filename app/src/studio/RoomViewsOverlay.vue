@@ -10,10 +10,11 @@ import { maskFillPath } from "./studioView.ts";
 
 /**
  * The room's figures, drawn exactly as the game draws them (priority, no
- * boxes). A figure whose spot is a fixed number drags to edit that line; one
- * whose spot is computed drags a preview only (the panel offers Reset and
- * Copy position). A figure with no provable spot draws only where the
- * panel's spot choice puts it.
+ * boxes, no hover marks). A figure whose spot is a fixed number drags to edit
+ * that line; one whose spot is computed drags a preview only (the panel
+ * offers Reset and Copy position). A conditional figure shows its first
+ * spot, and one with no known spot starts as a preview near the middle of
+ * the floor, so every figure draws and drags.
  */
 const {
   figures,
@@ -44,6 +45,8 @@ const emit = defineEmits<{
 const root = useTemplateRef("root");
 const dragging = ref<{
   figure: RoomPlacement;
+  startX: number;
+  startY: number;
   x: number;
   y: number;
   dx: number;
@@ -52,6 +55,14 @@ const dragging = ref<{
 }>();
 /** Where a figure stands: the live drag, then the panel's preview, then its line. */
 const spotOf = (figure: RoomPlacement) => previews[figure.object] ?? null;
+/** A fixed figure's line holds plain numbers: dragging it edits that line. */
+const fixed = (figure: RoomPlacement): boolean =>
+  figure.reason === null && figure.x !== null && figure.y !== null;
+/** Where a figure with no known spot starts: centred, standing low on the picture. */
+const START_Y = 130;
+function startSpot(width: number): { x: number; y: number } {
+  return { x: Math.max(0, Math.round((160 - width) / 2)), y: START_Y };
+}
 const drawn = computed(() =>
   figures.flatMap((figure) => {
     const entry = views.find((v) => v.number === figure.view);
@@ -59,11 +70,13 @@ const drawn = computed(() =>
       entry && figure.loop !== null && figure.cel !== null
         ? selectViewCel(entry.view, figure.loop, figure.cel)
         : undefined;
-    const spot = spotOf(figure) ?? (figure.x === null || figure.y === null ? null : figure);
-    if (!cel || !spot) return [];
+    if (!cel) return [];
+    const known =
+      figure.x === null || figure.y === null ? figure.spots[0] : { x: figure.x, y: figure.y };
+    const spot = spotOf(figure) ?? known ?? startSpot(cel.width);
     const grab = dragging.value?.figure.object === figure.object ? dragging.value : null;
-    const x = grab?.x ?? spot.x!;
-    const y = grab?.y ?? spot.y!;
+    const x = grab?.x ?? spot.x;
+    const y = grab?.y ?? Math.max(cel.height - 1, spot.y);
     const result = probeActor({
       picture,
       cel,
@@ -85,7 +98,7 @@ const drawn = computed(() =>
         x,
         y,
         label,
-        preview: spotOf(figure) !== null || figure.reason !== null,
+        preview: spotOf(figure) !== null || !fixed(figure),
         paths: Object.entries(masks).map(([colour, mask]) => ({ colour, d: maskFillPath(mask) })),
         style: {
           left: `${x * viewport.pixelAspect * viewport.zoom}px`,
@@ -106,11 +119,13 @@ function point(event: PointerEvent) {
 }
 function down(event: PointerEvent, figure: RoomPlacement): void {
   if (event.button !== 0 || readOnly) return;
-  const spot = spotOf(figure) ?? figure;
-  if (spot.x === null || spot.y === null) return;
+  const spot = drawn.value.find((row) => row.figure.object === figure.object);
+  if (!spot) return;
   const at = point(event);
   dragging.value = {
     figure,
+    startX: spot.x,
+    startY: spot.y,
     x: spot.x,
     y: spot.y,
     dx: at.x - spot.x,
@@ -130,7 +145,7 @@ function move(event: PointerEvent): void {
 }
 /** A fixed line's drag edits the line; anything else moves the preview. */
 function settle(figure: RoomPlacement, x: number, y: number): void {
-  if (figure.reason === null && spotOf(figure) === null) emit("place", figure, x, y);
+  if (fixed(figure) && spotOf(figure) === null) emit("place", figure, x, y);
   else emit("preview", figure, x, y);
 }
 function up(event: PointerEvent): void {
@@ -138,10 +153,8 @@ function up(event: PointerEvent): void {
   if (!grab || event.pointerId !== grab.pointer) return;
   move(event);
   dragging.value = undefined;
-  const figure = grab.figure;
-  const start = spotOf(figure) ?? figure;
-  if (grab.x === start.x && grab.y === start.y) return;
-  settle(figure, grab.x, grab.y);
+  if (grab.x === grab.startX && grab.y === grab.startY) return;
+  settle(grab.figure, grab.x, grab.y);
 }
 function cancel(): void {
   dragging.value = undefined;
@@ -190,7 +203,6 @@ function nudge(event: KeyboardEvent, figure: RoomPlacement): void {
       :data-x="row.x"
       :data-y="row.y"
       :data-preview="row.preview || undefined"
-      :title="row.label"
       @pointerdown="down($event, row.figure)"
       @pointermove="move"
       @pointerup="up"
@@ -216,14 +228,9 @@ function nudge(event: KeyboardEvent, figure: RoomPlacement): void {
   touch-action: none;
   cursor: grab;
 }
-/* The figure draws as in the game; a grab outline shows only on intent. */
-.room-views__figure:hover,
+/* The figure draws as in the game: only keyboard focus marks it. */
 .room-views__figure:focus-visible {
-  outline: 1px solid var(--action);
+  outline: 1px solid var(--focus);
   outline-offset: 1px;
-}
-.room-views__figure.is-preview:hover,
-.room-views__figure.is-preview:focus-visible {
-  outline-style: dashed;
 }
 </style>

@@ -1,43 +1,33 @@
 <script setup lang="ts">
-import UiIcon from "../ui/UiIcon.vue";
-import { computed } from "vue";
-import UiButton from "../ui/UiButton.vue";
 import UiExplain from "../ui/UiExplain.vue";
 import type { BarNotice } from "./fillAdvice.ts";
 import StudioBarNotice from "./StudioBarNotice.vue";
 import { ROOM_TOOL_NAMES } from "./studioHelp.ts";
 import { explain } from "./studioTerms.ts";
-import { isDrawingTool, type StudioTool } from "./studioTools.ts";
-import type { DrawingPosition } from "./useStudioReadout.ts";
+import type { StudioTool } from "./studioTools.ts";
 
 /**
  * The active tool's options, docked in the options bar above the canvas:
- * the tool's name, Filled for rect and polygon, the brush size, where in the
- * draw order new shapes go ("Drawing after Red line", with Back to the end),
- * and a notice (a fill that would flood nothing: what the spot holds and Why?).
- * How the tool is used by pointer and keys is the status bar's line and the
- * `?` sheet, never here. Short of room (`fold`), where new shapes go gives
- * way first, then the notice's fix moves into its popover, then Back to the
- * end, then the notice says itself in a few words (Why? still has it all).
+ * the tool's name, Filled for rect and polygon, the brush size, and a notice
+ * (a fill that would flood nothing: what the spot holds and Why?). How the
+ * tool is used by pointer and keys is the status bar's line and the `?`
+ * sheet, and where new shapes draw is the context row's (StudioDrawingAt).
+ * Short of room (`fold`), the notice's fix moves into its popover, then the
+ * notice says itself in a few words (Why? still has it all).
  */
 const {
   tool,
-  at,
   notice = null,
   fold = 0,
 } = defineProps<{
   tool: StudioTool;
-  /** Where new shapes draw, in words: "Drawing before Cottage". */
-  at: DrawingPosition;
   notice?: BarNotice | null;
   fold?: number;
 }>();
-const emit = defineEmits<{ end: [] }>();
 const filled = defineModel<boolean>("filled", { required: true });
 const radius = defineModel<number>("radius", { required: true });
 const stipple = defineModel<boolean>("stipple", { required: true });
 const seed = defineModel<number>("seed", { required: true });
-const draws = computed(() => isDrawingTool(tool));
 const clampSeed = (value: number): number => Math.min(239, Math.max(0, Math.round(value) || 0));
 </script>
 
@@ -80,22 +70,6 @@ const clampSeed = (value: number): number => Math.min(239, Math.max(0, Math.roun
         />
       </label>
     </template>
-    <span v-if="draws && fold < 1" class="tool-options__sep" aria-hidden="true"></span>
-    <span v-if="draws && fold < 1" class="tool-options__with">
-      <span class="tool-options__at" :title="at.text" data-testid="studio-insert-at">{{
-        at.text
-      }}</span>
-      <UiExplain v-bind="explain('insert-at')" />
-    </span>
-    <UiButton
-      v-if="draws && !at.atEnd && fold < 3"
-      variant="ghost"
-      class="tool-options__end"
-      data-testid="studio-playhead-end"
-      @click="emit('end')"
-    >
-      <UiIcon name="arrow-right" :size="16" /> Back to the end
-    </UiButton>
     <StudioBarNotice v-if="notice" :notice :compact="fold > 1" :terse="fold > 3" />
   </div>
 </template>
@@ -150,18 +124,6 @@ const clampSeed = (value: number): number => Math.min(239, Math.max(0, Math.roun
   color: var(--ink);
   background: var(--surface-2);
   font: inherit;
-}
-.tool-options__sep {
-  width: 1px;
-  height: var(--space-6);
-  background: var(--hairline-strong);
-}
-.tool-options__at {
-  color: var(--ink-3);
-  font: var(--text-xs) var(--font-mono);
-}
-.tool-options__end {
-  padding: 0 var(--space-3);
 }
 @media (pointer: coarse) {
   .tool-options__toggle,

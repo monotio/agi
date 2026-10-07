@@ -148,10 +148,8 @@ test("Focus gives the PICTURE canvas more room", async ({ page }) => {
 });
 test("draw order, Split and Distance bands are reachable in the workspace", async ({ page }) => {
   const studio = await picture(page);
-  // The draw-order transport is on by default; the button can still hide it.
+  // The draw-order transport is on by default; the Items list's Draw order only sorts the list.
   await expect(studio.getByTestId("studio-scrubber")).toBeVisible();
-  await studio.getByRole("button", { name: "Draw order", exact: true }).click();
-  await expect(studio.getByTestId("studio-scrubber")).toHaveCount(0);
   await studio.getByRole("button", { name: "Draw order", exact: true }).click();
   await expect(studio.getByTestId("studio-scrubber")).toBeVisible();
   await studio
@@ -160,7 +158,7 @@ test("draw order, Split and Distance bands are reachable in the workspace", asyn
     .click();
   await studio.getByRole("radio", { name: "Split", exact: true }).click();
   await expect(studio.locator(".studio-pane")).toHaveCount(2);
-  await expect(studio.getByRole("button", { name: "Distance bands", exact: true })).toBeVisible();
+  await expect(studio.getByRole("button", { name: "Band lines", exact: true })).toBeVisible();
 });
 test("a line offers Done and finishes by clicking its last point", async ({ page }) => {
   const studio = await picture(page);
@@ -207,11 +205,11 @@ test("a polygon offers Done and its point menu names Delete shape", async ({ pag
   await expect(handles).toHaveCount(3);
   await workspaceUpdated(page);
 });
-test("Walk shows doors and runs a real test with Play here", async ({ page }) => {
+test("the Priority lens shows doors and runs a real test with Play here", async ({ page }) => {
   const studio = await picture(page);
   await studio
     .getByRole("radiogroup", { name: "Lens", exact: true })
-    .getByRole("radio", { name: "Walk", exact: true })
+    .getByRole("radio", { name: "Priority", exact: true })
     .click();
   await expect(studio.getByTestId("walk-panel")).toBeVisible();
   await expect(studio.getByTestId("walk-door").first()).toBeVisible();
@@ -419,7 +417,7 @@ test("Walk edits a door box and an edge exit and shows drawing errors beside the
   await expect(page.locator(".play-area")).toBeHidden();
   await studio
     .getByRole("radiogroup", { name: "Lens", exact: true })
-    .getByRole("radio", { name: "Walk", exact: true })
+    .getByRole("radio", { name: "Priority", exact: true })
     .click();
   const door = studio.locator('button[data-tool="door"]');
   await expect(door).toBeVisible();
@@ -489,11 +487,11 @@ test("Walk edits a door box and an edge exit and shows drawing errors beside the
   await page.screenshot({ path: test.info().outputPath("walk-doors.png") });
 });
 
-test("Walk keeps an unfinished box number when its saved LOGIC refreshes", async ({ page }) => {
+test("a door keeps an unfinished box number when its saved LOGIC refreshes", async ({ page }) => {
   const studio = await picture(page);
   await studio
     .getByRole("radiogroup", { name: "Lens", exact: true })
-    .getByRole("radio", { name: "Walk", exact: true })
+    .getByRole("radio", { name: "Priority", exact: true })
     .click();
   await studio.locator('button[data-tool="door"]').click();
   const from = await cell(page, 120, 130),
@@ -605,7 +603,7 @@ test("drawing preserves invalid room LOGIC and Walk refuses to overwrite it", as
   expect(await workspaceDocument(page, "logic:1")).toBe(source);
   await studio
     .getByRole("radiogroup", { name: "Lens", exact: true })
-    .getByRole("radio", { name: "Walk", exact: true })
+    .getByRole("radio", { name: "Priority", exact: true })
     .click();
   await studio.locator('button[data-tool="door"]').click();
   const from = await cell(page, 120, 130),
@@ -623,13 +621,13 @@ test("drawing preserves invalid room LOGIC and Walk refuses to overwrite it", as
 // The retired live-edit tip is replaced by the Update game count, dots and
 // private stage overlay assertions in workspace-update.spec.ts.
 
-test("drawing cannot resubmit a Walk edit over a newer pending LOGIC draft", async ({ page }) => {
+test("drawing cannot resubmit a door edit over a newer pending LOGIC draft", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   const studio = await picture(page);
   const source = "// Newer pending room text.\nreturn;\nunknown.opcode();";
   await studio
     .getByRole("radiogroup", { name: "Lens", exact: true })
-    .getByRole("radio", { name: "Walk", exact: true })
+    .getByRole("radio", { name: "Priority", exact: true })
     .click();
   await studio.locator('button[data-tool="door"]').click();
   const from = await cell(page, 120, 130),

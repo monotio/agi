@@ -288,8 +288,9 @@ describe("useStudioDraft", () => {
       }),
     )!;
     assert.equal(editing.nudge(1, 0), true);
-    assert.equal(editing.notice.value?.text, "Moved Pond with its walk lines.");
-    // The Depth lens shows the barrier and hides the water.
+    // Priority holds the control lines too: the pond's wall and water.
+    assert.equal(editing.notice.value?.text, "Moved Pond with its priority.");
+    // The Priority lens shows the wall and water and hides the visual.
     lens.value = "depth";
     assert.equal(editing.nudge(1, 0), true);
     assert.equal(editing.notice.value?.text, "Moved Pond with its visual.");
@@ -299,26 +300,6 @@ describe("useStudioDraft", () => {
       "Moved 3 items with their priority and walk lines.",
     );
     assert.equal(movedWith("Box", false, []), null);
-  });
-
-  it("keeps depth values off limits in the Walk lens until they are allowed", () => {
-    const { draft, unlocks } = setup("walk");
-    // A barrier moves freely: the cells it leaves hold what was under it.
-    assert.equal(draft.apply(move("edge", 0, -2), "Move Floor edge").ok, true);
-    const paint = draft.apply(
-      { type: "setItemColor", itemId: "edge", plane: "priority", value: 12 },
-      "Priority 12",
-    );
-    assert.ok(!paint.ok && paint.refusal.kind === "lock");
-    assert.equal(paint.refusal.message, "The Walk lens draws walk lines 0–3 only.");
-    assert.match(paint.refusal.detail, /^Depth values 4–15 are locked in the Walk lens: 120 cells/);
-    // Reshaping the occluder changes depth; moving it whole carries its depth.
-    const reshape = { type: "setPoint", line: 12, pointIndex: 0, x: 44, y: 92 } as const;
-    assert.ok(!draft.apply(reshape, "Move point").ok);
-    assert.equal(draft.apply(move("occ", 1, 0), "Move Occluder").ok, true);
-    unlocks.value = { ...NO_UNLOCKS, depthInWalk: true };
-    assert.equal(draft.apply(reshape, "Move point").ok, true);
-    assert.equal(draft.changes.value, 3);
   });
 
   it("lands an edit that changes another item's output, as one step with its side effects", () => {
@@ -689,7 +670,7 @@ describe("useStudioDrag", () => {
   });
 
   it("adds a point with an Alt+press by the line, placed by the drag, as one step each", () => {
-    const { draft } = setup("walk");
+    const { draft } = setup("depth");
     const frames: (() => void)[] = [];
     const drag = useStudioDrag({
       draft,

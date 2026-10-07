@@ -53,14 +53,16 @@ for (const [width, height] of [
 
     await expect(studio.getByTestId("selection-name")).toHaveText("2 items");
     await expect(studio.locator('[data-role="scene-count"]')).toHaveText("30 items");
-    await expect(page.getByTestId("studio-status")).toHaveText("Drawing after Bust barrier");
+    // Without a pointer on the picture the status reads nothing; the transport says where shapes draw.
+    await expect(page.getByTestId("studio-status")).toHaveText("");
+    await expect(studio.getByTestId("scrubber-position")).toHaveText("Drawing after Bust barrier");
     // Nothing in Studio scrolls sideways.
     expect(await sidewaysScrollers(studio)).toEqual([]);
     expect(
       await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth),
     ).toBeLessThanOrEqual(0);
 
-    // The pixel under the pointer reads in Inspector → Details, never the status.
+    // The pixel under the pointer reads in Inspector → Details; the status shows only where it is.
     await studio.getByTestId("inspector-details").click();
     const pane = studio.locator(".studio-pane").last();
     await pane.scrollIntoViewIfNeeded();
@@ -69,7 +71,7 @@ for (const [width, height] of [
     const my = box.y + (50.5 / 168) * box.height;
     await page.mouse.move(mx, my);
     await expect(studio.locator('[data-role="pixel"]')).toContainText("Pixel 35,50");
-    await expect(page.getByTestId("studio-status")).toHaveText("Drawing after Bust barrier");
+    await expect(page.getByTestId("studio-status")).toHaveText("x 35 · y 50");
     await page.mouse.move(box.x + box.width + 40, box.y);
     await reviewShot(page, `room-${width}-selection`);
   });

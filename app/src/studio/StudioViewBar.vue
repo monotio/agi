@@ -10,12 +10,12 @@ import { CONTROL_VALUES, type StudioLens, type StudioViewMode } from "./studioVi
 import type { PriorityFilter } from "./studioView.ts";
 
 /**
- * The Priority and Walk lenses' view toggles, docked at the right of the
- * options bar: how the planes show (blend, split, priority only), what of
- * it shows (all, the distance bands, or one value), and the band guides.
- * The walk lines' legend is a row of the Walk panel. The Visual lens shows
- * only its plane and needs none of them. Short of room (`fold` 3 and up)
- * they all fold into one View menu.
+ * The Priority lens's view toggles, docked at the right of the options bar:
+ * how the layers show (blended over the picture, split beside it, or alone),
+ * what of priority shows (all, the distance bands, the control lines, or one
+ * value), and the band lines. The Visual lens shows only its layer and needs
+ * none of them. Short of room (`fold` 3 and up) they all fold into one View
+ * menu, which offers the three main filters.
  */
 const { lens, fold = 0 } = defineProps<{ lens: StudioLens; fold?: number }>();
 const mode = defineModel<StudioViewMode>("mode", { required: true });
@@ -23,9 +23,15 @@ const bands = defineModel<boolean>("bands", { required: true });
 const filter = defineModel<PriorityFilter>("filter", { required: true });
 
 const MODES = [
-  { value: "blend", label: "Blend" },
-  { value: "split", label: "Split" },
-  { value: "priority", label: "Priority" },
+  { value: "blend", label: "Blend", title: "Priority over the picture" },
+  { value: "split", label: "Split", title: "The picture and its priority side by side" },
+  { value: "priority", label: "Alone", title: "Priority by itself" },
+] as const;
+/** What of priority shows; the select also offers each single value. */
+const SHOWS = [
+  { value: "all", label: "All priority" },
+  { value: "bands", label: "Distance bands" },
+  { value: "controls", label: "Walls, water, triggers, gates" },
 ] as const;
 </script>
 
@@ -43,8 +49,19 @@ const MODES = [
         <UiIcon name="check" :size="16" class="view-more__check" />{{ choice.label }}
       </button>
       <div role="separator"></div>
+      <button
+        v-for="choice in SHOWS"
+        :key="choice.value"
+        type="button"
+        role="menuitemradio"
+        :aria-checked="filter === choice.value"
+        @click="filter = choice.value"
+      >
+        <UiIcon name="check" :size="16" class="view-more__check" />{{ choice.label }}
+      </button>
+      <div role="separator"></div>
       <button type="button" role="menuitemcheckbox" :aria-checked="bands" @click="bands = !bands">
-        <UiIcon name="check" :size="16" class="view-more__check" />Distance bands
+        <UiIcon name="check" :size="16" class="view-more__check" />Band lines
       </button>
     </ActionMenu>
     <UiSegmented v-else v-model="mode" size="sm" label="Picture view" :options="MODES" />
@@ -55,8 +72,9 @@ const MODES = [
       aria-label="Show priority"
       data-testid="priority-filter"
     >
-      <option value="all">All priority</option>
-      <option value="bands">Distance bands</option>
+      <option v-for="choice in SHOWS" :key="choice.value" :value="choice.value">
+        {{ choice.label }}
+      </option>
       <optgroup label="One value">
         <option v-for="control in CONTROL_VALUES" :key="control.value" :value="control.value">
           {{ control.name }}
@@ -71,7 +89,7 @@ const MODES = [
         :aria-pressed="bands"
         @click="bands = !bands"
       >
-        Distance bands
+        Band lines
       </UiButton>
       <UiExplain v-bind="explain('bands')" />
     </template>

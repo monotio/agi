@@ -111,17 +111,13 @@ describe("tool state machines", () => {
       visual: null,
       priority: 11,
     });
-    // Walk keeps its control line while depth values are locked there.
-    assert.deepEqual(pipetteValues(defaultValues("walk"), picked, "walk", NO_UNLOCKS), {
-      visual: null,
-      priority: 0,
-    });
+    // The Priority lens picks a control line as readily as a band.
     assert.deepEqual(
-      pipetteValues(defaultValues("walk"), { visual: 6, priority: 2 }, "walk", NO_UNLOCKS),
+      pipetteValues(defaultValues("depth"), { visual: 6, priority: 2 }, "depth", NO_UNLOCKS),
       { visual: null, priority: 2 },
     );
-    const open: LensUnlocks = { visual: true, priority: true, depthInWalk: true };
-    assert.deepEqual(pipetteValues(defaultValues("walk"), picked, "walk", open), picked);
+    const open: LensUnlocks = { visual: true, priority: true };
+    assert.deepEqual(pipetteValues(defaultValues("depth"), picked, "depth", open), picked);
     assert.deepEqual(pipetteValues(defaultValues("art"), picked, "art", open), picked);
   });
 
@@ -130,7 +126,6 @@ describe("tool state machines", () => {
     assert.equal(resolvePriority(depth, undefined), 10);
     assert.equal(resolvePriority(depth, 20), 4);
     assert.equal(resolvePriority(depth, 167), 14);
-    assert.equal(resolvePriority(defaultValues("walk"), 100), 0);
     assert.equal(resolvePriority(defaultValues("art"), 100), null);
   });
 
@@ -266,9 +261,10 @@ describe("useStudioTools", () => {
     assert.equal(draft.source.value, SOURCE);
   });
 
-  it("clicks out a Wall line in the Walk lens that never touches art", () => {
-    const { draft, tools, flush, press } = setup("walk");
+  it("clicks out a Wall line in the Priority lens that never touches art", () => {
+    const { draft, tools, flush, press } = setup("depth");
     const before = draft.compiled.value;
+    tools.setValues({ priority: 0 });
     tools.setTool("line");
     tools.press(press(10, 140));
     tools.press(press(60, 140));
@@ -404,6 +400,43 @@ describe("useStudioTools", () => {
     assert.equal(doc.playhead.value, commandsUpTo);
   });
 
+  it("insert here before Bench writes the new line's bytes between Wall and Bench", () => {
+    const { draft, doc, tools, press } = setup("art");
+    // "insert here" on Bench stands the marker at Bench's first step.
+    const bench = doc.model.value.rows.find((row) => row.id === "bench")!;
+    doc.playhead.value = bench.entries[0]!;
+    assert.equal(doc.playhead.value, 3);
+    tools.setTool("line");
+    tools.setValues({ visual: 4 });
+    tools.press(press(20, 120));
+    tools.press(press(40, 120));
+    tools.press(press(40, 120)); // Clicking the last point finishes the line.
+    assert.deepEqual(
+      draft.document.value.items.map((item) => item.id),
+      ["wall", "line-1", "bench", "occ"],
+    );
+    // Hand-computed: each rect is an absolute line round its corners (F6),
+    // a fill is F8 x y, vis/pri set with F0/F2 and turn off with F1/F3.
+    assert.deepEqual(
+      [...draft.compiled.value.bytes],
+      [
+        ...[0xf0, 7], // Wall: vis 7
+        ...[0xf6, 0, 0, 159, 0, 159, 111, 0, 111, 0, 0], // rect 0,0 159,111
+        ...[0xf8, 80, 40], // fill 80,40
+        // The new line carries both its pens, so it draws the same wherever it moves.
+        ...[0xf0, 4], // vis 4
+        0xf3, // pri off
+        ...[0xf6, 20, 120, 40, 120], // line 20,120 40,120
+        ...[0xf0, 6], // Bench: vis 6
+        ...[0xf6, 44, 92, 116, 92, 116, 104, 44, 104, 44, 92], // rect 44,92 116,104
+        0xf1, // Occluder: vis off
+        ...[0xf2, 10], // pri 10
+        ...[0xf6, 40, 90, 119, 90, 119, 105, 40, 105, 40, 90], // rect 40,90 119,105
+        0xff, // end
+      ],
+    );
+  });
+
   it("picks the colour and priority under the cursor into the lens's values", () => {
     const { tools, press, lens } = setup("art");
     tools.setTool("pipette");
@@ -517,8 +550,9 @@ describe("the keyboard cursor (useStudioInput)", () => {
   });
 
   it("clicks out a Wall line: Enter adds a point, Enter on the last point finishes", () => {
-    const { draft, tools, input, move } = keys("walk", 10, 140);
+    const { draft, tools, input, move } = keys("depth", 10, 140);
     const before = draft.compiled.value;
+    tools.setValues({ priority: 0 });
     tools.setTool("line");
     input.click(false);
     move(8, 0, 6);

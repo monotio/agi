@@ -80,7 +80,6 @@ for (const viewport of [
     for (const [key, name] of [
       ["1", "Visual"],
       ["2", "Priority"],
-      ["3", "Walk"],
     ] as const) {
       await page.keyboard.press(key);
       await expect(lens.getByRole("radio", { name: new RegExp(name) })).toHaveAttribute(
@@ -91,9 +90,8 @@ for (const viewport of [
       const top = await boxes([
         ["Visual tab", lens.getByRole("radio", { name: /Visual/ })],
         ["Priority tab", lens.getByRole("radio", { name: /Priority/ })],
-        ["Walk tab", lens.getByRole("radio", { name: /Walk/ })],
       ]);
-      expect(top.length, `${context}: all lens tabs show`).toBe(3);
+      expect(top.length, `${context}: all lens tabs show`).toBe(2);
       expectApart(top, context);
       const barBox = (await bar.boundingBox())!;
       for (const [part, box] of top) expect(inside(box, barBox), `${context}: ${part}`).toBe(true);

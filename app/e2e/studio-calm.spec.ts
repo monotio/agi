@@ -84,7 +84,7 @@ for (const [width, height] of [
     const stage = studio.getByRole("group", { name: /^Canvas/ });
     const pane = studio.locator(".studio-pane").last();
     // The picture's own layers: its pixels, its overlays in picture coordinates (selection,
-    // handles, the tools' marks, the Walk lens's doors). Nothing else, however it is nested.
+    // handles, the tools' marks, the Priority lens's doors). Nothing else, however it is nested.
     const allowed =
       ".studio-pane__pixels, .studio-pane__overlay, .tool-overlay, .walk-overlay, .ghost";
     const bar = studio.getByTestId("studio-options-bar");
@@ -127,8 +127,8 @@ for (const [width, height] of [
     ).toHaveCount(0);
     await expect(page.getByRole("menuitem", { name: "Delete line", exact: true })).toBeVisible();
     await page.keyboard.press("Escape");
-    // Depth and Walk: the view switch and the legend toggle sit in the options bar.
-    for (const lens of ["2", "3"]) {
+    // Priority: the view switch and the band lines toggle sit in the options bar.
+    for (const lens of ["2"]) {
       await page.keyboard.press(lens);
       await expect(studio.getByRole("radiogroup", { name: "Lens", exact: true })).toBeVisible();
       expect(await coveredPoints(pane, stage, allowed)).toEqual([]);
