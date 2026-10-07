@@ -35,6 +35,7 @@ const props = defineProps<{
 }>();
 const emit = defineEmits<{
   edit: [source: string];
+  typingEnd: [];
   breakpoint: [line: number];
   selection: [context: { label: string; text: string } | null];
   problems: [entries: readonly { message: string; line: number }[]];
@@ -457,7 +458,12 @@ defineExpose({
         renameBinding = false;
       "
     />
-    <div ref="root" class="workspace-monaco" data-testid="workspace-logic-editor"></div>
+    <div
+      ref="root"
+      class="workspace-monaco"
+      data-testid="workspace-logic-editor"
+      @focusout.capture="emit('typingEnd')"
+    ></div>
   </div>
 </template>
 <style scoped>
