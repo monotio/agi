@@ -206,7 +206,12 @@ return;`;
   const stopped = lastControl(h, "debugStopped");
   assert.equal(stopped["wait"], "getnum");
 
-  send(h.ctx, { type: "hostAnswer", id: request["id"] as number, response: "42" });
+  send(h.ctx, {
+    type: "hostAnswer",
+    generation: h.ctx.run.generation,
+    id: request["id"] as number,
+    response: "42",
+  });
   assert.equal(lastControl(h, "debugAnswerReady")["id"], request["id"]);
   assert.equal(h.ctx.run.debugger.queuedAnswers.length, 1, "the answer parks behind the latch");
   assert.equal(engine.vars[100], 0);

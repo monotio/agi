@@ -48,7 +48,12 @@ test("a host answer completing a controlled pass counts it at that entry", () =>
   assert.equal(ctx.run.cycle.cycleCount, 0);
   const request = control.find((message) => message.type === "hostRequest");
   assert.ok(request?.type === "hostRequest");
-  ctx.fns.onHostAnswer({ type: "hostAnswer", id: request.id, response: "5" });
+  ctx.fns.onHostAnswer({
+    type: "hostAnswer",
+    generation: ctx.run.generation,
+    id: request.id,
+    response: "5",
+  });
   assert.equal(ctx.run.engine!.vars[100], 5);
   assert.equal(ctx.run.engine!.vars[101], 7);
   assert.equal(ctx.run.cycle.cycleCount, 1);

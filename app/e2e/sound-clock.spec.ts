@@ -9,7 +9,13 @@ type WorkerReply =
   | { type: "error"; message: string }
   | ({ type: "soundTick" } & SoundTick)
   | { type: "stopSound" }
-  | { type: "hostRequest"; id: number; op: string; context: Record<string, unknown> }
+  | {
+      type: "hostRequest";
+      generation: number;
+      id: number;
+      op: string;
+      context: Record<string, unknown>;
+    }
   | { type: "engineState"; id: number; state: EngineStateReport };
 type Reply<T extends WorkerReply["type"]> = Extract<WorkerReply, { type: T }>;
 
@@ -112,7 +118,12 @@ test("sound ticks and completion continue during a blocking host prompt", async 
           (message): message is Reply<"engineState"> =>
             message.type === "engineState" && message.id === 2,
         );
-        worker.postMessage({ type: "hostAnswer", id: request.id, response: "7" });
+        worker.postMessage({
+          type: "hostAnswer",
+          generation: request.generation,
+          id: request.id,
+          response: "7",
+        });
         worker.postMessage({ type: "state", id: 1 });
         const after = await wait(
           (message): message is Reply<"engineState"> =>

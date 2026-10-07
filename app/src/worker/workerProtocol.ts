@@ -286,7 +286,7 @@ export type WorkerInbound =
   | { type: "input"; text: string }
   | { type: "edit"; text: string }
   | { type: "dismissPrint" }
-  | { type: "hostAnswer"; id: number; response: string }
+  | { type: "hostAnswer"; generation: number; id: number; response: string }
   | { type: "reenter"; room?: number }
   /**
    * Play here: enter `room`, run its entry cycle and place ego's baseline at
@@ -589,11 +589,12 @@ export type WorkerControl =
   | { type: "paused"; paused: boolean; cycle: number }
   | {
       type: "hostRequest";
+      generation: number;
       id: number;
       op: HostRequestOp;
       context: Record<string, unknown>;
     }
-  | { type: "interactionCancelled"; id: number; op: string }
+  | { type: "interactionCancelled"; generation: number; id: number; op: string }
   | {
       type: "replay";
       sessionId: number;

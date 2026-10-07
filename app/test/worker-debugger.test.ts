@@ -269,7 +269,12 @@ test("a host answer queues while stopped and applies once on resume", () => {
   // The stop overlays the in-flight host wait.
   assert.equal((stopped["wait"] as string | null) ?? null, "getnum");
 
-  send(h.ctx, { type: "hostAnswer", id: request["id"] as number, response: "42" });
+  send(h.ctx, {
+    type: "hostAnswer",
+    generation: h.ctx.run.generation,
+    id: request["id"] as number,
+    response: "42",
+  });
   const ready = lastControl(h, "debugAnswerReady");
   assert.equal(ready["epoch"], epoch);
   assert.equal(ready["id"], request["id"]);
@@ -277,7 +282,12 @@ test("a host answer queues while stopped and applies once on resume", () => {
   assert.equal(h.ctx.run.engine!.vars[100], 0);
   assert.equal(h.ctx.run.engine!.hostInteractionPending, true);
   // A duplicate answer cannot double-apply.
-  send(h.ctx, { type: "hostAnswer", id: request["id"] as number, response: "42" });
+  send(h.ctx, {
+    type: "hostAnswer",
+    generation: h.ctx.run.generation,
+    id: request["id"] as number,
+    response: "42",
+  });
   assert.equal(controls(h, "debugAnswerReady").length, 1);
 
   send(h.ctx, {
@@ -545,7 +555,12 @@ test("a room answer queued while stopped applies its patch once on resume", () =
       },
     ],
   });
-  send(h.ctx, { type: "hostAnswer", id: request["id"] as number, response });
+  send(h.ctx, {
+    type: "hostAnswer",
+    generation: h.ctx.run.generation,
+    id: request["id"] as number,
+    response,
+  });
   assert.equal(lastControl(h, "debugAnswerReady")["id"], request["id"]);
   // Raw queued data only: no patch, no delivery, the outstanding request stays.
   assert.equal(h.ctx.run.hostRequests.hostRequestOutstanding !== null, true);
@@ -570,7 +585,12 @@ test("a room answer queued while stopped applies its patch once on resume", () =
     "room 9's logic landed in the live container",
   );
   // A duplicate or late answer names a settled request and is dropped.
-  send(h.ctx, { type: "hostAnswer", id: request["id"] as number, response });
+  send(h.ctx, {
+    type: "hostAnswer",
+    generation: h.ctx.run.generation,
+    id: request["id"] as number,
+    response,
+  });
   assert.equal(controls(h, "debugAnswerReady").length, 1);
 });
 
@@ -600,7 +620,12 @@ test("a pending step accepts a genuine host answer while parked at the wait", ()
   assert.equal(h.ctx.run.engine!.executionStopInfo, null, "a parked host wait is not a debug stop");
   assert.equal(h.ctx.run.debugger.step !== null, true, "the step remains armed across the wait");
 
-  send(h.ctx, { type: "hostAnswer", id: request["id"] as number, response: "7" });
+  send(h.ctx, {
+    type: "hostAnswer",
+    generation: h.ctx.run.generation,
+    id: request["id"] as number,
+    response: "7",
+  });
   assert.equal(controls(h, "debugAnswerReady").length, 0, "delivered, never queued");
   const stepped = lastControl(h, "debugStopped");
   assert.deepEqual(stepped["reasons"], [{ kind: "step", mode: "into" }]);

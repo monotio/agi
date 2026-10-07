@@ -121,7 +121,7 @@ interface HostRequestsState {
    * pendingInteraction armed before the request posted; the matching
    * hostAnswer message feeds deliverHostResponse.
    */
-  hostRequestOutstanding: { id: number; op: string; authoring: boolean } | null;
+  hostRequestOutstanding: { generation: number; id: number; op: string; authoring: boolean } | null;
   /** A reenter suspended on room authoring owes the host a `reentered`. */
   pendingReenter: boolean;
 }
@@ -590,7 +590,7 @@ export interface RunSession {
     active: boolean;
     generation: number;
     epoch: number;
-    answers: { id: number; response: string }[];
+    answers: { generation: number; id: number; response: string }[];
   };
   progress:
     | { mode: "play" }

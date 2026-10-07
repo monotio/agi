@@ -215,6 +215,7 @@ export function replaceRun(ctx: WorkerContext, kind: ReplacementKind, prepared: 
     run.cycle.cycleCount = prepared.resume!.cycle;
     run.cycle.tickCount = prepared.resume!.tick;
     run.cycle.initialLogicStarted = prepared.resume!.initialLogicStarted ?? true;
+    // Tapes restore their deterministic serial; live replies also require run.generation.
     run.hostRequests.hostRequestSerial = boot.requestSerial;
     run.input.keyQueue = [...(boot.inputQueue ?? [])];
     run.input.deferredMovement = [...(boot.directionQueue ?? [])];

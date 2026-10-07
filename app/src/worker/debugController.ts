@@ -504,7 +504,12 @@ export function createDebugController(ctx: WorkerContext) {
     const d = ctx.run.debugger;
     while (d.queuedAnswers.length > 0 && ctx.run.engine?.executionStopInfo === null) {
       const answer = d.queuedAnswers.shift()!;
-      ctx.fns.onHostAnswer({ type: "hostAnswer", id: answer.id, response: answer.response });
+      ctx.fns.onHostAnswer({
+        type: "hostAnswer",
+        generation: answer.generation,
+        id: answer.id,
+        response: answer.response,
+      });
     }
   }
 

@@ -38,14 +38,24 @@ test("a host answer that re-suspends counts nothing until the pass finishes", ()
   assert.equal(ctx.run.cycle.cycleCount, 0);
   const requests = control.filter((message) => message.type === "hostRequest");
   assert.equal(requests.length, 1);
-  ctx.fns.onHostAnswer({ type: "hostAnswer", id: requests[0]!.id, response: "3" });
+  ctx.fns.onHostAnswer({
+    type: "hostAnswer",
+    generation: ctx.run.generation,
+    id: requests[0]!.id,
+    response: "3",
+  });
   // The resumed pass ran on and suspended on the second get.num.
   assert.equal(ctx.run.engine!.vars[100], 3);
   assert.equal(ctx.run.engine!.vars[102], 0);
   assert.equal(ctx.run.cycle.cycleCount, 0);
   const second = control.filter((message) => message.type === "hostRequest").at(-1)!;
   assert.notEqual(second.id, requests[0]!.id);
-  ctx.fns.onHostAnswer({ type: "hostAnswer", id: second.id, response: "4" });
+  ctx.fns.onHostAnswer({
+    type: "hostAnswer",
+    generation: ctx.run.generation,
+    id: second.id,
+    response: "4",
+  });
   assert.equal(ctx.run.engine!.vars[101], 4);
   assert.equal(ctx.run.engine!.vars[102], 9);
   assert.equal(ctx.run.cycle.cycleCount, 1);
