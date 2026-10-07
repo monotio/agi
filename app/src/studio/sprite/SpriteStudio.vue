@@ -678,9 +678,12 @@ const status = computed(() => {
         >
         <!-- A notice takes the hint's place, off the cel. -->
         <StudioStatusNotice v-else-if="notice" :banner="null" :notice @dismiss="dismissNotice" />
-        <span v-else class="sprite-studio__hint" data-testid="sprite-hint">{{
-          SPRITE_TOOL_HINTS[tools.tool.value]
-        }}</span>
+        <span
+          v-else-if="SPRITE_TOOL_HINTS[tools.tool.value]"
+          class="sprite-studio__hint"
+          data-testid="sprite-hint"
+          >{{ SPRITE_TOOL_HINTS[tools.tool.value] }}</span
+        >
         <span class="sprite-studio__spacer"></span>
         <StudioZoom :zoom :fitted @zoom="(to) => (to === 'fit' ? zoomToFit() : zoomBy(to))" />
       </footer>

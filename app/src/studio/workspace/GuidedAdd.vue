@@ -236,7 +236,7 @@ async function startHere(): Promise<void> {
   x.value = state.egoX;
   y.value = state.egoY;
   positionPicked.value = true;
-  notice.value = "The hero will start at this spot.";
+  notice.value = "Start position selected.";
 }
 function place(target: "hero" | "box" | "arrival"): void {
   const wasFocused = editor.focus.value;
@@ -383,7 +383,7 @@ narrowQuery.addEventListener("change", (event) => (narrow.value = event.matches)
         <UiButton size="sm" variant="ghost" :disabled="busy" @click="place('hero')"
           >Drag to place</UiButton
         >
-        <p v-if="positionPicked">The hero starts at your chosen spot.</p>
+        <p v-if="positionPicked">Start position selected.</p>
         <div class="guided-choices" role="group" aria-label="Pick a VIEW">
           <button
             v-for="entry in viewChoices"
@@ -413,7 +413,6 @@ narrowQuery.addEventListener("change", (event) => (narrow.value = event.matches)
         <UiButton size="sm" :disabled="busy" @click="place('box')">{{
           boxPicked ? "Draw the box again" : "Drag the box on the game"
         }}</UiButton>
-        <p v-if="boxPicked">Your door box is ready.</p>
         <div class="guided-choices" role="group" aria-label="Destination room">
           <button
             v-for="entry in rooms"

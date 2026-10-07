@@ -338,7 +338,6 @@ function dismissGhosts(event: KeyboardEvent): void {
       <section :aria-label="VOCABULARY.trySentence.label">
         <div class="words-section">
           <h3>{{ VOCABULARY.trySentence.label }}</h3>
-          <small>{{ VOCABULARY.sentenceParser.label }}</small>
         </div>
         <div class="sentence-tester">
           <div class="sentence-input">
@@ -530,7 +529,7 @@ function dismissGhosts(event: KeyboardEvent): void {
         </div>
         <div class="tried-list">
           <p v-if="!tried.length" class="words-note">
-            Play and type freely. Sentences the game misses show up here.
+            Sentences the game missed appear here after playtests.
           </p>
           <div
             v-for="(entry, index) in tried"

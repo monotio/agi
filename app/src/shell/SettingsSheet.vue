@@ -276,7 +276,7 @@ defineExpose({ toggle, close, open });
           :disabled="state.powerUp.busy || !shell.createAvailable.value"
           @click="act(shell.openRemix)"
         >
-          <span>Edit game…<small>Opens Create: rooms, art and playtests</small></span>
+          <span>Edit game…</span>
         </button>
         <button
           type="button"
@@ -293,11 +293,7 @@ defineExpose({ toggle, close, open });
           data-testid="btn-start-over"
           @click="act(() => emit('start-over'))"
         >
-          <span
-            >Start over<small
-              >Restart from the beginning; earlier sessions stay on the timeline</small
-            ></span
-          >
+          <span>Start over<small>Earlier sessions stay on the timeline.</small></span>
         </button>
       </section>
 

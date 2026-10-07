@@ -200,8 +200,7 @@ function key(event: KeyboardEvent, tick: number, lane: number, field: Field): vo
     </table>
   </div>
   <p class="tracker-help">
-    Type a note such as E5 or Rest, a length in ticks, and a volume from 0 to F. Enter saves. Arrows
-    move between fields.
+    Notes use names such as E5 or Rest. Length is in ticks; volume uses 0–9 and A–F.
   </p>
 </template>
 <style scoped>

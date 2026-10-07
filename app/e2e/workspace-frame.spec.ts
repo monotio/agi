@@ -283,7 +283,7 @@ for (const [width, height] of [
     await here.click();
     const confirmation = form.getByRole("status");
     await expect(confirmation).toBeVisible();
-    await expect(confirmation).toHaveText("The hero will start at this spot.");
+    await expect(confirmation).toHaveText("Start position selected.");
     await form.getByText("Show code", { exact: true }).click();
     const code = form.getByTestId("guided-code-preview");
     await expect(code).toBeVisible();

@@ -265,10 +265,9 @@ function onReopenStaged(reference: StoredReference): void {
 
       <template v-if="kind === 'room'">
         <p class="reference-hint">
-          A room reference sets the look and layout; the agent redraws it with native picture
-          commands and decides the floor and exits. It presents best at a
-          {{ ROOM_REFERENCE_ASPECT.toFixed(2) }}:1 proportion (the 160×168 picture surface, drawn
-          double-wide).
+          Use an image to guide the room’s art and layout. A
+          {{ ROOM_REFERENCE_ASPECT.toFixed(2) }}:1 image fits best; the agent sets the floor and
+          exits.
         </p>
         <label>
           Room number
@@ -293,10 +292,9 @@ function onReopenStaged(reference: StoredReference): void {
 
       <template v-else>
         <p class="reference-hint">
-          One pose row per facing on a flat key colour or real alpha, four to six poses, feet on one
-          ground line. Missing facings reuse the opposite row, mirrored only when the design is
-          symmetric. The result stages as VIEW {{ characterViewNum }} (the player sprite) for you to
-          keep or revise.
+          Use one row of 4–6 poses per direction, with the feet aligned. Use transparency or one
+          background colour. Missing directions reuse the opposite row; symmetric designs may mirror
+          it. Creates player VIEW {{ characterViewNum }} for review.
         </p>
         <label v-for="facing in FACINGS" :key="facing" class="reference-facing">
           {{ FACING_LABELS[facing] }}
@@ -431,8 +429,7 @@ function onReopenStaged(reference: StoredReference): void {
       </template>
       <template v-else>
         <p class="reference-hint" data-testid="reference-attached">
-          Reference attached and selected for your next agent message. Use it in an edit now with a
-          note.
+          Included with your next agent message.
         </p>
         <footer class="reference-upload-foot">
           <UiButton

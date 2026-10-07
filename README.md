@@ -97,7 +97,6 @@ on the
 [AGI Wiki's fan release list](https://agiwiki.sierrahelp.com/index.php/Fan_AGI_Release_List)
 and in the
 [SCI Programming community's game list](https://sciprogramming.com/fangames.php?eng=agi&cat=Complete&sort=downloads).
-Fan games span many genres and audiences.
 
 ## Make your own adventure
 

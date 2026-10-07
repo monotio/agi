@@ -130,7 +130,7 @@ test("sound recipes explain and audition before adding a new sentence trigger", 
   await form.getByLabel("When the player types…", { exact: true }).fill("ring the bell");
   const recipes = form.getByRole("group", { name: "New sound from a recipe", exact: true });
   await expect(recipes).toBeVisible();
-  await expect(recipes).toContainText("Adds a new SOUND to your game");
+  await expect(recipes.getByRole("button", { name: "Play Discovery", exact: true })).toBeVisible();
   await recipes.getByRole("button", { name: "Play Discovery", exact: true }).click();
   const discovery = recipes.getByRole("button", { name: "Discovery", exact: true });
   await discovery.click();
