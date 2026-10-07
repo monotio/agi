@@ -203,10 +203,15 @@ export async function replaceWorkspaceDocument(
   await workspaceSaved(page);
 }
 
-/** A room action stays reachable whether visible or in the measured overflow. */
+/** Room helpers live in Add; editor tools stay reachable through the priority overflow. */
 export async function clickContextAction(page: Page, testId: string): Promise<void> {
+  const edit = page.getByRole("button", { name: "Edit", exact: true });
+  if (await edit.isVisible()) await edit.click();
   const action = page.getByTestId(testId);
-  if (!(await action.isVisible())) await page.getByTestId("context-more-actions").click();
+  if (!(await action.isVisible()))
+    await page
+      .getByTestId(testId.startsWith("room-action-") ? "room-actions-menu" : "context-more-actions")
+      .click();
   await action.click();
 }
 
@@ -250,6 +255,7 @@ export async function addWorkspaceAction(
       "Answer a sentence": "room-action-response",
       Door: "room-action-door",
       "Play a sound when…": "room-action-play-sound",
+      "Sound when…": "room-action-play-sound",
     } as Record<string, string>
   )[label]!;
   await clickContextAction(page, testId);

@@ -22,7 +22,6 @@ import ActionMenu from "../../ui/ActionMenu.vue";
 import UiButton from "../../ui/UiButton.vue";
 import UiIcon from "../../ui/UiIcon.vue";
 const props = defineProps<{
-  hideActions?: boolean;
   room: number;
   busy: boolean;
   initialCommand?: string;
@@ -322,17 +321,15 @@ const inputComplete = computed(() =>
 function add(): void {
   if (action.value && !props.busy && doorReady.value) emit("add", action.value);
 }
-const narrowQuery = window.matchMedia("(max-width: 600px)");
-const narrow = ref(narrowQuery.matches);
-narrowQuery.addEventListener("change", (event) => (narrow.value = event.matches));
 </script>
 <template>
-  <div class="workspace-guided" :class="{ 'workspace-guided--form-only': hideActions }">
+  <div class="workspace-guided">
     <ActionMenu
-      v-if="!hideActions && narrow"
-      label="Room actions"
-      size="sm"
+      label="Add"
+      button-size="sm"
+      variant="ghost"
       test-id="room-actions-menu"
+      :disabled="busy"
     >
       <button
         v-for="(label, actionKind) in labels"
@@ -340,28 +337,12 @@ narrowQuery.addEventListener("change", (event) => (narrow.value = event.matches)
         type="button"
         role="menuitem"
         :data-testid="`room-action-${actionKind}`"
+        :disabled="busy"
         @click="kind = actionKind as RoomActionKind"
       >
         {{ label }}
       </button>
     </ActionMenu>
-    <div
-      v-else-if="!hideActions"
-      class="workspace-guided__actions"
-      role="group"
-      aria-label="Room actions"
-    >
-      <UiButton
-        v-for="(label, actionKind) in labels"
-        :key="actionKind"
-        size="sm"
-        variant="ghost"
-        :disabled="busy"
-        :data-testid="`room-action-${actionKind}`"
-        @click="kind = actionKind as RoomActionKind"
-        >{{ label }}</UiButton
-      >
-    </div>
     <form
       v-if="roomActionKind"
       v-show="!placing"

@@ -75,19 +75,15 @@ for (const [width, height] of [
       await expect(more).toBeFocused();
       if (width === 1063) {
         await page.setViewportSize({ width: 390, height });
-        await expect(context.getByTestId("room-action-response")).toBeVisible();
+        await expect(context.getByRole("button", { name: "Add", exact: true })).toBeVisible();
         await expect(context.getByTestId("room-action-door")).toHaveCount(0);
         await expect(context.getByRole("button", { name: /^▶ Play |^Debug / })).toHaveCount(0);
         await expect(page.getByTestId("workspace-update")).toBeVisible();
         await more.click();
-        await expect(menu.getByRole("menuitem")).toHaveText([
-          "Door",
-          "Sound when…",
-          "Change number…",
-        ]);
+        await expect(menu.getByRole("menuitem")).toHaveText(["Change number…", "Format document"]);
         await page.keyboard.press("Escape");
         await page.setViewportSize({ width, height });
-        await expect(context.getByTestId("room-action-door")).toBeVisible();
+        await expect(context.getByRole("button", { name: "Add", exact: true })).toBeVisible();
       }
     });
   });
