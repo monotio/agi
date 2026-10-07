@@ -80,6 +80,15 @@ export function readProjectHistory(value: unknown, digest: ProjectDigest): Proje
   return checkedHistory(value, digest, false);
 }
 
+/** Check archive shape, identities and referenced byte bounds before hydration. */
+export function preflightProjectHistory(
+  value: unknown,
+  digest: ProjectDigest,
+  attachmentSize: (hash: string) => number,
+): void {
+  checkedHistory(value, digest, false, attachmentSize);
+}
+
 /** Validate owned typed blobs without expanding them into portable number arrays. */
 export function checkProjectHistoryState(
   state: ProjectHistoryState,
@@ -92,6 +101,7 @@ function checkedHistory(
   value: unknown,
   digest: ProjectDigest,
   typed: boolean,
+  attachmentSize?: (hash: string) => number,
 ): ProjectHistoryState {
   const envelope = record(value);
   if (envelope["format"] !== PROJECT_HISTORY_FORMAT)
@@ -124,6 +134,9 @@ function checkedHistory(
   if (Object.keys(storedBlobs).length > PROJECT_HISTORY_LIMITS.maxBlobs)
     invalid("blob count exceeds the limit.");
   let total = 0;
+  const attachments: Record<string, string> = Object.create(null);
+  const attachmentHashes = new Set<string>();
+  const referencedAttachments = new Set<string>();
   // Bound every payload before allocating any owned byte payload.
   const checked: { key: string; content: string | readonly number[] | Uint8Array }[] = [];
   for (const [key, value] of Object.entries(storedBlobs)) {
@@ -149,6 +162,17 @@ function checkedHistory(
       )
         invalid("byte payload exceeds the limit.");
       content = payload;
+    } else if (blob["type"] === "attachment" && attachmentSize) {
+      fields(blob, ["type", "hash"]);
+      const imageHash = hash(blob["hash"]);
+      if (attachmentHashes.has(imageHash)) invalid("duplicate image attachment blob.");
+      attachmentHashes.add(imageHash);
+      attachments[key] = imageHash;
+      const size = attachmentSize(imageHash);
+      if (size > PROJECT_HISTORY_LIMITS.maxImageBlobBytes)
+        invalid("byte payload exceeds the limit.");
+      total += size;
+      content = [];
     } else invalid("unknown blob type.");
     total += typeof content === "string" ? content.length * 2 : content.length;
     if (
@@ -160,6 +184,14 @@ function checkedHistory(
   }
   const blobs: Record<string, ProjectContent> = Object.create(null);
   for (const { key, content } of checked) {
+    if (attachmentSize) {
+      if (typeof content !== "string" && !(content instanceof Uint8Array))
+        for (const byte of content)
+          if (typeof byte !== "number" || !Number.isInteger(byte) || byte < 0 || byte > 255)
+            invalid("blob contains a non-byte value.");
+      blobs[key] = ""; // Presence only: preflight never copies or hashes blob payloads.
+      continue;
+    }
     let owned: ProjectContent;
     if (typeof content === "string") owned = content;
     else if (content instanceof Uint8Array) owned = content.slice();
@@ -215,6 +247,11 @@ function checkedHistory(
           const blob = value === null ? null : hash(value);
           if (blob !== null && !Object.hasOwn(blobs, blob))
             invalid("manifest names a missing blob.");
+          if (blob !== null && Object.hasOwn(attachments, blob)) {
+            if (key !== `attachment:${attachments[blob]}`)
+              invalid("image attachment must match its document key.");
+            referencedAttachments.add(blob);
+          }
           return [key, blob];
         }),
       ),
@@ -265,6 +302,8 @@ function checkedHistory(
     commits.push(commit);
     byId[id] = commit;
   }
+  if (Object.keys(attachments).some((blob) => !referencedAttachments.has(blob)))
+    invalid("image attachment blob must belong to an attachment document.");
   if ([...prunedParents].some((id) => Object.hasOwn(byId, id) || !usedParents.has(id)))
     invalid("pruned parent must name a missing ancestor of a retained commit.");
   const cursor = envelope["cursor"] === null ? null : hash(envelope["cursor"]);

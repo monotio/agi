@@ -1,5 +1,11 @@
 import { advancedBytes } from "./lzh.ts";
-import { diskView, type DiskFiles } from "./files.ts";
+import {
+  diskView,
+  createDiskExtractionBudget,
+  reserveDiskBytes,
+  type DiskExtractionBudget,
+  type DiskFiles,
+} from "./files.ts";
 import { readFat12 } from "./fat12.ts";
 
 /** TeleDisk records, sector RLE and flags, from the public format notes:
@@ -16,7 +22,10 @@ function checksum(bytes: Uint8Array): number {
   return crc;
 }
 
-export function readTeleDisk(input: Uint8Array): DiskFiles {
+export function readTeleDisk(
+  input: Uint8Array,
+  budget: DiskExtractionBudget = createDiskExtractionBudget(),
+): DiskFiles {
   const header = diskView(input, 0, 12);
   const advanced = input[0] === 116 && input[1] === 100;
   if ((!advanced && (input[0] !== 84 || input[1] !== 68)) || input[2] !== 0)
@@ -78,6 +87,7 @@ export function readTeleDisk(input: Uint8Array): DiskFiles {
         // Copy protection may deliberately store data that is not readable.
         // Consume the record, leaving its physical sector unavailable to FAT.
         if (flags & 0x42 || size !== 512) continue;
+        reserveDiskBytes(budget, size);
         decoded = new Uint8Array(size);
         let written = 0;
         const append = (pattern: Uint8Array, repeats: number): void => {
@@ -130,6 +140,7 @@ export function readTeleDisk(input: Uint8Array): DiskFiles {
   const total = hasBpb ? bpb!.getUint16(19, true) : (maxCylinder + 1) * heads * perTrack;
   if (!perTrack || perTrack > 36 || ![1, 2].includes(heads) || total < 320 || total > 2880)
     throw new Error("TeleDisk has an unreadable PC geometry. Add a raw sector image.");
+  reserveDiskBytes(budget, total * 512);
   const image = new Uint8Array(total * 512);
   const unavailable = new Set<number>();
   for (let logical = 0; logical < total; logical++) {
@@ -140,5 +151,5 @@ export function readTeleDisk(input: Uint8Array): DiskFiles {
     if (data) image.set(data, logical * 512);
     else unavailable.add(logical);
   }
-  return readFat12(image, unavailable);
+  return readFat12(image, unavailable, budget);
 }

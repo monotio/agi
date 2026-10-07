@@ -1,7 +1,13 @@
 /** Private archives store shared image bytes once, outside the JSON envelopes. */
 import { sha256Hex } from "../../../src/crypto.ts";
-import type { PortableProjectWorkspace } from "../../../src/authoring/projectWorkspace.ts";
-import type { PortableProjectHistory } from "../../../src/authoring/projectHistoryCodec.ts";
+import {
+  preflightProjectWorkspace,
+  type PortableProjectWorkspace,
+} from "../../../src/authoring/projectWorkspace.ts";
+import {
+  preflightProjectHistory,
+  type PortableProjectHistory,
+} from "../../../src/authoring/projectHistoryCodec.ts";
 import type { ZipFileInput } from "./zip.ts";
 
 export function externalizeImageAttachments(
@@ -58,36 +64,55 @@ export function externalizeImageAttachments(
   };
 }
 
-/** Expand only tagged byte holders; the normal strict codecs validate the result. */
+/** Preflight both envelopes before sharing verified attachment arrays across them. */
 export function hydrateImageAttachments(
-  value: unknown,
+  workspace: unknown,
+  history: unknown,
   entries: ReadonlyMap<string, Uint8Array>,
   root: string,
-  depth = 0,
-): unknown {
-  if (depth > 40) throw new Error("Image attachment metadata is nested too deeply.");
-  if (Array.isArray(value))
-    return value.map((child) => hydrateImageAttachments(child, entries, root, depth + 1));
-  if (!value || typeof value !== "object") return value;
-  const record = value as Record<string, unknown>;
-  if (record["type"] === "attachment") {
-    if (
-      Object.keys(record).length !== 2 ||
-      typeof record["hash"] !== "string" ||
-      !/^[a-f0-9]{64}$/.test(record["hash"])
-    )
-      throw new Error("Invalid image attachment fields.");
-    const bytes = entries.get(`${root}ATTACHMENTS/${record["hash"]}.bin`.toUpperCase());
-    if (!bytes || sha256Hex(bytes) !== record["hash"])
-      throw new Error("Missing or corrupt image attachment.");
-    return { type: "bytes", bytes: Array.from(bytes) };
+): { workspace: unknown; history: unknown } {
+  const expanded: Record<string, readonly number[]> = Object.create(null);
+  function attachment(hash: string): Uint8Array {
+    const bytes = entries.get(`${root}ATTACHMENTS/${hash}.bin`.toUpperCase());
+    if (!bytes) throw new Error("Missing image attachment. Add a complete project file.");
+    return bytes;
   }
-  // Ordinary byte arrays stay intact; walking each pixel serves no validation purpose.
-  if (record["type"] === "bytes") return record;
-  return Object.fromEntries(
-    Object.entries(record).map(([key, child]) => [
-      key,
-      hydrateImageAttachments(child, entries, root, depth + 1),
-    ]),
-  );
+  const size = (hash: string) => attachment(hash).length;
+  if (workspace !== undefined) preflightProjectWorkspace(workspace, size);
+  if (history !== undefined) preflightProjectHistory(history, sha256Hex, size);
+  function hydrate(value: unknown): unknown {
+    const holder = value as Record<string, unknown>;
+    if (holder["type"] !== "attachment") return value;
+    const hash = holder["hash"] as string;
+    if (!Object.hasOwn(expanded, hash)) {
+      const bytes = attachment(hash);
+      if (sha256Hex(bytes) !== hash)
+        throw new Error("Corrupt image attachment. Add a fresh copy of the project file.");
+      expanded[hash] = Object.freeze(Array.from(bytes));
+    }
+    return { type: "bytes", bytes: expanded[hash] };
+  }
+  const storedWorkspace = workspace as PortableProjectWorkspace | undefined;
+  const storedHistory = history as PortableProjectHistory | undefined;
+  return {
+    workspace:
+      storedWorkspace === undefined
+        ? undefined
+        : {
+            ...storedWorkspace,
+            documents: storedWorkspace.documents.map((document) => ({
+              ...document,
+              content: hydrate(document.content),
+            })),
+          },
+    history:
+      storedHistory === undefined
+        ? undefined
+        : {
+            ...storedHistory,
+            blobs: Object.fromEntries(
+              Object.entries(storedHistory.blobs).map(([key, holder]) => [key, hydrate(holder)]),
+            ),
+          },
+  };
 }
