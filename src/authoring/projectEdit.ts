@@ -11,15 +11,23 @@ import {
   ProjectDocumentCompileError,
   readBindingsDocument,
   readMusicDocument,
+  readWordsDocument,
+  projectDocumentErrorRow,
   type ProjectDocumentsCompile,
 } from "./projectDocuments.ts";
 import type { ProjectApplication, ProjectModel, ProjectProposal } from "./projectModel.ts";
-import { pruneWorldLaunches } from "./launches.ts";
+import { pruneWorldLaunches, readWorldLaunches } from "./launches.ts";
+import { roomEntryProblem } from "../runtime/roomEntry.ts";
+import { readInventoryObjects } from "./inventory.ts";
 import { occupiedProjectNumbers } from "./projectRenumber.ts";
 import type { ResourceKind } from "../types.ts";
 import { inspectProjectReferences } from "./projectReferences.ts";
 import { inspectProjectRemoval, PROJECT_RESOURCE_KEY } from "./projectRemoval.ts";
 import { inspectProjectDocumentDependencies } from "./projectSelection.ts";
+import { createProjectLogicLanguageSnapshot } from "./projectLanguage.ts";
+import { parseWordsTok, buildWordsTok } from "../logic/words.ts";
+import { projectDiagnosticRanges } from "./projectDiagnosticRange.ts";
+import { jsonSourceRange } from "./jsonSourceRange.ts";
 
 export interface ReviewedRenumbering {
   readonly key: string;
@@ -29,15 +37,24 @@ export interface ProjectValidationPolicy {
   /** The creator reviewed computed uses before moving this resource. */
   readonly reviewedRenumbering?: ReviewedRenumbering | undefined;
   readonly allowMissingRooms?: boolean;
+  readonly launch?: { readonly room: number; readonly id: string } | undefined;
   /** Exact removed LOGIC keys whose unknown new.room.v risks the creator reviewed. */
   readonly reviewedComputedRoomJumps?: readonly string[] | undefined;
 }
-interface ProjectEditDiagnostic {
+export interface ProjectEditDiagnostic {
   readonly document: string;
   readonly severity: "error" | "warning";
   readonly code: string;
   readonly message: string;
   readonly preExisting: boolean;
+  readonly start?: number;
+  readonly end?: number;
+  readonly row?: number;
+  readonly navigation?: {
+    readonly key: string;
+    readonly launchId?: string;
+    readonly item?: number;
+  };
 }
 export interface PreparedProjectEdit {
   readonly status: "ready" | "diagnostics";
@@ -100,11 +117,103 @@ export function prepareProjectEdit(input: {
         documents = proposal.documents();
       }
     }
-    // Strict compilation remains the diagnostic authority for incomplete text.
-    compiled = compileProjectDocuments({ files, profileId: input.profileId, documents });
-    dependencies = inspectProjectDocumentDependencies({ documents, profileId: input.profileId });
     const bindingsText = documents["bindings"];
-    const bindings = readBindingsDocument(typeof bindingsText === "string" ? bindingsText : "{}");
+    let bindings: ReturnType<typeof readBindingsDocument>;
+    try {
+      bindings = readBindingsDocument(typeof bindingsText === "string" ? bindingsText : "{}");
+    } catch (error) {
+      throw new ProjectDocumentCompileError("bindings", error);
+    }
+    const words = documents["words"];
+    let dictionary: Map<string, number> = new Map();
+    if (
+      Object.entries(documents).some(
+        ([key, value]) => key.startsWith("logic:") && typeof value === "string",
+      )
+    ) {
+      try {
+        dictionary = new Map<string, number>(
+          words
+            ? parseWordsTok(
+                typeof words === "string" ? buildWordsTok(readWordsDocument(words)) : words,
+              ).map(({ word, id }) => [word, id])
+            : [],
+        );
+      } catch (error) {
+        throw new ProjectDocumentCompileError("words", error);
+      }
+    }
+    for (const [document, source] of Object.entries(documents)) {
+      if (!document.startsWith("logic:") || typeof source !== "string") continue;
+      for (const entry of createProjectLogicLanguageSnapshot({
+        source,
+        profile,
+        dictionary,
+        bindings,
+      }).diagnostics)
+        diagnostics.push({
+          document,
+          code: "compile",
+          severity: entry.severity,
+          message: entry.message,
+          start: entry.start,
+          end: entry.end,
+          preExisting: false,
+        });
+    }
+    const sourceRange = projectDiagnosticRanges(documents, { profile, dictionary, bindings });
+    // Strict compilation remains the authority for the complete working image.
+    compiled = compileProjectDocuments({ files, profileId: input.profileId, documents });
+    const selectedLaunch = input.policy.launch;
+    const launchWorld = documents["world"];
+    if (selectedLaunch && typeof launchWorld === "string") {
+      const world = JSON.parse(launchWorld) as AuthoringState["world"];
+      const entries = world.launches?.[selectedLaunch.room]?.entries ?? [];
+      const index = entries.findIndex((entry) => entry.id === selectedLaunch.id);
+      const launch = entries[index];
+      if (launch) {
+        const inventoryCount = readInventoryObjects(compiled.files().get("OBJECT"), profile).length;
+        const problem = roomEntryProblem(launch, inventoryCount);
+        if (problem) {
+          let readable = false;
+          try {
+            readWorldLaunches({ [selectedLaunch.room]: { entries } });
+            readable = true;
+          } catch {
+            /* A malformed Launch can be repaired in its world document. */
+          }
+          diagnostics.push({
+            document: "world",
+            code: "launch-input",
+            severity: "error",
+            message: problem,
+            preExisting: false,
+            ...jsonSourceRange(launchWorld, [
+              "launches",
+              String(selectedLaunch.room),
+              "entries",
+              index,
+            ]),
+            ...(readable
+              ? {
+                  navigation: {
+                    key: `launches:${selectedLaunch.room}`,
+                    launchId: selectedLaunch.id,
+                    ...(Object.keys(launch.items ?? {}).some((id) => Number(id) >= inventoryCount)
+                      ? {
+                          item: Number(
+                            Object.keys(launch.items!).find((id) => Number(id) >= inventoryCount),
+                          ),
+                        }
+                      : {}),
+                  },
+                }
+              : {}),
+          });
+        }
+      }
+    }
+    dependencies = inspectProjectDocumentDependencies({ documents, profileId: input.profileId });
     const beforeBindings = before["bindings"];
     const baseline = inspectProjectReferences({
       container: openContainer(new Map(Object.entries(files)), { profile }),
@@ -139,6 +248,12 @@ export function prepareProjectEdit(input: {
       const preExisting = (existing[key] ?? 0) > 0;
       if (preExisting) existing[key] = existing[key]! - 1;
       diagnostics.push({
+        ...sourceRange(diagnostic),
+        ...(diagnostic.document === "bindings" &&
+        diagnostic.command &&
+        typeof bindingsText === "string"
+          ? jsonSourceRange(bindingsText, [diagnostic.command, "num"])
+          : {}),
         document: diagnostic.document,
         code: diagnostic.code,
         message: diagnostic.message,
@@ -198,6 +313,9 @@ export function prepareProjectEdit(input: {
       }
       const music = documents["music"];
       if (typeof music === "string") authoring.music = readMusicDocument(music);
+      const unselectedDrafts = (input.drafts ?? []).filter(
+        (draft) => !input.proposal.changes().some((change) => change.key === draft.key),
+      );
       for (const finding of inspectProjectRemoval({
         removals: removedResources,
         renumbering: reviewedMove ? renumbering?.key : undefined,
@@ -205,16 +323,21 @@ export function prepareProjectEdit(input: {
         authoring,
         tests: documents["tests"],
         references: documents["references"],
-        drafts: (input.drafts ?? []).filter(
-          (draft) => !input.proposal.changes().some((change) => change.key === draft.key),
-        ),
+        drafts: unselectedDrafts,
         keptBindings: readBindingsDocument(
           typeof beforeBindings === "string" ? beforeBindings : "{}",
         ),
         profile,
-      }))
+      })) {
+        const source =
+          unselectedDrafts.find((draft) => draft.key === finding.document)?.content ??
+          documents[finding.document];
         diagnostics.push({
           ...finding,
+          ...sourceRange(finding),
+          ...(finding.path && typeof source === "string"
+            ? jsonSourceRange(source, finding.path)
+            : {}),
           code: finding.computedRoomJump ? "computed-room-jump" : "removal-use",
           severity:
             (reviewedMove && finding.computedResource === renumbering?.key) ||
@@ -224,15 +347,22 @@ export function prepareProjectEdit(input: {
               : "error",
           preExisting: false,
         });
+      }
     }
   } catch (error) {
-    diagnostics.push({
-      document: error instanceof ProjectDocumentCompileError ? error.key : "project",
-      severity: "error",
-      code: "compile",
-      message: error instanceof Error ? error.message : String(error),
-      preExisting: false,
-    });
+    const document = error instanceof ProjectDocumentCompileError ? error.key : "project";
+    const source = documents[document];
+    const row = typeof source === "string" ? projectDocumentErrorRow(document, source) : undefined;
+    if (!diagnostics.some((entry) => entry.document === document && entry.severity === "error"))
+      diagnostics.push({
+        document,
+        ...(row === undefined ? {} : { row }),
+        ...(row === undefined || typeof source !== "string" ? {} : jsonSourceRange(source, [row])),
+        severity: "error",
+        code: "compile",
+        message: error instanceof Error ? error.message : String(error),
+        preExisting: false,
+      });
   }
   if (diagnostics.some((diagnostic) => diagnostic.severity === "error")) compiled = undefined;
   return Object.freeze({

@@ -85,6 +85,9 @@ export class LogicAnalysisClient {
     const next: LogicAnalysisProject = {
       revision: project.revision,
       profileId: project.profileId,
+      ...(project.diagnostics
+        ? { diagnostics: project.diagnostics.map((entry) => ({ ...entry })) }
+        : {}),
       objects: [...(project.objects ?? [])],
       ...(project.inventory ? { inventory: project.inventory.map((item) => ({ ...item })) } : {}),
       ...(project.inventoryDocument ? { inventoryDocument: { ...project.inventoryDocument } } : {}),

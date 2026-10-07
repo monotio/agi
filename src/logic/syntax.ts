@@ -234,8 +234,8 @@ function lex(source: string, errors?: AssemblerError[]): Token[] {
 export type Ref =
   /** A number literal keeps its token, so a byte operand out of range reports where it was written. */
   | { kind: "num"; value: number; tok?: Token }
-  | { kind: "v" | "f" | "o" | "i" | "m" | "s" | "w" | "c"; index: number }
-  | { kind: "str"; text: string };
+  | { kind: "v" | "f" | "o" | "i" | "m" | "s" | "w" | "c"; index: number; tok?: Token }
+  | { kind: "str"; text: string; tok?: Token };
 
 export type TestExpr =
   | { type: "cond"; name: string; args: Ref[]; tok: Token; end?: number }
@@ -567,7 +567,7 @@ class Parser {
       if (n > 0xffff) throw new AssemblerError("value out of range 0..65535", tok.line, tok.col);
       return { kind: "num", value: n, tok };
     }
-    if (tok.type === "string") return { kind: "str", text: tok.text };
+    if (tok.type === "string") return { kind: "str", text: tok.text, tok };
     if (tok.type === "ident") {
       const m = /^([vfomsiwc])(\d+)$/.exec(tok.text);
       if (m) {
@@ -575,13 +575,13 @@ class Parser {
         const limit = m[1] === "w" ? 65535 : 255;
         if (idx > limit)
           throw new AssemblerError(`index out of range 0..${limit}`, tok.line, tok.col);
-        return { kind: m[1] as "v" | "f" | "o" | "i" | "m" | "s" | "w" | "c", index: idx };
+        return { kind: m[1] as "v" | "f" | "o" | "i" | "m" | "s" | "w" | "c", index: idx, tok };
       }
       const defined = this.defines.get(tok.text);
       this.reference("define", tok);
-      if (defined !== undefined) return defined;
+      if (defined !== undefined) return { ...defined, tok };
       const builtin = Object.hasOwn(this.builtins, tok.text) ? this.builtins[tok.text] : undefined;
-      if (builtin) return { kind: builtin.kind, index: builtin.num };
+      if (builtin) return { kind: builtin.kind, index: builtin.num, tok };
       throw new AssemblerError(
         `unknown identifier '${tok.text}' (want vN/fN/oN/iN/mN/sN/wN/cN, a number, or a #define)`,
         tok.line,

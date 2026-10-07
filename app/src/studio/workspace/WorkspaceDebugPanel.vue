@@ -3,6 +3,7 @@ import UiIcon from "../../ui/UiIcon.vue";
 import { computed, ref } from "vue";
 import { VOCABULARY } from "../../../../src/vocabulary.ts";
 import type { WorkspaceDebug } from "./workspaceDebug.ts";
+import type { ProjectEditDiagnostic } from "../../../../src/authoring/projectEdit.ts";
 import UiButton from "../../ui/UiButton.vue";
 import {
   numberedLabel,
@@ -15,10 +16,13 @@ import { systemName } from "../../../../src/logic/systemNames.ts";
 /** One debug view inside the frame: the workspace tab names which one. */
 const props = defineProps<{
   debug?: WorkspaceDebug | undefined;
-  problems: readonly { message: string; document?: string }[];
+  problems: readonly ProjectEditDiagnostic[];
   view: "problems" | "variables" | "watch" | "stack" | "breakpoints";
 }>();
-const emit = defineEmits<{ reveal: [logic: number, line: number] }>();
+const emit = defineEmits<{
+  reveal: [logic: number, line: number];
+  problem: [problem: ProjectEditDiagnostic];
+}>();
 const labels = useProjectLabels();
 const expression = ref("");
 const filter = ref("");
@@ -95,10 +99,15 @@ function editValue(kind: "variable" | "flag", slot: number, event: Event): void 
     <div :aria-label="view" class="workspace-debug-content">
       <template v-if="view === 'problems'">
         <p v-if="problems.length === 0">Everything builds.</p>
-        <p v-for="(problem, index) in problems" :key="index">
+        <button
+          v-for="(problem, index) in problems"
+          :key="index"
+          class="workspace-debug-frame"
+          @click="emit('problem', problem)"
+        >
           <strong v-if="problem.document">{{ documentLabel(problem.document, labels) }}: </strong
           >{{ problem.message }}
-        </p>
+        </button>
       </template>
       <template v-else-if="view === 'variables' && debug">
         <label class="workspace-debug-filter"

@@ -20,12 +20,14 @@ interface Reference {
   readonly document: string;
   /** Code-section byte offset; omitted for auxiliary documents. */
   readonly pc?: number;
+  readonly operand?: number;
   readonly command: string;
   readonly target: Target;
 }
 interface Diagnostic {
   readonly document: string;
   readonly pc?: number;
+  readonly operand?: number;
   readonly command?: string;
   readonly code:
     | "missing-resource"
@@ -175,6 +177,7 @@ export function inspectProjectReferences(input: {
           const value = call.args[resource.operand]!;
           add({
             ...origin,
+            operand: resource.operand,
             target: resource.variable
               ? { kind: resource.kind, variable: value }
               : { kind: resource.kind, num: value },
@@ -182,12 +185,12 @@ export function inspectProjectReferences(input: {
         }
         call.operands.forEach((operand, index) => {
           if (operand === "item")
-            add({ ...origin, target: { kind: "item", num: call.args[index]! } });
+            add({ ...origin, operand: index, target: { kind: "item", num: call.args[index]! } });
         });
         if (call.name === "said")
-          for (const id of call.args)
+          for (const [index, id] of call.args.entries())
             if (id !== SAID_ANY_WORD && id !== SAID_REST)
-              add({ ...origin, target: { kind: "word", num: id } });
+              add({ ...origin, operand: index, target: { kind: "word", num: id } });
       }
     } catch (error) {
       unreadable(document, error);

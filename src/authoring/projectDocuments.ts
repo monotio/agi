@@ -219,6 +219,11 @@ function readWordEntries(value: unknown): WordEntry[] {
   });
 }
 
+/** The compiler's WORDS text reader, also used by source diagnostics. */
+export function readWordsDocument(source: string): readonly WordEntry[] {
+  return readWordEntries(parseJson(source, "words"));
+}
+
 interface InventoryItem {
   readonly name: string;
   readonly startingRoom: number;
@@ -246,6 +251,26 @@ function readInventoryItems(value: unknown): InventoryItem[] {
       throw new Error(`Invalid inventory item '${name}': startingRoom must be an integer 0..255.`);
     return { name, startingRoom: room === undefined ? 0 : (room as number) };
   });
+}
+
+/** Locate a refused table entry with the same readers and builders as compilation. */
+export function projectDocumentErrorRow(key: string, source: string): number | undefined {
+  if (key !== "words" && key !== "inventory") return;
+  let rows: unknown;
+  try {
+    rows = JSON.parse(source);
+  } catch {
+    return;
+  }
+  if (!Array.isArray(rows)) return;
+  for (const [index, row] of rows.entries()) {
+    try {
+      if (key === "words") buildWordsTok(readWordEntries([row]));
+      else buildObjectFile(readInventoryItems([row]));
+    } catch {
+      return index;
+    }
+  }
 }
 
 function readSoundTracks(value: unknown): SoundTrackInput[] {
@@ -409,7 +434,7 @@ function compileTextDocument(
 ): Uint8Array {
   switch (key.type) {
     case "words":
-      return buildWordsTok(readWordEntries(parseJson(text, "words")));
+      return buildWordsTok(readWordsDocument(text));
     case "inventory":
       return buildObjectFile(
         readInventoryItems(parseJson(text, "inventory")),
@@ -663,7 +688,7 @@ export function compileProjectDocuments(
   try {
     if (wordsDocument !== undefined) {
       if (typeof wordsDocument === "string") {
-        wordsBytes = buildWordsTok(readWordEntries(parseJson(wordsDocument, "words")));
+        wordsBytes = buildWordsTok(readWordsDocument(wordsDocument));
       } else {
         const current = container.files.get("WORDS.TOK");
         if (!current || !sameBytes(current, wordsDocument)) parseWordsTok(wordsDocument);

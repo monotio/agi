@@ -11,12 +11,16 @@ import { expandProjectLogic } from "./projectLogic.ts";
 import { resourceReferenceOperand } from "./projectReferences.ts";
 
 interface SourceReference {
+  readonly operandStart: number;
+  readonly operandEnd: number;
   /** Authored UTF-16 call offset; never a generated binding location. */
   readonly start: number;
   readonly command: string;
   readonly dependency: string;
 }
 interface UnresolvedReference {
+  readonly operandStart: number;
+  readonly operandEnd: number;
   readonly start: number;
   readonly command: string;
   readonly kind: string;
@@ -56,11 +60,16 @@ export function inspectProjectSourceDependencies(input: {
     const spec = condition ? conditionSpec(call.name) : actionSpec(call.name, input.profile);
     if (!spec) return;
     const start = call.tok.start - base;
+    const resource = condition ? undefined : resourceReferenceOperand(call.name, input.profile);
+    const token = call.args[resource?.operand ?? 0]?.tok;
+    const range = {
+      operandStart: token ? token.start - base : start,
+      operandEnd: token ? token.end - base : start + call.name.length,
+    };
     const add = (dependency: string): void => {
       dependencies.add(dependency);
-      references.push({ start, command: call.name, dependency });
+      references.push({ ...range, start, command: call.name, dependency });
     };
-    const resource = condition ? undefined : resourceReferenceOperand(call.name, input.profile);
     if (resource) {
       const arg = call.args[resource.operand];
       if (resource.kind === "item") add("inventory");
@@ -73,9 +82,15 @@ export function inspectProjectSourceDependencies(input: {
             ? arg.value
             : arg.index;
       if (value === undefined || value < 0 || value > 255) {
-        unresolved.push({ start, command: call.name, kind: resource.kind });
+        unresolved.push({ ...range, start, command: call.name, kind: resource.kind });
       } else if (resource.variable) {
-        unresolved.push({ start, command: call.name, kind: resource.kind, variable: value });
+        unresolved.push({
+          ...range,
+          start,
+          command: call.name,
+          kind: resource.kind,
+          variable: value,
+        });
       } else if (resource.kind !== "item") {
         add(`${resource.kind}:${value}`);
       }

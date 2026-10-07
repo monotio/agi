@@ -3,10 +3,28 @@ import { numberedLabel } from "../../../../src/logic/numberedLabels.ts";
 import { useProjectLabels } from "../../shell/useProjectLabels.ts";
 import UiIcon from "../../ui/UiIcon.vue";
 import { VOCABULARY } from "../../../../src/vocabulary.ts";
-import { computed } from "vue";
+import { computed, watch, nextTick, useTemplateRef } from "vue";
 import UiButton from "../../ui/UiButton.vue";
-const props = defineProps<{ kind: "inventory"; source: string; readOnly?: boolean }>();
+const props = defineProps<{
+  kind: "inventory";
+  source: string;
+  readOnly?: boolean;
+  location?: { row?: number; serial: number } | undefined;
+}>();
 const emit = defineEmits<{ edit: [source: string] }>();
+const root = useTemplateRef("root");
+watch(
+  () => props.location,
+  async (location) => {
+    if (location?.row === undefined) return;
+    await nextTick();
+    const rows = root.value?.querySelectorAll("tbody tr");
+    const field = rows?.[location.row]?.querySelector<HTMLInputElement>('input[type="number"]');
+    field?.focus();
+    field?.select();
+  },
+  { immediate: true },
+);
 const labels = useProjectLabels();
 const rows = computed<readonly (readonly [string, number])[]>(() => {
   try {
@@ -38,7 +56,7 @@ function add(): void {
 }
 </script>
 <template>
-  <div class="workspace-table" data-testid="workspace-table-editor">
+  <div ref="root" class="workspace-table" data-testid="workspace-table-editor">
     <table>
       <thead>
         <tr>

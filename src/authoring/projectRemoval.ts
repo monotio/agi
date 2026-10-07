@@ -48,6 +48,11 @@ export interface RemovalFinding {
   readonly message: string;
   readonly computedRoomJump?: string;
   readonly computedResource?: string;
+  readonly pc?: number;
+  readonly operand?: number;
+  readonly start?: number;
+  readonly end?: number;
+  readonly path?: readonly (string | number)[];
 }
 
 export interface ProjectRemovalInput {
@@ -86,6 +91,7 @@ type Report = (
   message: string,
   computedRoomJump?: string,
   computedResource?: string,
+  origin?: Pick<RemovalFinding, "pc" | "operand" | "start" | "end" | "path">,
 ) => void;
 
 function inspectFlowTargets(
@@ -126,6 +132,10 @@ function inspectFlowTargets(
             `${key} is still used by ${document} at offset ${use.offset} (${use.command}).`,
             undefined,
             resourceReferenceOperand(use.command, input.profile)?.variable ? key : undefined,
+            {
+              pc: use.offset,
+              operand: resourceReferenceOperand(use.command, input.profile)?.operand ?? 0,
+            },
           );
         if (use.unknown && kind === "logic" && use.command === "new.room.v") {
           const insns = flow.instructions.get(use.logic) ?? [];
@@ -138,6 +148,7 @@ function inspectFlowTargets(
             `Room ${num} can still be reached by a computed room jump in LOGIC ${use.logic}${teleport ? " (the debug teleport)" : ""}. Remove anyway?`,
             key,
             key,
+            { pc: use.offset, operand: 0 },
           );
         } else if (use.unknown && (use.kind === kind || use.kind === "logic"))
           report(
@@ -145,6 +156,10 @@ function inspectFlowTargets(
             `${key} may still be used: ${document} at offset ${use.offset} (${use.command}) has a computed or unresolved ${use.kind.toUpperCase()} target.`,
             undefined,
             key,
+            {
+              pc: use.offset,
+              operand: resourceReferenceOperand(use.command, input.profile)?.operand ?? 0,
+            },
           );
       }
   };
@@ -177,11 +192,23 @@ function inspectWorldPlan(
   for (const [num, room] of Object.entries(world.rooms)) {
     const key = `logic:${num}`;
     if (removedKeys.has(key))
-      report(document, `${key} is still the planned room '${room.title || num}'.`);
+      report(
+        document,
+        `${key} is still the planned room '${room.title || num}'.`,
+        undefined,
+        undefined,
+        { path: ["rooms", num] },
+      );
     for (const [name, destination] of Object.entries(room.exits)) {
       const exit = `logic:${destination}`;
       if (removedKeys.has(exit))
-        report(document, `${exit} is still the '${name}' exit of planned room ${num}.`);
+        report(
+          document,
+          `${exit} is still the '${name}' exit of planned room ${num}.`,
+          undefined,
+          undefined,
+          { path: ["rooms", num, "exits", name] },
+        );
     }
   }
 }
@@ -198,6 +225,9 @@ function inspectBindingReservations(
       report(
         document,
         `${key} is still reserved by binding '${name}'; remove or reassign it in the same candidate.`,
+        undefined,
+        undefined,
+        { path: [name, "num"] },
       );
   }
 }
@@ -214,6 +244,9 @@ function inspectMusicIntent(
       report(
         document,
         `${key} still carries music intent; remove its entry in the same candidate.`,
+        undefined,
+        undefined,
+        { path: [num] },
       );
   }
 }
@@ -245,30 +278,51 @@ function inspectTestsDocument(
     );
     return;
   }
-  for (const test of parsed.tests) {
+  for (const [index, test] of parsed.tests.entries()) {
+    const path = ["tests", index] as const;
     const label = `test '${test.name}'`;
     if (test.setup !== undefined && renumbering === undefined)
-      report(document, `${label} restores a save image whose resource uses cannot be inventoried.`);
+      report(
+        document,
+        `${label} restores a save image whose resource uses cannot be inventoried.`,
+        undefined,
+        undefined,
+        { path: [...path, "setup"] },
+      );
     if (test.setup && renumbering !== undefined)
       for (const reference of testSetupReferences(test.setup, profile)) {
         const key = `${reference.kind}:${reference.num}`;
-        if (removedKeys.has(key)) report(document, `${label} still restores ${key}.`);
+        if (removedKeys.has(key))
+          report(document, `${label} still restores ${key}.`, undefined, undefined, {
+            path: [...path, "setup"],
+          });
       }
     const entered = roomUse(test.room, removedKeys);
-    if (entered !== undefined) report(document, `${label} still enters ${entered}.`);
+    if (entered !== undefined)
+      report(document, `${label} still enters ${entered}.`, undefined, undefined, {
+        path: [...path, "room"],
+      });
     const expected = roomUse(test.expect?.["room"], removedKeys);
-    if (expected !== undefined) report(document, `${label} still expects ${expected}.`);
+    if (expected !== undefined)
+      report(document, `${label} still expects ${expected}.`, undefined, undefined, {
+        path: [...path, "expect", "room"],
+      });
     const object = test.expect?.["object"];
     if (isRecord(object)) {
       const view = object["view"];
       if (typeof view === "number" && Number.isInteger(view) && removedKeys.has(`view:${view}`))
-        report(document, `${label} still expects view:${view}.`);
+        report(document, `${label} still expects view:${view}.`, undefined, undefined, {
+          path: [...path, "expect", "object", "view"],
+        });
     }
-    for (const step of test.steps) {
+    for (const [stepIndex, step] of test.steps.entries()) {
       const until = step["until"];
       if (!isRecord(until)) continue;
       const waited = roomUse(until["room"], removedKeys);
-      if (waited !== undefined) report(document, `${label} still waits for ${waited}.`);
+      if (waited !== undefined)
+        report(document, `${label} still waits for ${waited}.`, undefined, undefined, {
+          path: [...path, "steps", stepIndex, "until", "room"],
+        });
     }
   }
 }
@@ -322,7 +376,13 @@ function inspectReferencesDocument(
   parsed.forEach((entry, index) => {
     const label = `${document} entry ${index}`;
     if (!isRecord(entry) || Object.keys(entry).some((key) => !REFERENCE_FIELDS.includes(key))) {
-      report(document, `${label} has an unrecognized shape, so its uses cannot be inventoried.`);
+      report(
+        document,
+        `${label} has an unrecognized shape, so its uses cannot be inventoried.`,
+        undefined,
+        undefined,
+        { path: [index] },
+      );
       return;
     }
     const kind = entry["kind"];
@@ -332,12 +392,24 @@ function inspectReferencesDocument(
       typeof target !== "number" ||
       !Number.isInteger(target)
     ) {
-      report(document, `${label} has an unrecognized shape, so its uses cannot be inventoried.`);
+      report(
+        document,
+        `${label} has an unrecognized shape, so its uses cannot be inventoried.`,
+        undefined,
+        undefined,
+        { path: [index] },
+      );
       return;
     }
     const key = kind === "room" ? `logic:${target}` : `view:${target}`;
     if (removedKeys.has(key))
-      report(document, `${label} still targets ${key}; removing it would discard the association.`);
+      report(
+        document,
+        `${label} still targets ${key}; removing it would discard the association.`,
+        undefined,
+        undefined,
+        { path: [index, "target"] },
+      );
     const staged = entry["staged"];
     if (staged === undefined) return;
     if (isRecord(staged) && typeof staged["num"] === "number" && Number.isInteger(staged["num"])) {
@@ -346,11 +418,17 @@ function inspectReferencesDocument(
         report(
           document,
           `${label} still stages ${stagedKey}; removing it would discard the association.`,
+          undefined,
+          undefined,
+          { path: [index, "staged", "num"] },
         );
     } else {
       report(
         document,
         `${label} has an unrecognized staged shape, so its uses cannot be inventoried.`,
+        undefined,
+        undefined,
+        { path: [index, "staged"] },
       );
     }
   });
@@ -371,11 +449,12 @@ export function inspectProjectRemoval(input: ProjectRemovalInput): readonly Remo
   const removedKeys: ReadonlySet<string> = new Set(removed.map((entry) => entry.key));
   const findings: RemovalFinding[] = [];
   const seen = new Set<string>();
-  const report: Report = (document, message, computedRoomJump, computedResource) => {
+  const report: Report = (document, message, computedRoomJump, computedResource, origin) => {
     const marker = `${document}${message}`;
     if (seen.has(marker)) return;
     seen.add(marker);
     findings.push({
+      ...origin,
       document,
       message,
       ...(computedRoomJump === undefined ? {} : { computedRoomJump }),
@@ -404,6 +483,10 @@ export function inspectProjectRemoval(input: ProjectRemovalInput): readonly Remo
             `${key} may still be used: ${reference.document} reads a ${kind} target from v${target.variable} (${reference.command}).`,
             undefined,
             key,
+            {
+              ...(reference.pc === undefined ? {} : { pc: reference.pc }),
+              ...(reference.operand === undefined ? {} : { operand: reference.operand }),
+            },
           );
       continue;
     }
@@ -414,6 +497,12 @@ export function inspectProjectRemoval(input: ProjectRemovalInput): readonly Remo
       report(
         reference.document,
         `${key} is still used by ${reference.document} (${reference.command}).`,
+        undefined,
+        undefined,
+        {
+          ...(reference.pc === undefined ? {} : { pc: reference.pc }),
+          ...(reference.operand === undefined ? {} : { operand: reference.operand }),
+        },
       );
   }
 
@@ -552,7 +641,14 @@ function inspectSourceDraft(
       return;
     }
     if (analysis.syntaxDiagnostics.length > 0) {
-      report(key, `draft ${key} has syntax damage, so its uses cannot be inventoried.`);
+      const diagnostic = analysis.syntaxDiagnostics[0]!;
+      report(
+        key,
+        `draft ${key} has syntax damage, so its uses cannot be inventoried.`,
+        undefined,
+        undefined,
+        { start: diagnostic.start, end: diagnostic.end },
+      );
       return;
     }
     for (const reference of analysis.references)
@@ -560,6 +656,9 @@ function inspectSourceDraft(
         report(
           key,
           `${reference.dependency} is still used by draft ${key} (${reference.command}).`,
+          undefined,
+          undefined,
+          { start: reference.operandStart, end: reference.operandEnd },
         );
     for (const unresolved of analysis.unresolved)
       for (const removedResource of removed)
@@ -569,6 +668,9 @@ function inspectSourceDraft(
             unresolved.variable === undefined
               ? `${removedResource.key} may still be used: draft ${key} reads an unresolvable ${unresolved.kind} target (${unresolved.command}).`
               : `${removedResource.key} may still be used: draft ${key} reads a ${unresolved.kind} target from v${unresolved.variable} (${unresolved.command}).`,
+            undefined,
+            undefined,
+            { start: unresolved.operandStart, end: unresolved.operandEnd },
           );
   }
 }
