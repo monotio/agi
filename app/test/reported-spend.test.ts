@@ -5,12 +5,9 @@ import { imageReportedSpend } from "../src/studio/creative/imageSpend.ts";
 
 test("spent copy uses cents, small amounts, unknown prices and lower bounds", () => {
   const exact = { amount: 0.07, priceKnown: true, incomplete: false, budget: 5 };
-  assert.equal(formatSpent(exact), "Spent $0.07 of your $5.00 budget");
-  assert.equal(
-    formatSpent({ ...exact, amount: 0.009 }),
-    "Spent less than $0.01 of your $5.00 budget",
-  );
-  assert.equal(formatSpent({ ...exact, amount: 0 }), "Spent $0.00 of your $5.00 budget");
+  assert.equal(formatSpent(exact), "$0.07 of $5 spent");
+  assert.equal(formatSpent({ ...exact, amount: 0.009 }), "less than $0.01 of $5 spent");
+  assert.equal(formatSpent({ ...exact, amount: 0 }), "$0.00 of $5 spent");
   assert.equal(formatSpent({ ...exact, priceKnown: false }), "Spent: see your usage");
   assert.equal(
     formatSpent({ ...exact, incomplete: true }),

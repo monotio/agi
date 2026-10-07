@@ -84,9 +84,7 @@ test(
       await expect(page.getByTestId("generate-cancel")).toBeVisible();
       await expect(page.getByTestId("generate-cancel")).toHaveText("Stop");
       await expect(page.getByTestId("generate-spent")).toBeVisible();
-      await expect(page.getByTestId("generate-spent")).toHaveText(
-        "Spent $0.00 of your $5.00 budget",
-      );
+      await expect(page.getByTestId("generate-spent")).toHaveText("$0.00 of $5 spent");
       await expect(page.getByTestId("generate-elapsed")).toBeVisible();
       await expect(page.getByTestId("generate-elapsed")).toHaveText(/[1-9]\d*s/);
       await page.screenshot({

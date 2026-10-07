@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import UiButton from "../ui/UiButton.vue";
-import { formatSpent } from "../agent/reportedSpend.ts";
+import { formatDollars, formatSpent } from "../agent/reportedSpend.ts";
 import type { AgentRunState } from "../agent/agentRun.ts";
 const { task, showText = true } = defineProps<{ task: AgentRunState | null; showText?: boolean }>();
 defineEmits<{ stop: []; resume: [requestLimit?: number]; discard: [] }>();
@@ -63,18 +63,16 @@ const quiet = computed(() =>
         {{ task.progress.text }}
       </p>
     </div>
-    <p v-if="task.requests > 0" class="task-spent" data-testid="agent-spent">
-      {{
+    <div class="task-row">
+      <span v-if="task.requests > 0" class="task-spent" data-testid="agent-spent">{{
         formatSpent({
           amount: task.spent,
           priceKnown: task.priceKnown,
           incomplete: task.usageIncomplete,
           budget: task.budget,
         })
-      }}
-    </p>
-    <div class="task-row">
-      <span>Budget ${{ task.budget.toFixed(2) }}</span>
+      }}</span>
+      <span v-else>Budget {{ formatDollars(task.budget) }}</span>
       <a :href="task.usageUrl ?? 'https://platform.openai.com/usage'" target="_blank" rel="noopener"
         >See your usage</a
       >

@@ -123,9 +123,7 @@ for (const size of [
           "Building the next room…",
         );
         await expect(page.getByTestId("room-generation-spent")).toBeVisible();
-        await expect(page.getByTestId("room-generation-spent")).toHaveText(
-          "Spent $0.00 of your $5.00 budget",
-        );
+        await expect(page.getByTestId("room-generation-spent")).toHaveText("$0.00 of $5 spent");
         const bounds = (await overlay.boundingBox())!;
         const screen = (await page.locator(".screen:visible").boundingBox())!;
         expect(bounds).toEqual(screen);
@@ -217,12 +215,12 @@ for (const size of [
       await walkEast(page);
       const spend = page.getByTestId("room-generation-spent");
       await expect(spend).toBeVisible();
-      await expect(spend).toHaveText("Spent $0.47 of your $5.00 budget");
+      await expect(spend).toHaveText("$0.47 of $5 spent");
       expect(requests).toBe(2);
       await expect(page.getByTestId("room-generation-continue")).toBeHidden();
       release();
       await expect(page.getByTestId("room-generation-continue")).toBeVisible();
-      await expect(spend).toHaveText("Spent $5.12 of your $5.00 budget");
+      await expect(spend).toHaveText("$5.12 of $5 spent");
       expect(requests).toBe(2);
       await expect(page.getByTestId("room-generation-stop")).toBeVisible();
       await page.screenshot({
