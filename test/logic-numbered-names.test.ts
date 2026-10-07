@@ -82,7 +82,7 @@ test("unnamed flag hover and definitions share grouped project evidence", () => 
   const hover = request("textDocument/hover", "f36") as { contents: { value: string } };
   assert.equal(
     hover.contents.value,
-    "```agi\nFlag 36 · unnamed\n```\n\n4 uses across the game.\n\nSet (1): LOGIC 1 line 1\n\nReset (1): LOGIC 1 line 2\n\nChecked (2): LOGIC 1 line 3; LOGIC 2 line 1\n\nName it… F2",
+    "```agi\nFlag 36 · unnamed\n```\n\n4 uses across the game.\n\nSet (1): LOGIC 1 line 1\n\nReset (1): LOGIC 1 line 2\n\nChecked (2): LOGIC 1 line 3; LOGIC 2 line 1\n\nRename… F2",
   );
   assert.deepEqual(request("textDocument/definition", "f36"), [
     { uri, range: { start: { line: 0, character: 4 }, end: { line: 0, character: 7 } } },
@@ -110,7 +110,7 @@ for (const [text, kind, num, name] of [
     const prepared = request("textDocument/prepareRename", text) as { placeholder: string };
     assert.equal(prepared.placeholder, "");
     const hover = JSON.stringify(request("textDocument/hover", text));
-    assert.match(hover, /Name it… F2/);
+    assert.match(hover, /Rename… F2/);
     const heading = {
       flag: "Flag",
       variable: "Variable",

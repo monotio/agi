@@ -47,7 +47,7 @@ export const VOCABULARY = {
   },
   meaningButton: {
     id: "meaningButton",
-    label: "+ Meaning",
+    label: "Add meaning",
     help: "Starts a row of words with a new meaning.",
     technical: "",
   },

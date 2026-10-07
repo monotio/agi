@@ -379,7 +379,7 @@ test("rename preserves a saved game and travels with its ZIP", async ({ page, br
   await openLibraryActions(page, card);
   await page.getByTestId("rename-game").click();
   await name.fill("   ");
-  await expect(page.getByRole("button", { name: "Save name", exact: true })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Rename", exact: true })).toBeDisabled();
   await name.fill("  The Midnight Appointment  ");
   await page.setViewportSize({ width: 390, height: 844 });
   await page.screenshot({ path: test.info().outputPath("rename-game-mobile.png") });

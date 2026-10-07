@@ -434,7 +434,7 @@ const roomChoices = computed(() => {
             data-testid="door-edit-text"
             @click="emit('text', selected.line)"
           >
-            View as text…
+            View as text
           </UiButton>
         </template>
       </div>

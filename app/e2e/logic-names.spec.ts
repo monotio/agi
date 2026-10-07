@@ -78,7 +78,7 @@ for (const [width, height] of [
     await expect(hover).toContainText("Flag 36 · unnamed");
     await expect(hover).toContainText("Set (1): LOGIC 1 line 1");
     await expect(hover).toContainText("Checked (2): LOGIC 1 line 2; LOGIC 2 line 1");
-    await expect(hover).toContainText("Name it…");
+    await expect(hover).toContainText("Rename…");
     await page.keyboard.press("Escape");
     await positionFlag(page);
     await page.keyboard.press("F2");

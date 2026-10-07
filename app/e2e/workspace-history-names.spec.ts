@@ -27,7 +27,7 @@ test("version names are visible, survive reload, rename and clear", async ({ pag
   await expect(history.locator(".workspace-history__name")).toHaveText("Opening scene");
   await history.getByRole("button", { name: "Rename Opening scene", exact: true }).click();
   await history.getByLabel("Version name", { exact: true }).fill("First room");
-  await history.getByRole("button", { name: "Save name", exact: true }).click();
+  await history.getByRole("button", { name: "Rename", exact: true }).click();
   await expect(history.locator(".workspace-history__name")).toHaveText("First room");
   await history.getByRole("button", { name: "Clear First room", exact: true }).click();
   await expect(history.locator(".workspace-history__name")).toHaveCount(0);

@@ -97,15 +97,15 @@ function files(directory: string): string[] {
 function retiredPattern(retired: string): RegExp {
   return new RegExp(
     retired === "Keep"
-      ? "\\bKeep\\b(?! it\\s*$| this tab open(?: until it says Saved)?(?:[.!?]|\\s*$))"
+      ? "\\bKeep\\b(?! this tab open(?: until it says Saved)?(?:[.!?]|\\s*$))"
       : `\\b${retired}${["sprite", "proposal", "candidate", "drawing element"].includes(retired) ? "s?" : ""}\\b${retired === "Onion" ? "(?! skin)" : ""}`,
     retired === "Keep" ? "" : "i",
   );
 }
 
-test("Keep it names a room-removal choice while Keep remains retired for editor commits", () => {
+test("Keep remains retired for editor commits and dialog choices", () => {
   const keep = retiredPattern("Keep");
-  assert.equal(keep.test("Keep it"), false);
+  assert.equal(keep.test("Keep it"), true);
   assert.equal(keep.test("Keep"), true);
   assert.equal(keep.test("Keep changes"), true);
   assert.equal(keep.test("Keep it and apply"), true);
@@ -119,6 +119,25 @@ test("visible editor copy uses the shared vocabulary, allowing internal identifi
         const pattern = retiredPattern(retired);
         if (pattern.test(copy)) violations.push(`${file}: ${copy.trim()}`);
       }
+    }
+  }
+  assert.deepEqual(violations, []);
+});
+
+test("the meaning action uses the same Add meaning label as its accessible name", () => {
+  assert.equal(VOCABULARY.meaningButton.label, "Add meaning");
+  assert.equal(VOCABULARY.meaningButton.label, VOCABULARY.addGroup.label);
+});
+
+test("action labels use canonical verbs across app surfaces", () => {
+  const violations: string[] = [];
+  for (const file of files("app/src")) {
+    for (const copy of visibleCopy(file)) {
+      if (
+        /\b(?:Name it|Save name)\b/.test(copy) ||
+        /^(?:Not now|Stay|Back to game)$/.test(copy.trim())
+      )
+        violations.push(`${file}: ${copy.trim()}`);
     }
   }
   assert.deepEqual(violations, []);

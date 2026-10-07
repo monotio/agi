@@ -50,7 +50,7 @@ test("names open resources, peek game state and rename all authored uses @webkit
   await expect(details).toContainText("Set · LOGIC 1");
   await details.getByRole("button", { name: "Rename", exact: true }).click();
   await details.getByLabel("Name", { exact: true }).fill("birdsong_done");
-  await details.getByRole("button", { name: "Save name", exact: true }).click();
+  await details.getByRole("button", { name: "Rename", exact: true }).click();
   await workspaceUpdated(page);
   expect(await workspaceDocument(page, "bindings")).toContain("birdsong_done");
   expect(await workspaceDocument(page, "logic:1")).toContain("sound(chime_sound, birdsong_done)");
@@ -249,7 +249,7 @@ test("name hover opens resources and message actions keep readable text @webkit-
   await details.getByLabel("Name", { exact: true }).fill("birdsong");
   await expect(details.getByLabel("Name", { exact: true })).toBeFocused();
   await expect(details.getByLabel("Name", { exact: true })).toHaveValue("birdsong");
-  await details.getByRole("button", { name: "Save name", exact: true }).click();
+  await details.getByRole("button", { name: "Rename", exact: true }).click();
   await workspaceUpdated(page);
   await expect(details).toContainText("load.sound(birdsong);");
   await expect(details.getByRole("button", { name: "Rename", exact: true })).toBeVisible();

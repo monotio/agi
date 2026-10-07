@@ -6,7 +6,7 @@
  * stay exactly as they were (the release contract), and deleting the game
  * removes both timelines.
  *
- * A transient failure is different: the banner's Try now reports Saving…,
+ * A transient failure is different: the banner's Retry reports Saving…,
  * then Saved once the ledger is empty, or the plain reason it is not.
  */
 import assert from "node:assert/strict";
@@ -203,7 +203,7 @@ test("the host refuses an unextendable tape once: no unsaved ledger, one message
   assert.equal((await loadGameHistory(key))?.segments.length, 1);
 });
 
-test("Try now reports Saving…, then the plain reason, then Saved once storage recovers", async (t) => {
+test("Retry reports Saving…, then the plain reason, then Saved once storage recovers", async (t) => {
   const booted = await bootSavedGame("timeline-retry");
   const state = historyState();
   // The worker's un-acked batches; a nudge resends the oldest, as it does.

@@ -33,9 +33,7 @@ async function upload(page: Page) {
   });
   await expect(page.getByTestId("trace-opacity")).toBeVisible();
   await expect(
-    page
-      .getByTestId("image-reference")
-      .getByRole("button", { name: "Bring in an image", exact: true }),
+    page.getByTestId("image-reference").getByRole("button", { name: "Import image", exact: true }),
   ).toBeEnabled();
   await workspaceUpdated(page);
   if (page.viewportSize()!.width <= 600) {

@@ -2136,7 +2136,7 @@ onBeforeUnmount(() => {
   >
     <p v-for="message in editor.removalReview.value?.messages" :key="message">{{ message }}</p>
     <template #footer>
-      <UiButton variant="ghost" @click="editor.removalReview.value = undefined">Keep it</UiButton>
+      <UiButton variant="ghost" @click="editor.removalReview.value = undefined">Cancel</UiButton>
       <UiButton
         :disabled="editor.busy.value || editingPaused"
         @click="editor.step('undo', editor.removalReview.value)"
@@ -2808,7 +2808,7 @@ onBeforeUnmount(() => {
         size="sm"
         type="submit"
         :disabled="editingPaused || editor.busy.value"
-        >{{ editingName === undefined ? "Name this version" : "Save name" }}</UiButton
+        >{{ editingName === undefined ? "Name this version" : "Rename" }}</UiButton
       >
       <UiButton
         v-if="editingName !== undefined"

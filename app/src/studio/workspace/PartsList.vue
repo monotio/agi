@@ -545,7 +545,7 @@ function onKey(event: KeyboardEvent): void {
         </div>
         <p v-if="namingError" class="game-state-naming__error" role="alert">{{ namingError }}</p>
         <div class="game-state-naming__row">
-          <UiButton size="sm" type="submit">Name it</UiButton>
+          <UiButton size="sm" type="submit">Rename</UiButton>
           <UiButton size="sm" variant="ghost" @click="namingOpen = false">Cancel</UiButton>
         </div>
       </form>

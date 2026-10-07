@@ -97,7 +97,7 @@ function openUse(use: BindingInfo["uses"][number]): void {
         type="submit"
         size="sm"
         :disabled="busy || !name.trim() || workspace.readOnly.value"
-        >Save name</UiButton
+        >Rename</UiButton
       ><UiButton size="sm" variant="ghost" :disabled="busy" @click="editing = false"
         >Cancel</UiButton
       >
