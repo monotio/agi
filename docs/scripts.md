@@ -17,7 +17,7 @@ Run TypeScript scripts with Node.js 22.22 or newer and
 | `npm run fixtures:audit -- LIBRARY_DIR OUTPUT_JSON`                                                | Content hashes and release identities                                                         |
 | `npm run verify:deploy -- --url URL --commit SHA --artifact DIR [--attempts N --delay SECONDS]`    | Deployment identity and asset hashes; [hosting](hosting.md#production-releases)               |
 | `node --experimental-strip-types scripts/serve-production.ts`                                      | Serve `app/dist` with production headers; port `AGI_E2E_PORT` (5299)                          |
-| `npm run media:capture`                                                                            | Original browser and tool imagery; port `AGI_MEDIA_PORT` (5871)                               |
+| `npm run media:capture`                                                                            | Original stills, clips, spectrograms and tool files; port `AGI_MEDIA_PORT` (5871)             |
 | `node --experimental-strip-types scripts/capture-feedback.ts [OUT]`                                | Agent feedback captures, default `.captures/feedback`                                         |
 | `node --experimental-strip-types scripts/benchmark-media.ts [OUT]`                                 | Media from the committed Genesis benchmark                                                    |
 | `node --experimental-strip-types scripts/descramble-agi.ts GAME_DIR OUT.bin [LOADER.COM]`          | Decode your own interpreter for [fidelity research](fidelity.md)                              |

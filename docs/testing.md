@@ -788,7 +788,14 @@ commands. `npm run media:capture` regenerates them: `app/e2e/media/docs.media.ts
 drives the app in test mode with the stub provider and the app's own styles; the
 Play shot starts from the tutorial's recorded walkthrough, so its timeline reads
 the same on every run. `scripts/capture-feedback.ts` generates tutorial feedback without a provider
-call. `app/playwright.capture.config.ts` records selected browser tests with
+call. `app/e2e/media/clips.media.ts` records the README's GIF clips from the
+browser's screencast frames; encoding them uses the optional local tools ffmpeg
+and gifski. `app/e2e/media/sound.media.ts` draws spectrograms of the tutorial's
+own SOUNDs: `SoundPlayback` emits each profile's register writes per tick and
+the shipped `AgiAudio` graph renders them in an `OfflineAudioContext`, the same
+path as `app/test/paula-offline.test.ts`, with a seeded noise source so reruns
+match. Spectrograms of commercial games stay private under
+`AGI_AUDIO_RENDER_DIR`. `app/playwright.capture.config.ts` records selected browser tests with
 original resources and mocked provider replies; generated recordings stay under
 `.captures/` until reviewed and edited.
 
