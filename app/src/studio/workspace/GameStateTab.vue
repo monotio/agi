@@ -98,7 +98,7 @@ function value(row: { kind: string; num: number }): string {
       @renamed="details = $event"
     />
     <p v-if="!creatorRows.length" class="workspace-state__empty">
-      No named flags or variables yet. Add one with + next to Game state in Parts.
+      Add a flag or variable with + beside Game state.
     </p>
     <p v-if="!state" class="workspace-state__note">Values show while the game runs.</p>
   </div>

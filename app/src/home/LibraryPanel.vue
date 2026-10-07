@@ -300,7 +300,6 @@ function startCreating(templateId: string): void {
       </GameCard>
       <TemplateCard
         title="Your own game"
-        detail="Pick a ready start or describe your idea"
         blank
         test-id="shelf-template-custom"
         @select="startCreating('')"
@@ -337,7 +336,7 @@ function startCreating(templateId: string): void {
         </button>
       </p>
       <p data-testid="verified-games-hint">
-        Verified to boot: King's Quest, Space Quest, Police Quest and more.
+        Tested openings: King's Quest, Space Quest, Police Quest and more.
         <button
           type="button"
           class="shelf-notes__link"
@@ -361,7 +360,7 @@ function startCreating(templateId: string): void {
           target="_blank"
           rel="noopener noreferrer"
           >SCI Programming</a
-        >. Fan games span many genres and audiences.
+        >.
       </p>
     </footer>
 

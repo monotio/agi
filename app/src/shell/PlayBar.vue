@@ -243,7 +243,7 @@ const shortcutsBlocked = computed(
             data-testid="btn-help-guide"
             @click="emit('help-guide')"
           >
-            <span>Help guide<small>Playing, creating and your games</small></span>
+            <span>Help guide</span>
           </button>
           <button
             v-if="commands?.commands.value.length"
@@ -260,7 +260,7 @@ const shortcutsBlocked = computed(
             data-testid="btn-game-controls"
             @click="emit('controls')"
           >
-            <span>Game controls<small>Movement, input and this game's keys</small></span>
+            <span>Game controls</span>
           </button>
           <button
             v-if="hasWalkthrough(game?.revision ?? '') && !state.walkthrough.active && game?.alias"

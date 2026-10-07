@@ -6,9 +6,9 @@ import UiButton from "../ui/UiButton.vue";
 import UiIcon from "../ui/UiIcon.vue";
 import GameCard from "./GameCard.vue";
 
-const { blank = false } = defineProps<{
+const { blank = false, detail = undefined } = defineProps<{
   title: string;
-  detail: string;
+  detail?: string;
   testId: string;
   blank?: boolean;
 }>();

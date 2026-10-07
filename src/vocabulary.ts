@@ -57,12 +57,6 @@ export const VOCABULARY = {
     help: "Sentences from your playtests.",
     technical: "",
   },
-  sentenceParser: {
-    id: "sentenceParser",
-    label: "The game’s own parser reads it",
-    help: "Reads the sentence with the current WORDS.",
-    technical: "",
-  },
   meanings: {
     id: "meanings",
     label: "Meanings",
@@ -606,7 +600,7 @@ export const VOCABULARY = {
   review: {
     id: "review",
     label: "Review",
-    help: "Review shows each change for you to approve. Auto-approve applies changes at once; Undo takes them back.",
+    help: "Review asks before applying changes. Auto-approve applies them as they arrive.",
     technical: "",
   },
   approve: {
@@ -643,7 +637,7 @@ export const VOCABULARY = {
   autoApprove: {
     id: "autoApprove",
     label: "Auto-approve",
-    help: "Review shows each change for you to approve. Auto-approve applies changes at once; Undo takes them back.",
+    help: "Review asks before applying changes. Auto-approve applies them as they arrive.",
     technical: "",
   },
   reject: {

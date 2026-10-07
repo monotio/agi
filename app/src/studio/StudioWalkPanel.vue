@@ -220,7 +220,7 @@ const roomChoices = computed(() => {
             ? "Walking…"
             : tool === "walk"
               ? walk.prompt.value
-              : "Press T, click a start, then a goal."
+              : "Choose a start and a goal."
         }}
       </p>
       <p

@@ -212,7 +212,9 @@ for (const [width, height] of [
     await sound.getByRole("button", { name: "Choose preset", exact: true }).click();
     const recipes = sound.getByRole("group", { name: "New sound from a recipe", exact: true });
     await expect(recipes).toBeVisible();
-    await expect(recipes).toContainText("Adds a new SOUND to your game");
+    await expect(
+      recipes.getByRole("button", { name: "Play Discovery", exact: true }),
+    ).toBeVisible();
     await shot(page, `${width}-Sound-preset`);
   });
 }

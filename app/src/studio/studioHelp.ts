@@ -66,13 +66,13 @@ export const SPRITE_TOOL_NAMES: Record<SpriteTool, string> = {
 };
 
 export const SPRITE_TOOL_HINTS: Record<SpriteTool, string> = {
-  pencil: "Drag to paint · Space: pen down at the cursor",
-  eraser: "Drag to paint the transparent colour",
-  fill: "Click to flood the area under the cursor",
+  pencil: "Space starts or stops painting at the cursor.",
+  eraser: "",
+  fill: "",
   line: "Drag a line, or Space at each end",
   rect: "Drag a rectangle, or Space at each corner",
-  select: `Drag a marquee · arrows move it (${ALT} copies) · H flips · Delete clears`,
-  pipette: "Click to pick the paint colour",
+  select: "Alt/Option + arrows copies the selection; H flips it.",
+  pipette: "",
   recolor: "Click a colour on the canvas to change it everywhere in scope",
 };
 

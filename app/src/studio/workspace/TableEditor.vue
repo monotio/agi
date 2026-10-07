@@ -36,9 +36,6 @@ function add(): void {
 </script>
 <template>
   <div class="workspace-table" data-testid="workspace-table-editor">
-    <p>
-      {{ VOCABULARY.objects.help }}
-    </p>
     <table>
       <thead>
         <tr>
@@ -102,10 +99,6 @@ function add(): void {
   color: var(--ink-2);
 }
 
-p {
-  margin: 0 0 var(--space-5);
-  font-size: var(--text-sm);
-}
 table {
   width: 100%;
   border-collapse: collapse;

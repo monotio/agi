@@ -88,7 +88,6 @@ onBeforeUnmount(() => {
     </section>
     <section role="group" aria-label="New sound from a recipe">
       <h4>New sound from a recipe</h4>
-      <p>Adds a new SOUND to your game</p>
       <div v-for="entry in SOUND_PRESETS" :key="entry.id" class="sound-choice">
         <div>
           <UiButton

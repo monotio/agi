@@ -565,8 +565,7 @@ export function useStudioWalk(options: StudioWalkOptions) {
   /** What a test walk step asks for next, in words. */
   const prompt = computed(() => {
     if (running.value) return "Walking…";
-    if (!start.value)
-      return "Click where the walk starts, or a door to start where the player enters.";
+    if (!start.value) return "Choose a start point. A door uses the player’s entry position.";
     if (!goal.value) return "Click the goal.";
     return "Click to start another walk.";
   });

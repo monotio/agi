@@ -68,7 +68,9 @@ test("an unreadable stored tutorial offers Start fresh, which removes only that 
   await startFresh.click();
   const dialog = page.getByRole("dialog", { name: "Start fresh?" });
   await expect(dialog).toBeVisible();
-  await expect(dialog).toContainText("removed");
+  await expect(dialog).toContainText(
+    "Start fresh removes that copy, its progress and history from this browser",
+  );
   await expect(dialog).toContainText("exported");
   await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
   await expect(dialog).toBeHidden();

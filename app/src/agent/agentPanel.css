@@ -116,13 +116,6 @@
   margin: 0;
   flex: 1;
 }
-.agent-panel__preview {
-  color: var(--warn);
-  border: 1px solid var(--warn);
-  border-radius: var(--radius);
-  padding: var(--space-1) var(--space-2);
-  font-size: var(--text-xs);
-}
 .agent-panel__resource {
   padding: var(--space-3);
   border-top: 1px solid var(--hairline);

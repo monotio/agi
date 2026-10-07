@@ -49,7 +49,7 @@ const now = useNow();
 
 const intro = computed(() => {
   if (browsingAll.value || props.context.kind === "all")
-    return "Progress kept in this browser. Choose an entry to inspect or download.";
+    return "Earlier progress stored in this browser.";
   if (props.context.kind === "capture") return "Progress kept when a game was removed.";
   return "Progress saved under this name.";
 });
@@ -166,7 +166,7 @@ watch(
         </li>
       </ul>
       <p v-else class="earlier__muted" data-testid="earlier-empty">
-        Earlier progress appears here.
+        No earlier progress saved in this browser.
       </p>
       <p v-if="hasMore" class="earlier__more">
         <UiButton

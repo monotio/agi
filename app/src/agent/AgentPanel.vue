@@ -510,9 +510,6 @@ onBeforeUnmount(() => {
     </div>
     <div ref="feed" class="agent-panel__feed" aria-live="polite" @scroll.passive="readPosition">
       <div ref="feedContent">
-        <p v-if="!current?.messages.length" class="agent-panel__intro">
-          {{ VOCABULARY.agent.help }}
-        </p>
         <article
           v-for="message in visibleMessages"
           :key="message.id"
@@ -560,9 +557,6 @@ onBeforeUnmount(() => {
         >
           <header>
             <h3>{{ review.proposal.label }}</h3>
-            <span class="agent-panel__preview" title="Approve applies this preview to the game."
-              >Card preview</span
-            >
           </header>
           <p v-if="review.stale()" role="alert" data-testid="agent-conflict">
             The project changed while the agent worked. Send a follow-up to revise these changes.

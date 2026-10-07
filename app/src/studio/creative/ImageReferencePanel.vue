@@ -548,7 +548,6 @@ onBeforeUnmount(() => {
     </label>
     <template v-if="image && isPicture">
       <UiButton size="sm" aria-label="Reset trace" @click="resetTrace">Reset</UiButton>
-      <span>Drag the centre to move. Drag the corner to scale.</span>
     </template>
     <template v-if="image && !isPicture">
       <ImageFrameSheet

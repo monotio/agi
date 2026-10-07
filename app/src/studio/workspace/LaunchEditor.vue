@@ -526,8 +526,7 @@ function handleCanvasDrag(event: MouseEvent): void {
     <div v-if="!activeLaunch" class="launch-editor__empty">
       <p class="launch-editor__empty-title">No launches saved for this room yet.</p>
       <p class="launch-editor__empty-hint">
-        A Launch lets you test this room with custom entry state: where the hero came from, flags,
-        variables, items, random seed or hero position.
+        Save a starting position and game state for testing this room.
       </p>
       <UiButton
         size="md"
@@ -663,7 +662,6 @@ function handleCanvasDrag(event: MouseEvent): void {
           >
             <div class="launch-row__label">
               <strong>Flag</strong>
-              <small>named toggle</small>
             </div>
             <div class="launch-row__controls">
               <select
@@ -713,7 +711,6 @@ function handleCanvasDrag(event: MouseEvent): void {
           >
             <div class="launch-row__label">
               <strong>Variable</strong>
-              <small>named number</small>
             </div>
             <div class="launch-row__controls">
               <select
@@ -851,7 +848,6 @@ function handleCanvasDrag(event: MouseEvent): void {
         >
           <div class="launch-row__label">
             <strong>Hero position</strong>
-            <small>drag on room picture or set X / Y</small>
           </div>
           <div class="launch-row__controls launch-row__controls--hero">
             <div class="launch-hero-inputs">

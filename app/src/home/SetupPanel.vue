@@ -142,9 +142,6 @@ function onDrop(event: DragEvent): void {
             state.loading?.generating === false ? "Loading…" : "Preparing your adventure…"
           }}</span>
         </div>
-        <p v-if="state.loading?.generating !== false" class="splash-subtext">
-          Your game will appear here when it is ready.
-        </p>
         <AgentTaskControls
           v-if="state.agentTask"
           :task="state.agentTask"
@@ -248,12 +245,6 @@ function onDrop(event: DragEvent): void {
     opacity: 1;
     transform: scale(1.2);
   }
-}
-
-.splash-subtext {
-  font-size: var(--text-2xs);
-  color: var(--ink-3);
-  margin: 0;
 }
 
 .error-banner {

@@ -583,7 +583,7 @@ onBeforeUnmount(() => {
           </p>
         </details>
       </section>
-      <p class="sound-help">Drop a .mid or .vgm file here or onto the game.</p>
+      <p class="sound-help">Drop a MIDI or VGM file here or onto the game.</p>
     </template>
     <p v-else>This SOUND uses an inspection format. {{ document.diagnostics.join(" ") }}</p>
     <p v-if="notice" class="workspace-error" role="alert">{{ notice }}</p>

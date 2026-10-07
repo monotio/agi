@@ -84,7 +84,6 @@ function onDialogClose(): void {
         Current profile: <strong>{{ current }}</strong
         >. A running game restarts from its latest autosave under the new profile.
       </p>
-      <p class="profile-picker-intro">You can change this later from the game's ⋯ menu.</p>
 
       <label for="profile-select">Interpreter profile</label>
       <UiSelect id="profile-select" v-model="selected" block data-testid="profile-picker-select">

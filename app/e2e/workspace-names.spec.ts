@@ -310,12 +310,11 @@ test("Home offers one Your own game card and neutral entries clear an AI pick", 
   const card = button.locator("xpath=ancestor::article");
   await expect(card).toBeVisible();
   await expect(card).toContainText("Your own game");
-  await expect(card).toContainText("Pick a ready start or describe your idea");
+  await expect(button).toBeVisible();
+  await expect(button).toBeEnabled();
   await expect(card.getByRole("button")).toHaveCount(1);
   await expect(card.locator(".game-card__pill")).toHaveCount(0);
-  expect(
-    await card.locator(".game-card__meta").evaluate((node) => node.scrollWidth <= node.clientWidth),
-  ).toBe(true);
+  await expect(card.locator(".game-card__meta")).toHaveCount(0);
   await page.screenshot({ path: test.info().outputPath("home-neutral-card.png") });
   // The AI templates live inside New game, not on the Home shelf.
   await expect(page.locator('[data-testid^="shelf-template-"]')).toHaveCount(1);

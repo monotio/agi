@@ -265,17 +265,7 @@ function onPrimary(): void {
       <h1 id="welcome-title" class="hero-title">
         <BootCard class="hero-boot" /><span class="hero-title__text">AGI IS HERE.</span>
       </h1>
-      <p class="hero-line">
-        Play Sierra-style adventures. Build your own with the game running beside you, in the
-        authentic
-        <a
-          href="https://en.wikipedia.org/wiki/Adventure_Game_Interpreter"
-          target="_blank"
-          rel="noopener noreferrer"
-          >AGI</a
-        >
-        format.
-      </p>
+      <p class="hero-line">Play Sierra-style adventures and build your own.</p>
       <div class="hero-ctas">
         <UiButton
           variant="primary"
@@ -306,7 +296,7 @@ function onPrimary(): void {
       <OlderPositionChoice hero />
       <p v-if="ended" class="hero-ended" role="status" data-testid="game-ended">
         <span
-          ><strong>{{ ended.title }}</strong> · The game ended (it quit).</span
+          ><strong>{{ ended.title }}</strong> · The game ended.</span
         >
         <template v-if="ended.playable">
           <UiButton
