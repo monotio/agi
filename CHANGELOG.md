@@ -3,7 +3,7 @@
 Changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Released notes are also available on [GitHub Releases](https://github.com/monotio/agi/releases).
 
-## [1.2.0] - Unreleased
+## [1.2.0] - 2026-10-07
 
 ### Added
 
@@ -31,12 +31,27 @@ Released notes are also available on [GitHub Releases](https://github.com/monoti
   extension guides; issue forms, support and security policies.
 - Room-first authoring: + on Rooms adds an empty named room (blank LOGIC and
   white PICTURE) with no form, the first room on a blank game brings a minimal
-  readable Start-up, and room names edit in place. Room actions (Door, Answer a
-  sentence, Place hero, Sound when…) live in the room's context row and on a
-  right-click on the game; a door is drawn on the game with the code behind
-  Show code. SHARED LOGIC + offers ready parts: Menus and Save/Restore, game
-  over and a score screen. Game state folds template and part state under
-  Built-in.
+  readable Start-up, and room names edit in place. Add ▾ in the editor's action
+  row places a hero, a door, a sentence answer or a sound in the room; rare
+  actions such as Change number… and Format document sit in ⋯. SHARED LOGIC +
+  offers ready parts: Menus and Save/Restore, game over and a score screen.
+- Parts lists every PICTURE, VIEW, SOUND and LOGIC by type with Rename, Change
+  number…, Find references and Delete…. Deleting is a draft change: code is never
+  rewritten, and remaining references show in Problems until changed.
+- Game state lists names in number order; Built-in holds the interpreter's
+  reserved flags and variables with plain meanings and names such as
+  `current_room` and `ego_in_water`, which LOGIC can use directly. Clicking a name
+  reveals it with its live value and where it is Read and Changed.
+- LOGIC completion offers what each parameter takes (SOUNDs for `sound(`,
+  pictures for `load.pic(`); an unknown flag or variable offers to create it in
+  Game state. Format document, indentation while typing, and an implicit final
+  `return;`. Every problem is marked at its place in the code.
+- One run control in Create follows the room being edited and applies the
+  selected Launch; breakpoints are always armed, with Disable breakpoints. While
+  paused, hovers show and change flag and variable values, and faint values sit
+  beside the paused line.
+- OBJECTS and Launch item locations name rooms, "Carried by the player" and
+  "Nowhere" instead of raw numbers.
 
 ### Changed
 
@@ -45,6 +60,9 @@ Released notes are also available on [GitHub Releases](https://github.com/monoti
   and images share an actual-spend budget; a request that crosses it finishes
   before pausing for Continue or Stop.
 - Upgrading from 1.1 loads existing browser progress automatically.
+- New games start their random sequence like the original interpreter; seeded
+  Launches, tests and recordings keep their exact sequence.
+- One `npm ci` at the repository root installs everything (npm workspaces).
 - Home, Play and Create load the engine, editor families and agent by activity.
 - CRT rendering uses beams and phosphors in Play; editors show the crisp image.
 - Adventure Department has refreshed animation and workspace lessons. Earlier
@@ -80,6 +98,6 @@ See the [1.1.0 release notes](https://github.com/monotio/agi/releases/tag/v1.1.0
 
 See the [1.0.0 release notes](https://github.com/monotio/agi/releases/tag/v1.0.0).
 
-[1.2.0]: https://github.com/monotio/agi/compare/v1.1.0...HEAD
+[1.2.0]: https://github.com/monotio/agi/releases/tag/v1.2.0
 [1.1.0]: https://github.com/monotio/agi/releases/tag/v1.1.0
 [1.0.0]: https://github.com/monotio/agi/releases/tag/v1.0.0
