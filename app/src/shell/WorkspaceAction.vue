@@ -13,18 +13,15 @@ const discardOpen = ref(false);
 const selectedName = computed(() =>
   launchName(editor.selectedLaunch.value, editor.launchChoices.value),
 );
-function actionFor(pending: boolean) {
-  return launchAction({
-    pending,
+const action = computed(() =>
+  launchAction({
+    pending: editor.changeCount.value > 0,
     launch: editor.selectedLaunch.value,
     launchName: selectedName.value,
     room: editor.actionRoomName.value,
     here: engine.roomMap.currentRoom.value === editor.actionRoom.value,
-  });
-}
-const action = computed(() => actionFor(editor.changeCount.value > 0));
-/** The other state's wording, laid under the label so the button keeps its width. */
-const reserve = computed(() => actionFor(editor.changeCount.value === 0));
+  }),
+);
 async function discardChanges(): Promise<void> {
   try {
     await editor.discardDrafts.value?.();
@@ -38,6 +35,7 @@ async function discardChanges(): Promise<void> {
   <div class="workspace-action">
     <UiButton
       size="sm"
+      :variant="action.icon === 'update' ? 'primary' : 'secondary'"
       data-testid="workspace-update"
       :disabled="
         editor.busy.value || editor.readOnly.value || editor.actionRoom.value === undefined
@@ -45,19 +43,12 @@ async function discardChanges(): Promise<void> {
       :aria-label="action.label"
       :title="`${action.label} (⌘↵ / Ctrl+Enter)`"
       @click="editor.update.value?.()"
-      ><span class="workspace-action__stack"
-        ><span
-          v-for="(row, index) in [action, reserve]"
-          :key="index"
-          class="workspace-action__label"
-          :aria-hidden="index === 1 ? 'true' : undefined"
-          ><span v-if="row.update">Update</span
-          ><UiIcon :name="row.icon" :size="14" :stroke-width="2.5" /><span
-            class="workspace-action__room"
-            >{{ row.room
-            }}<span v-if="row.launch" class="workspace-action__launch">
-              · {{ row.launch }}</span
-            ></span
+      ><span class="workspace-action__label"
+        ><UiIcon :name="action.icon" :size="14" :stroke-width="2.5" /><span
+          class="workspace-action__room"
+          >{{ action.room
+          }}<span v-if="action.launch" class="workspace-action__launch">
+            · {{ action.launch }}</span
           ></span
         ></span
       ></UiButton
@@ -123,22 +114,14 @@ async function discardChanges(): Promise<void> {
   flex-shrink: 0;
   gap: 2px;
 }
-/* Both wordings share one grid cell: the wider one sets the width, so
-   pending changes and Update never move the bar. */
-.workspace-action__stack {
-  display: inline-grid;
-  max-width: 360px;
-}
+/* Every state shows one icon and the same room, so the width holds. */
 .workspace-action__label {
-  grid-area: 1 / 1;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: var(--space-2);
   min-width: 0;
-}
-.workspace-action__label[aria-hidden="true"] {
-  visibility: hidden;
+  max-width: 360px;
 }
 .workspace-action__room {
   min-width: 0;
@@ -157,7 +140,7 @@ async function discardChanges(): Promise<void> {
     padding-inline: var(--space-3);
     white-space: normal;
   }
-  .workspace-action__stack {
+  .workspace-action__label {
     max-width: 100%;
   }
 }
