@@ -47,7 +47,10 @@ export function copyWorldLaunches(
   return JSON.stringify(before);
 }
 
-/** Carry untouched world fields forward while retaining every local edit. */
+/**
+ * Carry untouched world fields forward while retaining every local edit.
+ * Launches are saved metadata, never drafts, so they always follow the saved world.
+ */
 export function rebaseWorldDraft(
   before: ProjectContent | undefined,
   after: ProjectContent | undefined,
@@ -73,7 +76,11 @@ export function rebaseWorldDraft(
     return local;
   }
   try {
-    return JSON.stringify(merge(world(before), world(after), world(draft)));
+    const next = world(after);
+    const merged = merge(world(before), next, world(draft)) as Record<string, unknown>;
+    if (next["launches"] === undefined) delete merged["launches"];
+    else merged["launches"] = next["launches"];
+    return JSON.stringify(merged);
   } catch {
     return draft;
   }
