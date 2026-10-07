@@ -141,7 +141,7 @@ test("Parts resource and room references share the editor list @webkit-desktop",
   const parts = page.getByTestId("parts-list");
   const sound = parts.getByTestId("part-sound:1").locator("..");
   await sound.getByLabel("Actions for chime_sound", { exact: true }).click();
-  await sound.getByRole("button", { name: "Find references", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Find references", exact: true }).click();
   const references = page.getByTestId("workspace-references");
   await expect(references).toBeVisible();
   await expect(references).toBeFocused();
@@ -178,15 +178,15 @@ test("Parts resource and room references share the editor list @webkit-desktop",
   await expect(references).toBeFocused();
   await expect(references.getByRole("button")).toHaveCount(2);
   const room = parts.getByTestId("part-room:1").locator("..");
-  await room.locator("summary").click();
-  await room.getByRole("button", { name: "Find references", exact: true }).click();
+  await room.getByRole("button", { name: /^Actions for / }).click();
+  await page.getByRole("menuitem", { name: "Find references", exact: true }).click();
   await expect(
     references.getByRole("button", { name: /Used · first_room · LOGIC 1 · line 3/ }),
   ).toBeVisible();
   // Empty results occupy the same tab rather than silently doing nothing.
   const unused = parts.getByTestId("part-picture:1").locator("..");
-  await unused.locator("summary").click();
-  await unused.getByRole("button", { name: "Find references", exact: true }).click();
+  await unused.getByRole("button", { name: /^Actions for / }).click();
+  await page.getByRole("menuitem", { name: "Find references", exact: true }).click();
   await expect(references).toContainText("Not used yet.");
   await expect(page.getByTestId("project-tab-uses")).toHaveCount(1);
 });
