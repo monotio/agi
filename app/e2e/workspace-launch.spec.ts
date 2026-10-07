@@ -117,7 +117,7 @@ for (const [width, height] of [
       await workspaceSaved(page);
       await expect(action).toHaveAccessibleName("Update and restart Garden");
       // The update icon takes the place of the play icon, filled: no word, no shift.
-      await expect(action).toHaveText("");
+      await expect(action).toHaveText("Garden");
       await expect(action).toHaveClass(/ui-btn--primary/);
       expect((await action.boundingBox())!.width).toBeCloseTo(cleanWidth, 0);
       const modes = page.getByRole("radiogroup", { name: "Mode", exact: true });
@@ -147,7 +147,7 @@ for (const [width, height] of [
       await expect(action).toHaveAccessibleName(
         "Restart Garden with the launch From the beginning",
       );
-      await expect(action).toHaveText("");
+      await expect(action).toHaveText(/^Garden\s*·\s*From the beginning$/);
       await launchShot(page, `launch-${width}`, browserName);
       expect((await textHook(page)).room).toBe(8);
       await open(page, "part-room:1:logic");

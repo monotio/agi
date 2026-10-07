@@ -36,7 +36,10 @@ for (const [width, height] of [
     const context = page.getByTestId("workspace-context");
     await expect(context.getByRole("button", { name: /^(?:▶ )?Play |^Debug / })).toHaveCount(0);
     await expect(context.getByRole("group", { name: "Debug controls" })).toHaveCount(0);
-    await expect(page.getByTestId("workspace-update")).toHaveText("");
+    // The icon names the action; the visible text is the room, never a verb.
+    await expect(page.getByTestId("workspace-update")).toHaveText(
+      /^(?!Update|Restart|Play|Debug)\S/,
+    );
     await reviewShot(page, `run-logic-${width}`);
     await breakpoint(page);
     await page.getByTestId("workspace-update").click();
