@@ -123,8 +123,8 @@ export function workspaceParts(input: {
     ),
     group("VIEWS", resources("view", "VIEW")),
     group("SOUNDS", resources("sound", "SOUND")),
-    group("OBJECTS", [row("inventory", "OBJECTS")]),
-    group("WORDS", [row("words", "WORDS")]),
+    group("OBJECTS", [row("inventory", "Objects")]),
+    group("WORDS", [row("words", "Words")]),
   ];
 }
 
