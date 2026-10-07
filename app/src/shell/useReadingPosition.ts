@@ -18,5 +18,10 @@ export function useReadingPosition(element: Readonly<ShallowRef<HTMLElement | nu
     node.scrollTop = node.scrollHeight;
     lastTop = node.scrollTop;
   }
-  return { following, readPosition, jumpToLatest };
+  function followLatest(): void {
+    // Resize callbacks can arrive before the scroll event from a reader's reveal or wheel.
+    readPosition();
+    if (following.value) jumpToLatest();
+  }
+  return { following, readPosition, jumpToLatest, followLatest };
 }
