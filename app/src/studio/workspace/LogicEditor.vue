@@ -21,12 +21,16 @@ import { VOCABULARY } from "../../../../src/vocabulary.ts";
 import { readInventoryObjects } from "../../../../src/authoring/inventory.ts";
 import { PROFILES } from "../../../../src/runtime/profile.ts";
 import type { ProfileId } from "../../../../src/runtime/profile.ts";
-import { readBindingsDocument } from "../../../../src/authoring/projectDocuments.ts";
+import {
+  readBindingsDocument,
+  readWordsDocument,
+} from "../../../../src/authoring/projectDocuments.ts";
 import {
   sameProjectContent,
   type ProjectContent,
 } from "../../../../src/authoring/projectContent.ts";
 import type { ProjectSnapshot } from "../../../../src/authoring/projectModel.ts";
+import type { ProjectEditDiagnostic } from "../../../../src/authoring/projectEdit.ts";
 import { offsetAt } from "../../../../src/logic/lspTypes.ts";
 import type { WorkspaceEdit } from "../../../../src/logic/lspTypes.ts";
 import { useEngineApi } from "../../engine/engineContext.ts";
@@ -52,18 +56,18 @@ const props = defineProps<{
   snapshot: ProjectSnapshot;
   profileId: ProfileId;
   active: boolean;
+  diagnostics?: readonly ProjectEditDiagnostic[];
   breakpoints?: readonly number[] | undefined;
   stoppedLine?: number | undefined;
   debug?: WorkspaceDebug | undefined;
   runningSource?: string | undefined;
-  location?: { line: number; serial: number } | undefined;
+  location?: { line: number; serial: number; start?: number; end?: number } | undefined;
 }>();
 const emit = defineEmits<{
   edit: [source: string];
   typingEnd: [];
   breakpoint: [line: number];
   selection: [context: { label: string; text: string } | null];
-  problems: [entries: readonly { message: string; line: number }[]];
 }>();
 const binding = ref<BindingInfo>();
 const renameBinding = ref(false);
@@ -314,7 +318,6 @@ function hintBreakpoint(line: number | undefined): void {
 }
 let editView: monaco.editor.ICodeEditorViewState | null = null;
 let contextMenu: monaco.IDisposable | undefined;
-let markerSubscription: monaco.IDisposable | undefined;
 function decorate(): void {
   if (!editor || !model) return;
   const exact = props.runningSource === undefined || model.getValue() === props.runningSource;
@@ -398,7 +401,8 @@ function analysis(): void {
     let bindingSource = "{}";
     try {
       const text = props.snapshot.read("words")?.content;
-      if (typeof text === "string") words = JSON.parse(text) as [string, number][];
+      if (typeof text === "string")
+        words = readWordsDocument(text).map(({ word, id }) => [word, id]);
       else if (text) words = parseWordsTok(text).map(({ word, id }) => [word, id]);
       const inventory = props.snapshot.read("inventory")?.content;
       if (typeof inventory === "string")
@@ -428,6 +432,7 @@ function analysis(): void {
   }
   const { words, objects, inventory, bindings, bindingSource } = contextCache;
   client.setProject({
+    ...(props.diagnostics ? { diagnostics: props.diagnostics } : {}),
     revision: props.snapshot.revision,
     profileId: props.profileId,
     words,
@@ -546,16 +551,6 @@ onMounted(() => {
     ),
   );
   editor.onMouseLeave(() => hintBreakpoint(undefined));
-  markerSubscription = monaco.editor.onDidChangeMarkers((uris) => {
-    if (!model || !uris.some((uri) => uri.toString() === model!.uri.toString())) return;
-    emit(
-      "problems",
-      monaco.editor
-        .getModelMarkers({ resource: model.uri })
-        .filter((entry) => entry.severity === monaco.MarkerSeverity.Error)
-        .map((entry) => ({ message: entry.message, line: entry.startLineNumber })),
-    );
-  });
   editor.onMouseDown((event) => {
     if (
       event.target.type === monaco.editor.MouseTargetType.GUTTER_GLYPH_MARGIN &&
@@ -636,14 +631,24 @@ watch(
     language?.refreshDebug();
   },
 );
-watch(() => [props.snapshot, props.profileId], analysis);
-function revealLocation(): void {
-  if (!props.location || !editor) return;
-  editor.setPosition({ lineNumber: props.location.line, column: 1 });
+watch(() => [props.snapshot, props.profileId, props.diagnostics], analysis);
+async function revealLocation(): Promise<void> {
+  await nextTick();
+  if (!props.location || !editor || !props.active) return;
+  if (model && props.location.start !== undefined && props.location.end !== undefined) {
+    const start = model.getPositionAt(props.location.start);
+    const end = model.getPositionAt(props.location.end);
+    editor.setSelection({
+      startLineNumber: start.lineNumber,
+      startColumn: start.column,
+      endLineNumber: end.lineNumber,
+      endColumn: end.column,
+    });
+  } else editor.setPosition({ lineNumber: props.location.line, column: 1 });
   editor.revealLineInCenter(props.location.line);
   editor.focus();
 }
-watch(() => props.location, revealLocation);
+watch(() => [props.location, props.active], revealLocation, { flush: "post" });
 function revealName(): void {
   const location = workspace.nameLocation.value;
   if (!props.active || location?.key !== props.documentKey) return;
@@ -671,7 +676,6 @@ onBeforeUnmount(() => {
   editor?.setModel(null);
   contextMenu?.dispose();
   editor?.dispose();
-  markerSubscription?.dispose();
   language?.dispose();
   model?.dispose();
   client.dispose();

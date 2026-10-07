@@ -25,10 +25,27 @@ test("LOGIC quick fix creates a Game state flag and one Undo removes it @webkit-
         const { monaco } = await import("/src/studio/logic/monacoLanguage.ts");
         return monaco.editor
           .getModelMarkers({})
-          .some((marker) => marker.message.includes("scary_sound_off"));
+          .filter((marker) => marker.message.includes("scary_sound_off"))
+          .map((marker) => ({
+            message: marker.message,
+            operand: monaco.editor.getModel(marker.resource)!.getValueInRange(marker),
+            startLineNumber: marker.startLineNumber,
+            startColumn: marker.startColumn,
+            endLineNumber: marker.endLineNumber,
+            endColumn: marker.endColumn,
+          }));
       }),
     )
-    .toBe(true);
+    .toEqual([
+      {
+        message: "1:12: No flag is named scary_sound_off.",
+        operand: "scary_sound_off",
+        startLineNumber: 1,
+        startColumn: 12,
+        endLineNumber: 1,
+        endColumn: 27,
+      },
+    ]);
   await page.evaluate(async () => {
     const { monaco } = await import("/src/studio/logic/monacoLanguage.ts");
     const editor = monaco.editor

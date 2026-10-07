@@ -3,7 +3,7 @@ import { test, expect } from "./test.ts";
 import { isolateStorage, waitForRoom, workspaceSaved, textHook } from "./engineProbe.ts";
 import {
   openWorkspaceLogic,
-  focusWorkspaceLogic,
+  replaceWorkspaceDocument,
   runningWorkspaceDocument,
 } from "./workspaceShared.ts";
 import type { ProjectSession } from "../src/project/projectSession.ts";
@@ -34,13 +34,6 @@ async function starter(page: Page): Promise<void> {
   // directly, so wait it out here.
   await expect.poll(() => runningWorkspaceDocument(page, "logic:1")).not.toBe("");
 }
-async function draft(page: Page, source: string): Promise<void> {
-  await openWorkspaceLogic(page);
-  await focusWorkspaceLogic(page);
-  await page.keyboard.press("ControlOrMeta+a");
-  await page.keyboard.insertText(source);
-  await page.keyboard.press("Escape");
-}
 async function commits(page: Page): Promise<number> {
   return page.evaluate(
     () =>
@@ -58,7 +51,7 @@ test("the approved Update game storyboard replaces per-edit patching @webkit-des
   const before = await runningWorkspaceDocument(page, "logic:1");
   const history = await commits(page);
   const changed = `${before}\n// Waiting for Update\n`;
-  await draft(page, changed);
+  await replaceWorkspaceDocument(page, "logic:1", changed, false);
   await expect(page.getByTestId("workspace-pending")).toBeVisible();
   await expect(page.getByTestId("workspace-pending")).toHaveText("1 change not in the game yet");
   await expect(page.getByTestId("part-room:1:logic").getByLabel("Pending change")).toBeVisible();
@@ -85,7 +78,7 @@ test("invalid drafts report a problem and discard restores the editor @webkit-de
   await page.setViewportSize({ width: 1440, height: 900 });
   await starter(page);
   const before = await runningWorkspaceDocument(page, "logic:1");
-  await draft(page, "if (");
+  await replaceWorkspaceDocument(page, "logic:1", "if (", false);
   await expect(page.getByTestId("workspace-update")).toBeVisible();
   await expect(page.getByTestId("workspace-update")).toHaveAccessibleName(
     "Update and restart Meadow",
@@ -290,7 +283,7 @@ test("reopening restores a saved draft and its dot while the game keeps its last
   await page.setViewportSize({ width: 1440, height: 900 });
   await starter(page);
   const before = await runningWorkspaceDocument(page, "logic:1");
-  await draft(page, `// Restored draft\n${before}`);
+  await replaceWorkspaceDocument(page, "logic:1", `// Restored draft\n${before}`, false);
   await workspaceSaved(page);
   await page.reload();
   await expect(page.getByTestId("parts-list")).toBeVisible();
@@ -309,11 +302,21 @@ test("Update shortcuts restart the room and the keep-playing menu preserves its 
   await page.setViewportSize({ width: 1440, height: 900 });
   await starter(page);
   const before = await runningWorkspaceDocument(page, "logic:1");
-  await draft(page, before.replace("position(o0, 80, 140)", "position(o0, 42, 140)"));
+  await replaceWorkspaceDocument(
+    page,
+    "logic:1",
+    before.replace("position(o0, 80, 140)", "position(o0, 42, 140)"),
+    false,
+  );
   await page.keyboard.press("ControlOrMeta+Shift+Enter");
   await expect(page.getByTestId("workspace-updated")).toBeVisible();
   await expect.poll(async () => (await textHook(page)).egoX).toBe(42);
-  await draft(page, before.replace("position(o0, 80, 140)", "position(o0, 64, 140)"));
+  await replaceWorkspaceDocument(
+    page,
+    "logic:1",
+    before.replace("position(o0, 80, 140)", "position(o0, 64, 140)"),
+    false,
+  );
   await page.getByTestId("workspace-update-menu").click();
   const keep = page.getByRole("menuitem", { name: "Update and keep playing", exact: true });
   await expect(keep).toBeVisible();

@@ -13,6 +13,8 @@ import { buildLogicResource } from "../src/logic/resource.ts";
 import { buildWordsTok, parseWordsTok } from "../src/logic/words.ts";
 import { compileProjectLogic } from "../src/authoring/projectLogic.ts";
 import { PROFILES } from "../src/runtime/profile.ts";
+import { createLogicLspServer } from "../src/logic/lspServer.ts";
+import type { LspOperations } from "../src/logic/lspTypes.ts";
 
 function setup() {
   const project = createStarterProject("blank");
@@ -25,6 +27,305 @@ function setup() {
     build,
   });
 }
+
+for (const [document, content] of [
+  ["words", '[["look",1],["bad☃",2]]'],
+  ["inventory", '[{"name":"lamp","startingRoom":1},{"name":"coin","startingRoom":999}]'],
+] as const) {
+  test(`${document} diagnostics identify the entry to open`, () => {
+    const model = setup();
+    const result = prepareProjectEdit({
+      model,
+      proposal: model.propose(model.capture(), "Invalid entry", [{ key: document, content }]),
+      profileId: "2.936",
+      policy: {},
+    });
+    const finding = result.diagnostics.find((entry) => entry.document === document)!;
+    assert.ok(finding);
+    assert.equal(finding.row, 1);
+  });
+}
+
+test("a room-plan removal problem locates the exit in its world document", () => {
+  const model = setup();
+  const world =
+    '{"rooms":{"1":{"title":"Meadow","description":"","exits":{"north":253}}},"facts":{},"quests":{}}';
+  const added = prepareProjectEdit({
+    model,
+    proposal: model.propose(model.capture(), "Plan", [
+      { key: "logic:253", content: "return;" },
+      { key: "world", content: world },
+    ]),
+    profileId: "2.936",
+    policy: {},
+  });
+  model.apply(added.application);
+  const removed = prepareProjectEdit({
+    model,
+    proposal: model.propose(model.capture(), "Remove", [{ key: "logic:253", content: null }]),
+    profileId: "2.936",
+    policy: {},
+  });
+  const finding = removed.diagnostics.find((entry) => entry.document === "world")!;
+  assert.ok(finding);
+  assert.equal(world.slice(finding.start, finding.end), "253");
+});
+
+for (const [document, content, message] of [
+  [
+    "tests",
+    '{"format":"monotio.agi.tests.v1","tests":[{"name":"Visit","room":253,"steps":[],"expect":{}}]}',
+    "still enters",
+  ],
+  [
+    "tests",
+    '{"format":"monotio.agi.tests.v1","tests":[{"name":"Visit","room":1,"steps":[],"expect":{"room":253}}]}',
+    "still expects",
+  ],
+  [
+    "tests",
+    '{"format":"monotio.agi.tests.v1","tests":[{"name":"Visit","room":1,"steps":[{"action":"wait","ticks":1,"until":{"room":253}}],"expect":{}}]}',
+    "still waits",
+  ],
+  ["references", '[{"id":"ref","kind":"room","target":253,"images":[]}]', "still targets"],
+] as const) {
+  test(`${document} removal navigation locates the field that ${message}`, () => {
+    const model = setup();
+    const added = prepareProjectEdit({
+      model,
+      proposal: model.propose(model.capture(), "Metadata", [
+        { key: "logic:253", content: "return;" },
+        {
+          key: "tests",
+          content: document === "tests" ? content : '{"format":"monotio.agi.tests.v1","tests":[]}',
+        },
+        { key: "references", content: document === "references" ? content : "[]" },
+      ]),
+      profileId: "2.936",
+      policy: {},
+    });
+    assert.equal(added.status, "ready", JSON.stringify(added.diagnostics));
+    model.apply(added.application);
+    const removed = prepareProjectEdit({
+      model,
+      proposal: model.propose(model.capture(), "Remove", [{ key: "logic:253", content: null }]),
+      profileId: "2.936",
+      policy: {},
+    });
+    const finding = removed.diagnostics.find(
+      (entry) => entry.document === document && entry.message.includes(message),
+    )!;
+    assert.ok(finding, JSON.stringify(removed.diagnostics));
+    assert.equal(content.slice(finding.start, finding.end), "253");
+  });
+}
+
+for (const [name, state, message] of [
+  ["missing inventory", { items: { "253": 1 } }, "Inventory item 253 is missing from OBJECT."],
+  [
+    "transition-owned flag",
+    { flags: { "5": true } },
+    "Launch flags 5 is set by the room transition.",
+  ],
+] as const) {
+  test(`Launch ${name} problems locate their entry`, () => {
+    const model = setup();
+    const content = JSON.stringify({
+      rooms: {},
+      facts: {},
+      quests: {},
+      launches: { "1": { entries: [{ id: "bad", name: "Bad", ...state }] } },
+    });
+    const result = prepareProjectEdit({
+      model,
+      proposal: model.propose(model.capture(), "Launch", [{ key: "world", content }]),
+      profileId: "2.936",
+      policy: { launch: { room: 1, id: "bad" } },
+    });
+    const finding = result.diagnostics.find(
+      (entry) => entry.document === "world" && entry.message.includes(message),
+    );
+    assert.ok(finding, JSON.stringify(result.diagnostics));
+    assert.equal(JSON.parse(content.slice(finding.start, finding.end)).id, "bad");
+  });
+}
+
+for (const [name, source, operand, message] of [
+  ["SOUND", "sound(s5, f180); return;", "s5", "SOUND 5 is absent."],
+  ["SOUND zero", "sound(s0, f180); return;", "s0", "SOUND 0 is absent."],
+  ["VIEW", "set.view(o0, 253); return;", "253", "VIEW 253 is absent."],
+  ["LOGIC", "call(253); return;", "253", "LOGIC 253 is absent."],
+  ["sealed room", "new.room(253); return;", "253", "LOGIC 253 is absent."],
+  [
+    "word group",
+    "if (said(12345)) { return; } return;",
+    "12345",
+    "Word group 12345 has no dictionary entry.",
+  ],
+  ["inventory item", "get(i253); return;", "i253", "Inventory item 253 is absent."],
+  ["operand bounds", "sound(256, f180); return;", "256", "byte value out of range"],
+  ["message", "print(m0); return;", "m0", "message numbers are 1-based"],
+  ["syntax", "sound(s5 f180); return;", "f180", "expected"],
+  [
+    "quoted word",
+    'if (said("missingword")) { return; } return;',
+    '"missingword"',
+    "is not in the dictionary",
+  ],
+  ["object bounds", "animate.obj(o256); return;", "o256", "index out of range"],
+  [
+    "second said group",
+    "if (said(1,12345)) { return; } return;",
+    "12345",
+    "Word group 12345 has no dictionary entry.",
+  ],
+] as const) {
+  test(`project ${name} diagnostic retains its authored operand range`, () => {
+    const model = setup();
+    const content = `// authored origin\n${source}`;
+    const result = prepareProjectEdit({
+      model,
+      proposal: model.propose(model.capture(), "Broken operand", [{ key: "logic:1", content }]),
+      profileId: "2.936",
+      policy: {},
+    });
+    const finding = result.diagnostics.find(
+      (entry) => entry.document === "logic:1" && entry.message.includes(message),
+    );
+    assert.ok(finding, JSON.stringify(result.diagnostics));
+    assert.equal(finding.severity, "error");
+    assert.deepEqual(
+      { start: finding.start, end: finding.end },
+      {
+        start: content.indexOf(operand),
+        end: content.indexOf(operand) + operand.length,
+      },
+    );
+  });
+}
+
+test("prepared missing-flag markers and quick fixes share the callback operand range", () => {
+  const model = setup();
+  const source = "// authored callback\nsound(s1, door_done); return;";
+  const prepared = prepareProjectEdit({
+    model,
+    proposal: model.propose(model.capture(), "Callback", [{ key: "logic:1", content: source }]),
+    profileId: "2.936",
+    policy: {},
+  });
+  assert.equal(prepared.status, "diagnostics");
+  assert.equal(prepared.diagnostics.length, 1);
+  const finding = prepared.diagnostics[0]!;
+  assert.equal(finding.message, "2:11: No flag is named door_done.");
+  assert.equal(source.slice(finding.start, finding.end), "door_done");
+  const uri = "agi-project:///logic.1.lgc";
+  const server = createLogicLspServer({
+    project: {
+      profileId: "2.936",
+      words: [],
+      bindings: {},
+      documents: { "logic:1": { source, version: 1 } },
+      diagnostics: prepared.diagnostics,
+    },
+  });
+  const range = { start: { line: 1, character: 10 }, end: { line: 1, character: 19 } };
+  const diagnostics = server.handle({
+    jsonrpc: "2.0",
+    id: 1,
+    method: "textDocument/diagnostic",
+    params: { textDocument: { uri } },
+  })!.result as LspOperations["textDocument/diagnostic"];
+  assert.deepEqual(diagnostics.items, [
+    { range, message: "2:11: No flag is named door_done.", severity: 1, source: "agi-logic" },
+  ]);
+  const actions = server.handle({
+    jsonrpc: "2.0",
+    id: 2,
+    method: "textDocument/codeAction",
+    params: { textDocument: { uri }, range, context: { diagnostics: diagnostics.items } },
+  })!.result as LspOperations["textDocument/codeAction"];
+  const create = actions.find((action) => action.title === "Create flag door_done (Flag 16)")!;
+  assert.ok(create);
+  assert.deepEqual(create.diagnostics, diagnostics.items);
+  assert.equal(create.edit.documentChanges[0]!.textDocument.uri, "agi-project:///bindings.json");
+  assert.deepEqual(JSON.parse(create.edit.documentChanges[0]!.edits[0]!.newText), {
+    door_done: { kind: "flag", num: 16 },
+  });
+  const unrelated = server.handle({
+    jsonrpc: "2.0",
+    id: 3,
+    method: "textDocument/codeAction",
+    params: {
+      textDocument: { uri },
+      range: { start: { line: 1, character: 6 }, end: { line: 1, character: 8 } },
+      context: { diagnostics: diagnostics.items },
+    },
+  })!.result as LspOperations["textDocument/codeAction"];
+  assert.ok(unrelated.every((action) => !action.title.startsWith("Create flag")));
+});
+
+test("PICTURE removal diagnostics locate the computed operand", () => {
+  const model = setup();
+  const source = "v20=253; draw.pic(v20); return;";
+  const added = prepareProjectEdit({
+    model,
+    proposal: model.propose(model.capture(), "Picture", [
+      { key: "logic:1", content: source },
+      { key: "picture:253", content: "end\n" },
+    ]),
+    profileId: "2.936",
+    policy: {},
+  });
+  assert.equal(added.status, "ready");
+  model.apply(added.application);
+  const removed = prepareProjectEdit({
+    model,
+    proposal: model.propose(model.capture(), "Remove picture", [
+      { key: "picture:253", content: null },
+    ]),
+    profileId: "2.936",
+    policy: {},
+  });
+  const finding = removed.diagnostics.find(
+    (entry) => entry.document === "logic:1" && entry.code === "removal-use",
+  )!;
+  assert.ok(finding);
+  assert.equal(source.slice(finding.start, finding.end), "v20");
+});
+
+test("source diagnostics use the compiler's canonical WORDS dictionary", () => {
+  const model = setup();
+  const result = prepareProjectEdit({
+    model,
+    proposal: model.propose(model.capture(), "Words", [
+      { key: "words", content: '[["LOOK",100]]' },
+      { key: "logic:1", content: 'if (said("look")) { return; } return;' },
+    ]),
+    profileId: "2.936",
+    policy: {},
+  });
+  assert.equal(result.status, "ready", JSON.stringify(result.diagnostics));
+});
+
+test("project Problems retain system-name shadow warnings at the authored use", () => {
+  const model = setup();
+  const source = "current_room=1; return;";
+  const result = prepareProjectEdit({
+    model,
+    proposal: model.propose(model.capture(), "Names", [
+      { key: "bindings", content: '{"current_room":{"kind":"variable","num":20}}' },
+      { key: "logic:1", content: source },
+    ]),
+    profileId: "2.936",
+    policy: {},
+  });
+  const warning = result.diagnostics.find(
+    (entry) => entry.document === "logic:1" && entry.message.includes("shadows built-in"),
+  )!;
+  assert.ok(warning, JSON.stringify(result.diagnostics));
+  assert.equal(warning.severity, "warning");
+  assert.equal(source.slice(warning.start, warning.end), "current_room");
+});
 
 test("computed room jumps require a scoped review; literal uses and plans still refuse", () => {
   const model = setup();
@@ -48,6 +349,10 @@ test("computed room jumps require a scoped review; literal uses and plans still 
   assert.ok(
     blocked.diagnostics.some((d) => d.code === "computed-room-jump" && d.document === "logic:99"),
   );
+  const jump = blocked.diagnostics.find(
+    (d) => d.code === "computed-room-jump" && d.document === "logic:99",
+  )!;
+  assert.equal('get.num("Room",v20);new.room.v(v20);return;'.slice(jump.start, jump.end), "v20");
   const approved = prepareProjectEdit({
     model,
     proposal,
@@ -118,6 +423,8 @@ test("a remapped binding preserves an open draft's original room reference", () 
   assert.ok(
     remove.diagnostics.some((d) => d.document === "logic:99" && /logic:254/.test(d.message)),
   );
+  const draft = remove.diagnostics.find((d) => d.document === "logic:99")!;
+  assert.equal("new.room(garden);return;".slice(draft.start, draft.end), "garden");
 });
 
 test("invalid current source survives while the last admissible image stays fixed", () => {
@@ -400,6 +707,13 @@ test("room removal prepares one candidate including Launch pruning and Undo rest
   );
   assert.ok(
     blocked.diagnostics.some((d) => d.document === "world" && /planned room/.test(d.message)),
+  );
+  const plannedRoom = blocked.diagnostics.find(
+    (d) => d.document === "world" && /planned room/.test(d.message),
+  )!;
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(worldDraft).slice(plannedRoom.start, plannedRoom.end)),
+    worldDraft.rooms["2"],
   );
   const prepared = prepareProjectEdit({
     model,

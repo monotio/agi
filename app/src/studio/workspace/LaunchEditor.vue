@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, useTemplateRef, watch, watchEffect } from "vue";
+import { computed, ref, useTemplateRef, watch, watchEffect, nextTick } from "vue";
 import type { AgiProfile } from "../../../../src/runtime/profile.ts";
 import type { EngineStateReport } from "../../../../src/runtime/engine.ts";
 import { newLaunchId, type Launch, type RoomLaunches } from "../../../../src/authoring/launches.ts";
@@ -28,6 +28,7 @@ const props = defineProps<{
   bindings: string;
   inventory: readonly { num: number; name: string }[];
   rooms: readonly { room: number; title: string }[];
+  location?: { launchId?: string; item?: number; serial: number } | undefined;
 }>();
 
 const emit = defineEmits<{
@@ -55,6 +56,19 @@ watch(
 
 const activeLaunch = computed<Launch | undefined>(() =>
   entries.value.find((entry) => entry.id === currentLaunchId.value),
+);
+watch(
+  () => props.location,
+  async (location) => {
+    if (!location?.launchId) return;
+    currentLaunchId.value = location.launchId;
+    await nextTick();
+    if (location.item !== undefined)
+      document
+        .querySelector<HTMLSelectElement>(`[data-launch-item="${location.item}"] select`)
+        ?.focus();
+  },
+  { immediate: true },
 );
 
 // Keep text awaiting blur through saved metadata publications.
@@ -737,6 +751,7 @@ function handleCanvasDrag(event: MouseEvent): void {
             :key="itemNum"
             class="launch-row launch-row--item"
             data-testid="launch-row-item"
+            :data-launch-item="itemNum"
           >
             <div class="launch-row__label">
               <strong>Item</strong>

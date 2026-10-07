@@ -32,6 +32,7 @@ const props = defineProps<{
   active: boolean;
   profile: AgiProfile;
   snapshot: ProjectSnapshot;
+  location?: { row?: number; serial: number } | undefined;
 }>();
 const emit = defineEmits<{
   edit: [source: string];
@@ -41,6 +42,22 @@ const emit = defineEmits<{
   response: [room: number, command: string];
   guided: [action: WorkspaceAction];
 }>();
+watch(
+  () => props.location,
+  async (location) => {
+    if (location?.row === undefined) return;
+    await nextTick();
+    find.value = "";
+    await nextTick();
+    const entry = entries.value[location.row];
+    if (entry) {
+      const row = document.querySelector<HTMLElement>(`[data-word-group="${entry[1]}"]`);
+      row?.scrollIntoView({ block: "center" });
+      row?.querySelector<HTMLButtonElement>("button")?.focus();
+    }
+  },
+  { immediate: true },
+);
 const labels = useProjectLabels();
 const engine = useEngineApi();
 void engine.loadPlayerSentences();
@@ -660,15 +677,15 @@ function dismissGhosts(event: KeyboardEvent): void {
           <div class="meaning-uses">
             <template v-if="group.usage.locations.length">
               <span>{{ group.usage.count }}</span>
-              <span v-for="location in group.usage.locations" :key="location.logic">
-                · {{ location.label }}
-                <template v-for="(line, index) in location.lines" :key="line"
+              <span v-for="use in group.usage.locations" :key="use.logic">
+                · {{ use.label }}
+                <template v-for="(line, index) in use.lines" :key="line"
                   ><span v-if="index">, </span
                   ><a
                     class="words-link"
-                    :href="`#logic-${location.logic}-line-${line}`"
-                    :aria-label="`${numberedLabel('logic', location.logic, labels, 'row')} line ${line}`"
-                    @click.prevent="emit('openLogic', location.logic, line)"
+                    :href="`#logic-${use.logic}-line-${line}`"
+                    :aria-label="`${numberedLabel('logic', use.logic, labels, 'row')} line ${line}`"
+                    @click.prevent="emit('openLogic', use.logic, line)"
                     >{{ line }}</a
                   ></template
                 >

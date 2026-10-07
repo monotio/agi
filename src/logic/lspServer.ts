@@ -25,6 +25,14 @@ import type {
 } from "./lspTypes.ts";
 
 export interface LogicLanguageProject {
+  /** Diagnostics for the exact configured authored sources, shared with Problems. */
+  readonly diagnostics?: readonly {
+    readonly document: string;
+    readonly start?: number;
+    readonly end?: number;
+    readonly severity: "error" | "warning";
+    readonly message: string;
+  }[];
   readonly profileId: ProfileId;
   readonly words: readonly (readonly [string, number])[];
   readonly objects?: readonly string[];
@@ -38,6 +46,11 @@ export interface LogicLanguageProject {
     Record<string, { readonly source: string; readonly version?: number; readonly uri?: string }>
   >;
   readonly bindingDocument?: { readonly uri: string; readonly source: string };
+}
+export interface LogicLanguageSettings {
+  readonly project?: LogicLanguageProject;
+  /** Prepared Problems can refresh without replacing the language inputs. */
+  readonly diagnosticSnapshot?: Pick<LogicLanguageProject, "documents" | "diagnostics">;
 }
 interface Document {
   uri: string;
@@ -54,7 +67,7 @@ interface Params {
   name?: string;
   range?: Range;
   contentChanges: { text: string; range?: Range; rangeLength?: number }[];
-  settings?: { agiLogic?: { project: LogicLanguageProject } };
+  settings?: { agiLogic?: LogicLanguageSettings };
   id?: string | number;
   previousResultId?: string;
   capabilities?: {
@@ -90,6 +103,9 @@ export function createLogicLspServer(
   function setProject(input: LogicLanguageProject) {
     project = {
       profileId: input.profileId,
+      ...(input.diagnostics
+        ? { diagnostics: input.diagnostics.map((entry) => ({ ...entry })) }
+        : {}),
       objects: [...(input.objects ?? [])],
       ...(input.inventory ? { inventory: input.inventory.map((item) => ({ ...item })) } : {}),
       ...(input.inventoryDocument ? { inventoryDocument: { ...input.inventoryDocument } } : {}),
@@ -150,8 +166,22 @@ export function createLogicLspServer(
     return result;
   }
   function diagnostics(doc: Document) {
-    return language(doc).diagnostics.map((entry) => ({
-      range: rangeAt(doc.source, entry.start, entry.end),
+    const configured = Object.entries(project.documents).find(
+      ([key, entry]) =>
+        (entry.uri ?? `agi-project:///logic.${key.slice(6)}.lgc`) === doc.uri &&
+        entry.source === doc.source,
+    );
+    const entries =
+      project.diagnostics && configured
+        ? project.diagnostics.filter(
+            (entry) =>
+              entry.document === configured[0] &&
+              entry.start !== undefined &&
+              entry.end !== undefined,
+          )
+        : language(doc).diagnostics;
+    return entries.map((entry) => ({
+      range: rangeAt(doc.source, entry.start!, entry.end!),
       severity: entry.severity === "error" ? 1 : 2,
       source: "agi-logic",
       message: entry.message,
@@ -985,8 +1015,36 @@ export function createLogicLspServer(
       return;
     }
     if (method === "workspace/didChangeConfiguration") {
-      const input = params.settings?.agiLogic?.project;
-      if (input) setProject(input);
+      const settings = params.settings?.agiLogic;
+      if (settings?.project) setProject(settings.project);
+      else if (settings?.diagnosticSnapshot) {
+        const snapshot = settings.diagnosticSnapshot;
+        if (
+          Object.keys(snapshot.documents).length !== Object.keys(project.documents).length ||
+          Object.entries(snapshot.documents).some(([key, source]) => {
+            const configured = project.documents[key];
+            const uri = source.uri ?? `agi-project:///logic.${key.slice(6)}.lgc`;
+            return (
+              !configured ||
+              uri !== (configured.uri ?? `agi-project:///logic.${key.slice(6)}.lgc`) ||
+              document(uri)?.source !== source.source
+            );
+          })
+        )
+          return;
+        const { diagnostics: _diagnostics, ...inputs } = project;
+        project = {
+          ...inputs,
+          documents: Object.fromEntries(
+            Object.entries(snapshot.documents).map(([key, source]) => [key, { ...source }]),
+          ),
+          ...(snapshot.diagnostics
+            ? { diagnostics: snapshot.diagnostics.map((entry) => ({ ...entry })) }
+            : {}),
+        };
+        revision++;
+        for (const doc of open.values()) publish(doc);
+      }
       return;
     }
     if (method === "textDocument/didOpen") {

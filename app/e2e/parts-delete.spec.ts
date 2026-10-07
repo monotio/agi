@@ -79,9 +79,46 @@ for (const [width, height] of [
       await expect(notice).toHaveCount(1);
       await expect(notice).toBeVisible();
       expect(await runningWorkspaceDocument(page, "logic:1")).toBe(original);
+      await notice.getByRole("button", { name: "Go to error", exact: true }).click();
+      const surface = page.getByTestId("workspace-logic-editor").filter({ visible: true });
+      await expect(surface.locator(".squiggly-error").first()).toBeVisible();
+      const selection = () =>
+        page.evaluate(async () => {
+          const { monaco } = await import("/src/studio/logic/monacoLanguage.ts");
+          const editor = monaco.editor.getEditors().find((entry) => entry.hasTextFocus());
+          const selected = editor?.getSelection();
+          return selected ? editor?.getModel()?.getValueInRange(selected) : null;
+        });
+      await expect.poll(selection).toBe("v50");
+      await expect
+        .poll(() =>
+          page.evaluate(async () => {
+            const { monaco } = await import("/src/studio/logic/monacoLanguage.ts");
+            const editor = monaco.editor.getEditors().find((entry) => entry.hasTextFocus())!;
+            const model = editor.getModel()!;
+            return monaco.editor
+              .getModelMarkers({ resource: model.uri })
+              .filter((marker) => marker.message.includes("picture:1"))
+              .map((marker) => ({
+                operand: model.getValueInRange(marker),
+                startLineNumber: marker.startLineNumber,
+                startColumn: marker.startColumn,
+                endLineNumber: marker.endLineNumber,
+                endColumn: marker.endColumn,
+              }));
+          }),
+        )
+        .toEqual([
+          { operand: "v50", startLineNumber: 6, startColumn: 12, endLineNumber: 6, endColumn: 15 },
+          { operand: "v50", startLineNumber: 7, startColumn: 12, endLineNumber: 7, endColumn: 15 },
+        ]);
+      await reviewShot(page, `deleted-picture-markers-${width}`);
       await parts(page);
       await page.getByTestId("part-problems").click();
-      await expect(page.getByTestId("workspace-problems")).toContainText("picture:1");
+      const problems = page.getByTestId("workspace-problems");
+      await expect(problems).toContainText("picture:1");
+      await problems.getByRole("button", { name: /picture:1.*load.pic/ }).click();
+      await expect.poll(selection).toBe("v50");
       await parts(page);
       await page.getByRole("button", { name: "Add a picture", exact: true }).click();
       expect(await draftDocument(page, "picture:1")).toBe("end\n");

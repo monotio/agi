@@ -6,6 +6,7 @@ import {
   openProjectDrafts,
 } from "../src/project/projectPartDrafts.ts";
 import { compileProjectDocuments } from "../../src/authoring/projectDocuments.ts";
+import { prepareProjectEdit } from "../../src/authoring/projectEdit.ts";
 import { ProjectModel } from "../../src/authoring/projectModel.ts";
 import { sha256Hex } from "../../src/crypto.ts";
 import { createContainer } from "../../src/container/container.ts";
@@ -44,6 +45,33 @@ test("draft review lists each source line using a SOUND", () => {
     "Used in LOGIC 2 line 3",
     "Used in LOGIC 2 line 4",
   ]);
+});
+test("a deleted SOUND marks every surviving use at its own operand", () => {
+  const source = "load.sound(1);\nreturn;\nsound(1,f10);\nload.sound(1);";
+  const model = project({
+    "sound:1": createSoundDocument().encode(),
+    "logic:2": source,
+  });
+  const prepared = prepareProjectEdit({
+    model,
+    proposal: model.propose(model.capture(), "Delete sound", [{ key: "sound:1", content: null }]),
+    profileId: profile.id,
+    policy: {},
+  });
+  assert.equal(prepared.status, "diagnostics");
+  const uses = prepared.diagnostics.filter(
+    (entry) => entry.document === "logic:2" && entry.code === "removal-use",
+  );
+  assert.deepEqual(
+    uses.map(({ start, end }) => ({ start, end })),
+    [
+      { start: 11, end: 12 },
+      { start: 29, end: 30 },
+      { start: 48, end: 49 },
+    ],
+  );
+  assert.ok(uses.every((entry) => entry.severity === "error"));
+  assert.ok(uses.every((entry) => source.slice(entry.start, entry.end) === "1"));
 });
 test("draft room deletion keeps incoming code and exits, prunes Launches, and Undo restores all", async () => {
   const world = JSON.stringify({

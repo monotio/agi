@@ -21,6 +21,7 @@ interface AnalysisWorker {
 }
 interface Pending {
   readonly epoch: number;
+  readonly method: keyof LspOperations;
   readonly revision: number;
   readonly version: number;
   readonly key: string;
@@ -85,6 +86,9 @@ export class LogicAnalysisClient {
     const next: LogicAnalysisProject = {
       revision: project.revision,
       profileId: project.profileId,
+      ...(project.diagnostics
+        ? { diagnostics: project.diagnostics.map((entry) => ({ ...entry })) }
+        : {}),
       objects: [...(project.objects ?? [])],
       ...(project.inventory ? { inventory: project.inventory.map((item) => ({ ...item })) } : {}),
       ...(project.inventoryDocument ? { inventoryDocument: { ...project.inventoryDocument } } : {}),
@@ -96,7 +100,7 @@ export class LogicAnalysisClient {
       documents,
       ...(project.bindingDocument ? { bindingDocument: { ...project.bindingDocument } } : {}),
     };
-    const { documents: _documents, revision: _revision, ...context } = next;
+    const { documents: _documents, revision: _revision, diagnostics, ...context } = next;
     const signature = JSON.stringify(context);
     const previous = this.project;
     const keys = Object.keys(documents);
@@ -110,12 +114,42 @@ export class LogicAnalysisClient {
       const after = documents[key]!;
       return before?.version !== after.version || before.source !== after.source;
     });
-    if (!replace && !changed.length && previous.revision === next.revision) return false;
+    const inputsChanged = replace || changed.length > 0 || previous?.revision !== next.revision;
+    const diagnosticsChanged =
+      JSON.stringify(diagnostics) !== JSON.stringify(previous?.diagnostics);
+    if (!inputsChanged && !diagnosticsChanged) return false;
     this.project = next;
     this.contextSignature = signature;
-    this.supersede();
+    if (inputsChanged) this.supersede();
+    else {
+      // New marker data supersedes marker reads; matching language queries retain authority.
+      for (const [id, pending] of this.pending) {
+        if (pending.method !== "textDocument/diagnostic") continue;
+        this.worker?.postMessage({
+          jsonrpc: "2.0",
+          method: "$/cancelRequest",
+          params: { id },
+        } satisfies LspMessage);
+        this.rejectOne(id, new Error("Logic diagnostics were superseded by newer Problems."));
+      }
+    }
     if (this.worker) {
-      if (replace) this.sendProject(this.worker);
+      if (!inputsChanged) {
+        this.worker.postMessage({
+          jsonrpc: "2.0",
+          method: "workspace/didChangeConfiguration",
+          params: {
+            settings: {
+              agiLogic: {
+                diagnosticSnapshot: {
+                  documents: next.documents,
+                  ...(diagnostics ? { diagnostics } : {}),
+                },
+              },
+            },
+          },
+        } satisfies LspMessage);
+      } else if (replace || diagnosticsChanged) this.sendProject(this.worker);
       else for (const key of changed) this.sendDocument(this.worker, key);
     }
     this.changed();
@@ -260,6 +294,7 @@ export class LogicAnalysisClient {
         this.timeoutMs,
       );
       this.pending.set(id, {
+        method,
         epoch: this.epoch,
         revision: project.revision,
         version: document.version,

@@ -47,13 +47,10 @@ import { openContainer } from "../../../../src/container/container.ts";
 import {
   readMusicDocument,
   readBindingsDocument,
+  readWordsDocument,
 } from "../../../../src/authoring/projectDocuments.ts";
 import { diffProjectDocuments } from "../../../../src/authoring/projectContent.ts";
-import {
-  inspectPartDraftRemovals,
-  preparePartDraftRemoval,
-  type DraftRemovalProblem,
-} from "../../project/projectPartDrafts.ts";
+import { preparePartDraftRemoval } from "../../project/projectPartDrafts.ts";
 import { inspectProjectSourceDependencies } from "../../../../src/authoring/projectSourceDependencies.ts";
 import {
   occupiedProjectNumbers,
@@ -61,6 +58,10 @@ import {
 } from "../../../../src/authoring/projectRenumber.ts";
 import type { ProjectChange, ProjectContent } from "../../../../src/authoring/projectContent.ts";
 import type { ProjectSnapshot } from "../../../../src/authoring/projectModel.ts";
+import {
+  prepareProjectEdit,
+  type ProjectEditDiagnostic,
+} from "../../../../src/authoring/projectEdit.ts";
 import type { ProjectHistoryState } from "../../../../src/authoring/projectHistoryData.ts";
 import type { ProjectSession } from "../../project/projectSession.ts";
 import { layoutDragging } from "../../play/layoutDrag.ts";
@@ -172,6 +173,7 @@ async function applyNumber(
   }
 }
 const NotesEditor = defineAsyncComponent(() => import("./NotesEditor.vue"));
+const DocumentEditor = defineAsyncComponent(() => import("./DocumentEditor.vue"));
 const ImageReferencePanel = defineAsyncComponent(
   () => import("../creative/ImageReferencePanel.vue"),
 );
@@ -409,7 +411,6 @@ let draftKeys = "";
 let draftError = "";
 const draftMembership = shallowRef<readonly string[]>([]);
 const deletedParts = shallowRef<readonly string[]>([]);
-const removalProblems = shallowRef<readonly DraftRemovalProblem[]>([]);
 const partRemovalReview = shallowRef<{
   owner: ProjectSession;
   snapshot: ProjectSnapshot;
@@ -529,7 +530,6 @@ function attach(): void {
     offDrafts?.();
     optimistic.value = {};
     deletedParts.value = [];
-    removalProblems.value = [];
     partRemovalReview.value = undefined;
     groupMetadata.value = { world: undefined, bindings: undefined };
     draftKeys = "";
@@ -1305,11 +1305,6 @@ function draftChanged(force = false): void {
   deletedParts.value = changes
     .filter((change) => change.content === null)
     .map((change) => change.key);
-  removalProblems.value = inspectPartDraftRemovals(
-    session.workingSnapshot(),
-    deletedParts.value,
-    profile.value,
-  );
   const next: Record<string, ProjectContent> = {};
   for (const { key, content: value } of changes) if (value !== null) next[key] = value;
   const metadata = { world: next["world"], bindings: next["bindings"] };
@@ -1329,11 +1324,6 @@ function draftChanged(force = false): void {
     ({ key, content }) =>
       (key === "notes" || key.startsWith("logic:")) && optimistic.value[key] !== content,
   );
-  if (force || membershipChanged || textChanged) updateProblems.value = [];
-  editor.problemCount.value =
-    removalProblems.value.length +
-    Object.values(typingProblems).reduce((count, rows) => count + rows.length, 0) +
-    updateProblems.value.filter((entry) => entry.severity === "error").length;
   if (force || keys !== draftKeys || textChanged) {
     optimistic.value = next;
     draftKeys = keys;
@@ -1391,34 +1381,26 @@ const writes = {
   },
   dispose: () => {},
 };
-const updateProblems = shallowRef<ReturnType<ProjectSession["capture"]>["diagnostics"]>([]);
-const typingProblems: Record<string, readonly { message: string; line: number }[]> = {};
-function reportProblems(key: string, entries: readonly { message: string; line: number }[]): void {
-  typingProblems[key] = entries;
-  editor.problemCount.value = Object.values(typingProblems).reduce(
-    (count, rows) => count + rows.length,
-    removalProblems.value.length,
-  );
-}
-const buildErrorLocation = ref<{ document: string; line: number; message: string }>();
+const buildErrorLocation = ref<{ problem: ProjectEditDiagnostic; message: string }>();
 const buildErrorNotice = computed(() => buildErrorLocation.value?.message === editor.error.value);
-function refuseBuild(document: string): void {
+function refuseBuild(problem: ProjectEditDiagnostic): void {
+  const document = problem.document;
   const message = `${document.replace(":", " ").toUpperCase()} has errors. Fix them to update the game.`;
-  buildErrorLocation.value = { document, line: typingProblems[document]?.[0]?.line ?? 1, message };
+  buildErrorLocation.value = { problem, message };
   editor.error.value = message;
 }
 function goToBuildError(): void {
   const location = buildErrorLocation.value;
   if (!location) return;
-  if (location.document.startsWith("logic:"))
-    openWordLogic(Number(location.document.slice(6)), location.line);
-  else openPart(location.document);
+  revealProblem(location.problem);
 }
 async function updateGame(restartRoom = true): Promise<void> {
   if (!session || actionBusy.value || imageBusy.value || editingPaused.value) return;
-  const firstError = diagnostics.value.find((entry) => entry.severity === "error");
+  const firstError = diagnostics.value.find(
+    (entry) => entry.severity === "error" && (restartRoom || entry.code !== "launch-input"),
+  );
   if (editor.problemCount.value && firstError) {
-    refuseBuild(firstError.document);
+    refuseBuild(firstError);
     return;
   }
   buildErrorLocation.value = undefined;
@@ -1447,14 +1429,13 @@ async function updateGame(restartRoom = true): Promise<void> {
     const updatedParts = pendingParts.parts(snapshot.value, changes).length;
     const waiting = engine.state.modal !== null || engine.state.waitingForKey;
     const result = await session.update(changes, restartRoom, restartRoom ? launch : undefined);
-    updateProblems.value = result.diagnostics;
     if (!["committed", "unchanged", "draft"].includes(result.status)) {
       editor.problemCount.value = Math.max(
         1,
         result.diagnostics.filter((entry) => entry.severity === "error").length,
       );
       const first = result.diagnostics.find((entry) => entry.severity === "error");
-      if (first) refuseBuild(first.document);
+      if (first) refuseBuild(first);
       else
         editor.error.value =
           "reason" in result && typeof result.reason === "string"
@@ -1505,8 +1486,6 @@ async function discardChanges(): Promise<void> {
     coordinatedChanges.clear();
     placementPreviews.value = {};
     editorEpoch.value++;
-    updateProblems.value = [];
-    for (const key of Object.keys(typingProblems)) delete typingProblems[key];
     editor.problemCount.value = 0;
     editor.error.value = "";
     draftChanged(true);
@@ -1564,7 +1543,6 @@ function edit(key: string, value: ProjectContent, transaction = false): void {
   )
     return;
   editor.error.value = "";
-  updateProblems.value = [];
   buildErrorLocation.value = undefined;
   const changes = editorChanges(key, value);
   if (key === "world") {
@@ -1573,13 +1551,9 @@ function edit(key: string, value: ProjectContent, transaction = false): void {
     });
   } else if (transaction) session?.drafts().stageTransaction(changes);
   else session?.drafts().stage(changes);
-  for (const change of changes)
-    if (change.content !== null) optimistic.value[change.key] = change.content;
-  delete typingProblems[key];
-  editor.problemCount.value = Object.values(typingProblems).reduce(
-    (count, rows) => count + rows.length,
-    0,
-  );
+  const next = { ...optimistic.value };
+  for (const change of changes) if (change.content !== null) next[change.key] = change.content;
+  optimistic.value = next;
   editor.updatedParts.value = 0;
   draftChanged(!key.startsWith("logic:") && key !== "notes");
 }
@@ -1630,7 +1604,12 @@ function text(key: string): string | undefined {
   if (key === "inventory") return JSON.stringify(readInventoryObjects(value, profile.value));
   if (key.startsWith("logic:")) {
     const source = text("words");
-    const words = source ? (JSON.parse(source) as [string, number][]) : [];
+    let words: [string, number][] = [];
+    try {
+      words = source ? readWordsDocument(source).map(({ word, id }) => [word, id]) : [];
+    } catch {
+      /* Invalid WORDS remains editable beside a native LOGIC preview. */
+    }
     const cached = derivedText.get(key);
     if (cached?.value === value && cached.words === source) return cached.text;
     const derived = derivedLogicSource(value, profile.value.id, words).source;
@@ -1771,24 +1750,68 @@ const derivedText = new Map<
 >();
 const diagnostics = computed(() => {
   void snapshot.value;
-  void editor.problemCount.value;
-  const typed = Object.entries(typingProblems).flatMap(([document, entries]) =>
-    entries.map((entry) => ({ document, severity: "error" as const, message: entry.message })),
-  );
-  if (typed.length || removalProblems.value.length) return [...typed, ...removalProblems.value];
-  return updateProblems.value.length
-    ? updateProblems.value
-    : (session?.capture().diagnostics ?? []);
+  void optimistic.value;
+  if (!session) return [];
+  return prepareProjectEdit({
+    model: session.model,
+    proposal: session.model.propose(
+      session.model.capture(),
+      "Check working image",
+      pendingParts.changes(snapshot.value, session.drafts().changes()),
+    ),
+    profileId: profile.value.id,
+    policy: {
+      allowMissingRooms: roomGeneration.value,
+      launch:
+        editor.actionRoom.value === undefined ||
+        !editor.launchChoices.value.some((entry) => entry.id === editor.selectedLaunch.value)
+          ? undefined
+          : { room: editor.actionRoom.value, id: editor.selectedLaunch.value },
+    },
+  }).diagnostics;
 });
-watch(roomGeneration, () => {
-  updateProblems.value = [];
-  editor.problemCount.value = diagnostics.value.length;
-});
+watch(
+  diagnostics,
+  (entries) => {
+    editor.problemCount.value = entries.length;
+  },
+  { immediate: true },
+);
 const acceptedDocuments = computed(() => snapshot.value?.documents() ?? {});
 const workingDocuments = computed(() => {
   const documents = { ...acceptedDocuments.value, ...optimistic.value };
   for (const key of deletedParts.value) delete documents[key];
   return documents;
+});
+// Table editors need renderable rows; damaged JSON is repaired as source text.
+const textTables = computed(() => {
+  const keys: string[] = [];
+  for (const key of ["words", "inventory"]) {
+    const source = text(key);
+    if (source === undefined) continue;
+    try {
+      if (key === "words") readWordsDocument(source);
+      else {
+        const rows: unknown = JSON.parse(source);
+        if (
+          !Array.isArray(rows) ||
+          rows.some(
+            (row: unknown) =>
+              !row ||
+              typeof row !== "object" ||
+              Array.isArray(row) ||
+              typeof (row as Record<string, unknown>)["name"] !== "string" ||
+              ((row as Record<string, unknown>)["startingRoom"] !== undefined &&
+                typeof (row as Record<string, unknown>)["startingRoom"] !== "number"),
+          )
+        )
+          keys.push(key);
+      }
+    } catch {
+      keys.push(key);
+    }
+  }
+  return keys;
 });
 const guidedKind = ref<WorkspaceAction["kind"]>();
 const guidedCommand = ref("");
@@ -1892,7 +1915,42 @@ const unknownSentence = computed(() =>
     (entry) => entry.unknown && entry.room === engine.roomMap.currentRoom.value,
   ),
 );
-const logicLocation = ref<{ key: string; line: number; serial: number }>();
+const logicLocation = ref<{
+  key: string;
+  line: number;
+  serial: number;
+  start?: number;
+  end?: number;
+}>();
+const documentLocation = ref<{
+  key: string;
+  serial: number;
+  row?: number;
+  start?: number;
+  end?: number;
+  launchId?: string;
+  item?: number;
+}>();
+function revealProblem(problem: ProjectEditDiagnostic): void {
+  const key = problem.navigation?.key ?? problem.document;
+  documentLocation.value = {
+    ...problem,
+    ...problem.navigation,
+    key,
+    serial: (documentLocation.value?.serial ?? 0) + 1,
+  };
+  if (key.startsWith("logic:")) {
+    const source = text(key) ?? "";
+    logicLocation.value = {
+      key,
+      line: problem.start === undefined ? 1 : lineOf(source, problem.start),
+      serial: (logicLocation.value?.serial ?? 0) + 1,
+      ...(problem.start === undefined ? {} : { start: problem.start }),
+      ...(problem.end === undefined ? {} : { end: problem.end }),
+    };
+  }
+  openPart(key);
+}
 function openWordLogic(logic: number, line: number): void {
   const key = `logic:${logic}`;
   logicLocation.value = { key, line, serial: (logicLocation.value?.serial ?? 0) + 1 };
@@ -2093,7 +2151,6 @@ function applyPartRemoval(changes: readonly ProjectChange[]): void {
   partRemovalReview.value = undefined;
   editor.error.value = "";
   buildErrorLocation.value = undefined;
-  for (const change of changes) if (change.content === null) delete typingProblems[change.key];
   draftChanged(true);
   if (editor.selected.value && deletedParts.value.includes(editor.selected.value))
     openPart("problems");
@@ -2800,19 +2857,22 @@ onBeforeUnmount(() => {
         :source="text(key)!"
         :snapshot="languageSnapshot ?? snapshot"
         :profile-id="profile.id"
+        :diagnostics
         :active="creating && key === editor.selected.value"
         @edit="edit(key, $event)"
         @typing-end="endTyping"
         @selection="editor.setAgentContext(key, $event)"
-        @problems="reportProblems(key, $event)"
       />
       <WordsEditor
         :read-only="editingPaused || actionBusy"
-        v-else-if="key === 'words' && text(key) !== undefined && snapshot"
+        v-else-if="
+          key === 'words' && !textTables.includes(key) && text(key) !== undefined && snapshot
+        "
         :source="text(key)!"
         :documents="workingDocuments"
         :snapshot
         :profile="profile"
+        :location="documentLocation?.key === key ? documentLocation : undefined"
         :room="engine.roomMap.currentRoom.value ?? 0"
         :active="creating && key === editor.selected.value"
         @edit="edit(key, $event)"
@@ -2824,8 +2884,9 @@ onBeforeUnmount(() => {
       />
       <TableEditor
         :read-only="editingPaused || actionBusy"
-        v-else-if="key === 'inventory' && text(key) !== undefined"
+        v-else-if="key === 'inventory' && !textTables.includes(key) && text(key) !== undefined"
         :kind="key"
+        :location="documentLocation?.key === key ? documentLocation : undefined"
         :source="text(key)!"
         @edit="edit(key, $event)"
       />
@@ -2881,6 +2942,7 @@ onBeforeUnmount(() => {
               : (key.slice(6) as 'variables' | 'watch' | 'stack' | 'breakpoints')
           "
           @reveal="revealDebug"
+          @problem="revealProblem"
         />
         <template #fallback><p>Loading…</p></template>
       </Suspense>
@@ -2888,6 +2950,7 @@ onBeforeUnmount(() => {
         :read-only="editingPaused || actionBusy"
         v-else-if="key.startsWith('launches:')"
         :room="Number(key.slice(9))"
+        :location="documentLocation?.key === key ? documentLocation : undefined"
         :room-name="roomName(Number(key.slice(9)))"
         :launches="roomLaunches(Number(key.slice(9)))"
         :selected-launch-id="roomSelectedLaunch(Number(key.slice(9)))"
@@ -2900,6 +2963,15 @@ onBeforeUnmount(() => {
         @edit="(launches) => editRoomLaunches(Number(key.slice(9)), launches)"
         @select-launch="(launchId) => selectRoomLaunch(Number(key.slice(9)), launchId)"
         @close="editor.close(key)"
+      />
+      <DocumentEditor
+        v-else-if="text(key) !== undefined"
+        :document-key="key"
+        :source="text(key)!"
+        :read-only="editingPaused || actionBusy"
+        :location="documentLocation?.key === key ? documentLocation : undefined"
+        @edit="edit(key, $event)"
+        @typing-end="endTyping"
       />
       <p v-else class="workspace-error">Open an authored part to edit it.</p>
       <p

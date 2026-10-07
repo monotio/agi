@@ -446,8 +446,8 @@ function emitCondition(
           if (found === undefined) {
             throw new AssemblerError(
               `word '${arg.text}' is not in the dictionary`,
-              lit.cond.tok.line,
-              lit.cond.tok.col,
+              (arg.tok ?? lit.cond.tok).line,
+              (arg.tok ?? lit.cond.tok).col,
             );
           }
           id = found;
@@ -564,6 +564,7 @@ class MessageTable {
   }
 
   resolve(ref: Ref, tok: Token): number {
+    tok = ref.tok ?? tok;
     if (ref.kind === "str") return this.intern(ref.text, tok);
     const n = ref.kind === "num" ? ref.value : ref.index;
     if (n === 0)
