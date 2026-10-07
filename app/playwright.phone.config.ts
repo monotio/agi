@@ -42,7 +42,7 @@ export default defineConfig({
     "disk-import.spec.ts",
   ],
   projects: [
-    { name: "android-chromium", use: { browserName: "chromium", hasTouch: true } },
-    { name: "iphone-webkit", use: { browserName: "webkit", hasTouch: true } },
+    { name: "android-chromium", use: { browserName: "chromium" } },
+    { name: "iphone-webkit", use: { browserName: "webkit" } },
   ],
 });

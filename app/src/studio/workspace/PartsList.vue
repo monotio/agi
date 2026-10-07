@@ -167,10 +167,9 @@ function cancelRoomRename(): void {
   editingRoomLocal.value = undefined;
   emit("renameCancel");
 }
-/** Keep a fresh default open while the editor settles; save typed names when focus leaves. */
+/** An add-armed naming survives the editors settling; a double-click edit ends on blur. */
 function blurRename(room: number): void {
-  if (editingRoomLocal.value !== undefined || roomTitle.value.trim() !== roomLabel(room))
-    commitRoomRename(room);
+  if (editingRoomLocal.value !== undefined) commitRoomRename(room);
 }
 watch(
   () => [engine.state.phase, engine.state.patchTick],
