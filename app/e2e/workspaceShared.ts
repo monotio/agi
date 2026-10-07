@@ -53,6 +53,19 @@ export async function openWorkspaceLogic(page: Page, num = 1): Promise<Locator> 
   return editor;
 }
 
+/** Map an AGI pixel after tool changes and font loading have settled the canvas. */
+export async function clickPictureCell(studio: Locator, x: number, y: number): Promise<void> {
+  const pane = studio.locator(".studio-pane").last();
+  await expect(pane).toBeVisible();
+  await pane.evaluate(() => document.fonts.ready);
+  // Playwright observes stable geometry and scrolls the pane into view.
+  await pane.click({ trial: true });
+  const box = (await pane.boundingBox())!;
+  await pane.click({
+    position: { x: ((x + 0.5) * box.width) / 160, y: ((y + 0.5) * box.height) / 168 },
+  });
+}
+
 export async function workspaceDocument(page: Page, key: string): Promise<string> {
   return page.evaluate((key) => {
     const probe = window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } };
@@ -111,7 +124,9 @@ export async function replaceWorkspaceDocument(
   if (key.startsWith("logic:")) {
     await openWorkspaceLogic(page, Number(key.split(":")[1]));
     await focusWorkspaceLogic(page);
-    await page.keyboard.press("ControlOrMeta+a");
+    // Monaco chooses its keyboard platform from the browser's user agent.
+    const mac = await page.evaluate(() => navigator.userAgent.includes("Macintosh"));
+    await page.keyboard.press(mac ? "Meta+a" : "Control+a");
     await page.keyboard.insertText(text);
     await page.keyboard.press("Escape");
   } else if (key === "words") {

@@ -9,6 +9,7 @@ import {
   workspaceUpdated,
 } from "./engineProbe.ts";
 import type { ProjectSession } from "../src/project/projectSession.ts";
+import { clickPictureCell } from "./workspaceShared.ts";
 
 for (const viewport of [
   { width: 1440, height: 900 },
@@ -51,20 +52,26 @@ for (const viewport of [
           (await import("/src/project/gameStorage.ts")).listStoredProjects(),
         );
       expect(await stored()).toHaveLength(0);
-      await studio.locator('button[data-tool="line"]').click();
-      const box = (await studio.locator(".studio-pane").last().boundingBox())!;
+      const line = studio.locator('button[data-tool="line"]');
+      await line.click();
+      await expect(line).toHaveAttribute("aria-pressed", "true");
       for (const [x, y] of [
         [40, 110],
         [60, 120],
       ])
-        await page.mouse.click(box.x + (x! * box.width) / 160, box.y + (y! * box.height) / 168);
-      await studio.getByRole("button", { name: "Done", exact: true }).click();
+        await clickPictureCell(studio, x!, y!);
+      const done = studio.getByRole("button", { name: "Done", exact: true });
+      await expect(done).toBeVisible();
+      await done.click();
       const workspace = page.locator(".shell-body");
       const editor = page.getByTestId("workspace-editor");
       const canvas = studio.getByRole("group", { name: /^Canvas/ });
       const pixels = studio.locator(".studio-pane canvas").last();
       const surfaces = [workspace, editor, canvas, pixels];
       for (const surface of surfaces) await expect(surface).toBeVisible();
+      // Compare the same scroll position after the phone returns from Playtest.
+      await studio.evaluate((element) => element.scrollTo({ top: 0 }));
+      await expect(studio).toHaveJSProperty("scrollTop", 0);
       const before = await Promise.all(surfaces.map((surface) => surface.boundingBox()));
       await page.screenshot({
         path: test.info().outputPath(`fork-note-${viewport.width}-before.png`),
@@ -105,6 +112,8 @@ for (const viewport of [
         ).toBe(true);
         await modes.getByRole("button", { name: "Edit", exact: true }).click();
         await expect(canvas).toBeVisible();
+        await studio.evaluate((element) => element.scrollTo({ top: 0 }));
+        await expect(studio).toHaveJSProperty("scrollTop", 0);
       }
       await page.screenshot({
         path: test.info().outputPath(`fork-note-${viewport.width}-after.png`),

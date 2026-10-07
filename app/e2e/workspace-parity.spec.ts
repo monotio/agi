@@ -1,4 +1,4 @@
-import { workspaceDocument, openWorkspaceLogic } from "./workspaceShared.ts";
+import { workspaceDocument, openWorkspaceLogic, clickPictureCell } from "./workspaceShared.ts";
 import type { ProjectSession } from "../src/project/projectSession.ts";
 import { buildTutorial } from "../../games/adventure-department/game.ts";
 import { openContainer } from "../../src/container/container.ts";
@@ -68,6 +68,9 @@ test.describe("phone Items", () => {
     const studio = await picture(page);
     const row = studio.locator('[role="treeitem"][data-row]').first();
     await expect(row).toBeVisible();
+    await row.evaluate(() => document.fonts.ready);
+    await row.click({ trial: true });
+    await row.evaluate((element) => element.scrollIntoView({ block: "center" }));
     await expect(row).toBeInViewport({ ratio: 1 });
     await studio.getByRole("searchbox", { name: "Filter items" }).fill("Marble bust");
     const bust = studio.locator('[role="treeitem"][data-row]').first();
@@ -168,21 +171,24 @@ test("a line offers Done and finishes by clicking its last point", async ({ page
 });
 test("a polygon offers Done and its point menu names Delete shape", async ({ page }) => {
   const studio = await picture(page);
-  await studio.locator('button[data-tool="polygon"]').click();
+  const polygon = studio.locator('button[data-tool="polygon"]');
+  await polygon.click();
+  await expect(polygon).toHaveAttribute("aria-pressed", "true");
   for (const [x, y] of [
     [40, 110],
     [70, 110],
     [70, 140],
     [40, 140],
   ]) {
-    const p = await cell(page, x!, y!);
-    await page.mouse.click(p.x, p.y);
+    await clickPictureCell(studio, x!, y!);
   }
   const done = studio.getByRole("button", { name: "Done", exact: true });
   await expect(done).toBeVisible();
   await done.click();
   await workspaceUpdated(page);
-  await studio.locator('button[data-tool="point"]').click();
+  const point = studio.locator('button[data-tool="point"]');
+  await point.click();
+  await expect(point).toHaveAttribute("aria-pressed", "true");
   const handles = studio.locator("[data-point]");
   await expect(handles).toHaveCount(4);
   await handles.nth(1).click({ button: "right" });

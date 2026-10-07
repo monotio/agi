@@ -479,7 +479,8 @@ for (const viewport of [
     await expect(preview).toHaveText("Stop preview");
     await preview.click();
     const add = page.getByTestId("image-add-cels");
-    await add.scrollIntoViewIfNeeded();
+    await expect(add).toBeVisible();
+    await add.evaluate((element) => element.scrollIntoView({ block: "center" }));
     await expect(add).toBeInViewport({ ratio: 1 });
   });
 }
