@@ -1,6 +1,4 @@
 <script setup lang="ts">
-import { createPictureSurface } from "../../../src/types.ts";
-import { renderPicture } from "../../../src/picture/renderer.ts";
 import UiIcon from "../ui/UiIcon.vue";
 import { VOCABULARY } from "../../../src/vocabulary.ts";
 import {
@@ -61,6 +59,7 @@ import StudioSelectionBar from "./StudioSelectionBar.vue";
 import StudioStatusNotice from "./StudioStatusNotice.vue";
 import StudioToolOptions from "./StudioToolOptions.vue";
 import StudioDrawingAt from "./StudioDrawingAt.vue";
+import StudioPathBar from "./StudioPathBar.vue";
 import StudioToolOverlay from "./StudioToolOverlay.vue";
 import StudioToolRail from "./StudioToolRail.vue";
 import StudioValuePicker from "./StudioValuePicker.vue";
@@ -80,13 +79,13 @@ import {
   ROOM_GROUP_HINT,
   ROOM_PATH_HINT,
   ROOM_TOOL_HINTS,
+  ROOM_TOOL_NAMES,
   roomKeySheet,
 } from "./studioHelp.ts";
 import { explain } from "./studioTerms.ts";
 import { isWalkTool, TOOL_KEYS, type StudioTool } from "./studioTools.ts";
 import { studioKey, type StudioKeyActions } from "./studioKeys.ts";
 import { lensItemLocks, lockedPlanes, NO_UNLOCKS, type LensUnlocks } from "./studioLocks.ts";
-import { changedCells } from "./changedCells.ts";
 import {
   bandGuides,
   maskFillPath,
@@ -150,7 +149,6 @@ const {
   lessonSession = undefined,
   priorityBase = undefined,
   figures = [],
-  runningBytes = undefined,
 } = defineProps<{
   readOnly?: boolean;
   /** Whether this tab is showing: its status bar and keys join the frame's. */
@@ -158,7 +156,6 @@ const {
   lessonSession?: LessonSession | undefined;
   priorityBase?: number | undefined;
   figures?: readonly RoomPlacement[];
-  runningBytes?: Uint8Array | undefined;
   pictureNumber: number;
   bytes: Uint8Array;
   authoredSource?: string | undefined;
@@ -221,6 +218,8 @@ const unlocks = ref<LensUnlocks>(NO_UNLOCKS);
 const MAX_HANDLES = 160;
 /** How near its line, in CSS pixels, an Alt+click adds a point. */
 const INSERT_REACH = 12;
+/** The tools whose hover on the picture lights up the item under the pointer. */
+const HOVER_TOOLS: readonly StudioTool[] = ["select", "point", "fill"];
 
 let localPictureSource: string | undefined;
 const resolved = computed(() =>
@@ -449,21 +448,8 @@ const { viewport, zoom, dpr, fitted, zoomBy, zoomToFit } = useStudioViewport(
 const shown = computed(() => draft.preview.value?.compiled ?? surface.value);
 /** The priority plane as the view filter leaves it (Visual panes read the visual plane only). */
 const filteredPriority = computed(() => filterPriority(shown.value.priority, priorityFilter.value));
-const runningPicture = computed(() => {
-  if (!runningBytes) return null;
-  const surface = createPictureSurface();
-  renderPicture(runningBytes, surface, { profile });
-  return surface;
-});
 /** The playhead stands inside the order: the canvas shows the picture only up to there. */
 const midOrder = computed(() => playhead.value < total.value);
-const draftMask = computed(() =>
-  runningPicture.value ? changedCells(runningPicture.value, shown.value) : null,
-);
-const hasStageDraft = computed(() => draftMask.value?.some((cell) => cell !== 0) ?? false);
-const stageDraftPaths = computed(() =>
-  !midOrder.value && hasStageDraft.value && draftMask.value ? pathsOf(draftMask.value) : null,
-);
 const editableId = computed(() => editing.editable.value?.id);
 /**
  * While new shapes draw earlier, the canvas shows the picture only up to the
@@ -563,12 +549,6 @@ watch(
   { flush: "sync" },
 );
 /** The canvas cursor is a crosshair for the tools that place points; Select and Point show the arrow. */
-function pointStyle(point: Point): Record<string, string> {
-  return {
-    left: `${Math.min(80, (100 * point.x) / 160)}%`,
-    top: `${Math.min(88, (100 * point.y) / 168)}%`,
-  };
-}
 const drawsOnCanvas = computed(() => !["select", "point", "hand"].includes(tools.tool.value));
 /** The move cursor: over the selection's pixels with Select, and while it is dragged. */
 const movable = computed(() => {
@@ -748,11 +728,18 @@ const describeCell = (x: number, y: number): string | undefined => {
   return id === undefined ? undefined : labelOf(id);
 };
 
-const hoverPaths = computed(() =>
-  drag.dragging.value || hoveredId.value === undefined || midOrder.value
-    ? null
-    : pathsOf(doc.rowMask(hoveredId.value, lens.value)),
-);
+/**
+ * The hovered item's pixels: an Items row's always, the picture's own only
+ * under the tools that act on a whole item (Select, Points, and Fill, which
+ * recolours what painted a coloured spot). A drawing tool lights nothing up.
+ */
+const hoverPaths = computed(() => {
+  const id = hoveredId.value;
+  if (drag.dragging.value || id === undefined || midOrder.value) return null;
+  if (selection.listHover.value === undefined && !HOVER_TOOLS.includes(tools.tool.value))
+    return null;
+  return pathsOf(doc.rowMask(id, lens.value));
+});
 /**
  * The selection's drawing is fills only: the canvas tints the flooded area
  * and shows its fill point, not an outline that reads as a drawn line.
@@ -1141,8 +1128,17 @@ if (workspaceEditor)
       },
     ]),
   );
+/** A door's link handle on the move: the item it is over lights up, and the status bar names it. */
+const doorLink = shallowRef<{ item: string | undefined } | null>(null);
+function linkDoor(target: { item: string | undefined } | null): void {
+  doorLink.value = target;
+  selection.listHover.value = target?.item;
+}
 /** The status bar's line for the active tool (the editing keys while an item is selected). */
 const toolHint = computed(() => {
+  const link = doorLink.value;
+  if (link)
+    return link.item ? `Drop to follow ${followLabel(link.item)}` : "Drop on the art to follow it";
   const tool = tools.tool.value;
   if ((tool === "line" || tool === "polygon") && (tools.path.value?.points.length ?? 0) > 0)
     return ROOM_PATH_HINT;
@@ -1368,9 +1364,22 @@ function onKeyup(event: KeyboardEvent): void {
         :notice="fillAdvice?.notice ?? null"
         :fold="optionsFold.level.value"
       />
-      <!-- In the frame, where new shapes draw rides the context row above. -->
+      <!-- In the frame, where new shapes draw and an open path ride the context row above. -->
       <Teleport :disabled="!active || !inWorkspace" defer to="#workspace-context-editor">
         <StudioDrawingAt :at="position" @end="seek(total)" />
+        <StudioPathBar
+          v-if="tools.path.value"
+          :name="ROOM_TOOL_NAMES[tools.path.value.tool]"
+          :points="tools.path.value.points.length"
+          @undo="
+            tools.backspace();
+            keepFocus();
+          "
+          @done="
+            tools.finish();
+            keepFocus();
+          "
+        />
       </Teleport>
       <span class="studio__spacer"></span>
       <label class="studio__views-slider"
@@ -1445,7 +1454,6 @@ function onKeyup(event: KeyboardEvent): void {
             :handles
             :ghost="insertGhost"
             :flash="flashPaths"
-            :changed="stageDraftPaths"
             :movable="movable"
             :marquee="drag.marqueeBox.value ?? null"
             :underlay="layer === 'art' ? underlay : null"
@@ -1484,11 +1492,7 @@ function onKeyup(event: KeyboardEvent): void {
                 class="studio__trace-handle"
                 :class="`studio__trace-handle--${kind}`"
                 :aria-label="kind === 'move' ? 'Move trace' : 'Scale trace'"
-                :title="
-                  kind === 'move'
-                    ? 'Drag to move the trace. Arrow keys move it too.'
-                    : 'Drag to scale the trace. Arrow keys resize it too.'
-                "
+                aria-keyshortcuts="ArrowUp ArrowDown ArrowLeft ArrowRight"
                 @pointerdown.stop.prevent="grabTrace($event, kind)"
                 @pointermove.stop="moveTrace"
                 @pointerup.stop="releaseTrace($event)"
@@ -1508,29 +1512,9 @@ function onKeyup(event: KeyboardEvent): void {
               :tool="tools.tool.value"
               :tint="walkTint"
               :item-at="itemAt"
-              :item-label="followLabel"
-              @hover-item="(id) => (selection.listHover.value = id)"
+              @link="linkDoor"
             />
             <StudioToolOverlay v-if="tools.tool.value !== 'select'" v-bind="input.overlay.value" />
-            <button
-              v-if="
-                tools.path.value &&
-                tools.path.value.points.length >= (tools.path.value.tool === 'line' ? 2 : 3)
-              "
-              type="button"
-              class="studio__done"
-              :style="pointStyle(tools.path.value.points.at(-1)!)"
-              @pointerdown.stop
-              @click.stop="tools.finish()"
-            >
-              <UiIcon name="check" :size="16" /> Done
-            </button>
-            <span
-              v-if="tools.path.value && input.overlay.value.cursor"
-              class="studio__cursor-hint"
-              :style="pointStyle(input.overlay.value.cursor)"
-              >Click points · ✓ Done finishes</span
-            >
             <!-- The probe's own presses never reach the pane below. -->
             <GhostProbe
               v-if="index === 0 && !midOrder"
@@ -1892,27 +1876,6 @@ function onKeyup(event: KeyboardEvent): void {
   margin: -1px;
   overflow: hidden;
   clip-path: inset(50%);
-  white-space: nowrap;
-}
-.studio__done,
-.studio__cursor-hint {
-  position: absolute;
-  z-index: 2;
-  transform: translate(8px, 10px);
-  border-radius: var(--radius);
-  background: var(--surface-overlay);
-  color: var(--ink);
-  font: var(--text-xs) / var(--leading) var(--font-sans);
-  padding: var(--space-1) var(--space-2);
-}
-.studio__done {
-  transform: translate(-100%, -140%);
-  border: 1px solid var(--action);
-  cursor: pointer;
-}
-.studio__cursor-hint {
-  transform: translate(12px, -24px);
-  pointer-events: none;
   white-space: nowrap;
 }
 .studio__trace-handle {

@@ -2,28 +2,24 @@
 import { computed } from "vue";
 import { SCREEN_HEIGHT, SCREEN_WIDTH } from "../../../src/types.ts";
 import type { Point } from "../../../src/studio/shapes.ts";
-import type { RectCorners } from "./studioTools.ts";
 
 /**
- * What a drawing tool shows over a pane before the kernel has drawn it: the
- * clicked points of a line or polygon with the segment to the cursor (the
- * first point ringed when a click there closes the polygon), the rectangle
- * being dragged, the cells a fill under the cursor would flood, and the
- * keyboard cursor's crosshair on its pixel. The picture's own pixels come
- * from the draft's preview underneath.
+ * The handles a drawing tool puts on a pane: the clicked points of a line or
+ * polygon (the first point ringed when a click there closes the polygon), the
+ * cells a fill under the cursor would flood, and the keyboard cursor's
+ * crosshair on its pixel. The shape itself, up to the cursor, is the draft's
+ * preview underneath: the picture's own pixels.
  */
 const {
   points = [],
   polygon = false,
   cursor = undefined,
-  rect = null,
   flood = "",
   crosshair = null,
 } = defineProps<{
   points?: readonly Point[];
   polygon?: boolean;
   cursor?: Point | undefined;
-  rect?: RectCorners | null;
   /** maskFillPath of the cells a fill would change. */
   flood?: string;
   /** The keyboard cursor's pixel, while the keys drive the canvas. */
@@ -32,11 +28,6 @@ const {
 /** The crosshair's arms reach this many rows past its pixel (half as many columns: pixels are 2:1). */
 const ARM = 12;
 
-const centre = (p: Point): string => `${p.x + 0.5},${p.y + 0.5}`;
-const trail = computed(() => {
-  const all = cursor && points.length > 0 ? [...points, cursor] : points;
-  return all.map(centre).join(" ");
-});
 const closing = computed(() => {
   const first = points[0];
   return (
@@ -58,22 +49,6 @@ const closing = computed(() => {
     data-role="tool-overlay"
   >
     <path v-if="flood" class="tool-overlay__flood" data-role="fill-preview" :d="flood" />
-    <rect
-      v-if="rect"
-      class="tool-overlay__line"
-      :x="rect.x1"
-      :y="rect.y1"
-      :width="rect.x2 - rect.x1 + 1"
-      :height="rect.y2 - rect.y1 + 1"
-      vector-effect="non-scaling-stroke"
-    />
-    <polyline
-      v-if="points.length > 0"
-      class="tool-overlay__line"
-      data-role="path-preview"
-      :points="trail"
-      vector-effect="non-scaling-stroke"
-    />
     <rect
       v-for="(p, k) in points"
       :key="k"
@@ -125,12 +100,6 @@ const closing = computed(() => {
 .tool-overlay__flood {
   fill: var(--action);
   fill-opacity: 0.35;
-}
-.tool-overlay__line {
-  fill: none;
-  stroke: var(--action);
-  stroke-width: 1px;
-  stroke-dasharray: 3 2;
 }
 .tool-overlay__point {
   fill: var(--surface-0);

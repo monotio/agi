@@ -9,6 +9,24 @@ import {
 } from "./engineProbe.ts";
 import type { ProjectSession } from "../src/project/projectSession.ts";
 import { workspaceDocument, runningWorkspaceDocument } from "./workspaceShared.ts";
+import type { Locator } from "@playwright/test";
+
+/** The Visual canvas's colour at logical cell x, y: what the editor shows there. */
+function artPixel(studio: Locator, x: number, y: number): Promise<number[]> {
+  return studio.locator('[data-layer="art"] canvas').evaluate(
+    (element, [x, y]) => {
+      const canvas = element as HTMLCanvasElement;
+      const at = (n: number, size: number, of: number) => Math.floor((size * (n + 0.5)) / of);
+      return [
+        ...canvas
+          .getContext("2d")!
+          .getImageData(at(x!, canvas.width, 160), at(y!, canvas.height, 168), 1, 1)
+          .data.slice(0, 3),
+      ];
+    },
+    [x, y],
+  );
+}
 
 test("Views are static at 0, 50 and 100; dragging drafts LOGIC and Update places it", async ({
   page,
@@ -77,8 +95,11 @@ test("Views are static at 0, 50 and 100; dragging drafts LOGIC and Update places
       .drafts()
       .stage([{ key: "picture:8", content: "vis 5\nfill 0,0\nend\n" }]),
   );
-  // No floating draft label: the changed cells alone wear a dashed outline.
-  await expect(studio.locator(".studio-pane__changed-line").first()).toBeVisible();
+  // The staged picture is the picture on the canvas, unmarked; its tab says it waits for Update.
+  await expect.poll(() => artPixel(studio, 80, 84)).toEqual([170, 0, 170]);
+  await expect(
+    page.getByRole("tab", { name: /PICTURE 8/ }).getByLabel("Pending change"),
+  ).toBeVisible();
   await workspaceUpdated(page);
   await expect
     .poll(async () => {
@@ -97,7 +118,7 @@ test("Views are static at 0, 50 and 100; dragging drafts LOGIC and Update places
   await page.getByTestId("workspace-undo").click();
   await expect.poll(() => runningWorkspaceDocument(page, "logic:8")).toBe(initial);
   await expect.poll(() => runningWorkspaceDocument(page, "picture:8")).toBe(initialPicture);
-  await expect(studio.locator(".studio-pane__changed-line")).toHaveCount(0);
+  await expect.poll(() => artPixel(studio, 80, 84)).not.toEqual([170, 0, 170]);
   await workspaceSaved(page);
   await page.goto("/");
   await openLibraryActions(page, savedGameCard(page, "My adventure"));
@@ -195,13 +216,9 @@ test("computed placements move a preview, and game motion never paints the pictu
       .drafts()
       .stage([{ key: "picture:8", content: "vis 4\npri 7\nfill 0,0\nend\n" }]),
   );
-  for (const lens of ["Visual", "Priority"]) {
-    await studio
-      .getByTestId("studio-options-bar")
-      .getByRole("radio", { name: lens, exact: true })
-      .click();
-    await expect(studio.locator(".studio-pane__changed-line").first()).toBeVisible();
-  }
+  // The staged picture shows as it is, with nothing drawn over it.
+  await expect.poll(() => artPixel(studio, 80, 84)).toEqual([170, 0, 0]);
+  await expect(studio.locator(".studio-pane__overlay > *")).toHaveCount(0);
 });
 test("an unfinished bindings draft leaves the picture available", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });

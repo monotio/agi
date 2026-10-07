@@ -28,7 +28,7 @@ export const LENS_NAMES: Record<StudioLens, { label: string; help: string }> = {
   art: { label: "Visual", help: "What players see." },
   depth: {
     label: "Priority",
-    help: "Where things are near or far, and where walls, water and triggers are. The picture hides it from players.",
+    help: "Depth, walls, water, triggers and gates.",
   },
 };
 

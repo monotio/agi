@@ -4,7 +4,6 @@ import type { StudioEditing } from "./useStudioEditing.ts";
 import { isDrawingTool, type CurrentValues, type StudioTool } from "./studioTools.ts";
 import { tickFor, type StudioLens } from "./studioView.ts";
 
-export const PALETTE_HINT = "Pick a drawing tool to paint, or select a shape to recolour it";
 export type PaletteAction = "draw" | "recolour" | "hint";
 export interface PaletteValues {
   readonly visual: number | null | undefined;

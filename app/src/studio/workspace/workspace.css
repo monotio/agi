@@ -139,6 +139,16 @@
 .workspace-context__editor {
   display: contents;
 }
+/* An open line or polygon takes the whole row at the row's height: the canvas stays put. */
+.workspace-context:has(.studio-path) > * {
+  visibility: hidden;
+}
+.workspace-context .studio-path {
+  visibility: visible;
+  position: absolute;
+  inset: 0;
+  padding: 0 var(--space-3);
+}
 .workspace-stage-note {
   display: flex;
   align-items: center;

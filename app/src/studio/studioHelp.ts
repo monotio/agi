@@ -31,15 +31,15 @@ export const ROOM_TOOL_NAMES: Record<StudioTool, string> = {
 
 /** The status bar's one line for the active Room Studio tool. */
 export const ROOM_TOOL_HINTS: Record<StudioTool, string> = {
-  select: `Click selects · drag draws a box · drag the selection to move it · ${SHIFT} adds`,
+  select: `${SHIFT} adds to the selection.`,
   point: "Drag a point's handle · the item itself stays put",
   line: "Click points · Enter or double-click finishes",
   rect: "Drag a rectangle · Shift keeps it square",
   polygon: "Click points · click the first point or Enter closes",
   fill: "Click where the fill starts · it spreads over white",
-  brush: "Drag to place plot points, one per pixel",
-  pipette: "Click to pick the colour and depth under the cursor",
-  hand: "Drag to pan · Space pans with any tool",
+  brush: "",
+  pipette: "",
+  hand: "Hold Space to pan with any tool.",
   walk: VOCABULARY_ACTIONS.playtest_room.help,
   door: "Drag a door box on the floor",
   edge: "Click near an edge: walking off it changes room",
@@ -52,7 +52,7 @@ export const ROOM_PATH_HINT = "Backspace removes a point · Esc cancels";
 export const ROOM_EDIT_HINT = `Arrows nudge (${SHIFT} 8 px) · ${ALT} arrows next item · [ ] order`;
 
 /** With several items selected: how they move, at the foot of the inspector. */
-export const ROOM_GROUP_HINT = `Drag or arrows move them together (${SHIFT} 8 px) · [ ] reorder one at a time`;
+export const ROOM_GROUP_HINT = `${SHIFT} moves by 8 px; [ and ] reorder one item at a time.`;
 
 export const SPRITE_TOOL_NAMES: Record<SpriteTool, string> = {
   pencil: "Pencil",

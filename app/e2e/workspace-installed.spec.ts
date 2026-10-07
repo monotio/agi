@@ -60,7 +60,9 @@ for (const viewport of [
         [60, 120],
       ])
         await clickPictureCell(studio, x!, y!);
-      const done = studio.getByRole("button", { name: "Done", exact: true });
+      const done = page
+        .getByTestId("studio-path")
+        .getByRole("button", { name: "Done", exact: true });
       await expect(done).toBeVisible();
       await done.click();
       const workspace = page.locator(".shell-body");

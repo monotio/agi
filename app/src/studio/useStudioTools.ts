@@ -322,11 +322,7 @@ export function useStudioTools(options: StudioToolsOptions) {
     const next = dropLastPoint(p);
     path.value = next.points.length === 0 ? null : next;
     if (!path.value) cancel();
-    else if (draft.gesturing.value) {
-      const op = pathOp(next, false);
-      if (op) preview(() => op);
-      else draft.preview.value = null;
-    }
+    else if (draft.gesturing.value) preview(reach);
     return true;
   }
 
@@ -472,6 +468,35 @@ export function useStudioTools(options: StudioToolsOptions) {
   function hover(cell: Point | undefined): void {
     cursor.value = cell;
     previewFill(cell);
+    if (path.value && draft.gesturing.value) preview(reach);
+  }
+
+  /**
+   * The open path drawn on to the cursor, as the kernel would draw it once
+   * clicked there: the next segment is the picture's own pixels. A cursor
+   * where the next edge would be refused shows the path as clicked, quietly;
+   * a click there explains. It sets the preview itself, so preview() has no
+   * operation left to report.
+   */
+  function reach(): null {
+    const p = path.value;
+    if (!p || !draft.gesturing.value) return null;
+    const last = p.points.at(-1)!;
+    const next = cursor.value;
+    const tries =
+      next && (next.x !== last.x || next.y !== last.y)
+        ? [{ ...p, points: [...p.points, next] }, p]
+        : [p];
+    for (const option of tries) {
+      const op = pathOp(option, false);
+      const candidate = op && draft.evaluate(op, false);
+      if (candidate && !("kind" in candidate)) {
+        draft.preview.value = candidate;
+        return null;
+      }
+    }
+    draft.preview.value = null;
+    return null;
   }
 
   const panning = computed(() => spaceHeld.value || tool.value === "hand");
@@ -600,15 +625,13 @@ export function useStudioTools(options: StudioToolsOptions) {
     values[lens.value] = { ...current.value, ...patch };
   }
 
-  /** StudioToolOverlay's props: the path, the dragged rect and the fill's flood. */
+  /** StudioToolOverlay's props: the path's points and the fill's flood. */
   const overlay = computed(() => {
-    const r = rect.value;
     const p = path.value;
     return {
       points: p?.points ?? [],
       polygon: p?.tool === "polygon",
       cursor: cursor.value,
-      rect: r?.moved ? rectFrom(r.start, r.end, r.square) : null,
       flood: fillPreview.value ? maskFillPath(fillPreview.value) : "",
     };
   });
