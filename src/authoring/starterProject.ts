@@ -42,8 +42,6 @@ type StarterBindingKind = "logic" | "picture" | "view" | "sound" | "flag" | "var
 interface StarterBinding {
   readonly kind: StarterBindingKind;
   readonly num: number;
-  /** Template-supplied: folds under Built-in in Game state. */
-  readonly builtin?: boolean;
 }
 
 export interface StarterProject {
@@ -107,15 +105,15 @@ end
 `;
 
 const BOILERPLATE_BINDINGS: Record<string, StarterBinding> = {
-  boot_logic: { kind: "logic", num: 0, builtin: true },
-  first_room: { kind: "logic", num: 1, builtin: true },
-  first_pic: { kind: "picture", num: 1, builtin: true },
-  death_logic: { kind: "logic", num: TEMPLATE_DEATH_LOGIC, builtin: true },
-  death_sound: { kind: "sound", num: TEMPLATE_DEATH_SOUND, builtin: true },
-  dead: { kind: "flag", num: 202, builtin: true },
-  death_done: { kind: "flag", num: 201, builtin: true },
-  death_choice: { kind: "flag", num: 203, builtin: true },
-  death_cursor: { kind: "variable", num: 250, builtin: true },
+  boot_logic: { kind: "logic", num: 0 },
+  first_room: { kind: "logic", num: 1 },
+  first_pic: { kind: "picture", num: 1 },
+  death_logic: { kind: "logic", num: TEMPLATE_DEATH_LOGIC },
+  death_sound: { kind: "sound", num: TEMPLATE_DEATH_SOUND },
+  dead: { kind: "flag", num: 202 },
+  death_done: { kind: "flag", num: 201 },
+  death_choice: { kind: "flag", num: 203 },
+  death_cursor: { kind: "variable", num: 250 },
 };
 
 // ---------- starter ----------
@@ -451,10 +449,10 @@ const STARTER_WORD_ENTRIES: readonly WordEntry[] = [
 
 const STARTER_BINDINGS: Record<string, StarterBinding> = {
   ...BOILERPLATE_BINDINGS,
-  clearing_pic: { kind: "picture", num: 1, builtin: true },
-  ego_view: { kind: "view", num: STARTER_EGO_VIEW, builtin: true },
-  chime_sound: { kind: "sound", num: STARTER_CHIME_SOUND, builtin: true },
-  chime_done: { kind: "flag", num: STARTER_CHIME_FLAG, builtin: true },
+  clearing_pic: { kind: "picture", num: 1 },
+  ego_view: { kind: "view", num: STARTER_EGO_VIEW },
+  chime_sound: { kind: "sound", num: STARTER_CHIME_SOUND },
+  chime_done: { kind: "flag", num: STARTER_CHIME_FLAG },
 };
 
 /**

@@ -1411,7 +1411,7 @@ export function prepareGuidedAddRoom(ctx: GuidedContext, input: GuidedAddRoomInp
   const picVarName = freeBindingName(bindings, "pic_num");
   const picVar = allocateState(env, label, kind, "variable", bindings);
   if (!("num" in picVar)) return picVar;
-  bindings[picVarName] = { kind: "variable", num: picVar.num, builtin: true };
+  bindings[picVarName] = { kind: "variable", num: picVar.num };
 
   const picRef = input.pictureName !== undefined ? input.pictureName : String(pictureId);
   const lines: string[] = [
@@ -1508,13 +1508,13 @@ export function prepareGuidedBoilerplate(
   if (!("id" in logic)) return logic;
   const bindings: Bindings = { ...env.bindings };
   const logicName = freeBindingName(bindings, BOILERPLATE_PART_STEMS[input.part][0]!);
-  bindings[logicName] = { kind: "logic", num: logic.id, builtin: true };
+  bindings[logicName] = { kind: "logic", num: logic.id };
 
   const state = (stateKind: "flag" | "variable", stem: string) => {
     const name = freeBindingName(bindings, stem);
     const allocated = allocateState(env, label, kind, stateKind, bindings);
     if (!("num" in allocated)) return allocated;
-    bindings[name] = { kind: stateKind, num: allocated.num, builtin: true };
+    bindings[name] = { kind: stateKind, num: allocated.num };
     return { name };
   };
 
@@ -2556,7 +2556,6 @@ export function prepareGuidedPlaySound(
     bindings[chosen] = {
       kind: "flag",
       num: allocated.num,
-      ...(name === undefined ? { builtin: true } : {}),
     };
     return { num: allocated.num, name: chosen };
   };

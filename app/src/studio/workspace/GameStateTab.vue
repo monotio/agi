@@ -1,44 +1,29 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import { readBindingsDocument } from "../../../../src/authoring/projectDocuments.ts";
+import type { ProjectSnapshot } from "../../../../src/authoring/projectModel.ts";
+import { workspaceGameStateInfos } from "../../shell/workspaceNames.ts";
 import type { AgiProfile } from "../../../../src/runtime/profile.ts";
 import type { EngineStateReport } from "../../../../src/runtime/engine.ts";
 
 /** The Game state tab: the flags and variables the game named, with live values. */
 const props = defineProps<{
   active?: boolean;
-  bindings: string;
+  snapshot: ProjectSnapshot | undefined;
   state: EngineStateReport | null;
   profile: AgiProfile;
 }>();
-interface StateRow {
-  readonly name: string;
-  readonly kind: "flag" | "variable";
-  readonly num: number;
-  readonly label: string;
-  readonly builtin: boolean;
-}
-
-const rows = computed<StateRow[]>(() => {
+const groups = computed(() => {
+  if (!props.snapshot) return { game: [], builtin: [] };
   try {
-    return Object.entries(readBindingsDocument(props.bindings))
-      .filter(([, binding]) => binding.kind === "flag" || binding.kind === "variable")
-      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-      .map(([name, binding]) => ({
-        name,
-        kind: binding.kind as "flag" | "variable",
-        num: binding.num,
-        label: `${binding.kind === "flag" ? "f" : "v"}${binding.num}`,
-        builtin: binding.builtin === true,
-      }));
+    return workspaceGameStateInfos(props.snapshot, props.profile.id);
   } catch {
-    return [];
+    return { game: [], builtin: [] };
   }
 });
-/** The creator's names list first; template and ready-part state folds under Built-in. */
-const creatorRows = computed(() => rows.value.filter((row) => !row.builtin));
-const builtinRows = computed(() => rows.value.filter((row) => row.builtin));
-function value(row: StateRow): string {
+const creatorRows = computed(() => groups.value.game);
+const builtinRows = computed(() => groups.value.builtin);
+const hasRows = computed(() => creatorRows.value.length || builtinRows.value.length);
+function value(row: { kind: string; num: number }): string {
   if (!props.state) return "—";
   return String(
     row.kind === "flag" ? (props.state.flags[row.num] ? 1 : 0) : (props.state.vars[row.num] ?? 0),
@@ -48,7 +33,7 @@ function value(row: StateRow): string {
 
 <template>
   <div class="workspace-state" data-testid="workspace-state">
-    <table v-if="rows.length">
+    <table v-if="creatorRows.length">
       <thead>
         <tr>
           <th>Name</th>
@@ -63,7 +48,7 @@ function value(row: StateRow): string {
             <span class="workspace-state__kind">{{
               row.kind === "flag" ? "Flag" : "Variable"
             }}</span>
-            {{ row.label }}
+            {{ row.kind === "flag" ? "f" : "v" }}{{ row.num }}
           </td>
           <td class="workspace-state__value">{{ value(row) }}</td>
         </tr>
@@ -79,14 +64,14 @@ function value(row: StateRow): string {
               <span class="workspace-state__kind">{{
                 row.kind === "flag" ? "Flag" : "Variable"
               }}</span>
-              {{ row.label }}
+              {{ row.kind === "flag" ? "f" : "v" }}{{ row.num }}
             </td>
             <td class="workspace-state__value">{{ value(row) }}</td>
           </tr>
         </tbody>
       </table>
     </details>
-    <p v-if="!rows.length" class="workspace-state__empty">
+    <p v-if="!hasRows" class="workspace-state__empty">
       No named flags or variables yet. Add one with + next to Game state in Parts.
     </p>
     <p v-if="!state" class="workspace-state__note">Values show while the game runs.</p>

@@ -141,9 +141,9 @@ describe("inspectEditableProject", () => {
     assert.equal(inspection.documents["logic:1"], withComment);
     assert.equal(inspection.requiresSourceReview, false);
     const bindings = JSON.parse(inspection.documents["bindings"] as string);
-    // Template bindings carry the Built-in marker Game state folds them under.
-    assert.deepEqual(bindings["death_logic"], { kind: "logic", num: 255, builtin: true });
-    assert.deepEqual(bindings["ego_view"], { kind: "view", num: 0, builtin: true });
+    // Template binding names retain their original slots.
+    assert.deepEqual(bindings["death_logic"], { kind: "logic", num: 255 });
+    assert.deepEqual(bindings["ego_view"], { kind: "view", num: 0 });
   });
 
   test("an imported native game reads as a byte-only inventory", () => {

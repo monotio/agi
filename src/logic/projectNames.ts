@@ -13,8 +13,6 @@ export interface BindingInfo {
   readonly kind: string;
   readonly num: number;
   readonly logic?: number;
-  /** Supplied by a template or ready part, not named by the creator. */
-  readonly builtin?: boolean;
   readonly uses: readonly {
     key: string;
     uri: string;

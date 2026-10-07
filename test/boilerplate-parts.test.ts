@@ -119,41 +119,42 @@ class RecordingHost implements EngineHost {
   }
 }
 
-describe("built-in binding markers", () => {
-  test("the authoring state keeps an optional builtin marker through validation", () => {
+describe("game-owned bindings", () => {
+  test("readers ignore earlier template markers", () => {
     const state = validateAuthoringState({
       version: 1,
       bindings: { dead: { kind: "flag", num: 202, builtin: true } },
       world: { rooms: {}, facts: {}, quests: {} },
     });
-    assert.equal(state.bindings["dead"]!.builtin, true);
+    assert.deepEqual(state.bindings["dead"], { kind: "flag", num: 202 });
     const round = readBindingsDocument(JSON.stringify(state.bindings));
-    assert.equal(round["dead"]!.builtin, true);
+    assert.deepEqual(round["dead"], { kind: "flag", num: 202 });
   });
 
-  test("the starter and boilerplate templates mark every binding built in", () => {
+  test("starter and boilerplate bindings carry only their kind and slot", () => {
     for (const kind of ["starter", "boilerplate"] as const) {
       const bindings = createStarterProject(kind).bindings;
       assert.ok(Object.keys(bindings).length > 0);
       for (const [name, binding] of Object.entries(bindings))
-        assert.equal(binding.builtin, true, `${kind} binding ${name} is built in`);
+        assert.deepEqual(Object.keys(binding).sort(), ["kind", "num"], `${kind} binding ${name}`);
     }
     assert.deepEqual(createStarterProject("blank").bindings, {});
   });
 
-  test("the guided room picture variable is marked built in", () => {
+  test("the guided room picture variable belongs to the game", () => {
     const { ctx, draft } = workspace("starter");
     const op = prepareGuidedAddRoom(ctx, {});
     assert.ok(op.ok);
     op.apply();
     const bindings = readBindingsDocument(docText(draft, "bindings"));
     const picVar = Object.entries(bindings).find(
-      ([, binding]) => binding.kind === "variable" && binding.builtin,
+      ([, binding]) => binding.kind === "variable" && binding.num === 32,
     );
-    assert.ok(picVar, "the picture variable folds under Built-in");
+    assert.ok(picVar);
+    assert.deepEqual(picVar[1], { kind: "variable", num: 32 });
   });
 
-  test("a creator-named flag stays outside Built-in", () => {
+  test("a sound callback flag belongs to the game", () => {
     const { ctx } = workspace("starter");
     mustPrepare(
       prepareGuidedRespondToCommand(ctx, {
@@ -171,12 +172,12 @@ describe("built-in binding markers", () => {
     const bindings = JSON.parse(
       op.changes.find((change) => change.key === "bindings")!.content as string,
     );
-    assert.equal(bindings.cue_done.builtin, true, "the cue flag folds under Built-in");
+    assert.deepEqual(bindings.cue_done, { kind: "flag", num: 32 });
   });
 });
 
 describe("boilerplate parts", () => {
-  test("Menus and Save/Restore adds one named shared LOGIC with built-in state", () => {
+  test("Menus and Save/Restore adds one named shared LOGIC with game-owned state", () => {
     const { ctx, draft } = workspace("starter");
     const op: PreparedGuidedOperation = mustPrepare(
       prepareGuidedBoilerplate(ctx, { part: "menus" }),
@@ -189,9 +190,9 @@ describe("boilerplate parts", () => {
     const bindings = JSON.parse(
       op.changes.find((change) => change.key === "bindings")!.content as string,
     );
-    assert.deepEqual(bindings.menus_logic, { kind: "logic", num: 2, builtin: true });
+    assert.deepEqual(bindings.menus_logic, { kind: "logic", num: 2 });
     assert.equal(bindings.menus_ready.kind, "flag");
-    assert.equal(bindings.menus_ready.builtin, true);
+    assert.deepEqual(Object.keys(bindings.menus_ready).sort(), ["kind", "num"]);
     op.apply();
     assert.match(docText(draft, "logic:2"), /submit\.menu\(\);/);
   });
@@ -208,7 +209,7 @@ describe("boilerplate parts", () => {
       op.changes.find((change) => change.key === "bindings")!.content as string,
     );
     for (const name of ["game_over_logic", "dead", "game_over_chosen", "game_over_cursor"])
-      assert.equal(bindings[name]?.builtin, true, `${name} is built in`);
+      assert.deepEqual(Object.keys(bindings[name]).sort(), ["kind", "num"], name);
     assert.ok(bindings.dead.num >= 32, "the dead flag clears the interpreter-owned band");
   });
 

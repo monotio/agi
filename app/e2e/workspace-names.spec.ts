@@ -9,7 +9,6 @@ import {
 } from "./engineProbe.ts";
 import {
   focusWorkspaceLogic,
-  openBuiltinGameState,
   openWorkspaceLogic,
   replaceWorkspaceDocument,
   workspaceDocument,
@@ -41,7 +40,6 @@ test("names open resources, peek game state and rename all authored uses @webkit
   await start(page);
   const parts = page.getByTestId("parts-list");
   await expect(parts.getByRole("heading", { name: "GAME STATE", exact: true })).toBeVisible();
-  await openBuiltinGameState(page);
   await expect(
     parts.getByRole("button", { name: "chime_done Flag 204", exact: true }),
   ).toBeVisible();
@@ -370,7 +368,6 @@ test("switching names resets Rename and leaves both bindings unchanged", async (
   await start(page);
   const before = await workspaceDocument(page, "bindings");
   const parts = page.getByTestId("parts-list");
-  await openBuiltinGameState(page);
   await expect(
     parts.getByRole("button", { name: "chime_done Flag 204", exact: true }),
   ).toBeVisible();

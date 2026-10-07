@@ -11,13 +11,6 @@ import {
 } from "./engineProbe.ts";
 import { expect } from "./test.ts";
 
-export async function openBuiltinGameState(page: Page): Promise<void> {
-  const builtin = page.getByTestId("game-state-builtin");
-  await expect(builtin).toBeVisible();
-  if ((await builtin.getAttribute("open")) === null)
-    await builtin.locator(":scope > summary").click();
-}
-
 export async function focusWorkspaceGame(page: Page): Promise<void> {
   // Agent enables when the Create command adapter has registered its commands.
   const commands = page.getByTestId("workspace-agent");

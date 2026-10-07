@@ -110,7 +110,7 @@ return;
     const bindingsChange = JSON.parse(
       op.changes.find((c) => c.key === "bindings")!.content as string,
     );
-    assert.deepEqual(bindingsChange.pic_num, { kind: "variable", num: 32, builtin: true });
+    assert.deepEqual(bindingsChange.pic_num, { kind: "variable", num: 32 });
 
     const tx = op.apply();
     assert.equal(tx.keys.length, 4);
@@ -190,11 +190,7 @@ return;
       /assignn\(pic_num, 2\);\n {2}load\.pic\(pic_num\);\n {2}draw\.pic\(pic_num\);/,
     );
     const bindings = JSON.parse(op.changes.find((c) => c.key === "bindings")!.content as string);
-    assert.deepEqual(
-      bindings.pic_num,
-      { kind: "variable", num: 33, builtin: true },
-      "v32 stays with the draft",
-    );
+    assert.deepEqual(bindings.pic_num, { kind: "variable", num: 33 }, "v32 stays with the draft");
   });
 
   test("refuses when a draft source's variable access is unprovable", () => {
@@ -214,11 +210,7 @@ return;
     bindNames(draft, { coins: { kind: "variable", num: 32 } });
     const op = mustPrepare(prepareGuidedAddRoom(ctx, { title: "Safe room" }));
     const bindings = JSON.parse(op.changes.find((c) => c.key === "bindings")!.content as string);
-    assert.deepEqual(
-      bindings.pic_num,
-      { kind: "variable", num: 33, builtin: true },
-      "coins keeps v32",
-    );
+    assert.deepEqual(bindings.pic_num, { kind: "variable", num: 33 }, "coins keeps v32");
   });
 
   test("the picture variable skips slots used as bare numbers or v0NN spellings", () => {
@@ -229,7 +221,7 @@ return;
     const bindings = JSON.parse(op.changes.find((c) => c.key === "bindings")!.content as string);
     assert.deepEqual(
       bindings.pic_num,
-      { kind: "variable", num: 34, builtin: true },
+      { kind: "variable", num: 34 },
       "v32 (bare) and v33 (v0NN) both stay occupied",
     );
   });
@@ -240,7 +232,7 @@ return;
     draft.edit("logic:9", "if (isset(f5)) {\n  assignn(32, 7);\n", 0);
     const op = mustPrepare(prepareGuidedAddRoom(ctx, { title: "Safe room" }));
     const bindings = JSON.parse(op.changes.find((c) => c.key === "bindings")!.content as string);
-    assert.deepEqual(bindings.pic_num, { kind: "variable", num: 33, builtin: true });
+    assert.deepEqual(bindings.pic_num, { kind: "variable", num: 33 });
   });
 
   test("numbers outside state positions do not reserve variable slots", () => {
@@ -253,7 +245,7 @@ return;
     );
     const op = mustPrepare(prepareGuidedAddRoom(ctx, { title: "Safe room" }));
     const bindings = JSON.parse(op.changes.find((c) => c.key === "bindings")!.content as string);
-    assert.deepEqual(bindings.pic_num, { kind: "variable", num: 32, builtin: true });
+    assert.deepEqual(bindings.pic_num, { kind: "variable", num: 32 });
   });
 
   test("a local #define alias reserves the variable it names", () => {
@@ -261,7 +253,7 @@ return;
     draft.edit("logic:9", "#define coins 32\nassignn(coins, 7);\nreturn;\n", 0);
     const op = mustPrepare(prepareGuidedAddRoom(ctx, { title: "Safe room" }));
     const bindings = JSON.parse(op.changes.find((c) => c.key === "bindings")!.content as string);
-    assert.deepEqual(bindings.pic_num, { kind: "variable", num: 33, builtin: true });
+    assert.deepEqual(bindings.pic_num, { kind: "variable", num: 33 });
   });
 
   test("a completed #define keeps its variable through an unfinished prefix", () => {
@@ -269,7 +261,7 @@ return;
     draft.edit("logic:9", "#define coins 32\nif (isset(f5)) {\n  assignn(coins, 7);\n", 0);
     const op = mustPrepare(prepareGuidedAddRoom(ctx, { title: "Safe room" }));
     const bindings = JSON.parse(op.changes.find((c) => c.key === "bindings")!.content as string);
-    assert.deepEqual(bindings.pic_num, { kind: "variable", num: 33, builtin: true });
+    assert.deepEqual(bindings.pic_num, { kind: "variable", num: 33 });
   });
 
   test("a local #define shadows the external binding of the same name", () => {
@@ -280,7 +272,7 @@ return;
     draft.edit("logic:9", "#define coins 35\nassignn(coins, 7);\nreturn;\n", 0);
     const op = mustPrepare(prepareGuidedAddRoom(ctx, { title: "Safe room" }));
     const bindings = JSON.parse(op.changes.find((c) => c.key === "bindings")!.content as string);
-    assert.deepEqual(bindings.pic_num, { kind: "variable", num: 32, builtin: true });
+    assert.deepEqual(bindings.pic_num, { kind: "variable", num: 32 });
   });
 
   test("an invalid or ambiguous alias refuses instead of guessing", () => {
@@ -309,11 +301,7 @@ return;
       }),
     );
     const bindings = JSON.parse(op.changes.find((c) => c.key === "bindings")!.content as string);
-    assert.deepEqual(
-      bindings.cue_done,
-      { kind: "flag", num: 33, builtin: true },
-      "f32 stays with the draft",
-    );
+    assert.deepEqual(bindings.cue_done, { kind: "flag", num: 33 }, "f32 stays with the draft");
   });
 
   test("refuses a missing hero view and an off-picture spawn", () => {

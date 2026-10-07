@@ -13,7 +13,7 @@ import {
 import { useEngineApi } from "../../engine/engineContext.ts";
 import { useWorkspaceEditor } from "../../shell/workspaceEditor.ts";
 import BindingDetails from "../../shell/BindingDetails.vue";
-import { workspaceBindingInfos } from "../../shell/workspaceNames.ts";
+import { workspaceBindingInfos, workspaceGameStateInfos } from "../../shell/workspaceNames.ts";
 import type { BindingInfo } from "../../../../src/logic/projectNames.ts";
 import type { AgiProfile } from "../../../../src/runtime/profile.ts";
 import ViewThumbnail from "./ViewThumbnail.vue";
@@ -46,6 +46,7 @@ const emit = defineEmits<{
 const engine = useEngineApi();
 const workspace = useWorkspaceEditor();
 const acceptedNames = shallowRef<BindingInfo[]>([]);
+const builtinNames = shallowRef<BindingInfo[]>([]);
 const names = computed(() => {
   if (props.bindings === undefined) return acceptedNames.value;
   try {
@@ -115,8 +116,14 @@ const selectedName = computed(
 const stateNames = computed(() =>
   names.value.filter((info) => ["flag", "variable"].includes(info.kind)),
 );
-const creatorNames = computed(() => stateNames.value.filter((info) => !info.builtin));
-const builtinNames = computed(() => stateNames.value.filter((info) => info.builtin));
+const creatorNames = computed(() =>
+  stateNames.value.filter(
+    (info) =>
+      !builtinNames.value.some(
+        (reserved) => reserved.kind === info.kind && reserved.num === info.num,
+      ) && !(info.kind === "flag" ? info.num <= 15 : info.num <= 26),
+  ),
+);
 /** In-place room naming: a fresh add pre-fills "Room N" selected, typing replaces it. */
 const editingRoomLocal = ref<number>();
 const editingRoom = computed(() => editingRoomLocal.value ?? props.renameRoom);
@@ -179,10 +186,14 @@ watch(
     function refresh(): void {
       try {
         acceptedNames.value = session
-          ? workspaceBindingInfos(session.model.capture(), props.profile?.id ?? "2.936")
+          ? workspaceBindingInfos(session.workingSnapshot(), props.profile?.id ?? "2.936")
+          : [];
+        builtinNames.value = session
+          ? workspaceGameStateInfos(session.workingSnapshot(), props.profile?.id ?? "2.936").builtin
           : [];
       } catch {
         acceptedNames.value = [];
+        builtinNames.value = [];
       }
     }
     refresh();
@@ -425,7 +436,10 @@ function onKey(event: KeyboardEvent): void {
           <UiButton size="sm" variant="ghost" @click="namingOpen = false">Cancel</UiButton>
         </div>
       </form>
-      <section v-if="group.label === 'GAME STATE' && stateNames.length" class="game-state">
+      <section
+        v-if="group.label === 'GAME STATE' && (stateNames.length || builtinNames.length)"
+        class="game-state"
+      >
         <div v-for="info in creatorNames" :key="info.name" class="state-row">
           <button
             class="part"

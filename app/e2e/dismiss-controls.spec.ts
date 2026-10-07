@@ -1,7 +1,6 @@
 import { test, expect } from "./test.ts";
 import type { Page } from "@playwright/test";
 import { isolateStorage, waitForRoom, openGameOptions } from "./engineProbe.ts";
-import { openBuiltinGameState } from "./workspaceShared.ts";
 
 for (const viewport of [
   { width: 1063, height: 815 },
@@ -34,7 +33,6 @@ for (const viewport of [
     const flag = page.getByRole("button", { name: "chime_done Flag 204", exact: true });
     if (viewport.width === 390 && !(await flag.isVisible()))
       await page.getByTestId("workspace-parts").click();
-    await openBuiltinGameState(page);
     await expect(flag).toBeVisible();
     await flag.click();
     const details = page.getByTestId("binding-details");
@@ -94,7 +92,6 @@ async function start(page: Page) {
 test("name details closes with Escape from its Close control", async ({ page }) => {
   await start(page);
   const flag = page.getByRole("button", { name: "chime_done Flag 204", exact: true });
-  await openBuiltinGameState(page);
   await expect(flag).toBeVisible();
   await flag.click();
   const details = page.getByTestId("binding-details");

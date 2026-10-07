@@ -279,3 +279,63 @@ for (const [width, height] of [
     });
   });
 }
+
+for (const [width, height] of [
+  [1063, 815],
+  [1440, 900],
+  [390, 844],
+] as const) {
+  test(`Game state keeps game names flat and reserved slots folded at ${width} @webkit-desktop`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height });
+    await isolateStorage(page);
+    await page.goto("/#create-adventure");
+    await page.getByTestId("local-create-kind-starter").click();
+    await page.getByTestId("local-create-submit").click();
+    const parts = page.getByTestId("parts-list");
+    if (width <= 600 && !(await parts.isVisible()))
+      await page.getByTestId("workspace-parts").click();
+    await expect(parts).toBeVisible();
+    await workspaceSaved(page);
+    await page.screenshot({
+      path: test.info().outputPath(`state-parts-${width}.png`),
+      animations: "disabled",
+      scale: "css",
+    });
+    await parts.getByTestId("part-state").click();
+    const tab = page.getByTestId("workspace-state");
+    await expect(tab).toBeVisible();
+    await page.screenshot({
+      path: test.info().outputPath(`state-tab-${width}.png`),
+      animations: "disabled",
+      scale: "css",
+    });
+    const gameRow = tab.locator(":scope > table tr").filter({ hasText: "chime_done" });
+    await expect(gameRow).toBeVisible();
+    await expect(gameRow).toContainText("f204");
+    const builtIn = tab.getByTestId("state-builtin");
+    await expect(builtIn).toBeVisible();
+    await expect(builtIn).not.toHaveAttribute("open");
+    await builtIn.locator(":scope > summary").click();
+    const reserved = builtIn.locator("tr").filter({ hasText: "current_room" });
+    await expect(reserved).toBeVisible();
+    await expect(reserved).toContainText("v0");
+    await expect(builtIn).not.toContainText("chime_done");
+    if (width <= 600 && !(await parts.isVisible()))
+      await page.getByTestId("workspace-parts").click();
+    await expect(parts).toBeVisible();
+    const flag = parts
+      .locator(".game-state > .state-row")
+      .getByRole("button", { name: "chime_done Flag 204", exact: true });
+    await expect(flag).toBeVisible();
+    const group = parts.getByTestId("game-state-builtin");
+    await expect(group).toBeVisible();
+    await expect(group).not.toHaveAttribute("open");
+    await group.locator(":scope > summary").click();
+    await expect(
+      group.getByRole("button", { name: "current_room Variable 0", exact: true }),
+    ).toBeVisible();
+    await expect(group).not.toContainText("chime_done");
+  });
+}

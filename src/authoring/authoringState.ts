@@ -13,8 +13,6 @@ export interface AuthoringState {
       kind: BindingKind;
       num: number;
       logic?: number;
-      /** Supplied by a template or ready part, not named by the creator. */
-      builtin?: boolean;
       evidence?: {
         logic: number;
         line: number;
@@ -189,7 +187,6 @@ export function validateAuthoringState(value: unknown): AuthoringState {
       kind: item["kind"] as BindingKind,
       num: Number(item["num"]),
       ...(item["kind"] === "message" ? { logic: Number(item["logic"]) } : {}),
-      ...(item["builtin"] === true ? { builtin: true } : {}),
       ...(evidence ? { evidence } : {}),
     };
   }

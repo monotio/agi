@@ -4,7 +4,10 @@ import type { ProjectSnapshot } from "../../../src/authoring/projectModel.ts";
 import { readBindingsDocument } from "../../../src/authoring/projectDocuments.ts";
 import { parseWordsTok } from "../../../src/logic/words.ts";
 import { offsetAt, type WorkspaceEdit } from "../../../src/logic/lspTypes.ts";
-import type { BindingInfo } from "../../../src/logic/projectNames.ts";
+import { projectOperandInfos, type BindingInfo } from "../../../src/logic/projectNames.ts";
+import { systemName } from "../../../src/logic/systemNames.ts";
+import { disassembleLogic } from "../../../src/logic/disassembler.ts";
+import { PROFILES } from "../../../src/runtime/profile.ts";
 import type { ProfileId } from "../../../src/runtime/profile.ts";
 import type { EngineApi } from "../engine/engineContext.ts";
 
@@ -40,6 +43,50 @@ export function workspaceBindingInfos(
 ): BindingInfo[] {
   const server = createLogicLspServer({ project: namesProject(snapshot, profileId) });
   return server.handle({ jsonrpc: "2.0", id: 1, method: "agi/bindings" })!.result as BindingInfo[];
+}
+/** Game names keep code-point order; used interpreter slots keep numeric order. */
+export function workspaceGameStateInfos(
+  snapshot: ProjectSnapshot,
+  profileId: ProfileId,
+): {
+  game: BindingInfo[];
+  builtin: BindingInfo[];
+} {
+  const project = namesProject(snapshot, profileId);
+  for (const key of snapshot.keys) {
+    const content = snapshot.read(key)?.content;
+    if (key.startsWith("logic:") && content instanceof Uint8Array)
+      project.documents[key] = {
+        source: disassembleLogic(content, {
+          profile: PROFILES[profileId],
+          dictionary: new Map(project.words),
+        }),
+        version: snapshot.version(key),
+      };
+  }
+  const infos = projectOperandInfos(project).filter(
+    (info) => info.kind === "flag" || info.kind === "variable",
+  );
+  const game = infos.filter((info) => info.name && systemName(info.kind, info.num) === undefined);
+  const builtin: BindingInfo[] = [];
+  for (const kind of ["flag", "variable"])
+    for (let num = 0; num <= (kind === "flag" ? 15 : 26); num++) {
+      const uses = infos
+        .filter((info) => info.kind === kind && info.num === num)
+        .flatMap((info) => info.uses);
+      // The operand index can describe a literal both by name and by slot.
+      const unique = uses.filter(
+        (use, index) =>
+          uses.findIndex(
+            (other) =>
+              other.key === use.key &&
+              other.range.start.line === use.range.start.line &&
+              other.range.start.character === use.range.start.character,
+          ) === index,
+      );
+      if (unique.length) builtin.push({ name: systemName(kind, num)!, kind, num, uses: unique });
+    }
+  return { game, builtin };
 }
 export async function renameWorkspaceBinding(
   engine: EngineApi,

@@ -2438,7 +2438,7 @@ onBeforeUnmount(() => {
       <GameStateTab
         v-else-if="key === 'state'"
         :active="creating && key === editor.selected.value"
-        :bindings="typeof content('bindings') === 'string' ? String(content('bindings')) : ''"
+        :snapshot="workingSnapshot()"
         :state="livePreview.state"
         :profile="profile"
       />
