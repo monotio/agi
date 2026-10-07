@@ -27,9 +27,8 @@ test("first visit has one route per action and aligned sections", async ({ page 
   await expect(page.getByTestId("create-adventure-disclosure")).toBeVisible();
   await expect(page.getByTestId("local-create-submit")).toBeHidden();
   await page.getByTestId("local-create-kind-starter").click();
-  await expect(page.getByTestId("create-adventure-disclosure")).toContainText(
-    "Opens with the game running.",
-  );
+  await expect(page.getByTestId("local-create-submit")).toBeVisible();
+  await expect(page.getByTestId("local-create-submit")).toHaveText("Start building");
   await expect(page.getByText(/AI for this adventure|Not configured/)).toHaveCount(0);
   await expect(page.getByTestId("connect-create-ai")).toBeHidden();
   await expect(page.getByTestId("boot-game")).toBeHidden();
