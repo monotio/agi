@@ -75,7 +75,8 @@ test("Undo after choosing a Launch undoes the last change @webkit-desktop", asyn
   await beginning.click();
   const action = page.getByTestId("workspace-update");
   await expect(action).toBeVisible();
-  await expect(action).toContainText("beginning");
+  await expect(action).toHaveText("");
+  await expect(action).toHaveAccessibleName("Play Garden with the launch From the beginning");
   const after = await page.evaluate(async () => {
     const session = (
       window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }

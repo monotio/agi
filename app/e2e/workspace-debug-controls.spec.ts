@@ -1,6 +1,7 @@
 import { test, expect } from "./test.ts";
 import { isolateStorage, waitForRoom } from "./engineProbe.ts";
 import type { Page } from "@playwright/test";
+import { findWorkspaceLogic } from "./workspaceShared.ts";
 
 async function starter(page: Page): Promise<void> {
   await isolateStorage(page);
@@ -32,9 +33,7 @@ test("debug controls follow LOGIC and a paused session @webkit-desktop", async (
   await page.keyboard.press("ControlOrMeta+Shift+p");
   await expect(page.getByRole("option", { name: /^Restart Meadow F5$/ })).toBeVisible();
   await page.keyboard.press("Escape");
-  await page.keyboard.press("ControlOrMeta+Home");
-  await page.keyboard.press("ArrowDown");
-  await page.keyboard.press("ArrowDown");
+  await findWorkspaceLogic(page, "assignn(v50, clearing_pic)");
   await page.keyboard.press("F9");
   await expect(page.locator(".workspace-breakpoint")).toHaveCount(1);
   await page.keyboard.press("F5");
@@ -81,10 +80,7 @@ for (const [width, height] of [
     await parts(page);
     await page.getByTestId("part-room:1:logic").click();
     await expect(page.getByTestId("workspace-logic-editor")).toBeVisible();
-    await page.getByTestId("workspace-logic-editor").locator("textarea.inputarea").focus();
-    await page.keyboard.press("ControlOrMeta+Home");
-    await page.keyboard.press("ArrowDown");
-    await page.keyboard.press("ArrowDown");
+    await findWorkspaceLogic(page, "assignn(v50, clearing_pic)");
     await page.keyboard.press("F9");
     await expect(page.locator(".workspace-breakpoint")).toHaveCount(1);
     await page.keyboard.press("F5");
@@ -98,7 +94,7 @@ for (const [width, height] of [
     });
     const status = context.getByTestId("workspace-debug-status");
     await expect(status).toBeVisible();
-    await expect(status).toContainText("Paused at boot_logic · LOGIC");
+    await expect(status).toHaveText("Paused at first_room · LOGIC 1, line 3");
     await parts(page);
     await page.getByTestId("part-room:1:picture:1").click();
     await expect(page.getByTestId("room-studio")).toBeVisible();

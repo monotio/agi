@@ -1,4 +1,3 @@
-import { numberedKindTitle } from "./numberedLabels.ts";
 /** Numbered symbols retain the argument kind, including numeric source operands. */
 import type { CommandReference } from "./commandReference.ts";
 import type { analyzeLogicSyntax, Token } from "./syntax.ts";
@@ -17,12 +16,6 @@ export interface NumberedOperand {
   readonly name?: string;
   readonly definitionStart?: number;
 }
-export const OPERAND_NAMES = Object.fromEntries(
-  ["v", "f", "o", "i", "s", "w", "m", "c", "logic", "picture", "view", "sound"].map((kind) => [
-    kind,
-    numberedKindTitle(kind),
-  ]),
-) as Record<NumberedKind, string>;
 export const BINDING_KINDS: Record<NumberedKind, string> = {
   v: "variable",
   f: "flag",

@@ -5,7 +5,11 @@ import type { Page } from "@playwright/test";
 import { test, expect } from "./test.ts";
 import { start, open } from "./pictureWorkspaceShared.ts";
 import { textHook, screenText, workspaceSaved } from "./engineProbe.ts";
-import { focusWorkspaceLogic, runningWorkspaceDocument } from "./workspaceShared.ts";
+import {
+  findWorkspaceLogic,
+  focusWorkspaceLogic,
+  runningWorkspaceDocument,
+} from "./workspaceShared.ts";
 
 async function launchShot(page: Page, name: string, browserName: string): Promise<void> {
   const shot = await page.screenshot({
@@ -315,10 +319,7 @@ test("F5 in room LOGIC runs the selected Launch with its breakpoint armed @webki
   await choice.click();
   await expect(page.getByRole("menu")).toBeHidden();
   expect((await textHook(page)).room).toBe(1);
-  await focusWorkspaceLogic(page);
-  await page.keyboard.press("ControlOrMeta+f");
-  await page.getByRole("textbox", { name: "Find", exact: true }).fill("assignn(v100,8)");
-  await page.keyboard.press("Escape");
+  await findWorkspaceLogic(page, "assignn(v100,8)");
   await page.keyboard.press("F9");
   await expect(page.locator(".workspace-breakpoint")).toHaveCount(1);
   await page.keyboard.press("F5");

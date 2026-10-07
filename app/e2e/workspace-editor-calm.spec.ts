@@ -4,6 +4,7 @@ import { textHook } from "./engineProbe.ts";
 import { start, open } from "./pictureWorkspaceShared.ts";
 import {
   focusWorkspaceLogic,
+  findWorkspaceLogic,
   runningWorkspaceDocument,
   workspaceDocumentEnd,
 } from "./workspaceShared.ts";
@@ -73,26 +74,26 @@ for (const [width, height] of [
       await expect(menu).toBeHidden();
       await expect(more).toBeFocused();
       if (width === 1063) {
-        await page.setViewportSize({ width: 700, height });
-        await expect(context.getByTestId("room-action-response")).toHaveCount(0);
-        await expect(context.getByRole("button", { name: /^▶ Play / })).toBeVisible();
-        await expect(context.getByRole("button", { name: /^Debug / })).toBeVisible();
+        await page.setViewportSize({ width: 390, height });
+        await expect(context.getByTestId("room-action-response")).toBeVisible();
+        await expect(context.getByTestId("room-action-door")).toHaveCount(0);
+        await expect(context.getByRole("button", { name: /^▶ Play |^Debug / })).toHaveCount(0);
+        await expect(page.getByTestId("workspace-update")).toBeVisible();
         await more.click();
         await expect(menu.getByRole("menuitem")).toHaveText([
-          "Answer a sentence",
           "Door",
           "Sound when…",
           "Change number…",
         ]);
         await page.keyboard.press("Escape");
         await page.setViewportSize({ width, height });
-        await expect(context.getByTestId("room-action-response")).toBeVisible();
+        await expect(context.getByTestId("room-action-door")).toBeVisible();
       }
     });
   });
 }
 
-for (const action of ["update", "shortcut", "play", "debug"] as const) {
+for (const action of ["update", "shortcut", "F5", "breakpoint"] as const) {
   test(`broken draft refuses ${action} and preserves the game @webkit-desktop`, async ({
     page,
   }) => {
@@ -100,6 +101,11 @@ for (const action of ["update", "shortcut", "play", "debug"] as const) {
     await start(page);
     await open(page, "part-room:1:logic");
     const original = await runningWorkspaceDocument(page, "logic:1");
+    if (action === "breakpoint") {
+      await findWorkspaceLogic(page, "assignn(v50, clearing_pic)");
+      await page.keyboard.press("F9");
+      await expect(page.locator(".workspace-breakpoint")).toHaveCount(1);
+    }
     await focusWorkspaceLogic(page);
     await workspaceDocumentEnd(page);
     await page.keyboard.insertText("\nif (");
@@ -111,15 +117,13 @@ for (const action of ["update", "shortcut", "play", "debug"] as const) {
       const mac = await page.evaluate(() => /mac|iphone|ipad/i.test(navigator.platform));
       await page.keyboard.press(mac ? "Meta+Enter" : "Control+Enter");
     } else if (action === "update") await page.getByTestId("workspace-update").click();
-    else
-      await page
-        .getByTestId("workspace-context")
-        .getByRole("button", { name: action === "play" ? /^▶ Play / : /^Debug / })
-        .click();
+    else await page.keyboard.press("F5");
     const notice = page
       .getByRole("alert")
       .filter({ hasText: "LOGIC 1 has errors. Fix them to update the game." });
     await expect(notice).toBeVisible();
+    await expect(notice).toHaveCount(1);
+    await expect(page.getByTestId("workspace-debug-status")).toHaveCount(0);
     await expect(
       page.getByTestId("workspace-logic-editor").filter({ visible: true }),
     ).toBeVisible();
