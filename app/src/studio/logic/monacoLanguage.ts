@@ -929,7 +929,8 @@ export function registerLogicModel(
     void refreshDiagnostics();
   });
   const unsubscribe = options.client.onDidChange(() => {
-    registration.debugRevision++;
+    // The client invalidates changed inputs. Marker updates preserve matching
+    // language queries; only refreshDebug changes their debugger generation.
     analysisSchedule.schedule();
   });
   registrations.set(uri, registration);

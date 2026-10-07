@@ -54,6 +54,7 @@ test("Logic Studio analysis loads on demand and resolves source through a real w
   expect(result.completions).toContainEqual({
     label: "open",
     detail: "Word group 100",
+    sortText: "00000",
     textEdit: {
       range: { start: { line: 1, character: 9 }, end: { line: 1, character: 12 } },
       newText: '"open"',
