@@ -189,11 +189,11 @@ test("error: message 0 rejected", () => {
   );
 });
 
-test("error: unknown identifier suggests ref syntax", () => {
+test("error: an unknown name is reported plainly", () => {
   assert.throws(
     () => assembleLogic("set(door);", { dictionary: DICT }),
     (e: unknown) =>
-      e instanceof AssemblerError && /unknown identifier 'door'/.test((e as Error).message),
+      e instanceof AssemblerError && /Nothing is named door\./.test((e as Error).message),
   );
 });
 

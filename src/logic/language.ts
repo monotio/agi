@@ -38,10 +38,21 @@ export function createLogicLanguageSnapshot(input: {
   const commands = commandReference(profile);
   const operands = collectLogicOperands(syntax, commands, profile, builtins);
   const byName = new Map(commands.map((command) => [command.name, command]));
-  const diagnostics = syntax.diagnostics.map((entry) => ({
-    ...entry,
-    severity: "error" as "error" | "warning",
-  }));
+  const diagnostics = syntax.diagnostics.map((entry) => {
+    const kind = operandKindAt(entry.start);
+    return {
+      ...entry,
+      message: entry.message.replace(
+        "Nothing is named",
+        kind === "f"
+          ? "No flag is named"
+          : kind === "v"
+            ? "No variable is named"
+            : "Nothing is named",
+      ),
+      severity: "error" as "error" | "warning",
+    };
+  });
   let payload: Uint8Array | undefined;
   if (!diagnostics.length) {
     try {
@@ -99,6 +110,17 @@ export function createLogicLanguageSnapshot(input: {
       previous = token;
     }
     return { frames, call: [...frames].reverse().find((frame) => byName.has(frame.name)) };
+  }
+
+  function operandKindAt(offset: number) {
+    checkOffset(offset);
+    const context = contextAt(offset);
+    if (context.call)
+      return numberedOperandKind(byName.get(context.call.name)!, context.call.parameter);
+    const index = syntax.tokens.findIndex((token) => token.start <= offset && token.end > offset);
+    const next = syntax.tokens[index + 1];
+    if (next && ["=", "==", "!=", "<", ">", "<=", ">="].includes(next.text)) return "v";
+    return undefined;
   }
 
   function completeAt(offset: number) {
@@ -484,6 +506,7 @@ export function createLogicLanguageSnapshot(input: {
     operands,
     resourceUses: collectLogicResourceUses(source, profile, syntax),
     operandAt,
+    operandKindAt,
     diagnostics: Object.freeze(diagnostics.map((entry) => Object.freeze(entry))),
     completeAt,
     signatureAt,
