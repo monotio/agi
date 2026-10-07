@@ -263,7 +263,9 @@ test("Download… offers the project file and the playable game", async ({ page 
   await expect(card.getByRole("button", { name: "Game actions", exact: true })).toBeFocused();
 });
 
-test("the in-game Settings sheet has one Download… opening the same dialog", async ({ page }) => {
+test("the in-game Settings sheet has one Download… opening the same dialog @webkit-desktop", async ({
+  page,
+}) => {
   await playTutorialOnce(page);
   await savedGameCard(page, "Adventure Department")
     .getByTestId("catalog-play-adventure-department")
@@ -274,11 +276,11 @@ test("the in-game Settings sheet has one Download… opening the same dialog", a
   const section = page
     .getByTestId("settings-menu-menu")
     .getByRole("region", { name: "This game", exact: true });
-  await expect(section.getByTestId("btn-edit-game")).toBeVisible();
+  await expect(section.getByTestId("btn-edit-game")).toHaveCount(0);
   await expect(section.getByTestId("btn-download-game")).toBeVisible();
   await expect(section.getByTestId("btn-start-over")).toBeVisible();
   await expect(section.getByTestId("btn-export-game")).toHaveCount(0);
-  await expect(section.getByRole("button")).toHaveCount(3);
+  await expect(section.getByRole("button")).toHaveCount(2);
 
   await section.getByTestId("btn-download-game").click();
   const dialog = page.getByTestId("settings-download-dialog");

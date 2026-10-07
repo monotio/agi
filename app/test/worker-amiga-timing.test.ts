@@ -137,6 +137,7 @@ test("a numbered PAL save restores the region and both session clocks", () => {
   assert.ok(list?.type === "hostRequest");
   onWorkerMessage(ctx, {
     type: "hostAnswer",
+    generation: ctx.run.generation,
     id: list.id,
     response: JSON.stringify([
       { slot: 1, image: Buffer.from(image.subarray(0, 40)).toString("base64") },
@@ -148,6 +149,7 @@ test("a numbered PAL save restores the region and both session clocks", () => {
   assert.ok(restore?.type === "hostRequest");
   onWorkerMessage(ctx, {
     type: "hostAnswer",
+    generation: ctx.run.generation,
     id: restore.id,
     response: JSON.stringify({ image: Buffer.from(image).toString("base64"), amigaRegion: "pal" }),
   });

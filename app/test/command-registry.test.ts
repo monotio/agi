@@ -5,6 +5,7 @@ import {
   createCommandRegistry,
   type CommandContext,
 } from "../src/shell/commands/commandRegistry.ts";
+import { commandItems } from "../src/shell/commands/chooserItems.ts";
 import { registerDefaultCommands } from "../src/shell/commands/defaultCommands.ts";
 
 function context(): { -readonly [K in keyof CommandContext]: CommandContext[K] } {
@@ -286,4 +287,18 @@ test("F5 runs from parts, agent and page focus while the game owns its input", (
   assert.equal(runs, 2);
   ctx.gameFocus = true;
   assert.equal(registry.dispatch(key("F5").event), false);
+});
+
+test("F5 is presented as Debug or Continue according to the debug session", () => {
+  const ctx = context();
+  const registry = createCommandRegistry(() => ctx, false);
+  registerDefaultCommands(registry, { run() {} });
+  assert.equal(commandItems(registry, ctx).find((item) => item.id === "debug.run")?.title, "Debug");
+  ctx.debugging = true;
+  assert.equal(
+    commandItems(registry, ctx).find((item) => item.id === "debug.run")?.title,
+    "Continue",
+  );
+  ctx.debugging = false;
+  assert.equal(commandItems(registry, ctx).find((item) => item.id === "debug.run")?.title, "Debug");
 });

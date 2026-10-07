@@ -461,9 +461,9 @@ onBeforeUnmount(() => {
               size="sm"
               variant="ghost"
               :disabled="readOnly"
-              :title="readOnly ? 'Editing is paused in this tab' : 'Remove (Delete)'"
+              :title="readOnly ? 'Editing is paused in this tab' : 'Delete note (Delete)'"
               @click="remove(event)"
-              >Remove</UiButton
+              >Delete</UiButton
             >
           </div>
         </div>

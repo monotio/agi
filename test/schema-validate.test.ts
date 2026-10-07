@@ -30,6 +30,17 @@ const schema = {
 };
 
 describe("validateToolArguments", () => {
+  it("validates values of schema-valued additionalProperties", () => {
+    const dictionary = {
+      type: "object",
+      additionalProperties: { type: "integer", minimum: 0, maximum: 255 },
+    };
+    assert.deepEqual(validateToolArguments(dictionary, { "77": 1 }), []);
+    assert.deepEqual(validateToolArguments(dictionary, { "77": "yes", "90": 256 }), [
+      "77 must be integer, got string.",
+      "90 must be <= 255, got 256.",
+    ]);
+  });
   it("accepts conforming arguments and treats a missing nullable field as null", () => {
     assert.deepEqual(
       validateToolArguments(schema, { num: 3, mode: "a", items: [{ name: "x" }] }),

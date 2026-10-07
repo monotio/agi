@@ -36,8 +36,9 @@ jobs:
         include:
           - { browser: chromium, index: perf, label: timing budgets }
           - { browser: chromium, index: benchmark, label: storage benchmark }
-          - { browser: webkit, index: phone-1, phone: 1, label: webkit phone 1/2 }
-          - { browser: webkit, index: phone-2, phone: 2, label: webkit phone 2/2 }
+          - { browser: webkit, index: phone-1, phone: 1, label: webkit phone 1/3 }
+          - { browser: webkit, index: phone-2, phone: 2, label: webkit phone 2/3 }
+          - { browser: webkit, index: phone-3, phone: 3, label: webkit phone 3/3 }
           - { browser: chromium, index: 1, label: chromium 1/10 }
           - { browser: chromium, index: 2, label: chromium 2/10 }
           - { browser: chromium, index: 3, label: chromium 3/10 }
@@ -82,7 +83,7 @@ jobs:
         env:
           REPEAT: ${{ inputs.repeat }}
           INDEX: ${{ matrix.phone }}
-        run: npm --prefix app run e2e:phone -- --project=iphone-webkit --shard="$INDEX/2" --repeat-each="$REPEAT" --reporter=list,json
+        run: npm --prefix app run e2e:phone -- --project=iphone-webkit --shard="$INDEX/3" --repeat-each="$REPEAT" --reporter=list,json
       - name: WebKit desktop
         if: matrix.shard != '' && matrix.browser == 'webkit'
         env:

@@ -8,7 +8,7 @@ import { createLogicLanguageStructure } from "./languageStructure.ts";
 import { projectOperandInfos } from "./projectNames.ts";
 import { messageCodeActions, messageInlayHints } from "./messageReadability.ts";
 import { numberedLabel } from "./numberedLabels.ts";
-import { systemMeaning, systemBindingInfos } from "./systemNames.ts";
+import { systemName, systemMeaning, systemBindingInfos, systemBindings } from "./systemNames.ts";
 import { BINDING_KINDS, type NumberedOperand } from "./languageOperands.ts";
 import { offsetAt, positionAt, rangeAt, SEMANTIC_LEGEND } from "./lspTypes.ts";
 import type {
@@ -373,7 +373,8 @@ export function createLogicLspServer(
           entry.kind === operand.kind &&
           entry.num === operand.num &&
           (operand.kind !== "m" || candidate.uri === doc.uri) &&
-          (!entry.name || entry.bindingName === old),
+          (!entry.name ||
+            entry.bindingName === (old ?? operand.name ?? systemName(operand.kind, operand.num))),
       );
       // A binding is also a numeric constant in scalar operands. Keep every
       // reference owned by its declaration when replacing the bindings key.
@@ -426,6 +427,12 @@ export function createLogicLspServer(
         name,
       );
     }
+    const builtin = systemBindingInfos().find((entry) => entry.name === name);
+    const current = project.bindings[bindingName]!;
+    if (builtin && (builtin.kind !== current.kind || builtin.num !== current.num))
+      throw new Error(
+        `The name '${name}' belongs to ${builtin.kind === "flag" ? "Flag" : "Variable"} ${builtin.num}. Choose another name.`,
+      );
     const tokens = scanLogicTokens(name);
     if (
       tokens.length !== 2 ||
@@ -741,6 +748,11 @@ export function createLogicLspServer(
           ? [
               ...new Set([
                 ...operandBindings(operand, doc),
+                ...Object.entries(systemBindings(project.bindings))
+                  .filter(
+                    ([, binding]) => binding.kind === operand.kind && binding.num === operand.num,
+                  )
+                  .map(([name]) => name),
                 ...(operand.kind === "m" ? [doc] : allDocuments()).flatMap((candidate) =>
                   language(candidate).operands.flatMap((entry) =>
                     entry.kind === operand.kind && entry.num === operand.num && entry.name
@@ -755,7 +767,7 @@ export function createLogicLspServer(
           ? {
               start: operand.start,
               end: operand.end,
-              text: `${numberedLabel(operand.kind, operand.num, { bindings: project.bindings, inventory: project.inventory ?? project.objects ?? [], words: project.words, logic: Number(doc.uri.match(/logic\.(\d+)/)?.[1]), name: names[0] ?? "" }, "row")}\n\n${count} ${count === 1 ? "use" : "uses"} ${operand.kind === "m" ? "in this LOGIC" : "across the game"}.${names.length > 1 ? `\n\nNames: ${names.join(", ")}` : ""}${operandDetails(doc, operand)}${["s", "w", "c"].includes(operand.kind) ? "" : "\n\nName it… F2"}`,
+              text: `${numberedLabel(operand.kind, operand.num, { bindings: project.bindings, inventory: project.inventory ?? project.objects ?? [], words: project.words, logic: Number(doc.uri.match(/logic\.(\d+)/)?.[1]), name: names[0] ?? "" }, "row")}\n\n${count} ${count === 1 ? "use" : "uses"} ${operand.kind === "m" ? "in this LOGIC" : "across the game"}.${names.length > 1 ? `\n\nNames: ${names.join(", ")}` : ""}${operandDetails(doc, operand)}${["s", "w", "c"].includes(operand.kind) ? "" : "\n\nRename… F2"}`,
             }
           : snapshot.hoverAt(offset);
         if (!hover) return null;

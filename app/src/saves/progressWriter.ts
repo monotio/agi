@@ -10,7 +10,7 @@ export function progressWriterKey(locator: string): string {
   return `monotio_agi.writer.${locator}`;
 }
 
-function readProgressWriter(
+export function readProgressWriter(
   storage: Pick<Storage, "getItem">,
   locator: string,
 ): ProgressWriter | null {

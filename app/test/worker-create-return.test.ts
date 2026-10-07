@@ -214,28 +214,36 @@ test("Back and From my game adopt the captured Play pause state", (t) => {
   }
 });
 
-test("Create return peels a changed LOGIC window and continues on current bytes", (t) => {
-  const { ctx } = workerHarness(game());
-  t.after(() => ctx.fns.stopTimers());
-  ctx.fns.tickEngine();
-  enter(ctx);
-  const changed = game();
-  changed.putResource(
-    "logic",
-    1,
-    assembleLogic("assignn(v81,9);return;", { dictionary: new Map() }).payload,
-  );
-  ctx.run.engine!.commitPreviewUpdate(
-    ctx.run.engine!.preparePreviewUpdate({ files: changed.files }),
-    { messageWaiting: true },
-  );
-  ctx.fns.onPlayHere({ type: "playHere", id: 2, room: 2, x: 0, y: 0, launch: {} });
-  onWorkerMessage(ctx, { type: "projectPlay" });
-  assert.equal(ctx.run.engine!.vars[0], 1);
-  assert.equal(ctx.run.engine!.modalKind, null);
-  ctx.fns.tickEngine();
-  assert.equal(ctx.run.engine!.vars[81], 9);
-});
+for (const logic of [0, 1]) {
+  test(`Create return refuses a changed parked LOGIC ${logic} and offers Restart`, (t) => {
+    const { ctx, control } = workerHarness(game());
+    t.after(() => ctx.fns.stopTimers());
+    ctx.fns.tickEngine();
+    enter(ctx);
+    const changed = game();
+    changed.putResource(
+      "logic",
+      logic,
+      assembleLogic("assignn(v81,9);return;", { dictionary: new Map() }).payload,
+    );
+    ctx.run.engine!.commitPreviewUpdate(
+      ctx.run.engine!.preparePreviewUpdate({ files: changed.files }),
+      { messageWaiting: true },
+    );
+    ctx.fns.onPlayHere({ type: "playHere", id: 2, room: 2, x: 0, y: 0, launch: {} });
+    const temporary = ctx.run;
+    onWorkerMessage(ctx, { type: "projectPlay", id: 3 });
+    const reply = control.findLast((m) => m.type === "projectPlayed");
+    assert.ok(reply?.type === "projectPlayed" && !reply.ok);
+    assert.match(reply.reason!, new RegExp(`LOGIC ${logic} changed`));
+    assert.match(reply.reason!, /Choose Restart/);
+    assert.equal(ctx.run, temporary);
+    assert.equal(ctx.run.progress.mode, "create");
+    onWorkerMessage(ctx, { type: "projectPlay", id: 4, restart: true });
+    assert.ok(control.findLast((m) => m.type === "projectPlayed")?.ok);
+    assert.equal(ctx.run.progress.mode, "play");
+  });
+}
 
 test("Create entry refuses a pending host question before granting edits", (t) => {
   const { ctx, control } = workerHarness(gameContainer(['get.num("Number?",v80);return;']));
@@ -300,3 +308,58 @@ test("leaving Create refuses the separate history-view drive before autosaving",
   ctx.fns.onFlush({ type: "flush", id: 91 });
   assert.equal(presentation.filter((m) => m.type === "autosave").length, 0);
 });
+
+for (const op of ["getnum", "room"] as const) {
+  for (const held of [false, true]) {
+    test(`late Create ${op} answer cannot settle Play's reused serial${held ? " while ownership holds it" : ""}`, (t) => {
+      const { ctx, control } = workerHarness(
+        gameContainer(
+          [
+            "if(equaln(v0,0)){new.room(1);}call.v(v0);return;",
+            'if(isset(f5)){load.pic(v0);draw.pic(v0);show.pic();print("Play moment");}get.num("Play number?",v90);return;',
+            op === "room" ? "new.room(3);return;" : 'get.num("Create number?",v91);return;',
+          ],
+          (c) => c.putResource("picture", 1, Uint8Array.of(0xff)),
+        ),
+      );
+      t.after(() => ctx.fns.stopTimers());
+      ctx.boot.authorRooms = true;
+      ctx.run.engine!.vars[90] = 42;
+      ctx.fns.tickEngine();
+      enter(ctx);
+      ctx.fns.onPlayHere({ type: "playHere", id: 2, room: 2, x: 0, y: 0, launch: {} });
+      const old = control.findLast((m) => m.type === "hostRequest");
+      assert.ok(old?.type === "hostRequest");
+      const generation = ctx.run.generation;
+      onWorkerMessage(ctx, { type: "projectPlay", id: 3 });
+      onWorkerMessage(ctx, { type: "key", code: 13 });
+      ctx.fns.tickEngine();
+      const next = control.findLast((m) => m.type === "hostRequest");
+      assert.ok(next?.type === "hostRequest" && next !== old);
+      assert.equal(next.id, old.id, "tape serials are restored");
+      if (held) onWorkerMessage(ctx, { type: "playOwner", active: false, generation: 1 });
+      onWorkerMessage(ctx, {
+        type: "hostAnswer",
+        generation,
+        id: old.id,
+        response: op === "room" ? "" : "77",
+      });
+      assert.equal(
+        ctx.run.owner.answers.length,
+        0,
+        "stale answers never enter the ownership queue",
+      );
+      assert.equal(ctx.run.engine!.vars[90], 42);
+      assert.equal(ctx.run.engine!.hostInteractionPending, true);
+      onWorkerMessage(ctx, {
+        type: "hostAnswer",
+        generation: ctx.run.generation,
+        id: next.id,
+        response: "9",
+      });
+      if (held) onWorkerMessage(ctx, { type: "playOwner", active: true, generation: 2 });
+      assert.equal(ctx.run.engine!.vars[90], 9);
+      assert.equal(ctx.run.engine!.hostInteractionPending, false);
+    });
+  }
+}

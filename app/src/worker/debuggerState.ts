@@ -91,7 +91,7 @@ export interface DebuggerState {
   /** Any configured condition/logpoint — per-occurrence snapshots stay lean otherwise. */
   richSnapshot: boolean;
   /** Answers accepted while stopped; each applies exactly once after release. */
-  queuedAnswers: { id: number; op: string; response: string }[];
+  queuedAnswers: { generation: number; id: number; op: string; response: string }[];
   /** debugSetValues wrote to this run. */
   modified: boolean;
 }

@@ -50,7 +50,7 @@ test("names open resources, peek game state and rename all authored uses @webkit
   await expect(details).toContainText("Set · first_room · LOGIC 1");
   await details.getByRole("button", { name: "Rename", exact: true }).click();
   await details.getByLabel("Name", { exact: true }).fill("birdsong_done");
-  await details.getByRole("button", { name: "Save name", exact: true }).click();
+  await details.getByRole("button", { name: "Rename", exact: true }).click();
   await workspaceUpdated(page);
   expect(await workspaceDocument(page, "bindings")).toContain("birdsong_done");
   expect(await workspaceDocument(page, "logic:1")).toContain("sound(chime_sound, birdsong_done)");
@@ -249,7 +249,7 @@ test("name hover opens resources and message actions keep readable text @webkit-
   await details.getByLabel("Name", { exact: true }).fill("birdsong");
   await expect(details.getByLabel("Name", { exact: true })).toBeFocused();
   await expect(details.getByLabel("Name", { exact: true })).toHaveValue("birdsong");
-  await details.getByRole("button", { name: "Save name", exact: true }).click();
+  await details.getByRole("button", { name: "Rename", exact: true }).click();
   await workspaceUpdated(page);
   await expect(details).toContainText("load.sound(birdsong);");
   await expect(details.getByRole("button", { name: "Rename", exact: true })).toBeVisible();
@@ -383,4 +383,63 @@ test("switching names resets Rename and leaves both bindings unchanged", async (
   await expect(details.locator("header strong")).toHaveText("dead");
   await expect(details.getByLabel("Name", { exact: true })).toBeHidden();
   expect(await workspaceDocument(page, "bindings")).toBe(before);
+});
+
+test("built-in names appear in code, completion, hover and coordinated rename @webkit-desktop", async ({
+  page,
+}) => {
+  await start(page);
+  const builtin = page.getByTestId("parts-list").getByTestId("game-state-builtin");
+  await builtin.locator(":scope > summary").click();
+  await expect(
+    builtin.getByRole("button", { name: "ego_in_water Flag 0", exact: true }),
+  ).toBeVisible();
+  await page.screenshot({
+    path: test.info().outputPath("builtin-source-names.png"),
+    animations: "disabled",
+  });
+  expect(await workspaceDocument(page, "logic:0")).toContain("call.v(current_room)");
+  expect(await workspaceDocument(page, "logic:1")).toContain("isset(new_room)");
+  await replaceWorkspaceDocument(page, "logic:1", "assignv(v50, cur); return;", false);
+  await page.evaluate(async () => {
+    const { monaco } = await import("/src/studio/logic/monacoLanguage.ts");
+    const editor = monaco.editor.getEditors().find((editor) => editor.hasTextFocus())!;
+    editor.setPosition(editor.getModel()!.getPositionAt("assignv(v50, cur".length));
+    editor.trigger("spec", "editor.action.triggerSuggest", {});
+  });
+  const suggestion = page.locator(".suggest-widget").filter({ visible: true });
+  await expect(suggestion).toContainText("current_room");
+  await page.keyboard.press("Enter");
+  await expect
+    .poll(() => workspaceDocument(page, "logic:1"))
+    .toBe("assignv(v50, current_room); return;");
+  await findWord(page, "current_room");
+  await page.evaluate(async () => {
+    const { monaco } = await import("/src/studio/logic/monacoLanguage.ts");
+    monaco.editor
+      .getEditors()
+      .find((editor) => editor.hasTextFocus())!
+      .trigger("spec", "editor.action.showHover", {});
+  });
+  await expect(page.locator(".monaco-hover").filter({ visible: true })).toContainText(
+    "Variable 0 · current_room",
+  );
+  await page.keyboard.press("Escape");
+  await findWord(page, "current_room");
+  await page.keyboard.press("F2");
+  const rename = page.locator(".rename-box input").filter({ visible: true });
+  await expect(rename).toBeVisible();
+  await rename.fill("room_number");
+  await rename.press("Enter");
+  await expect(rename).not.toBeVisible();
+  await expect
+    .poll(() => workspaceDocument(page, "logic:1"))
+    .toContain("assignv(v50, room_number)");
+  await expect.poll(() => workspaceDocument(page, "logic:0")).toContain("call.v(room_number)");
+  expect(await workspaceDocument(page, "bindings")).toContain('"room_number"');
+  await workspaceUpdated(page);
+  await page.screenshot({
+    path: test.info().outputPath("builtin-renamed.png"),
+    animations: "disabled",
+  });
 });

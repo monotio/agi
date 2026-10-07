@@ -242,10 +242,7 @@ describe("compileProjectDocuments", () => {
     const words = JSON.parse(documents["words"] as string) as [string, number][];
     words.push(["shout", 200]);
     documents["words"] = JSON.stringify(words);
-    documents["logic:1"] = (documents["logic:1"] as string).replace(
-      "return;",
-      'if (said("shout")) { print(m2); }\nreturn;',
-    );
+    documents["logic:1"] = `${documents["logic:1"] as string}\nif (said("shout")) { print(m2); }\n`;
     const result = compileProjectDocuments({ files, profileId: PROFILE_ID, documents });
     const out = result.files();
     const dictionary = new Map(

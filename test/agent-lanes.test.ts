@@ -18,7 +18,7 @@ import { test } from "node:test";
 
 const scripts = fileURLToPath(new URL("../scripts/agent-lanes/", import.meta.url));
 
-test("lane scripts create an isolated branch, install both roots and wait for the agent", async () => {
+test("lane scripts create an isolated branch, install the workspaces once and wait for the agent", async () => {
   const directory = realpathSync(mkdtempSync(join(tmpdir(), "agi lanes ")));
   try {
     const repo = join(directory, "repo");
@@ -62,7 +62,7 @@ test("lane scripts create an isolated branch, install both roots and wait for th
       "lane/example",
     );
     assert.match(git("worktree", "list", "--porcelain"), /branch refs\/heads\/lane\/example/);
-    assert.equal(readFileSync(installs, "utf8"), `${worktree}:ci\n${worktree}:--prefix app ci\n`);
+    assert.equal(readFileSync(installs, "utf8"), `${worktree}:ci\n`);
     assert.throws(() => run("new-lane.sh", "example"), /branch already exists/);
     mkdirSync(join(lanes, "occupied"));
     assert.throws(() => run("new-lane.sh", "occupied"), /directory already exists/);

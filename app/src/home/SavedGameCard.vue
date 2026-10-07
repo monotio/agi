@@ -227,7 +227,7 @@ function openDetails(): void {
         @keydown.esc="renaming = false"
       />
       <div class="game-rename__actions">
-        <UiButton type="submit" size="sm" :disabled="!gameTitle.trim()">Save name</UiButton>
+        <UiButton type="submit" size="sm" :disabled="!gameTitle.trim()">Rename</UiButton>
         <UiButton size="sm" variant="ghost" @click="renaming = false">Cancel</UiButton>
       </div>
       <p v-if="renameError" role="alert" class="game-card__alert">{{ renameError }}</p>

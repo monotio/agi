@@ -89,16 +89,15 @@ describe("guided add room", () => {
     const room = op.changes.find((c) => c.key === "logic:1")!.content as string;
     assert.equal(
       room,
-      `// Moonlit Hall — an empty room. The f5 block runs once on room entry: draw
+      `// Moonlit Hall — an empty room. The new_room block runs once on room entry: draw
 // the picture.
-if (isset(f5)) {
+if (isset(new_room)) {
   assignn(pic_num, 1);
   load.pic(pic_num);
   draw.pic(pic_num);
   show.pic();
   accept.input();
 }
-return;
 `,
     );
     const pic = op.changes.find((c) => c.key === "picture:1")!.content as string;
@@ -115,7 +114,7 @@ return;
 
     const tx = op.apply();
     assert.equal(tx.keys.length, 4);
-    assert.match(docText(draft, "logic:1"), /isset\(f5\)/);
+    assert.match(docText(draft, "logic:1"), /isset\(new_room\)/);
     draft.undo(tx.id);
     assert.equal(draft.capture().read("logic:1"), undefined, "undo removes the room");
   });
@@ -411,10 +410,7 @@ describe("guided respond to command", () => {
     assert.ok(op.affectedKeys.includes("logic:1"));
     assert.ok(op.affectedKeys.includes("words"));
     const room = op.changes.find((c) => c.key === "logic:1")!.content as string;
-    assert.match(
-      room,
-      /if \(said\("wave"\)\) \{\n {2}print\("You wave politely\."\);\n\}\nreturn;/,
-    );
+    assert.match(room, /if \(said\("wave"\)\) \{\n {2}print\("You wave politely\."\);\n\}\n$/);
     const words = JSON.parse(op.changes.find((c) => c.key === "words")!.content as string);
     const wave = words.find((e: [string, number]) => e[0] === "wave");
     assert.ok(wave, "wave is registered");
@@ -508,7 +504,7 @@ describe("guided respond to command", () => {
     op.apply();
     const room = docText(draft, "logic:1");
     assert.match(room, /if \(said\("look"\)\) \{ print\("You stand/);
-    assert.match(room, /if \(said\("look", "north"\)\) \{\n {2}print\("Trees\."\);\n\}\nreturn;/);
+    assert.match(room, /if \(said\("look", "north"\)\) \{\n {2}print\("Trees\."\);\n\}\n$/);
   });
 
   test("refuses a command an existing wildcard or rest-of-line handler consumes", () => {
@@ -587,22 +583,22 @@ describe("guided connect door", () => {
     const room1 = op.changes.find((c) => c.key === "logic:1")!.content as string;
     assert.match(
       room1,
-      /\/\/ @rule door-2 "To room 2" exit\nif \(posn\(o0, 70, 150, 90, 167\)\) \{\n {2}new\.room\(2\);\n\}\n\/\/ @end\nreturn;/,
+      /\/\/ @rule door-2 "To room 2" exit\nif \(posn\(o0, 70, 150, 90, 167\)\) \{\n {2}new\.room\(2\);\n\}\n\/\/ @end\n$/,
     );
     const room2 = op.changes.find((c) => c.key === "logic:2")!.content as string;
     assert.match(
       room2,
-      /\/\/ @rule door-1 "To room 1" exit\nif \(posn\(o0, 90, 150, 110, 167\)\) \{\n {2}new\.room\(1\);\n\}\n\/\/ @end\nreturn;/,
+      /\/\/ @rule door-1 "To room 1" exit\nif \(posn\(o0, 90, 150, 110, 167\)\) \{\n {2}new\.room\(1\);\n\}\n\/\/ @end\n$/,
     );
     assert.match(
       room2,
-      /if \(equaln\(v1, 1\)\) \{\n {4}position\(o0, 100, 140\);\n {4}assignn\(v6, 0\);\n {2}\}/,
+      /if \(equaln\(prev_room, 1\)\) \{\n {4}position\(o0, 100, 140\);\n {4}assignn\(ego_direction, 0\);\n {2}\}/,
     );
     // The reciprocal landing drops ego at room 1's own spawn (80,140) and
     // stops carried direction so the forward doorway cannot retrigger.
     assert.match(
       room1,
-      /if \(equaln\(v1, 2\)\) \{\n {4}position\(o0, 80, 140\);\n {4}assignn\(v6, 0\);\n {2}\}/,
+      /if \(equaln\(prev_room, 2\)\) \{\n {4}position\(o0, 80, 140\);\n {4}assignn\(ego_direction, 0\);\n {2}\}/,
     );
     const world = JSON.parse(op.changes.find((c) => c.key === "world")!.content as string);
     assert.equal(world.rooms["1"].title, "Meadow");
@@ -698,10 +694,7 @@ describe("guided connect door", () => {
 
   test("refuses a room whose rule annotations are already broken", () => {
     const { ctx, draft } = twoRooms();
-    const broken = docText(draft, "logic:1").replace(
-      "return;",
-      '// @rule stray "Stray" exit\nreturn;',
-    );
+    const broken = docText(draft, "logic:1") + '// @rule stray "Stray" exit\n';
     draft.edit("logic:1", broken, draft.capture().version("logic:1"));
     const op = prepareGuidedConnectDoor(ctx, {
       room: 1,
@@ -813,7 +806,7 @@ describe("guided play sound", () => {
     );
     assert.match(
       room,
-      /if \(isset\(cue_done\)\) \{\n {2}print\("The tune fades\."\);\n {2}reset\(cue_done\);\n\}\nreturn;/,
+      /if \(isset\(cue_done\)\) \{\n {2}print\("The tune fades\."\);\n {2}reset\(cue_done\);\n\}\n$/,
     );
     const bindings = JSON.parse(op.changes.find((c) => c.key === "bindings")!.content as string);
     assert.equal(bindings.cue_done.kind, "flag");
@@ -968,6 +961,11 @@ return;
   test("refuses interpreter-owned flags as cue state", () => {
     const { ctx, draft } = workspace("starter");
     bindNames(draft, { newroom_flag: { kind: "flag", num: 5 } });
+    draft.edit(
+      "logic:1",
+      docText(draft, "logic:1").replace("isset(new_room)", "isset(newroom_flag)"),
+      draft.capture().version("logic:1"),
+    );
     mustPrepare(
       prepareGuidedRespondToCommand(ctx, {
         room: 1,
@@ -1132,4 +1130,12 @@ test("ready parts use the lowest free number after world reservations", () => {
   const score = mustPrepare(prepareGuidedBoilerplate(ctx, { part: "score" }));
   assert.ok(score.affectedKeys.includes("logic:2"));
   assert.ok(!score.affectedKeys.includes("logic:255"));
+});
+
+test("guided room sources follow a creator's reserved-slot name", () => {
+  const { ctx, draft } = workspace("blank");
+  bindNames(draft, { entered: { kind: "flag", num: 5 } });
+  const operation = mustPrepare(prepareGuidedAddRoom(ctx, { title: "Hall" }));
+  const source = operation.changes.find((change) => change.key === "logic:1")!.content as string;
+  assert.match(source, /isset\(entered\)/);
 });

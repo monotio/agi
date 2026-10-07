@@ -731,8 +731,8 @@ watch(
         :style="
           creating
             ? {
-                '--workspace-game': `minmax(0, ${workspaceEditor.effectiveSplit.value}fr)`,
-                '--workspace-edit': `minmax(0, ${100 - workspaceEditor.effectiveSplit.value}fr)`,
+                '--workspace-game': `minmax(var(--workspace-game-min), ${workspaceEditor.effectiveSplit.value}fr)`,
+                '--workspace-edit': `minmax(var(--workspace-edit-min), ${100 - workspaceEditor.effectiveSplit.value}fr)`,
               }
             : undefined
         "

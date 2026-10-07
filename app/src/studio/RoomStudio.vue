@@ -1959,6 +1959,21 @@ function onKeyup(event: KeyboardEvent): void {
 .studio__side:has(.studio__views:not([style*="display: none"])) > .inspector {
   display: none;
 }
+@media (min-width: 601px) {
+  @container (max-width: 760px) {
+    .studio__palette-row :deep(.scrubber) {
+      grid-template-columns: auto minmax(96px, 1fr);
+    }
+    .studio__palette-row :deep(.scrubber__label) {
+      grid-column: 2;
+      grid-row: 1;
+    }
+    .studio__palette-row :deep(.scrubber__track) {
+      grid-column: 1 / -1;
+      grid-row: 2;
+    }
+  }
+}
 @media (max-width: 600px) {
   .studio {
     grid-template-columns: 0 44px minmax(0, 1fr) 0;

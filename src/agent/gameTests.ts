@@ -64,7 +64,7 @@ function createParserProbe(session: AgentSessionState): (command: string) => str
   container.putResource(
     "logic",
     0,
-    assembleLogic("accept.input();\nreturn;", {
+    assembleLogic("accept.input();", {
       dictionary: session.sources.words,
       profile: session.profile,
     }).payload,

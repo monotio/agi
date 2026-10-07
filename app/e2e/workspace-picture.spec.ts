@@ -370,7 +370,7 @@ test("Make it a room Undo reviews computed jumps after restoring the latest draf
     path: test.info().outputPath("room-removal-review.png"),
     animations: "disabled",
   });
-  await dialog.getByRole("button", { name: "Keep it", exact: true }).click();
+  await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
   await expect(dialog).toBeHidden();
   expect((await textHook(page)).room).toBe(2);
   await page.getByTestId("workspace-undo").click();

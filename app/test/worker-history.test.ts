@@ -281,7 +281,7 @@ test("a recorded live session replays from its boot to the same observed state",
   tick(3);
   const request = h.control.find((m) => m.type === "hostRequest" && m.op === "getnum");
   assert.ok(request && request.type === "hostRequest");
-  send({ type: "hostAnswer", id: request.id, response: "7" });
+  send({ type: "hostAnswer", generation: ctx.run.generation, id: request.id, response: "7" });
   tick(4);
   assert.equal(ctx.run.engine!.vars[0], 3);
   assert.equal(ctx.run.engine!.vars[3], 12, "5 + the answered 7");
@@ -363,7 +363,7 @@ test("replay from a later anchor reaches the same observed state", () => {
   tick(3);
   const request = h.control.find((m) => m.type === "hostRequest" && m.op === "getnum");
   assert.ok(request && request.type === "hostRequest");
-  send({ type: "hostAnswer", id: request.id, response: "7" });
+  send({ type: "hostAnswer", generation: ctx.run.generation, id: request.id, response: "7" });
   tick(4);
   send({ type: "flush", id: 9 });
   const liveDigest = historySyncDigest(ctx.run.engine!);
@@ -403,7 +403,7 @@ test("the full boundary matrix replays to the same observed state", () => {
     return assert.fail(`host request ${op} never posted`);
   };
   const answer = (op: string, response: string) => {
-    send({ type: "hostAnswer", id: awaitOp(op).id, response });
+    send({ type: "hostAnswer", generation: ctx.run.generation, id: awaitOp(op).id, response });
   };
 
   // Same-tick ordering: with the parser's input line open, the keys queued
@@ -433,7 +433,7 @@ test("the full boundary matrix replays to the same observed state", () => {
   const frozenCycle = ctx.run.cycle.cycleCount;
   tick(3);
   assert.equal(ctx.run.cycle.cycleCount, frozenCycle, "paused host polls run no cycle");
-  send({ type: "hostAnswer", id: numReq.id, response: "42" });
+  send({ type: "hostAnswer", generation: ctx.run.generation, id: numReq.id, response: "42" });
   send({ type: "pause", paused: false });
   tick(3);
   assert.equal(ctx.run.engine!.vars[12], 42, "the suspended answer landed through the pause");
@@ -460,7 +460,7 @@ test("the full boundary matrix replays to the same observed state", () => {
   send({ type: "key", code: 13 });
   const write = awaitOp("saveWrite");
   const savedImage = String(write.context["image"]);
-  send({ type: "hostAnswer", id: write.id, response: "true" });
+  send({ type: "hostAnswer", generation: ctx.run.generation, id: write.id, response: "true" });
   tick(3);
   assert.equal(ctx.run.engine!.vars[67], 1, "the written save resumed its pass");
 
@@ -589,7 +589,7 @@ test("a tampered stream reports its divergence at the broken mark", () => {
   tick(3);
   const request = h.control.find((m) => m.type === "hostRequest" && m.op === "getnum");
   assert.ok(request && request.type === "hostRequest");
-  send({ type: "hostAnswer", id: request.id, response: "7" });
+  send({ type: "hostAnswer", generation: h.ctx.run.generation, id: request.id, response: "7" });
   tick(4);
 
   const segment = JSON.parse(JSON.stringify(collectSegments(h.control)[0])) as HistorySegment;
@@ -1051,7 +1051,7 @@ test("a room answer's cross-room patch commits atomically or not at all", () => 
     return assert.fail(`host request ${op} never posted`);
   };
   const answer = (op: string, response: string) => {
-    send({ type: "hostAnswer", id: awaitOp(op).id, response });
+    send({ type: "hostAnswer", generation: ctx.run.generation, id: awaitOp(op).id, response });
   };
   const type = (text: string) => {
     send({ type: "input", text });
@@ -1165,6 +1165,7 @@ test("a room answer's cross-room patch commits atomically or not at all", () => 
   const parked = awaitOp("room");
   send({
     type: "hostAnswer",
+    generation: ctx.run.generation,
     id: parked.id,
     response: JSON.stringify({
       room: 10,
@@ -1252,7 +1253,7 @@ test("a template session — menu save, death box, death restore — replays to 
     return assert.fail(`host request ${op} never posted`);
   };
   const answer = (op: string, response: string) => {
-    send({ type: "hostAnswer", id: awaitOp(op).id, response });
+    send({ type: "hostAnswer", generation: ctx.run.generation, id: awaitOp(op).id, response });
   };
 
   // File > Save through the real menu: ESC opens it with Save Game already
@@ -1268,7 +1269,7 @@ test("a template session — menu save, death box, death restore — replays to 
   send({ type: "key", code: 13 });
   const write = awaitOp("saveWrite");
   const savedImage = String(write.context["image"]);
-  send({ type: "hostAnswer", id: write.id, response: "true" });
+  send({ type: "hostAnswer", generation: ctx.run.generation, id: write.id, response: "true" });
   tick(3);
   assert.equal(ctx.run.engine!.modalKind, null, "the selector dismissed");
 

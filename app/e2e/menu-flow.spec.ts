@@ -140,7 +140,7 @@ test("library puts rename inline and secondary actions into menus", async ({ pag
   await expect(nameInput).toBeFocused();
   await expect(card.getByTestId("saved-game-title")).toBeHidden();
   await nameInput.fill("My tutorial");
-  await card.getByRole("button", { name: "Save name" }).click();
+  await card.getByRole("button", { name: "Rename" }).click();
   const renamed = savedGameCard(page, "My tutorial");
   await expect(renamed).toBeVisible();
   await expect(page.getByTestId("start-library-game-over")).toBeHidden();

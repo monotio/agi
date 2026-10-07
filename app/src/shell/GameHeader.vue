@@ -528,7 +528,7 @@ async function onRecordSave(): Promise<void> {
           :disabled="state.leaving || ejectBusy"
           @click="ejectRefusal = ''"
         >
-          Back to game
+          Cancel
         </UiButton>
       </div>
     </div>
@@ -544,7 +544,7 @@ async function onRecordSave(): Promise<void> {
           Leave anyway
         </UiButton>
         <UiButton variant="primary" size="sm" data-testid="eject-stay" @click="historyExit = false">
-          Stay
+          Cancel
         </UiButton>
         <UiButton
           variant="ghost"
@@ -568,9 +568,7 @@ async function onRecordSave(): Promise<void> {
         left it.
       </p>
       <div class="notice-actions">
-        <UiButton size="sm" data-testid="start-over-retry" @click="onStartOver()">
-          Try again
-        </UiButton>
+        <UiButton size="sm" data-testid="start-over-retry" @click="onStartOver()"> Retry </UiButton>
         <UiButton size="sm" data-testid="start-over-anyway" @click="onStartOver(true)">
           Start over anyway
         </UiButton>
@@ -580,7 +578,7 @@ async function onRecordSave(): Promise<void> {
           data-testid="start-over-stay"
           @click="historyStartOver = false"
         >
-          Stay
+          Cancel
         </UiButton>
       </div>
     </div>
@@ -627,7 +625,7 @@ async function onRecordSave(): Promise<void> {
         :title="`Not saved since ${new Date(state.historyUnsaved.since).toLocaleTimeString()}`"
         @click="retryHistorySave()"
       >
-        Try now
+        Retry
       </UiButton>
     </div>
     <div

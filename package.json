@@ -3,6 +3,9 @@
   "version": "1.2.0-rc.4",
   "description": "Create, play and remix authentic AGI adventures with AI. Open-source TypeScript engine and browser authoring tools by Monotio.",
   "private": true,
+  "workspaces": [
+    "app"
+  ],
   "keywords": [
     "agi",
     "sierra",
@@ -41,7 +44,7 @@
     "media:capture": "node --experimental-strip-types scripts/capture-media.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p evals/tsconfig.json --noEmit",
     "typecheck:app": "npm --prefix app run typecheck",
-    "check:dependencies": "npm ls --depth=0 && npm --prefix app ls --depth=0",
+    "check:dependencies": "npm ls --depth=0 && node --experimental-strip-types scripts/check-engine-dependencies.ts",
     "check": "run-s check:dependencies typecheck typecheck:app lint lint:ast lint:dead lint:deps lint:tokens format:check test test:app eval:replay",
     "eval:genesis": "node --experimental-strip-types evals/genesis-cli.ts",
     "eval:image-style": "node --experimental-strip-types evals/image-style.ts",

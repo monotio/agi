@@ -17,6 +17,7 @@ import {
 } from "../../../src/agent/agentState.ts";
 import {
   ASK_TOOLS,
+  validateAgentHandover,
   buildSound,
   type SoundTrackInput,
   type executeAgentTool,
@@ -82,8 +83,6 @@ import {
 import { GAME_DICTIONARY, StubAgent } from "./stubAgent.ts";
 import { createReferenceStub } from "./referenceStub.ts";
 import { projectToolResult } from "../../../src/agent/toolTransport.ts";
-import { runGameTests } from "../../../src/agent/gameTests.ts";
-import { verifyPlanConnections } from "../../../src/agent/roomMap.ts";
 import type { AgentEventSink, AgentHandler, LlmRequest } from "./hostRequests.ts";
 import { continuationTranscript } from "../archive/projectArchive.ts";
 
@@ -159,29 +158,8 @@ Look before you write: read_room carries the room's live state, object table and
  * rejection text, or null when the candidate may commit.
  */
 function remixVerdict(staged: AgentSessionState): string | null {
-  const testRun = runGameTests(staged, null);
-  if (!testRun.success) return `Stored game tests failed: ${testRun.error ?? "unknown failure"}`;
-  const logics = new Map<number, Uint8Array>();
-  for (let num = 0; num <= 255; num++) {
-    const payload = staged.container.getResource("logic", num);
-    if (payload) logics.set(num, payload);
-  }
-  const connections = verifyPlanConnections(logics, staged.authoring.world.rooms, staged.profile);
-  if (connections.missing.length || connections.mismatched.length) {
-    const first = connections.missing[0] ?? connections.mismatched[0]!;
-    const cause =
-      "compiled" in first
-        ? `its compiled transition leaves the ${first.compiled} edge instead`
-        : "no compiled new.room transition reaches it";
-    const extra = connections.missing.length + connections.mismatched.length - 1;
-    return (
-      `room ${first.from} declares exit ${JSON.stringify(first.name)} ` +
-      `to room ${first.to} but ${cause}. ` +
-      "Implement the exit in the room's logic or revise the plan with update_plan." +
-      (extra > 0 ? ` ${extra} more declared exit(s) also fail validation.` : "")
-    );
-  }
-  return null;
+  const verdict = validateAgentHandover(staged, null, false);
+  return verdict.success ? null : (verdict.error ?? "Handover rejected.");
 }
 
 /** A checkpoint off the tape is untrusted input: it must be an object before stateFromAuthoredData validates its fields. */

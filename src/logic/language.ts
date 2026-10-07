@@ -12,7 +12,7 @@ import { collectLogicResourceUses } from "./resourceUses.ts";
 import { collectLogicOperands } from "./languageOperands.ts";
 import type { AgiProfile } from "../runtime/profile.ts";
 import { numberedLabel, numberedSlot, type NumberedLabelContext } from "./numberedLabels.ts";
-import { SYSTEM_FLAGS, SYSTEM_VARIABLES } from "./systemNames.ts";
+import { systemBindings, type SystemBinding } from "./systemNames.ts";
 
 interface TextEdit {
   readonly start: number;
@@ -22,6 +22,7 @@ interface TextEdit {
 
 export function createLogicLanguageSnapshot(input: {
   readonly source: string;
+  readonly builtins?: Readonly<Record<string, SystemBinding>>;
   readonly profile: AgiProfile;
   readonly dictionary: ReadonlyMap<string, number>;
   readonly objects?: readonly string[];
@@ -30,9 +31,10 @@ export function createLogicLanguageSnapshot(input: {
   const source = input.source;
   const profile = { ...input.profile };
   const dictionary = new Map(input.dictionary);
-  const syntax = analyzeLogicSyntax(source);
+  const builtins = input.builtins ?? systemBindings();
+  const syntax = analyzeLogicSyntax(source, builtins);
   const commands = commandReference(profile);
-  const operands = collectLogicOperands(syntax, commands, profile);
+  const operands = collectLogicOperands(syntax, commands, profile, builtins);
   const byName = new Map(commands.map((command) => [command.name, command]));
   const diagnostics = syntax.diagnostics.map((entry) => ({
     ...entry,
@@ -41,7 +43,7 @@ export function createLogicLanguageSnapshot(input: {
   let payload: Uint8Array | undefined;
   if (!diagnostics.length) {
     try {
-      const compiled = assembleLogic(source, { profile, dictionary });
+      const compiled = assembleLogic(source, { profile, dictionary, builtins });
       payload = compiled.payload;
       diagnostics.push(
         ...compiled.diagnostics.map((entry) => ({ ...entry, severity: "warning" as const })),
@@ -152,8 +154,12 @@ export function createLogicLanguageSnapshot(input: {
     const prefix = source.slice(start, offset);
     if (context.call) {
       const operandKind = byName.get(context.call.name)?.operands[context.call.parameter];
-      const system =
-        operandKind === "flag" ? SYSTEM_FLAGS : operandKind === "var" ? SYSTEM_VARIABLES : {};
+      const system = Object.fromEntries(
+        Object.entries(builtins).filter(
+          ([, binding]) =>
+            binding.kind === (operandKind === "flag" ? "f" : operandKind === "var" ? "v" : ""),
+        ),
+      );
       const inventory =
         byName.get(context.call.name)?.operands[context.call.parameter] === "item"
           ? (input.objects ?? []).flatMap((name, index) =>
@@ -177,16 +183,18 @@ export function createLogicLanguageSnapshot(input: {
         ...inventory,
         ...Object.entries(system)
           .filter(
-            ([num, name]) =>
+            ([name]) =>
               name.startsWith(prefix) &&
-              numberedLabel(operandKind!, Number(num), { bindings: input.bindings ?? {} }) === name,
+              !syntax.definitions.some(
+                (entry) => entry.kind === "define" && entry.name === name && entry.start < offset,
+              ),
           )
-          .map(([num]) => ({
-            label: numberedLabel(operandKind!, Number(num)),
-            detail: `${numberedSlot(operandKind!, Number(num))} · system`,
+          .map(([name, binding]) => ({
+            label: numberedLabel(operandKind!, binding.num, { name }),
+            detail: `${numberedSlot(operandKind!, binding.num)} · built-in`,
             start,
             end,
-            text: `${operandKind === "flag" ? "f" : "v"}${num}`,
+            text: name,
           })),
         ...syntax.definitions
           .filter(
@@ -216,7 +224,19 @@ export function createLogicLanguageSnapshot(input: {
             .filter(([name]) => name.startsWith(prefix))
             .map(([name, detail]) => ({ label: name, detail, start, end, text: name }))
         : [];
+    const names = new Map(
+      Object.entries(builtins).map(([name, binding]) => [
+        name,
+        `${numberedSlot(binding.kind, binding.num)} · built-in`,
+      ]),
+    );
+    for (const definition of syntax.definitions)
+      if (definition.kind === "define" && definition.start < offset)
+        names.set(definition.name, "Local definition");
     return [
+      ...[...names]
+        .filter(([name]) => name.startsWith(prefix))
+        .map(([name, detail]) => ({ label: name, detail, start, end, text: name })),
       ...keywords,
       ...commands
         .filter((command) => command.kind === kind && command.name.startsWith(prefix))
@@ -265,6 +285,17 @@ export function createLogicLanguageSnapshot(input: {
         text: `${numberedLabel(operand.kind, operand.num, { bindings: input.bindings ?? {}, name: names[0] ?? "", inventory: input.objects ?? [], words: [...dictionary] }, "row")}\n\n${count} ${count === 1 ? "use" : "uses"} in this LOGIC.`,
       };
     }
+    if (operand?.name && builtins[operand.name] && !definitionAt(offset))
+      return {
+        start: operand.start,
+        end: operand.end,
+        text: numberedLabel(
+          operand.kind,
+          operand.num,
+          { bindings: input.bindings ?? {}, name: operand.name },
+          "row",
+        ),
+      };
     if (token?.type !== "ident") return null;
     const definition = definitionAt(offset);
     if (definition) {

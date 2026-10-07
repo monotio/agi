@@ -12,6 +12,7 @@ import {
 import { createProjectAssistDriver, PROJECT_ASSIST_TOOLS } from "./projectAssistTools.ts";
 import {
   ASK_TOOLS,
+  validateAgentHandover,
   withReferences,
   executeAgentToolAsync,
   type AgentRuntimeDeps,
@@ -140,8 +141,8 @@ function stubConversation(initial: unknown[]): UnifiedConversation {
                   action: "create",
                   name: "Vacuum death",
                   cameFrom: { room: 7, edge: 4 },
-                  flags: { "77": true },
-                  variables: { "90": 123 },
+                  flags: [{ id: 77, value: true }],
+                  variables: [{ id: 90, value: 123 }],
                   selected: true,
                 },
               },
@@ -440,6 +441,8 @@ export function createWorkspaceAgent(options: Options) {
         allowMissingRooms: session.allowMissingRooms,
       });
       ws.propose("Validate selection", []);
+      const verdict = validateAgentHandover(ws.openToolState().state);
+      if (!verdict.success) throw new Error(verdict.error ?? "Handover rejected.");
       const before = session.history.capture().cursor!;
       assertLive();
       const result = await session.submit({
@@ -605,6 +608,7 @@ export function createWorkspaceAgent(options: Options) {
       for (const text of actionQueue ?? []) provider?.recordInterruption?.(text);
       actionQueue = [];
     }
+    let handedOver = false;
     async function offer(text: string) {
       assertLive();
       const offered = driver.pending();
@@ -617,6 +621,14 @@ export function createWorkspaceAgent(options: Options) {
       if (notes !== undefined) combined.set("notes", { key: "notes", content: notes });
       const changes = [...combined.values()];
       if (!changes.length) return false;
+      const candidate = captureAgentWorkspace({
+        draft: new ProjectDraft(stagedDocuments()),
+        files: Object.fromEntries(base.lastAdmissibleBuild!.files()),
+        profileId: options.profileId,
+        allowMissingRooms: session.allowMissingRooms,
+      }).openToolState();
+      const verdict = validateAgentHandover(candidate.state);
+      if (!verdict.success) throw new Error(verdict.error ?? "Handover rejected.");
       workspace.propose(chatTitle(instruction), changes);
       const proposal = session.model.propose(
         base,
@@ -737,7 +749,7 @@ export function createWorkspaceAgent(options: Options) {
           review?.chatId === chat.id
             ? `\nPrevious changes for revision:\n${JSON.stringify(review.changes())}`
             : "";
-        const prompt = `${readOnly ? "Answer questions about this game using read-only tools and concise hints." : "You are the game's agent. Edit any resource through one coordinated change set. Read exact documents, retain existing ids and references, and use propose_changes for the final complete set. Whole-game tools stage edits; finish validates and offers them for review."} Write concise progress notes between tools. Game notes:\n${typeof currentNotes === "string" ? currentNotes : ""}\nAttached context:\n${context}\n${sendReference ? reference.text : ""}${revised}\nRequest:\n${instruction}`;
+        const prompt = `${readOnly ? "Answer questions about this game using read-only tools and concise hints." : "You are the game's agent. Edit any resource through one coordinated change set. Read exact documents, retain existing ids and references, and use propose_changes for the final complete set. Whole-game tools stage edits. Call finish when the task is complete; repair a rejected handover before finishing. A successful finish ends the tool batch and hands the validated changes to the creator. Include concise progress notes with your next tool call while work remains."} Write concise progress notes between tools. Game notes:\n${typeof currentNotes === "string" ? currentNotes : ""}\nAttached context:\n${context}\n${sendReference ? reference.text : ""}${revised}\nRequest:\n${instruction}`;
         let turn = await provider.sendUserMessage(
           prompt,
           sendReference ? [reference.image] : undefined,
@@ -764,6 +776,8 @@ export function createWorkspaceAgent(options: Options) {
             assertLive();
             let result: AgentToolResult;
             try {
+              if (handedOver)
+                throw new Error("Not executed: this turn ended at a successful finish.");
               const definition = WORKSPACE_AGENT_TOOLS.find((tool) => tool.name === call.name);
               if (!definition || !allowedTools.includes(call.name))
                 throw new Error("This tool is unavailable.");
@@ -949,6 +963,7 @@ export function createWorkspaceAgent(options: Options) {
                 error: cause instanceof Error ? cause.message : String(cause),
               };
             }
+            if (call.name === "finish" && result.success) handedOver = true;
             if (result.details?.["gameTests"] && result.message) {
               progress.push(result.message);
               notify();
@@ -959,6 +974,7 @@ export function createWorkspaceAgent(options: Options) {
           provider.appendToolResults(results);
           unreported = [];
           flushActions();
+          if (handedOver) break;
           try {
             turn = await provider.complete();
           } catch (cause) {

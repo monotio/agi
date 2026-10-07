@@ -29,8 +29,14 @@ test("debug controls follow LOGIC and a paused session @webkit-desktop", async (
   await expect(page.getByTestId("workspace-logic-editor")).toBeVisible();
   await expect(page.getByTestId("workspace-update")).toBeVisible();
   await page.getByTestId("workspace-logic-editor").locator("textarea.inputarea").focus();
+  await page.keyboard.press("ControlOrMeta+Shift+p");
+  await expect(page.getByRole("option", { name: /^Debug F5$/ })).toBeVisible();
+  await page.keyboard.press("Escape");
   await page.keyboard.press("F5");
   await expect(header.getByRole("button", { name: "Continue", exact: true })).toBeVisible();
+  await page.keyboard.press("ControlOrMeta+Shift+p");
+  await expect(page.getByRole("option", { name: /^Continue F5$/ })).toBeVisible();
+  await page.keyboard.press("Escape");
   await page.getByTestId("part-debug:variables").click();
   const panel = page.getByTestId("workspace-debug-panel").filter({ visible: true });
   await expect(panel).toBeVisible();

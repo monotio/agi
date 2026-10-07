@@ -51,7 +51,7 @@ const props = defineProps<{
   imageRevision: number;
   resourceRevision: number;
 }>();
-const emit = defineEmits<{ close: []; changed: [] }>();
+const emit = defineEmits<{ close: []; changed: []; busy: [value: boolean] }>();
 const CreativeGenerate = defineAsyncComponent(() => import("./CreativeGenerate.vue"));
 const engine = useEngineApi();
 const bridge = useShellBridge();
@@ -64,6 +64,7 @@ const error = ref("");
 const status = ref("");
 const previewing = ref(false);
 const busy = ref(false);
+watch(busy, (value) => emit("busy", value), { flush: "sync" });
 const generateOpen = ref(props.generate);
 const file = useTemplateRef("file");
 let traceWrites = Promise.resolve();
@@ -417,6 +418,7 @@ watch(
 );
 window.addEventListener("paste", paste);
 onBeforeUnmount(() => {
+  emit("busy", false);
   window.removeEventListener("paste", paste);
   previewTrace(props.session, props.target, opacity.value, behindArt.value, { adjust: undefined });
   closed = true;
@@ -448,7 +450,7 @@ onBeforeUnmount(() => {
       <UiButton size="sm" variant="ghost" @click="emit('close')">Done</UiButton>
     </header>
     <div v-if="isPicture || !image" class="image-reference__actions">
-      <UiButton size="sm" :disabled="busy" @click="file?.click()">Bring in an image</UiButton>
+      <UiButton size="sm" :disabled="busy" @click="file?.click()">Import image</UiButton>
       <span>Drop, paste or choose an image.</span>
     </div>
     <div v-if="image && !isPicture" class="image-source">
@@ -470,7 +472,7 @@ onBeforeUnmount(() => {
               file?.click();
               replaceOpen = false;
             "
-            >Bring in an image</UiButton
+            >Import image</UiButton
           >
         </div>
       </div>
@@ -571,7 +573,7 @@ onBeforeUnmount(() => {
             :title="prepared ? '' : 'Adjust the frames first'"
             data-testid="image-preview-hero"
             @click="preview"
-            >{{ previewing ? "Stop preview" : "Try on Hero in the game" }}</UiButton
+            >{{ previewing ? "Stop preview" : "Preview on hero" }}</UiButton
           >
         </template>
         <template #commit>

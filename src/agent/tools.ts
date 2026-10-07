@@ -1143,72 +1143,8 @@ function executeLegacyTool(
       }
     }
 
-    case "finish": {
-      // Handover is the validation gate, not the agent's word that it tested:
-      // every stored game test runs against the current resources (unchanged
-      // verdicts come from the evidence cache), every declared plan exit must
-      // be backed by a reachable compiled transition, and the first finish
-      // of a session also boots the world to a shown, interactive scene.
-      const testRun = runGameTests(session, null);
-      const gameTests = testRun.details?.["gameTests"];
-      if (!testRun.success)
-        return {
-          success: false,
-          error: `Handover rejected: ${testRun.error ?? "stored game tests failed"}`,
-          details: { ...testRun.details, genesisComplete: session.genesisComplete },
-          ...(testRun.images ? { images: testRun.images.slice(0, 1) } : {}),
-        };
-      const connections = verifyPlanConnections(
-        collectLogics(session.container),
-        session.authoring.world.rooms,
-        session.profile,
-      );
-      if (connections.missing.length || connections.mismatched.length) {
-        const first = connections.missing[0] ?? connections.mismatched[0]!;
-        const cause =
-          "compiled" in first
-            ? `its compiled transition leaves the ${first.compiled} edge instead`
-            : "no compiled new.room transition reaches it";
-        const extra = connections.missing.length + connections.mismatched.length - 1;
-        return {
-          success: false,
-          error:
-            `Handover rejected: room ${first.from} declares exit ${JSON.stringify(first.name)} ` +
-            `to room ${first.to} but ${cause}. ` +
-            `Implement the exit in room ${first.from}'s logic or revise the plan with update_plan.` +
-            (extra > 0 ? ` ${extra} more declared exit(s) also fail validation.` : ""),
-          details: { connections, genesisComplete: session.genesisComplete, gameTests },
-        };
-      }
-      if (!session.genesisComplete) {
-        const result = validateGenesis(session);
-        if (!result.success)
-          return {
-            ...result,
-            details: { ...result.details, genesisComplete: false, gameTests, connections },
-          };
-        session.genesisComplete = true;
-        return {
-          ...result,
-          details: { ...result.details, genesisComplete: true, gameTests, connections },
-        };
-      }
-      return {
-        success: true,
-        message:
-          "Handover validated: stored game tests pass" +
-          (connections.verified.length
-            ? ` and ${connections.verified.length} declared exit(s) reach a compiled transition`
-            : "") +
-          ". Resuming gameplay.",
-        details: {
-          genesisComplete: true,
-          notes: args["notes"] ?? null,
-          gameTests,
-          connections,
-        },
-      };
-    }
+    case "finish":
+      return validateAgentHandover(session, args["notes"] ?? null);
 
     case "write_objects": {
       let mergedItem: { id: number; name: string } | undefined;
@@ -1830,4 +1766,76 @@ export async function executeAgentToolAsync(
     name,
     executeValidatedAgentTool(session, name, args, deps?.readOnly === true),
   );
+}
+
+/** The shared host verdict for the exact candidate being handed over. */
+export function validateAgentHandover(
+  session: AgentSessionState,
+  notes: unknown = null,
+  checkGenesis = true,
+): AgentToolResult {
+  // Handover is the validation gate, not the agent's word that it tested:
+  // every stored game test runs against the current resources (unchanged
+  // verdicts come from the evidence cache), every declared plan exit must
+  // be backed by a reachable compiled transition, and the first finish
+  // of a session also boots the world to a shown, interactive scene.
+  const testRun = runGameTests(session, null);
+  const gameTests = testRun.details?.["gameTests"];
+  if (!testRun.success)
+    return {
+      success: false,
+      error: `Handover rejected: ${testRun.error ?? "stored game tests failed"}`,
+      details: { ...testRun.details, genesisComplete: session.genesisComplete },
+      ...(testRun.images ? { images: testRun.images.slice(0, 1) } : {}),
+    };
+  const connections = verifyPlanConnections(
+    collectLogics(session.container),
+    session.authoring.world.rooms,
+    session.profile,
+  );
+  if (connections.missing.length || connections.mismatched.length) {
+    const first = connections.missing[0] ?? connections.mismatched[0]!;
+    const cause =
+      "compiled" in first
+        ? `its compiled transition leaves the ${first.compiled} edge instead`
+        : "no compiled new.room transition reaches it";
+    const extra = connections.missing.length + connections.mismatched.length - 1;
+    return {
+      success: false,
+      error:
+        `Handover rejected: room ${first.from} declares exit ${JSON.stringify(first.name)} ` +
+        `to room ${first.to} but ${cause}. ` +
+        `Implement the exit in room ${first.from}'s logic or revise the plan with update_plan.` +
+        (extra > 0 ? ` ${extra} more declared exit(s) also fail validation.` : ""),
+      details: { connections, genesisComplete: session.genesisComplete, gameTests },
+    };
+  }
+  if (checkGenesis && !session.genesisComplete) {
+    const result = validateGenesis(session);
+    if (!result.success)
+      return {
+        ...result,
+        details: { ...result.details, genesisComplete: false, gameTests, connections },
+      };
+    session.genesisComplete = true;
+    return {
+      ...result,
+      details: { ...result.details, genesisComplete: true, gameTests, connections },
+    };
+  }
+  return {
+    success: true,
+    message:
+      "Handover validated: stored game tests pass" +
+      (connections.verified.length
+        ? ` and ${connections.verified.length} declared exit(s) reach a compiled transition`
+        : "") +
+      ". Resuming gameplay.",
+    details: {
+      genesisComplete: true,
+      notes,
+      gameTests,
+      connections,
+    },
+  };
 }

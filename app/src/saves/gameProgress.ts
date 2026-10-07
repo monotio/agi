@@ -12,6 +12,7 @@ import { claimProgressWriter, progressWriterMatches } from "./progressWriter.ts"
 import { isProgressPreview, storeRecordWithPreviewFallback } from "./progressPreview.ts";
 import type { ZipFileInput } from "../archive/zip.ts";
 import type { ProjectId } from "../project/gameTypes.ts";
+import { earlierProgressReceiptKey } from "../project/earlierProgressReceipt.ts";
 import {
   parseProgressLocator,
   type ProgressTarget,
@@ -240,6 +241,7 @@ export function readGameProgress(
       typeof target !== "string" &&
       target.kind === "project" &&
       target.bodyEpoch === "initial" &&
+      storage.getItem(earlierProgressReceiptKey(target.project)) === null &&
       storage.getItem(autosaveKey(targetKey)) === null
     ) {
       for (const key of target.legacyKeys) {

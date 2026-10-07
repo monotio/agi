@@ -325,7 +325,6 @@ if (!equaln(v6, 0) && equalv(v54, v56) && equalv(v55, v57)) {
   if (equaln(v63, 2)) { stop.cycling(o0); set.cel(o0, 0); }
 }
 assignv(v56, v54); assignv(v57, v55);
-return;
 `,
   1: String.raw`
 #message 1 "ADVENTURE DEPARTMENT: PICTURE GALLERY"
@@ -421,7 +420,6 @@ if ((equaln(v9, 0) && said("paint", "*"))) { print(32); }
 if (said("west")) { print(10); }
 if (said("east")) { new.room(2); }
 if (equaln(v2, 2)) { new.room(2); }
-return;
 `,
   2: String.raw`
 #message 1 "ADVENTURE DEPARTMENT: SPRITE LAB"
@@ -543,7 +541,6 @@ if (said("west")) { new.room(1); }
 if (said("east")) { new.room(3); }
 if (equaln(v2, 4)) { new.room(1); }
 if (equaln(v2, 2)) { new.room(3); }
-return;
 `,
   3: String.raw`
 #message 1 "ADVENTURE DEPARTMENT: PRIORITY ARCHIVE"
@@ -670,7 +667,6 @@ if (said("fix", "priority") || said("fix", "clerk", "priority")) {
 if (said("west")) { new.room(2); }
 if (said("east")) { print(10); }
 if (equaln(v2, 4)) { new.room(2); }
-return;
 `,
 };
 

@@ -70,7 +70,7 @@ test("Update game applies LOGIC while preserving play @webkit-desktop", async ({
 
   const generation = (await state(page))?.patchGeneration;
   await replaceWorkspaceDocument(page, "logic:1", "this is not logic\n", false);
-  await expect(page.getByTestId("workspace-last-good")).toBeVisible();
+  await expect(page.getByTestId("workspace-status-problems")).toBeVisible();
   const invalidCycle = (await textHook(page)).cycle;
   await expect.poll(async () => (await textHook(page)).cycle).toBeGreaterThan(invalidCycle);
   expect((await state(page))?.patchGeneration).toBe(generation);
@@ -80,7 +80,7 @@ test("Update game applies LOGIC while preserving play @webkit-desktop", async ({
     page.getByRole("menuitem", { name: "Update and keep playing", exact: true }),
   ).toBeVisible();
   await page.getByRole("menuitem", { name: "Update and keep playing", exact: true }).click();
-  await expect(page.getByTestId("workspace-last-good")).toBeHidden();
+  await expect(page.getByTestId("workspace-status-problems")).toBeHidden();
   await expect.poll(async () => (await state(page))?.vars[43]).toBe(5);
   expect(
     await page.evaluate(() => {

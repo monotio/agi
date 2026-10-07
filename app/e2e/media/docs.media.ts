@@ -4,18 +4,29 @@ import type { ProjectSession } from "../../src/project/projectSession.ts";
 import { createStarterProject } from "../../../src/authoring/starterProject.ts";
 import { encodePngRgba } from "../../../src/creative/composite.ts";
 import { EGA_RGB } from "../../../scripts/png.ts";
-import { configureAi, isolateStorage, settled, textHook, workspaceSaved } from "../engineProbe.ts";
 import {
+  configureAi,
+  isolateStorage,
+  openWorkspaceAgent,
+  settled,
+  textHook,
+  workspaceSaved,
+} from "../engineProbe.ts";
+import { open, start } from "../pictureWorkspaceShared.ts";
+import { openRoomGenerationGame, walkInto } from "./roomGeneration.ts";
+import {
+  clickPictureCell,
   focusWorkspaceLogic,
+  runningWorkspaceDocument,
   workspaceDocumentEnd,
   replaceWorkspaceDocument,
   workspaceDocument,
 } from "../workspaceShared.ts";
 
 /** Original project screenshots from the real app with the deterministic stub provider. */
-async function shot(page: Page, name: string): Promise<void> {
+async function shot(page: Page, name: string, pointer: "rest" | "keep" = "rest"): Promise<void> {
   // Nothing hovers: the pointer rests in the status bar's corner.
-  await page.mouse.move(1439, 899);
+  if (pointer === "rest") await page.mouse.move(1439, 899);
   await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur?.());
   await page.screenshot({
     path: test.info().outputPath(`${name}.png`),
@@ -108,9 +119,12 @@ test("logic-problems-1.2", async ({ page }) => {
     page,
     "logic:1",
     source.replace("return;", "unknown.command();\nreturn;"),
+    false,
   );
   await page.keyboard.press("ControlOrMeta+j");
   await expect(page.getByTestId("workspace-problems")).toContainText("unknown.command");
+  // Problems is its own tab; the LOGIC tab shows the marked line.
+  await page.getByTestId("project-tab-logic:1").click();
   await focusWorkspaceLogic(page);
   await workspaceDocumentEnd(page);
   await shot(page, "logic-problems-1.2");
@@ -149,6 +163,8 @@ test("sound-grid-1.2", async ({ page }) => {
   await starter(page);
   await page.getByTestId("part-sound:1").click();
   await expect(page.getByTestId("workspace-sound")).toBeVisible();
+  // Focus gives the grid the workspace while the game keeps running.
+  await page.getByTestId("workspace-focus").click();
   await shot(page, "sound-grid-1.2");
 });
 
@@ -193,4 +209,208 @@ test("history-1.2", async ({ page }) => {
     .toBe(true);
   await workspaceSaved(page);
   await shot(page, "history-1.2");
+});
+
+test("blank-start-1.2", async ({ page }) => {
+  await page.goto("/#create-adventure");
+  await page
+    .getByTestId("create-adventure-disclosure")
+    .getByLabel("Name", { exact: true })
+    .fill("My game");
+  await page.getByTestId("local-create-kind-blank").click();
+  await page.getByRole("button", { name: "Start building", exact: true }).click();
+  const stage = page.getByTestId("empty-project-stage");
+  await expect(stage.getByText("Nothing to play yet.", { exact: true })).toBeVisible();
+  await expect(page.getByTestId("empty-add-room")).toBeVisible();
+  await shot(page, "blank-start-1.2");
+});
+
+test("agent-drawer-1.2", async ({ page }) => {
+  await starter(page);
+  await page.getByTestId("part-room:1:picture:1").click();
+  const studio = page.getByTestId("room-studio");
+  await expect(studio).toBeVisible();
+  await openWorkspaceAgent(page);
+  await expect(page.getByTestId("workspace-agent-panel")).toBeVisible();
+  await expect(page.getByTestId("agent-message")).toBeFocused();
+  await studio.getByRole("group", { name: /^Canvas/ }).focus();
+  await page.keyboard.press("Alt+ArrowDown");
+  await expect(page.getByTestId("agent-context-chip")).toContainText("PICTURE 1 ·");
+  await page.getByTestId("agent-message").fill("Make the sun lower, as if it were evening");
+  await shot(page, "agent-drawer-1.2");
+});
+
+test("picture-line-1.2", async ({ page }) => {
+  await starter(page);
+  await page.getByTestId("part-room:1:picture:1").click();
+  const studio = page.getByTestId("room-studio");
+  await expect(studio).toBeVisible();
+  await page.getByTestId("workspace-focus").click();
+  await studio.locator('button[data-tool="line"]').click();
+  await studio.locator('.workspace-palette__choices button[data-colour="15"]').click();
+  for (const [x, y] of [
+    [22, 150],
+    [48, 128],
+    [80, 122],
+    [112, 128],
+  ] as const)
+    await clickPictureCell(studio, x, y);
+  const path = page.getByTestId("workspace-context").getByTestId("studio-path");
+  await expect(path).toContainText("Line · 4 points");
+  // The next segment follows the pointer until Done.
+  const pane = studio.locator(".studio-pane").last();
+  const box = (await pane.boundingBox())!;
+  await page.mouse.move(box.x + (138.5 * box.width) / 160, box.y + (150.5 * box.height) / 168);
+  await shot(page, "picture-line-1.2", "keep");
+});
+
+test("launch-menu-1.2", async ({ page }) => {
+  await start(page);
+  await workspaceSaved(page);
+  await open(page, "part-room:1:logic");
+  await page.getByTestId("workspace-update-menu").click();
+  await page.getByRole("menuitem", { name: "New launch…" }).click();
+  const name = page.getByTestId("launch-name-input");
+  await expect(name).toBeVisible();
+  await page.getByTestId("launch-add-row-menu").click();
+  await page.getByRole("menuitem", { name: "Came from" }).click();
+  await expect(page.getByTestId("launch-row-came-from")).toBeVisible();
+  await page.getByTestId("launch-came-from-room").selectOption("8");
+  await page.getByTestId("launch-add-row-menu").click();
+  await page.getByRole("menuitem", { name: "Flag" }).click();
+  await expect(page.getByTestId("launch-row-flag")).toBeVisible();
+  await page.getByTestId("launch-flag-select").selectOption("204");
+  await page.getByTestId("launch-flag-toggle").click();
+  await page.getByTestId("launch-add-row-menu").click();
+  await page.getByRole("menuitem", { name: "Same random each time" }).click();
+  await expect(page.getByTestId("launch-row-seed")).toBeVisible();
+  await page.getByTestId("launch-select-for-run").click();
+  await expect(page.getByTestId("launch-selected-badge")).toBeVisible();
+  // The name goes in last, once the project holds every row: an edit made
+  // before the previous one lands can bring back "Launch 1".
+  await expect.poll(() => launchNames(page)).toEqual(["Launch 1"]);
+  await name.fill("Back from the garden");
+  await name.press("Tab");
+  await expect.poll(() => launchNames(page)).toEqual(["Back from the garden"]);
+  await workspaceSaved(page);
+  await page.getByTestId("workspace-update-menu").click();
+  await expect(page.getByRole("menuitem", { name: "Carry over" })).toBeVisible();
+  await expect(
+    page.getByRole("menuitem", { name: "Back from the garden", exact: true }),
+  ).toBeVisible();
+  await shot(page, "launch-menu-1.2", "keep");
+});
+
+/** The names of room 1's Launches in the working project. */
+function launchNames(page: Page): Promise<string[]> {
+  return page.evaluate(() => {
+    const session = (
+      window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }
+    ).__AGI_PROJECT__.getSession();
+    const world = session.workingSnapshot().read("world")?.content;
+    if (typeof world !== "string") return [];
+    const launches = (
+      JSON.parse(world) as {
+        launches?: Record<string, { entries: { name: string; seed?: number }[] }>;
+      }
+    ).launches;
+    return (launches?.["1"]?.entries ?? []).map((entry) =>
+      entry.seed === undefined ? `${entry.name} (no seed yet)` : entry.name,
+    );
+  });
+}
+
+test("action-states-1.2", async ({ page }) => {
+  await start(page);
+  await workspaceSaved(page);
+  const action = page.getByTestId("workspace-update");
+  const bar = page.getByRole("banner");
+  const crops: { label: string; png: Buffer }[] = [];
+  const crop = async (label: string) => {
+    await page.mouse.move(1439, 899);
+    const box = (await bar.boundingBox())!;
+    crops.push({
+      label,
+      png: await page.screenshot({
+        clip: { x: 500, y: box.y, width: 940, height: box.height },
+        scale: "css",
+        animations: "disabled",
+        caret: "hide",
+      }),
+    });
+  };
+  await open(page, "part-room:1:logic");
+  await focusWorkspaceLogic(page);
+  await expect(action).toHaveAccessibleName("Restart Home");
+  await crop("Restart Home · the game is in Home and up to date");
+  await open(page, "part-room:8:logic");
+  await expect(action).toHaveAccessibleName("Play Garden");
+  await crop("Play Garden · you are editing Garden while the game is in Home");
+  const source = await runningWorkspaceDocument(page, "logic:8");
+  await focusWorkspaceLogic(page);
+  await page.keyboard.press("ControlOrMeta+a");
+  await page.keyboard.insertText(
+    source.replace("accept.input();", 'accept.input(); print("The garden gate creaks.");'),
+  );
+  await page.keyboard.press("Escape");
+  await workspaceSaved(page);
+  await expect(action).toHaveAccessibleName("Update and restart Garden");
+  await crop("Update and restart Garden · an edit is waiting for the game");
+  // One image: the three bars stacked, each with its state named underneath.
+  await page.setContent(
+    `<body style="margin:0;background:#0e1b1d"><div id="states" style="display:inline-block;padding:20px 0 4px;font:500 18px/1.3 system-ui,sans-serif;color:#cfe0dd">${crops
+      .map(
+        ({ label, png }) =>
+          `<figure style="margin:0 0 18px"><img style="display:block;width:940px" src="data:image/png;base64,${png.toString("base64")}"><figcaption style="padding:8px 24px 0">${label}</figcaption></figure>`,
+      )
+      .join("")}</div></body>`,
+  );
+  await page.locator("#states").screenshot({
+    path: test.info().outputPath("action-states-1.2.png"),
+    scale: "css",
+  });
+});
+
+test("test-run-1.2", async ({ page }) => {
+  await starter(page);
+  const chip = page
+    .getByTestId("workspace-game-bar")
+    .getByRole("button", { name: "Test run", exact: true });
+  await expect(chip).toBeVisible();
+  await chip.focus();
+  await expect(page.getByRole("tooltip")).toBeVisible();
+  await page.mouse.move(1439, 899);
+  await page.screenshot({
+    path: test.info().outputPath("test-run-1.2.png"),
+    scale: "css",
+    animations: "disabled",
+    caret: "hide",
+  });
+});
+
+test("room-setting-1.2", async ({ page }) => {
+  await starter(page);
+  await page.getByTestId("part-room:1:picture:1").click();
+  await expect(page.getByTestId("room-studio")).toBeVisible();
+  await page.getByTestId("workspace-more").click();
+  await page.getByRole("menuitem", { name: "Details…", exact: true }).click();
+  const details = page.getByTestId("workspace-game-details");
+  await expect(details).toBeVisible();
+  const setting = details.getByRole("switch", {
+    name: "AI makes new rooms when the hero walks into one",
+    exact: true,
+  });
+  await expect(setting).toBeVisible();
+  await setting.click();
+  await expect(setting).toHaveAttribute("aria-checked", "true");
+  await shot(page, "room-setting-1.2");
+});
+
+test("room-generation-1.2", async ({ page }) => {
+  const room = await openRoomGenerationGame(page);
+  await walkInto(page);
+  await expect(page.getByTestId("room-generation")).toBeVisible();
+  await expect(page.getByTestId("room-generation-step")).toHaveText("Building the next room…");
+  await shot(page, "room-generation-1.2");
+  room.release();
 });

@@ -6,6 +6,8 @@
  * so the sources below interpolate the issued binding names.
  */
 
+import { systemOperand } from "../logic/systemNames.ts";
+
 export type BoilerplatePart = "menus" | "game-over" | "score";
 
 export const BOILERPLATE_PART_LABEL: Record<BoilerplatePart, string> = {
@@ -21,9 +23,12 @@ export const BOILERPLATE_PART_STEMS: Record<BoilerplatePart, readonly string[]> 
   score: ["score_logic"],
 };
 
-export function menusSource(names: { menusLogic: string; menusReady: string }): string {
+export function menusSource(
+  names: { menusLogic: string; menusReady: string },
+  bindings: Parameters<typeof systemOperand>[2] = {},
+): string {
   return `// Menus and Save/Restore. LOGIC 0 calls this every cycle, after the room:
-//   call.v(v0);
+//   call.v(${systemOperand("variable", 0, bindings)});
 //   call(${names.menusLogic});
 // The first call builds the menu bar and keys; every call answers them.
 #define C_MENU 200
@@ -49,7 +54,7 @@ export function menusSource(names: { menusLogic: string; menusReady: string }): 
 if (!isset(${names.menusReady})) {
   set(${names.menusReady});
   status.line.on();
-  set(f9);
+  set(${systemOperand("flag", 9, bindings)});
   set.menu(m1);
   set.menu.item(m2, C_SAVE);
   set.menu.item(m3, C_RESTORE);
@@ -74,20 +79,22 @@ if (controller(C_SAVE)) { save.game(); }
 if (controller(C_RESTORE)) { restore.game(); }
 if (controller(C_RESTART)) { restart.game(); }
 if (controller(C_QUIT)) { quit(0); }
-if (controller(C_SOUND_ON)) { set(f9); }
-if (controller(C_SOUND_OFF)) { reset(f9); }
+if (controller(C_SOUND_ON)) { set(${systemOperand("flag", 9, bindings)}); }
+if (controller(C_SOUND_OFF)) { reset(${systemOperand("flag", 9, bindings)}); }
 if (controller(C_HELP)) { print("Type a command and press ENTER. Arrow keys walk. ESC opens the menu."); }
 if (controller(C_ABOUT)) { print("An adventure written with AGI IS HERE."); }
-return;
 `;
 }
 
-export function gameOverSource(names: {
-  gameOverLogic: string;
-  dead: string;
-  chosen: string;
-  cursor: string;
-}): string {
+export function gameOverSource(
+  names: {
+    gameOverLogic: string;
+    dead: string;
+    chosen: string;
+    cursor: string;
+  },
+  bindings: Parameters<typeof systemOperand>[2] = {},
+): string {
   return `// Game over. A room calls this when the player dies: call(${names.gameOverLogic});
 // LOGIC 0 re-calls it every cycle while the player is dead, so the box can
 // answer keys:
@@ -113,14 +120,14 @@ if (!isset(${names.dead})) {
   stop.cycling(o0);
 }
 reset(${names.chosen});
-if (equaln(v19, 32)) {
+if (equaln(${systemOperand("variable", 19, bindings)}, 32)) {
   increment(${names.cursor});
   if (equaln(${names.cursor}, 3)) { assignn(${names.cursor}, 0); }
 }
-if (equaln(v19, 49)) { assignn(${names.cursor}, 0); set(${names.chosen}); }
-if (equaln(v19, 50)) { assignn(${names.cursor}, 1); set(${names.chosen}); }
-if (equaln(v19, 51)) { assignn(${names.cursor}, 2); set(${names.chosen}); }
-if (equaln(v19, 13)) { set(${names.chosen}); }
+if (equaln(${systemOperand("variable", 19, bindings)}, 49)) { assignn(${names.cursor}, 0); set(${names.chosen}); }
+if (equaln(${systemOperand("variable", 19, bindings)}, 50)) { assignn(${names.cursor}, 1); set(${names.chosen}); }
+if (equaln(${systemOperand("variable", 19, bindings)}, 51)) { assignn(${names.cursor}, 2); set(${names.chosen}); }
+if (equaln(${systemOperand("variable", 19, bindings)}, 13)) { set(${names.chosen}); }
 if (controller(C_RESTORE)) { assignn(${names.cursor}, 0); set(${names.chosen}); }
 if (controller(C_RESTART)) { assignn(${names.cursor}, 1); set(${names.chosen}); }
 if (controller(C_QUIT)) { assignn(${names.cursor}, 2); set(${names.chosen}); }
@@ -140,16 +147,17 @@ if (equaln(${names.cursor}, 0)) { display(12, 13, m1); display(13, 13, m2); disp
 if (equaln(${names.cursor}, 1)) { display(12, 13, m2); display(13, 13, m1); display(14, 13, m2); }
 if (equaln(${names.cursor}, 2)) { display(12, 13, m2); display(13, 13, m2); display(14, 13, m1); }
 set.text.attribute(15, 0);
-return;
 `;
 }
 
-export function scoreSource(scoreLogic: string): string {
+export function scoreSource(
+  scoreLogic: string,
+  bindings: Parameters<typeof systemOperand>[2] = {},
+): string {
   return `// Score screen. Call it to show the score and wait for a key:
 //   call(${scoreLogic});
-// v3 holds the score and v7 the maximum, as the status line shows.
+// The status line shows ${systemOperand("variable", 3, bindings)} and ${systemOperand("variable", 7, bindings)}.
 #message 1 "Score: %v3 of %v7"
 print(m1);
-return;
 `;
 }

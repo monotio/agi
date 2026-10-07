@@ -292,14 +292,14 @@ The suite matrix runs at most 15 jobs at once; PR burn-in runs one browser job
 at a time. Together with quality and the two production browsers, this uses
 at most 19 concurrent jobs, leaving one of the 20 public-runner slots free.
 
-CI installs the two package roots once and restores the resulting dependency
-cache in test and build jobs. The production build and chunk graph are shared
+CI runs one root `npm ci` for the root package and app workspace, then restores
+the dependency cache in test and build jobs. The production build and chunk graph are shared
 with both production browser jobs. Chromium shards, WebKit desktop and phone,
 production browsers, timing, storage, PR burn-in and deployed-site verification
 run in the official Playwright Noble image from `scripts/ci/playwright-image.txt`.
 The tag carries the Playwright version and the digest fixes the image contents.
 The image supplies browser binaries, fonts and system packages. Setup checks the
-installed `app/node_modules/playwright-core` version and the image metadata before
+installed `node_modules/playwright-core` version and the image metadata before
 testing; a mismatch fails with the file to update. Read-only mounts expose the
 Ubuntu 24.04 runner's `zstd` and `unzstd` tools so the container reads the same
 dependency cache as Node jobs. Browser hosts stay on Ubuntu 24.04 to match the
@@ -375,7 +375,7 @@ image (`npm ci` inside the container replaces any copied `node_modules`):
 
 ```bash
 docker run --rm --init --ipc=host -v "$PWD:/src:ro" "$(cat scripts/ci/playwright-image.txt)" \
-  bash -lc 'cp -r /src /w && cd /w && npm ci && npm --prefix app ci &&
+  bash -lc 'cp -r /src /w && cd /w && npm ci &&
     CI=1 xvfb-run -a npm --prefix app run e2e:webkit-desktop -- e2e/<file>.spec.ts'
 ```
 
@@ -747,7 +747,7 @@ in-degree is not reachability.
 | `app/e2e/world-map.spec.ts`     | The browser contract: pause ownership, imported static graphs, Watch from here, no provider request, phone layout, and measured open/select timings on a 256-room synthetic map |
 
 The sidecar (`MAP.JSON` in project archives, `monotio_agi.map.<key>` in storage)
-is validated by `app/src/world/roomMapStore.ts`; unknown versions read as empty.
+is validated by `app/src/world/roomMapStore.ts`; unsupported versions are retained and refused on read and replacement.
 
 ## History and reference recovery
 
@@ -788,7 +788,14 @@ commands. `npm run media:capture` regenerates them: `app/e2e/media/docs.media.ts
 drives the app in test mode with the stub provider and the app's own styles; the
 Play shot starts from the tutorial's recorded walkthrough, so its timeline reads
 the same on every run. `scripts/capture-feedback.ts` generates tutorial feedback without a provider
-call. `app/playwright.capture.config.ts` records selected browser tests with
+call. `app/e2e/media/clips.media.ts` records the README's GIF clips from the
+browser's screencast frames; encoding them uses the optional local tools ffmpeg
+and gifski. `app/e2e/media/sound.media.ts` draws spectrograms of the tutorial's
+own SOUNDs: `SoundPlayback` emits each profile's register writes per tick and
+the shipped `AgiAudio` graph renders them in an `OfflineAudioContext`, the same
+path as `app/test/paula-offline.test.ts`, with a seeded noise source so reruns
+match. Spectrograms of commercial games stay private under
+`AGI_AUDIO_RENDER_DIR`. `app/playwright.capture.config.ts` records selected browser tests with
 original resources and mocked provider replies; generated recordings stay under
 `.captures/` until reviewed and edited.
 

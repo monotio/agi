@@ -250,8 +250,14 @@ export function readProjectContext(
     (typeof raw.sessionId !== "string" || !PROJECT_SESSION_ID_PATTERN.test(raw.sessionId))
   )
     throw new Error("Invalid project session field.");
-  envelope.workspace = hydrateImageAttachments(envelope.workspace, entries, root);
-  envelope.projectHistory = hydrateImageAttachments(envelope.projectHistory, entries, root);
+  const hydrated = hydrateImageAttachments(
+    envelope.workspace,
+    envelope.projectHistory,
+    entries,
+    root,
+  );
+  envelope.workspace = hydrated.workspace;
+  envelope.projectHistory = hydrated.history;
   const projectHistory =
     envelope.projectHistory === undefined
       ? undefined

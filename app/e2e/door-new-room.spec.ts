@@ -6,7 +6,7 @@ import {
   waitForRoom,
   workspaceUpdated,
 } from "./engineProbe.ts";
-import { workspaceDocument } from "./workspaceShared.ts";
+import { clickContextAction, workspaceDocument } from "./workspaceShared.ts";
 import type { Page } from "@playwright/test";
 import type { ProjectSession } from "../src/project/projectSession.ts";
 
@@ -41,9 +41,8 @@ for (const [width, height] of [
     if (width <= 600) {
       await page.getByTestId("workspace-parts").click();
       await page.getByTestId("part-room:1:picture:1").click();
-      await page.getByTestId("room-actions-menu").click();
     } else await page.getByTestId("part-room:1:picture:1").click();
-    await page.getByTestId("room-action-door").click();
+    await clickContextAction(page, "room-action-door");
     const overlay = page.getByTestId("guided-placement");
     await expect(overlay).toBeVisible();
     const box = (await overlay.boundingBox())!;

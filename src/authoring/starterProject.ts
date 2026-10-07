@@ -87,7 +87,7 @@ const STARTER_CHIME_FLAG = 204;
 // ---------- boilerplate ----------
 
 const BOILERPLATE_ROOM1_SOURCE = `// Show the first room and let the player type commands.
-if (isset(f5)) {
+if (isset(new_room)) {
   assignn(v50, first_pic);
   load.pic(v50);
   draw.pic(v50);
@@ -95,7 +95,6 @@ if (isset(f5)) {
   accept.input();
   print("Your game starts here.");
 }
-return;
 `;
 
 const BOILERPLATE_PIC1_SOURCE = `# Fill the empty room with black.
@@ -119,7 +118,7 @@ const BOILERPLATE_BINDINGS: Record<string, StarterBinding> = {
 // ---------- starter ----------
 
 const STARTER_ROOM1_SOURCE = `// On room entry, draw the clearing and place the hero.
-if (isset(f5)) {
+if (isset(new_room)) {
   assignn(v50, clearing_pic);
   load.pic(v50);
   draw.pic(v50);
@@ -135,7 +134,7 @@ if (isset(f5)) {
   accept.input();
 }
 // Stand on cel 0 when still; show walking poses while moving.
-if (equaln(v6, 0)) {
+if (equaln(ego_direction, 0)) {
   stop.cycling(o0);
   set.cel(o0, 0);
 } else {
@@ -154,7 +153,6 @@ if (said("listen")) {
   print("A meadowlark answers from the trees.");
 }
 if (said("die")) { print("The ground gives way under you. It was lava all along."); call(death_logic); }
-return;
 `;
 
 const STARTER_PIC1_SOURCE = `# Meadow: a cottage, a tree and a path under a sunny sky.

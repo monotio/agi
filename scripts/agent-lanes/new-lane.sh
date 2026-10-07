@@ -29,5 +29,4 @@ worktree=$lanes/$name
 git worktree add -q -b "$branch" "$worktree" "$base"
 cd "$worktree"
 npm ci >&2
-npm --prefix app ci >&2
 printf '%s\n' "$worktree"

@@ -9,7 +9,11 @@ Released notes are also available on [GitHub Releases](https://github.com/monoti
 
 - Bundled Geist and Geist Mono fonts for consistent UI text and code.
 - Create workspace with a parts list, editors beside the running game, and Focus.
-- Live edits, autosave, shared Undo and Redo, and named History checkpoints.
+- Autosaved editor drafts with Update and restart or Update and keep playing,
+  shared Undo and Redo, and named History checkpoints.
+- Room Launches with named hero, flag, variable and inventory starting setups.
+- AI room-generation switch in Home and Create Details, on for Create with AI
+  and off for imported games and local templates.
 - LOGIC code intelligence, Problems, guided actions and a step debugger.
 - Game state names and Rename across the game, with inline printed text.
 - Answer a sentence and Teach beside missed sentences, with a game message preview.
@@ -37,14 +41,18 @@ Released notes are also available on [GitHub Releases](https://github.com/monoti
 ### Changed
 
 - Create docks are replaced by the parts list, Map, debugger and agent panel.
-- Image Generate starts drawing directly from your description.
+- Image Generate starts drawing directly from your description. Agent requests
+  and images share an actual-spend budget; a request that crosses it finishes
+  before pausing for Continue or Stop.
+- Upgrading from 1.1 loads existing browser progress automatically.
 - Home, Play and Create load the engine, editor families and agent by activity.
 - CRT rendering uses beams and phosphors in Play; editors show the crisp image.
 - Adventure Department has refreshed animation and workspace lessons. Earlier
   tutorial progress stays available with its original release.
 - Project archives retain version 1 with optional workspace, History and chat
   data. Playback recordings use version 2 for debugger and project events;
-  released version-1 recordings remain readable.
+  released version-1 recordings remain readable. Recorded game tests write
+  tests.v2 and preserve RNG-version-1 semantics when reading or editing tests.v1.
 - Provider evaluations use the app clients and measure conversation caching.
 
 ### Fixed

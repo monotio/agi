@@ -106,7 +106,9 @@ test(
     }
   },
 );
-test("VIEW generation uses sprite style and Use this opens the cel sheet", async ({ page }) => {
+test("VIEW generation uses sprite style and Use image opens the cel sheet @webkit-desktop", async ({
+  page,
+}) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   let requests = 0;
   await page.route("**/api/test-images/v1/images/generations", async (route) => {
@@ -127,6 +129,11 @@ test("VIEW generation uses sprite style and Use this opens the cel sheet", async
   await expect(page.getByTestId("generate-style")).toContainText("transparent background");
   await page.getByTestId("generate-review").click();
   await expect(page.getByTestId("generate-offer")).toBeVisible();
+  await expect(page.getByTestId("generate-use")).toHaveText("Use image");
+  await expect(page.getByTestId("generate-again")).toHaveText("Generate again");
+  await expect(page.getByTestId("generate-dismiss")).toHaveText("Edit prompt");
+  await page.getByTestId("generate-use").scrollIntoViewIfNeeded();
+  await page.screenshot({ path: test.info().outputPath("image-result.png") });
   await page.getByTestId("generate-use").click();
   await expect(page.getByTestId("image-reference")).toBeVisible();
   await expect(page.getByTestId("image-reference")).toContainText("Cels from an image");

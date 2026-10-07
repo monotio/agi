@@ -56,6 +56,24 @@ const activeLaunch = computed<Launch | undefined>(() =>
   entries.value.find((entry) => entry.id === currentLaunchId.value),
 );
 
+// Keep text awaiting blur through saved metadata publications.
+const launchName = ref("");
+const launchNote = ref("");
+watch(
+  [() => activeLaunch.value?.id, () => activeLaunch.value?.name],
+  () => {
+    launchName.value = activeLaunch.value?.name ?? "";
+  },
+  { immediate: true },
+);
+watch(
+  [() => activeLaunch.value?.id, () => activeLaunch.value?.note],
+  () => {
+    launchNote.value = activeLaunch.value?.note ?? "";
+  },
+  { immediate: true },
+);
+
 const isSelectedForRun = computed(
   () => activeLaunch.value !== undefined && props.selectedLaunchId === activeLaunch.value.id,
 );
@@ -504,7 +522,7 @@ function handleCanvasDrag(event: MouseEvent): void {
           type="text"
           class="launch-name-input"
           data-testid="launch-name-input"
-          :value="activeLaunch.name"
+          v-model="launchName"
           placeholder="Launch name"
           aria-label="Launch name"
           :disabled="readOnly"
@@ -557,7 +575,7 @@ function handleCanvasDrag(event: MouseEvent): void {
           type="text"
           class="launch-note-input"
           data-testid="launch-note-input"
-          :value="activeLaunch.note ?? ''"
+          v-model="launchNote"
           placeholder="Note (optional)"
           aria-label="Note"
           :disabled="readOnly"

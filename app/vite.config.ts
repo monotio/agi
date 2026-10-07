@@ -486,12 +486,13 @@ export default defineConfig({
   // This prebundles dependencies on the server; Play still loads no editor code.
   optimizeDeps: { entries: ["index.html", "src/studio/logic/monacoLanguage.ts"] },
   server: {
-    // Serve the engine, adventure templates and tutorial before the app imports them.
+    // Serve engine modules, adventure templates and hoisted package assets.
     fs: {
       allow: [
         import.meta.dirname,
         join(import.meta.dirname, "../src"),
         join(import.meta.dirname, "../games"),
+        join(import.meta.dirname, "../node_modules"),
       ],
     },
     proxy: {

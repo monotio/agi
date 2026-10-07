@@ -35,7 +35,7 @@ const HOME_DEFERRED_MODULES = [
   /^app\/src\/audio\/(AgiAudio|iigsSynth|soundAudition)\.ts$/,
   /^src\/runtime\/(engine|debugExpression|debugBreakpoints|debugStep|debugWatchpoints)\.ts$/,
   /^app\/src\/(worker\/engine|library\/preview)\.worker\.ts$/,
-  /^app\/node_modules\/(openai|@anthropic-ai\/sdk|monaco-editor)\//,
+  /^(?:app\/)?node_modules\/(openai|@anthropic-ai\/sdk|monaco-editor)\//,
 ];
 
 /**
@@ -89,7 +89,7 @@ export const AUTHORING_MODULES = [
   /^src\/agent\/(tools|selectionTools|namingTools|authoringTools|roomTools|pictureTools|referenceTools|prompt|playtest)\.ts$/,
   /^src\/studio\/(editOperations|editValidation|pictureDocument|probe|lensRules|assistScope)\.ts$/,
   /^src\/studio\/sprite\/(spriteOperations|spriteCels)\.ts$/,
-  /^app\/node_modules\/(openai|@anthropic-ai\/sdk)\//,
+  /^(?:app\/)?node_modules\/(openai|@anthropic-ai\/sdk)\//,
 ];
 
 /** Room-flow analysis starts with the map or Create, in its own worker. */

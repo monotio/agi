@@ -1452,7 +1452,7 @@ test("a take adopts a parked key wait and the pack; a suspended prompt is not re
   send({ type: "debugWrite", id: 3, flags: [[224, 1]] });
   const prompt = awaitOp("getnum");
   tick(3);
-  send({ type: "hostAnswer", id: prompt.id, response: "7" });
+  send({ type: "hostAnswer", generation: ctx.run.generation, id: prompt.id, response: "7" });
   tick(3);
   assert.equal(ctx.run.engine!.vars[64], 7, "the answered prompt's pass resumed");
 

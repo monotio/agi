@@ -20,7 +20,6 @@
  *     }
  *   }
  *   done:
- *   return;
  *
  * Tests support !, &&, || and parentheses. Any boolean shape is accepted:
  * the compiler normalizes to CNF (AND of OR-clauses), which is what the AGI
@@ -71,6 +70,7 @@ import {
   SAID_ANY_WORD,
   SAID_REST,
 } from "./opcodes.ts";
+import type { SystemBinding } from "./systemNames.ts";
 import { buildLogicResource } from "./resource.ts";
 import { DEFAULT_V2_PROFILE, type AgiProfile } from "../runtime/profile.ts";
 import {
@@ -107,7 +107,7 @@ export interface LogicSourceMap {
 }
 
 export interface AssembleDiagnostic {
-  readonly code: "condition-effects";
+  readonly code: "condition-effects" | "builtin-shadow";
   readonly message: string;
   readonly start: number;
   readonly end: number;
@@ -121,6 +121,7 @@ const MAX_LOWERING_WORK = 100_000;
 const MAX_CLAUSE_UNITS = 16_384;
 
 export interface AssembleOptions {
+  readonly builtins?: Readonly<Record<string, SystemBinding>>;
   /** Capture origins for this exact input; never implicitly bind to a live run. */
   readonly sourceMap?: boolean;
   /** Instruction vocabulary and widths; defaults to AGI 2.936. */
@@ -662,12 +663,14 @@ function emitStmt(
 // ---------- Public entry ----------
 
 export function assembleLogic(source: string, opts: AssembleOptions): AssembleResult {
-  const { tokens, program, explicitMessages } = parseLogicSyntax(source);
+  const { tokens, program, explicitMessages } = parseLogicSyntax(source, opts.builtins);
 
   const messages = new MessageTable(explicitMessages);
   const e = new Emitter(opts.sourceMap === true, tokens[0]!);
   for (const stmt of program)
     emitStmt(e, stmt, messages, opts.dictionary, opts.profile ?? DEFAULT_V2_PROFILE);
+  // A final label names the implicit return, even after an explicit early exit.
+  if (program.at(-1)?.type !== "return") e.byte(RETURN);
   e.resolveFixups();
 
   const code = e.bytes();

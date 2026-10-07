@@ -23,7 +23,7 @@ runs:
         path: |
           node_modules
           app/node_modules
-        key: deps-${{ runner.os }}-node22-${{ hashFiles('package-lock.json', 'app/package-lock.json') }}-v1
+        key: deps-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }}-v2
         fail-on-cache-miss: true
     - name: Runner capacity and workers
       shell: bash

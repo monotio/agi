@@ -5,7 +5,7 @@
  * creator adds those as parts when they want them. The bindings stay empty so
  * Game state stays empty until the creator names something.
  *
- * LOGIC 0 enters Room 1 on the first cycle (v0, the current room number, is
+ * LOGIC 0 enters Room 1 on the first cycle (current_room, the current room number, is
  * 0 before the first room) and runs the current room's LOGIC every cycle
  * after, so rooms added later need no registration.
  *
@@ -14,25 +14,23 @@
 import type { ProjectChange } from "./projectContent.ts";
 
 export const FIRST_STARTUP_LOGIC0_SOURCE = `// Start-up: the game begins in Room 1. Every cycle runs the current
-// room's LOGIC; v0 holds the room number and is 0 before the first room.
-if (equaln(v0, 0)) {
+// room's LOGIC; current_room holds the room number and is 0 before the first room.
+if (equaln(current_room, 0)) {
   new.room(1);
 }
-call.v(v0);
-return;
+call.v(current_room);
 `;
 
-export const FIRST_ROOM_LOGIC_SOURCE = `// Room 1. The f5 block runs once when the player enters: it shows this
+export const FIRST_ROOM_LOGIC_SOURCE = `// Room 1. The new_room block runs once when the player enters: it shows this
 // room's PICTURE and hands control to the player. load.pic and draw.pic
 // read the picture number from a variable (v50 here).
-if (isset(f5)) {
+if (isset(new_room)) {
   assignn(v50, 1);
   load.pic(v50);
   draw.pic(v50);
   show.pic();
   accept.input();
 }
-return;
 `;
 
 export const FIRST_ROOM_PICTURE_SOURCE = `# Room 1: an empty picture. Draw on it or replace it.

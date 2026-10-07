@@ -49,7 +49,7 @@ function roomSource(n: number, back: number | null, extra?: string, extraExit?: 
   return `
 #message 1 "You stand in generated room ${n}."
 #message 2 "Try LOOK, EAST or WEST."
-if (isset(f5)) {
+if (isset(new_room)) {
   assignn(v50, ${n});
   load.pic(v50);
   draw.pic(v50);
@@ -69,7 +69,6 @@ ${n < 255 ? `if (said("east") || equaln(v2, 2)) { new.room(${n + 1}); }` : ""}
 if (said("look")) { print(m1); }
 if (said("die")) { call(255); }
 if (isset(f2) && !isset(f4)) { set(f4); print(m2); }
-return;
 `;
 }
 

@@ -1,5 +1,7 @@
 .shell-body--workspace {
   --workspace-parts: 252px;
+  --workspace-game-min: 0px;
+  --workspace-edit-min: 0px;
   --workspace-game: minmax(0, 1fr);
   --workspace-edit: minmax(0, 1fr);
   grid-template-columns: var(--workspace-parts) var(--workspace-game) 5px var(--workspace-edit) !important;
@@ -32,6 +34,7 @@
   grid-column: 2;
   grid-row: 1;
   min-width: 0;
+  isolation: isolate;
 }
 .shell-body--workspace.shell-body--fold-left {
   --workspace-parts: 0px;
@@ -62,6 +65,8 @@
   max-width: 100%;
 }
 .shell-body--workspace.shell-body--stacked:not(.shell-body--no-editor):not(.shell-body--focus) {
+  --workspace-game-min: min(200px, 30%);
+  --workspace-edit-min: min(500px, 65%);
   grid-template-columns: var(--workspace-parts) minmax(0, 1fr) !important;
   grid-template-rows: var(--workspace-game) 5px var(--workspace-edit) auto;
 }
@@ -126,12 +131,19 @@
 }
 .workspace-context {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   gap: var(--space-3);
   padding: var(--space-1) var(--space-3);
   border-bottom: 1px solid var(--hairline);
   font-size: var(--text-xs);
+}
+.workspace-context > [data-testid="part-number"] {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+.workspace-guided--form-only {
+  display: contents;
 }
 .workspace-context__note {
   color: var(--ink-2);
@@ -168,6 +180,11 @@
   min-height: 0;
   overflow: hidden;
 }
+/* The code editor's menus are fixed to the window and must draw above the tabs and the
+   context row, so its surface opens no layer of its own. */
+.workspace-editor__surface:has(> .workspace-logic-surface) {
+  z-index: auto;
+}
 .workspace-editor__surface > .studio,
 .workspace-editor__surface > .sprite-studio {
   flex: 1;
@@ -193,6 +210,17 @@
   color: var(--warn);
   background: var(--warn-soft);
   font-size: var(--text-sm);
+}
+.workspace-build-error {
+  position: absolute;
+  right: var(--space-3);
+  bottom: calc(var(--space-3) + var(--space-7));
+  z-index: var(--z-popover);
+  max-width: min(560px, calc(100% - var(--space-6)));
+  box-sizing: border-box;
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-pop);
 }
 .workspace-game-chip {
   position: absolute;

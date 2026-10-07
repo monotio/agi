@@ -26,6 +26,224 @@ import type { UnifiedConversation, LlmTurnResult } from "../src/agent/llmClient.
 import { wordsTaskReply } from "../src/studio/workspace/wordsPrompts.ts";
 
 let seq = 0;
+
+for (const mode of ["review", "auto", "background"] as const) {
+  for (const failure of ["exit", "tests"] as const) {
+    test(`${mode} rejects final admission after finish fails ${failure}`, async () => {
+      const { session } = fixture();
+      await session.submit({
+        proposal: session.model.propose(session.model.capture(), "Room", [
+          { key: "logic:1", content: "return;" },
+        ]),
+        label: "Room",
+        origin: "logic",
+        author: "creator",
+      });
+      const before = session.model.capture().documentId;
+      const commits = session.history.capture().commits.length;
+      const results: { toolCallId: string; result: { success: boolean } }[] = [];
+      const call =
+        failure === "exit"
+          ? {
+              id: "edit",
+              name: "update_plan",
+              input: {
+                rooms: [
+                  {
+                    num: 1,
+                    title: "Start",
+                    description: "Start",
+                    exits: [{ name: "north", room: 2 }],
+                  },
+                ],
+                facts: [],
+                quests: [],
+              },
+            }
+          : {
+              id: "edit",
+              name: "write_game_tests",
+              input: {
+                mode: "merge",
+                names: null,
+                tests: [
+                  {
+                    name: "Impossible score",
+                    room: 1,
+                    spawnX: null,
+                    spawnY: null,
+                    steps: [{ action: "wait", ticks: 1 }],
+                    expect: { score: 99 },
+                    cycleBudget: 100,
+                  },
+                ],
+              },
+            };
+      let round = 0;
+      const agent = createWorkspaceAgent({
+        session,
+        profileId: "2.936",
+        config: () => ({ provider: "stub", model: "stub", apiKey: "" }),
+        conversation: () => ({
+          setAvailableTools() {},
+          getTranscript: () => [],
+          async sendUserMessage() {
+            return { toolCalls: [call] };
+          },
+          appendToolResults(entries) {
+            results.push(...entries);
+            assert.equal(
+              entries.find((entry) => entry.toolCallId === "edit")?.result.success ?? true,
+              true,
+              JSON.stringify(entries),
+            );
+          },
+          async complete() {
+            return round++ === 0
+              ? { toolCalls: [{ id: "finish", name: "finish", input: { notes: null } }] }
+              : { text: "Done", toolCalls: [] };
+          },
+        }),
+      });
+      agent.autoApprove = mode === "auto";
+      try {
+        await assert.rejects(
+          mode === "background" ? agent.background("Task", "Edit") : agent.send("Edit"),
+          /Handover rejected/,
+        );
+        assert.equal(results.find((entry) => entry.toolCallId === "finish")?.result.success, false);
+        assert.equal(session.model.capture().documentId, before);
+        assert.equal(session.history.capture().commits.length, commits);
+        assert.equal(agent.pending(), null);
+        assert.match(agent.error ?? "", /Handover rejected/);
+      } finally {
+        session.dispose();
+      }
+    });
+  }
+}
+
+test("successful workspace finish ends the tool batch and provider turn", async () => {
+  const { session } = fixture();
+  const results: {
+    toolCallId: string;
+    result: { success: boolean; error?: string | undefined };
+  }[] = [];
+  let completions = 0;
+  const agent = createWorkspaceAgent({
+    session,
+    profileId: "2.936",
+    config: () => ({ provider: "stub", model: "stub", apiKey: "" }),
+    conversation: () => ({
+      setAvailableTools() {},
+      getTranscript: () => [],
+      async sendUserMessage() {
+        return {
+          toolCalls: [
+            {
+              id: "edit",
+              name: "write_picture",
+              input: { room: 1, source: "vis 2\nfill 0,0\nend\n" },
+            },
+            { id: "finish", name: "finish", input: { notes: null } },
+            {
+              id: "late",
+              name: "write_picture",
+              input: { room: 1, source: "vis 3\nfill 0,0\nend\n" },
+            },
+          ],
+        };
+      },
+      appendToolResults(entries) {
+        results.push(...entries);
+      },
+      async complete() {
+        completions++;
+        return { text: "Done", toolCalls: [] };
+      },
+    }),
+  });
+  try {
+    await agent.send("Recolor");
+    assert.equal(results.find((entry) => entry.toolCallId === "finish")?.result.success, true);
+    assert.equal(results.find((entry) => entry.toolCallId === "late")?.result.success, false);
+    assert.match(
+      results.find((entry) => entry.toolCallId === "late")?.result.error ?? "",
+      /successful finish/,
+    );
+    assert.equal(completions, 0);
+    assert.equal(
+      agent
+        .pending()
+        ?.changes()
+        .find((change) => change.key === "picture:1")?.content,
+      "vis 2\nfill 0,0\nend\n",
+    );
+  } finally {
+    session.dispose();
+  }
+});
+
+test("partial approval validates the selected candidate's handover", async () => {
+  const { session } = fixture();
+  await session.submit({
+    proposal: session.model.propose(session.model.capture(), "Rooms", [
+      { key: "logic:1", content: "return;" },
+      { key: "logic:2", content: "return;" },
+    ]),
+    label: "Rooms",
+    origin: "logic",
+    author: "creator",
+  });
+  const before = session.model.capture().documentId;
+  const agent = createWorkspaceAgent({
+    session,
+    profileId: "2.936",
+    config: () => ({ provider: "stub", model: "stub", apiKey: "" }),
+    conversation: () => ({
+      setAvailableTools() {},
+      getTranscript: () => [],
+      async sendUserMessage() {
+        return {
+          toolCalls: [
+            {
+              id: "proposal",
+              name: "propose_changes",
+              input: {
+                label: "Connect",
+                changes: [
+                  {
+                    key: "world",
+                    content: JSON.stringify({
+                      rooms: { "1": { title: "Start", description: "Start", exits: { north: 2 } } },
+                      facts: {},
+                      quests: {},
+                    }),
+                  },
+                  { key: "logic:1", content: "new.room(2); return;" },
+                ],
+              },
+            },
+          ],
+        };
+      },
+      appendToolResults() {},
+      async complete() {
+        return { text: "Connected", toolCalls: [] };
+      },
+    }),
+  });
+  try {
+    await agent.send("Connect rooms");
+    assert.ok(agent.pending());
+    await assert.rejects(agent.approve(["world"]), /Handover rejected/);
+    assert.equal(session.model.capture().documentId, before);
+    await agent.approve();
+    assert.notEqual(session.model.capture().documentId, before);
+  } finally {
+    session.dispose();
+  }
+});
 test("offline editing reads native vocabulary and changes the attached room", async () => {
   const { session } = fixture();
   await session.submit({

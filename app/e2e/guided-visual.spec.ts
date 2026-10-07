@@ -7,7 +7,7 @@ import {
   workspaceUpdated,
   textHook,
 } from "./engineProbe.ts";
-import { workspaceDocument } from "./workspaceShared.ts";
+import { clickContextAction, workspaceDocument } from "./workspaceShared.ts";
 import { decodePng } from "../../scripts/png.ts";
 
 async function start(page: Page, onHome?: () => Promise<void>): Promise<void> {
@@ -21,11 +21,7 @@ async function start(page: Page, onHome?: () => Promise<void>): Promise<void> {
   await onHome?.();
   await openLibraryActions(page, savedGameCard(page, "Sunny clearing"));
   await page.getByTestId("edit-library-game").click();
-  await expect(
-    page.getByTestId(
-      page.viewportSize()!.width <= 600 ? "room-actions-menu" : "room-action-place-hero",
-    ),
-  ).toBeVisible();
+  await expect(page.getByTestId("workspace-context")).toBeVisible();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
 }
 async function open(page: Page, name: string) {
@@ -41,8 +37,7 @@ async function open(page: Page, name: string) {
       "Play a sound when…": "room-action-play-sound",
     } as Record<string, string>
   )[name]!;
-  if (page.viewportSize()!.width <= 600) await page.getByTestId("room-actions-menu").click();
-  await page.getByTestId(testId).click();
+  await clickContextAction(page, testId);
   const form = page.getByTestId("workspace-guided-form");
   // A door starts on the game; its form appears once the draw ends.
   if (name !== "Door") await expect(form).toBeVisible();

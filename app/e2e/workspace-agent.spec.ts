@@ -52,6 +52,80 @@ async function documents(page: Page) {
     return session.model.capture().documents();
   });
 }
+
+test("Auto-approve shows a rejected handover without admitting its edits @webkit-desktop", async ({
+  page,
+}) => {
+  let requests = 0;
+  const catalogNames: string[][] = [];
+  await page.route("**/api/openai/v1/responses", async (route) => {
+    const body = route.request().postDataJSON() as { tools: { name: string }[] };
+    catalogNames.push(body.tools.map((tool) => tool.name));
+    requests++;
+    await route.fulfill(
+      providerReply("openai", {
+        id: `handover-${requests}`,
+        status: "completed",
+        output:
+          requests === 1
+            ? [
+                {
+                  type: "function_call",
+                  id: "test",
+                  call_id: "test",
+                  name: "write_game_tests",
+                  arguments: JSON.stringify({
+                    mode: "merge",
+                    names: null,
+                    tests: [
+                      {
+                        name: "Impossible score",
+                        room: 1,
+                        spawnX: null,
+                        spawnY: null,
+                        steps: [{ action: "wait", ticks: 1 }],
+                        expect: { score: 99 },
+                        cycleBudget: 100,
+                      },
+                    ],
+                  }),
+                },
+                {
+                  type: "function_call",
+                  id: "finish",
+                  call_id: "finish",
+                  name: "finish",
+                  arguments: '{"notes":null}',
+                },
+              ]
+            : [
+                {
+                  type: "message",
+                  role: "assistant",
+                  content: [{ type: "output_text", text: "Done." }],
+                },
+              ],
+      }),
+    );
+  });
+  await start(page, "openai");
+  const before = await documents(page);
+  await page.getByRole("radio", { name: "Auto-approve", exact: true }).click();
+  await page.getByTestId("agent-message").fill("Record and validate the score test");
+  await page.getByRole("button", { name: "Send", exact: true }).click();
+  await expect(page.getByTestId("workspace-agent-panel").getByRole("alert")).toContainText(
+    "Handover rejected",
+  );
+  await expect(page.getByTestId("agent-review")).toHaveCount(0);
+  expect(await documents(page)).toEqual(before);
+  expect(requests).toBe(2);
+  expect(catalogNames[0]).toContain("configure_launch");
+  expect(catalogNames[1]).toEqual(catalogNames[0]);
+  await page.screenshot({
+    path: test.info().outputPath("rejected-handover.png"),
+    animations: "disabled",
+  });
+});
 for (const size of [
   { width: 1440, height: 900 },
   { width: 1280, height: 720 },

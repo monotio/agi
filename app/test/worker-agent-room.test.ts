@@ -114,6 +114,7 @@ test("an authored room answer joins History and keeps its parked print in every 
   const image = openContainer(candidate.files());
   onWorkerMessage(ctx, {
     type: "hostAnswer",
+    generation: ctx.run.generation,
     id: request.id,
     response: JSON.stringify({
       room: 2,

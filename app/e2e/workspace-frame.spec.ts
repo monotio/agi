@@ -1,3 +1,4 @@
+import { clickContextAction } from "./workspaceShared.ts";
 import { test, expect } from "./test.ts";
 import { isolateStorage, textHook, workspaceSaved } from "./engineProbe.ts";
 import type { Page } from "@playwright/test";
@@ -131,7 +132,7 @@ test("Game state + names a flag in place @webkit-desktop", async ({ page }) => {
   await expect(naming).toBeVisible();
   await expect(page.getByTestId("game-state-num")).toHaveValue(/^\d+$/);
   await page.getByTestId("game-state-name").fill("picked_flower");
-  await naming.getByRole("button", { name: "Name it", exact: true }).click();
+  await naming.getByRole("button", { name: "Rename", exact: true }).click();
   // The named flag joins the Game state list and the bindings draft.
   await expect(page.getByTestId("parts-list")).toContainText("picked_flower");
   await expect(page.locator('[data-testid="project-tab-state"]')).toBeVisible();
@@ -248,9 +249,7 @@ for (const [width, height] of [
     await page.getByTestId("part-room:1:logic").click();
     const context = page.getByTestId("workspace-context");
     await expect(context).toBeVisible();
-    // Phones fold the room actions into one menu in the same row.
-    if (width <= 600) await context.getByTestId("room-actions-menu").click();
-    await page.getByTestId("room-action-place-hero").click();
+    await clickContextAction(page, "room-action-place-hero");
     const form = context.getByTestId("workspace-guided-form");
     const here = form.getByRole("button", { name: "Start here", exact: true });
     await expect(form).toBeVisible();

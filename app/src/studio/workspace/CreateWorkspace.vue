@@ -19,6 +19,8 @@ import { renameRoomTitle } from "../../../../src/authoring/world.ts";
 import { gameRoomMenu, roomMenuArmed } from "../../play/roomActionMenu.ts";
 import UiDialog from "../../ui/UiDialog.vue";
 import GuidedAdd from "./GuidedAdd.vue";
+import ContextActions, { type ContextAction } from "./ContextActions.vue";
+import { ROOM_ACTION_LABELS, type RoomActionKind } from "./guidedActions.ts";
 import TestRunChip from "./TestRunChip.vue";
 import {
   roomPlacements,
@@ -394,7 +396,7 @@ const {
   prepareLaunch: async () => {
     if (editor.changeCount.value) {
       await updateGame(false);
-      if (editor.error.value) throw new Error(editor.error.value);
+      if (editor.error.value) return false;
     }
   },
   launch: () => runSelectedLaunch(true),
@@ -1200,7 +1202,7 @@ function editorChanges(
   return [{ key, content: value }];
 }
 const actionBusy = ref(false);
-const writerBusy = ref(false);
+const imageBusy = ref(false);
 function changedPartKeys(changes: readonly ProjectChange[], fallback = true): string[] {
   const parts = new Set<string>();
   for (const change of changes) {
@@ -1253,9 +1255,9 @@ function changedPartKeys(changes: readonly ProjectChange[], fallback = true): st
 }
 const pendingParts = createWorkspacePending((change) => changedPartKeys([change], false));
 watch(
-  [actionBusy, writerBusy],
-  ([action, writer]) => {
-    editor.busy.value = action || writer;
+  [actionBusy, imageBusy],
+  ([action, image]) => {
+    editor.busy.value = action || image;
   },
   { flush: "sync" },
 );
@@ -1275,7 +1277,11 @@ function draftChanged(force = false): void {
   const parts = pendingParts.parts(snapshot.value, changes);
   if (parts.slice().sort().join("\0") !== draftMembership.value.slice().sort().join("\0"))
     draftMembership.value = parts;
-  if (force || keys !== draftKeys) {
+  const textChanged = changes.some(
+    ({ key, content }) =>
+      (key === "notes" || key.startsWith("logic:")) && optimistic.value[key] !== content,
+  );
+  if (force || keys !== draftKeys || textChanged) {
     optimistic.value = next;
     draftKeys = keys;
   } else Object.assign(optimistic.value, next);
@@ -1286,7 +1292,6 @@ function draftChanged(force = false): void {
   editor.canRedo.value = state.canRedo || (!state.canUndo && history.future.length > 0);
   if (!state.error && editor.error.value === draftError) editor.error.value = "";
   draftError = state.error;
-  writerBusy.value = state.busy;
   editor.changeCount.value = parts.length;
   const context = ["words", "inventory", "bindings"].map(
     (key, index) => next[key] ?? languageBase.value[index],
@@ -1341,20 +1346,28 @@ function reportProblems(key: string, entries: readonly { message: string; line: 
     0,
   );
 }
+const buildErrorLocation = ref<{ document: string; line: number; message: string }>();
+const buildErrorNotice = computed(() => buildErrorLocation.value?.message === editor.error.value);
+function refuseBuild(document: string): void {
+  const message = `${document.replace(":", " ").toUpperCase()} has errors. Fix them to update the game.`;
+  buildErrorLocation.value = { document, line: typingProblems[document]?.[0]?.line ?? 1, message };
+  editor.error.value = message;
+}
+function goToBuildError(): void {
+  const location = buildErrorLocation.value;
+  if (!location) return;
+  if (location.document.startsWith("logic:"))
+    openWordLogic(Number(location.document.slice(6)), location.line);
+  else openPart(location.document);
+}
 async function updateGame(restartRoom = true): Promise<void> {
-  if (!session || actionBusy.value || editingPaused.value) return;
-  if (editor.problemCount.value) {
-    const first = updateProblems.value.find((entry) => entry.severity === "error");
-    const typed = Object.entries(typingProblems).find(([, entries]) => entries.length);
-    if (typed) openWordLogic(Number(typed[0].slice(6)), typed[1][0]!.line);
-    else if (first) openPart(first.document);
-    editor.open("problems");
-    editor.error.value =
-      typed || first
-        ? `${(typed?.[1][0]?.message ?? first!.message).replace(/[.]+$/, "")}. Fix this part, then update.`
-        : editor.error.value;
+  if (!session || actionBusy.value || imageBusy.value || editingPaused.value) return;
+  const firstError = diagnostics.value.find((entry) => entry.severity === "error");
+  if (editor.problemCount.value && firstError) {
+    refuseBuild(firstError.document);
     return;
   }
+  buildErrorLocation.value = undefined;
   const room = editor.actionRoom.value;
   const roomName = editor.actionRoomName.value;
   const state = editor.launchChoices.value.find(
@@ -1391,13 +1404,14 @@ async function updateGame(restartRoom = true): Promise<void> {
         result.diagnostics.filter((entry) => entry.severity === "error").length,
       );
       const first = result.diagnostics.find((entry) => entry.severity === "error");
-      editor.error.value = first
-        ? `${first.message.replace(/[.]+$/, "")}. Fix this part, then update.`
-        : "reason" in result && typeof result.reason === "string"
-          ? result.status === "refused"
-            ? result.reason
-            : `${result.reason.replace(/[.]+$/, "")}. Choose Update and restart.`
-          : "The game needs a fresh room. Choose Update and restart.";
+      if (first) refuseBuild(first.document);
+      else
+        editor.error.value =
+          "reason" in result && typeof result.reason === "string"
+            ? result.status === "refused"
+              ? result.reason
+              : `${result.reason.replace(/[.]+$/, "")}. Choose Update and restart.`
+            : "The game needs a fresh room. Choose Update and restart.";
       return;
     }
     await session.flush();
@@ -1499,6 +1513,7 @@ function edit(key: string, value: ProjectContent, transaction = false): void {
   )
     return;
   editor.error.value = "";
+  buildErrorLocation.value = undefined;
   const changes = editorChanges(key, value);
   if (key === "world") {
     void session?.stage(changes).catch((cause: unknown) => {
@@ -1515,6 +1530,9 @@ function edit(key: string, value: ProjectContent, transaction = false): void {
   );
   editor.updatedParts.value = 0;
   draftChanged(!key.startsWith("logic:") && key !== "notes");
+}
+function endTyping(): void {
+  session?.drafts().endTyping();
 }
 function editSound(key: string, bytes: Uint8Array, tempo: number): void {
   if (editingPaused.value) return;
@@ -1717,6 +1735,102 @@ const acceptedDocuments = computed(() => snapshot.value?.documents() ?? {});
 const workingDocuments = computed(() => ({ ...acceptedDocuments.value, ...optimistic.value }));
 const guidedKind = ref<WorkspaceAction["kind"]>();
 const guidedCommand = ref("");
+const contextActions = computed(() => {
+  const actions: ContextAction[] = [];
+  const disabled = actionBusy.value || editingPaused.value;
+  const title = writeConflict.value
+    ? "Editing is paused. Download your unsaved edits, then reload."
+    : "";
+  const kind = editor.kind.value;
+  if (kind === "picture" || kind === "view") {
+    actions.push(
+      {
+        id: "trace",
+        label: kind === "picture" ? VOCABULARY.traceImage.label : VOCABULARY.makeCels.label,
+        disabled,
+        title,
+        run: () => {
+          imagePanel.value = editor.selected.value;
+          imageGenerate.value = false;
+        },
+      },
+      {
+        id: "generate",
+        label: "Generate",
+        disabled,
+        title,
+        run: () => {
+          imagePanel.value = editor.selected.value;
+          imageGenerate.value = true;
+        },
+      },
+    );
+  }
+  if (kind === "logic" && selectedRoom.value !== undefined && !debug.value?.state.epoch) {
+    actions.push(
+      {
+        id: "play",
+        label: `▶ Play ${editor.actionRoomName.value}`,
+        disabled,
+        title:
+          title ||
+          launchAction({
+            pending: editor.changeCount.value > 0,
+            launch: editor.selectedLaunch.value,
+            launchName: launchName(editor.selectedLaunch.value, editor.launchChoices.value),
+            room: editor.actionRoomName.value,
+            here: engine.roomMap.currentRoom.value === editor.actionRoom.value,
+          }).label,
+        run: () => updateGame(),
+      },
+      {
+        id: "debug",
+        label: `Debug ${editor.actionRoomName.value}`,
+        disabled,
+        title: title || "Debug (F5)",
+        run: () => editor.debugCommand.value?.("start"),
+      },
+    );
+  }
+  if (
+    (kind === "logic" || kind === "picture") &&
+    selectedRoom.value !== undefined &&
+    snapshot.value
+  ) {
+    for (const [actionKind, label] of Object.entries(ROOM_ACTION_LABELS))
+      actions.push({
+        id: actionKind,
+        label,
+        disabled,
+        testId: `room-action-${actionKind}`,
+        run: () => {
+          guidedKind.value = actionKind as RoomActionKind;
+        },
+      });
+  }
+  if (unusedArt.value)
+    actions.push({
+      id: "make-room",
+      label: "Make it a room",
+      disabled,
+      title,
+      run: () => guidedAction({ kind: "make-room", key: editor.selected.value! }),
+    });
+  return actions;
+});
+const contextSecondary = computed<ContextAction[]>(() =>
+  numberedPart.value
+    ? [
+        {
+          id: "number",
+          label: "Change number…",
+          disabled: writeConflict.value || actionBusy.value,
+          run: changeNumber,
+        },
+      ]
+    : [],
+);
+
 /** Guided previews validate against the working snapshot, drafts included. */
 const guidedSnapshot = computed(() => {
   void editor.changeCount.value;
@@ -2010,8 +2124,11 @@ function resize(event: PointerEvent): void {
   host.classList.add("is-resizing");
   const paint = () => {
     frame = 0;
-    host.style.setProperty("--workspace-game", `minmax(0, ${value}fr)`);
-    host.style.setProperty("--workspace-edit", `minmax(0, ${100 - value}fr)`);
+    host.style.setProperty("--workspace-game", `minmax(var(--workspace-game-min), ${value}fr)`);
+    host.style.setProperty(
+      "--workspace-edit",
+      `minmax(var(--workspace-edit-min), ${100 - value}fr)`,
+    );
   };
   const move = (e: PointerEvent) => {
     value = Math.min(
@@ -2138,7 +2255,7 @@ onBeforeUnmount(() => {
   >
     <p v-for="message in editor.removalReview.value?.messages" :key="message">{{ message }}</p>
     <template #footer>
-      <UiButton variant="ghost" @click="editor.removalReview.value = undefined">Keep it</UiButton>
+      <UiButton variant="ghost" @click="editor.removalReview.value = undefined">Cancel</UiButton>
       <UiButton
         :disabled="editor.busy.value || editingPaused"
         @click="editor.step('undo', editor.removalReview.value)"
@@ -2358,87 +2475,9 @@ onBeforeUnmount(() => {
       @change="applyNumber"
     />
     <div v-if="contextRow" class="workspace-context" data-testid="workspace-context">
-      <template v-if="numberedPart">
-        <span data-testid="part-number">{{
-          numberedSlot(numberedPart.split(":")[0]!, Number(numberedPart.split(":")[1]))
-        }}</span>
-        <UiButton
-          size="sm"
-          variant="ghost"
-          :disabled="writeConflict || actionBusy"
-          :title="
-            writeConflict ? 'Editing is paused. Download your unsaved edits, then reload.' : ''
-          "
-          @click="changeNumber"
-          >Change number…</UiButton
-        >
-      </template>
-      <template v-if="editor.kind.value === 'picture' || editor.kind.value === 'view'">
-        <UiButton
-          size="sm"
-          variant="ghost"
-          :disabled="editingPaused || actionBusy"
-          :title="
-            writeConflict ? 'Editing is paused. Download your unsaved edits, then reload.' : ''
-          "
-          @click="
-            imagePanel = editor.selected.value;
-            imageGenerate = false;
-          "
-          >{{
-            editor.kind.value === "picture"
-              ? VOCABULARY.traceImage.label
-              : VOCABULARY.makeCels.label
-          }}</UiButton
-        >
-        <UiButton
-          size="sm"
-          variant="ghost"
-          :disabled="editingPaused || actionBusy"
-          :title="
-            writeConflict ? 'Editing is paused. Download your unsaved edits, then reload.' : ''
-          "
-          @click="
-            imagePanel = editor.selected.value;
-            imageGenerate = true;
-          "
-          >Generate</UiButton
-        >
-      </template>
-      <template
-        v-if="editor.kind.value === 'logic' && selectedRoom !== undefined && !debug?.state.epoch"
-      >
-        <UiButton
-          size="sm"
-          variant="ghost"
-          :disabled="actionBusy || editingPaused"
-          :title="
-            writeConflict
-              ? 'Editing is paused. Download your unsaved edits, then reload.'
-              : launchAction({
-                  pending: editor.changeCount.value > 0,
-                  launch: editor.selectedLaunch.value,
-                  launchName: launchName(editor.selectedLaunch.value, editor.launchChoices.value),
-                  room: editor.actionRoomName.value,
-                  here: engine.roomMap.currentRoom.value === editor.actionRoom.value,
-                }).label
-          "
-          @click="updateGame()"
-          >▶ Play {{ editor.actionRoomName.value }}</UiButton
-        >
-        <UiButton
-          size="sm"
-          variant="ghost"
-          :disabled="actionBusy || editingPaused"
-          :title="
-            writeConflict
-              ? 'Editing is paused. Download your unsaved edits, then reload.'
-              : 'Debug (F5)'
-          "
-          @click="editor.debugCommand.value?.('start')"
-          >Debug {{ editor.actionRoomName.value }}</UiButton
-        >
-      </template>
+      <span v-if="numberedPart" data-testid="part-number">{{
+        numberedSlot(numberedPart.split(":")[0]!, Number(numberedPart.split(":")[1]))
+      }}</span>
       <DebugControls
         v-if="
           debug?.state.epoch &&
@@ -2449,12 +2488,14 @@ onBeforeUnmount(() => {
       <UiChip v-if="editor.debugStatus.value" tone="warn" data-testid="workspace-debug-status">{{
         editor.debugStatus.value
       }}</UiChip>
+      <ContextActions :actions="contextActions" :secondary="contextSecondary" />
       <GuidedAdd
         v-if="
           (editor.kind.value === 'logic' || editor.kind.value === 'picture') &&
           selectedRoom !== undefined &&
           snapshot
         "
+        hide-actions
         v-model:action="guidedKind"
         :room="selectedRoom"
         :initial-command="guidedCommand"
@@ -2470,17 +2511,6 @@ onBeforeUnmount(() => {
       />
       <span v-if="unusedArt" class="workspace-context__note" data-testid="workspace-unused"
         >Not used by a room yet</span
-      >
-      <UiButton
-        v-if="unusedArt"
-        size="sm"
-        variant="ghost"
-        :disabled="actionBusy || editingPaused"
-        :title="
-          writeConflict ? 'Resolve the project conflict first' : actionBusy ? 'Saving the room' : ''
-        "
-        @click="guidedAction({ kind: 'make-room', key: editor.selected.value! })"
-        >Make it a room</UiButton
       >
       <!-- The open editor's own context (the picture's drawing place) teleports here. -->
       <span id="workspace-context-editor" class="workspace-context__editor"></span>
@@ -2500,6 +2530,7 @@ onBeforeUnmount(() => {
         :image-revision="snapshot?.version('images') ?? 0"
         :resource-revision="snapshot?.version(imagePanel) ?? 0"
         @close="imagePanel = undefined"
+        @busy="imageBusy = $event"
         @changed="
           draftChanged(true);
           refresh();
@@ -2538,23 +2569,20 @@ onBeforeUnmount(() => {
         >Back to {{ numberedLabel("room", returnRoom, { rooms: allRooms }) }}</UiButton
       >
     </div>
-    <p
-      v-if="
-        diagnostics.some((entry) => entry.severity === 'error') && editor.kind.value === 'logic'
-      "
-      class="workspace-error"
-      data-testid="workspace-last-good"
-    >
-      The game keeps running the last working version. Fix the errors below.
-    </p>
     <Teleport
       v-if="creating && editor.error.value && !engine.state.leaving && !editor.exitRefusal.value"
       defer
       :to="editor.history.value ? '#workspace-history-errors' : undefined"
       :disabled="!editor.history.value"
     >
-      <p class="workspace-error" role="alert">
-        {{ editor.error.value }} <UiButton v-if="!writeConflict" @click="retrySave">Retry</UiButton>
+      <p
+        class="workspace-error"
+        :class="{ 'workspace-build-error': buildErrorNotice }"
+        role="alert"
+      >
+        {{ editor.error.value }}
+        <UiButton v-if="buildErrorNotice" @click="goToBuildError">Go to error</UiButton>
+        <UiButton v-else-if="!writeConflict" @click="retrySave">Retry</UiButton>
       </p>
     </Teleport>
     <div
@@ -2573,6 +2601,7 @@ onBeforeUnmount(() => {
         :image-revision="snapshot?.version('images') ?? 0"
         :resource-revision="snapshot?.version(key) ?? 0"
         @close="imagePanel = undefined"
+        @busy="imageBusy = $event"
         @changed="
           draftChanged(true);
           refresh();
@@ -2658,6 +2687,7 @@ onBeforeUnmount(() => {
         :profile-id="profile.id"
         :active="creating && key === editor.selected.value"
         @edit="edit(key, $event)"
+        @typing-end="endTyping"
         @selection="editor.setAgentContext(key, $event)"
         @problems="reportProblems(key, $event)"
       />
@@ -2704,6 +2734,7 @@ onBeforeUnmount(() => {
         v-else-if="key === 'notes'"
         :source="text(key) ?? ''"
         @edit="edit(key, $event)"
+        @typing-end="endTyping"
       />
       <GameStateTab
         v-else-if="key === 'state'"
@@ -2810,7 +2841,7 @@ onBeforeUnmount(() => {
         size="sm"
         type="submit"
         :disabled="editingPaused || editor.busy.value"
-        >{{ editingName === undefined ? "Name this version" : "Save name" }}</UiButton
+        >{{ editingName === undefined ? "Name this version" : "Rename" }}</UiButton
       >
       <UiButton
         v-if="editingName !== undefined"

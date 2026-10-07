@@ -55,7 +55,52 @@ import type { LogicAnalysisClient } from "./analysisClient.ts";
 import type { LspOperations, Range, WorkspaceEdit } from "../../../../src/logic/lspTypes.ts";
 import { SEMANTIC_LEGEND } from "../../../../src/logic/lspTypes.ts";
 
+import { MenuId, MenuRegistry } from "monaco-editor/platform/actions/common/actions.js";
+
+import { ContextKeyExpr } from "monaco-editor/platform/contextkey/common/contextkey.js";
+
 export { monaco };
+
+const LOGIC_CONTEXT_MENU = new MenuId("agi.logicContext");
+
+/** Keep menu presentation local to LOGIC; Monaco's keyboard commands remain registered. */
+export function registerLogicContextMenu(
+  editor: monaco.editor.IStandaloneCodeEditor,
+  findReferences: () => Promise<void>,
+): monaco.IDisposable {
+  const menu = LOGIC_CONTEXT_MENU;
+  // Monaco 0.57 exposes this getter to its context-menu contribution, but omits
+  // it from the standalone construction options and public editor interface.
+  Object.defineProperty(editor, "contextMenuId", { value: menu });
+  const action = editor.addAction({
+    id: "agi.findReferences",
+    label: "Find references",
+    keybindings: [monaco.KeyMod.Shift | monaco.KeyCode.F12],
+    run: findReferences,
+  });
+  const items = [
+    ["editor.action.revealDefinition", "Go to definition", "1_navigation", 1],
+    [`${editor.getId()}:agi.findReferences`, "Find references", "1_navigation", 2],
+    ["editor.action.rename", "Rename…", "1_navigation", 3],
+    ["editor.action.clipboardCutAction", "Cut", "9_clipboard", 1],
+    ["editor.action.clipboardCopyAction", "Copy", "9_clipboard", 2],
+    ["editor.action.clipboardPasteAction", "Paste", "9_clipboard", 3],
+  ] as const;
+  const entries = items.map(([id, title, group, order]) =>
+    MenuRegistry.appendMenuItem(menu, {
+      command: { id, title },
+      group,
+      order,
+      when: ContextKeyExpr.equals("editorId", editor.getId()),
+    }),
+  );
+  return {
+    dispose() {
+      for (const entry of entries) entry.dispose();
+      action.dispose();
+    },
+  };
+}
 
 /** Language identifier hosts pass to `monaco.editor.createModel`. */
 export const LOGIC_LANGUAGE_ID = "agi-logic";
@@ -379,8 +424,8 @@ monaco.languages.registerHoverProvider(LOGIC_LANGUAGE_ID, {
     const contents: monaco.IMarkdownString[] = [
       {
         value: hover.contents.value.replace(
-          "Name it… F2",
-          `[Name it…](command:agi.nameOperand?${encodeURIComponent(JSON.stringify([model.id, position]))}) F2`,
+          "Rename… F2",
+          `[Rename…](command:agi.nameOperand?${encodeURIComponent(JSON.stringify([model.id, position]))}) F2`,
         ),
         isTrusted: { enabledCommands: ["agi.nameOperand"] },
       },

@@ -61,8 +61,8 @@ if (!isset(f200)) {
   set(f200);
   configure.screen(1, 22, 0);
   status.line.on();
-  set(f9);
-  assignn(v10, 2);
+  set(sound_on);
+  assignn(cycle_speed, 2);
   set.menu(m1);
   set.menu.item(m2, C_SAVE);
   set.menu.item(m3, C_RESTORE);
@@ -80,7 +80,7 @@ if (!isset(f200)) {
   set.menu.item(m15, C_HELP);
   set.menu.item(m16, C_ABOUT);
   submit.menu();
-  set(f14);
+  set(menus_on);
   set.key(27, 0, C_MENU);
   set.key(0, 59, C_HELP);
   set.key(0, 63, C_SAVE);
@@ -88,10 +88,10 @@ if (!isset(f200)) {
   set.key(0, 67, C_RESTART);
   set.key(0, 44, C_QUIT);
   set.key(9, 0, C_INVENTORY);
-  assignn(v0, 1);
-  new.room.v(v0);
+  assignn(current_room, 1);
+  new.room.v(current_room);
 }
-call.v(v0);
+call.v(current_room);
 if (isset(f202)) { call(255); }
 if (!isset(f202)) {
   if (controller(C_MENU)) { menu.input(); }
@@ -99,35 +99,34 @@ if (!isset(f202)) {
   if (controller(C_RESTORE)) { restore.game(); }
   if (controller(C_RESTART)) { restart.game(); }
   if (controller(C_QUIT)) { quit(0); }
-  if (controller(C_SLOW)) { assignn(v10, 4); }
-  if (controller(C_NORMAL)) { assignn(v10, 2); }
-  if (controller(C_FAST)) { assignn(v10, 1); }
-  if (controller(C_FASTEST)) { assignn(v10, 0); }
-  if (controller(C_SOUND_ON)) { set(f9); }
-  if (controller(C_SOUND_OFF)) { reset(f9); }
+  if (controller(C_SLOW)) { assignn(cycle_speed, 4); }
+  if (controller(C_NORMAL)) { assignn(cycle_speed, 2); }
+  if (controller(C_FAST)) { assignn(cycle_speed, 1); }
+  if (controller(C_FASTEST)) { assignn(cycle_speed, 0); }
+  if (controller(C_SOUND_ON)) { set(sound_on); }
+  if (controller(C_SOUND_OFF)) { reset(sound_on); }
   if (controller(C_HELP)) { print("Type a command and press ENTER. Arrow keys walk. ESC opens the menu."); }
   if (controller(C_ABOUT)) { print("An adventure written with AGI IS HERE."); }
   if (controller(C_INVENTORY)) { status(); }
 }
-if (isset(f2) && !isset(f4) && !isset(f202)) {
-  if (greatern(v9, 0)) {
-    if (equaln(v9, 1)) { word.to.string(s11, 1); }
-    if (equaln(v9, 2)) { word.to.string(s11, 2); }
-    if (equaln(v9, 3)) { word.to.string(s11, 3); }
-    if (equaln(v9, 4)) { word.to.string(s11, 4); }
-    if (equaln(v9, 5)) { word.to.string(s11, 5); }
-    if (equaln(v9, 6)) { word.to.string(s11, 6); }
-    if (equaln(v9, 7)) { word.to.string(s11, 7); }
-    if (equaln(v9, 8)) { word.to.string(s11, 8); }
-    if (equaln(v9, 9)) { word.to.string(s11, 9); }
-    if (equaln(v9, 10)) { word.to.string(s11, 10); }
-    if (equaln(v9, 11)) { word.to.string(s11, 11); }
+if (isset(input_received) && !isset(input_handled) && !isset(f202)) {
+  if (greatern(parser_status, 0)) {
+    if (equaln(parser_status, 1)) { word.to.string(s11, 1); }
+    if (equaln(parser_status, 2)) { word.to.string(s11, 2); }
+    if (equaln(parser_status, 3)) { word.to.string(s11, 3); }
+    if (equaln(parser_status, 4)) { word.to.string(s11, 4); }
+    if (equaln(parser_status, 5)) { word.to.string(s11, 5); }
+    if (equaln(parser_status, 6)) { word.to.string(s11, 6); }
+    if (equaln(parser_status, 7)) { word.to.string(s11, 7); }
+    if (equaln(parser_status, 8)) { word.to.string(s11, 8); }
+    if (equaln(parser_status, 9)) { word.to.string(s11, 9); }
+    if (equaln(parser_status, 10)) { word.to.string(s11, 10); }
+    if (equaln(parser_status, 11)) { word.to.string(s11, 11); }
     print("I don't know the word \\"%s11\\".");
   } else {
     print("I don't understand that.");
   }
 }
-return;
 `;
 
 /**
@@ -135,7 +134,7 @@ return;
  * line first, then `call(255)`: the first call stops movement, silences the
  * parser and menu, plays the death sound and draws the choice box; while f202
  * stays set logic 0 re-calls this logic every cycle, which is how the box
- * polls — v19 carries the raw key, F7/F9/Alt-Z arrive as controllers, and the
+ * polls — key_pressed carries the raw key, F7/F9/Alt-Z arrive as controllers, and the
  * box redraws each pass so a cancelled selector never leaves a broken screen.
  * SPACE steps the choice down, ENTER takes it, 1-3 choose directly. Restore,
  * restart and quit all run through the ordinary engine flows: a successful
@@ -160,19 +159,19 @@ if (!isset(f202)) {
   prevent.input();
   stop.motion(o0);
   stop.cycling(o0);
-  reset(f14);
+  reset(menus_on);
   load.sound(255);
   sound(255, f201);
 }
 reset(f203);
-if (equaln(v19, 32)) {
+if (equaln(key_pressed, 32)) {
   increment(v250);
   if (equaln(v250, 3)) { assignn(v250, 0); }
 }
-if (equaln(v19, 49)) { assignn(v250, 0); set(f203); }
-if (equaln(v19, 50)) { assignn(v250, 1); set(f203); }
-if (equaln(v19, 51)) { assignn(v250, 2); set(f203); }
-if (equaln(v19, 13)) { set(f203); }
+if (equaln(key_pressed, 49)) { assignn(v250, 0); set(f203); }
+if (equaln(key_pressed, 50)) { assignn(v250, 1); set(f203); }
+if (equaln(key_pressed, 51)) { assignn(v250, 2); set(f203); }
+if (equaln(key_pressed, 13)) { set(f203); }
 if (controller(C_RESTORE)) { assignn(v250, 0); set(f203); }
 if (controller(C_RESTART)) { assignn(v250, 1); set(f203); }
 if (controller(C_QUIT)) { assignn(v250, 2); set(f203); }
@@ -192,7 +191,6 @@ if (equaln(v250, 0)) { display(12, 13, m1); display(13, 13, m2); display(14, 13,
 if (equaln(v250, 1)) { display(12, 13, m2); display(13, 13, m1); display(14, 13, m2); }
 if (equaln(v250, 2)) { display(12, 13, m2); display(13, 13, m2); display(14, 13, m1); }
 set.text.attribute(15, 0);
-return;
 `;
 
 /** A descending sting; stored divisors preserve the released resource bytes. */

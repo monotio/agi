@@ -1,21 +1,25 @@
 /** Browser storage for the engine's twelve authentic save images, scoped per game. */
 import type { ProgressTarget } from "../project/progressTarget.ts";
+import { earlierProgressReceiptKey } from "../project/earlierProgressReceipt.ts";
 import { progressWriterMatches } from "./progressWriter.ts";
 type SaveStorage = Pick<Storage, "getItem" | "setItem">;
 
-function gameSavesKey(targetKey: string): string {
+export function gameSavesKey(targetKey: string): string {
   return `monotio_agi.saves.${encodeURIComponent(targetKey)}`;
 }
 
 /** Read native images and their optional timing from one storage snapshot. */
 export function readGameSaveRecord(
-  storage: SaveStorage,
+  storage: Pick<Storage, "getItem">,
   target: string | ProgressTarget,
 ): { slots: Record<string, string>; amigaRegions: Record<string, "ntsc" | "pal"> } {
   const targetKey = typeof target === "string" ? target : target.locator;
   const stored =
     storage.getItem(gameSavesKey(targetKey)) ??
-    (typeof target !== "string" && target.kind === "project" && target.bodyEpoch === "initial"
+    (typeof target !== "string" &&
+    target.kind === "project" &&
+    target.bodyEpoch === "initial" &&
+    storage.getItem(earlierProgressReceiptKey(target.project)) === null
       ? storage.getItem(gameSavesKey(target.project))
       : null);
   if (stored === null) return { slots: {}, amigaRegions: {} };

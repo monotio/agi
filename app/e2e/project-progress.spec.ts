@@ -104,8 +104,8 @@ for (const size of [
       await expect
         .soft(savedGameCard(page, "older-position").getByTestId("older-position-choice"))
         .toBeVisible();
-      if (await choice.getByRole("button", { name: "Not now", exact: true }).count()) {
-        await choice.getByRole("button", { name: "Not now", exact: true }).click();
+      if (await choice.getByRole("button", { name: "Cancel", exact: true }).count()) {
+        await choice.getByRole("button", { name: "Cancel", exact: true }).click();
         await expect(choice).toHaveCount(0);
         expect(await page.evaluate((key) => localStorage.getItem(key), original.key)).toBe(
           original.raw,
@@ -116,7 +116,7 @@ for (const size of [
         } else await savedGameCard(page, "older-position").getByTestId("btn-resume-cached").click();
       }
       const choiceBox = (await choice.boundingBox())!;
-      for (const label of ["Start the latest version", "Not now"]) {
+      for (const label of ["Start the latest version", "Cancel"]) {
         const button = choice.getByRole("button", { name: label, exact: true });
         const box = (await button.boundingBox())!;
         expect.soft(box.x + box.width).toBeLessThanOrEqual(choiceBox.x + choiceBox.width);

@@ -360,7 +360,7 @@ test("a served folder at another revision does not answer the pointer's revision
   assert.equal(localStorage.getItem(RESUME_POINTER_KEY), stale.locator);
 });
 
-test("a released lastGame checkpoint offers Resume against its matching saved body", async (t) => {
+test("an unreadable released lastGame checkpoint stays in its source without offering Resume", async (t) => {
   const cleanup = cleanupAfter(t);
   installLocalStorage(t);
   const engine = fakeEngine();
@@ -380,13 +380,12 @@ test("a released lastGame checkpoint offers Resume against its matching saved bo
   localStorage.setItem(LEGACY_LAST_GAME_KEY, id);
 
   const lib = library(engine.api);
-  await flush();
+  assert.equal(await lib.routedResumeOffer(id), null);
   lib.refreshPendingAutosave();
-  assert.deepEqual(lib.pendingAutosave.value, record);
-  assert.equal(lib.pendingProgressTarget.value?.locator, target.locator);
-  assert.deepEqual(await lib.routedResumeOffer(id), { record, target });
+  assert.equal(lib.pendingAutosave.value, undefined);
+  assert.equal(lib.pendingProgressTarget.value, undefined);
   // The released bytes and key survive untouched, readable as Earlier context.
-  assert.deepEqual(readGameProgress(localStorage, target).autosave, record);
+  assert.equal(readGameProgress(localStorage, target).autosave, null);
   assert.equal(
     (JSON.parse(localStorage.getItem(`monotio_agi.autosave.${id}`)!) as AutosaveRecord).game
       .identity.project,

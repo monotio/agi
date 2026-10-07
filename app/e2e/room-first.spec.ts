@@ -1,7 +1,7 @@
 import type { Page } from "@playwright/test";
 import { test, expect } from "./test.ts";
 import { isolateStorage, textHook, workspaceSaved, workspaceUpdated } from "./engineProbe.ts";
-import { workspaceDocument } from "./workspaceShared.ts";
+import { clickContextAction, workspaceDocument } from "./workspaceShared.ts";
 
 /** The room-first journey: a blank game grows rooms, names and a door with no forms. */
 async function blankGame(page: Page, title: string): Promise<void> {
@@ -200,7 +200,7 @@ test("blank game to Meadow, Room 2, a door drawn on the game and Play Room 2 @we
   await page.getByTestId("part-room:1:picture:1").click();
   await expect(page.getByRole("region", { name: "PICTURE: PICTURE 1", exact: true })).toBeVisible();
   await workspaceSaved(page);
-  await page.getByTestId("room-action-door").click();
+  await clickContextAction(page, "room-action-door");
   const overlay = page.getByTestId("guided-placement");
   await expect(overlay).toBeVisible();
   await expect(overlay).toContainText("Drag a box where the hero leaves");
@@ -364,49 +364,49 @@ for (const [width, height] of [
       scale: "css",
     });
     const expectedNames = [
-      "system_flag_0",
-      "system_flag_1",
-      "system_flag_2",
-      "system_flag_3",
-      "system_flag_4",
+      "ego_in_water",
+      "ego_hidden",
+      "input_received",
+      "ego_on_trigger",
+      "input_handled",
       "new_room",
       "restarted",
-      "system_flag_7",
-      "system_flag_8",
+      "no_save_loads",
+      "reserved_flag_8",
       "sound_on",
       "trace_on",
-      "system_flag_11",
-      "system_flag_12",
-      "system_flag_13",
+      "reserved_flag_11",
+      "restored",
+      "inventory_select",
       "menus_on",
-      "system_flag_15",
+      "message_no_wait",
       "current_room",
       "prev_room",
       "ego_edge",
       "score",
-      "object_event_4",
-      "object_event_5",
+      "edge_object",
+      "edge_object_edge",
       "ego_direction",
-      "system_var_7",
-      "system_var_8",
+      "max_score",
+      "free_memory",
       "parser_status",
       "cycle_speed",
-      "system_var_11",
-      "system_var_12",
-      "system_var_13",
-      "system_var_14",
-      "system_var_15",
-      "ego_view_num",
-      "system_var_17",
-      "system_var_18",
+      "clock_seconds",
+      "clock_minutes",
+      "clock_hours",
+      "clock_days",
+      "reserved_var_15",
+      "ego_view",
+      "reserved_var_17",
+      "reserved_var_18",
       "key_pressed",
-      "system_var_20",
-      "system_var_21",
-      "system_var_22",
-      "system_var_23",
-      "system_var_24",
+      "computer_type",
+      "message_time",
+      "sound_type",
+      "sound_volume",
+      "input_length",
       "selected_item",
-      "system_var_26",
+      "monitor_type",
     ];
     const rows = builtIn.locator("tr");
     await expect(rows).toHaveCount(43);
@@ -449,7 +449,7 @@ for (const [width, height] of [
     await expect(partRows.filter({ hasText: "current_room" })).toContainText(
       "Used: boot_logic · LOGIC",
     );
-    await expect(partRows.filter({ hasText: "system_var_11" })).toContainText(
+    await expect(partRows.filter({ hasText: "clock_seconds" })).toContainText(
       "Seconds on the game clock.",
     );
     await expect(partRows.last()).toContainText("The kind of screen; 3 means EGA.");

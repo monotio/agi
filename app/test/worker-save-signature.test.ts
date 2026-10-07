@@ -77,7 +77,7 @@ function boot(restoreImage?: string) {
     return assert.fail(`host request ${op} never posted`);
   };
   const answer = (op: string, response: string) =>
-    send({ type: "hostAnswer", id: request(op).id, response });
+    send({ type: "hostAnswer", generation: ctx.run.generation, id: request(op).id, response });
   /** Open the save selector with `slots` in storage and return the rendered list rows. */
   const openSave = (slots: { slot: number; image: string }[]) => {
     send({ type: "debugWrite", id: 0, flags: [[208, 1]] });
@@ -103,7 +103,12 @@ test("a resumed autosave lists the game's slots and writes signed saves", () => 
   const first = live.request("saveWrite");
   const courtyard = String(first.context["image"]);
   assert.deepEqual(signatureOf(courtyard), DEMO, "the fresh boot signs its save");
-  live.send({ type: "hostAnswer", id: first.id, response: "true" });
+  live.send({
+    type: "hostAnswer",
+    generation: live.ctx.run.generation,
+    id: first.id,
+    response: "true",
+  });
   live.tick(2);
 
   // Leave: the page keeps the autosave.

@@ -186,12 +186,19 @@ export async function replaceWorkspaceDocument(
   await workspaceSaved(page);
 }
 
+/** A room action stays reachable whether visible or in the measured overflow. */
+export async function clickContextAction(page: Page, testId: string): Promise<void> {
+  const action = page.getByTestId(testId);
+  if (!(await action.isVisible())) await page.getByTestId("context-more-actions").click();
+  await action.click();
+}
+
 export async function addWorkspaceResponse(
   page: Page,
   command: string,
   response: string,
 ): Promise<void> {
-  await page.getByTestId("room-action-response").click();
+  await clickContextAction(page, "room-action-response");
   const form = page.getByTestId("workspace-guided-form");
   await expect(form).toBeVisible();
   await form.getByLabel("When the player types…", { exact: true }).fill(command);
@@ -228,7 +235,7 @@ export async function addWorkspaceAction(
       "Play a sound when…": "room-action-play-sound",
     } as Record<string, string>
   )[label]!;
-  await page.getByTestId(testId).click();
+  await clickContextAction(page, testId);
   if (label === "Door") {
     // A door starts on the game; drive the form by exact numbers instead.
     const overlay = page.getByTestId("guided-placement");

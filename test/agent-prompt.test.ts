@@ -21,8 +21,8 @@ describe("agent system prompt", () => {
     assert.ok(example, "Include a compact example of the variable operand contract.");
     assert.deepEqual(
       [...assembleLogic(example, { dictionary: new Map() }).code],
-      [3, 40, 1, 24, 40, 25, 40, 26],
-      "assignn(v40,1), load.pic(v40), draw.pic(v40), show.pic()",
+      [3, 40, 1, 24, 40, 25, 40, 26, 0],
+      "assignn(v40,1), load.pic(v40), draw.pic(v40), show.pic(), implicit return",
     );
   });
 
@@ -237,7 +237,7 @@ describe("agent system prompt", () => {
     assert.ok(AGI_SYSTEM_PROMPT.includes("Write direct, concrete messages"));
     assert.ok(AGI_SYSTEM_PROMPT.includes("name visible items, actions and immediate outcomes"));
     assert.ok(AGI_SYSTEM_PROMPT.includes("Keep narration inside the game world"));
-    assert.ok(AGI_SYSTEM_PROMPT.includes("variable 3 (v3)"));
+    assert.ok(AGI_SYSTEM_PROMPT.includes("variable 3 (score)"));
     assert.ok(AGI_SYSTEM_PROMPT.includes("humor grow from the situation"));
     assert.ok(AGI_SYSTEM_PROMPT.includes("Keep routine responses short"));
     assert.ok(AGI_SYSTEM_PROMPT.includes("Let character voices fit the setting"));

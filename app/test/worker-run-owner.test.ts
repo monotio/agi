@@ -37,7 +37,12 @@ test("losing play ownership holds a host answer until a newer generation takes i
   const request = control.find((msg) => msg.type === "hostRequest");
   assert.ok(request?.type === "hostRequest");
   onWorkerMessage(ctx, { type: "playOwner", active: false, generation: 2 });
-  onWorkerMessage(ctx, { type: "hostAnswer", id: request.id, response: "9" });
+  onWorkerMessage(ctx, {
+    type: "hostAnswer",
+    generation: ctx.run.generation,
+    id: request.id,
+    response: "9",
+  });
   ctx.fns.tickEngine();
   assert.equal(ctx.run.engine!.vars[80], 0);
   assert.equal(ctx.run.engine!.vars[81], 0);

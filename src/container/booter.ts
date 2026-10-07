@@ -72,7 +72,7 @@ function recordEnd(image: Uint8Array, offset: number, name: string): number {
  * Native interpreter data is returned separately and never assigned a later
  * version label. No resource bytecode, inventory, or sound conversion occurs.
  */
-export function decodeBooter(image: Uint8Array): DecodedBooter {
+export function decodeBooter(image: Uint8Array, reserve?: (bytes: number) => void): DecodedBooter {
   if (image.length !== IMAGE_BYTES)
     throw new Error(`Unsupported PC booter disk image size: ${image.length}`);
   const signature = "BOOT v2.0";
@@ -89,6 +89,7 @@ export function decodeBooter(image: Uint8Array): DecodedBooter {
       if (offset < record.offset + RECORD_HEADER_BYTES + record.bytes && record.offset < end)
         throw new Error(`${name}: master record overlaps ${previous}`);
     fileTable[name] = { slot, offset, bytes: end - offset - RECORD_HEADER_BYTES };
+    reserve?.(end - offset - RECORD_HEADER_BYTES);
     files.set(name, image.slice(offset + RECORD_HEADER_BYTES, end));
   }
 
@@ -120,6 +121,7 @@ export function decodeBooter(image: Uint8Array): DecodedBooter {
       volumeEnd = Math.max(volumeEnd, end);
     }
   }
+  reserve?.(volumeEnd - volumeOffset);
   files.set("VOL.0", image.slice(volumeOffset, volumeEnd));
   fileTable["VOL.0"] = { slot: VOLUME_SLOT, offset: volumeOffset, bytes: volumeEnd - volumeOffset };
   return {

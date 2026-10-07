@@ -67,8 +67,15 @@ test("From the beginning resets the RNG word to the cold boot stream", (t) => {
     y: 0,
     launch: { state: { seed: 1234 } },
   });
+  let reads = 0;
+  ctx.ports.seedWord = () => {
+    reads++;
+    return 0x1234;
+  };
   ctx.fns.onPlayHere({ type: "playHere", id: 2, room: 1, x: 0, y: 0, launch: { beginning: true } });
-  assert.equal(ctx.host.randomByte!(), 50);
+  assert.equal(reads, 0);
+  assert.equal(ctx.host.randomByte!(), 12);
+  assert.equal(reads, 1);
 });
 
 test("Debug Launch refuses mismatched sources before replacing or executing the run", (t) => {

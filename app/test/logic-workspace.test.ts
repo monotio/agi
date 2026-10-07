@@ -28,7 +28,7 @@ test("a bytes-only logic gets a clearly derived preview, never treated as source
     bindings: {},
   });
   const preview = derivedLogicSource(compiled.assembly.payload, "2.411", []);
-  assert.ok(preview.source.includes("return"), "the preview renders disassembly text");
+  assert.equal(preview.source, "assignn(v40, 1);\n", "the preview renders disassembly text");
 });
 
 test("an unreadable payload previews as a named failure instead of throwing", () => {
