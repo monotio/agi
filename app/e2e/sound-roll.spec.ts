@@ -114,10 +114,12 @@ test("draw, audition, track and import MIDI beside the game @webkit-desktop", as
     .setInputFiles({ name: "generated.mid", mimeType: "audio/midi", buffer: midi });
   const summary = panel.getByTestId("sound-import-summary");
   await expect(summary).toContainText("Timing rounded to 60 Hz");
-  await expect(panel.getByRole("button", { name: "Replace SOUND 1", exact: true })).toBeVisible();
+  await expect(
+    panel.getByRole("button", { name: "Replace chime_sound (SOUND 1)", exact: true }),
+  ).toBeVisible();
   await panel.getByRole("button", { name: "Tracker", exact: true }).click();
   await expect(panel.getByLabel("Voice 1, tick 120, note", { exact: true })).toHaveValue("C5");
-  await summary.getByRole("button", { name: "Replace SOUND 1", exact: true }).click();
+  await summary.getByRole("button", { name: "Replace chime_sound (SOUND 1)", exact: true }).click();
   await expect(panel.getByLabel("Voice 1, tick 11, note", { exact: true })).toHaveValue("A4");
   await expect(panel.getByLabel("Voice 1, tick 11, length in ticks", { exact: true })).toHaveValue(
     "1",

@@ -46,7 +46,7 @@ for (const size of [
           buffer: Buffer.from(exportMidi(music)),
         });
         await expect(
-          page.getByRole("button", { name: "Replace SOUND 1", exact: true }),
+          page.getByRole("button", { name: "Replace chime_sound (SOUND 1)", exact: true }),
         ).toBeVisible();
       }
       const other = await context.newPage();
@@ -108,7 +108,7 @@ for (const size of [
         await expect(preview).toBeVisible();
         await expect(preview).toContainText("pending.mid");
         await expect(
-          preview.getByRole("button", { name: "Replace SOUND 1", exact: true }),
+          preview.getByRole("button", { name: "Replace chime_sound (SOUND 1)", exact: true }),
         ).toBeDisabled();
         await expect(preview.getByRole("button", { name: "Cancel", exact: true })).toBeEnabled();
         await editor.getByRole("button", { name: "Tracker", exact: true }).click();

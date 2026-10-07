@@ -36,6 +36,7 @@ import { followedItem } from "../../../src/studio/rules/ruleBinding.ts";
 import type { RuleSession } from "../../../src/studio/rules/ruleEdit.ts";
 import type { Point } from "../../../src/studio/shapes.ts";
 import { engineKey } from "../engine/engineContext.ts";
+import { projectLabelContext } from "../shell/projectLabelContext.ts";
 import { useMaybeWorkspaceEditor } from "../shell/workspaceEditor.ts";
 import type { StudioRoomSource } from "../world/studioSource.ts";
 import type { LessonSession } from "../lessons/lessonCheck.ts";
@@ -273,6 +274,15 @@ const readout = useStudioReadout({ doc, selection });
 const { stops, drawn, single, pixel, fill, labelOf, status, position } = readout;
 /** The engine, when Studio runs in the app (the harness has none). */
 const engineApi = inject(engineKey, null);
+const probeLabels = computed(() => {
+  void engineApi?.state.patchTick;
+  return engineApi
+    ? projectLabelContext(
+        engineApi.getProjectSession()?.workingSnapshot().documents() ?? {},
+        profile,
+      )
+    : { bindings: walk?.authoring.bindings ?? {} };
+});
 const workspaceEditor = useMaybeWorkspaceEditor();
 /** In the frame this tab reports its sheet and shares to the frame's bars. */
 const inWorkspace = workspaceEditor !== null;
@@ -1624,7 +1634,12 @@ function onKeyup(event: KeyboardEvent): void {
             :outcome="lesson.outcome.value"
           />
           <!-- The probe's readout docks here too: on the art, only the ghost and its handle. -->
-          <GhostReadout v-if="ghost.active.value" :probe="ghost" :describe-cell="describeCell" />
+          <GhostReadout
+            v-if="ghost.active.value"
+            :probe="ghost"
+            :describe-cell="describeCell"
+            :labels="probeLabels"
+          />
         </template>
         <template #editor>
           <StudioGroupEditor

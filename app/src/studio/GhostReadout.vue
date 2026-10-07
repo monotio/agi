@@ -1,6 +1,5 @@
 <script setup lang="ts">
-import { numberedLabel } from "../../../src/logic/numberedLabels.ts";
-import { useProjectLabels } from "../shell/useProjectLabels.ts";
+import { numberedLabel, type NumberedLabelContext } from "../../../src/logic/numberedLabels.ts";
 import { computed } from "vue";
 import { SCREEN_WIDTH } from "../../../src/types.ts";
 import UiExplain from "../ui/UiExplain.vue";
@@ -16,12 +15,16 @@ import type { GhostProbe } from "./useGhostProbe.ts";
  * which view, loop and cel, the priority it draws at, where its feet stand
  * and what the engine makes of that spot.
  */
-const { probe, describeCell = undefined } = defineProps<{
+const {
+  probe,
+  describeCell = undefined,
+  labels = {},
+} = defineProps<{
   probe: GhostProbe;
+  labels?: NumberedLabelContext;
   /** The priority-plane item owning a cell, for the verdict. */
   describeCell?: ((x: number, y: number) => string | undefined) | undefined;
 }>();
-const labels = useProjectLabels();
 
 // The probe object is fixed for the component's life; its refs are the state.
 const {
@@ -104,7 +107,7 @@ const footprintText = computed(() => {
 
 const PRIORITIES = [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15] as const;
 const viewLabel = (number: number, description: string | undefined): string =>
-  `${numberedLabel("view", number, labels.value, "row")}${description ? ` · ${description}` : ""}`;
+  `${numberedLabel("view", number, labels, "row")}${description ? ` · ${description}` : ""}`;
 </script>
 
 <template>
