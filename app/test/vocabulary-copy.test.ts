@@ -136,13 +136,13 @@ test("copy extraction detects visible text and dynamic tooltips while ignoring i
 // The three tool actions currently exposed by editor controls. These bindings
 // must resolve to shared help; surrounding shortcut and refusal copy is separate.
 test("editor action tooltips bind to shared action help", () => {
-  assert.equal(ROOM_TOOL_NAMES.walk, VOCABULARY_ACTIONS.playtest_room.label);
-  assert.equal(ROOM_TOOL_HINTS.walk, VOCABULARY_ACTIONS.playtest_room.help);
+  assert.equal(ROOM_TOOL_NAMES.walk, VOCABULARY.testWalk.label);
+  assert.equal(ROOM_TOOL_HINTS.walk, VOCABULARY.testWalk.help);
   const bindings: Readonly<Record<string, readonly string[]>> = {
     "app/src/studio/workspace/GuidedAdd.vue": ['"play-sound": "Sound when…"'],
     "app/src/studio/StudioToolRail.vue": [
-      'if (entry.id === "walk") return VOCABULARY_ACTIONS.playtest_room.help;',
-      "label: VOCABULARY_ACTIONS.playtest_room.label",
+      'if (entry.id === "walk") return VOCABULARY.testWalk.help;',
+      "label: VOCABULARY.testWalk.label",
       ':title="toolTitle(entry)"',
     ],
   };
@@ -235,4 +235,12 @@ test("Keep action labels are retired while tab-open sentences remain allowed", (
     "Could not save. Keep this tab open until it says Saved.",
   ])
     assert.equal(pattern.test(copy), false, copy);
+});
+
+test("Playtest names only the agent's playtest; the room tool and the phone tab say what they do", () => {
+  assert.equal(ROOM_TOOL_NAMES.walk, "Test walk");
+  assert.doesNotMatch(ROOM_TOOL_HINTS.walk, /playtest/i);
+  const workspace = readFileSync("app/src/studio/workspace/CreateWorkspace.vue", "utf8");
+  assert.doesNotMatch(workspace, />\s*Playtest\s*</);
+  assert.match(workspace, /phonePlaytest\.value = true"\s*>Game</);
 });

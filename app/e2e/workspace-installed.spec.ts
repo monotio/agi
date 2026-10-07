@@ -103,7 +103,7 @@ for (const viewport of [
         // On a phone, Update switches to Playtest (Picture editor storyboard);
         // return to Edit to compare the same surfaces.
         const modes = page.getByRole("group", { name: "Picture workspace" });
-        const playtest = modes.getByRole("button", { name: "Playtest", exact: true });
+        const playtest = modes.getByRole("button", { name: "Game", exact: true });
         await expect(playtest).toHaveAttribute("aria-pressed", "true");
         // The note must leave the mode toggle reachable.
         const [toggle, noteBox] = await Promise.all([modes.boundingBox(), note.boundingBox()]);

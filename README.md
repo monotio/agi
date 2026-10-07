@@ -113,7 +113,7 @@ The workspace keeps the game running on the stage. PICTURE opens its own canvas;
 opening another room’s PICTURE, LOGIC or VIEW opens its editor. **Play** enters
 the room using its selected Launch. Unused art opens with **Make it a room**.
 Editors sit beside the stage or below it with **Stacked**. Phones switch between
-**Edit** and **Playtest**. **Update and restart** applies drafts together in one Undo step and re-enters the open room.
+**Edit** and **Game**. **Update and restart** applies drafts together in one Undo step and re-enters the open room.
 LOGIC has code completion,
 hover documentation, definition navigation and a Problems panel. Resource names
 open their editors; flags and variables show where they are set and checked.

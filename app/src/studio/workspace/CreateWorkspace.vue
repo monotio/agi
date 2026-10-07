@@ -1972,7 +1972,7 @@ onBeforeUnmount(() => {
       variant="ghost"
       :aria-pressed="editor.phonePlaytest.value"
       @click="editor.phonePlaytest.value = true"
-      >Playtest</UiButton
+      >Game</UiButton
     >
   </div>
   <aside

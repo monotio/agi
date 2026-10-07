@@ -892,7 +892,7 @@ a.publisher:hover > span {
     width: 164px;
   }
 }
-/* Phones keep the toolbar and Edit/Playtest toggle clear: the note sits at the bottom. */
+/* Phones keep the toolbar and Edit/Game toggle clear: the note sits at the bottom. */
 @media (max-width: 600px) {
   .copy-created-note {
     position: fixed;

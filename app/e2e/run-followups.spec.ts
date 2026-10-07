@@ -29,7 +29,7 @@ for (const [width, height] of [
       await expect(action).toBeVisible();
       await action.click();
       await waitForRoom(page, 8);
-      if (width === 390) await page.getByRole("button", { name: "Playtest", exact: true }).click();
+      if (width === 390) await page.getByRole("button", { name: "Game", exact: true }).click();
       const back = page
         .getByTestId("workspace-game-bar")
         .getByRole("button", { name: "Back to Room 1", exact: true });

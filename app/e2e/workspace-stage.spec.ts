@@ -496,7 +496,7 @@ for (const size of [
     ).toBeVisible();
     await playRoom(page);
     if (size.width <= 600)
-      await page.getByRole("button", { name: "Playtest", exact: true }).click();
+      await page.getByRole("button", { name: "Game", exact: true }).click();
     const surface = page.locator(".game-surface:visible");
     await expect(surface).toBeVisible();
     const ratio = await surface.evaluate(

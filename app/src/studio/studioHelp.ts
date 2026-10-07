@@ -1,4 +1,4 @@
-import { VOCABULARY_ACTIONS } from "../../../src/vocabulary.ts";
+import { VOCABULARY } from "../../../src/vocabulary.ts";
 /**
  * The Studios' keyboard help, kept off the canvas: a tool's name and one
  * short line for the status bar, and the full key list the `?` sheet shows
@@ -24,7 +24,7 @@ export const ROOM_TOOL_NAMES: Record<StudioTool, string> = {
   brush: "Brush",
   pipette: "Pipette",
   hand: "Hand",
-  walk: VOCABULARY_ACTIONS.playtest_room.label,
+  walk: VOCABULARY.testWalk.label,
   door: "Door box",
   edge: "Edge exit",
 };
@@ -40,7 +40,7 @@ export const ROOM_TOOL_HINTS: Record<StudioTool, string> = {
   brush: "Drag to place plot points, one per pixel",
   pipette: "Click to pick the colour and depth under the cursor",
   hand: "Drag to pan · Space pans with any tool",
-  walk: VOCABULARY_ACTIONS.playtest_room.help,
+  walk: VOCABULARY.testWalk.help,
   door: "Drag a door box on the floor",
   edge: "Click near an edge: walking off it changes room",
 };

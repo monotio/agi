@@ -178,7 +178,7 @@ for (const [width, height] of [
       await expect(page.getByTestId("workspace-room")).toContainText("Room 1");
       await expect(page.getByTestId("workspace-saved")).toBeVisible();
       await expect.soft(page.getByTestId("workspace-saved")).toHaveText("Draft saved");
-      if (width <= 600) await page.getByRole("button", { name: "Playtest", exact: true }).click();
+      if (width <= 600) await page.getByRole("button", { name: "Game", exact: true }).click();
       await expect(page.getByTestId("workspace-live")).toBeVisible();
       await expect.soft(page.getByTestId("workspace-live")).toHaveText("Now");
       await expect(page.getByTestId("workspace-live")).toHaveAttribute(

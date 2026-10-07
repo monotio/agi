@@ -46,7 +46,7 @@ for (const [width, height] of [
       await page.keyboard.press("Escape");
       await expect(page.getByTestId("workspace-pending")).toBeVisible();
       await workspaceSaved(page);
-      if (width === 390) await page.getByRole("button", { name: "Playtest", exact: true }).click();
+      if (width === 390) await page.getByRole("button", { name: "Game", exact: true }).click();
       const before = await page.screenshot({
         path: test.info().outputPath(`before-${width}.png`),
         animations: "disabled",

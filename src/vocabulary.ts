@@ -705,6 +705,12 @@ export const VOCABULARY = {
     help: "Game tests play part of your game automatically and check the result.",
     technical: "TESTS.JSON.",
   },
+  testWalk: {
+    id: "testWalk",
+    label: "Test walk",
+    help: "Walks the hero from a start to a goal in the game and shows the path it took.",
+    technical: "Bounded engine simulation of the room's LOGIC.",
+  },
   playtest: {
     id: "playtest",
     label: "Playtest room",

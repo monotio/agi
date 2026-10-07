@@ -27,7 +27,7 @@ test("phone Edit shows LOGIC and Playtest keeps game controls in the play pane",
       return element.contains(document.elementFromPoint(box.x + box.width / 2, box.y + 15));
     }),
   ).toBe(true);
-  await page.getByRole("button", { name: "Playtest", exact: true }).click();
+  await page.getByRole("button", { name: "Game", exact: true }).click();
   await expect(controls).toBeVisible();
   await expect(editor).toBeHidden();
   const south = controls.getByRole("button", { name: "Walk south", exact: true });

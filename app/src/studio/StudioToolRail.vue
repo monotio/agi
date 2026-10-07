@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { VOCABULARY_ACTIONS } from "../../../src/vocabulary.ts";
+import { VOCABULARY } from "../../../src/vocabulary.ts";
 import { computed, nextTick, onWatcherCleanup, ref, useTemplateRef, watch } from "vue";
 import UiIcon from "../ui/UiIcon.vue";
 import UiIconButton from "../ui/UiIconButton.vue";
@@ -80,7 +80,7 @@ const GROUPS: readonly (readonly RailTool[])[] = [
 ];
 /** The Priority lens's room tools: a test walk the game runs, and the room's doors. */
 const WALK_GROUP: readonly RailTool[] = [
-  { id: "walk", icon: "footprints", label: VOCABULARY_ACTIONS.playtest_room.label },
+  { id: "walk", icon: "footprints", label: VOCABULARY.testWalk.label },
   { id: "door", icon: "exit", label: "Door box", doors: true },
   { id: "edge", icon: "move", label: "Edge exit", doors: true },
 ];
@@ -93,7 +93,7 @@ const PROBE_NEEDS_VIEWS = "Stand-in · G · needs a character in the game";
 function toolTitle(entry: RailTool): string {
   if ((entry.draws || entry.doors) && frozen) return PAUSED;
   if (entry.doors && !doorsEditable) return NEEDS_LOGIC;
-  if (entry.id === "walk") return VOCABULARY_ACTIONS.playtest_room.help;
+  if (entry.id === "walk") return VOCABULARY.testWalk.help;
   return `${entry.label} · ${TOOL_SHORTCUTS[entry.id]}`;
 }
 
