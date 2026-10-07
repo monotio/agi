@@ -86,6 +86,8 @@ export function projectOperandInfos(project: LogicLanguageProject): BindingInfo[
       dictionary: new Map(project.words),
       bindings: project.bindings,
     });
+    const operands = new Map(snapshot.operands.map((operand) => [operand.start, operand]));
+    const lines = source.split(/\r?\n/);
     const frames: { name: string; parameter: number }[] = [];
     for (const [index, token] of syntax.tokens.entries()) {
       if (token.text === "(")
@@ -94,8 +96,14 @@ export function projectOperandInfos(project: LogicLanguageProject): BindingInfo[
       else if (token.text === "," && frames.length) frames.at(-1)!.parameter++;
       else if ([";", "{", "}", "#define", "#message"].includes(token.text)) frames.length = 0;
       if (token.type !== "ident" && token.type !== "number") continue;
-      const operand = snapshot.operandAt(token.start);
-      const name = snapshot.definitionAt(token.start);
+      const operand = operands.get(token.start);
+      const bindingName =
+        operand?.bindingName ??
+        (Object.hasOwn(project.bindings, token.text) &&
+        snapshot.definitionAt(token.start)?.kind === "binding"
+          ? token.text
+          : undefined);
+      if (!operand && !bindingName) continue;
       if (operand && !operand.declaration) {
         const kind = BINDING_KINDS[operand.kind];
         const logic = operand.kind === "m" ? Number(key.slice(6)) : undefined;
@@ -116,7 +124,7 @@ export function projectOperandInfos(project: LogicLanguageProject): BindingInfo[
       const matches = infos.filter(
         (info) =>
           (info.logic === undefined || key === `logic:${info.logic}`) &&
-          ((name?.kind === "binding" && name.name === info.name) ||
+          ((bindingName !== undefined && bindingName === info.name) ||
             (operand &&
               !operand.declaration &&
               (!operand.name || !info.name) &&
@@ -133,7 +141,7 @@ export function projectOperandInfos(project: LogicLanguageProject): BindingInfo[
           uri: document.uri ?? `agi-project:///logic.${key.slice(6)}.lgc`,
           range: rangeAt(source, token.start, token.end),
           role: changed ? "Changed" : ["flag", "variable"].includes(info.kind) ? "Read" : "Used",
-          text: source.split(/\r?\n/)[token.line - 1]?.trim() ?? "",
+          text: lines[token.line - 1]?.trim() ?? "",
           ...(call?.name === "reset" && operand?.kind === "f"
             ? { operation: "Reset" as const }
             : operand?.kind === "o" &&

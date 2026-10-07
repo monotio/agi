@@ -50,6 +50,33 @@ test("reserved slots are discovered in native LOGIC without adding bindings", ()
   assert.equal(draft.capture().read("bindings")!.content, "{}");
 });
 
+test("closed Built-in lists keep identities without reading LOGIC", () => {
+  const draft = new ProjectDraft({
+    bindings: JSON.stringify({ chime_done: { kind: "flag", num: 204 } }),
+    "logic:0": "set(chime_done); return;",
+  });
+  const snapshot = draft.capture();
+  const expected = workspaceGameStateInfos(snapshot, "2.936");
+  const rows = workspaceGameStateInfos(
+    {
+      ...snapshot,
+      read(key) {
+        assert.ok(!key.startsWith("logic:"), "closed Built-in must not read LOGIC");
+        return snapshot.read(key);
+      },
+    },
+    "2.936",
+    false,
+  );
+  for (const kind of ["game", "builtin"] as const) {
+    assert.deepEqual(
+      rows[kind].map(({ name, kind, num }) => [name, kind, num]),
+      expected[kind].map(({ name, kind, num }) => [name, kind, num]),
+    );
+    assert.ok(rows[kind].every((row) => row.uses.length === 0));
+  }
+});
+
 test("Starter names are game names and old binding markers are ignored", () => {
   const starter = createStarterProject("starter");
   assert.deepEqual(starter.bindings["chime_done"], { kind: "flag", num: 204 });

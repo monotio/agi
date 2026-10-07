@@ -622,13 +622,19 @@ async function tabTo(page: Page, target: Locator): Promise<void> {
   ]
     .filter(Boolean)
     .join("+");
-  for (let i = 0; i < 100; i++) {
+  const visited = new Set<number>();
+  for (;;) {
     if (
       await target.evaluateAll((elements) =>
         elements.some((element) => element === document.activeElement),
       )
     )
       return;
+    const active = await page.evaluate(() =>
+      [...document.querySelectorAll("*")].indexOf(document.activeElement!),
+    );
+    if (visited.has(active)) break;
+    visited.add(active);
     await page.keyboard.press(tab);
   }
   throw new Error(`Keyboard cannot reach ${target}`);

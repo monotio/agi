@@ -51,7 +51,7 @@ import {
 } from "../../../../src/authoring/projectDocuments.ts";
 import { diffProjectDocuments } from "../../../../src/authoring/projectContent.ts";
 import { preparePartDraftRemoval } from "../../project/projectPartDrafts.ts";
-import { inspectProjectSourceDependencies } from "../../../../src/authoring/projectSourceDependencies.ts";
+import { createWorkspaceResourceUses } from "./workspaceResourceUses.ts";
 import {
   occupiedProjectNumbers,
   type prepareProjectRenumber,
@@ -61,6 +61,7 @@ import type { ProjectSnapshot } from "../../../../src/authoring/projectModel.ts"
 import {
   prepareProjectEdit,
   type ProjectEditDiagnostic,
+  type ProjectValidationPolicy,
 } from "../../../../src/authoring/projectEdit.ts";
 import type { ProjectHistoryState } from "../../../../src/authoring/projectHistoryData.ts";
 import type { ProjectSession } from "../../project/projectSession.ts";
@@ -565,6 +566,7 @@ const container = computed(() => {
     openContainer(new Map(build.files()), { profile: engine.roomMap.resources.value.profile! })
   );
 });
+const resourceUses = createWorkspaceResourceUses();
 const groups = computed(() => {
   const keys = [...new Set([...(snapshot.value?.keys ?? []), ...draftMembership.value])].filter(
     (key) => !deletedParts.value.includes(key),
@@ -640,24 +642,13 @@ const groups = computed(() => {
       const heading = pictureRoomTitle(artText);
       const title = plan[String(room)]?.title || heading || node?.title;
       const resources = new Set((scan.scans.get(room)?.calls ?? []).map((num) => `logic:${num}`));
-      const logicContent = content(`logic:${room}`);
-      const source =
-        logicContent instanceof Uint8Array
-          ? derivedLogicSource(logicContent, profile.value.id, []).source
-          : logicContent;
-      if (typeof source === "string") {
-        try {
-          const bindings = readBindingsDocument(boundText ?? "{}");
-          const uses = inspectProjectSourceDependencies({
-            source,
-            profile: profile.value,
-            bindings,
-          });
-          for (const reference of uses.references) resources.add(reference.dependency);
-        } catch {
-          /* Retain native room relationships while code is unfinished. */
-        }
-      }
+      for (const dependency of resourceUses(
+        `logic:${room}`,
+        content(`logic:${room}`),
+        boundText,
+        profile.value,
+      ))
+        resources.add(dependency);
       return { room, ...(title ? { title } : {}), pictures, resources: [...resources] };
     });
   const names: Record<string, string> = {};
@@ -1749,6 +1740,23 @@ const derivedText = new Map<
     text: string;
   }
 >();
+const diagnosticPolicy = computed<ProjectValidationPolicy>((previous) => {
+  const room = editor.actionRoom.value;
+  const id = editor.selectedLaunch.value;
+  const launch =
+    room !== undefined && editor.launchChoices.value.some((entry) => entry.id === id)
+      ? { room, id }
+      : undefined;
+  const allowMissingRooms = roomGeneration.value;
+  if (
+    previous &&
+    previous.allowMissingRooms === allowMissingRooms &&
+    previous.launch?.room === launch?.room &&
+    previous.launch?.id === launch?.id
+  )
+    return previous;
+  return { allowMissingRooms, launch };
+});
 const diagnostics = computed(() => {
   void snapshot.value;
   void optimistic.value;
@@ -1761,14 +1769,7 @@ const diagnostics = computed(() => {
       pendingParts.changes(snapshot.value, session.drafts().changes()),
     ),
     profileId: profile.value.id,
-    policy: {
-      allowMissingRooms: roomGeneration.value,
-      launch:
-        editor.actionRoom.value === undefined ||
-        !editor.launchChoices.value.some((entry) => entry.id === editor.selectedLaunch.value)
-          ? undefined
-          : { room: editor.actionRoom.value, id: editor.selectedLaunch.value },
-    },
+    policy: diagnosticPolicy.value,
   }).diagnostics;
 });
 watch(

@@ -214,6 +214,7 @@ function nameState(): void {
   namingOpen.value = false;
 }
 const sharedOpen = ref(false);
+const builtinOpen = ref(false);
 function sectionAdd(label: string): void {
   if (label === "GAME STATE") openNaming();
   else if (label === "SHARED LOGIC") sharedOpen.value = !sharedOpen.value;
@@ -290,12 +291,19 @@ function blurRename(room: number): void {
   if (editingRoomLocal.value !== undefined || roomTitle.value.trim() !== roomLabel(room))
     commitRoomRename(room);
 }
+let previousInputs: Record<string, ProjectContent | undefined> | undefined;
+let previousProfile: string | undefined;
+let previousSession: ReturnType<typeof engine.getProjectSession> | undefined;
+let previousBuiltinOpen: boolean | undefined;
 watch(
-  () => [engine.state.phase, engine.state.patchTick],
+  () => [engine.state.phase, engine.state.patchTick, builtinOpen.value],
   () => {
     const session = engine.getProjectSession();
-    let previousInputs: Record<string, ProjectContent | undefined> | undefined;
-    let previousProfile: string | undefined;
+    if (session !== previousSession) {
+      previousInputs = undefined;
+      previousProfile = undefined;
+      previousSession = session;
+    }
     function refresh(): void {
       try {
         const snapshot = session?.workingSnapshot();
@@ -311,6 +319,7 @@ watch(
         if (
           previous !== undefined &&
           previousProfile === profile &&
+          previousBuiltinOpen === builtinOpen.value &&
           Object.keys(previous).length === Object.keys(inputs).length &&
           Object.entries(inputs).every(
             ([key, content]) =>
@@ -318,12 +327,15 @@ watch(
           )
         )
           return;
-        acceptedNames.value = snapshot ? workspaceBindingInfos(snapshot, profile) : [];
-        builtinNames.value = snapshot ? workspaceGameStateInfos(snapshot, profile).builtin : [];
+        // A damaged source is retried when its inputs change, just like a valid one.
         previousInputs = inputs;
         previousProfile = profile;
+        previousBuiltinOpen = builtinOpen.value;
+        acceptedNames.value = snapshot ? workspaceBindingInfos(snapshot, profile) : [];
+        builtinNames.value = snapshot
+          ? workspaceGameStateInfos(snapshot, profile, builtinOpen.value).builtin
+          : [];
       } catch {
-        previousInputs = undefined;
         acceptedNames.value = [];
         builtinNames.value = [];
       }
@@ -676,9 +688,10 @@ function onKey(event: KeyboardEvent): void {
           v-if="builtinNames.length"
           class="game-state-builtin"
           data-testid="game-state-builtin"
+          @toggle="builtinOpen = ($event.target as HTMLDetailsElement).open"
         >
           <summary>Built-in</summary>
-          <div v-for="info in builtinNames" :key="info.name" class="state-row">
+          <div v-for="info in builtinOpen ? builtinNames : []" :key="info.name" class="state-row">
             <input
               v-if="renaming?.row === `builtin:${info.name}`"
               ref="nameInput"
