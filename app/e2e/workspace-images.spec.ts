@@ -593,9 +593,38 @@ test("trace opacity previews during input and serializes quick releases", async 
   await blankRoom(page);
   await page.getByTestId("part-room:1:picture:1").click();
   await page.getByRole("button", { name: "Trace an image", exact: true }).click();
+  // Keep upload completion parked after its draft exists, as a slow admission can.
+  await page.evaluate(() => {
+    const session = (
+      window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }
+    ).__AGI_PROJECT__.getSession();
+    const stage = session.stage.bind(session);
+    const completion = new Promise<void>((resolve) =>
+      window.addEventListener("complete-trace-upload", () => resolve(), { once: true }),
+    );
+    session.stage = async (changes) => {
+      const result = await stage(changes);
+      if (changes.some(({ key }) => key.startsWith("attachment:"))) await completion;
+      return result;
+    };
+  });
   await upload(page);
   const slider = page.getByTestId("trace-opacity");
   await expect(slider).toBeVisible();
+  const art = page.locator('[data-layer="art"] canvas');
+  await expect(art).toBeVisible();
+  const traceRed = () =>
+    art.evaluate((element) => {
+      const canvas = element as HTMLCanvasElement;
+      return canvas
+        .getContext("2d")!
+        .getImageData(
+          Math.floor((canvas.width * 32) / 160),
+          Math.floor((canvas.height * 80) / 168),
+          1,
+          1,
+        ).data[0]!;
+    });
   const saved = () =>
     page.evaluate(() => {
       const session = (
@@ -612,22 +641,10 @@ test("trace opacity previews during input and serializes quick releases", async 
     const slider = element as HTMLInputElement;
     slider.value = "0.9";
     slider.dispatchEvent(new Event("input", { bubbles: true }));
+    window.dispatchEvent(new Event("complete-trace-upload"));
   });
-  await expect
-    .poll(() =>
-      page.locator('[data-layer="art"] canvas').evaluate((element) => {
-        const canvas = element as HTMLCanvasElement;
-        return canvas
-          .getContext("2d")!
-          .getImageData(
-            Math.floor((canvas.width * 32) / 160),
-            Math.floor((canvas.height * 80) / 168),
-            1,
-            1,
-          ).data[0];
-      }),
-    )
-    .toBeLessThan(185);
+  // EGA brown (170) over white at 0.9 opacity: 170 * 0.9 + 255 * 0.1 = 178.5.
+  await expect.poll(async () => Math.abs((await traceRed()) - 178.5)).toBeLessThanOrEqual(1);
   expect(await saved()).toEqual(before);
   await slider.evaluate((element) => {
     const slider = element as HTMLInputElement;
@@ -640,6 +657,7 @@ test("trace opacity previews during input and serializes quick releases", async 
   await expect.poll(async () => (await saved()).images).toContain('"opacity":0.8');
   await expect(page.getByTestId("image-reference").getByRole("alert")).toHaveCount(0);
   await expect(slider).toHaveValue("0.8");
+  await expect.poll(async () => Math.abs((await traceRed()) - 187)).toBeLessThanOrEqual(1);
 });
 
 test("trace arrow keys stay draft until Update makes one History step", async ({ page }) => {

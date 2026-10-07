@@ -2452,7 +2452,7 @@ onBeforeUnmount(() => {
         v-model:action="guidedKind"
         :room="selectedRoom"
         :initial-command="guidedCommand"
-        :busy="editor.busy.value || editingPaused"
+        :busy="actionBusy || editingPaused"
         :snapshot="guidedSnapshot ?? snapshot"
         :profile-id="profile.id"
         :groups

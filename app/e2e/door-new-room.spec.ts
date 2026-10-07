@@ -62,9 +62,29 @@ for (const [width, height] of [
       animations: "disabled",
       scale: "css",
     });
+    // Hold the new room's background save through Add's click and submit.
+    await page.evaluate(() => {
+      let holding = true;
+      let parked = false;
+      window.addEventListener("release-room-save", () => (holding = false), { once: true });
+      const put = IDBObjectStore.prototype.put;
+      IDBObjectStore.prototype.put = function (...args) {
+        const request = put.apply(this, args);
+        const key = (args[0] as { projectId?: string }).projectId;
+        if (!parked && this.name === "projects" && key?.startsWith("part-drafts/")) {
+          parked = true;
+          const keepTransactionOpen = (): void => {
+            if (holding) this.get(key!).addEventListener("success", keepTransactionOpen);
+          };
+          request.addEventListener("success", keepTransactionOpen);
+        }
+        return request;
+      };
+    });
     await fresh.click();
     // The new room is the destination, and the Door form stays open on Room 1.
     const picked = destinations.getByRole("button", { name: /ROOM 2/ });
+    await expect(picked).toBeVisible();
     await expect(picked).toHaveAttribute("aria-pressed", "true");
     await expect(form).toBeVisible();
     expect(await hasDocument(page, "logic:2")).toBe(true);
@@ -73,7 +93,31 @@ for (const [width, height] of [
       animations: "disabled",
       scale: "css",
     });
-    await form.getByRole("button", { name: "Add", exact: true }).click();
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () =>
+            (
+              window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }
+            ).__AGI_PROJECT__
+              .getSession()
+              .drafts()
+              .status().busy,
+        ),
+      )
+      .toBe(true);
+    const add = form.getByRole("button", { name: "Add", exact: true });
+    await expect(add).toBeVisible();
+    await add.scrollIntoViewIfNeeded();
+    await expect(add).toBeInViewport();
+    await page.screenshot({
+      path: test.info().outputPath(`door-new-room-saving-${width}.png`),
+      animations: "disabled",
+      scale: "css",
+    });
+    await expect(add).toBeEnabled();
+    await add.click();
+    await page.evaluate(() => window.dispatchEvent(new Event("release-room-save")));
     await expect(form).toBeHidden();
     expect(await workspaceDocument(page, "logic:1")).toContain("new.room(2)");
     expect((await textHook(page)).room).toBe(1);
@@ -83,5 +127,6 @@ for (const [width, height] of [
     await expect(rename).toBeVisible();
     await rename.fill("Cave");
     await rename.press("Enter");
+    await expect(page.getByTestId("part-room:2")).toBeVisible();
     await expect(page.getByTestId("part-room:2")).toContainText("Cave");
   });
