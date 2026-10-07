@@ -388,7 +388,8 @@ for (const [width, height] of [
     );
     await expect(reserved).toContainText("The room the player is in.");
     await expect(reserved).toContainText("Used: LOGIC");
-    await expect(rows.last()).toContainText("Reserved by the interpreter.");
+    await expect(rows.first()).toContainText("The hero is in water.");
+    await expect(rows.last()).toContainText("The kind of screen; 3 means EGA.");
     await expect(builtIn.getByRole("button", { name: /^Add/ })).toHaveCount(0);
     await expect(builtIn).not.toContainText("chime_done");
     if (width <= 600 && !(await parts.isVisible()))
@@ -418,7 +419,10 @@ for (const [width, height] of [
       "The room the player is in.",
     );
     await expect(partRows.filter({ hasText: "current_room" })).toContainText("Used: LOGIC");
-    await expect(partRows.last()).toContainText("Reserved by the interpreter.");
+    await expect(partRows.filter({ hasText: "system_var_11" })).toContainText(
+      "Seconds on the game clock.",
+    );
+    await expect(partRows.last()).toContainText("The kind of screen; 3 means EGA.");
     await expect(group.getByRole("button", { name: /^Add/ })).toHaveCount(0);
     await expect(group).not.toContainText("chime_done");
   });
