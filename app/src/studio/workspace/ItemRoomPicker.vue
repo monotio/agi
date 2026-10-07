@@ -19,13 +19,17 @@ const {
 const emit = defineEmits<{ change: [value: number] }>();
 const options = computed(() => itemRoomOptions(context));
 const custom = ref(false);
+// Keep the number awaiting blur through publications of other saved fields.
+const roomNumber = ref<number | string>("");
 const unknown = computed(() => !options.value.some((option) => option.num === value));
 const numberVisible = computed(() => custom.value || unknown.value);
 watch(
   () => value,
   () => {
     custom.value = false;
+    roomNumber.value = value >= 1 && value <= 254 ? value : "";
   },
+  { immediate: true },
 );
 
 function select(event: Event): void {
@@ -61,7 +65,7 @@ function enterNumber(event: Event): void {
       step="1"
       :aria-label="`${label} number`"
       :disabled
-      :value="value >= 1 && value <= 254 ? value : ''"
+      v-model="roomNumber"
       @change="enterNumber"
     />
   </div>
