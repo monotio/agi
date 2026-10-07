@@ -1,4 +1,5 @@
 import { savePlayProgress } from "./engineProbe.ts";
+import { pasteWorkspaceLogic } from "./workspaceShared.ts";
 import type { Page } from "@playwright/test";
 import { test, expect } from "./test.ts";
 import {
@@ -65,7 +66,7 @@ for (const action of ["Resume from here", "Undo rewind", "Undo start over"] as c
       await page.getByTestId("workspace-focus").click();
       await page.locator(".monaco-editor").click();
       await page.keyboard.press("ControlOrMeta+a");
-      await page.keyboard.insertText(original.source + "\n// Before rewind");
+      await pasteWorkspaceLogic(page, original.source + "\n// Before rewind");
       expect((await projectState(page)).commits).toBe(original.commits);
       await workspaceUpdated(page);
       await expect.poll(async () => (await projectState(page)).commits).toBe(original.commits + 1);
@@ -165,7 +166,7 @@ for (const action of ["Resume from here", "Undo rewind", "Undo start over"] as c
     await page.getByTestId("workspace-focus").click();
     await page.locator(".monaco-editor").click();
     await page.keyboard.press("ControlOrMeta+a");
-    await page.keyboard.insertText(source);
+    await pasteWorkspaceLogic(page, source);
     expect((await projectState(page)).commits).toBe(before.commits);
     await workspaceUpdated(page);
     await expect.poll(async () => (await projectState(page)).commits).toBe(before.commits + 1);

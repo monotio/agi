@@ -112,7 +112,6 @@ function agent(): void {
   workspace.showPanel("assistant");
   shell.openRemix();
   void nextTick().then(() => {
-    zones.focus("agent");
     document.querySelector<HTMLElement>(".assistant-host textarea, .assistant-host input")?.focus();
   });
 }

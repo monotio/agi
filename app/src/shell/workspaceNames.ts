@@ -14,7 +14,11 @@ import type { EngineApi } from "../engine/engineContext.ts";
 
 type NamesSnapshot = Pick<ProjectSnapshot, "read" | "keys" | "version">;
 
-function namesProject(snapshot: NamesSnapshot, profileId: ProfileId): LogicLanguageProject {
+function namesProject(
+  snapshot: NamesSnapshot,
+  profileId: ProfileId,
+  includeDocuments = true,
+): LogicLanguageProject {
   const words = snapshot.read("words")?.content;
   const bindings = snapshot.read("bindings")?.content;
   return {
@@ -27,12 +31,14 @@ function namesProject(snapshot: NamesSnapshot, profileId: ProfileId): LogicLangu
           : [],
     bindings: typeof bindings === "string" ? readBindingsDocument(bindings) : {},
     documents: Object.fromEntries(
-      snapshot.keys.flatMap((key) => {
-        const document = snapshot.read(key);
-        return key.startsWith("logic:") && typeof document?.content === "string"
-          ? [[key, { source: document.content, version: document.version }]]
-          : [];
-      }),
+      snapshot.keys
+        .filter((key) => includeDocuments && key.startsWith("logic:"))
+        .flatMap((key) => {
+          const document = snapshot.read(key);
+          return typeof document?.content === "string"
+            ? [[key, { source: document.content, version: document.version }]]
+            : [];
+        }),
     ),
     bindingDocument: {
       uri: "agi-project:///bindings.json",
@@ -55,14 +61,19 @@ export interface ReservedStateInfo extends BindingInfo {
 export function workspaceGameStateInfos(
   snapshot: NamesSnapshot,
   profileId: ProfileId,
+  includeUses = true,
 ): {
   game: BindingInfo[];
   builtin: ReservedStateInfo[];
 } {
-  const project = namesProject(snapshot, profileId);
-  const infos = workspaceOperandInfos(snapshot, profileId).filter(
-    (info) => info.kind === "flag" || info.kind === "variable",
-  );
+  const project = namesProject(snapshot, profileId, includeUses);
+  const infos = includeUses
+    ? workspaceOperandInfos(snapshot, profileId).filter(
+        (info) => info.kind === "flag" || info.kind === "variable",
+      )
+    : Object.entries(project.bindings)
+        .filter(([, binding]) => binding.kind === "flag" || binding.kind === "variable")
+        .map(([name, binding]) => ({ name, kind: binding.kind!, num: binding.num, uses: [] }));
   const game = infos.filter(
     (info) =>
       info.name &&
@@ -109,8 +120,9 @@ function workspaceOperandInfos(snapshot: NamesSnapshot, profileId: ProfileId): B
   const project = namesProject(snapshot, profileId);
   const documents = { ...project.documents };
   for (const key of snapshot.keys) {
+    if (!key.startsWith("logic:")) continue;
     const content = snapshot.read(key)?.content;
-    if (key.startsWith("logic:") && content instanceof Uint8Array)
+    if (content instanceof Uint8Array)
       documents[key] = {
         source: disassembleLogic(content, {
           profile: PROFILES[profileId],

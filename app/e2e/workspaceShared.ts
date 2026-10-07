@@ -120,6 +120,15 @@ export async function findWorkspaceLogic(page: Page, text: string): Promise<void
   await page.keyboard.press("Escape");
 }
 
+/** A multiline paste keeps supplied indentation; insertText types each Enter. */
+export async function pasteWorkspaceLogic(page: Page, text: string): Promise<void> {
+  await page.evaluate(async (text) => {
+    const { monaco } = await import("/src/studio/logic/monacoLanguage.ts");
+    const editor = monaco.editor.getEditors().find((editor) => editor.hasTextFocus())!;
+    editor.trigger("spec", "paste", { text });
+  }, text);
+}
+
 /** Insert through Monaco's real input so braces and quotes remain verbatim. */
 export async function replaceWorkspaceDocument(
   page: Page,
@@ -133,11 +142,7 @@ export async function replaceWorkspaceDocument(
     // Monaco chooses its keyboard platform from the browser's user agent.
     const mac = await page.evaluate(() => navigator.userAgent.includes("Macintosh"));
     await page.keyboard.press(mac ? "Meta+a" : "Control+a");
-    await page.evaluate(async (text) => {
-      const { monaco } = await import("/src/studio/logic/monacoLanguage.ts");
-      const editor = monaco.editor.getEditors().find((editor) => editor.hasTextFocus())!;
-      editor.trigger("spec", "paste", { text });
-    }, text);
+    await pasteWorkspaceLogic(page, text);
     await page.keyboard.press("Escape");
   } else if (key === "words") {
     const show = page.getByTestId("workspace-show-game");
