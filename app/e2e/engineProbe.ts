@@ -657,8 +657,8 @@ export async function workspaceUpdated(page: Page, keyboard = false): Promise<vo
     await expect(update).toBeVisible();
     if (keyboard) await page.keyboard.press("ControlOrMeta+Enter");
     else await update.click();
-    await expect(page.getByTestId("workspace-updated")).toBeVisible();
     await workspaceSaved(page);
+    await expect(page.getByTestId("workspace-updated")).toBeVisible();
     await previousFocus.evaluate((element) => {
       if (element instanceof HTMLElement && element.isConnected) element.focus();
     });

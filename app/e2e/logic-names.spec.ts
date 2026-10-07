@@ -3,6 +3,7 @@ import type { Page } from "@playwright/test";
 import { prepareIsolatedPage, seedLocalProject } from "./logicDebugShared.ts";
 import { openStoredWorkspace, openWorkspaceLogic, workspaceDocument } from "./workspaceShared.ts";
 import { expect, test } from "./test.ts";
+import { workspaceSaved } from "./engineProbe.ts";
 
 async function positionFlag(page: Page): Promise<void> {
   await page.evaluate(async () => {
@@ -93,6 +94,7 @@ for (const [width, height] of [
     await expect.poll(() => workspaceDocument(page, "logic:1")).toContain("set(gate_open)");
     await expect.poll(() => workspaceDocument(page, "logic:2")).toContain("isset(gate_open)");
     await expect.poll(() => workspaceDocument(page, "bindings")).toContain('"gate_open"');
+    await workspaceSaved(page);
     const undo = page.getByTestId("workspace-undo");
     await expect(undo).toBeVisible();
     await expect(undo).toBeEnabled();
