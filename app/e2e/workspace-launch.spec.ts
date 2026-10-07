@@ -493,13 +493,8 @@ test("create a Launch for Room 2 with a flag and Came from, select it, Restart R
     ).__AGI_PROJECT__.getSession();
     const capture = session.model.capture();
     const world = JSON.parse(String(capture.read("world")!.content));
-    // Simulate room removal with pruneRoomLaunches
     const nextWorld = { ...world };
     delete nextWorld.rooms["2"];
-    if (nextWorld.launches) {
-      delete nextWorld.launches["2"];
-      if (Object.keys(nextWorld.launches).length === 0) delete nextWorld.launches;
-    }
     const result = await session.submit({
       proposal: session.model.propose(capture, "Remove Room 2", [
         { key: "world", content: JSON.stringify(nextWorld) },
@@ -524,3 +519,180 @@ test("create a Launch for Room 2 with a flag and Came from, select it, Restart R
   });
   expect(worldAfter.launches?.["2"]).toBeUndefined();
 });
+
+for (const [width, height] of [
+  [1063, 815],
+  [1440, 900],
+  [390, 844],
+] as const) {
+  test(`room removal names Launch changes and one Undo restores both ${width} @webkit-desktop`, async ({
+    page,
+    browserName,
+  }) => {
+    const { configureAi, openWorkspaceAgent } = await import("./engineProbe.ts");
+    const { providerReply } = await import("../../test/provider-stream.ts");
+    await page.setViewportSize({ width, height });
+    await start(page);
+    const beforeWorld = await page.evaluate(async () => {
+      const session = (
+        window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }
+      ).__AGI_PROJECT__.getSession();
+      const capture = session.model.capture();
+      const world = JSON.parse(String(capture.read("world")!.content));
+      world.launches = {
+        "8": { selected: "cart", entries: [{ id: "cart", name: "At the cart" }] },
+        "1": {
+          entries: [
+            {
+              id: "path",
+              name: "Along the path",
+              cameFrom: { room: 8, edge: 3 },
+              items: { "0": 8 },
+            },
+          ],
+        },
+      };
+      const text = JSON.stringify(world);
+      const result = await session.submit({
+        proposal: session.model.propose(capture, "Launch setups", [
+          { key: "world", content: text },
+        ]),
+        origin: "logic",
+        label: "Launch setups",
+        author: "creator",
+      });
+      if (result.status !== "committed") throw new Error(result.status);
+      return text;
+    });
+    await workspaceSaved(page);
+    await open(page, "part-room:8:logic");
+    await page.getByTestId("workspace-update-menu").click();
+    const cart = page.getByRole("menuitem", { name: "At the cart" });
+    await expect(cart).toBeVisible();
+    await cart.click();
+    await configureAi(page, { provider: "openai", key: "test-placeholder" });
+    const world = JSON.parse(beforeWorld);
+    delete world.rooms["8"];
+    let replies = 0;
+    await page.route("**/api/openai/v1/responses", async (route) => {
+      await route.fulfill(
+        providerReply("openai", {
+          id: `remove-${++replies}`,
+          output:
+            replies === 1
+              ? [
+                  {
+                    type: "function_call",
+                    call_id: "remove-room",
+                    name: "propose_changes",
+                    arguments: JSON.stringify({
+                      label: "Remove Garden",
+                      changes: [
+                        { key: "logic:8", content: null },
+                        { key: "picture:8", content: null },
+                        { key: "world", content: JSON.stringify(world) },
+                      ],
+                    }),
+                  },
+                ]
+              : [
+                  {
+                    type: "message",
+                    role: "assistant",
+                    content: [{ type: "output_text", text: "Remove Garden." }],
+                  },
+                ],
+        }),
+      );
+    });
+    await openWorkspaceAgent(page);
+    const panel = page.getByTestId("workspace-agent-panel");
+    await expect(panel).toBeVisible();
+    await panel.getByTestId("agent-message").fill("Remove Garden and its picture");
+    await panel.getByRole("button", { name: "Send", exact: true }).click();
+    const review = page.getByTestId("agent-review");
+    await expect(review).toBeVisible();
+    await expect(
+      review.getByText("Also removes the Launch “At the cart”.", { exact: true }),
+    ).toBeVisible();
+    await expect(
+      review.getByText("“Along the path” starts without Came from.", { exact: true }),
+    ).toBeVisible();
+    await expect(
+      review.getByText("Item 0 in “Along the path” carries over.", { exact: true }),
+    ).toBeVisible();
+    await expect(page.getByTestId("agent-approve")).toBeEnabled();
+    const codeDiff = review.getByTestId("agent-code-diff").first();
+    await expect(codeDiff).toBeVisible();
+    await expect.poll(() => codeDiff.locator(".line-delete").count()).toBeGreaterThan(0);
+    const launchChanges = review.getByTestId("launch-removal-change");
+    await launchChanges.first().scrollIntoViewIfNeeded();
+    await expect(launchChanges.first()).toBeInViewport({ ratio: 1 });
+    await expect(launchChanges.last()).toBeInViewport({ ratio: 1 });
+    const snapshot = await page.screenshot({
+      path: test.info().outputPath(`removal-preview-${width}.png`),
+      animations: "disabled",
+      scale: "css",
+    });
+    if (process.env["CI"] && browserName === "webkit")
+      console.log(`LAUNCH_PRUNE_SHOT:preview-${width}:${snapshot.toString("base64")}`);
+    await page.getByTestId("agent-approve").click();
+    await expect(review).toBeHidden();
+    await workspaceSaved(page);
+    const pruned = JSON.parse(String(await runningWorkspaceDocument(page, "world")));
+    expect(pruned.launches).toEqual({ "1": { entries: [{ id: "path", name: "Along the path" }] } });
+    expect(
+      await page.evaluate(() =>
+        (window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }).__AGI_PROJECT__
+          .getSession()
+          .model.capture()
+          .read("logic:8"),
+      ),
+    ).toBeUndefined();
+    await page.getByRole("button", { name: "Undo this", exact: true }).click();
+    await workspaceSaved(page);
+    expect(await runningWorkspaceDocument(page, "world")).toBe(beforeWorld);
+    expect(await runningWorkspaceDocument(page, "logic:8")).toContain("return;");
+    // A deleted room's remembered selection also falls back when that number is reused.
+    await page.evaluate(async () => {
+      const session = (
+        window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }
+      ).__AGI_PROJECT__.getSession();
+      const capture = session.model.capture();
+      const world = JSON.parse(String(capture.read("world")!.content));
+      delete world.rooms["8"];
+      const removed = await session.submit({
+        proposal: session.model.propose(capture, "Remove room", [
+          { key: "logic:8", content: null },
+          { key: "world", content: JSON.stringify(world) },
+        ]),
+        origin: "logic",
+        label: "Remove room",
+        author: "creator",
+      });
+      if (!["committed", "restartRequired", "unchanged"].includes(removed.status))
+        throw new Error(JSON.stringify(removed));
+      const next = session.model.capture();
+      const newWorld = JSON.parse(String(next.read("world")!.content));
+      newWorld.rooms["8"] = { title: "Garden", description: "", exits: {} };
+      await session.submit({
+        proposal: session.model.propose(next, "Room again", [
+          { key: "logic:8", content: "return;" },
+          { key: "world", content: JSON.stringify(newWorld) },
+        ]),
+        origin: "logic",
+        label: "Room again",
+        author: "creator",
+      });
+    });
+    await workspaceSaved(page);
+    await page.getByRole("button", { name: "Close", exact: true }).click();
+    await open(page, "part-room:8:logic");
+    const menu = page.getByTestId("workspace-update-menu");
+    await expect(menu).toBeVisible();
+    await menu.click();
+    const carry = page.getByRole("menuitem", { name: /Carry over/ });
+    await expect(carry).toBeVisible();
+    await expect(carry).toHaveAttribute("aria-current", "true");
+  });
+}

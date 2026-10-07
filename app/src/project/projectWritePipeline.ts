@@ -37,7 +37,7 @@ export async function prepareAndAdmitProjectEdit(input: {
   });
   input.preflight();
   const before = input.model.capture();
-  const changes = input.proposal.changes();
+  const changes = prepared.proposal.changes();
   const documentVersions = [
     ...new Set([...before.keys, ...changes.map((change) => change.key)]),
   ].map((key) => ({ key, version: before.version(key) }));
