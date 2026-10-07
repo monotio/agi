@@ -158,9 +158,14 @@ const nextFree = computed(() => {
   const used = new Set(
     names.value.filter((info) => info.kind === namingKind.value).map((info) => info.num),
   );
-  let num = 16;
+  // Flags 0–15 and variables 0–26 belong to the interpreter.
+  let num = namingKind.value === "flag" ? 16 : 27;
   while (used.has(num) && num < 256) num++;
   return num;
+});
+// Switching between Flag and Variable suggests that kind's next free number.
+watch(namingKind, () => {
+  if (namingOpen.value) namingNum.value = nextFree.value;
 });
 function openNaming(): void {
   namingOpen.value = true;
@@ -582,7 +587,7 @@ function onKey(event: KeyboardEvent): void {
         </div>
         <p v-if="namingError" class="game-state-naming__error" role="alert">{{ namingError }}</p>
         <div class="game-state-naming__row">
-          <UiButton size="sm" type="submit">Rename</UiButton>
+          <UiButton size="sm" type="submit">Add</UiButton>
           <UiButton size="sm" variant="ghost" @click="namingOpen = false">Cancel</UiButton>
         </div>
       </form>

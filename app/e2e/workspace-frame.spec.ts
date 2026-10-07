@@ -131,8 +131,13 @@ test("Game state + names a flag in place @webkit-desktop", async ({ page }) => {
   await page.getByTestId("add-game-state").click();
   await expect(naming).toBeVisible();
   await expect(page.getByTestId("game-state-num")).toHaveValue(/^\d+$/);
+  // A variable starts above the interpreter's own variables 0–26.
+  await naming.getByRole("radio", { name: "Variable", exact: true }).click();
+  expect(Number(await page.getByTestId("game-state-num").inputValue())).toBeGreaterThanOrEqual(27);
+  await naming.getByRole("radio", { name: "Flag", exact: true }).click();
+  expect(Number(await page.getByTestId("game-state-num").inputValue())).toBeGreaterThanOrEqual(16);
   await page.getByTestId("game-state-name").fill("picked_flower");
-  await naming.getByRole("button", { name: "Rename", exact: true }).click();
+  await naming.getByRole("button", { name: "Add", exact: true }).click();
   // The named flag joins the Game state list and the bindings draft.
   await expect(page.getByTestId("parts-list")).toContainText("picked_flower");
   await expect(page.locator('[data-testid="project-tab-state"]')).toBeVisible();
