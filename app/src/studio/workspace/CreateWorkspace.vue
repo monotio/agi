@@ -2672,7 +2672,7 @@ onBeforeUnmount(() => {
   background: var(--surface-3);
   border: 1px solid var(--hairline);
   border-radius: var(--radius);
-  box-shadow: var(--shadow-popover, 0 8px 24px rgb(0 0 0 / 0.35));
+  box-shadow: var(--shadow-pop);
 }
 .game-room-menu button {
   border: 0;
@@ -2681,7 +2681,7 @@ onBeforeUnmount(() => {
   font: inherit;
   text-align: left;
   padding: var(--space-2) var(--space-3);
-  border-radius: var(--radius-sm, 4px);
+  border-radius: var(--radius-sm);
   cursor: pointer;
 }
 .game-room-menu button:hover,

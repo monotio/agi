@@ -3,6 +3,7 @@ import { test, expect } from "./test.ts";
 import { isolateStorage, waitForRoom, workspaceUpdated } from "./engineProbe.ts";
 import { encodePngRgba } from "../../src/creative/composite.ts";
 import type { ProjectSession } from "../src/project/projectSession.ts";
+import { openBuiltinGameState } from "./workspaceShared.ts";
 
 async function start(page: Page, width = 1440) {
   await page.setViewportSize({ width, height: width === 1063 ? 815 : width === 390 ? 844 : 900 });
@@ -103,6 +104,7 @@ test("Rename lives in a keyboard reachable row menu", async ({ page }) => {
 });
 test("unused game state says nowhere yet", async ({ page }) => {
   await start(page);
+  await openBuiltinGameState(page);
   const row = page
     .getByTestId("parts-list")
     .getByRole("button", { name: "chime_done Flag 204", exact: true })

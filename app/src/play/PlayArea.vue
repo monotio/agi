@@ -60,6 +60,12 @@ const presentation = usePresentation();
 const { gpuBackend, debugOpen, debugViewMode, splitAt } = presentation;
 const bridge = useShellBridge();
 const agentBlocksGame = computed(() => state.powerUp.open && !props.inspectorDocked);
+const inputDisabled = computed(
+  () =>
+    agentBlocksGame.value ||
+    state.historyView.active ||
+    (!state.inputReady && !state.walkthrough.active),
+);
 
 /** The DOM input is the keyboard capture; its text lives on the engine's input row. */
 const inputEl = useTemplateRef("inputEl");
@@ -323,9 +329,27 @@ function sendScreenClick(ev: MouseEvent): void {
   if (point) sendClick(Math.floor(point.x), Math.floor(point.y));
 }
 
+let pendingInputFocus: Element | null | undefined;
 function focusInput(): void {
-  inputEl.value?.focus({ preventScroll: true });
+  pendingInputFocus = undefined;
+  if (!inputEl.value || inputDisabled.value) {
+    pendingInputFocus = document.activeElement;
+    return;
+  }
+  inputEl.value.focus({ preventScroll: true });
 }
+// A room launch can disable the input while the focus command is being served.
+// Finish that request when it enables, provided the player kept the chosen focus.
+watch(
+  [inputEl, inputDisabled],
+  () => {
+    if (pendingInputFocus === undefined || !inputEl.value || inputDisabled.value) return;
+    const origin = pendingInputFocus;
+    pendingInputFocus = undefined;
+    if (document.activeElement === origin) focusInput();
+  },
+  { flush: "post" },
+);
 
 /** A late-loaded surface respects the control the player already chose. */
 function claimGameFocus(): void {
@@ -719,11 +743,7 @@ defineExpose({
         >
           <input
             id="game-command"
-            :disabled="
-              agentBlocksGame ||
-              state.historyView.active ||
-              (!state.inputReady && !state.walkthrough.active)
-            "
+            :disabled="inputDisabled"
             aria-label="Game command"
             aria-describedby="game-input-help"
             ref="inputEl"

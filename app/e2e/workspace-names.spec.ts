@@ -9,6 +9,7 @@ import {
 } from "./engineProbe.ts";
 import {
   focusWorkspaceLogic,
+  openBuiltinGameState,
   openWorkspaceLogic,
   replaceWorkspaceDocument,
   workspaceDocument,
@@ -40,6 +41,10 @@ test("names open resources, peek game state and rename all authored uses @webkit
   await start(page);
   const parts = page.getByTestId("parts-list");
   await expect(parts.getByRole("heading", { name: "GAME STATE", exact: true })).toBeVisible();
+  await openBuiltinGameState(page);
+  await expect(
+    parts.getByRole("button", { name: "chime_done Flag 204", exact: true }),
+  ).toBeVisible();
   await parts.getByRole("button", { name: "chime_done Flag 204", exact: true }).click();
   const details = page.getByTestId("binding-details");
   await expect(details).toBeVisible();
@@ -354,6 +359,7 @@ test("F5 runs from the parts list, header, agent and page without reloading", as
       });
     await page.keyboard.press("F5");
     await expect(page.locator(".workspace-context").getByTestId("debug-stop")).toBeVisible();
+    await expect(page.locator(".workspace-context").getByTestId("debug-stop")).toBeEnabled();
     await page.keyboard.press("Shift+F5");
     await expect(page.getByTestId("debug-stop")).toHaveCount(0);
   }
@@ -364,12 +370,18 @@ test("switching names resets Rename and leaves both bindings unchanged", async (
   await start(page);
   const before = await workspaceDocument(page, "bindings");
   const parts = page.getByTestId("parts-list");
+  await openBuiltinGameState(page);
+  await expect(
+    parts.getByRole("button", { name: "chime_done Flag 204", exact: true }),
+  ).toBeVisible();
   await parts.getByRole("button", { name: "chime_done Flag 204", exact: true }).click();
   const details = page.getByTestId("binding-details");
   await expect(details).toBeVisible();
   await details.getByRole("button", { name: "Rename", exact: true }).click();
   await details.getByLabel("Name", { exact: true }).fill("birdsong_done");
+  await expect(parts.getByRole("button", { name: "dead Flag 202", exact: true })).toBeVisible();
   await parts.getByRole("button", { name: "dead Flag 202", exact: true }).click();
+  await expect(details.locator("header strong")).toBeVisible();
   await expect(details.locator("header strong")).toHaveText("dead");
   await expect(details.getByLabel("Name", { exact: true })).toBeHidden();
   expect(await workspaceDocument(page, "bindings")).toBe(before);

@@ -351,10 +351,34 @@ test("Generate sends one styled request and Use this opens tracing", async ({ pa
   await page.getByTestId("generate-review").click();
   await expect(page.getByTestId("generate-review-sheet")).toHaveCount(0);
   await expect(page.getByTestId("generate-offer")).toBeVisible();
+  // Use decodes and hashes the offered image before staging it. Await the
+  // staging receipt so these assertions follow that work even on a busy browser.
+  await page.evaluate(() => {
+    const session = (
+      window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }
+    ).__AGI_PROJECT__.getSession();
+    const stage = session.stage.bind(session);
+    const admission = new Promise<void>((resolve, reject) => {
+      session.stage = async (changes) => {
+        try {
+          const result = await stage(changes);
+          if (changes.some(({ key }) => key.startsWith("attachment:"))) resolve();
+          return result;
+        } catch (cause) {
+          reject(cause);
+          throw cause;
+        }
+      };
+    });
+    (window as unknown as { traceAdmission: Promise<void> }).traceAdmission = admission;
+  });
   await page.getByTestId("generate-use").click();
+  await page.evaluate(
+    () => (window as unknown as { traceAdmission: Promise<void> }).traceAdmission,
+  );
   await expect(page.getByTestId("trace-opacity")).toBeVisible();
   await expect(page.getByTestId("generate-offer")).toBeHidden();
-  // Tracing controls appear while the image transaction is still being admitted.
+  // Flush the admitted image before checking its saved document.
   await page.evaluate(() =>
     (window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }).__AGI_PROJECT__
       .getSession()

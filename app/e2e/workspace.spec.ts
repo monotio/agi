@@ -1,4 +1,5 @@
-import { workspaceUpdated, workspaceSaved, waitForGameInput } from "./engineProbe.ts";
+import { workspaceUpdated, workspaceSaved } from "./engineProbe.ts";
+import { focusWorkspaceGame } from "./workspaceShared.ts";
 import { test, expect, reviewShot } from "./test.ts";
 import { isolateStorage, textHook } from "./engineProbe.ts";
 import type { Page, Locator } from "@playwright/test";
@@ -130,6 +131,49 @@ test("Blank adds its first room through the session @webkit-desktop", async ({ p
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
 });
 
+test("Focus game waits for input readiness and respects a later focus choice @webkit-desktop", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await starter(page);
+  await page.getByTestId("part-room:1:picture:1").click();
+  await expect(page.getByTestId("room-studio")).toBeVisible();
+  const command = page.getByTestId("input-line");
+  await expect(command).toBeVisible();
+  await expect(command).toBeEnabled();
+  await expect(page.getByTestId("workspace-agent")).toBeEnabled();
+  for (const chooseParts of [false, true]) {
+    // Keep worker delivery outside this microtask sequence so the disabled
+    // render and the ready render exercise the same focus request deterministically.
+    const result = await page.evaluate(async (chooseParts) => {
+      const state = window.__AGI_STATE__!;
+      state.inputReady = false;
+      await Promise.resolve();
+      const input = document.getElementById("game-command") as HTMLInputElement;
+      const disabled = input.disabled;
+      const key = new KeyboardEvent("keydown", {
+        key: "`",
+        code: "Backquote",
+        ctrlKey: true,
+        bubbles: true,
+        cancelable: true,
+      });
+      window.dispatchEvent(key);
+      await Promise.resolve();
+      const parts = document.querySelector<HTMLElement>('[data-testid="part-room:1:picture:1"]')!;
+      if (chooseParts) parts.focus();
+      state.inputReady = true;
+      await Promise.resolve();
+      return {
+        disabled,
+        handled: key.defaultPrevented,
+        focused: document.activeElement === (chooseParts ? parts : input),
+      };
+    }, chooseParts);
+    expect(result).toEqual({ disabled: true, handled: true, focused: true });
+  }
+});
+
 test("drawing, LOGIC and VIEW edit MAIN, Undo spans editors, reload keeps edits @webkit-desktop", async ({
   page,
 }) => {
@@ -205,8 +249,7 @@ test("drawing, LOGIC and VIEW edit MAIN, Undo spans editors, reload keeps edits 
   );
   await workspaceUpdated(page);
   await page.getByTestId("workspace-show-game").click();
-  await page.keyboard.press("Control+`");
-  await waitForGameInput(page);
+  await focusWorkspaceGame(page);
   await page.keyboard.type("look");
   await expect(page.getByRole("textbox", { name: "Game command", exact: true })).toHaveValue(
     "look",
@@ -291,8 +334,7 @@ test("drawing, LOGIC and VIEW edit MAIN, Undo spans editors, reload keeps edits 
   await expect
     .poll(() => page.evaluate((index) => window.__AGI_FRAME__?.()?.visual[index], pixel))
     .toBe(4);
-  await page.keyboard.press("Control+`");
-  await waitForGameInput(page);
+  await focusWorkspaceGame(page);
   await page.keyboard.type("look");
   await expect(page.getByRole("textbox", { name: "Game command", exact: true })).toHaveValue(
     "look",
@@ -457,8 +499,7 @@ test("keyboard authors all three parts, undoes across them and reloads @webkit-d
     ),
   );
   await workspaceUpdated(page);
-  await page.keyboard.press("Control+`");
-  await waitForGameInput(page);
+  await focusWorkspaceGame(page);
   await page.keyboard.type("look");
   await expect(page.getByRole("textbox", { name: "Game command", exact: true })).toHaveValue(
     "look",
@@ -549,8 +590,7 @@ test("keyboard authors all three parts, undoes across them and reloads @webkit-d
   await expect
     .poll(() => page.evaluate((index) => window.__AGI_FRAME__?.()?.visual[index], pixel))
     .toBe(4);
-  await page.keyboard.press("Control+`");
-  await waitForGameInput(page);
+  await focusWorkspaceGame(page);
   await page.keyboard.type("look");
   await expect(page.getByRole("textbox", { name: "Game command", exact: true })).toHaveValue(
     "look",
