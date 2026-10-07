@@ -738,7 +738,7 @@ defineExpose({
     />
     <div
       ref="root"
-      class="workspace-monaco"
+      class="workspace-monaco monaco-component"
       data-testid="workspace-logic-editor"
       @focusout.capture="leaveEditor"
     ></div>

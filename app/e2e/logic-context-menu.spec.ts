@@ -19,6 +19,13 @@ test("the LOGIC editor's context menu draws above the workspace @webkit-desktop"
   await page.mouse.click(area.x + 120, area.y + area.height - 12, { button: "right" });
   const menu = page.locator(".monaco-menu").first();
   await expect(menu).toBeVisible();
+  // The menu keeps the editor theme's opaque background wherever Monaco attaches it.
+  expect(
+    await page
+      .locator(".monaco-menu-container .monaco-scrollable-element")
+      .first()
+      .evaluate((element) => getComputedStyle(element).backgroundColor),
+  ).not.toBe("rgba(0, 0, 0, 0)");
   await expect(menu.getByRole("menuitem").locator(".action-label")).toHaveText([
     "Go to definition",
     "Find references",
