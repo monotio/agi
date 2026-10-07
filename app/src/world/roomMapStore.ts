@@ -11,6 +11,7 @@
 import { serializeMapSidecar, validateMapSidecar } from "../../../src/agent/roomSidecar.ts";
 import type { RoomMapSidecar } from "../../../src/agent/roomMap.ts";
 import type { ProgressTarget } from "../project/progressTarget.ts";
+import { earlierProgressReceiptKey } from "../project/earlierProgressReceipt.ts";
 
 const MAP_PREFIX = "monotio_agi.map.";
 /** Where a project archive keeps the sidecar. */
@@ -43,7 +44,10 @@ export function readMapSidecar(
   const key = typeof target === "string" ? target : target.locator;
   const raw =
     storage.getItem(mapKey(key)) ??
-    (typeof target !== "string" && target.kind === "project" && target.bodyEpoch === "initial"
+    (typeof target !== "string" &&
+    target.kind === "project" &&
+    target.bodyEpoch === "initial" &&
+    storage.getItem(earlierProgressReceiptKey(target.project)) === null
       ? storage.getItem(mapKey(target.project))
       : null);
   if (raw === null) return emptyMapSidecar();
