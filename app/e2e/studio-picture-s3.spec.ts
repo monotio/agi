@@ -340,6 +340,9 @@ test("Items rows drag to a new place in the draw order", async ({ page }) => {
   await page.mouse.down();
   await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2 - 6, { steps: 3 });
   await page.mouse.move(to.x + to.width / 2, to.y + 4, { steps: 6 });
+  // WebKit needs a move within the target to finish native drag-over before release.
+  await page.mouse.move(to.x + to.width / 2, to.y + 4);
+  await expect(rows.nth(1)).toHaveClass(/is-drop-before/);
   await page.mouse.up();
   await expect
     .poll(async () => {

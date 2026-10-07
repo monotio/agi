@@ -90,17 +90,22 @@ test("invalid drafts report a problem and discard restores the editor @webkit-de
   await expect(page.getByTestId("workspace-update")).toHaveAccessibleName(
     "Update and restart Meadow",
   );
+  await expect(page.locator(".workspace-build-error")).toBeHidden();
   await page.keyboard.press("ControlOrMeta+Enter");
+  await expect(page.locator(".workspace-build-error")).toHaveCount(1);
+  await expect(page.locator(".workspace-build-error")).toContainText(
+    "LOGIC 1 has errors. Fix them to update the game.",
+  );
   await expect(page.getByTestId("workspace-update")).toBeVisible();
   await expect(page.getByTestId("workspace-update")).toHaveAccessibleName(
     "Update and restart Meadow",
   );
   expect(await runningWorkspaceDocument(page, "logic:1")).toBe(before);
   await page.getByTestId("workspace-update").click();
-  // The Problems tab opens; it closes with its own ×.
-  await expect(page.getByTestId("workspace-problems")).toBeVisible();
-  await page.getByRole("button", { name: "Close Problems", exact: true }).click();
+  await expect(page.locator(".workspace-build-error")).toHaveCount(1);
   await expect(page.getByTestId("workspace-problems")).toBeHidden();
+  await page.getByRole("button", { name: "Go to error", exact: true }).click();
+  await expect(page.getByTestId("workspace-logic-editor").locator("textarea")).toBeFocused();
   await page.getByTestId("workspace-update-menu").click();
   await expect(page.getByRole("menuitem", { name: "Discard changes…", exact: true })).toBeVisible();
   await page.getByRole("menuitem", { name: "Discard changes…", exact: true }).click();

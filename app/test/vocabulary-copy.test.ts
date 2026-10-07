@@ -158,7 +158,11 @@ test("editor action tooltips bind to shared action help", () => {
   assert.equal(ROOM_TOOL_NAMES.walk, VOCABULARY.testWalk.label);
   assert.equal(ROOM_TOOL_HINTS.walk, VOCABULARY.testWalk.help);
   const bindings: Readonly<Record<string, readonly string[]>> = {
-    "app/src/studio/workspace/GuidedAdd.vue": ['"play-sound": "Sound when…"'],
+    "app/src/studio/workspace/GuidedAdd.vue": [
+      'import { ROOM_ACTION_LABELS as labels, type RoomActionKind } from "./guidedActions.ts";',
+      'v-for="(label, actionKind) in labels"',
+    ],
+    "app/src/studio/workspace/guidedActions.ts": ['"play-sound": "Sound when…"'],
     "app/src/studio/StudioToolRail.vue": [
       'if (entry.id === "walk") return VOCABULARY.testWalk.help;',
       "label: VOCABULARY.testWalk.label",
