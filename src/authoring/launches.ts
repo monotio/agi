@@ -273,75 +273,53 @@ export function selectLaunch(world: World, room: number, selected: string): Worl
   return withRoomLaunches(world, key, next);
 }
 
-/**
- * Drops a removed room's own launches and strips any surviving cameFrom or
- * item placements targeting that room. Keeps the resulting world valid.
- */
-export function pruneRoomLaunches(world: World, room: number): World {
-  if (!world.launches) return world;
-  const key = String(room);
+/** Removes Launch inputs tied to deleted LOGIC resources, preserving every other entry. */
+export function pruneWorldLaunches(
+  launches: WorldLaunches | undefined,
+  removedKeys: ReadonlySet<string>,
+): WorldLaunches | undefined {
+  if (!launches) return launches;
   let changed = false;
-  const nextLaunches: Record<string, RoomLaunches> = {};
-
-  for (const [rKey, rLaunches] of Object.entries(world.launches)) {
-    if (rKey === key) {
+  const next: WorldLaunches = {};
+  for (const [room, list] of Object.entries(launches)) {
+    if (removedKeys.has(`logic:${room}`)) {
       changed = true;
       continue;
     }
     let entriesChanged = false;
-    const nextEntries: Launch[] = [];
-    for (const entry of rLaunches.entries) {
-      let entryChanged = false;
-      const patched: Launch = { ...entry };
-      if (patched.cameFrom?.room === room) {
-        delete patched.cameFrom;
-        entryChanged = true;
+    const entries = list.entries.map((entry) => {
+      const clearCameFrom =
+        entry.cameFrom !== undefined && removedKeys.has(`logic:${entry.cameFrom.room}`);
+      const items =
+        entry.items &&
+        Object.fromEntries(
+          Object.entries(entry.items).filter(([, room]) => !removedKeys.has(`logic:${room}`)),
+        );
+      const clearItems =
+        entry.items !== undefined && Object.keys(items!).length !== Object.keys(entry.items).length;
+      if (!clearCameFrom && !clearItems) return entry;
+      entriesChanged = true;
+      const patched = { ...entry };
+      if (clearCameFrom) delete patched.cameFrom;
+      if (clearItems) {
+        if (Object.keys(items!).length) patched.items = items!;
+        else delete patched.items;
       }
-      if (patched.items) {
-        const remainingItems: Record<string, number> = {};
-        let itemsChanged = false;
-        for (const [itemId, targetRoom] of Object.entries(patched.items)) {
-          if (targetRoom === room) {
-            itemsChanged = true;
-          } else {
-            remainingItems[itemId] = targetRoom;
-          }
-        }
-        if (itemsChanged) {
-          entryChanged = true;
-          if (Object.keys(remainingItems).length > 0) {
-            patched.items = remainingItems;
-          } else {
-            delete patched.items;
-          }
-        }
-      }
-      if (entryChanged) entriesChanged = true;
-      nextEntries.push(patched);
-    }
-    if (entriesChanged) {
-      changed = true;
-      nextLaunches[rKey] = {
-        ...rLaunches,
-        entries: nextEntries,
-      };
-    } else {
-      nextLaunches[rKey] = rLaunches;
-    }
+      return patched;
+    });
+    changed ||= entriesChanged;
+    next[room] = entriesChanged ? { ...list, entries } : list;
   }
+  if (!changed) return launches;
+  return Object.keys(next).length ? next : undefined;
+}
 
-  if (!changed) return world;
-
-  for (const [rKey, rLaunches] of Object.entries(nextLaunches)) {
-    if (rLaunches.entries.length === 0 && rLaunches.selected === undefined) {
-      delete nextLaunches[rKey];
-    }
-  }
-
-  if (Object.keys(nextLaunches).length === 0) {
-    const next = { ...world };
-    delete next.launches;
-    return next;
-  }
-  return { ...world, launches: ordered(nextLaunches) };
+/** Prunes a planned room's Launches through the shared resource-removal edit. */
+export function pruneRoomLaunches(world: World, room: number): World {
+  const launches = pruneWorldLaunches(world.launches, new Set([`logic:${room}`]));
+  if (launches === world.launches) return world;
+  const next = { ...world };
+  if (launches) next.launches = launches;
+  else delete next.launches;
+  return next;
 }

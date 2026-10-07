@@ -11,6 +11,7 @@ import {
   moveLaunch,
   newLaunchId,
   pruneRoomLaunches,
+  pruneWorldLaunches,
   readWorldLaunches,
   removeLaunch,
   selectLaunch,
@@ -21,6 +22,7 @@ import { compileProjectLogic } from "../src/authoring/projectLogic.ts";
 import { inspectProjectReferences } from "../src/authoring/projectReferences.ts";
 import {
   inspectProjectRemoval,
+  launchRemovalMessages,
   type ProjectRemovalInput,
 } from "../src/authoring/projectRemoval.ts";
 import { PROFILES } from "../src/runtime/profile.ts";
@@ -210,7 +212,7 @@ test("edit helpers add, update, move, select and remove launches", () => {
   validateAuthoringState({ version: 1, bindings: {}, world: after });
 });
 
-test("removal review flags launches tied to a removed room", () => {
+test("removal review allows Launch references that the candidate prunes", () => {
   const container = openContainer(new Map(), { profile });
   for (const num of [0, 1, 3]) {
     container.putResource(
@@ -235,22 +237,16 @@ test("removal review flags launches tied to a removed room", () => {
       profile,
     } satisfies Partial<ProjectRemovalInput> as ProjectRemovalInput);
 
-  // Room 8's own launches refuse to survive its removal.
+  // Launch references are edits, so the inventory allows them.
   const held = review(authoring({ "8": { entries: [{ id: "a", name: "Bay entry" }] } }));
-  assert.ok(
-    held.some((finding) => /launch/i.test(finding.message) && /logic:8/.test(finding.message)),
-    JSON.stringify(held),
-  );
-  // Another room's launch that came from room 8 refuses too.
+  assert.deepEqual(held, []);
+  // Came from also allows removal.
   const inbound = review(
     authoring({
       "3": { entries: [{ id: "a", name: "From the bay", cameFrom: { room: 8 } }] },
     }),
   );
-  assert.ok(
-    inbound.some((finding) => /logic:8/.test(finding.message)),
-    JSON.stringify(inbound),
-  );
+  assert.deepEqual(inbound, []);
   // Unrelated launches pass.
   const clean = review(
     authoring({ "3": { entries: [{ id: "a", name: "From the bay", cameFrom: { room: 1 } }] } }),
@@ -311,4 +307,73 @@ test("pruneRoomLaunches deletes the room's launches and strips cameFrom and item
     [],
     "after pruning, projectRemoval reports no launch blockers",
   );
+});
+
+test("pruneWorldLaunches prunes several resource keys and preserves untouched Launch bytes and identity", () => {
+  const untouched = {
+    id: "stay",
+    name: "Stay",
+    note: "Exact note",
+    seed: 0,
+    items: { "4": 255, "5": 0 },
+  };
+  const launches = {
+    "8": { selected: "bay", entries: [{ id: "bay", name: "Bay entry" }] },
+    "9": { selected: "beginning", entries: [] },
+    "3": {
+      selected: "from-bay",
+      entries: [
+        {
+          id: "from-bay",
+          name: "From bay",
+          cameFrom: { room: 8, edge: 2 as const },
+          items: { "1": 8, "2": 9, "3": 255 },
+          flags: { "70": true },
+        },
+        { id: "only-item", name: "Item", items: { "1": 9 } },
+        untouched,
+      ],
+    },
+    "4": { entries: [untouched] },
+    "5": { entries: [] },
+  };
+  const bytes = JSON.stringify(launches);
+  const pruned = pruneWorldLaunches(
+    launches,
+    new Set(["logic:8", "logic:9", "picture:3", "view:4", "sound:5"]),
+  );
+  assert.deepEqual(pruned, {
+    "3": {
+      selected: "from-bay",
+      entries: [
+        { id: "from-bay", name: "From bay", items: { "3": 255 }, flags: { "70": true } },
+        { id: "only-item", name: "Item" },
+        untouched,
+      ],
+    },
+    "4": launches["4"],
+    "5": launches["5"],
+  });
+  assert.equal(JSON.stringify(launches), bytes);
+  assert.equal(pruned!["3"]!.entries[2], untouched);
+  assert.equal(pruned!["4"], launches["4"]);
+  assert.equal(pruned!["5"], launches["5"]);
+  assert.equal(pruneWorldLaunches(launches, new Set(["picture:8"])), launches);
+  assert.equal(pruneWorldLaunches(undefined, new Set(["logic:8"])), undefined);
+  assert.equal(pruneWorldLaunches({ "8": launches["8"] }, new Set(["logic:8"])), undefined);
+});
+
+test("removal preview names Launch deletion, Came from and item carry over", () => {
+  const launches = {
+    "2": { entries: [{ id: "cart", name: "At the cart", cameFrom: { room: 2 } }] },
+    "1": {
+      entries: [{ id: "path", name: "Path", cameFrom: { room: 2 }, items: { "0": 2, "1": 255 } }],
+    },
+  };
+  assert.deepEqual(launchRemovalMessages(launches, new Set(["logic:2"])), [
+    "“Path” starts without Came from.",
+    "Item 0 in “Path” carries over.",
+    "Also removes the Launch “At the cart”.",
+  ]);
+  assert.deepEqual(launchRemovalMessages(launches, new Set(["picture:2"])), []);
 });

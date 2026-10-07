@@ -1,7 +1,11 @@
 /** Detached preparation of the complete coordinated document image. */
 import { createContainer, openContainer } from "../container/container.ts";
 import { PROFILES, type ProfileId } from "../runtime/profile.ts";
-import { createAuthoringState, validateAuthoringState } from "./authoringState.ts";
+import {
+  createAuthoringState,
+  validateAuthoringState,
+  type AuthoringState,
+} from "./authoringState.ts";
 import {
   compileProjectDocuments,
   ProjectDocumentCompileError,
@@ -10,6 +14,7 @@ import {
   type ProjectDocumentsCompile,
 } from "./projectDocuments.ts";
 import type { ProjectApplication, ProjectModel, ProjectProposal } from "./projectModel.ts";
+import { pruneWorldLaunches } from "./launches.ts";
 import { occupiedProjectNumbers } from "./projectRenumber.ts";
 import type { ResourceKind } from "../types.ts";
 import { inspectProjectReferences } from "./projectReferences.ts";
@@ -61,10 +66,11 @@ export function prepareProjectEdit(input: {
   if (base !== undefined && base.identity.profileId !== input.profileId)
     throw new Error("Project preparation profile differs from the last admissible image.");
   const files = Object.fromEntries(base?.files() ?? createContainer().files);
-  const documents = input.proposal.documents();
+  let proposal = input.proposal;
+  let documents = proposal.documents();
   const before = base?.documents() ?? {};
   const removedResources = Object.freeze(
-    Object.keys(before)
+    [...new Set([...Object.keys(before), ...proposal.base.keys])]
       .filter((key) => PROJECT_RESOURCE_KEY.test(key) && documents[key] === undefined)
       .sort(),
   );
@@ -72,6 +78,28 @@ export function prepareProjectEdit(input: {
   const diagnostics: ProjectEditDiagnostic[] = [];
   let compiled: ProjectDocumentsCompile | undefined;
   try {
+    const worldText = documents["world"];
+    if (removedResources.length && typeof worldText === "string") {
+      let world: AuthoringState["world"];
+      try {
+        world = JSON.parse(worldText) as AuthoringState["world"];
+        validateAuthoringState({ ...createAuthoringState(), world });
+      } catch (error) {
+        throw new ProjectDocumentCompileError("world", error);
+      }
+      const launches = pruneWorldLaunches(world.launches, new Set(removedResources));
+      if (launches !== world.launches) {
+        // Keep the creator's other world fields and the exact Undo base.
+        const prunedWorld = JSON.parse(worldText) as Record<string, unknown>;
+        if (launches) prunedWorld["launches"] = launches;
+        else delete prunedWorld["launches"];
+        proposal = input.model.propose(proposal.base, proposal.label, [
+          ...proposal.changes().filter((change) => change.key !== "world"),
+          { key: "world", content: JSON.stringify(prunedWorld) },
+        ]);
+        documents = proposal.documents();
+      }
+    }
     // Strict compilation remains the diagnostic authority for incomplete text.
     compiled = compileProjectDocuments({ files, profileId: input.profileId, documents });
     dependencies = inspectProjectDocumentDependencies({ documents, profileId: input.profileId });
@@ -209,11 +237,13 @@ export function prepareProjectEdit(input: {
   if (diagnostics.some((diagnostic) => diagnostic.severity === "error")) compiled = undefined;
   return Object.freeze({
     status: compiled === undefined ? "diagnostics" : "ready",
-    proposal: input.proposal,
+    proposal,
     application:
       compiled === undefined
-        ? sourceApplication
-        : input.model.issueApplication(input.proposal, compiled),
+        ? proposal === input.proposal
+          ? sourceApplication
+          : input.model.issueApplication(proposal)
+        : input.model.issueApplication(proposal, compiled),
     compiled,
     diagnostics: Object.freeze(diagnostics.map((diagnostic) => Object.freeze(diagnostic))),
     dependencies,

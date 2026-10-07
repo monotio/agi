@@ -345,3 +345,139 @@ test("future rooms and computed dispatch stay out of Problems, with literal call
   });
   assert.equal(call.status, "diagnostics");
 });
+
+test("room removal prepares one candidate including Launch pruning and Undo restores the exact world", async () => {
+  const { ProjectHistory } = await import("../src/authoring/projectHistory.ts");
+  const { createContainer } = await import("../src/container/container.ts");
+  const world = JSON.stringify(
+    {
+      rooms: {},
+      facts: {},
+      quests: {},
+      launches: {
+        "2": { selected: "cart", entries: [{ id: "cart", name: "At the cart" }] },
+        "1": {
+          entries: [
+            { id: "path", name: "Path", cameFrom: { room: 2 }, items: { "0": 2, "1": 255 } },
+          ],
+        },
+      },
+    },
+    null,
+    2,
+  );
+  const documents = { "logic:0": "return;", "logic:1": "return;", "logic:2": "return;", world };
+  const build = compileProjectDocuments({
+    files: Object.fromEntries(createContainer().files),
+    documents,
+    profileId: "2.936",
+  });
+  const model = new ProjectModel({ documents, build, digest: sha256Hex });
+  const history = new ProjectHistory(sha256Hex);
+  const metadata = {
+    label: "Before",
+    origin: "logic" as const,
+    author: "creator" as const,
+    time: 1,
+  };
+  history.record(documents, metadata);
+  const before = model.capture();
+  const worldDraft = {
+    ...JSON.parse(world),
+    rooms: { "2": { title: "Cart", description: "", exits: {} } },
+  };
+  const blocked = prepareProjectEdit({
+    model,
+    proposal: model.propose(before, "Remove room", [{ key: "logic:2", content: null }]),
+    profileId: "2.936",
+    policy: {},
+    drafts: [{ key: "world", content: JSON.stringify(worldDraft) }],
+  });
+  assert.equal(
+    blocked.status,
+    "diagnostics",
+    "the automatic Launch edit keeps unselected room-plan drafts in the removal review",
+  );
+  assert.ok(
+    blocked.diagnostics.some((d) => d.document === "world" && /planned room/.test(d.message)),
+  );
+  const prepared = prepareProjectEdit({
+    model,
+    proposal: model.propose(before, "Remove room", [{ key: "logic:2", content: null }]),
+    profileId: "2.936",
+    policy: {},
+  });
+  assert.equal(prepared.status, "ready", JSON.stringify(prepared.diagnostics));
+  assert.deepEqual(
+    prepared.proposal.changes().map((c) => c.key),
+    ["logic:2", "world"],
+  );
+  assert.equal(model.capture(), before, "preparation stays detached");
+  const after = model.apply(prepared.application);
+  assert.equal(after.revision, before.revision + 1);
+  assert.deepEqual(JSON.parse(String(after.read("world")!.content)).launches, {
+    "1": { entries: [{ id: "path", name: "Path", items: { "1": 255 } }] },
+  });
+  assert.equal(prepared.compiled!.documents()["world"], after.read("world")!.content);
+  history.record(after.documents(), { ...metadata, label: "Remove room", time: 2 });
+  const action = history.undo(model)!;
+  const undo = prepareProjectEdit({
+    model,
+    proposal: action.proposal,
+    profileId: "2.936",
+    policy: {},
+  });
+  assert.equal(undo.status, "ready");
+  model.apply(undo.application);
+  history.accept(action);
+  assert.deepEqual(model.capture().documents(), documents);
+});
+
+test("removing a room saved as invalid source prunes its Launches before the next build", () => {
+  const project = createStarterProject("blank");
+  const files = Object.fromEntries(project.files());
+  const documents = {
+    "logic:0": "return;",
+    world: JSON.stringify({ rooms: {}, facts: {}, quests: {} }),
+  };
+  const build = compileProjectDocuments({ files, documents, profileId: "2.936" });
+  const model = new ProjectModel({ documents, build, digest: sha256Hex });
+  const typing = prepareProjectEdit({
+    model,
+    proposal: model.propose(model.capture(), "Unfinished room", [
+      { key: "logic:2", content: "if (" },
+      {
+        key: "world",
+        content: JSON.stringify({
+          rooms: {},
+          facts: {},
+          quests: {},
+          launches: { "2": { entries: [{ id: "cart", name: "At the cart" }] } },
+        }),
+      },
+    ]),
+    profileId: "2.936",
+    policy: {},
+  });
+  assert.equal(typing.status, "diagnostics");
+  model.apply(typing.application);
+  const before = model.capture();
+  const malformed = prepareProjectEdit({
+    model,
+    proposal: model.propose(before, "Remove", [
+      { key: "logic:2", content: null },
+      { key: "world", content: "{" },
+    ]),
+    profileId: "2.936",
+    policy: {},
+  });
+  const removed = prepareProjectEdit({
+    model,
+    proposal: model.propose(before, "Remove", [{ key: "logic:2", content: null }]),
+    profileId: "2.936",
+    policy: {},
+  });
+  assert.equal(removed.status, "ready");
+  assert.equal(JSON.parse(String(removed.proposal.documents()["world"])).launches, undefined);
+  assert.ok(malformed.diagnostics.some((d) => d.document === "world" && d.severity === "error"));
+});

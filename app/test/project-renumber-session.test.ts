@@ -58,6 +58,20 @@ test("Update and journal recovery renumber the whole project; one Undo restores 
       },
       facts: {},
       quests: {},
+      launches: {
+        "2": {
+          selected: "cart",
+          entries: [
+            {
+              id: "cart",
+              name: "At the cart",
+              cameFrom: { room: 2, edge: 3 },
+              items: { "0": 2, "1": 255 },
+            },
+          ],
+        },
+        "1": { entries: [{ id: "path", name: "Path", cameFrom: { room: 2 } }] },
+      },
     }),
     tests: JSON.stringify({
       format: "monotio.agi.tests.v2",
@@ -115,6 +129,20 @@ test("Update and journal recovery renumber the whole project; one Undo restores 
     );
     assert.equal(outcome.status, "committed", JSON.stringify(outcome));
     await drafts.clear();
+    assert.deepEqual(JSON.parse(String(session.model.capture().read("world")!.content)).launches, {
+      "7": {
+        selected: "cart",
+        entries: [
+          {
+            id: "cart",
+            name: "At the cart",
+            cameFrom: { room: 7, edge: 3 },
+            items: { "0": 7, "1": 255 },
+          },
+        ],
+      },
+      "1": { entries: [{ id: "path", name: "Path", cameFrom: { room: 7 } }] },
+    });
     const image = openContainer(session.model.capture().lastAdmissibleBuild!.files(), { profile });
     assert.equal(image.getResource("logic", 2), null);
     assert.deepEqual([...image.getResource("logic", 7)!], [1, 0, 0, 0, 2, 0]);

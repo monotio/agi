@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { launchRemovalMessages } from "../../../src/authoring/projectRemoval.ts";
+import { readWorldLaunches } from "../../../src/authoring/launches.ts";
 import { computed, defineAsyncComponent } from "vue";
 import { createPictureSurface } from "../../../src/types.ts";
 import type { GameContainer } from "../../../src/types.ts";
@@ -21,6 +23,16 @@ const props = defineProps<{
   afterImage: GameContainer;
   profile: AgiProfile;
 }>();
+const launchChanges = computed(() => {
+  if (props.after !== null || !props.documentKey.startsWith("logic:")) return [];
+  const worldText = props.beforeDocuments["world"];
+  if (typeof worldText !== "string") return [];
+  const world = JSON.parse(worldText) as { launches?: unknown };
+  return launchRemovalMessages(
+    world.launches === undefined ? undefined : readWorldLaunches(world.launches),
+    new Set([props.documentKey]),
+  );
+});
 const CodeDiff = defineAsyncComponent(() => import("../studio/logic/AgentCodeDiff.vue"));
 function dataUrl(bytes: Uint8Array, mime: string): string {
   let data = "";
@@ -94,6 +106,9 @@ const removed = computed(() =>
 );
 </script>
 <template>
+  <p v-for="message in launchChanges" :key="message" data-testid="launch-removal-change">
+    {{ message }}
+  </p>
   <div v-if="images.length" class="agent-art-review" data-testid="agent-art-review">
     <figure v-for="image in images" :key="image.label">
       <figcaption>{{ image.label }}</figcaption>

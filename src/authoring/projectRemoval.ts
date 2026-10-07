@@ -15,6 +15,7 @@
  * guesses. Approval matching, storage CAS and the durable write belong to the
  * calling service.
  */
+import { pruneWorldLaunches, type WorldLaunches } from "./launches.ts";
 import { testSetupReferences } from "./renumberTestSetup.ts";
 import { parseGameTests, type GameTestsDocument } from "../agent/gameTestFormat.ts";
 import { createRoomFlow, VAR_WRITES } from "../agent/roomFlow.ts";
@@ -180,21 +181,6 @@ function inspectWorldPlan(
       const exit = `logic:${destination}`;
       if (removedKeys.has(exit))
         report(document, `${exit} is still the '${name}' exit of planned room ${num}.`);
-    }
-  }
-  for (const [num, launches] of Object.entries(world.launches ?? {})) {
-    if (removedKeys.has(`logic:${num}`))
-      report(document, `logic:${num} still has a launch saved on it.`);
-    for (const launch of launches.entries) {
-      const entry = `launch '${launch.name}'`;
-      const cameFrom = roomUse(launch.cameFrom?.room, removedKeys);
-      if (cameFrom !== undefined)
-        report(document, `${entry} still comes from removed ${cameFrom}.`);
-      for (const [item, where] of Object.entries(launch.items ?? {})) {
-        const placed = roomUse(where, removedKeys);
-        if (placed !== undefined)
-          report(document, `${entry} still places item ${item} in removed ${placed}.`);
-      }
     }
   }
 }
@@ -631,4 +617,29 @@ function inspectBytecodeDraft(
     if (removedKeys.has(targetKey))
       report(key, `${targetKey} is still used by draft ${key} (${reference.command}).`);
   }
+}
+
+/** Plain review copy for the Launch inputs removed with resources. */
+export function launchRemovalMessages(
+  launches: WorldLaunches | undefined,
+  removedKeys: ReadonlySet<string>,
+): string[] {
+  const pruned = pruneWorldLaunches(launches, removedKeys);
+  const messages: string[] = [];
+  for (const [room, list] of Object.entries(launches ?? {})) {
+    const remaining = pruned?.[room];
+    for (const [index, entry] of list.entries.entries()) {
+      if (!remaining) {
+        messages.push(`Also removes the Launch “${entry.name}”.`);
+        continue;
+      }
+      const next = remaining.entries[index]!;
+      if (entry.cameFrom && !next.cameFrom)
+        messages.push(`“${entry.name}” starts without Came from.`);
+      for (const item of Object.keys(entry.items ?? {}))
+        if (next.items?.[item] === undefined)
+          messages.push(`Item ${item} in “${entry.name}” carries over.`);
+    }
+  }
+  return messages;
 }
