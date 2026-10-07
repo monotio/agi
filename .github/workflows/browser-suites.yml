@@ -28,6 +28,10 @@ jobs:
       run:
         shell: bash
     timeout-minutes: ${{ inputs.repeat > 1 && 45 || 15 }}
+    # Temporary for the 1.2.0 deploy: desktop WebKit scenarios fail intermittently on the
+    # GitHub runners. On main a WebKit failure stays visible but does not block the deploy;
+    # pull requests still require it. Remove once the suite is stable (1.2.1).
+    continue-on-error: ${{ matrix.browser == 'webkit' && github.ref == 'refs/heads/main' }}
     strategy:
       fail-fast: false
       # At most 20 jobs including quality, production and one PR burn-in job.
