@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { HostWait } from "../../src/runtime/engine.ts";
 import { createWorkerContext } from "../src/worker/context.ts";
 import { createEngineHost } from "../src/worker/host.ts";
 import { onWorkerMessage } from "../src/worker/dispatch.ts";
@@ -446,4 +447,73 @@ test("Update and launch uses the new LOGIC 0 with carried state, pause holds and
   assert.equal(ctx.run.engine!.vars[71], 12, "new global code sees the Launch inputs");
   assert.equal(ctx.run.cycle.paused, true, "the app still owns its pause hold");
   assert.equal(ctx.run.rng.word, 4321, "Carry over keeps the random state");
+});
+
+test("room generation can switch off and on on the same worker", async (t) => {
+  const control: WorkerControl[] = [];
+  const ctx = createWorkerContext({
+    control: (msg) => control.push(msg),
+    presentation: () => {},
+    now: () => 0,
+  });
+  ctx.host = createEngineHost(ctx);
+  t.after(() => ctx.fns.stopTimers());
+  const initial = candidate();
+  onWorkerMessage(ctx, {
+    type: "boot",
+    files: initial.files,
+    words: [],
+    profile: "2.936",
+    authorRooms: true,
+  });
+  ctx.fns.stopTimers();
+  assert.equal(typeof ctx.host.prepareRoom, "function");
+  onWorkerMessage(ctx, { type: "authorRooms", enabled: false });
+  assert.equal(ctx.boot.authorRooms, false);
+  assert.equal(ctx.host.prepareRoom, undefined);
+  assert.throws(() => ctx.run.engine!.reenterRoom(3), /logic resource 3 not in container/);
+  assert.equal(ctx.run.hostRequests.hostRequestOutstanding, null);
+  onWorkerMessage(ctx, { type: "authorRooms", enabled: true });
+  assert.equal(ctx.boot.authorRooms, true);
+  assert.equal(typeof ctx.host.prepareRoom, "function");
+  assert.throws(() => ctx.run.engine!.reenterRoom(4), HostWait);
+  assert.ok(control.some((msg) => msg.type === "hostRequest" && msg.op === "room"));
+});
+
+test("MAIN admission permits future room edits only while room generation is enabled", async (t) => {
+  for (const enabled of [true, false]) {
+    const control: WorkerControl[] = [];
+    const ctx = createWorkerContext({
+      control: (msg) => control.push(msg),
+      presentation: () => {},
+      now: () => 0,
+    });
+    ctx.host = createEngineHost(ctx);
+    t.after(() => ctx.fns.stopTimers());
+    const initial = candidate("if (isset(f50)) { new.room(3); } return;");
+    onWorkerMessage(ctx, {
+      type: "boot",
+      files: initial.files,
+      words: [],
+      profile: "2.936",
+      authorRooms: enabled,
+      projectMode: "create",
+      projectDocuments: initial.documents!,
+    });
+    await ctx.projectLoader.loading;
+    ctx.fns.stopTimers();
+    const grant = ctx.run.projectAdmission!;
+    const edited = candidate("assignn(v80,42); if (isset(f50)) { new.room(3); } return;");
+    onWorkerMessage(ctx, {
+      type: "previewUpdate",
+      id: 10,
+      runToken: grant.runToken,
+      expected: projectAdmissionIdentity(ctx, grant)!,
+      candidate: edited,
+    });
+    const result = control.at(-1);
+    assert.ok(result?.type === "previewUpdateResult");
+    assert.equal(result.status, enabled ? "committed" : "refused");
+    if (!enabled) assert.match(result.reason ?? "", /LOGIC 3 is absent/);
+  }
 });

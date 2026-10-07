@@ -18,7 +18,7 @@ export function createEngineHost(ctx: WorkerContext): EngineHost {
       : `audio-${Date.now().toString(36)}-${++hostSerial}`;
   let stream = 0;
   let soundTick = 0;
-  return {
+  const host: EngineHost = {
     randomByte() {
       // Live and replay share the interpreter's 16-bit RNG
       // (docs/fidelity.md, "Original RNG"): the recorded state in the
@@ -248,4 +248,10 @@ export function createEngineHost(ctx: WorkerContext): EngineHost {
       ctx.ports.presentation({ type: "stopSound" });
     },
   };
+  return new Proxy(host, {
+    get(target, key) {
+      if (key === "prepareRoom" && !ctx.boot.authorRooms) return undefined;
+      return Reflect.get(target, key);
+    },
+  });
 }

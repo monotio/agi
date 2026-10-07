@@ -570,6 +570,11 @@ export function useEngine(
           checkpointReady() {
             if (current() && !game.installed) void autosaveController.flushAutosave();
           },
+          roomGenerationChanged(enabled) {
+            if (!current()) return;
+            link.getWorker()?.postMessage({ type: "authorRooms", enabled } satisfies WorkerInbound);
+            state.patchTick++;
+          },
           changed() {
             if (current()) {
               state.status = projectSession?.saveStatus().message ?? "";
@@ -1217,6 +1222,21 @@ export function useEngine(
     },
     takePlayBack: () => progressOwnership.takeBack(),
     getProjectSession: () => projectSession,
+    async setRoomGeneration(
+      projectId: ProjectId,
+      enabled: boolean,
+      expectedGeneration?: number,
+    ): Promise<void> {
+      const session = projectSession;
+      const game = lifecycle.getBootedGame();
+      if (session && !session.closed && game?.projectId === projectId) {
+        await session.setRoomGeneration(enabled);
+        await session.flush();
+        return;
+      }
+      const { setStoredRoomGeneration } = await import("../project/gameStorage.ts");
+      await setStoredRoomGeneration(projectId, enabled, expectedGeneration);
+    },
     previewImageCels(bytes: Uint8Array | null, loops?: readonly number[]): void {
       if (projectSession)
         link.getWorker()?.postMessage({

@@ -371,6 +371,7 @@ export type WorkerInbound =
   | { type: "renderFrame" }
   | { type: "soundEnabled"; enabled: boolean }
   | { type: "soundDevice"; device: number }
+  | { type: "authorRooms"; enabled: boolean }
   | { type: "debug"; channels?: DebugChannels }
   | { type: "debugWrite"; id: number; vars?: [number, number][]; flags?: [number, number][] }
   | { type: "debugTrace"; id: number; since?: number }

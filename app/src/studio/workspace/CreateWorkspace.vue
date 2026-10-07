@@ -58,6 +58,7 @@ import { useCreateWorkspace } from "../../shell/useCreateWorkspace.ts";
 import { useWorkspaceEditor } from "../../shell/workspaceEditor.ts";
 import { openExplainer } from "../../ui/explain.ts";
 import UiButton from "../../ui/UiButton.vue";
+import RoomGenerationSetting from "../../home/RoomGenerationSetting.vue";
 import UiChip from "../../ui/UiChip.vue";
 import UiIconButton from "../../ui/UiIconButton.vue";
 import ActionMenu from "../../ui/ActionMenu.vue";
@@ -217,10 +218,22 @@ function renameRoom(room: number, title: string): void {
   edit("world", JSON.stringify(renameRoomTitle(world, room, title)));
 }
 /** The ⋯ menu's rare actions for the open tab, plus the frame's own. */
+const gameDetailsOpen = ref(false);
+const roomGeneration = ref(false);
 const frameMenuItems = computed(() => {
   const key = editor.selected.value;
   return [
     ...(key ? (editor.frameActions.value[key]?.() ?? []) : []),
+    {
+      id: "details",
+      label: "Details…",
+      testId: "workspace-more-details",
+      disabled: undefined,
+      title: undefined,
+      run: () => {
+        gameDetailsOpen.value = true;
+      },
+    },
     {
       id: "history",
       label: "History",
@@ -420,6 +433,7 @@ window.addEventListener("drop", dropMusic, true);
 function refresh(): void {
   if (!session) return;
   const capture = session.capture();
+  roomGeneration.value = session.allowMissingRooms;
   snapshot.value = capture.snapshot;
   const ticket = ++imageRefresh;
   if (session.workingSnapshot().keys.includes("images")) {
@@ -1633,6 +1647,10 @@ const diagnostics = computed(() => {
     ? updateProblems.value
     : (session?.capture().diagnostics ?? []);
 });
+watch(roomGeneration, () => {
+  updateProblems.value = [];
+  editor.problemCount.value = diagnostics.value.length;
+});
 const acceptedDocuments = computed(() => snapshot.value?.documents() ?? {});
 const workingDocuments = computed(() => ({ ...acceptedDocuments.value, ...optimistic.value }));
 const guidedKind = ref<WorkspaceAction["kind"]>();
@@ -2166,6 +2184,19 @@ onBeforeUnmount(() => {
       </button>
     </div>
   </Teleport>
+  <UiDialog
+    v-model:open="gameDetailsOpen"
+    title="Game details"
+    size="sm"
+    data-testid="workspace-game-details"
+  >
+    <RoomGenerationSetting
+      v-if="engine.currentGame()?.projectId"
+      :project-id="engine.currentGame()!.projectId!"
+      :enabled="roomGeneration"
+      :disabled="writeConflict"
+    />
+  </UiDialog>
   <section
     v-show="creating && editor.selected.value && (!phoneWidth || !editor.phonePlaytest.value)"
     class="workspace-editor"

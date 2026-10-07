@@ -1,5 +1,8 @@
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, ref } from "vue";
+import ActionMenu from "../../ui/ActionMenu.vue";
+import BindingDetails from "../../shell/BindingDetails.vue";
+import type { BindingInfo } from "../../../../src/logic/projectNames.ts";
 import type { ProjectSnapshot } from "../../../../src/authoring/projectModel.ts";
 import { workspaceGameStateInfos } from "../../shell/workspaceNames.ts";
 import type { AgiProfile } from "../../../../src/runtime/profile.ts";
@@ -12,6 +15,7 @@ const props = defineProps<{
   state: EngineStateReport | null;
   profile: AgiProfile;
 }>();
+const details = ref<BindingInfo>();
 const groups = computed(() => {
   if (!props.snapshot) return { game: [], builtin: [] };
   try {
@@ -38,6 +42,7 @@ function value(row: { kind: string; num: number }): string {
           <th>Name</th>
           <th>Slot</th>
           <th>Value</th>
+          <th><span class="workspace-state__kind">Actions</span></th>
         </tr>
       </thead>
       <tbody>
@@ -50,6 +55,11 @@ function value(row: { kind: string; num: number }): string {
             {{ row.kind === "flag" ? "f" : "v" }}{{ row.num }}
           </td>
           <td class="workspace-state__value">{{ value(row) }}</td>
+          <td>
+            <ActionMenu :label="`Actions for ${row.name}`" icon-only icon="ellipsis" size="sm">
+              <button type="button" role="menuitem" @click="details = row">Find references</button>
+            </ActionMenu>
+          </td>
         </tr>
       </tbody>
     </table>
@@ -70,10 +80,23 @@ function value(row: { kind: string; num: number }): string {
               {{ row.kind === "flag" ? "f" : "v" }}{{ row.num }}
             </td>
             <td class="workspace-state__value">{{ value(row) }}</td>
+            <td>
+              <ActionMenu :label="`Actions for ${row.name}`" icon-only icon="ellipsis" size="sm">
+                <button type="button" role="menuitem" @click="details = row">
+                  Find references
+                </button>
+              </ActionMenu>
+            </td>
           </tr>
         </tbody>
       </table>
     </details>
+    <BindingDetails
+      v-if="details"
+      :info="details"
+      @close="details = undefined"
+      @renamed="details = $event"
+    />
     <p v-if="!creatorRows.length" class="workspace-state__empty">
       No named flags or variables yet. Add one with + next to Game state in Parts.
     </p>

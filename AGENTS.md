@@ -90,8 +90,9 @@ code, comments or documentation.
   message encryption, picture vector streams, view loops and cels. Authored games
   are plain AGI 2.936 bytecode with no custom opcodes. The engine's single escape
   hatch is the optional `prepareRoom` host hook, which lets the agent write a
-  missing room during `new.room`; the worker installs it only for games created in
-  the app, never for imported or fixture games.
+  missing room during `new.room` when the project's room-generation setting is on.
+  It defaults on for Create with AI and off for imported, fixture and local template
+  games. The creator can change it in Home or Create game Details.
 - Authoring may change existing rooms and shared logics/resources to evolve a
   story; the triggering room is not an edit-scope boundary. Validate and commit
   the complete change transactionally, including affected references and

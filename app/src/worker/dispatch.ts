@@ -604,6 +604,15 @@ export function onWorkerMessage(ctx: WorkerContext, msg: WorkerInbound): void {
       ctx.fns.postFrame();
       return;
     }
+    if (msg.type === "authorRooms") {
+      if (ctx.boot.authorRooms === msg.enabled) return;
+      ctx.fns.historyEnd("resume");
+      ctx.boot.authorRooms = msg.enabled;
+      if (ctx.run.recording.recording)
+        ctx.run.recording.recording.tainted = "Room generation changed during recording.";
+      ctx.fns.historyResume();
+      return;
+    }
     if (msg.type === "soundDevice") {
       if (ctx.run.recording.recording)
         ctx.run.recording.recording.tainted = "The sound device changed during recording.";

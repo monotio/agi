@@ -112,6 +112,20 @@ function openUse(use: BindingInfo["uses"][number]): void {
       >
     </form>
     <p v-if="error" role="alert">{{ error }}</p>
+    <template v-if="['flag', 'variable'].includes(info.kind)">
+      <p v-for="role in ['Set', 'Checked'] as const" :key="role">
+        {{ role }}:
+        {{
+          [
+            ...new Set(
+              info.uses
+                .filter((use) => use.role === role)
+                .map((use) => use.key.replace(":", " ").toUpperCase()),
+            ),
+          ].join(", ") || "nowhere yet"
+        }}
+      </p>
+    </template>
     <ul>
       <li
         v-for="use in info.uses"

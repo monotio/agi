@@ -555,7 +555,7 @@ test("invalid typing retains the latest waiting runnable image and saves exact d
 });
 
 for (const source of ["catalog", "folder"] as const)
-  test(`${source} edits save to a remix and later writes keep that owner`, async () => {
+  test(`${source} edits keep the chosen room setting in a remix and later writes keep that owner`, async () => {
     const documents = { "logic:0": "return;" };
     const compiled = compileProjectDocuments({
       files: Object.fromEntries(createContainer().files),
@@ -599,6 +599,7 @@ for (const source of ["catalog", "folder"] as const)
         assert.equal(request.data.library?.source, "remix");
         assert.equal(request.data.library?.parent?.project, original);
         assert.equal(request.data.library?.catalog, undefined);
+        assert.equal(request.data.roomGeneration, true);
         return {
           commitId: request.commitId,
           workspaceId: request.workspaceId,
@@ -615,6 +616,8 @@ for (const source of ["catalog", "folder"] as const)
         };
       },
     });
+    assert.equal(session.allowMissingRooms, false);
+    await session.setRoomGeneration(true);
     for (const comment of ["first", "second"]) {
       await session.submit({
         proposal: session.model.propose(session.model.capture(), "Edit", [
@@ -1350,6 +1353,81 @@ test("a missing room restart names Update and keep playing", async () => {
       session.update([{ key: "logic:0", content: "// Changed\nreturn;" }], true),
       /Use Update and keep playing/,
     );
+  } finally {
+    session.dispose();
+  }
+});
+
+test("room generation switches validation immediately and persists through a rejected write and retry", async () => {
+  const documents = { "logic:0": "new.room(3); load.pic(v50); return;" };
+  const compiled = compileProjectDocuments({
+    files: Object.fromEntries(createContainer().files),
+    documents,
+    profileId: "2.936",
+  });
+  const data: CachedGameData = {
+    projectId: requireProjectId("generation-setting"),
+    title: "Setting",
+    authoredAt: "",
+    roomGeneration: true,
+    files: Object.fromEntries(compiled.files()),
+    words: [],
+    workspace: writeProjectWorkspace(documents),
+  };
+  let rejectWrite = true;
+  let stored = data;
+  const settings: boolean[] = [];
+  const session = openProjectSession({
+    data,
+    lifetime: "initial",
+    admission: {
+      runToken: "setting-run",
+      admit: async () => ({
+        status: "committed",
+        expected: null,
+        current: null,
+        patchGeneration: 1,
+      }),
+    },
+    roomGenerationChanged: (enabled: boolean) => {
+      settings.push(enabled);
+    },
+    write: async (request) => {
+      if (rejectWrite) throw new Error("Write rejected");
+      stored = {
+        ...request.data,
+        projectId: data.projectId,
+        authoredAt: "",
+        generation: (request.expected?.generation ?? 0) + 1,
+      };
+      return {
+        commitId: request.commitId,
+        workspaceId: request.workspaceId,
+        candidateHash: "a",
+        documents: request.documents,
+        saved: { ...request.expected!, generation: stored.generation!, buildId: request.buildId },
+      };
+    },
+  });
+  try {
+    assert.deepEqual(session.capture().diagnostics, []);
+    await session.setRoomGeneration(false);
+    assert.equal(session.allowMissingRooms, false);
+    assert.deepEqual(
+      session.capture().diagnostics.map((d) => d.message),
+      ["LOGIC 3 is absent."],
+    );
+    assert.equal(session.capture().diagnostics[0]?.severity, "error");
+    await assert.rejects(session.flush(), /Could not save/);
+    assert.equal(stored.roomGeneration, true);
+    rejectWrite = false;
+    await session.retry();
+    assert.equal(stored.roomGeneration, false);
+    await session.setRoomGeneration(true);
+    await session.flush();
+    assert.deepEqual(session.capture().diagnostics, []);
+    assert.equal(stored.roomGeneration, true);
+    assert.deepEqual(settings, [false, true]);
   } finally {
     session.dispose();
   }
