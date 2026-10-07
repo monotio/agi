@@ -34,10 +34,10 @@ for (const width of [1063, 1440, 390]) {
     await page.getByTestId("part-state").click();
     const state = page.getByTestId("workspace-state");
     await expect(state).toBeVisible();
-    const row = state.locator("tr").filter({ hasText: "chime_done" });
+    const row = state.getByTestId("state-flag-204");
     await expect(row).toBeVisible();
-    await expect(row).not.toContainText("Set:");
-    await expect(row).not.toContainText("Checked:");
+    await expect(row).not.toContainText("Changed:");
+    await expect(row).not.toContainText("Read:");
     await page.screenshot({
       animations: "disabled",
       scale: "css",
@@ -47,11 +47,10 @@ for (const width of [1063, 1440, 390]) {
     await page.getByRole("menuitem", { name: "Find references", exact: true }).click();
     const references = state.getByTestId("binding-details");
     await expect(references).toBeVisible();
-    await references
-      .getByText("Set: first_room · LOGIC 1", { exact: true })
-      .scrollIntoViewIfNeeded();
-    await expect(references.getByText("Set: first_room · LOGIC 1", { exact: true })).toBeVisible();
-    await expect(references.getByText("Checked: nowhere yet", { exact: true })).toBeVisible();
+    await expect(row).toBeFocused();
+    await expect(
+      references.getByRole("button", { name: /Changed · first_room · LOGIC 1/ }),
+    ).toBeVisible();
     await page.screenshot({
       animations: "disabled",
       scale: "css",

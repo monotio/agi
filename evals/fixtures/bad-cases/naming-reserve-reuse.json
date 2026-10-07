@@ -18,14 +18,14 @@
           {
             "logic": 1,
             "line": 1,
-            "role": "Set",
+            "role": "Changed",
             "text": "set(f36);",
             "nearbyMessages": ["The gate opens."]
           },
           {
             "logic": 1,
             "line": 2,
-            "role": "Checked",
+            "role": "Read",
             "text": "if (isset(f36)) { print(m1); }",
             "nearbyMessages": ["The gate opens."]
           }
@@ -53,14 +53,14 @@
         {
           "logic": 1,
           "line": 1,
-          "role": "Set",
+          "role": "Changed",
           "text": "set(f36);",
           "nearbyMessages": ["The gate opens."]
         },
         {
           "logic": 1,
           "line": 2,
-          "role": "Checked",
+          "role": "Read",
           "text": "if (isset(f36)) { print(m1); }",
           "nearbyMessages": ["The gate opens."]
         }

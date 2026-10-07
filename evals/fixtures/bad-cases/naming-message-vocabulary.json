@@ -19,14 +19,14 @@
           {
             "logic": 1,
             "line": 1,
-            "role": "Set",
+            "role": "Changed",
             "text": "set(f36); if (isset(f36) && said(\"brass\")) { print(m1); } return; #message 1 \"Look closer\"",
             "nearbyMessages": ["brass"]
           },
           {
             "logic": 1,
             "line": 1,
-            "role": "Checked",
+            "role": "Read",
             "text": "set(f36); if (isset(f36) && said(\"brass\")) { print(m1); } return; #message 1 \"Look closer\"",
             "nearbyMessages": ["brass"]
           }

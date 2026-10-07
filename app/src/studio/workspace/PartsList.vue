@@ -10,10 +10,10 @@ import {
   onWatcherCleanup,
   nextTick,
   onMounted,
+  onBeforeUnmount,
 } from "vue";
 import { useEngineApi } from "../../engine/engineContext.ts";
 import { useWorkspaceEditor } from "../../shell/workspaceEditor.ts";
-import BindingDetails from "../../shell/BindingDetails.vue";
 import {
   renameBindingInWorkspace,
   workspaceBindingInfos,
@@ -81,7 +81,33 @@ const names = computed(() => {
     return acceptedNames.value;
   }
 });
-const details = ref<BindingInfo>();
+let revealTimer: ReturnType<typeof setTimeout> | undefined;
+onBeforeUnmount(() => clearTimeout(revealTimer));
+watch(
+  () => props.active,
+  (active) => {
+    if (!active) clearTimeout(revealTimer);
+  },
+);
+function revealState(event: MouseEvent, info: BindingInfo): void {
+  clearTimeout(revealTimer);
+  // Keyboard activation reveals immediately. A pointer click waits for the
+  // double-click gesture before closing Parts on a phone.
+  if (event.detail === 0) workspace.findReferences(info);
+  else {
+    const session = engine.getProjectSession();
+    revealTimer = setTimeout(() => {
+      if (props.active && engine.getProjectSession() === session) workspace.findReferences(info);
+    }, 250);
+  }
+}
+function findPartReferences(key: string): void {
+  const [kind, number] = key.split(":");
+  if (number === undefined) return;
+  workspace.findReferences(
+    resourceName(key) ?? { name: "", kind: kind!, num: Number(number), uses: [] },
+  );
+}
 /**
  * In-place renaming of a name: ⋯ › Rename or a double-click turns the row's
  * name into a field. Enter keeps the new name, Esc puts the old one back and
@@ -93,8 +119,8 @@ const renameError = ref("");
 const renameBusy = ref(false);
 const nameInput = useTemplateRef("nameInput");
 function startRename(row: string, name: string): void {
+  clearTimeout(revealTimer);
   if (props.readOnly) return;
-  details.value = undefined;
   renaming.value = { row, name };
   renameValue.value = name;
   renameError.value = "";
@@ -197,11 +223,6 @@ function addShared(option: string): void {
   sharedOpen.value = false;
   emit("add", "SHARED LOGIC", option);
 }
-const selectedName = computed(
-  () =>
-    details.value &&
-    (names.value.find((info) => info.name === details.value!.name) ?? details.value),
-);
 const stateNames = computed(() =>
   names.value.filter((info) => ["flag", "variable"].includes(info.kind)),
 );
@@ -528,6 +549,9 @@ function onKey(event: KeyboardEvent): void {
           >
             Rename
           </button>
+          <button v-if="row.key.includes(':')" role="menuitem" @click="findPartReferences(row.key)">
+            Find references
+          </button>
           <button
             v-if="row.key.includes(':')"
             role="menuitem"
@@ -610,7 +634,7 @@ function onKey(event: KeyboardEvent): void {
           <button
             v-else
             class="part"
-            @click="details = info"
+            @click="revealState($event, info)"
             @dblclick.stop.prevent="startRename(`state:${info.name}`, info.name)"
           >
             {{ info.name }}<small>{{ numberedSlot(info.kind, info.num) }}</small>
@@ -629,7 +653,9 @@ function onKey(event: KeyboardEvent): void {
             icon="ellipsis"
             size="sm"
           >
-            <button type="button" role="menuitem" @click="details = info">Find references</button>
+            <button type="button" role="menuitem" @click="workspace.findReferences(info)">
+              Find references
+            </button>
             <button
               type="button"
               role="menuitem"
@@ -669,7 +695,7 @@ function onKey(event: KeyboardEvent): void {
             <button
               v-else
               class="part"
-              @click="details = info"
+              @click="revealState($event, info)"
               @dblclick.stop.prevent="startRename(`builtin:${info.name}`, info.name)"
             >
               <span>{{ info.name }}</span
@@ -691,7 +717,9 @@ function onKey(event: KeyboardEvent): void {
               icon="ellipsis"
               size="sm"
             >
-              <button type="button" role="menuitem" @click="details = info">Find references</button>
+              <button type="button" role="menuitem" @click="workspace.findReferences(info)">
+                Find references
+              </button>
               <button
                 type="button"
                 role="menuitem"
@@ -711,12 +739,6 @@ function onKey(event: KeyboardEvent): void {
         </details>
       </section>
     </section>
-    <BindingDetails
-      v-if="selectedName"
-      :info="selectedName"
-      @close="details = undefined"
-      @renamed="details = $event"
-    />
   </nav>
 </template>
 <style scoped>

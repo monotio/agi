@@ -3,7 +3,6 @@ import { documentLabel } from "../../../../src/logic/numberedLabels.ts";
 import { layoutDragging } from "../../play/layoutDrag.ts";
 import {
   onMounted,
-  nextTick,
   onBeforeUnmount,
   onWatcherCleanup,
   useTemplateRef,
@@ -12,7 +11,6 @@ import {
   computed,
 } from "vue";
 import type { BindingInfo } from "../../../../src/logic/projectNames.ts";
-import UiIconButton from "../../ui/UiIconButton.vue";
 import BindingDetails from "../../shell/BindingDetails.vue";
 import { parseWordsTok } from "../../../../src/logic/words.ts";
 import { VOCABULARY } from "../../../../src/vocabulary.ts";
@@ -26,9 +24,10 @@ import {
 } from "../../../../src/authoring/projectContent.ts";
 import type { ProjectSnapshot } from "../../../../src/authoring/projectModel.ts";
 import { offsetAt } from "../../../../src/logic/lspTypes.ts";
-import type { Location, WorkspaceEdit } from "../../../../src/logic/lspTypes.ts";
+import type { WorkspaceEdit } from "../../../../src/logic/lspTypes.ts";
 import { useEngineApi } from "../../engine/engineContext.ts";
 import { useWorkspaceEditor } from "../../shell/workspaceEditor.ts";
+import { workspaceReferenceAt, workspaceReferenceInfo } from "../../shell/workspaceNames.ts";
 import { LogicAnalysisClient } from "../logic/analysisClient.ts";
 import {
   monaco,
@@ -63,13 +62,6 @@ const emit = defineEmits<{
 }>();
 const binding = ref<BindingInfo>();
 const renameBinding = ref(false);
-const uses = ref<readonly Location[]>();
-const usesPanel = useTemplateRef("usesPanel");
-watch(uses, async (value) => {
-  if (!value) return;
-  await nextTick();
-  usesPanel.value?.focus();
-});
 async function findReferences(): Promise<void> {
   const position = editor?.getPosition();
   if (!position || !model) return;
@@ -77,29 +69,43 @@ async function findReferences(): Promise<void> {
   const version = model.getVersionId();
   const params = { position: { line: position.lineNumber - 1, character: position.column - 1 } };
   try {
-    const info = await client.request(props.documentKey, "agi/bindingInfo", params);
+    const info =
+      (await client.request(props.documentKey, "agi/bindingInfo", params)) ??
+      workspaceReferenceAt(
+        {
+          keys: props.snapshot.keys,
+          read: (key) =>
+            key === props.documentKey
+              ? { key, content: queriedModel.getValue(), version }
+              : props.snapshot.read(key),
+          version: (key) => (key === props.documentKey ? version : props.snapshot.version(key)),
+        },
+        props.profileId,
+        props.documentKey,
+        params.position,
+      );
     const references = info
       ? null
       : await client.request(props.documentKey, "textDocument/references", params);
     if (queriedModel.isDisposed() || queriedModel.getVersionId() !== version) return;
-    renameBinding.value = false;
-    binding.value = info ?? undefined;
-    uses.value = info ? undefined : (references ?? []);
+    binding.value = undefined;
+    workspace.findReferences(
+      info ?? {
+        name: model.getWordAtPosition(position)?.word ?? "References",
+        kind: "symbol",
+        num: 0,
+        uses: (references ?? []).flatMap((use) => {
+          const key = props.snapshot.keys.find((key) => client.uri(key) === use.uri);
+          return key
+            ? [{ key, uri: use.uri, range: use.range, role: "Used" as const, text: "" }]
+            : [];
+        }),
+      },
+    );
   } catch (cause) {
     if (queriedModel.isDisposed() || queriedModel.getVersionId() !== version) return;
     workspace.error.value = `Could not find references: ${cause instanceof Error ? cause.message : String(cause)}. Try again.`;
   }
-}
-function referenceName(use: Location): string {
-  const key = props.snapshot.keys.find((key) => client.uri(key) === use.uri);
-  return key?.replace(":", " ").toUpperCase() ?? "LOGIC";
-}
-function openUse(use: Location): void {
-  const key = props.snapshot.keys.find((key) => client.uri(key) === use.uri);
-  if (!key) return;
-  workspace.open(key);
-  workspace.nameLocation.value = { key, line: use.range.start.line + 1, serial: Date.now() };
-  uses.value = undefined;
 }
 function onBinding(info: BindingInfo, action: "open" | "rename"): void {
   // Close the focused hover before the form opens: its close restores editor focus.
@@ -112,8 +118,13 @@ function onBinding(info: BindingInfo, action: "open" | "rename"): void {
     workspace.open(`${info.kind}:${info.num}`);
     return;
   }
-  renameBinding.value = action === "rename";
-  binding.value = info;
+  if (action === "open") {
+    binding.value = undefined;
+    workspace.findReferences(info);
+    return;
+  }
+  renameBinding.value = true;
+  binding.value = workspaceReferenceInfo(props.snapshot, props.profileId, info);
 }
 const showRunning = ref(false);
 const differs = computed(
@@ -574,26 +585,6 @@ defineExpose({
       <button v-if="!showRunning" @click="showRunning = true">Show running source</button>
       <button v-else @click="showRunning = false">Return to editing</button>
     </div>
-    <section
-      v-if="uses"
-      ref="usesPanel"
-      tabindex="-1"
-      class="logic-uses"
-      aria-label="References"
-      @keydown.esc.stop.prevent="uses = undefined"
-    >
-      <header>
-        References <UiIconButton icon="x" label="Close" size="sm" @click="uses = undefined" />
-      </header>
-      <p v-if="uses.length === 0">No references found.</p>
-      <button
-        v-for="use in uses"
-        :key="`${use.uri}:${use.range.start.line}:${use.range.start.character}`"
-        @click="openUse(use)"
-      >
-        {{ referenceName(use) }} · line {{ use.range.start.line + 1 }}
-      </button>
-    </section>
     <BindingDetails
       v-if="binding"
       :info="binding"
@@ -619,25 +610,6 @@ defineExpose({
   flex-direction: column;
   height: 100%;
   min-height: 0;
-}
-.logic-uses {
-  padding: var(--space-3);
-  border-bottom: 1px solid var(--hairline);
-}
-.logic-uses header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-.logic-uses > button {
-  display: block;
-  padding: var(--space-2);
-  text-align: left;
-  font: var(--text-xs) var(--font-sans);
-  color: var(--action);
-  background: transparent;
-  border: 0;
-  cursor: pointer;
 }
 /* Shown only while paused here; it floats over the code so the editor never moves. */
 .workspace-running-source {

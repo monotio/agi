@@ -19,6 +19,7 @@ import type { LessonSession } from "../lessons/lessonCheck.ts";
 import type { ReplyFormatter } from "../agent/workspaceAgent.ts";
 import type { ComputedRoomRemovalReview } from "../project/projectSessionCore.ts";
 import type { IconName } from "../ui/icons.ts";
+import type { BindingInfo } from "../../../src/logic/projectNames.ts";
 import type { Launch } from "../../../src/authoring/launches.ts";
 
 /** The dock a Create panel sits in. */
@@ -170,6 +171,29 @@ export function createWorkspaceEditor(engine: EngineApi) {
       delete next[tabKey];
       frameActions.value = next;
     };
+  }
+  const stateLocation = shallowRef<{ kind: string; num: number; name: string; serial: number }>();
+  const references = shallowRef<BindingInfo>();
+  let revealSerial = 0;
+  /** One reference destination for state names and one for other operands. */
+  function findReferences(info: BindingInfo): void {
+    partsOpen.value = false;
+    if (info.kind === "flag" || info.kind === "variable") {
+      stateLocation.value = {
+        kind: info.kind,
+        num: info.num,
+        name: info.name,
+        serial: ++revealSerial,
+      };
+      open("state");
+    } else {
+      references.value = info;
+      open("uses");
+    }
+  }
+  function revealUse(use: BindingInfo["uses"][number]): void {
+    open(use.key);
+    nameLocation.value = { key: use.key, line: use.range.start.line + 1, serial: ++revealSerial };
   }
   const nameLocation = shallowRef<{ key: string; line: number; serial: number }>();
   const agentPrefill = shallowRef<{
@@ -353,6 +377,8 @@ export function createWorkspaceEditor(engine: EngineApi) {
     launchChoices.value = [];
     selectedLaunch.value = "carry";
     nameLocation.value = undefined;
+    stateLocation.value = undefined;
+    references.value = undefined;
     studioRequests.value = {};
     selected.value = undefined;
     removalReview.value = undefined;
@@ -403,6 +429,10 @@ export function createWorkspaceEditor(engine: EngineApi) {
     removalReview,
     selected,
     nameLocation,
+    stateLocation,
+    references,
+    findReferences,
+    revealUse,
     agentContext,
     agentPrefill,
     returnFromAgent,

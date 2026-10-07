@@ -1,16 +1,19 @@
 <script setup lang="ts">
-import { numberedLabel, numberedSlot, documentLabel } from "../../../src/logic/numberedLabels.ts";
-import { useProjectLabels } from "./useProjectLabels.ts";
+import { numberedLabel, numberedSlot } from "../../../src/logic/numberedLabels.ts";
+import ReferenceUses from "./ReferenceUses.vue";
 import { ref, watch } from "vue";
 import type { BindingInfo } from "../../../src/logic/projectNames.ts";
 import { useEngineApi } from "../engine/engineContext.ts";
 import { useWorkspaceEditor } from "./workspaceEditor.ts";
-import { renameBindingInWorkspace, workspaceBindingInfos } from "./workspaceNames.ts";
+import {
+  renameBindingInWorkspace,
+  workspaceBindingInfos,
+  workspaceReferenceInfo,
+} from "./workspaceNames.ts";
 import UiButton from "../ui/UiButton.vue";
 import UiIconButton from "../ui/UiIconButton.vue";
 const { info, rename = false } = defineProps<{ info: BindingInfo; rename?: boolean }>();
 const emit = defineEmits<{ close: []; renamed: [info: BindingInfo] }>();
-const labels = useProjectLabels();
 const engine = useEngineApi();
 const workspace = useWorkspaceEditor();
 const editing = ref(rename);
@@ -41,22 +44,20 @@ async function save(): Promise<void> {
     ).find((entry) => entry.name === newName);
     if (info.kind === original.kind && info.num === original.num) {
       editing.value = false;
-      emit("renamed", renamed ?? { ...info, name: newName });
+      emit(
+        "renamed",
+        workspaceReferenceInfo(
+          updated,
+          engine.roomMap.resources.value.profile?.id ?? "2.936",
+          renamed ?? { ...info, name: newName },
+        ),
+      );
     }
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : String(cause);
   } finally {
     busy.value = false;
   }
-}
-function openUse(use: BindingInfo["uses"][number]): void {
-  workspace.open(use.key);
-  workspace.nameLocation.value = {
-    key: use.key,
-    line: use.range.start.line + 1,
-    serial: Date.now(),
-  };
-  emit("close");
 }
 </script>
 <template>
@@ -97,32 +98,7 @@ function openUse(use: BindingInfo["uses"][number]): void {
       >
     </form>
     <p v-if="error" role="alert">{{ error }}</p>
-    <template v-if="['flag', 'variable'].includes(info.kind)">
-      <p v-for="role in ['Set', 'Checked'] as const" :key="role">
-        {{ role }}:
-        {{
-          [
-            ...new Set(
-              info.uses
-                .filter((use) => use.role === role)
-                .map((use) => documentLabel(use.key, labels)),
-            ),
-          ].join(", ") || "nowhere yet"
-        }}
-      </p>
-    </template>
-    <ul>
-      <li
-        v-for="use in info.uses"
-        :key="`${use.key}:${use.range.start.line}:${use.range.start.character}`"
-      >
-        <button @click="openUse(use)">
-          {{ use.role }} · {{ documentLabel(use.key, labels) }} · line {{ use.range.start.line + 1
-          }}<small>{{ use.text }}</small>
-        </button>
-      </li>
-    </ul>
-    <p v-if="!info.uses.length">Ready to use in your LOGIC.</p>
+    <ReferenceUses :uses="info.uses" @opened="emit('close')" />
   </section>
 </template>
 <style scoped>
@@ -150,6 +126,9 @@ header strong {
   min-width: 0;
   overflow-wrap: anywhere;
 }
+small {
+  display: block;
+}
 p,
 small {
   color: var(--ink-2);
@@ -165,25 +144,5 @@ input {
   color: var(--ink);
   border: 1px solid var(--hairline-strong);
   padding: var(--space-2);
-}
-ul {
-  padding: 0;
-  list-style: none;
-}
-li button {
-  display: grid;
-  width: 100%;
-  gap: var(--space-1);
-  padding: var(--space-2);
-  text-align: left;
-  font: var(--text-xs) var(--font-sans);
-  color: var(--action);
-  background: transparent;
-  border: 0;
-  cursor: pointer;
-}
-small {
-  display: block;
-  overflow-wrap: anywhere;
 }
 </style>

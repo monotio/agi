@@ -1,7 +1,6 @@
 /** Named resources and game state share authored uses with the LOGIC language server. */
 import { createProjectLogicLanguageSnapshot } from "../authoring/projectLanguage.ts";
 import { PROFILES } from "../runtime/profile.ts";
-import { commandReference } from "./commandReference.ts";
 import { analyzeLogicSyntax } from "./syntax.ts";
 import { rangeAt, type Range } from "./lspTypes.ts";
 import type { LogicLanguageProject } from "./lspServer.ts";
@@ -17,7 +16,7 @@ export interface BindingInfo {
     key: string;
     uri: string;
     range: Range;
-    role: "Set" | "Checked" | "Used";
+    role: "Changed" | "Read" | "Used";
     text: string;
     operation?: "Reset" | "View" | "Positioned" | "Drawn";
   }[];
@@ -78,9 +77,6 @@ export function projectOperandInfos(project: LogicLanguageProject): BindingInfo[
     )
       infos.push({ ...info, uses: [] });
   }
-  const commands = Object.fromEntries(
-    commandReference(PROFILES[project.profileId]).map((command) => [command.name, command]),
-  );
   for (const [key, document] of Object.entries(project.documents)) {
     const { source } = document;
     const syntax = analyzeLogicSyntax(source);
@@ -128,22 +124,15 @@ export function projectOperandInfos(project: LogicLanguageProject): BindingInfo[
               BINDING_KINDS[operand.kind] === info.kind)),
       );
       const call = frames.at(-1);
-      const role =
+      const changed =
         syntax.tokens[index + 1]?.text === "=" ||
-        (call && Object.hasOwn(WRITES, call.name) && WRITES[call.name]!.includes(call.parameter))
-          ? "Set"
-          : (call && commands[call.name]?.kind === "condition") ||
-              [syntax.tokens[index - 1]?.text, syntax.tokens[index + 1]?.text].some((text) =>
-                ["==", "!=", "<", ">", "<=", ">="].includes(text ?? ""),
-              )
-            ? "Checked"
-            : "Used";
+        (call && Object.hasOwn(WRITES, call.name) && WRITES[call.name]!.includes(call.parameter));
       for (const info of matches)
         info.uses.push({
           key,
           uri: document.uri ?? `agi-project:///logic.${key.slice(6)}.lgc`,
           range: rangeAt(source, token.start, token.end),
-          role,
+          role: changed ? "Changed" : ["flag", "variable"].includes(info.kind) ? "Read" : "Used",
           text: source.split(/\r?\n/)[token.line - 1]?.trim() ?? "",
           ...(call?.name === "reset" && operand?.kind === "f"
             ? { operation: "Reset" as const }

@@ -16,14 +16,14 @@ function proposal() {
       {
         logic: 1,
         line: 1,
-        role: "Set",
+        role: "Changed",
         text: "set(f36);",
         nearbyMessages: ["The brass key opens the gate."],
       },
       {
         logic: 1,
         line: 2,
-        role: "Checked",
+        role: "Read",
         text: "if (isset(f36)) { print(m1); }",
         nearbyMessages: ["The brass key opens the gate."],
       },
@@ -32,7 +32,7 @@ function proposal() {
 }
 const input = { documents: { "logic:1": source, bindings: "{}" }, profile: DEFAULT_V2_PROFILE };
 
-test("naming requires checked identity evidence and keeps it in the reviewed bindings", () => {
+test("naming requires read and changed identity evidence and keeps it in the reviewed bindings", () => {
   const changes = proposeNames({ ...input, names: [proposal()] });
   assert.equal(changes.length, 1);
   const names = JSON.parse(String(changes[0]!.content));
@@ -95,8 +95,8 @@ test("resource and variable names use typed references, including a literal PICT
     evidence:
       item.kind === "variable"
         ? [
-            { ...evidence, role: "Set" },
-            { ...evidence, role: "Checked" },
+            { ...evidence, role: "Changed" },
+            { ...evidence, role: "Read" },
           ]
         : [evidence],
   }));
@@ -125,7 +125,7 @@ test("nearby naming evidence quotes game messages rather than vocabulary", () =>
         names: [
           {
             ...proposal(),
-            evidence: ["Set", "Checked"].map((role) => ({
+            evidence: ["Changed", "Read"].map((role) => ({
               logic: 1,
               line: 1,
               role,

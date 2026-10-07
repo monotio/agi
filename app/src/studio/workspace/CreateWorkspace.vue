@@ -191,6 +191,7 @@ const LogicEditor = defineAsyncComponent(() => import("./LogicEditor.vue"));
 const DebugPanel = defineAsyncComponent(() => import("./WorkspaceDebugPanel.vue"));
 const DebugControls = defineAsyncComponent(() => import("./WorkspaceDebugControls.vue"));
 const StudioKeySheet = defineAsyncComponent(() => import("../StudioKeySheet.vue"));
+const ReferencesTab = defineAsyncComponent(() => import("./ReferencesTab.vue"));
 const GameStateTab = defineAsyncComponent(() => import("./GameStateTab.vue"));
 const MessagesTab = defineAsyncComponent(() => import("./MessagesTab.vue"));
 const LaunchEditor = defineAsyncComponent(() => import("./LaunchEditor.vue"));
@@ -745,6 +746,7 @@ const labels = computed(() => {
   );
 });
 const DATA_LABELS: Record<string, string> = {
+  uses: "References",
   state: "Game state",
   problems: "Problems",
   messages: "Messages",
@@ -2847,6 +2849,12 @@ onBeforeUnmount(() => {
         :source="text(key) ?? ''"
         @edit="edit(key, $event)"
         @typing-end="endTyping"
+      />
+      <ReferencesTab
+        v-else-if="key === 'uses'"
+        :active="creating && key === editor.selected.value"
+        :snapshot="workingSnapshot()"
+        :profile-id="profile.id"
       />
       <GameStateTab
         v-else-if="key === 'state'"

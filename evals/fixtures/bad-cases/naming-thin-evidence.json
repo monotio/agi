@@ -1,6 +1,6 @@
 {
   "name": "naming-thin-evidence",
-  "description": "A flag checked once with a message nearby still needs evidence of where it is set before the agent gives it a name.",
+  "description": "A flag read once with a message nearby still needs evidence of where it is changed before the agent gives it a name.",
   "naming": {
     "logic:1": "if (isset(f36)) { print(m1); } return;\n#message 1 \"The gate opens.\"",
     "bindings": "{}"
@@ -18,7 +18,7 @@
           {
             "logic": 1,
             "line": 1,
-            "role": "Checked",
+            "role": "Read",
             "text": "if (isset(f36)) { print(m1); } return;",
             "nearbyMessages": ["The gate opens."]
           }
@@ -27,5 +27,5 @@
     ]
   },
   "expectedSuccess": false,
-  "expectedErrorSnippet": "State names need evidence of where they are set and checked"
+  "expectedErrorSnippet": "State names need evidence of where they are changed and read"
 }

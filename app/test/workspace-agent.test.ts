@@ -2034,7 +2034,7 @@ test("evidence naming batches all binding kinds for review with byte-preserving 
   ].map((item) => ({
     ...item,
     logic: item.kind === "message" ? 1 : null,
-    evidence: (item.kind === "flag" ? ["Set", "Checked"] : ["Used"]).map((role) => ({
+    evidence: (item.kind === "flag" ? ["Changed", "Read"] : ["Used"]).map((role) => ({
       logic: 1,
       line: 1,
       role,

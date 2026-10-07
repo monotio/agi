@@ -76,8 +76,10 @@ for (const [width, height] of [
       animations: "disabled",
     });
     await expect(hover).toContainText("Flag 36");
-    await expect(hover).toContainText("Set (1): first_room · LOGIC 1 line 1");
-    await expect(hover).toContainText("Checked (2): first_room · LOGIC 1 line 2; LOGIC 2 line 1");
+    await expect(hover).toContainText(
+      "Changed (3): first_room · LOGIC 1 lines 1, 2; LOGIC 2 line 1",
+    );
+    await expect(hover).toContainText("Read (2): first_room · LOGIC 1 line 2; LOGIC 2 line 1");
     await expect(hover).toContainText("Rename…");
     await page.keyboard.press("Escape");
     await positionFlag(page);

@@ -82,7 +82,7 @@ test("unnamed flag hover and definitions share grouped project evidence", () => 
   const hover = request("textDocument/hover", "f36") as { contents: { value: string } };
   assert.equal(
     hover.contents.value,
-    "```agi\nFlag 36\n```\n\n4 uses across the game.\n\nSet (1): LOGIC 1 line 1\n\nReset (1): LOGIC 1 line 2\n\nChecked (2): LOGIC 1 line 3; LOGIC 2 line 1\n\nRename… F2",
+    "```agi\nFlag 36\n```\n\n4 uses across the game.\n\nChanged (2): LOGIC 1 lines 1, 2\n\nRead (2): LOGIC 1 line 3; LOGIC 2 line 1\n\nRename… F2",
   );
   assert.deepEqual(request("textDocument/definition", "f36"), [
     { uri, range: { start: { line: 0, character: 4 }, end: { line: 0, character: 7 } } },
@@ -336,7 +336,7 @@ test("agent evidence keeps named ownership while numbered hover includes local a
   }[];
   assert.deepEqual(
     infos.find((info) => info.name === "gate_open")?.uses.map((use) => use.role),
-    ["Set", "Checked"],
+    ["Changed", "Read"],
   );
   const hover = server.handle({
     jsonrpc: "2.0",
@@ -344,8 +344,8 @@ test("agent evidence keeps named ownership while numbered hover includes local a
     method: "textDocument/hover",
     params: { textDocument: { uri }, position: { line: 1, character: 18 } },
   });
-  assert.match(JSON.stringify(hover?.result), /Set \(1\)/);
-  assert.match(JSON.stringify(hover?.result), /Reset \(1\)/);
+  assert.match(JSON.stringify(hover?.result), /Changed \(2\)/);
+  assert.doesNotMatch(JSON.stringify(hover?.result), /Reset \(/);
 });
 
 for (const operand of ["f36", "gate_open"]) {
