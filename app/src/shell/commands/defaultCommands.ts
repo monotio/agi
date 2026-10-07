@@ -2,7 +2,7 @@ import type { CommandContext, CommandRegistry, KeyBinding } from "./commandRegis
 
 interface CommandSpec extends KeyBinding {
   readonly id: string;
-  readonly title: string;
+  readonly title: string | ((context: CommandContext) => string);
   readonly when?: (context: CommandContext) => boolean;
 }
 const DEFAULTS = {
@@ -55,7 +55,7 @@ const DEFAULTS = {
   },
   run: {
     id: "debug.run",
-    title: "Run or continue",
+    title: (c) => (c.debugging ? "Continue" : "Debug"),
     key: "F5",
     textInput: true,
     when: (c) => !c.gameFocus,

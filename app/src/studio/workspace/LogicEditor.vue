@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { layoutDragging } from "../../play/layoutDrag.ts";
-import { onMounted, onBeforeUnmount, useTemplateRef, watch, ref, computed } from "vue";
+import { onMounted, nextTick, onBeforeUnmount, useTemplateRef, watch, ref, computed } from "vue";
 import type { BindingInfo } from "../../../../src/logic/projectNames.ts";
+import UiIconButton from "../../ui/UiIconButton.vue";
 import BindingDetails from "../../shell/BindingDetails.vue";
 import { parseWordsTok } from "../../../../src/logic/words.ts";
 import { VOCABULARY } from "../../../../src/vocabulary.ts";
@@ -15,11 +16,16 @@ import {
 } from "../../../../src/authoring/projectContent.ts";
 import type { ProjectSnapshot } from "../../../../src/authoring/projectModel.ts";
 import { offsetAt } from "../../../../src/logic/lspTypes.ts";
-import type { WorkspaceEdit } from "../../../../src/logic/lspTypes.ts";
+import type { Location, WorkspaceEdit } from "../../../../src/logic/lspTypes.ts";
 import { useEngineApi } from "../../engine/engineContext.ts";
 import { useWorkspaceEditor } from "../../shell/workspaceEditor.ts";
 import { LogicAnalysisClient } from "../logic/analysisClient.ts";
-import { monaco, LOGIC_LANGUAGE_ID, registerLogicModel } from "../logic/monacoLanguage.ts";
+import {
+  monaco,
+  LOGIC_LANGUAGE_ID,
+  registerLogicModel,
+  registerLogicContextMenu,
+} from "../logic/monacoLanguage.ts";
 import { logicKeySheet } from "../studioHelp.ts";
 const props = defineProps<{
   readOnly?: boolean;
@@ -41,6 +47,44 @@ const emit = defineEmits<{
 }>();
 const binding = ref<BindingInfo>();
 const renameBinding = ref(false);
+const uses = ref<readonly Location[]>();
+const usesPanel = useTemplateRef("usesPanel");
+watch(uses, async (value) => {
+  if (!value) return;
+  await nextTick();
+  usesPanel.value?.focus();
+});
+async function findReferences(): Promise<void> {
+  const position = editor?.getPosition();
+  if (!position || !model) return;
+  const queriedModel = model;
+  const version = model.getVersionId();
+  const params = { position: { line: position.lineNumber - 1, character: position.column - 1 } };
+  try {
+    const info = await client.request(props.documentKey, "agi/bindingInfo", params);
+    const references = info
+      ? null
+      : await client.request(props.documentKey, "textDocument/references", params);
+    if (queriedModel.isDisposed() || queriedModel.getVersionId() !== version) return;
+    renameBinding.value = false;
+    binding.value = info ?? undefined;
+    uses.value = info ? undefined : (references ?? []);
+  } catch (cause) {
+    if (queriedModel.isDisposed() || queriedModel.getVersionId() !== version) return;
+    workspace.error.value = `Could not find references: ${cause instanceof Error ? cause.message : String(cause)}. Try again.`;
+  }
+}
+function referenceName(use: Location): string {
+  const key = props.snapshot.keys.find((key) => client.uri(key) === use.uri);
+  return key?.replace(":", " ").toUpperCase() ?? "LOGIC";
+}
+function openUse(use: Location): void {
+  const key = props.snapshot.keys.find((key) => client.uri(key) === use.uri);
+  if (!key) return;
+  workspace.open(key);
+  workspace.nameLocation.value = { key, line: use.range.start.line + 1, serial: Date.now() };
+  uses.value = undefined;
+}
 function onBinding(info: BindingInfo, action: "open" | "rename"): void {
   // Close the focused hover before the form opens: its close restores editor focus.
   editor
@@ -88,6 +132,7 @@ function hintBreakpoint(line: number | undefined): void {
   );
 }
 let editView: monaco.editor.ICodeEditorViewState | null = null;
+let contextMenu: monaco.IDisposable | undefined;
 let markerSubscription: monaco.IDisposable | undefined;
 function decorate(): void {
   if (!editor || !model) return;
@@ -299,6 +344,7 @@ onMounted(() => {
     tabSize: 2,
     padding: { top: 16, bottom: 16 },
   });
+  contextMenu = registerLogicContextMenu(editor, findReferences);
   decorations = editor.createDecorationsCollection();
   breakpointHint = editor.createDecorationsCollection();
   editor.onMouseMove((event) =>
@@ -420,6 +466,7 @@ onBeforeUnmount(() => {
   observer?.disconnect();
   // Model-change listeners cancel their work before markers and providers retire.
   editor?.setModel(null);
+  contextMenu?.dispose();
   editor?.dispose();
   markerSubscription?.dispose();
   language?.dispose();
@@ -447,6 +494,26 @@ defineExpose({
       <button v-if="!showRunning" @click="showRunning = true">Show running source</button>
       <button v-else @click="showRunning = false">Return to editing</button>
     </div>
+    <section
+      v-if="uses"
+      ref="usesPanel"
+      tabindex="-1"
+      class="logic-uses"
+      aria-label="References"
+      @keydown.esc.stop.prevent="uses = undefined"
+    >
+      <header>
+        References <UiIconButton icon="x" label="Close" size="sm" @click="uses = undefined" />
+      </header>
+      <p v-if="uses.length === 0">No references found.</p>
+      <button
+        v-for="use in uses"
+        :key="`${use.uri}:${use.range.start.line}:${use.range.start.character}`"
+        @click="openUse(use)"
+      >
+        {{ referenceName(use) }} · line {{ use.range.start.line + 1 }}
+      </button>
+    </section>
     <BindingDetails
       v-if="binding"
       :info="binding"
@@ -466,6 +533,25 @@ defineExpose({
   flex-direction: column;
   height: 100%;
   min-height: 0;
+}
+.logic-uses {
+  padding: var(--space-3);
+  border-bottom: 1px solid var(--hairline);
+}
+.logic-uses header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.logic-uses > button {
+  display: block;
+  padding: var(--space-2);
+  text-align: left;
+  font: var(--text-xs) var(--font-sans);
+  color: var(--action);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
 }
 .workspace-running-source {
   display: flex;
