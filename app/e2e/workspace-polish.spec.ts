@@ -125,7 +125,7 @@ test("game state usage lives in row details", async ({ page }) => {
   const details = page.getByTestId("binding-details");
   await expect(details).toBeVisible();
   await expect(details).toContainText("Checked: nowhere yet");
-  await expect(details).toContainText("Set: LOGIC 1");
+  await expect(details).toContainText("Set: first_room · LOGIC 1");
 });
 for (const width of [1063, 1440])
   test(`Items has room for eight rows Side by side at ${width} @webkit-desktop`, async ({

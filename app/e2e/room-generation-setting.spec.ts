@@ -47,8 +47,10 @@ for (const width of [1063, 1440, 390]) {
     await page.getByRole("menuitem", { name: "Find references", exact: true }).click();
     const references = state.getByTestId("binding-details");
     await expect(references).toBeVisible();
-    await references.getByText("Set: LOGIC 1", { exact: true }).scrollIntoViewIfNeeded();
-    await expect(references.getByText("Set: LOGIC 1", { exact: true })).toBeVisible();
+    await references
+      .getByText("Set: first_room · LOGIC 1", { exact: true })
+      .scrollIntoViewIfNeeded();
+    await expect(references.getByText("Set: first_room · LOGIC 1", { exact: true })).toBeVisible();
     await expect(references.getByText("Checked: nowhere yet", { exact: true })).toBeVisible();
     await page.screenshot({
       animations: "disabled",

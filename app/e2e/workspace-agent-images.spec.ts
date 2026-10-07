@@ -99,10 +99,10 @@ test("agent image tools review PICTURE and VIEW previews before one saved commit
   await expect(review).toBeVisible();
   const art = review.getByTestId("agent-art-review");
   await expect(art).toHaveCount(2, { timeout: 3000 });
-  const pictureBefore = review.getByAltText("images PICTURE 1 Before");
-  const pictureAfter = review.getByAltText("images PICTURE 1 After");
-  const viewBefore = review.getByAltText("view:0 VIEW 0 Before");
-  const viewAfter = review.getByAltText("view:0 VIEW 0 After");
+  const pictureBefore = review.getByAltText("images clearing_pic · PICTURE 1 Before");
+  const pictureAfter = review.getByAltText("images clearing_pic · PICTURE 1 After");
+  const viewBefore = review.getByAltText("view:0 ego_view · VIEW 0 Before");
+  const viewAfter = review.getByAltText("view:0 ego_view · VIEW 0 After");
   for (const preview of [pictureBefore, pictureAfter, viewBefore, viewAfter])
     await expect(preview).toBeVisible();
   expect(await pictureAfter.getAttribute("src")).not.toBe(await pictureBefore.getAttribute("src"));

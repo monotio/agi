@@ -427,7 +427,7 @@ test("built-in names appear in code, completion, hover and coordinated rename @w
       .trigger("spec", "editor.action.showHover", {});
   });
   await expect(page.locator(".monaco-hover").filter({ visible: true })).toContainText(
-    "Variable 0 · current_room",
+    "current_room · Variable 0",
   );
   await page.keyboard.press("Escape");
   await findWord(page, "current_room");
