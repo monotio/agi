@@ -75,6 +75,8 @@ test("MAIN attaches while running, steps calls, edits values and detaches into n
   h.ctx.fns.stepHostTick(10, { cycle: true, sound: 0 });
   assert.equal(h.last("debugStopped").location?.logic, 1);
   assert.equal(h.engine.vars[42], 0);
+  assert.equal(h.last("debugStopped").previousLocation?.logic, 1);
+  assert.equal(h.last("debugStopped").previousLocation?.pc, 0);
   h.send({
     type: "debugResume",
     id: 3,

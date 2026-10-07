@@ -19,6 +19,8 @@ import type {
   Range,
   Location,
   WorkspaceEdit,
+  LogicDebugState,
+  LogicDebugValue,
 } from "./lspTypes.ts";
 
 export interface LogicLanguageProject {
@@ -44,6 +46,7 @@ interface Document {
 interface Params {
   textDocument: { uri: string; languageId?: string; version: number; text: string };
   position: Position;
+  debugState?: LogicDebugState;
   context?: { includeDeclaration?: boolean; only?: string[] };
   query?: string;
   newName: string;
@@ -567,6 +570,19 @@ export function createLogicLspServer(
     }
     return null;
   }
+  function debugValue(
+    operand: NumberedOperand | undefined,
+    state: LogicDebugState | undefined,
+  ): LogicDebugValue | undefined {
+    if (!state || !operand || !["v", "f"].includes(operand.kind)) return undefined;
+    const value = (operand.kind === "v" ? state.vars : state.flags)?.[operand.num];
+    if (!Number.isInteger(value) || value! < 0 || value! > 255) return undefined;
+    return {
+      kind: operand.kind === "v" ? "variable" : "flag",
+      slot: operand.num,
+      text: operand.kind === "v" ? String(value) : value ? "on" : "off",
+    };
+  }
   function operandDetails(doc: Document, operand: NumberedOperand): string {
     const uses = operandInfo(doc, operand)?.uses ?? [];
     const groups = ["Set", "Reset", "Checked", "View", "Positioned", "Drawn", "Used"];
@@ -715,7 +731,22 @@ export function createLogicLspServer(
     const offset = params.position ? offsetAt(doc.source, params.position) : 0;
     switch (method) {
       case "textDocument/inlayHint":
-        return messageInlayHints(doc.source, params.range);
+        return [
+          ...messageInlayHints(doc.source, params.range),
+          ...snapshot.operands.flatMap((operand) => {
+            if (operand.declaration) return [];
+            const value = debugValue(operand, params.debugState);
+            const position = positionAt(doc.source, operand.end);
+            if (
+              !value ||
+              !params.debugState?.lines.includes(position.line) ||
+              (params.range &&
+                (position.line < params.range.start.line || position.line > params.range.end.line))
+            )
+              return [];
+            return [{ position, label: ` ${value.text}`, paddingLeft: true }];
+          }),
+        ];
       case "agi/bindingInfo": {
         const definition = snapshot.definitionAt(offset);
         if (definition?.kind !== "binding") return null;
@@ -771,11 +802,13 @@ export function createLogicLspServer(
             }
           : snapshot.hoverAt(offset);
         if (!hover) return null;
+        const live = debugValue(operand, params.debugState);
         const [head, ...rest] = hover.text.split("\n\n");
         return {
+          ...(live ? { debugValue: live } : {}),
           contents: {
             kind: "markdown",
-            value: `\`\`\`agi\n${head}\n\`\`\`${rest.length ? `\n\n${rest.join("\n\n")}` : ""}`,
+            value: `\`\`\`agi\n${head}${live ? ` = ${live.text}` : ""}\n\`\`\`${rest.length ? `\n\n${rest.join("\n\n")}` : ""}`,
           },
           range: rangeAt(doc.source, hover.start, hover.end),
         };

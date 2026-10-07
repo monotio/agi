@@ -2639,6 +2639,7 @@ onBeforeUnmount(() => {
             : undefined
         "
         :running-source="debug?.state.epoch ? debug.sources.value[key.slice(6)] : undefined"
+        :debug="debug ?? undefined"
         @breakpoint="toggleBreakpoint(key, $event)"
         :location="logicLocation?.key === key ? logicLocation : undefined"
         :source="text(key)!"

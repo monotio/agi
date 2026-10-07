@@ -822,6 +822,8 @@ export type WorkerControl =
       boundarySeq: number | null;
       cause: ExecutionCause;
       location: ExecutionBoundary | null;
+      /** Last executed LOGIC instruction in this run, for paused inline values. */
+      previousLocation?: ExecutionBoundary | null;
       wait: ExecutionWaitKind | null;
       reasons: readonly DebugStopReason[];
       state: EngineStateReport;

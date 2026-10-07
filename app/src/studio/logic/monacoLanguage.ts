@@ -52,7 +52,13 @@ import EditorWorker from "monaco-editor/editor/editor.worker?worker";
 
 import { createAnalysisSchedule } from "./analysisSchedule.ts";
 import type { LogicAnalysisClient } from "./analysisClient.ts";
-import type { LspOperations, Range, WorkspaceEdit } from "../../../../src/logic/lspTypes.ts";
+import type {
+  LogicDebugState,
+  LogicDebugValue,
+  LspOperations,
+  Range,
+  WorkspaceEdit,
+} from "../../../../src/logic/lspTypes.ts";
 import { SEMANTIC_LEGEND } from "../../../../src/logic/lspTypes.ts";
 
 import { MenuId, MenuRegistry } from "monaco-editor/platform/actions/common/actions.js";
@@ -174,10 +180,27 @@ monaco.languages.setLanguageConfiguration(LOGIC_LANGUAGE_ID, {
   ],
 });
 
+export interface PausedLogicState extends LogicDebugState {
+  readonly epoch: number;
+  readonly stopId: number;
+}
+interface DebugValueOptions {
+  readonly debugState?: (() => PausedLogicState | undefined) | undefined;
+  readonly onDebugValue?:
+    | ((
+        value: LogicDebugValue,
+        state: PausedLogicState,
+        position: monaco.IPosition,
+      ) => Promise<void>)
+    | undefined;
+}
 interface ModelRegistration {
   readonly model: monaco.editor.ITextModel;
   readonly client: LogicAnalysisClient;
   readonly documentKey: string;
+  readonly debugState: DebugValueOptions["debugState"];
+  readonly onDebugValue: DebugValueOptions["onDebugValue"];
+  debugRevision: number;
   readonly applyProjectEdit: ((edit: WorkspaceEdit, label: string) => Promise<void>) | undefined;
   readonly onBinding: ((info: BindingInfo, action: "open" | "rename") => void) | undefined;
   readonly onResource: ((key: string) => void) | undefined;
@@ -280,6 +303,7 @@ async function queryWorker<K extends keyof LspOperations>(
 interface LiveQuery {
   readonly registration: ModelRegistration;
   readonly versionId: number;
+  readonly debugRevision: number;
 }
 
 function openQuery(
@@ -288,7 +312,11 @@ function openQuery(
 ): LiveQuery | undefined {
   const registration = activeRegistration(model);
   if (!registration || token.isCancellationRequested) return undefined;
-  return { registration, versionId: model.getVersionId() };
+  return {
+    registration,
+    versionId: model.getVersionId(),
+    debugRevision: registration.debugRevision,
+  };
 }
 
 function queryIsLive(
@@ -299,6 +327,7 @@ function queryIsLive(
   return (
     stillCurrent(session.registration) &&
     model.getVersionId() === session.versionId &&
+    session.registration.debugRevision === session.debugRevision &&
     !token.isCancellationRequested
   );
 }
@@ -410,6 +439,29 @@ monaco.editor.registerCommand(
     editor?.trigger("agi-logic", "editor.action.rename", {});
   },
 );
+monaco.editor.registerCommand(
+  "agi.debugValue",
+  async (
+    _accessor,
+    modelId: string,
+    epoch: number,
+    stopId: number,
+    value: LogicDebugValue,
+    position: monaco.IPosition,
+  ) => {
+    const registration = [...registrations.values()].find((entry) => entry.model.id === modelId);
+    const state = registration?.debugState?.();
+    if (
+      !registration ||
+      !stillCurrent(registration) ||
+      !state ||
+      state.epoch !== epoch ||
+      state.stopId !== stopId
+    )
+      return;
+    await registration.onDebugValue?.(value, state, position);
+  },
+);
 monaco.languages.registerHoverProvider(LOGIC_LANGUAGE_ID, {
   async provideHover(model, position, token) {
     const session = openQuery(model, token);
@@ -417,17 +469,26 @@ monaco.languages.registerHoverProvider(LOGIC_LANGUAGE_ID, {
     const hover = await queryWorker(
       session.registration,
       "textDocument/hover",
-      { position: protocolPosition(position) },
+      { position: protocolPosition(position), debugState: session.registration.debugState?.() },
       token,
     );
     if (!hover || !queryIsLive(session, model, token)) return null;
+    const paused = session.registration.debugState?.();
+    let markdown = hover.contents.value;
+    if (hover.debugValue && paused && session.registration.onDebugValue) {
+      const command = `command:agi.debugValue?${encodeURIComponent(JSON.stringify([model.id, paused.epoch, paused.stopId, hover.debugValue, position]))}`;
+      markdown = markdown.replace(
+        /^```agi\n([^\n]+) = ([^\n]+)\n```/,
+        (_match, label: string, value: string) => `\`${label}\` [= ${value}](${command})`,
+      );
+    }
     const contents: monaco.IMarkdownString[] = [
       {
-        value: hover.contents.value.replace(
+        value: markdown.replace(
           "Rename… F2",
           `[Rename…](command:agi.nameOperand?${encodeURIComponent(JSON.stringify([model.id, position]))}) F2`,
         ),
-        isTrusted: { enabledCommands: ["agi.nameOperand"] },
+        isTrusted: { enabledCommands: ["agi.nameOperand", "agi.debugValue"] },
       },
     ];
     if (session.registration.onBinding) {
@@ -442,7 +503,7 @@ monaco.languages.registerHoverProvider(LOGIC_LANGUAGE_ID, {
         const link = (action: "open" | "rename") =>
           `command:agi.binding?${encodeURIComponent(JSON.stringify([model.id, action, info]))}`;
         contents.push({
-          value: `[Open](${link("open")}) · [Rename](${link("rename")})`,
+          value: `[Open](${link("open")})`,
           isTrusted: { enabledCommands: ["agi.binding"] },
         });
       }
@@ -664,24 +725,44 @@ monaco.languages.registerCodeActionProvider(
   },
   { providedCodeActionKinds: ["quickfix", "refactor.rewrite"] },
 );
+const inlayListeners = new Set<() => void>();
 monaco.languages.registerInlayHintsProvider(LOGIC_LANGUAGE_ID, {
-  async provideInlayHints(model, range, token) {
-    const session = openQuery(model, token);
-    if (!session) return null;
-    const hints = await queryWorker(
-      session.registration,
-      "textDocument/inlayHint",
-      { range: protocolRange(range) },
-      token,
-    );
-    if (!hints || !queryIsLive(session, model, token)) return null;
+  onDidChangeInlayHints(listener) {
+    inlayListeners.add(listener);
     return {
-      hints: hints.map((hint) => ({
-        ...hint,
-        position: new monaco.Position(hint.position.line + 1, hint.position.character + 1),
-      })),
-      dispose() {},
+      dispose() {
+        inlayListeners.delete(listener);
+      },
     };
+  },
+  async provideInlayHints(model, range, token) {
+    for (;;) {
+      const session = openQuery(model, token);
+      if (!session) return null;
+      const hints = await queryWorker(
+        session.registration,
+        "textDocument/inlayHint",
+        { range: protocolRange(range), debugState: session.registration.debugState?.() },
+        token,
+      );
+      // Monaco subscribes to provider updates after the first answer. A pause
+      // arriving during that request must be reflected in the answer itself.
+      if (
+        stillCurrent(session.registration) &&
+        model.getVersionId() === session.versionId &&
+        !token.isCancellationRequested &&
+        session.registration.debugRevision !== session.debugRevision
+      )
+        continue;
+      if (!hints || !queryIsLive(session, model, token)) return null;
+      return {
+        hints: hints.map((hint) => ({
+          ...hint,
+          position: new monaco.Position(hint.position.line + 1, hint.position.character + 1),
+        })),
+        dispose() {},
+      };
+    }
   },
 });
 const semanticListeners = new Set<() => void>();
@@ -718,6 +799,7 @@ monaco.languages.registerDocumentSemanticTokensProvider(LOGIC_LANGUAGE_ID, {
 });
 
 export interface LogicModelHandle {
+  refreshDebug(): void;
   /**
    * Ask the shared analysis worker for this document's authored diagnostics
    * and apply them as markers. Call after updating the client's project
@@ -741,7 +823,7 @@ export interface LogicModelHandle {
  */
 export function registerLogicModel(
   model: monaco.editor.ITextModel,
-  options: {
+  options: DebugValueOptions & {
     readonly client: LogicAnalysisClient;
     readonly documentKey: string;
     readonly onBinding?: (info: BindingInfo, action: "open" | "rename") => void;
@@ -757,6 +839,9 @@ export function registerLogicModel(
     model,
     client: options.client,
     documentKey: options.documentKey,
+    debugState: options.debugState,
+    onDebugValue: options.onDebugValue,
+    debugRevision: 0,
     applyProjectEdit: options.applyProjectEdit,
     onBinding: options.onBinding,
     onResource: options.onResource,
@@ -768,9 +853,13 @@ export function registerLogicModel(
   };
   const analysisSchedule = createAnalysisSchedule(() => {
     for (const listener of semanticListeners) listener();
+    for (const listener of inlayListeners) listener();
     void refreshDiagnostics();
   });
-  const unsubscribe = options.client.onDidChange(analysisSchedule.schedule);
+  const unsubscribe = options.client.onDidChange(() => {
+    registration.debugRevision++;
+    analysisSchedule.schedule();
+  });
   registrations.set(uri, registration);
   const modelDisposal = model.onWillDispose(dispose);
   const opener = monaco.editor.registerEditorOpener({
@@ -880,5 +969,12 @@ export function registerLogicModel(
     }
   }
 
-  return { refreshDiagnostics, dispose };
+  return {
+    refreshDiagnostics,
+    dispose,
+    refreshDebug() {
+      registration.debugRevision++;
+      for (const listener of inlayListeners) listener();
+    },
+  };
 }

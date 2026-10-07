@@ -42,7 +42,7 @@ export async function openWorkspaceLogic(page: Page, num = 1): Promise<Locator> 
     .click();
   if (await show.isVisible()) await show.click();
   const editor = page.getByTestId("workspace-logic-editor").filter({ visible: true });
-  await expect(editor.locator(".monaco-editor")).toBeVisible({ timeout: 30_000 });
+  await expect(editor.locator('.monaco-editor[role="code"]')).toBeVisible({ timeout: 30_000 });
   return editor;
 }
 

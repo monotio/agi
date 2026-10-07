@@ -12,6 +12,7 @@ import type {
   DebugBreakpointSpec,
   DebugBreakpointStatus,
 } from "../../../../src/runtime/debugBreakpoints.ts";
+import type { LogicDebugState } from "../../../../src/logic/lspTypes.ts";
 import type { DebugValue } from "../../../../src/runtime/debugExpression.ts";
 import type { ExecutionBoundary } from "../../../../src/runtime/engine.ts";
 import type { ProfileId } from "../../../../src/runtime/profile.ts";
@@ -288,6 +289,31 @@ export function createWorkspaceDebug(input: {
     run,
     framePosition(frame: ExecutionBoundary["frames"][number]) {
       return runningPosition(build.value, frame.logic, frame.pc);
+    },
+    logicState(
+      logic: number,
+      source: string,
+    ): (LogicDebugState & { epoch: number; stopId: number }) | undefined {
+      const stop = input.link.stopped.value;
+      if (
+        !stop ||
+        stop.epoch !== state.epoch ||
+        stop.buildId !== build.value?.identity.buildId ||
+        source !== sources.value[String(logic)]
+      )
+        return undefined;
+      const lines = [stop.location, stop.previousLocation].flatMap((location) => {
+        if (!location || location.logic !== logic) return [];
+        const at = runningPosition(build.value, logic, location.pc, location.kind);
+        return at ? [at.line - 1] : [];
+      });
+      return {
+        epoch: stop.epoch,
+        stopId: stop.stopId,
+        vars: stop.state.vars,
+        flags: stop.state.flags,
+        lines,
+      };
     },
     async setValue(kind: "variable" | "flag", slot: number, value: number): Promise<void> {
       const stop = input.link.stopped.value;
