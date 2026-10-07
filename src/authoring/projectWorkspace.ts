@@ -138,6 +138,14 @@ export function writeProjectWorkspace(
   });
 }
 
+/** Check archive references and all workspace bounds before attachment hydration. */
+export function preflightProjectWorkspace(
+  value: unknown,
+  attachmentSize: (hash: string) => number,
+): void {
+  parseWorkspace(value, attachmentSize);
+}
+
 /**
  * Validate a stored envelope into an owned, frozen document record in
  * canonical key order. Format and version are checked before any content is
@@ -148,6 +156,17 @@ export function writeProjectWorkspace(
 export function readProjectWorkspace(
   value: unknown,
 ): Readonly<Record<string, string | Uint8Array>> {
+  const parsed = parseWorkspace(value);
+  const entries = parsed
+    .sort((a, b) => byKey(a.key, b.key))
+    .map(({ key, content }): readonly [string, string | Uint8Array] => {
+      if (typeof content === "string") return [key, content];
+      return [key, Uint8Array.from(content)];
+    });
+  return Object.freeze(Object.fromEntries(entries));
+}
+
+function parseWorkspace(value: unknown, attachmentSize?: (hash: string) => number) {
   const envelope = plainObject(value, "envelope");
   if (envelope["format"] !== PROJECT_WORKSPACE_FORMAT)
     throw new Error(`Unsupported project workspace format: ${String(envelope["format"])}.`);
@@ -185,22 +204,23 @@ export function readProjectWorkspace(
       if (!Array.isArray(bytes)) invalid(`document '${key}' bytes content must be a byte array.`);
       checkPayload(key, bytes.length, total);
       parsed.push({ key, content: bytes });
+    } else if (type === "attachment" && attachmentSize) {
+      fields(holder, `document '${key}' content`, ["type", "hash"]);
+      const hash = holder["hash"];
+      if (typeof hash !== "string" || !/^[a-f0-9]{64}$/.test(hash) || key !== `attachment:${hash}`)
+        invalid("image attachment must match its document key.");
+      checkPayload(key, attachmentSize(hash), total);
     } else {
       invalid(`document '${key}' has an unknown content type '${String(type)}'.`);
     }
   }
-  const entries = parsed
-    .sort((a, b) => byKey(a.key, b.key))
-    .map(({ key, content }): readonly [string, string | Uint8Array] => {
-      if (typeof content === "string") return [key, content];
-      const bytes = new Uint8Array(content.length);
-      for (let index = 0; index < content.length; index++) {
-        const byte = content[index];
-        if (typeof byte !== "number" || !Number.isInteger(byte) || byte < 0 || byte > 255)
-          invalid(`document '${key}' byte payload holds a non-byte value.`);
-        bytes[index] = byte;
-      }
-      return [key, bytes];
-    });
-  return Object.freeze(Object.fromEntries(entries));
+  for (const { key, content } of parsed) {
+    if (typeof content === "string") continue;
+    for (let index = 0; index < content.length; index++) {
+      const byte = content[index];
+      if (typeof byte !== "number" || !Number.isInteger(byte) || byte < 0 || byte > 255)
+        invalid(`document '${key}' byte payload holds a non-byte value.`);
+    }
+  }
+  return parsed;
 }

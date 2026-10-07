@@ -1,9 +1,20 @@
-import { addDiskFile, diskName, diskView, type DiskFiles } from "./files.ts";
+import {
+  addDiskFile,
+  diskName,
+  diskView,
+  createDiskExtractionBudget,
+  reserveDiskBytes,
+  type DiskExtractionBudget,
+  type DiskFiles,
+} from "./files.ts";
 
 /** ADF format FAQ, §§4.2–4.4: hash chains, reversed pointers, extension blocks.
  * https://adflib.github.io/FAQ/adf_info.html
  */
-export function readAdf(image: Uint8Array): DiskFiles {
+export function readAdf(
+  image: Uint8Array,
+  budget: DiskExtractionBudget = createDiskExtractionBudget(),
+): DiskFiles {
   if (
     image.length !== 880 * 1024 ||
     image[0] !== 68 ||
@@ -49,12 +60,13 @@ export function readAdf(image: Uint8Array): DiskFiles {
         else {
           seen.add(entry);
           if (type === -3)
-            addDiskFile(result, name, () => {
+            addDiskFile(result, name, budget, () => {
               const size = header.getUint32(324);
               if (size > image.length)
                 throw new Error(
                   "The Amiga file length exceeds the disk. Add a fresh copy of the disk.",
                 );
+              reserveDiskBytes(budget, size);
               const output = new Uint8Array(size);
               let written = 0;
               let current = entry;

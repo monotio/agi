@@ -12,6 +12,7 @@ import { openContainer, DIRECTORY_FILES } from "../../../src/container/container
 import { canonicalResourceName, isPlayableFileName } from "../../../src/container/playableFiles.ts";
 import { isBooterImage } from "../../../src/container/booter.ts";
 import { isDiskImageName, readDiskImage } from "../../../src/container/disk/image.ts";
+import { createDiskExtractionBudget, reserveDiskBytes } from "../../../src/container/disk/files.ts";
 import { unshippedDiskVolumes } from "../../../src/container/disk/volumes.ts";
 import { parseWordsTok } from "../../../src/logic/words.ts";
 import { parseLogicResource } from "../../../src/logic/resource.ts";
@@ -167,9 +168,11 @@ function expandDiskImages(entries: Map<string, Uint8Array>): boolean {
   const origins = new Map<string, string>();
   const unreadable = new Map<string, { disk: string; cause: string }>();
   for (const [path] of images) entries.delete(path);
-  let expanded = [...entries.values()].reduce((total, bytes) => total + bytes.length, 0);
+  const budget = createDiskExtractionBudget();
+  budget.files = entries.size;
+  for (const bytes of entries.values()) reserveDiskBytes(budget, bytes.length);
   for (const [imagePath, imageBytes] of images) {
-    const decoded = readDiskImage(imagePath, imageBytes);
+    const decoded = readDiskImage(imagePath, imageBytes, budget);
     for (const [path, bytes] of decoded.files) {
       const name = canonicalResourceName(path.slice(path.lastIndexOf("/") + 1));
       if (!isPlayableFileName(name)) continue;
@@ -182,9 +185,6 @@ function expandDiskImages(entries: Map<string, Uint8Array>): boolean {
           `${name} has different bytes on ${origins.get(name) ?? name} and ${imagePath}. Add disks from the same game edition.`,
         );
       if (!previous) {
-        expanded += bytes.length;
-        if (expanded > MAX_EXPANDED_BYTES || entries.size >= 1024)
-          throw new Error("The disks expand beyond the game import limit. Add one game at a time.");
         entries.set(name, bytes);
         origins.set(name, imagePath);
       }

@@ -111,3 +111,26 @@ test("disk selection rejects two images with the same filename", async ({ page }
   await expect(error).toContainText("Two files have the same filename");
   await expect(page.locator("[data-testid^='saved-game-card-']")).toHaveCount(0);
 });
+
+test("ignored disk files exhaust one shared import budget @webkit-desktop", async ({ page }) => {
+  const emptyFiles = new Map(
+    Array.from({ length: 100 }, (_, index) => [`J${index}.TXT`, new Uint8Array()]),
+  );
+  const image = fatDisk(emptyFiles);
+  await isolateStorage(page);
+  await page.goto("/");
+  await page.getByTestId("game-disk-input").setInputFiles(
+    Array.from({ length: 11 }, (_, index) => ({
+      name: `junk${index}.img`,
+      mimeType: "application/octet-stream",
+      buffer: Buffer.from(image),
+    })),
+  );
+  const error = page.getByTestId("game-zip-error");
+  await expect(error).toBeVisible();
+  await expect(error).toContainText("The disks have too many files. Add one game at a time.");
+  await expect(page.locator("[data-testid^='saved-game-card-']")).toHaveCount(0);
+  // A refused import leaves Home usable and accepts a valid game afterward.
+  await drop(page, gameDisks());
+  await expect(savedGameCard(page, "adventure1")).toBeVisible();
+});
