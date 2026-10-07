@@ -18,7 +18,6 @@ Install Node.js 22.22 or newer, then:
 
 ```bash
 npm ci
-npm --prefix app ci
 npm run dev
 ```
 
@@ -28,12 +27,13 @@ offline stub provider the browser tests use; to choose another port, pass
 `-- --port N` to this app script. `AGI_DEV_KEYS=1 npm run dev` fills the AI
 settings from `OPENAI_API_KEY` and `ANTHROPIC_API_KEY` in your environment for
 browsers on this machine; keys already entered in Settings stay. Requests made
-with these keys are billed to your provider account. The repository has two package roots: the root
-holds the engine, tests and scripts, and `app/` the Vue shell. A third,
-`evals/`, holds the evaluation runners; its own package adds only promptfoo,
-which the live comparisons need (`npm --prefix evals install`). After switching
-branches or pulling dependency updates, run `npm ci` in both; `npm run check`
-verifies installed dependencies against both manifests before it tests anything.
+with these keys are billed to your provider account. The root package
+holds the engine, tests and scripts; the `app/` workspace holds the Vue shell.
+One root `npm ci` installs both from the shared lockfile. `evals/` keeps its
+separate install for optional live comparisons (`npm --prefix evals ci`):
+promptfoo adds a larger dependency tree with native packages. After switching
+branches or pulling dependency updates, run `npm ci`; `npm run check` verifies
+the installed tree and the engine dependency boundary before it tests anything.
 
 For browser tests, install Chromium once with
 `npm --prefix app exec -- playwright install chromium`, and WebKit too for the
@@ -162,7 +162,7 @@ gate. Main builds and publishes each checked commit. Capture code
 under `docs/` still runs the browsers. CodeQL keeps its repository-managed policy.
 Browser jobs use the official Playwright Noble container pinned by digest in
 `scripts/ci/playwright-image.txt`. Setup checks its version against the restored
-`app/node_modules/playwright-core` package and the container metadata. When
+`node_modules/playwright-core` package and the container metadata. When
 upgrading Playwright, update the image tag and digest together with the lockfile.
 The image supplies browsers, fonts and system packages; setup restores the shared
 Node dependency cache. Browser JSON reports, screenshots and failure traces are

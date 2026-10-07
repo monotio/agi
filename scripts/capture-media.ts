@@ -256,7 +256,7 @@ mkdirSync(raw, { recursive: true });
 
 run(
   [
-    join(APP, "node_modules/playwright/cli.js"),
+    join(ROOT, "node_modules/playwright/cli.js"),
     "test",
     "--config",
     "playwright.media.config.ts",

@@ -435,7 +435,6 @@ Install Node.js 22.22 or newer, then:
 
 ```bash
 npm ci
-npm --prefix app ci
 npm run dev
 ```
 

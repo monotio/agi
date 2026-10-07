@@ -38,7 +38,7 @@ def main():
         if args.print_ref:
             print(ref)
         else:
-            check_version(ref, Path('app/node_modules/playwright-core/package.json'),
+            check_version(ref, Path('node_modules/playwright-core/package.json'),
                           Path('/ms-playwright/.docker-info'))
             print(f'Playwright package and container match: {ref}')
     except (ValueError, OSError, KeyError) as error:
