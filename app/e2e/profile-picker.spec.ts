@@ -114,7 +114,7 @@ test("the card's Details dialog changes the profile and returns it to automatic"
 
   await page.goto("/");
   const reopened = await openSavedGameDetails(card);
-  await expect(reopened).toContainText("2.440 (your override)");
+  await expect(reopened).toContainText("2.440 (set for this game)");
   await reopened.getByTestId("interpreter-profile-menu-item").click();
   await expect(select).toHaveValue("2.440");
   await select.selectOption("");

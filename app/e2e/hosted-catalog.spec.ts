@@ -108,7 +108,7 @@ test("a hosted game's declared interpreter is the one its library entry and play
   const saved = page.getByTestId("saved-game-card-catalog-declared-1.0.0");
   const details = await openSavedGameDetails(saved);
   await expect(details.getByTestId("interpreter-profile-menu-item")).toBeVisible();
-  await expect(details).toContainText("2.917 (your override)");
+  await expect(details).toContainText("2.917 (set for this game)");
   await page.keyboard.press("Escape");
 });
 

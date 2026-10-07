@@ -30,7 +30,7 @@ let settled = false;
 
 const current = computed(() =>
   choice.override
-    ? formatProfileResolution(choice.override, "override")
+    ? formatProfileResolution(choice.override, choice.stored)
     : choice.detected && choice.kind
       ? formatProfileResolution(choice.detected, choice.kind, choice.build)
       : "Automatic (opening not checked)",

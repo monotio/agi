@@ -193,7 +193,9 @@ test("a 1.1 player's copy and progress stay readable while the 1.2 tutorial star
   const details = await openSavedGameDetails(older);
   await expect(details).toContainText("1.1.0");
   const section = details.getByTestId("earlier-progress");
-  await expect(section.getByTestId("earlier-row").filter({ hasText: TUTORIAL_1_1 })).toBeVisible();
+  await expect(
+    section.getByTestId("earlier-row").filter({ hasText: "Adventure Department 1.1" }),
+  ).toBeVisible();
   await page.keyboard.press("Escape");
 
   // The Tutorial card plays the 1.2 release from its first room.
