@@ -45,7 +45,7 @@ watch(
         @click="startLatestVersion"
         >Start the latest version</UiButton
       >
-      <UiButton size="sm" variant="ghost" @click="dismissLatestVersion">Not now</UiButton>
+      <UiButton size="sm" variant="ghost" @click="dismissLatestVersion">Cancel</UiButton>
     </div>
   </section>
 </template>

@@ -748,7 +748,7 @@ export function createLogicLspServer(
           ? {
               start: operand.start,
               end: operand.end,
-              text: `${OPERAND_NAMES[operand.kind]} ${operand.num} · ${names.length ? names.join(", ") : "unnamed"}\n\n${count} ${count === 1 ? "use" : "uses"} ${operand.kind === "m" ? "in this LOGIC" : "across the game"}.${operandDetails(doc, operand)}${["s", "w", "c"].includes(operand.kind) ? "" : "\n\nName it… F2"}`,
+              text: `${OPERAND_NAMES[operand.kind]} ${operand.num} · ${names.length ? names.join(", ") : "unnamed"}\n\n${count} ${count === 1 ? "use" : "uses"} ${operand.kind === "m" ? "in this LOGIC" : "across the game"}.${operandDetails(doc, operand)}${["s", "w", "c"].includes(operand.kind) ? "" : "\n\nRename… F2"}`,
             }
           : snapshot.hoverAt(offset);
         if (!hover) return null;

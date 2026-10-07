@@ -42,9 +42,7 @@ async function upload(page: Page) {
     )
     .toContain("red.png");
   await expect(
-    page
-      .getByTestId("image-reference")
-      .getByRole("button", { name: "Bring in an image", exact: true }),
+    page.getByTestId("image-reference").getByRole("button", { name: "Import image", exact: true }),
   ).toBeEnabled();
   await expect(page.getByTestId("workspace-saved")).toBeVisible();
   await expect(page.getByTestId("workspace-saved")).toHaveText(/^(?:Saved|Draft saved)$/);

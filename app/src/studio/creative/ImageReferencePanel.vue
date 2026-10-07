@@ -445,7 +445,7 @@ onBeforeUnmount(() => {
       <UiButton size="sm" variant="ghost" @click="emit('close')">Done</UiButton>
     </header>
     <div v-if="isPicture || !image" class="image-reference__actions">
-      <UiButton size="sm" :disabled="busy" @click="file?.click()">Bring in an image</UiButton>
+      <UiButton size="sm" :disabled="busy" @click="file?.click()">Import image</UiButton>
       <span>Drop, paste or choose an image.</span>
     </div>
     <div v-if="image && !isPicture" class="image-source">
@@ -467,7 +467,7 @@ onBeforeUnmount(() => {
               file?.click();
               replaceOpen = false;
             "
-            >Bring in an image</UiButton
+            >Import image</UiButton
           >
         </div>
       </div>

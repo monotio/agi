@@ -374,8 +374,8 @@ monaco.languages.registerHoverProvider(LOGIC_LANGUAGE_ID, {
     const contents: monaco.IMarkdownString[] = [
       {
         value: hover.contents.value.replace(
-          "Name it… F2",
-          `[Name it…](command:agi.nameOperand?${encodeURIComponent(JSON.stringify([model.id, position]))}) F2`,
+          "Rename… F2",
+          `[Rename…](command:agi.nameOperand?${encodeURIComponent(JSON.stringify([model.id, position]))}) F2`,
         ),
         isTrusted: { enabledCommands: ["agi.nameOperand"] },
       },

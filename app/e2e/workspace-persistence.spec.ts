@@ -134,7 +134,7 @@ for (const key of ["notes", "logic", "words", "sound"] as const) {
       if (key === "words") {
         await page
           .getByTestId("workspace-words-editor")
-          .getByRole("button", { name: "+ Meaning", exact: true })
+          .getByRole("button", { name: "Add meaning", exact: true })
           .click();
       }
       const files =

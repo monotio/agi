@@ -149,7 +149,7 @@ test("sound presets, note keyboard edits and guided cue creation share the works
   await panel.getByLabel("Length in beats").fill("1");
   await panel.getByLabel("Length in beats").press("Tab");
   await expect(panel.getByLabel("Note", { exact: true })).toHaveValue("A4");
-  await panel.getByRole("button", { name: "Remove", exact: true }).click();
+  await panel.getByRole("button", { name: "Delete", exact: true }).click();
   await expect(note).toHaveValue("Rest");
   await note.fill("A4");
   await note.press("Enter");
