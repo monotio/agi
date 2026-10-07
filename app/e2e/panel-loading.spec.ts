@@ -88,7 +88,7 @@ test("Problems stays dismissible while its panel module loads", async ({ page })
     release.resolve();
     const panel = page.getByTestId("workspace-problems");
     await expect(panel).toBeVisible();
-    await expect(panel).toContainText("unresolved");
+    await expect(panel).toHaveText("Everything builds.");
   } finally {
     release.resolve();
   }

@@ -277,9 +277,11 @@ test("new.room: east authors a new room live; west returns to the old one", asyn
  * image's replay sequence refers to — or the resumed game would restore into
  * a room whose logic the store never received.
  */
-test("an autosave resumes a room the agent authored mid-play, across a reload", async ({
+test("an autosave resumes a room the agent authored mid-play, across a reload @webkit-desktop", async ({
   page,
+  browserName,
 }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
   await bootAgentGame(page);
 
   await typeCommand(page, "east");
@@ -315,6 +317,29 @@ test("an autosave resumes a room the agent authored mid-play, across a reload", 
   await expectPrintWindow(page, "generated room 3");
   await typeCommand(page, "west");
   await expectPrintWindow(page, "generated room 2");
+  // Returning to an authored room keeps the game available at every workspace size.
+  const screen = page.locator(".screen:visible");
+  await expect(screen).toBeVisible();
+  let previousWidth = 0;
+  for (const viewport of [
+    { width: 390, height: 844 },
+    { width: 1063, height: 815 },
+    { width: 1440, height: 900 },
+  ]) {
+    await page.setViewportSize(viewport);
+    await expect
+      .poll(async () => (await screen.boundingBox())!.width)
+      .toBeGreaterThan(previousWidth);
+    previousWidth = (await screen.boundingBox())!.width;
+    const shot = await page.screenshot({
+      path: test.info().outputPath(`return-room-${viewport.width}.png`),
+      animations: "disabled",
+      scale: "css",
+    });
+    if (process.env["CI"] && browserName === "webkit")
+      console.log(`RETURN_ROOM_SHOT:${viewport.width}:${shot.toString("base64")}`);
+  }
+  await expect(page.getByTestId("room-generation")).toBeHidden();
   await typeCommand(page, "east");
   await expectPrintWindow(page, "generated room 3");
   const log = await agentActivity(page);

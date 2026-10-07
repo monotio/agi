@@ -472,6 +472,7 @@ export function createWorkspaceAgent(options: Options) {
       delete chat.pendingReview;
       reviews.delete(approving.chatId);
       if (review === approving) review = null;
+      notify();
       await save();
       return commit;
     } finally {

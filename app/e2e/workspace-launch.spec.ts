@@ -42,7 +42,7 @@ for (const [width, height] of [
       await launchShot(page, `launch-metadata-${width}`, browserName);
       const action = page.getByTestId("workspace-update");
       await expect(action).toBeVisible();
-      await expect(action).toHaveText("Restart Home");
+      await expect(action).toHaveAccessibleName("Restart Home");
       expect(
         await page.evaluate(async () => {
           const { loadAuthoredGame } = await import("/src/project/gameStorage.ts");

@@ -510,6 +510,9 @@ export function useWorkerLink(options: WorkerLinkOptions) {
         // dropped by the sessionId ingress filter; a replaced worker's late
         // traffic never reaches this handler.
         hook.room = msg.to;
+        const generation = state.roomGeneration;
+        if (generation?.room === msg.to && !generation.busy && !generation.error)
+          state.roomGeneration = null;
         publishHook();
         state.roomJournal.push(msg);
         deps.observeRoom?.(msg);

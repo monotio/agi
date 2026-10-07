@@ -121,10 +121,11 @@ for (const size of [
     await start(page);
     const before = await documents(page);
     await page.getByTestId("agent-auto-approve").click();
+    await expect(page.getByTestId("agent-auto-approve")).toBeVisible();
     await expect(page.getByTestId("agent-auto-approve")).toHaveAttribute("aria-checked", "true");
     await expect(page.getByTestId("agent-auto-approve")).toHaveAttribute(
       "title",
-      /Undo takes them back/,
+      "Review asks before applying changes. Auto-approve applies them as they arrive.",
     );
     await page.evaluate(() => {
       const panel = document.querySelector("[data-testid=workspace-agent-panel]")!;
@@ -158,7 +159,7 @@ for (const size of [
   });
 }
 
-test("Agent toggles from composer, editor and game and Escape returns to the originating editor", async ({
+test("Agent toggles from composer, editor and game and Escape returns to the originating editor @webkit-desktop", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });

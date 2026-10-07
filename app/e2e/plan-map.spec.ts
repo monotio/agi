@@ -20,8 +20,6 @@ import {
  * room". No fixture needed — every byte here is generated.
  */
 
-test.use({ headless: process.platform !== "darwin" });
-
 test.beforeEach(async ({ page }) => {
   await isolateStorage(page);
 });
