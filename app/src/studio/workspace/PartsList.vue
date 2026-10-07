@@ -140,8 +140,8 @@ watch(
   { immediate: true },
 );
 watch(
-  renameInput,
-  (element) => {
+  [editingRoom, renameInput],
+  ([, element]) => {
     // A ref inside v-for collects an array; one rename form shows at a time.
     const target = Array.isArray(element) ? element[0] : element;
     if (!target) return;
@@ -167,9 +167,10 @@ function cancelRoomRename(): void {
   editingRoomLocal.value = undefined;
   emit("renameCancel");
 }
-/** An add-armed naming survives the editors settling; a double-click edit ends on blur. */
+/** Leaving a typed name commits it; a fresh default stays ready for naming. */
 function blurRename(room: number): void {
-  if (editingRoomLocal.value !== undefined) commitRoomRename(room);
+  if (editingRoomLocal.value !== undefined || roomTitle.value.trim() !== roomLabel(room))
+    commitRoomRename(room);
 }
 watch(
   () => [engine.state.phase, engine.state.patchTick],

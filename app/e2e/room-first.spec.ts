@@ -38,9 +38,7 @@ async function firstRoom(page: Page, name: string): Promise<void> {
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
 }
 
-// Held until a newly opened editor stops taking focus from the room name being
-// typed; committing on blur alone broke naming while editors settle.
-test.describe.fixme("touch room naming", () => {
+test.describe("touch room naming", () => {
   test.use({ hasTouch: true });
 
   for (const [width, height] of [
@@ -48,6 +46,45 @@ test.describe.fixme("touch room naming", () => {
     [1440, 900],
     [390, 844],
   ] as const) {
+    test(`opening a room picture keeps the name selected at ${width} @webkit-desktop`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height });
+      await blankGame(page, "Typing room names");
+      await page.getByTestId("empty-add-room").click();
+      const rename = page.getByTestId("room-rename-input");
+      await expect(rename).toBeVisible();
+      await expect(page.getByTestId("room-studio")).toBeVisible();
+      await expect(rename).toBeFocused();
+      expect(
+        await rename.evaluate((input) => [
+          (input as HTMLInputElement).selectionStart,
+          (input as HTMLInputElement).selectionEnd,
+        ]),
+      ).toEqual([0, 6]);
+      await page.keyboard.type("Meadow");
+      await expect(rename).toBeFocused();
+      await expect(rename).toHaveValue("Meadow");
+      await page.keyboard.press("Enter");
+      const room = page.getByTestId("part-room:1");
+      await expect(room).toBeVisible();
+      await expect(room).toContainText("Meadow");
+      // Esc keeps the fresh room's default name.
+      await page.getByRole("button", { name: "Add a room", exact: true }).click();
+      await expect(rename).toBeVisible();
+      await expect(
+        page.getByRole("region", { name: "PICTURE: PICTURE 2", exact: true }),
+      ).toBeVisible();
+      await expect(rename).toBeFocused();
+      await page.keyboard.type("Garden");
+      await page.keyboard.press("Escape");
+      const second = page.getByTestId("part-room:2");
+      await expect(second).toBeVisible();
+      await expect(second).toContainText("Room 2");
+      await expect(room).toBeVisible();
+      await expect(room).toContainText("Meadow");
+    });
+
     test(`leaving a fresh room name commits it before the next edit at ${width} @webkit-desktop`, async ({
       page,
     }) => {

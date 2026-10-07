@@ -1,10 +1,7 @@
 /**
- * Room Studio keeps the keyboard: its root takes focus when it opens, and
- * after a key or click inside it has taken effect, a focused control may
- * have gone (a lens change hides Planes and Bands, Keep disables itself) or
- * never taken focus (Safari leaves clicked buttons unfocused). Focus then
- * returns to the root, so the studio shortcuts keep working instead of the
- * keys landing on the page.
+ * Editors focus their roots on opening while text fields, menus and dialogs
+ * keep their focus. After an editor action removes or disables its focused
+ * control, focus returns to the root so its keyboard shortcuts keep working.
  */
 
 import { nextTick, onMounted, type ShallowRef } from "vue";
@@ -12,8 +9,13 @@ import { nextTick, onMounted, type ShallowRef } from "vue";
 export function useStudioFocus(root: Readonly<ShallowRef<HTMLElement | null>>): () => void {
   onMounted(() => {
     const active = document.activeElement;
-    // An open menu or dialog owns focus: the studio waits for it to close.
-    if (active instanceof HTMLElement && active.closest('[role="menu"], [role="dialog"]')) return;
+    if (
+      active instanceof HTMLElement &&
+      (active.matches("input, textarea, select") ||
+        active.isContentEditable ||
+        active.closest('[role="menu"], [role="dialog"]'))
+    )
+      return;
     root.value?.focus({ preventScroll: true });
   });
   return function keepFocus(): void {
