@@ -244,13 +244,15 @@ _Left to right, top to bottom: PICTURE, LOGIC with Problems, Agent review and
 VIEW with cels from an image. The [media gallery](docs/media/README.md) also
 shows WORDS, SOUND, History, Play with CRT and Make a new game._
 
-- **PICTURE editor** shows a room's picture under three lenses: Art for what the
-  player sees, Depth for what stands in front, and Walk for the lines that steer
-  the hero. The items list names what the picture draws. Strokes stay drafts
-  on the picture canvas until **Update and restart**. A dashed outline marks pending cells.
-  **Views** blends in static figures from the room's starting instructions.
-  Drag a figure with a plain-number position to draft its LOGIC placement;
-  computed and conditional placements show their cause and stay locked.
+- **PICTURE editor** shows a room's picture in Sierra's two layers: Visual for
+  what the player sees, and Priority for what stands in front plus the walls,
+  water, triggers and gates that steer the hero. The items list names what the
+  picture draws, and "insert here" on an item draws new shapes before it.
+  Strokes stay drafts on the picture canvas until **Update and restart**. A
+  dashed outline marks pending cells. **Views** blends in the figures the room
+  places, as the game draws them. Drag a figure with a plain-number position to
+  draft its LOGIC placement; a computed placement drags as a preview, with
+  Reset and Copy position, and Set in opens the lines that place it.
 - **Editing** works on items: click one to select it, or drag a box to select
   the items wholly inside it; drag the selection, or its points with the Point
   tool, nudge it with the arrow keys (a move stops at the picture's edge),

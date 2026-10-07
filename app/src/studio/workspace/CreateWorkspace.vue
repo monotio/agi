@@ -15,8 +15,10 @@ import GuidedAdd from "./GuidedAdd.vue";
 import {
   roomPlacements,
   moveRoomPlacement,
+  type PlacementLine,
   type RoomPlacement,
 } from "../../../../src/authoring/roomPlacements.ts";
+import { lineOf } from "../../../../src/authoring/guidedSource.ts";
 import { soundProjectChanges } from "../sound/soundEdits.ts";
 import { VOCABULARY } from "../../../../src/vocabulary.ts";
 import "./workspace.css";
@@ -1581,6 +1583,18 @@ function openWordLogic(logic: number, line: number): void {
   logicLocation.value = { key, line, serial: (logicLocation.value?.serial ?? 0) + 1 };
   openPart(key);
 }
+/** The Views list's "Set in": one LOGIC line that places the figure. */
+function revealFigure(place: PlacementLine): void {
+  const key = `logic:${place.logic}`;
+  const source = text(key);
+  if (source !== undefined)
+    logicLocation.value = {
+      key,
+      line: lineOf(source, place.offset),
+      serial: (logicLocation.value?.serial ?? 0) + 1,
+    };
+  openPart(key);
+}
 function wordResponse(room: number, command: string): void {
   openPart(`logic:${room}`);
   guidedCommand.value = command;
@@ -1764,6 +1778,7 @@ async function add(group: string, option?: string): Promise<void> {
     editor.error.value = "This resource group is full. Edit an existing part.";
     return;
   }
+  // A new picture is blank and white: `end` alone compiles to one 0xff byte.
   if (kind === "picture") edit(`picture:${num}`, "end\n");
   else if (kind === "view") {
     const { buildView } = await import("../../../../src/view/view.ts");
@@ -2228,6 +2243,8 @@ onBeforeUnmount(() => {
         @click="guidedAction({ kind: 'make-room', key: editor.selected.value! })"
         >Make it a room</UiButton
       >
+      <!-- The open editor's own context (the picture's drawing place) teleports here. -->
+      <span id="workspace-context-editor" class="workspace-context__editor"></span>
       <ImageReferencePanel
         v-if="
           !writeConflict &&
@@ -2314,6 +2331,7 @@ onBeforeUnmount(() => {
         :active="creating && key === editor.selected.value"
         :figures="key === editor.selected.value ? figures : []"
         @place-figure="placeFigure"
+        @reveal-figure="revealFigure"
         @agent-context="editor.setAgentContext(key, $event)"
         :underlay="traceUnderlays[key] ?? null"
         :walk="pictureWalks[key]"

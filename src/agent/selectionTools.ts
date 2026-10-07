@@ -45,7 +45,6 @@ import {
   type SpriteEdit,
 } from "../studio/sprite/spriteOperations.ts";
 import { walkableMask } from "../runtime/walkable.ts";
-import { depthValuesLocked } from "../studio/lensRules.ts";
 import { PictureSourceSyntaxError } from "../picture/source.ts";
 import { SCREEN_HEIGHT, SCREEN_WIDTH } from "../types.ts";
 import { parseView } from "../view/view.ts";
@@ -89,7 +88,7 @@ export interface SelectionFocus {
   readonly scope: AssistScope;
   /** The editor's current draft; read on every tool call. */
   readonly draft: () => AssistDraft;
-  /** The Studio lens ("art" | "depth" | "walk" in PICTURE editor), reported as is. */
+  /** The Studio lens ("art" | "depth" in PICTURE editor), reported as is. */
   readonly lens?: string | undefined;
   /** The room the editor was opened from. */
   readonly room?: number | undefined;
@@ -611,7 +610,8 @@ function opItems(
   document: PictureDocument,
 ): { edits: string[]; creates: string[] } {
   switch (op.type) {
-    case "setPoint": {
+    case "setPoint":
+    case "setStepColor": {
       const item = document.items.find((i) => i.openLine < op.line && op.line < i.closeLine);
       return { edits: item ? [item.id] : [`line ${op.line}`], creates: [] };
     }
@@ -728,7 +728,7 @@ function walkable(
 
 const walkRelevant = (scope: PictureAssistScope) => !scope.lockedPlanes.includes("priority");
 
-/** Control values 0..3 inside `area`: what a Walk lens edit may repaint. */
+/** Control values 0..3 inside `area`: what a Priority lens edit may repaint. */
 function controlsIn(priority: Uint8Array, area: Uint8Array) {
   return [0, 1, 2, 3].flatMap((value) => {
     const count = countMask(area, (i) => priority[i] === value);
@@ -868,7 +868,6 @@ function readPictureContext(
   const room = roomContext(session, focus, compiled);
   const walk = walkRelevant(scope) ? walkable(session, focus, compiled.priority, area) : null;
   const controls = walkRelevant(scope) ? controlsIn(compiled.priority, area) : [];
-  const depthLocked = depthValuesLocked(scope.lens, scope.unlocks);
   const crop =
     areaCount.bbox === null
       ? { x0: 0, y0: 0, x1: SCREEN_WIDTH - 1, y1: SCREEN_HEIGHT - 1 }
@@ -907,11 +906,6 @@ function readPictureContext(
     `Picture ${scope.num}, lens ${scope.lens}, locked planes: ${scope.lockedPlanes.join(", ") || "none"}. baseRevision ${revision}${stale ? ` (the request was made on ${scope.baseRevision}: the draft changed since; proposals will be refused as stale)` : ""}.`,
     `Selected: ${items.map((i) => ("missing" in i ? `${i.id} (missing)` : `${i.id} "${i.label}" ${i.kind}${i.locked ? " locked" : ""}`)).join(", ")}; on screen ${box(areaCount)}.`,
     `Visual plane ${may.visual}. Priority plane ${may.priority}.`,
-    ...(depthLocked
-      ? [
-          "Depth values 4–15 are locked in the Walk lens: paint only control values 0–3 (0 Wall, 1 Gate, 2 Trigger, 3 Water; water blocks only an actor kept on land), and change no cell into, out of or within 4–15.",
-        ]
-      : []),
     ...(controls.length
       ? [
           `Control values in the selection: ${controls.map((c) => `${c.value} ${CONTROL_NAMES[c.value]} ${box(c)}`).join("; ")}.`,
@@ -940,7 +934,6 @@ function readPictureContext(
       num: scope.num,
       lens: scope.lens,
       lockedPlanes: scope.lockedPlanes,
-      depthValuesLocked: depthLocked,
       controls,
       baseRevision: revision,
       stale,
@@ -1083,8 +1076,6 @@ const HINTS: Record<string, string> = {
   "stale-base": "Call read_edit_context again and build the proposal on its baseRevision.",
   "unknown-target": "The selection itself is out of date; tell the creator.",
   "locked-plane": "Leave the locked plane exactly as it is.",
-  "walk-depth":
-    "In the Walk lens paint only control values 0–3 (0 barrier, 1 conditional, 2 signal, 3 water) and leave depth values as they are.",
   "outside-mask": "Confine the change to the selected items' cells.",
   "outside-target": "Change only the selected items or cels.",
   "protected-loop": "Leave the protected loops exactly as they are.",

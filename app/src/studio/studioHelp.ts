@@ -109,7 +109,7 @@ export function roomKeySheet(tool: StudioTool): KeySection[] {
         { keys: ["A"], does: "Points only" },
         { keys: ["L", "R", "P"], does: "Line, rectangle, polygon" },
         { keys: ["F", "B", "I"], does: "Fill, brush, pipette" },
-        { keys: ["T", "D", "E"], does: "Test walk, door box, edge exit (Walk lens)" },
+        { keys: ["T", "D", "E"], does: "Test walk, door box, edge exit (Priority lens)" },
         { keys: ["G"], does: "Stand-in" },
         { keys: ["H"], does: "Hand; hold Space to pan with any tool" },
       ],
@@ -157,7 +157,7 @@ export function roomKeySheet(tool: StudioTool): KeySection[] {
     {
       title: "View",
       rows: [
-        { keys: ["1", "2", "3"], does: "Art, Depth, Walk lens" },
+        { keys: ["1", "2"], does: "Visual or Priority lens" },
         { keys: [",", "."], does: "Step the draw order back or forward" },
         { keys: ["Home", "End"], does: "Draw order to the start or the end" },
         { keys: ["+", "−", "0"], does: "Zoom in, out, to fit" },

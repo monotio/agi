@@ -12,12 +12,12 @@ import type { StudioLens } from "./studioView.ts";
 
 /**
  * The tool rail on the canvas's left edge: select and point, the drawing
- * tools, the pipette, in the Walk view the test walk and door tools, the
+ * tools, the pipette, in the Priority lens the test walk and door tools, the
  * actor probe and the hand, each with its key, and under them the values
  * for new drawing or the current selection.
  *
  * The tools scroll inside the rail's column when it is shorter than they are
- * (the Walk lens's three extra tools at 1280×720, any lens on a short
+ * (the Priority lens's three extra tools at 1280×720, any lens on a short
  * screen); the values stay pinned under them, so their pickers are never
  * clipped. An edge where more tools lie beyond it fades and carries a
  * chevron button that scrolls the next tools into view (a short screen's
@@ -47,7 +47,7 @@ const {
   values: PaletteValues;
   paletteAction: PaletteAction;
   cursorY?: number | undefined;
-  /** The Walk view can add doors: the room's logic is editable. */
+  /** The room tools can add doors: the room's logic is editable. */
   doorsEditable?: boolean;
 }>();
 const emit = defineEmits<{
@@ -78,13 +78,13 @@ const GROUPS: readonly (readonly RailTool[])[] = [
     { id: "pipette", icon: "pipette", label: "Pipette" },
   ],
 ];
-/** The Walk view's own tools: a test walk the game runs, and the room's doors. */
+/** The Priority lens's room tools: a test walk the game runs, and the room's doors. */
 const WALK_GROUP: readonly RailTool[] = [
   { id: "walk", icon: "footprints", label: VOCABULARY_ACTIONS.playtest_room.label },
   { id: "door", icon: "exit", label: "Door box", doors: true },
   { id: "edge", icon: "move", label: "Edge exit", doors: true },
 ];
-const groups = computed(() => (lens === "walk" ? [...GROUPS, WALK_GROUP] : GROUPS));
+const groups = computed(() => (lens === "depth" ? [...GROUPS, WALK_GROUP] : GROUPS));
 /** Why a tool is off, on its tooltip; its name and key while it is on. */
 const PAUSED = "Drawing pauses while the picture is read-only or an AI change is open";
 const NEEDS_LOGIC =

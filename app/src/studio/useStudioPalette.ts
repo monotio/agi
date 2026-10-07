@@ -63,19 +63,14 @@ export function useStudioPalette(options: {
     const value = patch[plane];
     if (value === undefined || value === "band") return;
     const missing = options.editing.targets.value.find(
-      (item) =>
-        !drawn(item.id, plane).some(
-          (value) => lens === "art" || (lens === "depth" ? value >= 4 : value < 4),
-        ),
+      (item) => drawn(item.id, plane).length === 0,
     );
     if (missing) {
       const reason =
         lens === "art"
-          ? "has no art colour. Select a shape with art to recolour it."
-          : lens === "depth"
-            ? "has no depth band. Add depth or select a shape with depth."
-            : "has no walk line. Select a Wall, Gate, Trigger or Water shape.";
-      options.editing.say({ tone: "warn", text: `${missing.label} ${reason}` });
+          ? "has no visual colour. Select a shape with visual colour to recolour it."
+          : "has no priority. Give it a Priority pen in the Inspector, or select a shape with one.";
+      options.editing.say({ tone: "warn", text: `${options.editing.name(missing)} ${reason}` });
       return;
     }
     options.editing.setColour(plane, value);

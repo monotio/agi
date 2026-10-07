@@ -9,6 +9,21 @@ import {
 import { VAR_WRITES } from "../agent/roomFlow.ts";
 import type { Ref, Stmt, TestExpr } from "../logic/syntax.ts";
 
+/** One place the room may draw a figure, when the entry offers more than one. */
+export interface PlacementSpot {
+  readonly x: number;
+  readonly y: number;
+  readonly logic: number;
+  readonly command: string;
+  readonly offset: number;
+}
+/** One LOGIC line that places a figure (or, with no position, draws it): what Set in opens. */
+export interface PlacementLine {
+  readonly logic: number;
+  readonly offset: number;
+  /** The line's own text, as written: "position(o5,60,140)". */
+  readonly text: string;
+}
 export interface RoomPlacement {
   readonly object: number;
   readonly view: number | null;
@@ -20,6 +35,10 @@ export interface RoomPlacement {
   readonly reason: string | null;
   readonly command: string;
   readonly offset: number;
+  /** The drawn spots the analysis saw; more than one marks a conditional placement. */
+  readonly spots: readonly PlacementSpot[];
+  /** Every line that places it, in source order; its draw line when none does. */
+  readonly lines: readonly PlacementLine[];
 }
 interface Figure {
   object: number;
@@ -35,6 +54,10 @@ interface Figure {
   animated: boolean;
   drawn: boolean;
   conditional: boolean;
+  spots: PlacementSpot[];
+  /** The spots its known positions may stand it at now, from every path that reached here. */
+  at: PlacementSpot[];
+  lines: PlacementLine[];
 }
 interface State {
   vars: Map<number, number | null>;
@@ -52,7 +75,12 @@ const number = (ref: Ref | undefined): number | null =>
 function clone(state: State): State {
   return {
     vars: new Map(state.vars),
-    figures: new Map([...state.figures].map(([n, f]) => [n, { ...f }])),
+    figures: new Map(
+      [...state.figures].map(([n, f]) => [
+        n,
+        { ...f, spots: [...f.spots], at: [...f.at], lines: [...f.lines] },
+      ]),
+    ),
     flags: new Map(state.flags),
     opaque: state.opaque,
   };
@@ -98,6 +126,9 @@ function join(into: State, a: State, b: State): void {
     const f = { ...(left ?? right)! };
     f.conditional =
       !left || !right || left.conditional || right.conditional || left.drawn !== right.drawn;
+    f.spots = mergeSpots(left?.spots ?? [], right?.spots ?? []);
+    f.at = mergeSpots(left?.at ?? [], right?.at ?? []);
+    f.lines = mergeLines(left?.lines ?? [], right?.lines ?? []);
     if (left && right) {
       for (const property of ["view", "loop", "cel", "x", "y"] as const)
         if (left[property] !== right[property])
@@ -114,6 +145,32 @@ function join(into: State, a: State, b: State): void {
     into.figures.set(key, f);
   }
 }
+/** The drawn spots of two joined paths, one entry per distinct position line. */
+function mergeSpots(
+  left: readonly PlacementSpot[],
+  right: readonly PlacementSpot[],
+): PlacementSpot[] {
+  const seen = new Set<string>();
+  const spots: PlacementSpot[] = [];
+  for (const spot of [...left, ...right]) {
+    const key = `${spot.x},${spot.y},${spot.offset}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    spots.push(spot);
+  }
+  return spots.slice(0, 16);
+}
+
+/** The placing lines of two joined paths, once each, in source order. */
+function mergeLines(
+  left: readonly PlacementLine[],
+  right: readonly PlacementLine[],
+): PlacementLine[] {
+  const lines = new Map<string, PlacementLine>();
+  for (const line of [...left, ...right]) lines.set(`${line.logic}:${line.offset}`, line);
+  return [...lines.values()].sort((a, b) => a.logic - b.logic || a.offset - b.offset);
+}
+
 /** Unknown paths retain their cause; coordinates with conflicting values stay unknown. */
 export function roomPlacements(input: Input): RoomPlacement[] {
   const parsed = new Map<number, ParsedRoom>();
@@ -238,6 +295,9 @@ export function roomPlacements(input: Input): RoomPlacement[] {
             animated: true,
             drawn: false,
             conditional: uncertain,
+            spots: [],
+            at: [],
+            lines: [],
           };
           current.figures.set(object, f);
         }
@@ -260,6 +320,12 @@ export function roomPlacements(input: Input): RoomPlacement[] {
           f.logic = logic;
           f.command = stmt.name;
           f.offset = stmt.tok.start - room.base;
+          const line = placingLine(room, logic, stmt);
+          f.lines = mergeLines(f.lines, [line]);
+          f.at =
+            f.x === null || f.y === null
+              ? []
+              : [{ x: f.x, y: f.y, logic, command: stmt.name, offset: f.offset }];
           f.reason = current.opaque
             ? "Entry calls computed LOGIC"
             : uncertain || f.conditional
@@ -272,6 +338,8 @@ export function roomPlacements(input: Input): RoomPlacement[] {
         }
         if (stmt.name === "draw") {
           f.drawn = true;
+          f.spots = mergeSpots(f.spots, f.at);
+          if (f.lines.length === 0) f.lines = [placingLine(room, logic, stmt)];
           if (uncertain) {
             f.conditional = true;
             f.reason = "Conditional placement";
@@ -291,7 +359,17 @@ export function roomPlacements(input: Input): RoomPlacement[] {
   if (!parsed.has(input.room)) invalidate();
   return [...state.figures.values()]
     .filter((f) => f.animated && f.drawn)
-    .map(({ animated: _animated, drawn: _drawn, conditional: _conditional, ...f }) => f);
+    .map(({ animated: _animated, drawn: _drawn, conditional: _conditional, at: _at, ...f }) => f);
+}
+
+/** A statement as a placing line: where it is and its text as written. */
+function placingLine(room: ParsedRoom, logic: number, stmt: Stmt): PlacementLine {
+  const start = stmt.tok.start - room.base;
+  const text = room.source
+    .slice(start, stmt.end - room.base)
+    .replace(/;\s*$/, "")
+    .trim();
+  return { logic, offset: start, text };
 }
 
 /** Re-read the source at drop; only a still-provable placement can be changed. */

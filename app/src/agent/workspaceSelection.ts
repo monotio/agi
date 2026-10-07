@@ -54,7 +54,7 @@ export function workspaceSelection(
   scene: Pick<SelectionFocus, "horizon" | "ghost"> = {},
 ) {
   const picture =
-    /Selection: PICTURE (\d+)[^\n]*\nSelected item ids: ([^\n]+)\. Lens: (art|depth|walk)\./.exec(
+    /Selection: PICTURE (\d+)[^\n]*\nSelected item ids: ([^\n]+)\. Lens: (art|depth)\./.exec(
       context,
     );
   const view = /Selection: VIEW (\d+)[^\n]*\nSelected VIEW \d+, loop (\d+), cel (\d+)\./.exec(
@@ -71,10 +71,9 @@ export function workspaceSelection(
     const unlocks = {
       visual: parsed["visual"] === true,
       priority: parsed["priority"] === true,
-      depthInWalk: parsed["depthInWalk"] === true,
     };
     const compiled = compileEditDocument(parsePictureDocument(source).document, profile);
-    const lens = picture[3] as "art" | "depth" | "walk";
+    const lens = picture[3] as "art" | "depth";
     return createSelectionEdit({
       scope: pictureAssistScope({
         num,

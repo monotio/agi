@@ -30,7 +30,7 @@ test.use({ viewport: { width: 1440, height: 900 } });
 const PROJECT = testProjectId("studio-tools");
 /** 12 drawing commands: wall 0–2, floor 3–5, bench 6–7, occluder 8–11; then `end`. */
 const SOURCE = [
-  '# @item wall "Wall" art',
+  '# @item wall "Wall" art locked',
   "vis 7",
   "rect 0,0 159,111",
   "fill 80,40",
@@ -175,11 +175,9 @@ test("a filled rect drawn in the Art lens keeps as those pixels and leaves prior
   const studio = await openStudio(page);
   await page.keyboard.press("r");
   await expect(studio.locator('button[data-tool="rect"]')).toHaveAttribute("aria-pressed", "true");
-  await expect(studio.getByTestId("studio-insert-at")).toHaveText("After step 12");
-  await expect(studio.getByTestId("studio-insert-at")).toHaveAttribute(
-    "title",
-    "New steps go last, after step 12, on top of everything.",
-  );
+  // At the end the context row stays quiet and the transport says where shapes draw.
+  await expect(page.getByTestId("studio-insert-at")).toHaveCount(0);
+  await expect(studio.getByTestId("scrubber-position")).toHaveText("Drawing after Bench occluder");
   await studio.getByTestId("studio-tool-filled").check();
   await pickColour(studio, 4);
   await dragCells(page, [20, 120], [40, 140]);
@@ -219,19 +217,23 @@ test("a filled rect drawn in the Art lens keeps as those pixels and leaves prior
     );
 });
 
-test("a barrier line clicked out in the Walk lens writes priority 0 and not one art byte", async ({
+test("a wall line clicked out in the Priority lens writes priority 0 and not one art byte", async ({
   page,
 }) => {
   const studio = await openStudio(page);
-  await page.keyboard.press("3");
+  await page.keyboard.press("2");
   await page.keyboard.press("l");
+  await studio
+    .getByRole("radiogroup", { name: "Priority", exact: true })
+    .getByRole("radio", { name: /^Wall:/ })
+    .click();
   await expect(studio.getByTestId("studio-value-priority")).toHaveAttribute("data-value", "0");
   await clickCell(page, 20, 150);
   await clickCell(page, 100, 150);
   await page.keyboard.press("Enter");
   await workspaceUpdated(page);
   const row = studio.locator('[data-row="wall-line-1"]');
-  await expect(row).toContainText("Wall line 1");
+  await expect(row).toContainText("Wall line · 2 points");
   await expect(row).toContainText("Wall");
   const before = planes(PIC_5);
   const after = planes(await draftBytes(page));
@@ -241,27 +243,48 @@ test("a barrier line clicked out in the Walk lens writes priority 0 and not one 
   expect(after.priority[at(60, 151)]).toBe(before.priority[at(60, 151)]);
 });
 
-test("the fill tool on a seed that is not white explains the AGI rule and inserts nothing", async ({
+test("the bucket on a painted spot recolours the step that painted it, with Undo", async ({
   page,
 }) => {
   const studio = await openStudio(page);
   await page.keyboard.press("f");
-  await clickCell(page, 80, 40);
-  await expect(studio.getByTestId("bar-notice-summary")).toHaveText(
-    "Fill stops here: this spot is already light grey.",
-  );
+  await pickColour(studio, 4);
+  // 80,140 is the floor's dark grey, flooded by its fill on line 8.
+  await clickCell(page, 80, 140);
+  const notice = page.locator(".workspace-status").getByTestId("studio-notice");
+  await expect(notice).toHaveText("Recoloured Floor to red.");
+  // A painted spot recolours: no "Fill stops here" advice, and no "Draw before" anywhere.
+  await expect(studio.getByTestId("studio-bar-notice")).toHaveCount(0);
+  await workspaceUpdated(page);
+  // The fill step alone recoloured: a `vis 4` inserted right before it.
+  const recoloured = compilePictureSource(
+    SOURCE.replace("fill 80,140", "vis 4\nfill 80,140"),
+  ).bytes;
+  expect(await draftBytes(page)).toEqual(recoloured);
+  const after = planes(await draftBytes(page));
+  const before = planes(PIC_5);
+  // Everywhere that step painted takes the new colour; the wall and bench stay.
+  for (const [x, y] of [
+    [80, 140],
+    [20, 130],
+    [150, 160],
+  ] as const)
+    expect(after.visual[at(x, y)]).toBe(4);
+  expect(after.visual[at(80, 40)]).toBe(7);
+  expect(after.visual[at(60, 92)]).toBe(6);
+  expect(after.priority).toEqual(before.priority);
+  // The notice's Undo takes it back.
+  await page.getByTestId("studio-notice-action").click();
   await workspaceUpdated(page);
   expect(await draftBytes(page)).toEqual(PIC_5);
 });
 
-test("a fill drawn last on painted ground says why, and Draw before moves the drawing where it works", async ({
-  page,
-}) => {
+test("the bucket on a locked item's spot says why and inserts nothing", async ({ page }) => {
   const studio = await openStudio(page);
   const bar = studio.getByTestId("studio-options-bar");
   await page.keyboard.press("f");
   await pickColour(studio, 4);
-  // 40,40 is the wall's grey, flooded by its fill on line 4: a fill drawn last stops there.
+  // 40,40 is the wall's grey, flooded by its fill on line 4; the Wall is locked.
   await clickCell(page, 40, 40);
   await expect(bar.getByTestId("bar-notice-summary")).toHaveText(
     "Fill stops here: this spot is already light grey.",
@@ -275,58 +298,14 @@ test("a fill drawn last on painted ground says why, and Draw before moves the dr
   const why = bar.getByTestId("bar-notice-why");
   await why.click();
   await expect(bar.getByTestId("bar-notice-detail")).toContainText(
-    "An AGI fill only spreads over white. The light grey here was painted earlier by line 4 (Wall), so draw your shape before it in the draw order.",
+    "An AGI fill only spreads over white. The light grey here was painted earlier by line 4 (Wall), and the step that painted it is one the bucket cannot recolour.",
   );
   await page.keyboard.press("Escape");
   await expect(bar.getByTestId("bar-notice-detail")).toHaveCount(0);
   await expect(why).toBeFocused();
   await expect(studio).toBeVisible();
-
-  // The fix: the scrubber moves before the Wall, where the spot is still white, and
-  // Filled goes on, so the shape brings its own inside.
-  await why.click();
-  const fix = bar
-    .getByTestId("bar-notice-detail")
-    .getByRole("button", { name: "Draw before Wall", exact: true });
-  await expect(fix).toBeVisible();
-  await fix.click();
-  await expect(bar.getByTestId("studio-bar-notice")).toHaveCount(0);
-  await expect(page.locator(".workspace-status").getByTestId("studio-notice")).toHaveText(
-    "New shapes now go before Wall. Filled is on: draw a rectangle or polygon there.",
-  );
-  await expect(studio.getByTestId("studio-insert-at")).toHaveText("Before step 1");
-  await page.keyboard.press("r");
-  await expect(studio.getByTestId("studio-tool-filled")).toBeChecked();
-  await dragCells(page, [30, 30], [50, 50]);
   await workspaceUpdated(page);
-  expect(await order(studio)).toEqual(["rect-1", "wall", "floor", "bench", "occluder"]);
-  const after = planes(await draftBytes(page));
-  const before = planes(PIC_5);
-  // Red inside and on the outline; the wall's grey still flows all round it.
-  for (const [x, y] of [
-    [30, 30],
-    [40, 40],
-    [50, 50],
-  ] as const)
-    expect(after.visual[at(x, y)]).toBe(4);
-  for (const [x, y] of [
-    [29, 40],
-    [51, 40],
-    [40, 29],
-    [80, 40],
-  ] as const)
-    expect(after.visual[at(x, y)]).toBe(7);
-  // Outside the new box nothing changed.
-  const changedOutside: string[] = [];
-  for (let y = 0; y < 168; y++)
-    for (let x = 0; x < 160; x++)
-      if (
-        (x < 30 || x > 50 || y < 30 || y > 50) &&
-        after.visual[at(x, y)] !== before.visual[at(x, y)]
-      )
-        changedOutside.push(`${x},${y}`);
-  expect(changedOutside).toEqual([]);
-  expect(after.priority).toEqual(before.priority);
+  expect(await draftBytes(page)).toEqual(PIC_5);
 });
 
 test("an insert at a mid playhead lands at that draw-order position under later commands", async ({
@@ -337,10 +316,12 @@ test("an insert at a mid playhead lands at that draw-order position under later 
   await page.keyboard.press("Home");
   for (let k = 0; k < 6; k++) await page.keyboard.press(".");
   await page.keyboard.press("r");
-  await expect(studio.getByTestId("studio-insert-at")).toHaveText("After step 6");
-  await expect(studio.getByTestId("studio-insert-at")).toHaveAttribute(
+  // The frame's context row says where new shapes draw.
+  const context = page.getByTestId("workspace-context");
+  await expect(context.getByTestId("studio-insert-at")).toHaveText("Drawing before Bench");
+  await expect(context.getByTestId("studio-insert-at")).toHaveAttribute(
     "title",
-    /^New steps go after step 6 of 12/,
+    "Drawing before Bench",
   );
   await studio.getByTestId("studio-tool-filled").check();
   await pickColour(studio, 1);
@@ -353,16 +334,11 @@ test("an insert at a mid playhead lands at that draw-order position under later 
   expect(drawn.visual[at(60, 95)]).toBe(1);
   // The playhead stays after the new item; the way back to the end is one click.
   // vis, pri off and 13 rows: 15 commands after the first 6.
-  await expect(studio.getByTestId("studio-insert-at")).toHaveText("After step 21");
-  await expect(studio.getByTestId("studio-playhead-end")).toHaveAccessibleName(
-    "Draw on top of everything",
-  );
-  await studio.getByTestId("studio-playhead-end").click();
-  await expect(studio.getByTestId("studio-insert-at")).toHaveText("After step 27");
-  await expect(studio.getByTestId("studio-insert-at")).toHaveAttribute(
-    "title",
-    "New steps go last, after step 27, on top of everything.",
-  );
+  await expect(context.getByTestId("studio-insert-at")).toHaveText("Drawing before Bench");
+  await expect(context.getByTestId("studio-playhead-end")).toHaveAccessibleName("Back to the end");
+  await context.getByTestId("studio-playhead-end").click();
+  await expect(context.getByTestId("studio-insert-at")).toHaveCount(0);
+  await expect(studio.getByTestId("scrubber-position")).toHaveText("Drawing after Bench occluder");
 });
 
 test("G stands the ghost actor on the draft; dragged behind the occluder it reads Behind", async ({
@@ -387,7 +363,7 @@ test("G stands the ghost actor on the draft; dragged behind the occluder it read
   await expect(studio.locator('[data-role="ghost-verdict"]')).toContainText(
     "Behind Bench occluder",
   );
-  await expect(studio.locator('[data-role="ghost-band"]')).toContainText("y 97 → depth band 9");
+  await expect(studio.locator('[data-role="ghost-band"]')).toContainText("y 97 → distance band 9");
   // Dragging the ghost edited nothing.
   await workspaceUpdated(page);
   await page.keyboard.press("g");

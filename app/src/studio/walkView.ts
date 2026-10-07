@@ -1,5 +1,5 @@
 /**
- * Room Studio's Walk view as pure data: the room's doors (door boxes and
+ * Room Studio's room tools (Priority lens) as pure data: the room's doors (door boxes and
  * edge exits, from the annotated rules and the compiled exits), their
  * labels and two-sided status in plain words, where an edge click or a
  * door puts a test walk's start, what stopped a walk, and the words for
@@ -25,7 +25,7 @@ import type { Point } from "../../../src/studio/shapes.ts";
 
 export type { EdgeSide };
 
-/** One exit as the Walk view shows it. */
+/** One exit as the room tools show it. */
 export interface WalkDoor {
   /** The rule id for an annotated rule; `native-<n>` for a compiled exit without one. */
   readonly id: string;

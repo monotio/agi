@@ -150,7 +150,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         title: "PICTURE editor",
         body: [
           VOCABULARY.picture.help,
-          "Choose PICTURE in the parts list. Art, Depth and Walk show what the player sees, what stands in front and where characters can go. Press 1, 2 or 3 to switch lenses.",
+          "Choose PICTURE in the parts list. A picture has two layers, as Sierra named them. Visual is what players see. Priority is what stands in front, plus the walls, water, triggers and gates that guide characters. Press 1 or 2 to switch.",
           VOCABULARY.focus.help,
         ],
       },
@@ -159,7 +159,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         title: "Locks",
         body: [
           VOCABULARY.lock.help,
-          "Each lens protects the other parts while you paint. Moving, copying or deleting a whole item carries its Art, Depth and Walk together. Unlock enables editing until you close the editor.",
+          "Each lens protects the other layer while you paint. Moving, copying or deleting a whole item carries its Visual and Priority together. Unlock enables editing until you close the editor.",
         ],
       },
       {
@@ -178,7 +178,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         body: [
           VOCABULARY.drawOrder.help,
           VOCABULARY.step.help,
-          "Drag the slider under the canvas to preview each step. New steps go at the marker. Select unassigned steps and Group them into a named item.",
+          "The transport under the canvas steps through the picture shape by shape. Insert here on an item makes new shapes draw before it, and Back to the end puts them last again. Select loose steps and Group them into a named item.",
         ],
       },
       {
@@ -194,7 +194,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         id: "studio-tools",
         title: "Drawing tools",
         body: [
-          "Line, Rectangle and Polygon draw with your Art colour and Depth value. Fill colours an enclosed area. Pipette picks colour and Depth. Hand pans the canvas.",
+          "Line, Rectangle and Polygon draw with your Visual colour and Priority value. Fill colours an enclosed area. Pipette picks Visual and Priority. Hand pans the canvas.",
           VOCABULARY.brush.help,
         ],
       },
@@ -202,7 +202,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         id: "studio-fill",
         title: "Fill",
         body: [
-          "An AGI fill spreads only over white. On coloured ground the options bar says the fill stops there; Why? names what painted the spot, and Draw before moves your drawing ahead of that background fill, where a filled shape lands on white.",
+          "On white, the bucket fills the area. On a colour, it recolours the shape that painted that spot, everywhere that shape painted, and the status bar offers Undo.",
         ],
       },
       {
@@ -222,7 +222,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
           ...[VOCABULARY.wall, VOCABULARY.gate, VOCABULARY.trigger, VOCABULARY.water].map(
             (term) => `${term.label}: ${term.help} ${term.technical}`,
           ),
-          "Test walk plays movement between two points.",
+          "Draw them in the Priority lens. Test walk plays movement between two points.",
         ],
       },
       {

@@ -146,7 +146,7 @@ async function repeat(page: Page, key: string, times: number): Promise<void> {
   for (let k = 0; k < times; k++) await page.keyboard.press(key);
 }
 
-test("keyboard only: an Art rectangle and a Walk wall line autosave @webkit-desktop", async ({
+test("keyboard only: an Art rectangle and a Priority wall line autosave @webkit-desktop", async ({
   page,
 }) => {
   await bootGame(page);
@@ -194,11 +194,20 @@ test("keyboard only: an Art rectangle and a Walk wall line autosave @webkit-desk
   await workspaceUpdated(page, true);
   await expect(studio.locator('[data-row="rect-1"]')).toHaveAttribute("aria-selected", "true");
 
-  // Walk lens, the line tool: a barrier from 20,150 to 100,150.
+  // Priority lens, the line tool and the Wall pen: a wall from 20,150 to 100,150.
   await canvas.focus();
-  await page.keyboard.press("3");
+  await page.keyboard.press("2");
   await page.keyboard.press("l");
+  const palette = studio.getByRole("radiogroup", { name: "Priority", exact: true });
+  await palette
+    .getByRole("radio", { name: /^Depth/ })
+    .first()
+    .focus();
+  // Arrow keys walk the palette: left from band 4 lands on Water, then Trigger, Gate and Wall.
+  await repeat(page, "ArrowLeft", 4);
+  await expect(palette.getByRole("radio", { name: /^Wall:/ })).toBeFocused();
   await expect(studio.getByTestId("studio-value-priority")).toHaveAttribute("data-value", "0");
+  await canvas.focus();
   await expect(canvas).toBeFocused();
   // From 40,140 to 20,150, then 80 to the right: Enter there adds the
   // second point, Enter again on it finishes.
@@ -212,7 +221,7 @@ test("keyboard only: an Art rectangle and a Walk wall line autosave @webkit-desk
   await expect(page.getByTestId("studio-hint")).toContainText("Backspace");
   await page.keyboard.press("Enter");
   await workspaceUpdated(page, true);
-  await expect(studio.locator('[data-row="wall-line-1"]')).toContainText("Wall line 1");
+  await expect(studio.locator('[data-row="wall-line-1"]')).toContainText("Wall line · 2 points");
 
   await workspaceUpdated(page, true);
   const kept = planes(await storedPicture(page));

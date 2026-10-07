@@ -4,7 +4,7 @@
  * Widgets keep the keys they use (the Scene list, the lens switch, the
  * scrubber, text fields); the rest are studio shortcuts:
  *
- * - 1/2/3 lens; `,` `.` Home End scrub; + - 0 zoom; Esc lets go of one
+ * - 1/2 lens; `,` `.` Home End scrub; + - 0 zoom; Esc lets go of one
  *   thing per press (a menu, what a tool is drawing, a selected door, a tool
  *   other than Select, the selection's bar, a drag, then a test walk left on
  *   the picture) and with nothing in hand
@@ -20,7 +20,7 @@
  *   in draw order; Cmd/Ctrl+Z undo, Shift+Cmd/Ctrl+Z (or Ctrl+Y) redo;
  *   Insert adds a point to the selected line where the cursor is nearest it
  * - the tool rail's letters (studioTools.ts TOOL_SHORTCUTS: V A L R P F B I, the
- *   Walk view's T D E, which open it first, and G H); Enter finishes a line
+ *   room tools' T D E, which open the Priority lens first, and G H); Enter finishes a line
  *   or polygon, Backspace drops its last point
  * - `?` opens the key sheet (StudioKeySheet.vue); Tab and Shift+Tab only
  *   ever move focus
@@ -28,7 +28,7 @@
 
 import type { StudioLens } from "./studioView.ts";
 
-const LENS_KEYS: Record<string, StudioLens> = { "1": "art", "2": "depth", "3": "walk" };
+const LENS_KEYS: Record<string, StudioLens> = { "1": "art", "2": "depth" };
 
 const ARROWS: Record<string, readonly [number, number]> = {
   ArrowUp: [0, -1],

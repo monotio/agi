@@ -157,7 +157,8 @@ export function editedItems(document: PictureDocument, edit: DraftEdit): string[
     return [...new Set(edit.flatMap((op: EditOperation) => editedItems(document, op)))];
   const op = edit as EditOperation;
   switch (op.type) {
-    case "setPoint": {
+    case "setPoint":
+    case "setStepColor": {
       const item = pictureItemAtLine(document, op.line);
       return item ? [item.id] : [];
     }

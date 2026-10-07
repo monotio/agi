@@ -39,6 +39,7 @@ import {
 import { createPictureSurface, SCREEN_HEIGHT, SCREEN_WIDTH } from "../../../src/types.ts";
 import {
   CONTROL_VALUES,
+  plainItemName,
   priorityMeaning,
   spanIndexAt,
   tickFor,
@@ -61,13 +62,15 @@ const SECTION = "(section)";
 export interface SceneRow {
   id: string;
   label: string;
+  /** The label as the calm UI reads it: a generated label becomes "Red line · 6 points". */
+  display: string;
   kind: PictureItemKind | "loose";
   locked: boolean;
   /** Timeline indices of the row's byte-emitting commands, ascending. */
   entries: number[];
   /**
    * EGA colour of the value most of its own pixels hold (visual for art,
-   * priority for depth and walk; a control value in its Walk lens colour),
+   * priority for depth and walk; a control value in its own colour),
    * or null when it owns none.
    */
   swatch: number | null;
@@ -151,7 +154,7 @@ function tagFor(kind: SceneRow["kind"], entries: readonly TimelineEntry[]): stri
   return value < 4 ? CONTROL_VALUES[value]!.name : `Depth ${value}`;
 }
 
-/** "Brown art · 12", "Depth band 9 · 4", "Wall walk · 3"; "Covered" when no pixel is left. */
+/** "Brown visual · 12", "Depth band 9 · 4", "Wall walk · 3"; "Covered" when no pixel is left. */
 export function groupLabel(kind: SceneRow["kind"], value: number | null, count: number): string {
   const name =
     value === null
@@ -160,7 +163,8 @@ export function groupLabel(kind: SceneRow["kind"], value: number | null, count: 
         ? priorityMeaning(value)
         : EGA_COLOUR_NAMES[value]!;
   const label = `${name[0]!.toUpperCase()}${name.slice(1)}`;
-  return `${label}${kind === "depth" && value !== null ? "" : ` ${kind}`} · ${count}`;
+  const noun = kind === "art" ? "visual" : kind;
+  return `${label}${kind === "depth" && value !== null ? "" : ` ${noun}`} · ${count}`;
 }
 
 /** Fold consecutive items into automatic groups; one-item groups stay plain rows. */
@@ -170,10 +174,12 @@ function branchesOf(items: readonly SceneRow[]): SceneBranch[] {
     const first = rows[0]!;
     if (count === 1) return { group: null, rows: [first] };
     const tags = new Set(rows.map((row) => row.tag));
+    const label = groupLabel(kind, value, count);
     return {
       group: {
         id: `${GROUP}${first.id}`,
-        label: groupLabel(kind, value, count),
+        label,
+        display: label,
         kind,
         locked: rows.every((row) => row.locked),
         entries: rows.flatMap((row) => row.entries),
@@ -200,6 +206,7 @@ function sectionsOf(branches: readonly SceneBranch[]): SceneSectionRow[] {
     return {
       id: `${SECTION}${rows[0]!.id}`,
       label: `Steps${steps}`,
+      display: `Steps${steps}`,
       kind: "mixed",
       locked: rows.every((row) => row.locked),
       entries,
@@ -258,6 +265,7 @@ export function buildStudioModel(input: StudioSource | ResolvedStudioSource): St
   const rows: SceneRow[] = document.items.map((item) => ({
     id: item.id,
     label: item.label,
+    display: item.label,
     kind: item.kind,
     locked: item.locked,
     entries: [],
@@ -269,6 +277,7 @@ export function buildStudioModel(input: StudioSource | ResolvedStudioSource): St
   const loose: SceneRow = {
     id: UNASSIGNED,
     label: "Unassigned",
+    display: "Loose steps",
     kind: "loose",
     locked: false,
     entries: [],
@@ -300,7 +309,7 @@ export function buildStudioModel(input: StudioSource | ResolvedStudioSource): St
     const primary = row.kind === "depth" || row.kind === "walk" ? 1 : 0;
     const own = dominant(counts[primary]![r]!);
     row.value = own;
-    // A control value shows in its Walk lens colour, as on the canvas.
+    // A control value shows in its own colour, as on the canvas.
     row.swatch =
       own === null
         ? dominant(counts[1 - primary]![r]!)
@@ -310,17 +319,23 @@ export function buildStudioModel(input: StudioSource | ResolvedStudioSource): St
     const drawing = row.entries
       .map((k) => timeline[k]!)
       .filter((entry) => tickFor(entry).kind !== "state");
-    row.lenses = (["art", "depth", "walk"] as const).filter((lens) =>
-      drawing.some((entry) =>
-        lens === "art"
-          ? entry.visual !== null
-          : entry.priority !== null && (lens === "walk" ? entry.priority < 4 : entry.priority >= 4),
-      ),
+    row.lenses = (["art", "depth"] as const).filter((lens) =>
+      drawing.some((entry) => (lens === "art" ? entry.visual !== null : entry.priority !== null)),
     );
     row.tag = tagFor(
       row.kind,
       row.entries.map((k) => timeline[k]!),
     );
+    if (row.id !== UNASSIGNED) {
+      const item = document.items.find((candidate) => candidate.id === row.id)!;
+      row.display =
+        plainItemName({
+          label: item.label,
+          kind: item.kind,
+          entries: row.entries.map((k) => timeline[k]!),
+          lines: document.lines,
+        }) ?? item.label;
+    }
   });
   const branches = branchesOf(rows.filter((row) => row.id !== UNASSIGNED));
   const groups = branches.flatMap((branch) => (branch.group ? [branch.group] : []));
@@ -363,8 +378,8 @@ export function filterScene(
     for (const id of group.members) groupLabels.set(id, group.label);
   const matching = (row: SceneRow): boolean =>
     needle === "" ||
-    [row.label, row.id, row.tag, row.kind, groupLabels.get(row.id) ?? ""].some((text) =>
-      text.toLowerCase().includes(needle),
+    [row.label, row.display, row.id, row.tag, row.kind, groupLabels.get(row.id) ?? ""].some(
+      (text) => text.toLowerCase().includes(needle),
     );
   const items = model.rows.filter((row) => row.id !== UNASSIGNED);
   const matches = needle === "" ? null : items.filter(matching);

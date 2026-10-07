@@ -379,7 +379,7 @@ flowchart LR
 2. A gesture on `StudioCanvas.vue` reaches `useStudioInput.ts` and then `useStudioDrag.ts`, `useStudioEditing.ts` or `useStudioTools.ts`.
 3. `useStudioDraft.ts` applies it as an edit operation (`src/studio/editOperations.ts`), which rewrites the source; several selected items take a batch (`applyEdits`), checked and undone as one edit.
 4. `compileEditDocument` (`src/studio/editValidation.ts`) compiles the source to bytes and decoded planes.
-5. `checkStudioEdit` (`studioLocks.ts`) checks the decoded pixels against the lens's locks (`validateEdit` in `editValidation.ts`, and the Walk lens depth rule in `lensRules.ts`). What an accepted edit changes in other items' output, such as a fill that pours differently around a moved outline, is reported as a side effect (`src/studio/sideEffects.ts`), not refused; AI proposals report theirs the same way.
+5. `checkStudioEdit` (`studioLocks.ts`) checks the decoded pixels against the lens's locks (`validateEdit` in `editValidation.ts`, with the lens locks from `lensRules.ts`). What an accepted edit changes in other items' output, such as a fill that pours differently around a moved outline, is reported as a side effect (`src/studio/sideEffects.ts`), not refused; AI proposals report theirs the same way.
 6. A completed gesture emits its edited document to `studio/workspace/CreateWorkspace.vue`. `project/projectSession.ts` validates the complete candidate, admits it to MAIN at a safe boundary, records History and saves it conditionally. The embedded editor previews a gesture locally until it completes.
 
 **An image becomes project art**

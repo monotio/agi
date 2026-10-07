@@ -135,6 +135,9 @@
 .workspace-context__note {
   color: var(--ink-2);
 }
+.workspace-context__editor {
+  display: contents;
+}
 .workspace-stage-note {
   display: flex;
   align-items: center;

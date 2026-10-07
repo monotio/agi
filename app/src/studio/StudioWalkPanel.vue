@@ -23,8 +23,8 @@ import {
 } from "./walkView.ts";
 
 /**
- * The Walk view's side panel: the walkable estimate and the walk lines'
- * legend, the test walk
+ * The Priority lens's room panel: the walkable estimate and the control
+ * lines' legend, the test walk
  * (what to click next, "Walking…", and the result card with Test again and
  * Play here), and the room's doors: a list, and for the selected door where
  * it leads, its condition, the art it follows, its box, and its two-sided
@@ -150,7 +150,7 @@ const roomChoices = computed(() => {
 <template>
   <div class="walk-panel" data-testid="walk-panel">
     <section class="walk-panel__sec">
-      <h3>Walk</h3>
+      <h3>Where characters walk</h3>
       <label class="walk-panel__check">
         <input v-model="tint" type="checkbox" />
         <i class="walk-panel__swatch" aria-hidden="true"></i>
@@ -161,7 +161,7 @@ const roomChoices = computed(() => {
         class="walk-panel__legend"
         data-role="control-legend"
         role="list"
-        aria-label="Walk lines"
+        aria-label="Walls, water, triggers, gates"
       >
         <span
           v-for="control in CONTROL_VALUES"
@@ -493,7 +493,7 @@ const roomChoices = computed(() => {
   color: var(--ink-3);
   font-size: var(--text-2xs);
 }
-/* The walk lines' legend: one row of the four control values. */
+/* The control lines' legend: one row of the four control values. */
 .walk-panel__legend {
   display: flex;
   flex-wrap: wrap;

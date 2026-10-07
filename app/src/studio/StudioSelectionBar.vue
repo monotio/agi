@@ -25,7 +25,6 @@ const {
   several = false,
   priority,
   priorityLocked,
-  depthValuesLocked,
   edit,
   grouped = false,
   fold = 0,
@@ -38,7 +37,6 @@ const {
   priority: number | null | undefined;
   /** Why depth is locked now, or null. */
   priorityLocked: string | null;
-  depthValuesLocked: boolean;
   edit: StudioEditing;
   /** The one selected item is a group: it can be ungrouped. */
   grouped?: boolean;
@@ -138,20 +136,19 @@ function pick(value: number | null): void {
         :aria-expanded="open"
         :aria-controls="pickerId"
         :title="
-          priorityLocked ?? `Set the depth ${several ? 'these items draw' : 'this item draws'}`
+          priorityLocked ?? `Set the priority ${several ? 'these items draw' : 'this item draws'}`
         "
         data-testid="selection-priority"
         @click="open = !open"
       >
-        Depth {{ priority === undefined ? "mixed" : priority === null ? "off" : priority }}
+        Priority {{ priority === undefined ? "mixed" : priority === null ? "off" : priority }}
       </UiButton>
       <div v-if="open" :id="pickerId" class="selection-bar__picker" data-testid="selection-picker">
         <StudioValuePicker
           plane="priority"
-          label="Depth value"
+          label="Priority value"
           :value="priority"
           :disabled="priorityLocked !== null"
-          :allowed="(v) => !depthValuesLocked || v < 4"
           @pick="pick"
         />
         <p v-if="priorityLocked" class="selection-bar__note">{{ priorityLocked }}</p>
