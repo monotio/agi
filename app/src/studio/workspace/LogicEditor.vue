@@ -1,7 +1,16 @@
 <script setup lang="ts">
 import { documentLabel } from "../../../../src/logic/numberedLabels.ts";
 import { layoutDragging } from "../../play/layoutDrag.ts";
-import { onMounted, nextTick, onBeforeUnmount, useTemplateRef, watch, ref, computed } from "vue";
+import {
+  onMounted,
+  nextTick,
+  onBeforeUnmount,
+  onWatcherCleanup,
+  useTemplateRef,
+  watch,
+  ref,
+  computed,
+} from "vue";
 import type { BindingInfo } from "../../../../src/logic/projectNames.ts";
 import UiIconButton from "../../ui/UiIconButton.vue";
 import BindingDetails from "../../shell/BindingDetails.vue";
@@ -27,6 +36,11 @@ import {
   registerLogicModel,
   registerLogicContextMenu,
 } from "../logic/monacoLanguage.ts";
+import { useOptionalCommands } from "../../shell/commands/commandContext.ts";
+import { useLogicFormatSettings } from "../../settings/logicFormat.ts";
+import { formatLogic } from "../../../../src/logic/format.ts";
+import { expandProjectLogic } from "../../../../src/authoring/projectLogic.ts";
+import { systemBindings } from "../../../../src/logic/systemNames.ts";
 import { logicKeySheet } from "../studioHelp.ts";
 const props = defineProps<{
   readOnly?: boolean;
@@ -109,6 +123,53 @@ const root = useTemplateRef("root");
 const client = new LogicAnalysisClient();
 const engine = useEngineApi();
 const workspace = useWorkspaceEditor();
+const { formatOnLeaving } = useLogicFormatSettings();
+const commands = useOptionalCommands();
+watch(
+  () => props.active,
+  (active) => {
+    if (!active || !commands) return;
+    onWatcherCleanup(
+      commands.register({
+        id: `logic.format.${props.documentKey}`,
+        title: "Format document",
+        keys: [{ key: "Shift+Alt+F", textInput: true }],
+        when: (context) =>
+          props.active && !props.readOnly && !showRunning.value && !context.dialogOpen,
+        run: () => editor?.getAction("editor.action.formatDocument")?.run(),
+      }),
+    );
+  },
+  { immediate: true },
+);
+let formatting = false;
+function beginFormatting(): void {
+  emit("typingEnd");
+  formatting = true;
+}
+/** Synchronous at the leaving boundary so a closing tab emits its draft before disposal. */
+function formatOnLeave(): void {
+  if (!formatOnLeaving.value || props.readOnly || showRunning.value || !model || !editor) return;
+  const source = model.getValue();
+  const bindings = contextCache?.bindings ?? {};
+  const edits = formatLogic(source, {
+    prelude: expandProjectLogic(source, bindings, true).prelude,
+    builtins: systemBindings(bindings),
+  });
+  if (!edits.length) return;
+  beginFormatting();
+  editor.pushUndoStop();
+  editor.executeEdits(
+    "agi.formatOnLeave",
+    edits.map((edit) => ({ range: model!.getFullModelRange(), text: edit.newText })),
+  );
+  editor.pushUndoStop();
+}
+function leaveEditor(event: FocusEvent): void {
+  if (event.relatedTarget instanceof Node && root.value?.contains(event.relatedTarget)) return;
+  formatOnLeave();
+  emit("typingEnd");
+}
 let editor: monaco.editor.IStandaloneCodeEditor | undefined;
 let model: monaco.editor.ITextModel | undefined;
 let language: ReturnType<typeof registerLogicModel> | undefined;
@@ -324,6 +385,7 @@ onMounted(() => {
     client,
     documentKey: props.documentKey,
     applyProjectEdit,
+    onFormat: beginFormatting,
     onBinding,
     onResource: (key) => workspace.open(key),
   });
@@ -335,7 +397,9 @@ onMounted(() => {
     "semanticHighlighting.enabled": true,
     automaticLayout: false,
     editContext: false,
-    autoIndent: "none",
+    autoIndent: "full",
+    insertSpaces: true,
+    detectIndentation: false,
     minimap: { enabled: false },
     hover: { above: false },
     fontSize: 13,
@@ -394,6 +458,10 @@ onMounted(() => {
   model.onDidChangeContent(() => {
     if (!syncing && model) {
       emit("edit", model.getValue());
+      if (formatting) {
+        formatting = false;
+        emit("typingEnd");
+      }
       client.changeDocument(props.documentKey, model.getVersionId(), model.getValue());
       decorate();
     }
@@ -461,9 +529,15 @@ watch(
   () => props.active,
   (active) => {
     if (active) layout();
+    else {
+      formatOnLeave();
+      emit("typingEnd");
+    }
   },
 );
 onBeforeUnmount(() => {
+  formatOnLeave();
+  emit("typingEnd");
   cancelAnimationFrame(layoutFrame);
   observer?.disconnect();
   // Model-change listeners cancel their work before markers and providers retire.
@@ -530,7 +604,7 @@ defineExpose({
       ref="root"
       class="workspace-monaco"
       data-testid="workspace-logic-editor"
-      @focusout.capture="emit('typingEnd')"
+      @focusout.capture="leaveEditor"
     ></div>
   </div>
 </template>

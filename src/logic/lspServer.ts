@@ -1,6 +1,7 @@
 /** One document store and LSP implementation for stdio and Studio workers. */
 import { createProjectLogicLanguageSnapshot } from "../authoring/projectLanguage.ts";
-import { compileProjectLogic } from "../authoring/projectLogic.ts";
+import { formatLogic } from "./format.ts";
+import { expandProjectLogic, compileProjectLogic } from "../authoring/projectLogic.ts";
 import { PROFILES } from "../runtime/profile.ts";
 import type { ProfileId } from "../runtime/profile.ts";
 import { analyzeLogicSyntax, scanLogicTokens } from "./syntax.ts";
@@ -640,6 +641,7 @@ export function createLogicLspServer(
           definitionProvider: true,
           referencesProvider: true,
           renameProvider: { prepareProvider: true },
+          documentFormattingProvider: true,
           documentSymbolProvider: true,
           workspaceSymbolProvider: true,
           semanticTokensProvider: { legend: SEMANTIC_LEGEND, full: true, range: true },
@@ -677,6 +679,7 @@ export function createLogicLspServer(
         "textDocument/references",
         "textDocument/prepareRename",
         "textDocument/rename",
+        "textDocument/formatting",
         "textDocument/documentSymbol",
         "textDocument/documentHighlight",
         "textDocument/foldingRange",
@@ -694,6 +697,11 @@ export function createLogicLspServer(
     if (!doc) return null;
     // Structure and colour use the recoverable lexer independently of checking.
     switch (method) {
+      case "textDocument/formatting":
+        return formatLogic(doc.source, {
+          prelude: expandProjectLogic(doc.source, project.bindings, true).prelude,
+          builtins: systemBindings(project.bindings),
+        });
       case "textDocument/semanticTokens/full":
         return createLogicLanguageStructure(doc.source).semanticTokens();
       case "textDocument/semanticTokens/range":

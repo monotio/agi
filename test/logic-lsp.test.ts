@@ -447,7 +447,7 @@ test("initialize advertises only the implemented capabilities over the npm entry
         : false,
       true,
     );
-    assert.equal(capabilities.documentFormattingProvider, undefined);
+    assert.equal(capabilities.documentFormattingProvider, true);
     assert.equal(capabilities.workspace, undefined);
   } finally {
     await shutdown(server);
@@ -1568,4 +1568,40 @@ test("line coordinates share an index across distant tokens and preserve UTF-16"
     end: { line: 3, character: 7 },
   });
   assert.equal(coordinates.offsetAt({ line: 2, character: 3 }), 16);
+});
+
+test("stdio formatting returns one edit, preserves invalid source and never changes the document", async () => {
+  const server = start();
+  try {
+    await initialize(server);
+    const uri = "file:///format.lgc";
+    await open(server, uri, "if(f1){v2=3;return;}", 1);
+    const edits = await server.connection.sendRequest<{ range: Range; newText: string }[]>(
+      "textDocument/formatting",
+      { textDocument: { uri }, options: { tabSize: 2, insertSpaces: true } },
+    );
+    assert.deepEqual(edits, [
+      {
+        range: { start: { line: 0, character: 0 }, end: { line: 0, character: 20 } },
+        newText: "if (f1) {\n  v2 = 3;\n  return;\n}\n",
+      },
+    ]);
+    assert.deepEqual(
+      await server.connection.sendRequest("textDocument/formatting", {
+        textDocument: { uri },
+        options: { tabSize: 2, insertSpaces: true },
+      }),
+      edits,
+    );
+    await change(server, uri, "if(f1){return;", 2);
+    assert.deepEqual(
+      await server.connection.sendRequest("textDocument/formatting", {
+        textDocument: { uri },
+        options: { tabSize: 2, insertSpaces: true },
+      }),
+      [],
+    );
+  } finally {
+    await shutdown(server);
+  }
 });

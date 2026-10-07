@@ -11,6 +11,7 @@
  */
 import { nextTick, onBeforeUnmount, ref, useId, useTemplateRef } from "vue";
 import GameDownloadDialog from "../home/GameDownloadDialog.vue";
+import { useLogicFormatSettings } from "../settings/logicFormat.ts";
 import { useAmigaRegion } from "../settings/amigaRegion.ts";
 import { CRT_STEPS } from "../settings/crtPreference.ts";
 import UiIcon from "../ui/UiIcon.vue";
@@ -46,6 +47,7 @@ const emit = defineEmits<{
 const { state, resumeAudio, toggleMute, setAudioMode, currentGame } = useEngineApi();
 const { aiModelLabel, aiSettingsUnavailable, openAiSettings } = useAiSettings();
 const bridge = useShellBridge();
+const { formatOnLeaving, setFormatOnLeaving } = useLogicFormatSettings();
 
 const sheet = useTemplateRef("sheet");
 const crtId = useId();
@@ -242,6 +244,17 @@ defineExpose({ toggle, close, open });
           @update:model-value="emit('update:touchControls', $event)"
         >
           On-screen controls<small>Directions, keyboard and game keys</small>
+        </UiSwitch>
+      </section>
+
+      <section class="settings-sheet__group" aria-labelledby="settings-editor">
+        <h3 id="settings-editor">LOGIC editor</h3>
+        <UiSwitch
+          class="settings-row"
+          :model-value="formatOnLeaving"
+          @update:model-value="setFormatOnLeaving"
+        >
+          Format on leaving<small>Indent code when leaving the LOGIC editor</small>
         </UiSwitch>
       </section>
 

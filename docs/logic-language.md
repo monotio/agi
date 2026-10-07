@@ -28,6 +28,8 @@ Commands take comma-separated operands in parentheses and end with `;`.
 The assembler adds a final `return;` automatically; an explicit `return;` ends the current LOGIC call early. `if (condition) { ... }` can have an
 `else { ... }` block. Labels end with `:` and `goto label;` jumps to them;
 labels share one namespace across the document, including nested blocks.
+Format document (Shift+Alt+F) applies two-space indentation and spacing; Settings offers opt-in Format on leaving the editor.
+
 `//` comments run to the end of a line. Identifiers and command names are
 case-sensitive; use the spellings in the tables below. Numbers are decimal.
 
