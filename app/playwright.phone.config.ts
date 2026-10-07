@@ -38,6 +38,7 @@ export default defineConfig({
     "amiga-region.spec.ts",
     "reference-art.spec.ts",
     "reported-spend.spec.ts",
+    "room-generation.spec.ts",
     "synthetic-walkthrough.spec.ts",
     "dialog-fit.spec.ts",
     "disk-import.spec.ts",

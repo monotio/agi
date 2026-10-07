@@ -1,4 +1,4 @@
-/** Completed provider usage priced with a known rate, separate from budget reservations. */
+/** Provider-reported usage priced with a known rate. */
 export interface ReportedSpend {
   amount: number;
   priceKnown: boolean;

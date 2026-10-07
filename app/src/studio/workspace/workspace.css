@@ -438,7 +438,8 @@
     overflow: auto;
   }
   .in-game .shell-body--workspace:not(.shell-body--no-editor),
-  .in-game .shell-body--workspace.shell-body--stacked:not(.shell-body--focus) {
+  .in-game
+    .shell-body--workspace.shell-body--stacked:not(.shell-body--no-editor):not(.shell-body--focus) {
     grid-template-rows: auto minmax(0, 1fr) auto;
   }
   .in-game .shell-body--workspace > .workspace-phone-toggle {

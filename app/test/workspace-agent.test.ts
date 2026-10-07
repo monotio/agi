@@ -1081,7 +1081,7 @@ for (const provider of ["openai", "anthropic"] as const) {
     const { session } = fixture();
     const model = provider === "openai" ? "gpt-6-sol" : "claude-opus-5-5";
     let spent = 0;
-    const usage = t.mock.method(AgentRun.prototype, "recordUsage");
+    const usage = t.mock.method(AgentRun.prototype, "recordStreamUsage");
     t.mock.method(
       globalThis,
       "fetch",
@@ -1122,7 +1122,7 @@ for (const provider of ["openai", "anthropic"] as const) {
     });
     await agent.send("Describe the project");
     const rate = MODEL_CAPABILITIES[model]!.price!;
-    assert.equal(usage.mock.callCount(), 1);
+    assert.equal(usage.mock.callCount(), provider === "anthropic" ? 2 : 1);
     assert.equal(spent, (1000 * rate.input + 100 * rate.output) / 1e6);
     session.dispose();
   });
@@ -1704,7 +1704,7 @@ test("completed spend stays with its chat when another chat is opened", async ()
 });
 
 test("background work retains image spend and a new person request starts a fresh allowance", async () => {
-  const { beginProviderTask, reserveImageBudget } = await import("../src/agent/providerBudget.ts");
+  const { beginProviderTask, trackImageSpend } = await import("../src/agent/providerBudget.ts");
   const { session } = fixture();
   const agent = createWorkspaceAgent({
     session,
@@ -1712,11 +1712,11 @@ test("background work retains image spend and a new person request starts a fres
     config: () => ({ provider: "stub", model: "stub", apiKey: "", budgetUsd: 1 }),
   });
   beginProviderTask(1);
-  reserveImageBudget(0.8)(0.8);
+  trackImageSpend()(0.8);
   await agent.background("Next room", "Tell me about this room");
   agent.resume(agent.chats().find((chat) => chat.background)!.id);
   assert.equal(agent.task?.spent, 0.8);
-  const settlePreviousImage = reserveImageBudget(0.1);
+  const settlePreviousImage = trackImageSpend();
   await agent.send("Tell me about this room");
   assert.equal(agent.task?.spent, 0);
   settlePreviousImage(0.1);

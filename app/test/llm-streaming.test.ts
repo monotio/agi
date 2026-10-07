@@ -118,7 +118,11 @@ for (const provider of ["openai", "anthropic"] as const) {
       assert.equal(requests, 1);
       assert.equal(run.snapshot().progress, null);
       assert.equal(run.snapshot().usageIncomplete, true);
-      assert.equal(run.snapshot().reportedSpent, 0, "unfinished usage is excluded from spent");
+      assert.equal(
+        run.snapshot().reportedSpent,
+        provider === "anthropic" ? 0.00005 : 0,
+        "reported partial usage counts as spent",
+      );
       assert.doesNotMatch(JSON.stringify(conversation.getTranscript()), /Discard this draft/);
       run.resume();
       await work;
@@ -497,5 +501,114 @@ for (const provider of ["openai", "anthropic"] as const) {
       },
     );
     assert.equal(requests, 1);
+  });
+}
+
+for (const provider of ["openai", "anthropic"] as const) {
+  test(`${provider} reports cumulative stream usage live and pauses after completion`, async (t) => {
+    let controller!: ReadableStreamDefaultController<Uint8Array>;
+    let ready!: () => void;
+    const opened = new Promise<void>((resolve) => {
+      ready = resolve;
+    });
+    t.mock.method(
+      globalThis,
+      "fetch",
+      async () =>
+        new Response(
+          new ReadableStream<Uint8Array>({
+            start(stream) {
+              controller = stream;
+              ready();
+            },
+          }),
+          { headers: { "content-type": "text/event-stream" } },
+        ),
+    );
+    const config = { provider, model: "gpt-6-sol", apiKey: "test-placeholder" };
+    const run = new AgentRun(config.model, () => {}, 1);
+    const conversation =
+      provider === "openai"
+        ? createOpenAiConversation(config, undefined, undefined, run)
+        : createAnthropicConversation(config, undefined, run);
+    const work = run.run(() => conversation.sendUserMessage("Build the hall."));
+    void work.catch(() => {});
+    await opened;
+    const emit = (event: Record<string, unknown>) =>
+      controller.enqueue(new TextEncoder().encode(sseEvent(event)));
+    try {
+      emit(
+        provider === "openai"
+          ? {
+              type: "response.in_progress",
+              response: {
+                id: "usage",
+                output: [],
+                usage: { input_tokens: 0, output_tokens: 47_000 },
+              },
+            }
+          : {
+              type: "message_start",
+              message: {
+                id: "usage",
+                role: "assistant",
+                content: [],
+                usage: { input_tokens: 0, output_tokens: 47_000 },
+              },
+            },
+      );
+      await waitUntil(() => run.snapshot().spent === 0.47, "stream usage did not update live");
+      emit(
+        provider === "openai"
+          ? {
+              type: "response.in_progress",
+              response: {
+                id: "usage",
+                output: [],
+                usage: { input_tokens: 0, output_tokens: 112_000 },
+              },
+            }
+          : {
+              type: "message_delta",
+              delta: { stop_reason: null },
+              usage: { output_tokens: 112_000 },
+            },
+      );
+      await waitUntil(() => run.snapshot().spent === 1.12, "stream usage did not cross the budget");
+      assert.equal(run.snapshot().status, "running");
+      controller.enqueue(
+        new TextEncoder().encode(
+          provider === "openai"
+            ? providerSse(provider, {
+                id: "usage",
+                output: [],
+                usage: { input_tokens: 0, output_tokens: 112_000 },
+              })
+            : sseEvent({
+                type: "message_delta",
+                delta: { stop_reason: "end_turn" },
+                usage: { output_tokens: 112_000 },
+              }) + sseEvent({ type: "message_stop" }),
+        ),
+      );
+      controller.close();
+      await waitUntil(
+        () => run.snapshot().status === "paused",
+        "the completed request did not pause",
+      );
+      assert.equal(run.snapshot().spent, 1.12);
+      run.resume();
+      await work;
+      assert.equal(run.snapshot().budget, 2);
+      assert.equal(conversation.getUsage?.().output, 112_000);
+    } finally {
+      run.cancel();
+      try {
+        controller.close();
+      } catch {
+        /* The completed stream is already closed. */
+      }
+      await work.catch(() => {});
+    }
   });
 }

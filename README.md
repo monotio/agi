@@ -173,9 +173,11 @@ it, and ask for revisions when something is off.
 from the browser. Your key is saved in browser storage and sent only to the
 provider you choose, along with the game content each request needs. Requests
 are billed to your account; each task starts with a $5 budget that
-you can change. The agent pauses between requests when the remaining allowance
-is too small for another productive turn; one response may cross that allowance.
-Models with unverified prices ask for an allowance in requests. Long conversations compact their request context while keeping the
+you can change. The app counts actual spending as your provider reports usage.
+A request finishes before the agent pauses when spending reaches the budget.
+Continue adds another task budget; Stop keeps your work in this tab.
+For models with unverified prices, check your provider's usage page.
+Long conversations compact their request context while keeping the
 full audit transcript. The provider's prompt cache reuses prior context at its
 lower cache-read price. What
 the agent writes comes from your provider's model. Review the story, puzzles and artwork before
