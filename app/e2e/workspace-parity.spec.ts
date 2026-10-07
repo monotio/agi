@@ -2,7 +2,7 @@ import { workspaceDocument, openWorkspaceLogic, clickPictureCell } from "./works
 import type { ProjectSession } from "../src/project/projectSession.ts";
 import { buildTutorial } from "../../games/adventure-department/game.ts";
 import { openContainer } from "../../src/container/container.ts";
-import type { Page } from "@playwright/test";
+import type { Locator, Page } from "@playwright/test";
 import { test, expect } from "./test.ts";
 import {
   enterCreateMode,
@@ -163,40 +163,121 @@ test("draw order, Split and Distance bands are reachable in the workspace", asyn
   await expect(studio.locator(".studio-pane")).toHaveCount(2);
   await expect(studio.getByRole("button", { name: "Band lines", exact: true })).toBeVisible();
 });
-test("a line offers Done and finishes by clicking its last point", async ({ page }) => {
+/**
+ * Everything showing on the picture's rect that is not the picture's own
+ * layers (its pixels, its overlay in picture coordinates and the open path's
+ * points): a button, a hint or a label over the picture, even one the pointer
+ * passes through.
+ */
+async function overPicture(studio: Locator): Promise<string[]> {
+  return studio
+    .locator(".studio-pane")
+    .last()
+    .evaluate((pane) => {
+      const box = pane.getBoundingClientRect();
+      const own = ".studio-pane__pixels, .studio-pane__overlay, .tool-overlay";
+      const found: string[] = [];
+      for (const element of document.body.querySelectorAll("*")) {
+        if (element.contains(pane) || element.closest(own)) continue;
+        if (!element.checkVisibility({ opacityProperty: true, visibilityProperty: true })) continue;
+        // What shows of it: its box, cut by every scrolling or clipping box around it.
+        const r = element.getBoundingClientRect();
+        let { left, top, right, bottom } = r;
+        for (let up = element.parentElement; up; up = up.parentElement) {
+          if (getComputedStyle(up).overflow === "visible") continue;
+          const clip = up.getBoundingClientRect();
+          left = Math.max(left, clip.left);
+          top = Math.max(top, clip.top);
+          right = Math.min(right, clip.right);
+          bottom = Math.min(bottom, clip.bottom);
+        }
+        if (right <= left || bottom <= top) continue;
+        if (right <= box.left || left >= box.right || bottom <= box.top || top >= box.bottom)
+          continue;
+        found.push(
+          `${element.tagName.toLowerCase()}.${element.getAttribute("class")}: ${element.textContent}`,
+        );
+      }
+      return found;
+    });
+}
+async function clickPoints(studio: Locator, points: readonly (readonly [number, number])[]) {
+  for (const [x, y] of points) await clickPictureCell(studio, x, y);
+}
+const LINE = [
+  [40, 110],
+  [60, 115],
+  [70, 120],
+] as const;
+test("while a line is open only its points sit on the picture; Done, Enter and a double-click finish it @webkit-desktop", async ({
+  page,
+}) => {
   const studio = await picture(page);
+  const context = page.getByTestId("workspace-context");
+  const lines = () =>
+    workspaceDocument(page, "picture:1").then((text) => text.match(/^line /gm)?.length ?? 0);
+  const before = await lines();
   await studio.locator('button[data-tool="line"]').click();
-  for (const [x, y] of [
-    [40, 110],
-    [60, 115],
-    [70, 120],
-  ]) {
-    const p = await cell(page, x!, y!);
-    await page.mouse.click(p.x, p.y);
-  }
-  await expect(studio.getByRole("button", { name: "Done", exact: true })).toBeVisible();
-  await page.screenshot({ path: test.info().outputPath("line-done.png") });
-  const p = await cell(page, 70, 120);
-  await page.mouse.click(p.x, p.y);
-  await expect(studio.getByRole("button", { name: "Done", exact: true })).toHaveCount(0);
+  await clickPoints(studio, LINE);
+  // The cursor moves on past the last point: the next segment is the picture's own pixels.
+  const pane = studio.locator(".studio-pane").last();
+  const box = (await pane.boundingBox())!;
+  await page.mouse.move(box.x + (100.5 * box.width) / 160, box.y + (130.5 * box.height) / 168);
+  const path = context.getByTestId("studio-path");
+  await expect(path).toBeVisible();
+  await expect(path).toContainText("Line · 3 points");
+  expect(await overPicture(studio)).toEqual([]);
+  await page.screenshot({ path: test.info().outputPath("line-open.png") });
+  const undo = path.getByRole("button", { name: "Undo point", exact: true });
+  await expect(undo).toBeVisible();
+  await undo.click();
+  await expect(path).toContainText("Line · 2 points");
+  await clickPictureCell(studio, 70, 120);
+  const done = path.getByRole("button", { name: "Done", exact: true });
+  await expect(done).toBeVisible();
+  await done.click();
+  await expect(path).toHaveCount(0);
+  await expect.poll(lines).toBe(before + 1);
+
+  // Enter finishes the next one, a double-click on its last point the one after.
+  await clickPoints(studio, [
+    [40, 130],
+    [60, 135],
+  ]);
+  await expect(path).toContainText("Line · 2 points");
+  await page.keyboard.press("Enter");
+  await expect(path).toHaveCount(0);
+  await expect.poll(lines).toBe(before + 2);
+  await clickPictureCell(studio, 40, 150);
+  const end = await pane.boundingBox();
+  await pane.dblclick({
+    position: { x: (60.5 * end!.width) / 160, y: (150.5 * end!.height) / 168 },
+  });
+  await expect(path).toHaveCount(0);
+  await expect.poll(lines).toBe(before + 3);
   await workspaceUpdated(page);
 });
-test("a polygon offers Done and its point menu names Delete shape", async ({ page }) => {
+test("a polygon finishes with Done in the context row and its point menu names Delete shape", async ({
+  page,
+}) => {
   const studio = await picture(page);
   const polygon = studio.locator('button[data-tool="polygon"]');
   await polygon.click();
   await expect(polygon).toHaveAttribute("aria-pressed", "true");
-  for (const [x, y] of [
+  await clickPoints(studio, [
     [40, 110],
     [70, 110],
     [70, 140],
     [40, 140],
-  ]) {
-    await clickPictureCell(studio, x!, y!);
-  }
-  const done = studio.getByRole("button", { name: "Done", exact: true });
+  ]);
+  const path = page.getByTestId("workspace-context").getByTestId("studio-path");
+  await expect(path).toBeVisible();
+  await expect(path).toContainText("Polygon · 4 points");
+  expect(await overPicture(studio)).toEqual([]);
+  const done = path.getByRole("button", { name: "Done", exact: true });
   await expect(done).toBeVisible();
   await done.click();
+  await expect(path).toHaveCount(0);
   await workspaceUpdated(page);
   const point = studio.locator('button[data-tool="point"]');
   await point.click();
@@ -210,6 +291,36 @@ test("a polygon offers Done and its point menu names Delete shape", async ({ pag
   await remove.click();
   await expect(handles).toHaveCount(3);
   await workspaceUpdated(page);
+});
+test.describe("phone drawing", () => {
+  test.use({ viewport: { width: 390, height: 844 }, hasTouch: true });
+  for (const tool of ["line", "polygon"] as const)
+    test(`a ${tool} drawn on a phone keeps the picture clear and finishes with Done above it`, async ({
+      page,
+    }) => {
+      const studio = await picture(page);
+      await studio.locator(`button[data-tool="${tool}"]`).click();
+      const pane = studio.locator(".studio-pane").last();
+      await clickPictureCell(studio, 40, 110);
+      // The first point never moves the picture: the next tap lands where it is aimed.
+      const first = (await pane.boundingBox())!;
+      await clickPoints(studio, [
+        [80, 100],
+        [90, 140],
+      ]);
+      expect(await pane.boundingBox()).toEqual(first);
+      const path = page.getByTestId("workspace-context").getByTestId("studio-path");
+      await expect(path).toBeVisible();
+      await expect(path).toContainText(`${tool === "line" ? "Line" : "Polygon"} · 3 points`);
+      await expect(path).toBeInViewport();
+      expect(await overPicture(studio)).toEqual([]);
+      await page.screenshot({ path: test.info().outputPath(`phone-${tool}-open.png`) });
+      const done = path.getByRole("button", { name: "Done", exact: true });
+      await expect(done).toBeVisible();
+      await done.tap();
+      await expect(path).toHaveCount(0);
+      await workspaceUpdated(page);
+    });
 });
 test("the Priority lens shows doors and runs a real test with Play here", async ({ page }) => {
   const studio = await picture(page);
@@ -302,8 +413,9 @@ async function drawLine(page: Page) {
     const p = await cell(page, x!, y!);
     await page.mouse.click(p.x, p.y);
   }
-  await expect(studio.getByRole("button", { name: "Done", exact: true })).toBeVisible();
-  await studio.getByRole("button", { name: "Done", exact: true }).click();
+  const done = page.getByTestId("studio-path").getByRole("button", { name: "Done", exact: true });
+  await expect(done).toBeVisible();
+  await done.click();
   await workspaceUpdated(page);
   return studio;
 }
@@ -604,7 +716,7 @@ test("drawing preserves invalid room LOGIC and Walk refuses to overwrite it", as
     const p = await cell(page, x!, y!);
     await page.mouse.click(p.x, p.y);
   }
-  await studio.getByRole("button", { name: "Done", exact: true }).click();
+  await page.getByTestId("studio-path").getByRole("button", { name: "Done", exact: true }).click();
   await workspaceSaved(page);
   expect(await workspaceDocument(page, "logic:1")).toBe(source);
   await studio
@@ -672,7 +784,7 @@ test("drawing cannot resubmit a door edit over a newer pending LOGIC draft", asy
     const p = await cell(page, x!, y!);
     await page.mouse.click(p.x, p.y);
   }
-  await studio.getByRole("button", { name: "Done", exact: true }).click();
+  await page.getByTestId("studio-path").getByRole("button", { name: "Done", exact: true }).click();
   await workspaceSaved(page);
   expect(await workspaceDocument(page, "logic:1")).toBe(source);
 });

@@ -176,7 +176,8 @@ test("blank game to Meadow, Room 2, a door drawn on the game and Play Room 2 @we
     [80, 150],
   ])
     await page.mouse.click(pane.x + (x! * pane.width) / 160, pane.y + (y! * pane.height) / 168);
-  await studio.getByRole("button", { name: "Done", exact: true }).click();
+  // The open line's Done sits in the context row above the picture.
+  await page.getByTestId("studio-path").getByRole("button", { name: "Done", exact: true }).click();
   await workspaceUpdated(page);
   await page.screenshot({
     path: test.info().outputPath("1440-meadow-drawn.png"),

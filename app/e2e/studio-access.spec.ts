@@ -187,9 +187,18 @@ test("keyboard only: an Art rectangle and a Priority wall line autosave @webkit-
   await repeat(page, "Shift+ArrowDown", 2);
   await repeat(page, "ArrowDown", 4);
   await expect(announce).toHaveText("x 40 y 140");
-  await expect(studio.locator('[data-role="tool-overlay"] rect.tool-overlay__line')).toHaveCount(
-    await page.locator(".studio-pane").count(),
-  );
+  // The sized rect previews as the picture's own pixels: black over the grey floor at 30,130.
+  const art = studio.locator('[data-layer="art"] canvas');
+  await expect
+    .poll(() =>
+      art.evaluate((element) => {
+        const canvas = element as HTMLCanvasElement;
+        const x = Math.floor((canvas.width * 30.5) / 160);
+        const y = Math.floor((canvas.height * 130.5) / 168);
+        return [...canvas.getContext("2d")!.getImageData(x, y, 1, 1).data.slice(0, 3)];
+      }),
+    )
+    .toEqual([0, 0, 0]);
   await page.keyboard.press("Space");
   await workspaceUpdated(page, true);
   await expect(studio.locator('[data-row="rect-1"]')).toHaveAttribute("aria-selected", "true");

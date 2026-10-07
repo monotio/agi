@@ -348,6 +348,50 @@ describe("useStudioTools", () => {
     assert.equal(tools.fillPreview.value, null, "a grey seed floods nothing");
   });
 
+  it("draws an open path on to the cursor with the picture's own pixels; only clicks commit", () => {
+    const { draft, tools, reports, flush, press } = setup("art");
+    tools.setValues({ visual: 4 });
+    tools.setTool("line");
+    tools.press(press(10, 120));
+    flush();
+    tools.hover(p(40, 120));
+    flush();
+    const reaching = draft.preview.value!.compiled;
+    for (let x = 10; x <= 40; x++) assert.equal(reaching.visual[at(x, 120)], 4);
+    assert.equal(reaching.visual[at(41, 120)], 15);
+    assert.equal(draft.source.value, SOURCE, "the cursor commits nothing");
+    tools.hover(undefined);
+    flush();
+    assert.equal(draft.preview.value, null, "one point and no cursor: nothing drawn yet");
+    tools.hover(p(30, 140));
+    flush();
+    assert.equal(draft.preview.value!.compiled.visual[at(30, 140)], 4);
+    assert.equal(draft.preview.value!.compiled.visual[at(40, 120)], 15, "the segment follows");
+
+    // A polygon's next edge that would cross shows the path as clicked, and says nothing.
+    tools.setTool("polygon");
+    for (const [x, y] of [
+      [10, 120],
+      [40, 140],
+      [40, 120],
+    ] as const)
+      tools.press(press(x, y));
+    flush();
+    const clicked = draft.preview.value!.compiled;
+    const said = reports.length;
+    tools.hover(p(10, 130));
+    flush();
+    assert.equal(reports.length, said, "a crossing cursor raises no refusal");
+    assert.deepEqual(draft.preview.value!.compiled.visual, clicked.visual);
+    tools.hover(p(25, 115));
+    flush();
+    assert.equal(draft.preview.value!.compiled.visual[at(25, 115)], 4);
+    assert.equal(tools.finish(), true);
+    assert.equal(draft.document.value.items.at(-1)!.label, "Polygon 1");
+    const outline = draft.source.value.split("\n").find((line) => line.startsWith("polygon"));
+    assert.ok(outline && !outline.includes("25,115"), "the cursor's point is not part of it");
+  });
+
   it("refuses a self-intersecting polygon and keeps its points to fix", () => {
     const { draft, tools, reports, press } = setup("art");
     tools.setTool("polygon");
@@ -536,9 +580,11 @@ describe("the keyboard cursor (useStudioInput)", () => {
     assert.equal(input.spoken.value, "Rect from x 10 y 120");
     move(8, 8);
     move(1, 1, 2);
-    assert.deepEqual(tools.overlay.value.rect, { x1: 10, y1: 120, x2: 20, y2: 130 });
     flush();
-    assert.ok(draft.preview.value, "the sized rect previews the real pixels");
+    // The sized rect previews as the picture's own pixels, 10,120 to 20,130.
+    const sized = draft.preview.value!.compiled;
+    assert.equal(sized.visual[at(20, 130)], 4);
+    assert.equal(sized.visual[at(21, 130)], before.visual[at(21, 130)]);
     assert.equal(input.click(false), true);
     assert.equal(draft.history.value.past.length, 1);
     assert.equal(selectedId.value, "rect-1");

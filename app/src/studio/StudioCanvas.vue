@@ -25,8 +25,8 @@ export interface PanePress {
  * AGI pixels, backing store scaled by devicePixelRatio) under an SVG overlay
  * in logical coordinates for highlights, band guides and the
  * selected item's handles. A press captures the pointer, so a drag keeps
- * reporting cells past the pane's edge; the slot holds overlays placed in
- * CSS pixels (the contextual toolbar).
+ * reporting cells past the pane's edge; the slot holds what the creator
+ * handles on the picture itself (views, the trace's grips, the probe).
  */
 const {
   layer,
@@ -41,8 +41,6 @@ const {
   handles = null,
   ghost = null,
   flash = null,
-  changed = null,
-  spilled = null,
   underlay = null,
   movable = false,
   marquee = null,
@@ -62,10 +60,6 @@ const {
   ghost?: LinePoint | null;
   /** Cells an edit was refused for, highlighted briefly. */
   flash?: MaskPaths | null;
-  /** Cells an AI proposal changes, outlined while it awaits a verdict. */
-  changed?: MaskPaths | null;
-  /** The proposal's side effects: cells of other items it changes, outside the selection. */
-  spilled?: MaskPaths | null;
   /**
    * A prepared reference (160x168 RGBA) blended above art, or behind its marks.
    * It changes the drawing surface only; the PICTURE retains its native data.
@@ -314,22 +308,6 @@ function onLeave(): void {
         :height="marquee.y2 - marquee.y1 + 1"
         vector-effect="non-scaling-stroke"
       />
-      <g v-if="changed" data-role="changed">
-        <path class="studio-pane__changed-fill" :d="changed.fill" />
-        <path
-          class="studio-pane__changed-line"
-          :d="changed.outline"
-          vector-effect="non-scaling-stroke"
-        />
-      </g>
-      <g v-if="spilled" data-role="spilled">
-        <path class="studio-pane__spilled-fill" :d="spilled.fill" />
-        <path
-          class="studio-pane__spilled-line"
-          :d="spilled.outline"
-          vector-effect="non-scaling-stroke"
-        />
-      </g>
       <g v-if="flash" data-role="refused">
         <path class="studio-pane__flash-fill" :d="flash.fill" />
         <path
@@ -450,26 +428,6 @@ function onLeave(): void {
   stroke: var(--action);
   stroke-width: 1px;
   stroke-dasharray: 4 3;
-}
-.studio-pane__changed-fill {
-  fill: var(--ok);
-  fill-opacity: 0.12;
-}
-.studio-pane__changed-line {
-  fill: none;
-  stroke: var(--ok);
-  stroke-width: 2px;
-  stroke-dasharray: 4 2;
-}
-.studio-pane__spilled-fill {
-  fill: var(--warn);
-  fill-opacity: 0.12;
-}
-.studio-pane__spilled-line {
-  fill: none;
-  stroke: var(--warn);
-  stroke-width: 2px;
-  stroke-dasharray: 4 2;
 }
 .studio-pane__flash-fill {
   fill: var(--warn);

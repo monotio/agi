@@ -2495,7 +2495,6 @@ onBeforeUnmount(() => {
             editRoom(key, room, source, bindings, pictureSource)
         "
         @play-here="playHere"
-        :running-bytes="container?.getResource('picture', Number(key.split(':')[1])) ?? undefined"
         :picture-number="Number(key.split(':')[1])"
         :bytes="native(key)!"
         :authored-source="text(key)"
