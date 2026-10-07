@@ -1,5 +1,7 @@
 <script setup lang="ts">
-import { ref, shallowRef } from "vue";
+import { documentLabel } from "../../../../src/logic/numberedLabels.ts";
+import { projectLabelContext } from "../../shell/projectLabelContext.ts";
+import { computed, ref, shallowRef } from "vue";
 import UiDialog from "../../ui/UiDialog.vue";
 import UiButton from "../../ui/UiButton.vue";
 import { prepareProjectRenumber } from "../../../../src/authoring/projectRenumber.ts";
@@ -20,6 +22,7 @@ const emit = defineEmits<{
   ];
 }>();
 const open = defineModel<boolean>("open", { required: true });
+const labels = computed(() => projectLabelContext(snapshot.documents(), profile));
 const number = ref(resource.split(":")[1]!);
 const problem = ref("");
 const plan = shallowRef<Extract<ReturnType<typeof prepareProjectRenumber>, { ok: true }>>();
@@ -46,7 +49,7 @@ function preview(): void {
 <template>
   <UiDialog v-model:open="open" title="Change number" size="sm">
     <form v-if="!plan" id="change-number" @submit.prevent="preview">
-      <p>{{ resource.replace(":", " ").toUpperCase() }} and its references move together.</p>
+      <p>{{ documentLabel(resource, labels) }} and its references move together.</p>
       <label class="renumber-field"
         >Number
         <input
@@ -62,14 +65,14 @@ function preview(): void {
       </label>
     </form>
     <p v-if="plan">
-      {{ resource.replace(":", " ").toUpperCase() }} →
-      {{ plan.key.replace(":", " ").toUpperCase() }}
+      {{ documentLabel(resource, labels) }} →
+      {{ documentLabel(plan.key, labels) }}
     </p>
     <div v-if="plan?.computed.length" data-testid="renumber-computed">
       <p>These lines choose a part from a variable. Check them after the change.</p>
       <ul class="renumber-uses">
         <li v-for="(use, index) in plan.computed" :key="index">
-          <strong>{{ use.document.replace(":", " ").toUpperCase() }} · Line {{ use.line }}</strong>
+          <strong>{{ documentLabel(use.document, labels) }} · Line {{ use.line }}</strong>
           <code>{{ use.source.trim() }}</code>
         </li>
       </ul>

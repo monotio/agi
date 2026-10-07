@@ -7,7 +7,7 @@ import { readBindingsDocument } from "../../src/authoring/projectDocuments.ts";
 import { SYSTEM_FLAGS, SYSTEM_VARIABLES } from "../../src/logic/systemNames.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 
-test("game state lists own names in code-point order and every reserved slot once in number order", () => {
+test("game state lists own names in number order and every reserved slot once in number order", () => {
   const draft = new ProjectDraft({
     bindings: JSON.stringify({
       zebra: { kind: "flag", num: 32 },
@@ -22,7 +22,7 @@ test("game state lists own names in code-point order and every reserved slot onc
   const rows = workspaceGameStateInfos(draft.capture(), "2.936");
   assert.deepEqual(
     rows.game.map((row) => row.name),
-    ["apple", "chime_done", "room_alias", "zebra"],
+    ["zebra", "chime_done", "room_alias", "apple"],
   );
   assert.deepEqual(
     rows.builtin.map((row) => [row.name, row.kind, row.num]),

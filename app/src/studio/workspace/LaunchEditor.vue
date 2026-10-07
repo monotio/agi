@@ -3,8 +3,9 @@ import { computed, ref, useTemplateRef, watch, watchEffect } from "vue";
 import type { AgiProfile } from "../../../../src/runtime/profile.ts";
 import type { EngineStateReport } from "../../../../src/runtime/engine.ts";
 import { newLaunchId, type Launch, type RoomLaunches } from "../../../../src/authoring/launches.ts";
+import { numberedLabel, numberedOptions } from "../../../../src/logic/numberedLabels.ts";
 import { roomEntryProblem } from "../../../../src/runtime/roomEntry.ts";
-import { readBindingsDocument } from "../../../../src/authoring/projectDocuments.ts";
+import { readBindingsDocument } from "../../../../src/authoring/projectBindings.ts";
 import { createPictureSurface } from "../../../../src/types.ts";
 import { renderPicture } from "../../../../src/picture/renderer.ts";
 import { EGA_PALETTE } from "../../render/palette.ts";
@@ -77,74 +78,33 @@ const isSelectedForRun = computed(
   () => activeLaunch.value !== undefined && props.selectedLaunchId === activeLaunch.value.id,
 );
 
-const boundFlags = computed(() => {
+const labelContext = computed(() => {
+  let bindings = {};
   try {
-    return Object.entries(readBindingsDocument(props.bindings))
-      .filter(
-        ([, binding]) =>
-          binding.kind === "flag" && roomEntryProblem({ flags: { [binding.num]: false } }) === null,
-      )
-      .map(([name, binding]) => ({ name, num: binding.num }))
-      .sort((a, b) => a.num - b.num);
+    bindings = readBindingsDocument(props.bindings);
   } catch {
-    return [];
+    /* Keep slots available while editing. */
   }
+  return { bindings, inventory: props.inventory, rooms: props.rooms };
 });
-
-const boundVars = computed(() => {
-  try {
-    return Object.entries(readBindingsDocument(props.bindings))
-      .filter(
-        ([, binding]) =>
-          binding.kind === "variable" &&
-          roomEntryProblem({ variables: { [binding.num]: 0 } }) === null,
-      )
-      .map(([name, binding]) => ({ name, num: binding.num }))
-      .sort((a, b) => a.num - b.num);
-  } catch {
-    return [];
-  }
-});
-
-function itemName(num: number): string {
-  const match = props.inventory.find((i) => i.num === num);
-  return match ? `${match.name} (${num})` : `Item ${num}`;
-}
-
-function roomTitle(num: number): string {
-  const match = props.rooms.find((r) => r.room === num);
-  return match?.title ? `${match.title} (${num})` : `Room ${num}`;
-}
-
-const flagOptions = computed(() => {
-  const result: { num: number; label: string }[] = [];
-  const boundNums = new Set<number>();
-  for (const f of boundFlags.value) {
-    boundNums.add(f.num);
-    result.push({ num: f.num, label: `${f.name} (Flag ${f.num})` });
-  }
-  for (let i = 1; i <= 255; i++) {
-    if (!boundNums.has(i) && roomEntryProblem({ flags: { [i]: false } }) === null) {
-      result.push({ num: i, label: `Flag ${i}` });
-    }
-  }
-  return result;
-});
-
-const varOptions = computed(() => {
-  const result: { num: number; label: string }[] = [];
-  const boundNums = new Set<number>();
-  for (const v of boundVars.value) {
-    boundNums.add(v.num);
-    result.push({ num: v.num, label: `${v.name} (Variable ${v.num})` });
-  }
-  for (let i = 0; i <= 255; i++) {
-    if (!boundNums.has(i) && roomEntryProblem({ variables: { [i]: 0 } }) === null) {
-      result.push({ num: i, label: `Variable ${i}` });
-    }
-  }
-  return result;
-});
+const flagOptions = computed(() =>
+  numberedOptions(
+    "flag",
+    Array.from({ length: 256 }, (_, num) => num).filter(
+      (num) => roomEntryProblem({ flags: { [num]: false } }) === null,
+    ),
+    labelContext.value,
+  ),
+);
+const varOptions = computed(() =>
+  numberedOptions(
+    "variable",
+    Array.from({ length: 256 }, (_, num) => num).filter(
+      (num) => roomEntryProblem({ variables: { [num]: 0 } }) === null,
+    ),
+    labelContext.value,
+  ),
+);
 
 function updateFlagNum(oldNum: string, newNum: number): void {
   if (!activeLaunch.value?.flags) return;
@@ -640,7 +600,7 @@ function handleCanvasDrag(event: MouseEvent): void {
               @change="updateCameFromRoom"
             >
               <option v-for="r in rooms" :key="r.room" :value="r.room">
-                {{ roomTitle(r.room) }}
+                {{ numberedLabel("room", r.room, labelContext, "option") }}
               </option>
             </select>
 
@@ -780,7 +740,9 @@ function handleCanvasDrag(event: MouseEvent): void {
           >
             <div class="launch-row__label">
               <strong>Item</strong>
-              <small>{{ itemName(Number(itemNum)) }}</small>
+              <small>{{
+                numberedLabel("inventory", Number(itemNum), labelContext, "option")
+              }}</small>
             </div>
             <div class="launch-row__controls">
               <select
@@ -809,7 +771,7 @@ function handleCanvasDrag(event: MouseEvent): void {
                 <option :value="255">With hero</option>
                 <option :value="0">Away</option>
                 <option v-for="r in rooms" :key="r.room" :value="r.room">
-                  {{ roomTitle(r.room) }}
+                  {{ numberedLabel("room", r.room, labelContext, "option") }}
                 </option>
               </select>
             </div>

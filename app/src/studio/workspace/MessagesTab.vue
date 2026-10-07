@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { numberedLabel } from "../../../../src/logic/numberedLabels.ts";
+import { useProjectLabels } from "../../shell/useProjectLabels.ts";
 import { computed } from "vue";
 import { parseLogicResource } from "../../../../src/logic/resource.ts";
 import type { AgiProfile } from "../../../../src/runtime/profile.ts";
@@ -10,6 +12,7 @@ const props = defineProps<{
   keys: readonly string[];
   profile: AgiProfile;
 }>();
+const labels = useProjectLabels();
 
 const rows = computed(() =>
   props.keys
@@ -40,7 +43,10 @@ const rows = computed(() =>
       </thead>
       <tbody>
         <tr v-for="row in rows" :key="`${row.logic}:${row.slot}`">
-          <td class="workspace-messages__logic">LOGIC {{ row.logic }} · m{{ row.slot }}</td>
+          <td class="workspace-messages__logic">
+            {{ numberedLabel("logic", row.logic, labels, "row") }} ·
+            {{ numberedLabel("message", row.slot, { ...labels, logic: row.logic }, "option") }}
+          </td>
           <td>{{ row.text }}</td>
         </tr>
       </tbody>

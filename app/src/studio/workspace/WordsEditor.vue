@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { useProjectLabels } from "../../shell/useProjectLabels.ts";
+import { numberedLabel, numberedSlot } from "../../../../src/logic/numberedLabels.ts";
 import UiIcon from "../../ui/UiIcon.vue";
 import { computed, nextTick, ref, watch } from "vue";
 import { VOCABULARY, WORDS_EDITOR_COPY } from "../../../../src/vocabulary.ts";
@@ -7,7 +9,6 @@ import { buildWordsTok } from "../../../../src/logic/words.ts";
 import type { AgiProfile } from "../../../../src/runtime/profile.ts";
 import type { ProjectContent } from "../../../../src/authoring/projectContent.ts";
 import type { PlayerSentence } from "../../project/playerSentences.ts";
-import { useWorkspaceEditor } from "../../shell/workspaceEditor.ts";
 import { useEngineApi } from "../../engine/engineContext.ts";
 import UiButton from "../../ui/UiButton.vue";
 import UiExplain from "../../ui/UiExplain.vue";
@@ -40,22 +41,15 @@ const emit = defineEmits<{
   response: [room: number, command: string];
   guided: [action: WorkspaceAction];
 }>();
+const labels = useProjectLabels();
 const engine = useEngineApi();
 void engine.loadPlayerSentences();
-const editor = useWorkspaceEditor();
 const copy = WORDS_EDITOR_COPY;
 const adding = ref<number>();
 const more = ref(false);
 const openAgent = useOpenAgent();
 
-const roomName = computed(
-  () =>
-    engine.roomMap.graph.value.nodes.find((node) => node.room === props.room)?.title ||
-    editor.parts.value
-      .find((part) => part.id === `logic:${props.room}`)
-      ?.title.split(" · ROOM ")[0] ||
-    `ROOM ${props.room}`,
-);
+const roomName = computed(() => numberedLabel("room", props.room, labels.value));
 const entries = computed<WordRows>(() => {
   try {
     return JSON.parse(props.source) as WordRows;
@@ -80,19 +74,20 @@ const groups = computed(() => {
         .find((word) => group.words.includes(word)) ?? group.words[0];
     return {
       ...group,
-      usage: formatMeaningUses(uses.value[String(group.id)] ?? []),
+      usage: formatMeaningUses(uses.value[String(group.id)] ?? [], labels.value),
       words: head ? [head, ...group.words.filter((word) => word !== head)] : group.words,
     };
   });
   for (const id of [0, ...empty.value])
     if (!rows.some((row) => row.id === id))
-      rows.push({ id, words: [], usage: formatMeaningUses([]) });
+      rows.push({ id, words: [], usage: formatMeaningUses([], labels.value) });
   return rows.sort(
     (a, b) =>
       (uses.value[String(b.id)]?.length ?? 0) - (uses.value[String(a.id)]?.length ?? 0) ||
       a.id - b.id,
   );
 });
+const meaningOptions = computed(() => [...groups.value].sort((a, b) => a.id - b.id));
 const meanings = computed(() =>
   groups.value.filter(
     (group) =>
@@ -153,7 +148,7 @@ watch(entries, (words) => {
     teaching.value = undefined;
 });
 function label(id: number | undefined): string {
-  return groups.value.find((group) => group.id === id)?.words[0] ?? String(id ?? "");
+  return id === undefined ? "" : numberedLabel("word", id, { words: entries.value });
 }
 function write(next: WordRows): void {
   if (props.readOnly) return;
@@ -308,13 +303,13 @@ function dismissGhosts(event: KeyboardEvent): void {
         aria-label="Destination meaning"
       >
         <option
-          v-for="group in groups.filter(
+          v-for="group in meaningOptions.filter(
             (row) => row.id !== moving!.from && ![1, 9999].includes(row.id),
           )"
           :key="group.id"
           :value="group.id"
         >
-          {{ label(group.id) }} · {{ group.id }}
+          {{ numberedLabel("word", group.id, { words: entries }, "option") }}
         </option>
       </select>
       <label
@@ -365,7 +360,7 @@ function dismissGhosts(event: KeyboardEvent): void {
               ><b>{{ token.text }}</b
               ><small>{{
                 token.status === "known"
-                  ? `= ${label(token.id)} · ${token.id}`
+                  ? `= ${numberedLabel("word", token.id!, { name: label(token.id) }, "option")}`
                   : token.status === "new"
                     ? VOCABULARY.newWord.label
                     : token.status === "skipped"
@@ -432,7 +427,8 @@ function dismissGhosts(event: KeyboardEvent): void {
             <template v-if="outcomes.length">
               <div v-for="(outcome, index) in outcomes" :key="index">
                 <button class="words-link" @click="emit('openLogic', outcome.logic, outcome.line)">
-                  LOGIC {{ outcome.logic }} · line {{ outcome.line }}
+                  {{ numberedLabel("logic", outcome.logic, labels, "row") }} · line
+                  {{ outcome.line }}
                 </button>
                 <p>
                   Answers<span v-if="outcome.message"> “{{ outcome.message }}”</span
@@ -480,11 +476,11 @@ function dismissGhosts(event: KeyboardEvent): void {
                 >
                   <option value="" disabled>Pick a meaning</option>
                   <option
-                    v-for="group in groups.filter((row) => ![0, 1, 9999].includes(row.id))"
+                    v-for="group in meaningOptions.filter((row) => ![0, 1, 9999].includes(row.id))"
                     :key="group.id"
                     :value="String(group.id)"
                   >
-                    {{ group.words.join(", ") }}
+                    {{ numberedLabel("word", group.id, { words: entries }, "option") }}
                   </option>
                 </select>
               </div>
@@ -539,7 +535,7 @@ function dismissGhosts(event: KeyboardEvent): void {
           >
             <div>
               <code>{{ entry.text }}</code
-              ><small> ×{{ entry.count }} · ROOM {{ entry.room }}</small>
+              ><small> ×{{ entry.count }} · {{ numberedLabel("room", entry.room, labels) }}</small>
               <p class="words-note">
                 {{
                   entry.unknown ? `“${entry.unknown}” is a new word` : VOCABULARY.noResponse.label
@@ -597,7 +593,7 @@ function dismissGhosts(event: KeyboardEvent): void {
           @drop.prevent="drop($event, group.id)"
         >
           <div class="meaning-chips">
-            <span class="word-id">{{ group.id }}</span>
+            <span class="word-id">{{ numberedSlot("word", group.id) }}</span>
             <span
               v-for="(word, index) in group.words"
               :key="word"
@@ -671,7 +667,7 @@ function dismissGhosts(event: KeyboardEvent): void {
                   ><a
                     class="words-link"
                     :href="`#logic-${location.logic}-line-${line}`"
-                    :aria-label="`LOGIC ${location.logic} line ${line}`"
+                    :aria-label="`${numberedLabel('logic', location.logic, labels, 'row')} line ${line}`"
                     @click.prevent="emit('openLogic', location.logic, line)"
                     >{{ line }}</a
                   ></template

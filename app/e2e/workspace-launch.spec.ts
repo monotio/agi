@@ -1,3 +1,4 @@
+import { systemName } from "../../src/logic/systemNames.ts";
 import type { ProjectSession } from "../src/project/projectSession.ts";
 import type { WorkerQueryFn } from "../src/worker/workerProtocol.ts";
 import type { Page } from "@playwright/test";
@@ -320,7 +321,7 @@ test("F5 in room LOGIC debugs the selected Launch before its first instruction @
   await page.keyboard.press("F5");
   const status = page.getByTestId("workspace-debug-status");
   await expect(status).toBeVisible();
-  await expect(status).toContainText("Paused at LOGIC 0");
+  await expect(status).toContainText("Paused at boot_logic · LOGIC 0");
   await expect(page.locator(".workspace-stopped-line").first()).toBeVisible();
   const state = await page.evaluate(() =>
     (
@@ -725,3 +726,39 @@ for (const [width, height] of [
     await expect(carry).toHaveAttribute("aria-current", "true");
   });
 }
+
+test("Launch dropdowns share built-in names and numeric order @webkit-desktop", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await start(page);
+  await open(page, "part-room:1:logic");
+  await page.getByTestId("workspace-update-menu").click();
+  await page.getByRole("menuitem", { name: "New launch…" }).click();
+  for (const kind of ["Flag", "Variable"]) {
+    await page.getByTestId("launch-add-row-menu").click();
+    await page.getByRole("menuitem", { name: kind, exact: true }).click();
+  }
+  const flags = page.getByTestId("launch-flag-select");
+  const variables = page.getByTestId("launch-var-select");
+  await expect(flags.locator('option[value="9"]')).toHaveText(`${systemName("flag", 9)} (Flag 9)`);
+  await expect(variables.locator('option[value="3"]')).toHaveText(
+    `${systemName("variable", 3)} (Variable 3)`,
+  );
+  await expect(flags.locator('option[value="204"]')).toHaveText("chime_done (Flag 204)");
+  await expect(flags.locator('option[value="5"]')).toHaveCount(0);
+  for (const num of [0, 2])
+    await expect(variables.locator(`option[value="${num}"]`)).toHaveCount(0);
+  for (const select of [flags, variables]) {
+    const numbers = await select
+      .locator("option")
+      .evaluateAll((options) =>
+        options.map((option) => Number((option as HTMLOptionElement).value)),
+      );
+    expect(numbers).toEqual([...numbers].sort((a, b) => a - b));
+  }
+  await page.screenshot({
+    path: test.info().outputPath("launch-numbered-labels.png"),
+    animations: "disabled",
+  });
+});

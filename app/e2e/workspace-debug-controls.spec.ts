@@ -90,7 +90,7 @@ for (const [width, height] of [
       console.log(`FRAME_SHOT:debug-${width}:${shot.toString("base64")}`);
     const status = context.getByTestId("workspace-debug-status");
     await expect(status).toBeVisible();
-    await expect(status).toContainText("Paused at LOGIC");
+    await expect(status).toContainText("Paused at boot_logic · LOGIC");
     await parts(page);
     await page.getByTestId("part-room:1:picture:1").click();
     await expect(page.getByTestId("room-studio")).toBeVisible();

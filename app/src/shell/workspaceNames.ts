@@ -5,6 +5,7 @@ import { readBindingsDocument } from "../../../src/authoring/projectDocuments.ts
 import { parseWordsTok } from "../../../src/logic/words.ts";
 import { offsetAt, type WorkspaceEdit } from "../../../src/logic/lspTypes.ts";
 import { projectOperandInfos, type BindingInfo } from "../../../src/logic/projectNames.ts";
+import { numberedLabel, documentLabel } from "../../../src/logic/numberedLabels.ts";
 import { systemName, systemMeaning } from "../../../src/logic/systemNames.ts";
 import { disassembleLogic } from "../../../src/logic/disassembler.ts";
 import { PROFILES } from "../../../src/runtime/profile.ts";
@@ -50,7 +51,7 @@ export interface ReservedStateInfo extends BindingInfo {
   readonly meaning: string;
   readonly usage: string;
 }
-/** Game names keep code-point order; all interpreter slots keep numeric order. */
+/** Both creator names and interpreter slots keep numeric order within each kind. */
 export function workspaceGameStateInfos(
   snapshot: NamesSnapshot,
   profileId: ProfileId,
@@ -80,6 +81,13 @@ export function workspaceGameStateInfos(
       Object.hasOwn(project.bindings, info.name) &&
       info.name !== systemName(info.kind, info.num),
   );
+  game.sort((a, b) =>
+    a.kind === b.kind
+      ? a.num - b.num || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0)
+      : a.kind === "flag"
+        ? -1
+        : 1,
+  );
   const builtin: ReservedStateInfo[] = [];
   for (const kind of ["flag", "variable"])
     for (let num = 0; num <= (kind === "flag" ? 15 : 26); num++) {
@@ -97,14 +105,14 @@ export function workspaceGameStateInfos(
           ) === index,
       );
       builtin.push({
-        name: systemName(kind, num)!,
+        name: numberedLabel(kind, num),
         kind,
         num,
         uses: unique,
         meaning: systemMeaning(kind, num)!,
-        usage: [...new Set(unique.map((use) => use.key.replace(":", " ").toUpperCase()))].join(
-          ", ",
-        ),
+        usage: [
+          ...new Set(unique.map((use) => documentLabel(use.key, { bindings: project.bindings }))),
+        ].join(", "),
       });
     }
   return { game, builtin };

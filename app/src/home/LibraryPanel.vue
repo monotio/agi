@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { numberedLabel } from "../../../src/logic/numberedLabels.ts";
 /**
  * "Your games": the Home screen's one shelf. It holds the tutorial, saved
  * and remixed games (inline rename and a per-game action menu), installed
@@ -272,7 +273,7 @@ function startCreating(templateId: string): void {
             : undefined
         "
         badge="In progress"
-        :meta="`Room ${orphanAutosave.room} · played ${formatRelativeTime(orphanAutosave.savedAt, now)}`"
+        :meta="`${numberedLabel('room', orphanAutosave.room)} · played ${formatRelativeTime(orphanAutosave.savedAt, now)}`"
         play-label="Resume"
         data-testid="autosave-panel"
         @play="onResumeAutosave"

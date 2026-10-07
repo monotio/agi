@@ -138,14 +138,14 @@ test("named parts rows and rooms rename on their row @webkit-desktop", async ({ 
   await soundField.fill("bell_sound");
   await soundField.press("Enter");
   await expect(page.getByTestId("part-sound:1")).toBeVisible();
-  await expect(page.getByTestId("part-sound:1")).toContainText("bell sound · SOUND 1");
+  await expect(page.getByTestId("part-sound:1")).toContainText("bell_sound · SOUND 1");
   await workspaceUpdated(page);
   expect(await workspaceDocument(page, "bindings")).toContain("bell_sound");
   expect(await workspaceDocument(page, "logic:1")).toContain("load.sound(bell_sound)");
 
   // A taken name stays in the field with the reason.
   const death = page.getByTestId("part-sound:255").locator("..");
-  await death.getByRole("button", { name: "death sound · SOUND 255" }).dblclick();
+  await death.getByRole("button", { name: "death_sound · SOUND 255" }).dblclick();
   const taken = parts.getByRole("textbox", { name: "New name for death_sound", exact: true });
   await expect(taken).toBeVisible();
   await expect(taken).toBeFocused();

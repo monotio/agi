@@ -1,3 +1,4 @@
+import { systemName } from "../../src/logic/systemNames.ts";
 import { cacheGame, textHook, waitForCycles, openInspector } from "./engineProbe.ts";
 import { expect, test } from "@playwright/test";
 import { testProjectId } from "../test/identity.ts";
@@ -5,7 +6,7 @@ import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import { buildView } from "../../src/view/view.ts";
 
-test.use({ headless: process.platform !== "darwin" });
+test.use({ headless: true });
 
 test("inspector shows live priority view, picks the drawn object, and lists state diffs", async ({
   page,
@@ -117,8 +118,8 @@ test("inspector shows live priority view, picks the drawn object, and lists stat
   );
   const pick = page.getByTestId("dbg-pick");
   await expect(pick).toBeVisible();
-  await expect(pick).toContainText("o0");
-  await expect(pick).toContainText("view 0");
+  await expect(pick).toContainText("Object 0");
+  await expect(pick).toContainText("VIEW 0");
 
   // State tab: v42 was written by logic → shows 7; flag 42 shows set.
   await page.getByTestId("dbg-tab-state").click();
@@ -134,8 +135,10 @@ test("inspector shows live priority view, picks the drawn object, and lists stat
   // Timeline tab: the room change (v0 0→1) and our v42 write appear.
   await page.getByTestId("dbg-tab-timeline").click();
   const events = page.getByTestId("dbg-events");
-  await expect.poll(async () => events.textContent()).toContain("v0 room 0 → 1");
-  await expect.poll(async () => events.textContent()).toContain("v42");
+  await expect
+    .poll(async () => events.textContent())
+    .toContain(`${systemName("variable", 0)} (Variable 0) 0 → 1`);
+  await expect.poll(async () => events.textContent()).toContain("Variable 42");
 
   // Exploded mode: the GPU stage masks the composed frame into priority-band
   // layers under a tilted perspective camera. Three distinct contracts:

@@ -4,6 +4,7 @@ import { test } from "node:test";
 import ts from "typescript";
 import { baseParse, NodeTypes, type RootNode, type TemplateChildNode } from "@vue/compiler-dom";
 import { ROOM_TOOL_HINTS, ROOM_TOOL_NAMES } from "../src/studio/studioHelp.ts";
+import { ROOM_ACTION_LABELS } from "../src/studio/workspace/guidedActions.ts";
 import { VOCABULARY, RETIRED_UI_TERMS } from "../../src/vocabulary.ts";
 
 // These are persisted values, editor modes and resource identifiers, rather than visible copy.
@@ -157,8 +158,11 @@ test("copy extraction detects visible text and dynamic tooltips while ignoring i
 test("editor action tooltips bind to shared action help", () => {
   assert.equal(ROOM_TOOL_NAMES.walk, VOCABULARY.testWalk.label);
   assert.equal(ROOM_TOOL_HINTS.walk, VOCABULARY.testWalk.help);
+  assert.equal(ROOM_ACTION_LABELS["play-sound"], "Sound when…");
   const bindings: Readonly<Record<string, readonly string[]>> = {
-    "app/src/studio/workspace/GuidedAdd.vue": ['"play-sound": "Sound when…"'],
+    "app/src/studio/workspace/GuidedAdd.vue": [
+      'import { ROOM_ACTION_LABELS as labels, type RoomActionKind } from "./guidedActions.ts";',
+    ],
     "app/src/studio/StudioToolRail.vue": [
       'if (entry.id === "walk") return VOCABULARY.testWalk.help;',
       "label: VOCABULARY.testWalk.label",

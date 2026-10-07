@@ -16,7 +16,7 @@ const node = (room: number, title?: string): RoomGraphNode =>
 
 test("a node caption names the room and never overflows the node, ellipsis included", () => {
   assert.equal(nodeLabel(node(4)), "Room 4");
-  assert.equal(nodeLabel(node(3, "The Vault")), "3 · The Vault");
+  assert.equal(nodeLabel(node(3, "The Vault")), "The Vault · Room 3");
   for (const [room, title] of [
     [1, "Picture Gallery"],
     [1, "Picture Gallery of the Old Masters"],
@@ -25,9 +25,9 @@ test("a node caption names the room and never overflows the node, ellipsis inclu
   ] as const) {
     const label = nodeLabel(node(room, title));
     assert.ok(label.length <= FITS, `"${label}" is ${label.length} characters`);
-    assert.ok(label.startsWith(`${room} · `), label);
+    assert.ok(label.endsWith(` · Room ${room}`), label);
   }
-  assert.equal(nodeLabel(node(1, "Picture Gallery of the Old Masters")), "1 · Picture Galle…");
+  assert.equal(nodeLabel(node(1, "Picture Gallery of the Old Masters")), "Picture… · Room 1");
   // The cut never leaves a space before the ellipsis.
   assert.ok(!/\s…$/.test(nodeLabel(node(12, "The Hall   with trailing space"))));
 });
@@ -92,4 +92,11 @@ test("opposite exits between one pair of rooms keep their words apart at 100% an
     const d = (p: { x: number; y: number }) => Math.hypot(g.lx - p.x - 64, g.ly - p.y - 59);
     assert.ok(d(from) < d(to), `${g.edge.label} sits nearer room ${g.edge.from}`);
   }
+});
+
+test("node captions resolve the same inferred room titles as other game surfaces", () => {
+  assert.equal(
+    nodeLabel({ room: 7 } as RoomGraphNode, { rooms: [{ room: 7, title: "Atrium" }] }),
+    "Atrium · Room 7",
+  );
 });

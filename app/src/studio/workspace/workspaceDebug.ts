@@ -1,3 +1,4 @@
+import { numberedLabel } from "../../../../src/logic/numberedLabels.ts";
 /** Source-aware debugging of the existing MAIN run. Loaded by an explicit debug action. */
 import { computed, reactive, shallowRef } from "vue";
 import { openContainer } from "../../../../src/container/container.ts";
@@ -80,9 +81,9 @@ export function createWorkspaceDebug(input: {
     const at = position.value;
     const location = input.link.stopped.value.location;
     return at
-      ? `Paused at LOGIC ${at.logic}, line ${at.line}`
+      ? `Paused at ${numberedLabel("logic", at.logic, { bindings: bindings.value }, "row")}, line ${at.line}`
       : location
-        ? `Paused at LOGIC ${location.logic}, byte ${location.pc}`
+        ? `Paused at ${numberedLabel("logic", location.logic, { bindings: bindings.value }, "row")}, byte ${location.pc}`
         : "Paused";
   });
   function capture(override?: Record<string, string>): void {

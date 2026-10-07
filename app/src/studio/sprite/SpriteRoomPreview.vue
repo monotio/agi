@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { numberedLabel } from "../../../../src/logic/numberedLabels.ts";
+
 import { computed, shallowRef, useTemplateRef, watch, watchEffect } from "vue";
 import { openContainer } from "../../../../src/container/container.ts";
 import { renderPicture } from "../../../../src/picture/renderer.ts";
@@ -195,10 +197,10 @@ function onKey(event: KeyboardEvent): void {
       <h3 id="room-preview-title">In room</h3>
       <select v-if="rooms.length > 1" v-model.number="room" aria-label="Room">
         <option v-for="option in rooms" :key="option.room" :value="option.room">
-          Room {{ option.room }}{{ option.title ? ` · ${option.title}` : "" }}
+          {{ numberedLabel("room", option.room, { rooms }, "option") }}
         </option>
       </select>
-      <span v-else-if="entry">Room {{ entry.room }}</span>
+      <span v-else-if="entry">{{ numberedLabel("room", entry.room, { rooms }) }}</span>
       <UiButton
         v-if="short && picture"
         variant="ghost"

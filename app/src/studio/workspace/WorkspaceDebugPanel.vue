@@ -4,14 +4,22 @@ import { computed, ref } from "vue";
 import { VOCABULARY } from "../../../../src/vocabulary.ts";
 import type { WorkspaceDebug } from "./workspaceDebug.ts";
 import UiButton from "../../ui/UiButton.vue";
-import { reservedValues } from "./debugValues.ts";
+import {
+  numberedLabel,
+  numberedSlot,
+  documentLabel,
+  numberedExpressionLabel,
+} from "../../../../src/logic/numberedLabels.ts";
+import { useProjectLabels } from "../../shell/useProjectLabels.ts";
+import { systemName } from "../../../../src/logic/systemNames.ts";
 /** One debug view inside the frame: the workspace tab names which one. */
 const props = defineProps<{
   debug?: WorkspaceDebug | undefined;
-  problems: readonly { message: string }[];
+  problems: readonly { message: string; document?: string }[];
   view: "problems" | "variables" | "watch" | "stack" | "breakpoints";
 }>();
 const emit = defineEmits<{ reveal: [logic: number, line: number] }>();
+const labels = useProjectLabels();
 const expression = ref("");
 const filter = ref("");
 const slots = computed(() => {
@@ -25,15 +33,18 @@ const slots = computed(() => {
   return (["variable", "flag"] as const).flatMap((kind) =>
     Array.from({ length: 256 }, (_, slot) => {
       const used = debug.usedValues.value.find((row) => row.kind === kind && row.slot === slot);
-      const reserved = reservedValues[kind][slot];
+      const reserved = systemName(kind, slot);
       const bindingNames = used?.names || (names[`${kind}:${slot}`] ?? []).join(", ");
-      const label = `${kind === "variable" ? "v" : "f"}${slot}`;
+      const label = numberedSlot(kind, slot);
       return {
         kind,
         slot,
         label,
         names: bindingNames,
-        title: bindingNames || reserved || label,
+        title: numberedLabel(kind, slot, {
+          bindings: debug.bindings.value,
+          name: used?.names ?? "",
+        }),
         reserved,
         used: used !== undefined,
         value: debug.stopped.value?.state[kind === "variable" ? "vars" : "flags"][slot] ?? 0,
@@ -59,9 +70,7 @@ const groups = computed(() => {
     { title: "Used here", rows: slots.value.filter((row) => row.used) },
     {
       title: "Game",
-      rows: slots.value
-        .filter((row) => row.reserved !== undefined && !row.used)
-        .map((row) => ({ ...row, title: row.reserved! })),
+      rows: slots.value.filter((row) => row.reserved !== undefined && !row.used),
     },
   ];
 });
@@ -86,7 +95,10 @@ function editValue(kind: "variable" | "flag", slot: number, event: Event): void 
     <div :aria-label="view" class="workspace-debug-content">
       <template v-if="view === 'problems'">
         <p v-if="problems.length === 0">Everything builds.</p>
-        <p v-for="(problem, index) in problems" :key="index">{{ problem.message }}</p>
+        <p v-for="(problem, index) in problems" :key="index">
+          <strong v-if="problem.document">{{ documentLabel(problem.document, labels) }}: </strong
+          >{{ problem.message }}
+        </p>
       </template>
       <template v-else-if="view === 'variables' && debug">
         <label class="workspace-debug-filter"
@@ -118,7 +130,14 @@ function editValue(kind: "variable" | "flag", slot: number, event: Event): void 
               <input
                 v-if="row.kind === 'flag'"
                 type="checkbox"
-                :aria-label="`${row.label} ${row.names || row.reserved || ''}`.trim()"
+                :aria-label="
+                  numberedLabel(
+                    row.kind,
+                    row.slot,
+                    { bindings: debug.bindings.value, name: row.names },
+                    'option',
+                  )
+                "
                 :checked="!!row.value"
                 :disabled="!debug.stopped.value || debug.state.busy"
                 @change="editValue(row.kind, row.slot, $event)"
@@ -128,7 +147,14 @@ function editValue(kind: "variable" | "flag", slot: number, event: Event): void 
                 type="number"
                 min="0"
                 max="255"
-                :aria-label="`${row.label} ${row.names || row.reserved || ''}`.trim()"
+                :aria-label="
+                  numberedLabel(
+                    row.kind,
+                    row.slot,
+                    { bindings: debug.bindings.value, name: row.names },
+                    'option',
+                  )
+                "
                 :value="row.value"
                 :disabled="!debug.stopped.value || row.slot === 0 || debug.state.busy"
                 @change="editValue(row.kind, row.slot, $event)"
@@ -158,7 +184,9 @@ function editValue(kind: "variable" | "flag", slot: number, event: Event): void 
         <p>{{ VOCABULARY.watch.help }}</p>
         <p v-if="!debug.stopped.value">Pause to refresh values.</p>
         <div v-for="watch in debug.state.watches" :key="watch.id" class="workspace-debug-row">
-          <span>{{ watch.expression }}</span
+          <span>{{
+            numberedExpressionLabel(watch.expression, { bindings: debug.bindings.value })
+          }}</span
           ><output>{{ watch.value }}</output
           ><UiButton
             size="sm"
@@ -179,7 +207,7 @@ function editValue(kind: "variable" | "flag", slot: number, event: Event): void 
           class="workspace-debug-frame"
           @click="emit('reveal', frame.logic, debug.framePosition(frame)?.line ?? 1)"
         >
-          LOGIC {{ frame.logic
+          {{ numberedLabel("logic", frame.logic, { bindings: debug.bindings.value }, "row")
           }}<span v-if="debug.framePosition(frame)"
             >, line {{ debug.framePosition(frame)?.line }}</span
           ><span v-else>, byte {{ frame.pc }}</span>
@@ -190,7 +218,8 @@ function editValue(kind: "variable" | "flag", slot: number, event: Event): void 
         <p v-else>Click left of a line number to stop there, or press F9.</p>
         <div v-for="point in debug.state.breakpoints" :key="point.id" class="workspace-debug-row">
           <button @click="emit('reveal', point.logic, point.line)">
-            LOGIC {{ point.logic }}, line {{ point.line }}
+            {{ numberedLabel("logic", point.logic, { bindings: debug.bindings.value }, "row") }},
+            line {{ point.line }}
           </button>
           <span>{{
             debug.state.statuses.find((row) => row.id === point.id)?.binding.bound === false

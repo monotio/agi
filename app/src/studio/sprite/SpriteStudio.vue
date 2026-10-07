@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { numberedLabel } from "../../../../src/logic/numberedLabels.ts";
+import { useProjectLabels } from "../../shell/useProjectLabels.ts";
 import { computed, nextTick, onBeforeUnmount, ref, shallowRef, useTemplateRef, watch } from "vue";
 import type { ResourceRevision } from "../../../../src/gameIdentity.ts";
 import type { AgiProfile } from "../../../../src/runtime/profile.ts";
@@ -119,6 +121,7 @@ const emit = defineEmits<{
   "use-staged": [bytes: Uint8Array];
   "agent-context": [context: { label: string; text: string }];
 }>();
+const labels = useProjectLabels();
 
 const draft = useSpriteDraft({
   base: () => ({ bytes, revision: baseRevision }),
@@ -183,8 +186,8 @@ watch(
   [loop, cel],
   ([selectedLoop, selectedCel]) => {
     emit("agent-context", {
-      label: `VIEW ${viewNumber} · Loop ${selectedLoop}, cel ${selectedCel}`,
-      text: `Selected VIEW ${viewNumber}, loop ${selectedLoop}, cel ${selectedCel}.`,
+      label: `${numberedLabel("view", viewNumber, labels.value, "row")} · Loop ${selectedLoop}, cel ${selectedCel}`,
+      text: `Selected ${numberedLabel("view", viewNumber, labels.value, "option")}, loop ${selectedLoop}, cel ${selectedCel}.`,
     });
   },
   { immediate: true },

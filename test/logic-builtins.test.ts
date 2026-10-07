@@ -110,7 +110,7 @@ test("built-in hover, references and F2 rename include named and raw uses across
         ...extra,
       },
     });
-  assert.match(JSON.stringify(request("textDocument/hover")?.result), /Variable 0 · current_room/);
+  assert.match(JSON.stringify(request("textDocument/hover")?.result), /current_room · Variable 0/);
   assert.equal(
     (
       request("textDocument/references", { context: { includeDeclaration: false } })
@@ -223,7 +223,7 @@ test("overridden slots use the project name in hover and reject conflicting rena
       position: { line: 0, character: 10 },
     },
   });
-  assert.match(JSON.stringify(hover?.result), /Variable 0 · room/);
+  assert.match(JSON.stringify(hover?.result), /room · Variable 0/);
   assert.doesNotMatch(JSON.stringify(hover?.result), /current_room/);
 });
 

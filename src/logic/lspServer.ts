@@ -7,8 +7,9 @@ import { analyzeLogicSyntax, scanLogicTokens } from "./syntax.ts";
 import { createLogicLanguageStructure } from "./languageStructure.ts";
 import { projectOperandInfos } from "./projectNames.ts";
 import { messageCodeActions, messageInlayHints } from "./messageReadability.ts";
-import { systemName, systemBindingInfos, systemBindings } from "./systemNames.ts";
-import { OPERAND_NAMES, BINDING_KINDS, type NumberedOperand } from "./languageOperands.ts";
+import { numberedLabel } from "./numberedLabels.ts";
+import { systemName, systemMeaning, systemBindingInfos, systemBindings } from "./systemNames.ts";
+import { BINDING_KINDS, type NumberedOperand } from "./languageOperands.ts";
 import { offsetAt, positionAt, rangeAt, SEMANTIC_LEGEND } from "./lspTypes.ts";
 import type {
   LspMessage,
@@ -569,12 +570,18 @@ export function createLogicLspServer(
   function operandDetails(doc: Document, operand: NumberedOperand): string {
     const uses = operandInfo(doc, operand)?.uses ?? [];
     const groups = ["Set", "Reset", "Checked", "View", "Positioned", "Drawn", "Used"];
+    const meaning = systemMeaning(operand.kind, operand.num);
     const details = groups.flatMap((role) => {
       const group = uses.filter((use) => (use.operation ?? use.role) === role);
       if (!group.length) return [];
       const locations: Record<string, number[]> = {};
       for (const use of group) {
-        const key = use.key.replace(":", " ").toUpperCase();
+        const key = numberedLabel(
+          "logic",
+          Number(use.key.slice(6)),
+          { bindings: project.bindings },
+          "row",
+        );
         const lines = (locations[key] ??= []);
         const line = use.range.start.line + 1;
         if (!lines.includes(line)) lines.push(line);
@@ -587,6 +594,7 @@ export function createLogicLspServer(
           .join("; ")}`,
       ];
     });
+    if (meaning) details.unshift(meaning);
     if (operand.name) {
       const hover = language(doc).hoverAt(operand.start);
       if (hover?.text.startsWith("#define")) details.unshift(hover.text);
@@ -611,7 +619,9 @@ export function createLogicLspServer(
         );
     }
     if (["logic", "picture", "view", "sound"].includes(operand.kind))
-      details.unshift(`Open ${OPERAND_NAMES[operand.kind]} ${operand.num}`);
+      details.unshift(
+        `Open ${numberedLabel(operand.kind, operand.num, { bindings: project.bindings }, "row")}`,
+      );
     return details.length ? `\n\n${details.join("\n\n")}` : "";
   }
   function dispatch(method: string, params: Params): unknown {
@@ -757,7 +767,7 @@ export function createLogicLspServer(
           ? {
               start: operand.start,
               end: operand.end,
-              text: `${OPERAND_NAMES[operand.kind]} ${operand.num} · ${names.length ? names.join(", ") : "unnamed"}\n\n${count} ${count === 1 ? "use" : "uses"} ${operand.kind === "m" ? "in this LOGIC" : "across the game"}.${operandDetails(doc, operand)}${["s", "w", "c"].includes(operand.kind) ? "" : "\n\nRename… F2"}`,
+              text: `${numberedLabel(operand.kind, operand.num, { bindings: project.bindings, inventory: project.inventory ?? project.objects ?? [], words: project.words, logic: Number(doc.uri.match(/logic\.(\d+)/)?.[1]), name: names[0] ?? "" }, "row")}\n\n${count} ${count === 1 ? "use" : "uses"} ${operand.kind === "m" ? "in this LOGIC" : "across the game"}.${names.length > 1 ? `\n\nNames: ${names.join(", ")}` : ""}${operandDetails(doc, operand)}${["s", "w", "c"].includes(operand.kind) ? "" : "\n\nRename… F2"}`,
             }
           : snapshot.hoverAt(offset);
         if (!hover) return null;

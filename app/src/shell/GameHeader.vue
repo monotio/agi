@@ -17,6 +17,7 @@ import SettingsSheet from "./SettingsSheet.vue";
 import UiButton from "../ui/UiButton.vue";
 import UiDialog from "../ui/UiDialog.vue";
 import UiToast from "../ui/UiToast.vue";
+import { useProjectLabels } from "./useProjectLabels.ts";
 import type { HelpActionKind, HelpRequest } from "./helpContent.ts";
 import { computed, onWatcherCleanup, ref, shallowRef, useTemplateRef, watch } from "vue";
 import { useEngineApi } from "../engine/engineContext.ts";
@@ -323,6 +324,7 @@ watch(
 /** Game-test recording: the worker captures; this dialog names and saves. */
 const recordDialog = useTemplateRef("recordDialog");
 const recordSnapshot = ref<RecordingSnapshot>();
+const labels = useProjectLabels();
 const recordSuggestions = ref<AssertionSuggestion[]>([]);
 const recordName = ref("");
 const recordError = ref("");
@@ -355,6 +357,7 @@ async function onRecordStop(): Promise<void> {
     snapshot.start.state,
     snapshot.endState,
     snapshot.printed,
+    labels.value,
   );
   recordName.value = "";
   recordError.value = "";

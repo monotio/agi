@@ -1,3 +1,4 @@
+import { numberedLabel } from "../../../src/logic/numberedLabels.ts";
 import type { AgiAudio } from "../audio/AgiAudio.ts";
 import type {
   ReplayCheckpointEvent,
@@ -851,7 +852,7 @@ export function useWalkthroughController(ctx: WalkthroughControllerContext): Wal
         key: cp.index,
         percent: cp.percent,
         label: cp.label,
-        details: `Score: ${cp.score} · Room ${cp.room}`,
+        details: `Score: ${cp.score} · ${numberedLabel("room", cp.room)}`,
         kind: "checkpoint",
         testid: `walkthrough-marker-${cp.index}`,
         payload: cp,

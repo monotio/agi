@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { numberedLabel } from "../../../src/logic/numberedLabels.ts";
 /**
  * The top of the Home screen: the wordmark, one line about the app and two
  * calls to action, beside a "Continue" card. With an autosave for the last
@@ -340,7 +341,8 @@ function onPrimary(): void {
         <div class="continue-text">
           <strong>{{ last ? last.title : featuredCatalog.title }}</strong>
           <span v-if="last">
-            Room {{ last.record.room }} · played {{ formatRelativeTime(last.record.savedAt, now) }}
+            {{ numberedLabel("room", last.record.room) }} · played
+            {{ formatRelativeTime(last.record.savedAt, now) }}
           </span>
           <span v-else>{{ featuredCatalog.description }}</span>
         </div>

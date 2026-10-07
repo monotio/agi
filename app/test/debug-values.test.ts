@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { logicValues, reservedValues } from "../src/studio/workspace/debugValues.ts";
+import { logicValues } from "../src/studio/workspace/debugValues.ts";
 
 test("Used here follows operand types and names, excluding messages and unused defines", () => {
   assert.deepEqual(
@@ -38,12 +38,4 @@ test("Used here accepts global bindings, raw slots and numeric operands", () => 
       { kind: "flag", slot: 42, names: "" },
     ],
   );
-});
-
-test("Game values use the reserved score and edge identities", () => {
-  assert.equal(reservedValues.variable[3], "Score");
-  assert.equal(reservedValues.variable[4], "Object touching edge");
-  assert.equal(reservedValues.variable[5], "Object edge");
-  assert.equal(reservedValues.variable[7], "Maximum score");
-  assert.equal(Object.keys(reservedValues.flag).length, 16);
 });

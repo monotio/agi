@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { documentLabel } from "../../../src/logic/numberedLabels.ts";
+import { projectLabelContext } from "../shell/projectLabelContext.ts";
 import { launchRemovalMessages } from "../../../src/authoring/projectRemoval.ts";
 import { readWorldLaunches } from "../../../src/authoring/launches.ts";
 import { computed, defineAsyncComponent } from "vue";
@@ -31,6 +33,7 @@ const launchChanges = computed(() => {
   return launchRemovalMessages(
     world.launches === undefined ? undefined : readWorldLaunches(world.launches),
     new Set([props.documentKey]),
+    projectLabelContext(props.beforeDocuments, props.profile),
   );
 });
 const CodeDiff = defineAsyncComponent(() => import("../studio/logic/AgentCodeDiff.vue"));
@@ -48,7 +51,7 @@ const images = computed(() => {
     const [kind, num] = target.split(":");
     if (kind !== "picture" && kind !== "view") return [];
     return [props.beforeImage, props.afterImage].map((image, index) => {
-      const label = `${target.replace(":", " ").toUpperCase()} ${index ? "After" : "Before"}`;
+      const label = `${documentLabel(target, projectLabelContext(index ? props.afterDocuments : props.beforeDocuments, props.profile))} ${index ? "After" : "Before"}`;
       const bytes = image.getResource(kind, Number(num));
       if (!bytes && kind === "view") return { label, url: "" };
       const surface = createPictureSurface();

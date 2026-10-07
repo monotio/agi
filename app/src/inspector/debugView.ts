@@ -1,3 +1,4 @@
+import { numberedLabel, type NumberedLabelContext } from "../../../src/logic/numberedLabels.ts";
 /**
  * Inspector helpers: coordinate mapping between the three spaces the debug
  * surface exposes (client pixels on the displayed canvas, the composed
@@ -208,12 +209,12 @@ export function cropFrameRgba(
 const MOTION_NAMES = ["normal", "move.obj", "follow.ego", "wander"] as const;
 
 /** One-line object identity for the pick card and the objects table. */
-export function describeObject(o: ScreenObjectState): string {
+export function describeObject(o: ScreenObjectState, labels: NumberedLabelContext = {}): string {
   const motion =
     o.motionMode === 1 && o.moveTarget
       ? `move.obj→(${o.moveTarget.x},${o.moveTarget.y})`
       : (MOTION_NAMES[o.motionMode] ?? `motion ${o.motionMode}`);
-  return `o${o.num} · view ${o.view} loop ${o.loop} cel ${o.cel} · pri ${o.priority}${o.fixedPriority ? "*" : ""} · ${motion}`;
+  return `${numberedLabel("object", o.num, labels, "option")} · ${numberedLabel("view", o.view, labels, "option")} loop ${o.loop} cel ${o.cel} · pri ${o.priority}${o.fixedPriority ? "*" : ""} · ${motion}`;
 }
 
 /** One axis-aligned box plus baseline for the object overlay. */
@@ -223,6 +224,7 @@ export interface OverlayBox {
   w: number;
   h: number;
   baseline: number;
+  num: number;
   label: string;
   priority: number;
   direction: number;
@@ -236,14 +238,18 @@ export interface OverlayBox {
  * Overlay geometry in logical pixels. Objects render at half-width cells: the
  * engine's x/y are already logical; width is doubled columns.
  */
-export function overlayBoxes(objects: readonly ScreenObjectState[]): OverlayBox[] {
+export function overlayBoxes(
+  objects: readonly ScreenObjectState[],
+  labels: NumberedLabelContext = {},
+): OverlayBox[] {
   return objects.map((o) => ({
     x: o.x,
     y: o.y - o.height + 1,
     w: o.width,
     h: o.height,
     baseline: o.y,
-    label: `o${o.num}`,
+    num: o.num,
+    label: numberedLabel("object", o.num, labels, "option"),
     priority: o.priority,
     direction: o.direction,
     stepSize: o.stepSize,
@@ -263,77 +269,27 @@ export interface DebugEvent {
   to: number;
 }
 
-const VAR_NAMES: Record<number, string> = {
-  0: "room",
-  1: "prev room",
-  2: "ego edge",
-  3: "score",
-  4: "obj touch",
-  5: "obj edge",
-  6: "ego dir",
-  7: "max score",
-  8: "mem left",
-  9: "anim lag",
-  10: "cycle time",
-  11: "seconds",
-  12: "minutes",
-  13: "hours",
-  14: "days",
-  15: "dbl-click",
-  16: "ego view",
-  17: "error",
-  18: "error param",
-  19: "last key",
-  20: "machine",
-  21: "print timeout",
-  22: "sound channels",
-  23: "volume",
-  24: "input max",
-  25: "sel item",
-  26: "mon. type",
-};
-
-const FLAG_NAMES: Record<number, string> = {
-  0: "ego on water",
-  1: "ego hidden",
-  2: "input pending",
-  3: "ego touched f2",
-  4: "said ready",
-  5: "new room",
-  6: "restart",
-  7: "no script",
-  8: "dbl click",
-  9: "sound on",
-  10: "trace",
-  11: "noise chan",
-  12: "restore sel",
-  13: "item select",
-  14: "menu used",
-  15: "no windows",
-  16: "no auto-pri",
-  255: "restart done",
-};
-
-/** "v3 score 4 → 6" / "f4 said ready set" for the timeline lane. */
-export function describeDebugEvent(ev: DebugEvent): string {
-  if (ev.kind === "flag") {
-    const name = FLAG_NAMES[ev.index];
-    return `f${ev.index}${name ? ` ${name}` : ""} ${ev.to !== 0 ? "set" : "reset"}`;
-  }
-  const name = VAR_NAMES[ev.index];
-  return `v${ev.index}${name ? ` ${name}` : ""} ${ev.from} → ${ev.to}`;
+/** Numbered identities in the timeline follow the same names as current values. */
+export function describeDebugEvent(ev: DebugEvent, labels: NumberedLabelContext = {}): string {
+  const name = numberedLabel(ev.kind === "flag" ? "flag" : "variable", ev.index, labels, "option");
+  return ev.kind === "flag"
+    ? `${name} ${ev.to !== 0 ? "set" : "reset"}`
+    : `${name} ${ev.from} → ${ev.to}`;
 }
 
 /** "L3 pc41 assignn(4,2)" / "L0 pc7 equaln(3,1) → false" for the trace pane. */
-export function formatTraceRecord(r: {
-  logic: number;
-  pc: number;
-  op: number;
-  args: number[];
-  result?: boolean;
-  name?: string;
-}): string {
-  const head = `L${r.logic} pc${r.pc} `;
+export function formatTraceRecord(
+  r: {
+    logic: number;
+    pc: number;
+    op: number;
+    args: number[];
+    result?: boolean;
+    name?: string;
+  },
+  labels: NumberedLabelContext = {},
+): string {
+  const head = `${numberedLabel("logic", r.logic, labels, "row")} pc${r.pc} `;
   const op = r.name ?? `0x${r.op.toString(16).padStart(2, "0")}`;
   const tail = r.result === undefined ? "" : ` → ${r.result}`;
   return `${head}${op}(${r.args.join(",")})${tail}`;

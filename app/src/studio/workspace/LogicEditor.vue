@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { documentLabel } from "../../../../src/logic/numberedLabels.ts";
 import { layoutDragging } from "../../play/layoutDrag.ts";
 import { onMounted, nextTick, onBeforeUnmount, useTemplateRef, watch, ref, computed } from "vue";
 import type { BindingInfo } from "../../../../src/logic/projectNames.ts";
@@ -376,7 +377,7 @@ onMounted(() => {
     }
   });
   editor.onDidChangeCursorSelection(({ selection }) => {
-    const name = props.documentKey.replace(":", " ").toUpperCase();
+    const name = documentLabel(props.documentKey);
     emit(
       "selection",
       selection.isEmpty()

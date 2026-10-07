@@ -377,3 +377,11 @@ test("removal preview names Launch deletion, Came from and item carry over", () 
   ]);
   assert.deepEqual(launchRemovalMessages(launches, new Set(["picture:2"])), []);
 });
+
+test("Launch removal reviews use inventory names with the shared slot label", () => {
+  const launches = { "1": { entries: [{ id: "key", name: "With key", items: { "0": 2 } }] } };
+  assert.deepEqual(
+    launchRemovalMessages(launches, new Set(["logic:2"]), { inventory: ["brass key"] }),
+    ["brass key (Item 0) in “With key” carries over."],
+  );
+});

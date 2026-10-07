@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { numberedLabel, numberedSlot } from "../../../../src/logic/numberedLabels.ts";
 import UiIcon from "../../ui/UiIcon.vue";
 import ActionMenu from "../../ui/ActionMenu.vue";
 import {
@@ -57,7 +58,13 @@ const names = computed(() => {
   if (props.bindings === undefined) return acceptedNames.value;
   try {
     return Object.entries(readBindingsDocument(props.bindings))
-      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+      .sort(([a, left], [b, right]) =>
+        left.kind === right.kind
+          ? left.num - right.num || (a < b ? -1 : a > b ? 1 : 0)
+          : left.kind < right.kind
+            ? -1
+            : 1,
+      )
       .map(([name, binding]) => ({
         name,
         ...binding,
@@ -206,7 +213,7 @@ function roomLabel(room: number): string {
   const row = props.groups
     .flatMap((group) => group.entries)
     .find((row) => row.id === `room:${room}`);
-  return row?.label.split(" · ROOM ")[0] || `Room ${room}`;
+  return numberedLabel("room", room, { name: row?.title ?? "" });
 }
 function startRoomRename(room: number): void {
   roomTitle.value = roomLabel(room);
@@ -455,7 +462,12 @@ function onKey(event: KeyboardEvent): void {
           />
           <span>{{
             row.child && resourceName(row.key)
-              ? `${resourceName(row.key)!.name.replaceAll("_", " ")} · ${row.key.replace(":", " ").toUpperCase()}`
+              ? numberedLabel(
+                  resourceName(row.key)!.kind,
+                  resourceName(row.key)!.num,
+                  { name: resourceName(row.key)!.name },
+                  "row",
+                )
               : row.label
           }}</span
           ><i v-if="pending?.includes(row.key)" class="draft-dot" aria-label="Pending change"></i
@@ -573,8 +585,7 @@ function onKey(event: KeyboardEvent): void {
             @click="details = info"
             @dblclick.stop.prevent="startRename(`state:${info.name}`, info.name)"
           >
-            {{ info.name
-            }}<small>{{ info.kind === "flag" ? "Flag" : "Variable" }} {{ info.num }}</small>
+            {{ info.name }}<small>{{ numberedSlot(info.kind, info.num) }}</small>
           </button>
           <p
             v-if="renaming?.row === `state:${info.name}` && renameError"
@@ -634,7 +645,7 @@ function onKey(event: KeyboardEvent): void {
               @dblclick.stop.prevent="startRename(`builtin:${info.name}`, info.name)"
             >
               <span>{{ info.name }}</span
-              ><small>{{ info.kind === "flag" ? "Flag" : "Variable" }} {{ info.num }}</small>
+              ><small>{{ numberedSlot(info.kind, info.num) }}</small>
             </button>
             <p
               v-if="renaming?.row === `builtin:${info.name}` && renameError"

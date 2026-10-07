@@ -1,4 +1,7 @@
 <script setup lang="ts">
+import { numberedLabel } from "../../../src/logic/numberedLabels.ts";
+import { useProjectLabels } from "../shell/useProjectLabels.ts";
+const labels = useProjectLabels();
 import { computed, reactive, ref, watch } from "vue";
 import UiButton from "../ui/UiButton.vue";
 import UiDialog from "../ui/UiDialog.vue";
@@ -294,7 +297,8 @@ function onReopenStaged(reference: StoredReference): void {
         <p class="reference-hint">
           Use one row of 4–6 poses per direction, with the feet aligned. Use transparency or one
           background colour. Missing directions reuse the opposite row; symmetric designs may mirror
-          it. Creates player VIEW {{ characterViewNum }} for review.
+          it. Creates player {{ numberedLabel("view", characterViewNum, labels, "option") }} for
+          review.
         </p>
         <label v-for="facing in FACINGS" :key="facing" class="reference-facing">
           {{ FACING_LABELS[facing] }}
@@ -365,7 +369,12 @@ function onReopenStaged(reference: StoredReference): void {
             />
             <span class="reference-existing-label">
               {{
-                reference.kind === "room" ? `Room ${reference.target}` : `View ${reference.target}`
+                numberedLabel(
+                  reference.kind === "room" ? "room" : "view",
+                  reference.target,
+                  labels,
+                  "option",
+                )
               }}
               <template v-if="reference.brief"> — {{ reference.brief }}</template>
             </span>
@@ -397,8 +406,8 @@ function onReopenStaged(reference: StoredReference): void {
     <div v-else class="reference-upload-body" data-testid="reference-staged">
       <template v-if="attached.staged">
         <p class="reference-hint">
-          Staged as VIEW {{ attached.staged.num }}. Check the contact sheet for silhouettes,
-          mirrored facings and the shared baseline.
+          Staged as {{ numberedLabel("view", attached.staged.num, labels, "option") }}. Check the
+          contact sheet for silhouettes, mirrored facings and the shared baseline.
         </p>
         <img
           v-if="stagedPreview"

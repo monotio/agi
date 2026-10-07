@@ -1,10 +1,13 @@
 <script setup lang="ts">
+import { numberedLabel } from "../../../../src/logic/numberedLabels.ts";
+import { useProjectLabels } from "../../shell/useProjectLabels.ts";
 import UiIcon from "../../ui/UiIcon.vue";
 import { VOCABULARY } from "../../../../src/vocabulary.ts";
 import { computed } from "vue";
 import UiButton from "../../ui/UiButton.vue";
 const props = defineProps<{ kind: "inventory"; source: string; readOnly?: boolean }>();
 const emit = defineEmits<{ edit: [source: string] }>();
+const labels = useProjectLabels();
 const rows = computed<readonly (readonly [string, number])[]>(() => {
   try {
     const value = JSON.parse(props.source) as unknown;
@@ -49,16 +52,17 @@ function add(): void {
           <td>
             <input
               :readonly="readOnly"
-              :aria-label="`${VOCABULARY.objectColumn.label} ${index}`"
+              :aria-label="numberedLabel('inventory', index, { ...labels, name: row[0] }, 'option')"
               :value="row[0]"
               @change="update(index, 0, ($event.target as HTMLInputElement).value)"
             />
+            <small>{{ numberedLabel("inventory", index) }}</small>
           </td>
           <td>
             <input
               :readonly="readOnly"
               type="number"
-              :aria-label="`${VOCABULARY.roomColumn.label} ${index}`"
+              :aria-label="`Starting room for ${numberedLabel('inventory', index, { ...labels, name: row[0] })}`"
               :value="row[1]"
               @change="update(index, 1, ($event.target as HTMLInputElement).value)"
             />

@@ -9,8 +9,9 @@ import { commandReference } from "./commandReference.ts";
 import { quoteLogicString } from "./disassembler.ts";
 import { analyzeLogicSyntax, scanLogicTokens, type Token } from "./syntax.ts";
 import { collectLogicResourceUses } from "./resourceUses.ts";
-import { collectLogicOperands, OPERAND_NAMES } from "./languageOperands.ts";
+import { collectLogicOperands } from "./languageOperands.ts";
 import type { AgiProfile } from "../runtime/profile.ts";
+import { numberedLabel, numberedSlot, type NumberedLabelContext } from "./numberedLabels.ts";
 import { systemBindings, type SystemBinding } from "./systemNames.ts";
 
 interface TextEdit {
@@ -25,6 +26,7 @@ export function createLogicLanguageSnapshot(input: {
   readonly profile: AgiProfile;
   readonly dictionary: ReadonlyMap<string, number>;
   readonly objects?: readonly string[];
+  readonly bindings?: NumberedLabelContext["bindings"];
 }) {
   const source = input.source;
   const profile = { ...input.profile };
@@ -140,7 +142,7 @@ export function createLogicLanguageSnapshot(input: {
         .sort()
         .map((word) => ({
           label: word,
-          detail: `Word group ${dictionary.get(word)}`,
+          detail: numberedSlot("word", dictionary.get(word)!),
           start,
           end,
           text: quoteLogicString(word),
@@ -162,7 +164,18 @@ export function createLogicLanguageSnapshot(input: {
         byName.get(context.call.name)?.operands[context.call.parameter] === "item"
           ? (input.objects ?? []).flatMap((name, index) =>
               name.toLowerCase().startsWith(prefix.toLowerCase()) || `o${index}`.startsWith(prefix)
-                ? [{ label: name, detail: `OBJECT ${index}`, start, end, text: `o${index}` }]
+                ? [
+                    {
+                      label: numberedLabel("inventory", index, {
+                        bindings: input.bindings ?? {},
+                        inventory: input.objects ?? [],
+                      }),
+                      detail: numberedSlot("inventory", index),
+                      start,
+                      end,
+                      text: `o${index}`,
+                    },
+                  ]
                 : [],
             )
           : [];
@@ -177,8 +190,8 @@ export function createLogicLanguageSnapshot(input: {
               ),
           )
           .map(([name, binding]) => ({
-            label: name,
-            detail: `${operandKind === "flag" ? "Flag" : "Variable"} ${binding.num} · built-in`,
+            label: numberedLabel(operandKind!, binding.num, { name }),
+            detail: `${numberedSlot(operandKind!, binding.num)} · built-in`,
             start,
             end,
             text: name,
@@ -190,7 +203,9 @@ export function createLogicLanguageSnapshot(input: {
           )
           .map((entry) => ({
             label: entry.name,
-            detail: "Local definition",
+            detail: input.bindings?.[entry.name]?.kind
+              ? numberedSlot(input.bindings[entry.name]!.kind!, input.bindings[entry.name]!.num)
+              : "Local definition",
             start,
             end,
             text: entry.name,
@@ -212,7 +227,7 @@ export function createLogicLanguageSnapshot(input: {
     const names = new Map(
       Object.entries(builtins).map(([name, binding]) => [
         name,
-        `${binding.kind === "f" ? "Flag" : "Variable"} ${binding.num} · built-in`,
+        `${numberedSlot(binding.kind, binding.num)} · built-in`,
       ]),
     );
     for (const definition of syntax.definitions)
@@ -267,14 +282,19 @@ export function createLogicLanguageSnapshot(input: {
       return {
         start: operand.start,
         end: operand.end,
-        text: `${OPERAND_NAMES[operand.kind]} ${operand.num}${names.length ? ` (${names.join(", ")})` : ""}\n\n${count} ${count === 1 ? "use" : "uses"} in this LOGIC.`,
+        text: `${numberedLabel(operand.kind, operand.num, { bindings: input.bindings ?? {}, name: names[0] ?? "", inventory: input.objects ?? [], words: [...dictionary] }, "row")}\n\n${count} ${count === 1 ? "use" : "uses"} in this LOGIC.`,
       };
     }
     if (operand?.name && builtins[operand.name] && !definitionAt(offset))
       return {
         start: operand.start,
         end: operand.end,
-        text: `${OPERAND_NAMES[operand.kind]} ${operand.num} · ${operand.name}`,
+        text: numberedLabel(
+          operand.kind,
+          operand.num,
+          { bindings: input.bindings ?? {}, name: operand.name },
+          "row",
+        ),
       };
     if (token?.type !== "ident") return null;
     const definition = definitionAt(offset);

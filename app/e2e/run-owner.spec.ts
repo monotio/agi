@@ -154,7 +154,7 @@ test.describe("Play continuation", () => {
     expect(await checkpoint(page)).toEqual(original);
     await action.click();
     expect(await checkpoint(page)).toEqual(original);
-    const back = page.getByRole("button", { name: "Back to Room 1", exact: true });
+    const back = page.getByRole("button", { name: "Back to Home", exact: true });
     await expect(back).toBeVisible();
     await back.click();
     expect(await checkpoint(page)).toEqual(original);

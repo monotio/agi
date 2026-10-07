@@ -25,6 +25,8 @@
  * references.
  */
 
+import { readBindingsDocument } from "./projectBindings.ts";
+export { readBindingsDocument } from "./projectBindings.ts";
 import { readImageReferences } from "../creative/imageAttachments.ts";
 import { sha256Hex } from "../crypto.ts";
 import { openContainer } from "../container/container.ts";
@@ -360,23 +362,6 @@ export function readMusicDocument(text: string): NonNullable<AuthoringState["mus
   } catch (error) {
     throw new Error(
       `Invalid project document music: ${error instanceof Error ? error.message : String(error)}`,
-      { cause: error },
-    );
-  }
-}
-
-/** Authoring-state validation is the single bindings schema; reuse it here. */
-export function readBindingsDocument(text: string): AuthoringState["bindings"] {
-  const parsed = parseJson(text, "bindings");
-  try {
-    return validateAuthoringState({
-      version: 1,
-      bindings: parsed,
-      world: { rooms: {}, facts: {}, quests: {} },
-    }).bindings;
-  } catch (error) {
-    throw new Error(
-      `Invalid project document bindings: ${error instanceof Error ? error.message : String(error)}`,
       { cause: error },
     );
   }

@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { useProjectLabels } from "../shell/useProjectLabels.ts";
+import { numberedLabel, numberedSlot } from "../../../src/logic/numberedLabels.ts";
 /**
  * The detail pane's plan editor: when the selected room is in the plan it
  * edits its title, brief and exits; a planned room can be dropped from the
@@ -16,6 +18,7 @@ import type { RoomGraphNode } from "../../../src/agent/roomMap.ts";
 import type { PlanRoomEdit } from "./useRoomMap.ts";
 
 const props = defineProps<{ node: RoomGraphNode }>();
+const labels = useProjectLabels();
 const engine = useEngineApi();
 const map = engine.roomMap;
 
@@ -169,7 +172,7 @@ const building = computed(() => map.buildingRoom.value === props.node.room);
         <ul v-else class="plan-exit-list">
           <li v-for="[name, to] in planExits" :key="name">
             <span class="plan-exit-name">{{ name }}</span>
-            <span class="plan-exit-to">→ Room {{ to }}</span>
+            <span class="plan-exit-to">→ {{ numberedSlot("room", to) }}</span>
             <UiIconButton
               icon="trash"
               size="sm"
@@ -213,7 +216,7 @@ const building = computed(() => map.buildingRoom.value === props.node.room);
         :title="
           map.buildingRoom.value === undefined
             ? undefined
-            : `Room ${map.buildingRoom.value} is building`
+            : `${numberedLabel('room', map.buildingRoom.value!, labels)} is building`
         "
         @click="map.buildPlannedRoom(node.room)"
       >

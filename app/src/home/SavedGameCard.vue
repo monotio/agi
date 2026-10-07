@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { numberedLabel } from "../../../src/logic/numberedLabels.ts";
 /**
  * A game stored in this browser's library: its progress or opening, one line
  * of detail, and the play split button — Resume or Play, with a ▾ "More ways
@@ -111,7 +112,7 @@ function lastJournalRoom(): number | undefined {
 
 const meta = computed(() => {
   if (autosave.value)
-    return `Room ${autosave.value.room} · played ${formatRelativeTime(autosave.value.savedAt, now.value)}`;
+    return `${numberedLabel("room", autosave.value.room)} · played ${formatRelativeTime(autosave.value.savedAt, now.value)}`;
   const provenance = (featured ? undefined : libraryProvenance(game)) ?? featuredMeta;
   if (provenance) return provenance;
   const room = lastJournalRoom();

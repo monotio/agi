@@ -1,3 +1,8 @@
+import {
+  numberedLabel,
+  numberedSlot,
+  type NumberedLabelContext,
+} from "../../../src/logic/numberedLabels.ts";
 /**
  * The world graph's geometry: node boxes, edge paths that fan out when two
  * edges share a pair of rooms and stop at the node borders, and the words
@@ -155,14 +160,14 @@ const NODE_LABEL_CHARS = 18;
 
 /**
  * One-line caption that fits the node: "Room 4" alone, or the room number
- * and its title ("4 · The Vault"), the title cut with an ellipsis so the
+ * and its title ("The Vault · Room 4"), the title cut with an ellipsis so the
  * whole caption, ellipsis included, stays within NODE_LABEL_CHARS.
  */
-export function nodeLabel(node: RoomGraphNode): string {
-  if (!node.title) return `Room ${node.room}`;
-  const prefix = `${node.room} · `;
-  const budget = NODE_LABEL_CHARS - prefix.length;
-  const title =
-    node.title.length > budget ? `${node.title.slice(0, budget - 1).trimEnd()}…` : node.title;
-  return `${prefix}${title}`;
+export function nodeLabel(node: RoomGraphNode, context: NumberedLabelContext = {}): string {
+  const name = numberedLabel("room", node.room, { ...context, name: node.title ?? "" });
+  const slot = numberedSlot("room", node.room);
+  if (name === slot) return slot;
+  const budget = NODE_LABEL_CHARS - slot.length - 3;
+  const title = name.length > budget ? `${name.slice(0, budget - 1).trimEnd()}…` : name;
+  return numberedLabel("room", node.room, { name: title }, "row");
 }
