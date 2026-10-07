@@ -1194,14 +1194,36 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
     const operation = beginResumeOperation();
     const pointer = readResumePointer(localStorage);
     if (pointer === null) return false;
-    const key = pointer.value;
-    const locator = parseProgressLocator(key);
+    let key = pointer.value;
+    let locator = parseProgressLocator(key);
     if (!pointer.legacy && locator === null) {
       // A physical pointer that parses to nothing usable refuses — its
       // checkpoint stays stored, and the value never falls through to the
       // released alias/folder resolution a bare spelling would get.
       ctx.logAgent("log", `Autosave pointer "${key}" names no physical target; starting fresh.`);
       return false;
+    }
+    // Released project pointers select their live body before reading a
+    // checkpoint. The one-time adoption validates every image and leaves the
+    // old pointer/records intact; all subsequent resumes use the bound store.
+    const legacyProject = pointer.legacy ? projectId(key) : null;
+    if (
+      legacyProject !== null &&
+      getCachedGameMeta(legacyProject) !== null &&
+      readAutosave(key)?.game.installed !== true
+    ) {
+      const bound = await bindSavedProgressTarget(legacyProject).catch(() => null);
+      if (operation !== resumeGeneration || bound === null) return false;
+      try {
+        const { adoptEarlierProjectProgress } =
+          await import("../project/earlierProgressAdoption.ts");
+        await adoptEarlierProjectProgress(localStorage, bound);
+      } catch {
+        /* Unreadable progress or refused storage stays available for inspection. */
+      }
+      if (operation !== resumeGeneration) return false;
+      key = bound.locator;
+      locator = parseProgressLocator(key);
     }
     const record = readAutosave(key);
     if (!record) return false;

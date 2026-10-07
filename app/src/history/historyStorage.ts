@@ -1232,6 +1232,7 @@ export async function importGameHistory(
   target: ProgressTarget,
   history: ProjectHistory,
   installedLifetime?: string | null,
+  onlyIfAbsent = false,
 ): Promise<boolean> {
   return serializeWrite(manifestKey(target.locator), async () => {
     try {
@@ -1248,6 +1249,9 @@ export async function importGameHistory(
       const hashOf = (boot: HistoryBoot): string => blobHashes.get(JSON.stringify(boot.files))!;
       await onTape(target.locator, (key) =>
         updateBodyRecords<void>(key, target, installedLifetime, (raw) => {
+          // Upgrade adoption never replaces a current tape, including one
+          // another page created while the source's blobs were being hashed.
+          if (onlyIfAbsent && raw !== undefined) return { result: undefined };
           const stored = readManifest(raw);
           const w = emptyWrites();
           if (stored !== null) {

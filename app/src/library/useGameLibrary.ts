@@ -40,6 +40,8 @@ import {
   type CachedGameMeta,
 } from "../project/gameStorage.ts";
 import { bindSavedProgressTarget } from "../project/progressBinding.ts";
+import { earlierProgressReceiptKey } from "../project/earlierProgressReceipt.ts";
+import { adoptEarlierProjectProgress } from "../project/earlierProgressAdoption.ts";
 import {
   installedProgressTarget,
   parseProgressLocator,
@@ -140,7 +142,17 @@ export function createGameLibrary(
     exportCurrentGame,
   } = engine;
   const { llmConfig, openAiSettings, aiConfigured } = ai;
-  const bindSaved = seams?.bindSavedProgressTarget ?? bindSavedProgressTarget;
+  async function bindSaved(project: string): Promise<ProjectProgressTarget | null> {
+    const target = await (seams?.bindSavedProgressTarget ?? bindSavedProgressTarget)(project);
+    if (target !== null) {
+      try {
+        await adoptEarlierProjectProgress(localStorage, target);
+      } catch {
+        /* Retained unreadable progress or refused storage never blocks opening a project. */
+      }
+    }
+    return target;
+  }
 
   // Game and LLM state
   const initialGames = listCachedGames();
@@ -275,7 +287,8 @@ export function createGameLibrary(
       const previous =
         localStorage.getItem(autosaveKey(target.locator)) !== null
           ? readAutosave(target.locator)
-          : target.bodyEpoch === "initial"
+          : target.bodyEpoch === "initial" &&
+              localStorage.getItem(earlierProgressReceiptKey(target.project)) === null
             ? readAutosave(target.project)
             : null;
       return previous &&
