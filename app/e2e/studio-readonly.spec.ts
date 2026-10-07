@@ -449,7 +449,11 @@ test("lens keys switch lenses and studio keys never reach a window listener", as
       .getByRole("radio", { name: new RegExp(`^${name}`) });
   await page.keyboard.press("2");
   await expect(lens("Priority")).toHaveAttribute("aria-checked", "true");
+  // Band lines start off and the choice is remembered.
+  await expect(page.locator('[data-role="band-guides"]')).toHaveCount(0);
+  await page.getByRole("button", { name: "Band lines", exact: true }).click();
   await expect(page.locator('[data-role="band-guides"]')).toHaveCount(1);
+  expect(await page.evaluate(() => localStorage.getItem("monotio_agi.studioBands"))).toBe("1");
   // The Priority lens's room panel lists the control lines, off the picture.
   await expect(page.locator('.studio__inspector [data-role="control-legend"]')).toContainText(
     "0 · Wall",

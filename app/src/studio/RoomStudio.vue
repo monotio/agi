@@ -207,7 +207,23 @@ const emit = defineEmits<{
 
 const lens = ref<StudioLens>("art");
 const mode = ref<StudioViewMode>("blend");
-const showBands = ref(true);
+const BANDS_KEY = "monotio_agi.studioBands";
+/** Band lines start off so the picture stays clear; the choice is remembered. */
+function storedBands(): boolean {
+  try {
+    return localStorage.getItem(BANDS_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+const showBands = ref(storedBands());
+watch(showBands, (on) => {
+  try {
+    localStorage.setItem(BANDS_KEY, on ? "1" : "0");
+  } catch {
+    /* This page keeps the choice. */
+  }
+});
 const priorityFilter = ref<PriorityFilter>("all");
 const filter = ref("");
 const side = ref("items");
