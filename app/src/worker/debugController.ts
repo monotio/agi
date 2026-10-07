@@ -68,6 +68,7 @@ export function createDebugController(ctx: WorkerContext) {
    * compare before attributing anything to the session's run.
    */
   let boundResetSerial = -1;
+  let previousLocation: ExecutionBoundary | null = null;
 
   /**
    * The engine accepts control changes only at a completed-cycle boundary.
@@ -219,6 +220,7 @@ export function createDebugController(ctx: WorkerContext) {
     // Same in-place reset as the gate: stale-epoch watch baselines and step
     // plans never observe the new run's pass.
     if (engine !== d.engine || engine.runResetSerial !== boundResetSerial) return false;
+    if (observation.cause.type === "instruction") previousLocation = observation.cause.boundary;
     let stop = false;
     if (d.watchpointPlan !== null && d.watchpointSpecs.length > 0) {
       const outcome = d.watchpointPlan.observe(
@@ -301,6 +303,7 @@ export function createDebugController(ctx: WorkerContext) {
       boundarySeq: info.location?.sequence ?? null,
       cause: info.cause,
       location: info.location,
+      previousLocation,
       wait: info.wait,
       reasons,
       state: d.inspected!.state,
@@ -436,6 +439,7 @@ export function createDebugController(ctx: WorkerContext) {
     if (d.engine !== engine) d.installed = false;
     d.engine = engine;
     boundResetSerial = engine.runResetSerial;
+    previousLocation = null;
     d.epoch = ++d.epochCounter;
     let breakpoints: readonly DebugBreakpointStatus[];
     let watchpoints: readonly DebugWatchStatus[];
@@ -551,6 +555,7 @@ export function createDebugController(ctx: WorkerContext) {
     ctx.run.debugger = newDebuggerState();
     ctx.run.debugger.epochCounter = epochCounter;
     boundResetSerial = -1;
+    previousLocation = null;
     if (hiatus) {
       // Normal recording restarts at the next representable boundary.
       ctx.fns.historyResume();
@@ -684,6 +689,7 @@ export function createDebugController(ctx: WorkerContext) {
     const d = ctx.run.debugger;
     d.engine = engine;
     boundResetSerial = engine.runResetSerial;
+    previousLocation = null;
     d.epoch = ++d.epochCounter;
     d.buildId = build.identity.buildId;
     d.build = build;

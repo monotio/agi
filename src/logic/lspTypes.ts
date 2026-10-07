@@ -53,7 +53,20 @@ interface SignatureHelp {
   activeSignature: number;
   activeParameter: number;
 }
+/** A detached paused snapshot supplied by a debugger host for one document. */
+export interface LogicDebugState {
+  readonly vars: readonly number[];
+  readonly flags: readonly number[];
+  /** Zero-based source lines: the resume point and last executed instruction. */
+  readonly lines: readonly number[];
+}
+export interface LogicDebugValue {
+  readonly kind: "variable" | "flag";
+  readonly slot: number;
+  readonly text: string;
+}
 interface Hover {
+  debugValue?: LogicDebugValue;
   contents: { kind: "markdown"; value: string };
   range: Range;
 }

@@ -3,6 +3,7 @@ import { documentLabel } from "../../../../src/logic/numberedLabels.ts";
 import { layoutDragging } from "../../play/layoutDrag.ts";
 import {
   onMounted,
+  nextTick,
   onBeforeUnmount,
   onWatcherCleanup,
   useTemplateRef,
@@ -10,6 +11,9 @@ import {
   ref,
   computed,
 } from "vue";
+import type { WorkspaceDebug } from "./workspaceDebug.ts";
+import type { LogicDebugValue } from "../../../../src/logic/lspTypes.ts";
+import type { PausedLogicState } from "../logic/monacoLanguage.ts";
 import type { BindingInfo } from "../../../../src/logic/projectNames.ts";
 import BindingDetails from "../../shell/BindingDetails.vue";
 import { parseWordsTok } from "../../../../src/logic/words.ts";
@@ -50,6 +54,7 @@ const props = defineProps<{
   active: boolean;
   breakpoints?: readonly number[] | undefined;
   stoppedLine?: number | undefined;
+  debug?: WorkspaceDebug | undefined;
   runningSource?: string | undefined;
   location?: { line: number; serial: number } | undefined;
 }>();
@@ -184,6 +189,108 @@ function leaveEditor(event: FocusEvent): void {
 let editor: monaco.editor.IStandaloneCodeEditor | undefined;
 let model: monaco.editor.ITextModel | undefined;
 let language: ReturnType<typeof registerLogicModel> | undefined;
+const valueEditor = ref<{
+  slot: number;
+  value: number;
+  paused: PausedLogicState;
+  position: monaco.IPosition;
+  left: number;
+  top: number;
+}>();
+const valuePanel = useTemplateRef("valuePanel");
+const valueInput = useTemplateRef("valueInput");
+function hideHover(): void {
+  editor
+    ?.getContribution<monaco.editor.IEditorContribution & { hideContentHover(): void }>(
+      "editor.contrib.contentHover",
+    )
+    ?.hideContentHover();
+}
+function showValueHover(position: monaco.IPosition): void {
+  editor?.setPosition(position);
+  editor?.trigger("agi-logic", "editor.action.showHover", { focus: true });
+}
+function closeValue(): void {
+  valueEditor.value = undefined;
+  editor?.focus();
+}
+function outsideValue(event: PointerEvent): void {
+  if (
+    valueEditor.value &&
+    event.target instanceof Node &&
+    !valuePanel.value?.contains(event.target)
+  )
+    closeValue();
+}
+function pausedState(): PausedLogicState | undefined {
+  return model
+    ? props.debug?.logicState(Number(props.documentKey.slice(6)), model.getValue())
+    : undefined;
+}
+function sameStop(paused: PausedLogicState): boolean {
+  const current = pausedState();
+  return current?.epoch === paused.epoch && current.stopId === paused.stopId;
+}
+async function onDebugValue(
+  value: LogicDebugValue,
+  paused: PausedLogicState,
+  position: monaco.IPosition,
+): Promise<void> {
+  if (!sameStop(paused) || !props.debug || props.debug.state.busy) return;
+  hideHover();
+  if (value.kind === "flag") {
+    await props.debug.run(() =>
+      props.debug!.setValue("flag", value.slot, paused.flags[value.slot] ? 0 : 1),
+    );
+    if (pausedState()) showValueHover(position);
+    return;
+  }
+  const at = editor?.getScrolledVisiblePosition(position);
+  valueEditor.value = {
+    slot: value.slot,
+    value: paused.vars[value.slot]!,
+    paused,
+    position,
+    left: Math.max(0, Math.min(at?.left ?? 0, (root.value?.clientWidth ?? 240) - 240)),
+    top: (at?.top ?? 0) + (at?.height ?? 20) + (root.value?.offsetTop ?? 0),
+  };
+  await nextTick();
+  const entry = valueEditor.value;
+  const panel = valuePanel.value;
+  const surface = root.value;
+  if (entry && panel && surface) {
+    const bounds = surface.getBoundingClientRect();
+    const host = panel.offsetParent!.getBoundingClientRect();
+    const size = panel.getBoundingClientRect();
+    const left = bounds.left - host.left;
+    const top = bounds.top - host.top;
+    entry.left = Math.max(left, Math.min(entry.left, left + bounds.width - size.width));
+    entry.top = Math.max(top, Math.min(entry.top, top + bounds.height - size.height));
+    await nextTick();
+  }
+  valueInput.value?.focus();
+  valueInput.value?.select();
+}
+async function setHoverValue(): Promise<void> {
+  const entry = valueEditor.value;
+  if (!entry || !sameStop(entry.paused) || !props.debug) {
+    closeValue();
+    return;
+  }
+  const value = Number(entry.value);
+  if (!Number.isInteger(value) || value < 0 || value > 255) return;
+  await props.debug.run(() => props.debug!.setValue("variable", entry.slot, value));
+  valueEditor.value = undefined;
+  if (pausedState()) showValueHover(entry.position);
+}
+watch(
+  () => props.debug?.stopped.value,
+  () => {
+    valueEditor.value = undefined;
+    hideHover();
+    language?.refreshDebug();
+  },
+);
 let observer: ResizeObserver | undefined;
 let syncing = false;
 let layoutFrame = 0;
@@ -396,6 +503,8 @@ onMounted(() => {
     documentKey: props.documentKey,
     applyProjectEdit,
     onFormat: beginFormatting,
+    debugState: pausedState,
+    onDebugValue,
     onBinding,
     onResource: (key) => workspace.open(key),
   });
@@ -421,6 +530,10 @@ onMounted(() => {
     wordWrap: "on",
     tabSize: 2,
     padding: { top: 16, bottom: 16 },
+  });
+  document.addEventListener("pointerdown", outsideValue, true);
+  editor.onDidScrollChange(() => {
+    valueEditor.value = undefined;
   });
   contextMenu = registerLogicContextMenu(editor, findReferences);
   decorations = editor.createDecorationsCollection();
@@ -520,6 +633,7 @@ watch(
       if (model) client.changeDocument(props.documentKey, model.getVersionId(), model.getValue());
     }
     decorate();
+    language?.refreshDebug();
   },
 );
 watch(() => [props.snapshot, props.profileId], analysis);
@@ -550,6 +664,7 @@ watch(
 onBeforeUnmount(() => {
   formatOnLeave();
   emit("typingEnd");
+  document.removeEventListener("pointerdown", outsideValue, true);
   cancelAnimationFrame(layoutFrame);
   observer?.disconnect();
   // Model-change listeners cancel their work before markers and providers retire.
@@ -577,6 +692,28 @@ defineExpose({
 </script>
 <template>
   <div class="workspace-logic-surface">
+    <form
+      v-if="valueEditor"
+      ref="valuePanel"
+      class="logic-debug-value"
+      :style="{ left: `${valueEditor.left}px`, top: `${valueEditor.top}px` }"
+      @submit.prevent="setHoverValue"
+      @keydown.esc.stop.prevent="closeValue"
+    >
+      <label :for="`debug-value-${documentKey}`">Variable {{ valueEditor.slot }}</label>
+      <input
+        ref="valueInput"
+        :id="`debug-value-${documentKey}`"
+        v-model.number="valueEditor.value"
+        type="number"
+        min="0"
+        max="255"
+        step="1"
+        required
+      />
+      <button type="button" @click="closeValue">Cancel</button>
+      <button type="submit" :disabled="debug?.state.busy">Set</button>
+    </form>
     <div
       v-if="(differs && stoppedLine !== undefined) || showRunning"
       class="workspace-running-source"
@@ -610,6 +747,25 @@ defineExpose({
   flex-direction: column;
   height: 100%;
   min-height: 0;
+}
+.logic-debug-value {
+  position: absolute;
+  z-index: 60;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  width: 240px;
+  padding: var(--space-3);
+  background: var(--surface-1);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-dialog);
+}
+.logic-debug-value label {
+  width: 100%;
+}
+.logic-debug-value input {
+  width: 60px;
 }
 /* Shown only while paused here; it floats over the code so the editor never moves. */
 .workspace-running-source {
