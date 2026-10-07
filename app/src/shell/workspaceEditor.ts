@@ -62,7 +62,7 @@ export interface StudioRequest {
 }
 
 /** One group in the shared shortcut sheet (structural twin of KeySection). */
-export interface KeySheetSection {
+interface KeySheetSection {
   readonly title: string;
   readonly rows: readonly { keys: readonly string[]; does: string }[];
 }

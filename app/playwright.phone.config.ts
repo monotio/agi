@@ -41,6 +41,9 @@ export default defineConfig({
     "synthetic-walkthrough.spec.ts",
     "dialog-fit.spec.ts",
     "disk-import.spec.ts",
+    "parts-rename.spec.ts",
+    "door-new-room.spec.ts",
+    "test-run-chip.spec.ts",
   ],
   projects: [
     { name: "android-chromium", use: { browserName: "chromium" } },

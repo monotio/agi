@@ -4,7 +4,7 @@ import { test } from "node:test";
 import ts from "typescript";
 import { baseParse, NodeTypes, type RootNode, type TemplateChildNode } from "@vue/compiler-dom";
 import { ROOM_TOOL_HINTS, ROOM_TOOL_NAMES } from "../src/studio/studioHelp.ts";
-import { VOCABULARY, VOCABULARY_ACTIONS, RETIRED_UI_TERMS } from "../../src/vocabulary.ts";
+import { VOCABULARY, RETIRED_UI_TERMS } from "../../src/vocabulary.ts";
 
 // These are persisted values, editor modes and resource identifiers, rather than visible copy.
 const IDENTIFIERS: Readonly<Record<string, true>> = {
