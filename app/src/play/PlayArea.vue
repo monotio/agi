@@ -69,6 +69,7 @@ const agentBlocksGame = computed(
 );
 const inputDisabled = computed(
   () =>
+    state.otherTab ||
     agentBlocksGame.value ||
     state.historyView.active ||
     (!state.inputReady && !state.walkthrough.active),

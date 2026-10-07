@@ -3,6 +3,19 @@ import { test } from "node:test";
 import { gameContainer, workerHarness } from "./worker-ctx.ts";
 import { onWorkerMessage } from "../src/worker/dispatch.ts";
 
+test("a copy accepts its first generation and rejects late ownership from the original target", () => {
+  const { ctx } = workerHarness(gameContainer(["return;"]));
+  onWorkerMessage(ctx, { type: "playOwner", active: true, generation: 3, epoch: 1 });
+  onWorkerMessage(ctx, { type: "playOwner", active: false, generation: 0, epoch: 2 });
+  assert.equal(ctx.run.owner.active, false);
+  onWorkerMessage(ctx, { type: "playOwner", active: true, generation: 1, epoch: 2 });
+  assert.equal(ctx.run.owner.active, true);
+  assert.equal(ctx.run.owner.generation, 1);
+  onWorkerMessage(ctx, { type: "playOwner", active: false, generation: 4, epoch: 1 });
+  assert.equal(ctx.run.owner.active, true);
+  assert.equal(ctx.run.owner.generation, 1);
+});
+
 test("a detached boot uses the requested sound device before publishing its engine", (t) => {
   const container = gameContainer(["return;"]);
   const { ctx } = workerHarness(container);

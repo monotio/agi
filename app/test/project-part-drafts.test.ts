@@ -86,6 +86,35 @@ for (const refuseWrite of [false, true])
     }
   });
 
+test("ordinary edits undo newest first, group typing, and clear Redo after a fresh edit", async () => {
+  const drafts = openProjectDrafts({
+    projectId: "ordinary-undo",
+    lifetime: "initial",
+    journal: journal(),
+    read: (key) => (key === "notes" ? "committed note" : key === "world" ? "old name" : "end\n"),
+  });
+  await drafts.ready;
+  drafts.stage([{ key: "world", content: "new name" }]);
+  assert.equal(drafts.status().canUndo, true);
+  drafts.stage([{ key: "picture:2", content: "vis 4\nend\n" }]);
+  drafts.stage([{ key: "picture:2", content: "vis 4\nfill 0,0\nend\n" }]);
+  assert.equal(drafts.undo(), true);
+  assert.equal(drafts.changes().find(({ key }) => key === "picture:2")?.content, "vis 4\nend\n");
+  assert.equal(drafts.undo(), true);
+  assert.equal(drafts.changes().find(({ key }) => key === "picture:2")?.content, "end\n");
+  assert.equal(drafts.undo(), true);
+  assert.equal(drafts.changes().find(({ key }) => key === "world")?.content, "old name");
+  drafts.stage([{ key: "notes", content: "a" }]);
+  drafts.stage([{ key: "notes", content: "ab" }]);
+  drafts.undo();
+  assert.equal(drafts.changes().find(({ key }) => key === "notes")?.content, "committed note");
+  drafts.stage([{ key: "notes", content: "fresh" }]);
+  assert.equal(drafts.redo(), false);
+  await drafts.flush();
+  await drafts.clear();
+  drafts.dispose();
+});
+
 test("a coordinated draft edit undoes and redoes as one transaction", async () => {
   const drafts = openProjectDrafts({
     projectId: "draft-transaction",

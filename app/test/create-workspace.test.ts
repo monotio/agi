@@ -1,8 +1,16 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createWorkspaceEditor } from "../src/shell/workspaceEditor.ts";
+
 import type { EngineApi } from "../src/engine/engineContext.ts";
 import { createCreateWorkspace, DOCKS_STORAGE_KEY } from "../src/shell/useCreateWorkspace.ts";
+
+test("an unavailable Launch editor names a present cause and a recovery action", () => {
+  const editor = createWorkspaceEditor({} as EngineApi);
+  editor.actionRoom.value = 1;
+  editor.requestLaunchEditor("edit");
+  assert.equal(editor.error.value, "The Launch editor is still opening. Try again.");
+});
 
 function memoryStorage(seed: Record<string, string> = {}) {
   const data = new Map(Object.entries(seed));

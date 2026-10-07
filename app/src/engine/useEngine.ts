@@ -285,6 +285,7 @@ export function useEngine(
         type: "playOwner",
         active: !lost,
         generation: progressOwnership.lastGeneration(),
+        epoch: progressOwnership.epoch(),
       } satisfies WorkerInbound);
       if (lost) pauseEngine("otherTab");
       else resumeEngine("otherTab");
@@ -498,7 +499,7 @@ export function useEngine(
             : {}),
           admission,
           current,
-          forked(data, lifetime) {
+          async forked(data, lifetime) {
             if (!current()) return;
             state.copyCreated = { projectId: data.projectId, originalTitle: game.title };
             game = {
@@ -513,9 +514,13 @@ export function useEngine(
             };
             lifecycle.setBootedGame(game);
             const target = bindProgressTarget(game);
-            if (target) writeResumePointer(localStorage, target.locator);
             autosaveController.reset();
             hook.autosave = -1;
+            if (target) {
+              await progressOwnership.acquire(target);
+              if (!current()) return;
+              writeResumePointer(localStorage, target.locator);
+            }
             state.patchTick++;
             state.worldTick++;
             void autosaveController.flushAutosave();

@@ -377,6 +377,10 @@ const spoken = computed(() => {
 function history(which: "undo" | "redo"): void {
   if (frozen()) return;
   tools.cancel();
+  if (workspaceEditor) {
+    void workspaceEditor.step(which);
+    return;
+  }
   if (which === "undo" ? draft.undo() : draft.redo()) say(null);
 }
 

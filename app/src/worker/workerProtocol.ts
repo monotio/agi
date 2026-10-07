@@ -269,7 +269,7 @@ export interface PatchResource {
 }
 
 export type WorkerInbound =
-  | { type: "playOwner"; active: boolean; generation: number }
+  | { type: "playOwner"; active: boolean; generation: number; epoch?: number }
   | { type: "observeSentences"; enabled: boolean }
   /** Choosing Play restores the moment captured on entry to Create. */
   | { type: "projectPlay"; id?: number; restart?: boolean }

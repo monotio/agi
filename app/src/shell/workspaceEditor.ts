@@ -107,7 +107,7 @@ export function createWorkspaceEditor(engine: EngineApi) {
     const room = actionRoom.value;
     if (room === undefined) return;
     if (openLaunchEditor.value) openLaunchEditor.value(mode, room);
-    else error.value = "Launch editor will be available in a later update.";
+    else error.value = "The Launch editor is still opening. Try again.";
   }
   const phonePlaytest = ref(false);
   const removalReview = shallowRef<ComputedRoomRemovalReview>();
