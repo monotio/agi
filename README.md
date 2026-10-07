@@ -78,7 +78,9 @@ A few things worth knowing:
 - **Sound** follows the machine. Amiga editions play through emulated Paula,
   the IIgs edition through its own Ensoniq wavetable instruments read from the
   game's files, and PC editions through the Tandy sound chip or the PC speaker,
-  under **Settings → Advanced… → Sound chip**.
+  under **Settings → Advanced… → Sound chip**. The
+  [media gallery](docs/media/README.md#sound-on-each-platform) shows one of the
+  tutorial's SOUNDs on each machine.
 - **Mouse** clicks walk the hero on the Amiga and IIgs editions, as they did on
   the originals.
 - **The picture** fills a 4:3 frame, the way a monitor of the day stretched the
@@ -135,7 +137,14 @@ the opening from editable Boilerplate.
 
 The agent plans the world and builds the opening room: artwork, characters and
 game logic. When you walk into a room that is still unbuilt, play pauses
-while the agent writes it. Along the way you can:
+while the agent writes it:
+
+![Typing EAST pauses Play while the agent writes the next room, then the hero walks in](docs/media/clip-room-generation.gif)
+
+_The agent's reply in this clip is a recorded one that writes the tutorial's own
+Sprite Lab picture; checking, compiling and entering the room are the app's own._
+
+Along the way you can:
 
 - open **World map** to rename rooms, edit their
   briefs and pin notes the agent reads when it builds that part of the world;
@@ -219,6 +228,12 @@ restore that moment on your updated files. Create uses temporary progress and sa
 With two tabs open, the newest tab plays; **Take back** returns control to the older tab. **Discard changes…** returns parts to
 that last update. **Saved** confirms browser storage for drafts; it keeps their dots.
 
+![The action menu lists Carry over, From my game, From the beginning and the room's Launches above the Launch editor](docs/media/launch-menu-1.2.png)
+
+_A Launch starts its room with chosen rows: where the hero came from, flags,
+variables, item locations and the same random numbers each time. Restart runs
+it again, so a death can be tuned over and over._
+
 In Create, **⌘P** (Ctrl+P) opens the game’s parts and **⇧⌘P**
 (Ctrl+Shift+P) opens the command palette. Type **>** in quick open to find
 commands. **⌘B** toggles the parts list, **⌘I** opens the agent, and **⌘Enter**
@@ -243,7 +258,10 @@ the game running. Stopped runs show their exact running source; **Update and res
 
 _Left to right, top to bottom: PICTURE, LOGIC with Problems, Agent review and
 VIEW with cels from an image. The [media gallery](docs/media/README.md) also
-shows WORDS, SOUND, History, Play with CRT and Make a new game._
+shows WORDS, SOUND, Launches, the agent drawer, History, short clips and SOUND
+spectrograms._
+
+![Drawing a white fence across the Starter meadow with the Line tool, then Done](docs/media/clip-picture-line.gif)
 
 - **PICTURE editor** shows a room's picture in Sierra's two layers: Visual for
   what the player sees, and Priority for what stands in front plus the walls,
