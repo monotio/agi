@@ -445,7 +445,6 @@ export function executeRoomTool(
       }
       lines.push("}");
     }
-    lines.push("return;");
     const normalized = normalizeAuthoredLogic(lines.join("\n"));
     const compiled = compileProjectLogic(normalized.source, {
       dictionary,

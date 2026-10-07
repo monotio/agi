@@ -83,7 +83,6 @@ if (controller(C_SOUND_ON)) { set(${systemOperand("flag", 9, bindings)}); }
 if (controller(C_SOUND_OFF)) { reset(${systemOperand("flag", 9, bindings)}); }
 if (controller(C_HELP)) { print("Type a command and press ENTER. Arrow keys walk. ESC opens the menu."); }
 if (controller(C_ABOUT)) { print("An adventure written with AGI IS HERE."); }
-return;
 `;
 }
 
@@ -148,7 +147,6 @@ if (equaln(${names.cursor}, 0)) { display(12, 13, m1); display(13, 13, m2); disp
 if (equaln(${names.cursor}, 1)) { display(12, 13, m2); display(13, 13, m1); display(14, 13, m2); }
 if (equaln(${names.cursor}, 2)) { display(12, 13, m2); display(13, 13, m2); display(14, 13, m1); }
 set.text.attribute(15, 0);
-return;
 `;
 }
 
@@ -161,6 +159,5 @@ export function scoreSource(
 // The status line shows ${systemOperand("variable", 3, bindings)} and ${systemOperand("variable", 7, bindings)}.
 #message 1 "Score: %v3 of %v7"
 print(m1);
-return;
 `;
 }

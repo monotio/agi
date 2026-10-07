@@ -20,7 +20,6 @@
  *     }
  *   }
  *   done:
- *   return;
  *
  * Tests support !, &&, || and parentheses. Any boolean shape is accepted:
  * the compiler normalizes to CNF (AND of OR-clauses), which is what the AGI
@@ -670,6 +669,8 @@ export function assembleLogic(source: string, opts: AssembleOptions): AssembleRe
   const e = new Emitter(opts.sourceMap === true, tokens[0]!);
   for (const stmt of program)
     emitStmt(e, stmt, messages, opts.dictionary, opts.profile ?? DEFAULT_V2_PROFILE);
+  // A final label names the implicit return, even after an explicit early exit.
+  if (program.at(-1)?.type !== "return") e.byte(RETURN);
   e.resolveFixups();
 
   const code = e.bytes();

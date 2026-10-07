@@ -34,7 +34,7 @@ test("said word count is validated before its single-byte count is emitted", () 
     dictionary,
   });
   assert.equal(valid.code[2], 255);
-  assert.equal(valid.code.length, 517); // IF + said/count/510 operand bytes + IF/delta + RETURN
+  assert.equal(valid.code.length, 518); // IF + said/count/510 operand bytes + IF/delta + early and implicit RETURN
 });
 
 test("CNF cross-product produces four hand-computed clauses, preserving legacy order", () => {
@@ -48,7 +48,7 @@ test("CNF cross-product produces four hand-computed clauses, preserving legacy o
     [...result.code],
     [
       255, 252, 7, 3, 7, 1, 252, 252, 7, 4, 7, 1, 252, 252, 7, 3, 7, 2, 252, 252, 7, 4, 7, 2, 252,
-      255, 1, 0, 0,
+      255, 1, 0, 0, 0,
     ],
   );
 });

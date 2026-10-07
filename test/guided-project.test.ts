@@ -98,7 +98,6 @@ if (isset(new_room)) {
   show.pic();
   accept.input();
 }
-return;
 `,
     );
     const pic = op.changes.find((c) => c.key === "picture:1")!.content as string;
@@ -411,10 +410,7 @@ describe("guided respond to command", () => {
     assert.ok(op.affectedKeys.includes("logic:1"));
     assert.ok(op.affectedKeys.includes("words"));
     const room = op.changes.find((c) => c.key === "logic:1")!.content as string;
-    assert.match(
-      room,
-      /if \(said\("wave"\)\) \{\n {2}print\("You wave politely\."\);\n\}\nreturn;/,
-    );
+    assert.match(room, /if \(said\("wave"\)\) \{\n {2}print\("You wave politely\."\);\n\}\n$/);
     const words = JSON.parse(op.changes.find((c) => c.key === "words")!.content as string);
     const wave = words.find((e: [string, number]) => e[0] === "wave");
     assert.ok(wave, "wave is registered");
@@ -508,7 +504,7 @@ describe("guided respond to command", () => {
     op.apply();
     const room = docText(draft, "logic:1");
     assert.match(room, /if \(said\("look"\)\) \{ print\("You stand/);
-    assert.match(room, /if \(said\("look", "north"\)\) \{\n {2}print\("Trees\."\);\n\}\nreturn;/);
+    assert.match(room, /if \(said\("look", "north"\)\) \{\n {2}print\("Trees\."\);\n\}\n$/);
   });
 
   test("refuses a command an existing wildcard or rest-of-line handler consumes", () => {
@@ -587,12 +583,12 @@ describe("guided connect door", () => {
     const room1 = op.changes.find((c) => c.key === "logic:1")!.content as string;
     assert.match(
       room1,
-      /\/\/ @rule door-2 "To room 2" exit\nif \(posn\(o0, 70, 150, 90, 167\)\) \{\n {2}new\.room\(2\);\n\}\n\/\/ @end\nreturn;/,
+      /\/\/ @rule door-2 "To room 2" exit\nif \(posn\(o0, 70, 150, 90, 167\)\) \{\n {2}new\.room\(2\);\n\}\n\/\/ @end\n$/,
     );
     const room2 = op.changes.find((c) => c.key === "logic:2")!.content as string;
     assert.match(
       room2,
-      /\/\/ @rule door-1 "To room 1" exit\nif \(posn\(o0, 90, 150, 110, 167\)\) \{\n {2}new\.room\(1\);\n\}\n\/\/ @end\nreturn;/,
+      /\/\/ @rule door-1 "To room 1" exit\nif \(posn\(o0, 90, 150, 110, 167\)\) \{\n {2}new\.room\(1\);\n\}\n\/\/ @end\n$/,
     );
     assert.match(
       room2,
@@ -698,10 +694,7 @@ describe("guided connect door", () => {
 
   test("refuses a room whose rule annotations are already broken", () => {
     const { ctx, draft } = twoRooms();
-    const broken = docText(draft, "logic:1").replace(
-      "return;",
-      '// @rule stray "Stray" exit\nreturn;',
-    );
+    const broken = docText(draft, "logic:1") + '// @rule stray "Stray" exit\n';
     draft.edit("logic:1", broken, draft.capture().version("logic:1"));
     const op = prepareGuidedConnectDoor(ctx, {
       room: 1,
@@ -813,7 +806,7 @@ describe("guided play sound", () => {
     );
     assert.match(
       room,
-      /if \(isset\(cue_done\)\) \{\n {2}print\("The tune fades\."\);\n {2}reset\(cue_done\);\n\}\nreturn;/,
+      /if \(isset\(cue_done\)\) \{\n {2}print\("The tune fades\."\);\n {2}reset\(cue_done\);\n\}\n$/,
     );
     const bindings = JSON.parse(op.changes.find((c) => c.key === "bindings")!.content as string);
     assert.equal(bindings.cue_done.kind, "flag");

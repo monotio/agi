@@ -95,7 +95,6 @@ if (isset(new_room)) {
   accept.input();
   print("Your game starts here.");
 }
-return;
 `;
 
 const BOILERPLATE_PIC1_SOURCE = `# Fill the empty room with black.
@@ -154,7 +153,6 @@ if (said("listen")) {
   print("A meadowlark answers from the trees.");
 }
 if (said("die")) { print("The ground gives way under you. It was lava all along."); call(death_logic); }
-return;
 `;
 
 const STARTER_PIC1_SOURCE = `# Meadow: a cottage, a tree and a path under a sunny sky.

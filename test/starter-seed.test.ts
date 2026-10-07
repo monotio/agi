@@ -238,9 +238,7 @@ describe("installBoilerplateSeed", () => {
 
 function addDeathCommand(state: AgentSessionState): void {
   state.sources.words.set("die", 102);
-  const source = state.sources.logics
-    .get(1)!
-    .replace("return;", 'if (said("die")) { call(death_logic); }\nreturn;');
+  const source = state.sources.logics.get(1)! + 'if (said("die")) { call(death_logic); }\n';
   state.container.putResource(
     "logic",
     1,

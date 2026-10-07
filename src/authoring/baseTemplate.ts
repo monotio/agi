@@ -127,7 +127,6 @@ if (isset(input_received) && !isset(input_handled) && !isset(f202)) {
     print("I don't understand that.");
   }
 }
-return;
 `;
 
 /**
@@ -192,7 +191,6 @@ if (equaln(v250, 0)) { display(12, 13, m1); display(13, 13, m2); display(14, 13,
 if (equaln(v250, 1)) { display(12, 13, m2); display(13, 13, m1); display(14, 13, m2); }
 if (equaln(v250, 2)) { display(12, 13, m2); display(13, 13, m2); display(14, 13, m1); }
 set.text.attribute(15, 0);
-return;
 `;
 
 /** A descending sting; stored divisors preserve the released resource bytes. */

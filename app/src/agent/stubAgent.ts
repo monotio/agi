@@ -69,7 +69,6 @@ ${n < 255 ? `if (said("east") || equaln(v2, 2)) { new.room(${n + 1}); }` : ""}
 if (said("look")) { print(m1); }
 if (said("die")) { call(255); }
 if (isset(f2) && !isset(f4)) { set(f4); print(m2); }
-return;
 `;
 }
 
