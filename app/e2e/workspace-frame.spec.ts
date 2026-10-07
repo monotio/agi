@@ -166,8 +166,15 @@ test("the editor frame has no repeated room or bytes rows and Focus is an icon @
   // The shared status bar carries the studio's status and quiet meta.
   const status = page.getByTestId("workspace-status");
   await expect(status).toBeVisible();
-  await expect(status.getByTestId("studio-status")).toBeVisible();
+  await expect(status.getByTestId("studio-status")).toHaveCount(1);
   await expect(status).toContainText("AGI 2.936");
+  // The studio's status is the pointer's position on the picture.
+  await page
+    .getByTestId("room-studio")
+    .getByRole("group", { name: /^Canvas/ })
+    .hover();
+  await expect(status.getByTestId("studio-status")).toBeVisible();
+  await expect(status.getByTestId("studio-status")).toHaveText(/^x \d+ · y \d+$/);
 });
 
 test("the game bar names the running room; Play visits and Back returns @webkit-desktop", async ({

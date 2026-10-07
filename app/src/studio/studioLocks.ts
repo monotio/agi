@@ -21,11 +21,7 @@ import {
 } from "../../../src/studio/editValidation.ts";
 import { sideEffects, type SideEffectReport } from "../../../src/studio/sideEffects.ts";
 import type { PicturePlane } from "../../../src/studio/pictureQuery.ts";
-import {
-  lockedPlanes,
-  NO_UNLOCKS,
-  type LensUnlocks,
-} from "../../../src/studio/lensRules.ts";
+import { lockedPlanes, NO_UNLOCKS, type LensUnlocks } from "../../../src/studio/lensRules.ts";
 import { SCREEN_HEIGHT, SCREEN_WIDTH } from "../../../src/types.ts";
 import { LENS_NAMES, type StudioLens } from "./studioView.ts";
 
