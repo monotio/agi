@@ -19,8 +19,12 @@ export function createProjectLogicLanguageSnapshot(
     builtins,
     profile: input.profile,
     dictionary: input.dictionary,
-    bindings: input.bindings,
+    bindings: Object.fromEntries(
+      expansion.generated.map(({ name }) => [name, input.bindings[name]!]),
+    ),
     ...(input.objects ? { objects: input.objects } : {}),
+    ...(input.resources ? { resources: input.resources } : {}),
+    ...(input.logic !== undefined ? { logic: input.logic } : {}),
   });
   const diagnostics = language.diagnostics
     .filter((entry) => entry.start >= base)

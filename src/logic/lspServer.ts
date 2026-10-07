@@ -136,6 +136,10 @@ export function createLogicLspServer(
         dictionary: new Map(project.words),
         bindings: project.bindings,
         objects: project.objects ?? [],
+        resources: [...Object.keys(project.resources ?? {}), ...Object.keys(project.documents)],
+        ...(documentKey(doc).match(/^logic:(\d+)$/)?.[1]
+          ? { logic: Number(documentKey(doc).match(/^logic:(\d+)$/)![1]) }
+          : {}),
       });
       cache.set(doc.uri, result);
     }
@@ -722,9 +726,10 @@ export function createLogicLspServer(
         return bindingInfos().find((info) => info.name === definition.name) ?? null;
       }
       case "textDocument/completion":
-        return snapshot.completeAt(offset).map((item) => ({
+        return snapshot.completeAt(offset).map((item, index) => ({
           label: item.label,
           detail: item.detail,
+          sortText: String(index).padStart(5, "0"),
           textEdit: { range: rangeAt(doc.source, item.start, item.end), newText: item.text },
         }));
       case "textDocument/signatureHelp": {

@@ -361,6 +361,7 @@ monaco.languages.registerCompletionItemProvider(LOGIC_LANGUAGE_ID, {
         kind: completionKind(item.detail),
         insertText: item.textEdit.newText,
         filterText: item.textEdit.newText,
+        ...(item.sortText ? { sortText: item.sortText } : {}),
         range: editorRange(item.textEdit.range),
       })),
     };

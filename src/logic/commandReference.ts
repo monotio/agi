@@ -10,6 +10,54 @@ import {
 } from "./opcodes.ts";
 import { ACTION_HELP, CONDITION_HELP } from "./commandHelp.ts";
 import type { AgiProfile } from "../runtime/profile.ts";
+import type { ResourceKind } from "../types.ts";
+
+export interface ResourceOperand {
+  readonly kind: ResourceKind | "item";
+  readonly operand: number;
+  readonly variable?: true;
+}
+
+// Names are resolved through the selected profile's decoder before this table
+// is consulted. These describe the referenced family, not opcode execution.
+const RESOURCE_REFERENCE_OPERANDS: Readonly<Record<string, ResourceOperand>> = {
+  "new.room": { kind: "logic", operand: 0 },
+  "new.room.v": { kind: "logic", operand: 0, variable: true },
+  "load.logics": { kind: "logic", operand: 0 },
+  "load.logics.v": { kind: "logic", operand: 0, variable: true },
+  call: { kind: "logic", operand: 0 },
+  "call.v": { kind: "logic", operand: 0, variable: true },
+  "trace.info": { kind: "logic", operand: 0 },
+  "load.pic": { kind: "picture", operand: 0, variable: true },
+  "draw.pic": { kind: "picture", operand: 0, variable: true },
+  "discard.pic": { kind: "picture", operand: 0, variable: true },
+  "overlay.pic": { kind: "picture", operand: 0, variable: true },
+  "load.view": { kind: "view", operand: 0 },
+  "load.view.v": { kind: "view", operand: 0, variable: true },
+  "discard.view": { kind: "view", operand: 0 },
+  "discard.view.v": { kind: "view", operand: 0, variable: true },
+  "set.view": { kind: "view", operand: 1 },
+  "set.view.v": { kind: "view", operand: 1, variable: true },
+  "add.to.pic": { kind: "view", operand: 0 },
+  "add.to.pic.v": { kind: "view", operand: 0, variable: true },
+  "show.obj": { kind: "view", operand: 0 },
+  "show.obj.v": { kind: "view", operand: 0, variable: true },
+  "load.sound": { kind: "sound", operand: 0 },
+  sound: { kind: "sound", operand: 0 },
+  "discard.sound": { kind: "sound", operand: 0 },
+  "get.v": { kind: "item", operand: 0, variable: true },
+  "put.v": { kind: "item", operand: 0, variable: true },
+  "get.room.v": { kind: "item", operand: 0, variable: true },
+};
+
+/** Sound discard is a real resource use only on IIgs; see fidelity.md "Apple IIgs sound discard". */
+export function resourceReferenceOperand(
+  command: string,
+  profile: AgiProfile,
+): ResourceOperand | undefined {
+  if (command === "discard.sound" && profile.extraActions !== "iigs") return undefined;
+  return RESOURCE_REFERENCE_OPERANDS[command];
+}
 
 const HELP: Record<string, string> = {
   "set.priority":
@@ -85,6 +133,7 @@ export interface CommandReference {
   kind: "action" | "condition";
   code: number;
   operands: readonly OperandKind[];
+  resourceOperand?: ResourceOperand;
   signature: string;
   help?: string;
 }
@@ -101,6 +150,9 @@ export function commandReference(profile: AgiProfile): CommandReference[] {
     result.push({
       ...spec,
       kind: "action",
+      ...(resourceReferenceOperand(spec.name, profile)
+        ? { resourceOperand: resourceReferenceOperand(spec.name, profile)! }
+        : {}),
       signature: `${spec.name}(${signatureOperands.join(", ")})`,
       help: actionHelp(profile, spec.code, spec.name),
     });

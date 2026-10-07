@@ -43,6 +43,7 @@ interface SymbolInformation {
   location: Location;
 }
 interface CompletionItem {
+  sortText?: string;
   label: string;
   detail: string;
   textEdit: TextEdit;
