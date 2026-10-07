@@ -67,7 +67,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         id: "saving",
         title: "Saving and rewinding",
         body: [
-          "Most Sierra games save with F5 and restore with F7. In Create, click the game to use its keys. Click the editor to use F5 for debugging, or choose Run. The app also autosaves, so Resume picks up where you stopped.",
+          "Most Sierra games save with F5 and restore with F7. In Create, click the game to use its keys. Click the editor to use F5 for the top run action, or Continue while paused. Create runs pause at breakpoints; Disable breakpoints lets them pass. The app also autosaves, so Resume picks up where you stopped.",
           "Every session records itself. Open History under the game to look back, then Resume from here to play on from that moment. Undo rewind takes you back if you went too far.",
           "Start over keeps your earlier sessions: Undo start over, offered just after, returns to where you left off, and after that the timeline's mark where you started over is the way back.",
         ],

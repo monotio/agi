@@ -118,3 +118,25 @@ test("stepping stays active until a stop, continue or detach", async () => {
   assert.equal(h.debug.state.stepping, false);
   h.debug.dispose();
 });
+
+test("disabling breakpoints preserves their locations and disables the worker plans", async () => {
+  const h = setup();
+  await h.debug.toggle(0, 2);
+  await h.debug.start();
+  await h.debug.setDisabled(true);
+  assert.equal(h.debug.state.breakpointsDisabled, true);
+  assert.equal(h.debug.state.breakpoints[0]?.enabled, true);
+  assert.deepEqual(h.requests.findLast((r) => r.type === "debugConfigure")?.extra["breakpoints"], [
+    { id: "0:2", enabled: false, logic: 0, line: 2, mode: "statement" },
+  ]);
+  await h.debug.setDisabled(false);
+  assert.equal(
+    (
+      h.requests.findLast((r) => r.type === "debugConfigure")?.extra["breakpoints"] as {
+        enabled: boolean;
+      }[]
+    )[0]?.enabled,
+    true,
+  );
+  h.debug.dispose();
+});

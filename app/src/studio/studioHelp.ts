@@ -175,7 +175,7 @@ export function logicKeySheet(): KeySection[] {
       rows: [
         { keys: ["F9"], does: "Set or clear a breakpoint on this line" },
         { keys: ["Click"], does: "Left of a line number: set or clear a breakpoint" },
-        { keys: ["F5"], does: "Debug the room, or continue" },
+        { keys: ["F5"], does: "Run the top action, or continue while paused" },
         { keys: [keyLabel("Shift+F5")], does: "Stop debugging" },
         { keys: ["F10", "F11"], does: "Step over, step into" },
         { keys: [keyLabel("Shift+F11")], does: "Step out" },

@@ -47,7 +47,7 @@ const DEFAULTS = {
   },
   play: {
     id: "game.play",
-    title: "Update and restart room",
+    title: (c) => c.runLabel ?? "Run room",
     key: "Mod+Enter",
     textInput: true,
     game: true,
@@ -55,7 +55,7 @@ const DEFAULTS = {
   },
   run: {
     id: "debug.run",
-    title: (c) => (c.debugging ? "Continue" : "Debug"),
+    title: (c) => (c.debugPaused ? "Continue" : (c.runLabel ?? "Run room")),
     key: "F5",
     textInput: true,
     when: (c) => !c.gameFocus,
@@ -82,7 +82,7 @@ const DEFAULTS = {
     key: "F10",
     textInput: true,
     game: true,
-    when: (c) => c.debugging,
+    when: (c) => c.debugPaused === true,
   },
   stepInto: {
     id: "debug.stepInto",
@@ -90,7 +90,7 @@ const DEFAULTS = {
     key: "F11",
     textInput: true,
     game: true,
-    when: (c) => c.debugging,
+    when: (c) => c.debugPaused === true,
   },
   stepOut: {
     id: "debug.stepOut",
@@ -98,7 +98,7 @@ const DEFAULTS = {
     key: "Shift+F11",
     textInput: true,
     game: true,
-    when: (c) => c.debugging,
+    when: (c) => c.debugPaused === true,
   },
   focusGame: { id: "focus.game", title: "Focus game", key: "Ctrl+`", textInput: true, game: true },
   nextZone: { id: "focus.next", title: "Next focus zone", key: "F6", textInput: true },

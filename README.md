@@ -229,8 +229,8 @@ step, and runs the open room’s entry LOGIC. The game keeps running your last
 update while you edit. The action menu selects **Carry over**, **From my game**, **From the beginning**,
 or a saved room Launch. **Launch options → New launch…** stores a named starting
 setup for the room: hero position, flags, variables and inventory. Launch metadata
-saves without applying drafts. The top-bar action shows an icon and the room name;
-its tooltip names **Update and restart**, **Restart** or **Play** for that room.
+saves without applying drafts. The top-bar action shows an icon; its tooltip names
+**Update and restart**, **Restart** or **Play** for the selected room.
 **Update and keep playing** preserves the game’s moment;
 a waiting message finishes before its changed LOGIC runs. Create keeps the moment you left Play. **From my game**, Back and returning to Play
 restore that moment on your updated files. Create uses temporary progress and save slots.
@@ -252,8 +252,9 @@ visible focus zones from the editor; **Shift+F6** also leaves the game;
 keys while its zone has focus. **Escape** closes the chooser and returns focus. **⌘K Z** toggles Focus; press
 **Escape** twice to return. Focus is remembered for each editor type.
 **⌘J** toggles the Problems tab. The debugger has Variables, Watch, Call stack
-and Breakpoints. **F5** in LOGIC starts the selected Launch with Debug stopped at its first
-instruction, or continues a stopped run. With the game focused, **F5** saves and **F6** belongs to the game.
+and Breakpoints. The top action runs the selected room and Launch; **F5** runs the same
+action, or continues while paused. Runs pause at your breakpoints. **Disable breakpoints**
+in the Breakpoints panel or Launch menu lets them pass; both settings are saved per project. With the game focused, **F5** saves and **F6** belongs to the game.
 **F9** or a LOGIC gutter click toggles a breakpoint; **F10**, **F11**
 and **Shift+F11** step over, into and out. **Shift+F5** stops debugging and leaves
 the game running. Stopped runs show their exact running source; **Update and restart** starts a fresh room entry. **Help → Keyboard shortcuts** lists the registered commands and keys.

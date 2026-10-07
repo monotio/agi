@@ -41,18 +41,11 @@ async function discardChanges(): Promise<void> {
         editor.busy.value || editor.readOnly.value || editor.actionRoom.value === undefined
       "
       :aria-label="action.label"
-      :title="`${action.label} (⌘↵ / Ctrl+Enter)`"
+      :title="`${action.label} (F5 / ⌘↵ / Ctrl+Enter)`"
       @click="editor.update.value?.()"
-      ><span class="workspace-action__label"
-        ><UiIcon :name="action.icon" :size="14" :stroke-width="2.5" /><span
-          class="workspace-action__room"
-          >{{ action.room
-          }}<span v-if="action.launch" class="workspace-action__launch">
-            · {{ action.launch }}</span
-          ></span
-        ></span
-      ></UiButton
-    >
+      ><UiIcon :name="action.icon" :size="14" :stroke-width="2.5"
+    /></UiButton>
+
     <ActionMenu
       label="Launch options"
       test-id="workspace-update-menu"
@@ -80,6 +73,15 @@ async function discardChanges(): Promise<void> {
         >{{ choice.name }}
       </button>
       <div role="separator" />
+      <button
+        type="button"
+        role="menuitemcheckbox"
+        :aria-checked="editor.breakpointsDisabled.value"
+        @click="editor.disableBreakpoints.value?.(!editor.breakpointsDisabled.value)"
+      >
+        <span aria-hidden="true">{{ editor.breakpointsDisabled.value ? "✓" : "" }}</span>
+        Disable breakpoints
+      </button>
       <button type="button" role="menuitem" @click="editor.requestLaunchEditor('new')">
         New launch…
       </button>
@@ -114,23 +116,6 @@ async function discardChanges(): Promise<void> {
   flex-shrink: 0;
   gap: 2px;
 }
-/* Every state shows one icon and the same room, so the width holds. */
-.workspace-action__label {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--space-2);
-  min-width: 0;
-  max-width: 360px;
-}
-.workspace-action__room {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.workspace-action__launch {
-  font-weight: var(--weight-medium);
-}
 @media (max-width: 600px) {
   .workspace-action {
     max-width: calc(100vw - 200px);
@@ -139,9 +124,6 @@ async function discardChanges(): Promise<void> {
     min-width: 0;
     padding-inline: var(--space-3);
     white-space: normal;
-  }
-  .workspace-action__label {
-    max-width: 100%;
   }
 }
 </style>

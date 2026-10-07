@@ -186,6 +186,19 @@ function editValue(kind: "variable" | "flag", slot: number, event: Event): void 
         </button>
       </template>
       <template v-else-if="view === 'breakpoints' && debug">
+        <label class="workspace-debug-filter">
+          <input
+            type="checkbox"
+            role="switch"
+            aria-label="Disable breakpoints"
+            :checked="debug.state.breakpointsDisabled"
+            :disabled="debug.state.busy"
+            @change="
+              debug.run(() => debug!.setDisabled(($event.target as HTMLInputElement).checked))
+            "
+          />
+          Disable breakpoints
+        </label>
         <p v-if="debug.state.breakpoints.length">{{ VOCABULARY.breakpoint.help }}</p>
         <p v-else>Click left of a line number to stop there, or press F9.</p>
         <div v-for="point in debug.state.breakpoints" :key="point.id" class="workspace-debug-row">

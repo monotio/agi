@@ -77,7 +77,6 @@ import { derivedLogicSource } from "../logic/logicWorkspace.ts";
 import { roomPictureNumber } from "../logic/guided/guidedPreview.ts";
 import { createWorkspacePending } from "./workspacePending.ts";
 import type { WorkspaceAction } from "./workspaceGuided.ts";
-import { launchAction, launchName } from "../../shell/launchAction.ts";
 import { useWorkspaceDebug, type LogicEditorHandle } from "./useWorkspaceDebug.ts";
 const props = defineProps<{ creating: boolean }>();
 const ChangeNumberDialog = defineAsyncComponent(() => import("./ChangeNumberDialog.vue"));
@@ -381,19 +380,13 @@ const {
   logicEditors,
   reveal: revealDebug,
   toggleBreakpoint,
+  armRun,
 } = useWorkspaceDebug({
   creating: () => props.creating,
   engine,
   editor,
   snapshot,
   profile: () => profile.value.id,
-  prepareLaunch: async () => {
-    if (editor.changeCount.value) {
-      await updateGame(false);
-      if (editor.error.value) return false;
-    }
-  },
-  launch: () => runSelectedLaunch(true),
 });
 const historyState = shallowRef<ProjectHistoryState>();
 const optimistic = shallowRef<Record<string, ProjectContent>>({});
@@ -639,7 +632,7 @@ const groups = computed(() => {
     rooms,
     names,
     currentRoom: engine.roomMap.currentRoom.value,
-    debugging: editor.debugging.value,
+    debugging: editor.debugging.value || (debug.value?.state.breakpoints.length ?? 0) > 0,
   });
 });
 const roomThumbs = useNodeThumbs(engine.roomMap, () => engine.roomMap.graph.value.nodes);
@@ -884,10 +877,12 @@ editor.selectLaunch.value = async (id) => {
   if (room !== undefined) await selectRoomLaunch(room, id);
 };
 let launchSerial = 0;
-async function runSelectedLaunch(
-  debug = false,
-  entry?: { room: number; beginning: boolean; fromMyGame: boolean; state?: Launch },
-): Promise<void> {
+async function runSelectedLaunch(entry?: {
+  room: number;
+  beginning: boolean;
+  fromMyGame: boolean;
+  state?: Launch;
+}): Promise<void> {
   const serial = ++launchSerial;
   const room = entry?.room ?? editor.actionRoom.value;
   if (room === undefined) throw new Error("Open a room to play it.");
@@ -899,7 +894,6 @@ async function runSelectedLaunch(
     beginning: entry?.beginning ?? editor.selectedLaunch.value === "beginning",
     fromMyGame: entry?.fromMyGame ?? editor.selectedLaunch.value === "my-game",
     ...(state ? { state } : {}),
-    debug,
   });
   if (!result.ok) throw new Error(result.reason ?? "Launch could not start. Try again.");
   if (serial === launchSerial && props.creating) {
@@ -1372,25 +1366,21 @@ async function updateGame(restartRoom = true): Promise<void> {
   const launch =
     room === undefined ? undefined : { room, ...(state ? { state } : {}), beginning, fromMyGame };
   actionBusy.value = true;
+  if (restartRoom) engine.pauseEngine("debugLaunch");
   try {
     await writes.flush();
+    if (restartRoom) await armRun();
     const changes = pendingParts.changes(snapshot.value, session.drafts().changes());
     if (!changes.length && !session.pendingRestart) {
       if (restartRoom) {
-        if (debug.value?.state.epoch) await debug.value.stop();
-        await runSelectedLaunch(false, launch);
+        await runSelectedLaunch(launch);
       }
-      editor.phonePlaytest.value = true;
+      editor.phonePlaytest.value = !debug.value?.stopped.value;
       return;
     }
     const updatedParts = pendingParts.parts(snapshot.value, changes).length;
     const waiting = engine.state.modal !== null || engine.state.waitingForKey;
-    if (restartRoom && debug.value?.state.epoch) await debug.value.stop();
-    const result = await session.update(
-      changes,
-      restartRoom && !fromMyGame,
-      restartRoom && !fromMyGame ? launch : undefined,
-    );
+    const result = await session.update(changes, restartRoom, restartRoom ? launch : undefined);
     updateProblems.value = result.diagnostics;
     if (!["committed", "unchanged", "draft"].includes(result.status)) {
       editor.problemCount.value = Math.max(
@@ -1410,7 +1400,7 @@ async function updateGame(restartRoom = true): Promise<void> {
     }
     await session.flush();
     await session.drafts().clear();
-    if (restartRoom && fromMyGame) await runSelectedLaunch(false, launch);
+    if (restartRoom && fromMyGame) await runSelectedLaunch(launch);
     optimistic.value = {};
     draftKeys = "";
     editor.updatedParts.value = updatedParts;
@@ -1428,13 +1418,14 @@ async function updateGame(restartRoom = true): Promise<void> {
     editor.problemCount.value = 0;
     editor.error.value = "";
     placementPreviews.value = {};
-    editor.phonePlaytest.value = true;
+    editor.phonePlaytest.value = !debug.value?.stopped.value;
 
     refresh();
     draftChanged(true);
   } catch (cause) {
     editor.error.value = cause instanceof Error ? cause.message : String(cause);
   } finally {
+    if (restartRoom) engine.resumeEngine("debugLaunch");
     actionBusy.value = false;
   }
 }
@@ -1757,32 +1748,6 @@ const contextActions = computed(() => {
           imagePanel.value = editor.selected.value;
           imageGenerate.value = true;
         },
-      },
-    );
-  }
-  if (kind === "logic" && selectedRoom.value !== undefined && !debug.value?.state.epoch) {
-    actions.push(
-      {
-        id: "play",
-        label: `▶ Play ${editor.actionRoomName.value}`,
-        disabled,
-        title:
-          title ||
-          launchAction({
-            pending: editor.changeCount.value > 0,
-            launch: editor.selectedLaunch.value,
-            launchName: launchName(editor.selectedLaunch.value, editor.launchChoices.value),
-            room: editor.actionRoomName.value,
-            here: engine.roomMap.currentRoom.value === editor.actionRoom.value,
-          }).label,
-        run: () => updateGame(),
-      },
-      {
-        id: "debug",
-        label: `Debug ${editor.actionRoomName.value}`,
-        disabled,
-        title: title || "Debug (F5)",
-        run: () => editor.debugCommand.value?.("start"),
       },
     );
   }
@@ -2472,13 +2437,7 @@ onBeforeUnmount(() => {
       <span v-if="numberedPart" data-testid="part-number">{{
         numberedPart.replace(":", " ").toUpperCase()
       }}</span>
-      <DebugControls
-        v-if="
-          debug?.state.epoch &&
-          (editor.kind.value === 'logic' || debug.stopped.value || debug.state.stepping)
-        "
-        :debug="debug"
-      />
+      <DebugControls v-if="debug?.stopped.value" :debug="debug" />
       <UiChip v-if="editor.debugStatus.value" tone="warn" data-testid="workspace-debug-status">{{
         editor.debugStatus.value
       }}</UiChip>

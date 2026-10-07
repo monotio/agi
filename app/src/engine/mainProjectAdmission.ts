@@ -32,7 +32,8 @@ export function createMainProjectAdmission(input: {
     preparedRoom = false,
     launch?: RoomLaunchRequest,
   ): Promise<PreviewUpdateOutcome> {
-    const continuation = input.waitForContinue?.();
+    // A Launch validates a replacement without executing the abandoned stopped run.
+    const continuation = mode === "reenter" && launch ? undefined : input.waitForContinue?.();
     if (continuation) await continuation;
     if (!current()) throw new Error("Project run was replaced.");
     const documents = compiled.documents();

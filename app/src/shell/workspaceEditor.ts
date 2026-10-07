@@ -90,6 +90,8 @@ export function createWorkspaceEditor(engine: EngineApi) {
     >();
   const debugging = ref(false);
   const debugStatus = ref("");
+  const breakpointsDisabled = ref(false);
+  const disableBreakpoints = shallowRef<(disabled: boolean) => Promise<void>>();
   const flush = shallowRef<() => Promise<void>>();
   const discard = shallowRef<() => Promise<void>>();
   const retry = shallowRef<() => Promise<void>>();
@@ -389,6 +391,8 @@ export function createWorkspaceEditor(engine: EngineApi) {
     debugCommand,
     debugging,
     debugStatus,
+    breakpointsDisabled,
+    disableBreakpoints,
     flush,
     discard,
     retry,

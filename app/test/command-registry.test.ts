@@ -152,6 +152,7 @@ test("focused game owns F5 and F6; editor owns debugging and zone navigation", (
   assert.equal(registry.dispatch(key("F5").event), false);
   assert.equal(registry.dispatch(key("F6").event), false);
   ctx.debugging = true;
+  ctx.debugPaused = true;
   assert.equal(registry.dispatch(key("F10").event), true);
   ctx.gameFocus = false;
   ctx.editorFocus = true;
@@ -289,16 +290,28 @@ test("F5 runs from parts, agent and page focus while the game owns its input", (
   assert.equal(registry.dispatch(key("F5").event), false);
 });
 
-test("F5 is presented as Debug or Continue according to the debug session", () => {
-  const ctx = context();
+test("F5 presents the top action or Continue only while paused", () => {
+  const ctx = { ...context(), runLabel: "Restart Room 1", debugPaused: false };
   const registry = createCommandRegistry(() => ctx, false);
   registerDefaultCommands(registry, { run() {} });
-  assert.equal(commandItems(registry, ctx).find((item) => item.id === "debug.run")?.title, "Debug");
+  assert.equal(
+    commandItems(registry, ctx).find((item) => item.id === "debug.run")?.title,
+    "Restart Room 1",
+  );
   ctx.debugging = true;
+  assert.equal(
+    commandItems(registry, ctx).find((item) => item.id === "debug.run")?.title,
+    "Restart Room 1",
+  );
+  ctx.debugPaused = true;
   assert.equal(
     commandItems(registry, ctx).find((item) => item.id === "debug.run")?.title,
     "Continue",
   );
-  ctx.debugging = false;
-  assert.equal(commandItems(registry, ctx).find((item) => item.id === "debug.run")?.title, "Debug");
+  ctx.debugPaused = false;
+  ctx.runLabel = "Update and restart Room 2";
+  assert.equal(
+    commandItems(registry, ctx).find((item) => item.id === "debug.run")?.title,
+    "Update and restart Room 2",
+  );
 });

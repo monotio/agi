@@ -61,20 +61,28 @@ for (const [width, height] of [
     await page.keyboard.press("Escape");
     await expect(sheet).toBeHidden();
 
-    // With no breakpoint, the Breakpoints panel says how to set one.
+    // Clearing the breakpoint leaves the panel hint while the paused run stays inspectable.
     await editor.locator("textarea.inputarea").focus();
+    await page.keyboard.press("ControlOrMeta+f");
+    await page
+      .getByRole("textbox", { name: "Find", exact: true })
+      .fill("assignn(v50, clearing_pic)");
+    await page.keyboard.press("Escape");
+    await page.keyboard.press("F9");
+    await expect(editor.locator(".workspace-breakpoint")).toHaveCount(1);
     await page.keyboard.press("F5");
     const header = page.locator(".workspace-context");
     await expect(header.getByRole("button", { name: "Continue", exact: true })).toBeVisible();
     await page.getByTestId("part-debug:breakpoints").click();
     const panel = page.getByTestId("workspace-debug-panel").filter({ visible: true });
+    await panel.getByRole("button", { name: "Remove breakpoint 1:3", exact: true }).click();
     await expect(panel).toContainText("Click left of a line number to stop there, or press F9.");
     await page.screenshot({
       path: test.info().outputPath(`logic-breakpoints-empty-${width}.png`),
       animations: "disabled",
       scale: "css",
     });
-    // Debug starts paused; once it runs, Variables and Call stack say how to stop it.
+    // A breakpoint paused the run; once it continues, Variables and Call stack say how to stop it.
     await header.getByRole("button", { name: "Continue", exact: true }).click();
     await expect(header.getByRole("button", { name: "Continue", exact: true })).toHaveCount(0);
     await page.getByTestId("part-debug:variables").click();

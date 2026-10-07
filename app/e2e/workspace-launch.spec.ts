@@ -99,7 +99,7 @@ for (const [width, height] of [
       ).toBeVisible();
       expect((await textHook(page)).room).toBe(1);
       await expect(action).toHaveAccessibleName("Play Garden");
-      await expect(action).toHaveAttribute("title", "Play Garden (⌘↵ / Ctrl+Enter)");
+      await expect(action).toHaveAttribute("title", "Play Garden (F5 / ⌘↵ / Ctrl+Enter)");
       const cleanWidth = (await action.boundingBox())!.width;
       await launchShot(page, `play-${width}`, browserName);
       const source = await runningWorkspaceDocument(page, "logic:8");
@@ -112,7 +112,7 @@ for (const [width, height] of [
       await workspaceSaved(page);
       await expect(action).toHaveAccessibleName("Update and restart Garden");
       // The update icon takes the place of the play icon, filled: no word, no shift.
-      await expect(action).toHaveText("Garden");
+      await expect(action).toHaveText("");
       await expect(action).toHaveClass(/ui-btn--primary/);
       expect((await action.boundingBox())!.width).toBeCloseTo(cleanWidth, 0);
       const modes = page.getByRole("radiogroup", { name: "Mode", exact: true });
@@ -138,13 +138,11 @@ for (const [width, height] of [
       await launchShot(page, `menu-${width}`, browserName);
       await page.getByRole("menuitem", { name: "From the beginning", exact: false }).click();
       await expect(page.getByRole("menu")).toBeHidden();
-      // The button shows the selected launch beside its room.
+      // The accessible name includes the selected launch.
       await expect(action).toHaveAccessibleName(
         "Restart Garden with the launch From the beginning",
       );
-      await expect(action.locator(".workspace-action__label").first()).toHaveText(
-        "Garden · From the beginning",
-      );
+      await expect(action).toHaveText("");
       await launchShot(page, `launch-${width}`, browserName);
       expect((await textHook(page)).room).toBe(8);
       await open(page, "part-room:1:logic");
@@ -265,7 +263,7 @@ test("Update keeps the room chosen before drafts flush @webkit-desktop", async (
   await expect(action).toHaveAccessibleName("Play Garden");
 });
 
-test("F5 in room LOGIC debugs the selected Launch before its first instruction @webkit-desktop", async ({
+test("F5 in room LOGIC runs the selected Launch with its breakpoint armed @webkit-desktop", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -317,10 +315,15 @@ test("F5 in room LOGIC debugs the selected Launch before its first instruction @
   await expect(page.getByRole("menu")).toBeHidden();
   expect((await textHook(page)).room).toBe(1);
   await focusWorkspaceLogic(page);
+  await page.keyboard.press("ControlOrMeta+f");
+  await page.getByRole("textbox", { name: "Find", exact: true }).fill("assignn(v100,8)");
+  await page.keyboard.press("Escape");
+  await page.keyboard.press("F9");
+  await expect(page.locator(".workspace-breakpoint")).toHaveCount(1);
   await page.keyboard.press("F5");
   const status = page.getByTestId("workspace-debug-status");
   await expect(status).toBeVisible();
-  await expect(status).toContainText("Paused at LOGIC 0");
+  await expect(status).toContainText("Paused at LOGIC 8");
   await expect(page.locator(".workspace-stopped-line").first()).toBeVisible();
   const state = await page.evaluate(() =>
     (

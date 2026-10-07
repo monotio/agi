@@ -498,8 +498,7 @@ export const ICONS = {
   update: [
     ["path", { d: "M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" }],
     ["path", { d: "M3 3v5h5" }],
-    ["path", { d: "m9 11 3-3 3 3" }],
-    ["path", { d: "M12 16V8" }],
+    ["path", { d: "M12 7 7 12h3v5h4v-5h3Z", fill: "currentColor", stroke: "none" }],
   ],
   upload: [
     ["path", { d: "M12 3v12" }],

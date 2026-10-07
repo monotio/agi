@@ -12,6 +12,7 @@ import CommandPalette from "./CommandPalette.vue";
 import QuickOpen from "./QuickOpen.vue";
 import { emptyCommandContext } from "./commandContext.ts";
 import type { CommandContext, CommandRegistry } from "./commandRegistry.ts";
+import { launchAction, launchName } from "../launchAction.ts";
 import { registerDefaultCommands } from "./defaultCommands.ts";
 import { useFocusZones, type FocusZone } from "./useFocusZones.ts";
 
@@ -62,6 +63,14 @@ function context(): CommandContext {
     textInputFocus,
     dialogOpen: !!document.querySelector("dialog[open]"),
     debugging: editor.debugging.value,
+    debugPaused: !!editor.debugStatus.value,
+    runLabel: launchAction({
+      pending: editor.changeCount.value > 0,
+      launch: editor.selectedLaunch.value,
+      launchName: launchName(editor.selectedLaunch.value, editor.launchChoices.value),
+      room: editor.actionRoomName.value,
+      here: engine.roomMap.currentRoom.value === editor.actionRoom.value,
+    }).label,
   };
 }
 function blocksGame(event: KeyboardEvent): boolean {
@@ -108,7 +117,7 @@ function agent(): void {
   });
 }
 const offDefaults = registerDefaultCommands(props.registry, {
-  run: () => editor.debugCommand.value?.("start"),
+  run: () => (editor.debugStatus.value ? editor.debugCommand.value?.("start") : play()),
   stop: () => editor.debugCommand.value?.("stop"),
   breakpoint: () => editor.debugCommand.value?.("breakpoint"),
   stepOver: () => editor.debugCommand.value?.("over"),
