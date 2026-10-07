@@ -291,7 +291,7 @@ test("name hover opens resources and message actions keep readable text @webkit-
   await inline.click();
   await workspaceUpdated(page);
   expect(await workspaceDocument(page, "logic:1")).toContain('print("Hello there")');
-  await focusWorkspaceLogic(page);
+  await findWord(page, 'Hello there");');
   await page.keyboard.press(mac ? "Meta+." : "Control+.");
   const numbered = page.getByText("Move text to #message", { exact: true });
   await expect(numbered).toBeVisible();

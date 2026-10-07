@@ -142,14 +142,15 @@ for (const [width, height] of [
           [
             {
               key: "logic:1",
-              content: source
-                .replace("player.control();", "program.control(); move.obj(o0, 140, 140, 1, f180);")
-                .replace(
-                  /return;\s*$/,
-                  "if(isset(f180)){reset(f180);move.obj(o0,110,140,1,f181);}" +
-                    "if(isset(f181)){reset(f181);move.obj(o0,140,140,1,f180);}" +
-                    "return;\n",
-                ),
+              content:
+                source
+                  .replace("position(o0, 80, 140);", "position(o0, 140, 140);")
+                  .replace(
+                    "player.control();",
+                    "program.control(); move.obj(o0, 140, 140, 1, f180);",
+                  ) +
+                "\nif(isset(f180)){reset(f180);move.obj(o0,110,140,1,f181);}" +
+                "if(isset(f181)){reset(f181);move.obj(o0,140,140,1,f180);}",
             },
           ],
           true,
