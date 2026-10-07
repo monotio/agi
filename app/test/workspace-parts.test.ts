@@ -21,19 +21,33 @@ test("rooms own their pictures; shared logic and unowned resources stay reachabl
   });
   assert.deepEqual(
     groups.map((g) => g.label),
-    ["GAME STATE", "ROOMS", "SHARED LOGIC", "PICTURES", "VIEWS", "SOUNDS", "OBJECTS", "WORDS"],
+    [
+      "TOOLS",
+      "GAME STATE",
+      "ROOMS",
+      "SHARED LOGIC",
+      "PICTURES",
+      "VIEWS",
+      "SOUNDS",
+      "OBJECTS",
+      "WORDS",
+    ],
   );
+  // Tools have their own heading; GAME STATE holds only the names.
   assert.deepEqual(
     groups[0]?.entries.map((entry) => [entry.label, entry.key]),
     [
-      ["Game state", "state"],
       ["Problems", "problems"],
       ["Messages", "messages"],
       ["Notes", "notes"],
     ],
   );
   assert.deepEqual(
-    groups[1]?.entries.map((e) => [e.label, e.key, e.live]),
+    groups[1]?.entries.map((entry) => [entry.label, entry.key]),
+    [["Game state", "state"]],
+  );
+  assert.deepEqual(
+    groups[2]?.entries.map((e) => [e.label, e.key, e.live]),
     [
       ["Meadow · ROOM 1", "logic:1", true],
       ["PICTURE 3", "picture:3", false],
@@ -41,14 +55,14 @@ test("rooms own their pictures; shared logic and unowned resources stay reachabl
     ],
   );
   assert.deepEqual(
-    groups[2]?.entries.map((e) => e.label),
+    groups[3]?.entries.map((e) => e.label),
     ["Start-up · LOGIC 0", "Game over · LOGIC 255"],
   );
   assert.deepEqual(
-    groups[3]?.entries.map((e) => e.key),
+    groups[4]?.entries.map((e) => e.key),
     ["picture:9"],
   );
-  assert.equal(groups[4]?.entries[0]?.label, "Hero · VIEW 0");
+  assert.equal(groups[5]?.entries[0]?.label, "Hero · VIEW 0");
 });
 
 test("a picture shared by rooms remains listed in each room and appears once in quick open", () => {
@@ -60,10 +74,10 @@ test("a picture shared by rooms remains listed in each room and appears once in 
     ],
     currentRoom: 2,
   });
-  assert.equal(groups[1]?.entries.filter((e) => e.key === "picture:4").length, 2);
-  assert.equal(groups[3]?.entries.length, 0);
+  assert.equal(groups[2]?.entries.filter((e) => e.key === "picture:4").length, 2);
+  assert.equal(groups[4]?.entries.length, 0);
   const quick = workspaceOpenParts(groups);
   assert.equal(quick.filter((row) => row.key === "picture:4").length, 1);
   assert.equal(quick.find((row) => row.key === "logic:1")?.label, "ROOM 1 · LOGIC 1");
-  assert.equal(groups[1]?.entries.find((e) => e.label === "ROOM 2")?.live, true);
+  assert.equal(groups[2]?.entries.find((e) => e.label === "ROOM 2")?.live, true);
 });

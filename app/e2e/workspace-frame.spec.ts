@@ -109,6 +109,18 @@ test("every parts section has its own + and OBJECTS and WORDS always show @webki
   }
   await expect(page.getByTestId("part-inventory")).toBeVisible();
   await expect(page.getByTestId("part-words")).toBeVisible();
+  // Problems, Messages and Notes sit under TOOLS; GAME STATE holds only names.
+  const tools = parts
+    .locator("section", { has: page.getByRole("heading", { name: "TOOLS", exact: true }) })
+    .first();
+  await expect(tools.locator(".parts-add")).toHaveCount(0);
+  for (const row of ["problems", "messages", "notes"])
+    await expect(tools.getByTestId(`part-${row}`)).toBeVisible();
+  const state = parts
+    .locator("section", { has: page.getByRole("heading", { name: "GAME STATE", exact: true }) })
+    .first();
+  await expect(state.getByTestId("part-problems")).toHaveCount(0);
+  await expect(state.getByTestId("part-state")).toBeVisible();
 });
 
 test("Game state + names a flag in place @webkit-desktop", async ({ page }) => {
