@@ -13,6 +13,7 @@ import { ProjectDraft } from "../../src/authoring/projectDraft.ts";
 import { readProjectDocuments } from "../../src/authoring/projectDocuments.ts";
 import { createStarterProject, type StarterProject } from "../../src/authoring/starterProject.ts";
 import type { ProfileId } from "../../src/runtime/profile.ts";
+import { beginProviderTask } from "../src/agent/providerBudget.ts";
 
 const PROFILE_ID: ProfileId = "2.936";
 
@@ -892,17 +893,20 @@ describe("projectAssist: guard rails", () => {
       );
     });
     const { assist } = createAssist({});
+    // The reported first response costs $0.101, crossing the actual-spend limit.
+    beginProviderTask(0.1);
     // No injected factory: the request goes through the real OpenAI transport.
     assist.connect({
       provider: "openai",
       apiKey: "placeholder",
       model: "gpt-6-sol",
-      budgetUsd: 0.32,
+      budgetUsd: 0.1,
     });
     const request = assist.request({ instruction: "inspect" });
     await waitUntil(() => requests.length > 0, "the provider request did not start");
     await waitUntil(() => assist.state().phase === "paused", "the agent did not pause");
     assert.equal(assist.state().phase, "paused");
+    assert.equal(assist.state().run?.reportedSpent, 0.101);
     assert.match(assist.state().run?.reason ?? "", /Budget/i);
     assert.equal(requests.length, 1, "the second provider request waits for resume");
     assist.resume();

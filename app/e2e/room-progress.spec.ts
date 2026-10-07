@@ -145,7 +145,13 @@ for (const fail of [false, true])
       expect(requests).toBe(1);
       release();
       if (fail) {
-        await expect.poll(() => agentActivity(page)).toContain("Room generation test failure");
+        const error = page.getByTestId("room-generation-error");
+        await expect(error).toBeVisible();
+        await expect(error).toContainText("Room generation test failure");
+        await expect.poll(async () => (await textHook(page)).room).toBe(1);
+        await expect(page.getByTestId("input-line")).toBeDisabled();
+        await page.getByTestId("room-generation-stop").click();
+        await expect(page.getByTestId("room-generation")).toBeHidden();
         await expect.poll(async () => (await textHook(page)).room).toBe(1);
       } else {
         await expect.poll(() => requests).toBe(2);

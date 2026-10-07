@@ -101,6 +101,7 @@ async function rig(
     drop?: (msg: WorkerInbound) => boolean;
     awaitPatched?: (link: AwaitPatchedFn) => AwaitPatchedFn;
     agent?: AgentHandler;
+    initialTicks?: number;
   } = {},
 ) {
   const files = hooks.files ?? gameFiles();
@@ -242,7 +243,7 @@ async function rig(
       ctx.fns.hostTick();
     }
   };
-  tick(6);
+  tick(hooks.initialTicks ?? 6);
   t.after(() => ctx.fns.stopTimers());
   const settle = () => testScheduler.yield();
 
@@ -370,6 +371,8 @@ test("a room written mid-play that the worker declines is saved, never installed
   const room2 = { logic: logic("return;"), picture: picture(2) };
   const r = await rig(t, "ai-install-room", {
     files: gameFiles(true),
+    // Open the authoring session before the worker starts its room request.
+    initialTicks: 0,
     // The session stages a valid room, but the answer the worker receives
     // does not compile there: it declines the room.
     agent: {

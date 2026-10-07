@@ -202,6 +202,31 @@ function deliver(w: FakeWorker, msg: WorkerOutbound): void {
   w.onmessage!({ data: msg });
 }
 
+test("entering the generated room clears its overlay before returning to an earlier room", () => {
+  const { link, state } = makeLink();
+  const worker = fakeWorker();
+  link.wireWorker(worker as unknown as Worker);
+  state.roomGeneration = { room: 2, busy: false, error: "", feedStartSeq: 1 };
+  const transition: Extract<WorkerOutbound, { type: "roomTransition" }> = {
+    type: "roomTransition",
+    from: 1,
+    to: 2,
+    cycle: 10,
+    seq: 1,
+    cause: "logic",
+    patchGeneration: 1,
+    scoreDelta: 0,
+    gained: [],
+    lost: [],
+  };
+  deliver(worker, { ...transition, to: 3 });
+  assert.equal(state.roomGeneration.room, 2, "another room does not confirm this generation");
+  deliver(worker, transition);
+  assert.equal(state.roomGeneration, null);
+  deliver(worker, { ...transition, from: 2, to: 1, cycle: 11 });
+  assert.equal(state.roomGeneration, null, "returning does not reopen room generation");
+});
+
 function fakeObservation(over: Partial<ReplayObservation> = {}): ReplayObservation {
   return {
     sessionId: 0,

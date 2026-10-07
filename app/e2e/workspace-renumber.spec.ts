@@ -119,9 +119,9 @@ for (const [width, height] of [
       await expect(page.getByTestId("project-tab-logic:7")).toBeVisible();
       // Return from the selected room, then enter through its door.
       if (width === 390) {
-        const playtest = page.getByRole("button", { name: "Playtest", exact: true });
-        await expect(playtest).toBeVisible();
-        await playtest.click();
+        const game = page.getByRole("button", { name: "Game", exact: true });
+        await expect(game).toBeVisible();
+        await game.click();
       }
       await focusGame(page);
       await page.getByTestId("input-line").fill("look");

@@ -70,10 +70,10 @@ test("Update and agent approval work after walking into a live-built room @webki
   await page.keyboard.insertText(`${source}\n// Edited after the live room arrived.\n`);
   const action = page.getByTestId("workspace-update");
   await expect(action).toBeVisible();
-  await expect(action).toContainText("Update and restart");
+  await expect(action).toHaveAccessibleName("Update and restart The Clearing");
   await action.click();
   await expect(page.getByTestId("workspace-updated")).toBeVisible();
-  await expect(action).not.toContainText("Update");
+  await expect(action).toHaveAccessibleName("Restart The Clearing");
   await openWorkspaceAgent(page);
   await page
     .getByTestId("agent-message")

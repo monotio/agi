@@ -207,6 +207,37 @@ test("one coordinated review selects resources, records a chat checkpoint and un
   assert.equal(session.model.capture().read("picture:1")!.content, documents["picture:1"]);
   session.dispose();
 });
+test("a committed approval closes review while its chat save is still pending", async () => {
+  const { session, agent } = fixture();
+  await agent.send("Add a welcome sign");
+  const messageId = agent.pending()!.messageId;
+  const saveChats = session.saveChats;
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => (release = resolve));
+  let saving!: () => void;
+  const started = new Promise<void>((resolve) => (saving = resolve));
+  session.saveChats = async (chats) => {
+    saving();
+    await gate;
+    await saveChats(chats);
+  };
+  let reviewClosed = false;
+  const off = agent.subscribe(() => {
+    if (agent.pending() === null && agent.reviewOutcome(messageId) === "Approved")
+      reviewClosed = true;
+  });
+  const approval = agent.approve();
+  try {
+    await started;
+    assert.equal(reviewClosed, true, "committed review remains displayed during the chat save");
+    assert.equal(agent.busy, true);
+  } finally {
+    release();
+    await approval;
+    off();
+    session.dispose();
+  }
+});
 test("reject, auto-approve and stale proposals preserve the manual base", async () => {
   const { session, agent } = fixture();
   await agent.send("Add sign");

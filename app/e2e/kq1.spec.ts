@@ -1,4 +1,5 @@
 import { gameHint, openGameOptions, enterCreateMode } from "./engineProbe.ts";
+import type { ProjectSession } from "../src/project/projectSession.ts";
 import { fixtureSkip, KNOWN_GAME_HASH } from "../../test/fixtures.ts";
 import { readFile } from "node:fs/promises";
 import { readGameZip } from "../src/archive/gameZip.ts";
@@ -24,6 +25,7 @@ import {
   textHook,
   waitForAutosaveAfter,
   waitForCycles,
+  workspaceSaved,
 } from "./engineProbe.ts";
 
 /**
@@ -731,14 +733,29 @@ test("a locally loaded patched game can be downloaded and imported", async ({ pa
 
   // Patch a real local game through the UI, then verify the downloaded bytes.
   await enterCreateMode(page);
+  await workspaceSaved(page);
   await page.getByTestId("workspace-agent").click();
   const panel = page.getByTestId("workspace-agent-panel");
   await expect(panel).toBeVisible();
+  await workspaceSaved(page);
+  await expect(page.getByTestId("agent-message")).toBeVisible();
   await expect(page.getByTestId("agent-message")).toBeEnabled();
   await page.getByTestId("agent-message").fill("Add a welcome sign that answers look at sign");
+  await expect(page.getByTestId("agent-message")).toHaveValue(
+    "Add a welcome sign that answers look at sign",
+  );
+  await expect(panel.getByRole("button", { name: "Send", exact: true })).toBeEnabled();
   await panel.getByRole("button", { name: "Send", exact: true }).click();
   await expect(page.getByTestId("agent-review")).toBeVisible();
   await page.getByTestId("agent-approve").click();
+  // Wait for the real project transaction before checking its completed review.
+  await page.evaluate(async () => {
+    await (
+      window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }
+    ).__AGI_PROJECT__
+      .getSession()
+      .flush();
+  });
   await expect(page.getByTestId("agent-review")).toBeHidden();
   await page.getByTestId("workspace-agent").click();
   const downloading = page.waitForEvent("download");

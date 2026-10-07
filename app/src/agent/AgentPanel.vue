@@ -6,7 +6,6 @@ import {
   h,
   nextTick,
   onBeforeUnmount,
-  onMounted,
   onWatcherCleanup,
   useTemplateRef,
   ref,
@@ -77,9 +76,13 @@ const readOnly = ref(false);
 const taskContext = ref("");
 const formatReply = shallowRef<ReplyFormatter>();
 const composer = useTemplateRef("composer");
-onMounted(() => {
-  if (!document.querySelector("dialog[open]")) composer.value?.focus();
-});
+watch(
+  [agent, composer],
+  ([ready, element]) => {
+    if (ready && element && !document.querySelector("dialog[open]")) element.focus();
+  },
+  { flush: "post" },
+);
 watch(
   editor.agentPrefill,
   async (prefill) => {
@@ -108,7 +111,7 @@ async function attach() {
   const runtime = await engine.getAgentRuntime();
   if (retired || (props.session ?? engine.getProjectSession()) !== session || agent.value) return;
   off?.();
-  agent.value = borrowWorkspaceAgent({
+  const attached = borrowWorkspaceAgent({
     session,
     profileId:
       props.profileId ??
@@ -123,6 +126,15 @@ async function attach() {
       await editor.flush.value?.();
     },
   });
+  // The first chat can create the editable copy. Settle it before accepting input.
+  try {
+    await session.flush();
+  } catch (cause) {
+    if (!retired) error.value = cause instanceof Error ? cause.message : String(cause);
+    return;
+  }
+  if (retired || (props.session ?? engine.getProjectSession()) !== session || agent.value) return;
+  agent.value = attached;
   off = agent.value.subscribe(() => {
     tick.value++;
   });
@@ -222,14 +234,14 @@ const approvalMode = computed({
 });
 const approvalModes = computed(() => [
   {
-    disabled: editor.readOnly.value,
+    disabled: !agent.value || editor.readOnly.value,
     value: "review",
     label: VOCABULARY.review.label,
     title: VOCABULARY.review.help,
     testid: "agent-review-mode",
   },
   {
-    disabled: editor.readOnly.value,
+    disabled: !agent.value || editor.readOnly.value,
     value: "auto",
     label: VOCABULARY.autoApprove.label,
     title: VOCABULARY.autoApprove.help,
@@ -675,7 +687,7 @@ onBeforeUnmount(() => {
         placeholder="Describe a change…"
         data-testid="agent-message"
         :rows="review ? 1 : 3"
-        :disabled="busy || editor.readOnly.value"
+        :disabled="!agent || busy || editor.readOnly.value"
       ></textarea>
       <div>
         <UiButton
