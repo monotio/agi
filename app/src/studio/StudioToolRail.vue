@@ -250,6 +250,8 @@ watch(scroller, (el) => {
   /* A very short rail scrolls as a whole: the tools keep room for two and the
      values slide below the fold instead of covering them. */
   overflow-y: auto;
+  /* Native reveal scrolling rounds offsets to pixels; keep fractional swatches inside. */
+  scroll-padding-block: 1px;
   scrollbar-width: none;
 }
 .tool-rail::-webkit-scrollbar {

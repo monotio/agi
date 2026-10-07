@@ -93,10 +93,9 @@ if (said("open", "gate")) {
   else { print("Find the bronze relic to open the gate."); }
 }
 if (said("pockets")) { status(); }
-return;
 `;
-    expect(room).toMatch(/return;\s*$/);
-    const source = room!.replace(/return;\s*$/, puzzle);
+    expect(room).not.toMatch(/return;\s*$/);
+    const source = `${room!.trimEnd()}\n${puzzle}`;
     const card = savedGameCard(page, title);
     await openLibraryActions(page, card);
     await page.getByTestId("edit-library-game").click();

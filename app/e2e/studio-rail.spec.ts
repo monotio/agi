@@ -103,6 +103,10 @@ for (const viewport of VIEWPORTS) {
       () => document.documentElement.scrollHeight - window.innerHeight,
     );
     expect(overflow, "the page does not scroll").toBeLessThanOrEqual(0);
+    await page.screenshot({
+      path: test.info().outputPath(`rail-${viewport.width}x${viewport.height}.png`),
+      animations: "disabled",
+    });
   });
 }
 

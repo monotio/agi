@@ -25,6 +25,15 @@ async function updateKeepPlaying(page: Page): Promise<void> {
   await expect(pending).toBeHidden();
 }
 
+async function makeRoom(page: Page): Promise<void> {
+  const action = page.getByRole("button", { name: "Make it a room", exact: true });
+  if (await action.isVisible()) await action.click();
+  else {
+    await page.getByTestId("context-more-actions").click();
+    await page.getByRole("menuitem", { name: "Make it a room", exact: true }).click();
+  }
+}
+
 async function shot(page: Page, name: string, expected?: readonly number[]) {
   if (page.viewportSize()!.width > 600 && !["unused", "view-unused", "focus"].includes(name)) {
     const canvas = page.locator(".game-surface:visible");
@@ -465,7 +474,7 @@ for (const size of [
     await open(page, "part-picture:9");
     await expect(page.getByTestId("workspace-unused")).toBeVisible();
     await shot(page, "unused");
-    await page.getByRole("button", { name: "Make it a room", exact: true }).click();
+    await makeRoom(page);
     await updateKeepPlaying(page);
     await open(page, "part-room:2:picture:9");
     await playRoom(page);
@@ -482,7 +491,7 @@ for (const size of [
     await open(page, "part-view:9");
     await expect(page.getByTestId("workspace-unused")).toBeVisible();
     await shot(page, "view-unused");
-    await page.getByRole("button", { name: "Make it a room", exact: true }).click();
+    await makeRoom(page);
     await updateKeepPlaying(page);
     await open(page, "part-room:3:logic");
     await playRoom(page);

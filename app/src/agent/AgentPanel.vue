@@ -177,28 +177,20 @@ watch(
 );
 const visibleMessages = computed(() => current.value?.messages);
 const feed = useTemplateRef("feed");
-const { following, readPosition, jumpToLatest } = useReadingPosition(feed);
+const { following, readPosition, jumpToLatest, followLatest } = useReadingPosition(feed);
 const feedContent = useTemplateRef("feedContent");
 watch(
   feedContent,
   (element) => {
     if (!element) return;
-    const observer = new ResizeObserver(() => {
-      if (following.value) jumpToLatest();
-    });
+    const observer = new ResizeObserver(followLatest);
     observer.observe(element);
     onWatcherCleanup(() => observer.disconnect());
   },
   { flush: "post" },
 );
 
-watch(
-  [() => current.value?.messages, review],
-  () => {
-    if (following.value) jumpToLatest();
-  },
-  { deep: true, flush: "post" },
-);
+watch([() => current.value?.messages, review], followLatest, { deep: true, flush: "post" });
 watch(
   () => current.value?.id,
   () => jumpToLatest(),
