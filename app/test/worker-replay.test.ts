@@ -50,7 +50,12 @@ test("advanceReplay parked on a prompt holds the tick until the answer lands", (
     "no further observation posts while the request is in flight",
   );
 
-  ctx.fns.onHostAnswer({ type: "hostAnswer", id: 1, response: "42" });
+  ctx.fns.onHostAnswer({
+    type: "hostAnswer",
+    generation: ctx.run.generation,
+    id: 1,
+    response: "42",
+  });
   assert.equal(ctx.run.engine!.vars[100], 42);
   assert.equal(ctx.run.engine!.vars[101], 7, "the resumed pass completed");
   const after = observations();
@@ -184,3 +189,68 @@ test("a rejected tape snapshot preserves the live sound, parked print and replay
   assert.deepEqual(ctx.replay, before);
   assert.deepEqual([control.length, presentation.length], output);
 });
+
+for (const hold of ["owner", "debugger"] as const) {
+  test(`replay adoption rejects the abandoned serial before the ${hold} queue`, (t) => {
+    const container = gameContainer(
+      [
+        "if(equaln(v0,0)){new.room(1);}call.v(v0);return;",
+        'if(isset(f5)){load.pic(v0);draw.pic(v0);show.pic();}if(isset(f70)){get.num("Number?",v80);}return;',
+      ],
+      (c) => c.putResource("picture", 1, PICTURE_1),
+    );
+    const { ctx, control } = workerHarness(container);
+    t.after(() => ctx.fns.stopTimers());
+    ctx.boot.currentBootFiles = new Map(container.files);
+    ctx.boot.currentDictionary = new Map();
+    ctx.fns.tickEngine();
+    ctx.run.engine!.flags[70] = 1;
+    ctx.replay.replay = { tick: 0, revision: 0 };
+    ctx.fns.onReplaySnapshot({ type: "replaySnapshot" });
+    assert.equal(ctx.replay.snapshots.size, 1);
+    ctx.fns.tickEngine();
+    const old = control.findLast((m) => m.type === "hostRequest");
+    assert.ok(old?.type === "hostRequest");
+    ctx.fns.onReplayRestore({ type: "replayRestore", id: 1, tick: 0 });
+    ctx.fns.tickEngine();
+    const next = control.findLast((m) => m.type === "hostRequest");
+    assert.ok(next?.type === "hostRequest" && next !== old);
+    assert.equal(next.id, old.id);
+    if (hold === "owner") onWorkerMessage(ctx, { type: "playOwner", active: false, generation: 1 });
+    else {
+      ctx.fns.onExitReplay();
+      ctx.fns.onDebugAttach({ type: "debugAttach", id: 1 });
+      const epoch = ctx.run.debugger.epoch;
+      ctx.fns.onDebugPause({ type: "debugPause", id: 2, epoch });
+      assert.equal(ctx.fns.debugStoppedHeld(), true);
+    }
+    ctx.fns.onHostAnswer({
+      type: "hostAnswer",
+      generation: old.generation,
+      id: old.id,
+      response: "77",
+    });
+    assert.equal(ctx.run.owner.answers.length, 0);
+    assert.equal(ctx.run.debugger.queuedAnswers.length, 0);
+    assert.equal(ctx.run.engine!.vars[80], 0);
+    ctx.fns.onHostAnswer({
+      type: "hostAnswer",
+      generation: next.generation,
+      id: next.id,
+      response: "9",
+    });
+    const queued = hold === "owner" ? ctx.run.owner.answers : ctx.run.debugger.queuedAnswers;
+    assert.equal(queued.length, 1);
+    assert.equal(queued[0]!.generation, next.generation);
+    if (hold === "owner") onWorkerMessage(ctx, { type: "playOwner", active: true, generation: 2 });
+    else
+      ctx.fns.onDebugResume({
+        type: "debugResume",
+        id: 3,
+        epoch: ctx.run.debugger.epoch,
+        stopId: ctx.run.debugger.stopId!,
+        action: "continue",
+      });
+    assert.equal(ctx.run.engine!.vars[80], 9);
+  });
+}

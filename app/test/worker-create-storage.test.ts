@@ -109,6 +109,7 @@ for (const opening of ["cold", "checkpoint"] as const) {
     assert.ok(description?.type === "hostRequest");
     onWorkerMessage(ctx, {
       type: "hostAnswer",
+      generation: ctx.run.generation,
       id: description.id,
       response: '{"value":"Create death"}',
     });

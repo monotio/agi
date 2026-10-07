@@ -38,9 +38,10 @@ export function createHostRequests(ctx: WorkerContext) {
     // The interpreter is about to suspend: ship the frame that shows the
     // prompt (or the selector) the request belongs to.
     ctx.fns.postFrame();
+    const generation = ctx.run.generation;
     const id = ++ctx.run.hostRequests.hostRequestSerial;
     const authoring = op === "room";
-    ctx.run.hostRequests.hostRequestOutstanding = { id, op, authoring };
+    ctx.run.hostRequests.hostRequestOutstanding = { generation, id, op, authoring };
     if (
       ctx.run.progress.mode === "create" &&
       !ctx.replay.historyReplay &&
@@ -82,11 +83,12 @@ export function createHostRequests(ctx: WorkerContext) {
           const saved = run.scratchSlots[String(slot)];
           response = saved ? JSON.stringify(saved) : "";
         }
-        ctx.fns.onHostAnswer({ type: "hostAnswer", id, response });
+        ctx.fns.onHostAnswer({ type: "hostAnswer", generation, id, response });
       }, 0);
     } else
       ctx.ports.control({
         type: "hostRequest",
+        generation,
         id,
         op,
         context:
@@ -112,7 +114,7 @@ export function createHostRequests(ctx: WorkerContext) {
 
   /**
    * Drop the in-flight host request and tell the main thread to resolve the
-   * UI it opened — a superseded request's late answer is dropped by the id
+   * UI it opened — a superseded request's late answer is dropped by the identity
    * check in the hostAnswer handler.
    */
   function abandonHostRequest(): void {
@@ -127,7 +129,12 @@ export function createHostRequests(ctx: WorkerContext) {
     settleHostRequest(outstanding);
     // An abandoned suspended re-enter can never land its transition.
     ctx.run.journal.pendingCause = null;
-    ctx.ports.control({ type: "interactionCancelled", id: outstanding.id, op: outstanding.op });
+    ctx.ports.control({
+      type: "interactionCancelled",
+      generation: outstanding.generation,
+      id: outstanding.id,
+      op: outstanding.op,
+    });
   }
 
   /**
@@ -345,15 +352,26 @@ export function createHostRequests(ctx: WorkerContext) {
     msg: Inbound<"hostAnswer">,
     committed?: HistoryCommittedPatch | null,
   ): void {
-    // The main thread resolved the in-flight host request. A stale id —
-    // an answer for a request already abandoned — is dropped, never
-    // delivered.
+    // The replayable serial can recur after adoption. Only this run's
+    // generation and request serial together identify the live interaction.
+    const generation = msg.generation;
     const id = Number(msg.id);
     const outstanding = ctx.run.hostRequests.hostRequestOutstanding;
-    if (!ctx.run.engine || outstanding === null || outstanding.id !== id) return;
+    if (
+      !ctx.run.engine ||
+      outstanding === null ||
+      generation !== ctx.run.generation ||
+      outstanding.generation !== generation ||
+      outstanding.id !== id
+    )
+      return;
     if (!ctx.run.owner.active) {
-      if (!ctx.run.owner.answers.some((answer) => answer.id === id))
-        ctx.run.owner.answers.push({ id, response: String(msg.response ?? "") });
+      if (
+        !ctx.run.owner.answers.some(
+          (answer) => answer.generation === generation && answer.id === id,
+        )
+      )
+        ctx.run.owner.answers.push({ generation, id, response: String(msg.response ?? "") });
       return;
     }
     // While the debugger holds the stop latch the answer is raw queued data:
@@ -363,8 +381,13 @@ export function createHostRequests(ctx: WorkerContext) {
     // late or duplicate answers never requeue.
     if (ctx.fns.debugStoppedHeld()) {
       const d = ctx.run.debugger;
-      if (!d.queuedAnswers.some((answer) => answer.id === id)) {
-        d.queuedAnswers.push({ id, op: outstanding.op, response: String(msg.response ?? "") });
+      if (!d.queuedAnswers.some((answer) => answer.generation === generation && answer.id === id)) {
+        d.queuedAnswers.push({
+          generation,
+          id,
+          op: outstanding.op,
+          response: String(msg.response ?? ""),
+        });
         ctx.ports.control({
           type: "debugAnswerReady",
           epoch: d.epoch,

@@ -151,6 +151,18 @@ export function adoptResumePoint(
         throw new Error(`LOGIC ${entry.logic} changed after scan.start.`);
     }
   }
+  if (options.currentFiles) {
+    const after = openContainer(files, { profile: candidate.profile });
+    const imageContinuation =
+      boot.image === undefined ? null : decodeHostImage(base64ToBytes(boot.image)).continuation;
+    for (const continuation of [imageContinuation, boot.replay?.continuation]) {
+      for (const frame of continuation?.frames ?? []) {
+        const logic = after.getResource("logic", frame.logic);
+        if (!logic || fnv1a32(logic) !== frame.hash)
+          throw new Error(`LOGIC ${frame.logic} changed while the game waited.`);
+      }
+    }
+  }
   if (boot.image !== undefined)
     candidate.restoreImage(base64ToBytes(boot.image), { preservePresentation: true });
   else candidate.flags[9] = 1;

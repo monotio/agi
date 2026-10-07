@@ -164,7 +164,12 @@ test("a transition resumed by a host answer records exactly one entry", () => {
   assert.ok(request && request.type === "hostRequest");
 
   const before = transitions(control).length;
-  ctx.fns.onHostAnswer({ type: "hostAnswer", id: request.id, response: "7" });
+  ctx.fns.onHostAnswer({
+    type: "hostAnswer",
+    generation: ctx.run.generation,
+    id: request.id,
+    response: "7",
+  });
   const all = transitions(control);
   assert.equal(all.length, before + 1, "the resumed new.room emits once");
   const resumed = all.at(-1)!;

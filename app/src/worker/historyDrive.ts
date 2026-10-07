@@ -571,7 +571,12 @@ export function openHistoryDrive(
       case "answer":
         if (cause.op === "room")
           ctx.fns.onHostAnswer(
-            { type: "hostAnswer", id: cause.request, response: cause.response },
+            {
+              type: "hostAnswer",
+              generation: ctx.run.generation,
+              id: cause.request,
+              response: cause.response,
+            },
             // A declined room carries prepared:false and no patch — replay
             // must deliver the refusal, not recompile the empty response.
             cause.patch ?? (cause.prepared === false ? null : undefined),
@@ -579,6 +584,7 @@ export function openHistoryDrive(
         else
           ctx.fns.onHostAnswer({
             type: "hostAnswer",
+            generation: ctx.run.generation,
             id: cause.request,
             response: cause.response,
           });

@@ -12,12 +12,22 @@ test("a stale hostAnswer id is dropped; the matching id delivers and ticks", () 
   assert.equal(request?.op, "getnum");
   assert.equal(request?.id, 1);
 
-  ctx.fns.onHostAnswer({ type: "hostAnswer", id: 99, response: "5" });
+  ctx.fns.onHostAnswer({
+    type: "hostAnswer",
+    generation: ctx.run.generation,
+    id: 99,
+    response: "5",
+  });
   assert.equal(ctx.run.engine!.hostInteractionPending, true, "the stale answer was dropped");
   assert.equal(ctx.run.engine!.vars[100], 0, "nothing stored");
   assert.equal(ctx.run.engine!.vars[101], 0, "the pass did not resume");
 
-  ctx.fns.onHostAnswer({ type: "hostAnswer", id: 1, response: "5" });
+  ctx.fns.onHostAnswer({
+    type: "hostAnswer",
+    generation: ctx.run.generation,
+    id: 1,
+    response: "5",
+  });
   assert.equal(ctx.run.engine!.vars[100], 5);
   assert.equal(ctx.run.engine!.vars[101], 7, "the matching answer resumed the pass");
   assert.equal(ctx.run.engine!.hostInteractionPending, false);
@@ -25,11 +35,16 @@ test("a stale hostAnswer id is dropped; the matching id delivers and ticks", () 
 
 test("abandonHostRequest posts interactionCancelled with the request id", () => {
   const { ctx, control } = workerHarness(gameContainer(["return;"]));
-  ctx.run.hostRequests.hostRequestOutstanding = { id: 7, op: "restore", authoring: false };
+  ctx.run.hostRequests.hostRequestOutstanding = {
+    generation: ctx.run.generation,
+    id: 7,
+    op: "restore",
+    authoring: false,
+  };
   ctx.fns.abandonHostRequest();
   assert.deepEqual(
     control.filter((m) => m.type === "interactionCancelled"),
-    [{ type: "interactionCancelled", id: 7, op: "restore" }],
+    [{ type: "interactionCancelled", generation: ctx.run.generation, id: 7, op: "restore" }],
   );
   assert.equal(ctx.run.hostRequests.hostRequestOutstanding, null);
   ctx.fns.abandonHostRequest();

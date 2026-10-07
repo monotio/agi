@@ -29,7 +29,8 @@ import type {
 interface WorkerLinkDeps {
   missedSentence?(msg: Extract<WorkerOutbound, { type: "missedSentence" }>): void;
   projectBooted?(msg: Extract<WorkerOutbound, { type: "booted" }>): void;
-  projectClosed?(): void;
+  projectClosed?(preservePlayOwnership?: boolean): void;
+  playOwnershipRetained?(): void;
   recordingReset?(): void;
   resetScreenState(): void;
   cancelPrompt(): void;
@@ -212,8 +213,8 @@ export function useWorkerLink(options: WorkerLinkOptions) {
     shakeTimer = null;
   }
 
-  function spawnWorker(): Worker {
-    deps.projectClosed?.();
+  function spawnWorker(preservePlayOwnership = false): Worker {
+    deps.projectClosed?.(preservePlayOwnership);
     worker?.terminate();
     options.audio?.stop();
     deps.resetScreenState();
@@ -224,6 +225,7 @@ export function useWorkerLink(options: WorkerLinkOptions) {
       type: "module",
     });
     wireWorker(w);
+    if (preservePlayOwnership) deps.playOwnershipRetained?.();
     return w;
   }
 
@@ -231,6 +233,7 @@ export function useWorkerLink(options: WorkerLinkOptions) {
     // Trace stream instance last seen from this worker; an epoch change
     // means the worker reset or re-armed the channel, so stale records drop.
     let traceEpochSeen = -1;
+    let pendingHostRequest: { generation: number; id: number } | null = null;
     // The map is required, not partial: a union member without a handler is a
     // type error here, so deleting one fails `npm run check` at compile time.
     const handlers: WorkerOutboundHandlers = {
@@ -306,11 +309,12 @@ export function useWorkerLink(options: WorkerLinkOptions) {
       waitingForKey: (msg) => {
         state.waitingForKey = msg.waiting;
       },
-      // The worker suspended on a host service. The request id settles the
-      // handshake: the matching hostAnswer resumes the parked interaction,
-      // and a stale id — the interaction was abandoned — is dropped there.
+      // The live identity combines run generation and replayable request serial.
+      // Abandoned completions cannot publish answers or follow-up checkpoints.
       hostRequest: (msg) => {
-        const id = msg.id;
+        const { generation, id } = msg;
+        const pending = { generation, id };
+        pendingHostRequest = pending;
         const req: LlmRequest = {
           op: msg.op,
           context: msg.context,
@@ -319,19 +323,31 @@ export function useWorkerLink(options: WorkerLinkOptions) {
         hostRequestHandler(currentSessionAgent)
           .handle(req)
           .then((response) => {
+            if (worker !== w || pendingHostRequest !== pending) return;
+            pendingHostRequest = null;
             logAgent("response", response.slice(0, 120));
-            w.postMessage({ type: "hostAnswer", id, response } satisfies WorkerInbound);
+            w.postMessage({ type: "hostAnswer", generation, id, response } satisfies WorkerInbound);
             deps.hostAnswered?.(req);
           })
           .catch((e) => {
+            if (worker !== w || pendingHostRequest !== pending) return;
+            pendingHostRequest = null;
             logAgent("response", `agent error: ${String(e)}`);
-            w.postMessage({ type: "hostAnswer", id, response: "" } satisfies WorkerInbound);
+            w.postMessage({
+              type: "hostAnswer",
+              generation,
+              id,
+              response: "",
+            } satisfies WorkerInbound);
           });
       },
       // The worker abandoned a suspended interaction (reenter, superseded
       // request): resolve the prompt widgets its in-flight request opened so
       // the UI stops waiting on an answer that is no longer consumed.
-      interactionCancelled: () => {
+      interactionCancelled: (msg) => {
+        if (pendingHostRequest?.generation !== msg.generation || pendingHostRequest.id !== msg.id)
+          return;
+        pendingHostRequest = null;
         deps.cancelPrompt();
       },
       frame: (msg) => {

@@ -439,13 +439,25 @@ export function useEngine(
     retireFailedRecovery: (game, message) => lifecycle.retireFailedRecovery(game, message),
   });
 
-  link.deps.projectClosed = () => {
-    progressOwnership.close();
+  link.deps.projectClosed = (preservePlayOwnership) => {
+    if (!preservePlayOwnership) progressOwnership.close();
     executionDebug?.reset();
     projectOpenEpoch++;
     projectSession?.dispose();
     projectSession = null;
     pendingProjectRestart.value = null;
+  };
+  link.deps.playOwnershipRetained = () => {
+    const active = progressOwnership.generation() !== undefined;
+    state.otherTab = !active;
+    if (active) resumeEngine("otherTab");
+    else pauseEngine("otherTab");
+    link.getWorker()?.postMessage({
+      type: "playOwner",
+      active,
+      generation: progressOwnership.lastGeneration(),
+      epoch: progressOwnership.epoch(),
+    } satisfies WorkerInbound);
   };
   async function openSession(
     grant: Extract<WorkerControl, { type: "booted" }>["projectAdmission"],
