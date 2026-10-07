@@ -12,6 +12,7 @@ export function renameRoomTitle(world: World, room: number, title: string): Worl
   const next = JSON.parse(JSON.stringify(world)) as World;
   const key = String(room);
   const entry = next.rooms[key] ?? { title: "", description: "", exits: {} };
+  delete entry.titleIsDefault;
   next.rooms[key] = { ...entry, title };
   return next;
 }

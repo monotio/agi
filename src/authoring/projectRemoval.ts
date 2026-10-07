@@ -15,13 +15,14 @@
  * guesses. Approval matching, storage CAS and the durable write belong to the
  * calling service.
  */
+import { testSetupReferences } from "./renumberTestSetup.ts";
 import { parseGameTests, type GameTestsDocument } from "../agent/gameTestFormat.ts";
 import { createRoomFlow, VAR_WRITES } from "../agent/roomFlow.ts";
 import { openContainer } from "../container/container.ts";
 import type { AgiProfile } from "../runtime/profile.ts";
 import { validateAuthoringState, type AuthoringState } from "./authoringState.ts";
 import { readBindingsDocument, readMusicDocument } from "./projectDocuments.ts";
-import { inspectProjectReferences } from "./projectReferences.ts";
+import { resourceReferenceOperand, inspectProjectReferences } from "./projectReferences.ts";
 import { inspectProjectSourceDependencies } from "./projectSourceDependencies.ts";
 
 type DocumentContent = string | Uint8Array;
@@ -44,6 +45,7 @@ export interface RemovalFinding {
   readonly document: string;
   readonly message: string;
   readonly computedRoomJump?: string;
+  readonly computedResource?: string;
 }
 
 export interface ProjectRemovalInput {
@@ -66,6 +68,7 @@ export interface ProjectRemovalInput {
   /** The kept baseline's bindings: a second name-resolution context for drafts. */
   readonly keptBindings: BindingMap;
   readonly profile: AgiProfile;
+  readonly renumbering?: string | undefined;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -76,7 +79,12 @@ function reason(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-type Report = (document: string, message: string, computedRoomJump?: string) => void;
+type Report = (
+  document: string,
+  message: string,
+  computedRoomJump?: string,
+  computedResource?: string,
+) => void;
 
 function inspectFlowTargets(
   input: ProjectRemovalInput,
@@ -114,6 +122,8 @@ function inspectFlowTargets(
           report(
             document,
             `${key} is still used by ${document} at offset ${use.offset} (${use.command}).`,
+            undefined,
+            resourceReferenceOperand(use.command, input.profile)?.variable ? key : undefined,
           );
         if (use.unknown && kind === "logic" && use.command === "new.room.v") {
           const insns = flow.instructions.get(use.logic) ?? [];
@@ -125,11 +135,14 @@ function inspectFlowTargets(
             document,
             `Room ${num} can still be reached by a computed room jump in LOGIC ${use.logic}${teleport ? " (the debug teleport)" : ""}. Remove anyway?`,
             key,
+            key,
           );
         } else if (use.unknown && (use.kind === kind || use.kind === "logic"))
           report(
             document,
             `${key} may still be used: ${document} at offset ${use.offset} (${use.command}) has a computed or unresolved ${use.kind.toUpperCase()} target.`,
+            undefined,
+            key,
           );
       }
   };
@@ -231,6 +244,7 @@ function inspectTestsDocument(
   removedKeys: ReadonlySet<string>,
   profile: AgiProfile,
   report: Report,
+  renumbering?: string,
 ): void {
   if (content === undefined) return;
   let parsed: GameTestsDocument;
@@ -246,8 +260,13 @@ function inspectTestsDocument(
   }
   for (const test of parsed.tests) {
     const label = `test '${test.name}'`;
-    if (test.setup !== undefined)
+    if (test.setup !== undefined && renumbering === undefined)
       report(document, `${label} restores a save image whose resource uses cannot be inventoried.`);
+    if (test.setup && renumbering !== undefined)
+      for (const reference of testSetupReferences(test.setup, profile)) {
+        const key = `${reference.kind}:${reference.num}`;
+        if (removedKeys.has(key)) report(document, `${label} still restores ${key}.`);
+      }
     const entered = roomUse(test.room, removedKeys);
     if (entered !== undefined) report(document, `${label} still enters ${entered}.`);
     const expected = roomUse(test.expect?.["room"], removedKeys);
@@ -365,7 +384,7 @@ export function inspectProjectRemoval(input: ProjectRemovalInput): readonly Remo
   const removedKeys: ReadonlySet<string> = new Set(removed.map((entry) => entry.key));
   const findings: RemovalFinding[] = [];
   const seen = new Set<string>();
-  const report: Report = (document, message, computedRoomJump) => {
+  const report: Report = (document, message, computedRoomJump, computedResource) => {
     const marker = `${document}${message}`;
     if (seen.has(marker)) return;
     seen.add(marker);
@@ -373,6 +392,7 @@ export function inspectProjectRemoval(input: ProjectRemovalInput): readonly Remo
       document,
       message,
       ...(computedRoomJump === undefined ? {} : { computedRoomJump }),
+      ...(computedResource === undefined ? {} : { computedResource }),
     });
   };
 
@@ -395,6 +415,8 @@ export function inspectProjectRemoval(input: ProjectRemovalInput): readonly Remo
           report(
             reference.document,
             `${key} may still be used: ${reference.document} reads a ${kind} target from v${target.variable} (${reference.command}).`,
+            undefined,
+            key,
           );
       continue;
     }
@@ -413,7 +435,7 @@ export function inspectProjectRemoval(input: ProjectRemovalInput): readonly Remo
   inspectBindingReservations("bindings", input.authoring.bindings, removedKeys, report);
   inspectWorldPlan("world", input.authoring.world, removedKeys, report);
   inspectMusicIntent("music", input.authoring.music, removedKeys, report);
-  inspectTestsDocument("tests", input.tests, removedKeys, input.profile, report);
+  inspectTestsDocument("tests", input.tests, removedKeys, input.profile, report, input.renumbering);
   inspectReferencesDocument("references", input.references, removedKeys, report);
 
   for (const draft of input.drafts) {
@@ -599,6 +621,8 @@ function inspectBytecodeDraft(
           report(
             key,
             `${removedKey} may still be used: draft ${key} reads a ${kind} target from v${target.variable} (${reference.command}).`,
+            undefined,
+            removedKey,
           );
       continue;
     }

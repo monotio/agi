@@ -55,7 +55,7 @@ const ARGUMENT_KINDS: Record<string, NumberedKind> = {
 
 export function collectLogicOperands(
   syntax: ReturnType<typeof analyzeLogicSyntax>,
-  commands: readonly CommandReference[],
+  commands: readonly Pick<CommandReference, "name" | "operands">[],
   profile: AgiProfile,
 ): readonly NumberedOperand[] {
   const byName = new Map(commands.map((command) => [command.name, command]));

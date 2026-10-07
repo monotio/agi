@@ -77,6 +77,7 @@ import { expandProjectLogic } from "./projectLogic.ts";
 import { inspectProjectReferences } from "./projectReferences.ts";
 import { inspectProjectSourceDependencies } from "./projectSourceDependencies.ts";
 import { allocateProjectIds } from "./resourceAllocation.ts";
+import { occupiedProjectNumbers } from "./projectRenumber.ts";
 import {
   BOILERPLATE_PART_LABEL,
   BOILERPLATE_PART_STEMS,
@@ -378,6 +379,8 @@ function allocateResourceId(
   opKind: GuidedOperationKind,
 ): { id: number } | GuidedRefusal {
   const used = occupiedResourceIds(img, kind);
+  if (requested === undefined)
+    for (const number of occupiedProjectNumbers(img.documents, kind, img.profile)) used.add(number);
   if (requested !== undefined) {
     if (!intIn(requested, 1, 255))
       return refuse(
@@ -396,8 +399,8 @@ function allocateResourceId(
       );
     return { id: requested };
   }
-  // New rooms number like the seeds: lowest free slot, 1..254.
-  for (let candidate = 1; candidate <= 254; candidate++)
+  // Resources use the lowest free slot, including 255.
+  for (let candidate = 1; candidate <= 255; candidate++)
     if (!used.has(candidate)) return { id: candidate };
   return refuse(opKind, label, "occupied", `No free ${kind.toUpperCase()} ids remain.`);
 }
@@ -1295,7 +1298,7 @@ function roomTitle(
 // ---------- 1. Add room ----------
 
 export interface GuidedAddRoomInput {
-  /** Explicit resource ids; defaults allocate the lowest free id 1..254. */
+  /** Explicit resource ids; defaults allocate the lowest free id 1..255. */
   readonly logicId?: number;
   readonly pictureId?: number;
   /** Use an existing picture as the room's art. */
@@ -1442,6 +1445,7 @@ export function prepareGuidedAddRoom(ctx: GuidedContext, input: GuidedAddRoomInp
   const planned = world.rooms[String(logicId)];
   world.rooms[String(logicId)] = {
     title: roomTitle,
+    ...(title ? {} : { titleIsDefault: true as const }),
     description,
     exits: planned?.exits ?? {},
   };

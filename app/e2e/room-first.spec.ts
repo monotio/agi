@@ -195,6 +195,8 @@ test("blank game to Meadow, Room 2, a door drawn on the game and Play Room 2 @we
   await expect(page.getByTestId("workspace-unused")).toHaveCount(0);
   // A door drawn on the game, from Meadow to Room 2.
   await page.getByTestId("part-room:1:picture:1").click();
+  await expect(page.getByRole("region", { name: "PICTURE: PICTURE 1", exact: true })).toBeVisible();
+  await workspaceSaved(page);
   await page.getByTestId("room-action-door").click();
   const overlay = page.getByTestId("guided-placement");
   await expect(overlay).toBeVisible();

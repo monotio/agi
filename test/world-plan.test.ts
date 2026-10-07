@@ -175,3 +175,11 @@ test("draftRemoveRoom deletes the room's launches and strips cameFrom references
   assert.equal(draft.world.launches?.["2"], undefined);
   assert.equal(draft.world.launches?.["1"]?.entries[0]?.cameFrom, undefined);
 });
+
+test("naming a generated Room N makes that exact text an explicit title", () => {
+  const state = createAuthoringState();
+  state.world.rooms["2"] = { title: "Room 2", titleIsDefault: true, description: "", exits: {} };
+  const draft = createWorldDraft(state.world);
+  assert.equal(draftRenameRoom(draft, 2, "Room 2"), null);
+  assert.equal(draft.world.rooms["2"]!.titleIsDefault, undefined);
+});

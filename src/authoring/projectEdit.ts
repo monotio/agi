@@ -10,11 +10,19 @@ import {
   type ProjectDocumentsCompile,
 } from "./projectDocuments.ts";
 import type { ProjectApplication, ProjectModel, ProjectProposal } from "./projectModel.ts";
+import { occupiedProjectNumbers } from "./projectRenumber.ts";
+import type { ResourceKind } from "../types.ts";
 import { inspectProjectReferences } from "./projectReferences.ts";
 import { inspectProjectRemoval, PROJECT_RESOURCE_KEY } from "./projectRemoval.ts";
 import { inspectProjectDocumentDependencies } from "./projectSelection.ts";
 
+export interface ReviewedRenumbering {
+  readonly key: string;
+  readonly number: number;
+}
 export interface ProjectValidationPolicy {
+  /** The creator reviewed computed uses before moving this resource. */
+  readonly reviewedRenumbering?: ReviewedRenumbering | undefined;
   readonly allowMissingRooms?: boolean;
   /** Exact removed LOGIC keys whose unknown new.room.v risks the creator reviewed. */
   readonly reviewedComputedRoomJumps?: readonly string[] | undefined;
@@ -122,6 +130,24 @@ export function prepareProjectEdit(input: {
           ]),
       ),
     );
+    const renumbering = input.policy.reviewedRenumbering;
+    const reviewedMove =
+      renumbering !== undefined &&
+      removedResources.includes(renumbering.key) &&
+      PROJECT_RESOURCE_KEY.test(renumbering.key) &&
+      renumbering.key !== "logic:0" &&
+      Number.isInteger(renumbering.number) &&
+      renumbering.number >= (renumbering.key.startsWith("logic:") ? 1 : 0) &&
+      renumbering.number <= 255 &&
+      documents[`${renumbering.key.split(":")[0]}:${renumbering.number}`] !== undefined &&
+      before[`${renumbering.key.split(":")[0]}:${renumbering.number}`] === undefined &&
+      !occupiedProjectNumbers(
+        input.proposal.base.documents(),
+        renumbering.key.split(":")[0] as ResourceKind,
+        profile,
+      ).has(renumbering.number);
+    if (renumbering && !reviewedMove)
+      throw new Error("This number change changed. Review it again.");
     if (removedResources.length > 0) {
       const authoring = createAuthoringState();
       authoring.bindings = bindings;
@@ -142,6 +168,7 @@ export function prepareProjectEdit(input: {
       if (typeof music === "string") authoring.music = readMusicDocument(music);
       for (const finding of inspectProjectRemoval({
         removals: removedResources,
+        renumbering: reviewedMove ? renumbering?.key : undefined,
         image: references,
         authoring,
         tests: documents["tests"],
@@ -158,8 +185,9 @@ export function prepareProjectEdit(input: {
           ...finding,
           code: finding.computedRoomJump ? "computed-room-jump" : "removal-use",
           severity:
-            finding.computedRoomJump &&
-            input.policy.reviewedComputedRoomJumps?.includes(finding.computedRoomJump)
+            (reviewedMove && finding.computedResource === renumbering?.key) ||
+            (finding.computedRoomJump &&
+              input.policy.reviewedComputedRoomJumps?.includes(finding.computedRoomJump))
               ? "warning"
               : "error",
           preExisting: false,

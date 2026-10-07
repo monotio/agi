@@ -5,6 +5,7 @@ import { ProjectDraft } from "../src/authoring/projectDraft.ts";
 import { createStarterProject, type StarterKind } from "../src/authoring/starterProject.ts";
 import {
   prepareGuidedAddRoom,
+  prepareGuidedBoilerplate,
   prepareGuidedConnectDoor,
   prepareGuidedPlaceHero,
   prepareGuidedPlaySound,
@@ -1099,4 +1100,36 @@ test("guided state allocation tolerates inherited action and condition names in 
       });
       assert.ok(result.ok, result.ok === false ? result.message : "");
     }
+});
+
+test("an unnamed room follows its number and room allocation includes 255", () => {
+  const { ctx, draft } = workspace("blank");
+  const unnamed = mustPrepare(prepareGuidedAddRoom(ctx, { title: "" }));
+  const world = JSON.parse(
+    unnamed.changes.find((change) => change.key === "world")!.content as string,
+  );
+  assert.equal(world.rooms["1"].title, "Room 1");
+  assert.equal(world.rooms["1"].titleIsDefault, true);
+  const capture = draft.capture();
+  for (let number = 1; number < 255; number++) {
+    draft.edit(`logic:${number}`, "return;", capture.version(`logic:${number}`));
+    draft.edit(`picture:${number}`, "end", capture.version(`picture:${number}`));
+  }
+  const last = mustPrepare(prepareGuidedAddRoom(ctx, { title: "Last room" }));
+  assert.ok(last.affectedKeys.includes("logic:255"));
+  assert.ok(last.affectedKeys.includes("picture:255"));
+});
+
+test("ready parts use the lowest free number after world reservations", () => {
+  const { ctx, draft } = workspace("blank");
+  const capture = draft.capture();
+  const world = {
+    rooms: { "1": { title: "Planned room", description: "", exits: {} } },
+    facts: {},
+    quests: {},
+  };
+  draft.edit("world", JSON.stringify(world), capture.version("world"));
+  const score = mustPrepare(prepareGuidedBoilerplate(ctx, { part: "score" }));
+  assert.ok(score.affectedKeys.includes("logic:2"));
+  assert.ok(!score.affectedKeys.includes("logic:255"));
 });

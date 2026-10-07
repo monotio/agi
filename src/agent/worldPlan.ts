@@ -120,6 +120,7 @@ export function draftRenameRoom(draft: WorldDraft, room: number, title: string):
   if (!title.trim()) return "A room needs a title";
   return draftEdit(draft, (world) => {
     world.rooms[String(room)]!.title = title.trim();
+    delete world.rooms[String(room)]!.titleIsDefault;
   });
 }
 

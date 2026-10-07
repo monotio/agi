@@ -38,6 +38,11 @@ import {
   readMusicDocument,
   readBindingsDocument,
 } from "../../../../src/authoring/projectDocuments.ts";
+import { diffProjectDocuments } from "../../../../src/authoring/projectContent.ts";
+import {
+  occupiedProjectNumbers,
+  type prepareProjectRenumber,
+} from "../../../../src/authoring/projectRenumber.ts";
 import type { ProjectChange, ProjectContent } from "../../../../src/authoring/projectContent.ts";
 import type { ProjectSnapshot } from "../../../../src/authoring/projectModel.ts";
 import type { ProjectHistoryState } from "../../../../src/authoring/projectHistoryData.ts";
@@ -69,6 +74,86 @@ import { createWorkspacePending } from "./workspacePending.ts";
 import type { WorkspaceAction } from "./workspaceGuided.ts";
 import { useWorkspaceDebug, type LogicEditorHandle } from "./useWorkspaceDebug.ts";
 const props = defineProps<{ creating: boolean }>();
+const ChangeNumberDialog = defineAsyncComponent(() => import("./ChangeNumberDialog.vue"));
+const numberDialog = ref(false);
+const numberResource = ref("");
+const numberSnapshot = shallowRef<ProjectSnapshot>();
+const numberError = ref("");
+const numberRestart = ref(false);
+const numberedPart = computed(() =>
+  /^(logic|picture|view|sound):\d+$/.test(editor.selected.value ?? "")
+    ? editor.selected.value
+    : undefined,
+);
+function changeNumber(): void {
+  if (!session || !numberedPart.value) return;
+  numberResource.value = numberedPart.value;
+  numberSnapshot.value = session.workingSnapshot();
+  numberError.value = "";
+  numberRestart.value = false;
+  numberDialog.value = true;
+}
+async function applyNumber(
+  plan: Extract<ReturnType<typeof prepareProjectRenumber>, { ok: true }>,
+  restart: boolean,
+): Promise<void> {
+  if (!session || actionBusy.value || writeConflict.value || !numberSnapshot.value) return;
+  actionBusy.value = true;
+  numberError.value = "";
+  try {
+    if (plan.key === numberResource.value) {
+      numberDialog.value = false;
+      return;
+    }
+    await writes.flush();
+    if (
+      diffProjectDocuments(numberSnapshot.value.documents(), session.workingSnapshot().documents())
+        .length
+    ) {
+      numberError.value = "This part changed. Open Change number again.";
+      return;
+    }
+    const changes = diffProjectDocuments(session.model.capture().documents(), plan.documents);
+    const room = selectedRoom.value;
+    const launchRoom =
+      room !== undefined && numberResource.value === `logic:${room}`
+        ? Number(plan.key.split(":")[1])
+        : room;
+    const result = await session.update(
+      changes,
+      restart,
+      restart && launchRoom !== undefined ? { room: launchRoom } : undefined,
+      { key: numberResource.value, number: Number(plan.key.split(":")[1]) },
+    );
+    if (!["committed", "unchanged"].includes(result.status)) {
+      numberRestart.value = result.status === "restartRequired";
+      numberError.value = numberRestart.value
+        ? "The game needs a fresh room. Choose Update and restart."
+        : (result.diagnostics.find((entry) => entry.severity === "error")?.message ??
+          "The change could not apply. Try again.");
+      return;
+    }
+    await session.drafts().clear();
+    await session.flush();
+    optimistic.value = {};
+    draftKeys = "";
+    editor.tabs.value = editor.tabs.value.map((key) =>
+      key === numberResource.value ? plan.key : key,
+    );
+    editorEpoch.value++;
+    derivedText.clear();
+    nativeCache.clear();
+    placementPreviews.value = {};
+    openPart(plan.key);
+    numberDialog.value = false;
+    refresh();
+    draftChanged(true);
+  } catch (cause) {
+    numberError.value = cause instanceof Error ? cause.message : String(cause);
+  } finally {
+    actionBusy.value = false;
+  }
+}
 const NotesEditor = defineAsyncComponent(() => import("./NotesEditor.vue"));
 const ImageReferencePanel = defineAsyncComponent(
   () => import("../creative/ImageReferencePanel.vue"),
@@ -314,9 +399,13 @@ function dropMusic(event: DragEvent): void {
   musicDrop.value = file;
 }
 function addImportedSound(bytes: Uint8Array, tempo: number): void {
-  const used = new Set([...(snapshot.value?.keys ?? []), ...Object.keys(optimistic.value)]);
+  const used = occupiedProjectNumbers(
+    session!.workingSnapshot().documents(),
+    "sound",
+    profile.value,
+  );
   let number = 1;
-  while (used.has(`sound:${number}`) && number < 256) number++;
+  while (used.has(number) && number < 256) number++;
   if (number > 255) {
     editor.error.value = "SOUND resources are full. Replace an existing SOUND.";
     return;
@@ -768,6 +857,7 @@ const contextRow = computed(() => {
   return (
     kind === "picture" ||
     kind === "view" ||
+    kind === "sound" ||
     (kind === "logic" && snapshot.value !== undefined) ||
     (debug.value?.state.epoch !== undefined &&
       debug.value.state.epoch > 0 &&
@@ -1756,8 +1846,13 @@ async function add(group: string, option?: string): Promise<void> {
     return;
   }
   if (group === "SHARED LOGIC") {
+    const used = occupiedProjectNumbers(
+      session!.workingSnapshot().documents(),
+      "logic",
+      profile.value,
+    );
     let num = 1;
-    while (snapshot.value?.keys.includes(`logic:${num}`) && num < 256) num++;
+    while (used.has(num) && num < 256) num++;
     if (num > 255) {
       editor.error.value = "This resource group is full. Edit an existing part.";
       return;
@@ -1771,9 +1866,9 @@ async function add(group: string, option?: string): Promise<void> {
     return;
   }
   const kind = group === "PICTURES" ? "picture" : group === "VIEWS" ? "view" : "sound";
-  const used = new Set(snapshot.value?.keys ?? []);
+  const used = occupiedProjectNumbers(session!.workingSnapshot().documents(), kind, profile.value);
   let num = 1;
-  while (used.has(`${kind}:${num}`) && num < 256) num++;
+  while (used.has(num) && num < 256) num++;
   if (num > 255) {
     editor.error.value = "This resource group is full. Edit an existing part.";
     return;
@@ -2140,7 +2235,31 @@ onBeforeUnmount(() => {
         </ActionMenu>
       </div>
     </header>
+    <ChangeNumberDialog
+      v-if="numberDialog && numberSnapshot"
+      v-model:open="numberDialog"
+      :snapshot="numberSnapshot"
+      :resource="numberResource"
+      :profile
+      :busy="actionBusy"
+      :error="numberError"
+      :restart-required="numberRestart"
+      @change="applyNumber"
+    />
     <div v-if="contextRow" class="workspace-context" data-testid="workspace-context">
+      <template v-if="numberedPart">
+        <span data-testid="part-number">{{ numberedPart.replace(":", " ").toUpperCase() }}</span>
+        <UiButton
+          size="sm"
+          variant="ghost"
+          :disabled="writeConflict || actionBusy"
+          :title="
+            writeConflict ? 'Editing is paused. Download your unsaved edits, then reload.' : ''
+          "
+          @click="changeNumber"
+          >Change number…</UiButton
+        >
+      </template>
       <template v-if="editor.kind.value === 'picture' || editor.kind.value === 'view'">
         <UiButton
           size="sm"

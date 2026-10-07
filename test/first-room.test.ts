@@ -136,7 +136,9 @@ describe("first room on a blank game", () => {
     ]);
     assert.equal(documents["bindings"], "{}", "Game state stays empty");
     const world = JSON.parse(String(documents["world"]));
-    assert.deepEqual(world.rooms, { "1": { title: "Room 1", description: "", exits: {} } });
+    assert.deepEqual(world.rooms, {
+      "1": { title: "Room 1", titleIsDefault: true, description: "", exits: {} },
+    });
   });
 
   test("the built game holds no LOGIC 255, SOUND or VIEW resources", () => {

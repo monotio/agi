@@ -23,7 +23,10 @@ export interface AuthoringState {
     }
   >;
   world: {
-    rooms: Record<string, { title: string; description: string; exits: Record<string, number> }>;
+    rooms: Record<
+      string,
+      { title: string; description: string; exits: Record<string, number>; titleIsDefault?: true }
+    >;
     facts: Record<string, string>;
     quests: Record<string, { description: string; requires: string[]; completedFlag?: string }>;
     /** Per-room launch configurations; absent means none are saved. */
@@ -203,6 +206,7 @@ export function validateAuthoringState(value: unknown): AuthoringState {
     }
     result.world.rooms[num] = {
       title: text(item["title"], "room title", 160),
+      ...(item["titleIsDefault"] === true ? { titleIsDefault: true as const } : {}),
       description: text(item["description"], "room description"),
       exits,
     };

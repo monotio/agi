@@ -8,6 +8,7 @@ import { assembleLogic, AssemblerError } from "./assembler.ts";
 import { commandReference } from "./commandReference.ts";
 import { quoteLogicString } from "./disassembler.ts";
 import { analyzeLogicSyntax, scanLogicTokens, type Token } from "./syntax.ts";
+import { collectLogicResourceUses } from "./resourceUses.ts";
 import { collectLogicOperands, OPERAND_NAMES } from "./languageOperands.ts";
 import type { AgiProfile } from "../runtime/profile.ts";
 import { SYSTEM_FLAGS, SYSTEM_VARIABLES } from "./systemNames.ts";
@@ -373,6 +374,7 @@ export function createLogicLanguageSnapshot(input: {
   return {
     source,
     operands,
+    resourceUses: collectLogicResourceUses(source, profile, syntax),
     operandAt,
     diagnostics: Object.freeze(diagnostics.map((entry) => Object.freeze(entry))),
     completeAt,

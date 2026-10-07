@@ -48,7 +48,7 @@ export function firstRoomChanges(): readonly ProjectChange[] {
     {
       key: "world",
       content: JSON.stringify({
-        rooms: { "1": { title: "Room 1", description: "", exits: {} } },
+        rooms: { "1": { title: "Room 1", titleIsDefault: true, description: "", exits: {} } },
         facts: {},
         quests: {},
       }),
