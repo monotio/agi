@@ -8,6 +8,189 @@ import {
 import { historyLifetimeGuard, readBodyRecords, updateBodyRecords } from "./gameBodyStorage.ts";
 import { claimProjectSaveJournal } from "./projectSaveJournal.ts";
 import { rebaseWorldDraft } from "./projectWorld.ts";
+import type { ProjectSnapshot } from "../../../src/authoring/projectModel.ts";
+import {
+  compileProjectDocuments,
+  readBindingsDocument,
+  readMusicDocument,
+  ProjectDocumentCompileError,
+} from "../../../src/authoring/projectDocuments.ts";
+import {
+  inspectProjectRemoval,
+  launchRemovalMessages,
+} from "../../../src/authoring/projectRemoval.ts";
+import { inspectProjectReferences } from "../../../src/authoring/projectReferences.ts";
+import { inspectProjectSourceDependencies } from "../../../src/authoring/projectSourceDependencies.ts";
+import { pruneRoomLaunches } from "../../../src/authoring/launches.ts";
+import { validateAuthoringState } from "../../../src/authoring/authoringState.ts";
+import { openContainer } from "../../../src/container/container.ts";
+import type { AgiProfile } from "../../../src/runtime/profile.ts";
+import { documentLabel } from "../../../src/logic/numberedLabels.ts";
+
+export interface DraftRemovalProblem {
+  readonly document: string;
+  readonly line?: number;
+  readonly severity: "error";
+  readonly message: string;
+}
+/** Draft deletion shares the admission inventory, but keeps broken uses editable. */
+export function inspectPartDraftRemovals(
+  snapshot: ProjectSnapshot,
+  removals: readonly string[],
+  profile: AgiProfile,
+): readonly DraftRemovalProblem[] {
+  if (!removals.length) return [];
+  const documents = snapshot.documents();
+  try {
+    const bindings = readBindingsDocument(
+      typeof documents["bindings"] === "string" ? documents["bindings"] : "{}",
+    );
+    const compiled = compileProjectDocuments({
+      files: Object.fromEntries(snapshot.lastAdmissibleBuild?.files() ?? []),
+      documents,
+      profileId: profile.id,
+    });
+    const image = inspectProjectReferences({
+      container: openContainer(compiled.files(), { profile }),
+      profile,
+      bindings,
+    });
+    const world =
+      typeof documents["world"] === "string"
+        ? JSON.parse(documents["world"])
+        : { rooms: {}, facts: {}, quests: {} };
+    const authoring = validateAuthoringState({
+      version: 1,
+      bindings,
+      world,
+      ...(typeof documents["music"] === "string"
+        ? { music: readMusicDocument(documents["music"]) }
+        : {}),
+    });
+    const findings = inspectProjectRemoval({
+      removals,
+      image,
+      authoring,
+      tests: documents["tests"],
+      references: documents["references"],
+      drafts: [],
+      keptBindings: bindings,
+      profile,
+    });
+    const problems: DraftRemovalProblem[] = [];
+    for (const finding of findings) {
+      const logic = compiled.build.logics.find(
+        (logic) => `logic:${logic.num}` === finding.document,
+      );
+      const command = finding.command;
+      const pcs =
+        finding.pc !== undefined
+          ? [finding.pc]
+          : image.references
+              .filter(
+                (ref) =>
+                  ref.document === finding.document &&
+                  ref.command === command &&
+                  ("variable" in ref.target ||
+                    removals.includes(`${ref.target.kind}:${ref.target.num}`)),
+              )
+              .map((ref) => ref.pc);
+      for (const pc of pcs.length ? pcs : [undefined]) {
+        const entry =
+          pc === undefined ? undefined : logic?.sourceMap?.entries.find((entry) => entry.pc === pc);
+        const start =
+          entry && logic?.authoredStart !== undefined
+            ? Math.max(0, entry.start - logic.authoredStart)
+            : undefined;
+        const line =
+          start === undefined ? undefined : logic!.authored!.slice(0, start).split("\n").length;
+        problems.push({ ...finding, severity: "error", ...(line === undefined ? {} : { line }) });
+      }
+    }
+    // WORDS and OBJECT are complete documents. Their rows delete the document;
+    // individual dictionary and inventory entries retain their editor actions.
+    for (const key of removals.filter((key) => key === "words" || key === "inventory")) {
+      for (const [document, source] of Object.entries(documents)) {
+        if (!document.startsWith("logic:")) continue;
+        if (typeof source === "string") {
+          const uses = inspectProjectSourceDependencies({
+            source,
+            profile,
+            bindings,
+          }).references.filter((ref) => ref.dependency === key);
+          for (const use of uses)
+            problems.push({
+              document,
+              line: source.slice(0, use.start).split("\n").length,
+              severity: "error",
+              message: `${key} is still used by ${document} (${use.command}).`,
+            });
+        } else if (
+          image.references.some(
+            (ref) =>
+              ref.document === document && ref.target.kind === (key === "words" ? "word" : "item"),
+          )
+        )
+          problems.push({
+            document,
+            severity: "error",
+            message: `${key} is still used by ${document}.`,
+          });
+      }
+    }
+    return problems.sort((a, b) =>
+      a.document === b.document ? (a.line ?? 0) - (b.line ?? 0) : a.document < b.document ? -1 : 1,
+    );
+  } catch (cause) {
+    return [
+      {
+        document: cause instanceof ProjectDocumentCompileError ? cause.key : removals[0]!,
+        severity: "error",
+        message: cause instanceof Error ? cause.message : String(cause),
+      },
+    ];
+  }
+}
+
+/** Remove a room's own metadata in the same undoable draft; never rewrite code. */
+export function preparePartDraftRemoval(
+  snapshot: ProjectSnapshot,
+  key: string,
+  profile: AgiProfile,
+  room?: number,
+) {
+  const changes: ProjectChange[] = [{ key, content: null }];
+  const documents = { ...snapshot.documents() };
+  delete documents[key];
+  const metadata: string[] = [];
+  const removedRoom = room ?? (key.startsWith("logic:") ? Number(key.slice(6)) : undefined);
+  if (removedRoom !== undefined && typeof documents["world"] === "string") {
+    const world = validateAuthoringState({
+      version: 1,
+      bindings: {},
+      world: JSON.parse(documents["world"]),
+    }).world;
+    metadata.push(...launchRemovalMessages(world.launches, new Set([key])));
+    const next = pruneRoomLaunches(world, removedRoom);
+    if (Object.hasOwn(world.rooms, String(removedRoom)) || next !== world) {
+      delete next.rooms[String(removedRoom)];
+      const content = JSON.stringify(next, null, 2);
+      documents["world"] = content;
+      changes.push({ key: "world", content });
+    }
+  }
+  const candidate = { ...snapshot, keys: Object.keys(documents), documents: () => documents };
+  const problems = inspectPartDraftRemovals(candidate, [key], profile);
+  const messages = [
+    ...new Set(
+      problems.map(
+        (problem) =>
+          `Used in ${documentLabel(problem.document)}${problem.line === undefined ? "" : ` line ${problem.line}`}`,
+      ),
+    ),
+  ];
+  return { changes, problems, messages, metadata };
+}
 
 type Journal = Pick<Storage, "length" | "key" | "getItem" | "setItem" | "removeItem">;
 const liveJournals = new Set<string>();

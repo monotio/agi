@@ -9,6 +9,7 @@ interface WorkspacePart {
   readonly live: boolean;
   readonly room?: number;
   readonly title?: string;
+  readonly secondary?: string;
 }
 export interface WorkspacePartGroup {
   readonly label: string;
@@ -32,6 +33,7 @@ export function workspaceParts(input: {
     readonly room: number;
     readonly title?: string;
     readonly pictures: readonly number[];
+    readonly resources?: readonly string[];
   }[];
   readonly names?: Readonly<Record<string, string>>;
   readonly currentRoom: number | null;
@@ -39,7 +41,6 @@ export function workspaceParts(input: {
   readonly debugging?: boolean;
 }): readonly WorkspacePartGroup[] {
   const keys = new Set(input.keys);
-  const owned = new Set<number>();
   const rooms = new Set<number>();
   const group = (label: string, entries: WorkspacePart[]): WorkspacePartGroup => ({
     label,
@@ -66,9 +67,8 @@ export function workspaceParts(input: {
         live: room.room === input.currentRoom,
       }),
     );
-    for (const pic of room.pictures) {
+    for (const pic of [...room.pictures].sort((a, b) => a - b)) {
       if (!keys.has(`picture:${pic}`)) continue;
-      owned.add(pic);
       roomRows.push(
         row(`picture:${pic}`, numberedLabel("picture", pic, { names: input.names ?? {} }, "row"), {
           id: `room:${room.room}:picture:${pic}`,
@@ -95,7 +95,19 @@ export function workspaceParts(input: {
       .map((key) => {
         const num = Number(key.split(":")[1]);
         const name = input.names?.[key];
-        return row(key, numberedLabel(kind, num, { name: name ?? "" }, "row"));
+        const usedBy = [...input.rooms]
+          .sort((a, b) => a.room - b.room)
+          .filter(
+            (room) =>
+              rooms.has(room.room) &&
+              (kind === "picture" ? room.pictures.includes(num) : room.resources?.includes(key)),
+          )
+          .map((room) => numberedLabel("room", room.room, { rooms: input.rooms }, "row"));
+        return row(
+          key,
+          numberedLabel(kind, num, { name: name ?? "" }, "row"),
+          usedBy.length ? { secondary: usedBy.join(", ") } : {},
+        );
       });
   return [
     group("TOOLS", [
@@ -117,10 +129,7 @@ export function workspaceParts(input: {
       "SHARED LOGIC",
       resources("logic", (n) => !rooms.has(n)),
     ),
-    group(
-      "PICTURES",
-      resources("picture", (n) => !owned.has(n)),
-    ),
+    group("PICTURES", resources("picture")),
     group("VIEWS", resources("view")),
     group("SOUNDS", resources("sound")),
     group("OBJECTS", [row("inventory", "Objects")]),

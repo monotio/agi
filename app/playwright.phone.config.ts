@@ -45,6 +45,7 @@ export default defineConfig({
     "dialog-fit.spec.ts",
     "disk-import.spec.ts",
     "parts-rename.spec.ts",
+    "parts-delete.spec.ts",
     "door-new-room.spec.ts",
     "test-run-chip.spec.ts",
   ],

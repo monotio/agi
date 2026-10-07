@@ -48,6 +48,9 @@ export interface RemovalFinding {
   readonly message: string;
   readonly computedRoomJump?: string;
   readonly computedResource?: string;
+  /** Native code position for a flow use, and the originating command. */
+  readonly pc?: number;
+  readonly command?: string;
 }
 
 export interface ProjectRemovalInput {
@@ -86,6 +89,7 @@ type Report = (
   message: string,
   computedRoomJump?: string,
   computedResource?: string,
+  location?: { readonly pc?: number; readonly command: string },
 ) => void;
 
 function inspectFlowTargets(
@@ -126,6 +130,7 @@ function inspectFlowTargets(
             `${key} is still used by ${document} at offset ${use.offset} (${use.command}).`,
             undefined,
             resourceReferenceOperand(use.command, input.profile)?.variable ? key : undefined,
+            { pc: use.offset, command: use.command },
           );
         if (use.unknown && kind === "logic" && use.command === "new.room.v") {
           const insns = flow.instructions.get(use.logic) ?? [];
@@ -138,6 +143,7 @@ function inspectFlowTargets(
             `Room ${num} can still be reached by a computed room jump in LOGIC ${use.logic}${teleport ? " (the debug teleport)" : ""}. Remove anyway?`,
             key,
             key,
+            { pc: use.offset, command: use.command },
           );
         } else if (use.unknown && (use.kind === kind || use.kind === "logic"))
           report(
@@ -145,6 +151,7 @@ function inspectFlowTargets(
             `${key} may still be used: ${document} at offset ${use.offset} (${use.command}) has a computed or unresolved ${use.kind.toUpperCase()} target.`,
             undefined,
             key,
+            { pc: use.offset, command: use.command },
           );
       }
   };
@@ -371,13 +378,14 @@ export function inspectProjectRemoval(input: ProjectRemovalInput): readonly Remo
   const removedKeys: ReadonlySet<string> = new Set(removed.map((entry) => entry.key));
   const findings: RemovalFinding[] = [];
   const seen = new Set<string>();
-  const report: Report = (document, message, computedRoomJump, computedResource) => {
+  const report: Report = (document, message, computedRoomJump, computedResource, location) => {
     const marker = `${document}${message}`;
     if (seen.has(marker)) return;
     seen.add(marker);
     findings.push({
       document,
       message,
+      ...location,
       ...(computedRoomJump === undefined ? {} : { computedRoomJump }),
       ...(computedResource === undefined ? {} : { computedResource }),
     });
@@ -404,6 +412,7 @@ export function inspectProjectRemoval(input: ProjectRemovalInput): readonly Remo
             `${key} may still be used: ${reference.document} reads a ${kind} target from v${target.variable} (${reference.command}).`,
             undefined,
             key,
+            { command: reference.command },
           );
       continue;
     }
@@ -414,6 +423,9 @@ export function inspectProjectRemoval(input: ProjectRemovalInput): readonly Remo
       report(
         reference.document,
         `${key} is still used by ${reference.document} (${reference.command}).`,
+        undefined,
+        undefined,
+        { command: reference.command },
       );
   }
 
