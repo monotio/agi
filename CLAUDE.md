@@ -17,6 +17,8 @@ step in your report.
   memory, which stays on one machine.
 - zsh treats `$name:r` and similar as modifiers; write `${name}:refs/...`. Confirm each
   `git push` succeeded before deleting a ref. macOS has no `timeout`.
+- Write prose files (briefs, notes) with the file tool or a quoted heredoc (`<<'EOF'`): in an
+  unquoted heredoc, backticks around a command run it.
 - Report status only when it changes and define a term the first time it appears. Let
   a subagent read long reports and return a short verdict.
 - Screenshots for evidence come from headless Playwright; use the browser extension
