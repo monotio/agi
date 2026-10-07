@@ -2,6 +2,7 @@
  * Lucide icons 1.48.0 (https://lucide.dev), ISC License.
  * Full notices, including Feather-derived icons: /licenses/lucide.txt
  * Generated from lucide-static icon-nodes.json; names are app-level aliases.
+ * `update` joins rotate-ccw with a narrowed circle-arrow-up arrow inside it.
  */
 
 export type IconNode = readonly [
@@ -493,6 +494,12 @@ export const ICONS = {
     ["line", { x1: "2", x2: "5", y1: "8", y2: "8" }],
     ["line", { x1: "16", x2: "16", y1: "19", y2: "22" }],
     ["line", { x1: "19", x2: "22", y1: "16", y2: "16" }],
+  ],
+  update: [
+    ["path", { d: "M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" }],
+    ["path", { d: "M3 3v5h5" }],
+    ["path", { d: "m9 11 3-3 3 3" }],
+    ["path", { d: "M12 16V8" }],
   ],
   upload: [
     ["path", { d: "M12 3v12" }],

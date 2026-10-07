@@ -1,6 +1,7 @@
 /**
  * What the top bar's action button says: the room it runs and the selected
- * Launch, with Update while changes wait. Carry over is the default and keeps
+ * Launch, after an icon for the action: update while changes wait, restart
+ * for the room the game is in, play for another. Carry over is the default and keeps
  * the game as it is, so the button names only the room for it; the ▾ menu
  * marks the choice.
  */
@@ -16,8 +17,7 @@ export interface LaunchActionInput {
 }
 
 export interface LaunchAction {
-  readonly update: boolean;
-  readonly icon: "restart" | "play";
+  readonly icon: "update" | "restart" | "play";
   readonly room: string;
   /** The Launch name shown after the room; empty for Carry over and From my game. */
   readonly launch: string;
@@ -28,8 +28,7 @@ export interface LaunchAction {
 export function launchAction(input: LaunchActionInput): LaunchAction {
   if (input.launch === "my-game")
     return {
-      update: input.pending,
-      icon: "play",
+      icon: input.pending ? "update" : "play",
       room: "My game",
       launch: "",
       label: input.pending ? "Update and return to my game" : "Play from my game",
@@ -38,8 +37,7 @@ export function launchAction(input: LaunchActionInput): LaunchAction {
   const launch = input.launch === "carry" ? "" : input.launchName;
   const verb = input.pending ? "Update and restart" : restart ? "Restart" : "Play";
   return {
-    update: input.pending,
-    icon: restart ? "restart" : "play",
+    icon: input.pending ? "update" : restart ? "restart" : "play",
     room: input.room,
     launch,
     label: `${verb} ${input.room}${launch ? ` with the launch ${launch}` : ""}`,

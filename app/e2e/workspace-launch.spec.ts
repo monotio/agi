@@ -42,7 +42,7 @@ for (const [width, height] of [
       await launchShot(page, `launch-metadata-${width}`, browserName);
       const action = page.getByTestId("workspace-update");
       await expect(action).toBeVisible();
-      await expect(action).toHaveText("Restart Home");
+      await expect(action).toHaveAccessibleName("Restart Home");
       expect(
         await page.evaluate(async () => {
           const { loadAuthoredGame } = await import("/src/project/gameStorage.ts");
@@ -79,6 +79,7 @@ for (const [width, height] of [
       const action = page.getByTestId("workspace-update");
       await expect(action).toBeVisible();
       await expect(action).toHaveAccessibleName("Restart Home");
+      await expect(action).toHaveClass(/ui-btn--secondary/);
       await launchShot(page, `restart-${width}`, browserName);
       await open(page, "part-room:8:logic");
       await expect(
@@ -98,10 +99,9 @@ for (const [width, height] of [
       await page.keyboard.press("Escape");
       await workspaceSaved(page);
       await expect(action).toHaveAccessibleName("Update and restart Garden");
-      // Update takes the room space the button already kept: no shift.
-      await expect(action.locator(".workspace-action__label").first()).toHaveText(
-        /^Update\s*Garden$/,
-      );
+      // The update icon takes the place of the play icon, filled: no word, no shift.
+      await expect(action).toHaveText("Garden");
+      await expect(action).toHaveClass(/ui-btn--primary/);
       expect((await action.boundingBox())!.width).toBeCloseTo(cleanWidth, 0);
       const modes = page.getByRole("radiogroup", { name: "Mode", exact: true });
       await expect(modes).toBeVisible();
