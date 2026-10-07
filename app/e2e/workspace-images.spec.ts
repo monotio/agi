@@ -285,7 +285,28 @@ test("make a four-cel walk loop and preview it on the running hero", async ({ pa
         .getSession()
         .capture().history.commits.length,
   );
+  // Hold staging so Update cannot overtake the image operation.
+  await page.evaluate(() => {
+    const session = (
+      window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }
+    ).__AGI_PROJECT__.getSession();
+    const stage = session.stage.bind(session);
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    (window as unknown as { releaseImageStage: () => void }).releaseImageStage = release;
+    session.stage = async (changes) => {
+      await gate;
+      return stage(changes);
+    };
+  });
   await page.getByTestId("image-add-cels").click();
+  await expect(page.getByTestId("workspace-update")).toBeDisabled();
+  await page.evaluate(() => {
+    (window as unknown as { releaseImageStage: () => void }).releaseImageStage();
+  });
+  await expect(page.getByTestId("image-status")).toHaveText("Added 4 cels");
   await page.getByTestId("workspace-update").click();
   await expect(page.getByTestId("workspace-updated")).toBeVisible();
   await expect(page.getByTestId("workspace-saved")).toBeVisible();

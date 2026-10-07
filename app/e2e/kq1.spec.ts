@@ -737,7 +737,13 @@ test("a locally loaded patched game can be downloaded and imported", async ({ pa
   await page.getByTestId("workspace-agent").click();
   const panel = page.getByTestId("workspace-agent-panel");
   await expect(panel).toBeVisible();
-  await workspaceSaved(page);
+  await page.evaluate(async () => {
+    await (
+      window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }
+    ).__AGI_PROJECT__
+      .getSession()
+      .flush();
+  });
   await expect(page.getByTestId("agent-message")).toBeVisible();
   await expect(page.getByTestId("agent-message")).toBeEnabled();
   await page.getByTestId("agent-message").fill("Add a welcome sign that answers look at sign");
@@ -745,7 +751,43 @@ test("a locally loaded patched game can be downloaded and imported", async ({ pa
     "Add a welcome sign that answers look at sign",
   );
   await expect(panel.getByRole("button", { name: "Send", exact: true })).toBeEnabled();
+  // Capture the UI's actual task and hold it until the click has returned.
+  await page.evaluate(async () => {
+    const { borrowWorkspaceAgent } = await import("/src/agent/workspaceAgent.ts");
+    const session = (
+      window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }
+    ).__AGI_PROJECT__.getSession();
+    const agent = borrowWorkspaceAgent({
+      session,
+      profileId: "2.917",
+      config: () => {
+        throw new Error("The panel must own the agent.");
+      },
+    });
+    const send = agent.send.bind(agent);
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const completed = new Promise<void>((resolve, reject) => {
+      agent.send = (...args: Parameters<typeof send>) => {
+        const task = gate.then(() => send(...args));
+        void task.then(resolve, reject);
+        return task;
+      };
+    });
+    Object.assign(window, { releaseAgentTask: release, agentTaskCompleted: completed });
+  });
   await panel.getByRole("button", { name: "Send", exact: true }).click();
+  await expect(page.getByTestId("agent-review")).toBeHidden();
+  await page.evaluate(async () => {
+    const task = window as unknown as {
+      releaseAgentTask(): void;
+      agentTaskCompleted: Promise<void>;
+    };
+    task.releaseAgentTask();
+    await task.agentTaskCompleted;
+  });
   await expect(page.getByTestId("agent-review")).toBeVisible();
   await page.getByTestId("agent-approve").click();
   // Wait for the real project transaction before checking its completed review.
@@ -774,6 +816,9 @@ test("a locally loaded patched game can be downloaded and imported", async ({ pa
     .getByTestId("saved-game-gallery")
     .locator("[data-testid^='saved-game-card-']");
   await page.getByTestId("btn-exit").click();
+  const discard = page.getByRole("button", { name: "Discard and exit", exact: true });
+  await expect(page.getByTestId("saved-game-gallery").or(discard)).toBeVisible();
+  if (await discard.isVisible()) await discard.click();
   await expect(savedCard).toHaveCount(1);
 
   // The remix is a saved game of its own; it must not overwrite the
