@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { ROOM_ACTION_LABELS as labels, type RoomActionKind } from "./guidedActions.ts";
 import { roomHeroView } from "../logic/guided/guidedPreview.ts";
 import { computed, onBeforeUnmount, onWatcherCleanup, ref, useTemplateRef, watch } from "vue";
 import { prepareWorkspaceAction, type WorkspaceAction } from "./workspaceGuided.ts";
@@ -21,6 +22,7 @@ import ActionMenu from "../../ui/ActionMenu.vue";
 import UiButton from "../../ui/UiButton.vue";
 import UiIcon from "../../ui/UiIcon.vue";
 const props = defineProps<{
+  hideActions?: boolean;
   room: number;
   busy: boolean;
   initialCommand?: string;
@@ -87,13 +89,6 @@ const doorX = ref(80);
 const doorY = ref(140);
 const x2 = ref(100);
 const y2 = ref(150);
-type RoomActionKind = "place-hero" | "response" | "door" | "play-sound";
-const labels: Record<RoomActionKind, string> = {
-  "place-hero": "Place hero",
-  response: "Answer a sentence",
-  door: "Door",
-  "play-sound": "Sound when…",
-};
 const roomActionKind = computed<RoomActionKind | undefined>(() =>
   kind.value !== undefined && kind.value in labels ? (kind.value as RoomActionKind) : undefined,
 );
@@ -332,8 +327,13 @@ const narrow = ref(narrowQuery.matches);
 narrowQuery.addEventListener("change", (event) => (narrow.value = event.matches));
 </script>
 <template>
-  <div class="workspace-guided">
-    <ActionMenu v-if="narrow" label="Room actions" size="sm" test-id="room-actions-menu">
+  <div class="workspace-guided" :class="{ 'workspace-guided--form-only': hideActions }">
+    <ActionMenu
+      v-if="!hideActions && narrow"
+      label="Room actions"
+      size="sm"
+      test-id="room-actions-menu"
+    >
       <button
         v-for="(label, actionKind) in labels"
         :key="actionKind"
@@ -345,7 +345,12 @@ narrowQuery.addEventListener("change", (event) => (narrow.value = event.matches)
         {{ label }}
       </button>
     </ActionMenu>
-    <div v-else class="workspace-guided__actions" role="group" aria-label="Room actions">
+    <div
+      v-else-if="!hideActions"
+      class="workspace-guided__actions"
+      role="group"
+      aria-label="Room actions"
+    >
       <UiButton
         v-for="(label, actionKind) in labels"
         :key="actionKind"

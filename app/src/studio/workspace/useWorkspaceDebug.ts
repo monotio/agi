@@ -16,7 +16,7 @@ export function useWorkspaceDebug(input: {
   editor: ReturnType<typeof createWorkspaceEditor>;
   snapshot: ShallowRef<ProjectSnapshot | undefined>;
   profile(): ProfileId;
-  prepareLaunch?(): Promise<void>;
+  prepareLaunch?(): Promise<boolean | void>;
   launch?(): Promise<void>;
 }) {
   const { engine, editor, snapshot } = input;
@@ -78,7 +78,7 @@ export function useWorkspaceDebug(input: {
       if (action === "start" && !controller.state.epoch) {
         engine.pauseEngine("debugLaunch");
         try {
-          await input.prepareLaunch?.();
+          if ((await input.prepareLaunch?.()) === false) return;
           await controller.start();
           await input.launch?.();
         } finally {

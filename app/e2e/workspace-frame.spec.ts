@@ -1,3 +1,4 @@
+import { clickContextAction } from "./workspaceShared.ts";
 import { test, expect } from "./test.ts";
 import { isolateStorage, textHook, workspaceSaved } from "./engineProbe.ts";
 import type { Page } from "@playwright/test";
@@ -248,9 +249,7 @@ for (const [width, height] of [
     await page.getByTestId("part-room:1:logic").click();
     const context = page.getByTestId("workspace-context");
     await expect(context).toBeVisible();
-    // Phones fold the room actions into one menu in the same row.
-    if (width <= 600) await context.getByTestId("room-actions-menu").click();
-    await page.getByTestId("room-action-place-hero").click();
+    await clickContextAction(page, "room-action-place-hero");
     const form = context.getByTestId("workspace-guided-form");
     const here = form.getByRole("button", { name: "Start here", exact: true });
     await expect(form).toBeVisible();

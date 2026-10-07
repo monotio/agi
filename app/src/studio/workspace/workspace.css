@@ -131,12 +131,19 @@
 }
 .workspace-context {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   gap: var(--space-3);
   padding: var(--space-1) var(--space-3);
   border-bottom: 1px solid var(--hairline);
   font-size: var(--text-xs);
+}
+.workspace-context > [data-testid="part-number"] {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+.workspace-guided--form-only {
+  display: contents;
 }
 .workspace-context__note {
   color: var(--ink-2);
@@ -203,6 +210,17 @@
   color: var(--warn);
   background: var(--warn-soft);
   font-size: var(--text-sm);
+}
+.workspace-build-error {
+  position: absolute;
+  right: var(--space-3);
+  bottom: calc(var(--space-3) + var(--space-7));
+  z-index: var(--z-popover);
+  max-width: min(560px, calc(100% - var(--space-6)));
+  box-sizing: border-box;
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-pop);
 }
 .workspace-game-chip {
   position: absolute;

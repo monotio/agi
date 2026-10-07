@@ -9,7 +9,7 @@ import {
   workspaceUpdated,
   textHook,
 } from "./engineProbe.ts";
-import { workspaceDocument } from "./workspaceShared.ts";
+import { clickContextAction, workspaceDocument } from "./workspaceShared.ts";
 
 async function start(page: Page) {
   await isolateStorage(page);
@@ -23,7 +23,7 @@ async function start(page: Page) {
   await page.getByTestId("edit-library-game").click();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
   await expect(page.getByTestId("workspace-logic-editor")).toBeVisible();
-  await expect(page.getByTestId("room-action-response")).toBeVisible();
+  await expect(page.getByTestId("workspace-context")).toBeVisible();
 }
 
 test("visual actions keep exact controls and preview their LOGIC", async ({ page }) => {
@@ -51,7 +51,7 @@ test("visual actions keep exact controls and preview their LOGIC", async ({ page
     ),
   );
   expect(position).not.toBeNull();
-  await page.getByTestId("room-action-place-hero").click();
+  await clickContextAction(page, "room-action-place-hero");
   const form = page.getByTestId("workspace-guided-form");
   await expect(form).toBeVisible();
   await expect(form.getByRole("button", { name: "Start here", exact: true })).toBeVisible();
@@ -71,7 +71,7 @@ test("visual actions keep exact controls and preview their LOGIC", async ({ page
 test("responses check the whole sentence and show a live game message", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await start(page);
-  await page.getByTestId("room-action-response").click();
+  await clickContextAction(page, "room-action-response");
   const form = page.getByTestId("workspace-guided-form");
   await expect(form).toBeVisible();
   await form.getByLabel("When the player types…", { exact: true }).fill("look at sun");
@@ -124,7 +124,7 @@ test("sound recipes explain and audition before adding a new sentence trigger", 
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await start(page);
-  await page.getByTestId("room-action-play-sound").click();
+  await clickContextAction(page, "room-action-play-sound");
   const form = page.getByTestId("workspace-guided-form");
   await expect(form).toBeVisible();
   await form.getByLabel("When the player types…", { exact: true }).fill("ring the bell");
@@ -178,7 +178,7 @@ test("Place hero starts with the room’s current VIEW", async ({ page }) => {
       origin: "view",
     });
   });
-  await page.getByTestId("room-action-place-hero").click();
+  await clickContextAction(page, "room-action-place-hero");
   const form = page.getByTestId("workspace-guided-form");
   await expect(form).toBeVisible();
   await form.getByText("Exact numbers", { exact: true }).click();
@@ -190,14 +190,14 @@ test("Door starts with its own coordinates and waits for a box and destination",
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await start(page);
-  await page.getByTestId("room-action-place-hero").click();
+  await clickContextAction(page, "room-action-place-hero");
   const form = page.getByTestId("workspace-guided-form");
   await expect(form).toBeVisible();
   await form.getByText("Exact numbers", { exact: true }).click();
   await form.getByLabel("X", { exact: true }).fill("150");
   await form.getByLabel("Y", { exact: true }).fill("160");
   await form.getByRole("button", { name: "Cancel", exact: true }).click();
-  await page.getByTestId("room-action-door").click();
+  await clickContextAction(page, "room-action-door");
   const placement = page.getByTestId("guided-placement");
   await expect(placement).toBeVisible();
   await placement.press("Escape");

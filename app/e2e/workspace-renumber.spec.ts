@@ -79,7 +79,9 @@ for (const [width, height] of [
       await page.setViewportSize({ width, height });
       await roomTwo(page);
       await shot(page, `before-field-${width}`, browserName);
-      const button = page.getByRole("button", { name: "Change number…", exact: true });
+      const more = page.getByTestId("context-more-actions");
+      const button = page.getByRole("menuitem", { name: "Change number…", exact: true });
+      await more.click();
       await expect(button).toBeVisible();
       await button.click();
       const dialog = page.getByRole("dialog", { name: "Change number", exact: true });
@@ -95,6 +97,7 @@ for (const [width, height] of [
       await number.fill("2");
       await dialog.getByRole("button", { name: "Continue", exact: true }).click();
       await expect(dialog).toBeHidden();
+      await more.click();
       await button.click();
       await number.fill("7");
       await shot(page, `after-field-${width}`, browserName);
@@ -105,6 +108,7 @@ for (const [width, height] of [
       await shot(page, `after-computed-${width}`, browserName);
       await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
       expect(await runningWorkspaceDocument(page, "logic:2")).toContain("new.room(1)");
+      await more.click();
       await button.click();
       await number.fill("7");
       await dialog.getByRole("button", { name: "Continue", exact: true }).click();

@@ -1,3 +1,4 @@
+import { clickContextAction } from "./workspaceShared.ts";
 import { expect, reviewShot, test } from "./test.ts";
 import { isolateStorage, textHook, savePlayProgress, workspaceUpdated } from "./engineProbe.ts";
 import type { Page } from "@playwright/test";
@@ -158,7 +159,7 @@ test("sound presets, note keyboard edits and guided cue creation share the works
   await expect(page.getByTestId("workspace-saved")).toHaveText(/^(?:Saved|Draft saved)$/);
   await reviewShot(page, "sound-notes");
   await page.getByTestId("part-room:1:logic").click();
-  await page.getByTestId("room-action-play-sound").click();
+  await clickContextAction(page, "room-action-play-sound");
   const form = page.getByTestId("workspace-guided-form");
   await expect(form).toBeVisible();
   await form.getByLabel("When the player types…", { exact: true }).fill("help");
