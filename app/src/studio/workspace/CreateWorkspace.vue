@@ -12,6 +12,7 @@ import { renameRoomTitle } from "../../../../src/authoring/world.ts";
 import { gameRoomMenu, roomMenuArmed } from "../../play/roomActionMenu.ts";
 import UiDialog from "../../ui/UiDialog.vue";
 import GuidedAdd from "./GuidedAdd.vue";
+import TestRunChip from "./TestRunChip.vue";
 import {
   roomPlacements,
   moveRoomPlacement,
@@ -2057,9 +2058,12 @@ onBeforeUnmount(() => {
   >
   <Teleport defer to=".play-area">
     <div v-if="creating" class="workspace-game-bar" data-testid="workspace-game-bar">
-      <span class="workspace-game-bar__room" data-testid="workspace-room">{{
-        currentRoomLabel
-      }}</span>
+      <span class="workspace-game-bar__where"
+        ><span class="workspace-game-bar__room" data-testid="workspace-room">{{
+          currentRoomLabel
+        }}</span
+        ><TestRunChip
+      /></span>
       <UiButton
         v-if="visitingRoom !== undefined && returnRoom !== undefined"
         size="sm"
@@ -2693,9 +2697,18 @@ onBeforeUnmount(() => {
   position: relative;
   z-index: 1;
 }
-.workspace-game-bar__room {
+.workspace-game-bar__where {
+  display: flex;
   flex: 1;
+  align-items: center;
+  gap: var(--space-2);
   min-width: 0;
+}
+.workspace-game-bar__room {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .game-room-menu__backdrop {
   position: fixed;
