@@ -25,14 +25,12 @@
  * cell outside the allowed ones is a side effect (sideEffects.ts), reported
  * with the check rather than refused: another item's fill that pours
  * differently around a moved outline, or a fill of the proposal's own that
- * pours past the selection. The lens rules a manual edit passes
- * (lensRules.ts: the Walk lens keeps depth values 4–15) apply too, with the
- * targets and the items the candidate creates as the edited items; and as
- * for a manual edit, a candidate that only moves or copies whole targets
- * carries every plane they draw past the lens locks (`editUnlocks`).
- * `pictureAssistScope` licenses the selection's on-screen area on every
- * unlocked plane, so "make this bridge walkable" in the Walk lens may paint
- * priority under the selected bridge art.
+ * pours past the selection. The lens locks a manual edit passes
+ * (lensRules.ts) apply too; and as for a manual edit, a candidate that only
+ * moves or copies whole targets carries every plane they draw past the lens
+ * locks (`editUnlocks`). `pictureAssistScope` licenses the selection's
+ * on-screen area on every unlocked plane, so "make this bridge walkable" in
+ * the Priority lens may paint priority under the selected bridge art.
  *
  * Views. A candidate must start from `baseRevision`, change displayed pixels
  * only in `targetCels`, leave `protectedLoops` untouched (pixels and
@@ -57,7 +55,6 @@ import {
 import { commandTokens, EditRefusal, translateLine } from "./editSource.ts";
 import { commandHead, drawStateBeforeLine } from "./editState.ts";
 import {
-  checkLensRules,
   editUnlocks,
   lockedPlanes,
   NO_UNLOCKS,
@@ -126,7 +123,6 @@ type AssistConstraint =
   | "locked-plane"
   | "outside-mask"
   | "extra-copy"
-  | "walk-depth"
   | "protected-loop"
   | "max-bytes";
 
@@ -627,14 +623,6 @@ function checkPicture(
       bbox: boxOf(cells),
       message: `new item '${id}' ("${label}") ${stray.why === "second" ? "would be a second copy of" : "copies"} the selected "${stray.target}"${stray.why === "second" ? "" : " in other colours"}: ${at(cells.count, boxOf(cells))} of the ${PLANE_WORDS[plane]} outside the selection would change. ${stray.why === "second" ? "An assist may move a selected item or copy it once, no more; drop the extra copies" : "A copy keeps the item's colours and pen; draw it in the same ones, or keep new drawing inside the selection"}`,
     });
-  for (const { constraint, plane, count, bbox, message } of checkLensRules(
-    before,
-    after,
-    [...scope.targetIds, ...created],
-    scope.lens,
-    unlocks,
-  ))
-    violations.push({ constraint, plane, count, bbox, message });
   const report = sideEffects(before, after, spill, controlled);
   return { ok: violations.length === 0, violations, ...(report ? { sideEffects: report } : {}) };
 }

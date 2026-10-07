@@ -70,7 +70,7 @@ export interface SceneRow {
   entries: number[];
   /**
    * EGA colour of the value most of its own pixels hold (visual for art,
-   * priority for depth and walk; a control value in its Walk lens colour),
+   * priority for depth and walk; a control value in its own colour),
    * or null when it owns none.
    */
   swatch: number | null;
@@ -309,7 +309,7 @@ export function buildStudioModel(input: StudioSource | ResolvedStudioSource): St
     const primary = row.kind === "depth" || row.kind === "walk" ? 1 : 0;
     const own = dominant(counts[primary]![r]!);
     row.value = own;
-    // A control value shows in its Walk lens colour, as on the canvas.
+    // A control value shows in its own colour, as on the canvas.
     row.swatch =
       own === null
         ? dominant(counts[1 - primary]![r]!)
@@ -319,12 +319,8 @@ export function buildStudioModel(input: StudioSource | ResolvedStudioSource): St
     const drawing = row.entries
       .map((k) => timeline[k]!)
       .filter((entry) => tickFor(entry).kind !== "state");
-    row.lenses = (["art", "depth", "walk"] as const).filter((lens) =>
-      drawing.some((entry) =>
-        lens === "art"
-          ? entry.visual !== null
-          : entry.priority !== null && (lens === "walk" ? entry.priority < 4 : entry.priority >= 4),
-      ),
+    row.lenses = (["art", "depth"] as const).filter((lens) =>
+      drawing.some((entry) => (lens === "art" ? entry.visual !== null : entry.priority !== null)),
     );
     row.tag = tagFor(
       row.kind,

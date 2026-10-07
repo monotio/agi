@@ -22,8 +22,6 @@ import {
 import { sideEffects, type SideEffectReport } from "../../../src/studio/sideEffects.ts";
 import type { PicturePlane } from "../../../src/studio/pictureQuery.ts";
 import {
-  checkLensRules,
-  depthValuesLocked,
   lockedPlanes,
   NO_UNLOCKS,
   type LensUnlocks,
@@ -33,9 +31,9 @@ import { LENS_NAMES, type StudioLens } from "./studioView.ts";
 
 const CELLS = SCREEN_WIDTH * SCREEN_HEIGHT;
 
-export { depthValuesLocked, lockedPlanes, NO_UNLOCKS, type LensUnlocks };
+export { lockedPlanes, NO_UNLOCKS, type LensUnlocks };
 
-/** What the item editor shows as locked: each plane's reason, or null, and the Walk depth rule. */
+/** What the item editor shows as locked: each plane's reason, or null. */
 export function lensItemLocks(lens: StudioLens, unlocks: LensUnlocks) {
   const locked = lockedPlanes(lens, unlocks);
   const reason = (plane: PicturePlane): string | null =>
@@ -43,7 +41,6 @@ export function lensItemLocks(lens: StudioLens, unlocks: LensUnlocks) {
   return {
     visual: reason("visual"),
     priority: reason("priority"),
-    depthValues: depthValuesLocked(lens, unlocks),
   };
 }
 
@@ -58,8 +55,8 @@ export const LOCKED_PLANES: Record<PicturePlane, string> = {
 
 /** One reason an edit was refused, with the cells to highlight. */
 interface StudioViolation {
-  /** The rule it breaks: a locked plane, the byte limit, or the Walk lens depth rule. */
-  readonly rule: Exclude<EditViolation["constraint"], "outside-mask"> | "walk-depth";
+  /** The rule it breaks: a locked plane or the byte limit. */
+  readonly rule: Exclude<EditViolation["constraint"], "outside-mask">;
   /** The plane it is about; null for the byte limit. */
   readonly plane: PicturePlane | null;
   /** What the creator reads: short and plain. */
@@ -110,8 +107,7 @@ function footprints(
 
 /**
  * Check a candidate edit from `before` to `after` that edits the items
- * `edited`: the lens's locked planes, the container's record size, and the
- * Walk lens depth rule.
+ * `edited`: the lens's locked planes and the container's record size.
  */
 export function checkStudioEdit(
   before: CompiledDocument,
@@ -153,16 +149,6 @@ export function checkStudioEdit(
       ];
     },
   );
-  for (const depth of checkLensRules(before, after, edited, lens, unlocks))
-    violations.push({
-      rule: depth.constraint,
-      plane: depth.plane,
-      message: "The Walk lens draws walk lines 0–3 only.",
-      detail: `Depth values 4–15 are locked in the Walk lens: ${where(depth.count, depth.bbox)} would change.`,
-      count: depth.count,
-      bbox: depth.bbox,
-      mask: depth.mask,
-    });
   return { ok: violations.length === 0, violations };
 }
 
@@ -189,9 +175,8 @@ export function studioSideEffects(
 }
 
 /**
- * What a refusal says: the first reason for each plane (a locked plane says
- * it all; else the Walk depth rule) plus the byte limit, and the technical account of every violation, one per line,
- * as the detail.
+ * What a refusal says: the first reason for each plane plus the byte limit,
+ * and the technical account of every violation, one per line, as the detail.
  */
 export function refusalText(check: StudioCheck): { message: string; detail: string } {
   const told = new Set<PicturePlane | null>();
@@ -214,10 +199,9 @@ export function violationCells(check: StudioCheck): Uint8Array {
 
 /**
  * What moving `ids` carried that `lens` does not paint, in the lock chip's
- * words: "priority" and "walk lines" (values 4–15 and 0–3) in the Visual
- * lens, "visual" in the Priority lens, "visual" and "priority" in the Walk
- * lens. Read from the cells the items own in `compiled`, so lines drawn over
- * entirely count for nothing.
+ * words: "priority" (both distance bands and control lines) in the Visual
+ * lens, "visual" in the Priority lens. Read from the cells the items own in
+ * `compiled`, so lines drawn over entirely count for nothing.
  */
 export function carriedPlanes(
   compiled: CompiledDocument,
@@ -225,28 +209,12 @@ export function carriedPlanes(
   lens: StudioLens,
 ): string[] {
   let visual = false;
-  let depth = false;
-  let walk = false;
+  let priority = false;
   for (const id of ids) {
     visual ||= footprintMask(compiled, id, "visual").includes(1);
-    const priority = footprintMask(compiled, id, "priority");
-    for (let i = 0; i < CELLS; i++) {
-      if (priority[i] !== 1) continue;
-      if (compiled.priority[i]! < 4) walk = true;
-      else depth = true;
-    }
+    priority ||= footprintMask(compiled, id, "priority").includes(1);
   }
   const hidden: readonly [string, boolean][] =
-    lens === "art"
-      ? [
-          ["priority", depth],
-          ["walk lines", walk],
-        ]
-      : lens === "depth"
-        ? [["visual", visual]]
-        : [
-            ["visual", visual],
-            ["priority", depth],
-          ];
+    lens === "art" ? [["priority", priority]] : [["visual", visual]];
   return hidden.flatMap(([name, carried]) => (carried ? [name] : []));
 }

@@ -66,7 +66,7 @@ export interface StudioToolsOptions {
   readonly stage: () => HTMLElement | null;
   readonly frame?: (callback: () => void) => number;
   readonly cancelFrame?: (handle: number) => void;
-  /** The Walk view's tools (test walk, door box, edge exit): useStudioWalk's gestures. */
+  /** The room tools (test walk, door box, edge exit): useStudioWalk's gestures. */
   readonly walk?: WalkGestures | undefined;
   /** Undo the newest change: the recolour notice offers it. */
   readonly undo?: () => boolean;
@@ -112,7 +112,6 @@ export function useStudioTools(options: StudioToolsOptions) {
   const values = reactive<Record<StudioLens, CurrentValues>>({
     art: defaultValues("art"),
     depth: defaultValues("depth"),
-    walk: defaultValues("walk"),
   });
   const current = computed(() => values[lens.value]);
   const filled = shallowRef(false);

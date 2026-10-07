@@ -1,7 +1,7 @@
 import { VOCABULARY } from "../../../src/vocabulary.ts";
 /**
  * Pure view helpers for the Room Studio: lens painting, mask geometry for
- * the SVG overlay, priority band guides, control-line labels, the
+ * the SVG overlay, priority band guides, the
  * draw-order tick layout and Scene list labels. No Vue and no DOM, so tests drive them directly.
  */
 
@@ -22,8 +22,7 @@ export type StudioViewMode = "blend" | "split" | "priority";
 /**
  * The lenses' names, as Sierra named the planes: Visual is what the player
  * sees; Priority holds the distance bands and the control lines (walls,
- * gates, triggers, water) the player never sees; Walk is the editor's view
- * of those control lines alone.
+ * gates, triggers, water) the player never sees.
  */
 export const LENS_NAMES: Record<StudioLens, { label: string; help: string }> = {
   art: { label: "Visual", help: "What players see." },
@@ -31,11 +30,10 @@ export const LENS_NAMES: Record<StudioLens, { label: string; help: string }> = {
     label: "Priority",
     help: "Where things are near or far, and where walls, water and triggers are. The picture hides it from players.",
   },
-  walk: { label: "Walk", help: "Where characters can go." },
 };
 
-/** What the Priority view shows: all of it, the distance bands, or one value. */
-export type PriorityFilter = "all" | "bands" | number;
+/** What the Priority view shows: all of it, the distance bands, the control lines, or one value. */
+export type PriorityFilter = "all" | "bands" | "controls" | number;
 
 /** The priority plane as `filter` leaves it: kept cells stay, the rest read as background. */
 export function filterPriority(priority: Uint8Array, filter: PriorityFilter): Uint8Array {
@@ -43,20 +41,21 @@ export function filterPriority(priority: Uint8Array, filter: PriorityFilter): Ui
   const out = new Uint8Array(priority.length);
   for (let i = 0; i < priority.length; i++) {
     const value = priority[i]! & 0x0f;
-    const keep = filter === "bands" ? value >= 4 : value === filter;
+    const keep =
+      filter === "bands" ? value >= 4 : filter === "controls" ? value < 4 : value === filter;
     out[i] = keep ? value : 4;
   }
   return out;
 }
 /** What one canvas pane shows. */
-export type PaneLayer = "art" | "depth" | "depth-only" | "walk" | "walk-only";
+export type PaneLayer = "art" | "depth" | "depth-only";
 
 export interface ControlValue {
   readonly value: 0 | 1 | 2 | 3;
   readonly name: string;
   readonly help: string;
   readonly technical: string;
-  /** EGA colour the Walk lens paints it with. */
+  /** EGA colour the Priority lens paints it with. */
   readonly colour: number;
   /** Which cells of a run are painted at full strength, so the value reads without colour. */
   readonly pattern: "solid" | "dashed" | "dotted" | "long-dash";
@@ -117,8 +116,6 @@ export const PANE_LABELS: Record<PaneLayer, string> = {
   art: "Picture",
   depth: "Picture with its priority blended over it",
   "depth-only": "Priority",
-  walk: "Picture dimmed, with its walk lines",
-  "walk-only": "Walk lines",
 };
 
 /** The panes a lens and view mode put on screen, left to right. */
@@ -145,18 +142,14 @@ function put(
 }
 
 const BLACK = EGA_PALETTE[0]!;
-/** Share of the priority colour in the Depth blend. */
+/** Share of the priority colour in the Priority blend. */
 const DEPTH_BLEND = 0.5;
-/** How far the art fades toward black under the Walk lens. */
-const WALK_DIM = 0.7;
-/** How far an off-pattern control cell fades toward black. */
-const PATTERN_FADE = 0.55;
 
 /**
  * Paint one pane into RGBA `out` (160x168x4). Art is the visual plane in EGA
- * colours. Depth blends each priority 5-15 cell's EGA colour over the art (or
- * shows the priority plane alone, background 4 as black). Walk dims the art
- * and paints control values 0-3 strongly in their own colour and pattern.
+ * colours. Priority blends each distance band's EGA colour over the art (or
+ * shows the priority plane alone, background 4 as black) and draws control
+ * lines 0-3 in their own colour and pattern.
  */
 export function paintLayer(
   layer: PaneLayer,
@@ -171,31 +164,24 @@ export function paintLayer(
       put(out, i, art);
       continue;
     }
+    const only = layer === "depth-only";
     const control = pri < 4 ? CONTROL_VALUES[pri]! : undefined;
-    if (layer === "depth" || layer === "depth-only") {
-      const only = layer === "depth-only";
-      if (pri >= 5)
-        put(
-          out,
-          i,
-          only ? EGA_PALETTE[pri]! : art,
-          only ? undefined : EGA_PALETTE[pri]!,
-          DEPTH_BLEND,
-        );
-      else if (control && only) put(out, i, EGA_PALETTE[control.colour]!, BLACK, PATTERN_FADE);
-      else put(out, i, only ? BLACK : art);
-      continue;
-    }
     if (control) {
       const x = i % SCREEN_WIDTH;
       const y = (i - x) / SCREEN_WIDTH;
       const on = patternOn(control.pattern, x, y);
-      put(out, i, EGA_PALETTE[control.colour]!, BLACK, on ? 0 : PATTERN_FADE);
-    } else if (layer === "walk") {
-      put(out, i, art, BLACK, WALK_DIM);
-    } else {
-      put(out, i, pri >= 5 ? EGA_PALETTE[pri]! : BLACK, BLACK, 0.8);
+      put(out, i, on ? EGA_PALETTE[control.colour]! : only ? BLACK : art);
+      continue;
     }
+    if (pri >= 5)
+      put(
+        out,
+        i,
+        only ? EGA_PALETTE[pri]! : art,
+        only ? undefined : EGA_PALETTE[pri]!,
+        DEPTH_BLEND,
+      );
+    else put(out, i, only ? BLACK : art);
   }
 }
 
@@ -291,79 +277,12 @@ export function bandGuides(base = 48): BandGuide[] {
   return guides;
 }
 
-export interface ControlLabel {
-  value: number;
-  /** Label anchor: a cell of the run, the one nearest its centroid. */
-  x: number;
-  y: number;
-  cells: number;
-}
-
-/**
- * One label per 8-connected run of a control value with at least `minCells`
- * cells, largest first, at most `limit`.
- */
-export function controlLabels(priority: Uint8Array, minCells = 4, limit = 24): ControlLabel[] {
-  const seen = new Uint8Array(priority.length);
-  const labels: ControlLabel[] = [];
-  const stack: number[] = [];
-  for (let start = 0; start < priority.length; start++) {
-    const value = priority[start]!;
-    if (value > 3 || seen[start]) continue;
-    const run: number[] = [];
-    seen[start] = 1;
-    stack.push(start);
-    while (stack.length > 0) {
-      const i = stack.pop()!;
-      run.push(i);
-      const x = i % SCREEN_WIDTH;
-      const y = (i - x) / SCREEN_WIDTH;
-      for (let dy = -1; dy <= 1; dy++)
-        for (let dx = -1; dx <= 1; dx++) {
-          const nx = x + dx;
-          const ny = y + dy;
-          if (nx < 0 || nx >= SCREEN_WIDTH || ny < 0 || ny >= SCREEN_HEIGHT) continue;
-          const j = ny * SCREEN_WIDTH + nx;
-          if (!seen[j] && priority[j] === value) {
-            seen[j] = 1;
-            stack.push(j);
-          }
-        }
-    }
-    if (run.length < minCells) continue;
-    let sx = 0;
-    let sy = 0;
-    for (const i of run) {
-      sx += i % SCREEN_WIDTH;
-      sy += Math.floor(i / SCREEN_WIDTH);
-    }
-    const cx = sx / run.length;
-    const cy = sy / run.length;
-    let best = run[0]!;
-    let bestDistance = Infinity;
-    for (const i of run) {
-      const d = ((i % SCREEN_WIDTH) - cx) ** 2 + (Math.floor(i / SCREEN_WIDTH) - cy) ** 2;
-      if (d < bestDistance) {
-        bestDistance = d;
-        best = i;
-      }
-    }
-    labels.push({
-      value,
-      x: best % SCREEN_WIDTH,
-      y: Math.floor(best / SCREEN_WIDTH),
-      cells: run.length,
-    });
-  }
-  return labels.sort((a, b) => b.cells - a.cells || a.y - b.y || a.x - b.x).slice(0, limit);
-}
-
 export interface Tick {
   /** State lines are short, drawing commands medium, fills tall. */
   kind: "state" | "draw" | "fill";
   /**
    * EGA colour the command draws with: its visual colour, else its priority
-   * (a control value in its Walk lens colour); null for a state line.
+   * (a control value in its own colour); null for a state line.
    */
   colour: number | null;
 }

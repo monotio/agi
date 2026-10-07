@@ -179,8 +179,14 @@ export function useStudioReadout(options: {
   });
   const labelOf = (id: string): string =>
     [...model.value.rows, ...model.value.folds].find((row) => row.id === id)?.display ?? id;
-  /** The status bar's line: where new shapes draw. */
-  const status = computed(() => position.value.text);
+  /** The status bar's line: the inspected pixel in plain words. */
+  const status = computed(() => {
+    const info = pixel.value;
+    if (!info) return "Point at a pixel";
+    const writer = info.visual.entry ?? info.priority.entry;
+    const step = writer === null ? "" : ` · step ${writer + 1}`;
+    return `x ${info.x} y ${info.y} · colour ${info.visual.value} · depth ${info.priority.value}${step}`;
+  });
 
   return { ticks, stops, current, drawn, single, commands, pixel, fill, labelOf, status, position };
 }

@@ -88,7 +88,6 @@ import { lensItemLocks, lockedPlanes, NO_UNLOCKS, type LensUnlocks } from "./stu
 import { changedCells } from "./changedCells.ts";
 import {
   bandGuides,
-  controlLabels,
   maskFillPath,
   maskOutlinePath,
   PANE_LABELS,
@@ -214,11 +213,6 @@ const showBands = ref(true);
 const priorityFilter = ref<PriorityFilter>("all");
 const filter = ref("");
 const side = ref("items");
-const drawOrder = ref(true);
-
-watch(lens, (next) => {
-  if (next === "walk") side.value = "inspector";
-});
 const unlocks = ref<LensUnlocks>(NO_UNLOCKS);
 /** More points than this and the item shows no handles (the inspector still lists them). */
 const MAX_HANDLES = 160;
@@ -408,8 +402,6 @@ const editing = useStudioEditing({
     const [plane] = lockedPlanes(lens.value, unlocks.value);
     if (rules.includes("locked-plane") && plane)
       return { label: "Unlock", run: () => unlockNow({ [plane]: true }) };
-    if (rules.includes("walk-depth"))
-      return { label: "Allow depth", run: () => unlockNow({ depthInWalk: true }) };
     return undefined;
   },
 });
@@ -725,7 +717,7 @@ function resetFigure(figure: RoomPlacement): void {
   viewPreviews.value = next;
 }
 function copyFigureSpot(figure: RoomPlacement, x: number, y: number): void {
-  const line = `${figure.command}(o${figure.object}, ${x}, ${y});`;
+  const line = `position(o${figure.object}, ${x}, ${y});`;
   void navigator.clipboard?.writeText(line).then(
     () => editing.say({ tone: "ok", text: `Copied ${line}` }),
     () => editing.say({ tone: "warn", text: `The position is ${line}` }),
@@ -805,9 +797,6 @@ function insertPointAtCursor(): boolean {
 }
 const guides = computed(() =>
   showBands.value && lens.value !== "art" && !midOrder.value ? bandGuides() : null,
-);
-const labels = computed(() =>
-  lens.value === "walk" && !midOrder.value ? controlLabels(shown.value.priority) : null,
 );
 
 /** The selection's priority picker in the options bar is open. */
@@ -899,7 +888,7 @@ watch(
   { flush: "post" },
 );
 
-// ---- The Walk view ----------------------------------------------------------
+// ---- The room tools (test walks and doors, in the Priority lens) ------------
 const walkTint = ref(true);
 const palette = useStudioPalette({
   tool: tools.tool,
@@ -912,9 +901,9 @@ const palette = useStudioPalette({
   frozen,
 });
 
-/** A walk tool in another lens hands back to Select. */
+/** A walk tool in the Visual lens hands back to Select. */
 watch(lens, (next) => {
-  if (next !== "walk" && isWalkTool(tools.tool.value)) tools.setTool("select");
+  if (next === "art" && isWalkTool(tools.tool.value)) tools.setTool("select");
 });
 /** While the goal is chosen, the estimate follows the pointer or the keyboard cursor. */
 watch(tools.cursor, (cell) => {
@@ -931,17 +920,17 @@ watch(
 watch(walker.selectedDoorId, (id) => {
   if (id !== null) selectedId.value = undefined;
 });
-/** A walk tool opens the Walk view first. */
+/** A walk tool opens the Priority lens first. */
 function walkView(next: StudioTool): boolean {
-  if (!isWalkTool(next) || lens.value === "walk") return true;
-  lens.value = "walk";
+  if (!isWalkTool(next) || lens.value !== "art") return true;
+  lens.value = "depth";
   return true;
 }
 function pickTool(next: StudioTool): void {
   if (walkView(next)) tools.setTool(next);
   keepFocus();
 }
-/** A rail letter: T, D and E open the Walk view first. */
+/** A rail letter: T, D and E open the Priority lens first. */
 function toolKey(key: string): boolean {
   const next = TOOL_KEYS[key];
   if (next && next !== "probe" && !walkView(next)) return true;
@@ -1026,7 +1015,7 @@ const menuItems = computed<CanvasMenuItem[]>(() => [
     label: "Play here",
     disabled: !walk || walk.room < 1,
   },
-  ...(lens.value === "walk"
+  ...(lens.value === "depth"
     ? [
         { id: "walk-from", label: "Start a test walk here" },
         { id: "walk-to", label: "Test walk to here", disabled: !walker.start.value },
