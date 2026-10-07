@@ -295,11 +295,6 @@
   color: var(--ink-3);
   font-size: var(--text-xs);
 }
-.workspace-game-bar__actions {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-}
 .workspace-game-keys {
   display: flex;
   align-items: center;

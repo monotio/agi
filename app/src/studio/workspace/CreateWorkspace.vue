@@ -2246,8 +2246,6 @@ onBeforeUnmount(() => {
         @click="backToGame()"
         >Back to Room {{ returnRoom }}</UiButton
       >
-      <!-- The play lane's action button mounts here (rc4-s1-play). -->
-      <span id="workspace-game-actions" class="workspace-game-bar__actions"></span>
       <button
         type="button"
         class="workspace-game-keys"
