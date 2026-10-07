@@ -97,10 +97,10 @@ function inspectFlowTargets(
   const flow = createRoomFlow(input.image.logics, input.profile, { admission: true });
   const rooms = new Set<number>();
   let currentRoomKnown = true;
-  // Between invocations v0 holds boot's 0, a literal authored write, or a
+  // Between invocations current_room holds boot's 0, a literal authored write, or a
   // new.room target. Close that set over the analyzed transitions rather than
   // assuming every existing LOGIC (including a newly created room) is reachable.
-  // A computed write to v0 or an indirect write defeats this invariant. All
+  // A computed write to current_room or an indirect write defeats this invariant. All
   // other entry variables retain the analysis' unknown bit across invocations.
   for (const insns of flow.instructions.values())
     for (const insn of insns) {

@@ -1,6 +1,7 @@
 import { toolDescription, parameterDescriptions } from "../vocabulary.ts";
 /** Room scaffolding compiles ordinary AGI resources; the low-level source tools remain available. */
-import { assembleLogic } from "../logic/assembler.ts";
+import { compileProjectLogic } from "../authoring/projectLogic.ts";
+import { systemOperand } from "../logic/systemNames.ts";
 import { buildWordsTok, parseWordsTok, matchDictionaryPhrase } from "../logic/words.ts";
 import { openContainer } from "../container/container.ts";
 import { parseView, readViewCel } from "../view/view.ts";
@@ -337,18 +338,18 @@ export function executeRoomTool(
     const currentXVariable = roomVariables["room_ego_current_x"]!;
     const currentYVariable = roomVariables["room_ego_current_y"]!;
     const lines = [
-      `if (isset(f5)) {`,
+      `if (isset(${systemOperand("flag", 5, staged.authoring.bindings)})) {`,
       `  assignn(v${pictureVariable}, ${picture}); load.pic(v${pictureVariable}); draw.pic(v${pictureVariable}); show.pic();`,
       `  set.horizon(${horizon}); load.view(${egoView}); animate.obj(0); set.view(0, ${egoView});`,
       `  assignn(v${stepTimeVariable}, 1); step.time(0, v${stepTimeVariable});`,
       `  assignn(v${cycleTimeVariable}, 3); cycle.time(0, v${cycleTimeVariable});`,
       `  position(0, ${x}, ${y}); draw(0); normal.motion(0); normal.cycle(0); stop.cycling(0);`,
       `  get.posn(0, v${previousXVariable}, v${previousYVariable});`,
-      `  assignn(v6, 0); player.control(); accept.input();`,
+      `  assignn(${systemOperand("variable", 6, staged.authoring.bindings)}, 0); player.control(); accept.input();`,
       `}`,
       `get.posn(0, v${currentXVariable}, v${currentYVariable});`,
-      `if (equaln(v6, 0)) { stop.cycling(0); }`,
-      `if (!equaln(v6, 0) && (!equalv(v${currentXVariable}, v${previousXVariable}) || !equalv(v${currentYVariable}, v${previousYVariable}))) { start.cycling(0); }`,
+      `if (equaln(${systemOperand("variable", 6, staged.authoring.bindings)}, 0)) { stop.cycling(0); }`,
+      `if (!equaln(${systemOperand("variable", 6, staged.authoring.bindings)}, 0) && (!equalv(v${currentXVariable}, v${previousXVariable}) || !equalv(v${currentYVariable}, v${previousYVariable}))) { start.cycling(0); }`,
       `if (equalv(v${currentXVariable}, v${previousXVariable}) && equalv(v${currentYVariable}, v${previousYVariable})) { stop.cycling(0); }`,
       `assignv(v${previousXVariable}, v${currentXVariable}); assignv(v${previousYVariable}, v${currentYVariable});`,
     ];
@@ -370,10 +371,12 @@ export function executeRoomTool(
       const destination = referenceId(staged, exit["destination"], "logic", "exit destination", 1);
       namedExits[edge] = destination;
       const required = flag(staged, exit["requiresFlag"]);
-      lines.push(`if (equaln(v2, ${EDGES[edge]})) {`);
+      lines.push(
+        `if (equaln(${systemOperand("variable", 2, staged.authoring.bindings)}, ${EDGES[edge]})) {`,
+      );
       if (required !== null)
         lines.push(
-          `  if (isset(f${required})) { new.room(${destination}); } else { assignn(v6, 0); print(${JSON.stringify(exit["blockedResponse"] == null ? "That way is closed for now." : text(exit["blockedResponse"], "blockedResponse", 1000))}); }`,
+          `  if (isset(f${required})) { new.room(${destination}); } else { assignn(${systemOperand("variable", 6, staged.authoring.bindings)}, 0); print(${JSON.stringify(exit["blockedResponse"] == null ? "That way is closed for now." : text(exit["blockedResponse"], "blockedResponse", 1000))}); }`,
         );
       else lines.push(`  new.room(${destination});`);
       lines.push("}");
@@ -424,7 +427,7 @@ export function executeRoomTool(
       lines.push(`if (${[...new Set(patterns)].join(" || ")}) {`);
       if (conditions.length) lines.push(`  if (${conditions.join(" && ")}) {`);
       if (giveItem !== null) lines.push(`  get(${giveItem});`);
-      // drop writes location 0; put reads its location from a variable, and v0 is this room.
+      // drop writes location 0; put reads its location from a variable, and current_room is this room.
       if (removeItem !== null) lines.push(`  drop(${removeItem});`);
       if (setFlag !== null) lines.push(`  set(f${setFlag});`);
       const response = text(interaction["response"], "response", 1000);
@@ -444,7 +447,11 @@ export function executeRoomTool(
     }
     lines.push("return;");
     const normalized = normalizeAuthoredLogic(lines.join("\n"));
-    const compiled = assembleLogic(normalized.source, { dictionary, profile: state.profile });
+    const compiled = compileProjectLogic(normalized.source, {
+      dictionary,
+      profile: state.profile,
+      bindings: staged.authoring.bindings,
+    }).assembly;
     const wordsPayload = buildWordsTok([...dictionary].map(([word, id]) => ({ word, id })));
     staged.authoring.world.rooms[String(room)] = { title, description, exits: namedExits };
     const authoring = validateAuthoringState(staged.authoring);

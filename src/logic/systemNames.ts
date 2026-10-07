@@ -1,59 +1,59 @@
 /**
- * Display names derived from agi-re, Core Runtime State (Byte variables, Flags,
+ * Source names derived from agi-re, Core Runtime State (Byte variables, Flags,
  * Top-level cycle order), Rooms/Replay/Persistence (Room transition, Restart),
  * Opcode Contracts (motion, tracing, menus) and Input/Text/Menus/Inventory.
  * https://peterkelly.github.io/agi-re/spec/print.html#core-runtime-state
  * The spec supplies roles rather than source identifiers. Slots whose roles
- * are unspecified retain neutral system labels; these labels imply no behavior.
+ * are unspecified retain reserved labels; these labels imply no behavior.
  */
 import type { BindingInfo } from "./projectNames.ts";
 
 export const SYSTEM_FLAGS: Readonly<Record<string, string>> = {
-  "0": "system_flag_0",
-  "1": "system_flag_1",
-  "2": "system_flag_2",
-  "3": "system_flag_3",
-  "4": "system_flag_4",
+  "0": "ego_in_water",
+  "1": "ego_hidden",
+  "2": "input_received",
+  "3": "ego_on_trigger",
+  "4": "input_handled",
   "5": "new_room",
   "6": "restarted",
-  "7": "system_flag_7",
-  "8": "system_flag_8",
+  "7": "no_save_loads",
+  "8": "reserved_flag_8",
   "9": "sound_on",
   "10": "trace_on",
-  "11": "system_flag_11",
-  "12": "system_flag_12",
-  "13": "system_flag_13",
+  "11": "reserved_flag_11",
+  "12": "restored",
+  "13": "inventory_select",
   "14": "menus_on",
-  "15": "system_flag_15",
+  "15": "message_no_wait",
 };
 export const SYSTEM_VARIABLES: Readonly<Record<string, string>> = {
   "0": "current_room",
   "1": "prev_room",
   "2": "ego_edge",
   "3": "score",
-  "4": "object_event_4",
-  "5": "object_event_5",
+  "4": "edge_object",
+  "5": "edge_object_edge",
   "6": "ego_direction",
-  "7": "system_var_7",
-  "8": "system_var_8",
+  "7": "max_score",
+  "8": "free_memory",
   "9": "parser_status",
   "10": "cycle_speed",
-  "11": "system_var_11",
-  "12": "system_var_12",
-  "13": "system_var_13",
-  "14": "system_var_14",
-  "15": "system_var_15",
-  "16": "ego_view_num",
-  "17": "system_var_17",
-  "18": "system_var_18",
+  "11": "clock_seconds",
+  "12": "clock_minutes",
+  "13": "clock_hours",
+  "14": "clock_days",
+  "15": "reserved_var_15",
+  "16": "ego_view",
+  "17": "reserved_var_17",
+  "18": "reserved_var_18",
   "19": "key_pressed",
-  "20": "system_var_20",
-  "21": "system_var_21",
-  "22": "system_var_22",
-  "23": "system_var_23",
-  "24": "system_var_24",
+  "20": "computer_type",
+  "21": "message_time",
+  "22": "sound_type",
+  "23": "sound_volume",
+  "24": "input_length",
   "25": "selected_item",
-  "26": "system_var_26",
+  "26": "monitor_type",
 };
 
 /**
@@ -129,4 +129,43 @@ export function systemBindingInfos(): BindingInfo[] {
     for (const [num, name] of Object.entries(names))
       result.push({ name, num: Number(num), kind, uses: [] });
   return result;
+}
+
+export interface SystemBinding {
+  readonly kind: "v" | "f";
+  readonly num: number;
+}
+
+/** Creator names and named slots take precedence over interpreter defaults. */
+export function systemBindings(
+  bindings: Readonly<Record<string, { readonly kind?: string; readonly num: number }>> = {},
+): Readonly<Record<string, SystemBinding>> {
+  return Object.fromEntries(
+    systemBindingInfos()
+      .filter(
+        (info) =>
+          !Object.hasOwn(bindings, info.name) &&
+          !Object.values(bindings).some(
+            (binding) => binding.kind === info.kind && binding.num === info.num,
+          ),
+      )
+      .map((info) => [info.name, { kind: info.kind === "flag" ? "f" : "v", num: info.num }]),
+  );
+}
+
+/** A generated operand follows creator names while retaining its AGI slot. */
+export function systemOperand(
+  kind: "flag" | "variable",
+  num: number,
+  bindings: Parameters<typeof systemBindings>[0] = {},
+): string {
+  const names = Object.entries(bindings)
+    .filter(([, binding]) => binding.kind === kind && binding.num === num)
+    .map(([name]) => name)
+    .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+  if (names[0]) return names[0];
+  const builtin = systemName(kind, num);
+  return builtin && Object.hasOwn(systemBindings(bindings), builtin)
+    ? builtin
+    : `${kind === "flag" ? "f" : "v"}${num}`;
 }
