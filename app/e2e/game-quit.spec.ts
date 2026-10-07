@@ -83,7 +83,9 @@ test("a game that quits lands Home saying so, keeps its last picture and can be 
   await expect(ended).toHaveCount(0);
 });
 
-test("a fixture-served game that quits offers Play again from its fixture", async ({ page }) => {
+test("a fixture-served game that quits offers Play again from its fixture @webkit-desktop", async ({
+  page,
+}) => {
   const files = quittingGameFiles();
   await page.route("**/fixtures/**", async (route) => {
     const path = new URL(route.request().url()).pathname;

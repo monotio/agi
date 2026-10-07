@@ -452,6 +452,72 @@ function bootHarness(overrides: Partial<GameLifecycleOptions> = {}) {
 
 const STUB_CONFIG = { provider: "stub" as const, apiKey: "", model: "offline-stub" };
 
+for (const path of ["installed", "cached"] as const) {
+  test(`${path} boot shows a checkpoint refusal after its carrier settles`, async (t) => {
+    const id = testProjectId(`refused-carrier-${path}`);
+    await saveBody(id, 11);
+    t.after(() => clearCachedGame(id));
+    const originalFetch = globalThis.fetch;
+    t.after(() => {
+      globalThis.fetch = originalFetch;
+    });
+    globalThis.fetch = async (input) =>
+      String(input).endsWith("/")
+        ? new Response(JSON.stringify(["WORDS.TOK"]))
+        : new Response(new Uint8Array(52));
+    let current = true;
+    const carrier: ResumeBootCarrier = {
+      isCurrent: () => current,
+      admit: async () => {
+        current = false;
+        return { status: "aborted", message: "The checkpoint could not be restored: truncated" };
+      },
+    };
+    const { lifecycle, state, workers } = bootHarness({ devFixtures: true });
+    if (path === "installed") await lifecycle.bootGame("synthetic", carrier);
+    else
+      await lifecycle.bootAuthoredGame("", STUB_CONFIG, {
+        projectId: id,
+        useCached: true,
+        resumeCarrier: carrier,
+      });
+    assert.equal(state.phase, "error");
+    assert.match(state.error, /checkpoint could not be restored: truncated/);
+    assert.equal(workers.length, 0);
+  });
+}
+
+for (const path of ["installed", "cached"] as const) {
+  test(`${path} opening settles ownership before replacing the surface that admitted it`, async (t) => {
+    const id = testProjectId(`opening-surface-${path}`);
+    await saveBody(id, 11);
+    t.after(() => clearCachedGame(id));
+    const originalFetch = globalThis.fetch;
+    t.after(() => {
+      globalThis.fetch = originalFetch;
+    });
+    globalThis.fetch = async (input) =>
+      String(input).endsWith("/")
+        ? new Response(JSON.stringify(["WORDS.TOK"]))
+        : new Response(new Uint8Array(52));
+    const { lifecycle, workers } = bootHarness({
+      devFixtures: true,
+      acquirePlayOwnership: async () => {},
+    });
+    // Replacing a worker clears the Home quit note that owns Play again.
+    const opening = { isCurrent: () => workers.length === 0 };
+    if (path === "installed") await lifecycle.bootGame("synthetic", undefined, opening);
+    else
+      await lifecycle.bootAuthoredGame("", STUB_CONFIG, {
+        projectId: id,
+        useCached: true,
+        opening,
+      });
+    assert.equal(workers.length, 1);
+    assert.equal(workers[0]!.posted.length, 1, "the admitted worker receives its boot");
+  });
+}
+
 test("Exit ignores a project flush that answers after the physical session is retired", async () => {
   let release: (() => void) | undefined;
   let pauses = 0;

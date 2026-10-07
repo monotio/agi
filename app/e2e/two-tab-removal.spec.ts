@@ -112,7 +112,7 @@ function workerOffers(page: Page): Promise<WorkerOffers> {
   }));
 }
 
-test("a game removed in another tab stops storing, says so once, and never comes back to Home", async ({
+test("a game removed in another tab stops storing, says so once, and never comes back to Home @webkit-desktop", async ({
   page,
 }) => {
   // Tab A holds the game on Home.
@@ -176,7 +176,12 @@ test("a game removed in another tab stops storing, says so once, and never comes
   await card.getByTestId("remove-game-confirm").click();
   await expect(card).toHaveCount(0);
   expect(await held(page, locator)).toEqual({
-    projectNamedKeys: ["monotio_agi.authored.a.b"],
+    // Receipts prevent retained progress attaching to a recreated project.
+    projectNamedKeys: [
+      "monotio_agi.authored.a.b",
+      "monotio_agi.progress-adoption.a",
+      "monotio_agi.progress-adoption.a.b",
+    ],
     record: false,
     checkpoint: false,
     recovery: 0,
@@ -207,7 +212,11 @@ test("a game removed in another tab stops storing, says so once, and never comes
     .toEqual({ checkpoints: true, timeline: true });
   expect((await textHook(tabB)).cycle).toBeGreaterThan(cycle);
   expect(await held(tabB, locator)).toEqual({
-    projectNamedKeys: ["monotio_agi.authored.a.b"],
+    projectNamedKeys: [
+      "monotio_agi.authored.a.b",
+      "monotio_agi.progress-adoption.a",
+      "monotio_agi.progress-adoption.a.b",
+    ],
     record: false,
     checkpoint: false,
     recovery: 0,
@@ -229,7 +238,11 @@ test("a game removed in another tab stops storing, says so once, and never comes
   await expect(tabB.getByTestId("saved-game-gallery")).toBeVisible();
   await expect(tabB.getByTestId("hero-primary")).toHaveText("Play the tutorial");
   expect(await held(tabB, locator)).toEqual({
-    projectNamedKeys: ["monotio_agi.authored.a.b"],
+    projectNamedKeys: [
+      "monotio_agi.authored.a.b",
+      "monotio_agi.progress-adoption.a",
+      "monotio_agi.progress-adoption.a.b",
+    ],
     record: false,
     checkpoint: false,
     recovery: 0,
