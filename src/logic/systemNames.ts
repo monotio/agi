@@ -56,6 +56,42 @@ export const SYSTEM_VARIABLES: Readonly<Record<string, string>> = {
   "26": "system_var_26",
 };
 
+/** Meanings follow the same spec sections as the standard names above. */
+const FLAG_MEANINGS: Readonly<Record<string, string>> = {
+  "0": "The hero's final baseline cell has control colour 3.",
+  "2": "Parsed input is ready for the game to check.",
+  "3": "The hero's final baseline cell has control colour 2.",
+  "4": "A said check has matched the parsed input.",
+  "5": "The game has just entered a room.",
+  "6": "The game has just restarted.",
+  "7": "Pauses input recording while set.",
+  "9": "Allows sound playback while set.",
+  "10": "Allows the trace window to open.",
+  "12": "Cleared after each game cycle.",
+  "14": "Allows menu interaction while set.",
+  "15": "Cleared when the picture is shown.",
+};
+const VARIABLE_MEANINGS: Readonly<Record<string, string>> = {
+  "0": "The room the player is in.",
+  "1": "The room the player came from.",
+  "2": "The screen edge reached by the hero.",
+  "3": "The score shown on the status line.",
+  "4": "The object that reached a screen edge.",
+  "5": "The screen edge reached by that object.",
+  "6": "The hero's movement direction.",
+  "9": "The parsed word count or unknown word position.",
+  "10": "The number of timer ticks between game cycles.",
+  "16": "The hero's VIEW number at room entry.",
+  "19": "The character code of the last key pressed.",
+  "25": "The selected inventory item, or 255 for Cancel.",
+};
+
+export function systemMeaning(kind: string, num: number): string | undefined {
+  if (systemName(kind, num) === undefined) return undefined;
+  const meanings = kind === "f" || kind === "flag" ? FLAG_MEANINGS : VARIABLE_MEANINGS;
+  return meanings[String(num)] ?? "Reserved by the interpreter.";
+}
+
 export function systemName(kind: string, num: number): string | undefined {
   return kind === "f" || kind === "flag"
     ? SYSTEM_FLAGS[String(num)]

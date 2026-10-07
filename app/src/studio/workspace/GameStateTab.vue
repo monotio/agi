@@ -22,7 +22,6 @@ const groups = computed(() => {
 });
 const creatorRows = computed(() => groups.value.game);
 const builtinRows = computed(() => groups.value.builtin);
-const hasRows = computed(() => creatorRows.value.length || builtinRows.value.length);
 function value(row: { kind: string; num: number }): string {
   if (!props.state) return "—";
   return String(
@@ -59,7 +58,11 @@ function value(row: { kind: string; num: number }): string {
       <table>
         <tbody>
           <tr v-for="row in builtinRows" :key="row.name">
-            <td>{{ row.name }}</td>
+            <td>
+              <span>{{ row.name }}</span>
+              <small class="workspace-state__meaning">{{ row.meaning }}</small>
+              <small v-if="row.usage" class="workspace-state__usage">Used: {{ row.usage }}</small>
+            </td>
             <td>
               <span class="workspace-state__kind">{{
                 row.kind === "flag" ? "Flag" : "Variable"
@@ -71,7 +74,7 @@ function value(row: { kind: string; num: number }): string {
         </tbody>
       </table>
     </details>
-    <p v-if="!hasRows" class="workspace-state__empty">
+    <p v-if="!creatorRows.length" class="workspace-state__empty">
       No named flags or variables yet. Add one with + next to Game state in Parts.
     </p>
     <p v-if="!state" class="workspace-state__note">Values show while the game runs.</p>
@@ -98,6 +101,12 @@ td,
 th {
   padding: var(--space-1) var(--space-3) var(--space-1) 0;
   border-bottom: 1px solid var(--hairline);
+}
+.workspace-state__meaning,
+.workspace-state__usage {
+  display: block;
+  color: var(--ink-3);
+  font-size: var(--text-2xs);
 }
 .workspace-state__kind {
   color: var(--ink-3);

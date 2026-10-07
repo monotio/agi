@@ -1484,7 +1484,7 @@ export interface GuidedBoilerplateInput {
 /**
  * Add a ready shared-code part: one named LOGIC holding the menus and
  * Save/Restore, the game over box or a score screen, readable and editable.
- * Every binding the part needs is marked built in so Game state folds it.
+ * The part's bindings belong to the game.
  */
 export function prepareGuidedBoilerplate(
   ctx: GuidedContext,

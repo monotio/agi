@@ -5,13 +5,15 @@ import { readBindingsDocument } from "../../../src/authoring/projectDocuments.ts
 import { parseWordsTok } from "../../../src/logic/words.ts";
 import { offsetAt, type WorkspaceEdit } from "../../../src/logic/lspTypes.ts";
 import { projectOperandInfos, type BindingInfo } from "../../../src/logic/projectNames.ts";
-import { systemName } from "../../../src/logic/systemNames.ts";
+import { systemName, systemMeaning } from "../../../src/logic/systemNames.ts";
 import { disassembleLogic } from "../../../src/logic/disassembler.ts";
 import { PROFILES } from "../../../src/runtime/profile.ts";
 import type { ProfileId } from "../../../src/runtime/profile.ts";
 import type { EngineApi } from "../engine/engineContext.ts";
 
-function namesProject(snapshot: ProjectSnapshot, profileId: ProfileId): LogicLanguageProject {
+type NamesSnapshot = Pick<ProjectSnapshot, "read" | "keys" | "version">;
+
+function namesProject(snapshot: NamesSnapshot, profileId: ProfileId): LogicLanguageProject {
   const words = snapshot.read("words")?.content;
   const bindings = snapshot.read("bindings")?.content;
   return {
@@ -38,25 +40,30 @@ function namesProject(snapshot: ProjectSnapshot, profileId: ProfileId): LogicLan
   };
 }
 export function workspaceBindingInfos(
-  snapshot: ProjectSnapshot,
+  snapshot: NamesSnapshot,
   profileId: ProfileId,
 ): BindingInfo[] {
   const server = createLogicLspServer({ project: namesProject(snapshot, profileId) });
   return server.handle({ jsonrpc: "2.0", id: 1, method: "agi/bindings" })!.result as BindingInfo[];
 }
-/** Game names keep code-point order; used interpreter slots keep numeric order. */
+export interface ReservedStateInfo extends BindingInfo {
+  readonly meaning: string;
+  readonly usage: string;
+}
+/** Game names keep code-point order; all interpreter slots keep numeric order. */
 export function workspaceGameStateInfos(
-  snapshot: ProjectSnapshot,
+  snapshot: NamesSnapshot,
   profileId: ProfileId,
 ): {
   game: BindingInfo[];
-  builtin: BindingInfo[];
+  builtin: ReservedStateInfo[];
 } {
   const project = namesProject(snapshot, profileId);
+  const documents = { ...project.documents };
   for (const key of snapshot.keys) {
     const content = snapshot.read(key)?.content;
     if (key.startsWith("logic:") && content instanceof Uint8Array)
-      project.documents[key] = {
+      documents[key] = {
         source: disassembleLogic(content, {
           profile: PROFILES[profileId],
           dictionary: new Map(project.words),
@@ -64,11 +71,16 @@ export function workspaceGameStateInfos(
         version: snapshot.version(key),
       };
   }
-  const infos = projectOperandInfos(project).filter(
+  const infos = projectOperandInfos({ ...project, documents }).filter(
     (info) => info.kind === "flag" || info.kind === "variable",
   );
-  const game = infos.filter((info) => info.name && systemName(info.kind, info.num) === undefined);
-  const builtin: BindingInfo[] = [];
+  const game = infos.filter(
+    (info) =>
+      info.name &&
+      Object.hasOwn(project.bindings, info.name) &&
+      info.name !== systemName(info.kind, info.num),
+  );
+  const builtin: ReservedStateInfo[] = [];
   for (const kind of ["flag", "variable"])
     for (let num = 0; num <= (kind === "flag" ? 15 : 26); num++) {
       const uses = infos
@@ -84,7 +96,16 @@ export function workspaceGameStateInfos(
               other.range.start.character === use.range.start.character,
           ) === index,
       );
-      if (unique.length) builtin.push({ name: systemName(kind, num)!, kind, num, uses: unique });
+      builtin.push({
+        name: systemName(kind, num)!,
+        kind,
+        num,
+        uses: unique,
+        meaning: systemMeaning(kind, num)!,
+        usage: [...new Set(unique.map((use) => use.key.replace(":", " ").toUpperCase()))].join(
+          ", ",
+        ),
+      });
     }
   return { game, builtin };
 }

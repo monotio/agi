@@ -2,9 +2,12 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { ProjectDraft } from "../../src/authoring/projectDraft.ts";
 import { workspaceGameStateInfos } from "../src/shell/workspaceNames.ts";
+import { createStarterProject } from "../../src/authoring/starterProject.ts";
+import { readBindingsDocument } from "../../src/authoring/projectDocuments.ts";
+import { SYSTEM_FLAGS, SYSTEM_VARIABLES } from "../../src/logic/systemNames.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 
-test("game state lists own names in code-point order and used reserved slots once by standard name", () => {
+test("game state lists own names in code-point order and every reserved slot once in number order", () => {
   const draft = new ProjectDraft({
     bindings: JSON.stringify({
       zebra: { kind: "flag", num: 32 },
@@ -19,28 +22,63 @@ test("game state lists own names in code-point order and used reserved slots onc
   const rows = workspaceGameStateInfos(draft.capture(), "2.936");
   assert.deepEqual(
     rows.game.map((row) => row.name),
-    ["apple", "chime_done", "zebra"],
+    ["apple", "chime_done", "room_alias", "zebra"],
   );
   assert.deepEqual(
     rows.builtin.map((row) => [row.name, row.kind, row.num]),
     [
-      ["system_flag_0", "flag", 0],
-      ["new_room", "flag", 5],
-      ["current_room", "variable", 0],
+      ...Array.from({ length: 16 }, (_, num) => [SYSTEM_FLAGS[String(num)], "flag", num]),
+      ...Array.from({ length: 27 }, (_, num) => [SYSTEM_VARIABLES[String(num)], "variable", num]),
     ],
   );
-  assert.equal(rows.builtin[2]!.uses.length, 2);
+  assert.equal(rows.builtin[16]!.uses.length, 2);
   assert.equal(rows.game[1]!.uses.length, 1);
 });
 
 test("reserved slots are discovered in native LOGIC without adding bindings", () => {
-  const payload = assembleLogic("if (isset(f5)) { assignn(v0, 1); } return;", {}).payload;
+  const payload = assembleLogic("if (isset(f5)) { assignn(v0, 1); } return;", {
+    dictionary: new Map(),
+  }).payload;
   const draft = new ProjectDraft({ bindings: "{}", "logic:0": payload });
   const rows = workspaceGameStateInfos(draft.capture(), "2.936");
   assert.deepEqual(rows.game, []);
-  assert.deepEqual(
-    rows.builtin.map((row) => row.name),
-    ["new_room", "current_room"],
-  );
+  assert.equal(rows.builtin.length, 43);
+  assert.equal(rows.builtin[5]!.name, "new_room");
+  assert.equal(rows.builtin[5]!.uses.length, 1);
+  assert.equal(rows.builtin[16]!.name, "current_room");
+  assert.equal(rows.builtin[16]!.uses.length, 1);
   assert.equal(draft.capture().read("bindings")!.content, "{}");
+});
+
+test("Starter names are game names and old binding markers are ignored", () => {
+  const starter = createStarterProject("starter");
+  assert.deepEqual(starter.bindings["chime_done"], { kind: "flag", num: 204 });
+  const legacy = readBindingsDocument(
+    JSON.stringify({
+      chime_done: { kind: "flag", num: 204, builtin: true },
+    }),
+  );
+  assert.deepEqual(legacy, { chime_done: { kind: "flag", num: 204 } });
+  const draft = new ProjectDraft({ bindings: JSON.stringify(starter.bindings) });
+  const rows = workspaceGameStateInfos(draft.capture(), "2.936");
+  assert.ok(rows.game.some((row) => row.name === "chime_done"));
+  assert.ok(rows.builtin.every((row) => row.uses.length === 0));
+});
+
+test("using a reserved slot marks it without changing the list order", () => {
+  const blank = new ProjectDraft({ bindings: "{}" });
+  const used = new ProjectDraft({
+    bindings: "{}",
+    "logic:1": "set(f15); assignn(v26, 3); return;",
+  });
+  const before = workspaceGameStateInfos(blank.capture(), "2.936").builtin;
+  const after = workspaceGameStateInfos(used.capture(), "2.936").builtin;
+  assert.equal(before.length, 43);
+  assert.deepEqual(
+    after.map(({ name, kind, num }) => [name, kind, num]),
+    before.map(({ name, kind, num }) => [name, kind, num]),
+  );
+  assert.equal(before[15]!.uses.length, 0);
+  assert.equal(after[15]!.uses[0]!.key, "logic:1");
+  assert.equal(after[42]!.uses[0]!.key, "logic:1");
 });

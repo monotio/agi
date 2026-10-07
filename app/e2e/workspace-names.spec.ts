@@ -27,7 +27,8 @@ async function start(page: Page) {
 }
 async function findWord(page: Page, word: string): Promise<void> {
   await focusWorkspaceLogic(page);
-  await page.keyboard.press("ControlOrMeta+f");
+  const mac = await page.evaluate(() => navigator.userAgent.includes("Macintosh"));
+  await page.keyboard.press(mac ? "Meta+f" : "Control+f");
   const find = page.getByRole("textbox", { name: "Find", exact: true });
   await expect(find).toBeVisible();
   await find.fill(word);
@@ -281,14 +282,15 @@ test("name hover opens resources and message actions keep readable text @webkit-
   }
   await page.setViewportSize({ width: 1440, height: 900 });
   await findWord(page, "m1");
-  await page.keyboard.press("ControlOrMeta+.");
+  const mac = await page.evaluate(() => navigator.userAgent.includes("Macintosh"));
+  await page.keyboard.press(mac ? "Meta+." : "Control+.");
   const inline = page.getByText("Put text inline", { exact: true });
   await expect(inline).toBeVisible();
   await inline.click();
   await workspaceUpdated(page);
   expect(await workspaceDocument(page, "logic:1")).toContain('print("Hello there")');
   await focusWorkspaceLogic(page);
-  await page.keyboard.press("ControlOrMeta+.");
+  await page.keyboard.press(mac ? "Meta+." : "Control+.");
   const numbered = page.getByText("Move text to #message", { exact: true });
   await expect(numbered).toBeVisible();
   await numbered.click();

@@ -303,6 +303,15 @@ for (const [width, height] of [
       animations: "disabled",
       scale: "css",
     });
+    const initialGroup = parts.getByTestId("game-state-builtin");
+    await expect(initialGroup).toBeVisible();
+    await initialGroup.locator(":scope > summary").click();
+    await page.screenshot({
+      path: test.info().outputPath(`state-parts-open-${width}.png`),
+      animations: "disabled",
+      scale: "css",
+    });
+    await initialGroup.locator(":scope > summary").click();
     await parts.getByTestId("part-state").click();
     const tab = page.getByTestId("workspace-state");
     await expect(tab).toBeVisible();
@@ -321,6 +330,66 @@ for (const [width, height] of [
     const reserved = builtIn.locator("tr").filter({ hasText: "current_room" });
     await expect(reserved).toBeVisible();
     await expect(reserved).toContainText("v0");
+    await page.screenshot({
+      path: test.info().outputPath(`state-tab-open-${width}.png`),
+      animations: "disabled",
+      scale: "css",
+    });
+    const expectedNames = [
+      "system_flag_0",
+      "system_flag_1",
+      "system_flag_2",
+      "system_flag_3",
+      "system_flag_4",
+      "new_room",
+      "restarted",
+      "system_flag_7",
+      "system_flag_8",
+      "sound_on",
+      "trace_on",
+      "system_flag_11",
+      "system_flag_12",
+      "system_flag_13",
+      "menus_on",
+      "system_flag_15",
+      "current_room",
+      "prev_room",
+      "ego_edge",
+      "score",
+      "object_event_4",
+      "object_event_5",
+      "ego_direction",
+      "system_var_7",
+      "system_var_8",
+      "parser_status",
+      "cycle_speed",
+      "system_var_11",
+      "system_var_12",
+      "system_var_13",
+      "system_var_14",
+      "system_var_15",
+      "ego_view_num",
+      "system_var_17",
+      "system_var_18",
+      "key_pressed",
+      "system_var_20",
+      "system_var_21",
+      "system_var_22",
+      "system_var_23",
+      "system_var_24",
+      "selected_item",
+      "system_var_26",
+    ];
+    const rows = builtIn.locator("tr");
+    await expect(rows).toHaveCount(43);
+    for (const row of await rows.all()) await expect(row).toBeVisible();
+    expect(await rows.locator("td:first-child > span:first-child").allTextContents()).toEqual(
+      expectedNames,
+    );
+    await expect(reserved).toContainText("The room the player is in.");
+    await expect(reserved).toContainText("Used: LOGIC");
+    await expect(rows.last()).toContainText("Reserved by the interpreter.");
+    await expect(builtIn.getByRole("button", { name: /^Add/ })).toHaveCount(0);
     await expect(builtIn).not.toContainText("chime_done");
     if (width <= 600 && !(await parts.isVisible()))
       await page.getByTestId("workspace-parts").click();
@@ -336,6 +405,21 @@ for (const [width, height] of [
     await expect(
       group.getByRole("button", { name: "current_room Variable 0", exact: true }),
     ).toBeVisible();
+    await page.screenshot({
+      path: test.info().outputPath(`state-parts-tab-open-${width}.png`),
+      animations: "disabled",
+      scale: "css",
+    });
+    const partRows = group.locator(":scope > .state-row");
+    await expect(partRows).toHaveCount(43);
+    for (const row of await partRows.all()) await expect(row).toBeVisible();
+    expect(await partRows.locator("button.part > span").allTextContents()).toEqual(expectedNames);
+    await expect(partRows.filter({ hasText: "current_room" })).toContainText(
+      "The room the player is in.",
+    );
+    await expect(partRows.filter({ hasText: "current_room" })).toContainText("Used: LOGIC");
+    await expect(partRows.last()).toContainText("Reserved by the interpreter.");
+    await expect(group.getByRole("button", { name: /^Add/ })).toHaveCount(0);
     await expect(group).not.toContainText("chime_done");
   });
 }

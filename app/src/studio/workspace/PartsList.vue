@@ -13,7 +13,11 @@ import {
 import { useEngineApi } from "../../engine/engineContext.ts";
 import { useWorkspaceEditor } from "../../shell/workspaceEditor.ts";
 import BindingDetails from "../../shell/BindingDetails.vue";
-import { workspaceBindingInfos, workspaceGameStateInfos } from "../../shell/workspaceNames.ts";
+import {
+  workspaceBindingInfos,
+  workspaceGameStateInfos,
+  type ReservedStateInfo,
+} from "../../shell/workspaceNames.ts";
 import type { BindingInfo } from "../../../../src/logic/projectNames.ts";
 import type { AgiProfile } from "../../../../src/runtime/profile.ts";
 import ViewThumbnail from "./ViewThumbnail.vue";
@@ -46,7 +50,7 @@ const emit = defineEmits<{
 const engine = useEngineApi();
 const workspace = useWorkspaceEditor();
 const acceptedNames = shallowRef<BindingInfo[]>([]);
-const builtinNames = shallowRef<BindingInfo[]>([]);
+const builtinNames = shallowRef<ReservedStateInfo[]>([]);
 const names = computed(() => {
   if (props.bindings === undefined) return acceptedNames.value;
   try {
@@ -120,8 +124,9 @@ const creatorNames = computed(() =>
   stateNames.value.filter(
     (info) =>
       !builtinNames.value.some(
-        (reserved) => reserved.kind === info.kind && reserved.num === info.num,
-      ) && !(info.kind === "flag" ? info.num <= 15 : info.num <= 26),
+        (reserved) =>
+          reserved.name === info.name && reserved.kind === info.kind && reserved.num === info.num,
+      ),
   ),
 );
 /** In-place room naming: a fresh add pre-fills "Room N" selected, typing replaces it. */
@@ -500,21 +505,11 @@ function onKey(event: KeyboardEvent): void {
                 editingName = false;
               "
             >
-              {{ info.name
-              }}<small>{{ info.kind === "flag" ? "Flag" : "Variable" }} {{ info.num }}</small>
+              <span>{{ info.name }}</span
+              ><small>{{ info.kind === "flag" ? "Flag" : "Variable" }} {{ info.num }}</small>
             </button>
-            <small v-for="role in ['Set', 'Checked'] as const" :key="role"
-              >{{ role }}:
-              {{
-                [
-                  ...new Set(
-                    info.uses
-                      .filter((use) => use.role === role)
-                      .map((use) => use.key.replace(":", " ").toUpperCase()),
-                  ),
-                ].join(", ") || "nowhere yet"
-              }}</small
-            >
+            <small>{{ info.meaning }}</small>
+            <small v-if="info.usage">Used: {{ info.usage }}</small>
             <details class="part-menu">
               <summary :aria-label="`Actions for ${info.name}`">
                 <UiIcon name="ellipsis" :size="16" />
