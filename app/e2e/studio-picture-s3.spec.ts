@@ -60,6 +60,25 @@ async function cell(page: Page, x: number, y: number) {
   return { x: box.x + ((x + 0.5) * box.width) / 160, y: box.y + ((y + 0.5) * box.height) / 168 };
 }
 
+/**
+ * Drag a figure `cells` to the right. The grip is the centre of a cell in
+ * the figure's own column, in whole pixels: WebKit drops a pointer's
+ * fraction, which at a zoom below 100% can land in the next column.
+ */
+async function drag(page: Page, figure: Locator, pane: Locator, cells: number) {
+  const box = (await pane.boundingBox())!;
+  const cell = box.width / 160;
+  const column = Number(await figure.getAttribute("data-x"));
+  const row = Number(await figure.getAttribute("data-y"));
+  const x = (col: number) => Math.round(box.x + (col + 0.5) * cell);
+  // Two rows above the baseline: still inside the figure, whatever the rounding.
+  const y = Math.round(box.y + (row - 1.5) * (box.height / 168));
+  await page.mouse.move(x(column), y);
+  await page.mouse.down();
+  await page.mouse.move(x(column + cells), y, { steps: 4 });
+  await page.mouse.up();
+}
+
 async function lens(studio: Locator, name: "Visual" | "Priority") {
   await studio
     .getByRole("radiogroup", { name: "Lens", exact: true })
@@ -134,6 +153,8 @@ test("Sierra's two layers: the Priority lens holds the control lines, the walk t
 
 test("a wall drawn in the Priority lens writes priority 0 and paints no art", async ({ page }) => {
   const studio = await picture(page);
+  // Focus zooms the picture up, so each click lands well inside its cell.
+  await page.getByTestId("workspace-focus").click();
   await lens(studio, "Priority");
   await studio.locator('button[data-tool="line"]').click();
   await studio
@@ -345,14 +366,7 @@ test("Copy position always writes position(oN, x, y) @webkit-desktop", async ({ 
   await expect(status).toContainText("position(o0, 60, 140);");
   await expect(status).not.toContainText("position.v");
   // A dragged preview copies where it now stands.
-  const at = (await figure.boundingBox())!;
-  const pane = (await studio.locator('.studio-pane[data-layer="art"]').boundingBox())!;
-  await page.mouse.move(at.x + at.width / 2, at.y + at.height / 2);
-  await page.mouse.down();
-  await page.mouse.move(at.x + at.width / 2 + (10 * pane.width) / 160, at.y + at.height / 2, {
-    steps: 4,
-  });
-  await page.mouse.up();
+  await drag(page, figure, studio.locator('.studio-pane[data-layer="art"]'), 10);
   await expect(figure).toHaveAttribute("data-x", "70");
   await panel.getByTestId("view-copy").click();
   await expect(status).toContainText("position(o0, 70, 140);");
@@ -385,14 +399,7 @@ test("views draw as in the game: no hover marks, every Set in line, a preview fo
   await expect(unknown).toBeVisible();
   await expect(unknown).toHaveAttribute("data-preview", "true");
   const x = Number(await unknown.getAttribute("data-x"));
-  const at = (await unknown.boundingBox())!;
-  const pane = (await studio.locator('.studio-pane[data-layer="art"]').boundingBox())!;
-  await page.mouse.move(at.x + at.width / 2, at.y + at.height / 2);
-  await page.mouse.down();
-  await page.mouse.move(at.x + at.width / 2 + (10 * pane.width) / 160, at.y + at.height / 2, {
-    steps: 4,
-  });
-  await page.mouse.up();
+  await drag(page, unknown, studio.locator('.studio-pane[data-layer="art"]'), 10);
   await expect(unknown).toHaveAttribute("data-x", String(x + 10));
   expect(await workspaceDocument(page, "logic:8")).toBe(logic);
   // Every row has Set in; the conditional one lists both placing lines.

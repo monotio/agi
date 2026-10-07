@@ -466,11 +466,6 @@ const stageDraftPaths = computed(() =>
 );
 const editableId = computed(() => editing.editable.value?.id);
 /**
- * The selection's cells on the canvas, on both planes in every lens (a move
- * takes an item's art, depth and walk lines along); while a drag previews,
- * the moving items' footprints. Unassigned lines show under the lens.
- */
-/**
  * While new shapes draw earlier, the canvas shows the picture only up to the
  * marker: a row drawn after it is not on the canvas, so it wears no marks.
  */
@@ -480,6 +475,11 @@ const onCanvas = (id: string): boolean =>
     .find((row) => row.id === id)
     ?.entries.every((k) => k < playhead.value) ??
     false);
+/**
+ * The selection's cells on the canvas, on both planes in every lens (a move
+ * takes an item's art, depth and walk lines along); while a drag previews,
+ * the moving items' footprints. Unassigned lines show under the lens.
+ */
 const selectionMask = computed(() => {
   const ids = selection.selectedIds.value.filter(onCanvas);
   if (ids.length === 0) return null;

@@ -46,14 +46,14 @@ test("Views are static at 0, 50 and 100; dragging drafts LOGIC and Update places
   await expect(figure).toBeVisible();
   await expect(figure).toHaveAttribute("data-x", "60");
   await expect(figure).toHaveAttribute("data-y", "140");
-  const at = (await figure.boundingBox())!;
   const pane = (await studio.locator('.studio-pane[data-layer="art"]').boundingBox())!;
-  await page.mouse.move(at.x + at.width / 2, at.y + at.height / 2);
+  // Grip the centre of a cell inside the figure, in whole pixels: WebKit drops
+  // a pointer's fraction, which at a zoom below 100% can land in the next cell.
+  const px = (col: number) => Math.round(pane.x + ((col + 0.5) * pane.width) / 160);
+  const py = (row: number) => Math.round(pane.y + ((row + 0.5) * pane.height) / 168);
+  await page.mouse.move(px(60), py(138));
   await page.mouse.down();
-  await page.mouse.move(
-    at.x + at.width / 2 + (14 * pane.width) / 160,
-    at.y + at.height / 2 - (3 * pane.height) / 168,
-  );
+  await page.mouse.move(px(74), py(135), { steps: 4 });
   await page.mouse.up();
   const preview = page.getByTestId("placement-preview");
   await expect(preview).toBeVisible();
@@ -169,11 +169,12 @@ test("computed placements move a preview, and game motion never paints the pictu
     animations: "disabled",
   });
   const source = await workspaceDocument(page, "logic:8");
-  const at = (await figure.boundingBox())!;
   const pane = (await studio.locator('.studio-pane[data-layer="art"]').boundingBox())!;
-  await page.mouse.move(at.x + at.width / 2, at.y + at.height / 2);
+  const px = (col: number) => Math.round(pane.x + ((col + 0.5) * pane.width) / 160);
+  const py = Math.round(pane.y + (138.5 * pane.height) / 168);
+  await page.mouse.move(px(60), py);
   await page.mouse.down();
-  await page.mouse.move(at.x + at.width / 2 + (10 * pane.width) / 160, at.y + at.height / 2);
+  await page.mouse.move(px(70), py, { steps: 4 });
   await page.mouse.up();
   expect(await workspaceDocument(page, "logic:8")).toBe(source);
   await expect(figure).toHaveAttribute("data-x", "70");
