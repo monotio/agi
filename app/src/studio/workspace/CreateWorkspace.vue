@@ -2508,7 +2508,12 @@ onBeforeUnmount(() => {
       data-testid="launch-recovery-error"
     >
       {{ launchRecovery.error }} Repair launches to remove the inputs set by a room transition.
-      <UiButton :disabled="editingPaused" @click="repairSavedLaunches">Repair launches</UiButton>
+      <UiButton
+        :disabled="editingPaused"
+        :title="editingPaused ? 'Editing is paused while another tab has this game.' : ''"
+        @click="repairSavedLaunches"
+        >Repair launches</UiButton
+      >
     </p>
     <div
       v-if="

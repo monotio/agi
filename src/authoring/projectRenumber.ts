@@ -18,7 +18,7 @@ import {
 import type { AgiProfile } from "../runtime/profile.ts";
 import type { ResourceKind } from "../types.ts";
 
-export interface ComputedResourceUse {
+interface ComputedResourceUse {
   readonly document: string;
   readonly line: number;
   readonly command: string;

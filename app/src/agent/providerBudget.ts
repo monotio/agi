@@ -41,7 +41,7 @@ export function beginProviderBudget(allowance: number): ProviderBudget {
   configureImageBudget(allowance);
   return current;
 }
-export function configureImageBudget(allowance: number) {
+function configureImageBudget(allowance: number) {
   if (Number.isFinite(allowance) && allowance > 0 && current.spent === 0) {
     current.limit = allowance;
     current.allowance = allowance;
