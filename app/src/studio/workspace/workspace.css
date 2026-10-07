@@ -173,6 +173,11 @@
   min-height: 0;
   overflow: hidden;
 }
+/* The code editor's menus are fixed to the window and must draw above the tabs and the
+   context row, so its surface opens no layer of its own. */
+.workspace-editor__surface:has(> .workspace-logic-surface) {
+  z-index: auto;
+}
 .workspace-editor__surface > .studio,
 .workspace-editor__surface > .sprite-studio {
   flex: 1;
