@@ -592,8 +592,8 @@ test("configure_launch creates, updates, selects and removes launches through au
     action: "create",
     name: "Vacuum death",
     cameFrom: { room: 7, edge: 4 },
-    flags: { "77": true },
-    variables: { "90": 123 },
+    flags: [{ id: 77, value: true }],
+    variables: [{ id: 90, value: 123 }],
     seed: 58235,
     selected: true,
   });
@@ -658,4 +658,99 @@ test("configure_launch creates, updates, selects and removes launches through au
     action: "update",
   });
   assert.equal(missingIdOnUpdate?.success, false);
+});
+
+test("public Launch updates retain null fields, set arrays and clear explicitly", () => {
+  const state = createAgentSessionState();
+  const inputs = {
+    room: 8,
+    id: "vacuum",
+    name: "Vacuum",
+    note: "A test",
+    cameFrom: { room: 7, edge: 4 },
+    flags: [{ id: 77, value: true }],
+    variables: [{ id: 90, value: 123 }],
+    items: [{ id: 0, value: 255 }],
+    hero: { x: 50, y: 100 },
+    seed: 58235,
+    selected: true,
+    clear: [],
+  };
+  const created = executeAgentTool(state, "configure_launch", { ...inputs, action: "create" });
+  assert.equal(created.success, true, created.error ?? "");
+  const before = structuredClone(state.authoring.world.launches);
+  const renamed = executeAgentTool(state, "configure_launch", {
+    room: 8,
+    action: "update",
+    id: "vacuum",
+    name: "Renamed",
+  });
+  assert.equal(renamed.success, true, renamed.error ?? "");
+  before!["8"]!.entries[0]!.name = "Renamed";
+  assert.deepEqual(state.authoring.world.launches, before);
+  const duplicate = executeAgentTool(state, "configure_launch", { ...inputs, action: "create" });
+  assert.equal(duplicate.success, false);
+  assert.deepEqual(state.authoring.world.launches, before);
+  const conflict = executeAgentTool(state, "configure_launch", {
+    room: 8,
+    action: "update",
+    id: "vacuum",
+    seed: 1,
+    clear: ["seed"],
+  });
+  assert.equal(conflict.success, false);
+  assert.deepEqual(state.authoring.world.launches, before);
+  const changed = executeAgentTool(state, "configure_launch", {
+    room: 8,
+    action: "update",
+    id: "vacuum",
+    flags: [{ id: 78, value: false }],
+    clear: ["note", "cameFrom", "variables", "items", "hero", "seed"],
+    selected: false,
+  });
+  assert.equal(changed.success, true, changed.error ?? "");
+  assert.deepEqual(state.authoring.world.launches?.["8"], {
+    entries: [{ id: "vacuum", name: "Renamed", flags: { "78": false } }],
+  });
+  const repeated = executeAgentTool(state, "configure_launch", {
+    room: 8,
+    action: "update",
+    id: "vacuum",
+    flags: [
+      { id: 78, value: true },
+      { id: 78, value: false },
+    ],
+  });
+  assert.equal(repeated.success, false);
+  assert.deepEqual(state.authoring.world.launches?.["8"]?.entries[0]?.flags, { "78": false });
+});
+
+test("a public rename preserves every existing Launch input", () => {
+  const state = createAgentSessionState();
+  const created = executeAuthoringTool(state, "configure_launch", {
+    room: 8,
+    action: "create",
+    id: "saved",
+    name: "Before",
+    note: "Keep",
+    cameFrom: { room: 7, edge: 4 },
+    hero: { x: 50, y: 100 },
+    seed: 1,
+  });
+  assert.equal(created?.success, true);
+  const renamed = executeAgentTool(state, "configure_launch", {
+    room: 8,
+    action: "update",
+    id: "saved",
+    name: "After",
+  });
+  assert.equal(renamed.success, true, renamed.error ?? "");
+  assert.deepEqual(state.authoring.world.launches?.["8"]?.entries[0], {
+    id: "saved",
+    name: "After",
+    note: "Keep",
+    cameFrom: { room: 7, edge: 4 },
+    hero: { x: 50, y: 100 },
+    seed: 1,
+  });
 });

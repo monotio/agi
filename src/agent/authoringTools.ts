@@ -18,6 +18,18 @@ import {
 import { disassembleLogic } from "../logic/disassembler.ts";
 import { readPictureSource } from "../picture/source.ts";
 
+function launchMap<T extends boolean | number>(value: unknown): Record<string, T> {
+  if (!Array.isArray(value)) throw new Error("Launch maps must be arrays of {id,value} records.");
+  const out: Record<string, T> = {};
+  for (const entry of value as { id: number; value: T }[]) {
+    if (!Number.isInteger(entry.id) || entry.id < 0 || entry.id > 255)
+      throw new Error("Launch map ids must be integers 0..255.");
+    if (Object.hasOwn(out, entry.id)) throw new Error(`Duplicate Launch map id ${entry.id}.`);
+    out[String(entry.id)] = entry.value;
+  }
+  return out;
+}
+
 /** The exact text read_logic/read_picture show and edit_source patches. */
 export function editableSource(
   state: AgentSessionState,
@@ -184,6 +196,8 @@ export function executeAuthoringTool(
       const action = args["action"] as "create" | "update" | "remove";
       let nextWorld = state.authoring.world;
       let resultMessage = "";
+      if (action !== "update" && Array.isArray(args["clear"]) && args["clear"].length)
+        throw new Error("The clear list is only used when updating a Launch.");
 
       if (action === "remove") {
         const id = args["id"] as string | null;
@@ -200,13 +214,13 @@ export function executeAuthoringTool(
           fields.cameFrom = { room: cf.room, ...(cf.edge ? { edge: cf.edge } : {}) };
         }
         if (args["flags"] && typeof args["flags"] === "object") {
-          fields.flags = args["flags"] as Record<string, boolean>;
+          fields.flags = launchMap<boolean>(args["flags"]);
         }
         if (args["variables"] && typeof args["variables"] === "object") {
-          fields.variables = args["variables"] as Record<string, number>;
+          fields.variables = launchMap<number>(args["variables"]);
         }
         if (args["items"] && typeof args["items"] === "object") {
-          fields.items = args["items"] as Record<string, number>;
+          fields.items = launchMap<number>(args["items"]);
         }
         if (args["hero"] && typeof args["hero"] === "object") {
           const h = args["hero"] as { x: number; y: number };
@@ -228,35 +242,22 @@ export function executeAuthoringTool(
         if (args["name"] !== undefined && args["name"] !== null) {
           patch.name = (args["name"] as string).trim();
         }
-        if (args["note"] !== undefined) {
-          patch.note = args["note"] === null ? undefined : (args["note"] as string).trim();
+        if (args["note"] != null) patch.note = (args["note"] as string).trim();
+        if (args["cameFrom"] != null) {
+          const cf = args["cameFrom"] as { room: number; edge?: 1 | 2 | 3 | 4 | null };
+          patch.cameFrom = { room: cf.room, ...(cf.edge ? { edge: cf.edge } : {}) };
         }
-        if (args["cameFrom"] !== undefined) {
-          if (args["cameFrom"] === null) {
-            patch.cameFrom = undefined;
-          } else {
-            const cf = args["cameFrom"] as { room: number; edge?: 1 | 2 | 3 | 4 };
-            patch.cameFrom = { room: cf.room, ...(cf.edge ? { edge: cf.edge } : {}) };
-          }
-        }
-        if (args["flags"] !== undefined) {
-          patch.flags =
-            args["flags"] === null ? undefined : (args["flags"] as Record<string, boolean>);
-        }
-        if (args["variables"] !== undefined) {
-          patch.variables =
-            args["variables"] === null ? undefined : (args["variables"] as Record<string, number>);
-        }
-        if (args["items"] !== undefined) {
-          patch.items =
-            args["items"] === null ? undefined : (args["items"] as Record<string, number>);
-        }
-        if (args["hero"] !== undefined) {
-          patch.hero =
-            args["hero"] === null ? undefined : (args["hero"] as { x: number; y: number });
-        }
-        if (args["seed"] !== undefined) {
-          patch.seed = args["seed"] === null ? undefined : (args["seed"] as number);
+        if (args["flags"] != null) patch.flags = launchMap<boolean>(args["flags"]);
+        if (args["variables"] != null) patch.variables = launchMap<number>(args["variables"]);
+        if (args["items"] != null) patch.items = launchMap<number>(args["items"]);
+        if (args["hero"] != null) patch.hero = args["hero"] as { x: number; y: number };
+        if (args["seed"] != null) patch.seed = args["seed"] as number;
+        for (const field of (args["clear"] ?? []) as (
+          "note" | "cameFrom" | "flags" | "variables" | "items" | "hero" | "seed"
+        )[]) {
+          if (args[field] != null)
+            throw new Error(`Launch field '${field}' cannot be set and cleared together.`);
+          patch[field] = undefined;
         }
 
         nextWorld = updateLaunch(nextWorld, room, id, patch);

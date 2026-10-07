@@ -1,0 +1,40 @@
+{
+  "name": "project-agent-launch-rename",
+  "description": "Required nullable fields in a public Launch rename retain all existing settings.",
+  "projectAgent": {
+    "documents": {
+      "logic:0": "return;",
+      "logic:1": "return;",
+      "picture:1": "vis 1\nfill 0,0\nend\n",
+      "words": "[]",
+      "world": "{\"rooms\": {}, \"facts\": {}, \"quests\": {}, \"launches\": {\"1\": {\"entries\": [{\"id\": \"saved\", \"name\": \"Before\", \"flags\": {\"77\": true}, \"variables\": {\"90\": 123}, \"seed\": 58235, \"hero\": {\"x\": 50, \"y\": 100}}]}}}"
+    },
+    "request": "Make the requested change",
+    "turns": [
+      {
+        "toolCalls": [
+          {
+            "id": "rename",
+            "name": "configure_launch",
+            "input": {
+              "room": 1,
+              "action": "update",
+              "id": "saved",
+              "name": "After"
+            }
+          }
+        ]
+      },
+      {
+        "text": "Renamed",
+        "toolCalls": []
+      }
+    ],
+    "expectedKeys": [],
+    "autoApprove": true,
+    "expectedCommits": 2,
+    "expectedDocuments": {
+      "world": "{\"rooms\":{},\"facts\":{},\"quests\":{},\"launches\":{\"1\":{\"entries\":[{\"id\":\"saved\",\"name\":\"After\",\"hero\":{\"x\":50,\"y\":100},\"flags\":{\"77\":true},\"variables\":{\"90\":123},\"seed\":58235}]}}}"
+    }
+  }
+}

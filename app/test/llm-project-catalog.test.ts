@@ -4,6 +4,8 @@ import { test } from "node:test";
 import { createAnthropicConversation, createOpenAiConversation } from "../src/agent/llmClient.ts";
 import { parameterDescriptions } from "../../src/vocabulary.ts";
 import { AGENT_TOOLS } from "../../src/agent/tools.ts";
+import { WORKSPACE_AGENT_TOOLS } from "../src/agent/workspaceAgentTools.ts";
+import { anthropicToolDefinitions } from "../../src/agent/toolTransport.ts";
 import {
   PROJECT_ASSIST_TOOLS,
   PROJECT_ASSIST_TOOL_NAMES,
@@ -17,6 +19,96 @@ const OPENAI_COMPLETED = {
     { type: "message", role: "assistant", content: [{ type: "output_text", text: "done" }] },
   ],
 };
+
+test("every offered catalog obeys OpenAI strict and Anthropic non-strict tool rules", () => {
+  const keywords: Record<string, true> = {
+    type: true,
+    description: true,
+    properties: true,
+    required: true,
+    additionalProperties: true,
+    items: true,
+    enum: true,
+    minimum: true,
+    maximum: true,
+    exclusiveMinimum: true,
+    exclusiveMaximum: true,
+    minItems: true,
+    maxItems: true,
+    minLength: true,
+    maxLength: true,
+    pattern: true,
+  };
+  function walk(
+    raw: unknown,
+    path: string,
+    totals: { properties: number; strings: number; enums: number },
+    depth = 0,
+  ): void {
+    const schema = raw as Record<string, unknown>;
+    assert.ok(depth <= 10, path);
+    for (const keyword of Object.keys(schema))
+      assert.ok(Object.hasOwn(keywords, keyword), `${path}: ${keyword}`);
+    const types = Array.isArray(schema["type"]) ? schema["type"] : [schema["type"]];
+    assert.ok(
+      types.every((type) =>
+        ["object", "array", "string", "number", "integer", "boolean", "null"].includes(
+          String(type),
+        ),
+      ),
+      path,
+    );
+    if (Array.isArray(schema["enum"])) {
+      const values = schema["enum"];
+      assert.ok(
+        values.every(
+          (value) => value === null || ["string", "number", "boolean"].includes(typeof value),
+        ),
+        path,
+      );
+      const size = values.reduce<number>(
+        (sum, value) => sum + (typeof value === "string" ? value.length : 0),
+        0,
+      );
+      totals.enums += values.length;
+      totals.strings += size;
+      if (values.length > 250) assert.ok(size <= 15000, path);
+    }
+    if (types.includes("object")) {
+      assert.equal(schema["additionalProperties"], false, `${path} must be closed`);
+      const properties = schema["properties"] as Record<string, unknown>;
+      totals.properties += Object.keys(properties).length;
+      totals.strings += Object.keys(properties).join("").length;
+      assert.deepEqual(
+        [...(schema["required"] as string[])].sort(),
+        Object.keys(properties).sort(),
+        path,
+      );
+      for (const [key, child] of Object.entries(properties))
+        walk(child, `${path}.${key}`, totals, depth + 1);
+    }
+    if (types.includes("array")) walk(schema["items"], `${path}[]`, totals, depth + 1);
+  }
+  for (const catalog of [AGENT_TOOLS, PROJECT_ASSIST_TOOLS, WORKSPACE_AGENT_TOOLS]) {
+    assert.ok(catalog.length <= 128);
+    assert.equal(new Set(catalog.map((tool) => tool.name)).size, catalog.length);
+    for (const tool of catalog) {
+      assert.match(tool.name, /^[a-zA-Z0-9_-]{1,64}$/);
+      assert.equal(tool.parameters.type, "object");
+      const totals = { properties: 0, strings: 0, enums: 0 };
+      walk(tool.parameters, tool.name, totals);
+      assert.ok(totals.properties <= 5000, tool.name);
+      assert.ok(totals.strings <= 120000, tool.name);
+      assert.ok(totals.enums <= 1000, tool.name);
+    }
+    const anthropic = anthropicToolDefinitions(catalog);
+    assert.deepEqual(
+      anthropic.map((tool) => tool.input_schema),
+      catalog.map((tool) => tool.parameters),
+    );
+    assert.ok(anthropic.every((tool) => !("strict" in tool)));
+  }
+});
 
 const ANTHROPIC_COMPLETED = {
   id: "msg-1",
