@@ -142,7 +142,11 @@ jobs:
 
   deploy:
     name: Deploy production
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    # Explicit results: the PR-only burn-in job is skipped on pushes, and an
+    # implicit success() would skip every job downstream of it.
+    if: >-
+      !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/main' &&
+      needs.check.result == 'success' && needs.browsers.result == 'success'
     needs: [check, browsers]
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -232,7 +236,9 @@ jobs:
 
   verify:
     name: Verify deployed browser app
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.prepare.outputs.browsers == 'true'
+    if: >-
+      !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/main' &&
+      needs.deploy.result == 'success' && needs.prepare.outputs.browsers == 'true'
     needs: [prepare, deploy]
     runs-on: ubuntu-24.04
     container:
