@@ -111,7 +111,7 @@ test("Rename lives in a keyboard reachable row menu", async ({ page }) => {
   await expect(field).toBeFocused();
   await expect(page.getByTestId("binding-details")).toHaveCount(0);
 });
-test("game state usage lives in row details", async ({ page }) => {
+test("game state usage lives in the revealed entry", async ({ page }) => {
   await start(page);
   const row = page
     .getByTestId("parts-list")
@@ -124,8 +124,8 @@ test("game state usage lives in row details", async ({ page }) => {
   await page.getByRole("menuitem", { name: "Find references", exact: true }).click();
   const details = page.getByTestId("binding-details");
   await expect(details).toBeVisible();
-  await expect(details).toContainText("Checked: nowhere yet");
-  await expect(details).toContainText("Set: first_room · LOGIC 1");
+  await expect(page.getByTestId("state-flag-204")).toBeFocused();
+  await expect(details).toContainText("Set · first_room · LOGIC 1");
 });
 for (const width of [1063, 1440])
   test(`Items has room for eight rows Side by side at ${width} @webkit-desktop`, async ({

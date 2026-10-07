@@ -60,19 +60,7 @@ export function workspaceGameStateInfos(
   builtin: ReservedStateInfo[];
 } {
   const project = namesProject(snapshot, profileId);
-  const documents = { ...project.documents };
-  for (const key of snapshot.keys) {
-    const content = snapshot.read(key)?.content;
-    if (key.startsWith("logic:") && content instanceof Uint8Array)
-      documents[key] = {
-        source: disassembleLogic(content, {
-          profile: PROFILES[profileId],
-          dictionary: new Map(project.words),
-        }),
-        version: snapshot.version(key),
-      };
-  }
-  const infos = projectOperandInfos({ ...project, documents }).filter(
+  const infos = workspaceOperandInfos(snapshot, profileId).filter(
     (info) => info.kind === "flag" || info.kind === "variable",
   );
   const game = infos.filter(
@@ -117,6 +105,82 @@ export function workspaceGameStateInfos(
     }
   return { game, builtin };
 }
+function workspaceOperandInfos(snapshot: NamesSnapshot, profileId: ProfileId): BindingInfo[] {
+  const project = namesProject(snapshot, profileId);
+  const documents = { ...project.documents };
+  for (const key of snapshot.keys) {
+    const content = snapshot.read(key)?.content;
+    if (key.startsWith("logic:") && content instanceof Uint8Array)
+      documents[key] = {
+        source: disassembleLogic(content, {
+          profile: PROFILES[profileId],
+          dictionary: new Map(project.words),
+        }),
+        version: snapshot.version(key),
+      };
+  }
+  return projectOperandInfos({ ...project, documents });
+}
+
+/** Resolve literal operands with the same source inventory as named references. */
+export function workspaceReferenceAt(
+  snapshot: NamesSnapshot,
+  profileId: ProfileId,
+  key: string,
+  position: { line: number; character: number },
+): BindingInfo | undefined {
+  return workspaceOperandInfos(snapshot, profileId).find((info) =>
+    info.uses.some(
+      (use) =>
+        use.key === key &&
+        use.range.start.line === position.line &&
+        use.range.start.character <= position.character &&
+        use.range.end.character >= position.character,
+    ),
+  );
+}
+
+/** Named aliases and literal slots share every use of the same operand. */
+export function workspaceReferenceInfo(
+  snapshot: NamesSnapshot,
+  profileId: ProfileId,
+  info: BindingInfo,
+): BindingInfo {
+  const uses = workspaceOperandInfos(snapshot, profileId)
+    .filter(
+      (entry) => entry.kind === info.kind && entry.num === info.num && entry.logic === info.logic,
+    )
+    .flatMap((entry) => entry.uses);
+  return {
+    ...info,
+    uses: uses
+      .filter(
+        (use, index) =>
+          uses.findIndex(
+            (other) =>
+              other.key === use.key &&
+              other.range.start.line === use.range.start.line &&
+              other.range.start.character === use.range.start.character,
+          ) === index,
+      )
+      .map((use) => ({
+        ...use,
+        role:
+          use.role === "Used" && (info.kind === "flag" || info.kind === "variable")
+            ? ("Checked" as const)
+            : use.role,
+      }))
+      .sort((a, b) =>
+        a.key < b.key
+          ? -1
+          : a.key > b.key
+            ? 1
+            : a.range.start.line - b.range.start.line ||
+              a.range.start.character - b.range.start.character,
+      ),
+  };
+}
+
 /** Rename a name across the project from the current working copy, after pending edits save. */
 export async function renameBindingInWorkspace(
   engine: EngineApi,

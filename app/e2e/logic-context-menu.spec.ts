@@ -76,8 +76,11 @@ test("Find references opens the app uses list from the menu and keyboard @webkit
   const details = page.getByTestId("binding-details");
   await expect(details).toBeVisible();
   await expect(details).toContainText("current_room");
+  await expect(page.getByTestId("project-tab-state")).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByTestId("state-variable-0")).toBeFocused();
   await expect(page.locator(".peekview-widget")).toHaveCount(0);
   await details.getByRole("button", { name: "Close", exact: true }).click();
+  await page.getByTestId("project-tab-logic:1").click();
   await page.evaluate(async () => {
     const { monaco } = await import("/src/studio/logic/monacoLanguage.ts");
     const editor = monaco.editor.getEditors().find((editor) => editor.getDomNode()?.offsetParent)!;
@@ -88,8 +91,8 @@ test("Find references opens the app uses list from the menu and keyboard @webkit
   const references = page.getByRole("region", { name: "References", exact: true });
   await expect(references).toBeVisible();
   await expect(references.getByRole("button").filter({ hasText: /line/ })).toHaveText([
-    "LOGIC 1 · line 2",
-    "LOGIC 1 · line 3",
+    "Used · first_room · LOGIC 1 · line 2",
+    "Used · first_room · LOGIC 1 · line 3",
   ]);
   await expect(references.getByRole("button", { name: /line 3/ })).toBeVisible();
   await page.screenshot({ path: test.info().outputPath("logic-references.png") });

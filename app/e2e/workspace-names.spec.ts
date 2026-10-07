@@ -83,29 +83,12 @@ test("names open resources, peek game state and rename all authored uses @webkit
     { width: 390, height: 844 },
   ]) {
     await page.setViewportSize(viewport);
-    if (viewport.width === 390) {
-      const part = page.getByTestId("part-room:1:logic");
-      if (!(await part.isVisible())) await page.getByTestId("workspace-parts").click();
-      await expect(part).toBeVisible();
-      await part.click();
-    }
+    await expect(page.getByTestId("workspace-state")).toBeVisible();
+    await expect(page.getByTestId("state-flag-204")).toBeFocused();
     await expect(details).toBeVisible();
-    await expect(page.getByTestId("workspace-logic-editor").locator(".view-lines")).toBeVisible();
-    // Monaco renders only the lines in view; ask it to reveal the peeked
-    // line, then prove the line is rendered (on screen).
-    await page.evaluate(async () => {
-      const { monaco } = await import("/src/studio/logic/monacoLanguage.ts");
-      const logic = monaco.editor
-        .getEditors()
-        .find((e) => e.getDomNode()?.closest('[data-testid="workspace-logic-editor"]'));
-      const match = logic
-        ?.getModel()
-        ?.findMatches("load.sound", false, false, false, null, false)[0];
-      if (logic && match) logic.revealLineInCenter(match.range.startLineNumber);
-    });
-    await expect(page.getByTestId("workspace-logic-editor").locator(".view-lines")).toContainText(
-      "load.sound",
-    );
+    await expect(
+      details.getByRole("button", { name: /Checked · first_room · LOGIC 1/ }),
+    ).toBeVisible();
     await page.screenshot({
       path: test.info().outputPath(`names-peek-${viewport.width}.png`),
       scale: "css",
