@@ -55,3 +55,28 @@ test("metadata belonging to an edited resource counts as one part", () => {
   );
   assert.deepEqual(pending.parts(base, [{ key: "music", content: "tempo" }]), ["music"]);
 });
+
+test("Launch metadata has no pending game part; room titles and exits still do", () => {
+  const world = { rooms: { "1": { title: "Home", exits: {} } }, facts: {}, quests: {} };
+  const base = new ProjectModel({
+    documents: { world: JSON.stringify(world) },
+    digest: sha256Hex,
+  }).capture();
+  const pending = createWorkspacePending((change) => [change.key]);
+  const launches = { "1": { entries: [{ id: "practice", name: "Practice" }] } };
+  assert.deepEqual(
+    pending.changes(base, [{ key: "world", content: JSON.stringify({ ...world, launches }) }]),
+    [],
+  );
+  for (const room of [
+    { title: "Garden", exits: {} },
+    { title: "Home", exits: { east: 2 } },
+  ]) {
+    assert.equal(
+      pending.changes(base, [
+        { key: "world", content: JSON.stringify({ ...world, rooms: { "1": room }, launches }) },
+      ]).length,
+      1,
+    );
+  }
+});

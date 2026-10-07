@@ -14,6 +14,89 @@ import { requireProjectId } from "../../src/gameIdentity.ts";
 installWebLocksFixture();
 installIndexedDbFixture();
 
+test("Launch edits save as metadata while room and code drafts wait for Update", async () => {
+  const world = {
+    rooms: { "1": { title: "Home", description: "", exits: {} } },
+    facts: {},
+    quests: {},
+  };
+  const documents = { "logic:0": "return;", "logic:1": "return;", world: JSON.stringify(world) };
+  const compiled = compileProjectDocuments({
+    files: Object.fromEntries(createContainer().files),
+    documents,
+    profileId: "2.936",
+  });
+  let stored: CachedGameData | undefined;
+  const session = openProjectSession({
+    data: {
+      projectId: requireProjectId("launch-metadata-drafts"),
+      title: "Metadata",
+      authoredAt: "",
+      files: Object.fromEntries(compiled.files()),
+      words: [],
+      workspace: writeProjectWorkspace(documents),
+    },
+    lifetime: "initial",
+    admission: {
+      runToken: "launch-metadata",
+      admit: async () => ({
+        status: "committed",
+        expected: null,
+        current: null,
+        patchGeneration: 0,
+      }),
+    },
+    async write(request) {
+      stored = request.data as CachedGameData;
+      return {
+        commitId: request.commitId,
+        workspaceId: request.workspaceId,
+        candidateHash: "a",
+        documents: request.documents,
+        saved: {
+          ...request.expected!,
+          generation: request.expected!.generation + 1,
+          buildId: request.buildId,
+        },
+      };
+    },
+  });
+  try {
+    const draftWorld = { ...world, rooms: { "1": { ...world.rooms["1"], title: "Garden" } } };
+    await session.stage([
+      { key: "logic:1", content: "// waiting\nreturn;" },
+      { key: "world", content: JSON.stringify(draftWorld) },
+    ]);
+    const launches = { "1": { entries: [{ id: "practice", name: "Practice" }] } };
+    await session.stage([{ key: "world", content: JSON.stringify({ ...draftWorld, launches }) }]);
+    await session.flush();
+    assert.deepEqual(JSON.parse(String(session.model.capture().read("world")!.content)), {
+      ...world,
+      launches,
+    });
+    assert.deepEqual(JSON.parse(String(session.workingSnapshot().read("world")!.content)), {
+      ...draftWorld,
+      launches,
+    });
+    assert.equal(session.model.capture().read("logic:1")!.content, "return;");
+    assert.equal(session.workingSnapshot().read("logic:1")!.content, "// waiting\nreturn;");
+    assert.ok(stored);
+    assert.deepEqual(stored.files, Object.fromEntries(compiled.files()));
+    await session.drafts().clear();
+    await session.undo();
+    assert.equal(
+      JSON.parse(String(session.model.capture().read("world")!.content)).launches,
+      undefined,
+    );
+    assert.equal(
+      JSON.parse(String(session.workingSnapshot().read("world")!.content)).launches,
+      undefined,
+    );
+  } finally {
+    session.dispose();
+  }
+});
+
 test("an Undo removal respects unselected drafts before offering a computed jump review", async () => {
   const documents = {
     "logic:0": "return;",

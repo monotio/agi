@@ -37,7 +37,8 @@ import {
   writeProjectWorkspace,
   type PortableProjectWorkspace,
 } from "../../../src/authoring/projectWorkspace.ts";
-import { projectDocumentId } from "../../../src/authoring/projectContent.ts";
+import { projectDocumentId, diffProjectDocuments } from "../../../src/authoring/projectContent.ts";
+import { sameWorldGameContent } from "../project/projectWorld.ts";
 import {
   compileProjectDocuments,
   readProjectDocuments,
@@ -494,7 +495,9 @@ export function createProjectAdmission(ctx: WorkerContext, options: ProjectAdmis
       return;
     }
     if (!sameIdentity(expected, prior)) {
-      settleRefused("expected identity is stale: the lane has moved past it");
+      settleRefused(
+        "The game changed while this edit was waiting. Reopen the game, then try Update again.",
+      );
       return;
     }
 
@@ -581,7 +584,9 @@ export function createProjectAdmission(ctx: WorkerContext, options: ProjectAdmis
       adoptingRoom &&
       (candidate.revision !== prior.revision || profile.id !== engine.profile.id)
     ) {
-      settleRefused("The authored room image changed before its project commit. Reload the game.");
+      settleRefused(
+        "The game changed while this room was being built. Reopen the game, then try again.",
+      );
       return;
     }
 
@@ -594,6 +599,16 @@ export function createProjectAdmission(ctx: WorkerContext, options: ProjectAdmis
       documentId !== lane.documentId ||
       captured.identity.buildId !== lane.buildId ||
       !sameSourceBindings(lane.sourceBindings, candidate.sourceBindings);
+    const previousDocuments = ctx.boot.project && readProjectWorkspace(ctx.boot.project.documents);
+    const launchMetadataOnly =
+      previousDocuments !== undefined &&
+      captured.identity.buildId === lane.buildId &&
+      captured.identity.revision === prior.revision &&
+      diffProjectDocuments(previousDocuments, readProjectWorkspace(admittedDocuments!)).every(
+        (change) =>
+          change.key === "world" &&
+          sameWorldGameContent(previousDocuments["world"], change.content),
+      );
 
     // The complete candidate's cross-resource truth, checked detached
     // before any commit: literal resource, word and item references
@@ -806,12 +821,15 @@ export function createProjectAdmission(ctx: WorkerContext, options: ProjectAdmis
     // against — anything moved means the request settles refused, unstaged.
     const again = projectAdmissionIdentity(ctx, liveLane());
     if (again === null || !sameIdentity(again, prior)) {
-      settleRefused("the lane's identity moved while the candidate was staged");
+      settleRefused(
+        "The game changed while this edit was being checked. Reopen the game, then try Update again.",
+      );
       return;
     }
     const roomReentry =
       msg.mode === "reenter" ||
       (msg.mode === undefined &&
+        !launchMetadataOnly &&
         ctx.run.projectAdmission === lane &&
         engine.continuationPending &&
         (engine.modalKind === "print" || engine.awaitingKey));
@@ -826,7 +844,7 @@ export function createProjectAdmission(ctx: WorkerContext, options: ProjectAdmis
         : engine.commitPreviewUpdate(plan, {
             // Adoption publishes sources for bytes the room answer installed.
             // The exact native-image check above preserves its parked pass.
-            sourceAuthorityChanged: sourceAuthorityChanged && !adoptingRoom,
+            sourceAuthorityChanged: sourceAuthorityChanged && !adoptingRoom && !launchMetadataOnly,
             messageWaiting: msg.mode === "keep",
           });
     const result = options.commitAtBoundary ? options.commitAtBoundary(commit) : commit();

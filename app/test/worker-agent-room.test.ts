@@ -151,9 +151,24 @@ test("an authored room answer joins History and keeps its parked print in every 
     assert.deepEqual(frame.text, parked, `cycle ${frame.cycle} keeps the complete print surface`);
   }
   const cursor = session.history.capture().cursor;
+  const lateAdmission = createMainProjectAdmission({
+    ...ack.projectAdmission,
+    query,
+    current: () => ctx.run.engine !== null,
+    acceptedImage: () => session.model.capture().lastAdmissibleBuild,
+  });
+  const next = compileProjectDocuments({
+    files: Object.fromEntries(candidate.files()),
+    documents: { ...candidate.documents(), notes: "Edited after the live room." },
+    profileId: "2.936",
+  });
+  const following = await lateAdmission.admit(next, []);
+  assert.ok(["committed", "unchanged"].includes(following.status), JSON.stringify(following));
   ctx.run.engine!.patchResources([
     { kind: "picture", num: 2, payload: compilePictureSource("vis 3\nfill 0,0\nend\n").bytes },
   ]);
+  const unowned = await lateAdmission.admit(next, []);
+  assert.equal(unowned.status, "refused", "an unrelated native change cannot be rebased");
   await assert.rejects(
     () =>
       session.submitPreparedRoom({
@@ -166,7 +181,7 @@ test("an authored room answer joins History and keeps its parked print in every 
         chatId: "room-task",
         messageId: "later",
       }),
-    /image changed/,
+    /The game changed while this room was being built\. Reopen the game, then try again\./,
   );
   assert.equal(session.history.capture().cursor, cursor);
   assert.equal(session.model.capture().read("notes"), undefined);

@@ -21,6 +21,50 @@ for (const [width, height] of [
   [1440, 900],
   [390, 844],
 ] as const) {
+  test.describe(`Launch metadata ${width}`, () => {
+    test.use({ hasTouch: width === 390 });
+    test(`Launch metadata saves without a game Update ${width} @webkit-desktop`, async ({
+      page,
+      browserName,
+    }) => {
+      await page.setViewportSize({ width, height });
+      await start(page);
+      await open(page, "part-room:1:logic");
+      await page.getByTestId("workspace-update-menu").click();
+      await page.getByRole("menuitem", { name: "New launch…" }).click();
+      const launch = page.getByTestId("launch-editor");
+      await expect(launch).toBeVisible();
+      const name = page.getByTestId("launch-name-input");
+      await expect(name).toBeVisible();
+      await name.fill("Practice");
+      await name.press("Tab");
+      await workspaceSaved(page);
+      await launchShot(page, `launch-metadata-${width}`, browserName);
+      const action = page.getByTestId("workspace-update");
+      await expect(action).toBeVisible();
+      await expect(action).toHaveText("Restart Home");
+      expect(
+        await page.evaluate(async () => {
+          const { loadAuthoredGame } = await import("/src/project/gameStorage.ts");
+          const data = await loadAuthoredGame(location.hash.split("/")[1] as never);
+          const document = data!.workspace!.documents.find((doc) => doc.key === "world")!.content;
+          if (document.type !== "text") throw new Error("Expected world text");
+          return JSON.parse(document.text).launches["1"].entries[0].name;
+        }),
+      ).toBe("Practice");
+      await page.reload();
+      await workspaceSaved(page);
+      await page.getByTestId("workspace-update-menu").click();
+      await expect(page.getByRole("menuitem", { name: "Practice", exact: true })).toBeVisible();
+    });
+  });
+}
+
+for (const [width, height] of [
+  [1063, 815],
+  [1440, 900],
+  [390, 844],
+] as const) {
   test.describe(`Launch actions ${width}`, () => {
     test.use({ hasTouch: width === 390 });
     test("selection stays in the editor and the action names its room @webkit-desktop", async ({

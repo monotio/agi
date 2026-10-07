@@ -15,6 +15,7 @@ import {
   writeProjectHistory,
 } from "../../../src/authoring/projectHistoryCodec.ts";
 import { projectCommitLibrary } from "./gameMetadata.ts";
+import { sameWorldGameContent, copyWorldLaunches } from "./projectWorld.ts";
 import { compileWorkingProjectImage } from "./projectWorkingImage.ts";
 import {
   prepareProjectEdit,
@@ -668,7 +669,12 @@ function createSession(
     diagnostics = prepared.diagnostics;
     if (action === undefined && beforeNumberDocuments)
       history.record(beforeNumberDocuments, { ...metadata, label: "Edits before number change" });
+    const before = model.capture();
     const snapshot = model.apply(prepared.application);
+    partDrafts?.rebase(
+      { documentId: before.documentId, world: before.read("world")?.content },
+      { documentId: snapshot.documentId, world: snapshot.read("world")?.content },
+    );
     if (action !== undefined) history.accept(action);
     else history.record(snapshot.documents(), metadata);
     recordOperation({
@@ -863,6 +869,30 @@ function createSession(
       await drafts.ready;
       if (!current() || writeBlock !== undefined)
         throw new Error(session.saveStatus().message || "Reopen this game before editing.");
+      const world = changes.find((change) => change.key === "world");
+      if (
+        world &&
+        typeof world.content === "string" &&
+        sameWorldGameContent(session.workingSnapshot().read("world")?.content, world.content)
+      ) {
+        const edited = world.content;
+        const result = await schedule(() =>
+          apply(
+            model.propose(model.capture(), "Edit launches", [
+              {
+                key: "world",
+                content: copyWorldLaunches(model.capture().read("world")?.content, edited),
+              },
+            ]),
+            { label: "Edit launches", origin: "logic", author: "creator", time: Date.now() },
+          ),
+        );
+        if (result.status !== "committed")
+          throw new Error("Launch changes could not be saved. Try again.");
+        const remaining = changes.filter((change) => change.key !== "world");
+        if (remaining.length) drafts.stageTransaction(remaining);
+        return result;
+      }
       drafts.stageTransaction(changes);
       return { status: "draft" as const, diagnostics: [] };
     },
