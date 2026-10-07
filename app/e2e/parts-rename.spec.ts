@@ -120,7 +120,7 @@ test("named parts rows and rooms rename on their row @webkit-desktop", async ({ 
   // A named PICTURE under its room opens its field in place; Esc leaves it as it was.
   const picture = page.getByTestId("part-room:1:picture:1").locator("..");
   await picture.getByLabel("Actions for clearing_pic", { exact: true }).click();
-  await picture.getByRole("button", { name: "Rename clearing_pic", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Rename clearing_pic", exact: true }).click();
   const field = parts.getByRole("textbox", { name: "New name for clearing_pic", exact: true });
   await expect(field).toBeVisible();
   await expect(field).toBeFocused();
@@ -131,7 +131,7 @@ test("named parts rows and rooms rename on their row @webkit-desktop", async ({ 
   // A named SOUND renames on its row.
   const sound = page.getByTestId("part-sound:1").locator("..");
   await sound.getByLabel("Actions for chime_sound", { exact: true }).click();
-  await sound.getByRole("button", { name: "Rename chime_sound", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Rename chime_sound", exact: true }).click();
   const soundField = parts.getByRole("textbox", { name: "New name for chime_sound", exact: true });
   await expect(soundField).toBeVisible();
   await expect(soundField).toBeFocused();
@@ -161,7 +161,7 @@ test("named parts rows and rooms rename on their row @webkit-desktop", async ({ 
   await expect(page.getByTestId("part-room:1")).toBeVisible();
   const title = (await page.getByTestId("part-room:1").textContent())!.split(" · ")[0]!.trim();
   await room.getByLabel(`Actions for ${title}`, { exact: true }).click();
-  await room.getByRole("button", { name: `Rename ${title}`, exact: true }).click();
+  await page.getByRole("menuitem", { name: `Rename ${title}`, exact: true }).click();
   const roomField = page.getByTestId("room-rename-input");
   await expect(roomField).toBeVisible();
   await expect(roomField).toBeFocused();
