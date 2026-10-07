@@ -102,10 +102,10 @@ for (const viewport of [
       await expect(subtitle).toBeVisible();
       await expect(subtitle).toHaveText("Your copy of Sample edition");
       if (viewport.width === 390) {
-        // On a phone, Update switches to Playtest (Picture editor storyboard);
+        // On a phone, Update switches to the Game tab (Picture editor storyboard);
         // return to Edit to compare the same surfaces.
         const modes = page.getByRole("group", { name: "Picture workspace" });
-        const playtest = modes.getByRole("button", { name: "Playtest", exact: true });
+        const playtest = modes.getByRole("button", { name: "Game", exact: true });
         await expect(playtest).toHaveAttribute("aria-pressed", "true");
         // The note must leave the mode toggle reachable.
         const [toggle, noteBox] = await Promise.all([modes.boundingBox(), note.boundingBox()]);

@@ -109,6 +109,18 @@ test("every parts section has its own + and OBJECTS and WORDS always show @webki
   }
   await expect(page.getByTestId("part-inventory")).toBeVisible();
   await expect(page.getByTestId("part-words")).toBeVisible();
+  // Problems, Messages and Notes sit under TOOLS; GAME STATE holds only names.
+  const tools = parts
+    .locator("section", { has: page.getByRole("heading", { name: "TOOLS", exact: true }) })
+    .first();
+  await expect(tools.locator(".parts-add")).toHaveCount(0);
+  for (const row of ["problems", "messages", "notes"])
+    await expect(tools.getByTestId(`part-${row}`)).toBeVisible();
+  const state = parts
+    .locator("section", { has: page.getByRole("heading", { name: "GAME STATE", exact: true }) })
+    .first();
+  await expect(state.getByTestId("part-problems")).toHaveCount(0);
+  await expect(state.getByTestId("part-state")).toBeVisible();
 });
 
 test("Game state + names a flag in place @webkit-desktop", async ({ page }) => {
@@ -210,7 +222,7 @@ test("the game bar names the running room; Play visits and Back returns @webkit-
   await expect(bar.getByRole("button", { name: "Back to Room 1", exact: true })).toHaveCount(0);
   const action = page.getByTestId("workspace-update");
   await expect(action).toBeVisible();
-  await expect(action).toHaveText("Play Garden");
+  await expect(action).toHaveAccessibleName("Play Garden");
   await action.click();
   await expect.poll(async () => (await textHook(page)).room).toBe(2);
   await expect(bar.getByTestId("workspace-room")).toHaveText("Room 2 · Garden");

@@ -330,7 +330,7 @@ for (const size of [
       await expect(page.locator(".play-area")).toBeVisible();
       await expect(page.getByTestId("workspace-layout")).toHaveAttribute("aria-pressed", "false");
     } else {
-      await page.getByRole("button", { name: "Playtest", exact: true }).click();
+      await page.getByRole("button", { name: "Game", exact: true }).click();
       await expect(page.locator(".play-area")).toBeVisible();
       await take("playtest");
       await page.getByRole("button", { name: "Edit", exact: true }).click();
@@ -508,7 +508,7 @@ test("phone Edit and Playtest alternate the picture and game; Update plays", asy
   await start(page);
   await open(page, "part-room:1:picture:1");
   await expect(page.getByTestId("room-studio")).toBeVisible();
-  const play = page.getByRole("button", { name: "Playtest", exact: true });
+  const play = page.getByRole("button", { name: "Game", exact: true });
   await expect(play).toBeVisible();
   await play.click();
   await expect(page.locator(".play-area")).toBeVisible();

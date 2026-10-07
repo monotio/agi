@@ -62,7 +62,7 @@ export interface StudioRequest {
 }
 
 /** One group in the shared shortcut sheet (structural twin of KeySection). */
-export interface KeySheetSection {
+interface KeySheetSection {
   readonly title: string;
   readonly rows: readonly { keys: readonly string[]; does: string }[];
 }
@@ -70,6 +70,8 @@ export interface KeySheetSection {
 export interface KeySheet {
   readonly name: string;
   readonly sections: readonly KeySheetSection[];
+  /** Where the keys work, when the default line about the canvas does not fit. */
+  readonly where?: string;
 }
 /** One rare action in the frame's ⋯ menu (Share a clip, Export…). */
 export interface WorkspaceFrameAction {
@@ -134,9 +136,7 @@ export function createWorkspaceEditor(engine: EngineApi) {
   const selected = ref<string>();
   /** The one shortcut sheet: open flag and per-tab section providers. */
   const keysOpen = ref(false);
-  const keySheets = shallowRef<
-    Record<string, () => { name: string; sections: readonly KeySheetSection[] } | undefined>
-  >({});
+  const keySheets = shallowRef<Record<string, () => KeySheet | undefined>>({});
   /** Register an editor's key-sheet provider under its tab key; returns unregister. */
   function registerKeySheet(tabKey: string, provider: () => KeySheet | undefined): () => void {
     keySheets.value = { ...keySheets.value, [tabKey]: provider };

@@ -15,6 +15,7 @@ import { useEngineApi } from "../../engine/engineContext.ts";
 import { useWorkspaceEditor } from "../../shell/workspaceEditor.ts";
 import BindingDetails from "../../shell/BindingDetails.vue";
 import {
+  renameBindingInWorkspace,
   workspaceBindingInfos,
   workspaceGameStateInfos,
   type ReservedStateInfo,
@@ -69,7 +70,73 @@ const names = computed(() => {
   }
 });
 const details = ref<BindingInfo>();
-const editingName = ref(false);
+/**
+ * In-place renaming of a name: ⋯ › Rename or a double-click turns the row's
+ * name into a field. Enter keeps the new name, Esc puts the old one back and
+ * leaving a changed name keeps it.
+ */
+const renaming = ref<{ row: string; name: string }>();
+const renameValue = ref("");
+const renameError = ref("");
+const renameBusy = ref(false);
+const nameInput = useTemplateRef("nameInput");
+function startRename(row: string, name: string): void {
+  if (props.readOnly) return;
+  details.value = undefined;
+  renaming.value = { row, name };
+  renameValue.value = name;
+  renameError.value = "";
+}
+watch(
+  [renaming, nameInput],
+  ([current, element], [previous]) => {
+    // A ref inside v-for collects an array; one name field shows at a time.
+    const target = Array.isArray(element) ? element[0] : element;
+    if (!target || current === previous) return;
+    target.focus();
+    target.select();
+  },
+  { flush: "post" },
+);
+function cancelRename(): void {
+  renaming.value = undefined;
+  renameError.value = "";
+}
+async function commitRename(): Promise<void> {
+  const current = renaming.value;
+  if (!current || renameBusy.value) return;
+  const next = renameValue.value.trim();
+  if (!next || next === current.name) {
+    cancelRename();
+    return;
+  }
+  if (names.value.some((info) => info.name === next)) {
+    renameError.value = "That name is taken. Choose another.";
+    return;
+  }
+  renameBusy.value = true;
+  renameError.value = "";
+  try {
+    await renameBindingInWorkspace(engine, workspace.flush.value, current.name, next);
+    if (renaming.value === current) renaming.value = undefined;
+  } catch (cause) {
+    renameError.value = cause instanceof Error ? cause.message : String(cause);
+  } finally {
+    renameBusy.value = false;
+  }
+}
+function enterRename(event: KeyboardEvent): void {
+  if (event.isComposing) return;
+  event.preventDefault();
+  event.stopPropagation();
+  void commitRename();
+}
+/** Leaving the field keeps a changed name; an unchanged one closes the field. */
+function blurName(): void {
+  if (!renaming.value || renameBusy.value) return;
+  if (renameValue.value.trim() === renaming.value.name) cancelRename();
+  else void commitRename();
+}
 /** The Game state + row: name a flag or variable in place. */
 const namingOpen = ref(false);
 const namingKind = ref<"flag" | "variable">("flag");
@@ -215,10 +282,6 @@ function closePartMenu(event: MouseEvent): void {
   const button = event.currentTarget as HTMLButtonElement;
   button.closest("details")?.removeAttribute("open");
 }
-function renamePart(key: string): void {
-  details.value = resourceName(key);
-  editingName.value = true;
-}
 const root = useTemplateRef("root");
 function rememberScroll(): void {
   if (props.active !== false) workspace.partsScroll.value = root.value?.scrollTop ?? 0;
@@ -353,6 +416,20 @@ function onKey(event: KeyboardEvent): void {
             @blur="blurRename(row.room!)"
           />
         </form>
+        <input
+          v-else-if="renaming?.row === `part:${row.id}`"
+          ref="nameInput"
+          v-model="renameValue"
+          class="part part-name-input"
+          :class="{ 'part--child': row.child }"
+          :aria-label="`New name for ${renaming.name}`"
+          :aria-invalid="renameError ? 'true' : undefined"
+          maxlength="64"
+          :readonly="renameBusy"
+          @keydown.enter="enterRename"
+          @keydown.esc.stop.prevent="cancelRename"
+          @blur="blurName"
+        />
         <button
           v-else
           type="button"
@@ -365,7 +442,9 @@ function onKey(event: KeyboardEvent): void {
           @focus="focused = row.id"
           @click="emit('open', row.key, row.room)"
           @dblclick.stop.prevent="
-            row.id === `room:${row.room}` && !readOnly && startRoomRename(row.room!)
+            row.id === `room:${row.room}`
+              ? !readOnly && startRoomRename(row.room!)
+              : resourceName(row.key) && startRename(`part:${row.id}`, resourceName(row.key)!.name)
           "
         >
           <img v-if="thumbnails[row.id]" :src="thumbnails[row.id]" alt="" />
@@ -382,7 +461,28 @@ function onKey(event: KeyboardEvent): void {
           ><i v-if="pending?.includes(row.key)" class="draft-dot" aria-label="Pending change"></i
           ><i v-if="row.live" class="live-dot" aria-label="Hero here"></i>
         </button>
-        <details v-if="resourceName(row.key)" class="part-menu">
+        <details v-if="row.id === `room:${row.room}`" class="part-menu">
+          <summary :aria-label="`Actions for ${roomLabel(row.room!)}`">
+            <UiIcon name="ellipsis" :size="16" />
+          </summary>
+          <button
+            class="part-rename"
+            :title="
+              readOnly
+                ? 'Editing is paused. Download your unsaved edits, then reload.'
+                : 'Rename this room'
+            "
+            :disabled="readOnly"
+            :aria-label="`Rename ${roomLabel(row.room!)}`"
+            @click="
+              closePartMenu($event);
+              startRoomRename(row.room!);
+            "
+          >
+            Rename
+          </button>
+        </details>
+        <details v-else-if="resourceName(row.key)" class="part-menu">
           <summary :aria-label="`Actions for ${resourceName(row.key)!.name}`">
             <UiIcon name="ellipsis" :size="16" />
           </summary>
@@ -397,12 +497,19 @@ function onKey(event: KeyboardEvent): void {
             :aria-label="`Rename ${resourceName(row.key)!.name}`"
             @click="
               closePartMenu($event);
-              renamePart(row.key);
+              startRename(`part:${row.id}`, resourceName(row.key)!.name);
             "
           >
             Rename
           </button>
         </details>
+        <p
+          v-if="renaming?.row === `part:${row.id}` && renameError"
+          class="part-name-error"
+          role="alert"
+        >
+          {{ renameError }}
+        </p>
       </div>
       <form
         v-if="group.label === 'GAME STATE' && namingOpen"
@@ -447,16 +554,35 @@ function onKey(event: KeyboardEvent): void {
         class="game-state"
       >
         <div v-for="info in creatorNames" :key="info.name" class="state-row">
+          <input
+            v-if="renaming?.row === `state:${info.name}`"
+            ref="nameInput"
+            v-model="renameValue"
+            class="part part-name-input"
+            :aria-label="`New name for ${info.name}`"
+            :aria-invalid="renameError ? 'true' : undefined"
+            maxlength="64"
+            :readonly="renameBusy"
+            @keydown.enter="enterRename"
+            @keydown.esc.stop.prevent="cancelRename"
+            @blur="blurName"
+          />
           <button
+            v-else
             class="part"
-            @click="
-              details = info;
-              editingName = false;
-            "
+            @click="details = info"
+            @dblclick.stop.prevent="startRename(`state:${info.name}`, info.name)"
           >
             {{ info.name
             }}<small>{{ info.kind === "flag" ? "Flag" : "Variable" }} {{ info.num }}</small>
           </button>
+          <p
+            v-if="renaming?.row === `state:${info.name}` && renameError"
+            class="part-name-error"
+            role="alert"
+          >
+            {{ renameError }}
+          </p>
           <ActionMenu
             class="state-actions"
             :label="`Actions for ${info.name}`"
@@ -464,16 +590,7 @@ function onKey(event: KeyboardEvent): void {
             icon="ellipsis"
             size="sm"
           >
-            <button
-              type="button"
-              role="menuitem"
-              @click="
-                details = info;
-                editingName = false;
-              "
-            >
-              Find references
-            </button>
+            <button type="button" role="menuitem" @click="details = info">Find references</button>
             <button
               type="button"
               role="menuitem"
@@ -484,10 +601,7 @@ function onKey(event: KeyboardEvent): void {
                   : 'Rename this name'
               "
               :aria-label="`Rename ${info.name}`"
-              @click="
-                details = info;
-                editingName = true;
-              "
+              @click="startRename(`state:${info.name}`, info.name)"
             >
               Rename
             </button>
@@ -500,16 +614,35 @@ function onKey(event: KeyboardEvent): void {
         >
           <summary>Built-in</summary>
           <div v-for="info in builtinNames" :key="info.name" class="state-row">
+            <input
+              v-if="renaming?.row === `builtin:${info.name}`"
+              ref="nameInput"
+              v-model="renameValue"
+              class="part part-name-input"
+              :aria-label="`New name for ${info.name}`"
+              :aria-invalid="renameError ? 'true' : undefined"
+              maxlength="64"
+              :readonly="renameBusy"
+              @keydown.enter="enterRename"
+              @keydown.esc.stop.prevent="cancelRename"
+              @blur="blurName"
+            />
             <button
+              v-else
               class="part"
-              @click="
-                details = info;
-                editingName = false;
-              "
+              @click="details = info"
+              @dblclick.stop.prevent="startRename(`builtin:${info.name}`, info.name)"
             >
               <span>{{ info.name }}</span
               ><small>{{ info.kind === "flag" ? "Flag" : "Variable" }} {{ info.num }}</small>
             </button>
+            <p
+              v-if="renaming?.row === `builtin:${info.name}` && renameError"
+              class="part-name-error"
+              role="alert"
+            >
+              {{ renameError }}
+            </p>
             <small>{{ info.meaning }}</small>
             <small v-if="info.usage">Used: {{ info.usage }}</small>
             <ActionMenu
@@ -519,16 +652,7 @@ function onKey(event: KeyboardEvent): void {
               icon="ellipsis"
               size="sm"
             >
-              <button
-                type="button"
-                role="menuitem"
-                @click="
-                  details = info;
-                  editingName = false;
-                "
-              >
-                Find references
-              </button>
+              <button type="button" role="menuitem" @click="details = info">Find references</button>
               <button
                 type="button"
                 role="menuitem"
@@ -539,10 +663,7 @@ function onKey(event: KeyboardEvent): void {
                     : 'Rename this name'
                 "
                 :aria-label="`Rename ${info.name}`"
-                @click="
-                  details = info;
-                  editingName = true;
-                "
+                @click="startRename(`builtin:${info.name}`, info.name)"
               >
                 Rename
               </button>
@@ -554,12 +675,8 @@ function onKey(event: KeyboardEvent): void {
     <BindingDetails
       v-if="selectedName"
       :info="selectedName"
-      :rename="editingName"
       @close="details = undefined"
-      @renamed="
-        details = $event;
-        editingName = false;
-      "
+      @renamed="details = $event"
     />
   </nav>
 </template>
@@ -587,7 +704,23 @@ function onKey(event: KeyboardEvent): void {
 }
 .part-row {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
+}
+.part.part-name-input {
+  cursor: text;
+  border: 1px solid var(--focus);
+  background: var(--surface-0);
+  color: var(--ink);
+  outline: none;
+}
+.part-name-error {
+  flex-basis: 100%;
+  grid-column: 1 / -1;
+  margin: var(--space-1) 0 0;
+  padding-inline: var(--space-3);
+  color: var(--warn);
+  font-size: var(--text-xs);
 }
 .part-row .part {
   flex: 1;

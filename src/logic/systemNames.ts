@@ -56,40 +56,60 @@ export const SYSTEM_VARIABLES: Readonly<Record<string, string>> = {
   "26": "system_var_26",
 };
 
-/** Meanings follow the same spec sections as the standard names above. */
+/**
+ * Plain meanings for the Game state list. They follow the spec sections above
+ * and the engine's own handling of each slot (docs/fidelity.md: "Footprint
+ * class flags", "Clocks, pacing and waiting", "Text on screen", "Saving,
+ * restoring and restarting", "The memory report"). A slot with neither keeps
+ * the interpreter's note.
+ */
 const FLAG_MEANINGS: Readonly<Record<string, string>> = {
-  "0": "The hero's final baseline cell has control colour 3.",
-  "2": "Parsed input is ready for the game to check.",
-  "3": "The hero's final baseline cell has control colour 2.",
-  "4": "A said check has matched the parsed input.",
+  "0": "The hero is in water.",
+  "1": "The hero is out of sight.",
+  "2": "The player typed a sentence for the game to check.",
+  "3": "The hero is touching a trigger.",
+  "4": "The game has answered the player's sentence.",
   "5": "The game has just entered a room.",
   "6": "The game has just restarted.",
-  "7": "Pauses input recording while set.",
-  "9": "Allows sound playback while set.",
-  "10": "Allows the trace window to open.",
-  "12": "Cleared after each game cycle.",
-  "14": "Allows menu interaction while set.",
-  "15": "Cleared when the picture is shown.",
+  "7": "While set, saved games skip what the game loads.",
+  "9": "Sound is on.",
+  "10": "Lets the trace window open.",
+  "12": "The game was just restored from a save.",
+  "13": "Lets the player pick an item from the inventory.",
+  "14": "Lets the player use the menu.",
+  "15": "The next message window opens without waiting for a key.",
 };
 const VARIABLE_MEANINGS: Readonly<Record<string, string>> = {
   "0": "The room the player is in.",
   "1": "The room the player came from.",
-  "2": "The screen edge reached by the hero.",
-  "3": "The score shown on the status line.",
-  "4": "The object that reached a screen edge.",
-  "5": "The screen edge reached by that object.",
-  "6": "The hero's movement direction.",
-  "9": "The parsed word count or unknown word position.",
-  "10": "The number of timer ticks between game cycles.",
-  "16": "The hero's VIEW number at room entry.",
-  "19": "The character code of the last key pressed.",
-  "25": "The selected inventory item, or 255 for Cancel.",
+  "2": "The screen edge the hero touched.",
+  "3": "The score.",
+  "4": "The object that touched a screen edge.",
+  "5": "The screen edge that object touched.",
+  "6": "The way the hero is walking.",
+  "7": "The highest score, shown on the status line.",
+  "8": "Free memory; 255 means plenty.",
+  "9": "How many words the player typed, or which word the game did not know.",
+  "10": "The wait between game cycles, in twentieths of a second.",
+  "11": "Seconds on the game clock.",
+  "12": "Minutes on the game clock.",
+  "13": "Hours on the game clock.",
+  "14": "Days on the game clock.",
+  "16": "The hero's VIEW number.",
+  "19": "The last key pressed.",
+  "20": "The kind of computer; 0 means a PC.",
+  "21": "How long a message stays open, in half-seconds.",
+  "22": "The kind of sound the computer plays.",
+  "23": "Turns the sound down; 0 is loudest.",
+  "24": "The longest sentence the player can type.",
+  "25": "The item the player picked from the inventory, or 255 for Cancel.",
+  "26": "The kind of screen; 3 means EGA.",
 };
 
 export function systemMeaning(kind: string, num: number): string | undefined {
   if (systemName(kind, num) === undefined) return undefined;
   const meanings = kind === "f" || kind === "flag" ? FLAG_MEANINGS : VARIABLE_MEANINGS;
-  return meanings[String(num)] ?? "Reserved by the interpreter.";
+  return meanings[String(num)] ?? "Kept for the interpreter.";
 }
 
 export function systemName(kind: string, num: number): string | undefined {

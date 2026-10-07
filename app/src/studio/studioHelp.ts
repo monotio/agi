@@ -1,4 +1,4 @@
-import { VOCABULARY_ACTIONS } from "../../../src/vocabulary.ts";
+import { VOCABULARY } from "../../../src/vocabulary.ts";
 /**
  * The Studios' keyboard help, kept off the canvas: a tool's name and one
  * short line for the status bar, and the full key list the `?` sheet shows
@@ -24,7 +24,7 @@ export const ROOM_TOOL_NAMES: Record<StudioTool, string> = {
   brush: "Brush",
   pipette: "Pipette",
   hand: "Hand",
-  walk: VOCABULARY_ACTIONS.playtest_room.label,
+  walk: VOCABULARY.testWalk.label,
   door: "Door box",
   edge: "Edge exit",
 };
@@ -40,7 +40,7 @@ export const ROOM_TOOL_HINTS: Record<StudioTool, string> = {
   brush: "",
   pipette: "",
   hand: "Hold Space to pan with any tool.",
-  walk: VOCABULARY_ACTIONS.playtest_room.help,
+  walk: VOCABULARY.testWalk.help,
   door: "Drag a door box on the floor",
   edge: "Click near an edge: walking off it changes room",
 };
@@ -162,6 +162,42 @@ export function roomKeySheet(tool: StudioTool): KeySection[] {
         { keys: ["Home", "End"], does: "Draw order to the start or the end" },
         { keys: ["+", "−", "0"], does: "Zoom in, out, to fit" },
         { keys: ["?"], does: "This list" },
+      ],
+    },
+  ];
+}
+
+/** The LOGIC editor's keys: the debugger, code intelligence and the workspace. */
+export function logicKeySheet(): KeySection[] {
+  return [
+    {
+      title: "Run and stop",
+      rows: [
+        { keys: ["F9"], does: "Set or clear a breakpoint on this line" },
+        { keys: ["Click"], does: "Left of a line number: set or clear a breakpoint" },
+        { keys: ["F5"], does: "Debug the room, or continue" },
+        { keys: [keyLabel("Shift+F5")], does: "Stop debugging" },
+        { keys: ["F10", "F11"], does: "Step over, step into" },
+        { keys: [keyLabel("Shift+F11")], does: "Step out" },
+      ],
+    },
+    {
+      title: "Names and code",
+      rows: [
+        { keys: ["F12"], does: "Go to definition" },
+        { keys: [keyLabel("Shift+F12")], does: "Find references" },
+        { keys: ["F2"], does: "Rename a name everywhere" },
+        { keys: [keyLabel("Ctrl+Space")], does: "Show completions" },
+        { keys: [keyLabel("Mod+F")], does: "Find in this LOGIC" },
+      ],
+    },
+    {
+      title: "Workspace",
+      rows: [
+        { keys: [keyLabel("Mod+Enter")], does: "Update and restart the room" },
+        { keys: [keyLabel("Mod+P")], does: "Quick open a part" },
+        { keys: [keyLabel("Mod+J")], does: "Show Problems" },
+        { keys: [keyLabel("Mod+W")], does: "Close this editor" },
       ],
     },
   ];

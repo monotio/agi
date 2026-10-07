@@ -3,7 +3,7 @@ import { ref, watch } from "vue";
 import type { BindingInfo } from "../../../src/logic/projectNames.ts";
 import { useEngineApi } from "../engine/engineContext.ts";
 import { useWorkspaceEditor } from "./workspaceEditor.ts";
-import { renameWorkspaceBinding, workspaceBindingInfos } from "./workspaceNames.ts";
+import { renameBindingInWorkspace, workspaceBindingInfos } from "./workspaceNames.ts";
 import UiButton from "../ui/UiButton.vue";
 import UiIconButton from "../ui/UiIconButton.vue";
 const { info, rename = false } = defineProps<{ info: BindingInfo; rename?: boolean }>();
@@ -30,16 +30,7 @@ async function save(): Promise<void> {
   try {
     const newName = name.value.trim();
     const original = { name: info.name, kind: info.kind, num: info.num };
-    await workspace.flush.value?.();
-    const snapshot = engine.getProjectSession()?.workingSnapshot();
-    if (!snapshot) throw new Error("Open a project to rename its parts.");
-    await renameWorkspaceBinding(
-      engine,
-      snapshot,
-      engine.roomMap.resources.value.profile?.id ?? "2.936",
-      original.name,
-      newName,
-    );
+    await renameBindingInWorkspace(engine, workspace.flush.value, original.name, newName);
     const updated = engine.getProjectSession()!.workingSnapshot();
     const renamed = workspaceBindingInfos(
       updated,

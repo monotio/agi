@@ -13,6 +13,7 @@ import { renameRoomTitle } from "../../../../src/authoring/world.ts";
 import { gameRoomMenu, roomMenuArmed } from "../../play/roomActionMenu.ts";
 import UiDialog from "../../ui/UiDialog.vue";
 import GuidedAdd from "./GuidedAdd.vue";
+import TestRunChip from "./TestRunChip.vue";
 import {
   roomPlacements,
   moveRoomPlacement,
@@ -74,6 +75,7 @@ import { derivedLogicSource } from "../logic/logicWorkspace.ts";
 import { roomPictureNumber } from "../logic/guided/guidedPreview.ts";
 import { createWorkspacePending } from "./workspacePending.ts";
 import type { WorkspaceAction } from "./workspaceGuided.ts";
+import { launchAction, launchName } from "../../shell/launchAction.ts";
 import { useWorkspaceDebug, type LogicEditorHandle } from "./useWorkspaceDebug.ts";
 const props = defineProps<{ creating: boolean }>();
 const ChangeNumberDialog = defineAsyncComponent(() => import("./ChangeNumberDialog.vue"));
@@ -1800,8 +1802,17 @@ async function wordChange(
     editor.error.value = cause instanceof Error ? cause.message : String(cause);
   }
 }
-async function guidedAction(action: WorkspaceAction): Promise<void> {
-  if (editingPaused.value || actionBusy.value) return;
+/**
+ * Run a room action. `stay` keeps the open part and the action form, so a
+ * Door's "New room" adds the room and goes on with the Door. Returns the room
+ * an add-room made.
+ */
+async function guidedAction(
+  action: WorkspaceAction,
+  options: { stay?: boolean } = {},
+): Promise<number | undefined> {
+  if (editingPaused.value || actionBusy.value) return undefined;
+  let added: number | undefined;
   actionBusy.value = true;
   try {
     await writes.flush();
@@ -1835,11 +1846,12 @@ async function guidedAction(action: WorkspaceAction): Promise<void> {
       const room = logicKey ? Number(logicKey.slice(6)) : undefined;
       const key =
         prepared.changes.find((change) => change.key.startsWith("picture:"))?.key ?? logicKey;
-      if (key) openPart(key);
+      if (key && !options.stay) openPart(key);
       if (room !== undefined) {
+        added = room;
         renamingRoom.value = room;
         // Naming in place stays visible where the + lives, also on the phone.
-        editor.partsOpen.value = true;
+        if (!options.stay) editor.partsOpen.value = true;
       }
     }
     if (action.kind === "boilerplate") {
@@ -1847,7 +1859,7 @@ async function guidedAction(action: WorkspaceAction): Promise<void> {
       if (key) openPart(key);
     }
     draftChanged(true);
-    guidedKind.value = undefined;
+    if (!options.stay) guidedKind.value = undefined;
     editor.error.value = "";
   } catch (cause) {
     editor.error.value = String(cause instanceof Error ? cause.message : cause);
@@ -1855,6 +1867,7 @@ async function guidedAction(action: WorkspaceAction): Promise<void> {
     actionBusy.value = false;
     refresh();
   }
+  return added;
 }
 const versionName = ref("");
 const editingName = ref<string>();
@@ -2145,7 +2158,7 @@ onBeforeUnmount(() => {
       variant="ghost"
       :aria-pressed="editor.phonePlaytest.value"
       @click="editor.phonePlaytest.value = true"
-      >Playtest</UiButton
+      >Game</UiButton
     >
   </div>
   <aside
@@ -2218,9 +2231,12 @@ onBeforeUnmount(() => {
   >
   <Teleport defer to=".play-area">
     <div v-if="creating" class="workspace-game-bar" data-testid="workspace-game-bar">
-      <span class="workspace-game-bar__room" data-testid="workspace-room">{{
-        currentRoomLabel
-      }}</span>
+      <span class="workspace-game-bar__where"
+        ><span class="workspace-game-bar__room" data-testid="workspace-room">{{
+          currentRoomLabel
+        }}</span
+        ><TestRunChip
+      /></span>
       <UiButton
         v-if="visitingRoom !== undefined && returnRoom !== undefined"
         size="sm"
@@ -2393,7 +2409,13 @@ onBeforeUnmount(() => {
           :title="
             writeConflict
               ? 'Editing is paused. Download your unsaved edits, then reload.'
-              : 'Play the selected launch'
+              : launchAction({
+                  pending: editor.changeCount.value > 0,
+                  launch: editor.selectedLaunch.value,
+                  launchName: launchName(editor.selectedLaunch.value, editor.launchChoices.value),
+                  room: editor.actionRoomName.value,
+                  here: engine.roomMap.currentRoom.value === editor.actionRoom.value,
+                }).label
           "
           @click="updateGame()"
           >▶ Play {{ editor.actionRoomName.value }}</UiButton
@@ -2437,6 +2459,7 @@ onBeforeUnmount(() => {
         :thumbnails
         :views="viewThumbnails"
         :sounds="guidedSounds"
+        :new-room="() => guidedAction({ kind: 'add-room', title: '' }, { stay: true })"
         @add="guidedAction"
       />
       <span v-if="unusedArt" class="workspace-context__note" data-testid="workspace-unused"
@@ -2754,6 +2777,7 @@ onBeforeUnmount(() => {
     v-model:open="editor.keysOpen.value"
     :name="keySheet.name"
     :sections="keySheet.sections"
+    :where="keySheet.where"
   />
   <aside
     v-if="creating && editor.history.value"
@@ -2891,9 +2915,18 @@ onBeforeUnmount(() => {
   position: relative;
   z-index: 1;
 }
-.workspace-game-bar__room {
+.workspace-game-bar__where {
+  display: flex;
   flex: 1;
+  align-items: center;
+  gap: var(--space-2);
   min-width: 0;
+}
+.workspace-game-bar__room {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .game-room-menu__backdrop {
   position: fixed;

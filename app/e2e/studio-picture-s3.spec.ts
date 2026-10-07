@@ -123,6 +123,11 @@ test("Sierra's two layers: the Priority lens holds the control lines, the walk t
   await expect(lenses.getByRole("radio", { name: "Walk" })).toHaveCount(0);
   // The view modes never offer "Priority" a second time.
   await lens(studio, "Priority");
+  // An item's Wall tag says what a wall does.
+  await expect(studio.locator(".scene-list__tag", { hasText: /^Wall$/ }).first()).toHaveAttribute(
+    "title",
+    "Characters can't cross a wall.",
+  );
   const view = studio.getByRole("toolbar", { name: "View", exact: true });
   await expect(view).toBeVisible();
   await expect(view.getByRole("radio", { name: "Priority", exact: true })).toHaveCount(0);

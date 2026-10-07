@@ -8,10 +8,15 @@ import type { KeySection } from "./studioHelp.ts";
  * button; Esc or Close puts it away and focus returns where it was. The
  * sheet lists the editor's keyboard controls.
  */
-const { name, sections } = defineProps<{
-  /** PICTURE or VIEW editor. */
+const {
+  name,
+  sections,
+  where = "Keys work while the canvas or the studio has focus. Text fields take typing.",
+} = defineProps<{
+  /** PICTURE, VIEW editor or LOGIC. */
   name: string;
   sections: readonly KeySection[];
+  where?: string | undefined;
 }>();
 const open = defineModel<boolean>("open", { required: true });
 </script>
@@ -20,7 +25,7 @@ const open = defineModel<boolean>("open", { required: true });
   <UiDialog
     v-model:open="open"
     :title="`${name} keys`"
-    description="Keys work while the canvas or the studio has focus. Text fields take typing."
+    :description="where"
     size="lg"
     data-testid="studio-key-sheet"
   >

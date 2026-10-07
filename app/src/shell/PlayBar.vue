@@ -369,6 +369,12 @@ const shortcutsBlocked = computed(
   min-width: 0;
   line-height: var(--leading-tight);
 }
+/* The game's name keeps a few letters beside a long action and its pending note. */
+@media (min-width: 601px) {
+  .play-bar__title {
+    min-width: 5rem;
+  }
+}
 .play-bar__game {
   margin: 0;
   overflow: hidden;

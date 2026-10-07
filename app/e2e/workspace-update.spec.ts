@@ -87,10 +87,14 @@ test("invalid drafts report a problem and discard restores the editor @webkit-de
   const before = await runningWorkspaceDocument(page, "logic:1");
   await draft(page, "if (");
   await expect(page.getByTestId("workspace-update")).toBeVisible();
-  await expect(page.getByTestId("workspace-update")).toHaveText("Update and restart Meadow");
+  await expect(page.getByTestId("workspace-update")).toHaveAccessibleName(
+    "Update and restart Meadow",
+  );
   await page.keyboard.press("ControlOrMeta+Enter");
   await expect(page.getByTestId("workspace-update")).toBeVisible();
-  await expect(page.getByTestId("workspace-update")).toHaveText("Update and restart Meadow");
+  await expect(page.getByTestId("workspace-update")).toHaveAccessibleName(
+    "Update and restart Meadow",
+  );
   expect(await runningWorkspaceDocument(page, "logic:1")).toBe(before);
   await page.getByTestId("workspace-update").click();
   // The Problems tab opens; it closes with its own ×.
@@ -174,7 +178,7 @@ for (const [width, height] of [
       await expect(page.getByTestId("workspace-room")).toContainText("Room 1");
       await expect(page.getByTestId("workspace-saved")).toBeVisible();
       await expect.soft(page.getByTestId("workspace-saved")).toHaveText("Draft saved");
-      if (width <= 600) await page.getByRole("button", { name: "Playtest", exact: true }).click();
+      if (width <= 600) await page.getByRole("button", { name: "Game", exact: true }).click();
       await expect(page.getByTestId("workspace-live")).toBeVisible();
       await expect.soft(page.getByTestId("workspace-live")).toHaveText("Now");
       await expect(page.getByTestId("workspace-live")).toHaveAttribute(

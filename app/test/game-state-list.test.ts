@@ -82,3 +82,24 @@ test("using a reserved slot marks it without changing the list order", () => {
   assert.equal(after[15]!.uses[0]!.key, "logic:1");
   assert.equal(after[42]!.uses[0]!.key, "logic:1");
 });
+
+test("built-in meanings read plainly, match the lens and name the clock", () => {
+  const rows = workspaceGameStateInfos(new ProjectDraft({ bindings: "{}" }).capture(), "2.936");
+  const meaning = (kind: "flag" | "variable", num: number) =>
+    rows.builtin.find((row) => row.kind === kind && row.num === num)!.meaning;
+  assert.equal(meaning("flag", 0), "The hero is in water.");
+  assert.equal(meaning("flag", 3), "The hero is touching a trigger.");
+  assert.deepEqual(
+    [11, 12, 13, 14].map((num) => meaning("variable", num)),
+    [
+      "Seconds on the game clock.",
+      "Minutes on the game clock.",
+      "Hours on the game clock.",
+      "Days on the game clock.",
+    ],
+  );
+  // The standard names and number order stay as they are.
+  assert.equal(rows.builtin[16 + 11]!.name, "system_var_11");
+  for (const row of rows.builtin)
+    assert.doesNotMatch(row.meaning, /control colou?r|baseline cell/i, row.name);
+});

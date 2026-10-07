@@ -5,28 +5,26 @@ import { useEngineApi } from "../engine/engineContext.ts";
 import ActionMenu from "../ui/ActionMenu.vue";
 import UiButton from "../ui/UiButton.vue";
 import UiDialog from "../ui/UiDialog.vue";
+import UiIcon from "../ui/UiIcon.vue";
+import { launchAction, launchName } from "./launchAction.ts";
 const editor = useWorkspaceEditor();
 const engine = useEngineApi();
 const discardOpen = ref(false);
-const label = computed(() =>
-  editor.changeCount.value
-    ? editor.selectedLaunch.value === "my-game"
-      ? "Update and return to my game"
-      : `Update and restart ${editor.actionRoomName.value}`
-    : editor.selectedLaunch.value === "my-game"
-      ? "Play from my game"
-      : editor.selectedLaunch.value === "beginning"
-        ? "Play from beginning"
-        : `${engine.roomMap.currentRoom.value === editor.actionRoom.value ? "Restart" : "Play"} ${editor.actionRoomName.value}`,
-);
 const selectedName = computed(() =>
-  editor.selectedLaunch.value === "my-game"
-    ? "From my game"
-    : editor.selectedLaunch.value === "beginning"
-      ? "From the beginning"
-      : (editor.launchChoices.value.find((entry) => entry.id === editor.selectedLaunch.value)
-          ?.name ?? "Carry over"),
+  launchName(editor.selectedLaunch.value, editor.launchChoices.value),
 );
+function actionFor(pending: boolean) {
+  return launchAction({
+    pending,
+    launch: editor.selectedLaunch.value,
+    launchName: selectedName.value,
+    room: editor.actionRoomName.value,
+    here: engine.roomMap.currentRoom.value === editor.actionRoom.value,
+  });
+}
+const action = computed(() => actionFor(editor.changeCount.value > 0));
+/** The other state's wording, laid under the label so the button keeps its width. */
+const reserve = computed(() => actionFor(editor.changeCount.value === 0));
 async function discardChanges(): Promise<void> {
   try {
     await editor.discardDrafts.value?.();
@@ -44,9 +42,25 @@ async function discardChanges(): Promise<void> {
       :disabled="
         editor.busy.value || editor.readOnly.value || editor.actionRoom.value === undefined
       "
-      :title="`${label} (⌘↵ / Ctrl+Enter) · ${selectedName}`"
+      :aria-label="action.label"
+      :title="`${action.label} (⌘↵ / Ctrl+Enter)`"
       @click="editor.update.value?.()"
-      >{{ label }}</UiButton
+      ><span class="workspace-action__stack"
+        ><span
+          v-for="(row, index) in [action, reserve]"
+          :key="index"
+          class="workspace-action__label"
+          :aria-hidden="index === 1 ? 'true' : undefined"
+          ><span v-if="row.update">Update</span
+          ><UiIcon :name="row.icon" :size="14" :stroke-width="2.5" /><span
+            class="workspace-action__room"
+            >{{ row.room
+            }}<span v-if="row.launch" class="workspace-action__launch">
+              · {{ row.launch }}</span
+            ></span
+          ></span
+        ></span
+      ></UiButton
     >
     <ActionMenu
       label="Launch options"
@@ -109,13 +123,42 @@ async function discardChanges(): Promise<void> {
   flex-shrink: 0;
   gap: 2px;
 }
+/* Both wordings share one grid cell: the wider one sets the width, so
+   pending changes and Update never move the bar. */
+.workspace-action__stack {
+  display: inline-grid;
+  max-width: 360px;
+}
+.workspace-action__label {
+  grid-area: 1 / 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.workspace-action__label[aria-hidden="true"] {
+  visibility: hidden;
+}
+.workspace-action__room {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.workspace-action__launch {
+  font-weight: var(--weight-medium);
+}
 @media (max-width: 600px) {
   .workspace-action {
     max-width: calc(100vw - 200px);
   }
   .workspace-action > button {
     min-width: 0;
+    padding-inline: var(--space-3);
     white-space: normal;
+  }
+  .workspace-action__stack {
+    max-width: 100%;
   }
 }
 </style>

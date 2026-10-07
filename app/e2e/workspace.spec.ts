@@ -685,7 +685,7 @@ test("adding a room leaves play in place until Update and restart enters it @web
   expect((await textHook(page)).room).toBe(1);
   const action = page.getByTestId("workspace-update");
   await expect(action).toBeVisible();
-  await expect(action).toHaveText("Update and restart Garden");
+  await expect(action).toHaveAccessibleName("Update and restart Garden");
   await action.click();
   await expect(page.getByTestId("room-studio").locator(".studio-pane")).toBeVisible();
   const cycle = (await textHook(page)).cycle;
@@ -697,7 +697,7 @@ test("adding a room leaves play in place until Update and restart enters it @web
   const bar = page.getByTestId("workspace-game-bar");
   await expect(bar).toBeVisible();
   await expect(bar.getByTestId("workspace-room")).toContainText("Garden");
-  await expect(action).toHaveText("Restart Garden");
+  await expect(action).toHaveAccessibleName("Restart Garden");
   await workspaceUpdated(page);
 });
 

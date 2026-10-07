@@ -241,11 +241,11 @@ test("blank game to Meadow, Room 2, a door drawn on the game and Play Room 2 @we
   }
   // Update publishes the work; then the action button offers Play Room 2.
   const action = page.getByTestId("workspace-update");
-  await expect(action).toHaveText("Update and restart Meadow");
+  await expect(action).toHaveAccessibleName("Update and restart Meadow");
   await action.click();
   await workspaceUpdated(page);
   await page.getByTestId("part-room:2:picture:2").click();
-  await expect(action).toHaveText("Play Room 2");
+  await expect(action).toHaveAccessibleName("Play Room 2");
   await page.screenshot({
     path: test.info().outputPath("1440-play-room-2.png"),
     animations: "disabled",
@@ -416,7 +416,8 @@ for (const [width, height] of [
     );
     await expect(reserved).toContainText("The room the player is in.");
     await expect(reserved).toContainText("Used: LOGIC");
-    await expect(rows.last()).toContainText("Reserved by the interpreter.");
+    await expect(rows.first()).toContainText("The hero is in water.");
+    await expect(rows.last()).toContainText("The kind of screen; 3 means EGA.");
     await expect(builtIn.getByRole("button", { name: /^Add/ })).toHaveCount(0);
     await expect(builtIn).not.toContainText("chime_done");
     if (width <= 600 && !(await parts.isVisible()))
@@ -446,7 +447,10 @@ for (const [width, height] of [
       "The room the player is in.",
     );
     await expect(partRows.filter({ hasText: "current_room" })).toContainText("Used: LOGIC");
-    await expect(partRows.last()).toContainText("Reserved by the interpreter.");
+    await expect(partRows.filter({ hasText: "system_var_11" })).toContainText(
+      "Seconds on the game clock.",
+    );
+    await expect(partRows.last()).toContainText("The kind of screen; 3 means EGA.");
     await expect(group.getByRole("button", { name: /^Add/ })).toHaveCount(0);
     await expect(group).not.toContainText("chime_done");
   });
