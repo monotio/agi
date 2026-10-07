@@ -904,7 +904,7 @@ test("project archives resolve names and watched WORDS and bindings updates refr
       textDocument: { uri },
       position: { line: 0, character: 5 },
     });
-    assert.match(JSON.stringify(hover), /door 41/);
+    assert.match(JSON.stringify(hover), /door f41/);
     writeFileSync(join(dir, "bindings.json"), "{}");
     await server.connection.sendNotification("workspace/didChangeWatchedFiles", {
       changes: [{ uri: pathToFileURL(join(dir, "bindings.json")).href, type: 2 }],

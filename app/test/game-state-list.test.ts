@@ -98,8 +98,31 @@ test("built-in meanings read plainly, match the lens and name the clock", () => 
       "Days on the game clock.",
     ],
   );
-  // The standard names and number order stay as they are.
-  assert.equal(rows.builtin[16 + 11]!.name, "system_var_11");
+  // Documented clock roles have source names.
+  assert.equal(rows.builtin[16 + 11]!.name, "clock_seconds");
   for (const row of rows.builtin)
     assert.doesNotMatch(row.meaning, /control colou?r|baseline cell/i, row.name);
+});
+
+test("Built-in names describe every documented role and keep unassigned slots reserved", () => {
+  const rows = workspaceGameStateInfos(
+    new ProjectDraft({
+      bindings: "{}",
+      "logic:0": "set(ego_in_water); increment(current_room); return;",
+    }).capture(),
+    "2.936",
+  );
+  assert.equal(rows.builtin[0]!.name, "ego_in_water");
+  assert.equal(rows.builtin[7]!.name, "no_save_loads");
+  assert.equal(rows.builtin[16 + 16]!.name, "ego_view");
+  for (const row of rows.builtin) {
+    assert.doesNotMatch(row.name, /^system_|^object_event_/);
+    assert.equal(
+      row.name.startsWith("reserved_"),
+      row.meaning === "Kept for the interpreter.",
+      row.name,
+    );
+  }
+  assert.equal(rows.builtin[0]!.uses.length, 1);
+  assert.equal(rows.builtin[16]!.uses.length, 1);
 });

@@ -2,7 +2,8 @@
 import { createLogicLanguageSnapshot } from "../logic/language.ts";
 import { analyzeLogicSyntax } from "../logic/syntax.ts";
 import type { NumberedOperand } from "../logic/languageOperands.ts";
-import { expandProjectLogic } from "./projectLogic.ts";
+import { systemBindings } from "../logic/systemNames.ts";
+import { expandProjectLogic, projectNameDiagnostics } from "./projectLogic.ts";
 
 export function createProjectLogicLanguageSnapshot(
   input: Parameters<typeof createLogicLanguageSnapshot>[0] & {
@@ -10,10 +11,12 @@ export function createProjectLogicLanguageSnapshot(
   },
 ) {
   const source = input.source;
+  const builtins = systemBindings(input.bindings);
   const expansion = expandProjectLogic(source, input.bindings, true);
   const base = expansion.authoredStart;
   const language = createLogicLanguageSnapshot({
     source: expansion.prelude + source,
+    builtins,
     profile: input.profile,
     dictionary: input.dictionary,
     ...(input.objects ? { objects: input.objects } : {}),
@@ -33,6 +36,12 @@ export function createProjectLogicLanguageSnapshot(
           : entry.message,
       });
     });
+  diagnostics.push(
+    ...projectNameDiagnostics(source, input.bindings).map((entry) => ({
+      ...entry,
+      severity: "warning" as const,
+    })),
+  );
   const generatedDiagnostics = language.diagnostics
     .filter((entry) => entry.start < base)
     .map((entry) =>
@@ -81,7 +90,9 @@ export function createProjectLogicLanguageSnapshot(
         return {
           ...authoredRange(range),
           ...(definitionStart === undefined
-            ? {}
+            ? entry.name && builtins[entry.name]
+              ? { bindingName: entry.name }
+              : {}
             : definitionStart < base
               ? entry.name
                 ? { bindingName: entry.name }
@@ -118,7 +129,12 @@ export function createProjectLogicLanguageSnapshot(
 
   function definitionAt(offset: number) {
     const definition = language.definitionAt(expandedOffset(offset));
-    if (!definition) return null;
+    if (!definition) {
+      const operand = language.operandAt(expandedOffset(offset));
+      return operand?.name && builtins[operand.name]
+        ? { kind: "binding" as const, name: operand.name, document: "bindings" as const }
+        : null;
+    }
     if (definition.start >= base) return authoredRange(definition);
     return { kind: "binding" as const, name: definition.name, document: "bindings" as const };
   }

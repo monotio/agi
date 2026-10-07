@@ -235,10 +235,10 @@ test("system slots have names in hover, completion and the shared Game state inv
   assert.deepEqual(reply?.result, [
     {
       label: "new_room",
-      detail: "Flag 5 · system",
+      detail: "Flag 5 · built-in",
       textEdit: {
         range: { start: { line: 0, character: 4 }, end: { line: 0, character: 8 } },
-        newText: "f5",
+        newText: "new_room",
       },
     },
   ]);

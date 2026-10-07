@@ -89,9 +89,9 @@ describe("guided add room", () => {
     const room = op.changes.find((c) => c.key === "logic:1")!.content as string;
     assert.equal(
       room,
-      `// Moonlit Hall — an empty room. The f5 block runs once on room entry: draw
+      `// Moonlit Hall — an empty room. The new_room block runs once on room entry: draw
 // the picture.
-if (isset(f5)) {
+if (isset(new_room)) {
   assignn(pic_num, 1);
   load.pic(pic_num);
   draw.pic(pic_num);
@@ -115,7 +115,7 @@ return;
 
     const tx = op.apply();
     assert.equal(tx.keys.length, 4);
-    assert.match(docText(draft, "logic:1"), /isset\(f5\)/);
+    assert.match(docText(draft, "logic:1"), /isset\(new_room\)/);
     draft.undo(tx.id);
     assert.equal(draft.capture().read("logic:1"), undefined, "undo removes the room");
   });
@@ -596,13 +596,13 @@ describe("guided connect door", () => {
     );
     assert.match(
       room2,
-      /if \(equaln\(v1, 1\)\) \{\n {4}position\(o0, 100, 140\);\n {4}assignn\(v6, 0\);\n {2}\}/,
+      /if \(equaln\(prev_room, 1\)\) \{\n {4}position\(o0, 100, 140\);\n {4}assignn\(ego_direction, 0\);\n {2}\}/,
     );
     // The reciprocal landing drops ego at room 1's own spawn (80,140) and
     // stops carried direction so the forward doorway cannot retrigger.
     assert.match(
       room1,
-      /if \(equaln\(v1, 2\)\) \{\n {4}position\(o0, 80, 140\);\n {4}assignn\(v6, 0\);\n {2}\}/,
+      /if \(equaln\(prev_room, 2\)\) \{\n {4}position\(o0, 80, 140\);\n {4}assignn\(ego_direction, 0\);\n {2}\}/,
     );
     const world = JSON.parse(op.changes.find((c) => c.key === "world")!.content as string);
     assert.equal(world.rooms["1"].title, "Meadow");
@@ -968,6 +968,11 @@ return;
   test("refuses interpreter-owned flags as cue state", () => {
     const { ctx, draft } = workspace("starter");
     bindNames(draft, { newroom_flag: { kind: "flag", num: 5 } });
+    draft.edit(
+      "logic:1",
+      docText(draft, "logic:1").replace("isset(new_room)", "isset(newroom_flag)"),
+      draft.capture().version("logic:1"),
+    );
     mustPrepare(
       prepareGuidedRespondToCommand(ctx, {
         room: 1,
@@ -1132,4 +1137,12 @@ test("ready parts use the lowest free number after world reservations", () => {
   const score = mustPrepare(prepareGuidedBoilerplate(ctx, { part: "score" }));
   assert.ok(score.affectedKeys.includes("logic:2"));
   assert.ok(!score.affectedKeys.includes("logic:255"));
+});
+
+test("guided room sources follow a creator's reserved-slot name", () => {
+  const { ctx, draft } = workspace("blank");
+  bindNames(draft, { entered: { kind: "flag", num: 5 } });
+  const operation = mustPrepare(prepareGuidedAddRoom(ctx, { title: "Hall" }));
+  const source = operation.changes.find((change) => change.key === "logic:1")!.content as string;
+  assert.match(source, /isset\(entered\)/);
 });

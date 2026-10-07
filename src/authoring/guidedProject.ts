@@ -20,6 +20,7 @@
  * existing words/bindings/world documents and `// @rule` annotations; there is
  * no second serialized game model.
  */
+import { systemOperand } from "../logic/systemNames.ts";
 import { openContainer } from "../container/container.ts";
 import { AssemblerError } from "../logic/assembler.ts";
 import { quoteLogicString } from "../logic/disassembler.ts";
@@ -186,12 +187,6 @@ const BINDING_NAME = /^[a-z][a-z0-9_]{0,63}$/;
 const RULE_DIRECTIVE = /^\/\/\s*@(rule|end)(?=\s|$)(.*)$/;
 const RULE_LABEL = /^"(?:[^"\\]|\\.)*"/;
 
-function numBindings(bindings: Bindings): Record<string, { readonly num: number }> {
-  return Object.fromEntries(
-    Object.entries(bindings).map(([name, binding]) => [name, { num: binding.num }]),
-  );
-}
-
 function refuse(
   kind: GuidedOperationKind,
   label: string,
@@ -353,7 +348,7 @@ function occupiedResourceIds(img: GuidedImage, kind: "logic" | "picture" | "view
   });
   for (const reference of analysis.references)
     if (reference.target.kind === kind && "num" in reference.target) used.add(reference.target.num);
-  const numbers = numBindings(img.bindings);
+  const numbers = img.bindings;
   for (const key of img.snapshot.keys) {
     if (!key.startsWith("logic:")) continue;
     const source = img.documents[key];
@@ -628,7 +623,7 @@ function allocateState(
   inFlight: Bindings,
 ): { num: number } | GuidedRefusal {
   const extra = new Set<number>();
-  const numbers = numBindings(inFlight);
+  const numbers = inFlight;
   for (const key of img.snapshot.keys) {
     if (!key.startsWith("logic:")) continue;
     const source = img.documents[key];
@@ -859,16 +854,16 @@ interface EgoSetup {
 type EgoRecognition = { ok: true; setup: EgoSetup } | { ok: false; problem: string };
 
 /**
- * Exactly one `if (isset(f5))` block with at most one literal ego
+ * Exactly one `if (isset(new_room))` block with at most one literal ego
  * set.view/position/draw. Anything else — a missing setup, a doubled
  * statement, a computed variant — is a problem to refuse on, not to guess at.
  */
 function recognizeEgoSetup(room: ParsedRoom): EgoRecognition {
   const inits = initBlocks(room.program);
   if (inits.length === 0)
-    return { ok: false, problem: "the room has no `if (isset(f5))` entry block" };
+    return { ok: false, problem: "the room has no `if (isset(new_room))` entry block" };
   if (inits.length > 1)
-    return { ok: false, problem: "the room has more than one `if (isset(f5))` entry block" };
+    return { ok: false, problem: "the room has more than one `if (isset(new_room))` entry block" };
   const init = inits[0]!;
   const body = init.then;
   const setViews = actionsNamed(body, "set.view").filter((s) => isEgo(s.args[0]));
@@ -1129,7 +1124,7 @@ function finish(
     dependencies[change.key] = inspectProjectSourceDependencies({
       source: change.content,
       profile: env.profile,
-      bindings: numBindings(mergedBindings),
+      bindings: mergedBindings,
     }).dependencies;
   }
   const selection = ctx.draft.select(changedKeys, dependencies);
@@ -1248,7 +1243,7 @@ function roomSourceOf(
       key,
     );
   try {
-    return { ok: true, key, source: doc, room: parseRoomSource(doc, numBindings(env.bindings)) };
+    return { ok: true, key, source: doc, room: parseRoomSource(doc, env.bindings) };
   } catch (error) {
     const detail =
       error instanceof AssemblerError
@@ -1418,9 +1413,9 @@ export function prepareGuidedAddRoom(ctx: GuidedContext, input: GuidedAddRoomInp
 
   const picRef = input.pictureName !== undefined ? input.pictureName : String(pictureId);
   const lines: string[] = [
-    `// ${roomTitle} — an empty room. The f5 block runs once on room entry: draw`,
+    `// ${roomTitle} — an empty room. The ${systemOperand("flag", 5, bindings)} block runs once on room entry: draw`,
     `// the picture${heroView !== null ? ", place ego, then hand control to the player" : ""}.`,
-    `if (isset(f5)) {`,
+    `if (isset(${systemOperand("flag", 5, bindings)})) {`,
     `  assignn(${picVarName}, ${picRef});`,
     `  load.pic(${picVarName});`,
     `  draw.pic(${picVarName});`,
@@ -1526,7 +1521,7 @@ export function prepareGuidedBoilerplate(
   if (input.part === "menus") {
     const ready = state("flag", "menus_ready");
     if (!("name" in ready)) return ready;
-    source = menusSource({ menusLogic: logicName, menusReady: ready.name });
+    source = menusSource({ menusLogic: logicName, menusReady: ready.name }, bindings);
   } else if (input.part === "game-over") {
     const dead = state("flag", "dead");
     if (!("name" in dead)) return dead;
@@ -1534,14 +1529,17 @@ export function prepareGuidedBoilerplate(
     if (!("name" in chosen)) return chosen;
     const cursor = state("variable", "game_over_cursor");
     if (!("name" in cursor)) return cursor;
-    source = gameOverSource({
-      gameOverLogic: logicName,
-      dead: dead.name,
-      chosen: chosen.name,
-      cursor: cursor.name,
-    });
+    source = gameOverSource(
+      {
+        gameOverLogic: logicName,
+        dead: dead.name,
+        chosen: chosen.name,
+        cursor: cursor.name,
+      },
+      bindings,
+    );
   } else {
-    source = scoreSource(logicName);
+    source = scoreSource(logicName, bindings);
   }
 
   const key = `logic:${logic.id}`;
@@ -2359,9 +2357,9 @@ export function prepareGuidedConnectDoor(
         );
       // Only arrivals *from this source room* land at the override point.
       const guard = insertAtThenEnd(dest.room, destSetup.setup.init, [
-        `if (equaln(v1, ${input.room})) {`,
+        `if (equaln(${systemOperand("variable", 1, env.bindings)}, ${input.room})) {`,
         `  position(o0, ${arrival.x}, ${arrival.y});`,
-        `  assignn(v6, 0);`,
+        `  assignn(${systemOperand("variable", 6, env.bindings)}, 0);`,
         `}`,
       ]);
       if (guard === "shared-line")
@@ -2433,9 +2431,9 @@ export function prepareGuidedConnectDoor(
           src.key,
         );
       const landingGuard = insertAtThenEnd(src.room, srcSetup.setup.init, [
-        `if (equaln(v1, ${input.destination})) {`,
+        `if (equaln(${systemOperand("variable", 1, env.bindings)}, ${input.destination})) {`,
         `  position(o0, ${landing.x}, ${landing.y});`,
-        `  assignn(v6, 0);`,
+        `  assignn(${systemOperand("variable", 6, env.bindings)}, 0);`,
         `}`,
       ]);
       if (landingGuard === "shared-line")

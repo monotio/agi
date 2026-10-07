@@ -9,6 +9,7 @@
  * code outside the recognized fragment stays byte for byte; an unrecognized
  * affected fragment is reported, not rewritten.
  */
+import { systemBindings } from "../logic/systemNames.ts";
 import { expandProjectLogic } from "./projectLogic.ts";
 import {
   parseLogicSyntax,
@@ -39,7 +40,7 @@ export function parseRoomSource(
   bindings: Readonly<Record<string, { readonly num: number }>>,
 ): ParsedRoom {
   const expansion = expandProjectLogic(source, bindings);
-  const parsed = parseLogicSyntax(expansion.prelude + source);
+  const parsed = parseLogicSyntax(expansion.prelude + source, systemBindings(bindings));
   return { tokens: parsed.tokens, program: parsed.program, base: expansion.authoredStart, source };
 }
 
@@ -111,13 +112,13 @@ export function flagRef(ref: Ref | undefined): number | null {
   return ref !== undefined && ref.kind === "f" ? ref.index : null;
 }
 
-/** The single canonical room-entry test: `if (isset(f5))` exactly. */
+/** The single canonical room-entry test: `if (isset(new_room))` exactly. */
 function isInitTest(test: TestExpr): boolean {
   if (test.type !== "cond" || test.name !== "isset" || test.args.length !== 1) return false;
   return flagRef(test.args[0]) === 5;
 }
 
-/** Top-level statements of a program that are `if (isset(f5)) {…}` blocks. */
+/** Top-level statements of a program that are `if (isset(new_room)) {…}` blocks. */
 export function initBlocks(program: readonly Stmt[]): (Stmt & { type: "if" })[] {
   return program.filter(
     (stmt): stmt is Stmt & { type: "if" } => stmt.type === "if" && isInitTest(stmt.test),

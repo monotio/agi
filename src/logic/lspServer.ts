@@ -7,7 +7,7 @@ import { analyzeLogicSyntax, scanLogicTokens } from "./syntax.ts";
 import { createLogicLanguageStructure } from "./languageStructure.ts";
 import { projectOperandInfos } from "./projectNames.ts";
 import { messageCodeActions, messageInlayHints } from "./messageReadability.ts";
-import { systemName, systemBindingInfos } from "./systemNames.ts";
+import { systemName, systemBindingInfos, systemBindings } from "./systemNames.ts";
 import { OPERAND_NAMES, BINDING_KINDS, type NumberedOperand } from "./languageOperands.ts";
 import { offsetAt, positionAt, rangeAt, SEMANTIC_LEGEND } from "./lspTypes.ts";
 import type {
@@ -372,7 +372,8 @@ export function createLogicLspServer(
           entry.kind === operand.kind &&
           entry.num === operand.num &&
           (operand.kind !== "m" || candidate.uri === doc.uri) &&
-          (!entry.name || entry.bindingName === old),
+          (!entry.name ||
+            entry.bindingName === (old ?? operand.name ?? systemName(operand.kind, operand.num))),
       );
       // A binding is also a numeric constant in scalar operands. Keep every
       // reference owned by its declaration when replacing the bindings key.
@@ -425,6 +426,12 @@ export function createLogicLspServer(
         name,
       );
     }
+    const builtin = systemBindingInfos().find((entry) => entry.name === name);
+    const current = project.bindings[bindingName]!;
+    if (builtin && (builtin.kind !== current.kind || builtin.num !== current.num))
+      throw new Error(
+        `The name '${name}' belongs to ${builtin.kind === "flag" ? "Flag" : "Variable"} ${builtin.num}. Choose another name.`,
+      );
     const tokens = scanLogicTokens(name);
     if (
       tokens.length !== 2 ||
@@ -731,9 +738,11 @@ export function createLogicLspServer(
           ? [
               ...new Set([
                 ...operandBindings(operand, doc),
-                ...(systemName(operand.kind, operand.num)
-                  ? [systemName(operand.kind, operand.num)!]
-                  : []),
+                ...Object.entries(systemBindings(project.bindings))
+                  .filter(
+                    ([, binding]) => binding.kind === operand.kind && binding.num === operand.num,
+                  )
+                  .map(([name]) => name),
                 ...(operand.kind === "m" ? [doc] : allDocuments()).flatMap((candidate) =>
                   language(candidate).operands.flatMap((entry) =>
                     entry.kind === operand.kind && entry.num === operand.num && entry.name
