@@ -143,7 +143,7 @@ describe("inspectEditableProject", () => {
     const bindings = JSON.parse(inspection.documents["bindings"] as string);
     // Template binding names retain their original slots.
     assert.deepEqual(bindings["death_logic"], { kind: "logic", num: 255 });
-    assert.deepEqual(bindings["ego_view"], { kind: "view", num: 0 });
+    assert.deepEqual(bindings["hero_view"], { kind: "view", num: 0 });
   });
 
   test("an imported native game reads as a byte-only inventory", () => {

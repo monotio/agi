@@ -167,7 +167,7 @@ test("Place hero starts with the room’s current VIEW", async ({ page }) => {
     ).__AGI_PROJECT__.getSession();
     const base = session.model.capture();
     const bindings = JSON.parse(base.read("bindings")!.content as string);
-    bindings.ego_view.num = 3;
+    bindings.hero_view.num = 3;
     await session.submit({
       proposal: session.model.propose(base, "Change hero VIEW", [
         { key: "bindings", content: JSON.stringify(bindings) },

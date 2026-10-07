@@ -125,8 +125,8 @@ if (isset(new_room)) {
   show.pic();
   set.horizon(74);
   animate.obj(o0);
-  load.view(ego_view);
-  set.view(o0, ego_view);
+  load.view(hero_view);
+  set.view(o0, hero_view);
   set.loop(o0, 2);
   position(o0, 80, 140);
   draw(o0);
@@ -448,7 +448,7 @@ const STARTER_WORD_ENTRIES: readonly WordEntry[] = [
 const STARTER_BINDINGS: Record<string, StarterBinding> = {
   ...BOILERPLATE_BINDINGS,
   clearing_pic: { kind: "picture", num: 1 },
-  ego_view: { kind: "view", num: STARTER_EGO_VIEW },
+  hero_view: { kind: "view", num: STARTER_EGO_VIEW },
   chime_sound: { kind: "sound", num: STARTER_CHIME_SOUND },
   chime_done: { kind: "flag", num: STARTER_CHIME_FLAG },
 };

@@ -149,7 +149,8 @@ test("a failed build can be repaired from its error notice @webkit-desktop", asy
   await open(page, "part-room:1:logic");
   const original = await runningWorkspaceDocument(page, "logic:8");
   const problems = page.getByTestId("workspace-status-problems");
-  const originalProblems = await problems.textContent();
+  // A fresh starting game builds cleanly: the status bar shows no problem count.
+  await expect(problems).toHaveCount(0);
   // A closed part has no live editor diagnostics; Update must validate it too.
   await page.evaluate(() => {
     const session = (
@@ -169,8 +170,8 @@ test("a failed build can be repaired from its error notice @webkit-desktop", asy
   const mac = await page.evaluate(() => navigator.userAgent.includes("Macintosh"));
   await page.keyboard.press(mac ? "Meta+a" : "Control+a");
   await page.keyboard.insertText("return;");
-  // Repair clears the new errors while retaining the starter's existing name warnings.
-  await expect(problems).toHaveText(originalProblems!);
+  // Repair clears the new errors and the game builds cleanly again.
+  await expect(problems).toHaveCount(0);
   await page.getByTestId("workspace-update-menu").click();
   await page.getByRole("menuitem", { name: "Update and keep playing", exact: true }).click();
   await expect.poll(() => runningWorkspaceDocument(page, "logic:8")).toBe("return;");

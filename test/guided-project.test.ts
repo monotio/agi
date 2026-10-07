@@ -170,11 +170,11 @@ if (isset(new_room)) {
   test("places a supplied existing view as the hero with a runnable entry", () => {
     const { ctx } = workspace("starter");
     const op = mustPrepare(
-      prepareGuidedAddRoom(ctx, { heroView: "ego_view", spawn: { x: 76, y: 110 } }),
+      prepareGuidedAddRoom(ctx, { heroView: "hero_view", spawn: { x: 76, y: 110 } }),
     );
     const room = op.changes.find((c) => c.key === "logic:2")!.content as string;
     assert.match(room, /animate\.obj\(o0\);/);
-    assert.match(room, /load\.view\(ego_view\);\n {2}set\.view\(o0, ego_view\);/);
+    assert.match(room, /load\.view\(hero_view\);\n {2}set\.view\(o0, hero_view\);/);
     assert.match(room, /position\(o0, 76, 110\);\n {2}draw\(o0\);\n {2}player\.control\(\);/);
     assert.match(room, /set\.horizon\(36\);/);
   });
@@ -347,8 +347,8 @@ describe("guided place hero", () => {
     assert.equal(
       after,
       before
-        .replace("load.view(ego_view)", "load.view(0)")
-        .replace("set.view(o0, ego_view)", "set.view(o0, 0)"),
+        .replace("load.view(hero_view)", "load.view(0)")
+        .replace("set.view(o0, hero_view)", "set.view(o0, 0)"),
       "only the view references change",
     );
   });
@@ -562,7 +562,7 @@ describe("guided respond to command", () => {
 describe("guided connect door", () => {
   function twoRooms() {
     const ws = workspace("starter");
-    mustPrepare(prepareGuidedAddRoom(ws.ctx, { heroView: "ego_view" })).apply();
+    mustPrepare(prepareGuidedAddRoom(ws.ctx, { heroView: "hero_view" })).apply();
     return ws;
   }
 
@@ -712,7 +712,7 @@ describe("guided connect door", () => {
 describe("world metadata keeps the names the creator gave", () => {
   test("a door never resets the title or description of either room", () => {
     const { ctx, draft } = workspace("starter");
-    mustPrepare(prepareGuidedAddRoom(ctx, { heroView: "ego_view" })).apply();
+    mustPrepare(prepareGuidedAddRoom(ctx, { heroView: "hero_view" })).apply();
     // The creator renamed the new room and wrote a description for room 1.
     const before = draft.capture();
     const world = JSON.parse(before.read("world")!.content as string);

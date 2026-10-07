@@ -19,6 +19,7 @@ import type { SoundDocumentEnvelope } from "../src/sound/document.ts";
 import { buildView, parseView } from "../src/view/view.ts";
 import { compileViewSource } from "../src/view/viewSource.ts";
 import type { GameContainer, ResourceKind } from "../src/types.ts";
+import { SYSTEM_FLAGS, SYSTEM_VARIABLES } from "../src/logic/systemNames.ts";
 
 const PROFILE = PROFILES["2.936"]!;
 const KINDS: readonly StarterKind[] = ["starter", "boilerplate", "blank"];
@@ -445,12 +446,12 @@ describe("starter starter project", () => {
 
 test("editing a returned binding cannot change future Starter projects", () => {
   const project = createStarterProject("starter");
-  const binding = project.bindings["ego_view"]! as { num: number };
+  const binding = project.bindings["hero_view"]! as { num: number };
   const original = binding.num;
   try {
     binding.num = 17;
     const fresh = createStarterProject("starter");
-    assert.equal(fresh.bindings["ego_view"]!.num, original);
+    assert.equal(fresh.bindings["hero_view"]!.num, original);
     assert.equal(fresh.seed.digest, project.seed.digest);
   } finally {
     binding.num = original;
@@ -562,4 +563,14 @@ test("playability is LOGIC 0 presence; Blank opens in the workspace empty state"
   const blank = openContainer(createStarterProject("blank").files());
   blank.putResource("logic", 1, new Uint8Array([1, 0, 0, 0, 0, 0]));
   assert.equal(isPlayableProject(blank.files), false, "a room alone has no boot");
+});
+
+test("starting games never name a part after a built-in flag or variable", () => {
+  const builtin = new Set([...Object.values(SYSTEM_FLAGS), ...Object.values(SYSTEM_VARIABLES)]);
+  for (const kind of ["starter", "boilerplate", "blank"] as const) {
+    const shadowing = Object.keys(createStarterProject(kind).bindings).filter((name) =>
+      builtin.has(name),
+    );
+    assert.deepEqual(shadowing, [], `${kind} shadows a built-in name`);
+  }
 });
