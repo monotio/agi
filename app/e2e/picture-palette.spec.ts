@@ -3,7 +3,6 @@ import type { ProjectSession } from "../src/project/projectSession.ts";
 import { test, expect } from "./test.ts";
 import { isolateStorage, workspaceSaved, workspaceUpdated } from "./engineProbe.ts";
 
-const HINT = "Pick a drawing tool to paint, or select a shape to recolour it";
 async function picture(page: Page) {
   await isolateStorage(page);
   await page.goto("/#create-adventure");
@@ -53,9 +52,8 @@ for (const width of [1063, 1440, 390]) {
       const studio = await picture(page);
       const strip = studio.locator(".workspace-palette");
       await expect(strip).toBeVisible();
-      const hint = strip.getByText(HINT, { exact: true });
-      await expect(hint).toBeVisible();
-      await expect(hint).toHaveText(HINT);
+      // With nothing to paint or recolour, the strip holds its place, empty.
+      await expect(strip).toHaveText("");
       await expect(strip.getByRole("radio")).toHaveCount(0);
       await expect(studio.getByTestId("studio-value-visual")).toBeDisabled();
       const initialBox = (await strip.boundingBox())!;
@@ -86,7 +84,7 @@ for (const width of [1063, 1440, 390]) {
       await red.press("ControlOrMeta+z");
       await workspaceSaved(page);
       expect((await history(page)).source).toEqual(before.source);
-      await expect(hint).toBeHidden();
+      await expect(strip.getByRole("radio").first()).toBeVisible();
       await studio
         .getByTestId("studio-options-bar")
         .getByRole("radio", { name: "Priority", exact: true })

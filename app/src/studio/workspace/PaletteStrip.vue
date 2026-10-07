@@ -2,7 +2,7 @@
 import { computed } from "vue";
 import { EGA_PALETTE } from "../../render/palette.ts";
 import { EGA_COLOUR_NAMES } from "../../../../src/studio/sceneGroups.ts";
-import { PALETTE_HINT, type paletteContext } from "../useStudioPalette.ts";
+import type { paletteContext } from "../useStudioPalette.ts";
 import { CONTROL_VALUES, priorityMeaning } from "../studioView.ts";
 const {
   context = undefined,
@@ -56,9 +56,9 @@ function key(event: KeyboardEvent, index: number): void {
 </script>
 <template>
   <div class="workspace-palette" :class="{ 'is-contextual': context !== undefined }">
-    <p v-if="state.action === 'hint'" class="workspace-palette__hint">{{ PALETTE_HINT }}</p>
+    <!-- With nothing to paint or recolour, the strip holds its place, empty. -->
     <div
-      v-else
+      v-if="state.action !== 'hint'"
       class="workspace-palette__choices"
       :class="`is-${state.lens}`"
       role="radiogroup"
@@ -124,12 +124,6 @@ function key(event: KeyboardEvent, index: number): void {
 .workspace-palette:not(.is-contextual) button {
   flex: none;
   width: 24px;
-}
-.workspace-palette__hint {
-  margin: 0;
-  color: var(--ink-3);
-  font-size: var(--text-xs);
-  text-align: center;
 }
 button {
   flex: 1 1 24px;

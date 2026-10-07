@@ -121,7 +121,7 @@ function commitName(event: Event): void {
 <template>
   <aside class="inspector" aria-label="Inspector" data-testid="studio-inspector">
     <slot name="lead" />
-    <header class="inspector__title" data-testid="inspector-title">
+    <header v-if="row" class="inspector__title" data-testid="inspector-title">
       <input
         v-if="row && rename"
         class="inspector__name"
@@ -132,11 +132,8 @@ function commitName(event: Event): void {
         @change="commitName"
         @keydown.enter="($event.target as HTMLInputElement).blur()"
       />
-      <h2 v-else>{{ row ? row.label : "Select an item to inspect its steps and colours." }}</h2>
-      <p class="inspector__sub" data-testid="inspector-subtitle">
-        <span v-if="row">{{ summary }}</span>
-        <template v-else>Click an item or a pixel.</template>
-      </p>
+      <h2 v-else>{{ row.label }}</h2>
+      <p class="inspector__sub" data-testid="inspector-subtitle">{{ summary }}</p>
     </header>
     <slot name="editor" />
     <slot name="assist" />
@@ -148,7 +145,7 @@ function commitName(event: Event): void {
       test-id="inspector-details"
     >
       <section v-if="row" class="inspector__sec" data-role="steps">
-        <h3>Steps <em>click to scrub</em></h3>
+        <h3>Steps <em>Preview a step</em></h3>
         <ol class="inspector__cmds" data-testid="inspector-commands">
           <li v-for="cmd in commands" :key="cmd.entry">
             <button

@@ -691,7 +691,7 @@ test("an empty picture names the next drawing action", async ({ page }) => {
   await page.getByTestId("part-room:1:picture:1").click();
   const empty = page.locator(".scene-list__empty");
   await expect(empty).toBeVisible();
-  await expect(empty).toHaveText("Nothing drawn yet. Pick a tool to start.");
+  await expect(empty).toHaveText("Nothing drawn yet.");
 });
 
 test("drawing preserves invalid room LOGIC and Walk refuses to overwrite it", async ({ page }) => {

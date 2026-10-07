@@ -464,7 +464,7 @@ function onDrop(entry: Entry, event: DragEvent): void {
         </li>
       </template>
       <li v-if="entries.length === 0" class="scene-list__empty" role="presentation">
-        {{ filter ? `No items match “${filter}”.` : "Nothing drawn yet. Pick a tool to start." }}
+        {{ filter ? `No items match “${filter}”.` : "Nothing drawn yet." }}
       </li>
     </ul>
     <template #footer>
