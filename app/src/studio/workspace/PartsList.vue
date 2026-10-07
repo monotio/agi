@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import UiIcon from "../../ui/UiIcon.vue";
+import ActionMenu from "../../ui/ActionMenu.vue";
 import {
   computed,
   ref,
@@ -456,40 +457,41 @@ function onKey(event: KeyboardEvent): void {
             {{ info.name
             }}<small>{{ info.kind === "flag" ? "Flag" : "Variable" }} {{ info.num }}</small>
           </button>
-          <small v-for="role in ['Set', 'Checked'] as const" :key="role"
-            >{{ role }}:
-            {{
-              [
-                ...new Set(
-                  info.uses
-                    .filter((use) => use.role === role)
-                    .map((use) => use.key.replace(":", " ").toUpperCase()),
-                ),
-              ].join(", ") || "nowhere yet"
-            }}</small
+          <ActionMenu
+            class="state-actions"
+            :label="`Actions for ${info.name}`"
+            icon-only
+            icon="ellipsis"
+            size="sm"
           >
-          <details class="part-menu">
-            <summary :aria-label="`Actions for ${info.name}`">
-              <UiIcon name="ellipsis" :size="16" />
-            </summary>
             <button
-              class="part-rename"
+              type="button"
+              role="menuitem"
+              @click="
+                details = info;
+                editingName = false;
+              "
+            >
+              Find references
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              :disabled="readOnly"
               :title="
                 readOnly
                   ? 'Editing is paused. Download your unsaved edits, then reload.'
                   : 'Rename this name'
               "
-              :disabled="readOnly"
               :aria-label="`Rename ${info.name}`"
               @click="
-                closePartMenu($event);
                 details = info;
                 editingName = true;
               "
             >
               Rename
             </button>
-          </details>
+          </ActionMenu>
         </div>
         <details
           v-if="builtinNames.length"
@@ -510,28 +512,41 @@ function onKey(event: KeyboardEvent): void {
             </button>
             <small>{{ info.meaning }}</small>
             <small v-if="info.usage">Used: {{ info.usage }}</small>
-            <details class="part-menu">
-              <summary :aria-label="`Actions for ${info.name}`">
-                <UiIcon name="ellipsis" :size="16" />
-              </summary>
+            <ActionMenu
+              class="state-actions"
+              :label="`Actions for ${info.name}`"
+              icon-only
+              icon="ellipsis"
+              size="sm"
+            >
               <button
-                class="part-rename"
+                type="button"
+                role="menuitem"
+                @click="
+                  details = info;
+                  editingName = false;
+                "
+              >
+                Find references
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                :disabled="readOnly"
                 :title="
                   readOnly
                     ? 'Editing is paused. Download your unsaved edits, then reload.'
                     : 'Rename this name'
                 "
-                :disabled="readOnly"
                 :aria-label="`Rename ${info.name}`"
                 @click="
-                  closePartMenu($event);
                   details = info;
                   editingName = true;
                 "
               >
                 Rename
               </button>
-            </details>
+            </ActionMenu>
           </div>
         </details>
       </section>
@@ -555,7 +570,7 @@ function onKey(event: KeyboardEvent): void {
   margin-block: var(--space-2);
 }
 .state-row .part {
-  grid-column: 1 / -1;
+  grid-column: 1;
   flex-direction: column;
   align-items: flex-start;
 }
@@ -565,9 +580,10 @@ function onKey(event: KeyboardEvent): void {
   font-size: var(--text-2xs);
   padding-inline: var(--space-3);
 }
-.state-row .part-menu {
+.state-actions {
   grid-column: 2;
-  grid-row: 2 / 4;
+  grid-row: 1;
+  align-self: center;
 }
 .part-row {
   display: flex;

@@ -132,8 +132,8 @@ test("missing future rooms are distinct from missing callable logic and reserved
     bindings: { future_art: { kind: "view", num: 9 } },
   });
   assert.equal(
-    result.diagnostics.find((entry) => entry.command === "new.room")?.severity,
-    "warning",
+    result.diagnostics.find((entry) => entry.command === "new.room"),
+    undefined,
   );
   assert.equal(result.diagnostics.find((entry) => entry.command === "call")?.severity, "error");
   assert.deepEqual(result.dependencies["bindings"], ["view:9"]);

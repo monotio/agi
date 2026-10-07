@@ -230,17 +230,15 @@ export function inspectProjectReferences(input: {
         });
     } else {
       try {
-        if (!container.getResource(target.kind, target.num))
+        if (!container.getResource(target.kind, target.num)) {
+          if (input.allowMissingRooms && reference.command === "new.room") continue;
           diagnostics.push({
             ...origin,
             code: "missing-resource",
-            severity:
-              reference.document === "bindings" ||
-              (input.allowMissingRooms && reference.command === "new.room")
-                ? "warning"
-                : "error",
+            severity: reference.document === "bindings" ? "warning" : "error",
             message: `${target.kind.toUpperCase()} ${target.num} is absent.`,
           });
+        }
       } catch (error) {
         unreadable(`${target.kind}:${target.num}`, error);
       }

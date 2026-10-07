@@ -17,4 +17,5 @@ export type ProjectJournalOperation =
     }
   | { readonly kind: "tag"; readonly name: string }
   | { readonly kind: "renameTag"; readonly name: string; readonly next: string | null }
-  | { readonly kind: "chats"; readonly chats: AgentChats };
+  | { readonly kind: "chats"; readonly chats: AgentChats }
+  | { readonly kind: "roomGeneration"; readonly enabled: boolean };

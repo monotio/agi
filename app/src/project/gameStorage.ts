@@ -1597,6 +1597,20 @@ export function updateGameConversation(
   });
 }
 
+/** Update one project's room-generation setting behind the storage generation fence. */
+export function setStoredRoomGeneration(
+  projectId: ProjectId,
+  enabled: boolean,
+  expectedGeneration?: number,
+): Promise<void> {
+  return serializeWrite(projectId, async () => {
+    const data = await readBody(projectId);
+    if (!data) throw new Error("This game was removed. Open another game.");
+    data.roomGeneration = enabled;
+    await writeBody(data, { expectedGeneration: expectedGeneration ?? data.generation });
+  });
+}
+
 export function renameAuthoredGame(
   projectId: ProjectId,
   title: string,

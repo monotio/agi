@@ -111,6 +111,24 @@ test("Create captures an undrawn game and returns to its exact running state", (
   assert.equal(ctx.run.engine!.autosaveImage(), null);
 });
 
+test("returning from Create keeps the room-generation setting changed there", (t) => {
+  for (const enabled of [true, false]) {
+    const { ctx, control } = workerHarness(
+      gameContainer(["assignn(v80,42);accept.input();return;"]),
+    );
+    t.after(() => ctx.fns.stopTimers());
+    ctx.boot.authorRooms = !enabled;
+    ctx.fns.tickEngine();
+    enter(ctx);
+    onWorkerMessage(ctx, { type: "authorRooms", enabled });
+    onWorkerMessage(ctx, { type: "projectPlay", id: 2 });
+    assert.ok(control.findLast((message) => message.type === "projectPlayed")?.ok);
+    assert.equal(ctx.boot.authorRooms, enabled);
+    assert.equal(typeof ctx.host.prepareRoom, enabled ? "function" : "undefined");
+    assert.equal(ctx.run.engine!.vars[80], 42);
+  }
+});
+
 test("Create boot excludes the first later death checkpoint and pagehide flush", async (t) => {
   const { ctx, presentation, control } = workerHarness(game());
   t.after(() => ctx.fns.stopTimers());

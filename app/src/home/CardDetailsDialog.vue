@@ -10,6 +10,7 @@ import { computed, nextTick, watch } from "vue";
 import UiButton from "../ui/UiButton.vue";
 import UiDialog from "../ui/UiDialog.vue";
 import EarlierProgressSection from "./EarlierProgressSection.vue";
+import RoomGenerationSetting from "./RoomGenerationSetting.vue";
 import { shownDetails } from "./cardDetails.ts";
 import { describeGameProfile } from "../library/profileChoice.ts";
 import { useGameLibrary } from "../library/useGameLibrary.ts";
@@ -140,6 +141,13 @@ async function changeInterpreter(): Promise<void> {
           </dd>
         </template>
       </dl>
+      <RoomGenerationSetting
+        v-if="liveGame"
+        :key="liveGame.projectId"
+        :project-id="liveGame.projectId"
+        :enabled="liveGame.roomGeneration === true"
+        :generation="liveGame.generation"
+      />
       <EarlierProgressSection v-if="shownDetails.earlier" :context="shownDetails.earlier" />
     </template>
   </UiDialog>

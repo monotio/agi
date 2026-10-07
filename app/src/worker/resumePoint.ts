@@ -202,7 +202,7 @@ export function adoptResumePoint(
     dictionary,
     ...(options.returnToPlay ? { progress: { mode: "play" }, scratchSlots: {} } : {}),
     settings: {
-      authorRooms: boot.authorRooms,
+      authorRooms: options.currentFiles ? ctx.boot.authorRooms : boot.authorRooms,
       createAllowed: ctx.boot.createAllowed,
       selectedSoundDevice: boot.soundDevice === 0 ? 0 : 1,
     },

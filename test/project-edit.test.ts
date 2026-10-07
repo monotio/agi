@@ -315,3 +315,33 @@ test("coordinated resource deletion checks surviving metadata and references", (
   assert.equal(metadata.status, "diagnostics");
   assert.ok(metadata.diagnostics.some(({ document }) => document === "world"));
 });
+
+test("future rooms and computed dispatch stay out of Problems, with literal calls still checked", () => {
+  const model = setup();
+  const proposal = model.propose(model.capture(), "Room exit", [
+    { key: "logic:0", content: "new.room(3); new.room.v(v0); load.pic(v50); return;" },
+  ]);
+  const on = prepareProjectEdit({
+    model,
+    proposal,
+    profileId: "2.936",
+    policy: { allowMissingRooms: true },
+  });
+  assert.equal(on.status, "ready");
+  assert.deepEqual(on.diagnostics, []);
+  const off = prepareProjectEdit({ model, proposal, profileId: "2.936", policy: {} });
+  assert.equal(off.status, "diagnostics");
+  assert.deepEqual(
+    off.diagnostics.map(({ message, severity }) => ({ message, severity })),
+    [{ message: "LOGIC 3 is absent.", severity: "error" }],
+  );
+  const call = prepareProjectEdit({
+    model,
+    proposal: model.propose(model.capture(), "Shared code", [
+      { key: "logic:0", content: "call(3); return;" },
+    ]),
+    profileId: "2.936",
+    policy: { allowMissingRooms: true },
+  });
+  assert.equal(call.status, "diagnostics");
+});

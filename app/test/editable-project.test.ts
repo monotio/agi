@@ -505,10 +505,9 @@ test("a manual project refuses a missing static room; an explicit generation pol
   const generatedWs = await openEditableProject(generated);
   editSource(generatedWs, "logic:1", "new.room(9);\nreturn;");
   const allowed = generatedWs.buildSelected(["logic:1"]);
-  assert.ok(
-    allowed.diagnostics.some(
-      (entry) => entry.code === "missing-resource" && entry.severity === "warning",
-    ),
+  assert.equal(
+    allowed.diagnostics.some((entry) => entry.code === "missing-resource"),
+    false,
   );
   await generatedWs.keepCandidate(allowed);
   assert.equal(

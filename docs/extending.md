@@ -49,7 +49,8 @@ Answer the matching host request to resume it.
 
 The optional `prepareRoom` hook lets authored games supply a missing room during
 `new.room`. Validate and install the complete resource transaction before
-resuming room entry. The browser grants this hook only to app-created games;
-imported and fixture games run their own resources. Follow the profile's native
+resuming room entry. The browser enables this hook through the project's
+room-generation setting. Create with AI defaults on; imported, fixture and local
+template games default off. The creator can change it in game Details. Follow the profile's native
 room-entry behavior and test the host interaction with a real Engine and fake
 ports, as described in the [test method](../AGENTS.md#method).

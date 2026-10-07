@@ -97,6 +97,8 @@ export function prepareProjectEdit(input: {
       existing[key] = (existing[key] ?? 0) + 1;
     }
     for (const diagnostic of references.diagnostics) {
+      // Computed dispatch is ordinary AGI; the reference index retains its details.
+      if (diagnostic.code === "unresolved-reference") continue;
       const key = marker(diagnostic);
       const preExisting = (existing[key] ?? 0) > 0;
       if (preExisting) existing[key] = existing[key]! - 1;
@@ -104,7 +106,9 @@ export function prepareProjectEdit(input: {
         document: diagnostic.document,
         code: diagnostic.code,
         message: diagnostic.message,
-        severity: preExisting ? "warning" : diagnostic.severity,
+        // Sealing rooms checks every room exit, including existing ones.
+        severity:
+          preExisting && diagnostic.command !== "new.room" ? "warning" : diagnostic.severity,
         preExisting,
       });
     }

@@ -177,6 +177,7 @@ function createSession(
       outcome?: PreviewUpdateOutcome,
       nativeInstalled?: boolean,
     ) => void;
+    readonly roomGenerationChanged?: (enabled: boolean) => void;
     readonly changed?: () => void;
     readonly checkpointReady?: () => void;
     readonly forked?: (data: CachedGameData, lifetime: string) => void;
@@ -304,7 +305,7 @@ function createSession(
         ? {
             title: `${data.title} Remix`,
             imported: true,
-            roomGeneration: false,
+            roomGeneration: capture.data.roomGeneration === true,
             library: {
               ...capture.data.library!,
               source: "remix" as const,
@@ -860,6 +861,25 @@ function createSession(
     get allowMissingRooms() {
       return data.roomGeneration === true;
     },
+    setRoomGeneration(enabled: boolean) {
+      return schedule(async () => {
+        await ready;
+        if (!current() || writeBlock !== undefined)
+          throw new Error("Reopen this game before changing its settings.");
+        if (data.roomGeneration === enabled) return;
+        data.roomGeneration = enabled;
+        diagnostics = prepareProjectEdit({
+          model,
+          proposal: model.propose(model.capture(), "Room generation", []),
+          profileId: inspection.profileId,
+          policy: { allowMissingRooms: enabled },
+        }).diagnostics;
+        recordOperation({ kind: "roomGeneration", enabled });
+        input.roomGenerationChanged?.(enabled);
+        captureSave(model.capture());
+        notify();
+      });
+    },
     chats() {
       return readAgentChats(data.chats);
     },
@@ -1087,6 +1107,7 @@ function createSession(
         captureSave(model.capture());
         return;
       }
+      if (operation.kind === "roomGeneration") return session.setRoomGeneration(operation.enabled);
       if (operation.kind === "chats") return session.saveChats(operation.chats);
       if (operation.kind === "tag") return session.tag(operation.name);
       if (operation.kind === "renameTag") return session.renameTag(operation.name, operation.next);
