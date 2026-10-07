@@ -16,6 +16,11 @@ interface Case {
     request: string;
     turns: LlmTurnResult[];
     expectedKeys: string[];
+    expectedOutcomes?: Record<string, boolean>;
+    expectedError?: string;
+    autoApprove?: boolean;
+    expectedCommits?: number;
+    expectedDocuments?: Record<string, string | null>;
   };
 }
 const directory = new URL("../fixtures/bad-cases/", import.meta.url);
@@ -77,10 +82,16 @@ for (const file of readdirSync(directory).filter((file) => file.endsWith(".json"
             return content.turns[round++]!;
           },
           appendToolResults(results) {
-            assert.ok(
-              results.every((entry) => entry.result.success),
-              JSON.stringify(results),
-            );
+            for (const entry of results)
+              assert.equal(
+                entry.result.success,
+                content.expectedOutcomes?.[entry.toolCallId] ?? true,
+                JSON.stringify({
+                  toolCallId: entry.toolCallId,
+                  success: entry.result.success,
+                  error: entry.result.error,
+                }),
+              );
           },
           async complete() {
             return content.turns[round++]!;
@@ -91,8 +102,11 @@ for (const file of readdirSync(directory).filter((file) => file.endsWith(".json"
         };
       },
     });
+    agent.autoApprove = content.autoApprove ?? false;
     try {
-      await agent.send(content.request);
+      if (content.expectedError)
+        await assert.rejects(agent.send(content.request), new RegExp(content.expectedError));
+      else await agent.send(content.request);
       assert.deepEqual(
         agent
           .pending()
@@ -100,7 +114,9 @@ for (const file of readdirSync(directory).filter((file) => file.endsWith(".json"
           .map((change) => change.key) ?? [],
         content.expectedKeys,
       );
-      assert.equal(session.history.capture().commits.length, 1);
+      assert.equal(session.history.capture().commits.length, content.expectedCommits ?? 1);
+      for (const [key, value] of Object.entries(content.expectedDocuments ?? {}))
+        assert.equal(session.model.capture().read(key)?.content ?? null, value);
     } finally {
       session.dispose();
     }

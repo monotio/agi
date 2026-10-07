@@ -138,7 +138,7 @@ export const AUTHORING_TOOLS: readonly ToolDefinition[] = [
     name: "configure_launch",
     description: toolDescription(
       "configure_launch",
-      "Create, update or remove a named Launch configuration for `room`. When `action` is 'create', creates a new launch (or updates if `id` exists). When `action` is 'update', updates fields on launch `id`. When `action` is 'remove', deletes launch `id`. Fields not specified retain their previous values on update or defaults on create.",
+      "Create, update or remove a named Launch configuration for `room`. Create requires a new id or null to allocate one; an existing id is rejected. Update requires an existing id: null or omitted fields retain their values, supplied values replace them, and `clear` lists optional fields to remove. A field cannot be both set and cleared. Maps are arrays of unique {id,value} records; [] removes all map entries. Remove deletes launch `id`. Create uses defaults for null fields. `selected` true selects this launch, false deselects it, and null leaves selection unchanged.",
     ),
     parameters: parameterDescriptions("configure_launch", {
       type: "object",
@@ -159,16 +159,51 @@ export const AUTHORING_TOOLS: readonly ToolDefinition[] = [
           required: ["room", "edge"],
         },
         flags: {
-          type: ["object", "null"],
-          additionalProperties: { type: "boolean" },
+          type: ["array", "null"],
+          maxItems: 256,
+          items: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              id: { type: "integer", minimum: 0, maximum: 255 },
+              value: { type: "boolean" },
+            },
+            required: ["id", "value"],
+          },
         },
         variables: {
-          type: ["object", "null"],
-          additionalProperties: { type: "integer", minimum: 0, maximum: 255 },
+          type: ["array", "null"],
+          maxItems: 256,
+          items: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              id: { type: "integer", minimum: 0, maximum: 255 },
+              value: { type: "integer", minimum: 0, maximum: 255 },
+            },
+            required: ["id", "value"],
+          },
         },
         items: {
-          type: ["object", "null"],
-          additionalProperties: { type: "integer", minimum: 0, maximum: 255 },
+          type: ["array", "null"],
+          maxItems: 256,
+          items: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              id: { type: "integer", minimum: 0, maximum: 255 },
+              value: { type: "integer", minimum: 0, maximum: 255 },
+            },
+            required: ["id", "value"],
+          },
+        },
+        clear: {
+          type: ["array", "null"],
+          maxItems: 7,
+          items: {
+            type: "string",
+            enum: ["note", "cameFrom", "flags", "variables", "items", "hero", "seed"],
+          },
         },
         hero: {
           type: ["object", "null"],
@@ -195,6 +230,7 @@ export const AUTHORING_TOOLS: readonly ToolDefinition[] = [
         "hero",
         "seed",
         "selected",
+        "clear",
       ],
     }),
   },
