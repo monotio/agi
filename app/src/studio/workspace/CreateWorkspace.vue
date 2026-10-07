@@ -20,7 +20,7 @@ import { gameRoomMenu, roomMenuArmed } from "../../play/roomActionMenu.ts";
 import UiDialog from "../../ui/UiDialog.vue";
 import GuidedAdd from "./GuidedAdd.vue";
 import ContextActions, { type ContextAction } from "./ContextActions.vue";
-import { ROOM_ACTION_LABELS, type RoomActionKind } from "./guidedActions.ts";
+import { useOptionalCommands } from "../../shell/commands/commandContext.ts";
 import TestRunChip from "./TestRunChip.vue";
 import {
   roomPlacements,
@@ -201,6 +201,7 @@ const engine = useEngineApi();
 const profile = computed(() => engine.roomMap.resources.value.profile!);
 const workspace = useCreateWorkspace();
 const editor = useWorkspaceEditor();
+const commands = useOptionalCommands();
 const presentation = usePresentation();
 const InspectPanel = defineAsyncComponent(() => import("../../inspector/InspectPanel.vue"));
 const phoneQuery = window.matchMedia("(max-width: 600px)");
@@ -1846,22 +1847,6 @@ const contextActions = computed(() => {
       },
     );
   }
-  if (
-    (kind === "logic" || kind === "picture") &&
-    selectedRoom.value !== undefined &&
-    snapshot.value
-  ) {
-    for (const [actionKind, label] of Object.entries(ROOM_ACTION_LABELS))
-      actions.push({
-        id: actionKind,
-        label,
-        disabled,
-        testId: `room-action-${actionKind}`,
-        run: () => {
-          guidedKind.value = actionKind as RoomActionKind;
-        },
-      });
-  }
   if (unusedArt.value)
     actions.push({
       id: "make-room",
@@ -1872,18 +1857,26 @@ const contextActions = computed(() => {
     });
   return actions;
 });
-const contextSecondary = computed<ContextAction[]>(() =>
-  numberedPart.value
-    ? [
-        {
-          id: "number",
-          label: "Change number…",
-          disabled: writeConflict.value || actionBusy.value,
-          run: changeNumber,
-        },
-      ]
-    : [],
-);
+const contextSecondary = computed<ContextAction[]>(() => {
+  const actions: ContextAction[] = [];
+  if (numberedPart.value)
+    actions.push({
+      id: "number",
+      label: "Change number…",
+      disabled: writeConflict.value || actionBusy.value,
+      run: changeNumber,
+    });
+  if (editor.kind.value === "logic") {
+    const id = `logic.format.${editor.selected.value}`;
+    actions.push({
+      id: "format",
+      label: "Format document",
+      disabled: editingPaused.value || actionBusy.value || !commands?.enabled(id),
+      run: () => commands?.execute(id),
+    });
+  }
+  return actions;
+});
 
 /** Guided previews validate against the working snapshot, drafts included. */
 const guidedSnapshot = computed(() => {
@@ -2652,21 +2645,16 @@ onBeforeUnmount(() => {
       @change="applyNumber"
     />
     <div v-if="contextRow" class="workspace-context" data-testid="workspace-context">
-      <span v-if="numberedPart" data-testid="part-number">{{
-        numberedSlot(numberedPart.split(":")[0]!, Number(numberedPart.split(":")[1]))
-      }}</span>
       <DebugControls v-if="debug?.stopped.value" :debug="debug" />
       <UiChip v-if="editor.debugStatus.value" tone="warn" data-testid="workspace-debug-status">{{
         editor.debugStatus.value
       }}</UiChip>
-      <ContextActions :actions="contextActions" :secondary="contextSecondary" />
       <GuidedAdd
         v-if="
           (editor.kind.value === 'logic' || editor.kind.value === 'picture') &&
           selectedRoom !== undefined &&
           snapshot
         "
-        hide-actions
         v-model:action="guidedKind"
         :room="selectedRoom"
         :initial-command="guidedCommand"
@@ -2680,6 +2668,7 @@ onBeforeUnmount(() => {
         :new-room="() => guidedAction({ kind: 'add-room', title: '' }, { stay: true })"
         @add="guidedAction"
       />
+      <ContextActions :actions="contextActions" :secondary="contextSecondary" />
       <span v-if="unusedArt" class="workspace-context__note" data-testid="workspace-unused"
         >Not used by a room yet</span
       >

@@ -12,6 +12,7 @@ export default defineConfig({
   testMatch: [
     "agent-drawer.spec.ts",
     "workspace-debug-controls.spec.ts",
+    "workspace-actionrow.spec.ts",
     "workspace-launch.spec.ts",
     "workspace-objects.spec.ts",
     "workspace-renumber.spec.ts",
