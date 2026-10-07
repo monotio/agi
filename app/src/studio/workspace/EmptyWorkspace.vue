@@ -131,8 +131,8 @@ function resize(event: PointerEvent): void {
         'shell-body--no-editor': editor.phoneFrame.value,
       }"
       :style="{
-        '--workspace-game': `minmax(0, ${editor.effectiveSplit.value}fr)`,
-        '--workspace-edit': `minmax(0, ${100 - editor.effectiveSplit.value}fr)`,
+        '--workspace-game': `minmax(var(--workspace-game-min), ${editor.effectiveSplit.value}fr)`,
+        '--workspace-edit': `minmax(var(--workspace-edit-min), ${100 - editor.effectiveSplit.value}fr)`,
       }"
     >
       <PartsList
