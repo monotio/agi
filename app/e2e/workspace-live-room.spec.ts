@@ -12,6 +12,7 @@ import { openWorkspaceLogic, focusWorkspaceLogic, workspaceDocument } from "./wo
 
 test("Update and agent approval work after walking into a live-built room @webkit-desktop", async ({
   page,
+  browserName,
 }) => {
   await isolateStorage(page);
   await page.goto("/");
@@ -46,8 +47,45 @@ test("Update and agent approval work after walking into a live-built room @webki
   await input.press("Enter");
   await expect.poll(async () => (await textHook(page)).room).toBe(3);
   await workspaceSaved(page);
+  // Hold draft hydration across reload: accepted-project saves can already be
+  // settled while the separate notes draft is still opening its journal.
+  // Chromium supports the journal ownership locks used by this interleaving.
+  if (browserName === "chromium")
+    await page.addInitScript(() => {
+      let release!: () => void;
+      const ready = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const gate = { blocked: false, release };
+      (window as unknown as { __draftReadGate: typeof gate }).__draftReadGate = gate;
+      navigator.locks.request = new Proxy(navigator.locks.request, {
+        apply(target, receiver, args: unknown[]) {
+          if (typeof args[0] === "string" && args[0].startsWith("monotio_agi.part-drafts/")) {
+            gate.blocked = true;
+            return ready.then(() => Reflect.apply(target, receiver, args));
+          }
+          return Reflect.apply(target, receiver, args);
+        },
+      });
+    });
   await page.reload();
   await workspaceSaved(page);
+  await page.evaluate(async () => {
+    const probe = window as unknown as {
+      __draftReadGate?: { blocked: boolean; release(): void };
+      __AGI_PROJECT__: { getSession(): ProjectSession };
+    };
+    const session = probe.__AGI_PROJECT__.getSession();
+    const drafts = session.drafts();
+    if (probe.__draftReadGate) {
+      if (!probe.__draftReadGate.blocked) throw new Error("Draft hydration was not held");
+      if (session.workingSnapshot().read("notes") !== undefined)
+        throw new Error("Notes appeared before draft hydration");
+      probe.__draftReadGate.release();
+    }
+    // Project flush covers accepted writes; notes live in separately loaded drafts.
+    await drafts.ready;
+  });
   expect(await workspaceDocument(page, "notes")).toBe(
     "Keep this draft while the next rooms are built.",
   );
