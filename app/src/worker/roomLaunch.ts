@@ -88,6 +88,7 @@ export function prepareRoomLaunch(
     engine: replacement,
     activate: facade.activate,
     beginning: request.beginning === true,
+    // Explicit seeds override fresh-start entropy (docs/fidelity.md, "Host RNG policy").
     rng:
       state.seed !== undefined
         ? {
@@ -100,7 +101,7 @@ export function prepareRoomLaunch(
             },
           }
         : request.beginning
-          ? { word: 1, policy: { kind: "external" } }
+          ? { word: 0, policy: { kind: "external" } }
           : structuredClone(ctx.run.rng),
     debug: request.debug === true,
     ...(request.debug
