@@ -421,6 +421,7 @@ export function onWorkerMessage(ctx: WorkerContext, msg: WorkerInbound): void {
       }
       const admission =
         boot.projectMode === "create" ? loader.prepareBoot?.(engine, boot) : undefined;
+      // Lazy zero-state startup: docs/fidelity.md, "Host RNG policy".
       const rng = replay
         ? {
             word: boot.replaySeed! & 0xffff,
@@ -430,7 +431,7 @@ export function onWorkerMessage(ctx: WorkerContext, msg: WorkerInbound): void {
                 : { kind: "external" as const },
           }
         : boot.restoreRng === undefined
-          ? { word: (boot.rngSeed ?? 1) & 0xffff, policy: { kind: "external" as const } }
+          ? { word: (boot.rngSeed ?? 0) & 0xffff, policy: { kind: "external" as const } }
           : readHostRngState(boot.restoreRng);
       const prepared: PreparedRun = {
         engine,

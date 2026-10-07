@@ -15,7 +15,7 @@ export function rngDraw(state: number, reseed: () => number): { state: number; b
   return { state: next, byte: (next & 255) ^ (next >>> 8) };
 }
 
-/** Host entropy ownership, separate from the interpreter's arithmetic. */
+/** Host entropy ownership (docs/fidelity.md, "Host RNG policy"). */
 export type RngPolicy =
   { kind: "external" } | { kind: "sequence"; next: number; cursor: number; untilRoomChange?: true };
 export interface HostRngState {

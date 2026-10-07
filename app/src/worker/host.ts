@@ -29,17 +29,13 @@ export function createEngineHost(ctx: WorkerContext): EngineHost {
       const replay = ctx.replay.replay;
       const draw = rngDraw(ctx.run.rng.word, () => {
         if (replay === null) {
-          // The harness's modern stand-in for the BIOS-clock read: injected
-          // per port so tests stay deterministic, crypto in production —
-          // labeled different from Sierra's source per the plan.
+          // The port supplies the modern clock/entropy stand-in; only a
+          // zero-state draw reads it. See docs/fidelity.md, "Host RNG policy".
           const policy = ctx.run.rng.policy;
           const word =
             (policy.kind === "sequence"
               ? takeSequenceWord(policy)
-              : (ctx.ports.seedWord?.() ??
-                (typeof crypto !== "undefined"
-                  ? crypto.getRandomValues(new Uint16Array(1))[0]!
-                  : Math.floor(ctx.ports.now())))) & 0xffff;
+              : (ctx.ports.seedWord?.() ?? Math.floor(ctx.ports.now()))) & 0xffff;
           ctx.fns.historyRecord({ kind: "reseed", value: word });
           return word;
         }

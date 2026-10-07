@@ -659,6 +659,29 @@ for answers the browser cannot give synchronously, how it reports errors, and
 what it exposes for inspection. They are the engine's own design rather than
 findings about the original interpreters.
 
+### Host RNG policy
+
+Ordinary cold boots without restored RNG metadata and unseeded From the
+beginning Launches start at word zero. Their first random draw reads the
+injected host clock/entropy port; subsequent draws read it only when the word
+is zero again. This follows the lazy startup boundary established in the
+[original startup audit](#startup-and-reconstruction-execution).
+The browser supplies cryptographic entropy as a modern stand-in for the BIOS
+clock word; hosts without an entropy port use their injected clock.
+
+Explicit boot seeds remain controlled inputs. Seeded Launches also own an
+advancing deterministic entropy sequence: Play releases that policy at the
+next room change, while Create retains it across rooms. Unseeded room Launches
+carry the current word and policy. Native restart and restore retain the stream;
+exact host checkpoints restore both the word and entropy cursor.
+
+Game-test RNG policy v1 retains its constant reseed word; v2 advances the
+entropy sequence. Walkthrough v1 keeps its tick-derived reseed fallback and
+v2 uses the deterministic sequence. History replays consume recorded reseeds
+in draw order and reject an exhausted lane. Tapes retain recorded random-byte
+answers. These replay policies and released format versions are unchanged by
+the fresh-start default.
+
 ### Parked host waits
 
 A host service that cannot answer synchronously — the worker, whose reply lands on a

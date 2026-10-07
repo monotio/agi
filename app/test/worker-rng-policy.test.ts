@@ -57,8 +57,9 @@ test("zero and 58235 keep word and entropy cursor across exact returns, history,
       y: 0,
       launch: { beginning: true },
     });
-    assert.deepEqual(ctx.run.rng, { word: 1, policy: { kind: "external" } });
-    assert.equal(ctx.host.randomByte!(), 50);
+    assert.deepEqual(ctx.run.rng, { word: 0, policy: { kind: "external" } });
+    ctx.ports.seedWord = () => 0x1234;
+    assert.equal(ctx.host.randomByte!(), 12);
     const resumed = workerHarness(container).ctx;
     onWorkerMessage(resumed, {
       type: "boot",
@@ -197,4 +198,64 @@ test("a Play Launch's room-scoped entropy returns to external after historical a
   scratch.fns.tickEngine();
   assert.equal(scratch.run.engine!.vars[0], 2);
   assert.equal(scratch.run.rng.policy.kind, "external");
+});
+
+for (const entry of ["boot", "beginning"] as const) {
+  test(`an unseeded ${entry} starts at zero and reads the injected clock on its first draw`, (t) => {
+    const container = gameContainer(["return;", "random(0,255,v80);return;"]);
+    const { ctx } = workerHarness(container);
+    t.after(() => ctx.fns.stopTimers());
+    ctx.ports.now = () => 0x1234;
+    onWorkerMessage(ctx, {
+      type: "boot",
+      files: Object.fromEntries(container.files),
+      words: [],
+    });
+    if (entry === "beginning") {
+      ctx.run.rng = { word: 99, policy: { kind: "sequence", next: 42, cursor: 3 } };
+      ctx.fns.onPlayHere({
+        type: "playHere",
+        id: 1,
+        room: 0,
+        x: 0,
+        y: 0,
+        launch: { beginning: true },
+      });
+    }
+    assert.deepEqual(ctx.run.rng, { word: 0, policy: { kind: "external" } });
+    ctx.run.engine!.execute(1);
+    assert.equal(ctx.run.engine!.vars[80], 12);
+    assert.equal(ctx.run.rng.word, 43429);
+    ctx.ports.now = () => {
+      throw new Error("nonzero draws must not read the clock");
+    };
+    ctx.run.engine!.execute(1);
+    assert.equal(ctx.run.engine!.vars[80], 80);
+    assert.equal(ctx.run.rng.word, 62114);
+  });
+}
+
+test("a cold boot keeps an explicit seed and consumes injected entropy only at zero", (t) => {
+  const container = gameContainer(["return;", "random(0,255,v80);return;"]);
+  const { ctx } = workerHarness(container);
+  t.after(() => ctx.fns.stopTimers());
+  let reads = 0;
+  ctx.ports.seedWord = () => {
+    reads++;
+    return 0x1234;
+  };
+  onWorkerMessage(ctx, {
+    type: "boot",
+    files: Object.fromEntries(container.files),
+    words: [],
+    rngSeed: 58235,
+  });
+  assert.equal(reads, 0);
+  ctx.run.engine!.execute(1);
+  assert.equal(ctx.run.engine!.vars[80], 0);
+  assert.equal(ctx.run.rng.word, 0);
+  assert.equal(reads, 0);
+  ctx.run.engine!.execute(1);
+  assert.equal(ctx.run.engine!.vars[80], 12);
+  assert.equal(reads, 1);
 });
