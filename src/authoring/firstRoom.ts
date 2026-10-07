@@ -19,7 +19,6 @@ if (equaln(v0, 0)) {
   new.room(1);
 }
 call.v(v0);
-return;
 `;
 
 export const FIRST_ROOM_LOGIC_SOURCE = `// Room 1. The f5 block runs once when the player enters: it shows this
@@ -32,7 +31,6 @@ if (isset(f5)) {
   show.pic();
   accept.input();
 }
-return;
 `;
 
 export const FIRST_ROOM_PICTURE_SOURCE = `# Room 1: an empty picture. Draw on it or replace it.

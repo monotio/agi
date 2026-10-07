@@ -78,7 +78,6 @@ if (controller(C_SOUND_ON)) { set(f9); }
 if (controller(C_SOUND_OFF)) { reset(f9); }
 if (controller(C_HELP)) { print("Type a command and press ENTER. Arrow keys walk. ESC opens the menu."); }
 if (controller(C_ABOUT)) { print("An adventure written with AGI IS HERE."); }
-return;
 `;
 }
 
@@ -140,7 +139,6 @@ if (equaln(${names.cursor}, 0)) { display(12, 13, m1); display(13, 13, m2); disp
 if (equaln(${names.cursor}, 1)) { display(12, 13, m2); display(13, 13, m1); display(14, 13, m2); }
 if (equaln(${names.cursor}, 2)) { display(12, 13, m2); display(13, 13, m2); display(14, 13, m1); }
 set.text.attribute(15, 0);
-return;
 `;
 }
 
@@ -150,6 +148,5 @@ export function scoreSource(scoreLogic: string): string {
 // v3 holds the score and v7 the maximum, as the status line shows.
 #message 1 "Score: %v3 of %v7"
 print(m1);
-return;
 `;
 }

@@ -36,7 +36,7 @@ test("#define aliases stay numeric constants; only a vN ref is a variable", () =
   assert.deepEqual(code("#define STEP 7\nSTEP = v9;\nreturn;"), [0x04, 0x07, 0x09, 0x00]);
   // An explicit action takes the alias at face value: the constant lands in
   // the var operand slot, so `assignv(v1, STEP)` assembles to assignv v1, v7.
-  assert.deepEqual(code("#define STEP 7\nassignv(v1, STEP);"), [0x04, 0x01, 0x07]);
+  assert.deepEqual(code("#define STEP 7\nassignv(v1, STEP);"), [0x04, 0x01, 0x07, 0x00]);
 
   // A comparison's left operand must be a typed ref; a bare number cannot
   // drive one, so `STEP == v1` is rejected where STEP was written (2:5).
@@ -52,19 +52,19 @@ test("#define aliases stay numeric constants; only a vN ref is a variable", () =
   //   ff 01 01 07 ff | 01 00 | 00   — false-delta 1 skips the 1-byte return.
   assert.deepEqual(
     code("#define STEP 7\nif (v1 == STEP) { return; }"),
-    [0xff, 0x01, 0x01, 0x07, 0xff, 0x01, 0x00, 0x00],
+    [0xff, 0x01, 0x01, 0x07, 0xff, 0x01, 0x00, 0x00, 0x00],
   );
   // The flag-comparison rewrite reads the alias as its number: f5 == ON with
   // ON bound to 1 folds to isset f5 (0x07 05), no comparison remains.
   assert.deepEqual(
     code("#define ON 1\nif (f5 == ON) { return; }"),
-    [0xff, 0x07, 0x05, 0xff, 0x01, 0x00, 0x00],
+    [0xff, 0x07, 0x05, 0xff, 0x01, 0x00, 0x00, 0x00],
   );
 
   // A define whose name collides with ref syntax is unreachable: `f9` parses
   // as flag 9 before defines are consulted, so `set(f9)` sets flag 9 — the
   // binding for 77 is silently dead. 0c 09 = set f9.
-  assert.deepEqual(code("#define f9 77\nset(f9);"), [0x0c, 0x09]);
+  assert.deepEqual(code("#define f9 77\nset(f9);"), [0x0c, 0x09, 0x00]);
 });
 
 test("CNF distribution duplicates said; both source orders emit the same bytes", () => {
@@ -98,7 +98,8 @@ test("CNF distribution duplicates said; both source orders emit the same bytes",
     0xff, //       PC 21: close condition list
     0x01,
     0x00, // PC 22: false-delta 1 (end 25 - after-delta 24)
-    0x00, //       PC 24: return
+    0x00, //       PC 24: early return
+    0x00, //       PC 25: implicit return
   ];
   const saidFirst = code('if (said("open", "door") || (isset(f1) && isset(f2))) { return; }');
   const flagsFirst = code('if ((isset(f1) && isset(f2)) || said("open", "door")) { return; }');

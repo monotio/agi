@@ -1437,7 +1437,7 @@ export function prepareGuidedAddRoom(ctx: GuidedContext, input: GuidedAddRoomInp
     if (view.loops.length > 2) lines.push(`  set.loop(o0, 2);`);
     lines.push(`  position(o0, ${spawn.x}, ${spawn.y});`, `  draw(o0);`, `  player.control();`);
   }
-  lines.push(`  accept.input();`, `}`, `return;`, ``);
+  lines.push(`  accept.input();`, `}`, ``);
   const roomSource = lines.join("\n");
   const picSource = `# ${roomTitle} — an empty picture. Draw on it or replace it.\nend\n`;
 

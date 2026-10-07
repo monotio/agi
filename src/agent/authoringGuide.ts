@@ -60,7 +60,6 @@ if (equaln(v41, 0)) {
   if (equaln(v40, 5)) { graphics(); new.room(2); }
   increment(v40);
 }
-return;
 \`\`\``,
   },
   "timing-and-pacing": {
@@ -149,7 +148,6 @@ if (controller(20) && equaln(v48, 1)) {
   set(f40);
   print("The chest creaks open.");
 }
-return;
 \`\`\`
 - Skill games inside a room: the knife throw and the Kewpie doll booth sweep an object back and forth and judge Enter by the object's position at that cycle, then animate the result with a short countdown variable. The player learns the rhythm; the logic stays simple.
 - Save points: save.game carries variables, flags, objects, strings and the game's resource replay. Restore replays those recorded resources; it does not re-enter the room or set f5. Keep f7 clear around the loads and draws needed to rebuild a normal save. The app's separate autosave carries its own complete screen reconstruction and displayed text state, including operations f7 excluded; that support does not change save.game.`,

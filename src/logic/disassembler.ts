@@ -502,13 +502,25 @@ class Disassembler {
 
     const emit = (list: readonly Node[], depth: number): void => {
       const pad = this.indent.repeat(depth);
-      for (const node of list) {
+      for (const [index, node] of list.entries()) {
         if (labels.has(node.insn.at)) lines.push(`${pad}L${node.insn.at}:`);
         if (node.kind === "goto") {
           lines.push(`${pad}goto L${node.insn.target};`);
           continue;
         }
         if (node.kind === "simple") {
+          if (depth === 0 && node.insn.kind === "return" && node.insn.end === this.code.length) {
+            // Keep a terminal site when the preceding statement is itself a
+            // return: otherwise the assembler would reuse that earlier exit.
+            const previous = list[index - 1];
+            if (
+              previous?.kind === "simple" &&
+              previous.insn.kind === "return" &&
+              !labels.has(node.insn.at)
+            )
+              lines.push(`${pad}L${node.insn.at}:`);
+            continue;
+          }
           lines.push(`${pad}${node.insn.text}`);
           continue;
         }

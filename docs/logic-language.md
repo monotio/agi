@@ -22,11 +22,10 @@ if (isset(f5) && !isset(fDoorOpen)) {
   }
 }
 done:
-return;
 ```
 
 Commands take comma-separated operands in parentheses and end with `;`.
-`return;` ends the current LOGIC call. `if (condition) { ... }` can have an
+The assembler adds a final `return;` automatically; an explicit `return;` ends the current LOGIC call early. `if (condition) { ... }` can have an
 `else { ... }` block. Labels end with `:` and `goto label;` jumps to them;
 labels share one namespace across the document, including nested blocks.
 `//` comments run to the end of a line. Identifiers and command names are

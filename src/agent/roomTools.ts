@@ -442,7 +442,6 @@ export function executeRoomTool(
       }
       lines.push("}");
     }
-    lines.push("return;");
     const normalized = normalizeAuthoredLogic(lines.join("\n"));
     const compiled = assembleLogic(normalized.source, { dictionary, profile: state.profile });
     const wordsPayload = buildWordsTok([...dictionary].map(([word, id]) => ({ word, id })));
