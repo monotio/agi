@@ -78,7 +78,7 @@ export function openProjectDrafts(input: {
   let blocked = false;
   const past: { before: ProjectChange[]; after: ProjectChange[] }[] = [];
   const future: { before: ProjectChange[]; after: ProjectChange[] }[] = [];
-  let typing: { key: string; time: number } | undefined;
+  let typing: string | undefined;
   const observers = new Set<() => void>();
   const notify = () => {
     input.changed?.();
@@ -270,19 +270,17 @@ export function openProjectDrafts(input: {
       content: Object.hasOwn(drafts, key) ? drafts[key]!.content : (input.read?.(key) ?? null),
     }));
     const key = changes.length === 1 ? changes[0]!.key : undefined;
-    const time = Date.now();
     const merge =
       groupTyping &&
       key !== undefined &&
       (key === "notes" || key.startsWith("logic:")) &&
-      typing?.key === key &&
-      time - typing.time < 750 &&
+      typing === key &&
       future.length === 0;
     stage(changes);
     const after = changes.map(({ key }) => ({ key, content: drafts[key]!.content }));
     if (merge && past.length) past[past.length - 1]!.after = after;
     else past.push({ before, after });
-    typing = groupTyping && key !== undefined ? { key, time } : undefined;
+    typing = groupTyping ? key : undefined;
     future.length = 0;
     notify();
   }
@@ -299,6 +297,10 @@ export function openProjectDrafts(input: {
     },
     stageTransaction(changes: readonly ProjectChange[]) {
       record(changes);
+    },
+    /** Focus loss ends a typing group independently of rendering and save speed. */
+    endTyping(): void {
+      typing = undefined;
     },
     undo(): boolean {
       const edit = past.at(-1);

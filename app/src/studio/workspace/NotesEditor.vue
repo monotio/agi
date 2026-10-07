@@ -1,6 +1,6 @@
 <script setup lang="ts">
 defineProps<{ source: string; readOnly?: boolean }>();
-const emit = defineEmits<{ edit: [text: string] }>();
+const emit = defineEmits<{ edit: [text: string]; typingEnd: [] }>();
 </script>
 <template>
   <textarea
@@ -10,6 +10,7 @@ const emit = defineEmits<{ edit: [text: string] }>();
     :readonly="readOnly"
     placeholder="Style, tone and rules for this game…"
     @input="!readOnly && emit('edit', ($event.target as HTMLTextAreaElement).value)"
+    @blur="emit('typingEnd')"
   ></textarea>
 </template>
 <style scoped>

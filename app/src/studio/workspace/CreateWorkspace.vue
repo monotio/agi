@@ -1194,7 +1194,6 @@ function editorChanges(
   return [{ key, content: value }];
 }
 const actionBusy = ref(false);
-const writerBusy = ref(false);
 function changedPartKeys(changes: readonly ProjectChange[], fallback = true): string[] {
   const parts = new Set<string>();
   for (const change of changes) {
@@ -1247,9 +1246,9 @@ function changedPartKeys(changes: readonly ProjectChange[], fallback = true): st
 }
 const pendingParts = createWorkspacePending((change) => changedPartKeys([change], false));
 watch(
-  [actionBusy, writerBusy],
-  ([action, writer]) => {
-    editor.busy.value = action || writer;
+  actionBusy,
+  (action) => {
+    editor.busy.value = action;
   },
   { flush: "sync" },
 );
@@ -1269,7 +1268,11 @@ function draftChanged(force = false): void {
   const parts = pendingParts.parts(snapshot.value, changes);
   if (parts.slice().sort().join("\0") !== draftMembership.value.slice().sort().join("\0"))
     draftMembership.value = parts;
-  if (force || keys !== draftKeys) {
+  const textChanged = changes.some(
+    ({ key, content }) =>
+      (key === "notes" || key.startsWith("logic:")) && optimistic.value[key] !== content,
+  );
+  if (force || keys !== draftKeys || textChanged) {
     optimistic.value = next;
     draftKeys = keys;
   } else Object.assign(optimistic.value, next);
@@ -1280,7 +1283,6 @@ function draftChanged(force = false): void {
   editor.canRedo.value = state.canRedo || (!state.canUndo && history.future.length > 0);
   if (!state.error && editor.error.value === draftError) editor.error.value = "";
   draftError = state.error;
-  writerBusy.value = state.busy;
   editor.changeCount.value = parts.length;
   const context = ["words", "inventory", "bindings"].map(
     (key, index) => next[key] ?? languageBase.value[index],
@@ -1509,6 +1511,9 @@ function edit(key: string, value: ProjectContent, transaction = false): void {
   );
   editor.updatedParts.value = 0;
   draftChanged(!key.startsWith("logic:") && key !== "notes");
+}
+function endTyping(): void {
+  session?.drafts().endTyping();
 }
 function editSound(key: string, bytes: Uint8Array, tempo: number): void {
   if (editingPaused.value) return;
@@ -2650,6 +2655,7 @@ onBeforeUnmount(() => {
         :profile-id="profile.id"
         :active="creating && key === editor.selected.value"
         @edit="edit(key, $event)"
+        @typing-end="endTyping"
         @selection="editor.setAgentContext(key, $event)"
         @problems="reportProblems(key, $event)"
       />
@@ -2696,6 +2702,7 @@ onBeforeUnmount(() => {
         v-else-if="key === 'notes'"
         :source="text(key) ?? ''"
         @edit="edit(key, $event)"
+        @typing-end="endTyping"
       />
       <GameStateTab
         v-else-if="key === 'state'"

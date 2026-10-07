@@ -115,6 +115,34 @@ test("ordinary edits undo newest first, group typing, and clear Redo after a fre
   drafts.dispose();
 });
 
+test("uninterrupted typing stays one Undo across slow saves and clock changes", async (t) => {
+  const drafts = openProjectDrafts({
+    projectId: "slow-typing-undo",
+    lifetime: "initial",
+    journal: journal(),
+    read: () => "original",
+  });
+  let time = 0;
+  t.mock.method(Date, "now", () => time);
+  await drafts.ready;
+  try {
+    drafts.stage([{ key: "logic:1", content: "p" }]);
+    await drafts.flush();
+    time = 5_000;
+    drafts.stage([{ key: "logic:1", content: "print" }]);
+    await drafts.flush();
+    time = -5_000;
+    drafts.stage([{ key: "logic:1", content: 'print("hello");' }]);
+    drafts.undo();
+    assert.equal(drafts.changes()[0]?.content, "original");
+    assert.equal(drafts.status().canUndo, false);
+    drafts.redo();
+    assert.equal(drafts.changes()[0]?.content, 'print("hello");');
+  } finally {
+    drafts.dispose();
+  }
+});
+
 test("a coordinated draft edit undoes and redoes as one transaction", async () => {
   const drafts = openProjectDrafts({
     projectId: "draft-transaction",
