@@ -24,6 +24,7 @@ import "monaco-editor/editor/contrib/contextmenu/browser/contextmenu.js";
 import "monaco-editor/editor/contrib/dropOrPasteInto/browser/copyPasteContribution.js";
 import "monaco-editor/editor/contrib/find/browser/findController.js";
 import "monaco-editor/editor/contrib/folding/browser/folding.js";
+import "monaco-editor/editor/contrib/format/browser/formatActions.js";
 import "monaco-editor/editor/contrib/fontZoom/browser/fontZoom.js";
 import "monaco-editor/editor/contrib/gotoError/browser/gotoError.js";
 import "monaco-editor/editor/contrib/gotoError/browser/markerSelectionStatus.js";
@@ -82,6 +83,7 @@ export function registerLogicContextMenu(
     ["editor.action.revealDefinition", "Go to definition", "1_navigation", 1],
     [`${editor.getId()}:agi.findReferences`, "Find references", "1_navigation", 2],
     ["editor.action.rename", "Rename…", "1_navigation", 3],
+    ["editor.action.formatDocument", "Format document", "1_navigation", 4],
     ["editor.action.clipboardCutAction", "Cut", "9_clipboard", 1],
     ["editor.action.clipboardCopyAction", "Copy", "9_clipboard", 2],
     ["editor.action.clipboardPasteAction", "Paste", "9_clipboard", 3],
@@ -161,6 +163,10 @@ monaco.languages.setLanguageConfiguration(LOGIC_LANGUAGE_ID, {
   ],
   // Dotted command names (move.obj) and registers (f42) select as one word.
   wordPattern: /[a-zA-Z0-9_.]+/,
+  indentationRules: {
+    increaseIndentPattern: /^((?!\/\/).)*\{\s*(?:\/\/.*)?$/,
+    decreaseIndentPattern: /^\s*\}/,
+  },
   onEnterRules: [
     {
       beforeText: /{[^}]*$/,
@@ -181,6 +187,7 @@ interface ModelRegistration {
   readonly applyProjectEdit: ((edit: WorkspaceEdit, label: string) => Promise<void>) | undefined;
   readonly onBinding: ((info: BindingInfo, action: "open" | "rename") => void) | undefined;
   readonly onResource: ((key: string) => void) | undefined;
+  readonly onFormat: (() => void) | undefined;
   readonly bindingTargets: Map<string, BindingInfo>;
   readonly previews: Map<string, monaco.editor.ITextModel>;
   waitForAnalysis(): Promise<void>;
@@ -361,6 +368,7 @@ monaco.languages.registerCompletionItemProvider(LOGIC_LANGUAGE_ID, {
         kind: completionKind(item.detail),
         insertText: item.textEdit.newText,
         filterText: item.textEdit.newText,
+        ...(item.sortText ? { sortText: item.sortText } : {}),
         range: editorRange(item.textEdit.range),
       })),
     };
@@ -545,6 +553,21 @@ monaco.languages.registerDocumentHighlightProvider(LOGIC_LANGUAGE_ID, {
     return highlights.map((entry) => ({ range: editorRange(entry.range), kind: entry.kind }));
   },
 });
+monaco.languages.registerDocumentFormattingEditProvider(LOGIC_LANGUAGE_ID, {
+  async provideDocumentFormattingEdits(model, options, token) {
+    const session = openQuery(model, token);
+    if (!session) return [];
+    const edits = await queryWorker(
+      session.registration,
+      "textDocument/formatting",
+      { options },
+      token,
+    );
+    if (!edits || !queryIsLive(session, model, token)) return [];
+    if (edits.length) session.registration.onFormat?.();
+    return edits.map((edit) => ({ range: editorRange(edit.range), text: edit.newText }));
+  },
+});
 monaco.languages.registerRenameProvider(LOGIC_LANGUAGE_ID, {
   async resolveRenameLocation(model, position, token) {
     const session = openQuery(model, token);
@@ -636,6 +659,10 @@ monaco.languages.registerFoldingRangeProvider(LOGIC_LANGUAGE_ID, {
     }));
   },
 });
+monaco.editor.registerCommand(
+  "agi.applyProjectQuickFix",
+  async (_accessor, apply: () => Promise<void>) => apply(),
+);
 monaco.languages.registerCodeActionProvider(
   LOGIC_LANGUAGE_ID,
   {
@@ -653,11 +680,54 @@ monaco.languages.registerCodeActionProvider(
       );
       if (!actions || !queryIsLive(session, model, token)) return { actions: [], dispose() {} };
       return {
-        actions: actions.map((action) => ({
-          title: action.title,
-          kind: action.kind,
-          edit: workspaceEdit(action.edit),
-        })),
+        actions: actions.map((action) => {
+          const apply = session.registration.applyProjectEdit;
+          if (
+            apply &&
+            action.edit.documentChanges.some(
+              (change) => change.textDocument.uri !== model.uri.toString(),
+            )
+          )
+            return {
+              title: action.title,
+              kind: action.kind,
+              command: {
+                id: "agi.applyProjectQuickFix",
+                title: action.title,
+                arguments: [
+                  async () => {
+                    if (
+                      !stillCurrent(session.registration) ||
+                      model.getVersionId() !== session.versionId
+                    )
+                      throw new Error("The source changed. Open Quick Fix again.");
+                    await session.registration.waitForAnalysis();
+                    const current = await session.registration.client.request(
+                      session.registration.documentKey,
+                      "textDocument/codeAction",
+                      { range: protocolRange(range) },
+                    );
+                    if (
+                      !stillCurrent(session.registration) ||
+                      model.getVersionId() !== session.versionId ||
+                      !current.some(
+                        (fix) =>
+                          fix.title === action.title &&
+                          JSON.stringify(fix.edit) === JSON.stringify(action.edit),
+                      )
+                    )
+                      throw new Error("The project changed. Open Quick Fix again.");
+                    await apply(action.edit, action.title);
+                  },
+                ],
+              },
+            };
+          return {
+            title: action.title,
+            kind: action.kind,
+            edit: workspaceEdit(action.edit),
+          };
+        }),
         dispose() {},
       };
     },
@@ -746,6 +816,7 @@ export function registerLogicModel(
     readonly documentKey: string;
     readonly onBinding?: (info: BindingInfo, action: "open" | "rename") => void;
     readonly onResource?: (key: string) => void;
+    readonly onFormat?: () => void;
     readonly applyProjectEdit?: (edit: WorkspaceEdit, label: string) => Promise<void>;
   },
 ): LogicModelHandle {
@@ -760,6 +831,7 @@ export function registerLogicModel(
     applyProjectEdit: options.applyProjectEdit,
     onBinding: options.onBinding,
     onResource: options.onResource,
+    onFormat: options.onFormat,
     previews: new Map(),
     bindingTargets: new Map(),
     waitForAnalysis: () => analysisSchedule.settled(),

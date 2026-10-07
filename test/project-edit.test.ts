@@ -13,6 +13,8 @@ import { buildLogicResource } from "../src/logic/resource.ts";
 import { buildWordsTok, parseWordsTok } from "../src/logic/words.ts";
 import { compileProjectLogic } from "../src/authoring/projectLogic.ts";
 import { PROFILES } from "../src/runtime/profile.ts";
+import { createLogicLspServer } from "../src/logic/lspServer.ts";
+import type { LspOperations } from "../src/logic/lspTypes.ts";
 
 function setup() {
   const project = createStarterProject("blank");
@@ -201,6 +203,66 @@ for (const [name, source, operand, message] of [
     );
   });
 }
+
+test("prepared missing-flag markers and quick fixes share the callback operand range", () => {
+  const model = setup();
+  const source = "// authored callback\nsound(s1, door_done); return;";
+  const prepared = prepareProjectEdit({
+    model,
+    proposal: model.propose(model.capture(), "Callback", [{ key: "logic:1", content: source }]),
+    profileId: "2.936",
+    policy: {},
+  });
+  assert.equal(prepared.status, "diagnostics");
+  assert.equal(prepared.diagnostics.length, 1);
+  const finding = prepared.diagnostics[0]!;
+  assert.equal(finding.message, "2:11: No flag is named door_done.");
+  assert.equal(source.slice(finding.start, finding.end), "door_done");
+  const uri = "agi-project:///logic.1.lgc";
+  const server = createLogicLspServer({
+    project: {
+      profileId: "2.936",
+      words: [],
+      bindings: {},
+      documents: { "logic:1": { source, version: 1 } },
+      diagnostics: prepared.diagnostics,
+    },
+  });
+  const range = { start: { line: 1, character: 10 }, end: { line: 1, character: 19 } };
+  const diagnostics = server.handle({
+    jsonrpc: "2.0",
+    id: 1,
+    method: "textDocument/diagnostic",
+    params: { textDocument: { uri } },
+  })!.result as LspOperations["textDocument/diagnostic"];
+  assert.deepEqual(diagnostics.items, [
+    { range, message: "2:11: No flag is named door_done.", severity: 1, source: "agi-logic" },
+  ]);
+  const actions = server.handle({
+    jsonrpc: "2.0",
+    id: 2,
+    method: "textDocument/codeAction",
+    params: { textDocument: { uri }, range, context: { diagnostics: diagnostics.items } },
+  })!.result as LspOperations["textDocument/codeAction"];
+  const create = actions.find((action) => action.title === "Create flag door_done (Flag 16)")!;
+  assert.ok(create);
+  assert.deepEqual(create.diagnostics, diagnostics.items);
+  assert.equal(create.edit.documentChanges[0]!.textDocument.uri, "agi-project:///bindings.json");
+  assert.deepEqual(JSON.parse(create.edit.documentChanges[0]!.edits[0]!.newText), {
+    door_done: { kind: "flag", num: 16 },
+  });
+  const unrelated = server.handle({
+    jsonrpc: "2.0",
+    id: 3,
+    method: "textDocument/codeAction",
+    params: {
+      textDocument: { uri },
+      range: { start: { line: 1, character: 6 }, end: { line: 1, character: 8 } },
+      context: { diagnostics: diagnostics.items },
+    },
+  })!.result as LspOperations["textDocument/codeAction"];
+  assert.ok(unrelated.every((action) => !action.title.startsWith("Create flag")));
+});
 
 test("PICTURE removal diagnostics locate the computed operand", () => {
   const model = setup();

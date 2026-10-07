@@ -53,6 +53,8 @@ export interface RemovalFinding {
   readonly start?: number;
   readonly end?: number;
   readonly path?: readonly (string | number)[];
+  /** The originating command for a surviving use. */
+  readonly command?: string;
 }
 
 export interface ProjectRemovalInput {
@@ -91,7 +93,7 @@ type Report = (
   message: string,
   computedRoomJump?: string,
   computedResource?: string,
-  origin?: Pick<RemovalFinding, "pc" | "operand" | "start" | "end" | "path">,
+  origin?: Pick<RemovalFinding, "pc" | "operand" | "start" | "end" | "path" | "command">,
 ) => void;
 
 function inspectFlowTargets(
@@ -134,6 +136,7 @@ function inspectFlowTargets(
             resourceReferenceOperand(use.command, input.profile)?.variable ? key : undefined,
             {
               pc: use.offset,
+              command: use.command,
               operand: resourceReferenceOperand(use.command, input.profile)?.operand ?? 0,
             },
           );
@@ -148,7 +151,7 @@ function inspectFlowTargets(
             `Room ${num} can still be reached by a computed room jump in LOGIC ${use.logic}${teleport ? " (the debug teleport)" : ""}. Remove anyway?`,
             key,
             key,
-            { pc: use.offset, operand: 0 },
+            { pc: use.offset, operand: 0, command: use.command },
           );
         } else if (use.unknown && (use.kind === kind || use.kind === "logic"))
           report(
@@ -158,6 +161,7 @@ function inspectFlowTargets(
             key,
             {
               pc: use.offset,
+              command: use.command,
               operand: resourceReferenceOperand(use.command, input.profile)?.operand ?? 0,
             },
           );
@@ -450,7 +454,15 @@ export function inspectProjectRemoval(input: ProjectRemovalInput): readonly Remo
   const findings: RemovalFinding[] = [];
   const seen = new Set<string>();
   const report: Report = (document, message, computedRoomJump, computedResource, origin) => {
-    const marker = `${document}${message}`;
+    const marker = JSON.stringify([
+      document,
+      message,
+      origin?.pc,
+      origin?.operand,
+      origin?.start,
+      origin?.end,
+      origin?.path,
+    ]);
     if (seen.has(marker)) return;
     seen.add(marker);
     findings.push({
@@ -484,6 +496,7 @@ export function inspectProjectRemoval(input: ProjectRemovalInput): readonly Remo
             undefined,
             key,
             {
+              command: reference.command,
               ...(reference.pc === undefined ? {} : { pc: reference.pc }),
               ...(reference.operand === undefined ? {} : { operand: reference.operand }),
             },
@@ -500,6 +513,7 @@ export function inspectProjectRemoval(input: ProjectRemovalInput): readonly Remo
         undefined,
         undefined,
         {
+          command: reference.command,
           ...(reference.pc === undefined ? {} : { pc: reference.pc }),
           ...(reference.operand === undefined ? {} : { operand: reference.operand }),
         },

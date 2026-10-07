@@ -1,7 +1,16 @@
 <script setup lang="ts">
 import { documentLabel } from "../../../../src/logic/numberedLabels.ts";
 import { layoutDragging } from "../../play/layoutDrag.ts";
-import { onMounted, nextTick, onBeforeUnmount, useTemplateRef, watch, ref, computed } from "vue";
+import {
+  onMounted,
+  nextTick,
+  onBeforeUnmount,
+  onWatcherCleanup,
+  useTemplateRef,
+  watch,
+  ref,
+  computed,
+} from "vue";
 import type { BindingInfo } from "../../../../src/logic/projectNames.ts";
 import UiIconButton from "../../ui/UiIconButton.vue";
 import BindingDetails from "../../shell/BindingDetails.vue";
@@ -31,6 +40,11 @@ import {
   registerLogicModel,
   registerLogicContextMenu,
 } from "../logic/monacoLanguage.ts";
+import { useOptionalCommands } from "../../shell/commands/commandContext.ts";
+import { useLogicFormatSettings } from "../../settings/logicFormat.ts";
+import { formatLogic } from "../../../../src/logic/format.ts";
+import { expandProjectLogic } from "../../../../src/authoring/projectLogic.ts";
+import { systemBindings } from "../../../../src/logic/systemNames.ts";
 import { logicKeySheet } from "../studioHelp.ts";
 const props = defineProps<{
   readOnly?: boolean;
@@ -113,6 +127,53 @@ const root = useTemplateRef("root");
 const client = new LogicAnalysisClient();
 const engine = useEngineApi();
 const workspace = useWorkspaceEditor();
+const { formatOnLeaving } = useLogicFormatSettings();
+const commands = useOptionalCommands();
+watch(
+  () => props.active,
+  (active) => {
+    if (!active || !commands) return;
+    onWatcherCleanup(
+      commands.register({
+        id: `logic.format.${props.documentKey}`,
+        title: "Format document",
+        keys: [{ key: "Shift+Alt+F", textInput: true }],
+        when: (context) =>
+          props.active && !props.readOnly && !showRunning.value && !context.dialogOpen,
+        run: () => editor?.getAction("editor.action.formatDocument")?.run(),
+      }),
+    );
+  },
+  { immediate: true },
+);
+let formatting = false;
+function beginFormatting(): void {
+  emit("typingEnd");
+  formatting = true;
+}
+/** Synchronous at the leaving boundary so a closing tab emits its draft before disposal. */
+function formatOnLeave(): void {
+  if (!formatOnLeaving.value || props.readOnly || showRunning.value || !model || !editor) return;
+  const source = model.getValue();
+  const bindings = contextCache?.bindings ?? {};
+  const edits = formatLogic(source, {
+    prelude: expandProjectLogic(source, bindings, true).prelude,
+    builtins: systemBindings(bindings),
+  });
+  if (!edits.length) return;
+  beginFormatting();
+  editor.pushUndoStop();
+  editor.executeEdits(
+    "agi.formatOnLeave",
+    edits.map((edit) => ({ range: model!.getFullModelRange(), text: edit.newText })),
+  );
+  editor.pushUndoStop();
+}
+function leaveEditor(event: FocusEvent): void {
+  if (event.relatedTarget instanceof Node && root.value?.contains(event.relatedTarget)) return;
+  formatOnLeave();
+  emit("typingEnd");
+}
 let editor: monaco.editor.IStandaloneCodeEditor | undefined;
 let model: monaco.editor.ITextModel | undefined;
 let language: ReturnType<typeof registerLogicModel> | undefined;
@@ -284,7 +345,7 @@ async function applyProjectEdit(edit: WorkspaceEdit, _label: string): Promise<vo
   const session = engine.getProjectSession();
   const base = session?.workingSnapshot();
   if (!session || !base || base.revision !== revision)
-    throw new Error("The project changed. Retry the rename.");
+    throw new Error("The project changed. Retry the edit.");
   const changes = edit.documentChanges.map((change) => {
     const key =
       change.textDocument.uri === "agi-project:///bindings.json"
@@ -293,12 +354,11 @@ async function applyProjectEdit(edit: WorkspaceEdit, _label: string): Promise<vo
             (key) => key.startsWith("logic:") && client.uri(key) === change.textDocument.uri,
           );
     const source = key ? base.read(key)?.content : undefined;
-    if (!key || typeof source !== "string")
-      throw new Error("The source changed. Retry the rename.");
+    if (!key || typeof source !== "string") throw new Error("The source changed. Retry the edit.");
     if (source !== expected.get(change.textDocument.uri))
-      throw new Error("The source changed. Retry the rename.");
+      throw new Error("The source changed. Retry the edit.");
     if (key === props.documentKey && source !== model?.getValue())
-      throw new Error("The source changed. Retry the rename.");
+      throw new Error("The source changed. Retry the edit.");
     const edits = change.edits
       .map((entry) => ({
         start: offsetAt(source, entry.range.start),
@@ -317,7 +377,7 @@ async function applyProjectEdit(edit: WorkspaceEdit, _label: string): Promise<vo
       outcome.status,
     )
   )
-    throw new Error("The project could not apply this rename. Retry at a safe game boundary.");
+    throw new Error("The project could not apply this edit. Retry at a safe game boundary.");
 }
 onMounted(() => {
   model = monaco.editor.createModel(
@@ -329,6 +389,7 @@ onMounted(() => {
     client,
     documentKey: props.documentKey,
     applyProjectEdit,
+    onFormat: beginFormatting,
     onBinding,
     onResource: (key) => workspace.open(key),
   });
@@ -337,10 +398,14 @@ onMounted(() => {
     domReadOnly: props.readOnly,
     model,
     theme: "vs-dark",
+    // Suggestions and hovers draw above the tabs instead of being cut off at the editor's edge.
+    fixedOverflowWidgets: true,
     "semanticHighlighting.enabled": true,
     automaticLayout: false,
     editContext: false,
-    autoIndent: "none",
+    autoIndent: "full",
+    insertSpaces: true,
+    detectIndentation: false,
     minimap: { enabled: false },
     hover: { above: false },
     fontSize: 13,
@@ -389,6 +454,10 @@ onMounted(() => {
   model.onDidChangeContent(() => {
     if (!syncing && model) {
       emit("edit", model.getValue());
+      if (formatting) {
+        formatting = false;
+        emit("typingEnd");
+      }
       client.changeDocument(props.documentKey, model.getVersionId(), model.getValue());
       decorate();
     }
@@ -466,9 +535,15 @@ watch(
   () => props.active,
   (active) => {
     if (active) layout();
+    else {
+      formatOnLeave();
+      emit("typingEnd");
+    }
   },
 );
 onBeforeUnmount(() => {
+  formatOnLeave();
+  emit("typingEnd");
   cancelAnimationFrame(layoutFrame);
   observer?.disconnect();
   // Model-change listeners cancel their work before markers and providers retire.
@@ -495,7 +570,10 @@ defineExpose({
 </script>
 <template>
   <div class="workspace-logic-surface">
-    <div v-if="differs || showRunning" class="workspace-running-source">
+    <div
+      v-if="(differs && stoppedLine !== undefined) || showRunning"
+      class="workspace-running-source"
+    >
       <span>{{ showRunning ? "Running source" : "The game is running an earlier build." }}</span>
       <button v-if="!showRunning" @click="showRunning = true">Show running source</button>
       <button v-else @click="showRunning = false">Return to editing</button>
@@ -534,12 +612,13 @@ defineExpose({
       ref="root"
       class="workspace-monaco"
       data-testid="workspace-logic-editor"
-      @focusout.capture="emit('typingEnd')"
+      @focusout.capture="leaveEditor"
     ></div>
   </div>
 </template>
 <style scoped>
 .workspace-logic-surface {
+  position: relative;
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -564,7 +643,14 @@ defineExpose({
   border: 0;
   cursor: pointer;
 }
+/* Shown only while paused here; it floats over the code so the editor never moves. */
 .workspace-running-source {
+  position: absolute;
+  top: var(--space-2);
+  right: var(--space-4);
+  z-index: 5;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
   display: flex;
   gap: var(--space-3);
   align-items: center;

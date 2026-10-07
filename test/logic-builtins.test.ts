@@ -65,7 +65,7 @@ test("completion inserts built-in names once and project bindings take precedenc
         ...context,
         bindings: { room: { kind: "variable", num: 0 } },
       }),
-    /unknown identifier/,
+    /Nothing is named/,
   );
 });
 
@@ -248,7 +248,7 @@ test("renaming a project binding cannot claim another built-in slot", () => {
 test("only declared built-in identifiers resolve", () => {
   assert.throws(
     () => assembleLogic("increment(constructor); return;", context),
-    /unknown identifier/,
+    /Nothing is named/,
   );
 });
 

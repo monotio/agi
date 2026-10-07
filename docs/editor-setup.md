@@ -115,8 +115,7 @@ The browser applies coordinated renames through project History, so Undo restore
 the affected documents together. In the app, a resource name opens its editor. A flag or variable opens a list of
 LOGIC lines where it is set and checked. Hover offers Open and Rename, and the
 parts list includes Game state. External editors navigate to `bindings.json`.
-Closed-file references open in read-only source previews. Formatting is omitted: the project has no
-canonical LOGIC formatter, and preserving authored message text matters.
+Closed-file references open in read-only source previews. `textDocument/formatting` uses two-space indentation, preserves comments and literals, and returns no edits for syntax errors.
 
 Numbered operands identify variables (`vN`), flags (`fN`), screen objects (`oN`),
 inventory items (`iN`), strings (`sN`), words (`wN`) and controllers (`cN`) across

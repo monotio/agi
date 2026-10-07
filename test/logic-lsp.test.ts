@@ -447,7 +447,7 @@ test("initialize advertises only the implemented capabilities over the npm entry
         : false,
       true,
     );
-    assert.equal(capabilities.documentFormattingProvider, undefined);
+    assert.equal(capabilities.documentFormattingProvider, true);
     assert.equal(capabilities.workspace, undefined);
   } finally {
     await shutdown(server);
@@ -1071,17 +1071,18 @@ test("code actions define missing names and repair syntax using compiler diagnos
       range: first.diagnostics[0]!.range,
       context: { diagnostics: first.diagnostics },
     })) as { title: string; edit: WorkspaceEdit }[];
-    assert.ok(actions.some((a) => a.title === "Define door as 0"));
-    const edit = actions.find((a) => a.title === "Define door as 0")!.edit.documentChanges![0]!;
+    assert.equal(actions[0]!.title, "Create flag door (Flag 16)");
+    const edit = actions.find((a) => a.title === "Define as a constant in this file…")!.edit
+      .documentChanges![0]!;
     assert.ok("textDocument" in edit);
     assert.equal(edit.textDocument.version, 1);
     assert.deepEqual(edit.edits, [
       {
         range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
-        newText: "#define door 0\n",
+        newText: "#define door 16\n",
       },
     ]);
-    await change(server, uri, "#define door 0\nset(door); return;", 2);
+    await change(server, uri, "#define door 16\nset(door); return;", 2);
     assert.deepEqual(
       (await waitFor("fixed name", () => published(server, uri, (p) => p.version === 2), server))
         .diagnostics,
@@ -1568,4 +1569,40 @@ test("line coordinates share an index across distant tokens and preserve UTF-16"
     end: { line: 3, character: 7 },
   });
   assert.equal(coordinates.offsetAt({ line: 2, character: 3 }), 16);
+});
+
+test("stdio formatting returns one edit, preserves invalid source and never changes the document", async () => {
+  const server = start();
+  try {
+    await initialize(server);
+    const uri = "file:///format.lgc";
+    await open(server, uri, "if(f1){v2=3;return;}", 1);
+    const edits = await server.connection.sendRequest<{ range: Range; newText: string }[]>(
+      "textDocument/formatting",
+      { textDocument: { uri }, options: { tabSize: 2, insertSpaces: true } },
+    );
+    assert.deepEqual(edits, [
+      {
+        range: { start: { line: 0, character: 0 }, end: { line: 0, character: 20 } },
+        newText: "if (f1) {\n  v2 = 3;\n  return;\n}\n",
+      },
+    ]);
+    assert.deepEqual(
+      await server.connection.sendRequest("textDocument/formatting", {
+        textDocument: { uri },
+        options: { tabSize: 2, insertSpaces: true },
+      }),
+      edits,
+    );
+    await change(server, uri, "if(f1){return;", 2);
+    assert.deepEqual(
+      await server.connection.sendRequest("textDocument/formatting", {
+        textDocument: { uri },
+        options: { tabSize: 2, insertSpaces: true },
+      }),
+      [],
+    );
+  } finally {
+    await shutdown(server);
+  }
 });

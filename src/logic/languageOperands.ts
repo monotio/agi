@@ -1,9 +1,8 @@
 /** Numbered symbols retain the argument kind, including numeric source operands. */
-import type { CommandReference } from "./commandReference.ts";
-import type { analyzeLogicSyntax, Token } from "./syntax.ts";
-import { resourceReferenceOperand } from "../authoring/projectReferences.ts";
-import { systemBindings } from "./systemNames.ts";
+import { resourceReferenceOperand, type CommandReference } from "./commandReference.ts";
 import type { AgiProfile } from "../runtime/profile.ts";
+import type { analyzeLogicSyntax, Token } from "./syntax.ts";
+import { systemBindings } from "./systemNames.ts";
 
 export type NumberedKind =
   "v" | "f" | "o" | "i" | "s" | "w" | "m" | "c" | "logic" | "picture" | "view" | "sound";
@@ -40,13 +39,35 @@ const ARGUMENT_KINDS: Record<string, NumberedKind> = {
   controller: "c",
 };
 
+/** The encoded variable index takes precedence over its selected resource family. */
+export function numberedOperandKind(
+  command: Pick<CommandReference, "name" | "operands" | "resourceOperand">,
+  parameter: number,
+): NumberedKind | undefined {
+  if (command.name === "said") return "w";
+  const resource = command.resourceOperand;
+  if (resource && !resource.variable && resource.operand === parameter)
+    return resource.kind === "item" ? "i" : resource.kind;
+  return ARGUMENT_KINDS[command.operands[parameter] ?? ""];
+}
+
 export function collectLogicOperands(
   syntax: ReturnType<typeof analyzeLogicSyntax>,
-  commands: readonly Pick<CommandReference, "name" | "operands">[],
+  commands: readonly Pick<CommandReference, "name" | "operands" | "resourceOperand">[],
   profile: AgiProfile,
   builtins = systemBindings(),
 ): readonly NumberedOperand[] {
-  const byName = new Map(commands.map((command) => [command.name, command]));
+  const byName = new Map(
+    commands.map((command) => [
+      command.name,
+      {
+        ...command,
+        ...(resourceReferenceOperand(command.name, profile)
+          ? { resourceOperand: resourceReferenceOperand(command.name, profile)! }
+          : {}),
+      },
+    ]),
+  );
   const definitions = new Map(syntax.definitions.map((entry) => [entry.start, entry]));
   const references = new Map(syntax.references.map((entry) => [entry.start, entry]));
   const values = new Map<number, number>();
@@ -116,16 +137,7 @@ export function collectLogicOperands(
       definitionStart === undefined ? builtins[token.text]?.kind : typedKinds.get(definitionStart);
     const call = frames.at(-1);
     if (call && byName.has(call.name)) {
-      const resource = resourceReferenceOperand(call.name, profile);
-      const kind =
-        call.name === "said"
-          ? "w"
-          : resource &&
-              !resource.variable &&
-              resource.kind !== "item" &&
-              resource.operand === call.parameter
-            ? resource.kind
-            : ARGUMENT_KINDS[byName.get(call.name)!.operands[call.parameter] ?? ""];
+      const kind = numberedOperandKind(byName.get(call.name)!, call.parameter);
       if (kind) add(token, kind);
     } else if (
       next?.text === "=" ||

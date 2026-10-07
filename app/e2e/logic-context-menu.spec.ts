@@ -23,6 +23,7 @@ test("the LOGIC editor's context menu draws above the workspace @webkit-desktop"
     "Go to definition",
     "Find references",
     "Rename…",
+    "Format document",
     "Cut",
     "Copy",
     "Paste",
@@ -113,4 +114,38 @@ test("Find references opens the app uses list from the menu and keyboard @webkit
       }),
     )
     .toBe(2);
+});
+
+test("completion near the top of a short editor is drawn whole, and typing shows no build banner @webkit-desktop", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1063, height: 640 });
+  await isolateStorage(page);
+  await page.goto("/#create-adventure");
+  await page.getByTestId("local-create-kind-starter").click();
+  await page.getByRole("button", { name: "Start building", exact: true }).click();
+  await waitForRoom(page, 1);
+  await page.getByTestId("part-room:1:logic").click();
+  const editor = page.getByTestId("workspace-logic-editor");
+  await expect(editor).toBeVisible();
+  const area = (await editor.boundingBox())!;
+  await page.mouse.click(area.x + 200, area.y + area.height - 12);
+  await page.keyboard.press("End");
+  await page.keyboard.press("Enter");
+  await page.keyboard.type("set");
+  const list = page.locator(".suggest-widget").first();
+  await expect(list).toBeVisible();
+  // Not paused: editing never shows the running-build note or moves the editor.
+  await expect(page.getByRole("button", { name: "Show running source", exact: true })).toHaveCount(
+    0,
+  );
+  expect((await editor.boundingBox())!.y).toBe(area.y);
+  const box = (await list.boundingBox())!;
+  for (const y of [box.y + 6, box.y + box.height - 6]) {
+    const top = await page.evaluate(
+      ([x, y]) => Boolean(document.elementFromPoint(x!, y!)?.closest(".suggest-widget")),
+      [box.x + box.width / 2, y],
+    );
+    expect(top, `the completion list is topmost at y ${Math.round(y)}`).toBe(true);
+  }
 });

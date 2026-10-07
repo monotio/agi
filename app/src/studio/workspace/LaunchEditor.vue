@@ -14,6 +14,7 @@ import UiButton from "../../ui/UiButton.vue";
 import UiIconButton from "../../ui/UiIconButton.vue";
 import UiDialog from "../../ui/UiDialog.vue";
 import UiSwitch from "../../ui/UiSwitch.vue";
+import ItemRoomPicker from "./ItemRoomPicker.vue";
 
 const props = defineProps<{
   room: number;
@@ -357,8 +358,7 @@ function removeVarRow(key: string): void {
   commitLaunch(updated);
 }
 
-function setItemLocation(key: string, event: Event): void {
-  const loc = Number((event.target as HTMLSelectElement).value);
+function setItemLocation(key: string, loc: number): void {
   if (!activeLaunch.value?.items) return;
   commitLaunch({
     ...activeLaunch.value,
@@ -749,7 +749,7 @@ function handleCanvasDrag(event: MouseEvent): void {
           <div
             v-for="(loc, itemNum) in activeLaunch.items"
             :key="itemNum"
-            class="launch-row"
+            class="launch-row launch-row--item"
             data-testid="launch-row-item"
             :data-launch-item="itemNum"
           >
@@ -775,20 +775,14 @@ function handleCanvasDrag(event: MouseEvent): void {
                 </option>
               </select>
 
-              <select
-                class="launch-select"
-                data-testid="launch-item-location"
-                aria-label="Item location"
+              <ItemRoomPicker
+                test-id="launch-item-location"
+                label="Item location"
+                :context="labelContext"
                 :value="loc"
                 :disabled="readOnly"
                 @change="setItemLocation(String(itemNum), $event)"
-              >
-                <option :value="255">With hero</option>
-                <option :value="0">Away</option>
-                <option v-for="r in rooms" :key="r.room" :value="r.room">
-                  {{ numberedLabel("room", r.room, labelContext, "option") }}
-                </option>
-              </select>
+              />
             </div>
             <UiIconButton
               icon="trash"
@@ -1246,5 +1240,18 @@ function handleCanvasDrag(event: MouseEvent): void {
   display: flex;
   align-items: center;
   padding-top: var(--space-2);
+}
+@media (max-width: 600px) {
+  .launch-row--item {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .launch-row--item .launch-row__controls {
+    grid-column: 1;
+  }
+  .launch-row--item > :last-child {
+    grid-column: 2;
+    grid-row: 1 / 3;
+  }
 }
 </style>

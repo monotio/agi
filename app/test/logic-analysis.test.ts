@@ -17,8 +17,8 @@ class FakeWorker {
     postMessage: (data: LspResponse | LspNotification) =>
       this.onmessage?.({ data } as MessageEvent<LspResponse | LspNotification>),
   };
-  constructor() {
-    attachLogicLanguageServer(this.port, { schedule: (run) => run() });
+  constructor(schedule: (run: () => void) => void = (run) => run()) {
+    attachLogicLanguageServer(this.port, { schedule });
   }
   postMessage(request: LspMessage) {
     if (request.id === undefined) this.notifications.push(structuredClone(request));
@@ -42,6 +42,72 @@ function project(source = "set(door); return;", revision = 1): LogicAnalysisProj
     documents: { "logic:1": { version: revision, source } },
   };
 }
+
+test("prepared diagnostics refresh markers without cancelling a matching completion", async () => {
+  const queued: (() => void)[] = [];
+  const worker = new FakeWorker((run) => queued.push(run));
+  const client = new LogicAnalysisClient(() => worker);
+  const source = "sound(";
+  const input = {
+    ...project(source),
+    resources: { "sound:3": { uri: "agi-resource:///sound/3" } },
+    diagnostics: [],
+  };
+  client.setProject(input);
+  const completion = client.request("logic:1", "textDocument/completion", {
+    position: { line: 0, character: 6 },
+  });
+  const stale = client.request("logic:1", "textDocument/diagnostic");
+  const rejected = assert.rejects(stale, /diagnostics|superseded/);
+  const diagnostics = [
+    {
+      document: "logic:1",
+      start: 6,
+      end: 6,
+      severity: "error" as const,
+      message: "Missing operand.",
+    },
+  ];
+  worker.reply(0);
+  worker.reply(1);
+  assert.equal(client.setProject({ ...input, diagnostics }), true);
+  await rejected;
+  for (const run of queued.splice(0)) run();
+  const items = await completion;
+  assert.ok(items);
+  assert.ok(items.some((item) => item.label === "SOUND 3"));
+  const current = client.request("logic:1", "textDocument/diagnostic");
+  worker.reply(2);
+  for (const run of queued.splice(0)) run();
+  assert.deepEqual((await current).items, [
+    {
+      range: { start: { line: 0, character: 6 }, end: { line: 0, character: 6 } },
+      severity: 1,
+      source: "agi-logic",
+      message: "Missing operand.",
+    },
+  ]);
+  worker.postMessage({
+    jsonrpc: "2.0",
+    method: "workspace/didChangeConfiguration",
+    params: {
+      settings: {
+        agiLogic: {
+          diagnosticSnapshot: {
+            documents: { "logic:1": { source: "return;", version: 1 } },
+            diagnostics: [{ ...diagnostics[0]!, message: "Stale marker." }],
+          },
+        },
+      },
+    },
+  });
+  const afterStale = client.request("logic:1", "textDocument/diagnostic");
+  worker.reply(3);
+  for (const run of queued.splice(0)) run();
+  assert.equal((await afterStale).items[0]!.message, "Missing operand.");
+  assert.equal(client.setProject({ ...input, diagnostics }), false);
+  client.dispose();
+});
 
 test("analysis worker uses actual shared project semantics and proposes rename without mutation", async () => {
   const worker = new FakeWorker();

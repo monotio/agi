@@ -50,6 +50,8 @@ import {
   readWordsDocument,
 } from "../../../../src/authoring/projectDocuments.ts";
 import { diffProjectDocuments } from "../../../../src/authoring/projectContent.ts";
+import { preparePartDraftRemoval } from "../../project/projectPartDrafts.ts";
+import { inspectProjectSourceDependencies } from "../../../../src/authoring/projectSourceDependencies.ts";
 import {
   occupiedProjectNumbers,
   type prepareProjectRenumber,
@@ -406,6 +408,14 @@ let offDrafts: (() => void) | undefined;
 let draftKeys = "";
 let draftError = "";
 const draftMembership = shallowRef<readonly string[]>([]);
+const deletedParts = shallowRef<readonly string[]>([]);
+const partRemovalReview = shallowRef<{
+  owner: ProjectSession;
+  snapshot: ProjectSnapshot;
+  key: string;
+  room?: number;
+  plan: ReturnType<typeof preparePartDraftRemoval>;
+}>();
 const groupMetadata = shallowRef<{
   world: ProjectContent | undefined;
   bindings: ProjectContent | undefined;
@@ -517,6 +527,8 @@ function attach(): void {
     session = next;
     offDrafts?.();
     optimistic.value = {};
+    deletedParts.value = [];
+    partRemovalReview.value = undefined;
     groupMetadata.value = { world: undefined, bindings: undefined };
     draftKeys = "";
     if (session) {
@@ -539,7 +551,9 @@ watch(() => [engine.state.phase, engine.state.patchTick, engine.state.status], a
   immediate: true,
 });
 function content(key: string): ProjectContent | undefined {
-  return optimistic.value[key] ?? snapshot.value?.read(key)?.content;
+  return deletedParts.value.includes(key)
+    ? undefined
+    : (optimistic.value[key] ?? snapshot.value?.read(key)?.content);
 }
 const container = computed(() => {
   const build = snapshot.value?.lastAdmissibleBuild;
@@ -549,7 +563,9 @@ const container = computed(() => {
   );
 });
 const groups = computed(() => {
-  const keys = [...new Set([...(snapshot.value?.keys ?? []), ...draftMembership.value])];
+  const keys = [...new Set([...(snapshot.value?.keys ?? []), ...draftMembership.value])].filter(
+    (key) => !deletedParts.value.includes(key),
+  );
   const scan = engine.roomMap.resources.value;
   const admitted = snapshot.value?.lastAdmissibleBuild?.documents() ?? {};
   let plan: Record<string, { title?: string }> = {};
@@ -620,7 +636,26 @@ const groups = computed(() => {
             : undefined;
       const heading = pictureRoomTitle(artText);
       const title = plan[String(room)]?.title || heading || node?.title;
-      return { room, ...(title ? { title } : {}), pictures };
+      const resources = new Set((scan.scans.get(room)?.calls ?? []).map((num) => `logic:${num}`));
+      const logicContent = content(`logic:${room}`);
+      const source =
+        logicContent instanceof Uint8Array
+          ? derivedLogicSource(logicContent, profile.value.id, []).source
+          : logicContent;
+      if (typeof source === "string") {
+        try {
+          const bindings = readBindingsDocument(boundText ?? "{}");
+          const uses = inspectProjectSourceDependencies({
+            source,
+            profile: profile.value,
+            bindings,
+          });
+          for (const reference of uses.references) resources.add(reference.dependency);
+        } catch {
+          /* Retain native room relationships while code is unfinished. */
+        }
+      }
+      return { room, ...(title ? { title } : {}), pictures, resources: [...resources] };
     });
   const names: Record<string, string> = {};
   const bound = groupMetadata.value.bindings ?? snapshot.value?.read("bindings")?.content;
@@ -1265,6 +1300,9 @@ function draftChanged(force = false): void {
   if (!session || retired) return;
   const drafts = session.drafts();
   const changes = pendingParts.changes(snapshot.value, drafts.changes());
+  deletedParts.value = changes
+    .filter((change) => change.content === null)
+    .map((change) => change.key);
   const next: Record<string, ProjectContent> = {};
   for (const { key, content: value } of changes) if (value !== null) next[key] = value;
   const metadata = { world: next["world"], bindings: next["bindings"] };
@@ -1273,7 +1311,10 @@ function draftChanged(force = false): void {
     metadata.bindings !== groupMetadata.value.bindings
   )
     groupMetadata.value = metadata;
-  const keys = Object.keys(next).sort().join("\0");
+  const keys = [...Object.keys(next), ...deletedParts.value.map((key) => `deleted:${key}`)]
+    .sort()
+    .join("\0");
+  const membershipChanged = keys !== draftKeys;
   const parts = pendingParts.parts(snapshot.value, changes);
   if (parts.slice().sort().join("\0") !== draftMembership.value.slice().sort().join("\0"))
     draftMembership.value = parts;
@@ -1297,6 +1338,7 @@ function draftChanged(force = false): void {
     (key, index) => next[key] ?? languageBase.value[index],
   );
   if (
+    membershipChanged ||
     languageSnapshot.value?.revision !== snapshot.value?.revision ||
     context.some((value, index) => value !== languageInputs[index])
   ) {
@@ -1543,6 +1585,7 @@ function soundBytes(key: string): Uint8Array {
   return value instanceof Uint8Array ? value : native(key)!;
 }
 function text(key: string): string | undefined {
+  if (deletedParts.value.includes(key)) return undefined;
   const version = snapshot.value?.version(key) ?? 0;
   const cached = derivedText.get(key);
   if (
@@ -1733,7 +1776,11 @@ watch(
   { immediate: true },
 );
 const acceptedDocuments = computed(() => snapshot.value?.documents() ?? {});
-const workingDocuments = computed(() => ({ ...acceptedDocuments.value, ...optimistic.value }));
+const workingDocuments = computed(() => {
+  const documents = { ...acceptedDocuments.value, ...optimistic.value };
+  for (const key of deletedParts.value) delete documents[key];
+  return documents;
+});
 // Table editors need renderable rows; damaged JSON is repaired as source text.
 const textTables = computed(() => {
   const keys: string[] = [];
@@ -2074,6 +2121,50 @@ async function clearName(name: string): Promise<void> {
     }
   });
 }
+async function deletePart(key: string, room?: number): Promise<void> {
+  if (!session || editingPaused.value || actionBusy.value) return;
+  const owner = session;
+  try {
+    await writes.flush();
+    if (session !== owner || editingPaused.value || actionBusy.value) return;
+    const captured = owner.workingSnapshot();
+    if (!captured.read(key)) return;
+    const plan = preparePartDraftRemoval(captured, key, profile.value, room);
+    if (plan.problems.length) {
+      partRemovalReview.value = {
+        owner,
+        snapshot: captured,
+        key,
+        ...(room === undefined ? {} : { room }),
+        plan,
+      };
+    } else applyPartRemoval(plan.changes);
+  } catch (cause) {
+    editor.error.value = cause instanceof Error ? cause.message : String(cause);
+  }
+}
+function applyPartRemoval(changes: readonly ProjectChange[]): void {
+  if (!session || editingPaused.value || actionBusy.value) return;
+  session.drafts().stageTransaction(changes);
+  partRemovalReview.value = undefined;
+  editor.error.value = "";
+  buildErrorLocation.value = undefined;
+  draftChanged(true);
+  if (editor.selected.value && deletedParts.value.includes(editor.selected.value))
+    openPart("problems");
+}
+async function confirmPartRemoval(): Promise<void> {
+  const review = partRemovalReview.value;
+  if (!session || !review || session !== review.owner) return;
+  if (
+    diffProjectDocuments(review.snapshot.documents(), session.workingSnapshot().documents()).length
+  ) {
+    partRemovalReview.value = undefined;
+    await deletePart(review.key, review.room);
+    return;
+  }
+  applyPartRemoval(review.plan.changes);
+}
 async function add(group: string, option?: string): Promise<void> {
   if (editingPaused.value || actionBusy.value) return;
   if (group === "SHARED LOGIC" && option !== undefined && option !== "empty") {
@@ -2118,7 +2209,11 @@ async function add(group: string, option?: string): Promise<void> {
   const presets = kind === "sound" ? await import("../../../../src/sound/presets.ts") : undefined;
   if (editingPaused.value) return;
   // Allocate after the imports, so two quick Adds read the same working snapshot in turn.
-  const used = occupiedProjectNumbers(workingSnapshot()?.documents() ?? {}, kind, profile.value);
+  const used = new Set(
+    Object.keys(workingSnapshot()?.documents() ?? {})
+      .filter((key) => key.startsWith(`${kind}:`))
+      .map((key) => Number(key.split(":")[1])),
+  );
   let num = 1;
   while (used.has(num) && num < 256) num++;
   if (num > 255) {
@@ -2303,6 +2398,39 @@ onBeforeUnmount(() => {
       >
     </template>
   </UiDialog>
+  <UiDialog
+    :open="!!partRemovalReview"
+    :title="
+      partRemovalReview?.room === undefined
+        ? `Delete ${documentLabel(partRemovalReview?.key ?? '')}`
+        : 'Delete room'
+    "
+    size="sm"
+    @update:open="
+      (value) => {
+        if (!value) partRemovalReview = undefined;
+      }
+    "
+  >
+    <p v-for="message in partRemovalReview?.plan.messages" :key="message">{{ message }}</p>
+    <p>These will show as problems until you change them.</p>
+    <p v-for="message in partRemovalReview?.plan.metadata" :key="message">{{ message }}</p>
+    <template #footer>
+      <UiButton variant="ghost" @click="partRemovalReview = undefined">Cancel</UiButton>
+      <UiButton
+        :disabled="editingPaused || actionBusy"
+        :title="
+          editingPaused
+            ? 'Editing is paused. Download your unsaved edits, then reload.'
+            : actionBusy
+              ? 'Wait for the current change to finish.'
+              : ''
+        "
+        @click="confirmPartRemoval"
+        >Delete</UiButton
+      >
+    </template>
+  </UiDialog>
   <div
     v-if="creating && phoneWidth && editor.selected.value"
     class="workspace-phone-toggle"
@@ -2365,6 +2493,13 @@ onBeforeUnmount(() => {
     @name-state="nameState"
     @rename="renameRoom"
     @rename-cancel="renamingRoom = undefined"
+    @remove="deletePart"
+    @number="
+      (key, room) => {
+        openPart(key, room);
+        changeNumber();
+      }
+    "
   />
   <div
     v-show="creating && editor.selected.value && !editor.focus.value && !phoneWidth"

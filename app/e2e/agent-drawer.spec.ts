@@ -9,6 +9,7 @@ import {
 } from "./engineProbe.ts";
 import { openWorkspaceLogic } from "./workspaceShared.ts";
 import type { Page } from "@playwright/test";
+import type { ProjectSession } from "../src/project/projectSession.ts";
 
 async function startStarter(page: Page) {
   await isolateStorage(page);
@@ -128,6 +129,49 @@ test("a blank project has a working agent drawer @webkit-desktop", async ({ page
   await expect(panel).toContainText("Build a meadow room");
   await panel.getByTestId("agent-panel-close").click();
   await expect(panel).toBeHidden();
+});
+
+test("drawer initialization preserves a new editor focus @webkit-desktop", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await startStarter(page);
+  const logic = await openWorkspaceLogic(page);
+  let waiting = false;
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.exposeFunction("holdAgentFlush", async () => {
+    waiting = true;
+    await held;
+  });
+  await page.evaluate(() => {
+    const session = (
+      window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }
+    ).__AGI_PROJECT__.getSession();
+    const flush = session.flush.bind(session);
+    session.flush = async () => {
+      await flush();
+      await (window as unknown as { holdAgentFlush(): Promise<void> }).holdAgentFlush();
+      session.flush = flush;
+    };
+  });
+  try {
+    await openWorkspaceAgent(page);
+    await expect.poll(() => waiting).toBe(true);
+    await expect(page.getByTestId("agent-message")).toBeDisabled();
+    await logic
+      .locator(".view-line")
+      .nth(2)
+      .click({ position: { x: 24, y: 8 } });
+    await expect(page.getByTestId("agent-context-chip")).toContainText("LOGIC 1 · line 3");
+    release();
+    await expect(page.getByTestId("agent-message")).toBeEnabled();
+    await expect(logic.locator("textarea.inputarea")).toBeFocused();
+    await page.keyboard.press("ArrowDown");
+    await expect(page.getByTestId("agent-context-chip")).toContainText("LOGIC 1 · line 4");
+  } finally {
+    release();
+  }
 });
 
 test("the context chip follows the selection and its × asks about the whole game @webkit-desktop", async ({

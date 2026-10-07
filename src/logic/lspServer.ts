@@ -1,6 +1,7 @@
 /** One document store and LSP implementation for stdio and Studio workers. */
 import { createProjectLogicLanguageSnapshot } from "../authoring/projectLanguage.ts";
-import { compileProjectLogic } from "../authoring/projectLogic.ts";
+import { formatLogic } from "./format.ts";
+import { expandProjectLogic, compileProjectLogic } from "../authoring/projectLogic.ts";
 import { PROFILES } from "../runtime/profile.ts";
 import type { ProfileId } from "../runtime/profile.ts";
 import { analyzeLogicSyntax, scanLogicTokens } from "./syntax.ts";
@@ -44,6 +45,11 @@ export interface LogicLanguageProject {
   >;
   readonly bindingDocument?: { readonly uri: string; readonly source: string };
 }
+export interface LogicLanguageSettings {
+  readonly project?: LogicLanguageProject;
+  /** Prepared Problems can refresh without replacing the language inputs. */
+  readonly diagnosticSnapshot?: Pick<LogicLanguageProject, "documents" | "diagnostics">;
+}
 interface Document {
   uri: string;
   source: string;
@@ -58,7 +64,7 @@ interface Params {
   name?: string;
   range?: Range;
   contentChanges: { text: string; range?: Range; rangeLength?: number }[];
-  settings?: { agiLogic?: { project: LogicLanguageProject } };
+  settings?: { agiLogic?: LogicLanguageSettings };
   id?: string | number;
   previousResultId?: string;
   capabilities?: {
@@ -89,6 +95,7 @@ export function createLogicLspServer(
   const cancelled = new Set<string | number>();
   let bindingDocument = { uri: "agi-project:///bindings.json", source: "{}" };
   let bindingDeclarations: Record<string, unknown> = {};
+  let validBindingDocument = true;
 
   function setProject(input: LogicLanguageProject) {
     project = {
@@ -122,13 +129,12 @@ export function createLogicLspServer(
     };
     try {
       const parsed: unknown = JSON.parse(bindingDocument.source);
-      bindingDeclarations =
-        parsed && typeof parsed === "object" && !Array.isArray(parsed)
-          ? (parsed as Record<string, unknown>)
-          : {};
+      validBindingDocument = !!parsed && typeof parsed === "object" && !Array.isArray(parsed);
+      bindingDeclarations = validBindingDocument ? (parsed as Record<string, unknown>) : {};
     } catch {
       // Numeric project inputs still support navigation when a declaration preview is invalid.
       bindingDeclarations = {};
+      validBindingDocument = false;
     }
     revision++;
     cache.clear();
@@ -147,6 +153,10 @@ export function createLogicLspServer(
         dictionary: new Map(project.words),
         bindings: project.bindings,
         objects: project.objects ?? [],
+        resources: [...Object.keys(project.resources ?? {}), ...Object.keys(project.documents)],
+        ...(documentKey(doc).match(/^logic:(\d+)$/)?.[1]
+          ? { logic: Number(documentKey(doc).match(/^logic:(\d+)$/)![1]) }
+          : {}),
       });
       cache.set(doc.uri, result);
     }
@@ -665,6 +675,7 @@ export function createLogicLspServer(
           definitionProvider: true,
           referencesProvider: true,
           renameProvider: { prepareProvider: true },
+          documentFormattingProvider: true,
           documentSymbolProvider: true,
           workspaceSymbolProvider: true,
           semanticTokensProvider: { legend: SEMANTIC_LEGEND, full: true, range: true },
@@ -702,6 +713,7 @@ export function createLogicLspServer(
         "textDocument/references",
         "textDocument/prepareRename",
         "textDocument/rename",
+        "textDocument/formatting",
         "textDocument/documentSymbol",
         "textDocument/documentHighlight",
         "textDocument/foldingRange",
@@ -719,6 +731,11 @@ export function createLogicLspServer(
     if (!doc) return null;
     // Structure and colour use the recoverable lexer independently of checking.
     switch (method) {
+      case "textDocument/formatting":
+        return formatLogic(doc.source, {
+          prelude: expandProjectLogic(doc.source, project.bindings, true).prelude,
+          builtins: systemBindings(project.bindings),
+        });
       case "textDocument/semanticTokens/full":
         return createLogicLanguageStructure(doc.source).semanticTokens();
       case "textDocument/semanticTokens/range":
@@ -747,9 +764,10 @@ export function createLogicLspServer(
         return bindingInfos().find((info) => info.name === definition.name) ?? null;
       }
       case "textDocument/completion":
-        return snapshot.completeAt(offset).map((item) => ({
+        return snapshot.completeAt(offset).map((item, index) => ({
           label: item.label,
           detail: item.detail,
+          sortText: String(index).padStart(5, "0"),
           textEdit: { range: rangeAt(doc.source, item.start, item.end), newText: item.text },
         }));
       case "textDocument/signatureHelp": {
@@ -865,8 +883,19 @@ export function createLogicLspServer(
         const start = params.range ? offsetAt(doc.source, params.range.start) : 0;
         const end = params.range ? offsetAt(doc.source, params.range.end) : doc.source.length;
         const fixes = snapshot
-          .quickFixes()
+          .quickFixes(allDocuments().flatMap((candidate) => language(candidate).operands))
           .filter((fix) => fix.diagnostic.start <= end && fix.diagnostic.end >= start)
+          .filter(
+            (fix) =>
+              !fix.binding ||
+              (validBindingDocument &&
+                !Object.hasOwn(bindingDeclarations, fix.binding.name) &&
+                !allDocuments().some((candidate) =>
+                  analyzeLogicSyntax(candidate.source).definitions.some(
+                    (definition) => definition.name === fix.binding!.name,
+                  ),
+                )),
+          )
           .map((fix) => ({
             title: fix.title,
             kind: "quickfix",
@@ -879,15 +908,38 @@ export function createLogicLspServer(
               },
             ],
             edit: {
-              documentChanges: [
-                {
-                  textDocument: { uri: doc.uri, version: doc.version },
-                  edits: fix.edits.map((edit) => ({
-                    range: rangeAt(doc.source, edit.start, edit.end),
-                    newText: edit.text,
-                  })),
-                },
-              ],
+              documentChanges: fix.binding
+                ? [
+                    {
+                      textDocument: { uri: bindingDocument.uri, version: null },
+                      edits: [
+                        {
+                          range: rangeAt(bindingDocument.source, 0, bindingDocument.source.length),
+                          newText:
+                            JSON.stringify(
+                              {
+                                ...bindingDeclarations,
+                                [fix.binding.name]: {
+                                  kind: fix.binding.kind,
+                                  num: fix.binding.num,
+                                },
+                              },
+                              null,
+                              2,
+                            ) + "\n",
+                        },
+                      ],
+                    },
+                  ]
+                : [
+                    {
+                      textDocument: { uri: doc.uri, version: doc.version },
+                      edits: fix.edits.map((edit) => ({
+                        range: rangeAt(doc.source, edit.start, edit.end),
+                        newText: edit.text,
+                      })),
+                    },
+                  ],
             },
           }));
         return [
@@ -927,8 +979,36 @@ export function createLogicLspServer(
       return;
     }
     if (method === "workspace/didChangeConfiguration") {
-      const input = params.settings?.agiLogic?.project;
-      if (input) setProject(input);
+      const settings = params.settings?.agiLogic;
+      if (settings?.project) setProject(settings.project);
+      else if (settings?.diagnosticSnapshot) {
+        const snapshot = settings.diagnosticSnapshot;
+        if (
+          Object.keys(snapshot.documents).length !== Object.keys(project.documents).length ||
+          Object.entries(snapshot.documents).some(([key, source]) => {
+            const configured = project.documents[key];
+            const uri = source.uri ?? `agi-project:///logic.${key.slice(6)}.lgc`;
+            return (
+              !configured ||
+              uri !== (configured.uri ?? `agi-project:///logic.${key.slice(6)}.lgc`) ||
+              document(uri)?.source !== source.source
+            );
+          })
+        )
+          return;
+        const { diagnostics: _diagnostics, ...inputs } = project;
+        project = {
+          ...inputs,
+          documents: Object.fromEntries(
+            Object.entries(snapshot.documents).map(([key, source]) => [key, { ...source }]),
+          ),
+          ...(snapshot.diagnostics
+            ? { diagnostics: snapshot.diagnostics.map((entry) => ({ ...entry })) }
+            : {}),
+        };
+        revision++;
+        for (const doc of open.values()) publish(doc);
+      }
       return;
     }
     if (method === "textDocument/didOpen") {

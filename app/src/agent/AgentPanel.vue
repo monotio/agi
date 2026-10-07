@@ -79,10 +79,17 @@ const readOnly = ref(false);
 const taskContext = ref("");
 const formatReply = shallowRef<ReplyFormatter>();
 const composer = useTemplateRef("composer");
+const openingFocus = document.activeElement;
 watch(
   [agent, composer],
   ([ready, element]) => {
-    if (ready && element && !document.querySelector("dialog[open]")) element.focus();
+    if (
+      ready &&
+      element &&
+      document.activeElement === openingFocus &&
+      !document.querySelector("dialog[open]")
+    )
+      element.focus();
   },
   { flush: "post" },
 );

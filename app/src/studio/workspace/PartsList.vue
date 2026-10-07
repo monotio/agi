@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { numberedLabel, numberedSlot } from "../../../../src/logic/numberedLabels.ts";
-import UiIcon from "../../ui/UiIcon.vue";
 import ActionMenu from "../../ui/ActionMenu.vue";
 import {
   computed,
@@ -53,6 +52,8 @@ const emit = defineEmits<{
   nameState: [kind: "flag" | "variable", num: number, name: string];
   rename: [room: number, title: string];
   renameCancel: [];
+  remove: [key: string, room?: number];
+  number: [key: string, room?: number];
 }>();
 const engine = useEngineApi();
 const workspace = useWorkspaceEditor();
@@ -158,9 +159,14 @@ const nextFree = computed(() => {
   const used = new Set(
     names.value.filter((info) => info.kind === namingKind.value).map((info) => info.num),
   );
-  let num = 16;
+  // Flags 0–15 and variables 0–26 belong to the interpreter.
+  let num = namingKind.value === "flag" ? 16 : 27;
   while (used.has(num) && num < 256) num++;
   return num;
+});
+// Switching between Flag and Variable suggests that kind's next free number.
+watch(namingKind, () => {
+  if (namingOpen.value) namingNum.value = nextFree.value;
 });
 function openNaming(): void {
   namingOpen.value = true;
@@ -309,10 +315,6 @@ watch(
 );
 function resourceName(key: string): BindingInfo | undefined {
   return names.value.find((info) => `${info.kind}:${info.num}` === key);
-}
-function closePartMenu(event: MouseEvent): void {
-  const button = event.currentTarget as HTMLButtonElement;
-  button.closest("details")?.removeAttribute("open");
 }
 const root = useTemplateRef("root");
 function rememberScroll(): void {
@@ -485,61 +487,62 @@ function onKey(event: KeyboardEvent): void {
             :bytes="views[row.key]!"
             :profile="profile"
           />
-          <span>{{
-            row.child && resourceName(row.key)
-              ? numberedLabel(
-                  resourceName(row.key)!.kind,
-                  resourceName(row.key)!.num,
-                  { name: resourceName(row.key)!.name },
-                  "row",
-                )
-              : row.label
-          }}</span
+          <span
+            >{{
+              row.child && resourceName(row.key)
+                ? numberedLabel(
+                    resourceName(row.key)!.kind,
+                    resourceName(row.key)!.num,
+                    { name: resourceName(row.key)!.name },
+                    "row",
+                  )
+                : row.label
+            }}<small v-if="row.secondary"> · {{ row.secondary }}</small></span
           ><i v-if="pending?.includes(row.key)" class="draft-dot" aria-label="Pending change"></i
           ><i v-if="row.live" class="live-dot" aria-label="Hero here"></i>
         </button>
-        <details v-if="row.id === `room:${row.room}`" class="part-menu">
-          <summary :aria-label="`Actions for ${roomLabel(row.room!)}`">
-            <UiIcon name="ellipsis" :size="16" />
-          </summary>
+        <ActionMenu
+          v-if="
+            /^(logic|picture|view|sound):/.test(row.key) || ['inventory', 'words'].includes(row.key)
+          "
+          class="part-menu"
+          :label="`Actions for ${row.id === `room:${row.room}` ? roomLabel(row.room!) : (resourceName(row.key)?.name ?? row.label)}`"
+          icon="ellipsis"
+          icon-only
+          size="sm"
+          :disabled="readOnly"
+        >
           <button
-            class="part-rename"
-            :title="
-              readOnly
-                ? 'Editing is paused. Download your unsaved edits, then reload.'
-                : 'Rename this room'
-            "
-            :disabled="readOnly"
+            v-if="row.id === `room:${row.room}`"
+            role="menuitem"
             :aria-label="`Rename ${roomLabel(row.room!)}`"
-            @click="
-              closePartMenu($event);
-              startRoomRename(row.room!);
-            "
+            @click="startRoomRename(row.room!)"
           >
             Rename
           </button>
-        </details>
-        <details v-else-if="resourceName(row.key)" class="part-menu">
-          <summary :aria-label="`Actions for ${resourceName(row.key)!.name}`">
-            <UiIcon name="ellipsis" :size="16" />
-          </summary>
           <button
-            class="part-rename"
-            :title="
-              readOnly
-                ? 'Editing is paused. Download your unsaved edits, then reload.'
-                : 'Rename this part'
-            "
-            :disabled="readOnly"
+            v-else-if="resourceName(row.key)"
+            role="menuitem"
             :aria-label="`Rename ${resourceName(row.key)!.name}`"
-            @click="
-              closePartMenu($event);
-              startRename(`part:${row.id}`, resourceName(row.key)!.name);
-            "
+            @click="startRename(`part:${row.id}`, resourceName(row.key)!.name)"
           >
             Rename
           </button>
-        </details>
+          <button
+            v-if="row.key.includes(':')"
+            role="menuitem"
+            @click="emit('number', row.key, row.room)"
+          >
+            Change number…
+          </button>
+          <button
+            role="menuitem"
+            class="danger"
+            @click="emit('remove', row.key, row.id === `room:${row.room}` ? row.room : undefined)"
+          >
+            {{ row.id === `room:${row.room}` ? "Delete room…" : "Delete…" }}
+          </button>
+        </ActionMenu>
         <p
           v-if="renaming?.row === `part:${row.id}` && renameError"
           class="part-name-error"
@@ -582,7 +585,7 @@ function onKey(event: KeyboardEvent): void {
         </div>
         <p v-if="namingError" class="game-state-naming__error" role="alert">{{ namingError }}</p>
         <div class="game-state-naming__row">
-          <UiButton size="sm" type="submit">Rename</UiButton>
+          <UiButton size="sm" type="submit">Add</UiButton>
           <UiButton size="sm" variant="ghost" @click="namingOpen = false">Cancel</UiButton>
         </div>
       </form>
@@ -762,37 +765,12 @@ function onKey(event: KeyboardEvent): void {
   flex: 1;
   min-width: 0;
 }
-.part-rename {
-  border: 0;
-  background: transparent;
-  color: var(--ink-3);
-  font: var(--text-2xs) var(--font-sans);
-  cursor: pointer;
-  padding: var(--space-1);
-}
 .part-menu {
-  position: relative;
   flex: none;
 }
-.part-menu summary {
-  list-style: none;
-  cursor: pointer;
-  padding: var(--space-1) var(--space-2);
+.part small {
   color: var(--ink-3);
-}
-.part-menu summary::-webkit-details-marker {
-  display: none;
-}
-.part-menu[open] .part-rename {
-  position: absolute;
-  z-index: 4;
-  right: 0;
-  top: 100%;
-  padding: var(--space-2) var(--space-3);
-  background: var(--surface-3);
-  border: 1px solid var(--hairline);
-  border-radius: var(--radius);
-  color: var(--ink);
+  font-size: inherit;
 }
 .game-state {
   margin-top: var(--space-3);

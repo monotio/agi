@@ -133,7 +133,11 @@ export async function replaceWorkspaceDocument(
     // Monaco chooses its keyboard platform from the browser's user agent.
     const mac = await page.evaluate(() => navigator.userAgent.includes("Macintosh"));
     await page.keyboard.press(mac ? "Meta+a" : "Control+a");
-    await page.keyboard.insertText(text);
+    await page.evaluate(async (text) => {
+      const { monaco } = await import("/src/studio/logic/monacoLanguage.ts");
+      const editor = monaco.editor.getEditors().find((editor) => editor.hasTextFocus())!;
+      editor.trigger("spec", "paste", { text });
+    }, text);
     await page.keyboard.press("Escape");
   } else if (key === "words") {
     const show = page.getByTestId("workspace-show-game");

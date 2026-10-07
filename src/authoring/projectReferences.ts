@@ -5,6 +5,8 @@
  * whole-program data-flow proof. Source drafts, world plans and stored tests must
  * contribute their own references before a caller authorizes removal.
  */
+import { resourceReferenceOperand } from "../logic/commandReference.ts";
+export { resourceReferenceOperand } from "../logic/commandReference.ts";
 import { inspectLogicResource } from "../logic/disassembler.ts";
 import { actionSpec, conditionSpec, SAID_ANY_WORD, SAID_REST } from "../logic/opcodes.ts";
 import { parseWordsTok } from "../logic/words.ts";
@@ -38,52 +40,6 @@ interface Diagnostic {
     | "unreadable-document";
   readonly severity: "error" | "warning";
   readonly message: string;
-}
-interface ResourceOperand {
-  readonly kind: ResourceKind | "item";
-  readonly operand: number;
-  readonly variable?: true;
-}
-
-// Names are resolved through the selected profile's decoder before this table
-// is consulted. These describe the referenced family, not opcode execution.
-const RESOURCE_REFERENCE_OPERANDS: Readonly<Record<string, ResourceOperand>> = {
-  "new.room": { kind: "logic", operand: 0 },
-  "new.room.v": { kind: "logic", operand: 0, variable: true },
-  "load.logics": { kind: "logic", operand: 0 },
-  "load.logics.v": { kind: "logic", operand: 0, variable: true },
-  call: { kind: "logic", operand: 0 },
-  "call.v": { kind: "logic", operand: 0, variable: true },
-  "trace.info": { kind: "logic", operand: 0 },
-  "load.pic": { kind: "picture", operand: 0, variable: true },
-  "draw.pic": { kind: "picture", operand: 0, variable: true },
-  "discard.pic": { kind: "picture", operand: 0, variable: true },
-  "overlay.pic": { kind: "picture", operand: 0, variable: true },
-  "load.view": { kind: "view", operand: 0 },
-  "load.view.v": { kind: "view", operand: 0, variable: true },
-  "discard.view": { kind: "view", operand: 0 },
-  "discard.view.v": { kind: "view", operand: 0, variable: true },
-  "set.view": { kind: "view", operand: 1 },
-  "set.view.v": { kind: "view", operand: 1, variable: true },
-  "add.to.pic": { kind: "view", operand: 0 },
-  "add.to.pic.v": { kind: "view", operand: 0, variable: true },
-  "show.obj": { kind: "view", operand: 0 },
-  "show.obj.v": { kind: "view", operand: 0, variable: true },
-  "load.sound": { kind: "sound", operand: 0 },
-  sound: { kind: "sound", operand: 0 },
-  "get.v": { kind: "item", operand: 0, variable: true },
-  "put.v": { kind: "item", operand: 0, variable: true },
-  "get.room.v": { kind: "item", operand: 0, variable: true },
-};
-
-/** Sound discard is a real resource use only on IIgs; see fidelity.md "Apple IIgs sound discard". */
-export function resourceReferenceOperand(
-  command: string,
-  profile: AgiProfile,
-): ResourceOperand | undefined {
-  if (command === "discard.sound")
-    return profile.extraActions === "iigs" ? { kind: "sound", operand: 0 } : undefined;
-  return RESOURCE_REFERENCE_OPERANDS[command];
 }
 
 export function inspectProjectReferences(input: {

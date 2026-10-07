@@ -5,6 +5,7 @@ import UiIcon from "../../ui/UiIcon.vue";
 import { VOCABULARY } from "../../../../src/vocabulary.ts";
 import { computed, watch, nextTick, useTemplateRef } from "vue";
 import UiButton from "../../ui/UiButton.vue";
+import ItemRoomPicker from "./ItemRoomPicker.vue";
 const props = defineProps<{
   kind: "inventory";
   source: string;
@@ -77,12 +78,13 @@ function add(): void {
             <small>{{ numberedLabel("inventory", index) }}</small>
           </td>
           <td>
-            <input
-              :readonly="readOnly"
-              type="number"
-              :aria-label="`Starting room for ${numberedLabel('inventory', index, { ...labels, name: row[0] })}`"
+            <span class="table-room-label">{{ VOCABULARY.roomColumn.label }}</span>
+            <ItemRoomPicker
+              :disabled="readOnly"
+              :context="labels"
+              :label="`Starting room for ${numberedLabel('inventory', index, { ...labels, name: row[0] })}`"
               :value="row[1]"
-              @change="update(index, 1, ($event.target as HTMLInputElement).value)"
+              @change="update(index, 1, String($event))"
             />
           </td>
           <td>
@@ -144,5 +146,39 @@ input {
   background: var(--surface-0);
   border: 1px solid var(--hairline-strong);
   border-radius: var(--radius);
+}
+.table-room-label {
+  display: none;
+}
+@media (max-width: 600px) {
+  thead {
+    display: none;
+  }
+  tbody,
+  tr {
+    display: block;
+  }
+  tr {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    border-top: 1px solid var(--hairline);
+    padding-block: var(--space-2);
+  }
+  td {
+    border-top: 0;
+    min-width: 0;
+  }
+  td:first-child {
+    grid-column: 1 / -1;
+  }
+  td:last-child {
+    align-self: end;
+  }
+  .table-room-label {
+    display: block;
+    font-size: var(--text-xs);
+    color: var(--ink-3);
+    margin-bottom: var(--space-2);
+  }
 }
 </style>

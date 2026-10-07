@@ -236,6 +236,7 @@ test("system slots have names in hover, completion and the shared Game state inv
     {
       label: "new_room",
       detail: "Flag 5 · built-in",
+      sortText: "00000",
       textEdit: {
         range: { start: { line: 0, character: 4 }, end: { line: 0, character: 8 } },
         newText: "new_room",

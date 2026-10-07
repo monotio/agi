@@ -29,7 +29,7 @@ test("statement recovery retains valid following statements and stays inside a b
   const source = "if (isset(f1)) {\nset(unknown);\nreset(f2);\n}\nreturn;";
   const analysis = analyzeLogicSyntax(source);
   assert.equal(analysis.diagnostics.length, 1);
-  assert.match(analysis.diagnostics[0]!.message, /unknown identifier/);
+  assert.match(analysis.diagnostics[0]!.message, /Nothing is named/);
   assert.equal(
     source.slice(analysis.diagnostics[0]!.start, analysis.diagnostics[0]!.end),
     "unknown",

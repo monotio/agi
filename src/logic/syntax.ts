@@ -582,11 +582,7 @@ class Parser {
       if (defined !== undefined) return { ...defined, tok };
       const builtin = Object.hasOwn(this.builtins, tok.text) ? this.builtins[tok.text] : undefined;
       if (builtin) return { kind: builtin.kind, index: builtin.num, tok };
-      throw new AssemblerError(
-        `unknown identifier '${tok.text}' (want vN/fN/oN/iN/mN/sN/wN/cN, a number, or a #define)`,
-        tok.line,
-        tok.col,
-      );
+      throw new AssemblerError(`Nothing is named ${tok.text}.`, tok.line, tok.col);
     }
     throw new AssemblerError(
       `unexpected '${tok.text || tok.type}' in argument list`,
