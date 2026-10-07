@@ -123,13 +123,57 @@ test("Blank adds its first room through the session @webkit-desktop", async ({ p
     .fill("Empty proof");
   await page.getByTestId("local-create-kind-blank").click();
   await page.getByRole("button", { name: "Start building", exact: true }).click();
-  await expect(page.getByText("Nothing to play yet.", { exact: true })).toBeVisible();
+  await expect(
+    page.locator(".screen").getByText("Nothing to play yet.", { exact: true }),
+  ).toBeVisible();
   const emptyBox = (await page.getByTestId("empty-project-stage").boundingBox())!;
   expect(emptyBox.y).toBe(0);
   await page.getByTestId("empty-add-room").click();
   await expect(page.getByTestId("parts-list")).toBeVisible();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
 });
+
+for (const [width, height] of [
+  [1440, 900],
+  [1063, 815],
+] as const) {
+  test(`a blank game shows its start inside the game screen of the Create frame at ${width} @webkit-desktop`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height });
+    await isolateStorage(page);
+    await page.goto("/#create-adventure");
+    await page.getByTestId("local-create-kind-blank").click();
+    await page.getByRole("button", { name: "Start building", exact: true }).click();
+    const screen = page.locator(".screen");
+    await expect(screen).toBeVisible();
+    await expect(screen.getByText("Nothing to play yet.", { exact: true })).toBeVisible();
+    const box = async (locator: Locator) => (await locator.boundingBox())!;
+    const blankScreen = await box(screen);
+    const blankParts = await box(page.getByTestId("parts-list"));
+    for (const button of [
+      page.getByTestId("empty-add-room"),
+      page.getByTestId("empty-boilerplate"),
+    ]) {
+      await expect(button).toBeVisible();
+      const inner = await box(button);
+      expect(inner.x).toBeGreaterThanOrEqual(blankScreen.x);
+      expect(inner.y).toBeGreaterThanOrEqual(blankScreen.y);
+      expect(inner.x + inner.width).toBeLessThanOrEqual(blankScreen.x + blankScreen.width);
+      expect(inner.y + inner.height).toBeLessThanOrEqual(blankScreen.y + blankScreen.height);
+    }
+    await page.getByTestId("empty-add-room").click();
+    await expect(page.getByTestId("room-studio")).toBeVisible();
+    await expect.poll(async () => (await textHook(page)).room).toBe(1);
+    // Create keeps the Play strip hidden, also when the blank stage loaded its styles first.
+    await expect(page.locator(".play-strip")).toBeHidden();
+    const roomScreen = await box(page.locator(".screen"));
+    const roomParts = await box(page.getByTestId("parts-list"));
+    expect(Math.abs(blankParts.width - roomParts.width)).toBeLessThanOrEqual(1);
+    for (const side of ["x", "y", "width", "height"] as const)
+      expect(Math.abs(blankScreen[side] - roomScreen[side]), side).toBeLessThanOrEqual(4);
+  });
+}
 
 test("Focus game waits for input readiness and respects a later focus choice @webkit-desktop", async ({
   page,
@@ -407,7 +451,9 @@ for (const size of [
       .fill("Empty workspace");
     await page.getByTestId("local-create-kind-blank").click();
     await page.getByRole("button", { name: "Start building", exact: true }).click();
-    await expect(page.getByText("Nothing to play yet.", { exact: true })).toBeVisible();
+    await expect(
+      page.locator(".screen").getByText("Nothing to play yet.", { exact: true }),
+    ).toBeVisible();
     await shot("empty");
   });
 }
@@ -611,7 +657,9 @@ test("keyboard authors all three parts, undoes across them and reloads @webkit-d
   await expect(page.getByTestId("local-create-kind-blank")).toBeFocused();
   await tabTo(page, page.getByRole("button", { name: "Start building", exact: true }));
   await page.keyboard.press("Enter");
-  await expect(page.getByText("Nothing to play yet.", { exact: true })).toBeVisible();
+  await expect(
+    page.locator(".screen").getByText("Nothing to play yet.", { exact: true }),
+  ).toBeVisible();
   await tabTo(page, page.getByTestId("empty-add-room"));
   await page.keyboard.press("Enter");
   await expect(page.getByTestId("parts-list")).toBeVisible();

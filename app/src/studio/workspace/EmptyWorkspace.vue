@@ -1,5 +1,10 @@
 <script setup lang="ts">
-import { VOCABULARY } from "../../../../src/vocabulary.ts";
+/**
+ * A stored game with no start-up LOGIC yet. It cannot run, so Create shows
+ * its frame around an empty game screen: the same bar, parts list, game
+ * area and editor side as a game with rooms, with the first steps inside
+ * the screen.
+ */
 import "./workspace.css";
 import { onBeforeUnmount, ref } from "vue";
 import { emptyStageSession, openPlayableProject } from "../../home/emptyStageSession.ts";
@@ -9,11 +14,10 @@ import { useGameLibrary } from "../../library/useGameLibrary.ts";
 import { useEngineApi } from "../../engine/engineContext.ts";
 import { useShellBridge } from "../../shell/shellBridge.ts";
 import { useShell } from "../../shell/useShell.ts";
+import { useWorkspaceEditor } from "../../shell/workspaceEditor.ts";
+import PlayBar from "../../shell/PlayBar.vue";
 import PartsList from "./PartsList.vue";
 import { workspaceParts } from "../host/workspaceParts.ts";
-import UiChip from "../../ui/UiChip.vue";
-import UiSegmented from "../../ui/UiSegmented.vue";
-import UiIconButton from "../../ui/UiIconButton.vue";
 import UiButton from "../../ui/UiButton.vue";
 import { emptyProject } from "../../home/emptyProjectRoute.ts";
 import type { CachedGameData } from "../../project/gameTypes.ts";
@@ -22,7 +26,7 @@ const engine = useEngineApi();
 const shell = useShell();
 const bridge = useShellBridge();
 const library = useGameLibrary();
-const mode = ref("create");
+const editor = useWorkspaceEditor();
 const groups = workspaceParts({ keys: [], rooms: [], currentRoom: null });
 const busy = ref(false);
 const error = ref("");
@@ -90,36 +94,49 @@ function goHome(): void {
   emptyProject.value = null;
   history.pushState(null, "", location.pathname + location.search);
 }
+/** The splitter moves the shared split, so the first room opens at the same size. */
+function resize(event: PointerEvent): void {
+  const target = event.currentTarget as HTMLElement;
+  const area = target.parentElement!.getBoundingClientRect();
+  const left =
+    target.parentElement!.querySelector(".parts-list")?.getBoundingClientRect().width ?? 0;
+  target.setPointerCapture(event.pointerId);
+  const move = (e: PointerEvent) =>
+    editor.resize(
+      editor.stackedLayout.value
+        ? (100 * (e.clientY - area.top)) / area.height
+        : (100 * (e.clientX - area.left - left)) / (area.width - left),
+    );
+  const stop = () => target.removeEventListener("pointermove", move);
+  target.addEventListener("pointermove", move);
+  target.addEventListener("lostpointercapture", stop, { once: true });
+}
 </script>
 
 <template>
   <section class="empty-project" aria-label="Create" data-testid="empty-project-stage">
-    <header>
-      <UiIconButton icon="chevron-left" label="Back to library" @click="goHome" />
-      <h1>{{ project.title }}</h1>
-      <UiChip tone="ok" dot :title="VOCABULARY.saved.help">Saved</UiChip>
-      <UiSegmented
-        v-model="mode"
-        label="Mode"
-        :options="[
-          { value: 'play', label: 'Play', disabled: true },
-          { value: 'create', label: 'Create' },
-        ]"
-      />
-      <UiIconButton icon="undo" label="Undo" :title="VOCABULARY.undo.help" disabled />
-      <UiIconButton icon="redo" label="Redo" :title="VOCABULARY.redo.help" disabled />
-      <UiButton icon="sparkles" variant="ghost" :title="VOCABULARY.agent.help" @click="openAgent()"
-        >Agent</UiButton
-      >
-      <UiIconButton icon="help" label="Help" @click="bridge.openHelp()" />
-      <UiIconButton
-        icon="settings"
-        label="Settings"
-        @click="bridge.openSettings($event.currentTarget as HTMLElement)"
-      />
-    </header>
-    <div class="empty-workspace">
+    <PlayBar
+      :blank="project.title"
+      :settings-open="false"
+      @exit="goHome"
+      @agent="openAgent()"
+      @help-guide="bridge.openHelp()"
+      @keyboard-shortcuts="bridge.openHelp('shortcuts')"
+      @settings="bridge.openSettings"
+    />
+    <div
+      class="shell-body shell-body--workspace shell-body--create"
+      :class="{
+        'shell-body--stacked': editor.stackedLayout.value,
+        'shell-body--no-editor': editor.phoneFrame.value,
+      }"
+      :style="{
+        '--workspace-game': `minmax(0, ${editor.effectiveSplit.value}fr)`,
+        '--workspace-edit': `minmax(0, ${100 - editor.effectiveSplit.value}fr)`,
+      }"
+    >
       <PartsList
+        :class="{ 'parts-list--open': editor.partsOpen.value }"
         :groups="groups"
         :selected="undefined"
         :thumbnails="{}"
@@ -127,71 +144,122 @@ function goHome(): void {
         @add="(label) => start('room', OPEN_TAB[label])"
         @name-state="(kind, num, name) => start('room', 'state', { kind, num, name })"
       />
-      <div class="empty-stage">
-        <div>
-          <p role="status">Nothing to play yet.</p>
-          <div class="empty-actions">
-            <UiButton
-              variant="primary"
-              :disabled="busy"
-              data-testid="empty-add-room"
-              @click="start('room')"
-              >Add a room</UiButton
-            ><UiButton
-              :disabled="busy"
-              data-testid="empty-boilerplate"
-              @click="start('boilerplate')"
-              >Use Boilerplate</UiButton
-            >
+      <div class="play-area">
+        <div class="stage">
+          <div class="screen">
+            <div class="empty-start">
+              <p role="status">Nothing to play yet.</p>
+              <div class="empty-actions">
+                <UiButton
+                  variant="primary"
+                  :disabled="busy"
+                  data-testid="empty-add-room"
+                  @click="start('room')"
+                  >Add a room</UiButton
+                ><UiButton
+                  :disabled="busy"
+                  data-testid="empty-boilerplate"
+                  @click="start('boilerplate')"
+                  >Use Boilerplate</UiButton
+                >
+              </div>
+              <p v-if="error" role="alert">{{ error }}</p>
+            </div>
           </div>
-          <p v-if="error" role="alert">{{ error }}</p>
         </div>
+        <div class="workspace-game-bar"></div>
       </div>
+      <template v-if="!editor.phoneFrame.value">
+        <div
+          class="workspace-splitter"
+          role="separator"
+          :aria-label="editor.stackedLayout.value ? 'Editor height' : 'Editor width'"
+          :aria-orientation="editor.stackedLayout.value ? 'horizontal' : 'vertical'"
+          tabindex="0"
+          :aria-valuenow="editor.split.value"
+          aria-valuemin="25"
+          aria-valuemax="75"
+          @pointerdown="resize"
+          @keydown.left.prevent="editor.resize(editor.split.value - 2)"
+          @keydown.right.prevent="editor.resize(editor.split.value + 2)"
+          @keydown.up.prevent="editor.resize(editor.split.value - 2)"
+          @keydown.down.prevent="editor.resize(editor.split.value + 2)"
+        ></div>
+        <section class="workspace-editor" aria-label="Editor">
+          <header class="workspace-editor__header"></header>
+          <div class="workspace-editor__surface"></div>
+          <footer class="workspace-status"></footer>
+        </section>
+      </template>
     </div>
   </section>
 </template>
 
 <style scoped>
 .empty-project {
-  width: 100%;
-  height: 100dvh;
   display: flex;
   flex-direction: column;
+  width: 100%;
+  height: var(--layout-height, 100dvh);
 }
-header {
-  display: flex;
-  align-items: center;
-  min-height: var(--shell-bar-h);
-  padding: 0 var(--space-5);
-  border-bottom: 1px solid var(--hairline);
-  gap: var(--space-5);
-}
-header span {
-  color: var(--ink-2);
-  font-size: var(--text-sm);
-}
-h1 {
-  margin: 0;
-  font-size: var(--text-md);
-  flex: 1;
-}
-.empty-workspace {
-  display: flex;
+.empty-project > .shell-body {
+  display: grid;
   flex: 1;
   min-height: 0;
 }
-.empty-stage {
+/* The game screen's place and size, as PlayArea.vue fits it; nothing runs on it. */
+.play-area {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+.stage {
+  container-type: size;
+  position: relative;
   display: grid;
   place-items: center;
-  flex: 1;
+  flex: 1 1 0;
+  width: 100%;
+  min-height: 0;
+  box-sizing: border-box;
+}
+.screen {
+  display: grid;
+  place-items: center;
+  width: min(100cqw, 100cqh * var(--game-ratio));
+  aspect-ratio: var(--game-aspect);
+  box-sizing: border-box;
+  padding: var(--space-4);
+  overflow: auto;
+  background: var(--agi-0);
+  box-shadow: 0 0 0 1px var(--hairline);
   color: var(--ink-2);
-  background: var(--surface-0);
   text-align: center;
-  padding: var(--space-7);
+  font: var(--text-sm) / var(--leading) var(--font-sans);
+}
+.empty-start p {
+  margin: 0 0 var(--space-4);
+}
+.empty-start p[role="alert"] {
+  margin: var(--space-4) 0 0;
+  color: var(--warn);
 }
 .empty-actions {
   display: flex;
+  flex-wrap: wrap;
   justify-content: center;
   gap: var(--space-3);
+}
+/* Phones hold the screen at the top with a gutter, as a phone game shows it. */
+@media (max-width: 600px) {
+  .stage {
+    align-items: start;
+    padding: var(--space-3) var(--space-5) 0;
+  }
+}
+/* The bar under the screen keeps its height with nothing in it yet. */
+.workspace-game-bar {
+  min-height: 35px;
+  box-sizing: border-box;
 }
 </style>

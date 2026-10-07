@@ -12,11 +12,11 @@
   height: var(--layout-height, 100dvh);
   min-height: 0;
 }
-.in-game .shell-body--workspace {
+:is(.in-game, .empty-project) .shell-body--workspace {
   overflow: hidden;
   padding-bottom: 0;
 }
-.in-game .shell-body--workspace .play-area {
+:is(.in-game, .empty-project) .shell-body--workspace .play-area {
   position: relative;
   min-height: 0;
 }
@@ -24,7 +24,8 @@
   grid-column: 1;
   grid-row: 1 / -1;
 }
-.shell-body--workspace .play-strip {
+/* Beats PlayArea's scoped strip whichever stylesheet loads first. */
+.shell-body--workspace > .play-area .play-strip {
   display: none;
 }
 .shell-body--workspace > .play-area {
@@ -430,10 +431,10 @@
 
 /* Phones switch between editing and playtesting. */
 @media (max-width: 600px) {
-  .in-game .shell-body.shell-body--workspace.shell-body--create {
+  :is(.in-game, .empty-project) .shell-body.shell-body--workspace.shell-body--create {
     grid-template-columns: minmax(0, 1fr) !important;
   }
-  .in-game .shell-body--workspace > .play-area {
+  :is(.in-game, .empty-project) .shell-body--workspace > .play-area {
     grid-column: 1;
     overflow: auto;
   }
@@ -466,7 +467,7 @@
     flex-basis: 100%;
   }
 
-  .in-game .shell-body--workspace > .parts-list {
+  :is(.in-game, .empty-project) .shell-body--workspace > .parts-list {
     position: absolute;
     top: 0;
     bottom: 0;
@@ -475,7 +476,7 @@
     z-index: var(--z-dock);
     background: var(--surface-1);
   }
-  .in-game .shell-body--workspace > .parts-list:not(.parts-list--open),
+  :is(.in-game, .empty-project) .shell-body--workspace > .parts-list:not(.parts-list--open),
   .in-game .shell-body--workspace.shell-body--no-editor > .workspace-splitter {
     display: none;
   }

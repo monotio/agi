@@ -90,7 +90,7 @@ test("a blank project has a working agent drawer @webkit-desktop", async ({ page
   await page.goto("/#create-adventure");
   await page.getByTestId("local-create-kind-blank").click();
   await page.getByRole("button", { name: "Start building", exact: true }).click();
-  await expect(page.getByText("Nothing to play yet.")).toBeVisible();
+  await expect(page.locator(".screen").getByText("Nothing to play yet.")).toBeVisible();
 
   const toggle = page.getByRole("button", { name: "Agent", exact: true });
   await expect(toggle).toBeVisible();

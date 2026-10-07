@@ -4,7 +4,8 @@ import { VOCABULARY } from "../../../src/vocabulary.ts";
  * The in-game top bar: back to Home, the game and its current room, the
  * Play | Create switch, and the player's tools — world map, the game's own
  * save and restore, help and the settings sheet. Dialogs live in GameHeader;
- * this bar only asks for them.
+ * this bar only asks for them. A blank game (no start-up LOGIC yet) shows the
+ * same bar in Create, with the tools that need a running game disabled.
  */
 import { computed } from "vue";
 import WorkspaceAction from "./WorkspaceAction.vue";
@@ -21,9 +22,14 @@ import { hasWalkthrough } from "../walkthrough/walkthrough.ts";
 import { useShell, type ShellMode } from "./useShell.ts";
 import { useGameLibrary } from "../library/useGameLibrary.ts";
 
-const { settingsOpen } = defineProps<{ settingsOpen: boolean }>();
+const { settingsOpen, blank = undefined } = defineProps<{
+  settingsOpen: boolean;
+  /** The title of a game with no start-up LOGIC yet: Create shows it with nothing to run. */
+  blank?: string | undefined;
+}>();
 const emit = defineEmits<{
   exit: [];
+  agent: [];
   settings: [trigger: HTMLElement];
   "help-guide": [];
   "keyboard-shortcuts": [];
@@ -54,6 +60,8 @@ const game = computed(() => {
   return currentGame();
 });
 const roomLabel = computed(() => {
+  // A blank game has no running engine, so no room map yet.
+  if (blank !== undefined) return "";
   const room = roomMap.currentRoom.value;
   return room !== null && room > 0 ? `Room ${room}` : "";
 });
@@ -66,23 +74,24 @@ const originLabel = computed(() => {
 });
 
 const mode = computed<ShellMode>({
-  get: () => shell.mode.value,
+  get: () => (blank === undefined ? shell.mode.value : "create"),
   set: (next) => shell.setMode(next),
 });
 const modes = computed(() => [
   {
     value: "play" as const,
     label: "Play",
-    disabled: state.walkthrough.active || state.historyView.active,
+    disabled: blank !== undefined || state.walkthrough.active || state.historyView.active,
   },
   {
     value: "create" as const,
     label: "Create",
     disabled:
-      !shell.createAvailable.value ||
-      state.powerUp.busy ||
-      state.walkthrough.active ||
-      state.historyView.active,
+      blank === undefined &&
+      (!shell.createAvailable.value ||
+        state.powerUp.busy ||
+        state.walkthrough.active ||
+        state.historyView.active),
   },
 ]);
 
@@ -112,7 +121,7 @@ const shortcutsBlocked = computed(
         @click="emit('exit')"
       />
       <div class="play-bar__title">
-        <h1 class="play-bar__game">{{ game?.title ?? "AGI IS HERE" }}</h1>
+        <h1 class="play-bar__game">{{ blank ?? game?.title ?? "AGI IS HERE" }}</h1>
         <span v-if="originLabel" class="play-bar__room" data-testid="play-origin">{{
           originLabel
         }}</span>
@@ -126,30 +135,38 @@ const shortcutsBlocked = computed(
         variant="ghost"
         data-testid="workspace-saved"
         :title="
-          editor.readOnly.value
+          blank === undefined && editor.readOnly.value
             ? editor.save.value
             : editor.save.value.startsWith('Draft')
               ? 'Your draft saves in this browser.'
               : VOCABULARY.saved.help
         "
         @click="
-          editor.save.value === 'Could not save. Retry'
-            ? editor.retry.value?.().catch(() => {})
-            : (editor.history.value = !editor.history.value)
+          blank !== undefined
+            ? undefined
+            : editor.save.value === 'Could not save. Retry'
+              ? editor.retry.value?.().catch(() => {})
+              : (editor.history.value = !editor.history.value)
         "
         ><UiChip
           :tone="
-            editor.save.value === 'Saved' || editor.save.value === 'Draft saved' ? 'ok' : 'warn'
+            blank !== undefined ||
+            editor.save.value === 'Saved' ||
+            editor.save.value === 'Draft saved'
+              ? 'ok'
+              : 'warn'
           "
           dot
           >{{
-            state.projectRemoved || editor.save.value.startsWith("This project was removed")
-              ? "Project removed"
-              : state.staleTab || editor.save.value.startsWith("Changed in another tab")
-                ? "Changed in another tab"
-                : editor.readOnly.value
-                  ? "Read-only"
-                  : editor.save.value
+            blank !== undefined
+              ? "Saved"
+              : state.projectRemoved || editor.save.value.startsWith("This project was removed")
+                ? "Project removed"
+                : state.staleTab || editor.save.value.startsWith("Changed in another tab")
+                  ? "Changed in another tab"
+                  : editor.readOnly.value
+                    ? "Read-only"
+                    : editor.save.value
           }}</UiChip
         ></UiButton
       >
@@ -170,7 +187,7 @@ const shortcutsBlocked = computed(
         </button></span
       >
       <WorkspaceAction
-        v-if="mode === 'create' || editor.changeCount.value"
+        v-if="blank === undefined && (mode === 'create' || editor.changeCount.value)"
         class="play-bar__update"
       />
       <UiSegmented v-model="mode" class="play-bar__modes" label="Mode" :options="modes" />
@@ -190,7 +207,7 @@ const shortcutsBlocked = computed(
             label="Undo"
             :title="VOCABULARY.undo.help"
             data-testid="workspace-undo"
-            :disabled="!editor.canUndo.value || editor.busy.value"
+            :disabled="blank !== undefined || !editor.canUndo.value || editor.busy.value"
             @click="editor.step('undo')"
           />
           <UiIconButton
@@ -198,7 +215,7 @@ const shortcutsBlocked = computed(
             label="Redo"
             :title="VOCABULARY.redo.help"
             data-testid="workspace-redo"
-            :disabled="!editor.canRedo.value || editor.busy.value"
+            :disabled="blank !== undefined || !editor.canRedo.value || editor.busy.value"
             @click="editor.step('redo')"
           />
           <UiButton
@@ -209,13 +226,22 @@ const shortcutsBlocked = computed(
             :aria-pressed="state.powerUp.open"
             data-testid="workspace-agent"
             :title="`${VOCABULARY.agent.help} (⌘I)`"
-            :disabled="!commands?.commands.value.some((command) => command.id === 'agent.focus')"
-            @click="commands?.execute('agent.focus')"
+            :disabled="
+              blank === undefined &&
+              !commands?.commands.value.some((command) => command.id === 'agent.focus')
+            "
+            @click="blank === undefined ? commands?.execute('agent.focus') : emit('agent')"
             >Agent</UiButton
           >
         </template>
-        <UiIconButton icon="map" label="World map" data-testid="btn-world-map" @click="showMap" />
-        <ActionMenu label="Save or restore" icon-only icon="save">
+        <UiIconButton
+          icon="map"
+          label="World map"
+          data-testid="btn-world-map"
+          :disabled="blank !== undefined"
+          @click="showMap"
+        />
+        <ActionMenu label="Save or restore" icon-only icon="save" :disabled="blank !== undefined">
           <button
             v-for="shortcut in saveShortcuts"
             :key="shortcut.key"
@@ -258,6 +284,7 @@ const shortcutsBlocked = computed(
             type="button"
             role="menuitem"
             data-testid="btn-game-controls"
+            :disabled="blank !== undefined"
             @click="emit('controls')"
           >
             <span>Game controls<small>Movement, input and this game's keys</small></span>
