@@ -324,7 +324,7 @@ for (const size of [
   });
 }
 
-test("Make it a room Undo warns for a computed jump and Remove anyway is one step", async ({
+test("Make it a room Undo reviews computed jumps after restoring the latest draft @webkit-desktop", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -395,9 +395,16 @@ test("Make it a room Undo warns for a computed jump and Remove anyway is one ste
   );
   await page.getByTestId("workspace-undo").click();
   await expect(dialog).toBeHidden();
-  const refusal = page.getByRole("alert").filter({ hasText: "logic:2" });
-  await expect(refusal).toBeVisible();
-  await expect(refusal).toContainText("logic:2");
+  const source = await page.evaluate(
+    () =>
+      (window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }).__AGI_PROJECT__
+        .getSession()
+        .workingSnapshot()
+        .read("logic:99")?.content,
+  );
+  expect(source).toBe('get.num("Room",v20);new.room.v(v20);return;');
+  await page.getByTestId("workspace-undo").click();
+  await expect(dialog).toBeVisible();
   expect((await textHook(page)).room).toBe(2);
 });
 

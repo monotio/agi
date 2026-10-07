@@ -47,9 +47,18 @@ function debugLoadGate(ctx: WorkerContext, msg: WorkerInbound): boolean {
 
 export function onWorkerMessage(ctx: WorkerContext, msg: WorkerInbound): void {
   if (msg.type === "playOwner") {
-    if (!Number.isSafeInteger(msg.generation) || msg.generation < ctx.run.owner.generation) return;
+    const epoch = msg.epoch ?? ctx.run.owner.epoch;
+    if (
+      !Number.isSafeInteger(epoch) ||
+      epoch < ctx.run.owner.epoch ||
+      !Number.isSafeInteger(msg.generation) ||
+      msg.generation < 0 ||
+      (epoch === ctx.run.owner.epoch && msg.generation < ctx.run.owner.generation)
+    )
+      return;
     ctx.run.owner.active = msg.active;
     ctx.run.owner.generation = msg.generation;
+    ctx.run.owner.epoch = epoch;
     if (msg.active) {
       const answers = ctx.run.owner.answers;
       ctx.run.owner.answers = [];

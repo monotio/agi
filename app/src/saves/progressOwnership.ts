@@ -16,8 +16,22 @@ export function createProgressOwnership(ports: OwnershipPorts) {
   let lastGeneration = 0;
   async function acquire(next: ProgressTarget): Promise<void> {
     const request = ++epoch;
+    const previous = target;
+    const previousGeneration = generation;
     target = next;
     generation = undefined;
+    if (previous && previous.locator !== next.locator) {
+      lastGeneration = 0;
+      ports.changed(true);
+      await ports.lock(previous.locator, () => {
+        if (
+          epoch === request &&
+          previousGeneration !== undefined &&
+          progressWriterMatches(ports.storage, previous.locator, previousGeneration)
+        )
+          claimProgressWriter(ports.storage, previous, ports.owner);
+      });
+    }
     await ports.lock(next.locator, () => {
       if (epoch !== request) return;
       generation = claimProgressWriter(ports.storage, next, ports.owner).generation;
@@ -37,6 +51,7 @@ export function createProgressOwnership(ports: OwnershipPorts) {
     observe,
     generation: () => generation,
     lastGeneration: () => lastGeneration,
+    epoch: () => epoch,
     takeBack: async () => {
       if (target) await acquire(target);
     },

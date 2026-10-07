@@ -2,7 +2,7 @@
 export function createProjectAutosave<Capture, Receipt>(input: {
   readonly current: () => boolean;
   readonly write: (capture: Capture) => Promise<Receipt>;
-  readonly saved: (receipt: Receipt, capture: Capture) => void;
+  readonly saved: (receipt: Receipt, capture: Capture) => void | Promise<void>;
   readonly conflict: (error: unknown) => boolean;
   readonly changed?: () => void;
   readonly debounceMs?: number;
@@ -37,7 +37,7 @@ export function createProjectAutosave<Capture, Receipt>(input: {
       try {
         const receipt = await input.write(capture);
         if (!current() || stopped) return;
-        input.saved(receipt, capture);
+        await input.saved(receipt, capture);
         failed = undefined;
         writing = undefined;
       } catch (error) {

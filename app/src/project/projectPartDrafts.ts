@@ -77,6 +77,7 @@ export function openProjectDrafts(input: {
   let blocked = false;
   const past: { before: ProjectChange[]; after: ProjectChange[] }[] = [];
   const future: { before: ProjectChange[]; after: ProjectChange[] }[] = [];
+  let typing: { key: string; time: number } | undefined;
   const observers = new Set<() => void>();
   const notify = () => {
     input.changed?.();
@@ -260,6 +261,29 @@ export function openProjectDrafts(input: {
       void flush().catch(() => {});
     }, input.delay ?? 250);
   }
+  function record(changes: readonly ProjectChange[], groupTyping = false): void {
+    if (changes.length === 0) return;
+    const before = changes.map(({ key }) => ({
+      key,
+      content: Object.hasOwn(drafts, key) ? drafts[key]!.content : (input.read?.(key) ?? null),
+    }));
+    const key = changes.length === 1 ? changes[0]!.key : undefined;
+    const time = Date.now();
+    const merge =
+      groupTyping &&
+      key !== undefined &&
+      (key === "notes" || key.startsWith("logic:")) &&
+      typing?.key === key &&
+      time - typing.time < 750 &&
+      future.length === 0;
+    stage(changes);
+    const after = changes.map(({ key }) => ({ key, content: drafts[key]!.content }));
+    if (merge && past.length) past[past.length - 1]!.after = after;
+    else past.push({ before, after });
+    typing = groupTyping && key !== undefined ? { key, time } : undefined;
+    future.length = 0;
+    notify();
+  }
   return {
     ready,
     subscribe(observer: () => void) {
@@ -269,29 +293,16 @@ export function openProjectDrafts(input: {
       };
     },
     stage(changes: readonly ProjectChange[]) {
-      stage(changes);
-      past.length = 0;
-      future.length = 0;
-      notify();
+      record(changes, true);
     },
     stageTransaction(changes: readonly ProjectChange[]) {
-      if (changes.length === 0) return;
-      const before = changes.map(({ key }) => ({
-        key,
-        content: Object.hasOwn(drafts, key) ? drafts[key]!.content : (input.read?.(key) ?? null),
-      }));
-      stage(changes);
-      past.push({
-        before,
-        after: changes.map(({ key }) => ({ key, content: drafts[key]!.content })),
-      });
-      future.length = 0;
-      notify();
+      record(changes);
     },
     undo(): boolean {
       const edit = past.at(-1);
       if (!edit) return false;
       stage(edit.before);
+      typing = undefined;
       past.pop();
       future.push(edit);
       notify();
@@ -301,6 +312,7 @@ export function openProjectDrafts(input: {
       const edit = future.at(-1);
       if (!edit) return false;
       stage(edit.after);
+      typing = undefined;
       future.pop();
       past.push(edit);
       notify();
@@ -353,6 +365,7 @@ export function openProjectDrafts(input: {
       }
       pending.clear();
       past.length = 0;
+      typing = undefined;
       future.length = 0;
       error = "";
       blocked = false;

@@ -62,6 +62,7 @@ const bridge = useShellBridge();
 const agentBlocksGame = computed(() => state.powerUp.open && !props.inspectorDocked);
 const inputDisabled = computed(
   () =>
+    state.otherTab ||
     agentBlocksGame.value ||
     state.historyView.active ||
     (!state.inputReady && !state.walkthrough.active),

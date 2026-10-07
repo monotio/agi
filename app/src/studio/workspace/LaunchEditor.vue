@@ -3,6 +3,7 @@ import { computed, ref, useTemplateRef, watch, watchEffect } from "vue";
 import type { AgiProfile } from "../../../../src/runtime/profile.ts";
 import type { EngineStateReport } from "../../../../src/runtime/engine.ts";
 import { newLaunchId, type Launch, type RoomLaunches } from "../../../../src/authoring/launches.ts";
+import { roomEntryProblem } from "../../../../src/runtime/roomEntry.ts";
 import { readBindingsDocument } from "../../../../src/authoring/projectDocuments.ts";
 import { createPictureSurface } from "../../../../src/types.ts";
 import { renderPicture } from "../../../../src/picture/renderer.ts";
@@ -61,7 +62,10 @@ const isSelectedForRun = computed(
 const boundFlags = computed(() => {
   try {
     return Object.entries(readBindingsDocument(props.bindings))
-      .filter(([, binding]) => binding.kind === "flag")
+      .filter(
+        ([, binding]) =>
+          binding.kind === "flag" && roomEntryProblem({ flags: { [binding.num]: false } }) === null,
+      )
       .map(([name, binding]) => ({ name, num: binding.num }))
       .sort((a, b) => a.num - b.num);
   } catch {
@@ -72,7 +76,11 @@ const boundFlags = computed(() => {
 const boundVars = computed(() => {
   try {
     return Object.entries(readBindingsDocument(props.bindings))
-      .filter(([, binding]) => binding.kind === "variable")
+      .filter(
+        ([, binding]) =>
+          binding.kind === "variable" &&
+          roomEntryProblem({ variables: { [binding.num]: 0 } }) === null,
+      )
       .map(([name, binding]) => ({ name, num: binding.num }))
       .sort((a, b) => a.num - b.num);
   } catch {
@@ -98,7 +106,7 @@ const flagOptions = computed(() => {
     result.push({ num: f.num, label: `${f.name} (Flag ${f.num})` });
   }
   for (let i = 1; i <= 255; i++) {
-    if (!boundNums.has(i)) {
+    if (!boundNums.has(i) && roomEntryProblem({ flags: { [i]: false } }) === null) {
       result.push({ num: i, label: `Flag ${i}` });
     }
   }
@@ -113,7 +121,7 @@ const varOptions = computed(() => {
     result.push({ num: v.num, label: `${v.name} (Variable ${v.num})` });
   }
   for (let i = 0; i <= 255; i++) {
-    if (!boundNums.has(i)) {
+    if (!boundNums.has(i) && roomEntryProblem({ variables: { [i]: 0 } }) === null) {
       result.push({ num: i, label: `Variable ${i}` });
     }
   }

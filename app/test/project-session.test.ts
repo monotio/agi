@@ -14,7 +14,55 @@ import { requireProjectId } from "../../src/gameIdentity.ts";
 installWebLocksFixture();
 installIndexedDbFixture();
 
-test("an Undo removal respects unselected drafts before offering a computed jump review", async () => {
+test("a fresh draft blocks Redo of an older Update", async () => {
+  const documents = { "logic:0": "return;" };
+  const compiled = compileProjectDocuments({
+    files: Object.fromEntries(createContainer().files),
+    documents,
+    profileId: "2.936",
+  });
+  const session = openProjectSession({
+    data: {
+      projectId: requireProjectId("draft-redo"),
+      title: "Redo",
+      authoredAt: "",
+      files: Object.fromEntries(compiled.files()),
+      words: [],
+      workspace: writeProjectWorkspace(documents),
+    },
+    lifetime: "initial",
+    admission: {
+      runToken: "redo-run",
+      admit: async () => ({
+        status: "committed",
+        expected: null,
+        current: null,
+        patchGeneration: 1,
+      }),
+    },
+  });
+  try {
+    await session.submit({
+      proposal: session.model.propose(session.model.capture(), "Note", [
+        { key: "notes", content: "old note" },
+      ]),
+      origin: "logic",
+      label: "Note",
+      author: "creator",
+    });
+    await session.undo();
+    const drafts = session.drafts();
+    await drafts.ready;
+    drafts.stage([{ key: "notes", content: "fresh note" }]);
+    assert.equal(await session.redo(), undefined);
+    assert.equal(session.model.capture().read("notes"), undefined);
+    assert.equal(session.workingSnapshot().read("notes")?.content, "fresh note");
+  } finally {
+    session.dispose();
+  }
+});
+
+test("Undo restores the newest unselected draft before offering a computed jump review", async () => {
   const documents = {
     "logic:0": "return;",
     "logic:99": 'get.num("Room",v20);new.room.v(v20);return;',
@@ -58,8 +106,12 @@ test("an Undo removal respects unselected drafts before offering a computed jump
     const drafts = session.drafts();
     await drafts.ready;
     drafts.stage([{ key: "logic:99", content: "new.room(254);return;" }]);
-    const refused = await session.undo();
-    assert.equal(refused?.status, "diagnostics");
+    const undone = await session.undo();
+    assert.equal(undone?.status, "draft");
+    assert.equal(
+      drafts.changes().find(({ key }) => key === "logic:99")?.content,
+      documents["logic:99"],
+    );
     assert.equal(session.model.capture().documentId, before.documentId);
     assert.equal(session.history.capture().cursor, cursor);
     await drafts.clear();

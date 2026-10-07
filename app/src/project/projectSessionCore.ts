@@ -52,7 +52,7 @@ import {
   type ProjectJournalCapture,
 } from "./projectJournalCapture.ts";
 import type { ProjectJournalOperation } from "./projectJournalReplay.ts";
-import type { ProjectChange } from "../../../src/authoring/projectContent.ts";
+import { sameProjectContent, type ProjectChange } from "../../../src/authoring/projectContent.ts";
 import { openProjectDrafts } from "./projectPartDrafts.ts";
 import type { PreviewUpdateOutcome } from "../worker/workerProtocol.ts";
 
@@ -179,7 +179,7 @@ function createSession(
     ) => void;
     readonly changed?: () => void;
     readonly checkpointReady?: () => void;
-    readonly forked?: (data: CachedGameData, lifetime: string) => void;
+    readonly forked?: (data: CachedGameData, lifetime: string) => void | Promise<void>;
     readonly saved?: (
       data: ProjectCommitRequest["data"],
       lifetime: string,
@@ -421,7 +421,7 @@ function createSession(
         ? (await storage.commit(capture.request!, capture.journal?.hash)).receipt
         : input.write(capture.request!);
     },
-    saved: (receipt, capture) => {
+    saved: async (receipt, capture) => {
       let previousKey: string | undefined;
       let releasePrevious: (() => void) | undefined;
       if (receipt.saved.projectId !== data.projectId) {
@@ -441,7 +441,7 @@ function createSession(
           if (held) persistPending();
           else session.stopWrites();
         });
-        input.forked?.(structuredClone(data), receipt.saved.lifetime);
+        await input.forked?.(structuredClone(data), receipt.saved.lifetime);
       }
       data.library = capture.request!.data.library;
       expected = { ...receipt.saved };
@@ -531,8 +531,11 @@ function createSession(
   let partDrafts: ReturnType<typeof openProjectDrafts> | undefined;
   let draftProjectId: string | undefined;
   function removalDrafts() {
+    const base = model.capture();
     return (partDrafts?.changes() ?? []).flatMap(({ key, content }) =>
-      content === null ? [] : [{ key, content }],
+      content === null || sameProjectContent(content, base.read(key)?.content)
+        ? []
+        : [{ key, content }],
     );
   }
   const draftObservers = new Set<() => void>();
@@ -965,6 +968,7 @@ function createSession(
     redo() {
       return schedule(async () => {
         if (partDrafts?.redo()) return { status: "draft" as const, diagnostics: [] };
+        if (partDrafts?.status().canUndo) return undefined;
         const action = history.redo(model);
         return action === undefined
           ? undefined

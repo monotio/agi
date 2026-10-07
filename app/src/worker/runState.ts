@@ -8,7 +8,7 @@ import type { RunSession } from "./context.ts";
 export function newRunSession(now: number): RunSession {
   return {
     generation: 0,
-    owner: { active: true, generation: 0, answers: [] },
+    owner: { active: true, generation: 0, epoch: 0, answers: [] },
     progress: { mode: "play" },
     rng: { word: 1, policy: { kind: "external" } },
     scratchSlots: {},

@@ -586,7 +586,12 @@ export interface WorkerFns {
 /** All authority whose lifetime follows the running interpreter. */
 export interface RunSession {
   generation: number;
-  owner: { active: boolean; generation: number; answers: { id: number; response: string }[] };
+  owner: {
+    active: boolean;
+    generation: number;
+    epoch: number;
+    answers: { id: number; response: string }[];
+  };
   progress:
     | { mode: "play" }
     | { mode: "create"; returnPoint: HistoryBoot; cycle: number; tick: number; room: number };

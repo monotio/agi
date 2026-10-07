@@ -13,6 +13,7 @@ export default defineConfig({
     "agent-drawer.spec.ts",
     "workspace-debug-controls.spec.ts",
     "workspace-launch.spec.ts",
+    "workspace-correctness.spec.ts",
     "workspace-frame.spec.ts",
     "room-first.spec.ts",
     "workspace-images.spec.ts",

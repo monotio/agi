@@ -23,7 +23,9 @@ export function createPlayHere(ctx: WorkerContext) {
         x: ego?.x ?? 0,
         y: ego?.y ?? 0,
         ...(reason === undefined ? {} : { reason }),
-        ...(ctx.run.progress.mode === "create" && (msg.visit || msg.launch)
+        ...(ctx.run.progress.mode === "create" &&
+        ctx.run.progress.returnPoint.image !== undefined &&
+        (msg.visit || msg.launch)
           ? { returnRoom: ctx.run.progress.room }
           : {}),
       });
@@ -103,41 +105,22 @@ export function createPlayHere(ctx: WorkerContext) {
     ctx.fns.markJump();
     // Clear the edge so the transition does not snap ego to a border first.
     engine.vars[2] = 0;
-    // The room's logic exists, so an authored game's prepareRoom answers at once.
-    const authorRooms = ctx.boot.authorRooms;
-    if (msg.visit) ctx.boot.authorRooms = false;
     // The room's own entry pass: load, draw and position what it owns.
     // Armed execution control counts a completed entry pass inside
     // tickEngine and a stopped or suspended one nowhere — the explicit
     // finish belongs to the ordinary unarmed pass only.
-    try {
-      engine.reenterRoom(msg.room);
-      ctx.fns.setKeyWaiting(false);
-      ctx.fns.abandonHostRequest();
-      ctx.fns.debugSessionReplaced();
-      ctx.fns.tickEngine();
-    } catch (cause) {
-      if (!msg.visit) throw cause;
-      return reply(
-        false,
-        `Room ${msg.room} could not finish its entry. View its picture while paused.`,
-      );
-    } finally {
-      ctx.boot.authorRooms = authorRooms;
-    }
+    engine.reenterRoom(msg.room);
+    ctx.fns.setKeyWaiting(false);
+    ctx.fns.abandonHostRequest();
+    ctx.fns.debugSessionReplaced();
+    ctx.fns.tickEngine();
     if (engine.executionStopInfo !== null || engine.executionYieldPending)
       return reply(
         false,
         `Room ${msg.room} entry did not complete. Continue the game to finish setup.`,
       );
     if (!engine.executionControlActive) ctx.fns.finishCycle();
-    const verdict = msg.visit
-      ? engine.hostInteractionPending || engine.vars[0] !== msg.room
-        ? "busy"
-        : "ok"
-      : engine.hostInteractionPending
-        ? "busy"
-        : placeEgo(engine, msg.x, msg.y);
+    const verdict = engine.hostInteractionPending ? "busy" : placeEgo(engine, msg.x, msg.y);
     ctx.fns.captureStateDiffs();
     ctx.fns.historyResume();
     ctx.run.presentation.lastVisual = null;
