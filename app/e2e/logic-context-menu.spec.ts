@@ -23,6 +23,7 @@ test("the LOGIC editor's context menu draws above the workspace @webkit-desktop"
     "Go to definition",
     "Find references",
     "Rename…",
+    "Format document",
     "Cut",
     "Copy",
     "Paste",

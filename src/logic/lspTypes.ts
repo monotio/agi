@@ -18,7 +18,7 @@ export interface Location {
   uri: string;
   range: Range;
 }
-interface TextEdit {
+export interface TextEdit {
   range: Range;
   newText: string;
 }
@@ -81,6 +81,7 @@ interface DiagnosticReport {
   items: Diagnostic[];
 }
 export interface LspOperations {
+  "textDocument/formatting": TextEdit[];
   "agi/bindings": BindingInfo[];
   "agi/renameBinding": WorkspaceEdit;
   "agi/bindingInfo": BindingInfo | null;
