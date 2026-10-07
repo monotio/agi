@@ -20,6 +20,7 @@ import { useEngineApi } from "../../engine/engineContext.ts";
 import { useWorkspaceEditor } from "../../shell/workspaceEditor.ts";
 import { LogicAnalysisClient } from "../logic/analysisClient.ts";
 import { monaco, LOGIC_LANGUAGE_ID, registerLogicModel } from "../logic/monacoLanguage.ts";
+import { logicKeySheet } from "../studioHelp.ts";
 const props = defineProps<{
   readOnly?: boolean;
   documentKey: string;
@@ -69,6 +70,23 @@ let observer: ResizeObserver | undefined;
 let syncing = false;
 let layoutFrame = 0;
 let decorations: monaco.editor.IEditorDecorationsCollection | undefined;
+/** The dot left of a line number under the pointer: where a click sets a breakpoint. */
+let breakpointHint: monaco.editor.IEditorDecorationsCollection | undefined;
+function hintBreakpoint(line: number | undefined): void {
+  breakpointHint?.set(
+    line === undefined || props.breakpoints?.includes(line)
+      ? []
+      : [
+          {
+            range: new monaco.Range(line, 1, line, 1),
+            options: {
+              glyphMarginClassName: "workspace-breakpoint-hint",
+              glyphMarginHoverMessage: { value: "Click to stop the game here (F9)" },
+            },
+          },
+        ],
+  );
+}
 let editView: monaco.editor.ICodeEditorViewState | null = null;
 let markerSubscription: monaco.IDisposable | undefined;
 function decorate(): void {
@@ -282,6 +300,15 @@ onMounted(() => {
     padding: { top: 16, bottom: 16 },
   });
   decorations = editor.createDecorationsCollection();
+  breakpointHint = editor.createDecorationsCollection();
+  editor.onMouseMove((event) =>
+    hintBreakpoint(
+      event.target.type === monaco.editor.MouseTargetType.GUTTER_GLYPH_MARGIN
+        ? event.target.position?.lineNumber
+        : undefined,
+    ),
+  );
+  editor.onMouseLeave(() => hintBreakpoint(undefined));
   markerSubscription = monaco.editor.onDidChangeMarkers((uris) => {
     if (!model || !uris.some((uri) => uri.toString() === model!.uri.toString())) return;
     emit(
@@ -296,8 +323,10 @@ onMounted(() => {
     if (
       event.target.type === monaco.editor.MouseTargetType.GUTTER_GLYPH_MARGIN &&
       event.target.position
-    )
+    ) {
+      hintBreakpoint(undefined);
       emit("breakpoint", event.target.position.lineNumber);
+    }
   });
   editor.onDidChangeCursorSelection(({ selection }) => {
     const name = props.documentKey.replace(":", " ").toUpperCase();
@@ -397,6 +426,13 @@ onBeforeUnmount(() => {
   model?.dispose();
   client.dispose();
 });
+onBeforeUnmount(
+  workspace.registerKeySheet(props.documentKey, () => ({
+    name: "LOGIC",
+    sections: logicKeySheet(),
+    where: "Keys work while the code has focus.",
+  })),
+);
 defineExpose({
   cursor: () => editor?.getSelection()?.getStartPosition() ?? editor?.getPosition(),
   displayedSource: () => model?.getValue(),
@@ -450,6 +486,13 @@ defineExpose({
   background: var(--danger);
   border-radius: 50%;
   transform: scale(0.55);
+}
+:deep(.workspace-breakpoint-hint) {
+  background: var(--danger);
+  border-radius: 50%;
+  opacity: 0.45;
+  transform: scale(0.55);
+  cursor: pointer;
 }
 :deep(.workspace-stopped-line) {
   background: color-mix(in srgb, var(--action) 20%, transparent);

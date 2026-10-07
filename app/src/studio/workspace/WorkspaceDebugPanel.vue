@@ -92,7 +92,9 @@ function editValue(kind: "variable" | "flag", slot: number, event: Event): void 
         <label class="workspace-debug-filter"
           >Find a value <input v-model="filter" aria-label="Find a value"
         /></label>
-        <p v-if="!debug.stopped.value">Pause the game to inspect and edit values.</p>
+        <p v-if="!debug.stopped.value">
+          Click left of a line number to stop there, then inspect and edit values.
+        </p>
         <component
           :is="group.expand ? 'details' : 'section'"
           v-for="group in [
@@ -168,7 +170,9 @@ function editValue(kind: "variable" | "flag", slot: number, event: Event): void 
         </div>
       </template>
       <template v-else-if="view === 'stack' && debug">
-        <p v-if="!debug.stopped.value">Pause the game to inspect calls.</p>
+        <p v-if="!debug.stopped.value">
+          Click left of a line number to stop there and see the calls.
+        </p>
         <button
           v-for="frame in [...(debug.stopped.value?.location?.frames ?? [])].reverse()"
           :key="frame.invocationId"
@@ -182,7 +186,8 @@ function editValue(kind: "variable" | "flag", slot: number, event: Event): void 
         </button>
       </template>
       <template v-else-if="view === 'breakpoints' && debug">
-        <p>{{ VOCABULARY.breakpoint.help }}</p>
+        <p v-if="debug.state.breakpoints.length">{{ VOCABULARY.breakpoint.help }}</p>
+        <p v-else>Click left of a line number to stop there, or press F9.</p>
         <div v-for="point in debug.state.breakpoints" :key="point.id" class="workspace-debug-row">
           <button @click="emit('reveal', point.logic, point.line)">
             LOGIC {{ point.logic }}, line {{ point.line }}

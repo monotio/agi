@@ -2555,6 +2555,7 @@ onBeforeUnmount(() => {
     v-model:open="editor.keysOpen.value"
     :name="keySheet.name"
     :sections="keySheet.sections"
+    :where="keySheet.where"
   />
   <aside
     v-if="creating && editor.history.value"

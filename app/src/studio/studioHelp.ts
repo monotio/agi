@@ -167,6 +167,42 @@ export function roomKeySheet(tool: StudioTool): KeySection[] {
   ];
 }
 
+/** The LOGIC editor's keys: the debugger, code intelligence and the workspace. */
+export function logicKeySheet(): KeySection[] {
+  return [
+    {
+      title: "Run and stop",
+      rows: [
+        { keys: ["F9"], does: "Set or clear a breakpoint on this line" },
+        { keys: ["Click"], does: "Left of a line number: set or clear a breakpoint" },
+        { keys: ["F5"], does: "Debug the room, or continue" },
+        { keys: [keyLabel("Shift+F5")], does: "Stop debugging" },
+        { keys: ["F10", "F11"], does: "Step over, step into" },
+        { keys: [keyLabel("Shift+F11")], does: "Step out" },
+      ],
+    },
+    {
+      title: "Names and code",
+      rows: [
+        { keys: ["F12"], does: "Go to definition" },
+        { keys: [keyLabel("Shift+F12")], does: "Find references" },
+        { keys: ["F2"], does: "Rename a name everywhere" },
+        { keys: [keyLabel("Ctrl+Space")], does: "Show completions" },
+        { keys: [keyLabel("Mod+F")], does: "Find in this LOGIC" },
+      ],
+    },
+    {
+      title: "Workspace",
+      rows: [
+        { keys: [keyLabel("Mod+Enter")], does: "Update and restart the room" },
+        { keys: [keyLabel("Mod+P")], does: "Quick open a part" },
+        { keys: [keyLabel("Mod+J")], does: "Show Problems" },
+        { keys: [keyLabel("Mod+W")], does: "Close this editor" },
+      ],
+    },
+  ];
+}
+
 export function spriteKeySheet(): KeySection[] {
   return [
     {
