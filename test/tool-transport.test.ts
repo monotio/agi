@@ -162,7 +162,7 @@ function bootedSession() {
   session.container.putResource(
     "logic",
     2,
-    assembleLogic("return;", { dictionary: session.sources.words }).payload,
+    assembleLogic("set(f32);", { dictionary: session.sources.words }).payload,
   );
   return session;
 }
@@ -260,13 +260,13 @@ test("every catalog tool produces bounded binary-free transport on real success 
           offset: null,
           limit: null,
         }).details?.["revision"],
-        edits: [{ find: "return;", replace: "set(f10); return;" }],
+        edits: [{ find: "set(f32);", replace: "set(f33);" }],
       }),
       bad: {
         kind: "logic",
         num: 2,
         expectedRevision: "stale",
-        edits: [{ find: "return;", replace: "set(f10); return;" }],
+        edits: [{ find: "set(f32);", replace: "set(f33);" }],
       },
     },
     update_plan: {
