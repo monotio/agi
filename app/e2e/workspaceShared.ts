@@ -107,6 +107,19 @@ export async function focusWorkspaceLogic(page: Page): Promise<void> {
     .focus();
 }
 
+/** Monaco selects its keyboard platform from the browser identity. */
+export async function findWorkspaceLogic(page: Page, text: string): Promise<void> {
+  await focusWorkspaceLogic(page);
+  const mac = await page.evaluate(
+    () =>
+      navigator.userAgent.includes("Macintosh") ||
+      (/iPad|iPhone/.test(navigator.userAgent) && navigator.maxTouchPoints > 0),
+  );
+  await page.keyboard.press(mac ? "Meta+f" : "Control+f");
+  await page.getByRole("textbox", { name: "Find", exact: true }).fill(text);
+  await page.keyboard.press("Escape");
+}
+
 /** Insert through Monaco's real input so braces and quotes remain verbatim. */
 export async function replaceWorkspaceDocument(
   page: Page,

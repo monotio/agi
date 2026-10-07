@@ -1,6 +1,7 @@
 import { test, expect, reviewShot } from "./test.ts";
 import { isolateStorage, waitForRoom, textHook } from "./engineProbe.ts";
 import type { Page } from "@playwright/test";
+import { findWorkspaceLogic } from "./workspaceShared.ts";
 
 async function starterLogic(page: Page): Promise<void> {
   await isolateStorage(page);
@@ -17,10 +18,7 @@ async function starterLogic(page: Page): Promise<void> {
 }
 async function breakpoint(page: Page): Promise<void> {
   const editor = page.getByTestId("workspace-logic-editor");
-  await editor.locator("textarea.inputarea").focus();
-  await page.keyboard.press("ControlOrMeta+f");
-  await page.getByRole("textbox", { name: "Find", exact: true }).fill("assignn(v50, clearing_pic)");
-  await page.keyboard.press("Escape");
+  await findWorkspaceLogic(page, "assignn(v50, clearing_pic)");
   await page.keyboard.press("F9");
   await expect(editor.locator(".workspace-breakpoint")).toHaveCount(1);
 }
@@ -43,7 +41,7 @@ for (const [width, height] of [
     await breakpoint(page);
     await page.getByTestId("workspace-update").click();
     await expect(page.getByTestId("workspace-debug-status")).toHaveText(
-      "Paused at LOGIC 1, line 3",
+      "Paused at first_room · LOGIC 1, line 3",
     );
     await expect(context.getByTestId("debug-stop")).toBeVisible();
     await expect(page.locator(".workspace-stopped-line").first()).toBeVisible();
@@ -67,7 +65,9 @@ test("F5 uses the top action; disabling breakpoints persists and passes them @we
   await expect(page.getByRole("option", { name: `${label} F5`, exact: true })).toBeVisible();
   await page.keyboard.press("Escape");
   await page.keyboard.press("F5");
-  await expect(page.getByTestId("workspace-debug-status")).toHaveText("Paused at LOGIC 1, line 3");
+  await expect(page.getByTestId("workspace-debug-status")).toHaveText(
+    "Paused at first_room · LOGIC 1, line 3",
+  );
   await page.getByTestId("workspace-update-menu").click();
   await page.getByRole("menuitemcheckbox", { name: "Disable breakpoints", exact: true }).click();
   await page.getByTestId("workspace-update").click();
@@ -88,7 +88,9 @@ test("F5 uses the top action; disabling breakpoints persists and passes them @we
   await page.getByTestId("workspace-update-menu").click();
   await page.getByRole("menuitemcheckbox", { name: "Disable breakpoints", exact: true }).click();
   await page.getByTestId("workspace-update").click();
-  await expect(page.getByTestId("workspace-debug-status")).toHaveText("Paused at LOGIC 1, line 3");
+  await expect(page.getByTestId("workspace-debug-status")).toHaveText(
+    "Paused at first_room · LOGIC 1, line 3",
+  );
   await page.getByTestId("part-debug:breakpoints").click();
   await page.getByRole("switch", { name: "Disable breakpoints", exact: true }).check();
   await expect(
@@ -124,7 +126,7 @@ test("Update and every built-in Launch keep breakpoints on the replacement run @
       .poll(() => page.evaluate(() => (window as unknown as { stoppedEpoch: number }).stoppedEpoch))
       .toBeGreaterThan(0);
     await expect(page.getByTestId("workspace-debug-status")).toHaveText(
-      "Paused at LOGIC 1, line 3",
+      "Paused at first_room · LOGIC 1, line 3",
     );
   }
   await runTop();

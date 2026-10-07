@@ -40,7 +40,7 @@ const TITLES: Record<string, string> = {
   view: "VIEW",
   sound: "SOUND",
 };
-export function numberedKindTitle(kind: string): string {
+function numberedKindTitle(kind: string): string {
   const canonical = KINDS[kind] ?? kind;
   return TITLES[canonical] ?? canonical;
 }
