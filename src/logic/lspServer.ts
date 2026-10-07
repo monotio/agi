@@ -81,6 +81,7 @@ export function createLogicLspServer(
   const cancelled = new Set<string | number>();
   let bindingDocument = { uri: "agi-project:///bindings.json", source: "{}" };
   let bindingDeclarations: Record<string, unknown> = {};
+  let validBindingDocument = true;
 
   function setProject(input: LogicLanguageProject) {
     project = {
@@ -111,13 +112,12 @@ export function createLogicLspServer(
     };
     try {
       const parsed: unknown = JSON.parse(bindingDocument.source);
-      bindingDeclarations =
-        parsed && typeof parsed === "object" && !Array.isArray(parsed)
-          ? (parsed as Record<string, unknown>)
-          : {};
+      validBindingDocument = !!parsed && typeof parsed === "object" && !Array.isArray(parsed);
+      bindingDeclarations = validBindingDocument ? (parsed as Record<string, unknown>) : {};
     } catch {
       // Numeric project inputs still support navigation when a declaration preview is invalid.
       bindingDeclarations = {};
+      validBindingDocument = false;
     }
     revision++;
     cache.clear();
@@ -136,6 +136,10 @@ export function createLogicLspServer(
         dictionary: new Map(project.words),
         bindings: project.bindings,
         objects: project.objects ?? [],
+        resources: [...Object.keys(project.resources ?? {}), ...Object.keys(project.documents)],
+        ...(documentKey(doc).match(/^logic:(\d+)$/)?.[1]
+          ? { logic: Number(documentKey(doc).match(/^logic:(\d+)$/)![1]) }
+          : {}),
       });
       cache.set(doc.uri, result);
     }
@@ -722,9 +726,10 @@ export function createLogicLspServer(
         return bindingInfos().find((info) => info.name === definition.name) ?? null;
       }
       case "textDocument/completion":
-        return snapshot.completeAt(offset).map((item) => ({
+        return snapshot.completeAt(offset).map((item, index) => ({
           label: item.label,
           detail: item.detail,
+          sortText: String(index).padStart(5, "0"),
           textEdit: { range: rangeAt(doc.source, item.start, item.end), newText: item.text },
         }));
       case "textDocument/signatureHelp": {
@@ -840,8 +845,19 @@ export function createLogicLspServer(
         const start = params.range ? offsetAt(doc.source, params.range.start) : 0;
         const end = params.range ? offsetAt(doc.source, params.range.end) : doc.source.length;
         const fixes = snapshot
-          .quickFixes()
+          .quickFixes(allDocuments().flatMap((candidate) => language(candidate).operands))
           .filter((fix) => fix.diagnostic.start <= end && fix.diagnostic.end >= start)
+          .filter(
+            (fix) =>
+              !fix.binding ||
+              (validBindingDocument &&
+                !Object.hasOwn(bindingDeclarations, fix.binding.name) &&
+                !allDocuments().some((candidate) =>
+                  analyzeLogicSyntax(candidate.source).definitions.some(
+                    (definition) => definition.name === fix.binding!.name,
+                  ),
+                )),
+          )
           .map((fix) => ({
             title: fix.title,
             kind: "quickfix",
@@ -854,15 +870,38 @@ export function createLogicLspServer(
               },
             ],
             edit: {
-              documentChanges: [
-                {
-                  textDocument: { uri: doc.uri, version: doc.version },
-                  edits: fix.edits.map((edit) => ({
-                    range: rangeAt(doc.source, edit.start, edit.end),
-                    newText: edit.text,
-                  })),
-                },
-              ],
+              documentChanges: fix.binding
+                ? [
+                    {
+                      textDocument: { uri: bindingDocument.uri, version: null },
+                      edits: [
+                        {
+                          range: rangeAt(bindingDocument.source, 0, bindingDocument.source.length),
+                          newText:
+                            JSON.stringify(
+                              {
+                                ...bindingDeclarations,
+                                [fix.binding.name]: {
+                                  kind: fix.binding.kind,
+                                  num: fix.binding.num,
+                                },
+                              },
+                              null,
+                              2,
+                            ) + "\n",
+                        },
+                      ],
+                    },
+                  ]
+                : [
+                    {
+                      textDocument: { uri: doc.uri, version: doc.version },
+                      edits: fix.edits.map((edit) => ({
+                        range: rangeAt(doc.source, edit.start, edit.end),
+                        newText: edit.text,
+                      })),
+                    },
+                  ],
             },
           }));
         return [

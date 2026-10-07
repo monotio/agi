@@ -1071,17 +1071,18 @@ test("code actions define missing names and repair syntax using compiler diagnos
       range: first.diagnostics[0]!.range,
       context: { diagnostics: first.diagnostics },
     })) as { title: string; edit: WorkspaceEdit }[];
-    assert.ok(actions.some((a) => a.title === "Define door as 0"));
-    const edit = actions.find((a) => a.title === "Define door as 0")!.edit.documentChanges![0]!;
+    assert.equal(actions[0]!.title, "Create flag door (Flag 16)");
+    const edit = actions.find((a) => a.title === "Define as a constant in this file…")!.edit
+      .documentChanges![0]!;
     assert.ok("textDocument" in edit);
     assert.equal(edit.textDocument.version, 1);
     assert.deepEqual(edit.edits, [
       {
         range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
-        newText: "#define door 0\n",
+        newText: "#define door 16\n",
       },
     ]);
-    await change(server, uri, "#define door 0\nset(door); return;", 2);
+    await change(server, uri, "#define door 16\nset(door); return;", 2);
     assert.deepEqual(
       (await waitFor("fixed name", () => published(server, uri, (p) => p.version === 2), server))
         .diagnostics,

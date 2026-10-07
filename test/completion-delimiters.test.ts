@@ -5,6 +5,7 @@ import { PROFILES } from "../src/runtime/profile.ts";
 
 const context = {
   profile: PROFILES["2.936"],
+  resources: ["view:2"],
   dictionary: new Map([
     ["open", 100],
     ["door", 101],
@@ -17,7 +18,11 @@ for (const [marked, label, expected] of [
     "object_id",
     "#define object_id 1\nset.view(object_id, 2);",
   ],
-  ["#define view_id 2\nload.view(view_i|);", "view_id", "#define view_id 2\nload.view(view_id);"],
+  [
+    "#define view_id 2\nload.view(view_i|);",
+    "view_id · VIEW 2",
+    "#define view_id 2\nload.view(view_id);",
+  ],
   ["if (said(|)) { return; }", "open", 'if (said("open")) { return; }'],
   ['if (said("open", |)) { return; }', "door", 'if (said("open", "door")) { return; }'],
   ['if (said("op|")) { return; }', "open", 'if (said("open")) { return; }'],

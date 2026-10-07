@@ -279,7 +279,7 @@ async function applyProjectEdit(edit: WorkspaceEdit, _label: string): Promise<vo
   const session = engine.getProjectSession();
   const base = session?.workingSnapshot();
   if (!session || !base || base.revision !== revision)
-    throw new Error("The project changed. Retry the rename.");
+    throw new Error("The project changed. Retry the edit.");
   const changes = edit.documentChanges.map((change) => {
     const key =
       change.textDocument.uri === "agi-project:///bindings.json"
@@ -288,12 +288,11 @@ async function applyProjectEdit(edit: WorkspaceEdit, _label: string): Promise<vo
             (key) => key.startsWith("logic:") && client.uri(key) === change.textDocument.uri,
           );
     const source = key ? base.read(key)?.content : undefined;
-    if (!key || typeof source !== "string")
-      throw new Error("The source changed. Retry the rename.");
+    if (!key || typeof source !== "string") throw new Error("The source changed. Retry the edit.");
     if (source !== expected.get(change.textDocument.uri))
-      throw new Error("The source changed. Retry the rename.");
+      throw new Error("The source changed. Retry the edit.");
     if (key === props.documentKey && source !== model?.getValue())
-      throw new Error("The source changed. Retry the rename.");
+      throw new Error("The source changed. Retry the edit.");
     const edits = change.edits
       .map((entry) => ({
         start: offsetAt(source, entry.range.start),
@@ -312,7 +311,7 @@ async function applyProjectEdit(edit: WorkspaceEdit, _label: string): Promise<vo
       outcome.status,
     )
   )
-    throw new Error("The project could not apply this rename. Retry at a safe game boundary.");
+    throw new Error("The project could not apply this edit. Retry at a safe game boundary.");
 }
 onMounted(() => {
   model = monaco.editor.createModel(

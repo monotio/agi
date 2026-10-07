@@ -2,7 +2,7 @@
 import { createLogicLanguageSnapshot } from "../logic/language.ts";
 import { analyzeLogicSyntax } from "../logic/syntax.ts";
 import type { NumberedOperand } from "../logic/languageOperands.ts";
-import { systemBindings } from "../logic/systemNames.ts";
+import { systemBindings, systemName } from "../logic/systemNames.ts";
 import { expandProjectLogic, projectNameDiagnostics } from "./projectLogic.ts";
 
 export function createProjectLogicLanguageSnapshot(
@@ -19,8 +19,12 @@ export function createProjectLogicLanguageSnapshot(
     builtins,
     profile: input.profile,
     dictionary: input.dictionary,
-    bindings: input.bindings,
+    bindings: Object.fromEntries(
+      expansion.generated.map(({ name }) => [name, input.bindings[name]!]),
+    ),
     ...(input.objects ? { objects: input.objects } : {}),
+    ...(input.resources ? { resources: input.resources } : {}),
+    ...(input.logic !== undefined ? { logic: input.logic } : {}),
   });
   const diagnostics = language.diagnostics
     .filter((entry) => entry.start >= base)
@@ -158,21 +162,50 @@ export function createProjectLogicLanguageSnapshot(
     return language.renameAt(expandedOffset(offset), name).map(authoredRange);
   }
 
-  function quickFixes() {
+  function quickFixes(projectOperands: readonly NumberedOperand[] = operands) {
     const fixes: {
       title: string;
       diagnostic: (typeof diagnostics)[number];
       edits: { start: number; end: number; text: string }[];
+      binding?: { name: string; kind: "flag" | "variable"; num: number };
     }[] = [];
     const tokens = analyzeLogicSyntax(source).tokens;
     for (const diagnostic of diagnostics) {
-      const unknown = /unknown identifier '([a-zA-Z_.][a-zA-Z0-9_.]*)'/.exec(diagnostic.message);
-      if (unknown && !Object.hasOwn(input.bindings, unknown[1]!))
-        fixes.push({
-          title: `Define ${unknown[1]} as 0`,
-          diagnostic,
-          edits: [{ start: 0, end: 0, text: `#define ${unknown[1]} 0\n` }],
-        });
+      const unknown = /(?:Nothing|No flag|No variable) is named ([a-zA-Z_.][a-zA-Z0-9_.]*)\./.exec(
+        diagnostic.message,
+      );
+      if (unknown && !Object.hasOwn(input.bindings, unknown[1]!)) {
+        const name = unknown[1]!;
+        const kind = language.operandKindAt(expandedOffset(diagnostic.start));
+        let num: number | undefined = 0;
+        if (kind === "f" || kind === "v") {
+          const canonical = kind === "f" ? "flag" : "variable";
+          const used = new Set([
+            ...projectOperands
+              .filter((operand) => operand.kind === kind)
+              .map((operand) => operand.num),
+            ...Object.values(input.bindings)
+              .filter((binding) => binding.kind === canonical)
+              .map((binding) => binding.num),
+          ]);
+          num = Array.from({ length: 256 }, (_, number) => number).find(
+            (number) => !systemName(kind, number) && !used.has(number),
+          );
+          if (num !== undefined && /^[a-z][a-z0-9_]{0,63}$/.test(name))
+            fixes.push({
+              title: `Create ${canonical} ${name} (${kind === "f" ? "Flag" : "Variable"} ${num})`,
+              diagnostic,
+              binding: { name, kind: canonical, num },
+              edits: [],
+            });
+        }
+        if (num !== undefined)
+          fixes.push({
+            title: "Define as a constant in this file…",
+            diagnostic,
+            edits: [{ start: 0, end: 0, text: `#define ${name} ${num}\n` }],
+          });
+      }
       if (/expected ;/.test(diagnostic.message)) {
         const previous = tokens
           .filter((token) => token.end <= diagnostic.start && token.type !== "eof")

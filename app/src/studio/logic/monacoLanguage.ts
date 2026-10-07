@@ -361,6 +361,7 @@ monaco.languages.registerCompletionItemProvider(LOGIC_LANGUAGE_ID, {
         kind: completionKind(item.detail),
         insertText: item.textEdit.newText,
         filterText: item.textEdit.newText,
+        ...(item.sortText ? { sortText: item.sortText } : {}),
         range: editorRange(item.textEdit.range),
       })),
     };
@@ -636,6 +637,10 @@ monaco.languages.registerFoldingRangeProvider(LOGIC_LANGUAGE_ID, {
     }));
   },
 });
+monaco.editor.registerCommand(
+  "agi.applyProjectQuickFix",
+  async (_accessor, apply: () => Promise<void>) => apply(),
+);
 monaco.languages.registerCodeActionProvider(
   LOGIC_LANGUAGE_ID,
   {
@@ -653,11 +658,54 @@ monaco.languages.registerCodeActionProvider(
       );
       if (!actions || !queryIsLive(session, model, token)) return { actions: [], dispose() {} };
       return {
-        actions: actions.map((action) => ({
-          title: action.title,
-          kind: action.kind,
-          edit: workspaceEdit(action.edit),
-        })),
+        actions: actions.map((action) => {
+          const apply = session.registration.applyProjectEdit;
+          if (
+            apply &&
+            action.edit.documentChanges.some(
+              (change) => change.textDocument.uri !== model.uri.toString(),
+            )
+          )
+            return {
+              title: action.title,
+              kind: action.kind,
+              command: {
+                id: "agi.applyProjectQuickFix",
+                title: action.title,
+                arguments: [
+                  async () => {
+                    if (
+                      !stillCurrent(session.registration) ||
+                      model.getVersionId() !== session.versionId
+                    )
+                      throw new Error("The source changed. Open Quick Fix again.");
+                    await session.registration.waitForAnalysis();
+                    const current = await session.registration.client.request(
+                      session.registration.documentKey,
+                      "textDocument/codeAction",
+                      { range: protocolRange(range) },
+                    );
+                    if (
+                      !stillCurrent(session.registration) ||
+                      model.getVersionId() !== session.versionId ||
+                      !current.some(
+                        (fix) =>
+                          fix.title === action.title &&
+                          JSON.stringify(fix.edit) === JSON.stringify(action.edit),
+                      )
+                    )
+                      throw new Error("The project changed. Open Quick Fix again.");
+                    await apply(action.edit, action.title);
+                  },
+                ],
+              },
+            };
+          return {
+            title: action.title,
+            kind: action.kind,
+            edit: workspaceEdit(action.edit),
+          };
+        }),
         dispose() {},
       };
     },
