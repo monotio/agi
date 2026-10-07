@@ -15,6 +15,9 @@ for (const [width, height] of [
   }) => {
     await page.setViewportSize({ width, height });
     await isolateStorage(page);
+    const codiconResponse = page.waitForResponse((response) =>
+      /\/codicon(?:-[\w-]+)?\.ttf$/.test(new URL(response.url()).pathname),
+    );
     await page.goto("/#create-adventure");
     await page.getByTestId("local-create-kind-starter").click();
     await page.getByRole("button", { name: "Start building", exact: true }).click();
@@ -22,6 +25,7 @@ for (const [width, height] of [
     await page.getByTestId("part-room:1:logic").click();
     const editor = page.getByTestId("workspace-logic-editor").filter({ visible: true });
     await expect(editor.locator(".monaco-editor")).toBeVisible();
+    expect((await codiconResponse).status(), "Monaco icon font is served").toBe(200);
 
     // Hovering left of line 3's number shows a dot; a click there sets the breakpoint.
     const lineNumber = editor.locator(".line-numbers", { hasText: /^3$/ }).first();
