@@ -7,6 +7,7 @@ import { ProjectModel } from "../../src/authoring/projectModel.ts";
 import { createContainer } from "../../src/container/container.ts";
 import { sha256Hex } from "../../src/crypto.ts";
 import type {
+  DebugStopReason,
   WorkerQueryFn,
   WorkerQueryType,
   WorkerControl,
@@ -64,6 +65,7 @@ test("stopped source positions use only the captured build and its authored offs
     type: "debugStopped",
     epoch: 1,
     buildId: "another build",
+    reasons: [] as readonly DebugStopReason[],
     location: { logic: 0, pc: 0, kind: "action" },
   } as Extract<WorkerControl, { type: "debugStopped" }>);
   assert.equal(h.debug.position.value, null);
@@ -94,6 +96,7 @@ test("stepping stays active until a stop, continue or detach", async () => {
     epoch: 1,
     stopId: 1,
     buildId: h.compiled.build.identity.buildId,
+    reasons: [] as readonly DebugStopReason[],
     location: { logic: 0, pc: 0, kind: "action" },
   } as Extract<WorkerControl, { type: "debugStopped" }>;
   h.link.handle(stop);
@@ -113,5 +116,27 @@ test("stepping stays active until a stop, continue or detach", async () => {
   h.link.handle(stop);
   await h.debug.resume("continue");
   assert.equal(h.debug.state.stepping, false);
+  h.debug.dispose();
+});
+
+test("disabling breakpoints preserves their locations and disables the worker plans", async () => {
+  const h = setup();
+  await h.debug.toggle(0, 2);
+  await h.debug.start();
+  await h.debug.setDisabled(true);
+  assert.equal(h.debug.state.breakpointsDisabled, true);
+  assert.equal(h.debug.state.breakpoints[0]?.enabled, true);
+  assert.deepEqual(h.requests.findLast((r) => r.type === "debugConfigure")?.extra["breakpoints"], [
+    { id: "0:2", enabled: false, logic: 0, line: 2, mode: "statement" },
+  ]);
+  await h.debug.setDisabled(false);
+  assert.equal(
+    (
+      h.requests.findLast((r) => r.type === "debugConfigure")?.extra["breakpoints"] as {
+        enabled: boolean;
+      }[]
+    )[0]?.enabled,
+    true,
+  );
   h.debug.dispose();
 });

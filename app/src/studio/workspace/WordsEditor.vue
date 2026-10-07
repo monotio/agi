@@ -1,15 +1,15 @@
 <script setup lang="ts">
+import { useProjectLabels } from "../../shell/useProjectLabels.ts";
+import { numberedLabel, numberedSlot } from "../../../../src/logic/numberedLabels.ts";
 import UiIcon from "../../ui/UiIcon.vue";
-import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
+import { computed, nextTick, ref, watch } from "vue";
 import { VOCABULARY, WORDS_EDITOR_COPY } from "../../../../src/vocabulary.ts";
 import { parseSentence } from "../../../../src/runtime/parser.ts";
 import { buildWordsTok } from "../../../../src/logic/words.ts";
 import type { AgiProfile } from "../../../../src/runtime/profile.ts";
 import type { ProjectContent } from "../../../../src/authoring/projectContent.ts";
 import type { PlayerSentence } from "../../project/playerSentences.ts";
-import { useWorkspaceEditor } from "../../shell/workspaceEditor.ts";
 import { useEngineApi } from "../../engine/engineContext.ts";
-import { useAiSettings } from "../../settings/useAiSettings.ts";
 import UiButton from "../../ui/UiButton.vue";
 import UiExplain from "../../ui/UiExplain.vue";
 import { wordGroups, nextWordGroup } from "./wordGroups.ts";
@@ -19,7 +19,8 @@ import {
   sentenceOutcomes,
   type WordRows,
 } from "./wordsAnalysis.ts";
-import { runWordsTask, type WordsTask } from "./wordsAgent.ts";
+import { wordsTaskReply, wordsTaskRequest, type WordsTask } from "./wordsPrompts.ts";
+import { useOpenAgent } from "../../agent/openAgent.ts";
 import type { ProjectSnapshot } from "../../../../src/authoring/projectModel.ts";
 import { prepareWorkspaceAction, type WorkspaceAction } from "./workspaceGuided.ts";
 import SentenceFields from "./SentenceFields.vue";
@@ -31,6 +32,7 @@ const props = defineProps<{
   active: boolean;
   profile: AgiProfile;
   snapshot: ProjectSnapshot;
+  location?: { row?: number; serial: number } | undefined;
 }>();
 const emit = defineEmits<{
   edit: [source: string];
@@ -38,33 +40,33 @@ const emit = defineEmits<{
   remove: [word: string];
   openLogic: [logic: number, line: number];
   response: [room: number, command: string];
-  task: [task: WordsTask];
-  chat: [];
   guided: [action: WorkspaceAction];
 }>();
+watch(
+  () => props.location,
+  async (location) => {
+    if (location?.row === undefined) return;
+    await nextTick();
+    find.value = "";
+    await nextTick();
+    const entry = entries.value[location.row];
+    if (entry) {
+      const row = document.querySelector<HTMLElement>(`[data-word-group="${entry[1]}"]`);
+      row?.scrollIntoView({ block: "center" });
+      row?.querySelector<HTMLButtonElement>("button")?.focus();
+    }
+  },
+  { immediate: true },
+);
+const labels = useProjectLabels();
 const engine = useEngineApi();
 void engine.loadPlayerSentences();
-const editor = useWorkspaceEditor();
-const ai = useAiSettings();
 const copy = WORDS_EDITOR_COPY;
 const adding = ref<number>();
 const more = ref(false);
-const taskProblems = ref<Record<string, string>>({});
-const taskRequests = ref<Record<string, WordsTask>>({});
-const toast = ref("");
-let retired = false;
-onBeforeUnmount(() => {
-  retired = true;
-});
+const openAgent = useOpenAgent();
 
-const roomName = computed(
-  () =>
-    engine.roomMap.graph.value.nodes.find((node) => node.room === props.room)?.title ||
-    editor.parts.value
-      .find((part) => part.id === `logic:${props.room}`)
-      ?.title.split(" · ROOM ")[0] ||
-    `ROOM ${props.room}`,
-);
+const roomName = computed(() => numberedLabel("room", props.room, labels.value));
 const entries = computed<WordRows>(() => {
   try {
     return JSON.parse(props.source) as WordRows;
@@ -81,37 +83,6 @@ watch(sentence, () => {
   more.value = false;
 });
 const error = ref("");
-const ghosts = ref<Record<string, string[]>>({});
-const predictions = ref<string[]>([]);
-const predictionRows = computed(() =>
-  predictions.value.map((command) => {
-    const parsed = parseSentence(command, new Map(entries.value));
-    const unknown = parsed.tokens.find((token) => token.status === "new")?.text;
-    const outcomes = sentenceOutcomes(
-      command,
-      entries.value,
-      props.documents,
-      props.room,
-      props.profile,
-    );
-    const answered = !unknown && outcomes.length > 0;
-    const conditional = outcomes.some((outcome) => outcome.conditional);
-    return {
-      command,
-      answered,
-      description: unknown
-        ? `“${unknown}” is a new word`
-        : answered
-          ? conditional
-            ? "Answers when the game's state allows it"
-            : `LOGIC ${outcomes[0]!.logic} answers`
-          : VOCABULARY.noResponse.label,
-    };
-  }),
-);
-const pendingTask = ref<WordsTask>();
-const predictOpen = ref(false);
-const dismissedTask = ref(false);
 const groups = computed(() => {
   const rows = wordGroups(entries.value).map((group) => {
     const head =
@@ -120,19 +91,20 @@ const groups = computed(() => {
         .find((word) => group.words.includes(word)) ?? group.words[0];
     return {
       ...group,
-      usage: formatMeaningUses(uses.value[String(group.id)] ?? []),
+      usage: formatMeaningUses(uses.value[String(group.id)] ?? [], labels.value),
       words: head ? [head, ...group.words.filter((word) => word !== head)] : group.words,
     };
   });
   for (const id of [0, ...empty.value])
     if (!rows.some((row) => row.id === id))
-      rows.push({ id, words: [], usage: formatMeaningUses([]) });
+      rows.push({ id, words: [], usage: formatMeaningUses([], labels.value) });
   return rows.sort(
     (a, b) =>
       (uses.value[String(b.id)]?.length ?? 0) - (uses.value[String(a.id)]?.length ?? 0) ||
       a.id - b.id,
   );
 });
+const meaningOptions = computed(() => [...groups.value].sort((a, b) => a.id - b.id));
 const meanings = computed(() =>
   groups.value.filter(
     (group) =>
@@ -193,7 +165,7 @@ watch(entries, (words) => {
     teaching.value = undefined;
 });
 function label(id: number | undefined): string {
-  return groups.value.find((group) => group.id === id)?.words[0] ?? String(id ?? "");
+  return id === undefined ? "" : numberedLabel("word", id, { words: entries.value });
 }
 function write(next: WordRows): void {
   if (props.readOnly) return;
@@ -217,7 +189,6 @@ function addWord(id: number, value?: string): void {
   }
   write([...entries.value, [word, id]]);
   drafts.value[String(id)] = "";
-  ghosts.value[String(id)] = (ghosts.value[String(id)] ?? []).filter((ghost) => ghost !== word);
 }
 function wordKey(event: KeyboardEvent, id: number, words: readonly string[]): void {
   if (props.readOnly) return;
@@ -244,14 +215,6 @@ async function openAdd(id: number): Promise<void> {
   adding.value = id;
   await nextTick();
   document.querySelector<HTMLInputElement>(`[data-word-group="${id}"] .add-word`)?.focus();
-}
-function addAll(id: number): void {
-  if (props.readOnly) return;
-  const words = (ghosts.value[String(id)] ?? []).filter(
-    (word) => !entries.value.some(([existing]) => existing === word),
-  );
-  write([...entries.value, ...words.map((word) => [word, id] as const)]);
-  if (!error.value) ghosts.value[String(id)] = [];
 }
 function drop(event: DragEvent, to: number): void {
   if (props.readOnly) return;
@@ -292,87 +255,30 @@ function addAnswer(): void {
   if (!props.readOnly && teachAction.value && teachPreview.value?.ok)
     emit("guided", teachAction.value);
 }
-async function task(value: WordsTask): Promise<void> {
+/** One-click prompts open the agent drawer with a prepared request. */
+function askAgent(value: Exclude<WordsTask, { kind: "review" }>): void {
   if (props.readOnly) return;
-  if (value.kind !== "suggest") value = { ...value, roomName: roomName.value };
-  if (value.kind === "review") {
-    emit("task", value);
-    return;
-  }
-  if (pendingTask.value) return;
-  if (!ai.aiConfigured.value) {
-    await ai.openAiSettings(null, "assistant");
-    return;
-  }
-  const key = value.kind === "suggest" ? String(value.group) : "predict";
-  const source = props.source;
-  const modelLabel = ai.aiModelLabel.value;
-  const room = props.room;
-  taskRequests.value[key] = value;
-  taskProblems.value[key] = "";
-  pendingTask.value = value;
-  dismissedTask.value = false;
-  if (value.kind === "suggest") ghosts.value[key] = [];
-  else {
-    predictions.value = [];
-    predictOpen.value = true;
-  }
-  try {
-    await editor.flush.value?.();
-    const result = await runWordsTask({
-      task:
-        value.kind === "predict"
-          ? {
-              ...value,
-              pictures: engine.roomMap.resources.value.scans.get(room)?.pictures ?? [],
-            }
-          : value,
-      documents: props.documents,
-      engine,
-      config: ai.llmConfig,
-    });
-    if (retired || dismissedTask.value) return;
-    if (source !== props.source || room !== props.room) {
-      taskProblems.value[key] = copy.changed;
-      return;
-    }
-    taskProblems.value[key] = result.problem;
-    if (value.kind === "suggest") {
-      ghosts.value[key] = result.values.filter(
-        (word) => !entries.value.some(([existing]) => existing === word),
-      );
-      if (result.values.length && !ghosts.value[key]!.length)
-        taskProblems.value[key] = copy.existing;
-    } else predictions.value = result.values;
-    if (result.values.length) toast.value = copy.suggestionsFrom.replace("{model}", modelLabel);
-  } catch (cause) {
-    if (!retired && !dismissedTask.value)
-      taskProblems.value[key] = cause instanceof Error ? cause.message : String(cause);
-  } finally {
-    pendingTask.value = undefined;
-  }
+  const task =
+    value.kind === "suggest"
+      ? value
+      : {
+          ...value,
+          roomName: roomName.value,
+          pictures: engine.roomMap.resources.value.scans.get(props.room)?.pictures ?? [],
+        };
+  const request = wordsTaskRequest(task, props.documents);
+  openAgent(request.text, {
+    context: request.context,
+    readOnly: true,
+    formatReply: (reply) => wordsTaskReply(reply, task),
+  });
 }
 function typeInGame(): void {
   engine.sendInput(sentence.value);
 }
 function dismissGhosts(event: KeyboardEvent): void {
-  if (
-    !moving.value &&
-    !teaching.value &&
-    adding.value === undefined &&
-    !more.value &&
-    !predictOpen.value &&
-    !pendingTask.value &&
-    !Object.values(ghosts.value).some((words) => words.length) &&
-    !Object.values(taskProblems.value).some(Boolean)
-  )
-    return;
+  if (!moving.value && !teaching.value && adding.value === undefined && !more.value) return;
   event.stopPropagation();
-  dismissedTask.value = true;
-  ghosts.value = {};
-  taskProblems.value = {};
-  predictions.value = [];
-  predictOpen.value = false;
   adding.value = undefined;
   more.value = false;
   moving.value = undefined;
@@ -391,15 +297,9 @@ function dismissGhosts(event: KeyboardEvent): void {
       <UiButton
         size="sm"
         icon="sparkles"
-        :disabled="readOnly || !!pendingTask"
-        :title="
-          readOnly
-            ? 'Editing is paused in this tab'
-            : pendingTask
-              ? copy.suggesting
-              : VOCABULARY.predictCommands.help
-        "
-        @click="task({ kind: 'predict', room })"
+        :disabled="readOnly"
+        :title="readOnly ? 'Editing is paused in this tab' : VOCABULARY.predictCommands.help"
+        @click="askAgent({ kind: 'predict', room })"
         >{{ VOCABULARY.predictCommands.label }}</UiButton
       >
       <UiButton
@@ -410,12 +310,6 @@ function dismissGhosts(event: KeyboardEvent): void {
         >{{ VOCABULARY.meaningButton.label }}</UiButton
       >
     </header>
-    <div v-if="toast" class="words-toast" role="status">
-      {{ toast }} · <button class="words-link" @click="emit('chat')">{{ copy.openChat }}</button>
-      <button class="chip-remove" aria-label="Close" @click="toast = ''">
-        <UiIcon name="x" :size="16" />
-      </button>
-    </div>
     <p v-if="error" class="words-error" role="alert">{{ error }}</p>
     <form v-if="moving" class="words-choice" @submit.prevent="move" aria-label="Move to…">
       <strong>{{ VOCABULARY.moveWord.label }} {{ moving.word }}</strong>
@@ -426,13 +320,13 @@ function dismissGhosts(event: KeyboardEvent): void {
         aria-label="Destination meaning"
       >
         <option
-          v-for="group in groups.filter(
+          v-for="group in meaningOptions.filter(
             (row) => row.id !== moving!.from && ![1, 9999].includes(row.id),
           )"
           :key="group.id"
           :value="group.id"
         >
-          {{ label(group.id) }} · {{ group.id }}
+          {{ numberedLabel("word", group.id, { words: entries }, "option") }}
         </option>
       </select>
       <label
@@ -456,7 +350,6 @@ function dismissGhosts(event: KeyboardEvent): void {
       <section :aria-label="VOCABULARY.trySentence.label">
         <div class="words-section">
           <h3>{{ VOCABULARY.trySentence.label }}</h3>
-          <small>{{ VOCABULARY.sentenceParser.label }}</small>
         </div>
         <div class="sentence-tester">
           <div class="sentence-input">
@@ -484,7 +377,7 @@ function dismissGhosts(event: KeyboardEvent): void {
               ><b>{{ token.text }}</b
               ><small>{{
                 token.status === "known"
-                  ? `= ${label(token.id)} · ${token.id}`
+                  ? `= ${numberedLabel("word", token.id!, { name: label(token.id) }, "option")}`
                   : token.status === "new"
                     ? VOCABULARY.newWord.label
                     : token.status === "skipped"
@@ -551,7 +444,8 @@ function dismissGhosts(event: KeyboardEvent): void {
             <template v-if="outcomes.length">
               <div v-for="(outcome, index) in outcomes" :key="index">
                 <button class="words-link" @click="emit('openLogic', outcome.logic, outcome.line)">
-                  LOGIC {{ outcome.logic }} · line {{ outcome.line }}
+                  {{ numberedLabel("logic", outcome.logic, labels, "row") }} · line
+                  {{ outcome.line }}
                 </button>
                 <p>
                   Answers<span v-if="outcome.message"> “{{ outcome.message }}”</span
@@ -599,11 +493,11 @@ function dismissGhosts(event: KeyboardEvent): void {
                 >
                   <option value="" disabled>Pick a meaning</option>
                   <option
-                    v-for="group in groups.filter((row) => ![0, 1, 9999].includes(row.id))"
+                    v-for="group in meaningOptions.filter((row) => ![0, 1, 9999].includes(row.id))"
                     :key="group.id"
                     :value="String(group.id)"
                   >
-                    {{ group.words.join(", ") }}
+                    {{ numberedLabel("word", group.id, { words: entries }, "option") }}
                   </option>
                 </select>
               </div>
@@ -641,69 +535,6 @@ function dismissGhosts(event: KeyboardEvent): void {
           </Teleport>
         </div>
       </section>
-      <section v-if="predictOpen" class="words-predictions" aria-label="Predicted commands">
-        <div class="words-section">
-          <h3>✦ Players will likely try in {{ roomName }}</h3>
-          <UiButton
-            size="sm"
-            @click="
-              predictions = [];
-              predictOpen = false;
-              dismissedTask = true;
-            "
-            >{{ copy.dismiss }}</UiButton
-          >
-        </div>
-        <p v-if="pendingTask?.kind === 'predict'">{{ copy.suggesting }}</p>
-        <div v-if="taskProblems['predict']" class="words-error" role="alert">
-          {{ taskProblems["predict"] }}
-          <button
-            class="words-link"
-            :disabled="readOnly || !!pendingTask"
-            :title="
-              readOnly
-                ? 'Editing is paused in this tab'
-                : pendingTask
-                  ? copy.suggesting
-                  : copy.retry
-            "
-            @click="task(taskRequests['predict']!)"
-          >
-            {{ copy.retry }}
-          </button>
-        </div>
-        <div v-for="prediction in predictionRows" :key="prediction.command" class="tried-row">
-          <code class="prediction-ghost">✦ {{ prediction.command }}</code
-          ><small>{{ prediction.answered ? "✓ " : "○ " }}{{ prediction.description }}</small>
-          <UiButton
-            v-if="!prediction.answered"
-            size="sm"
-            @click="!readOnly && emit('response', room, prediction.command)"
-            :disabled="readOnly"
-            :title="readOnly ? 'Editing is paused in this tab' : undefined"
-            >{{ VOCABULARY.addResponse.label }}</UiButton
-          >
-        </div>
-        <UiButton
-          v-if="predictions.length"
-          size="sm"
-          :disabled="readOnly || predictionRows.every((row) => row.answered)"
-          :title="
-            readOnly
-              ? 'Editing is paused in this tab'
-              : 'Choose commands with a response gap to review'
-          "
-          @click="
-            task({
-              kind: 'review',
-              room,
-              commands: predictionRows.filter((row) => !row.answered).map((row) => row.command),
-            })
-          "
-          >{{ copy.addAll }}</UiButton
-        >
-        <p class="words-note">{{ VOCABULARY.predictCommands.help }}</p>
-      </section>
       <section :aria-label="VOCABULARY.playersTried.label">
         <div class="words-section">
           <h3>{{ VOCABULARY.playersTried.label }}</h3>
@@ -711,7 +542,7 @@ function dismissGhosts(event: KeyboardEvent): void {
         </div>
         <div class="tried-list">
           <p v-if="!tried.length" class="words-note">
-            Play and type freely. Sentences the game misses show up here.
+            Sentences the game missed appear here after playtests.
           </p>
           <div
             v-for="(entry, index) in tried"
@@ -721,7 +552,7 @@ function dismissGhosts(event: KeyboardEvent): void {
           >
             <div>
               <code>{{ entry.text }}</code
-              ><small> ×{{ entry.count }} · ROOM {{ entry.room }}</small>
+              ><small> ×{{ entry.count }} · {{ numberedLabel("room", entry.room, labels) }}</small>
               <p class="words-note">
                 {{
                   entry.unknown ? `“${entry.unknown}” is a new word` : VOCABULARY.noResponse.label
@@ -779,7 +610,7 @@ function dismissGhosts(event: KeyboardEvent): void {
           @drop.prevent="drop($event, group.id)"
         >
           <div class="meaning-chips">
-            <span class="word-id">{{ group.id }}</span>
+            <span class="word-id">{{ numberedSlot("word", group.id) }}</span>
             <span
               v-for="(word, index) in group.words"
               :key="word"
@@ -815,29 +646,6 @@ function dismissGhosts(event: KeyboardEvent): void {
                 <UiIcon name="x" :size="16" /></button
             ></span>
             <button
-              v-for="word in ghosts[String(group.id)] ?? []"
-              :key="word"
-              class="word-chip word-suggestion"
-              @click="addWord(group.id, word)"
-              :disabled="readOnly"
-              :title="readOnly ? 'Editing is paused in this tab' : undefined"
-            >
-              <UiIcon name="sparkles" :size="16" /> {{ word }}
-            </button>
-            <template v-if="ghosts[String(group.id)]?.length">
-              <button
-                class="words-link"
-                @click="addAll(group.id)"
-                :disabled="readOnly"
-                :title="readOnly ? 'Editing is paused in this tab' : undefined"
-              >
-                {{ copy.addAll }}
-              </button>
-              <button class="words-link" @click="ghosts[String(group.id)] = []">
-                {{ copy.dismiss }}
-              </button>
-            </template>
-            <button
               v-if="adding !== group.id"
               class="word-chip row-action"
               :aria-label="VOCABULARY.addWord.label"
@@ -858,51 +666,26 @@ function dismissGhosts(event: KeyboardEvent): void {
               @keydown="wordKey($event, group.id, group.words)"
             />
             <button
-              v-if="pendingTask?.kind !== 'suggest' || pendingTask.group !== group.id"
               class="words-link suggest row-action"
-              :disabled="readOnly || !!pendingTask"
-              :title="
-                readOnly
-                  ? 'Editing is paused in this tab'
-                  : pendingTask
-                    ? copy.suggesting
-                    : VOCABULARY.suggestWords.help
-              "
-              @click="task({ kind: 'suggest', group: group.id, words: group.words })"
+              :disabled="readOnly"
+              :title="readOnly ? 'Editing is paused in this tab' : VOCABULARY.suggestWords.help"
+              @click="askAgent({ kind: 'suggest', group: group.id, words: group.words })"
             >
               <UiIcon name="sparkles" :size="16" /> {{ VOCABULARY.suggestWords.label }}
             </button>
-            <span v-else class="words-note">{{ copy.suggesting }}</span>
-            <div v-if="taskProblems[String(group.id)]" class="words-error" role="alert">
-              {{ taskProblems[String(group.id)] }}
-              <button
-                class="words-link"
-                :disabled="readOnly || !!pendingTask"
-                :title="
-                  readOnly
-                    ? 'Editing is paused in this tab'
-                    : pendingTask
-                      ? copy.suggesting
-                      : copy.retry
-                "
-                @click="task(taskRequests[String(group.id)]!)"
-              >
-                {{ copy.retry }}
-              </button>
-            </div>
           </div>
           <div class="meaning-uses">
             <template v-if="group.usage.locations.length">
               <span>{{ group.usage.count }}</span>
-              <span v-for="location in group.usage.locations" :key="location.logic">
-                · {{ location.label }}
-                <template v-for="(line, index) in location.lines" :key="line"
+              <span v-for="use in group.usage.locations" :key="use.logic">
+                · {{ use.label }}
+                <template v-for="(line, index) in use.lines" :key="line"
                   ><span v-if="index">, </span
                   ><a
                     class="words-link"
-                    :href="`#logic-${location.logic}-line-${line}`"
-                    :aria-label="`LOGIC ${location.logic} line ${line}`"
-                    @click.prevent="emit('openLogic', location.logic, line)"
+                    :href="`#logic-${use.logic}-line-${line}`"
+                    :aria-label="`${numberedLabel('logic', use.logic, labels, 'row')} line ${line}`"
+                    @click.prevent="emit('openLogic', use.logic, line)"
                     >{{ line }}</a
                   ></template
                 >
@@ -1175,13 +958,6 @@ p {
   border-color: var(--action-line);
   font-weight: 600;
 }
-.word-suggestion {
-  border-color: var(--action-line);
-  border-style: dashed;
-  background: transparent;
-  color: var(--action);
-  cursor: pointer;
-}
 .chip-remove,
 .chip-move {
   border: 0;
@@ -1278,17 +1054,6 @@ input.add-word {
   opacity: 1;
   pointer-events: auto;
 }
-.words-toast {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-2) var(--space-5);
-  font-size: var(--text-xs);
-  color: var(--ink-3);
-}
-.words-toast .chip-remove {
-  margin-left: auto;
-}
 .tester-more {
   position: relative;
 }
@@ -1304,14 +1069,7 @@ input.add-word {
   border-radius: var(--radius);
   box-shadow: var(--shadow-pop);
 }
-.prediction-ghost {
-  border: 1px dashed var(--action-line);
-  border-radius: var(--radius-pill);
-  padding: var(--space-1) var(--space-3);
-  color: var(--action);
-}
-.tried-list,
-.words-predictions {
+.tried-list {
   background: var(--surface-1);
   border: 1px solid var(--hairline);
   border-radius: var(--radius-lg);

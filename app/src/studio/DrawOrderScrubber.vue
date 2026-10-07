@@ -1,42 +1,63 @@
 <script setup lang="ts">
 import { computed, ref, useTemplateRef } from "vue";
-import UiExplain from "../ui/UiExplain.vue";
 import UiIconButton from "../ui/UiIconButton.vue";
-import { explain } from "./studioTerms.ts";
-import type { Tick } from "./studioView.ts";
+import type { DrawStop } from "./useStudioReadout.ts";
 
 /**
- * The draw-order scrubber: one tick per step (one AGI drawing command) in
- * its drawing colour (state steps short, fills tall), a draggable marker and
- * step buttons. The model is the number of steps drawn, 0..ticks.length.
- * Beside it, "Step 12 of 365" and the last drawn step: its item's name
- * first, then its text (coordinates and all) over up to two lines.
+ * The draw-order transport: one stop per shape (its state lines fold into
+ * it), a draggable marker that lands on stops, and step buttons that move
+ * shape to shape. The model is still the number of steps drawn, 0..total,
+ * so the inspector's command list can stand the playhead inside a stop.
+ * Beside the track the position reads "Drawing before Cottage".
  */
-const { ticks, marked, command } = defineProps<{
-  ticks: readonly Tick[];
-  /** Timeline indices of the selected item's commands. */
-  marked: readonly number[];
-  /** The last drawn command: its item's label ("" for loose lines) and its source text ("" before the first). */
-  command: { readonly item: string; readonly text: string };
+const { stops, total, marked, position } = defineProps<{
+  /** The shapes in draw order. */
+  stops: readonly DrawStop[];
+  /** Total drawing steps (commands); the playhead counts them. */
+  total: number;
+  /** Row ids of the selected items: their stops light up. */
+  marked: readonly string[];
+  /** Where new shapes draw: "Drawing before Cottage". */
+  position: string;
 }>();
 const playhead = defineModel<number>({ required: true });
 
-const HEIGHT: Record<Tick["kind"], number> = { state: 30, draw: 62, fill: 100 };
-const total = computed(() => ticks.length);
+/** Where the marker may land: each stop's first step, then the end. */
+const places = computed(() => [...stops.map((stop) => stop.index), total]);
 const track = useTemplateRef("track");
 const dragging = ref(false);
-const valueText = computed(() =>
-  playhead.value === 0
-    ? `Step 0 of ${total.value}, empty`
-    : `Step ${playhead.value} of ${total.value}: ${command.item ? `${command.item}, ` : ""}${command.text}`,
-);
+
+function clamp(k: number): number {
+  return Math.min(total, Math.max(0, Math.round(k)));
+}
+/** The stop boundary nearest `k`. */
+function snap(k: number): number {
+  let best = 0;
+  let distance = Number.POSITIVE_INFINITY;
+  for (const place of places.value) {
+    const gap = Math.abs(place - k);
+    if (gap < distance) {
+      distance = gap;
+      best = place;
+    }
+  }
+  return best;
+}
+/** The boundary just before `k` (or the first). */
+function back(k: number): number {
+  return places.value.reduce((last, place) => (place < k ? place : last), 0);
+}
+/** The boundary just past `k` (or the end). */
+function ahead(k: number): number {
+  return places.value.find((place) => place > k) ?? total;
+}
 
 function seek(k: number): void {
-  playhead.value = Math.min(total.value, Math.max(0, Math.round(k)));
+  playhead.value = snap(clamp(k));
 }
 function fromPointer(event: PointerEvent): void {
   const rect = track.value!.getBoundingClientRect();
-  seek(((event.clientX - rect.left) / rect.width) * total.value);
+  seek(((event.clientX - rect.left) / rect.width) * total);
 }
 function onPointerDown(event: PointerEvent): void {
   if (event.button !== 0) return;
@@ -51,52 +72,55 @@ function onPointerUp(event: PointerEvent): void {
   dragging.value = false;
   (event.currentTarget as HTMLElement).releasePointerCapture(event.pointerId);
 }
-const STEPS: Record<string, number> = {
+const KEYS: Record<string, number> = {
   ArrowLeft: -1,
   ArrowDown: -1,
   ArrowRight: 1,
   ArrowUp: 1,
-  PageDown: -10,
-  PageUp: 10,
+  PageDown: -5,
+  PageUp: 5,
 };
 function onKeydown(event: KeyboardEvent): void {
-  const step = STEPS[event.key];
+  if (event.key === "Home") {
+    event.preventDefault();
+    playhead.value = 0;
+    return;
+  }
+  if (event.key === "End") {
+    event.preventDefault();
+    playhead.value = total;
+    return;
+  }
+  const step = KEYS[event.key];
   if (step === undefined) return;
   event.preventDefault();
-  seek(playhead.value + step);
+  let k = playhead.value;
+  for (let i = 0; i < Math.abs(step); i++) k = step > 0 ? ahead(k) : back(k);
+  playhead.value = k;
 }
 </script>
 
 <template>
   <section class="scrubber" aria-label="Draw order">
     <div class="scrubber__transport">
-      <UiIconButton
-        icon="skip-back"
-        label="First step"
-        shortcut="Home"
-        size="sm"
-        @click="seek(0)"
-      />
+      <UiIconButton icon="skip-back" label="First" size="sm" @click="playhead = 0" />
       <UiIconButton
         icon="chevron-left"
-        label="Back"
-        shortcut=","
+        label="Earlier shape"
         size="sm"
-        @click="seek(playhead - 1)"
+        @click="playhead = back(playhead)"
       />
       <UiIconButton
         icon="chevron-right"
-        label="Forward"
-        shortcut="."
+        label="Later shape"
         size="sm"
-        @click="seek(playhead + 1)"
+        @click="playhead = ahead(playhead)"
       />
       <UiIconButton
         icon="skip-forward"
-        label="Last step"
-        shortcut="End"
+        label="Back to the end"
         size="sm"
-        @click="seek(total)"
+        @click="playhead = total"
       />
     </div>
     <div
@@ -109,7 +133,7 @@ function onKeydown(event: KeyboardEvent): void {
       aria-valuemin="0"
       :aria-valuemax="total"
       :aria-valuenow="playhead"
-      :aria-valuetext="valueText"
+      :aria-valuetext="position"
       @pointerdown="onPointerDown"
       @pointermove="onPointerMove"
       @pointerup="onPointerUp"
@@ -123,28 +147,24 @@ function onKeydown(event: KeyboardEvent): void {
         aria-hidden="true"
       >
         <rect
-          v-for="(tick, k) in ticks"
-          :key="k"
+          v-for="stop in stops"
+          :key="stop.index"
           class="scrubber__tick"
           :class="{
-            'is-after': k >= playhead,
-            'is-neutral': tick.colour === null,
-            'is-black': tick.colour === 0,
+            'is-after': stop.index >= playhead,
+            'is-neutral': stop.colour === null,
+            'is-black': stop.colour === 0,
+            'is-marked': marked.includes(stop.rowId),
+            'is-fill': stop.fill,
           }"
-          :x="k + 0.12"
-          :y="100 - HEIGHT[tick.kind]"
-          width="0.76"
-          :height="HEIGHT[tick.kind]"
-          :style="tick.colour === null ? undefined : { fill: `var(--agi-${tick.colour})` }"
-        />
-      </svg>
-      <svg
-        class="scrubber__marks"
-        :viewBox="`0 0 ${Math.max(total, 1)} 1`"
-        preserveAspectRatio="none"
-        aria-hidden="true"
-      >
-        <rect v-for="k in marked" :key="k" :x="k" y="0" width="1" height="1" />
+          :x="stop.index + 0.1"
+          :y="stop.fill ? 20 : 38"
+          :width="Math.max(stop.end - stop.index - 0.2, 0.3)"
+          :height="stop.fill ? 80 : 62"
+          :style="stop.colour === null ? undefined : { fill: `var(--agi-${stop.colour})` }"
+        >
+          <title>{{ stop.label }}</title>
+        </rect>
       </svg>
       <div
         class="scrubber__playhead"
@@ -152,18 +172,7 @@ function onKeydown(event: KeyboardEvent): void {
       ></div>
     </div>
     <div class="scrubber__label" aria-live="off">
-      <span class="scrubber__step" data-testid="scrubber-step"
-        ><span
-          >Step <b>{{ playhead }}</b> of {{ total
-          }}<template v-if="playhead === 0"> · empty</template></span
-        ><UiExplain v-bind="explain('step')"
-      /></span>
-      <template v-if="playhead > 0">
-        <span class="scrubber__command" data-testid="scrubber-command">
-          <b v-if="command.item" class="scrubber__item">{{ command.item }}</b>
-          <span class="scrubber__text" :title="command.text">{{ command.text }}</span>
-        </span>
-      </template>
+      <span class="scrubber__position" data-testid="scrubber-position">{{ position }}</span>
     </div>
   </section>
 </template>
@@ -215,16 +224,13 @@ function onKeydown(event: KeyboardEvent): void {
 .scrubber__tick.is-after {
   opacity: 0.2;
 }
-.scrubber__marks {
-  position: absolute;
-  right: 0;
-  bottom: 0;
-  left: 0;
-  width: 100%;
-  height: 3px;
+.scrubber__tick.is-marked {
+  stroke: var(--action);
+  stroke-width: 1px;
+  vector-effect: non-scaling-stroke;
 }
-.scrubber__marks rect {
-  fill: var(--action);
+.scrubber__tick.is-marked.is-after {
+  opacity: 0.5;
 }
 .scrubber__playhead {
   position: absolute;
@@ -253,24 +259,7 @@ function onKeydown(event: KeyboardEvent): void {
   font: var(--text-2xs) / var(--leading) var(--font-mono);
   text-align: right;
 }
-.scrubber__label b {
-  color: var(--ink);
-  font-weight: var(--weight-semibold);
-}
-.scrubber__step {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1);
-}
-.scrubber__command {
-  display: grid;
-  justify-items: end;
-}
-.scrubber__item {
-  overflow-wrap: anywhere;
-}
-/* A long polyline's points run on: two lines of them, the whole on hover. */
-.scrubber__text {
+.scrubber__position {
   display: -webkit-box;
   overflow: hidden;
   overflow-wrap: anywhere;

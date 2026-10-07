@@ -15,7 +15,7 @@ import type { AudioMode } from "../audio/AgiAudio.ts";
 import type { RoomTransitionNotice } from "../worker/workerProtocol.ts";
 import type { InstalledGameDescriptor } from "../project/gameTypes.ts";
 import type { ProgressTarget } from "../project/progressTarget.ts";
-import type { PowerUpUiState } from "../authoring/useAuthoringController.ts";
+import type { PowerUpUiState, RoomGenerationUiState } from "../authoring/useAuthoringController.ts";
 import type { PromptState } from "../play/usePromptController.ts";
 import type { WalkthroughUiState } from "../walkthrough/useWalkthroughController.ts";
 import type { HistoryViewMark } from "../history/useHistoryView.ts";
@@ -138,6 +138,7 @@ export interface HistoryViewUiState {
 }
 
 export interface EngineState {
+  roomGeneration: RoomGenerationUiState | null;
   agentTask: AgentRunState | null;
   /**
    * The game the loading phase is opening. `generating` marks an agent
@@ -214,6 +215,9 @@ export interface EngineState {
    * Storage moved past the running game (another tab committed a newer
    * revision): the stage's note offers Reload game until dismissed.
    */
+  otherTab: boolean;
+  returnProblem: string;
+  entryProblem: string;
   staleTab: boolean;
   /**
    * The running game's project was removed in another tab: nothing is stored

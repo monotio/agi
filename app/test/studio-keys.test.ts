@@ -31,9 +31,7 @@ function actions(drawing: boolean) {
     redo: () => calls.push("redo"),
     tool: () => false,
     finish: () => calls.push("finish") > 0,
-    ask: () => calls.push("ask") > 0,
     insertPoint: () => calls.push("insert point") > 0,
-    focusMode: () => calls.push("focus mode"),
     keySheet: () => calls.push("key sheet"),
   } satisfies Record<keyof StudioKeyActions, unknown>;
   return { act: act as StudioKeyActions, calls };
@@ -87,30 +85,13 @@ test("Tab and Shift+Tab always move focus; ? opens the sheet", () => {
   assert.deepEqual(calls, ["key sheet"]);
 });
 
-test("⌘\\ or Ctrl+\\ toggles focus mode from anywhere but a text field, on any layout", () => {
+test("⌘\\ and Ctrl+\\ are not studio shortcuts: the workspace owns Focus", () => {
   const { act, calls } = actions(false);
-  // US: the Backslash key, with ⌘ on a Mac or Ctrl elsewhere.
-  const us = { code: "Backslash" };
-  assert.equal(studioKey(key("\\", CANVAS, { ...us, metaKey: true }), act), true);
-  assert.equal(studioKey(key("\\", ELSEWHERE, { ...us, ctrlKey: true }), act), true);
-  // A held chord toggles once.
-  assert.equal(studioKey(key("\\", CANVAS, { ...us, ctrlKey: true, repeat: true }), act), true);
-  // A layout that types \ with Alt or AltGr elsewhere: the character decides.
-  const altGr = { code: "Minus", ctrlKey: true, altKey: true };
-  assert.equal(studioKey(key("\\", CANVAS, altGr), act), true);
-  // The modifier changed what `key` reports: the US key position still counts.
-  assert.equal(studioKey(key("|", CANVAS, { code: "Backslash", ctrlKey: true }), act), true);
-  assert.deepEqual(calls, ["focus mode", "focus mode", "focus mode", "focus mode"]);
-  // Not without the modifier, not Shift or Alt on the key position, not in a text field.
-  assert.equal(studioKey(key("\\", CANVAS, us), act), false);
-  assert.equal(studioKey(key("|", CANVAS, { ...us, shiftKey: true, ctrlKey: true }), act), false);
-  assert.equal(studioKey(key("«", CANVAS, { ...us, altKey: true, metaKey: true }), act), false);
-  const field = Object.assign(Object.create(HTMLElement.prototype) as HTMLElement, {
-    tagName: "TEXTAREA",
-    isContentEditable: false,
-  });
-  assert.equal(studioKey(key("\\", field, { ...us, metaKey: true }), act), false);
-  assert.equal(calls.length, 4);
+  // The studio's old focus-mode chord falls through to the workspace's Focus.
+  assert.equal(studioKey(key("\\", CANVAS, { metaKey: true }), act), false);
+  assert.equal(studioKey(key("\\", ELSEWHERE, { ctrlKey: true }), act), false);
+  assert.equal(studioKey(key("\\", ELSEWHERE), act), false);
+  assert.deepEqual(calls, []);
 });
 
 test("Enter on the canvas without a drawing cursor still finishes", () => {
@@ -131,19 +112,6 @@ test("Esc in a text field leaves the field; elsewhere, with nothing in hand, it 
   assert.equal(studioKey(key("Escape", ELSEWHERE), act), true);
   assert.deepEqual(calls, ["blur"]);
 });
-
-test("/ focuses the Ask box from anywhere but a text field", () => {
-  const { act, calls } = actions(false);
-  assert.equal(studioKey(key("/", ELSEWHERE), act), true);
-  assert.equal(studioKey(key("/", CANVAS), act), true);
-  const field = Object.assign(Object.create(HTMLElement.prototype) as HTMLElement, {
-    tagName: "TEXTAREA",
-    isContentEditable: false,
-  });
-  assert.equal(studioKey(key("/", field), act), false);
-  assert.deepEqual(calls, ["ask", "ask"]);
-});
-
 test("Insert adds a point to the selected line; + stays zoom", () => {
   const { act, calls } = actions(false);
   assert.equal(studioKey(key("Insert", CANVAS), act), true);
@@ -184,8 +152,7 @@ test("Cmd/Ctrl+G groups and Shift+Cmd/Ctrl+G ungroups; plain G stays the probe's
   assert.equal(studioKey(key("g", ELSEWHERE, { ctrlKey: true }), act), true);
   assert.equal(studioKey(key("G", ELSEWHERE, { ctrlKey: true, shiftKey: true }), act), true);
   assert.deepEqual(calls, ["group", "ungroup", "group", "ungroup"]);
-  // Duplicate and focus mode keep their chords.
+  // Duplicate keeps its chord.
   assert.equal(studioKey(key("d", CANVAS, { metaKey: true }), act), true);
-  assert.equal(studioKey(key("\\", CANVAS, { metaKey: true }), act), true);
-  assert.deepEqual(calls.slice(4), ["duplicate", "focus mode"]);
+  assert.deepEqual(calls.slice(4), ["duplicate"]);
 });

@@ -63,10 +63,10 @@ function clickSession(profile: ProfileId, logic = EGO_SETUP) {
 test("a click message records the cause and the engine walks ego to it", () => {
   const { ctx, send, tick, clickCauses } = clickSession("amiga-2.316");
   tick(2);
-  const ego = ctx.engine!.screenObjects[0]!;
+  const ego = ctx.run.engine!.screenObjects[0]!;
   assert.equal(ego.x, 20);
 
-  ctx.recording.recording = {
+  ctx.run.recording.recording = {
     tape: new OperationRecorder(),
     events: [],
     printed: [],
@@ -74,18 +74,18 @@ test("a click message records the cause and the engine walks ego to it", () => {
   };
   send({ type: "click", x: 161, y: 108 });
   assert.deepEqual(clickCauses(), [{ kind: "click", x: 161, y: 108 }]);
-  assert.deepEqual(ctx.input.clickQueue, [[161, 108]], "queued for the next input phase");
+  assert.deepEqual(ctx.run.input.clickQueue, [[161, 108]], "queued for the next input phase");
 
   tick(1);
   assert.equal(ego.motionMode, 4, "the click starts click-move");
-  assert.deepEqual(ctx.input.clickQueue, [], "the input phase drained it");
+  assert.deepEqual(ctx.run.input.clickQueue, [], "the input phase drained it");
   // The batch records only when non-empty; the click-free ticks carry none.
-  const clickCalls = ctx.recording.recording!.tape.operations.flatMap((op) =>
+  const clickCalls = ctx.run.recording.recording!.tape.operations.flatMap((op) =>
     op[0] === "tick" || op[0] === "release" ? op[1].filter((c) => c[0] === "clicks") : [],
   );
   assert.deepEqual(clickCalls, [["clicks", [[161, 108]]]]);
   // Clicks are stream-only history — never a stored game-test UI event.
-  assert.equal(ctx.recording.recording!.events.length, 0);
+  assert.equal(ctx.run.recording.recording!.events.length, 0);
 
   tick(80);
   assert.equal(ego.x, 78);
@@ -99,9 +99,9 @@ test("a click under an open modal is dropped, not queued or recorded", () => {
     `if (!isset(f201)) { set(f201); print("Hello"); } return;`,
   );
   tick(1);
-  assert.notEqual(ctx.engine!.modalKind, null, "the print window is open");
+  assert.notEqual(ctx.run.engine!.modalKind, null, "the print window is open");
   send({ type: "click", x: 161, y: 108 });
-  assert.deepEqual(ctx.input.clickQueue, []);
+  assert.deepEqual(ctx.run.input.clickQueue, []);
   assert.deepEqual(clickCauses(), []);
 });
 
@@ -109,10 +109,10 @@ test("a click on a PC profile is dropped, not queued or recorded", () => {
   const { ctx, send, tick, clickCauses } = clickSession("2.936");
   tick(2);
   send({ type: "click", x: 161, y: 108 });
-  assert.deepEqual(ctx.input.clickQueue, []);
+  assert.deepEqual(ctx.run.input.clickQueue, []);
   assert.deepEqual(clickCauses(), []);
   tick(3);
-  assert.equal(ctx.engine!.screenObjects[0]!.x, 20, "ego never moved");
+  assert.equal(ctx.run.engine!.screenObjects[0]!.x, 20, "ego never moved");
 });
 
 test("a queued click rides the retained boot and lands on the restored session", () => {
@@ -138,11 +138,11 @@ test("a queued click rides the retained boot and lands on the restored session",
       m.type === "historyViewRestored" && m.id === 2,
   );
   assert.ok(restored?.ok, JSON.stringify(restored));
-  assert.deepEqual(ctx.input.clickQueue, [[161, 108]], "the adopted session keeps it");
+  assert.deepEqual(ctx.run.input.clickQueue, [[161, 108]], "the adopted session keeps it");
 
   send({ type: "pause", paused: false });
   tick(1);
-  assert.equal(ctx.engine!.screenObjects[0]!.motionMode, 4, "the restored click walks ego");
+  assert.equal(ctx.run.engine!.screenObjects[0]!.motionMode, 4, "the restored click walks ego");
 });
 
 test("a recorded click replays through the history drive", () => {
@@ -150,7 +150,7 @@ test("a recorded click replays through the history drive", () => {
   tick(2);
   send({ type: "click", x: 161, y: 108 });
   tick(80);
-  assert.equal(ctx.engine!.screenObjects[0]!.x, 78, "the live walk completed");
+  assert.equal(ctx.run.engine!.screenObjects[0]!.x, 78, "the live walk completed");
   send({ type: "pause", paused: true });
 
   let boot: HistoryBoot | undefined;
@@ -179,5 +179,5 @@ test("a recorded click replays through the history drive", () => {
   const outcome = replayHistorySegment(segment);
   assert.equal(outcome.error, null);
   assert.equal(outcome.diverged, null, "every sync mark held");
-  assert.equal(outcome.ctx.engine!.screenObjects[0]!.x, 78, "the replayed click walked ego");
+  assert.equal(outcome.ctx.run.engine!.screenObjects[0]!.x, 78, "the replayed click walked ego");
 });

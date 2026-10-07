@@ -11,7 +11,7 @@ import { expect, test } from "./test.ts";
 
 /**
  * The calm canvas, as a rule over every element: in Room Studio and Sprite
- * Studio, with the probe, the walk legend, the values popover and a
+ * Studio, with the probe, the control-line legend, the values popover and a
  * selection open, anything positioned over the picture that takes the
  * pointer and says something is a menu or a dialog the creator opened, or
  * carries its own close button or drag handle. Everything else docks
@@ -81,9 +81,9 @@ for (const [width, height] of [
     await expect(studio.getByTestId("ghost-probe")).toBeVisible();
     await look("art", studio, pictures);
 
-    // The Walk lens with its legend showing, and the values popover open.
-    await page.keyboard.press("3");
-    await look("walk", studio, pictures);
+    // The Priority lens with its room panel showing.
+    await page.keyboard.press("2");
+    await look("priority", studio, pictures);
     await closeWorkspaceEditor(page);
     await expect(studio).toBeHidden();
 

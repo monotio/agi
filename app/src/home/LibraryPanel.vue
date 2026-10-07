@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { numberedLabel } from "../../../src/logic/numberedLabels.ts";
 /**
  * "Your games": the Home screen's one shelf. It holds the tutorial, saved
  * and remixed games (inline rename and a per-game action menu), installed
@@ -272,7 +273,7 @@ function startCreating(templateId: string): void {
             : undefined
         "
         badge="In progress"
-        :meta="`Room ${orphanAutosave.room} · played ${formatRelativeTime(orphanAutosave.savedAt, now)}`"
+        :meta="`${numberedLabel('room', orphanAutosave.room)} · played ${formatRelativeTime(orphanAutosave.savedAt, now)}`"
         play-label="Resume"
         data-testid="autosave-panel"
         @play="onResumeAutosave"
@@ -300,7 +301,6 @@ function startCreating(templateId: string): void {
       </GameCard>
       <TemplateCard
         title="Your own game"
-        detail="Pick a ready start or describe your idea"
         blank
         test-id="shelf-template-custom"
         @select="startCreating('')"
@@ -337,7 +337,7 @@ function startCreating(templateId: string): void {
         </button>
       </p>
       <p data-testid="verified-games-hint">
-        Verified to boot: King's Quest, Space Quest, Police Quest and more.
+        Tested openings: King's Quest, Space Quest, Police Quest and more.
         <button
           type="button"
           class="shelf-notes__link"
@@ -361,7 +361,7 @@ function startCreating(templateId: string): void {
           target="_blank"
           rel="noopener noreferrer"
           >SCI Programming</a
-        >. Fan games span many genres and audiences.
+        >.
       </p>
     </footer>
 

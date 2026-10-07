@@ -3,7 +3,7 @@ import { join, relative } from "node:path";
 import { BUNDLE_GRAPH_PATH } from "../bundle-graph.config.ts";
 import type { Route } from "@playwright/test";
 import { expect, test } from "./test.ts";
-import { isolateStorage, waitForRoom } from "./engineProbe.ts";
+import { isolateStorage, waitForRoom, textHook } from "./engineProbe.ts";
 import { createContainer } from "../../src/container/container.ts";
 import { compileProjectLogic } from "../../src/authoring/projectLogic.ts";
 import { PROFILES, type ProfileId } from "../../src/runtime/profile.ts";
@@ -11,24 +11,25 @@ import { PROFILES, type ProfileId } from "../../src/runtime/profile.ts";
 /**
  * The execution controller is a lazy worker feature: a normal Play boot
  * fetches the engine worker but never the debugger's module, and the first
- * isolated-Test boot pulls it through the dynamic import before its stopped
- * admission completes. Asserted on the wire, both ways — the exact requests
- * the browser made, and the worker's replies proving the entry stop latched
- * before any logic ran. The cancelled leg posts the same frozen boot to a
- * worker terminated mid-import: the held fetch proves the load was in
- * flight, nothing attaches, and the replacement worker admits a clean run.
+ * `debug*` command — the attach the workspace debugger sends — pulls it
+ * through the dynamic import. Asserted on the wire, both ways — the exact
+ * requests the browser made, and the worker's replies proving the armed
+ * breakpoint stops the running game with its state pinned. The cancelled
+ * leg attaches a worker terminated mid-import: the held fetch proves the
+ * load was in flight, nothing attaches, and the replacement worker admits a
+ * clean session.
  */
 
 const PROFILE: ProfileId = "2.411";
 
 /** Modules only the execution controller reaches — off the Play boot path. */
 const DEBUGGER_MODULES = [
-  /^app\/src\/worker\/(debugController|previewAdmission|projectAdmission)\.ts$/,
+  /^app\/src\/worker\/(debugController|previewAdmission)\.ts$/,
   /^src\/runtime\/(debugExpression|debugBreakpoints|debugStep|debugWatchpoints)\.ts$/,
 ];
 /** Request paths carrying controller code — dev modules or the built chunk. */
 const DEBUGGER_REQUEST =
-  /debugController|debugExpression|debugBreakpoints|debugStep|debugWatchpoints|\/src\/worker\/(?:previewAdmission|projectAdmission)\.ts/;
+  /debugController|debugExpression|debugBreakpoints|debugStep|debugWatchpoints|\/src\/worker\/previewAdmission\.ts/;
 
 const repository = join(import.meta.dirname, "..", "..");
 const app = join(repository, "app");
@@ -114,21 +115,22 @@ interface Outbound {
 }
 
 interface DriveResult {
-  beforeBooted: string[];
-  evalAtEntry: unknown;
+  order: string[];
+  evalAtBreak: unknown;
   evalHeld: unknown;
   staleCode: string | null;
   breakReasons: { kind: string; id?: string }[];
   breakVars41: number;
-  evalAtBreak: unknown;
 }
 
 /**
- * Drive one engine worker at the protocol level — the wire the session
- * layer sends: the frozen-test boot, stopped evaluations, a stale-epoch
- * refusal, then resume into the armed line-1 breakpoint's stop.
+ * Drive one engine worker at the protocol level — the wire the workspace
+ * debugger sends: a plain boot, then attach, configure the line-1
+ * breakpoint and let the running game stop on it. The pinned stop holds its
+ * state across real wall time, a stale epoch is refused, and the stop's own
+ * report matches what the evaluator reads.
  */
-async function runIsolatedTest(
+async function driveDebugger(
   page: {
     evaluate: <T, A>(fn: (arg: A) => Promise<T>, arg: A) => Promise<T>;
   },
@@ -139,10 +141,9 @@ async function runIsolatedTest(
     workerUrl: string;
     game: Game;
     profile: ProfileId;
-    id: number;
   }
   return page.evaluate(
-    async ({ workerUrl, game, profile, id }: Args) => {
+    async ({ workerUrl, game, profile }: Args) => {
       const w = new Worker(workerUrl, { type: "module" });
       const out: Outbound[] = [];
       const waiters = new Set<() => void>();
@@ -181,82 +182,79 @@ async function runIsolatedTest(
           ),
           words: [],
           profile,
-          frozenTest: {
-            id,
-            sources: game.sources,
-            sourceBindings: game.sourceBindings,
-            bindings: game.bindings,
-            breakpoints: [{ id: "b-entry", enabled: true, logic: 0, line: 1, mode: "statement" }],
-          },
         });
-        await until((m) => m.type === "booted", "frozen admission");
-        const beforeBooted = out
-          .slice(
-            0,
-            out.findIndex((m) => m.type === "booted"),
-          )
-          .map((m) => m.type);
-        const attached = out.find((m) => m.type === "debugAttached")!;
-        const entryStop = out.find((m) => m.type === "debugStopped")!;
+        await until((m) => m.type === "booted", "plain boot");
+
+        w.postMessage({
+          type: "debugAttach",
+          id: 1,
+          sources: game.sources,
+          sourceBindings: game.sourceBindings,
+          bindings: game.bindings,
+        });
+        const attached = await until((m) => m.type === "debugAttached", "attach");
         const epoch = attached.epoch!;
-        const stopId = entryStop.stopId!;
 
-        // The entry stop pins count at 0 — and stays pinned across real wall
-        // time, since the latched stop holds the engine's cycles.
-        w.postMessage({ type: "debugEvaluate", id: 1, epoch, stopId, expression: "count" });
-        const evalAtEntry = await until(
-          (m) => m.type === "debugEvaluation" && m.id === 1,
-          "entry evaluation",
-        );
-        // wall-clock: the frozen worker owns real timers in a separate realm from page.clock.
-        await new Promise((resolve) => setTimeout(resolve, 350));
-        w.postMessage({ type: "debugEvaluate", id: 2, epoch, stopId, expression: "count" });
-        const evalHeld = await until(
-          (m) => m.type === "debugEvaluation" && m.id === 2,
-          "held evaluation",
-        );
+        w.postMessage({
+          type: "debugConfigure",
+          id: 2,
+          epoch,
+          revision: 1,
+          breakpoints: [{ id: "b-entry", enabled: true, logic: 0, line: 1, mode: "statement" }],
+        });
+        await until((m) => m.type === "debugConfigured", "configure");
 
-        // An epoch that never existed is refused, never applied.
-        w.postMessage({ type: "debugPause", id: 3, epoch: epoch + 99 });
-        const stale = await until((m) => m.type === "debugError" && m.id === 3, "stale refusal");
-
-        // Resume: the armed line-1 breakpoint stops before statement 1 — the
-        // run executed no gameplay between release and the stop.
-        w.postMessage({ type: "debugResume", id: 4, epoch, stopId, action: "continue" });
+        // The running game reaches the armed line-1 breakpoint on its own.
         const breakStop = await until(
-          (m) => m.type === "debugStopped" && m.stopId !== stopId,
+          (m) => m.type === "debugStopped",
           "the armed breakpoint's stop",
         );
         w.postMessage({
           type: "debugEvaluate",
-          id: 5,
+          id: 3,
           epoch,
           stopId: breakStop.stopId,
           expression: "count",
         });
         const evalAtBreak = await until(
-          (m) => m.type === "debugEvaluation" && m.id === 5,
+          (m) => m.type === "debugEvaluation" && m.id === 3,
           "breakpoint evaluation",
         );
+        // wall-clock: the worker owns real timers in a separate realm from page.clock.
+        await new Promise((resolve) => setTimeout(resolve, 350));
+        w.postMessage({
+          type: "debugEvaluate",
+          id: 4,
+          epoch,
+          stopId: breakStop.stopId,
+          expression: "count",
+        });
+        const evalHeld = await until(
+          (m) => m.type === "debugEvaluation" && m.id === 4,
+          "held evaluation",
+        );
+
+        // An epoch that never existed is refused, never applied.
+        w.postMessage({ type: "debugPause", id: 5, epoch: epoch + 99 });
+        const stale = await until((m) => m.type === "debugError" && m.id === 5, "stale refusal");
 
         return {
-          beforeBooted,
-          evalAtEntry: evalAtEntry.value,
+          order: out.map((m) => m.type),
+          evalAtBreak: evalAtBreak.value,
           evalHeld: evalHeld.value,
           staleCode: stale.code ?? null,
           breakReasons: breakStop.reasons ?? [],
           breakVars41: breakStop.state?.vars[41] ?? -1,
-          evalAtBreak: evalAtBreak.value,
         };
       } finally {
         w.terminate();
       }
     },
-    { workerUrl, game, profile: PROFILE, id: 91 },
+    { workerUrl, game, profile: PROFILE },
   );
 }
 
-test("the execution debugger loads on first use: Play never fetches it, an isolated Test boot does @webkit-desktop", async ({
+test("the execution debugger loads on first use: Play never fetches it, an attach does @webkit-desktop", async ({
   page,
   baseURL,
 }) => {
@@ -301,33 +299,32 @@ test("the execution debugger loads on first use: Play never fetches it, an isola
   expect(debuggerRequests(), "no debugger request from Home to a cold Play").toEqual([]);
   expect(debuggerModules(), "no debugger module fetched from Home to a cold Play").toEqual([]);
 
-  // The first actual debug use — an isolated-test boot at the real worker —
-  // pulls the controller module.
+  // The first actual debug use — an attach at the real worker, the wire the
+  // workspace debugger sends — pulls the controller module.
   const game = makeGame();
   const workerUrl = new URL(engineWorkerPath!, origin).href;
-  const result = await runIsolatedTest(page, workerUrl, game);
+  const result = await driveDebugger(page, workerUrl, game);
   expect(
     debuggerRequests().length,
-    `the test boot fetched the controller on demand: ${debuggerRequests().join(", ")}`,
+    `the attach fetched the controller on demand: ${debuggerRequests().join(", ")}`,
   ).toBeGreaterThan(0);
   expect(debuggerModules()).toContain("app/src/worker/debugController.ts");
 
-  // The admission's own wire order: attach → configure → entry stop → ack →
-  // booted (diagnostic traffic may interleave).
-  const required = ["debugAttached", "debugConfigured", "debugStopped", "debugAck"];
-  expect(result.beforeBooted.filter((type) => required.includes(type))).toEqual(required);
-  expect(result.evalAtEntry).toBe(0);
-  expect(result.evalHeld).toBe(0);
-  expect(result.staleCode).toBe("staleEpoch");
-  // The armed line-1 breakpoint published the run's first real stop with the
-  // counter still 0: no gameplay ran before the debugger's first boundary.
+  // The session's own wire order: attach → configure → the armed stop.
+  const session = result.order.filter((type) =>
+    ["debugAttached", "debugConfigured", "debugStopped"].includes(type),
+  );
+  expect(session).toEqual(["debugAttached", "debugConfigured", "debugStopped"]);
   expect(result.breakReasons.some((reason) => reason.kind === "breakpoint")).toBe(true);
-  expect(result.breakVars41).toBe(0);
-  expect(result.evalAtBreak).toBe(0);
+  // The pinned stop holds across real wall time: both evaluations read the
+  // stop's own reported counter.
+  expect(result.evalAtBreak).toBe(result.breakVars41);
+  expect(result.evalHeld).toBe(result.evalAtBreak);
+  expect(result.staleCode).toBe("staleEpoch");
 
   // A cancelled load leaves nothing: where the fetch can be held the
   // terminated worker's late import attaches nowhere; either way the
-  // replacement worker admits a clean new run.
+  // replacement worker admits a clean new session.
   const heldRoutes: Route[] = [];
   const heldUrls: string[] = [];
   let importHeld!: () => void;
@@ -342,17 +339,7 @@ test("the execution debugger loads on first use: Play never fetches it, an isola
     // Held deliberately — released after the worker dies.
   });
   const cancelledAttached = await page.evaluate(
-    async ({
-      workerUrl,
-      game,
-      profile,
-      id,
-    }: {
-      workerUrl: string;
-      game: Game;
-      profile: ProfileId;
-      id: number;
-    }) => {
+    async ({ workerUrl, game, profile }: { workerUrl: string; game: Game; profile: ProfileId }) => {
       const w = new Worker(workerUrl, { type: "module" });
       const out: { type: string }[] = [];
       w.onmessage = (event) => out.push(event.data as { type: string });
@@ -363,12 +350,13 @@ test("the execution debugger loads on first use: Play never fetches it, an isola
         ),
         words: [],
         profile,
-        frozenTest: {
-          id,
-          sources: game.sources,
-          sourceBindings: game.sourceBindings,
-          bindings: game.bindings,
-        },
+      });
+      w.postMessage({
+        type: "debugAttach",
+        id: 1,
+        sources: game.sources,
+        sourceBindings: game.sourceBindings,
+        bindings: game.bindings,
       });
       // Terminate after the actual import request is held in flight.
       await (
@@ -378,7 +366,7 @@ test("the execution debugger loads on first use: Play never fetches it, an isola
       w.terminate();
       return attached;
     },
-    { workerUrl, game, profile: PROFILE, id: 92 },
+    { workerUrl, game, profile: PROFILE },
   );
   const heldCount = heldRoutes.length;
   for (const route of heldRoutes.splice(0)) await route.continue().catch(() => {});
@@ -390,9 +378,30 @@ test("the execution debugger loads on first use: Play never fetches it, an isola
     cancelledAttached,
     `a worker terminated mid-import completed no attach (held ${heldUrls.join(", ")})`,
   ).toBe(false);
-  const recovery = await runIsolatedTest(page, workerUrl, game);
-  expect(recovery.beforeBooted).toContain("debugAttached");
-  expect(recovery.evalAtEntry).toBe(0);
+  const recovery = await driveDebugger(page, workerUrl, game);
+  expect(recovery.order).toContain("debugAttached");
 
   expect(offOrigin, "provider or cross-origin requests").toEqual([]);
+});
+
+test("Create top actions without breakpoints never fetch the debugger @webkit-desktop", async ({
+  page,
+}) => {
+  const requests: string[] = [];
+  page.on("request", (request) => requests.push(request.url()));
+  await isolateStorage(page);
+  await page.goto("/#create-adventure");
+  await page.getByTestId("local-create-kind-starter").click();
+  await page.getByRole("button", { name: "Start building", exact: true }).click();
+  await waitForRoom(page, 1);
+  await page.getByTestId("part-room:1:logic").click();
+  await expect(page.getByTestId("workspace-logic-editor")).toBeVisible();
+  await page.getByTestId("workspace-update").click();
+  await page.getByTestId("workspace-update-menu").click();
+  await page.getByRole("menuitem", { name: "From the beginning", exact: true }).click();
+  await page.getByTestId("workspace-update").click();
+  const cycle = (await textHook(page)).cycle;
+  await expect.poll(async () => (await textHook(page)).cycle).toBeGreaterThan(cycle);
+  expect(requests.filter((url) => DEBUGGER_REQUEST.test(url))).toEqual([]);
+  expect(requests.filter((url) => /workspaceDebug\.ts/.test(url))).toEqual([]);
 });

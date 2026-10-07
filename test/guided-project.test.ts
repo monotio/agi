@@ -5,6 +5,7 @@ import { ProjectDraft } from "../src/authoring/projectDraft.ts";
 import { createStarterProject, type StarterKind } from "../src/authoring/starterProject.ts";
 import {
   prepareGuidedAddRoom,
+  prepareGuidedBoilerplate,
   prepareGuidedConnectDoor,
   prepareGuidedPlaceHero,
   prepareGuidedPlaySound,
@@ -20,6 +21,7 @@ import {
   type PreparedGuidedOperation,
 } from "../src/authoring/guidedProject.ts";
 import { parseWordsTok } from "../src/logic/words.ts";
+import { renameRoomTitle } from "../src/authoring/world.ts";
 
 /** A draft workspace over a real starter seed, with its authored sources claimed. */
 function workspace(kind: StarterKind = "starter") {
@@ -87,16 +89,15 @@ describe("guided add room", () => {
     const room = op.changes.find((c) => c.key === "logic:1")!.content as string;
     assert.equal(
       room,
-      `// Moonlit Hall — an empty room. The f5 block runs once on room entry: draw
+      `// Moonlit Hall — an empty room. The new_room block runs once on room entry: draw
 // the picture.
-if (isset(f5)) {
+if (isset(new_room)) {
   assignn(pic_num, 1);
   load.pic(pic_num);
   draw.pic(pic_num);
   show.pic();
   accept.input();
 }
-return;
 `,
     );
     const pic = op.changes.find((c) => c.key === "picture:1")!.content as string;
@@ -113,7 +114,7 @@ return;
 
     const tx = op.apply();
     assert.equal(tx.keys.length, 4);
-    assert.match(docText(draft, "logic:1"), /isset\(f5\)/);
+    assert.match(docText(draft, "logic:1"), /isset\(new_room\)/);
     draft.undo(tx.id);
     assert.equal(draft.capture().read("logic:1"), undefined, "undo removes the room");
   });
@@ -169,11 +170,11 @@ return;
   test("places a supplied existing view as the hero with a runnable entry", () => {
     const { ctx } = workspace("starter");
     const op = mustPrepare(
-      prepareGuidedAddRoom(ctx, { heroView: "ego_view", spawn: { x: 76, y: 110 } }),
+      prepareGuidedAddRoom(ctx, { heroView: "hero_view", spawn: { x: 76, y: 110 } }),
     );
     const room = op.changes.find((c) => c.key === "logic:2")!.content as string;
     assert.match(room, /animate\.obj\(o0\);/);
-    assert.match(room, /load\.view\(ego_view\);\n {2}set\.view\(o0, ego_view\);/);
+    assert.match(room, /load\.view\(hero_view\);\n {2}set\.view\(o0, hero_view\);/);
     assert.match(room, /position\(o0, 76, 110\);\n {2}draw\(o0\);\n {2}player\.control\(\);/);
     assert.match(room, /set\.horizon\(36\);/);
   });
@@ -346,8 +347,8 @@ describe("guided place hero", () => {
     assert.equal(
       after,
       before
-        .replace("load.view(ego_view)", "load.view(0)")
-        .replace("set.view(o0, ego_view)", "set.view(o0, 0)"),
+        .replace("load.view(hero_view)", "load.view(0)")
+        .replace("set.view(o0, hero_view)", "set.view(o0, 0)"),
       "only the view references change",
     );
   });
@@ -409,10 +410,7 @@ describe("guided respond to command", () => {
     assert.ok(op.affectedKeys.includes("logic:1"));
     assert.ok(op.affectedKeys.includes("words"));
     const room = op.changes.find((c) => c.key === "logic:1")!.content as string;
-    assert.match(
-      room,
-      /if \(said\("wave"\)\) \{\n {2}print\("You wave politely\."\);\n\}\nreturn;/,
-    );
+    assert.match(room, /if \(said\("wave"\)\) \{\n {2}print\("You wave politely\."\);\n\}\n$/);
     const words = JSON.parse(op.changes.find((c) => c.key === "words")!.content as string);
     const wave = words.find((e: [string, number]) => e[0] === "wave");
     assert.ok(wave, "wave is registered");
@@ -506,7 +504,7 @@ describe("guided respond to command", () => {
     op.apply();
     const room = docText(draft, "logic:1");
     assert.match(room, /if \(said\("look"\)\) \{ print\("You stand/);
-    assert.match(room, /if \(said\("look", "north"\)\) \{\n {2}print\("Trees\."\);\n\}\nreturn;/);
+    assert.match(room, /if \(said\("look", "north"\)\) \{\n {2}print\("Trees\."\);\n\}\n$/);
   });
 
   test("refuses a command an existing wildcard or rest-of-line handler consumes", () => {
@@ -564,7 +562,7 @@ describe("guided respond to command", () => {
 describe("guided connect door", () => {
   function twoRooms() {
     const ws = workspace("starter");
-    mustPrepare(prepareGuidedAddRoom(ws.ctx, { heroView: "ego_view" })).apply();
+    mustPrepare(prepareGuidedAddRoom(ws.ctx, { heroView: "hero_view" })).apply();
     return ws;
   }
 
@@ -585,24 +583,25 @@ describe("guided connect door", () => {
     const room1 = op.changes.find((c) => c.key === "logic:1")!.content as string;
     assert.match(
       room1,
-      /\/\/ @rule door-2 "To room 2" exit\nif \(posn\(o0, 70, 150, 90, 167\)\) \{\n {2}new\.room\(2\);\n\}\n\/\/ @end\nreturn;/,
+      /\/\/ @rule door-2 "To room 2" exit\nif \(posn\(o0, 70, 150, 90, 167\)\) \{\n {2}new\.room\(2\);\n\}\n\/\/ @end\n$/,
     );
     const room2 = op.changes.find((c) => c.key === "logic:2")!.content as string;
     assert.match(
       room2,
-      /\/\/ @rule door-1 "To room 1" exit\nif \(posn\(o0, 90, 150, 110, 167\)\) \{\n {2}new\.room\(1\);\n\}\n\/\/ @end\nreturn;/,
+      /\/\/ @rule door-1 "To room 1" exit\nif \(posn\(o0, 90, 150, 110, 167\)\) \{\n {2}new\.room\(1\);\n\}\n\/\/ @end\n$/,
     );
     assert.match(
       room2,
-      /if \(equaln\(v1, 1\)\) \{\n {4}position\(o0, 100, 140\);\n {4}assignn\(v6, 0\);\n {2}\}/,
+      /if \(equaln\(prev_room, 1\)\) \{\n {4}position\(o0, 100, 140\);\n {4}assignn\(ego_direction, 0\);\n {2}\}/,
     );
     // The reciprocal landing drops ego at room 1's own spawn (80,140) and
     // stops carried direction so the forward doorway cannot retrigger.
     assert.match(
       room1,
-      /if \(equaln\(v1, 2\)\) \{\n {4}position\(o0, 80, 140\);\n {4}assignn\(v6, 0\);\n {2}\}/,
+      /if \(equaln\(prev_room, 2\)\) \{\n {4}position\(o0, 80, 140\);\n {4}assignn\(ego_direction, 0\);\n {2}\}/,
     );
     const world = JSON.parse(op.changes.find((c) => c.key === "world")!.content as string);
+    assert.equal(world.rooms["1"].title, "Meadow");
     assert.equal(world.rooms["1"].exits["door-2"], 2);
     assert.equal(world.rooms["2"].exits["door-1"], 1);
     op.apply();
@@ -695,10 +694,7 @@ describe("guided connect door", () => {
 
   test("refuses a room whose rule annotations are already broken", () => {
     const { ctx, draft } = twoRooms();
-    const broken = docText(draft, "logic:1").replace(
-      "return;",
-      '// @rule stray "Stray" exit\nreturn;',
-    );
+    const broken = docText(draft, "logic:1") + '// @rule stray "Stray" exit\n';
     draft.edit("logic:1", broken, draft.capture().version("logic:1"));
     const op = prepareGuidedConnectDoor(ctx, {
       room: 1,
@@ -710,6 +706,76 @@ describe("guided connect door", () => {
       assert.equal(op.code, "custom-code");
       assert.match(op.message, /no @end/);
     }
+  });
+});
+
+describe("world metadata keeps the names the creator gave", () => {
+  test("a door never resets the title or description of either room", () => {
+    const { ctx, draft } = workspace("starter");
+    mustPrepare(prepareGuidedAddRoom(ctx, { heroView: "hero_view" })).apply();
+    // The creator renamed the new room and wrote a description for room 1.
+    const before = draft.capture();
+    const world = JSON.parse(before.read("world")!.content as string);
+    world.rooms["1"] = {
+      title: "Meadow",
+      description: "Where the path begins.",
+      exits: world.rooms["1"]?.exits ?? {},
+    };
+    world.rooms["2"] = { ...world.rooms["2"], title: "Forest", description: "Dense pines." };
+    draft.edit("world", JSON.stringify(world), before.version("world"));
+    const op = mustPrepare(
+      prepareGuidedConnectDoor(ctx, {
+        room: 1,
+        destination: 2,
+        box: { x1: 70, y1: 150, x2: 90, y2: 167 },
+      }),
+    );
+    const changed = JSON.parse(op.changes.find((c) => c.key === "world")!.content as string);
+    assert.equal(changed.rooms["1"].title, "Meadow");
+    assert.equal(changed.rooms["1"].description, "Where the path begins.");
+    assert.equal(changed.rooms["2"].title, "Forest", "the door keeps the room's own name");
+    assert.equal(changed.rooms["2"].description, "Dense pines.");
+    assert.equal(changed.rooms["1"].exits["door-2"], 2);
+  });
+
+  test("add a room keeps exits and descriptions the world already planned", () => {
+    const { ctx, draft } = workspace("starter");
+    const before = draft.capture();
+    const world = JSON.parse(
+      (before.read("world")?.content as string | undefined) ??
+        '{"rooms":{},"facts":{},"quests":{}}',
+    );
+    world.rooms["1"] = { title: "Meadow", description: "", exits: {} };
+    world.rooms["2"] = {
+      title: "Planned annex",
+      description: "Reached from the meadow.",
+      exits: { "door-1": 1 },
+    };
+    draft.edit("world", JSON.stringify(world), before.version("world"));
+    const op = mustPrepare(prepareGuidedAddRoom(ctx, {}));
+    const changed = JSON.parse(op.changes.find((c) => c.key === "world")!.content as string);
+    assert.deepEqual(changed.rooms["2"].exits, { "door-1": 1 }, "planned exits survive");
+    assert.equal(changed.rooms["1"].title, "Meadow", "the first room's name is untouched");
+  });
+
+  test("renaming a room keeps its exits, description, facts and quests", () => {
+    const world = {
+      rooms: {
+        "1": {
+          title: "Room 1",
+          description: "Where the path begins.",
+          exits: { "door-2": 2 },
+        },
+      },
+      facts: { intro: "Seen the sign." },
+      quests: { main: { description: "Leave the meadow", requires: [] } },
+    };
+    const renamed = renameRoomTitle(world, 1, "Meadow");
+    assert.deepEqual(renamed, {
+      ...world,
+      rooms: { "1": { ...world.rooms["1"], title: "Meadow" } },
+    });
+    assert.equal(world.rooms["1"]!.title, "Room 1", "the input world is not mutated");
   });
 });
 
@@ -740,7 +806,7 @@ describe("guided play sound", () => {
     );
     assert.match(
       room,
-      /if \(isset\(cue_done\)\) \{\n {2}print\("The tune fades\."\);\n {2}reset\(cue_done\);\n\}\nreturn;/,
+      /if \(isset\(cue_done\)\) \{\n {2}print\("The tune fades\."\);\n {2}reset\(cue_done\);\n\}\n$/,
     );
     const bindings = JSON.parse(op.changes.find((c) => c.key === "bindings")!.content as string);
     assert.equal(bindings.cue_done.kind, "flag");
@@ -895,6 +961,11 @@ return;
   test("refuses interpreter-owned flags as cue state", () => {
     const { ctx, draft } = workspace("starter");
     bindNames(draft, { newroom_flag: { kind: "flag", num: 5 } });
+    draft.edit(
+      "logic:1",
+      docText(draft, "logic:1").replace("isset(new_room)", "isset(newroom_flag)"),
+      draft.capture().version("logic:1"),
+    );
     mustPrepare(
       prepareGuidedRespondToCommand(ctx, {
         room: 1,
@@ -1027,4 +1098,44 @@ test("guided state allocation tolerates inherited action and condition names in 
       });
       assert.ok(result.ok, result.ok === false ? result.message : "");
     }
+});
+
+test("an unnamed room follows its number and room allocation includes 255", () => {
+  const { ctx, draft } = workspace("blank");
+  const unnamed = mustPrepare(prepareGuidedAddRoom(ctx, { title: "" }));
+  const world = JSON.parse(
+    unnamed.changes.find((change) => change.key === "world")!.content as string,
+  );
+  assert.equal(world.rooms["1"].title, "Room 1");
+  assert.equal(world.rooms["1"].titleIsDefault, true);
+  const capture = draft.capture();
+  for (let number = 1; number < 255; number++) {
+    draft.edit(`logic:${number}`, "return;", capture.version(`logic:${number}`));
+    draft.edit(`picture:${number}`, "end", capture.version(`picture:${number}`));
+  }
+  const last = mustPrepare(prepareGuidedAddRoom(ctx, { title: "Last room" }));
+  assert.ok(last.affectedKeys.includes("logic:255"));
+  assert.ok(last.affectedKeys.includes("picture:255"));
+});
+
+test("ready parts use the lowest free number after world reservations", () => {
+  const { ctx, draft } = workspace("blank");
+  const capture = draft.capture();
+  const world = {
+    rooms: { "1": { title: "Planned room", description: "", exits: {} } },
+    facts: {},
+    quests: {},
+  };
+  draft.edit("world", JSON.stringify(world), capture.version("world"));
+  const score = mustPrepare(prepareGuidedBoilerplate(ctx, { part: "score" }));
+  assert.ok(score.affectedKeys.includes("logic:2"));
+  assert.ok(!score.affectedKeys.includes("logic:255"));
+});
+
+test("guided room sources follow a creator's reserved-slot name", () => {
+  const { ctx, draft } = workspace("blank");
+  bindNames(draft, { entered: { kind: "flag", num: 5 } });
+  const operation = mustPrepare(prepareGuidedAddRoom(ctx, { title: "Hall" }));
+  const source = operation.changes.find((change) => change.key === "logic:1")!.content as string;
+  assert.match(source, /isset\(entered\)/);
 });

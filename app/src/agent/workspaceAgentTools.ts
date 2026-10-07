@@ -1,6 +1,6 @@
 /** Shared catalog without provider or browser dependencies. */
 import { AGENT_TOOLS, type ToolDefinition } from "../../../src/agent/tools.ts";
-import { STUDIO_ASSIST_TOOL_NAMES } from "../../../src/agent/studioAssistTools.ts";
+import { NAMING_TOOL } from "../../../src/agent/namingTools.ts";
 import { parameterDescriptions, toolDescription } from "../../../src/vocabulary.ts";
 import { PROJECT_ASSIST_TOOLS } from "./projectAssistTools.ts";
 
@@ -81,7 +81,7 @@ const IMAGE_TOOLS: readonly ToolDefinition[] = [
 export const WORKSPACE_AGENT_TOOLS: readonly ToolDefinition[] = [
   ...AGENT_TOOLS.filter(
     (tool) =>
-      !STUDIO_ASSIST_TOOL_NAMES.includes(tool.name) &&
+      !(["withdraw_selection"] as readonly string[]).includes(tool.name) &&
       !PROJECT_ASSIST_TOOLS.some((other) => other.name === tool.name),
   ),
   ...PROJECT_ASSIST_TOOLS.map((tool) =>
@@ -95,6 +95,7 @@ export const WORKSPACE_AGENT_TOOLS: readonly ToolDefinition[] = [
         }
       : tool,
   ),
+  NAMING_TOOL,
   NOTES_TOOL,
   ...IMAGE_TOOLS,
 ];

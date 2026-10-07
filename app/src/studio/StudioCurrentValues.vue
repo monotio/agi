@@ -13,10 +13,12 @@ import { DEFAULT_BAND, type CurrentValues } from "./studioTools.ts";
 import { CONTROL_VALUES, patternOn, priorityMeaning, type StudioLens } from "./studioView.ts";
 
 /**
- * The tool rail's Art and Depth swatches set new drawing values, or recolour
- * the selection in its current lens. Each swatch opens its picker. A plane the lens
- * locks says so, with Unlock for now; the Walk lens picks among the four walk
- * lines, the Depth lens can match the band under the cursor. The picker opens to the
+ * The tool rail's Visual and Priority swatches set new drawing values, or
+ * recolour the selection in its current lens. Each swatch opens its picker. A
+ * plane the lens locks says so, with Unlock for now. The Priority picker
+ * offers the band under the cursor, the four control lines (wall, gate,
+ * trigger, water) and the distance bands 4–15.
+ * The picker opens to the
  * rail's left, over the Scene list and away from the picture, when that
  * column has room for it (focus mode hides it: then it opens to the right).
  */
@@ -62,23 +64,21 @@ function unlock(plane: "visual" | "priority"): void {
   emit("unlocks", { ...unlocks, [plane]: true });
   open.value = undefined;
 }
-/** The Walk lens offers its four control lines. */
-const controlsOnly = computed(() => lens === "walk");
 
 const band = computed(() => (cursorY === undefined ? DEFAULT_BAND : priorityForY(cursorY)));
 const priorityShown = computed(() => (values.priority === "band" ? band.value : values.priority));
 const visualText = computed(() =>
   values.visual === undefined
-    ? "Art: mixed"
+    ? "Visual: mixed"
     : values.visual === null
-      ? "Art off"
-      : `Art ${values.visual}, ${EGA_COLOUR_NAMES[values.visual]}`,
+      ? "Visual off"
+      : `Visual ${values.visual}, ${EGA_COLOUR_NAMES[values.visual]}`,
 );
 const priorityText = computed(() => {
   const value = priorityShown.value;
-  if (value === undefined) return "Depth: mixed";
-  if (value === null) return `${VOCABULARY.drawingDepth.label}: ${VOCABULARY.none.label}`;
-  const meaning = `Depth ${value}, ${priorityMeaning(value)}`;
+  if (value === undefined) return "Priority: mixed";
+  if (value === null) return `Priority: ${VOCABULARY.none.label}`;
+  const meaning = `Priority ${value}, ${priorityMeaning(value)}`;
   return values.priority === "band" ? `${meaning} (the band under the cursor)` : meaning;
 });
 
@@ -128,7 +128,7 @@ function pick(patch: Partial<CurrentValues>): void {
     >
       <span v-if="values.visual == null">{{ values.visual === undefined ? "mix" : "off" }}</span>
     </button>
-    <span class="values__name" aria-hidden="true">Art</span>
+    <span class="values__name" aria-hidden="true">Visual</span>
     <button
       type="button"
       class="values__swatch values__swatch--priority"
@@ -147,10 +147,10 @@ function pick(patch: Partial<CurrentValues>): void {
     <span class="values__name"
       ><UiExplain
         term="drawing-depth"
-        :name="VOCABULARY.drawingDepth.label"
+        name="Priority"
         :says="VOCABULARY.drawingDepth.help"
         :technical="VOCABULARY.drawingDepth.technical"
-        >{{ VOCABULARY.drawingDepth.label }}</UiExplain
+        >Priority</UiExplain
       ></span
     >
 
@@ -160,9 +160,9 @@ function pick(patch: Partial<CurrentValues>): void {
       :class="{ 'is-left': side.left }"
       :style="{ width: `${side.width}px` }"
       role="dialog"
-      :aria-label="`${open === 'visual' ? 'Art' : 'Depth'} for ${target}`"
+      :aria-label="`${open === 'visual' ? 'Visual' : 'Priority'} for ${target}`"
     >
-      <p class="values__title">{{ open === "visual" ? "Art" : "Depth" }} for {{ target }}</p>
+      <p class="values__title">{{ open === "visual" ? "Visual" : "Priority" }} for {{ target }}</p>
       <template v-if="locked.includes(open)">
         <p class="values__note">{{ lockNote(open) }}</p>
         <UiButton size="sm" @click="unlock(open)">Unlock</UiButton>
@@ -170,13 +170,33 @@ function pick(patch: Partial<CurrentValues>): void {
       <template v-else-if="open === 'visual'">
         <StudioValuePicker
           plane="visual"
-          :label="`Art for ${target}`"
+          :label="`Visual for ${target}`"
           :value="values.visual"
           @pick="pick({ visual: $event })"
         />
       </template>
-      <template v-else-if="controlsOnly">
-        <div class="values__controls" role="radiogroup" :aria-label="`Walk line for ${target}`">
+      <template v-else>
+        <span v-if="lens === 'depth' && paletteAction === 'draw'" class="values__with">
+          <button
+            type="button"
+            role="radio"
+            class="values__control"
+            :aria-checked="values.priority === 'band'"
+            data-value="band"
+            @click="pick({ priority: 'band' })"
+          >
+            <span>Match the band here · {{ band }}</span>
+          </button>
+          <UiExplain v-bind="explain('bands')" />
+        </span>
+        <p class="values__note values__with">
+          Walls, water, triggers, gates <UiExplain v-bind="explain('walk-lines')" />
+        </p>
+        <div
+          class="values__controls"
+          role="radiogroup"
+          :aria-label="`Wall, gate, trigger or water for ${target}`"
+        >
           <button
             v-for="control in CONTROL_VALUES"
             :key="control.value"
@@ -205,28 +225,10 @@ function pick(patch: Partial<CurrentValues>): void {
             <span>{{ control.value }} · {{ control.name }}</span>
           </button>
         </div>
-        <p class="values__note values__with">
-          Wall / Gate / Trigger / Water <UiExplain v-bind="explain('walk-lines')" />
-        </p>
-      </template>
-      <template v-else>
-        <span v-if="lens === 'depth' && paletteAction === 'draw'" class="values__with">
-          <button
-            type="button"
-            role="radio"
-            class="values__control"
-            :aria-checked="values.priority === 'band'"
-            data-value="band"
-            @click="pick({ priority: 'band' })"
-          >
-            <span>Match the band here · {{ band }}</span>
-          </button>
-          <UiExplain v-bind="explain('bands')" />
-        </span>
         <StudioValuePicker
           plane="priority"
-          :label="`Depth for ${target}`"
-          :minimum="lens === 'depth' ? 4 : 0"
+          :label="`Priority for ${target}`"
+          :minimum="4"
           :value="values.priority === 'band' ? undefined : values.priority"
           @pick="pick({ priority: $event })"
         />

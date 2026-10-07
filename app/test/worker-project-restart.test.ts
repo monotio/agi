@@ -63,6 +63,7 @@ async function fixture(name: string, overrides: Record<string, string> = {}, opa
     words: [["look", 10]],
     profile: "2.936",
     projectMode: "create",
+    progressMode: "play",
     autosaveFiles: true,
     projectDocuments: writeProjectWorkspace(documents),
   });
@@ -178,7 +179,7 @@ for (const restart of [false, true]) {
       'if (isset(f5)) { load.pic(0); draw.pic(0); show.pic(); accept.input(); } if (said("look")) { print("Old room"); } return;';
     const f = await fixture(`opaque-view-${restart}`, { "logic:0": source }, true);
     try {
-      const old = f.ctx.engine!;
+      const old = f.ctx.run.engine!;
       assert.equal(old.getPictureSurface().visual[161], 1);
       const changed = source.replace("Old room", "Changed room");
       const result = await f.session.submit({
@@ -201,21 +202,21 @@ for (const restart of [false, true]) {
       );
       if (restart) {
         assert.equal((await f.session.restartWithChanges())?.status, "committed");
-        assert.notEqual(f.ctx.engine, old);
+        assert.notEqual(f.ctx.run.engine, old);
         f.ctx.fns.stopTimers();
         f.tick();
         f.tick();
-      } else assert.equal(f.ctx.engine, old);
+      } else assert.equal(f.ctx.run.engine, old);
       onWorkerMessage(f.ctx, { type: "input", text: "look" });
       f.tick();
       f.tick();
       assert.ok(
-        decodeTextRows(f.ctx.engine!.getPresentation().text).some((row) =>
+        decodeTextRows(f.ctx.run.engine!.getPresentation().text).some((row) =>
           row.includes("Changed room"),
         ),
       );
       assert.deepEqual(
-        openContainer(f.ctx.engine!.containerFiles).getResource("view", 255),
+        openContainer(f.ctx.run.engine!.containerFiles).getResource("view", 255),
         new Uint8Array([0xff]),
       );
     } finally {
@@ -228,7 +229,7 @@ for (const restart of [false, true]) {
 test("OBJECT removal is saved in History while the old run continues; acknowledged restart uses the complete candidate and a fresh token", async () => {
   const f = await fixture("restart-inventory");
   try {
-    const old = f.ctx.engine!;
+    const old = f.ctx.run.engine!;
     const token = f.session.runToken;
     onWorkerMessage(f.ctx, { type: "input", text: "look" });
     f.tick();
@@ -241,7 +242,7 @@ test("OBJECT removal is saved in History while the old run continues; acknowledg
       '[{"name":"key","startingRoom":1}]',
     );
     assert.equal(f.session.history.capture().commits.length, 2);
-    assert.equal(f.ctx.engine, old);
+    assert.equal(f.ctx.run.engine, old);
     assert.equal(old.itemLocation(1), 2);
     assert.equal(f.session.pendingRestart?.action, "restart");
     assert.match(f.session.pendingRestart!.reason, /OBJECT/);
@@ -253,14 +254,14 @@ test("OBJECT removal is saved in History while the old run continues; acknowledg
     assert.deepEqual(f.published, ["restartRequired"]);
     f.loseAck();
     assert.equal((await f.session.restartWithChanges())?.status, "committed");
-    assert.notEqual(f.ctx.engine, old);
+    assert.notEqual(f.ctx.run.engine, old);
     assert.notEqual(f.session.runToken, token);
-    assert.equal(f.session.runToken, f.ctx.projectAdmission!.runToken);
+    assert.equal(f.session.runToken, f.ctx.run.projectAdmission!.runToken);
     assert.equal(f.session.pendingRestart, null);
-    assert.equal(f.ctx.engine!.vars[80], 0);
-    assert.equal(f.ctx.engine!.itemLocation(1), 0);
-    f.ctx.engine!.tick();
-    assert.equal(f.ctx.engine!.getPictureSurface().visual[161], 1);
+    assert.equal(f.ctx.run.engine!.vars[80], 0);
+    assert.equal(f.ctx.run.engine!.itemLocation(1), 0);
+    f.ctx.run.engine!.tick();
+    assert.equal(f.ctx.run.engine!.getPictureSurface().visual[161], 1);
     assert.equal(f.session.history.capture().commits.length, 2);
     assert.ok(
       f.messages.some(
@@ -283,13 +284,32 @@ test("OBJECT removal is saved in History while the old run continues; acknowledg
     const replay = replayHistorySegment(segment);
     assert.equal(replay.error, null);
     assert.equal(replay.diverged, null);
-    assert.equal(replay.ctx.engine!.vars[80], 42);
-    assert.equal(replay.ctx.engine!.itemLocation(1), 2);
+    assert.equal(replay.ctx.run.engine!.vars[80], 42);
+    assert.equal(replay.ctx.run.engine!.itemLocation(1), 2);
     assert.notDeepEqual(
-      Object.fromEntries(replay.ctx.engine!.containerFiles),
-      Object.fromEntries(f.ctx.engine!.containerFiles),
+      Object.fromEntries(replay.ctx.run.engine!.containerFiles),
+      Object.fromEntries(f.ctx.run.engine!.containerFiles),
     );
     assert.equal((await f.edit("picture:0", "vis 4\nfill 1,1\nend\n")).status, "committed");
+  } finally {
+    f.session.dispose();
+    f.ctx.fns.stopTimers();
+  }
+});
+
+test("project restart prepares its candidate without calling the live host", async () => {
+  const f = await fixture("restart-host-boundary");
+  try {
+    await f.edit("inventory", "[]");
+    const old = f.ctx.run.engine;
+    const observed: boolean[] = [];
+    f.ctx.host.soundDevice = () => {
+      observed.push(f.ctx.run.engine === old);
+      return 1;
+    };
+    assert.equal((await f.session.restartWithChanges())?.status, "committed");
+    assert.notEqual(f.ctx.run.engine, old);
+    assert.equal(observed.includes(true), false, "candidate preparation reached the live host");
   } finally {
     f.session.dispose();
     f.ctx.fns.stopTimers();
@@ -301,13 +321,13 @@ test("a forged restart refuses before Engine replacement, History changes or sto
   try {
     await f.edit("inventory", "[]");
     await f.session.flush();
-    const old = f.ctx.engine!;
+    const old = f.ctx.run.engine!;
     const token = f.session.runToken;
     const writes = f.writes.length;
     f.tamper();
     assert.equal((await f.session.restartWithChanges())?.status, "refused");
     await f.session.flush();
-    assert.equal(f.ctx.engine, old);
+    assert.equal(f.ctx.run.engine, old);
     assert.equal(f.session.runToken, token);
     assert.equal(f.writes.length, writes);
     assert.equal(f.session.history.capture().commits.length, 2);
@@ -324,10 +344,10 @@ test("restart recompiles current documents before replacing the run; invalid sou
     await f.edit("inventory", "[]");
     await f.edit("logic:0", "if (");
     await f.session.flush();
-    const old = f.ctx.engine!;
+    const old = f.ctx.run.engine!;
     const writes = f.writes.length;
     assert.equal((await f.session.restartWithChanges())?.status, "diagnostics");
-    assert.equal(f.ctx.engine, old);
+    assert.equal(f.ctx.run.engine, old);
     assert.equal(f.writes.length, writes);
     assert.ok(f.session.pendingRestart);
   } finally {
@@ -344,7 +364,7 @@ test("session offers room re-entry for a loaded VIEW layout, keeps its token and
     "view:0": JSON.stringify({ loops: [{ cels: [cel] }] }),
   });
   try {
-    const old = f.ctx.engine!;
+    const old = f.ctx.run.engine!;
     const token = f.session.runToken;
     old.vars[80] = 77;
     old.flags[80] = 1;
@@ -355,14 +375,21 @@ test("session offers room re-entry for a loaded VIEW layout, keeps its token and
     assert.equal(result.status, "restartRequired");
     assert.equal(f.session.capture().pendingRestart?.action, "reenter");
     assert.equal((await f.session.reenterRoom())?.status, "committed");
-    assert.equal(f.ctx.engine, old);
+    assert.equal(f.ctx.run.engine, old);
     assert.equal(f.session.runToken, token);
     assert.equal(f.session.pendingRestart, null);
     assert.equal(old.vars[80], 77);
     assert.equal(old.flags[80], 1);
     assert.equal(old.itemLocation(1), 2);
-    old.tick();
+    f.tick();
+    f.tick();
     assert.equal(old.getPresentation().visual[100 * 160 + 40], 4);
+    for (const message of f.messages.filter((m) => m.type === "historyBatch"))
+      onWorkerMessage(f.ctx, {
+        type: "historyAck",
+        epoch: message.epoch,
+        batch: message.batch.batch,
+      });
     const recorded = f.messages
       .filter((m) => m.type === "historyBatch")
       .findLast((m) => m.batch.boot)?.batch.boot;
@@ -405,7 +432,7 @@ test("the session keeps the pending notice and running token until replacement a
     held = f.holdAck();
     const restart = f.session.restartWithChanges();
     await held.reached;
-    assert.notEqual(f.ctx.projectAdmission!.runToken, token);
+    assert.notEqual(f.ctx.run.projectAdmission!.runToken, token);
     assert.equal(f.session.runToken, token);
     assert.ok(f.session.pendingRestart);
     assert.deepEqual(f.published, ["restartRequired"]);
@@ -421,17 +448,20 @@ test("the session keeps the pending notice and running token until replacement a
   }
 });
 
-test("worker progress autosave leaves a saved pending candidate to the session after a prior live edit", async () => {
+test("Create keeps progress temporary and Play autosave leaves the saved pending candidate to the session", async () => {
   const f = await fixture("restart-autosave-owner");
   try {
+    onWorkerMessage(f.ctx, { type: "projectCreate", id: 900 });
     assert.equal((await f.edit("picture:0", "vis 4\nfill 1,1\nend\n")).status, "committed");
     await f.edit("inventory", '[{"name":"key","startingRoom":1}]');
     await f.session.flush();
+    assert.equal(f.ctx.fns.autosave(true), false, "Create progress stays temporary");
+    onWorkerMessage(f.ctx, { type: "projectPlay" });
     assert.equal(f.ctx.fns.autosave(true), true);
     const progress = f.presentations.findLast((m) => m.type === "autosave");
     assert.ok(progress?.type === "autosave");
     assert.equal(progress.files, undefined);
-    assert.equal(f.ctx.engine!.itemLocation(1), 2);
+    assert.equal(f.ctx.run.engine!.itemLocation(1), 2);
     assert.equal(
       readProjectWorkspace(f.writes.at(-1)!.data.workspace)["inventory"],
       '[{"name":"key","startingRoom":1}]',
@@ -447,18 +477,18 @@ test("acknowledged project restart ends Playtest recording and starts a fresh hi
   const f = await fixture("restart-recording");
   try {
     onWorkerMessage(f.ctx, { type: "startRecording", id: 900 });
-    assert.ok(f.ctx.recording.recording);
+    assert.ok(f.ctx.run.recording.recording);
     const oldSegment = f.ctx.history.segment;
     await f.edit("inventory", "[]");
-    assert.ok(f.ctx.recording.recording, "a pending candidate keeps recording the old run");
+    assert.ok(f.ctx.run.recording.recording, "a pending candidate keeps recording the old run");
     assert.equal((await f.session.restartWithChanges())?.status, "committed");
     f.ctx.fns.stopTimers();
-    assert.equal(f.ctx.recording.recording, null);
+    assert.equal(f.ctx.run.recording.recording, null);
     assert.ok(f.messages.some((m) => m.type === "recordingReset"));
     f.tick();
     assert.notEqual(f.ctx.history.segment, oldSegment);
     onWorkerMessage(f.ctx, { type: "startRecording", id: 901 });
-    assert.ok(f.ctx.recording.recording, "the replacement run can start a new Playtest");
+    assert.ok(f.ctx.run.recording.recording, "the replacement run can start a new Playtest");
   } finally {
     f.session.dispose();
     f.ctx.fns.stopTimers();

@@ -27,7 +27,7 @@ test("raw operand hover includes local aliases, while rename edits only the sele
     "#define scratch 0\nscratch = v0; if (v0 == 0) { increment(scratch); }\nassignn(v1, scratch); return;";
   const language = createLogicLanguageSnapshot({ source, ...context });
   assert.equal(language.referencesAt(source.indexOf("v0")).length, 5);
-  assert.match(language.hoverAt(source.indexOf("v0"))?.text ?? "", /Variable 0 \(scratch\)/);
+  assert.match(language.hoverAt(source.indexOf("v0"))?.text ?? "", /scratch · Variable 0/);
   assert.equal(language.renameAt(source.indexOf("scratch ="), "picture").length, 4);
 });
 

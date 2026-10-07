@@ -58,10 +58,10 @@ test.describe("Walkthrough UI", () => {
     // Open ActionMenu next to Play for KQ1
     await openCardMenu(page, "game-actions-kq1");
 
-    // Verify "Run walkthrough" item is visible
+    // Verify the walkthrough item is visible
     const runBtn = page.getByTestId("run-walkthrough");
     await expect(runBtn).toBeVisible();
-    await expect(runBtn).toContainText("Run walkthrough");
+    await expect(runBtn).toContainText("Watch walkthrough");
     await runBtn.click();
 
     // Verify walkthrough HUD bar and bottom transport bar appear
@@ -192,8 +192,13 @@ test.describe("Walkthrough UI", () => {
 
     // While paused, verify virtual ticks do not advance
     await expect
-      .poll(() => page.evaluate(() => window.__AGI_STATE__?.walkthrough.status))
-      .toBe("paused");
+      .poll(() =>
+        page.evaluate(() => {
+          const walkthrough = window.__AGI_STATE__?.walkthrough;
+          return [walkthrough?.status, walkthrough?.pausePending];
+        }),
+      )
+      .toEqual(["paused", false]);
     const tickPaused = await page.evaluate(() => window.__AGI_REPLAY__?.latest?.tick ?? 0);
     await page.clock.runFor(500);
     const tickStillPaused = await page.evaluate(() => window.__AGI_REPLAY__?.latest?.tick ?? 0);

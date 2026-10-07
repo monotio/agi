@@ -79,17 +79,14 @@
 .in-game .shell-body--fold-right {
   --dock-right: 56px;
 }
-/* Room Studio takes the whole workspace while the live stage and the docks
-   wait hidden, still mounted, so closing it restores them as they were. The
+/* Focus gives the editor the whole workspace while the live stage and the
+   docks wait hidden, still mounted, so Done restores them as they were. The
    page holds still at the screen's height, touch layouts included; App.vue
    hides what sits below the fold. */
-.in-game .shell-body--studio {
-  grid-template-columns: minmax(0, 1fr);
-}
-.app-container.in-game.studio-open .shell {
+.app-container.in-game.workspace-focus .shell {
   height: var(--layout-height, 100dvh);
 }
-:root:has(.app-container.studio-open) {
+:root:has(.app-container.workspace-focus) {
   overflow: hidden;
 }
 .shell-center {
@@ -99,7 +96,7 @@
 .shell-side {
   display: none;
 }
-.in-game :is(.shell-body--asking, .shell-body--create) .shell-side {
+.in-game .shell-body--asking .shell-side {
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -158,21 +155,6 @@
   .in-game .shell-body--create {
     overflow-y: auto;
   }
-  /* Stacked, each dock is as tall as its panel and the body scrolls. */
-  .in-game .shell-body--create :is(.shell-dock--left, .shell-side) {
-    min-height: auto;
-  }
-  .in-game .shell-body--create .shell-dock--left {
-    order: 2;
-    border-right: 0;
-  }
-  .in-game .shell-body--create :is(.play-area, .shell-center) {
-    min-height: 60vh;
-  }
-  .in-game .shell-body--create .shell-side {
-    order: 3;
-    border-left: 0;
-  }
   .in-game .shell-body.assistant-open .shell-side {
     position: fixed;
     top: var(--shell-bar-h);
@@ -193,28 +175,6 @@
 .in-game.touch-layout .shell {
   height: auto;
   min-height: var(--layout-height, 100dvh);
-}
-/*
- * A phone's Create: World, Assistant and Inspect share one bottom sheet. It
- * peeks as its tab strip over the page's end and opens to half the screen;
- * the page leaves room so the peek never hides the game's own controls.
- */
-.in-game .shell-body--sheet {
-  padding-bottom: calc(var(--control-h-touch) + var(--space-5));
-}
-.in-game .shell-body.shell-body--sheet .shell-side.shell-side--sheet {
-  position: fixed;
-  top: auto;
-  right: 0;
-  bottom: 0;
-  left: 0;
-  width: auto;
-  z-index: var(--z-dock);
-  max-height: 60dvh;
-  border-top: 1px solid var(--hairline-strong);
-  border-left: 0;
-  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
-  box-shadow: var(--shadow-dialog);
 }
 .play-area {
   display: flex;

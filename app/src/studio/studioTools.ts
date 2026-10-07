@@ -15,7 +15,7 @@ import {
 } from "../../../src/studio/pictureDocument.ts";
 import type { Point } from "../../../src/studio/shapes.ts";
 import { SCREEN_HEIGHT, SCREEN_WIDTH } from "../../../src/types.ts";
-import { depthValuesLocked, lockedPlanes, type LensUnlocks } from "./studioLocks.ts";
+import { lockedPlanes, type LensUnlocks } from "./studioLocks.ts";
 import { CONTROL_VALUES, type StudioLens } from "./studioView.ts";
 
 export type StudioTool =
@@ -30,7 +30,7 @@ export type StudioTool =
   | "hand"
   | WalkTool;
 
-/** The Walk view's tools: a test walk, a door box, an edge exit (useStudioWalk.ts). */
+/** The Priority lens's room tools: a test walk, a door box, an edge exit (useStudioWalk.ts). */
 export type WalkTool = "walk" | "door" | "edge";
 
 const WALK_TOOLS: readonly StudioTool[] = ["walk", "door", "edge"];
@@ -79,11 +79,10 @@ export interface CurrentValues {
   readonly priority: number | null | "band";
 }
 
-/** Each lens starts on its own plane: Art draws colour, Depth the band under the cursor, Walk barriers. */
+/** Each lens starts on its own plane: Visual draws colour, Priority the band under the cursor. */
 export function defaultValues(lens: StudioLens): CurrentValues {
   if (lens === "art") return { visual: 0, priority: null };
-  if (lens === "depth") return { visual: null, priority: "band" };
-  return { visual: null, priority: 0 };
+  return { visual: null, priority: "band" };
 }
 
 /** The band priority when no cursor row is known. */
@@ -97,8 +96,7 @@ export function resolvePriority(values: CurrentValues, y: number | undefined): n
 
 /**
  * The pipette: the colour and priority under the cursor become the current
- * values, except on a plane the lens keeps locked (it stays as it was), and
- * in the Walk lens a depth value 4–15 while depth values are locked there.
+ * values, except on a plane the lens keeps locked (it stays as it was).
  */
 export function pipetteValues(
   current: CurrentValues,
@@ -108,8 +106,7 @@ export function pipetteValues(
 ): CurrentValues {
   const locked = lockedPlanes(lens, unlocks);
   const visual = locked.includes("visual") ? current.visual : picked.visual;
-  const depthLocked = depthValuesLocked(lens, unlocks) && picked.priority >= 4;
-  const priority = locked.includes("priority") || depthLocked ? current.priority : picked.priority;
+  const priority = locked.includes("priority") ? current.priority : picked.priority;
   return { visual, priority };
 }
 

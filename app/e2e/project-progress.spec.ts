@@ -12,16 +12,19 @@ import {
   gameHint,
   isolateStorage,
   agentActivity,
+  downloadFromSettings,
   openDeveloperActivity,
-  openGameOptions,
   openLibraryActions,
   progressStorageKey,
   savedGameCard,
   storedAutosave,
   textHook,
+  type TextHook,
   waitForAutosaveAfter,
   waitForCycles,
 } from "./engineProbe.ts";
+
+type TextFrame = Pick<TextHook, "cycle" | "frame" | "room" | "modal" | "rows">;
 
 const TUTORIAL_PROJECT_ID = "catalog-adventure-department-1.2.0";
 
@@ -101,8 +104,8 @@ for (const size of [
       await expect
         .soft(savedGameCard(page, "older-position").getByTestId("older-position-choice"))
         .toBeVisible();
-      if (await choice.getByRole("button", { name: "Not now", exact: true }).count()) {
-        await choice.getByRole("button", { name: "Not now", exact: true }).click();
+      if (await choice.getByRole("button", { name: "Cancel", exact: true }).count()) {
+        await choice.getByRole("button", { name: "Cancel", exact: true }).click();
         await expect(choice).toHaveCount(0);
         expect(await page.evaluate((key) => localStorage.getItem(key), original.key)).toBe(
           original.raw,
@@ -113,7 +116,7 @@ for (const size of [
         } else await savedGameCard(page, "older-position").getByTestId("btn-resume-cached").click();
       }
       const choiceBox = (await choice.boundingBox())!;
-      for (const label of ["Start the latest version", "Not now"]) {
+      for (const label of ["Start the latest version", "Cancel"]) {
         const button = choice.getByRole("button", { name: label, exact: true });
         const box = (await button.boundingBox())!;
         expect.soft(box.x + box.width).toBeLessThanOrEqual(choiceBox.x + choiceBox.width);
@@ -251,8 +254,7 @@ test("the project archive moves the autosave to another browser; the game export
 
   // The project download from the running game carries the checkpoint.
   const projectDownload = page.waitForEvent("download");
-  await openGameOptions(page, "settings-menu");
-  await page.getByTestId("btn-download-game").click();
+  await downloadFromSettings(page, true);
   const saved = await projectDownload;
   const savedPath = (await saved.path())!;
   const project = await readGameZip(new Uint8Array(await readFile(savedPath)));
@@ -262,8 +264,7 @@ test("the project archive moves the autosave to another browser; the game export
 
   // The game export is for publishing: no progress in it.
   const publicDownload = page.waitForEvent("download");
-  await openGameOptions(page, "settings-menu");
-  await page.getByTestId("btn-export-game").click();
+  await downloadFromSettings(page);
   const published = await publicDownload;
   const publicGame = await readGameZip(new Uint8Array(await readFile((await published.path())!)));
   // Publication safety: tests, saves and authoring context each excluded on their own.
@@ -409,6 +410,26 @@ test("a reload resumes the parked window in an agent-authored room @webkit-deskt
       rate: Number(process.env["AGI_PROGRESS_CPU_RATE"] ?? 6),
     });
   }
+  await page.addInitScript(() => {
+    let value: Window["__AGI_TEXT__"];
+    const frames: TextFrame[] = [];
+    Object.defineProperty(window, "__AGI_FRAME_LOG__", { value: frames });
+    Object.defineProperty(window, "__AGI_TEXT__", {
+      configurable: true,
+      get: () => value,
+      set: (next: Window["__AGI_TEXT__"]) => {
+        value = next;
+        if (next)
+          frames.push({
+            cycle: next.cycle,
+            frame: next.frame,
+            room: next.room,
+            modal: next.modal,
+            rows: [...next.rows],
+          });
+      },
+    });
+  });
   await isolateStorage(page);
   await page.goto("/");
   await openDeveloperActivity(page);
@@ -419,13 +440,23 @@ test("a reload resumes the parked window in an agent-authored room @webkit-deskt
   // Room 1's entry window is parked too; acknowledge it, then walk east so
   // the stub authors room 2 and its entry print parks the pass there.
   const input = page.getByTestId("input-line");
+  await expect.poll(async () => (await textHook(page)).modal).toBe("print");
   await input.focus();
   await page.keyboard.press("Enter");
   await expect.poll(async () => (await textHook(page)).modal, { timeout: 5_000 }).toBe(null);
   await input.fill("east");
   await input.press("Enter");
   await expect.poll(() => agentActivity(page), { timeout: 10_000 }).toContain("authored room 2");
-  await expect.poll(async () => (await textHook(page)).modal, { timeout: 10_000 }).toBe("print");
+  await expect(page.locator(".game-surface:visible")).toBeVisible();
+  await expect
+    .poll(
+      async () => {
+        const frame = await textHook(page);
+        return [frame.room, frame.modal, frame.rows.join(" ")];
+      },
+      { timeout: 10_000 },
+    )
+    .toEqual([2, "print", expect.stringContaining("generated room 2")]);
   const parked = await textHook(page);
   expect(parked.rows.join(" ")).toContain("generated room 2");
   try {
@@ -448,10 +479,27 @@ test("a reload resumes the parked window in an agent-authored room @webkit-deskt
       body: JSON.stringify({
         hook: await textHook(page),
         stored: await storedAutosave(page, "custom"),
+        frames: await page.evaluate(() => Reflect.get(window, "__AGI_FRAME_LOG__") as TextFrame[]),
       }),
       contentType: "application/json",
     });
   }
+
+  const frames = await page.evaluate(() => Reflect.get(window, "__AGI_FRAME_LOG__") as TextFrame[]);
+  const firstPrint = frames.findIndex(
+    (frame) => frame.room === 2 && frame.rows.join(" ").includes("generated room 2"),
+  );
+  expect(firstPrint).toBeGreaterThanOrEqual(0);
+  expect(
+    frames
+      .slice(firstPrint)
+      .filter(
+        (frame) => frame.modal !== "print" || !frame.rows.join(" ").includes("generated room 2"),
+      ),
+    "every published frame keeps the parked room window",
+  ).toEqual([]);
+
+  await page.screenshot({ path: test.info().outputPath("parked-room.png") });
 
   const stored = await storedAutosave(page, "custom");
   // Publication and the cycle acknowledgement belong to the room-2 parked image.
@@ -474,7 +522,15 @@ test("a reload resumes the parked window in an agent-authored room @webkit-deskt
   // The authored bytes persisted beside the image, so the continuation is
   // still keyed on identical logic: the same window is back up.
   try {
-    await expect.poll(async () => (await textHook(page)).modal, { timeout: 30_000 }).toBe("print");
+    await expect
+      .poll(
+        async () => {
+          const frame = await textHook(page);
+          return [frame.room, frame.modal, frame.rows.join(" ")];
+        },
+        { timeout: 30_000 },
+      )
+      .toEqual([2, "print", expect.stringContaining("generated room 2")]);
     expect((await textHook(page)).rows.join(" ")).toContain("generated room 2");
     expect(await input.count()).toBe(0);
   } finally {
@@ -585,6 +641,15 @@ test("page hide stores play progress when the document flush fails", async ({ pa
   const project = await page.evaluate(async () => {
     const { listCachedGames } = await import("/src/project/gameStorage.ts");
     return listCachedGames().find((game) => game.title === "Hide progress")!.projectId;
+  });
+  await page.getByRole("radio", { name: "Play", exact: true }).click();
+  await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  // The last Create frame can still be visible while cold Play starts.
+  await waitForCycles(page, 2, 5000);
+  // Establish ordinary Play progress before testing the pagehide failure path.
+  await page.evaluate(() => {
+    const probe = window as unknown as { __AGI_PROJECT__: { getWorker(): Worker } };
+    probe.__AGI_PROJECT__.getWorker().postMessage({ type: "flush", id: 77778 });
   });
   await expect.poll(() => storedAutosave(page, project)).not.toBeNull();
   const storedCycle = (await storedAutosave(page, project))!.cycle;

@@ -587,3 +587,23 @@ test("a project without Web Locks opens read-only and retains accepted content",
     Object.defineProperty(globalThis, "navigator", descriptor);
   }
 });
+
+test("closing before room generation and its room edit commit replays the setting before admission", async () => {
+  const owner = await session("compact-room-setting");
+  await owner.setRoomGeneration(true);
+  await edit(owner, "new.room(9); return;");
+  assert.deepEqual(owner.capture().diagnostics, []);
+  paint();
+  const capture = captured();
+  owner.dispose();
+  const request = await rebuildProjectJournal(baseData, capture, {
+    commit: commitProject,
+    fingerprint: authoringFingerprint,
+  });
+  assert.equal(request.data.roomGeneration, true);
+  assert.equal(
+    request.data.workspace!.documents.find((doc) => doc.key === "logic:0")!.content.type,
+    "text",
+  );
+  assert.equal(request.buildId, owner.model.capture().lastAdmissibleBuild!.identity.buildId);
+});

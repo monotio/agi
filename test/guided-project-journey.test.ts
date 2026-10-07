@@ -86,7 +86,7 @@ test("a novice's guided chain produces a playable two-room game", () => {
   const added = mustPrepare(
     prepareGuidedAddRoom(ctx, {
       title: "Moonlit Hall",
-      heroView: "ego_view",
+      heroView: "hero_view",
       spawn: { x: 76, y: 110 },
     }),
   );

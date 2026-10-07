@@ -13,7 +13,10 @@
 
 import { computed, reactive, shallowRef, watch, type Ref } from "vue";
 import type { EditOperation } from "../../../src/studio/editOperations.ts";
+import { commandHead } from "../../../src/studio/editState.ts";
+import { pictureItemAtLine } from "../../../src/studio/pictureDocument.ts";
 import { whyNotFilled, type FillExplanation } from "../../../src/studio/pictureQuery.ts";
+import { EGA_COLOUR_NAMES } from "../../../src/studio/sceneGroups.ts";
 import type { Point } from "../../../src/studio/shapes.ts";
 import { SCREEN_WIDTH } from "../../../src/types.ts";
 import type { PanePress } from "./StudioCanvas.vue";
@@ -40,7 +43,7 @@ import {
   type StudioTool,
   type WalkTool,
 } from "./studioTools.ts";
-import { maskFillPath, type StudioLens } from "./studioView.ts";
+import { CONTROL_VALUES, maskFillPath, spanIndexAt, type StudioLens } from "./studioView.ts";
 import type { StudioDocument } from "./useStudioDocument.ts";
 import type { DraftOutcome, StudioDraft } from "./useStudioDraft.ts";
 import type { StudioNotice } from "./useStudioNotice.ts";
@@ -63,9 +66,26 @@ export interface StudioToolsOptions {
   readonly stage: () => HTMLElement | null;
   readonly frame?: (callback: () => void) => number;
   readonly cancelFrame?: (handle: number) => void;
-  /** The Walk view's tools (test walk, door box, edge exit): useStudioWalk's gestures. */
+  /** The room tools (test walk, door box, edge exit): useStudioWalk's gestures. */
   readonly walk?: WalkGestures | undefined;
+  /** Undo the newest change: the recolour notice offers it. */
+  readonly undo?: () => boolean;
+  /** The display name of the item holding source `line`, for the recolour notice. */
+  readonly nameOf?: (line: number) => string | null;
 }
+
+/** Command words that paint where the registers point: steps the bucket can recolour. */
+const STEP_HEADS = [
+  "line",
+  "polyline",
+  "polygon",
+  "rect",
+  "rel",
+  "xcorner",
+  "ycorner",
+  "fill",
+  "plot",
+];
 
 /** What the walk tools do with the canvas's presses and drags. */
 interface WalkGestures {
@@ -92,7 +112,6 @@ export function useStudioTools(options: StudioToolsOptions) {
   const values = reactive<Record<StudioLens, CurrentValues>>({
     art: defaultValues("art"),
     depth: defaultValues("depth"),
-    walk: defaultValues("walk"),
   });
   const current = computed(() => values[lens.value]);
   const filled = shallowRef(false);
@@ -303,11 +322,7 @@ export function useStudioTools(options: StudioToolsOptions) {
     const next = dropLastPoint(p);
     path.value = next.points.length === 0 ? null : next;
     if (!path.value) cancel();
-    else if (draft.gesturing.value) {
-      const op = pathOp(next, false);
-      if (op) preview(() => op);
-      else draft.preview.value = null;
-    }
+    else if (draft.gesturing.value) preview(reach);
     return true;
   }
 
@@ -356,13 +371,66 @@ export function useStudioTools(options: StudioToolsOptions) {
     };
   }
 
-  /** Seed a fill: nothing is inserted where AGI's fill rule says it would flood nothing. */
+  /**
+   * The bucket on a painted spot: recolour the step that painted it,
+   * everywhere that step painted. The step is the cell's last painter at the
+   * insertion point; a locked item, derived depth, raw bytes, or a spot that
+   * is already the chosen colour falls back to the fill's own advice.
+   * Returns whether a recolour was attempted.
+   */
+  function recolourStep(
+    seed: Point,
+    where: InsertionPoint,
+    plane: "visual" | "priority",
+    value: number | null,
+  ): boolean {
+    const compiled = doc.compiledAt(where.index);
+    const i = seed.y * SCREEN_WIDTH + seed.x;
+    if (compiled[plane][i] === value) return false;
+    const owner = compiled.owners[plane][i]!;
+    if (owner < 0) return false;
+    const k = spanIndexAt(compiled.spans, owner);
+    if (k < 0) return false;
+    const line = compiled.spans[k]!.line;
+    if (!STEP_HEADS.includes(commandHead(draft.document.value.lines[line - 1] ?? ""))) return false;
+    const item = pictureItemAtLine(draft.document.value, line);
+    if (item?.locked) return false;
+    if (item?.depth && line > item.depth.openLine && line < item.depth.closeLine) return false;
+    const name = options.nameOf?.(line) ?? item?.label ?? `step ${k + 1}`;
+    const outcome = draft.apply({ type: "setStepColor", line, plane, value }, `Recolour ${name}`);
+    options.report(outcome);
+    if (!outcome.ok) return true;
+    const colour =
+      value === null
+        ? "off"
+        : plane === "visual"
+          ? (EGA_COLOUR_NAMES[value] ?? `colour ${value}`)
+          : (CONTROL_VALUES[value]?.name ?? `depth band ${value}`);
+    const notice: StudioNotice = {
+      tone: "ok",
+      text: `Recoloured ${name} to ${colour}.`,
+      ...(options.undo ? { action: { label: "Undo", run: options.undo } } : {}),
+    };
+    options.say(notice);
+    return true;
+  }
+
+  /**
+   * Seed a fill: on a white spot the fill pours; on a painted spot the
+   * bucket recolours the step that painted it; on a spot neither can touch,
+   * `fillWhy` explains.
+   */
   function fill(seed: Point): void {
     fillPreview.value = null;
     if (blocked()) return;
     const { op, where, why } = fillAt(seed);
-    fillWhy.value = why ?? null;
-    if (why) return;
+    fillWhy.value = null;
+    if (why) {
+      const plane = op.visual !== null ? "visual" : "priority";
+      if (!recolourStep(seed, where, plane, plane === "visual" ? op.visual : op.priority))
+        fillWhy.value = why;
+      return;
+    }
     const before = doc.total.value;
     const outcome = draft.apply(op, `Draw ${TOOL_NOUNS.fill}`);
     options.report(outcome);
@@ -400,6 +468,35 @@ export function useStudioTools(options: StudioToolsOptions) {
   function hover(cell: Point | undefined): void {
     cursor.value = cell;
     previewFill(cell);
+    if (path.value && draft.gesturing.value) preview(reach);
+  }
+
+  /**
+   * The open path drawn on to the cursor, as the kernel would draw it once
+   * clicked there: the next segment is the picture's own pixels. A cursor
+   * where the next edge would be refused shows the path as clicked, quietly;
+   * a click there explains. It sets the preview itself, so preview() has no
+   * operation left to report.
+   */
+  function reach(): null {
+    const p = path.value;
+    if (!p || !draft.gesturing.value) return null;
+    const last = p.points.at(-1)!;
+    const next = cursor.value;
+    const tries =
+      next && (next.x !== last.x || next.y !== last.y)
+        ? [{ ...p, points: [...p.points, next] }, p]
+        : [p];
+    for (const option of tries) {
+      const op = pathOp(option, false);
+      const candidate = op && draft.evaluate(op, false);
+      if (candidate && !("kind" in candidate)) {
+        draft.preview.value = candidate;
+        return null;
+      }
+    }
+    draft.preview.value = null;
+    return null;
   }
 
   const panning = computed(() => spaceHeld.value || tool.value === "hand");
@@ -528,15 +625,13 @@ export function useStudioTools(options: StudioToolsOptions) {
     values[lens.value] = { ...current.value, ...patch };
   }
 
-  /** StudioToolOverlay's props: the path, the dragged rect and the fill's flood. */
+  /** StudioToolOverlay's props: the path's points and the fill's flood. */
   const overlay = computed(() => {
-    const r = rect.value;
     const p = path.value;
     return {
       points: p?.points ?? [],
       polygon: p?.tool === "polygon",
       cursor: cursor.value,
-      rect: r?.moved ? rectFrom(r.start, r.end, r.square) : null,
       flood: fillPreview.value ? maskFillPath(fillPreview.value) : "",
     };
   });

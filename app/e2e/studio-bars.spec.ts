@@ -12,7 +12,7 @@ import { expect, test } from "./test.ts";
 /**
  * At 1024 wide, each part of Studio's top bars and options bars keeps to
  * its own place: no child's visible content runs under another's, in Room
- * Studio (a selection and the Walk lens) and in Sprite Studio (a painting
+ * Studio (a selection and the Priority lens) and in Sprite Studio (a painting
  * tool, whose colour names itself).
  */
 test.use({ viewport: { width: 1024, height: 600 } });
@@ -87,9 +87,9 @@ test("at 1024 no part of a Studio bar runs under another", async ({ page }) => {
   await look("room top", studio.getByRole("radiogroup", { name: "Lens", exact: true }));
   await look("room options", studio.getByTestId("studio-options-bar"));
   await studio.getByRole("group", { name: /^Canvas/ }).focus();
-  await page.keyboard.press("3");
-  await look("room walk top", studio.getByRole("radiogroup", { name: "Lens", exact: true }));
-  await look("room walk options", studio.getByTestId("studio-options-bar"));
+  await page.keyboard.press("2");
+  await look("room priority top", studio.getByRole("radiogroup", { name: "Lens", exact: true }));
+  await look("room priority options", studio.getByTestId("studio-options-bar"));
   await closeWorkspaceEditor(page);
 
   await openWorkspaceView(page, 0, false);
@@ -98,10 +98,6 @@ test("at 1024 no part of a Studio bar runs under another", async ({ page }) => {
   await page.keyboard.press("b");
   await look("sprite top", page.locator(".workspace-editor__header"));
   await look("sprite options", sprite.getByTestId("sprite-options-bar"));
-
-  // A view many rooms use: its usage keeps clear of Undo, Redo and Keep.
-  await page.goto("/sprite-harness.html?view=0&rooms=14");
-  await look("sprite top, 14 rooms", page.getByTestId("sprite-studio").locator(".sprite-top"));
   expect(seen).toEqual([]);
 });
 
@@ -137,7 +133,7 @@ test("at 1024×600 every rail tool is on screen or behind a chevron", async ({ p
   const studio = page.getByTestId("room-studio");
   const rail = studio.getByRole("toolbar", { name: "Tools" });
   const seen: string[] = [];
-  for (const lens of ["1", "3"]) {
+  for (const lens of ["1", "2"]) {
     await studio.getByRole("group", { name: /^Canvas/ }).focus();
     await page.keyboard.press(lens);
     seen.push(...(await hiddenTools(rail)).map((line) => `room lens ${lens}: ${line}`));

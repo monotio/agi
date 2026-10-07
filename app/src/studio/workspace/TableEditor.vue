@@ -1,10 +1,32 @@
 <script setup lang="ts">
+import { numberedLabel } from "../../../../src/logic/numberedLabels.ts";
+import { useProjectLabels } from "../../shell/useProjectLabels.ts";
 import UiIcon from "../../ui/UiIcon.vue";
 import { VOCABULARY } from "../../../../src/vocabulary.ts";
-import { computed } from "vue";
+import { computed, watch, nextTick, useTemplateRef } from "vue";
 import UiButton from "../../ui/UiButton.vue";
-const props = defineProps<{ kind: "inventory"; source: string; readOnly?: boolean }>();
+import ItemRoomPicker from "./ItemRoomPicker.vue";
+const props = defineProps<{
+  kind: "inventory";
+  source: string;
+  readOnly?: boolean;
+  location?: { row?: number; serial: number } | undefined;
+}>();
 const emit = defineEmits<{ edit: [source: string] }>();
+const root = useTemplateRef("root");
+watch(
+  () => props.location,
+  async (location) => {
+    if (location?.row === undefined) return;
+    await nextTick();
+    const rows = root.value?.querySelectorAll("tbody tr");
+    const field = rows?.[location.row]?.querySelector<HTMLInputElement>('input[type="number"]');
+    field?.focus();
+    field?.select();
+  },
+  { immediate: true },
+);
+const labels = useProjectLabels();
 const rows = computed<readonly (readonly [string, number])[]>(() => {
   try {
     const value = JSON.parse(props.source) as unknown;
@@ -35,10 +57,7 @@ function add(): void {
 }
 </script>
 <template>
-  <div class="workspace-table" data-testid="workspace-table-editor">
-    <p>
-      {{ VOCABULARY.objects.help }}
-    </p>
+  <div ref="root" class="workspace-table" data-testid="workspace-table-editor">
     <table>
       <thead>
         <tr>
@@ -52,18 +71,20 @@ function add(): void {
           <td>
             <input
               :readonly="readOnly"
-              :aria-label="`${VOCABULARY.objectColumn.label} ${index}`"
+              :aria-label="numberedLabel('inventory', index, { ...labels, name: row[0] }, 'option')"
               :value="row[0]"
               @change="update(index, 0, ($event.target as HTMLInputElement).value)"
             />
+            <small>{{ numberedLabel("inventory", index) }}</small>
           </td>
           <td>
-            <input
-              :readonly="readOnly"
-              type="number"
-              :aria-label="`${VOCABULARY.roomColumn.label} ${index}`"
+            <span class="table-room-label">{{ VOCABULARY.roomColumn.label }}</span>
+            <ItemRoomPicker
+              :disabled="readOnly"
+              :context="labels"
+              :label="`Starting room for ${numberedLabel('inventory', index, { ...labels, name: row[0] })}`"
               :value="row[1]"
-              @change="update(index, 1, ($event.target as HTMLInputElement).value)"
+              @change="update(index, 1, String($event))"
             />
           </td>
           <td>
@@ -102,10 +123,6 @@ function add(): void {
   color: var(--ink-2);
 }
 
-p {
-  margin: 0 0 var(--space-5);
-  font-size: var(--text-sm);
-}
 table {
   width: 100%;
   border-collapse: collapse;
@@ -129,5 +146,39 @@ input {
   background: var(--surface-0);
   border: 1px solid var(--hairline-strong);
   border-radius: var(--radius);
+}
+.table-room-label {
+  display: none;
+}
+@media (max-width: 600px) {
+  thead {
+    display: none;
+  }
+  tbody,
+  tr {
+    display: block;
+  }
+  tr {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    border-top: 1px solid var(--hairline);
+    padding-block: var(--space-2);
+  }
+  td {
+    border-top: 0;
+    min-width: 0;
+  }
+  td:first-child {
+    grid-column: 1 / -1;
+  }
+  td:last-child {
+    align-self: end;
+  }
+  .table-room-label {
+    display: block;
+    font-size: var(--text-xs);
+    color: var(--ink-3);
+    margin-bottom: var(--space-2);
+  }
 }
 </style>

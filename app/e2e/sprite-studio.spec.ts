@@ -13,8 +13,8 @@ import { readGameZip } from "../src/archive/gameZip.ts";
 import { parseGameHash } from "../src/shell/shellRoute.ts";
 import {
   closeWorkspaceEditor,
+  downloadFromSettings,
   enterCreateMode,
-  openGameOptions,
   openInspector,
   openWorkspaceView,
   waitForRoom,
@@ -26,10 +26,9 @@ import { expect, test } from "./test.ts";
 /**
  * Sprite Studio end to end. The real app runs the catalog tutorial, whose
  * apprentice (VIEW 0) walks right in loop 0 and left in loop 1, a mirror of
- * loop 0; the harness (sprite-harness.html) runs the same VIEW for the
- * editing semantics that need no game. Expected pixels come from decoding
- * the bytes read out of the page, storage and the exported ZIP with the
- * sprite kernel here; the edited cell is placed by hand.
+ * loop 0; the workspace VIEW editor runs the same VIEW for editing semantics.
+ * Expected pixels come from decoding the bytes read out of the page, storage
+ * and the exported ZIP with the sprite kernel here; the edited cell is placed by hand.
  */
 test.use({ viewport: { width: 1440, height: 900 } });
 
@@ -45,6 +44,44 @@ const RED = 4;
 
 const draftBytes = async (page: Page): Promise<Uint8Array> =>
   Uint8Array.from(await page.evaluate(() => [...window.__AGI_SPRITE__!.bytes()]));
+
+async function sessionViewBytes(page: Page, viewNumber = 0): Promise<Uint8Array | null> {
+  const result = await page.evaluate((num) => {
+    const probe = window as unknown as {
+      __AGI_PROJECT__?: {
+        getSession(): {
+          workingSnapshot(): {
+            read(key: string): { content: unknown } | undefined;
+          };
+          model: {
+            capture(): {
+              lastAdmissibleBuild?: {
+                files(): ReadonlyMap<string, Uint8Array>;
+              };
+            };
+          };
+        };
+      };
+    };
+    const session = probe.__AGI_PROJECT__?.getSession();
+    if (!session) return null;
+    const document = session.workingSnapshot().read(`view:${num}`);
+    if (document?.content instanceof Uint8Array) {
+      return { kind: "content" as const, bytes: Array.from(document.content) };
+    }
+    const buildFiles = session.model.capture().lastAdmissibleBuild?.files();
+    if (buildFiles) {
+      const entries = Array.from(buildFiles.entries()).map(([k, v]) => [k, Array.from(v)] as const);
+      return { kind: "files" as const, entries };
+    }
+    return null;
+  }, viewNumber);
+
+  if (!result) return null;
+  if (result.kind === "content") return Uint8Array.from(result.bytes);
+  const container = openContainer(new Map(result.entries.map(([k, v]) => [k, Uint8Array.from(v)])));
+  return container.getResource("view", viewNumber);
+}
 
 async function storedFiles(page: Page, projectId: string): Promise<Map<string, Uint8Array>> {
   const files = await page.evaluate(async (id) => {
@@ -221,7 +258,7 @@ test("a mirrored actor is repaired without changing its source loop, saved, relo
   // One pixel in loop 1: it becomes a separate copy, and loop 0 is as it was.
   await paintCentre(page, studio, 1);
   await workspaceSaved(page);
-  await expect(studio.getByTestId("studio-notice")).toHaveText(
+  await expect(page.getByTestId("studio-notice")).toHaveText(
     "Loop 1 is now a separate copy; the loop it mirrored kept its pixels.",
   );
   await expect(studio.getByTestId("sprite-loop-1-mirror")).toHaveCount(0);
@@ -282,8 +319,7 @@ test("a mirrored actor is repaired without changing its source loop, saved, relo
 
   // The exported game's VIEW is the kept bytes.
   const downloading = page.waitForEvent("download");
-  await openGameOptions(page, "settings-menu");
-  await page.getByTestId("btn-export-game").click();
+  await downloadFromSettings(page);
   const exported = await readGameZip(await readFile((await (await downloading).path())!));
   expect(openContainer(new Map(Object.entries(exported.files))).getResource("view", 0)).toEqual(
     kept,
@@ -333,7 +369,7 @@ test("a loop's cyan recoloured to blue by keys is saved, and the walking ego sho
   await page.keyboard.press("Enter");
   await workspaceSaved(page);
   // The edit's notice shows in the status line while the popover is still open.
-  await expect(studio.locator(".sprite-studio__status").getByTestId("studio-notice")).toBeVisible();
+  await expect(page.locator(".sprite-studio__status").getByTestId("studio-notice")).toBeVisible();
   await expect(recolor.getByTestId("sprite-recolor-count")).toHaveText(
     "colour 3, cyan is unused in this loop. Choose a colour used here.",
   );
@@ -378,12 +414,10 @@ test("a loop's cyan recoloured to blue by keys is saved, and the walking ego sho
     expect(frame.pixels).toEqual(celPixels(frame, original.loops[1]!.cels[frame.ego.cel]!));
 });
 
-test.describe("on the harness", () => {
-  test("Edit both on the mirror loop changes both facings; undo, redo and Keep", async ({
-    page,
-  }) => {
-    await page.goto("/sprite-harness.html?view=0");
-    const studio = page.getByTestId("sprite-studio");
+test.describe("workspace VIEW editor", () => {
+  test("Edit both on the mirror loop changes both facings; undo and redo", async ({ page }) => {
+    await playTutorial(page);
+    const studio = await openApprentice(page);
     await studio.locator('[data-loop="1"][data-cel="0"]').click();
     await expect(studio.getByTestId("sprite-mirror-text")).toHaveText("Mirrors loop 0");
     await studio.getByTestId("sprite-propagate").click();
@@ -398,7 +432,7 @@ test.describe("on the harness", () => {
     await studio.getByTestId("sprite-stage").focus();
     await page.keyboard.press("Space");
     await page.keyboard.press("Space");
-    await expect(studio.getByTestId("studio-draft-status")).toHaveText("1 change");
+    await expect(page.getByTestId("workspace-pending")).toHaveText("1 change not in the game yet");
     const both = open(await draftBytes(page));
     const width = both.loops[0]!.cels[0]!.width;
     expect(both.loops[1]!.alias).toBe(0);
@@ -406,29 +440,23 @@ test.describe("on the harness", () => {
     expect(at(both.loops[1]!.cels[0]!, CENTRE.x, CENTRE.y)).toBe(RED);
     expect(at(both.loops[0]!.cels[0]!, width - 1 - CENTRE.x, CENTRE.y)).toBe(RED);
     await expect(studio.getByTestId("sprite-loop-1-mirror")).toHaveText(/mirrors 0/);
+    expect(await sessionViewBytes(page, 0)).toEqual(await draftBytes(page));
 
-    // Undo, redo, and Keep hands the harness exactly the draft's bytes.
+    // Update game commits the change: then Undo and Redo step through it.
+    await workspaceUpdated(page);
     await page.keyboard.press("ControlOrMeta+z");
-    await expect(studio.getByTestId("studio-draft-status")).toHaveText("No changes");
-    expect(await draftBytes(page)).toEqual(TUTORIAL_VIEW_0);
+    await expect.poll(async () => sessionViewBytes(page, 0)).toEqual(TUTORIAL_VIEW_0);
     await page.keyboard.press("ControlOrMeta+Shift+z");
-    await expect(studio.getByTestId("studio-draft-status")).toHaveText("1 change");
-    const redone = await draftBytes(page);
-    await studio.getByTestId("studio-keep").click();
-    await expect(studio.getByTestId("studio-draft-status")).toHaveText("Kept");
-    const kept = await page.evaluate(() =>
-      (
-        window as unknown as { spriteHarness: { kept: { edit: { bytes: Uint8Array } }[] } }
-      ).spriteHarness.kept.map(({ edit }) => [...edit.bytes]),
-    );
-    expect(kept).toEqual([[...redone]]);
+    await expect(page.getByTestId("workspace-undo")).toBeEnabled();
+    const redone = await sessionViewBytes(page, 0);
+    expect(redone).toEqual(await draftBytes(page));
   });
 
   test("the contact sheet shows every cel, is chosen from by keys, and returns to the editor", async ({
     page,
   }) => {
-    await page.goto("/sprite-harness.html?view=0");
-    const studio = page.getByTestId("sprite-studio");
+    await playTutorial(page);
+    const studio = await openApprentice(page);
     await studio.getByTestId("sprite-sheet-toggle").click();
     const sheet = studio.getByTestId("sprite-contact-sheet");
     await expect(sheet).toBeVisible();
@@ -467,22 +495,14 @@ test.describe("on the harness", () => {
     await expect(toggle).toHaveAttribute("aria-pressed", "true");
     await toggle.click();
     await expect(sheet).toHaveCount(0);
-    expect(
-      await page.evaluate(
-        () => (window as unknown as { spriteHarness: { closes: number } }).spriteHarness.closes,
-      ),
-    ).toBe(0);
+    await expect(studio).toBeVisible();
   });
 
   test("Esc in the width field reverts it and leaves the field; Studio stays open", async ({
     page,
   }) => {
-    await page.goto("/sprite-harness.html?view=0");
-    const studio = page.getByTestId("sprite-studio");
-    const closes = () =>
-      page.evaluate(
-        () => (window as unknown as { spriteHarness: { closes: number } }).spriteHarness.closes,
-      );
+    await playTutorial(page);
+    const studio = await openApprentice(page);
     await studio.getByTestId("sprite-cel-details").click();
     const width = studio.getByRole("spinbutton", { name: "Width in pixels" });
     await expect(studio.getByRole("spinbutton", { name: "Height in pixels" })).toHaveValue("32");
@@ -491,18 +511,16 @@ test.describe("on the harness", () => {
     await expect(studio).toBeVisible();
     await expect(width).toHaveValue("10");
     await expect(width).not.toBeFocused();
-    expect(await closes()).toBe(0);
-    // Off the field, with nothing in hand, Esc does nothing: the × closes Studio.
+    // Off the field, with nothing in hand, Esc does nothing: closing the editor closes Studio.
     await page.keyboard.press("Escape");
     await expect(studio).toBeVisible();
-    expect(await closes()).toBe(0);
-    await studio.getByTestId("studio-close").click();
-    await expect.poll(closes).toBe(1);
+    await closeWorkspaceEditor(page);
+    await expect(studio).toBeHidden();
   });
 
   test("a cel is copied and moved to another loop from its menu by keys", async ({ page }) => {
-    await page.goto("/sprite-harness.html?view=0");
-    const studio = page.getByTestId("sprite-studio");
+    await playTutorial(page);
+    const studio = await openApprentice(page);
     const original = open(TUTORIAL_VIEW_0);
     const cel = studio.locator('.timeline [data-loop="2"][data-cel="1"]');
     await cel.click();
@@ -520,13 +538,17 @@ test.describe("on the harness", () => {
     await expect(menu.getByRole("menuitem", { name: "Loop 3 · Back" })).toBeFocused();
     await page.keyboard.press("Enter");
     await expect(menu).toHaveCount(0);
-    await expect(studio.getByTestId("studio-draft-status")).toHaveText("1 change");
-    const copied = open(await draftBytes(page));
+    await expect(page.getByTestId("workspace-pending")).toHaveText("1 change not in the game yet");
+    const copiedBytes = (await sessionViewBytes(page, 0))!;
+    const copied = open(copiedBytes);
     expect(copied.loops.map((loop) => loop.cels.length)).toEqual([4, 4, 4, 5]);
     expect(samePixels(copied.loops[3]!.cels[4]!.pixels, original.loops[2]!.cels[1]!.pixels)).toBe(
       true,
     );
     expect(copied.loops[1]!.alias).toBe(0);
+    await page.keyboard.press("ControlOrMeta+Shift+Enter");
+    await expect(page.getByTestId("workspace-updated")).toBeVisible();
+    await workspaceSaved(page);
     // The copy is selected; Move to loop… takes it back to loop 2 as one undo step.
     const copy = studio.locator('.timeline [data-loop="3"][data-cel="4"]');
     await expect(copy).toBeFocused();
@@ -536,45 +558,52 @@ test.describe("on the harness", () => {
     await expect(menu.getByRole("menuitem", { name: /^Loop 3/ })).toHaveCount(0);
     await menu.getByRole("menuitem", { name: "Loop 2 · Front" }).focus();
     await page.keyboard.press("Enter");
-    await expect(studio.getByTestId("studio-draft-status")).toHaveText("2 changes");
-    const moved = open(await draftBytes(page));
+    await expect(menu).toHaveCount(0);
+    await expect(page.getByTestId("workspace-pending")).toHaveText("1 change not in the game yet");
+    const movedBytes = (await sessionViewBytes(page, 0))!;
+    const moved = open(movedBytes);
     expect(moved.loops.map((loop) => loop.cels.length)).toEqual([4, 4, 5, 4]);
     expect(samePixels(moved.loops[2]!.cels[4]!.pixels, original.loops[2]!.cels[1]!.pixels)).toBe(
       true,
     );
     await expect(studio.locator('.timeline [data-loop="2"][data-cel="4"]')).toBeFocused();
+    await page.keyboard.press("ControlOrMeta+Shift+Enter");
+    await expect(page.getByTestId("workspace-updated")).toBeVisible();
+    await workspaceSaved(page);
     await page.keyboard.press("ControlOrMeta+z");
-    await expect(studio.getByTestId("studio-draft-status")).toHaveText("1 change");
+    await expect
+      .poll(async () =>
+        open((await sessionViewBytes(page, 0))!).loops.map((loop) => loop.cels.length),
+      )
+      .toEqual([4, 4, 4, 5]);
     expect(open(await draftBytes(page)).loops.map((loop) => loop.cels.length)).toEqual([
       4, 4, 4, 5,
     ]);
   });
 
-  test("a held pen shows its cue on the stage and on the disabled Keep", async ({ page }) => {
-    await page.goto("/sprite-harness.html?view=0");
-    const studio = page.getByTestId("sprite-studio");
-    const keep = studio.getByTestId("studio-keep");
-    const cue = studio.getByTestId("sprite-pen-down");
+  test("a held pen shows its cue in the workspace status bar @webkit-desktop", async ({ page }) => {
+    await playTutorial(page);
+    const studio = await openApprentice(page);
+    const cue = page.getByTestId("workspace-status").getByTestId("sprite-pen-down");
     await studio.locator(`[data-colour="${RED}"]`).click();
     await studio.getByTestId("sprite-stage").focus();
     await expect(cue).toHaveCount(0);
-    // The first Space puts the pen down: the cue is on the stage and in the
-    // live region, and the disabled Keep says why. The next Space lifts it.
+    // The first Space puts the pen down: the cue is in the status bar and the
+    // live region. The next Space lifts it.
     await page.keyboard.press("Space");
+    await expect(cue).toBeVisible();
     await expect(cue).toHaveText("Pen down: Space lifts it");
     await expect(studio.locator(".sprite-studio__sr")).toContainText("Pen down: Space lifts it");
-    await expect(keep).toBeDisabled();
-    await expect(keep).toHaveAttribute("title", /pen is down/i);
     await page.keyboard.press("Space");
     await expect(cue).toHaveCount(0);
-    await expect(keep).not.toHaveAttribute("title", /pen/i);
-    await expect(keep).toBeEnabled();
-    await expect(studio.getByTestId("studio-draft-status")).toHaveText("1 change");
+    await expect(page.getByTestId("workspace-pending")).toHaveText("1 change not in the game yet");
+    const editedBytes = (await sessionViewBytes(page, 0))!;
+    expect(at(open(editedBytes).loops[0]!.cels[0]!, CENTRE.x, CENTRE.y)).toBe(RED);
   });
 
-  test("keyboard only: a line drawn with the cursor and kept", async ({ page }) => {
-    await page.goto("/sprite-harness.html?view=0");
-    const studio = page.getByTestId("sprite-studio");
+  test("keyboard only: a line drawn with the cursor", async ({ page }) => {
+    await playTutorial(page);
+    const studio = await openApprentice(page);
     await studio.getByTestId("sprite-stage").focus();
     await page.keyboard.press("l");
     // From the centre (5,16), 3 left and 12 up (Shift: 8): 2,4; then 4 right: a line to 6,4.
@@ -584,19 +613,11 @@ test.describe("on the harness", () => {
     await page.keyboard.press("Space");
     for (let i = 0; i < 4; i++) await page.keyboard.press("ArrowRight");
     await page.keyboard.press("Enter");
-    await expect(studio.getByTestId("studio-draft-status")).toHaveText("1 change");
-    const drawn = open(await draftBytes(page)).loops[0]!.cels[0]!;
+    await expect(page.getByTestId("workspace-pending")).toHaveText("1 change not in the game yet");
+    const drawn = open((await sessionViewBytes(page, 0))!).loops[0]!.cels[0]!;
     const before = open(TUTORIAL_VIEW_0).loops[0]!.cels[0]!;
     expect([2, 3, 4, 5, 6].some((x) => at(before, x, 4) !== 11)).toBe(true);
     expect([2, 3, 4, 5, 6].map((x) => at(drawn, x, 4))).toEqual([11, 11, 11, 11, 11]);
-    // Keys never reached anything outside: the harness saw no close.
-    await studio.getByTestId("studio-keep").focus();
-    await page.keyboard.press("Enter");
-    await expect(studio.getByTestId("studio-draft-status")).toHaveText("Kept");
-    expect(
-      await page.evaluate(
-        () => (window as unknown as { spriteHarness: { closes: number } }).spriteHarness.closes,
-      ),
-    ).toBe(0);
+    await expect(studio).toBeVisible();
   });
 });

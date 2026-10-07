@@ -9,7 +9,7 @@ import { canonicalResourceName } from "../../src/types.ts";
 import { readGameZip } from "../src/archive/gameZip.ts";
 import { gameRevision, isPlayableFileName } from "../src/project/gameMetadata.ts";
 import { fixtureRoot, startFixtureServer, writeFixture } from "../test/fixtureServerHarness.ts";
-import { isolateStorage, openGameOptions, textHook } from "./engineProbe.ts";
+import { downloadFromSettings, isolateStorage, textHook } from "./engineProbe.ts";
 
 /**
  * The fixture transport proof in a real browser: a dedicated Vite test-mode
@@ -138,8 +138,7 @@ test("an unusual-name installed fixture boots through the real transport and exp
     }
     // The public export carries exactly the canonical playable set.
     const downloading = page.waitForEvent("download");
-    await openGameOptions(page, "settings-menu");
-    await page.getByTestId("btn-export-game").click();
+    await downloadFromSettings(page);
     const download = await downloading;
     const exported = await readGameZip(new Uint8Array(await readFile(await download.path())));
     const expected: Record<string, Uint8Array> = {};

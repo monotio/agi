@@ -118,6 +118,17 @@ test("the dependency reporter checks real Vue imports, re-exports and erased typ
     assert.equal(result.status, 1, result.stdout + result.stderr);
     assert.match(result.stdout, /src-no-platform-modules/);
     assert.match(result.stdout, /Home static boundary passed/);
+    // A hoisted app package is either unlisted or a dev dependency of the
+    // engine package; neither classification may bypass engine isolation.
+    write("node_modules/vue/package.json", '{"name":"vue","version":"0.0.0","main":"index.js"}');
+    write("node_modules/vue/index.js", "export const value = 1;");
+    write("src/platform.ts", 'import "vue";');
+    for (const manifest of [{}, { devDependencies: { vue: "0.0.0" } }]) {
+      write("package.json", JSON.stringify(manifest));
+      result = run();
+      assert.equal(result.status, 1, result.stdout + result.stderr);
+      assert.match(result.stdout, /src-no-platform-modules/);
+    }
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }

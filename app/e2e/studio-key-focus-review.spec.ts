@@ -63,7 +63,7 @@ for (const studio of ["room", "sprite"] as const) {
   }) => {
     await playTutorial(page);
     const root = await open(page);
-    const keys = root.getByTestId("studio-keys-button");
+    const keys = page.getByTestId("workspace-keys");
     await keys.click();
     await sheetRoundTrip(page, root, name, keys);
     const canvas = stage(root);

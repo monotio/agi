@@ -1,6 +1,7 @@
 <script setup lang="ts">
+import { ROOM_ACTION_LABELS as labels, type RoomActionKind } from "./guidedActions.ts";
 import { roomHeroView } from "../logic/guided/guidedPreview.ts";
-import { computed, onBeforeUnmount, ref, watch } from "vue";
+import { computed, onBeforeUnmount, onWatcherCleanup, ref, useTemplateRef, watch } from "vue";
 import { prepareWorkspaceAction, type WorkspaceAction } from "./workspaceGuided.ts";
 import type { ProjectSnapshot } from "../../../../src/authoring/projectModel.ts";
 import { PROFILES, type ProfileId } from "../../../../src/runtime/profile.ts";
@@ -19,6 +20,7 @@ import SoundPicker, { type SoundChoice, type NamedSound } from "./SoundPicker.vu
 import SentenceFields from "./SentenceFields.vue";
 import ActionMenu from "../../ui/ActionMenu.vue";
 import UiButton from "../../ui/UiButton.vue";
+import UiIcon from "../../ui/UiIcon.vue";
 const props = defineProps<{
   room: number;
   busy: boolean;
@@ -29,10 +31,37 @@ const props = defineProps<{
   thumbnails: Readonly<Record<string, string>>;
   views: Readonly<Record<string, Uint8Array>>;
   sounds: readonly NamedSound[];
+  /** Add the next room, as Rooms + does, and answer its number. */
+  newRoom?: () => Promise<number | undefined>;
 }>();
 const emit = defineEmits<{ add: [action: WorkspaceAction] }>();
 const kind = defineModel<WorkspaceAction["kind"] | undefined>("action");
-const title = ref("");
+const form = useTemplateRef("form");
+const formHeight = ref<string>();
+watch(
+  form,
+  (element) => {
+    if (!element) return;
+    const target = element;
+    function fit(): void {
+      if (!target.offsetParent) return;
+      const top = target.getBoundingClientRect().top;
+      formHeight.value = `${Math.max(0, window.innerHeight - top - 8)}px`;
+    }
+    const observer = new ResizeObserver(fit);
+    observer.observe(element);
+    const frame = element.closest(".workspace-editor");
+    if (frame) observer.observe(frame);
+    if (element.offsetParent) observer.observe(element.offsetParent);
+    window.addEventListener("resize", fit);
+    fit();
+    onWatcherCleanup(() => {
+      observer.disconnect();
+      window.removeEventListener("resize", fit);
+    });
+  },
+  { flush: "post" },
+);
 const command = ref(props.initialCommand ?? "");
 watch(
   () => props.initialCommand,
@@ -59,14 +88,12 @@ const doorX = ref(80);
 const doorY = ref(140);
 const x2 = ref(100);
 const y2 = ref(150);
-const labels: Record<WorkspaceAction["kind"], string> = {
-  "make-room": "Make it a room",
-  "add-room": "Add a room",
-  "place-hero": "Place hero",
-  response: "Answer a sentence",
-  door: "Door",
-  "play-sound": "Play a sound when…",
-};
+const roomActionKind = computed<RoomActionKind | undefined>(() =>
+  kind.value !== undefined && kind.value in labels ? (kind.value as RoomActionKind) : undefined,
+);
+watch(kind, (next) => {
+  if (next !== undefined && next in labels) open(next as RoomActionKind);
+});
 const rooms = computed(
   () =>
     props.groups
@@ -111,8 +138,6 @@ const viewChoices = computed(
 const action = computed<WorkspaceAction | undefined>(() => {
   const room = props.room;
   switch (kind.value) {
-    case "add-room":
-      return { kind: kind.value, title: title.value };
     case "place-hero":
       return { kind: kind.value, room, view: view.value, x: x.value, y: y.value };
     case "response":
@@ -193,6 +218,8 @@ function open(next: WorkspaceAction["kind"]): void {
   boxPicked.value = false;
   arrival.value = undefined;
   alsoCommands.value = [];
+  // A door starts on the game: drag the box where the hero leaves.
+  if (next === "door") place("box");
 }
 async function startHere(): Promise<void> {
   const state = await engine.readEngineState();
@@ -203,7 +230,7 @@ async function startHere(): Promise<void> {
   x.value = state.egoX;
   y.value = state.egoY;
   positionPicked.value = true;
-  notice.value = "The hero will start at this spot.";
+  notice.value = "Start position selected.";
 }
 function place(target: "hero" | "box" | "arrival"): void {
   const wasFocused = editor.focus.value;
@@ -234,7 +261,7 @@ function place(target: "hero" | "box" | "arrival"): void {
       roomImages.value[target === "arrival" ? `room:${destination.value}` : `room:${props.room}`],
     label:
       target === "box"
-        ? "Drag a box over the room edge"
+        ? "Drag a box where the hero leaves"
         : target === "arrival"
           ? "Place the hero in the destination"
           : "Drag the hero to the start",
@@ -262,6 +289,21 @@ onBeforeUnmount(() => {
     guidedPlacement.value = undefined;
   }
 });
+/** A Door's "New room": the added room becomes the destination. */
+const addingRoom = ref(false);
+async function pickNewRoom(): Promise<void> {
+  if (addingRoom.value || !props.newRoom) return;
+  addingRoom.value = true;
+  try {
+    const room = await props.newRoom();
+    if (room !== undefined) {
+      destination.value = room;
+      arrival.value = undefined;
+    }
+  } finally {
+    addingRoom.value = false;
+  }
+}
 const doorReady = computed(
   () =>
     kind.value !== "door" ||
@@ -272,33 +314,46 @@ const doorReady = computed(
       destination.value <= 254 &&
       destination.value !== props.room),
 );
+/** Validation answers after input: a door checks only once box and room are chosen. */
+const inputComplete = computed(() =>
+  kind.value === "door" ? boxPicked.value && destination.value !== undefined : showPreview.value,
+);
 function add(): void {
   if (action.value && !props.busy && doorReady.value) emit("add", action.value);
 }
 </script>
 <template>
   <div class="workspace-guided">
-    <ActionMenu label="+ Add" size="sm" test-id="workspace-add">
+    <ActionMenu
+      label="Add"
+      button-size="sm"
+      variant="ghost"
+      test-id="room-actions-menu"
+      :disabled="busy"
+    >
       <button
         v-for="(label, actionKind) in labels"
         :key="actionKind"
         type="button"
         role="menuitem"
-        @click="open(actionKind)"
+        :data-testid="`room-action-${actionKind}`"
+        :disabled="busy"
+        @click="kind = actionKind as RoomActionKind"
       >
         {{ label }}
       </button>
     </ActionMenu>
     <form
-      v-if="kind"
+      v-if="roomActionKind"
       v-show="!placing"
+      ref="form"
       class="workspace-guided__form"
+      :style="{ maxHeight: formHeight }"
       data-testid="workspace-guided-form"
       @submit.prevent="add"
       @keydown.esc.stop="kind = undefined"
     >
-      <strong>{{ labels[kind] }}</strong>
-      <label v-if="kind === 'add-room'">Room name<input v-model="title" autofocus /></label>
+      <strong>{{ labels[roomActionKind] }}</strong>
       <SentenceFields
         v-if="kind === 'response' || kind === 'play-sound'"
         v-model:command="command"
@@ -314,7 +369,7 @@ function add(): void {
         <UiButton size="sm" variant="ghost" :disabled="busy" @click="place('hero')"
           >Drag to place</UiButton
         >
-        <p v-if="positionPicked">The hero starts at your chosen spot.</p>
+        <p v-if="positionPicked">Start position selected.</p>
         <div class="guided-choices" role="group" aria-label="Pick a VIEW">
           <button
             v-for="entry in viewChoices"
@@ -341,8 +396,9 @@ function add(): void {
       />
       <template v-if="kind === 'door'">
         <p>When the hero walks into this box, go to…</p>
-        <UiButton size="sm" :disabled="busy" @click="place('box')">Drag a door box</UiButton>
-        <p v-if="boxPicked">Your door box is ready.</p>
+        <UiButton size="sm" :disabled="busy" @click="place('box')">{{
+          boxPicked ? "Draw the box again" : "Drag the box on the game"
+        }}</UiButton>
         <div class="guided-choices" role="group" aria-label="Destination room">
           <button
             v-for="entry in rooms"
@@ -356,6 +412,17 @@ function add(): void {
             "
           >
             <img v-if="roomImages[entry.id]" :src="roomImages[entry.id]" alt="" />{{ entry.label }}
+          </button>
+          <button
+            v-if="newRoom"
+            type="button"
+            data-testid="door-new-room"
+            :disabled="busy || addingRoom"
+            @click="pickNewRoom"
+          >
+            <span class="guided-choices__new" aria-hidden="true"
+              ><UiIcon name="plus" :size="16" /></span
+            >New room
           </button>
         </div>
         <UiButton
@@ -436,14 +503,14 @@ function add(): void {
         /></label>
       </details>
       <p v-if="notice" role="status">{{ notice }}</p>
-      <template v-if="showPreview && prepared">
-        <details v-if="prepared.ok" open class="guided-code">
-          <summary>LOGIC to add</summary>
+      <template v-if="prepared">
+        <details v-if="prepared.ok && showPreview" class="guided-code">
+          <summary>Show code</summary>
           <pre data-testid="guided-code-preview">{{
             prepared.showCode.map((preview) => preview.text).join("\n")
           }}</pre>
         </details>
-        <p v-else role="status">{{ prepared.message }}</p>
+        <p v-else-if="!prepared.ok && inputComplete" role="status">{{ prepared.message }}</p>
       </template>
       <p v-if="kind === 'door' && destination === room" role="status">
         Choose another room for this door.
@@ -501,6 +568,15 @@ select {
   width: 100%;
   aspect-ratio: 40 / 21;
   image-rendering: pixelated;
+}
+.guided-choices__new {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  aspect-ratio: 40 / 21;
+  border: 1px dashed var(--hairline-strong);
+  border-radius: var(--radius-sm);
+  color: var(--ink-2);
 }
 .guided-code {
   margin: var(--space-3) 0;

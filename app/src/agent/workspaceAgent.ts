@@ -12,6 +12,7 @@ import {
 import { createProjectAssistDriver, PROJECT_ASSIST_TOOLS } from "./projectAssistTools.ts";
 import {
   ASK_TOOLS,
+  validateAgentHandover,
   withReferences,
   executeAgentToolAsync,
   type AgentRuntimeDeps,
@@ -42,6 +43,11 @@ import type { AgentToolResult } from "../../../src/agent/agentState.ts";
 import { VOCABULARY_ACTIONS } from "../../../src/vocabulary.ts";
 import { WORKSPACE_AGENT_TOOLS } from "./workspaceAgentTools.ts";
 import type { ToolDefinition } from "../../../src/agent/tools.ts";
+
+import { workspaceSelection, selectionScene } from "./workspaceSelection.ts";
+import { createSelectionStub } from "./selectionStub.ts";
+import { SELECTION_TOOL_NAMES } from "../../../src/agent/selectionTools.ts";
+import { proposeNames } from "../../../src/agent/namingTools.ts";
 
 const HANDOFF =
   "Summarize this task for a different model using the compaction summary pattern: objective, decisions, completed changes, unresolved work, resource identifiers, and next steps. Return only the summary. Preserve user constraints. Omit thinking blocks, credentials and protocol records.";
@@ -87,9 +93,14 @@ function stubConversation(initial: unknown[]): UnifiedConversation {
   let step = 0;
   let prompt = "";
   let context: Record<string, unknown> = {};
+  let selected: UnifiedConversation | undefined;
   return {
     setAvailableTools() {},
-    async sendUserMessage(text) {
+    async sendUserMessage(text, images) {
+      if (text.includes("Selection: PICTURE") || text.includes("Selection: VIEW")) {
+        selected = createSelectionStub(text.split("Request:\n").at(-1) ?? text, transcript);
+        return selected.sendUserMessage(text, images);
+      }
       prompt = text;
       if (text.startsWith("Answer questions about this game")) {
         const reply = text.includes('Return a JSON object {"synonyms"')
@@ -108,12 +119,40 @@ function stubConversation(initial: unknown[]): UnifiedConversation {
       };
     },
     appendToolResults(results) {
+      if (selected) return selected.appendToolResults(results);
       for (const entry of results) {
         transcript.push({ role: "assistant", text: JSON.stringify(entry) });
         if (entry.result.details?.["documents"]) context = entry.result.details;
       }
     },
     async complete() {
+      if (selected) return selected.complete();
+      if (/launch|vacuum death/i.test(prompt)) {
+        if (step++ === 0) {
+          const roomMatch = /room\s*(\d+)/i.exec(prompt);
+          const room = roomMatch ? Number(roomMatch[1]) : 8;
+          return {
+            toolCalls: [
+              {
+                id: "launch",
+                name: "configure_launch",
+                input: {
+                  room,
+                  action: "create",
+                  name: "Vacuum death",
+                  cameFrom: { room: 7, edge: 4 },
+                  flags: [{ id: 77, value: true }],
+                  variables: [{ id: 90, value: 123 }],
+                  selected: true,
+                },
+              },
+            ],
+          };
+        }
+        const text = "Created a launch for the vacuum death in Room 8.";
+        transcript.push({ role: "assistant", text });
+        return { text, toolCalls: [] };
+      }
       if (step++ === 0) {
         const docs = context["documents"] as { key: string }[] | undefined;
         const picture = docs?.find((d) => d.key.startsWith("picture:"))?.key;
@@ -209,10 +248,11 @@ function stubConversation(initial: unknown[]): UnifiedConversation {
       return { text, toolCalls: [] };
     },
     recordInterruption(text) {
+      if (selected) return selected.recordInterruption?.(text);
       transcript.push({ role: "user", text });
     },
     getTranscript() {
-      return structuredClone(transcript);
+      return selected?.getTranscript() ?? structuredClone(transcript);
     },
   };
 }
@@ -401,6 +441,8 @@ export function createWorkspaceAgent(options: Options) {
         allowMissingRooms: session.allowMissingRooms,
       });
       ws.propose("Validate selection", []);
+      const verdict = validateAgentHandover(ws.openToolState().state);
+      if (!verdict.success) throw new Error(verdict.error ?? "Handover rejected.");
       const before = session.history.capture().cursor!;
       assertLive();
       const result = await session.submit({
@@ -433,6 +475,7 @@ export function createWorkspaceAgent(options: Options) {
       delete chat.pendingReview;
       reviews.delete(approving.chatId);
       if (review === approving) review = null;
+      notify();
       await save();
       return commit;
     } finally {
@@ -463,6 +506,13 @@ export function createWorkspaceAgent(options: Options) {
     let staged: ReturnType<typeof workspace.openToolState> | undefined;
     let notes: string | undefined;
     const prepared = new Map<string, ProjectChange>();
+    let scene: Awaited<ReturnType<typeof selectionScene>> = {};
+    let selection = workspaceSelection(
+      context,
+      base.documents(),
+      PROFILES[options.profileId]!,
+      scene,
+    );
     function projectDriver() {
       const captured = workspace;
       return createProjectAssistDriver({
@@ -475,11 +525,64 @@ export function createWorkspaceAgent(options: Options) {
                   ...changes.filter((change) => change.key !== "notes"),
                   { key: "notes", content: notes },
                 ];
-          return staged ? staged.finish(label, coordinated) : captured.propose(label, coordinated);
+          const combined = [
+            ...new Map(
+              [...prepared.values(), ...coordinated].map((change) => [change.key, change]),
+            ).values(),
+          ];
+          return staged ? staged.finish(label, combined) : captured.propose(label, combined);
         },
       });
     }
     let driver = projectDriver();
+    let selectionReview = "";
+    let forceReview = false;
+    function stagedDocuments() {
+      const offered = driver.pending();
+      const native = staged?.finish(chatTitle(instruction), offered?.changes() ?? []);
+      const documents = { ...workspace.documents() };
+      for (const change of [
+        ...prepared.values(),
+        ...(native?.changes() ?? []),
+        ...(offered?.changes() ?? []),
+      ]) {
+        if (change.content === null) delete documents[change.key];
+        else documents[change.key] = change.content;
+      }
+      return documents;
+    }
+    function stageChanges(label: string, changes: readonly ProjectChange[]) {
+      const offered = driver.pending();
+      const native = staged?.finish(label, offered?.changes() ?? []);
+      const combined = new Map(
+        [
+          ...prepared.values(),
+          ...(native?.changes() ?? []),
+          ...(offered?.changes() ?? []),
+          ...changes,
+        ].map((change) => [change.key, change]),
+      );
+      const checked = session.model.propose(base, label, [...combined.values()]);
+      workspace.propose(label, checked.changes());
+      const next = captureAgentWorkspace({
+        draft: new ProjectDraft(checked.documents()),
+        files: Object.fromEntries(base.lastAdmissibleBuild!.files()),
+        profileId: options.profileId,
+        allowMissingRooms: session.allowMissingRooms,
+      });
+      const nextSelection = workspaceSelection(
+        context,
+        checked.documents(),
+        PROFILES[options.profileId]!,
+        scene,
+      );
+      prepared.clear();
+      for (const change of checked.changes()) prepared.set(change.key, change);
+      workspace = next;
+      staged = undefined;
+      selection = nextSelection;
+      driver = projectDriver();
+    }
     const config = options.config();
     if (!automatic) beginProviderTask(config.budgetUsd ?? DEFAULT_TASK_BUDGET_USD);
     const run = new AgentRun(config.model, () => notify(), config.budgetUsd);
@@ -505,6 +608,7 @@ export function createWorkspaceAgent(options: Options) {
       for (const text of actionQueue ?? []) provider?.recordInterruption?.(text);
       actionQueue = [];
     }
+    let handedOver = false;
     async function offer(text: string) {
       assertLive();
       const offered = driver.pending();
@@ -517,6 +621,14 @@ export function createWorkspaceAgent(options: Options) {
       if (notes !== undefined) combined.set("notes", { key: "notes", content: notes });
       const changes = [...combined.values()];
       if (!changes.length) return false;
+      const candidate = captureAgentWorkspace({
+        draft: new ProjectDraft(stagedDocuments()),
+        files: Object.fromEntries(base.lastAdmissibleBuild!.files()),
+        profileId: options.profileId,
+        allowMissingRooms: session.allowMissingRooms,
+      }).openToolState();
+      const verdict = validateAgentHandover(candidate.state);
+      if (!verdict.success) throw new Error(verdict.error ?? "Handover rejected.");
       workspace.propose(chatTitle(instruction), changes);
       const proposal = session.model.propose(
         base,
@@ -524,7 +636,11 @@ export function createWorkspaceAgent(options: Options) {
         changes,
       );
       const messageId = id();
-      chat.messages.push({ id: messageId, role: "assistant", text: text || proposal.label });
+      chat.messages.push({
+        id: messageId,
+        role: "assistant",
+        text: [text || proposal.label, selectionReview].filter(Boolean).join("\n\n"),
+      });
       const capturedDocumentId = base.documentId;
       const capturedCommit = session.history.capture().cursor!;
       chat.pendingReview = {
@@ -549,7 +665,7 @@ export function createWorkspaceAgent(options: Options) {
       reviews.set(chat.id, review);
       notify();
       assertLive();
-      if ((autoApprove || automatic) && !review.stale()) {
+      if ((autoApprove || automatic) && !forceReview && !review.stale()) {
         try {
           await approve(undefined, true);
         } catch (cause) {
@@ -559,6 +675,12 @@ export function createWorkspaceAgent(options: Options) {
         }
         touched.clear();
         base = session.model.capture();
+        selection = workspaceSelection(
+          context,
+          base.documents(),
+          PROFILES[options.profileId]!,
+          scene,
+        );
         workspace = captureAgentWorkspace({
           draft: new ProjectDraft(base.documents()),
           files: Object.fromEntries(base.lastAdmissibleBuild!.files()),
@@ -600,7 +722,21 @@ export function createWorkspaceAgent(options: Options) {
         chat.sessionId ??= crypto.randomUUID();
         provider = make(config, initial, run, WORKSPACE_AGENT_TOOLS, chat.sessionId);
         const runtime = options.runtime?.() ?? {};
+        if (selection) {
+          scene = await selectionScene(runtime.engine, selection.focus.room ?? 0);
+          selection = workspaceSelection(
+            context,
+            base.documents(),
+            PROFILES[options.profileId]!,
+            scene,
+          );
+        }
         const references = (await runtime.referenceArt?.([])) ?? runtime.references;
+        const reference = references?.art.length ? await referenceManifest(references) : undefined;
+        const sendReference =
+          reference &&
+          (references!.art.some((art) => art.attached) ||
+            !JSON.stringify(initial).includes(JSON.stringify(reference.text).slice(1, -1)));
         const allowedTools = withReferences(
           readOnly ? ASK_TOOLS : WORKSPACE_AGENT_TOOLS.map((tool) => tool.name),
           references,
@@ -613,8 +749,11 @@ export function createWorkspaceAgent(options: Options) {
           review?.chatId === chat.id
             ? `\nPrevious changes for revision:\n${JSON.stringify(review.changes())}`
             : "";
-        const prompt = `${readOnly ? "Answer questions about this game using read-only tools and concise hints." : "You are the game's agent. Edit any resource through one coordinated change set. Read exact documents, retain existing ids and references, and use propose_changes for the final complete set. Whole-game tools stage edits; finish validates and offers them for review."} Write concise progress notes between tools. Game notes:\n${typeof currentNotes === "string" ? currentNotes : ""}\nAttached context:\n${context}\n${references ? referenceManifest(references) : ""}${revised}\nRequest:\n${instruction}`;
-        let turn = await provider.sendUserMessage(prompt);
+        const prompt = `${readOnly ? "Answer questions about this game using read-only tools and concise hints." : "You are the game's agent. Edit any resource through one coordinated change set. Read exact documents, retain existing ids and references, and use propose_changes for the final complete set. Whole-game tools stage edits. Call finish when the task is complete; repair a rejected handover before finishing. A successful finish ends the tool batch and hands the validated changes to the creator. Include concise progress notes with your next tool call while work remains."} Write concise progress notes between tools. Game notes:\n${typeof currentNotes === "string" ? currentNotes : ""}\nAttached context:\n${context}\n${sendReference ? reference.text : ""}${revised}\nRequest:\n${instruction}`;
+        let turn = await provider.sendUserMessage(
+          prompt,
+          sendReference ? [reference.image] : undefined,
+        );
         while (true) {
           await run.checkpoint(false);
           if (session.closed) throw new Error("The project session was closed.");
@@ -637,12 +776,59 @@ export function createWorkspaceAgent(options: Options) {
             assertLive();
             let result: AgentToolResult;
             try {
+              if (handedOver)
+                throw new Error("Not executed: this turn ended at a successful finish.");
               const definition = WORKSPACE_AGENT_TOOLS.find((tool) => tool.name === call.name);
               if (!definition || !allowedTools.includes(call.name))
                 throw new Error("This tool is unavailable.");
               const problems = validateToolArguments(definition.parameters, call.input);
               if (problems.length) throw new Error(problems.join(" "));
-              if (call.name === "write_notes") {
+              if (call.name === "propose_names") {
+                const changes = proposeNames({
+                  documents: stagedDocuments(),
+                  profile: PROFILES[options.profileId]!,
+                  names: call.input["names"] as Parameters<typeof proposeNames>[0]["names"],
+                });
+                stageChanges("Name game parts", changes);
+                forceReview = true;
+                result = {
+                  success: true,
+                  message: "Names and their evidence are ready for review.",
+                  details: { names: call.input["names"] },
+                };
+              } else if (SELECTION_TOOL_NAMES.includes(call.name)) {
+                selection = workspaceSelection(
+                  context,
+                  stagedDocuments(),
+                  PROFILES[options.profileId]!,
+                  scene,
+                );
+                staged ??= workspace.openToolState();
+                result = await executeAgentToolAsync(staged.state, call.name, call.input, {
+                  ...runtime,
+                  references,
+                  readOnly,
+                  allowedTools,
+                  selection,
+                });
+                if (result.success && call.name === "edit_selection" && selection?.candidate) {
+                  const candidate = selection.candidate;
+                  const key = `${candidate.kind}:${candidate.num}`;
+                  const content =
+                    candidate.draft.kind === "picture"
+                      ? candidate.draft.source
+                      : candidate.draft.payload;
+                  stageChanges(candidate.summary, [{ key, content }]);
+                  if (
+                    candidate.ops.some((op) => op.type === "deleteItem" || op.type === "deleteCel")
+                  )
+                    forceReview = true;
+                  const effects = candidate.check.sideEffects;
+                  if (effects?.cells)
+                    selectionReview = `Also changes: ${effects.items.map((item) => item.label).join(", ")} (${effects.cells} cells).`;
+                  touched.add(key);
+                }
+              } else if (call.name === "write_notes") {
                 touched.add("notes");
                 notes =
                   [
@@ -712,6 +898,7 @@ export function createWorkspaceAgent(options: Options) {
                 prepared.clear();
                 for (const change of checked.changes()) prepared.set(change.key, change);
                 workspace = next;
+                selection = undefined;
                 staged = undefined;
                 driver = projectDriver();
                 result = { success: true, message: "Image changes staged for review." };
@@ -740,6 +927,9 @@ export function createWorkspaceAgent(options: Options) {
                 staged = undefined;
                 notes = undefined;
                 prepared.clear();
+                selection = undefined;
+                selectionReview = "";
+                forceReview = false;
                 workspace = captureAgentWorkspace({
                   draft: new ProjectDraft(base.documents()),
                   files: Object.fromEntries(base.lastAdmissibleBuild!.files()),
@@ -753,7 +943,12 @@ export function createWorkspaceAgent(options: Options) {
                 if (review?.chatId === chat.id) review = null;
                 result = { success: true, message: "Discarded the task's pending changes." };
               }
-              if (call.name === "propose_changes" && result.success && (autoApprove || automatic)) {
+              if (
+                call.name === "propose_changes" &&
+                result.success &&
+                !forceReview &&
+                (autoApprove || automatic)
+              ) {
                 await offer(String(call.input["label"]));
                 result = {
                   ...result,
@@ -768,6 +963,7 @@ export function createWorkspaceAgent(options: Options) {
                 error: cause instanceof Error ? cause.message : String(cause),
               };
             }
+            if (call.name === "finish" && result.success) handedOver = true;
             if (result.details?.["gameTests"] && result.message) {
               progress.push(result.message);
               notify();
@@ -778,6 +974,7 @@ export function createWorkspaceAgent(options: Options) {
           provider.appendToolResults(results);
           unreported = [];
           flushActions();
+          if (handedOver) break;
           try {
             turn = await provider.complete();
           } catch (cause) {

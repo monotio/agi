@@ -17,6 +17,7 @@ import {
 } from "../../../src/agent/agentState.ts";
 import {
   ASK_TOOLS,
+  validateAgentHandover,
   buildSound,
   type SoundTrackInput,
   type executeAgentTool,
@@ -24,7 +25,6 @@ import {
   GENESIS_TOOLS,
   REMIX_TOOLS,
   ROOM_AUTHORING_TOOLS,
-  STUDIO_ASSIST_TASK_TOOLS,
   withReferences,
   type AgentRuntimeDeps,
   type AgentToolDeps,
@@ -82,16 +82,7 @@ import {
 } from "./llmClient.ts";
 import { GAME_DICTIONARY, StubAgent } from "./stubAgent.ts";
 import { createReferenceStub } from "./referenceStub.ts";
-import {
-  createStudioAssistPrompt,
-  createStudioAssistStub,
-  type StudioAssistRequest,
-  type StudioAssistResult,
-} from "./studioAssist.ts";
-import { createStudioAssist } from "../../../src/agent/studioAssistTools.ts";
 import { projectToolResult } from "../../../src/agent/toolTransport.ts";
-import { runGameTests } from "../../../src/agent/gameTests.ts";
-import { verifyPlanConnections } from "../../../src/agent/roomMap.ts";
 import type { AgentEventSink, AgentHandler, LlmRequest } from "./hostRequests.ts";
 import { continuationTranscript } from "../archive/projectArchive.ts";
 
@@ -167,29 +158,8 @@ Look before you write: read_room carries the room's live state, object table and
  * rejection text, or null when the candidate may commit.
  */
 function remixVerdict(staged: AgentSessionState): string | null {
-  const testRun = runGameTests(staged, null);
-  if (!testRun.success) return `Stored game tests failed: ${testRun.error ?? "unknown failure"}`;
-  const logics = new Map<number, Uint8Array>();
-  for (let num = 0; num <= 255; num++) {
-    const payload = staged.container.getResource("logic", num);
-    if (payload) logics.set(num, payload);
-  }
-  const connections = verifyPlanConnections(logics, staged.authoring.world.rooms, staged.profile);
-  if (connections.missing.length || connections.mismatched.length) {
-    const first = connections.missing[0] ?? connections.mismatched[0]!;
-    const cause =
-      "compiled" in first
-        ? `its compiled transition leaves the ${first.compiled} edge instead`
-        : "no compiled new.room transition reaches it";
-    const extra = connections.missing.length + connections.mismatched.length - 1;
-    return (
-      `room ${first.from} declares exit ${JSON.stringify(first.name)} ` +
-      `to room ${first.to} but ${cause}. ` +
-      "Implement the exit in the room's logic or revise the plan with update_plan." +
-      (extra > 0 ? ` ${extra} more declared exit(s) also fail validation.` : "")
-    );
-  }
-  return null;
+  const verdict = validateAgentHandover(staged, null, false);
+  return verdict.success ? null : (verdict.error ?? "Handover rejected.");
 }
 
 /** A checkpoint off the tape is untrusted input: it must be an object before stateFromAuthoredData validates its fields. */
@@ -743,110 +713,6 @@ Answer the player's question using evidence from inspection when needed. For hin
   }
 
   /**
-   * One Studio assist request: the creator's selection in Room Studio or
-   * Sprite Studio and what they asked for it. The model reads the focus and
-   * proposes candidates through the Studio tools only; nothing reaches the
-   * game or this session's resources. The result's candidate is what the UI
-   * previews and, on accept, applies as one undo step. The stub provider
-   * runs the same loop with a scripted conversation.
-   */
-  runStudioAssist(request: StudioAssistRequest): Promise<StudioAssistResult> {
-    if (this.task.snapshot().status === "idle") beginProviderTask(this.task.snapshot().allowance);
-    return this.task.run(() => this.studioAssist(request));
-  }
-  private async studioAssist(request: StudioAssistRequest): Promise<StudioAssistResult> {
-    this.assertAdoptable();
-    const conversation =
-      this.conversation ?? (this.stubFallback ? createStudioAssistStub(request.instruction) : null);
-    if (!conversation)
-      throw new Error("Connect an API key in AI settings before asking the Studio assistant.");
-    const { instruction, focus } = request;
-    const assist = createStudioAssist(
-      focus,
-      request.maxProposals === undefined ? {} : { maxProposals: request.maxProposals },
-    );
-    const label = `${focus.scope.kind} ${focus.scope.num}`;
-    this.messages.push({ role: "user", text: instruction });
-    this.onEvent("request", `[Studio] "${instruction}" (${label})`, { instruction, scope: label });
-    const art = await this.referenceTurn({ referenceIds: request.referenceIds });
-    const tools = withReferences(STUDIO_ASSIST_TASK_TOOLS, art.references);
-    conversation.setAvailableTools(tools);
-    const deps: AgentToolDeps = {
-      allowedTools: tools,
-      studio: assist,
-      references: art.references,
-    };
-    const watch = createReferenceWatch(art.references);
-    // Inspection reads a fork, as Ask does: nothing this turn runs may
-    // reach the session's resources. It reads under the draft's profile,
-    // the one Accept re-checks the candidate with.
-    const inspected = forkAgentState(this.state);
-    if (focus.profile) Object.assign(inspected, { profile: focus.profile });
-    try {
-      let turn = await this.observeTurn(
-        conversation.sendUserMessage(
-          art.text + createStudioAssistPrompt(instruction, focus),
-          art.images,
-        ),
-        "studio",
-      );
-      while (turn.toolCalls.length) {
-        const results: { toolCallId: string; result: AgentToolResult }[] = [];
-        for (const call of turn.toolCalls) {
-          await this.task.checkpoint(false);
-          this.onEvent("request", `[Studio] ${call.name}`, { tool: call.name, args: call.input });
-          this.task.assertActive();
-          this.assertAdoptable();
-          const toolStart = performance.now();
-          const result = watch.record(
-            call.name,
-            call.input,
-            await this.executeTool(inspected, call.name, call.input, deps),
-          );
-          this.pendingToolMs += performance.now() - toolStart;
-          this.onEvent(
-            result.success ? "response" : "error",
-            `[Studio] ${call.name} -> ${result.success ? (result.message ?? "ok").split("\n")[0] : result.error}`,
-            { tool: call.name, result: { ...result, images: undefined } },
-          );
-          this.task.recordTool(
-            call.name,
-            call.input,
-            result,
-            computeResourceRevision(Object.fromEntries(this.state.getFiles())),
-          );
-          results.push({ toolCallId: call.id, result: this.projectForModel(result) });
-        }
-        conversation.appendToolResults(results);
-        turn = await this.observeTurn(conversation.complete(), "studio");
-      }
-      const text =
-        turn.toolCalls.length === 0 && turn.text
-          ? turn.text
-          : (assist.candidate?.summary ?? "No change was proposed.");
-      this.noteUnviewed("Studio", watch.unviewed(text));
-      this.messages.push({ role: "assistant", text });
-      this.onEvent("response", `[Studio] ${text.slice(0, 300)}`, {
-        text,
-        candidate: assist.candidate?.candidateId ?? null,
-        proposals: assist.proposals,
-        refusals: assist.refusals,
-      });
-      return {
-        text,
-        candidate: assist.candidate,
-        proposals: assist.proposals,
-        refusals: assist.refusals,
-      };
-    } catch (error) {
-      conversation.recordInterruption?.(
-        `The Studio assist request was interrupted. Nothing was applied. ${String(error)}`,
-      );
-      throw error;
-    }
-  }
-
-  /**
    * The turn's reference art. The manifest rides the request when the player
    * attached art to it or the project's art changed since the last manifest
    * this session sent; otherwise the earlier manifest is still in the
@@ -900,7 +766,7 @@ Answer the player's question using evidence from inspection when needed. For hin
 
   private async observeTurn(
     pending: Promise<LlmTurnResult>,
-    phase: "ask" | "remix" | "genesis" | "room" | "studio",
+    phase: "ask" | "remix" | "genesis" | "room",
   ): Promise<LlmTurnResult> {
     try {
       const turn = await pending;

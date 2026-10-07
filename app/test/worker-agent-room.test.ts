@@ -9,12 +9,20 @@ import { createMainProjectAdmission } from "../src/engine/mainProjectAdmission.t
 import { compileProjectDocuments } from "../../src/authoring/projectDocuments.ts";
 import { createContainer, openContainer } from "../../src/container/container.ts";
 import { writeProjectWorkspace } from "../../src/authoring/projectWorkspace.ts";
+import { decodeTextRows } from "../src/project/gameTypes.ts";
 import { requireProjectId } from "../../src/gameIdentity.ts";
-import type { WorkerControl, WorkerInbound, WorkerQueryFn } from "../src/worker/workerProtocol.ts";
+import type {
+  WorkerControl,
+  WorkerInbound,
+  WorkerPresentation,
+  WorkerQueryFn,
+} from "../src/worker/workerProtocol.ts";
 
-test("an authored room answer joins the owned project History at the resumed boundary", async () => {
+test("an authored room answer joins History and keeps its parked print in every frame", async () => {
+  const roomSource =
+    'if (isset(f5)) { assignn(v50,2); load.pic(v50); draw.pic(v50); show.pic(); print("You stand in generated room 2."); } return;';
   const documents = {
-    "logic:0": "if (v40 == 0) { assignn(v40,1); new.room(2); } return;",
+    "logic:0": "if (v40 == 0) { assignn(v40,1); new.room(2); } call.v(v0); return;",
     words: "[]",
   };
   const compiled = compileProjectDocuments({
@@ -23,10 +31,13 @@ test("an authored room answer joins the owned project History at the resumed bou
     profileId: "2.936",
   });
   const messages: WorkerControl[] = [];
+  const frames: Extract<WorkerPresentation, { type: "frame" }>[] = [];
   let now = 0;
   const ctx = createWorkerContext({
     control: (message) => messages.push(message),
-    presentation: () => {},
+    presentation: (message) => {
+      if (message.type === "frame") frames.push(message);
+    },
     now: () => now,
     seedWord: () => 1,
   });
@@ -52,7 +63,7 @@ test("an authored room answer joins the owned project History at the resumed bou
   const admission = createMainProjectAdmission({
     ...ack.projectAdmission,
     query,
-    current: () => ctx.engine !== null,
+    current: () => ctx.run.engine !== null,
   });
   const session = openProjectSession({
     data: {
@@ -92,17 +103,18 @@ test("an authored room answer joins the owned project History at the resumed bou
   assert.ok(request?.type === "hostRequest");
   const base = session.model.capture();
   const changes = [
-    { key: "logic:2", content: "return;" },
+    { key: "logic:2", content: roomSource },
     { key: "picture:2", content: "vis 2\nfill 0,0\nend\n" },
   ];
   const candidate = compileProjectDocuments({
     files: Object.fromEntries(compiled.files()),
-    documents: { ...documents, "logic:2": "return;", "picture:2": "vis 2\nfill 0,0\nend\n" },
+    documents: { ...documents, "logic:2": roomSource, "picture:2": "vis 2\nfill 0,0\nend\n" },
     profileId: "2.936",
   });
   const image = openContainer(candidate.files());
   onWorkerMessage(ctx, {
     type: "hostAnswer",
+    generation: ctx.run.generation,
     id: request.id,
     response: JSON.stringify({
       room: 2,
@@ -113,6 +125,11 @@ test("an authored room answer joins the owned project History at the resumed bou
       })),
     }),
   });
+  ctx.fns.postFrame();
+  assert.equal(ctx.run.engine!.modalKind, "print");
+  const parked = ctx.run.engine!.getPresentation().text;
+  assert.match(decodeTextRows(parked).join(" "), /You stand in generated room 2\./);
+  const firstPrint = frames.length - 1;
   const result = await session.submitPreparedRoom({
     proposal: session.model.propose(base, "Built room 2", changes),
     label: "AI: Built room 2",
@@ -123,11 +140,36 @@ test("an authored room answer joins the owned project History at the resumed bou
   });
   assert.ok(["committed", "unchanged"].includes(result.status), JSON.stringify(result));
   assert.equal(session.history.capture().commits.at(-1)!.chatId, "room-task");
-  assert.equal(session.model.capture().read("logic:2")!.content, "return;");
+  assert.equal(session.model.capture().read("logic:2")!.content, roomSource);
+  ctx.fns.postFrame();
+  assert.equal(
+    ctx.run.engine!.modalKind,
+    "print",
+    "adopting the authored bytes keeps the window parked",
+  );
+  for (const frame of frames.slice(firstPrint)) {
+    assert.equal(frame.modal, "print");
+    assert.deepEqual(frame.text, parked, `cycle ${frame.cycle} keeps the complete print surface`);
+  }
   const cursor = session.history.capture().cursor;
-  ctx.engine!.patchResources([
+  const lateAdmission = createMainProjectAdmission({
+    ...ack.projectAdmission,
+    query,
+    current: () => ctx.run.engine !== null,
+    acceptedImage: () => session.model.capture().lastAdmissibleBuild,
+  });
+  const next = compileProjectDocuments({
+    files: Object.fromEntries(candidate.files()),
+    documents: { ...candidate.documents(), notes: "Edited after the live room." },
+    profileId: "2.936",
+  });
+  const following = await lateAdmission.admit(next, []);
+  assert.ok(["committed", "unchanged"].includes(following.status), JSON.stringify(following));
+  ctx.run.engine!.patchResources([
     { kind: "picture", num: 2, payload: compilePictureSource("vis 3\nfill 0,0\nend\n").bytes },
   ]);
+  const unowned = await lateAdmission.admit(next, []);
+  assert.equal(unowned.status, "refused", "an unrelated native change cannot be rebased");
   await assert.rejects(
     () =>
       session.submitPreparedRoom({
@@ -140,7 +182,7 @@ test("an authored room answer joins the owned project History at the resumed bou
         chatId: "room-task",
         messageId: "later",
       }),
-    /image changed/,
+    /The game changed while this room was being built\. Reopen the game, then try again\./,
   );
   assert.equal(session.history.capture().cursor, cursor);
   assert.equal(session.model.capture().read("notes"), undefined);

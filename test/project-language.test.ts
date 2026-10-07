@@ -14,7 +14,9 @@ test("project language resolves generated bindings and maps authored UTF-16 rang
   const source = "// 🎮\r\nset(door); score = 7; return;";
   const language = createProjectLogicLanguageSnapshot({ source, ...context });
   const use = source.indexOf("door");
-  assert.deepEqual(language.diagnostics, []);
+  assert.equal(language.diagnostics.length, 1);
+  assert.match(language.diagnostics[0]!.message, /score.*Variable 30.*built-in Variable 3/);
+  assert.equal(language.diagnostics[0]!.severity, "warning");
   assert.deepEqual(language.generatedDiagnostics, []);
   assert.deepEqual(language.definitionAt(use), {
     kind: "binding",

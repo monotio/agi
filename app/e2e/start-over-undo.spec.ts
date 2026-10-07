@@ -8,7 +8,7 @@ import { expect, reviewShot, test } from "./test.ts";
 import {
   isolateStorage,
   openGameOptions,
-  openLibraryActions,
+  openPlayMore,
   savedGameCard,
   textHook,
   waitForCycles,
@@ -48,8 +48,8 @@ async function startOverFromHome(page: Page): Promise<void> {
   await page.getByTestId("btn-exit").click();
   const card = savedGameCard(page, "Adventure Department");
   await expect(card).toBeVisible();
-  await openLibraryActions(page, card);
-  await page.getByTestId("start-library-game-over").click();
+  const more = await openPlayMore(page, card);
+  await more.getByTestId("start-library-game-over").click();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
 }
 

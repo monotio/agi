@@ -248,8 +248,8 @@ describe("walkView: doors and words", () => {
     assert.equal(words("reached"), "Reached");
     assert.equal(words("blocked", 1, "Rope barrier"), "Blocked at Rope barrier");
     assert.equal(words("blocked"), "Blocked at a barrier");
-    assert.equal(words("room_changed", 2), "Went to room 2 (Green room)");
-    assert.equal(words("room_changed", 9), "Went to room 9");
+    assert.equal(words("room_changed", 2), "Went to Green room (Room 2)");
+    assert.equal(words("room_changed", 9), "Went to Room 9");
     assert.equal(words("modal"), "A message stopped the walk");
     assert.equal(words("start_blocked"), "The start is not a spot the player can stand on");
   });
@@ -284,7 +284,7 @@ describe("walkView: doors and words", () => {
     );
     assert.equal(aimed("stayed"), "Reached the west edge, but the game stayed in this room");
     assert.equal(aimed("reached"), "Reached the west edge, but the game stayed in this room");
-    assert.equal(aimed("room_changed"), "Went to room 1 (Door hall)");
+    assert.equal(aimed("room_changed"), "Went to Door hall (Room 1)");
     assert.equal(aimed("modal"), "A message stopped the walk");
   });
 
@@ -319,7 +319,7 @@ describe("walkView: doors and words", () => {
     assert.deepEqual(resultPlace(from, run("reached"), 1), { term: "Ended at", text: "18,151" });
     assert.deepEqual(resultPlace(from, run("room_changed", 2), 1), {
       term: "Ended at",
-      text: "18,151 in room 2",
+      text: "18,151 in Room 2",
     });
     // The engine put ego at the room's entry (18,151); the card names the start asked for.
     assert.deepEqual(resultPlace(from, run("start_blocked"), 1), {
@@ -932,7 +932,7 @@ describe("test walks", () => {
     vars[40] = 7;
     walk.again();
     await settle();
-    assert.equal(walk.result.value?.title, "Went to room 2 (Green room)");
+    assert.equal(walk.result.value?.title, "Went to Green room (Room 2)");
     assert.equal(walk.result.value?.state, "live");
     assert.deepEqual(
       rig.runs.at(-1)!.vars?.find((v) => v.id === 40),
@@ -992,7 +992,7 @@ describe("test walks", () => {
     walk.clickWalk({ x: 65, y: 150 });
     walk.clickWalk({ x: 65, y: 110 });
     await settle();
-    assert.equal(walk.result.value?.title, "Went to room 2 (Green room)");
+    assert.equal(walk.result.value?.title, "Went to Green room (Room 2)");
     assert.equal(walk.result.value?.door, "door-1");
     assert.equal(tested("door-1"), true);
     assert.equal(tested("door-2"), false, "a door to the same room is not certified");
@@ -1046,7 +1046,7 @@ describe("test walks", () => {
     walk.clickWalk({ x: 40, y: 140 });
     walk.clickWalk({ x: 60, y: 150 });
     await waitUntil(() => !walk.running.value, "the test walk did not finish");
-    assert.equal(walk.result.value?.title, "Reached room 2 (Green room)");
+    assert.equal(walk.result.value?.title, "Reached Green room (Room 2)");
     assert.equal(walk.result.value?.door, null);
     assert.equal(walk.tested.value.size, 0);
     rig.stop();
@@ -1080,7 +1080,7 @@ describe("test walks", () => {
     await settle();
     const run = rig.runs.at(-1)!;
     assert.deepEqual([run.to, run.cross], [{ x: 0, y: 135 }, "left"]);
-    assert.equal(walk.result.value?.title, "Went to room 2 (Green room)");
+    assert.equal(walk.result.value?.title, "Went to Green room (Room 2)");
     assert.equal(walk.result.value?.door, "exit-west-1");
     assert.equal(walk.tested.value.has("exit-west-1"), true);
 
@@ -1207,7 +1207,7 @@ describe("test walks", () => {
     await waitUntil(() => !walk.running.value, "the test walk did not finish");
     assert.equal(
       walk.result.value?.title,
-      "Went to room 1 (Picture Gallery)",
+      "Went to Picture Gallery (Room 1)",
       walk.result.value?.result.reason ?? "",
     );
     assert.equal(walk.result.value?.door, west.id);

@@ -1,4 +1,4 @@
-import { configureSessionTiming } from "./session.ts";
+import { detachedHost, replaceRun } from "./runSession.ts";
 /**
  * The scratch tape drive (`openHistoryDrive`): rebuild a session from a
  * segment's boot or anchor, apply the recorded event stream at its recorded
@@ -165,16 +165,17 @@ function captureSemanticState(
   ctx: WorkerContext,
   template: HistorySemanticState,
 ): HistorySemanticState {
-  const engine = ctx.engine;
+  const engine = ctx.run.engine;
   if (engine === null) throw new Error("no engine to capture");
   const files = new Map(engine.containerFiles);
   if (ctx.boot.authoredWords) files.set("WORDS.TOK", ctx.boot.authoredWords);
   const out: HistorySemanticState = {
-    requestSerial: ctx.hostRequests.hostRequestSerial,
-    rng: ctx.replay.replay?.random ?? 0,
+    requestSerial: ctx.run.hostRequests.hostRequestSerial,
+    rng: ctx.run.rng.word,
     soundDevice: ctx.boot.selectedSoundDevice,
     resourceSet: resourceSetHint({ getFiles: () => files }),
   };
+  if (template.rngPolicy !== undefined) out.rngPolicy = { ...ctx.run.rng.policy };
   if (template.amigaRegion !== undefined) out.amigaRegion = engine.amigaRegion;
   if (template.documentId !== undefined) {
     if (ctx.boot.project === undefined)
@@ -193,13 +194,14 @@ function captureSemanticState(
   }
   if (template.replay !== undefined) out.replay = engine.captureReplayState();
   if (template.menus !== undefined) out.menus = engine.readMenuState();
-  if (template.inputQueue !== undefined) out.inputQueue = [...ctx.input.keyQueue];
-  if (template.directionQueue !== undefined) out.directionQueue = [...ctx.input.deferredMovement];
-  if (template.inputLines !== undefined) out.inputLines = [...ctx.input.inputBuffer];
+  if (template.inputQueue !== undefined) out.inputQueue = [...ctx.run.input.keyQueue];
+  if (template.directionQueue !== undefined)
+    out.directionQueue = [...ctx.run.input.deferredMovement];
+  if (template.inputLines !== undefined) out.inputLines = [...ctx.run.input.inputBuffer];
   if (template.clickQueue !== undefined)
-    out.clickQueue = ctx.input.clickQueue.map(([x, y]): [number, number] => [x, y]);
-  if (template.clock !== undefined) out.clock = ctx.clocks.cycle.snapshot();
-  if (template.soundRemainder !== undefined) out.soundRemainder = ctx.clocks.sound.snapshot();
+    out.clickQueue = ctx.run.input.clickQueue.map(([x, y]): [number, number] => [x, y]);
+  if (template.clock !== undefined) out.clock = ctx.run.clocks.cycle.snapshot();
+  if (template.soundRemainder !== undefined) out.soundRemainder = ctx.run.clocks.sound.snapshot();
   if (template.patchGeneration !== undefined) out.patchGeneration = engine.patchGeneration;
   return out;
 }
@@ -247,7 +249,7 @@ export function openHistoryDrive(
   let endSeq = 0;
   let endTick = 0;
   let engine: Engine | null = null;
-  let replay: { tick: number; revision: number; random: number } | null = null;
+  let replay: { tick: number; revision: number } | null = null;
   const appliedSeq = () => (ei < events.length ? events[ei]!.seq : endSeq);
   const nextDue = () =>
     ei < events.length && (toSeq === undefined || events[ei]!.seq < toSeq) ? events[ei]! : null;
@@ -291,11 +293,7 @@ export function openHistoryDrive(
       baseFiles,
       segment.boot.profile ? { profile: segment.boot.profile } : {},
     );
-    const {
-      wordsPatched,
-      files: foldedFiles,
-      project,
-    } = foldFiles(
+    const { files: foldedFiles, project } = foldFiles(
       foldContainer,
       dictionary,
       segment.events,
@@ -314,32 +312,21 @@ export function openHistoryDrive(
       return drive;
     }
 
-    ctx.boot.project = project;
-    ctx.boot.liveDictionary = dictionary;
-    ctx.boot.currentBootFiles = files;
-    ctx.boot.currentDictionary = dictionary;
-    ctx.boot.authorRooms = segment.boot.authorRooms;
-    ctx.boot.selectedSoundDevice = anchor ? anchor.soundDevice : segment.boot.soundDevice;
-    ctx.boot.authoredWords = wordsPatched ? (files.get("WORDS.TOK") ?? null) : null;
-    ctx.boot.profile = segment.boot.profile ?? null;
-    ctx.boot.amigaRegion = segment.boot.amigaRegion ?? "ntsc";
-    ctx.engine = new Engine(
-      openContainer(files, ctx.boot.profile ? { profile: ctx.boot.profile } : {}),
-      ctx.host,
+    const facade = detachedHost(ctx, anchor ? anchor.soundDevice : segment.boot.soundDevice);
+    const candidate = new Engine(
+      openContainer(files, segment.boot.profile ? { profile: segment.boot.profile } : {}),
+      facade.host,
       dictionary,
       {
-        ...(ctx.boot.profile ? { profile: ctx.boot.profile } : {}),
-        amigaRegion: ctx.boot.amigaRegion,
+        ...(segment.boot.profile ? { profile: segment.boot.profile } : {}),
+        amigaRegion: segment.boot.amigaRegion ?? "ntsc",
       },
     );
-    ctx.fns.armJournal();
     // Browser sessions boot with game sound enabled; the recorded flag restores below.
-    ctx.engine.flags[9] = 1;
-    ctx.hostRequests.hostRequestSerial = anchor ? anchor.requestSerial : segment.boot.requestSerial;
+    candidate.flags[9] = 1;
     ctx.replay.replay = {
       tick: startTick,
       revision: 0,
-      random: anchor ? anchor.rng : segment.boot.rng,
     };
     // The recorded BIOS-clock lane: every reseed the live session drew at
     // or after the start position, in draw order — the scratch RNG's
@@ -350,36 +337,52 @@ export function openHistoryDrive(
       .map((e) => (e.cause as { kind: "reseed"; value: number }).value);
     ctx.replay.reseedCursor = 0;
     ctx.replay.historyReplay = true;
-    ctx.cycle.cycleCount = startCycle;
-    ctx.cycle.tickCount = startTick;
 
     const image = anchor ? anchor.image : segment.boot.image;
     // The recorded presentation is the state at this resume point — the
     // live-restore redraw (status and input rows re-stamped) would rewrite
     // the text ages the snapshot carries.
     if (image !== undefined)
-      ctx.engine.restoreImage(base64ToBytes(image), { preservePresentation: true });
+      candidate.restoreImage(base64ToBytes(image), { preservePresentation: true });
     const menus = anchor ? undefined : segment.boot.menus;
-    if (menus !== undefined) ctx.engine.restoreMenuState(menus);
+    if (menus !== undefined) candidate.restoreMenuState(menus);
     const replayState = anchor ? anchor.replay : segment.boot.replay;
-    if (replayState !== undefined) ctx.engine.restoreReplayState(replayState);
-    ctx.input.keyQueue = [...(anchor ? anchor.inputQueue : (segment.boot.inputQueue ?? []))];
-    ctx.input.deferredMovement = [
-      ...(anchor ? anchor.directionQueue : (segment.boot.directionQueue ?? [])),
-    ];
-    ctx.input.inputBuffer = [...(anchor ? anchor.inputLines : (segment.boot.inputLines ?? []))];
-    // The queue is optional on pre-click tapes; an anchor lacking it means
-    // empty, never the boot's leftovers.
-    ctx.input.clickQueue = (
-      anchor ? (anchor.clickQueue ?? []) : (segment.boot.clickQueue ?? [])
-    ).map(([x, y]): [number, number] => [x, y]);
+    if (replayState !== undefined) candidate.restoreReplayState(replayState);
     const clock = anchor ? anchor.clock : segment.boot.clock;
-    configureSessionTiming(ctx);
-    if (clock !== undefined) ctx.clocks.cycle.restore(clock, virtualNow);
     const soundRemainder = anchor ? anchor.soundRemainder : segment.boot.soundRemainder;
-    if (soundRemainder !== undefined) ctx.clocks.sound.restore(virtualNow, soundRemainder);
-    ctx.cycle.paused = clock?.paused ?? false;
-    if (ctx.engine.awaitingKey) ctx.fns.setKeyWaiting(true);
+    replaceRun(ctx, "history", {
+      engine: candidate,
+      admission: null,
+      project,
+      dictionary,
+      settings: {
+        authorRooms: segment.boot.authorRooms,
+        createAllowed: false,
+        selectedSoundDevice: anchor ? anchor.soundDevice : segment.boot.soundDevice,
+      },
+      rng: {
+        word: anchor ? anchor.rng : segment.boot.rng,
+        policy: structuredClone((anchor ?? segment.boot).rngPolicy ?? { kind: "external" }),
+      },
+      paused: clock?.paused ?? false,
+      activate: facade.activate,
+      resume: {
+        cycle: startCycle,
+        tick: startTick,
+        virtualNow,
+        initialLogicStarted: false,
+        boot: {
+          requestSerial: anchor ? anchor.requestSerial : segment.boot.requestSerial,
+          inputQueue: anchor ? anchor.inputQueue : (segment.boot.inputQueue ?? []),
+          directionQueue: anchor ? anchor.directionQueue : (segment.boot.directionQueue ?? []),
+          inputLines: anchor ? anchor.inputLines : (segment.boot.inputLines ?? []),
+          clickQueue: anchor ? (anchor.clickQueue ?? []) : (segment.boot.clickQueue ?? []),
+          ...(clock ? { clock } : {}),
+          ...(soundRemainder !== undefined ? { soundRemainder } : {}),
+        },
+      },
+    });
+    if (candidate.awaitingKey) ctx.fns.setKeyWaiting(true);
 
     // The resume point's semantic fingerprint was recorded live; the
     // scratch re-derives it from the restored state and the two must
@@ -399,7 +402,7 @@ export function openHistoryDrive(
         `${anchor !== null ? `anchor ${anchor.seq}` : "boot"} semantic fingerprint does not hold: the restored state is not the recorded state`,
       );
 
-    engine = ctx.engine;
+    engine = ctx.run.engine;
     replay = ctx.replay.replay;
     while (ei < events.length && events[ei]!.seq < startSeq) ei++;
     endSeq = segment.end?.seq ?? (events.length ? events[events.length - 1]!.seq + 1 : 0);
@@ -451,11 +454,11 @@ export function openHistoryDrive(
         actual.score !== mark.score ||
         actual.patchGeneration !== mark.patchGeneration ||
         actual.modal !== mark.modal ||
-        ctx.cycle.cycleCount !== mark.cycle
+        ctx.run.cycle.cycleCount !== mark.cycle
       ) {
         outcome.diverged = {
           at: { seq: mark.seq, tick: mark.tick, cycle: mark.cycle },
-          detail: `sync mark mismatch at room ${mark.room} cycle ${ctx.cycle.cycleCount}/${mark.cycle}`,
+          detail: `sync mark mismatch at room ${mark.room} cycle ${ctx.run.cycle.cycleCount}/${mark.cycle}`,
           expected: mark.digest,
           actual: actual.digest,
         };
@@ -477,7 +480,7 @@ export function openHistoryDrive(
         // The live boundary accepted this release; apply it as recorded —
         // re-deriving eligibility from the mirrored gate would second-guess
         // the tape when the host's frame mirror lagged the engine's.
-        if (ctx.input.deferredMovement.length < 19) ctx.input.deferredMovement.push(0);
+        if (ctx.run.input.deferredMovement.length < 19) ctx.run.input.deferredMovement.push(0);
         ctx.fns.flushDeferredMovement();
         return;
       case "click":
@@ -521,7 +524,9 @@ export function openHistoryDrive(
         const files = new Map(
           Object.entries(cause.files).map(([name, data]) => [name, base64ToBytes(data)]),
         );
-        const result = engine!.commitPreviewUpdate(engine!.preparePreviewUpdate({ files }));
+        const result = engine!.commitPreviewUpdate(engine!.preparePreviewUpdate({ files }), {
+          messageWaiting: true,
+        });
         if (result.status !== "committed" && result.status !== "unchanged")
           throw new Error(`Recorded project image refused: ${result.status}`);
         ctx.boot.currentBootFiles = new Map(engine!.containerFiles);
@@ -566,7 +571,12 @@ export function openHistoryDrive(
       case "answer":
         if (cause.op === "room")
           ctx.fns.onHostAnswer(
-            { type: "hostAnswer", id: cause.request, response: cause.response },
+            {
+              type: "hostAnswer",
+              generation: ctx.run.generation,
+              id: cause.request,
+              response: cause.response,
+            },
             // A declined room carries prepared:false and no patch — replay
             // must deliver the refusal, not recompile the empty response.
             cause.patch ?? (cause.prepared === false ? null : undefined),
@@ -574,6 +584,7 @@ export function openHistoryDrive(
         else
           ctx.fns.onHostAnswer({
             type: "hostAnswer",
+            generation: ctx.run.generation,
             id: cause.request,
             response: cause.response,
           });

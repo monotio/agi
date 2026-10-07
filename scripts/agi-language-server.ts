@@ -125,12 +125,11 @@ async function loadProject(options: CliOptions) {
     for (const [word, id] of loadDictionary(wordsPath)) input.dictionary.set(word, id);
   }
   const objectPath = join(root, "OBJECT");
+  let inventory = input.inventory;
   if (statExists(objectPath)) {
     const { readInventoryObjects } = await import("../src/authoring/inventory.ts");
-    input.objects = readInventoryObjects(
-      new Uint8Array(readFileSync(objectPath)),
-      input.profile,
-    ).map((item) => item.name);
+    inventory = readInventoryObjects(new Uint8Array(readFileSync(objectPath)), input.profile);
+    input.objects = inventory.map((item) => item.name);
   }
   const bindingPath = join(root, "bindings.json");
   if (statExists(bindingPath))
@@ -149,6 +148,19 @@ async function loadProject(options: CliOptions) {
     profileId: input.profile.id,
     words: [...input.dictionary],
     objects: input.objects,
+    ...(inventory
+      ? {
+          inventory,
+          ...(statExists(objectPath)
+            ? {
+                inventoryDocument: {
+                  uri: pathToFileURL(objectPath).href,
+                  source: JSON.stringify(inventory, null, 2),
+                },
+              }
+            : {}),
+        }
+      : {}),
     bindings: input.bindings,
     documents,
     ...(statExists(bindingPath)

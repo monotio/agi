@@ -2,6 +2,7 @@
  * Lucide icons 1.48.0 (https://lucide.dev), ISC License.
  * Full notices, including Feather-derived icons: /licenses/lucide.txt
  * Generated from lucide-static icon-nodes.json; names are app-level aliases.
+ * `update` joins rotate-ccw with a narrowed circle-arrow-up arrow inside it.
  */
 
 export type IconNode = readonly [
@@ -388,6 +389,10 @@ export const ICONS = {
     ["path", { d: "m15 14 5-5-5-5" }],
     ["path", { d: "M20 9H9.5A5.5 5.5 0 0 0 4 14.5A5.5 5.5 0 0 0 9.5 20H13" }],
   ],
+  restart: [
+    ["path", { d: "M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" }],
+    ["path", { d: "M3 3v5h5" }],
+  ],
   rewind: [
     ["path", { d: "M12 6a2 2 0 0 0-3.414-1.414l-6 6a2 2 0 0 0 0 2.828l6 6A2 2 0 0 0 12 18z" }],
     ["path", { d: "M22 6a2 2 0 0 0-3.414-1.414l-6 6a2 2 0 0 0 0 2.828l6 6A2 2 0 0 0 22 18z" }],
@@ -489,6 +494,11 @@ export const ICONS = {
     ["line", { x1: "2", x2: "5", y1: "8", y2: "8" }],
     ["line", { x1: "16", x2: "16", y1: "19", y2: "22" }],
     ["line", { x1: "19", x2: "22", y1: "16", y2: "16" }],
+  ],
+  update: [
+    ["path", { d: "M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" }],
+    ["path", { d: "M3 3v5h5" }],
+    ["path", { d: "M12 7 7 12h3v5h4v-5h3Z", fill: "currentColor", stroke: "none" }],
   ],
   upload: [
     ["path", { d: "M12 3v12" }],

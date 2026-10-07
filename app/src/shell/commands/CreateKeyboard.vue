@@ -12,6 +12,7 @@ import CommandPalette from "./CommandPalette.vue";
 import QuickOpen from "./QuickOpen.vue";
 import { emptyCommandContext } from "./commandContext.ts";
 import type { CommandContext, CommandRegistry } from "./commandRegistry.ts";
+import { launchAction, launchName } from "../launchAction.ts";
 import { registerDefaultCommands } from "./defaultCommands.ts";
 import { useFocusZones, type FocusZone } from "./useFocusZones.ts";
 
@@ -62,6 +63,14 @@ function context(): CommandContext {
     textInputFocus,
     dialogOpen: !!document.querySelector("dialog[open]"),
     debugging: editor.debugging.value,
+    debugPaused: !!editor.debugStatus.value,
+    runLabel: launchAction({
+      pending: editor.changeCount.value > 0,
+      launch: editor.selectedLaunch.value,
+      launchName: launchName(editor.selectedLaunch.value, editor.launchChoices.value),
+      room: editor.actionRoomName.value,
+      here: engine.roomMap.currentRoom.value === editor.actionRoom.value,
+    }).label,
   };
 }
 function blocksGame(event: KeyboardEvent): boolean {
@@ -103,12 +112,11 @@ function agent(): void {
   workspace.showPanel("assistant");
   shell.openRemix();
   void nextTick().then(() => {
-    zones.focus("agent");
     document.querySelector<HTMLElement>(".assistant-host textarea, .assistant-host input")?.focus();
   });
 }
 const offDefaults = registerDefaultCommands(props.registry, {
-  run: () => editor.debugCommand.value?.("start"),
+  run: () => (editor.debugStatus.value ? editor.debugCommand.value?.("start") : play()),
   stop: () => editor.debugCommand.value?.("stop"),
   breakpoint: () => editor.debugCommand.value?.("breakpoint"),
   stepOver: () => editor.debugCommand.value?.("over"),
@@ -118,7 +126,8 @@ const offDefaults = registerDefaultCommands(props.registry, {
   palette: () => showChooser("palette"),
   parts: () => workspace.toggleDock("left"),
   panel: () => {
-    editor.panel.value = !editor.panel.value;
+    if (editor.selected.value === "problems") editor.close("problems");
+    else editor.open("problems");
   },
   undo: () => editor.step("undo"),
   redo: () => editor.step("redo"),
@@ -130,7 +139,7 @@ const offDefaults = registerDefaultCommands(props.registry, {
 });
 const offUpdateRestart = props.registry.register({
   id: "game.update-restart",
-  title: "Update and play this room",
+  title: "Update and restart room",
   category: "Game",
   keys: [{ key: "Mod+Shift+Enter", textInput: true, game: true }],
   when: (c) => !c.dialogOpen,

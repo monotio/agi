@@ -11,6 +11,7 @@ import {
   configureAi,
   workspaceUpdated,
   openWorkspaceAgent,
+  openWorkspacePicture,
 } from "./engineProbe.ts";
 import type { Page } from "@playwright/test";
 async function start(page: Page, provider: "stub" | "openai" = "stub", openLogic = true) {
@@ -51,6 +52,80 @@ async function documents(page: Page) {
     return session.model.capture().documents();
   });
 }
+
+test("Auto-approve shows a rejected handover without admitting its edits @webkit-desktop", async ({
+  page,
+}) => {
+  let requests = 0;
+  const catalogNames: string[][] = [];
+  await page.route("**/api/openai/v1/responses", async (route) => {
+    const body = route.request().postDataJSON() as { tools: { name: string }[] };
+    catalogNames.push(body.tools.map((tool) => tool.name));
+    requests++;
+    await route.fulfill(
+      providerReply("openai", {
+        id: `handover-${requests}`,
+        status: "completed",
+        output:
+          requests === 1
+            ? [
+                {
+                  type: "function_call",
+                  id: "test",
+                  call_id: "test",
+                  name: "write_game_tests",
+                  arguments: JSON.stringify({
+                    mode: "merge",
+                    names: null,
+                    tests: [
+                      {
+                        name: "Impossible score",
+                        room: 1,
+                        spawnX: null,
+                        spawnY: null,
+                        steps: [{ action: "wait", ticks: 1 }],
+                        expect: { score: 99 },
+                        cycleBudget: 100,
+                      },
+                    ],
+                  }),
+                },
+                {
+                  type: "function_call",
+                  id: "finish",
+                  call_id: "finish",
+                  name: "finish",
+                  arguments: '{"notes":null}',
+                },
+              ]
+            : [
+                {
+                  type: "message",
+                  role: "assistant",
+                  content: [{ type: "output_text", text: "Done." }],
+                },
+              ],
+      }),
+    );
+  });
+  await start(page, "openai");
+  const before = await documents(page);
+  await page.getByRole("radio", { name: "Auto-approve", exact: true }).click();
+  await page.getByTestId("agent-message").fill("Record and validate the score test");
+  await page.getByRole("button", { name: "Send", exact: true }).click();
+  await expect(page.getByTestId("workspace-agent-panel").getByRole("alert")).toContainText(
+    "Handover rejected",
+  );
+  await expect(page.getByTestId("agent-review")).toHaveCount(0);
+  expect(await documents(page)).toEqual(before);
+  expect(requests).toBe(2);
+  expect(catalogNames[0]).toContain("configure_launch");
+  expect(catalogNames[1]).toEqual(catalogNames[0]);
+  await page.screenshot({
+    path: test.info().outputPath("rejected-handover.png"),
+    animations: "disabled",
+  });
+});
 for (const size of [
   { width: 1440, height: 900 },
   { width: 1280, height: 720 },
@@ -76,11 +151,11 @@ for (const size of [
         .getByTestId("workspace-logic-editor")
         .locator(".view-line")
         .filter({ hasText: "draw.pic(v50);" })
-        .click();
+        .click({ position: { x: 24, y: 8 } });
       await page.keyboard.press("Home");
       for (let line = 0; line < 6; line++) await page.keyboard.press("Shift+ArrowDown");
       await expect(panel.locator(".agent-panel__context")).toBeVisible();
-      await expect(panel.locator(".agent-panel__context")).toContainText("LOGIC 1 lines 5–11");
+      await expect(panel.locator(".agent-panel__context")).toContainText("LOGIC 1 · lines 5–11");
     }
     const before = await documents(page);
     const cycle = (await textHook(page)).cycle;
@@ -120,10 +195,11 @@ for (const size of [
     await start(page);
     const before = await documents(page);
     await page.getByTestId("agent-auto-approve").click();
+    await expect(page.getByTestId("agent-auto-approve")).toBeVisible();
     await expect(page.getByTestId("agent-auto-approve")).toHaveAttribute("aria-checked", "true");
     await expect(page.getByTestId("agent-auto-approve")).toHaveAttribute(
       "title",
-      /Undo takes them back/,
+      "Review asks before applying changes. Auto-approve applies them as they arrive.",
     );
     await page.evaluate(() => {
       const panel = document.querySelector("[data-testid=workspace-agent-panel]")!;
@@ -148,7 +224,7 @@ for (const size of [
     });
     await page.getByTestId("agent-message").focus();
     await page.keyboard.press("ControlOrMeta+n");
-    await expect(page.getByRole("button", { name: "Chats", exact: true })).toHaveText("New chat");
+    await expect(page.getByRole("button", { name: "Chats", exact: true })).toHaveText("Chats");
     await page.getByRole("button", { name: "Chats", exact: true }).click();
     await page.getByRole("button", { name: "Add a welcome sign", exact: true }).click();
     await expect(page.getByRole("button", { name: "Undo this", exact: true })).toBeVisible();
@@ -157,7 +233,7 @@ for (const size of [
   });
 }
 
-test("Agent toggles from composer, editor and game and Escape returns to the originating editor", async ({
+test("Agent toggles from composer, editor and game and Escape returns to the originating editor @webkit-desktop", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -173,10 +249,9 @@ test("Agent toggles from composer, editor and game and Escape returns to the ori
   await expect(composer).toBeFocused();
   await composer.fill("Keep this draft");
   await composer.press("Escape");
-  await expect(composer).toBeFocused();
-  await composer.fill("");
-  await composer.press("Escape");
+  await expect(panel).toBeHidden();
   await expect(logic).toBeFocused();
+  await page.keyboard.press("ControlOrMeta+i");
   await expect(panel).toBeVisible();
   await page.screenshot({ path: test.info().outputPath("keyboard-1440.png") });
   await page.keyboard.press("ControlOrMeta+i");
@@ -185,6 +260,88 @@ test("Agent toggles from composer, editor and game and Escape returns to the ori
   await page.keyboard.press("ControlOrMeta+i");
   await expect(composer).toBeFocused();
 });
+
+for (const size of [
+  { width: 1440, height: 900 },
+  { width: 1063, height: 815 },
+  { width: 390, height: 844 },
+]) {
+  test(`agent panel opaque header, single New chat, Close button and Escape ${size.width}`, async ({
+    page,
+  }) => {
+    await page.setViewportSize(size);
+    await isolateStorage(page);
+    await page.goto("/");
+    await configureAi(page, { provider: "stub" });
+    await page.goto("/#create-adventure");
+    await page
+      .getByTestId("create-adventure-disclosure")
+      .getByLabel("Name", { exact: true })
+      .fill("Agent proof");
+    await page.getByTestId("local-create-kind-starter").click();
+    await page.getByRole("button", { name: "Start building", exact: true }).click();
+    await expect(page.getByTestId("create-adventure-disclosure")).toBeHidden();
+    await expect.poll(async () => (await textHook(page)).room).toBe(1);
+
+    if (size.width <= 600) {
+      await page.getByTestId("workspace-parts").click();
+    }
+    await openWorkspacePicture(page, 1);
+    await openWorkspaceAgent(page);
+    const panel = page.getByTestId("workspace-agent-panel");
+    await expect(panel).toBeVisible();
+    const header = panel.locator(".agent-panel__header");
+    await expect(header).toBeVisible();
+
+    const bg = await header.evaluate((el) => window.getComputedStyle(el).backgroundColor);
+    expect(bg).not.toBe("rgba(0, 0, 0, 0)");
+    expect(bg).not.toBe("transparent");
+
+    await expect(header.getByRole("button", { name: "New chat", exact: true })).toHaveCount(1);
+    await expect(header.getByText("New chat", { exact: true })).toHaveCount(1);
+
+    const closeBtn = panel.getByRole("button", { name: "Close", exact: true });
+    await expect(closeBtn).toBeVisible();
+
+    await page.screenshot({ path: test.info().outputPath(`agent-panel-${size.width}-after.png`) });
+
+    // Recreate before bug state (transparent header and panel, duplicate New chat title, no close button)
+    await page.evaluate(() => {
+      const h = document.querySelector(".agent-panel__header") as HTMLElement | null;
+      const p = document.querySelector(".agent-panel") as HTMLElement | null;
+      const c = document.querySelector("[data-testid=agent-panel-close]") as HTMLElement | null;
+      const t = document.querySelector(".agent-panel__chat-title") as HTMLElement | null;
+      if (h) h.style.background = "transparent";
+      if (p) p.style.background = "transparent";
+      if (c) c.style.display = "none";
+      if (t && t.childNodes[0]) t.childNodes[0].nodeValue = "New chat ";
+    });
+    await page.screenshot({ path: test.info().outputPath(`agent-panel-${size.width}-before.png`) });
+
+    await page.evaluate(() => {
+      const h = document.querySelector(".agent-panel__header") as HTMLElement | null;
+      const p = document.querySelector(".agent-panel") as HTMLElement | null;
+      const c = document.querySelector("[data-testid=agent-panel-close]") as HTMLElement | null;
+      const t = document.querySelector(".agent-panel__chat-title") as HTMLElement | null;
+      if (h) h.style.background = "";
+      if (p) p.style.background = "";
+      if (c) c.style.display = "";
+      if (t && t.childNodes[0]) t.childNodes[0].nodeValue = "Chats ";
+    });
+
+    await closeBtn.click();
+    await expect(panel).toBeHidden();
+
+    await openWorkspaceAgent(page);
+    await expect(panel).toBeVisible();
+    // Esc outside the panel stays with the game and editors.
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    await page.keyboard.press("Escape");
+    await expect(panel).toBeVisible();
+    await panel.getByRole("textbox").first().press("Escape");
+    await expect(panel).toBeHidden();
+  });
+}
 
 test("Approve admits a said response before Create game input", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -286,6 +443,56 @@ test("saved reviews reopen with previews and detect a changed base", async ({ pa
   await workspaceUpdated(page);
   await reopen();
   await expect(page.getByTestId("agent-review")).toHaveCount(0);
+});
+
+test("stored workspace reference art sends a handle and thumbnail to the shared provider", async ({
+  page,
+}) => {
+  const { encodePngRgb } = await import("../../src/picture/png.ts");
+  let request:
+    { input?: { content?: { type: string; text?: string; image_url?: string }[] }[] } | undefined;
+  await page.route("**/api/openai/v1/responses", async (route) => {
+    request = route.request().postDataJSON() as typeof request;
+    await route.fulfill(
+      providerReply("openai", {
+        id: "reference-preview",
+        output: [
+          {
+            type: "message",
+            role: "assistant",
+            content: [{ type: "output_text", text: "Reference received." }],
+          },
+        ],
+      }),
+    );
+  });
+  await start(page, "openai");
+  const panel = page.getByTestId("workspace-agent-panel");
+  await panel.getByTestId("agent-attach-reference").click();
+  const upload = page.getByTestId("reference-upload");
+  await expect(upload).toBeVisible();
+  await upload.getByTestId("reference-room-file").setInputFiles({
+    name: "bridge.png",
+    mimeType: "image/png",
+    buffer: Buffer.from(encodePngRgb(1, 1, new Uint8Array([0, 0, 170]))),
+  });
+  await upload.getByTestId("reference-attach").click();
+  await expect(upload.getByTestId("reference-staged")).toBeVisible();
+  await upload.getByRole("button", { name: "Close", exact: true }).click();
+  await page.goto("/");
+  await page.reload();
+  await openStoredWorkspace(page, "Agent proof");
+  await openWorkspaceAgent(page);
+  await expect(panel).toBeVisible();
+  await panel.getByTestId("agent-message").fill("Describe the attached reference");
+  await panel.getByRole("button", { name: "Send", exact: true }).click();
+  await expect(panel).toContainText("Reference received.");
+  const content = request?.input?.flatMap((entry) => entry.content ?? []) ?? [];
+  expect(content.map((entry) => entry.text ?? "").join("\n")).toMatch(/art-[0-9a-f]{10}/);
+  const images = content.filter((entry) => entry.type === "input_image");
+  expect(images).toHaveLength(1);
+  const png = Buffer.from(images[0]!.image_url!.split(",")[1]!, "base64");
+  expect([png.readUInt32BE(16), png.readUInt32BE(20)]).toEqual([72, 72]);
 });
 
 test("the workspace composer offers reference art", async ({ page }) => {

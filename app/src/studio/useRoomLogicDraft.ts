@@ -1,5 +1,5 @@
 /**
- * The room's LOGIC as Room Studio's Walk view edits it: the annotated
+ * The room's LOGIC as Room Studio's room tools (Priority lens) edits it: the annotated
  * source (`// @rule` door and edge exit fragments), its assembled bytes and
  * the flag names its edits reserved, with an undo history, against the text
  * last kept (or opened). Every edit is one kernel rule edit
@@ -353,7 +353,7 @@ export function useRoomLogicDraft(options: RoomLogicDraftOptions) {
 export type RoomLogicDraft = ReturnType<typeof useRoomLogicDraft>;
 
 /**
- * A stored door box as the Walk view shows it: moved by its item's unkept
+ * A stored door box as the room tools show it: moved by its item's unkept
  * translation from the kept picture to the one on screen.
  */
 export function toShown(

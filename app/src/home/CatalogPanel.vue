@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { numberedLabel } from "../../../src/logic/numberedLabels.ts";
 /**
  * The installed-fixture and hosted-catalog cards on the Home shelf: installed
  * games with their autosave state, and catalog entries whose openings load
@@ -54,7 +55,7 @@ const shelfLocalGames = computed(() =>
 function localMeta(game: InstalledGameDescriptor): string {
   const autosave = localAutosave(game);
   if (autosave)
-    return `Room ${autosave.room} · played ${formatRelativeTime(autosave.savedAt, now.value)}`;
+    return `${numberedLabel("room", autosave.room)} · played ${formatRelativeTime(autosave.savedAt, now.value)}`;
   return game.folder && game.folder !== game.alias ? game.folder : "Installed game";
 }
 
@@ -138,7 +139,7 @@ function catalogImage(entry: GameCatalogEntry) {
           data-testid="run-walkthrough"
           @click="bridge.startWalkthrough(game.folder ?? game.hash)"
         >
-          <span>Run walkthrough<small>Watch real-time playthrough</small></span>
+          Watch walkthrough
         </button>
         <button
           v-if="localAutosave(game)"
@@ -206,7 +207,7 @@ function catalogImage(entry: GameCatalogEntry) {
           :disabled="catalogBusy[entry.id] || libraryActionBusy || importBusy"
           @click="playCatalogWalkthrough(entry.id)"
         >
-          <span>Run walkthrough<small>Watch real-time playthrough</small></span>
+          Watch walkthrough
         </button>
         <button type="button" role="menuitem" @click="showDetails(catalogDetails(entry))">
           Details…

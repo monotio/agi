@@ -46,7 +46,7 @@ for (const size of [
           buffer: Buffer.from(exportMidi(music)),
         });
         await expect(
-          page.getByRole("button", { name: "Replace SOUND 1", exact: true }),
+          page.getByRole("button", { name: "Replace chime_sound (SOUND 1)", exact: true }),
         ).toBeVisible();
       }
       const other = await context.newPage();
@@ -88,7 +88,8 @@ for (const size of [
         await expect(
           editor.getByRole("button", { name: kind === "picture" ? "Line" : "Pencil", exact: true }),
         ).toBeDisabled();
-        const zoom = editor.getByRole("group", { name: "Zoom", exact: true });
+        // Zoom rides the shared status bar now.
+        const zoom = page.getByRole("group", { name: "Zoom", exact: true });
         const prior = await zoom.innerText();
         await zoom.getByRole("button", { name: "Zoom in", exact: true }).click();
         await expect(zoom).not.toHaveText(prior);
@@ -107,7 +108,7 @@ for (const size of [
         await expect(preview).toBeVisible();
         await expect(preview).toContainText("pending.mid");
         await expect(
-          preview.getByRole("button", { name: "Replace SOUND 1", exact: true }),
+          preview.getByRole("button", { name: "Replace chime_sound (SOUND 1)", exact: true }),
         ).toBeDisabled();
         await expect(preview.getByRole("button", { name: "Cancel", exact: true })).toBeEnabled();
         await editor.getByRole("button", { name: "Tracker", exact: true }).click();

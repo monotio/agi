@@ -78,7 +78,7 @@ export type { StagePick };
 const CRT = {
   ...CRT_GLASS,
   /** Signal softness along a scanline. */
-  signalSigma: 0.39,
+  signalSigma: 0.35,
   /** Beam height for black and for full white. */
   darkSigma: 0.27,
   brightSigma: 0.41,
@@ -92,7 +92,7 @@ const CRT = {
   /** Glass scatter of all light, and extra glow above the threshold. */
   halation: 0.06,
   glowThreshold: 0.35,
-  glow: 0.26,
+  glow: 0.23,
   /** Edge darkening at the corners. */
   vignette: 0.06,
 };

@@ -134,4 +134,104 @@ export const AUTHORING_TOOLS: readonly ToolDefinition[] = [
       required: ["rooms", "facts", "quests"],
     }),
   },
+  {
+    name: "configure_launch",
+    description: toolDescription(
+      "configure_launch",
+      "Create, update or remove a named Launch configuration for `room`. Create requires a new id or null to allocate one; an existing id is rejected. Update requires an existing id: null or omitted fields retain their values, supplied values replace them, and `clear` lists optional fields to remove. A field cannot be both set and cleared. Maps are arrays of unique {id,value} records; [] removes all map entries. Remove deletes launch `id`. Create uses defaults for null fields. `selected` true selects this launch, false deselects it, and null leaves selection unchanged.",
+    ),
+    parameters: parameterDescriptions("configure_launch", {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        room: { type: "integer", minimum: 1, maximum: 255 },
+        action: { type: "string", enum: ["create", "update", "remove"] },
+        id: { type: ["string", "null"] },
+        name: { type: ["string", "null"], maxLength: 60 },
+        note: { type: ["string", "null"] },
+        cameFrom: {
+          type: ["object", "null"],
+          additionalProperties: false,
+          properties: {
+            room: { type: "integer", minimum: 0, maximum: 255 },
+            edge: { type: ["integer", "null"], minimum: 1, maximum: 4 },
+          },
+          required: ["room", "edge"],
+        },
+        flags: {
+          type: ["array", "null"],
+          maxItems: 256,
+          items: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              id: { type: "integer", minimum: 0, maximum: 255 },
+              value: { type: "boolean" },
+            },
+            required: ["id", "value"],
+          },
+        },
+        variables: {
+          type: ["array", "null"],
+          maxItems: 256,
+          items: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              id: { type: "integer", minimum: 0, maximum: 255 },
+              value: { type: "integer", minimum: 0, maximum: 255 },
+            },
+            required: ["id", "value"],
+          },
+        },
+        items: {
+          type: ["array", "null"],
+          maxItems: 256,
+          items: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              id: { type: "integer", minimum: 0, maximum: 255 },
+              value: { type: "integer", minimum: 0, maximum: 255 },
+            },
+            required: ["id", "value"],
+          },
+        },
+        clear: {
+          type: ["array", "null"],
+          maxItems: 7,
+          items: {
+            type: "string",
+            enum: ["note", "cameFrom", "flags", "variables", "items", "hero", "seed"],
+          },
+        },
+        hero: {
+          type: ["object", "null"],
+          additionalProperties: false,
+          properties: {
+            x: { type: "integer", minimum: 0, maximum: 159 },
+            y: { type: "integer", minimum: 0, maximum: 167 },
+          },
+          required: ["x", "y"],
+        },
+        seed: { type: ["integer", "null"], minimum: 0, maximum: 65535 },
+        selected: { type: ["boolean", "null"] },
+      },
+      required: [
+        "room",
+        "action",
+        "id",
+        "name",
+        "note",
+        "cameFrom",
+        "flags",
+        "variables",
+        "items",
+        "hero",
+        "seed",
+        "selected",
+        "clear",
+      ],
+    }),
+  },
 ];

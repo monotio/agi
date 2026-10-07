@@ -114,7 +114,7 @@ type ProjectAssistAccept =
       readonly message: string;
     };
 
-export interface ProjectAssistResult {
+interface ProjectAssistResult {
   readonly requestId: string;
   readonly connectionEpoch: number;
   readonly outcome: ProjectAssistOutcome;
@@ -134,10 +134,10 @@ export interface ProjectAssistResult {
   readonly usage?: LlmUsage;
 }
 
-export type ProjectAssistApproval =
+type ProjectAssistApproval =
   { readonly mode: "review" } | { readonly mode: "auto"; readonly scope: readonly string[] };
 
-export interface ProjectAssistState {
+interface ProjectAssistState {
   readonly closed: boolean;
   readonly connected: boolean;
   /** Bumped by connect/disconnect/close; proposals carry the epoch they were issued under. */

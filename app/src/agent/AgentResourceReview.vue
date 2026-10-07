@@ -1,4 +1,8 @@
 <script setup lang="ts">
+import { documentLabel } from "../../../src/logic/numberedLabels.ts";
+import { projectLabelContext } from "../shell/projectLabelContext.ts";
+import { launchRemovalMessages } from "../../../src/authoring/projectRemoval.ts";
+import { readWorldLaunches } from "../../../src/authoring/launches.ts";
 import { computed, defineAsyncComponent } from "vue";
 import { createPictureSurface } from "../../../src/types.ts";
 import type { GameContainer } from "../../../src/types.ts";
@@ -21,6 +25,17 @@ const props = defineProps<{
   afterImage: GameContainer;
   profile: AgiProfile;
 }>();
+const launchChanges = computed(() => {
+  if (props.after !== null || !props.documentKey.startsWith("logic:")) return [];
+  const worldText = props.beforeDocuments["world"];
+  if (typeof worldText !== "string") return [];
+  const world = JSON.parse(worldText) as { launches?: unknown };
+  return launchRemovalMessages(
+    world.launches === undefined ? undefined : readWorldLaunches(world.launches),
+    new Set([props.documentKey]),
+    projectLabelContext(props.beforeDocuments, props.profile),
+  );
+});
 const CodeDiff = defineAsyncComponent(() => import("../studio/logic/AgentCodeDiff.vue"));
 function dataUrl(bytes: Uint8Array, mime: string): string {
   let data = "";
@@ -36,7 +51,7 @@ const images = computed(() => {
     const [kind, num] = target.split(":");
     if (kind !== "picture" && kind !== "view") return [];
     return [props.beforeImage, props.afterImage].map((image, index) => {
-      const label = `${target.replace(":", " ").toUpperCase()} ${index ? "After" : "Before"}`;
+      const label = `${documentLabel(target, projectLabelContext(index ? props.afterDocuments : props.beforeDocuments, props.profile))} ${index ? "After" : "Before"}`;
       const bytes = image.getResource(kind, Number(num));
       if (!bytes && kind === "view") return { label, url: "" };
       const surface = createPictureSurface();
@@ -94,6 +109,9 @@ const removed = computed(() =>
 );
 </script>
 <template>
+  <p v-for="message in launchChanges" :key="message" data-testid="launch-removal-change">
+    {{ message }}
+  </p>
   <div v-if="images.length" class="agent-art-review" data-testid="agent-art-review">
     <figure v-for="image in images" :key="image.label">
       <figcaption>{{ image.label }}</figcaption>

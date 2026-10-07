@@ -163,11 +163,13 @@ export interface CreativeGenerationHost {
   hasCredential(): boolean;
   /** Open the existing AI settings so the user can save a key. */
   openSettings(): void;
-  /** Reserve the shared provider allowance at the paid boundary. */
-  reserveRequest?(
+  /** Track actual usage on the task that sent this request. */
+  startRequest?(
     summary: OpenAiImageSummary,
-    approved: boolean,
   ): (offer: OpenAiImageOffer | null) => ReportedSpend | void;
+  /** Actual task spend while a request is pending. */
+  currentSpend?(): ReportedSpend;
+  continueBudget?(): number;
   /** Decode an offer through the shared intake; defaults to the upload path. */
   intakeOffer?: (offer: OpenAiImageOffer, signal?: AbortSignal) => Promise<CreativeImageIntake>;
   /**
@@ -342,7 +344,10 @@ export interface CreativeGenerationController {
   /** Freeze inputs, resolve materials and build the detached review. */
   prepareReview(input: CreativeGenerationInput): Promise<void>;
   /** Send the reviewed request once. The provider charges it. */
-  submit(approved?: boolean): Promise<void>;
+  submit(): Promise<void>;
+  readonly budgetPaused: boolean;
+  continueBudget(): void;
+  stopBudget(): void;
   /** Leave the held or pending review without sending; the next send reviews again. */
   discardReview(): void;
   /** Abort the in-flight request locally; a late answer is dropped. */
@@ -403,6 +408,7 @@ class CreativeGenerationControllerImpl implements CreativeGenerationController {
   private offerState: OfferState | null = null;
   private partialBytes: Uint8Array | null = null;
   private spendState: ReportedSpend | null = null;
+  private budgetStopped = false;
   private job: { readonly controller: AbortController; cancelled: boolean } | null = null;
   private isDisposed = false;
   private versionCount = 0;
@@ -779,7 +785,28 @@ class CreativeGenerationControllerImpl implements CreativeGenerationController {
     }
   }
 
-  async submit(approved = false): Promise<void> {
+  get budgetPaused(): boolean {
+    const spend = this.spendState;
+    return !this.budgetStopped && spend?.budget !== undefined && spend.amount >= spend.budget;
+  }
+
+  stopBudget(): void {
+    this.budgetStopped = true;
+    this.failureInfo = null;
+    this.changed();
+  }
+
+  continueBudget(): void {
+    this.budgetStopped = false;
+    const budget = this.host.continueBudget?.();
+    if (budget !== undefined && this.spendState) {
+      this.spendState = { ...this.spendState, budget };
+      this.failureInfo = null;
+      this.changed();
+    }
+  }
+
+  async submit(): Promise<void> {
     if (this.isDisposed) return this.refuse("closed", "This generation panel is closed.");
     if (this.phaseState === "submitting" || this.phaseState === "using")
       return this.refuse("busy", "A generation is already running; wait for it or cancel it.");
@@ -788,6 +815,7 @@ class CreativeGenerationControllerImpl implements CreativeGenerationController {
       return this.refuse("invalid-request", "Review the request before submitting.");
     // The phase moves synchronously: a second click sees `submitting` and
     // refuses instead of sending a duplicate paid request.
+    this.budgetStopped = false;
     this.phaseState = "submitting";
     this.partialBytes = null;
     this.failureInfo = null;
@@ -806,7 +834,9 @@ class CreativeGenerationControllerImpl implements CreativeGenerationController {
       if (!this.host.hasCredential())
         throw fail("no-key", "Generation needs a saved OpenAI API key.");
       if (job.cancelled) throw fail("cancelled", "The request was cancelled.");
-      settle = this.host.reserveRequest?.(review.record.summary, approved);
+      settle = this.host.startRequest?.(review.record.summary);
+      this.spendState = this.host.currentSpend?.() ?? null;
+      this.changed();
       sent = true;
       const offer = await this.provider.submit(review.prepared, {
         signal: job.controller.signal,

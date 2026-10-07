@@ -12,12 +12,13 @@ import { testProjectId } from "../test/identity.ts";
 import {
   cacheGame,
   closeWorkspaceEditor,
+  downloadFromSettings,
   enterCreateMode,
-  openGameOptions,
   openWorkspacePicture,
   textHook,
   waitForCycles,
   workspaceUpdated,
+  waitForAutosaveAfter,
 } from "./engineProbe.ts";
 import { expect, test } from "./test.ts";
 
@@ -162,7 +163,8 @@ async function storedPicture(page: Page, num: number): Promise<Uint8Array> {
 /** Drag the handle of point `index` on source `line` by dx,dy logical pixels. */
 async function dragHandle(page: Page, line: number, index: number, dx: number, dy: number) {
   const pane = page.locator(".studio-pane").last();
-  const zoom = (await pane.boundingBox())!.height / 168;
+  const paneBox = (await pane.boundingBox())!;
+  const zoom = paneBox.height / 168;
   const box = (await pane.locator(`[data-point="${line}:${index}"]`).boundingBox())!;
   const x = box.x + box.width / 2;
   const y = box.y + box.height / 2;
@@ -223,6 +225,11 @@ test("a depth drag changes only the priority plane, undoes, keeps, reloads, expo
   await expect(studio).toBeHidden();
   await expect.poll(() => framePriority(page, 80, 106)).toBe(10);
 
+  // Return to Play on the kept files before recording progress for reload.
+  await page.getByRole("radio", { name: "Play", exact: true }).click();
+  await expect.poll(() => framePriority(page, 80, 106)).toBe(10);
+  await waitForAutosaveAfter(page, (await textHook(page)).cycle);
+
   // A reload boots the stored project: Studio opens on the kept bytes.
   await page.reload();
   await resumeInRoom(page);
@@ -232,8 +239,7 @@ test("a depth drag changes only the priority plane, undoes, keeps, reloads, expo
   await closeWorkspaceEditor(page);
 
   const downloading = page.waitForEvent("download");
-  await openGameOptions(page, "settings-menu");
-  await page.getByTestId("btn-export-game").click();
+  await downloadFromSettings(page);
   const exported = await readGameZip(await readFile((await (await downloading).path())!));
   expect(openContainer(new Map(Object.entries(exported.files))).getResource("picture", 5)).toEqual(
     kept,
@@ -310,7 +316,11 @@ test("a lock refusal, keyboard nudges, Delete with undo, and draw-order keys sta
 }) => {
   await bootStudioGame(page);
   const studio = await openStudio(page);
+  // Pixel-exact handle drags need the taller side-by-side pane.
+  await page.getByTestId("workspace-layout").click();
   const canvas = studio.getByRole("group", { name: /^Canvas/ });
+  // The layout click takes DOM focus; return it before tool keys.
+  await canvas.focus();
   const original = await draftBytes(page);
 
   // A whole item moves whole in any lens: the bench frame nudged in the Depth
@@ -319,7 +329,9 @@ test("a lock refusal, keyboard nudges, Delete with undo, and draw-order keys sta
   await studio.locator('[data-row="bench"]').click();
   await canvas.focus();
   await page.keyboard.press("ArrowUp");
-  await expect(studio.getByTestId("studio-notice")).toHaveText("Moved Bench with its art.");
+  await expect(page.locator(".workspace-status").getByTestId("studio-notice")).toHaveText(
+    "Moved Bench with its visual.",
+  );
   await workspaceUpdated(page);
   await page.keyboard.press("ControlOrMeta+z");
   await workspaceUpdated(page);
@@ -329,15 +341,17 @@ test("a lock refusal, keyboard nudges, Delete with undo, and draw-order keys sta
   // nothing changes.
   await page.keyboard.press("a");
   await dragHandle(page, BENCH_LINE, 0, 0, -1);
-  await expect(studio.getByTestId("studio-notice")).toHaveText("Art is locked in the Depth lens.");
-  await expect(studio.getByTestId("studio-notice-detail")).toContainText(
-    "Art is locked in the Depth lens: 144 cells at 44,91..116,92 would change.",
+  await expect(page.locator(".workspace-status").getByTestId("studio-notice")).toHaveText(
+    "Visual is locked in the Priority lens.",
+  );
+  await expect(page.locator(".workspace-status").getByTestId("studio-notice-detail")).toContainText(
+    "Visual is locked in the Priority lens: 144 cells at 44,91..116,92 would change.",
   );
   await expect(studio.locator('[data-role="refused"]')).toHaveCount(1);
   await workspaceUpdated(page);
   // The refusal offers the way out: unlocked for the session, the same drag goes through.
-  await studio.getByTestId("studio-notice-action").click();
-  await expect(studio.getByTestId("studio-notice")).toHaveText(
+  await page.locator(".workspace-status").getByTestId("studio-notice-action").click();
+  await expect(page.locator(".workspace-status").getByTestId("studio-notice")).toHaveText(
     "Unlocked until you close Studio. Try it again.",
   );
   await dragHandle(page, BENCH_LINE, 0, 0, -1);
@@ -412,7 +426,7 @@ test("the first autosaved edit on a catalog game forks a remix", async ({ page }
   await expect.poll(rowLabels).toEqual(expect.arrayContaining(galleryRows));
   expect((await rowLabels()).filter((label) => /^Element \d/.test(label))).toEqual([]);
   // The picture's own source: nothing says Rebuilt.
-  await expect(studio.getByTestId("studio-source-kind")).toHaveCount(0);
+  await expect(page.locator(".workspace-status").getByTestId("studio-source-kind")).toHaveCount(0);
   // A barrier nudged up one row: a Walk-kind edit the Depth lens allows.
   await page.keyboard.press("2");
   await studio.getByRole("searchbox", { name: "Filter items" }).fill("barrier");
@@ -441,5 +455,5 @@ test("the first autosaved edit on a catalog game forks a remix", async ({ page }
   await studio.getByRole("searchbox", { name: "Filter items" }).fill("");
   await expect.poll(rowLabels).toEqual(expect.arrayContaining(galleryRows));
   // The picture's own source: nothing says Rebuilt.
-  await expect(studio.getByTestId("studio-source-kind")).toHaveCount(0);
+  await expect(page.locator(".workspace-status").getByTestId("studio-source-kind")).toHaveCount(0);
 });

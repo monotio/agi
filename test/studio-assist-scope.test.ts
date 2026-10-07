@@ -61,14 +61,14 @@ const walkRect = (x1: number, x2: number, priority = 3): EditOperation => ({
   kind: priority < 4 ? "walk" : "depth",
 });
 
-/** The Walk lens over the bridge: art locked, the bridge's area licensed on priority. */
-function walkScope(before: CompiledDocument, overrides: Partial<PictureAssistScope> = {}) {
+/** The Priority lens over the bridge: art locked, the bridge's area licensed on priority. */
+function priorityScope(before: CompiledDocument, overrides: Partial<PictureAssistScope> = {}) {
   return {
     ...pictureAssistScope({
       num: 1,
       compiled: before,
       targetIds: ["bridge"],
-      lens: "walk",
+      lens: "depth",
     }),
     ...overrides,
   };
@@ -111,9 +111,9 @@ test("the draft revision names the exact text or bytes", () => {
   );
 });
 
-test("a control-only crossing under the selected bridge is allowed in the Walk lens", () => {
+test("a control-only crossing under the selected bridge is allowed in the Priority lens", () => {
   const before = compile(BRIDGE_SOURCE);
-  const scope = walkScope(before);
+  const scope = priorityScope(before);
   assert.deepEqual(scope.lockedPlanes, ["visual"]);
   assert.deepEqual(Object.keys(scope.allowedMask as object), ["priority"]);
   const after = edit(before, walkRect(RIVER_UNDER_BRIDGE.x0, RIVER_UNDER_BRIDGE.x1));
@@ -124,34 +124,21 @@ test("a control-only crossing under the selected bridge is allowed in the Walk l
   assert.deepEqual(checkCandidate(before, after, scope), { ok: true, violations: [] });
 });
 
-test("depth painted under the Walk lens is refused, and allowed once depth is unlocked", () => {
-  const before = compile(BRIDGE_SOURCE);
+test("depth painted under the selected bridge is allowed in the Priority lens", () => {
   // Floor (4) over the whole river under the bridge: banks 0 -> 4 and water
-  // 3 -> 4, all 800 cells moving into depth values.
+  // 3 -> 4. The Priority lens paints distance and control lines alike.
+  const before = compile(BRIDGE_SOURCE);
   const after = edit(before, walkRect(RIVER_UNDER_BRIDGE.x0, RIVER_UNDER_BRIDGE.x1, 4));
-  const check = checkCandidate(before, after, walkScope(before));
-  assert.deepEqual(
-    check.violations.map((v) => [v.constraint, v.plane, v.count, v.bbox]),
-    [["walk-depth", "priority", RIVER_UNDER_BRIDGE.cells, { x0: 60, y0: 120, x1: 99, y1: 139 }]],
-  );
-  assert.equal(
-    assistRefusalText(check),
-    "depth values 4–15 are locked in the Walk lens, but 800 cells at 60,120..99,139 would change",
-  );
-  const unlocked = pictureAssistScope({
-    num: 1,
-    compiled: before,
-    targetIds: ["bridge"],
-    lens: "walk",
-    unlocks: { ...NO_UNLOCKS, depthInWalk: true },
+  assert.deepEqual(checkCandidate(before, after, priorityScope(before)), {
+    ok: true,
+    violations: [],
   });
-  assert.deepEqual(checkCandidate(before, after, unlocked), { ok: true, violations: [] });
 });
 
-test("art changed under the Walk lens is refused on the locked plane", () => {
+test("art changed under the Priority lens is refused on the locked plane", () => {
   const before = compile(BRIDGE_SOURCE);
   const after = edit(before, { type: "setItemColor", itemId: "bridge", plane: "visual", value: 8 });
-  const check = checkCandidate(before, after, walkScope(before));
+  const check = checkCandidate(before, after, priorityScope(before));
   assert.equal(check.ok, false);
   const locked = check.violations.find((v) => v.constraint === "locked-plane")!;
   assert.equal(locked.plane, "visual");
@@ -166,7 +153,7 @@ test("art changed under the Walk lens is refused on the locked plane", () => {
 test("priority painted outside the selection is refused, with its cells", () => {
   const before = compile(BRIDGE_SOURCE);
   const after = edit(before, walkRect(0, 99));
-  const check = checkCandidate(before, after, walkScope(before));
+  const check = checkCandidate(before, after, priorityScope(before));
   assert.deepEqual(
     check.violations.map((v) => [v.constraint, v.plane, v.count, v.bbox]),
     // The banks left of the bridge: rows 120 and 139 at x 0..59 (120) and
@@ -178,7 +165,7 @@ test("priority painted outside the selection is refused, with its cells", () => 
 test("an item outside the selection keeps its identity", () => {
   const before = compile(BRIDGE_SOURCE);
   const renamed = edit(before, { type: "setItemMeta", itemId: "river", label: "Stream" });
-  const check = checkCandidate(before, renamed, walkScope(before));
+  const check = checkCandidate(before, renamed, priorityScope(before));
   assert.deepEqual(
     check.violations.map((v) => v.message),
     [`item 'river' ("River") is not selected but would have its label, kind or lock changed`],
@@ -227,7 +214,7 @@ test("an unselected item's commands, and the loose steps, stay: the check refuse
 
 test("a candidate from another draft is stale", () => {
   const before = compile(BRIDGE_SOURCE);
-  const scope = walkScope(compile(BRIDGE_SOURCE.replace('"Sky"', '"Clouds"')));
+  const scope = priorityScope(compile(BRIDGE_SOURCE.replace('"Sky"', '"Clouds"')));
   const after = edit(before, walkRect(60, 99));
   const check = checkCandidate(before, after, scope);
   assert.deepEqual(
@@ -246,12 +233,18 @@ test("the byte budget counts the compiled picture", () => {
   const after = edit(before, walkRect(60, 99));
   const grown = after.bytes.length - before.bytes.length;
   assert.ok(grown > 0);
-  const check = checkCandidate(before, after, walkScope(before, { maxBytes: before.bytes.length }));
+  const check = checkCandidate(
+    before,
+    after,
+    priorityScope(before, { maxBytes: before.bytes.length }),
+  );
   assert.deepEqual(
     check.violations.map((v) => [v.constraint, v.count]),
     [["max-bytes", after.bytes.length]],
   );
-  assert.ok(checkCandidate(before, after, walkScope(before, { maxBytes: after.bytes.length })).ok);
+  assert.ok(
+    checkCandidate(before, after, priorityScope(before, { maxBytes: after.bytes.length })).ok,
+  );
 });
 
 test("a moved target licenses its new footprint, and only that", () => {
@@ -311,7 +304,7 @@ test("a target's fill that escapes its shrunken outline is a side effect, report
     num: 1,
     compiled: before,
     targetIds: ["river"],
-    lens: "walk",
+    lens: "depth",
   });
   const after = edit(before, { type: "setPoint", line: RIVER_RECT, pointIndex: 1, x: 3, y: 122 });
   const area = footprintMask(before, "river", "both");
@@ -388,7 +381,7 @@ test("a fill the proposal inserts reports what it pours over outside the selecti
     num: 1,
     compiled: before,
     targetIds: ["river"],
-    lens: "walk",
+    lens: "depth",
   });
   const check = checkCandidate(before, after, scope);
   assert.equal(check.ok, true);
@@ -473,7 +466,7 @@ test("a selection naming items the draft lacks is refused in words", () => {
 
 test("an unselected item may not be removed, re-kinded or relocked; the selection's own identity may change", () => {
   const before = compile(BRIDGE_SOURCE);
-  const scope = walkScope(before);
+  const scope = priorityScope(before);
   const identity = `item 'river' ("River") is not selected but would have its label, kind or lock changed`;
   // setItemMeta keeps every byte, so identity is all these candidates change.
   for (const op of [
@@ -503,7 +496,7 @@ test("an unselected item may not be removed, re-kinded or relocked; the selectio
 
 test("a proposal never locks or unlocks an item, selected or new", () => {
   const before = compile(BRIDGE_SOURCE);
-  const scope = walkScope(before);
+  const scope = priorityScope(before);
   const lockRule = 'but only the creator locks or unlocks items: leave "locked" out of setItemMeta';
   // Locking the selection changes no pixel: the lock alone is refused.
   assert.deepEqual(
@@ -522,7 +515,7 @@ test("a proposal never locks or unlocks an item, selected or new", () => {
     { type: "moveItem", itemId: "bridge", dx: 0, dy: -1 },
   );
   assert.deepEqual(
-    checkCandidate(locked, unlockedAndMoved, walkScope(locked)).violations.filter(
+    checkCandidate(locked, unlockedAndMoved, priorityScope(locked)).violations.filter(
       (v) => v.constraint === "item-lock",
     ),
     [
@@ -575,7 +568,7 @@ test("without an allowedMask a target licenses only its own footprint on each pl
 
 test("the scope's byte budget is the caller's, or the payload limit", () => {
   const before = compile(BRIDGE_SOURCE);
-  const input = { num: 1, compiled: before, targetIds: ["bridge"], lens: "walk" } as const;
+  const input = { num: 1, compiled: before, targetIds: ["bridge"], lens: "depth" } as const;
   assert.equal(pictureAssistScope(input).maxBytes, PAYLOAD_MAX_BYTES);
   const after = edit(before, walkRect(60, 99));
   const budget = before.bytes.length;
@@ -743,7 +736,7 @@ test("a target whose first command opens with a stipple seed is compared without
 });
 
 test("a locked plane refuses its changes whole; on the others new outlines outside the selection are refused and their fills reported", () => {
-  // Under the Walk lens (art locked) a new mixed item draws the outline
+  // Under the Priority lens (art locked) a new mixed item draws the outline
   // 50,50..52,52 (8 cells) and fills its one interior cell 51,51 on both
   // planes; none of it is in the selection.
   const target = ['# @item t "T" walk', "pri 3", "rect 10,10 20,20", "# @end"];
@@ -753,7 +746,7 @@ test("a locked plane refuses its changes whole; on the others new outlines outsi
   const check = checkCandidate(
     before,
     after,
-    pictureAssistScope({ num: 1, compiled: before, targetIds: ["t"], lens: "walk" }),
+    pictureAssistScope({ num: 1, compiled: before, targetIds: ["t"], lens: "depth" }),
   );
   const outline = { x0: 50, y0: 50, x1: 52, y1: 52 };
   const seed = { x0: 51, y0: 51, x1: 51, y1: 51 };
@@ -854,16 +847,16 @@ test("look-alikes in other colours get no licence: of six tiles of the bridge, o
   );
 });
 
-test("a copy that draws depth the selected art never drew is refused in the Walk lens", () => {
+test("a copy that draws depth the selected art never drew is refused in the Priority lens", () => {
   // Dot is a 3-cell colour-6 line at 10..12,10 with priority off. W repeats
   // it at 100..102,100 with art off and priority 2: its 3 cells turn floor 4
-  // into signal 2, which the Walk lens itself would allow as control.
+  // into signal 2, which the Priority lens itself would allow as control.
   const sky = ['# @item sky "Sky" art', "vis 11", "fill 0,0", "# @end"];
   const dot = ['# @item dot "Dot" art', "vis 6", "line 10,10 12,10", "# @end"];
   const walk = ['# @item w "W" walk', "vis off", "pri 2", "line 100,100 102,100", "# @end"];
   const before = picture(...sky, ...dot, "end");
   const after = picture(...sky, ...dot, ...walk, "end");
-  const scope = pictureAssistScope({ num: 1, compiled: before, targetIds: ["dot"], lens: "walk" });
+  const scope = pictureAssistScope({ num: 1, compiled: before, targetIds: ["dot"], lens: "depth" });
   assert.deepEqual(shape(checkCandidate(before, after, scope)), [
     ["extra-copy", "priority", 3, { x0: 100, y0: 100, x1: 102, y1: 100 }],
   ]);

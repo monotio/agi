@@ -1,9 +1,11 @@
 /** Correlated MAIN admission with read-only reconciliation of a lost acknowledgement. */
 import type { ProjectDocumentsCompile } from "../../../src/authoring/projectDocuments.ts";
+import type { ProjectImage } from "../../../src/authoring/projectModel.ts";
 import { projectDocumentId } from "../../../src/authoring/projectContent.ts";
 import { writeProjectWorkspace } from "../../../src/authoring/projectWorkspace.ts";
 import { sha256Hex } from "../../../src/crypto.ts";
 import { WorkerQueryTimeoutError } from "./workerQueries.ts";
+import type { RoomLaunchRequest } from "../worker/roomLaunch.ts";
 import type {
   PreviewLaneIdentity,
   PreviewUpdateOutcome,
@@ -17,6 +19,7 @@ export function createMainProjectAdmission(input: {
   readonly query: WorkerQueryFn;
   readonly current: () => boolean;
   readonly waitForContinue?: () => Promise<void> | undefined;
+  readonly acceptedImage?: () => ProjectImage | undefined;
 }) {
   let identity = { ...input.identity };
   let runToken = input.runToken;
@@ -25,10 +28,12 @@ export function createMainProjectAdmission(input: {
   async function admit(
     compiled: ProjectDocumentsCompile,
     origins: { key: string; version: number }[],
-    mode?: "restart" | "reenter",
+    mode?: "restart" | "reenter" | "keep",
     preparedRoom = false,
+    launch?: RoomLaunchRequest,
   ): Promise<PreviewUpdateOutcome> {
-    const continuation = input.waitForContinue?.();
+    // A Launch validates a replacement without executing the abandoned stopped run.
+    const continuation = mode === "reenter" && launch ? undefined : input.waitForContinue?.();
     if (continuation) await continuation;
     if (!current()) throw new Error("Project run was replaced.");
     const documents = compiled.documents();
@@ -53,14 +58,33 @@ export function createMainProjectAdmission(input: {
     };
     const expectedRun = runToken;
     let expectedIdentity = identity;
+    const status =
+      preparedRoom || input.acceptedImage ? await input.query("previewUpdateStatus") : undefined;
+    if (status && input.acceptedImage) {
+      // The opening grant can predate a room's publication. Follow only the
+      // exact image already owned by the editor; unrelated worker drift refuses.
+      const image = input.acceptedImage();
+      const landed = status.current;
+      if (!current() || status.runToken !== expectedRun)
+        throw new Error("The running game was replaced. Reopen the game, then try Update again.");
+      if (
+        image &&
+        landed &&
+        landed.documentId === image.documentId &&
+        landed.buildId === image.identity.buildId &&
+        landed.revision === (preparedRoom ? candidate.revision : image.identity.revision)
+      ) {
+        identity = { ...landed };
+        expectedIdentity = identity;
+      }
+    }
     if (preparedRoom) {
       // A room answer installs native resources to resume new.room. Adopt only
       // that exact compiled image on the same run, before publishing documents.
-      const status = await input.query("previewUpdateStatus");
-      const landed = status.current;
+      const landed = status!.current;
       if (
         !current() ||
-        status.runToken !== expectedRun ||
+        status!.runToken !== expectedRun ||
         landed === null ||
         landed.epoch !== identity.epoch ||
         landed.buildId !== identity.buildId ||
@@ -69,7 +93,7 @@ export function createMainProjectAdmission(input: {
         landed.revision !== candidate.revision
       )
         throw new Error(
-          "The authored room image changed before its project commit. Reload the game.",
+          "The game changed while this room was being built. Reopen the game, then try again.",
         );
       expectedIdentity = landed;
     }
@@ -77,9 +101,10 @@ export function createMainProjectAdmission(input: {
     try {
       const reply = await input.query("previewUpdate", {
         runToken: expectedRun,
-        ...(mode === undefined ? {} : { mode }),
+        ...(preparedRoom ? { mode: "adoptRoom" as const } : mode === undefined ? {} : { mode }),
         expected: expectedIdentity,
         candidate,
+        ...(launch ? { launch } : {}),
       });
       if (reply.runToken !== expectedRun)
         throw new Error("Project acknowledgement belongs to another run.");
@@ -126,8 +151,12 @@ export function createMainProjectAdmission(input: {
     restart(compiled: ProjectDocumentsCompile, origins: { key: string; version: number }[]) {
       return admit(compiled, origins, "restart");
     },
-    reenter(compiled: ProjectDocumentsCompile, origins: { key: string; version: number }[]) {
-      return admit(compiled, origins, "reenter");
+    reenter(
+      compiled: ProjectDocumentsCompile,
+      origins: { key: string; version: number }[],
+      launch?: RoomLaunchRequest,
+    ) {
+      return admit(compiled, origins, "reenter", false, launch);
     },
     dispose() {
       disposed = true;

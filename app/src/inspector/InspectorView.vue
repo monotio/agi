@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { numberedLabel } from "../../../src/logic/numberedLabels.ts";
+import { useProjectLabels } from "../shell/useProjectLabels.ts";
 import UiIcon from "../ui/UiIcon.vue";
 /**
  * The inspector's controls for its current tab:
@@ -29,8 +31,10 @@ import UiSegmented from "../ui/UiSegmented.vue";
 import UiSwitch from "../ui/UiSwitch.vue";
 
 const { viewOnly = false } = defineProps<{ viewOnly?: boolean }>();
+const labels = useProjectLabels();
 
-const { state } = useEngineApi();
+const engine = useEngineApi();
+const { state } = engine;
 const { debugViewMode, gpuBackend } = usePresentation();
 const inspector = useInspector();
 const { tab, overlayOn, inspectArmed, hover, picked, report, varEdit } = inspector;
@@ -134,13 +138,13 @@ const eventsFiltered = computed(() => {
   const f = filter.value.trim().toLowerCase();
   const list = inspector.events.value;
   if (!f) return list;
-  return list.filter((e) => describeDebugEvent(e).toLowerCase().includes(f));
+  return list.filter((e) => describeDebugEvent(e, labels.value).toLowerCase().includes(f));
 });
 const traceFiltered = computed(() => {
   const f = filter.value.trim().toLowerCase();
   const list = state.debugTrace;
   if (!f) return list;
-  return list.filter((r) => formatTraceRecord(r).toLowerCase().includes(f));
+  return list.filter((r) => formatTraceRecord(r, labels.value).toLowerCase().includes(f));
 });
 
 const traceEl = useTemplateRef("traceEl");
@@ -200,7 +204,7 @@ watch(
         <template v-if="hover.inspection">
           · {{ COLOR_NAMES[hover.inspection.color] }} · pri {{ hover.inspection.priority }}
           <template v-if="hover.inspection.owner !== null">
-            · o{{ hover.inspection.owner }}
+            · {{ numberedLabel("object", hover.inspection.owner, labels, "option") }}
           </template>
         </template>
       </template>
@@ -224,7 +228,7 @@ watch(
         <dt>pixel</dt>
         <dd>{{ COLOR_NAMES[picked.inspection.color] }} · pri {{ picked.inspection.priority }}</dd>
         <dt>owner</dt>
-        <dd>{{ pickedObject ? describeObject(pickedObject) : "background" }}</dd>
+        <dd>{{ pickedObject ? describeObject(pickedObject, labels) : "background" }}</dd>
         <dt>cycle</dt>
         <dd>{{ picked.cycle }} · rev {{ picked.patchGeneration }}</dd>
       </dl>
@@ -266,7 +270,7 @@ watch(
           hot: inspector.changedVars.value.has(i),
           pin: inspector.pinnedVars.value.has(i),
         }"
-        :title="`v${i} = ${v}`"
+        :title="`${numberedLabel('variable', i, labels, 'option')} = ${v}`"
         @click.exact="onVarClick(i)"
         @click.alt.prevent="togglePin(inspector.pinnedVars.value, i)"
       >
@@ -275,7 +279,7 @@ watch(
     </div>
     <form v-if="varEdit" class="dd-row var-edit" @submit.prevent="inspector.applyVar">
       <label
-        >v{{ varEdit.index }} =
+        >{{ numberedLabel("variable", varEdit.index, labels, "option") }} =
         <input v-model="varEdit.text" data-testid="dbg-var-set" size="4" autofocus
       /></label>
       <button type="submit" class="ui-button ui-button--secondary">set</button>
@@ -294,7 +298,7 @@ watch(
         :key="`pv${i}`"
         class="pin-tag"
       >
-        v{{ i }}={{ report?.vars[i] ?? "?" }}
+        {{ numberedLabel("variable", i, labels) }}={{ report?.vars[i] ?? "?" }}
       </span>
     </div>
 
@@ -315,7 +319,7 @@ watch(
           hot: inspector.changedFlags.value.has(i),
           pin: inspector.pinnedFlags.value.has(i),
         }"
-        :title="`f${i} ${f ? 'set' : 'reset'}`"
+        :title="`${numberedLabel('flag', i, labels, 'option')} ${f ? 'set' : 'reset'}`"
         @click.exact="onFlagClick(i)"
         @click.alt.prevent="togglePin(inspector.pinnedFlags.value, i)"
       >
@@ -328,7 +332,7 @@ watch(
         :key="`pf${i}`"
         class="pin-tag"
       >
-        f{{ i }}={{ report?.flags[i] ?? "?" }}
+        {{ numberedLabel("flag", i, labels) }}={{ report?.flags[i] ?? "?" }}
       </span>
     </div>
 
@@ -336,8 +340,8 @@ watch(
     <table class="obj-table" data-testid="dbg-objects">
       <tbody>
         <tr v-for="o in state.debugObjects" :key="o.num">
-          <td>o{{ o.num }}</td>
-          <td>v{{ o.view }} l{{ o.loop }} c{{ o.cel }}</td>
+          <td>{{ numberedLabel("object", o.num, labels, "option") }}</td>
+          <td>{{ numberedLabel("view", o.view, labels, "option") }} l{{ o.loop }} c{{ o.cel }}</td>
           <td>({{ o.x }},{{ o.y }})</td>
           <td>p{{ o.priority }}</td>
           <td>{{ ["—", "move", "follow", "wander"][o.motionMode] }}</td>
@@ -366,7 +370,7 @@ watch(
     <h3 class="dd-h3">State diffs</h3>
     <ol class="dd-list" data-testid="dbg-events">
       <li v-for="e in eventsFiltered.slice(-300)" :key="e.seq">
-        <span class="cyc">c{{ e.cycle }}</span> {{ describeDebugEvent(e) }}
+        <span class="cyc">c{{ e.cycle }}</span> {{ describeDebugEvent(e, labels) }}
       </li>
       <li v-if="!eventsFiltered.length" class="dd-hint">no writes observed yet</li>
     </ol>
@@ -376,7 +380,7 @@ watch(
         …{{ state.debugTraceDropped }} records dropped while the inspector was stalled
       </li>
       <li v-for="r in traceFiltered.slice(-400)" :key="r.seq">
-        <span class="cyc">c{{ r.cycle }}</span> {{ formatTraceRecord(r) }}
+        <span class="cyc">c{{ r.cycle }}</span> {{ formatTraceRecord(r, labels) }}
       </li>
       <li v-if="!state.debugChannels.trace" class="dd-hint">arm Trace to stream instructions</li>
     </ol>

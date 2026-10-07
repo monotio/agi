@@ -361,6 +361,33 @@ export async function openSavedGameDetails(card: Locator): Promise<Locator> {
   return dialog;
 }
 
+/** Open a card's play split-button menu (Resume/Play, Start over, Watch walkthrough). */
+export async function openPlayMore(page: Page, card: Locator): Promise<Locator> {
+  const trigger = card.getByRole("button", { name: "More ways to play", exact: true });
+  await expect(trigger).toBeVisible();
+  await trigger.click({ trial: true, timeout: 5000 });
+  if ((await trigger.getAttribute("aria-expanded")) !== "true") await trigger.click();
+  const menu = page.getByRole("menu", { name: "More ways to play", exact: true });
+  await expect(menu).toBeVisible();
+  return menu;
+}
+
+/**
+ * Open a saved game's Download dialog from its ⋯ menu; returns the open
+ * dialog. Every card mounts its own dialog element, so the returned locator
+ * is scoped to the card — a page-level one matches every closed sibling.
+ */
+export async function openGameDownload(page: Page, card: Locator): Promise<Locator> {
+  await openLibraryActions(page, card);
+  await page
+    .getByRole("menu", { name: "Game actions", exact: true })
+    .getByTestId("open-game-download")
+    .click();
+  const dialog = card.getByTestId("game-download-dialog");
+  await expect(dialog).toBeVisible();
+  return dialog;
+}
+
 /** Open the new game page on its AI starting point. */
 export async function openCreateAdventure(page: Page): Promise<void> {
   const details = page.getByTestId("create-adventure-disclosure");
@@ -466,6 +493,19 @@ export async function openGameOptions(
 ): Promise<void> {
   const trigger = page.getByTestId(menu);
   if ((await trigger.getAttribute("aria-expanded")) !== "true") await trigger.click();
+}
+
+/**
+ * Download the running game through Settings → This game → Download…:
+ * `project` picks the project file, otherwise the playable game. The sheet
+ * closes for the dialog; register waitForEvent("download") before calling.
+ */
+export async function downloadFromSettings(page: Page, project = false): Promise<void> {
+  await openGameOptions(page, "settings-menu");
+  await page.getByTestId("btn-download-game").click();
+  const dialog = page.getByTestId("settings-download-dialog");
+  await expect(dialog).toBeVisible();
+  await dialog.getByTestId(project ? "download-library-game" : "export-library-game").click();
 }
 
 /** Open the Game controls dialog through the Help menu. */
@@ -608,18 +648,33 @@ export async function workspaceSaved(page: Page): Promise<void> {
 export async function workspaceUpdated(page: Page, keyboard = false): Promise<void> {
   await workspaceSaved(page);
   const update = page.getByTestId("workspace-update");
-  if ((await update.isVisible()) && (await update.isEnabled())) {
+  if (
+    (await update.isVisible()) &&
+    (await page.getByTestId("workspace-pending").isVisible()) &&
+    (await update.isEnabled())
+  ) {
     const previousFocus = await page.evaluateHandle(() => document.activeElement);
     await expect(update).toBeVisible();
     if (keyboard) await page.keyboard.press("ControlOrMeta+Enter");
     else await update.click();
-    await expect(page.getByTestId("workspace-updated")).toBeVisible();
     await workspaceSaved(page);
+    await expect(page.getByTestId("workspace-updated")).toBeVisible();
     await previousFocus.evaluate((element) => {
       if (element instanceof HTMLElement && element.isConnected) element.focus();
     });
     await previousFocus.dispose();
   }
+}
+
+/** Record ordinary Play progress, then return to the editor's mode. */
+export async function savePlayProgress(page: Page): Promise<void> {
+  const create = page.getByRole("radio", { name: "Create", exact: true });
+  const play = page.getByRole("radio", { name: "Play", exact: true });
+  await expect(create).toBeVisible();
+  const creating = (await create.getAttribute("aria-checked")) === "true";
+  if (creating) await play.click();
+  await waitForAutosaveAfter(page, (await textHook(page)).cycle);
+  if (creating) await create.click();
 }
 
 export async function enterCreateMode(page: Page): Promise<void> {

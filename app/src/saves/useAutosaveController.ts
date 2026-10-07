@@ -3,6 +3,8 @@
  * Manages autosave storage, background flushes, worker synchronization,
  * and game resume / start-over lifecycle.
  */
+import { progressWriterMatches } from "./progressWriter.ts";
+import type { HostRngState } from "../../../src/runtime/rng.ts";
 import type { AgentLogEntry } from "../agent/agentLog.ts";
 import type { LlmConfig } from "../agent/llmClient.ts";
 import { gameRevision, updateBootedResources } from "../project/gameMetadata.ts";
@@ -182,6 +184,7 @@ export interface AutosaveControllerContext {
   readonly getBootedGame: () => BootedGame | null;
   readonly getWorker: () => Worker | null;
   readonly getRunScope?: () => string | undefined;
+  readonly getWriterGeneration?: () => number | undefined;
   /** The project's write owner makes its live image durable before a checkpoint. */
   readonly prepareCheckpoint?: (
     game: BootedGame,
@@ -245,6 +248,7 @@ export interface AutosaveControllerContext {
 }
 
 type AutosaveFlushResult =
+  | { status: "temporary"; cycle: number }
   | { status: "saved"; cycle: number }
   | { status: "already_durable"; cycle: number }
   | { status: "not_checkpointable" }
@@ -329,6 +333,7 @@ type ResumeAdmission =
       readonly status: "restore";
       readonly restoreImage: string;
       readonly restoreMenus?: EngineMenuState | undefined;
+      readonly restoreRng?: HostRngState | undefined;
     }
   | { readonly status: "aborted"; readonly message?: string | undefined };
 
@@ -365,11 +370,18 @@ export interface AutosaveController {
     revision?: ResourceRevision;
     preview?: unknown;
     menus?: EngineMenuState;
+    rng?: HostRngState;
+    writerGeneration?: number;
     cycle: number;
     room: number;
     files?: Record<string, Uint8Array>;
   }): void;
-  handleFlushed(msg: { id: number; taken: boolean; cycle?: number | undefined }): void;
+  handleFlushed(msg: {
+    id: number;
+    taken: boolean;
+    cycle?: number | undefined;
+    temporary?: true;
+  }): void;
   handleRestored(msg: {
     ok: boolean;
     room?: number;
@@ -671,11 +683,18 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
       revision?: ResourceRevision;
       preview?: unknown;
       menus?: EngineMenuState;
+      rng?: HostRngState;
+      writerGeneration?: number;
       cycle: number;
       room: number;
       files?: Record<string, Uint8Array>;
     },
-    captured: { game: BootedGame | null; worker: Worker | null; run: string | undefined },
+    captured: {
+      game: BootedGame | null;
+      worker: Worker | null;
+      run: string | undefined;
+      writerGeneration: number | undefined;
+    },
   ): Promise<boolean> {
     try {
       const booted = ctx.getBootedGame();
@@ -692,6 +711,13 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
       // removed body and a game that never bound a target both refuse
       // before anything is stored.
       let target = resolveProgressTarget(game);
+      if (
+        ctx.getWriterGeneration &&
+        (captured.writerGeneration === undefined ||
+          (target !== null &&
+            !progressWriterMatches(localStorage, target.locator, captured.writerGeneration)))
+      )
+        return false;
       // The incarnation this boot may write into: its captured lifetime
       // receipt, else the bound target's own epoch for a game carrying the
       // binding alone.
@@ -754,8 +780,12 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
         format: "monotio.agi.autosave",
         version: 1,
         image: String(msg.image),
+        ...(captured.writerGeneration !== undefined
+          ? { writerGeneration: captured.writerGeneration }
+          : {}),
         ...(preview !== undefined ? { preview } : {}),
         ...(msg.menus ? { menus: msg.menus } : {}),
+        ...(msg.rng ? { rng: structuredClone(msg.rng) } : {}),
         cycle: Number(msg.cycle),
         room: Number(msg.room),
         savedAt: Date.now(),
@@ -823,6 +853,8 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
     revision?: ResourceRevision;
     preview?: unknown;
     menus?: EngineMenuState;
+    rng?: HostRngState;
+    writerGeneration?: number;
     cycle: number;
     room: number;
     files?: Record<string, Uint8Array>;
@@ -830,7 +862,12 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
     const game = ctx.getBootedGame();
     invalidateOldCheckpoint();
     const revision = msg.revision ?? game?.revision;
-    const captured = { game, worker: ctx.getWorker(), run: ctx.getRunScope?.() };
+    const captured = {
+      game,
+      worker: ctx.getWorker(),
+      run: ctx.getRunScope?.(),
+      writerGeneration: msg.writerGeneration ?? ctx.getWriterGeneration?.(),
+    };
     autosaveWrite = autosaveWrite
       .then(async () => {
         if (
@@ -865,11 +902,28 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
       .catch(() => false);
   }
 
-  function handleFlushed(msg: { id: number; taken: boolean; cycle?: number | undefined }): void {
+  function handleFlushed(msg: {
+    id: number;
+    taken: boolean;
+    cycle?: number | undefined;
+    temporary?: true;
+  }): void {
     const cycle = Number(msg.cycle ?? lastSeenCycle);
     lastSeenCycle = cycle;
     const simpleResolve = flushWaiters.get(Number(msg.id));
     const detailedResolve = flushDetailedWaiters.get(Number(msg.id));
+
+    if (msg.temporary && !msg.taken) {
+      void autosaveWrite.then((saved) => {
+        simpleResolve?.(saved);
+        detailedResolve?.(
+          saved
+            ? { status: "temporary", cycle }
+            : { status: preparationNotReady ? "not_ready" : "storage_failure" },
+        );
+      });
+      return;
+    }
 
     if (msg.taken) {
       void autosaveWrite.then((saved) => {
@@ -1096,6 +1150,7 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
       status: "restore",
       restoreImage: validated.image,
       ...(validated.menus !== undefined ? { restoreMenus: validated.menus } : {}),
+      ...(validated.rng !== undefined ? { restoreRng: validated.rng } : {}),
     };
   }
 
@@ -1123,7 +1178,7 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
 
   async function flushAutosave(timeoutMs = 500): Promise<boolean> {
     const res = await flushAutosaveDetailed(timeoutMs);
-    return res.status === "saved" || res.status === "already_durable";
+    return res.status === "saved" || res.status === "already_durable" || res.status === "temporary";
   }
 
   function lastAutosaveRecord(): AutosaveRecord | null {
@@ -1139,14 +1194,36 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
     const operation = beginResumeOperation();
     const pointer = readResumePointer(localStorage);
     if (pointer === null) return false;
-    const key = pointer.value;
-    const locator = parseProgressLocator(key);
+    let key = pointer.value;
+    let locator = parseProgressLocator(key);
     if (!pointer.legacy && locator === null) {
       // A physical pointer that parses to nothing usable refuses — its
       // checkpoint stays stored, and the value never falls through to the
       // released alias/folder resolution a bare spelling would get.
       ctx.logAgent("log", `Autosave pointer "${key}" names no physical target; starting fresh.`);
       return false;
+    }
+    // Released project pointers select their live body before reading a
+    // checkpoint. The one-time adoption validates every image and leaves the
+    // old pointer/records intact; all subsequent resumes use the bound store.
+    const legacyProject = pointer.legacy ? projectId(key) : null;
+    if (
+      legacyProject !== null &&
+      getCachedGameMeta(legacyProject) !== null &&
+      readAutosave(key)?.game.installed !== true
+    ) {
+      const bound = await bindSavedProgressTarget(legacyProject).catch(() => null);
+      if (operation !== resumeGeneration || bound === null) return false;
+      try {
+        const { adoptEarlierProjectProgress } =
+          await import("../project/earlierProgressAdoption.ts");
+        await adoptEarlierProjectProgress(localStorage, bound);
+      } catch {
+        /* Unreadable progress or refused storage stays available for inspection. */
+      }
+      if (operation !== resumeGeneration) return false;
+      key = bound.locator;
+      locator = parseProgressLocator(key);
     }
     const record = readAutosave(key);
     if (!record) return false;

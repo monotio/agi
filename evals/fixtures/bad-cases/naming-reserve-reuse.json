@@ -1,0 +1,70 @@
+{
+  "name": "naming-reserve-reuse",
+  "description": "Reusing an existing reservation preserves the evidence reviewed with its name.",
+  "naming": {
+    "logic:1": "set(f36);\nif (isset(f36)) { print(m1); }\nreturn;\n#message 1 \"The gate opens.\"",
+    "bindings": "{}"
+  },
+  "tool": "propose_names",
+  "args": {
+    "names": [
+      {
+        "name": "gate_open",
+        "kind": "flag",
+        "id": 36,
+        "logic": null,
+        "rename": null,
+        "evidence": [
+          {
+            "logic": 1,
+            "line": 1,
+            "role": "Changed",
+            "text": "set(f36);",
+            "nearbyMessages": ["The gate opens."]
+          },
+          {
+            "logic": 1,
+            "line": 2,
+            "role": "Read",
+            "text": "if (isset(f36)) { print(m1); }",
+            "nearbyMessages": ["The gate opens."]
+          }
+        ]
+      }
+    ]
+  },
+  "expectedSuccess": true,
+  "after": [
+    {
+      "tool": "reserve_name",
+      "args": {
+        "name": "gate_open",
+        "kind": "flag",
+        "id": 36,
+        "bindings": null
+      }
+    }
+  ],
+  "expectedBindings": {
+    "gate_open": {
+      "kind": "flag",
+      "num": 36,
+      "evidence": [
+        {
+          "logic": 1,
+          "line": 1,
+          "role": "Changed",
+          "text": "set(f36);",
+          "nearbyMessages": ["The gate opens."]
+        },
+        {
+          "logic": 1,
+          "line": 2,
+          "role": "Read",
+          "text": "if (isset(f36)) { print(m1); }",
+          "nearbyMessages": ["The gate opens."]
+        }
+      ]
+    }
+  }
+}

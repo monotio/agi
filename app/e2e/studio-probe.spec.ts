@@ -78,7 +78,7 @@ function expected(page: Page, x: number, baselineY: number) {
   );
 }
 
-test("a ghost dragged behind the bench occluder is hidden exactly where probeActor says", async ({
+test("a ghost dragged behind the bench occluder is hidden exactly where probeActor says @webkit-desktop", async ({
   page,
 }) => {
   await open(page);
@@ -103,16 +103,20 @@ test("a ghost dragged behind the bench occluder is hidden exactly where probeAct
   expect(want.hidden.length).toBeGreaterThan(0);
   expect(await pathCells(page, '[data-role="ghost-hidden"]')).toEqual(want.hidden);
   await expect(readout.locator('[data-role="ghost-band"]')).toContainText(
-    "x 60 y 100 → depth band 9",
+    "x 60 y 100 → distance band 9",
   );
   const verdict = readout.locator('[data-role="ghost-verdict"]');
   await expect(verdict).toHaveAttribute("data-kind", "behind");
   await expect(verdict).toContainText("Behind Bench depth");
   await expect(verdict).toContainText(`${want.hidden.length} of`);
   await expect(verdict).toContainText("hidden");
+  await page.screenshot({
+    path: test.info().outputPath("ghost-probe-occlusion.png"),
+    animations: "disabled",
+  });
 });
 
-test("moving onto the floor-edge barrier reports its cells; keys nudge, cycle and toggle", async ({
+test("moving onto the floor-edge barrier reports its cells; keys nudge, cycle and toggle @webkit-desktop", async ({
   page,
 }) => {
   await open(page);

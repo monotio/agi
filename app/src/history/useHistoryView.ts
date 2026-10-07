@@ -1,3 +1,4 @@
+import { numberedLabel } from "../../../src/logic/numberedLabels.ts";
 /**
  * The host half of the always-visible transport. While the game runs the
  * bar shows the live session pinned at the timeline's LIVE endpoint; the
@@ -125,7 +126,7 @@ function roomMarkLabel(room: number, via: string, edge?: string): string {
   const lead = VIA_LABELS[via] ?? "arrived";
   const how =
     via === "edge" && edge ? `through the ${edge} edge` : via === "logic" ? "by the game" : "";
-  return `Room ${room}: ${lead}${how ? ` ${how}` : ""}`;
+  return `${numberedLabel("room", room)}: ${lead}${how ? ` ${how}` : ""}`;
 }
 
 function roomMark(m: HistoryRoomMark, segment: number): HistoryViewMark {
@@ -1606,7 +1607,7 @@ export function useHistoryView(deps: HistoryViewDeps) {
       if (v.active) {
         const total = flatTotal();
         const pct = total > 0 ? Math.round((flatPosition() / total) * 100) : 0;
-        return `Room ${v.room} · ${pct}%`;
+        return `${numberedLabel("room", v.room)} · ${pct}%`;
       }
       // Live or paused at LIVE: the LIVE and Resume buttons already say so.
       return undefined;

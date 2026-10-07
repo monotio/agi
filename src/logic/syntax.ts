@@ -4,6 +4,8 @@
  * statement tree; lowering and bytecode emission live in assembler.ts.
  */
 
+import { systemBindings, type SystemBinding } from "./systemNames.ts";
+
 export class AssemblerError extends Error {
   readonly line: number;
   readonly col: number;
@@ -232,8 +234,8 @@ function lex(source: string, errors?: AssemblerError[]): Token[] {
 export type Ref =
   /** A number literal keeps its token, so a byte operand out of range reports where it was written. */
   | { kind: "num"; value: number; tok?: Token }
-  | { kind: "v" | "f" | "o" | "i" | "m" | "s" | "w" | "c"; index: number }
-  | { kind: "str"; text: string };
+  | { kind: "v" | "f" | "o" | "i" | "m" | "s" | "w" | "c"; index: number; tok?: Token }
+  | { kind: "str"; text: string; tok?: Token };
 
 export type TestExpr =
   | { type: "cond"; name: string; args: Ref[]; tok: Token; end?: number }
@@ -278,7 +280,7 @@ class Parser {
       throw new AssemblerError("syntax nesting limit exceeded", tok.line, tok.col);
     }
   }
-  readonly defines = new Map<string, number>();
+  readonly defines = new Map<string, Ref>();
   /** Declared message slots; `null` is an explicitly absent slot. */
   readonly explicitMessages = new Map<number, string | null>();
   /** The program in source order; labels are statements that emit no bytes. */
@@ -321,7 +323,10 @@ class Parser {
 
   private readonly errors: AssemblerError[] | undefined;
 
-  constructor(tokens: Token[], errors?: AssemblerError[]) {
+  private readonly builtins: Readonly<Record<string, SystemBinding>>;
+
+  constructor(tokens: Token[], errors?: AssemblerError[], builtins = systemBindings()) {
+    this.builtins = builtins;
     this.tokens = tokens;
     this.errors = errors;
   }
@@ -413,14 +418,20 @@ class Parser {
       this.explicitMessages.set(n, str === null ? null : str.text);
     } else if (dir.text === "#define") {
       const name = this.expect("ident");
-      const num = this.expect("number");
-      const n = Number(num.text);
+      const value = this.next();
+      const typed = value.type === "ident" ? /^([vf])(\d+)$/.exec(value.text) : null;
+      if (value.type !== "number" && !typed)
+        throw new AssemblerError("#define value must be a number, vN or fN", value.line, value.col);
+      const n = Number(typed?.[2] ?? value.text);
       if (n < 0 || n > 255)
-        throw new AssemblerError("#define value must be 0..255", num.line, num.col);
+        throw new AssemblerError("#define value must be 0..255", value.line, value.col);
       if (this.defines.has(name.text)) {
         throw new AssemblerError(`duplicate #define '${name.text}'`, name.line, name.col);
       }
-      this.defines.set(name.text, n);
+      this.defines.set(
+        name.text,
+        typed ? { kind: typed[1] as "v" | "f", index: n } : { kind: "num", value: n },
+      );
       this.addDefinition("define", name);
     } else {
       throw new AssemblerError(
@@ -487,7 +498,10 @@ class Parser {
       } else {
         const defined = this.defines.get(tok.text);
         this.reference("define", tok);
-        if (defined !== undefined) left = { kind: "v", index: defined };
+        if (defined?.kind === "num") left = { kind: "v", index: defined.value };
+        else if (defined?.kind === "v") left = defined;
+        else if (!defined && this.builtins[tok.text]?.kind === "v")
+          left = { kind: "v", index: this.builtins[tok.text]!.num };
         else throw new AssemblerError(`cannot assign to '${tok.text}'`, tok.line, tok.col);
       }
       if (right.kind === "num")
@@ -553,7 +567,7 @@ class Parser {
       if (n > 0xffff) throw new AssemblerError("value out of range 0..65535", tok.line, tok.col);
       return { kind: "num", value: n, tok };
     }
-    if (tok.type === "string") return { kind: "str", text: tok.text };
+    if (tok.type === "string") return { kind: "str", text: tok.text, tok };
     if (tok.type === "ident") {
       const m = /^([vfomsiwc])(\d+)$/.exec(tok.text);
       if (m) {
@@ -561,16 +575,14 @@ class Parser {
         const limit = m[1] === "w" ? 65535 : 255;
         if (idx > limit)
           throw new AssemblerError(`index out of range 0..${limit}`, tok.line, tok.col);
-        return { kind: m[1] as "v" | "f" | "o" | "i" | "m" | "s" | "w" | "c", index: idx };
+        return { kind: m[1] as "v" | "f" | "o" | "i" | "m" | "s" | "w" | "c", index: idx, tok };
       }
       const defined = this.defines.get(tok.text);
       this.reference("define", tok);
-      if (defined !== undefined) return { kind: "num", value: defined };
-      throw new AssemblerError(
-        `unknown identifier '${tok.text}' (want vN/fN/oN/iN/mN/sN/wN/cN, a number, or a #define)`,
-        tok.line,
-        tok.col,
-      );
+      if (defined !== undefined) return { ...defined, tok };
+      const builtin = Object.hasOwn(this.builtins, tok.text) ? this.builtins[tok.text] : undefined;
+      if (builtin) return { kind: builtin.kind, index: builtin.num, tok };
+      throw new AssemblerError(`Nothing is named ${tok.text}.`, tok.line, tok.col);
     }
     throw new AssemblerError(
       `unexpected '${tok.text || tok.type}' in argument list`,
@@ -647,7 +659,7 @@ class Parser {
     }
     if (nextTok?.text !== "(") {
       const m = /^f(\d{1,3})$/.exec(tok.text);
-      if (m) {
+      if (m || this.builtins[tok.text]?.kind === "f" || this.defines.get(tok.text)?.kind === "f") {
         const ref = this.parseRef();
         return { type: "cond", name: "isset", args: [ref], tok };
       }
@@ -736,13 +748,16 @@ class Parser {
 // ---------- Public entry ----------
 
 /** Parse a whole logic source, enforcing the input ceilings, or throw AssemblerError. */
-export function parseLogicSyntax(source: string): {
+export function parseLogicSyntax(
+  source: string,
+  builtins = systemBindings(),
+): {
   readonly tokens: Token[];
   readonly program: Stmt[];
   readonly explicitMessages: Map<number, string | null>;
 } {
   const tokens = scanLogicTokens(source);
-  const parser = new Parser(tokens);
+  const parser = new Parser(tokens, undefined, builtins);
   parser.parseProgram();
   return { tokens, program: parser.program, explicitMessages: parser.explicitMessages };
 }
@@ -770,7 +785,10 @@ function checkSourceSize(source: string): void {
  * grammar. Recovered trees are for navigation only; compilation always reparses
  * strictly. Work/size failures become bounded diagnostics, never partial bytes.
  */
-export function analyzeLogicSyntax(source: string): {
+export function analyzeLogicSyntax(
+  source: string,
+  builtins = systemBindings(),
+): {
   readonly tokens: readonly Token[];
   readonly program: readonly Stmt[];
   readonly definitions: readonly NamedDefinition[];
@@ -789,7 +807,7 @@ export function analyzeLogicSyntax(source: string): {
   try {
     checkSourceSize(source);
     tokens = lex(source, errors);
-    parser = new Parser(tokens, errors);
+    parser = new Parser(tokens, errors, builtins);
     parser.parseProgram();
   } catch (error) {
     if (!(error instanceof AssemblerError)) throw error;

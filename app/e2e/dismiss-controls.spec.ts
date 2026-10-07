@@ -102,7 +102,9 @@ test("name details closes with Escape from its Close control", async ({ page }) 
   await page.keyboard.press("Escape");
   await expect(details).toBeHidden();
 });
-test("History, Problems and Inspector dismiss with × and Escape", async ({ page }) => {
+test("History and Inspector dismiss with × and Escape; Problems closes with its tab ×", async ({
+  page,
+}) => {
   await start(page);
   await page.getByTestId("workspace-saved").click();
   const history = page.getByTestId("workspace-history");
@@ -117,13 +119,14 @@ test("History, Problems and Inspector dismiss with × and Escape", async ({ page
   await page.keyboard.press("ControlOrMeta+j");
   const problems = page.getByTestId("workspace-problems");
   await expect(problems).toBeVisible();
-  const problemsClose = problems.getByRole("button", { name: "Close", exact: true });
-  await expect(problemsClose).toBeVisible();
-  await expect.soft(problemsClose).toHaveAccessibleName("Close");
-  await problemsClose.focus();
+  // Problems is a workspace tab: Escape keeps it; its × closes it.
   await page.keyboard.press("Escape");
-  await expect.soft(problems).toBeHidden();
-  if (await problems.isVisible()) await problemsClose.click();
+  await expect(problems).toBeVisible();
+  const problemsClose = page.getByTestId("project-tab-close-problems");
+  await expect(problemsClose).toBeVisible();
+  await expect.soft(problemsClose).toHaveAccessibleName("Close Problems");
+  await problemsClose.click();
+  await expect(problems).toBeHidden();
   await openGameOptions(page, "settings-menu");
   await page.getByTestId("settings-advanced").click();
   await page.getByTestId("settings-inspect").click();
@@ -144,7 +147,8 @@ test("Share preview offers Cancel beside Download and its menu dismisses outside
 }) => {
   await start(page);
   await page.getByTestId("part-room:1:picture:1").click();
-  const share = page.getByTestId("studio-share");
+  // Share is a rare action: it lives in the frame's ⋯ menu.
+  const share = page.getByTestId("workspace-more");
   await share.click();
   const still = page.getByTestId("studio-share-still");
   await expect(still).toBeVisible();

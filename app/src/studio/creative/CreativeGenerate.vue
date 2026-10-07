@@ -46,6 +46,7 @@ interface Snapshot {
   readonly offer: OpenAiImageOffer | null;
   readonly partialImage: Uint8Array | null;
   readonly spend: ReportedSpend | null;
+  readonly budgetPaused: boolean;
   readonly offerStale: boolean;
   readonly credentialReady: boolean;
   readonly composite: boolean;
@@ -61,6 +62,7 @@ function readController(): Snapshot {
     offer: controller.offer,
     partialImage: controller.partialImage,
     spend: controller.spend,
+    budgetPaused: controller.budgetPaused,
     offerStale: controller.offerStale,
     credentialReady: controller.credentialReady(),
     composite: controller.editComposite() !== null,
@@ -595,14 +597,15 @@ const noKey = computed(() => !credentialReady.value || failure.value?.reason ===
     </form>
 
     <section
-      v-if="phase === 'review' && failure?.reason === 'budget'"
+      v-if="state.budgetPaused || failure?.reason === 'budget'"
       class="generate__actions"
       data-testid="generate-budget"
     >
-      <UiButton variant="primary" data-testid="generate-allow" @click="void controller.submit(true)"
+      <p>Budget reached. Continue adds another task budget.</p>
+      <UiButton variant="primary" data-testid="generate-allow" @click="controller.continueBudget()"
         >Continue</UiButton
       >
-      <UiButton variant="ghost" @click="controller.discardReview()">Change the words</UiButton>
+      <UiButton variant="ghost" @click="controller.stopBudget()">Stop</UiButton>
     </section>
 
     <p
@@ -626,8 +629,11 @@ const noKey = computed(() => !credentialReady.value || failure.value?.reason ===
         <p role="status">Drawing your picture…</p>
         <span data-testid="generate-elapsed">{{ elapsed }}s</span>
       </div>
+      <p v-if="state.spend" class="generate__spent" data-testid="generate-spent">
+        {{ formatSpent(state.spend) }}
+      </p>
       <UiButton variant="secondary" data-testid="generate-cancel" @click="controller.cancel()"
-        >Cancel</UiButton
+        >Stop</UiButton
       >
     </section>
 
@@ -661,7 +667,7 @@ const noKey = computed(() => !credentialReady.value || failure.value?.reason ===
         This result belongs to an earlier version of your work. Dismiss it and start a new request.
       </p>
       <p v-else-if="compositeNote" class="generate__hint" data-testid="generate-composite">
-        Use this places the result inside your selection. The rest stays as it was.
+        The image fills your selection.
       </p>
       <div class="generate__actions">
         <UiButton
@@ -672,13 +678,13 @@ const noKey = computed(() => !credentialReady.value || failure.value?.reason ===
           "
           data-testid="generate-use"
           @click="void controller.useImage()"
-          >Use this</UiButton
+          >Use image</UiButton
         >
         <UiButton variant="secondary" data-testid="generate-again" @click="void tryAgain()"
-          >Try again</UiButton
+          >Generate again</UiButton
         >
         <UiButton variant="ghost" data-testid="generate-dismiss" @click="controller.dismissOffer()"
-          >Change the words</UiButton
+          >Edit prompt</UiButton
         >
       </div>
     </section>

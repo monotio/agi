@@ -466,7 +466,6 @@ describe("spriteKeys", () => {
     undo: () => log.push("undo"),
     redo: () => log.push("redo"),
     tool: (key) => (log.push(`tool ${key}`), key === "b"),
-    ask: () => (log.push("ask"), true),
     keySheet: () => log.push("key sheet"),
   });
   const key = (init: KeyboardEventInit & { key: string; target?: unknown }) =>
@@ -482,7 +481,6 @@ describe("spriteKeys", () => {
     assert.equal(spriteKey(key({ key: ">" }), act), true);
     assert.equal(spriteKey(key({ key: "z", metaKey: true, shiftKey: true }), act), true);
     assert.equal(spriteKey(key({ key: "B" }), act), true);
-    assert.equal(spriteKey(key({ key: "/" }), act), true);
     assert.equal(spriteKey(key({ key: "q" }), act), false);
     assert.equal(spriteKey(key({ key: "Escape" }), act), true);
     assert.deepEqual(log, [
@@ -493,7 +491,6 @@ describe("spriteKeys", () => {
       "loop 1",
       "redo",
       "tool b",
-      "ask",
       "tool q",
     ]);
   });

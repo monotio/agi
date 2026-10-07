@@ -1,4 +1,11 @@
-import { beginProviderBudget, type ProviderBudget } from "./providerBudget.ts";
+import {
+  beginProviderBudget,
+  subscribeProviderBudget,
+  recordProviderSpend,
+  providerBudgetReached,
+  extendProviderBudget,
+  type ProviderBudget,
+} from "./providerBudget.ts";
 import type { LlmUsage } from "./llmClient.ts";
 import type { AgentToolResult } from "../../../src/agent/agentState.ts";
 import { sha256Hex } from "../../../src/crypto.ts";
@@ -9,7 +16,7 @@ export interface AgentRunState {
   status: "idle" | "running" | "paused";
   reason: string;
   spent: number;
-  /** Charges from completed requests in this task, excluding shared image activity. */
+  /** Provider-reported charges in this task, excluding shared image activity. */
   reportedSpent: number;
   budget: number;
   allowance: number;
@@ -30,7 +37,7 @@ export interface AgentProgress {
 }
 
 /** A pause suspends the existing async task, including its staged resource container. */
-/** A task's spending allowance until the player chooses another; evals start from it too. */
+/** A task's budget until the player chooses another; evals start from it too. */
 export { DEFAULT_TASK_BUDGET_USD } from "../settings/aiSettings.ts";
 import { DEFAULT_TASK_BUDGET_USD } from "../settings/aiSettings.ts";
 
@@ -45,12 +52,7 @@ export class AgentRun {
   private stopped = false;
   private cancelled = false;
   private signatures: string[] = [];
-  private lastInputCost = 0;
-  /** Projected input cost of the next request: last cost grown by the observed ratio. */
-  private expectedInputCost = 0;
-  private outputRate = 0;
-  private outputReserve = 25000;
-  private requestAllowance = 0;
+  private streamUsage: Record<string, { charge: number; input: number; cachedInput: number }> = {};
   /** This task's input tokens and the cached share of them, for the hit share. */
   private taskInput = 0;
   private taskCachedInput = 0;
@@ -82,13 +84,17 @@ export class AgentRun {
       priceKnown: !!MODEL_CAPABILITIES[model]?.price,
       cacheHitShare: null,
     };
-    this.outputRate = MODEL_CAPABILITIES[model]?.price?.output ?? 0;
-    this.outputReserve = MODEL_CAPABILITIES[model]?.provider === "anthropic" ? 64000 : 25000;
   }
   snapshot(): AgentRunState {
     return {
       ...this.state,
-      ...(this.account ? { spent: this.account.spent, budget: this.account.limit } : {}),
+      ...(this.account
+        ? {
+            spent: this.account.spent,
+            budget: this.account.limit,
+            usageIncomplete: this.state.usageIncomplete || this.account.usageIncomplete,
+          }
+        : {}),
       progress: this.state.progress ? { ...this.state.progress } : null,
     };
   }
@@ -129,17 +135,17 @@ export class AgentRun {
       cacheHitShare: null,
     };
     this.account = beginProviderBudget(this.allowance);
+    const unsubscribeBudget = subscribeProviderBudget(this.account, () => this.publish());
     this.taskInput = 0;
     this.taskCachedInput = 0;
     this.stopped = false;
     this.cancelled = false;
     this.signatures = [];
-    this.requestAllowance = 0;
-    this.expectedInputCost = this.lastInputCost;
     this.publish();
     try {
       return await work();
     } finally {
+      unsubscribeBudget();
       this.state.status = "idle";
       this.controller = undefined;
       this.publish();
@@ -154,6 +160,7 @@ export class AgentRun {
     this.stopped = true;
     this.state.reason = "Stopped. Your work is kept in this tab.";
     this.controller?.abort();
+    this.publish();
   }
   assertActive(): void {
     if (this.cancelled) throw new Error("Agent task cancelled. Unapplied changes were discarded.");
@@ -163,21 +170,10 @@ export class AgentRun {
     this.controller?.abort();
     this.wake?.();
   }
-  resume(requestLimit?: number): void {
+  resume(_requestLimit?: number): void {
     if (this.state.status !== "paused") return;
-    if (!this.state.priceKnown) {
-      if (!Number.isSafeInteger(requestLimit) || requestLimit === undefined || requestLimit < 1)
-        return;
-      this.requestAllowance = this.state.requests + requestLimit;
-    }
-    if (this.state.reason.startsWith("Budget"))
-      this.state.budget =
-        Math.max(
-          this.account?.limit ?? this.state.budget,
-          this.account?.spent ?? this.state.spent,
-        ) + this.allowance;
-    if (this.account) {
-      this.account.limit = Math.max(this.account.limit, this.state.budget);
+    if (this.account && providerBudgetReached(this.account)) {
+      extendProviderBudget(this.account);
       this.state.budget = this.account.limit;
     }
     this.stopped = false;
@@ -186,15 +182,16 @@ export class AgentRun {
     this.wake?.();
   }
   recordUsage(usage: LlmUsage, model = this.model): void {
-    this.outputReserve = Math.min(
-      modelCapability(this.model).maxOutputTokens,
-      Math.max(
-        MODEL_CAPABILITIES[this.model]?.provider === "anthropic" ? 64000 : 25000,
-        Math.ceil((3 * this.outputReserve + usage.output) / 4),
-      ),
-    );
-    this.taskInput += usage.input;
-    this.taskCachedInput += Math.min(usage.input, usage.cachedInput);
+    this.applyUsage(usage, model, false);
+  }
+  /** Providers report cumulative usage for the current stream; count each token once. */
+  recordStreamUsage(usage: LlmUsage, model = this.model): void {
+    this.applyUsage(usage, model, true);
+  }
+  private applyUsage(usage: LlmUsage, model: string, cumulative: boolean): void {
+    const previous = cumulative ? this.streamUsage[model] : undefined;
+    this.taskInput += usage.input - (previous?.input ?? 0);
+    this.taskCachedInput += Math.min(usage.input, usage.cachedInput) - (previous?.cachedInput ?? 0);
     this.state.cacheHitShare = this.taskInput > 0 ? this.taskCachedInput / this.taskInput : null;
     const rate = MODEL_CAPABILITIES[model]?.price;
     if (!rate) {
@@ -206,7 +203,7 @@ export class AgentRun {
     const long = rate.longContext && usage.input > 272000;
     const input = rate.input * (long ? 2 : 1);
     const cacheRead = (rate.cacheRead ?? rate.input * 0.1) * (long ? 2 : 1);
-    this.outputRate = rate.output * (long ? 1.5 : 1);
+    const outputRate = rate.output * (long ? 1.5 : 1);
     const reads = Math.min(usage.input, usage.cachedInput);
     const writes = Math.min(usage.input - reads, usage.cacheWriteInput);
     // A cache write costs 1.25x the input rate for a 5-minute entry and 2x
@@ -220,20 +217,17 @@ export class AgentRun {
         writes5m * input * 1.25 +
         writes1h * input * 2) /
       1e6;
-    // Conversation input grows each request; the next one costs at least this
-    // request's input scaled by the observed growth ratio, bounded at 2x.
-    this.expectedInputCost =
-      this.lastInputCost > 0
-        ? inputCost * Math.min(2, Math.max(1, inputCost / this.lastInputCost))
-        : inputCost;
-    this.lastInputCost = inputCost;
-    const charge = inputCost + (usage.output * this.outputRate) / 1e6;
+    const cost = inputCost + (usage.output * outputRate) / 1e6;
+    const charge = cost - (previous?.charge ?? 0);
+    if (cumulative)
+      this.streamUsage[model] = {
+        charge: cost,
+        input: usage.input,
+        cachedInput: Math.min(usage.input, usage.cachedInput),
+      };
     this.state.reportedSpent += charge;
     this.state.spent += charge;
-    if (this.account) {
-      this.account.spent += charge;
-      this.account.reportedSpent += charge;
-    }
+    if (this.account) recordProviderSpend(this.account, charge);
     this.publish();
   }
   recordTool(
@@ -260,17 +254,9 @@ export class AgentRun {
   }
   async checkpoint(billable = true): Promise<void> {
     if (this.cancelled) throw new Error("Agent task cancelled. Unapplied changes were discarded.");
-    if (
-      billable &&
-      this.state.priceKnown &&
-      (this.account ? this.account.spent + this.account.reserved : this.state.spent) +
-        this.expectedInputCost +
-        (this.outputReserve * this.outputRate) / 1e6 >
-        (this.account?.limit ?? this.state.budget)
-    ) {
+    if (billable && this.account && providerBudgetReached(this.account)) {
       this.stopped = true;
-      this.state.reason =
-        "Budget pause. Another productive request needs more allowance. Work is kept; continuing adds another task allowance.";
+      this.state.reason = "Budget reached. Continue adds another task budget. Your work is kept.";
     }
     if (!this.stopped) return;
     this.state.status = "paused";
@@ -284,42 +270,16 @@ export class AgentRun {
     this.state.status = "running";
     this.publish();
   }
-  async request<T>(
-    send: (signal: AbortSignal, maxTokens: number) => Promise<T>,
-    estimatedInputTokens = 0,
-  ): Promise<T> {
+  async request<T>(send: (signal: AbortSignal, maxTokens: number) => Promise<T>): Promise<T> {
     for (;;) {
-      const rate = MODEL_CAPABILITIES[this.model]?.price;
-      if (rate && estimatedInputTokens > 0) {
-        const long = rate.longContext && estimatedInputTokens > 272000;
-        this.expectedInputCost = Math.max(
-          this.expectedInputCost,
-          (estimatedInputTokens * rate.input * (long ? 2 : 1)) / 1e6,
-        );
-        this.outputRate = rate.output * (long ? 1.5 : 1);
-      }
-      if (!this.state.priceKnown && this.state.requests >= this.requestAllowance)
-        this.pause(`Choose how many requests to allow, then Continue.`);
       await this.checkpoint();
-      if (
-        rate &&
-        (this.account ? this.account.spent + this.account.reserved : this.state.spent) +
-          this.expectedInputCost +
-          (this.outputReserve * this.outputRate) / 1e6 >
-          (this.account?.limit ?? this.state.budget)
-      )
-        continue;
       // No wall-clock cut: a long turn at high effort is normal, and the SDKs
       // swallow keep-alive pings, so silence cannot be told from a stall.
       // The budget and Stop (which aborts here) are the controls.
       const controller = new AbortController();
       this.controller = controller;
       const maxTokens = modelCapability(this.model).maxOutputTokens;
-      const account = this.account;
-      const reservation = rate
-        ? this.expectedInputCost + (this.outputReserve * this.outputRate) / 1e6
-        : (account?.allowance ?? this.allowance);
-      if (account) account.reserved += reservation;
+      this.streamUsage = {};
       this.state.requests++;
       this.state.progress = {
         phase: "waiting",
@@ -338,14 +298,13 @@ export class AgentRun {
         // An aborted provider request may still be billed; do not call this total exact.
         continue;
       } finally {
-        if (account) account.reserved -= reservation;
         clearTimeout(this.progressTimer);
         this.progressTimer = undefined;
         this.state.progress = null;
         this.controller = undefined;
         this.publish();
       }
-      if (this.stopped) await this.checkpoint(false);
+      await this.checkpoint();
       return response;
     }
   }

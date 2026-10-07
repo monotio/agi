@@ -18,6 +18,10 @@ import {
   useEarlierProgress,
 } from "./useEarlierProgress.ts";
 import type { EarlierEntry } from "../project/earlierProgress.ts";
+import { getCachedGameMeta } from "../project/gameStorage.ts";
+import { projectId } from "../../../src/gameIdentity.ts";
+import { useGameLibrary } from "../library/useGameLibrary.ts";
+import { shelfTitle } from "./shelfIdentity.ts";
 
 const props = defineProps<{ context: EarlierDetailsContext }>();
 
@@ -46,10 +50,11 @@ const {
 } = useEarlierProgress(() => activeContext.value);
 
 const now = useNow();
+const { catalogEntries } = useGameLibrary();
 
 const intro = computed(() => {
   if (browsingAll.value || props.context.kind === "all")
-    return "Progress kept in this browser. Choose an entry to inspect or download.";
+    return "Earlier progress stored in this browser.";
   if (props.context.kind === "capture") return "Progress kept when a game was removed.";
   return "Progress saved under this name.";
 });
@@ -96,10 +101,22 @@ function rowSub(entry: EarlierEntry): string {
       return `${entry.source ?? entry.key}${when ? ` · ${when}` : ""}`;
     }
     case "live":
-      return entry.source;
+      return liveTitle(entry.source) ?? entry.source;
     case "local":
       return entry.keys.join(", ");
   }
+}
+
+/** A live spelling that is a library game's own id reads as that game's shelf title. */
+function liveTitle(source: string): string | undefined {
+  const id = projectId(source);
+  const game = id ? getCachedGameMeta(id) : null;
+  return game ? shelfTitle(game, catalogEntries.value) : undefined;
+}
+
+/** The raw storage spelling stays on hover when the row shows a title. */
+function rowSpelling(entry: EarlierEntry): string | undefined {
+  return entry.kind === "live" && liveTitle(entry.source) ? entry.source : undefined;
 }
 
 const showRefresh = computed(
@@ -161,12 +178,12 @@ watch(
             @click="selectEntry(entry)"
           >
             <span class="earlier__row-label">{{ rowLabel(entry) }}</span>
-            <span class="earlier__row-sub">{{ rowSub(entry) }}</span>
+            <span class="earlier__row-sub" :title="rowSpelling(entry)">{{ rowSub(entry) }}</span>
           </button>
         </li>
       </ul>
       <p v-else class="earlier__muted" data-testid="earlier-empty">
-        Earlier progress appears here.
+        No earlier progress saved in this browser.
       </p>
       <p v-if="hasMore" class="earlier__more">
         <UiButton

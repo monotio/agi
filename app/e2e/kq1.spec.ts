@@ -1,4 +1,5 @@
 import { gameHint, openGameOptions, enterCreateMode } from "./engineProbe.ts";
+import type { ProjectSession } from "../src/project/projectSession.ts";
 import { fixtureSkip, KNOWN_GAME_HASH } from "../../test/fixtures.ts";
 import { readFile } from "node:fs/promises";
 import { readGameZip } from "../src/archive/gameZip.ts";
@@ -11,9 +12,10 @@ import {
   configureAi,
   isolateStorage,
   agentActivity,
+  downloadFromSettings,
   openCreateAdventure,
   openGameControls,
-  openLibraryActions,
+  openGameDownload,
   observe,
   probe,
   progressStorageKey,
@@ -23,6 +25,7 @@ import {
   textHook,
   waitForAutosaveAfter,
   waitForCycles,
+  workspaceSaved,
 } from "./engineProbe.ts";
 
 /**
@@ -590,7 +593,7 @@ test("returning to the menu preserves the installed game autosave", async ({ pag
   await expect(page.locator(".screen")).toBeVisible();
 });
 
-test("a corrupt autosave refuses recovery and preserves the stored checkpoint", async ({
+test("a corrupt autosave refuses recovery and preserves the stored checkpoint @webkit-desktop", async ({
   page,
 }) => {
   await page.goto("/");
@@ -730,20 +733,75 @@ test("a locally loaded patched game can be downloaded and imported", async ({ pa
 
   // Patch a real local game through the UI, then verify the downloaded bytes.
   await enterCreateMode(page);
+  await workspaceSaved(page);
   await page.getByTestId("workspace-agent").click();
   const panel = page.getByTestId("workspace-agent-panel");
   await expect(panel).toBeVisible();
+  await page.evaluate(async () => {
+    await (
+      window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }
+    ).__AGI_PROJECT__
+      .getSession()
+      .flush();
+  });
+  await expect(page.getByTestId("agent-message")).toBeVisible();
   await expect(page.getByTestId("agent-message")).toBeEnabled();
   await page.getByTestId("agent-message").fill("Add a welcome sign that answers look at sign");
+  await expect(page.getByTestId("agent-message")).toHaveValue(
+    "Add a welcome sign that answers look at sign",
+  );
+  await expect(panel.getByRole("button", { name: "Send", exact: true })).toBeEnabled();
+  // Capture the UI's actual task and hold it until the click has returned.
+  await page.evaluate(async () => {
+    const { borrowWorkspaceAgent } = await import("/src/agent/workspaceAgent.ts");
+    const session = (
+      window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }
+    ).__AGI_PROJECT__.getSession();
+    const agent = borrowWorkspaceAgent({
+      session,
+      profileId: "2.917",
+      config: () => {
+        throw new Error("The panel must own the agent.");
+      },
+    });
+    const send = agent.send.bind(agent);
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const completed = new Promise<void>((resolve, reject) => {
+      agent.send = (...args: Parameters<typeof send>) => {
+        const task = gate.then(() => send(...args));
+        void task.then(resolve, reject);
+        return task;
+      };
+    });
+    Object.assign(window, { releaseAgentTask: release, agentTaskCompleted: completed });
+  });
   await panel.getByRole("button", { name: "Send", exact: true }).click();
+  await expect(page.getByTestId("agent-review")).toBeHidden();
+  await page.evaluate(async () => {
+    const task = window as unknown as {
+      releaseAgentTask(): void;
+      agentTaskCompleted: Promise<void>;
+    };
+    task.releaseAgentTask();
+    await task.agentTaskCompleted;
+  });
   await expect(page.getByTestId("agent-review")).toBeVisible();
   await page.getByTestId("agent-approve").click();
+  // Wait for the real project transaction before checking its completed review.
+  await page.evaluate(async () => {
+    await (
+      window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }
+    ).__AGI_PROJECT__
+      .getSession()
+      .flush();
+  });
   await expect(page.getByTestId("agent-review")).toBeHidden();
   await page.getByTestId("workspace-agent").click();
   const downloading = page.waitForEvent("download");
-  await openGameOptions(page, "settings-menu");
-  await expect(page.getByTestId("btn-export-game")).toBeVisible();
-  await page.getByTestId("btn-export-game").click();
+  await downloadFromSettings(page);
   const download = await downloading;
   expect(download.suggestedFilename()).toMatch(/^agi-remix-[a-f0-9-]+-game\.zip$/);
   expect(await download.failure()).toBeNull();
@@ -758,6 +816,9 @@ test("a locally loaded patched game can be downloaded and imported", async ({ pa
     .getByTestId("saved-game-gallery")
     .locator("[data-testid^='saved-game-card-']");
   await page.getByTestId("btn-exit").click();
+  const discard = page.getByRole("button", { name: "Discard and exit", exact: true });
+  await expect(page.getByTestId("saved-game-gallery").or(discard)).toBeVisible();
+  if (await discard.isVisible()) await discard.click();
   await expect(savedCard).toHaveCount(1);
 
   // The remix is a saved game of its own; it must not overwrite the
@@ -767,6 +828,6 @@ test("a locally loaded patched game can be downloaded and imported", async ({ pa
     Object.keys(localStorage).filter((k) => k.includes("kq1") && !k.startsWith("monotio_agi.map.")),
   );
   expect(stored).toEqual([]);
-  await openLibraryActions(page, savedCard);
-  await expect(page.getByTestId("export-library-game")).toBeVisible();
+  const downloadDialog = await openGameDownload(page, savedCard);
+  await expect(downloadDialog.getByTestId("export-library-game")).toBeVisible();
 });

@@ -40,10 +40,10 @@ test("PAL session records timing, replays, resets and resumes with PAL", () => {
     amigaRegion: "pal",
   });
   ctx.fns.stopTimers();
-  assert.equal(ctx.clocks.sound.advance(19), 0);
-  assert.equal(ctx.clocks.sound.advance(20), 1);
-  assert.equal(ctx.clocks.sound.advance(1000), 49);
-  ctx.clocks.sound.reset(0);
+  assert.equal(ctx.run.clocks.sound.advance(19), 0);
+  assert.equal(ctx.run.clocks.sound.advance(20), 1);
+  assert.equal(ctx.run.clocks.sound.advance(1000), 49);
+  ctx.run.clocks.sound.reset(0);
   const opened = control.find((m) => m.type === "historyBatch" && m.batch.boot);
   assert.ok(opened?.type === "historyBatch" && opened.batch.boot);
   const boot = validateHistoryBoot(JSON.parse(JSON.stringify(opened.batch.boot)));
@@ -58,14 +58,14 @@ test("PAL session records timing, replays, resets and resumes with PAL", () => {
     sync: [],
   };
   const drive = replayHistorySegment(segment);
-  assert.equal(drive.ctx.engine!.timing.soundHz, 50);
+  assert.equal(drive.ctx.run.engine!.timing.soundHz, 50);
   for (let i = 1; i <= 60; i++) {
     now = i * 20;
     ctx.fns.hostTick();
   }
-  assert.equal(ctx.engine!.vars[11], 1);
+  assert.equal(ctx.run.engine!.vars[11], 1);
   const entries = progressEntries({
-    saves: { "1": ctx.engine!.serialize() },
+    saves: { "1": ctx.run.engine!.serialize() },
     autosave: null,
     amigaRegions: { "1": "pal" },
   });
@@ -82,7 +82,7 @@ test("PAL session records timing, replays, resets and resumes with PAL", () => {
     "amiga-2.310",
   );
   assert.deepEqual(progress?.amigaRegions, { "1": "pal" });
-  const image = ctx.engine!.autosaveImage();
+  const image = ctx.run.engine!.autosaveImage();
   assert.ok(image);
   onWorkerMessage(ctx, {
     type: "boot",
@@ -93,13 +93,13 @@ test("PAL session records timing, replays, resets and resumes with PAL", () => {
     restoreImage: Buffer.from(image).toString("base64"),
   });
   ctx.fns.stopTimers();
-  assert.equal(ctx.engine!.timing.soundHz, 50, "saved timing wins over the preference");
+  assert.equal(ctx.run.engine!.timing.soundHz, 50, "saved timing wins over the preference");
   const retained = ctx.fns.historySnapshot();
   assert.ok(retained);
   onWorkerMessage(ctx, { type: "historyViewRestore", id: 3, boot: retained, from: null });
-  assert.equal(ctx.engine!.timing.soundHz, 50);
+  assert.equal(ctx.run.engine!.timing.soundHz, 50);
   onWorkerMessage(ctx, { type: "resetReplay", seed: 7 });
-  assert.equal(ctx.engine!.timing.soundHz, 50);
+  assert.equal(ctx.run.engine!.timing.soundHz, 50);
 });
 
 test("a numbered PAL save restores the region and both session clocks", () => {
@@ -130,13 +130,14 @@ test("a numbered PAL save restores the region and both session clocks", () => {
   });
   ctx.fns.stopTimers();
   ctx.fns.tickEngine();
-  const image = ctx.engine!.serialize();
-  ctx.engine!.flags[208] = 1;
+  const image = ctx.run.engine!.serialize();
+  ctx.run.engine!.flags[208] = 1;
   ctx.fns.tickEngine();
   const list = control.findLast((m) => m.type === "hostRequest" && m.op === "saveList");
   assert.ok(list?.type === "hostRequest");
   onWorkerMessage(ctx, {
     type: "hostAnswer",
+    generation: ctx.run.generation,
     id: list.id,
     response: JSON.stringify([
       { slot: 1, image: Buffer.from(image.subarray(0, 40)).toString("base64") },
@@ -148,10 +149,11 @@ test("a numbered PAL save restores the region and both session clocks", () => {
   assert.ok(restore?.type === "hostRequest");
   onWorkerMessage(ctx, {
     type: "hostAnswer",
+    generation: ctx.run.generation,
     id: restore.id,
     response: JSON.stringify({ image: Buffer.from(image).toString("base64"), amigaRegion: "pal" }),
   });
-  assert.equal(ctx.engine!.timing.soundHz, 50);
-  assert.equal(ctx.clocks.sound.hz, 50);
-  assert.equal(ctx.clocks.cycle.incrementMs, 60);
+  assert.equal(ctx.run.engine!.timing.soundHz, 50);
+  assert.equal(ctx.run.clocks.sound.hz, 50);
+  assert.equal(ctx.run.clocks.cycle.incrementMs, 60);
 });

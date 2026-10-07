@@ -7,61 +7,6 @@ export interface LogicValue {
   names: string;
 }
 
-// Reserved roles: AGI specifications, sections 3.3 and 3.4.
-// https://www.agidev.com/articles/agispec/agispecs-3.html
-// Cycle, edge and room roles also follow agi-re's runtime and object chapters.
-export const reservedValues: Readonly<
-  Record<LogicValue["kind"], Readonly<Record<number, string>>>
-> = {
-  variable: {
-    0: "Room",
-    1: "Previous room",
-    2: "Hero edge",
-    3: "Score",
-    4: "Object touching edge",
-    5: "Object edge",
-    6: "Hero direction",
-    7: "Maximum score",
-    8: "Free memory",
-    9: "Unknown word",
-    10: "Cycle delay",
-    11: "Clock seconds",
-    12: "Clock minutes",
-    13: "Clock hours",
-    14: "Clock days",
-    15: "Joystick sensitivity",
-    16: "Hero view",
-    17: "Error code",
-    18: "Error detail",
-    19: "Key pressed",
-    20: "Computer type",
-    21: "Window timeout",
-    22: "Sound type",
-    23: "Sound volume",
-    24: "Input limit",
-    25: "Selected item",
-    26: "Monitor type",
-  },
-  flag: {
-    0: "Hero on water",
-    1: "Hero hidden",
-    2: "Command entered",
-    3: "Hero on trigger",
-    4: "Command accepted",
-    5: "New room",
-    6: "Game restarted",
-    7: "Script recording blocked",
-    8: "Joystick sensitivity enabled",
-    9: "Sound enabled",
-    10: "Trace enabled",
-    11: "First LOGIC 0 cycle",
-    12: "Game restored",
-    13: "Inventory selection enabled",
-    14: "Menu enabled",
-    15: "Window stays open",
-  },
-};
-
 /** Inspect operand positions in the captured source, including local and global defines. */
 export function logicValues(
   source: string,

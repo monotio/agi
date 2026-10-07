@@ -1,10 +1,12 @@
 <script setup lang="ts">
+import { numberedLabel } from "../../../../src/logic/numberedLabels.ts";
 import UiIcon from "../../ui/UiIcon.vue";
 import {
   computed,
   defineAsyncComponent,
   nextTick,
   onBeforeUnmount,
+  onWatcherCleanup,
   ref,
   shallowRef,
   useTemplateRef,
@@ -49,7 +51,7 @@ const props = defineProps<{
   imageRevision: number;
   resourceRevision: number;
 }>();
-const emit = defineEmits<{ close: []; changed: [] }>();
+const emit = defineEmits<{ close: []; changed: []; busy: [value: boolean] }>();
 const CreativeGenerate = defineAsyncComponent(() => import("./CreativeGenerate.vue"));
 const engine = useEngineApi();
 const bridge = useShellBridge();
@@ -62,11 +64,37 @@ const error = ref("");
 const status = ref("");
 const previewing = ref(false);
 const busy = ref(false);
+watch(busy, (value) => emit("busy", value), { flush: "sync" });
 const generateOpen = ref(props.generate);
 const file = useTemplateRef("file");
 let traceWrites = Promise.resolve();
 let pendingTraceWrites = 0;
 const isPicture = computed(() => props.target.startsWith("picture:"));
+const panel = useTemplateRef("panel");
+const generationHeight = ref<string>();
+watch(
+  panel,
+  (element) => {
+    if (!element || !isPicture.value) return;
+    const target = element;
+    function fit(): void {
+      if (!target.offsetParent) return;
+      generationHeight.value = `${Math.max(0, window.innerHeight - target.getBoundingClientRect().bottom - 8)}px`;
+    }
+    const observer = new ResizeObserver(fit);
+    observer.observe(target);
+    const frame = target.closest(".workspace-editor");
+    if (frame) observer.observe(frame);
+    if (target.offsetParent) observer.observe(target.offsetParent);
+    window.addEventListener("resize", fit);
+    fit();
+    onWatcherCleanup(() => {
+      observer.disconnect();
+      window.removeEventListener("resize", fit);
+    });
+  },
+  { flush: "post" },
+);
 const mirrors = shallowRef<readonly (number | null)[]>([]);
 const loopHeights = shallowRef<readonly number[]>([]);
 const background = shallowRef<readonly [number, number, number] | null>(null);
@@ -97,7 +125,7 @@ const name = computed(() => {
     const entry = Object.entries(readBindingsDocument(bindings)).find(
       ([, binding]) => `${binding.kind}:${binding.num}` === props.target,
     );
-    if (entry) return entry[0] === "ego_view" ? "Hero" : entry[0].replaceAll("_", " ");
+    if (entry) return numberedLabel("view", Number(props.target.slice(5)), { name: entry[0] });
   }
   return "Character";
 });
@@ -390,6 +418,7 @@ watch(
 );
 window.addEventListener("paste", paste);
 onBeforeUnmount(() => {
+  emit("busy", false);
   window.removeEventListener("paste", paste);
   previewTrace(props.session, props.target, opacity.value, behindArt.value, { adjust: undefined });
   closed = true;
@@ -400,6 +429,7 @@ onBeforeUnmount(() => {
 </script>
 <template>
   <section
+    ref="panel"
     class="image-reference"
     :class="{
       'image-reference--cels': !isPicture,
@@ -413,12 +443,14 @@ onBeforeUnmount(() => {
   >
     <header>
       <strong>{{
-        isPicture ? "Trace an image" : `${name} VIEW ${target.slice(5)} · Cels from an image`
+        isPicture
+          ? "Trace an image"
+          : `${numberedLabel("view", Number(target.slice(5)), { name }, "row")} · Cels from an image`
       }}</strong>
       <UiButton size="sm" variant="ghost" @click="emit('close')">Done</UiButton>
     </header>
     <div v-if="isPicture || !image" class="image-reference__actions">
-      <UiButton size="sm" :disabled="busy" @click="file?.click()">Bring in an image</UiButton>
+      <UiButton size="sm" :disabled="busy" @click="file?.click()">Import image</UiButton>
       <span>Drop, paste or choose an image.</span>
     </div>
     <div v-if="image && !isPicture" class="image-source">
@@ -440,7 +472,7 @@ onBeforeUnmount(() => {
               file?.click();
               replaceOpen = false;
             "
-            >Bring in an image</UiButton
+            >Import image</UiButton
           >
         </div>
       </div>
@@ -501,6 +533,7 @@ onBeforeUnmount(() => {
       :controller="generation"
       :role="isPicture ? 'room' : 'character'"
       :class="{ 'image-reference__generation': isPicture }"
+      :style="isPicture ? { maxHeight: generationHeight } : undefined"
     />
     <label v-if="image && isPicture"
       >Opacity
@@ -520,7 +553,6 @@ onBeforeUnmount(() => {
     </label>
     <template v-if="image && isPicture">
       <UiButton size="sm" aria-label="Reset trace" @click="resetTrace">Reset</UiButton>
-      <span>Drag the centre to move. Drag the corner to scale.</span>
     </template>
     <template v-if="image && !isPicture">
       <ImageFrameSheet
@@ -541,7 +573,7 @@ onBeforeUnmount(() => {
             :title="prepared ? '' : 'Adjust the frames first'"
             data-testid="image-preview-hero"
             @click="preview"
-            >{{ previewing ? "Stop preview" : "Try on Hero in the game" }}</UiButton
+            >{{ previewing ? "Stop preview" : "Preview on hero" }}</UiButton
           >
         </template>
         <template #commit>
@@ -582,7 +614,10 @@ onBeforeUnmount(() => {
   margin-bottom: var(--space-2);
 }
 .image-reference--picture {
-  position: relative;
+  position: absolute;
+  top: 100%;
+  right: 0;
+  width: min(440px, 100%);
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -618,10 +653,11 @@ onBeforeUnmount(() => {
   flex: 1;
   min-height: 0;
   max-height: 100%;
-  overflow: hidden;
+  overflow: auto;
 }
 .image-reference--cels :deep(.frame-editor) {
   flex: 1;
+  min-height: min-content;
   padding: var(--space-1);
 }
 .image-reference--cels > header,

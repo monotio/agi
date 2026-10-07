@@ -18,7 +18,7 @@ for (const kind of ["starter", "boilerplate", "blank"] as const) {
     await page.getByRole("button", { name: "Start building", exact: true }).click();
     await expect(page).toHaveURL(/#create\/local-/);
     if (kind === "blank") {
-      await expect(page.getByText("Nothing to play yet.")).toBeVisible();
+      await expect(page.locator(".screen").getByText("Nothing to play yet.")).toBeVisible();
     } else {
       await expect(page.getByTestId("parts-list")).toBeVisible();
       if (kind === "boilerplate") {
@@ -47,7 +47,7 @@ for (const kind of ["starter", "boilerplate", "blank"] as const) {
     expect(stored.keys.includes("view:0")).toBe(kind === "starter");
     if (kind === "blank") {
       await page.reload();
-      await expect(page.getByText("Nothing to play yet.")).toBeVisible();
+      await expect(page.locator(".screen").getByText("Nothing to play yet.")).toBeVisible();
     }
   });
 }

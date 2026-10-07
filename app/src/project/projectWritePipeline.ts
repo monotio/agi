@@ -1,5 +1,8 @@
 /** Detached preparation and one physical-run admission attempt precede document publication. */
-import { prepareProjectEdit } from "../../../src/authoring/projectEdit.ts";
+import {
+  prepareProjectEdit,
+  type ReviewedRenumbering,
+} from "../../../src/authoring/projectEdit.ts";
 import type { ProjectModel, ProjectProposal } from "../../../src/authoring/projectModel.ts";
 import type { ProfileId } from "../../../src/runtime/profile.ts";
 import type { PreviewUpdateOutcome } from "../worker/workerProtocol.ts";
@@ -10,6 +13,7 @@ export async function prepareAndAdmitProjectEdit(input: {
   readonly proposal: ProjectProposal;
   readonly profileId: ProfileId;
   readonly allowMissingRooms: boolean;
+  readonly reviewedRenumbering?: ReviewedRenumbering | undefined;
   readonly reviewedComputedRoomJumps?: readonly string[] | undefined;
   readonly drafts?:
     readonly { readonly key: string; readonly content: string | Uint8Array }[] | undefined;
@@ -26,13 +30,14 @@ export async function prepareAndAdmitProjectEdit(input: {
     profileId: input.profileId,
     policy: {
       allowMissingRooms: input.allowMissingRooms,
+      reviewedRenumbering: input.reviewedRenumbering,
       reviewedComputedRoomJumps: input.reviewedComputedRoomJumps,
     },
     drafts: input.drafts,
   });
   input.preflight();
   const before = input.model.capture();
-  const changes = input.proposal.changes();
+  const changes = prepared.proposal.changes();
   const documentVersions = [
     ...new Set([...before.keys, ...changes.map((change) => change.key)]),
   ].map((key) => ({ key, version: before.version(key) }));

@@ -3,38 +3,55 @@ import UiIcon from "../../ui/UiIcon.vue";
 import { computed, ref } from "vue";
 import { VOCABULARY } from "../../../../src/vocabulary.ts";
 import type { WorkspaceDebug } from "./workspaceDebug.ts";
+import type { ProjectEditDiagnostic } from "../../../../src/authoring/projectEdit.ts";
 import UiButton from "../../ui/UiButton.vue";
-import WorkspaceDebugControls from "./WorkspaceDebugControls.vue";
-import { reservedValues } from "./debugValues.ts";
-const props = defineProps<{ debug: WorkspaceDebug; problems: readonly { message: string }[] }>();
-const emit = defineEmits<{ reveal: [logic: number, line: number] }>();
-const tabs = ["Problems", "Variables", "Watch", "Call stack", "Breakpoints"] as const;
-const tab = ref<(typeof tabs)[number]>(props.debug.stopped.value ? "Variables" : "Problems");
+import {
+  numberedLabel,
+  numberedSlot,
+  documentLabel,
+  numberedExpressionLabel,
+} from "../../../../src/logic/numberedLabels.ts";
+import { useProjectLabels } from "../../shell/useProjectLabels.ts";
+import { systemName } from "../../../../src/logic/systemNames.ts";
+/** One debug view inside the frame: the workspace tab names which one. */
+const props = defineProps<{
+  debug?: WorkspaceDebug | undefined;
+  problems: readonly ProjectEditDiagnostic[];
+  view: "problems" | "variables" | "watch" | "stack" | "breakpoints";
+}>();
+const emit = defineEmits<{
+  reveal: [logic: number, line: number];
+  problem: [problem: ProjectEditDiagnostic];
+}>();
+const labels = useProjectLabels();
 const expression = ref("");
 const filter = ref("");
 const slots = computed(() => {
+  const debug = props.debug;
   const names: Record<string, string[]> = {};
-  for (const [name, binding] of Object.entries(props.debug.bindings.value)) {
+  if (!debug) return [];
+  for (const [name, binding] of Object.entries(debug.bindings.value)) {
     const key = `${binding.kind}:${binding.num}`;
     (names[key] ??= []).push(name);
   }
   return (["variable", "flag"] as const).flatMap((kind) =>
     Array.from({ length: 256 }, (_, slot) => {
-      const used = props.debug.usedValues.value.find(
-        (row) => row.kind === kind && row.slot === slot,
-      );
-      const reserved = reservedValues[kind][slot];
+      const used = debug.usedValues.value.find((row) => row.kind === kind && row.slot === slot);
+      const reserved = systemName(kind, slot);
       const bindingNames = used?.names || (names[`${kind}:${slot}`] ?? []).join(", ");
-      const label = `${kind === "variable" ? "v" : "f"}${slot}`;
+      const label = numberedSlot(kind, slot);
       return {
         kind,
         slot,
         label,
         names: bindingNames,
-        title: bindingNames || reserved || label,
+        title: numberedLabel(kind, slot, {
+          bindings: debug.bindings.value,
+          name: used?.names ?? "",
+        }),
         reserved,
         used: used !== undefined,
-        value: props.debug.stopped.value?.state[kind === "variable" ? "vars" : "flags"][slot] ?? 0,
+        value: debug.stopped.value?.state[kind === "variable" ? "vars" : "flags"][slot] ?? 0,
       };
     }),
   );
@@ -57,9 +74,7 @@ const groups = computed(() => {
     { title: "Used here", rows: slots.value.filter((row) => row.used) },
     {
       title: "Game",
-      rows: slots.value
-        .filter((row) => row.reserved !== undefined && !row.used)
-        .map((row) => ({ ...row, title: row.reserved! })),
+      rows: slots.value.filter((row) => row.reserved !== undefined && !row.used),
     },
   ];
 });
@@ -72,47 +87,35 @@ const allGroups = computed(() =>
 function editValue(kind: "variable" | "flag", slot: number, event: Event): void {
   const element = event.target as HTMLInputElement;
   const value = kind === "flag" ? Number(element.checked) : Number(element.value);
-  void props.debug.run(() => props.debug.setValue(kind, slot, value));
-}
-function tabKey(event: KeyboardEvent): void {
-  const direction = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0;
-  if (!direction) return;
-  event.preventDefault();
-  tab.value = tabs[(tabs.indexOf(tab.value) + direction + tabs.length) % tabs.length]!;
-  (event.currentTarget as HTMLElement)
-    .querySelector<HTMLButtonElement>(`[data-tab="${tab.value}"]`)
-    ?.focus();
+  void props.debug?.run(() => props.debug!.setValue(kind, slot, value));
 }
 </script>
 <template>
-  <div class="workspace-debug-panel" data-testid="workspace-debug-panel">
-    <WorkspaceDebugControls v-if="debug.state.epoch" :debug="debug" />
-    <header>
-      <div role="tablist" aria-label="Debug panels" @keydown="tabKey">
-        <button
-          v-for="name in tabs"
-          :key="name"
-          role="tab"
-          :data-tab="name"
-          :aria-selected="tab === name"
-          :tabindex="tab === name ? 0 : -1"
-          @click="tab = name"
-        >
-          {{ name }}
-        </button>
-      </div>
-    </header>
-    <p v-if="debug.state.error" role="alert">{{ debug.state.error }}</p>
-    <div role="tabpanel" :aria-label="tab" class="workspace-debug-content">
-      <template v-if="tab === 'Problems'">
+  <div
+    class="workspace-debug-panel"
+    :data-testid="view === 'problems' ? 'workspace-problems' : 'workspace-debug-panel'"
+  >
+    <p v-if="debug?.state.error" role="alert">{{ debug.state.error }}</p>
+    <div :aria-label="view" class="workspace-debug-content">
+      <template v-if="view === 'problems'">
         <p v-if="problems.length === 0">Everything builds.</p>
-        <p v-for="(problem, index) in problems" :key="index">{{ problem.message }}</p>
+        <button
+          v-for="(problem, index) in problems"
+          :key="index"
+          class="workspace-debug-frame"
+          @click="emit('problem', problem)"
+        >
+          <strong v-if="problem.document">{{ documentLabel(problem.document, labels) }}: </strong
+          >{{ problem.message }}
+        </button>
       </template>
-      <template v-else-if="tab === 'Variables'">
+      <template v-else-if="view === 'variables' && debug">
         <label class="workspace-debug-filter"
           >Find a value <input v-model="filter" aria-label="Find a value"
         /></label>
-        <p v-if="!debug.stopped.value">Pause the game to inspect and edit values.</p>
+        <p v-if="!debug.stopped.value">
+          Click left of a line number to stop there, then inspect and edit values.
+        </p>
         <component
           :is="group.expand ? 'details' : 'section'"
           v-for="group in [
@@ -136,7 +139,14 @@ function tabKey(event: KeyboardEvent): void {
               <input
                 v-if="row.kind === 'flag'"
                 type="checkbox"
-                :aria-label="`${row.label} ${row.names || row.reserved || ''}`.trim()"
+                :aria-label="
+                  numberedLabel(
+                    row.kind,
+                    row.slot,
+                    { bindings: debug.bindings.value, name: row.names },
+                    'option',
+                  )
+                "
                 :checked="!!row.value"
                 :disabled="!debug.stopped.value || debug.state.busy"
                 @change="editValue(row.kind, row.slot, $event)"
@@ -146,7 +156,14 @@ function tabKey(event: KeyboardEvent): void {
                 type="number"
                 min="0"
                 max="255"
-                :aria-label="`${row.label} ${row.names || row.reserved || ''}`.trim()"
+                :aria-label="
+                  numberedLabel(
+                    row.kind,
+                    row.slot,
+                    { bindings: debug.bindings.value, name: row.names },
+                    'option',
+                  )
+                "
                 :value="row.value"
                 :disabled="!debug.stopped.value || row.slot === 0 || debug.state.busy"
                 @change="editValue(row.kind, row.slot, $event)"
@@ -155,13 +172,16 @@ function tabKey(event: KeyboardEvent): void {
           </div>
         </component>
       </template>
-      <template v-else-if="tab === 'Watch'">
+      <template v-else-if="view === 'watch' && debug">
         <form
           @submit.prevent="
-            debug.run(async () => {
-              await debug.addWatch(expression);
-              expression = '';
-            })
+            () => {
+              const panel = debug;
+              panel?.run(async () => {
+                await panel.addWatch(expression);
+                expression = '';
+              });
+            }
           "
         >
           <input
@@ -173,7 +193,9 @@ function tabKey(event: KeyboardEvent): void {
         <p>{{ VOCABULARY.watch.help }}</p>
         <p v-if="!debug.stopped.value">Pause to refresh values.</p>
         <div v-for="watch in debug.state.watches" :key="watch.id" class="workspace-debug-row">
-          <span>{{ watch.expression }}</span
+          <span>{{
+            numberedExpressionLabel(watch.expression, { bindings: debug.bindings.value })
+          }}</span
           ><output>{{ watch.value }}</output
           ><UiButton
             size="sm"
@@ -184,25 +206,42 @@ function tabKey(event: KeyboardEvent): void {
           /></UiButton>
         </div>
       </template>
-      <template v-else-if="tab === 'Call stack'">
-        <p v-if="!debug.stopped.value">Pause the game to inspect calls.</p>
+      <template v-else-if="view === 'stack' && debug">
+        <p v-if="!debug.stopped.value">
+          Click left of a line number to stop there and see the calls.
+        </p>
         <button
           v-for="frame in [...(debug.stopped.value?.location?.frames ?? [])].reverse()"
           :key="frame.invocationId"
           class="workspace-debug-frame"
           @click="emit('reveal', frame.logic, debug.framePosition(frame)?.line ?? 1)"
         >
-          LOGIC {{ frame.logic
+          {{ numberedLabel("logic", frame.logic, { bindings: debug.bindings.value }, "row")
           }}<span v-if="debug.framePosition(frame)"
             >, line {{ debug.framePosition(frame)?.line }}</span
           ><span v-else>, byte {{ frame.pc }}</span>
         </button>
       </template>
-      <template v-else>
-        <p>{{ VOCABULARY.breakpoint.help }}</p>
+      <template v-else-if="view === 'breakpoints' && debug">
+        <label class="workspace-debug-filter">
+          <input
+            type="checkbox"
+            role="switch"
+            aria-label="Disable breakpoints"
+            :checked="debug.state.breakpointsDisabled"
+            :disabled="debug.state.busy"
+            @change="
+              debug.run(() => debug!.setDisabled(($event.target as HTMLInputElement).checked))
+            "
+          />
+          Disable breakpoints
+        </label>
+        <p v-if="debug.state.breakpoints.length">{{ VOCABULARY.breakpoint.help }}</p>
+        <p v-else>Click left of a line number to stop there, or press F9.</p>
         <div v-for="point in debug.state.breakpoints" :key="point.id" class="workspace-debug-row">
           <button @click="emit('reveal', point.logic, point.line)">
-            LOGIC {{ point.logic }}, line {{ point.line }}
+            {{ numberedLabel("logic", point.logic, { bindings: debug.bindings.value }, "row") }},
+            line {{ point.line }}
           </button>
           <span>{{
             debug.state.statuses.find((row) => row.id === point.id)?.binding.bound === false
@@ -215,7 +254,12 @@ function tabKey(event: KeyboardEvent): void {
             size="sm"
             variant="ghost"
             :aria-label="`Remove breakpoint ${point.id}`"
-            @click="debug.run(() => debug.toggle(point.logic, point.line))"
+            @click="
+              () => {
+                const panel = debug;
+                panel?.run(() => panel.toggle(point.logic, point.line));
+              }
+            "
             ><UiIcon name="x" :size="16"
           /></UiButton>
         </div>
@@ -234,10 +278,6 @@ header {
   justify-content: space-between;
   align-items: center;
 }
-[role="tablist"] {
-  display: flex;
-  gap: var(--space-2);
-}
 button {
   color: var(--ink-3);
   background: transparent;
@@ -246,13 +286,10 @@ button {
   cursor: pointer;
   font: inherit;
 }
-[role="tab"][aria-selected="true"] {
-  color: var(--ink);
-  border-bottom: 2px solid var(--action);
-}
 .workspace-debug-content {
   overflow: auto;
-  max-height: 210px;
+  flex: 1;
+  min-height: 0;
 }
 .workspace-debug-filter,
 .workspace-debug-content form {

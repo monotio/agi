@@ -1,4 +1,12 @@
-import { addDiskFile, diskName, diskView, type DiskFiles } from "./files.ts";
+import {
+  addDiskFile,
+  diskName,
+  diskView,
+  createDiskExtractionBudget,
+  reserveDiskBytes,
+  type DiskExtractionBudget,
+  type DiskFiles,
+} from "./files.ts";
 
 /** Microsoft FAT specification, BPB, cluster chains and 8.3 directory entries:
  * https://www.scs.stanford.edu/~zyedidia/docs/_other/fat.pdf
@@ -7,6 +15,7 @@ import { addDiskFile, diskName, diskView, type DiskFiles } from "./files.ts";
 export function readFat12(
   image: Uint8Array,
   unavailable: ReadonlySet<number> = new Set(),
+  budget: DiskExtractionBudget = createDiskExtractionBudget(),
 ): DiskFiles {
   if (image.length < 36)
     throw new Error("The disk has an unreadable FAT12 header. Add a fresh raw sector image.");
@@ -62,10 +71,11 @@ export function readFat12(
         throw new Error(
           `Sector ${sector + 1} is missing or damaged. Add a fresh copy of the disk.`,
         );
-    return image.slice(start, start + length);
+    return image.subarray(start, start + length);
   };
   const fat = read(reserved * sectorBytes, fatSectors * sectorBytes);
   const chain = (first: number, size?: number): Uint8Array => {
+    if (size !== undefined) reserveDiskBytes(budget, size);
     if (size === 0) return new Uint8Array();
     const parts: Uint8Array[] = [];
     const seen = new Set<number>();
@@ -81,6 +91,7 @@ export function readFat12(
         (dataStart + (cluster - 2) * clusterSectors) * sectorBytes,
         clusterSectors * sectorBytes,
       );
+      if (size === undefined) reserveDiskBytes(budget, part.length);
       parts.push(part);
       total += part.length;
       if (size !== undefined && total >= size) break;
@@ -121,7 +132,8 @@ export function readFat12(
           throw new Error("The disk has a directory cycle. Add a fresh copy of the disk.");
         directories.add(first);
         visit(chain(first), name + "/", depth + 1);
-      } else addDiskFile(result, name, () => chain(first, directory.getUint32(at + 28, true)));
+      } else
+        addDiskFile(result, name, budget, () => chain(first, directory.getUint32(at + 28, true)));
     }
   };
   visit(read(rootStart * sectorBytes, rootEntries * 32), "", 0);

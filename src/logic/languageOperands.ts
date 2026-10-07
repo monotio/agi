@@ -1,8 +1,11 @@
 /** Numbered symbols retain the argument kind, including numeric source operands. */
-import type { CommandReference } from "./commandReference.ts";
+import { resourceReferenceOperand, type CommandReference } from "./commandReference.ts";
+import type { AgiProfile } from "../runtime/profile.ts";
 import type { analyzeLogicSyntax, Token } from "./syntax.ts";
+import { systemBindings } from "./systemNames.ts";
 
-export type NumberedKind = "v" | "f" | "o" | "i" | "s" | "w" | "m" | "c";
+export type NumberedKind =
+  "v" | "f" | "o" | "i" | "s" | "w" | "m" | "c" | "logic" | "picture" | "view" | "sound";
 export interface NumberedOperand {
   readonly kind: NumberedKind;
   readonly num: number;
@@ -12,15 +15,19 @@ export interface NumberedOperand {
   readonly name?: string;
   readonly definitionStart?: number;
 }
-export const OPERAND_NAMES: Record<NumberedKind, string> = {
-  v: "Variable",
-  f: "Flag",
-  o: "Object",
-  i: "Inventory item",
-  s: "String",
-  w: "Word",
-  m: "Message",
-  c: "Controller",
+export const BINDING_KINDS: Record<NumberedKind, string> = {
+  v: "variable",
+  f: "flag",
+  o: "object",
+  i: "inventory",
+  m: "message",
+  s: "string",
+  w: "word",
+  c: "controller",
+  logic: "logic",
+  picture: "picture",
+  view: "view",
+  sound: "sound",
 };
 const ARGUMENT_KINDS: Record<string, NumberedKind> = {
   var: "v",
@@ -32,14 +39,39 @@ const ARGUMENT_KINDS: Record<string, NumberedKind> = {
   controller: "c",
 };
 
+/** The encoded variable index takes precedence over its selected resource family. */
+export function numberedOperandKind(
+  command: Pick<CommandReference, "name" | "operands" | "resourceOperand">,
+  parameter: number,
+): NumberedKind | undefined {
+  if (command.name === "said") return "w";
+  const resource = command.resourceOperand;
+  if (resource && !resource.variable && resource.operand === parameter)
+    return resource.kind === "item" ? "i" : resource.kind;
+  return ARGUMENT_KINDS[command.operands[parameter] ?? ""];
+}
+
 export function collectLogicOperands(
   syntax: ReturnType<typeof analyzeLogicSyntax>,
-  commands: readonly CommandReference[],
+  commands: readonly Pick<CommandReference, "name" | "operands" | "resourceOperand">[],
+  profile: AgiProfile,
+  builtins = systemBindings(),
 ): readonly NumberedOperand[] {
-  const byName = new Map(commands.map((command) => [command.name, command]));
+  const byName = new Map(
+    commands.map((command) => [
+      command.name,
+      {
+        ...command,
+        ...(resourceReferenceOperand(command.name, profile)
+          ? { resourceOperand: resourceReferenceOperand(command.name, profile)! }
+          : {}),
+      },
+    ]),
+  );
   const definitions = new Map(syntax.definitions.map((entry) => [entry.start, entry]));
   const references = new Map(syntax.references.map((entry) => [entry.start, entry]));
   const values = new Map<number, number>();
+  const typedKinds = new Map<number, "v" | "f">();
   const operands: NumberedOperand[] = [];
   const frames: { name: string; parameter: number }[] = [];
   const tokens = syntax.tokens;
@@ -51,7 +83,9 @@ export function collectLogicOperands(
       ? Number(raw[2])
       : token.type === "number"
         ? Number(token.text)
-        : values.get(definitionStart ?? -1);
+        : definitionStart === undefined
+          ? builtins[token.text]?.num
+          : values.get(definitionStart);
     if (num === undefined || num > (kind === "w" ? 65535 : 255)) return;
     operands.push({
       kind,
@@ -71,10 +105,12 @@ export function collectLogicOperands(
       if (
         token.text === "#define" &&
         next?.type === "ident" &&
-        tokens[index + 2]?.type === "number"
-      )
-        values.set(next.start, Number(tokens[index + 2]!.text));
-      else if (token.text === "#message" && next?.type === "number") add(next, "m", true);
+        (tokens[index + 2]?.type === "number" || /^[vf]\d+$/.test(tokens[index + 2]?.text ?? ""))
+      ) {
+        const value = tokens[index + 2]!.text;
+        values.set(next.start, Number(value.replace(/^[vf]/, "")));
+        if (/^[vf]\d+$/.test(value)) typedKinds.set(next.start, value[0] as "v" | "f");
+      } else if (token.text === "#message" && next?.type === "number") add(next, "m", true);
       continue;
     }
     if (token.type === "punct") {
@@ -96,18 +132,23 @@ export function collectLogicOperands(
       next?.text === "("
     )
       continue;
+    const definitionStart = references.get(token.start)?.definitionStart;
+    const namedKind =
+      definitionStart === undefined ? builtins[token.text]?.kind : typedKinds.get(definitionStart);
     const call = frames.at(-1);
     if (call && byName.has(call.name)) {
-      const kind =
-        call.name === "said"
-          ? "w"
-          : ARGUMENT_KINDS[byName.get(call.name)!.operands[call.parameter] ?? ""];
+      const kind = numberedOperandKind(byName.get(call.name)!, call.parameter);
       if (kind) add(token, kind);
     } else if (
       next?.text === "=" ||
       (next && ["==", "!=", "<", ">", "<=", ">="].includes(next.text))
     ) {
-      add(token, token.text.startsWith("f") && /^f\d+$/.test(token.text) ? "f" : "v");
+      add(
+        token,
+        namedKind ?? (token.text.startsWith("f") && /^f\d+$/.test(token.text) ? "f" : "v"),
+      );
+    } else if (namedKind) {
+      add(token, namedKind);
     } else if (token.type === "ident" && /^([vfomsiwc])\d+$/.test(token.text)) {
       add(token, token.text[0] as NumberedKind);
     }

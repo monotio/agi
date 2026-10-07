@@ -12,6 +12,7 @@ import {
 } from "vue";
 import { layoutDragging } from "./layoutDrag.ts";
 import { guidedPlacement } from "./guidedPlacement.ts";
+import { gameRoomMenu, roomMenuArmed } from "./roomActionMenu.ts";
 import { PAGE_CONTROLS } from "./useGameKeys.ts";
 
 import TouchControls from "./TouchControls.vue";
@@ -58,7 +59,21 @@ const {
 const presentation = usePresentation();
 const { gpuBackend, debugOpen, debugViewMode, splitAt } = presentation;
 const bridge = useShellBridge();
-const agentBlocksGame = computed(() => state.powerUp.open && !props.inspectorDocked);
+const agentBlocksGame = computed(
+  () =>
+    (state.roomGeneration !== null &&
+      (state.roomGeneration.busy ||
+        !!state.roomGeneration.error ||
+        engine.roomMap.currentRoom.value !== state.roomGeneration.room)) ||
+    (state.powerUp.open && !props.inspectorDocked),
+);
+const inputDisabled = computed(
+  () =>
+    state.otherTab ||
+    agentBlocksGame.value ||
+    state.historyView.active ||
+    (!state.inputReady && !state.walkthrough.active),
+);
 
 /** The DOM input is the keyboard capture; its text lives on the engine's input row. */
 const inputEl = useTemplateRef("inputEl");
@@ -241,6 +256,15 @@ function onScreenPointerDown(ev: PointerEvent): void {
   screenPointerType = ev.pointerType;
 }
 
+/** Right-click offers the current room's actions while Create is armed; Play keeps the browser menu. */
+function onScreenContextMenu(ev: MouseEvent): void {
+  if (!roomMenuArmed.value) return;
+  const room = engine.roomMap?.currentRoom.value ?? null;
+  if (room === null) return;
+  ev.preventDefault();
+  gameRoomMenu.value = { x: ev.clientX, y: ev.clientY, room };
+}
+
 function onScreenClick(ev: MouseEvent): void {
   resumeAudio();
   if (state.phase !== "running") return;
@@ -313,9 +337,27 @@ function sendScreenClick(ev: MouseEvent): void {
   if (point) sendClick(Math.floor(point.x), Math.floor(point.y));
 }
 
+let pendingInputFocus: Element | null | undefined;
 function focusInput(): void {
-  inputEl.value?.focus({ preventScroll: true });
+  pendingInputFocus = undefined;
+  if (!inputEl.value || inputDisabled.value) {
+    pendingInputFocus = document.activeElement;
+    return;
+  }
+  inputEl.value.focus({ preventScroll: true });
 }
+// A room launch can disable the input while the focus command is being served.
+// Finish that request when it enables, provided the player kept the chosen focus.
+watch(
+  [inputEl, inputDisabled],
+  () => {
+    if (pendingInputFocus === undefined || !inputEl.value || inputDisabled.value) return;
+    const origin = pendingInputFocus;
+    pendingInputFocus = undefined;
+    if (document.activeElement === origin) focusInput();
+  },
+  { flush: "post" },
+);
 
 /** A late-loaded surface respects the control the player already chose. */
 function claimGameFocus(): void {
@@ -678,6 +720,7 @@ defineExpose({
           remixing: state.powerUp.open && state.powerUp.mode !== 'ask',
         }"
         @click="onScreenClick"
+        @contextmenu="onScreenContextMenu"
         @pointerdown="onScreenPointerDown"
         @pointermove="presentation.onScreenPointerMove"
       >
@@ -708,11 +751,7 @@ defineExpose({
         >
           <input
             id="game-command"
-            :disabled="
-              agentBlocksGame ||
-              state.historyView.active ||
-              (!state.inputReady && !state.walkthrough.active)
-            "
+            :disabled="inputDisabled"
             aria-label="Game command"
             aria-describedby="game-input-help"
             ref="inputEl"
@@ -731,6 +770,7 @@ defineExpose({
 
         <!-- Notes about the game in play sit just above the engine's bottom
              text rows, where the command line is drawn, at every size. -->
+        <slot name="room-generation" />
         <div
           v-if="state.phase === 'running' && $slots['screen-notes']"
           class="screen-notes"

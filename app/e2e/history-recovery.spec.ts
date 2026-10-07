@@ -4,7 +4,13 @@ import type { Page } from "@playwright/test";
 import { expect, test } from "./test.ts";
 import { readFile } from "node:fs/promises";
 import { readGameZip } from "../src/archive/gameZip.ts";
-import { isolateStorage, openGameOptions, textHook, waitForCycles } from "./engineProbe.ts";
+import {
+  downloadFromSettings,
+  isolateStorage,
+  openGameOptions,
+  textHook,
+  waitForCycles,
+} from "./engineProbe.ts";
 
 function entries(bytes: Uint8Array): Map<string, Uint8Array> {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
@@ -34,8 +40,7 @@ async function boot(page: Page): Promise<void> {
 
 async function download(page: Page) {
   const pending = page.waitForEvent("download");
-  await openGameOptions(page, "settings-menu");
-  await page.getByTestId("btn-download-game").click();
+  await downloadFromSettings(page, true);
   const path = (await (await pending).path())!;
   const bytes = new Uint8Array(await readFile(path));
   return { path, opened: await readGameZip(bytes), files: entries(bytes) };
@@ -106,26 +111,55 @@ test("blocked stores still download current game and checkpoint with explicit re
   }
 });
 
-test("an unreadable history manifest produces a visible incomplete-download notice", async ({
-  page,
-}) => {
-  await boot(page);
-  await page.evaluate(() => {
-    const get = IDBObjectStore.prototype.get;
-    IDBObjectStore.prototype.get = function (key) {
-      if (typeof key === "string" && key.startsWith("history/"))
-        throw new Error("Injected history read failure");
-      return get.call(this, key);
-    };
+for (const [width, height] of [
+  [1063, 815],
+  [1440, 900],
+  [390, 844],
+] as const) {
+  test.describe(`History download ${width}`, () => {
+    test.use({ viewport: { width, height }, hasTouch: width === 390 });
+    test("an unreadable history manifest produces a visible incomplete-download notice", async ({
+      page,
+      browserName,
+    }) => {
+      await boot(page);
+      await expect(page.locator(".game-surface:visible")).toBeVisible();
+      const before = await page.screenshot({
+        path: test.info().outputPath(`history-before-${width}.png`),
+        animations: "disabled",
+        scale: "css",
+      });
+      await page.evaluate(() => {
+        const get = IDBObjectStore.prototype.get;
+        IDBObjectStore.prototype.get = function (key) {
+          if (typeof key === "string" && key.startsWith("history/"))
+            throw new Error("Injected history read failure");
+          return get.call(this, key);
+        };
+      });
+      const result = await download(page);
+      expect(result.files.has("BACKUP.JSON")).toBe(true);
+      expect(result.opened.history).toBeUndefined();
+      expect(result.opened.progress?.autosave?.room).toBe(1);
+      const notice = page.getByTestId("export-refusal");
+      await expect(notice).toBeVisible();
+      await expect(notice).toContainText(
+        "Saved play history could not be read: Injected history read failure",
+      );
+      const report = JSON.parse(new TextDecoder().decode(result.files.get("BACKUP.JSON")));
+      expect(report.notes.join(" ")).toContain("Injected history read failure");
+      const after = await page.screenshot({
+        path: test.info().outputPath(`history-after-${width}.png`),
+        animations: "disabled",
+        scale: "css",
+      });
+      if (process.env["CI"] && browserName === "webkit" && width === 390) {
+        console.log(`HISTORY_BEFORE_SHOT:${before.toString("base64")}`);
+        console.log(`HISTORY_AFTER_SHOT:${after.toString("base64")}`);
+      }
+    });
   });
-  const result = await download(page);
-  expect(result.files.has("BACKUP.JSON")).toBe(true);
-  expect(result.opened.history).toBeUndefined();
-  expect(result.opened.progress?.autosave?.room).toBe(1);
-  await expect(page.getByTestId("export-refusal")).toContainText(
-    "Saved play history could not be read",
-  );
-});
+}
 
 test("Exit keeps the game playable after history failure and succeeds after storage recovers", async ({
   page,

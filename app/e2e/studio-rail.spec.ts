@@ -8,10 +8,10 @@ import {
 import { expect, test } from "./test.ts";
 
 /**
- * Room Studio's tool rail fits its column. The Walk lens adds three tools,
+ * Room Studio's tool rail fits its column. The Priority lens adds three tools,
  * so the rail's tools scroll inside the column while the values under them
- * stay put. At a laptop's 1280×720 and at Studio's shortest layout (a touch
- * screen must be taller than 600 to host it, App.vue studioFits), in every
+ * stay put. At a laptop's 1280×720 and at the editor's shortest layout (a
+ * touch screen 601 tall), in every
  * lens, each rail button brought into view (by focus, or by scrolling a
  * disabled one) sits inside the rail column, above the draw-order scrubber,
  * and is the element under its own centre; the page never scrolls.
@@ -44,16 +44,23 @@ for (const viewport of VIEWPORTS) {
     const studio = await openLabStudio(page);
     const rail = studio.getByRole("toolbar", { name: "Tools" });
     for (const [key, lens, tools] of [
-      ["1", "Art", 10],
-      ["2", "Depth", 10],
-      ["3", "Walk", 13],
+      ["1", "Visual", 10],
+      // The Priority lens adds the room tools: test walk, door box, edge exit.
+      ["2", "Priority", 13],
     ] as const) {
       await page.keyboard.press(key);
       await expect(rail.locator("[data-tool], [data-testid=studio-probe-toggle]")).toHaveCount(
         tools,
       );
       const column = (await rail.boundingBox())!;
-      const scrubberTop = (await studio.locator(".studio__status").boundingBox())!.y;
+      // The palette row rides inside the studio's own scroll: track its
+      // content position so an ancestor's reveal-scroll stays honest.
+      const paletteY = async () => {
+        const row = await page.locator(".studio__palette-row").boundingBox();
+        const scroll = await studio.evaluate((element) => element.scrollTop);
+        return row!.y + scroll;
+      };
+      const scrubberTop = await paletteY();
       expect(bottom(column), `${lens}: the rail ends above the scrubber`).toBeLessThanOrEqual(
         scrubberTop,
       );
@@ -80,7 +87,7 @@ for (const viewport of VIEWPORTS) {
         expect(hit, `${name} is under its own centre`).toBe(true);
       }
       // No ancestor scrolled to reveal a tool: the scrubber stayed where it was.
-      expect((await studio.locator(".studio__status").boundingBox())!.y).toBe(scrubberTop);
+      expect(await paletteY()).toBe(scrubberTop);
     }
     // A tool picked by its key scrolls into view: back at the top, H is out of sight.
     const tools = studio.getByTestId("studio-rail-tools");
@@ -96,6 +103,10 @@ for (const viewport of VIEWPORTS) {
       () => document.documentElement.scrollHeight - window.innerHeight,
     );
     expect(overflow, "the page does not scroll").toBeLessThanOrEqual(0);
+    await page.screenshot({
+      path: test.info().outputPath(`rail-${viewport.width}x${viewport.height}.png`),
+      animations: "disabled",
+    });
   });
 }
 
@@ -118,9 +129,8 @@ test("at 1024×600 nothing in Room Studio's top bar or stage bars overlaps, in e
     zoom: studio.getByRole("group", { name: "Zoom" }),
   };
   for (const [key, lens] of [
-    ["1", "Art"],
-    ["2", "Depth"],
-    ["3", "Walk"],
+    ["1", "Visual"],
+    ["2", "Priority"],
   ] as const) {
     await page.keyboard.press(key);
     await expect(top.lens.getByRole("radio", { name: new RegExp(lens) })).toHaveAttribute(

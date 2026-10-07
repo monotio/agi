@@ -9,8 +9,8 @@ import { gameRevision } from "../src/project/gameMetadata.ts";
 import {
   configureAi,
   enterCreateMode,
+  downloadFromSettings,
   isolateStorage,
-  openGameOptions,
   openWorkspaceAgent,
   savedGameCard,
   textHook,
@@ -111,6 +111,7 @@ test("an installed-game remix survives immediate Menu, Resume, reload and projec
       },
     });
   });
+  await page.getByRole("radio", { name: "Play", exact: true }).click();
   await page.getByTestId("btn-exit").click();
   await page.waitForFunction(() => Reflect.get(window, "completionPending") === true);
   await expect(page.getByTestId("btn-exit")).toBeVisible();
@@ -141,8 +142,7 @@ test("an installed-game remix survives immediate Menu, Resume, reload and projec
   await expect.poll(async () => (await textHook(page)).rows.join(" ")).toContain("ALLIGATOR REMIX");
   expect(fixtureReads).toBe(reads);
   const pending = page.waitForEvent("download");
-  await openGameOptions(page, "settings-menu");
-  await page.getByTestId("btn-download-game").click();
+  await downloadFromSettings(page, true);
   const download = await pending;
   const archive = await readGameZip(new Uint8Array(await readFile((await download.path())!)));
   expect(openContainer(new Map(Object.entries(archive.files))).getResource("view", 11)).toEqual(

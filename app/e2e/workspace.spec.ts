@@ -1,7 +1,10 @@
 import { workspaceUpdated, workspaceSaved } from "./engineProbe.ts";
+import { focusWorkspaceGame, workspaceDocumentEnd } from "./workspaceShared.ts";
 import { test, expect, reviewShot } from "./test.ts";
 import { isolateStorage, textHook } from "./engineProbe.ts";
 import type { Page, Locator } from "@playwright/test";
+import type { WorkerQueryFn } from "../src/worker/workerProtocol.ts";
+import type { ProjectSession } from "../src/project/projectSession.ts";
 import { decodePng } from "../../scripts/png.ts";
 async function starter(page: Page): Promise<void> {
   await isolateStorage(page);
@@ -12,8 +15,39 @@ async function starter(page: Page): Promise<void> {
     .fill("Workspace proof");
   await page.getByTestId("local-create-kind-starter").click();
   await page.getByRole("button", { name: "Start building", exact: true }).click();
-  await expect(page.getByTestId("parts-list")).toBeVisible();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  await expect(page.getByTestId("parts-list")).toBeVisible();
+}
+async function checkpointEditedFiles(page: Page): Promise<void> {
+  const revision = await page.evaluate(() => {
+    const api = window as unknown as {
+      __AGI_PROJECT__: { getSession(): ProjectSession };
+    };
+    return api.__AGI_PROJECT__.getSession().capture().snapshot.lastAdmissibleBuild!.identity
+      .revision;
+  });
+  await page.getByRole("radio", { name: "Play", exact: true }).click();
+  // Play restores an earlier cycle. Durability follows the edited resource
+  // revision, not the temporary Create run's increasing cycle counter.
+  await expect
+    .poll(
+      () =>
+        page.evaluate((revision) => {
+          const keys = Object.keys(localStorage).filter((key) =>
+            key.startsWith("monotio_agi.autosave."),
+          );
+          return keys.some(
+            (key) =>
+              (
+                JSON.parse(localStorage.getItem(key)!) as {
+                  game: { identity: { revision: string } };
+                }
+              ).game.identity.revision === revision,
+          );
+        }, revision),
+      { timeout: 10_000 },
+    )
+    .toBe(true);
 }
 test("one running workspace retains editors and opens Focus with a chord @webkit-desktop", async ({
   page,
@@ -95,7 +129,7 @@ test("one running workspace retains editors and opens Focus with a chord @webkit
   await page.locator(".monaco-editor").click();
   await page.keyboard.press("ControlOrMeta+a");
   await page.keyboard.insertText("if (");
-  await expect(page.getByTestId("workspace-last-good")).toBeVisible();
+  await expect(page.getByTestId("workspace-status-problems")).toBeVisible();
   await workspaceSaved(page);
   // Start the workspace chord outside Monaco's completion popup. Escape in
   // the editor dismisses that popup before the workspace's two-key sequence.
@@ -110,7 +144,7 @@ test("one running workspace retains editors and opens Focus with a chord @webkit
   await page.getByRole("radio", { name: "Play", exact: true }).click();
   await expect(page.getByTestId("workspace-editor")).toBeHidden();
   await page.getByRole("radio", { name: "Create", exact: true }).click();
-  await expect(page.getByTestId("workspace-last-good")).toBeVisible();
+  await expect(page.getByTestId("workspace-status-problems")).toBeVisible();
 });
 test("Blank adds its first room through the session @webkit-desktop", async ({ page }) => {
   await isolateStorage(page);
@@ -121,12 +155,99 @@ test("Blank adds its first room through the session @webkit-desktop", async ({ p
     .fill("Empty proof");
   await page.getByTestId("local-create-kind-blank").click();
   await page.getByRole("button", { name: "Start building", exact: true }).click();
-  await expect(page.getByText("Nothing to play yet.", { exact: true })).toBeVisible();
+  await expect(
+    page.locator(".screen").getByText("Nothing to play yet.", { exact: true }),
+  ).toBeVisible();
   const emptyBox = (await page.getByTestId("empty-project-stage").boundingBox())!;
   expect(emptyBox.y).toBe(0);
   await page.getByTestId("empty-add-room").click();
   await expect(page.getByTestId("parts-list")).toBeVisible();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
+});
+
+for (const [width, height] of [
+  [1440, 900],
+  [1063, 815],
+] as const) {
+  test(`a blank game shows its start inside the game screen of the Create frame at ${width} @webkit-desktop`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height });
+    await isolateStorage(page);
+    await page.goto("/#create-adventure");
+    await page.getByTestId("local-create-kind-blank").click();
+    await page.getByRole("button", { name: "Start building", exact: true }).click();
+    const screen = page.locator(".screen");
+    await expect(screen).toBeVisible();
+    await expect(screen.getByText("Nothing to play yet.", { exact: true })).toBeVisible();
+    const box = async (locator: Locator) => (await locator.boundingBox())!;
+    const blankScreen = await box(screen);
+    const blankParts = await box(page.getByTestId("parts-list"));
+    for (const button of [
+      page.getByTestId("empty-add-room"),
+      page.getByTestId("empty-boilerplate"),
+    ]) {
+      await expect(button).toBeVisible();
+      const inner = await box(button);
+      expect(inner.x).toBeGreaterThanOrEqual(blankScreen.x);
+      expect(inner.y).toBeGreaterThanOrEqual(blankScreen.y);
+      expect(inner.x + inner.width).toBeLessThanOrEqual(blankScreen.x + blankScreen.width);
+      expect(inner.y + inner.height).toBeLessThanOrEqual(blankScreen.y + blankScreen.height);
+    }
+    await page.getByTestId("empty-add-room").click();
+    await expect(page.getByTestId("room-studio")).toBeVisible();
+    await expect.poll(async () => (await textHook(page)).room).toBe(1);
+    // Create keeps the Play strip hidden, also when the blank stage loaded its styles first.
+    await expect(page.locator(".play-strip")).toBeHidden();
+    const roomScreen = await box(page.locator(".screen"));
+    const roomParts = await box(page.getByTestId("parts-list"));
+    expect(Math.abs(blankParts.width - roomParts.width)).toBeLessThanOrEqual(1);
+    for (const side of ["x", "y", "width", "height"] as const)
+      expect(Math.abs(blankScreen[side] - roomScreen[side]), side).toBeLessThanOrEqual(4);
+  });
+}
+
+test("Focus game waits for input readiness and respects a later focus choice @webkit-desktop", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await starter(page);
+  await page.getByTestId("part-room:1:picture:1").click();
+  await expect(page.getByTestId("room-studio")).toBeVisible();
+  const command = page.getByTestId("input-line");
+  await expect(command).toBeVisible();
+  await expect(command).toBeEnabled();
+  await expect(page.getByTestId("workspace-agent")).toBeEnabled();
+  for (const chooseParts of [false, true]) {
+    // Keep worker delivery outside this microtask sequence so the disabled
+    // render and the ready render exercise the same focus request deterministically.
+    const result = await page.evaluate(async (chooseParts) => {
+      const state = window.__AGI_STATE__!;
+      state.inputReady = false;
+      await Promise.resolve();
+      const input = document.getElementById("game-command") as HTMLInputElement;
+      const disabled = input.disabled;
+      const key = new KeyboardEvent("keydown", {
+        key: "`",
+        code: "Backquote",
+        ctrlKey: true,
+        bubbles: true,
+        cancelable: true,
+      });
+      window.dispatchEvent(key);
+      await Promise.resolve();
+      const parts = document.querySelector<HTMLElement>('[data-testid="part-room:1:picture:1"]')!;
+      if (chooseParts) parts.focus();
+      state.inputReady = true;
+      await Promise.resolve();
+      return {
+        disabled,
+        handled: key.defaultPrevented,
+        focused: document.activeElement === (chooseParts ? parts : input),
+      };
+    }, chooseParts);
+    expect(result).toEqual({ disabled: true, handled: true, focused: true });
+  }
 });
 
 test("drawing, LOGIC and VIEW edit MAIN, Undo spans editors, reload keeps edits @webkit-desktop", async ({
@@ -204,8 +325,11 @@ test("drawing, LOGIC and VIEW edit MAIN, Undo spans editors, reload keeps edits 
   );
   await workspaceUpdated(page);
   await page.getByTestId("workspace-show-game").click();
-  await page.keyboard.press("Control+`");
+  await focusWorkspaceGame(page);
   await page.keyboard.type("look");
+  await expect(page.getByRole("textbox", { name: "Game command", exact: true })).toHaveValue(
+    "look",
+  );
   await page.keyboard.press("Enter");
   await expect
     .poll(async () => (await textHook(page)).rows.join("\n"))
@@ -271,11 +395,8 @@ test("drawing, LOGIC and VIEW edit MAIN, Undo spans editors, reload keeps edits 
   await expect
     .poll(() => page.evaluate(() => window.__AGI_FRAME__?.()?.visual[112 * 160 + 22]))
     .toBe(4);
-  // Saved covers the documents; this reload also needs progress for the current image.
-  const checkpointCycle = (await textHook(page)).cycle;
-  await expect
-    .poll(async () => (await textHook(page)).autosave, { timeout: 10_000 })
-    .toBeGreaterThanOrEqual(checkpointCycle);
+  await checkpointEditedFiles(page);
+  await page.getByRole("radio", { name: "Create", exact: true }).click();
   await page.reload();
   await expect(page.getByTestId("parts-list")).toBeVisible();
   await expect
@@ -284,8 +405,11 @@ test("drawing, LOGIC and VIEW edit MAIN, Undo spans editors, reload keeps edits 
   await expect
     .poll(() => page.evaluate((index) => window.__AGI_FRAME__?.()?.visual[index], pixel))
     .toBe(4);
-  await page.keyboard.press("Control+`");
+  await focusWorkspaceGame(page);
   await page.keyboard.type("look");
+  await expect(page.getByRole("textbox", { name: "Game command", exact: true })).toHaveValue(
+    "look",
+  );
   await page.keyboard.press("Enter");
   await expect
     .poll(async () => (await textHook(page)).rows.join("\n"))
@@ -323,11 +447,12 @@ for (const size of [
     await page.locator(".monaco-editor").click();
     await page.keyboard.press("ControlOrMeta+a");
     await page.keyboard.insertText("if (");
-    await expect(page.getByTestId("workspace-last-good")).toBeVisible();
+    await expect(page.getByTestId("workspace-status-problems")).toBeVisible();
     await workspaceSaved(page);
     await page.keyboard.press("ControlOrMeta+j");
     await expect(page.getByTestId("workspace-problems")).toBeVisible();
     await shot("logic-error");
+    await page.getByTestId("project-tab-logic:1").click();
     await page.getByTestId("workspace-focus").click();
     await expect
       .poll(async () => (await page.locator(".monaco-editor").boundingBox())?.width ?? 0)
@@ -353,21 +478,163 @@ for (const size of [
       .fill("Empty workspace");
     await page.getByTestId("local-create-kind-blank").click();
     await page.getByRole("button", { name: "Start building", exact: true }).click();
-    await expect(page.getByText("Nothing to play yet.", { exact: true })).toBeVisible();
+    await expect(
+      page.locator(".screen").getByText("Nothing to play yet.", { exact: true }),
+    ).toBeVisible();
     await shot("empty");
   });
 }
 
+test("background draft saving keeps Undo available @webkit-desktop", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await starter(page);
+  await workspaceSaved(page);
+  await page.getByTestId("part-notes").click();
+  const notes = page.getByRole("textbox", { name: "Game notes", exact: true });
+  const original = await notes.inputValue();
+  const gate = await page.evaluateHandle(() => {
+    const descriptor = Object.getOwnPropertyDescriptor(IDBTransaction.prototype, "oncomplete")!;
+    const put = IDBObjectStore.prototype.put;
+    const drafts = new WeakSet<IDBTransaction>();
+    let acknowledge: (() => void) | undefined;
+    let started: (() => void) | undefined;
+    const waiting = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    IDBObjectStore.prototype.put = function (value: unknown, key?: IDBValidKey) {
+      if ((value as { projectId?: string }).projectId?.startsWith("part-drafts/"))
+        drafts.add(this.transaction);
+      return put.call(this, value, key);
+    };
+    Object.defineProperty(IDBTransaction.prototype, "oncomplete", {
+      ...descriptor,
+      set(this: IDBTransaction, callback: (this: IDBTransaction, event: Event) => void) {
+        descriptor.set!.call(this, (event: Event) => {
+          if (drafts.has(this) && !acknowledge) {
+            acknowledge = () => callback.call(this, event);
+            started?.();
+          } else callback.call(this, event);
+        });
+      },
+    });
+    return {
+      waiting,
+      finish() {
+        IDBObjectStore.prototype.put = put;
+        Object.defineProperty(IDBTransaction.prototype, "oncomplete", descriptor);
+        acknowledge?.();
+      },
+    };
+  });
+  try {
+    await notes.fill("A pending thought");
+    await gate.evaluate(async ({ waiting }) => {
+      const api = window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } };
+      void api.__AGI_PROJECT__.getSession().drafts().flush();
+      await waiting;
+    });
+    await expect(page.getByTestId("workspace-undo")).toBeEnabled();
+    await page.getByTestId("workspace-undo").click();
+    await expect(notes).toHaveValue(original);
+  } finally {
+    await gate.evaluate((value) => value.finish());
+    await gate.dispose();
+  }
+  await workspaceSaved(page);
+  await page.getByTestId("workspace-redo").click();
+  await expect(notes).toHaveValue("A pending thought");
+  await workspaceSaved(page);
+});
+
+test("typing in Notes and LOGIC groups until focus leaves the editor @webkit-desktop", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await starter(page);
+  await page.getByTestId("part-notes").click();
+  const notes = page.getByRole("textbox", { name: "Game notes", exact: true });
+  const original = await notes.inputValue();
+  await notes.fill("First thought");
+  await page.getByTestId("workspace-undo").focus();
+  await notes.focus();
+  await page.keyboard.press("ControlOrMeta+End");
+  await page.keyboard.type(" continued");
+  await expect(notes).toHaveValue("First thought continued");
+  await page.getByTestId("workspace-undo").click();
+  await workspaceSaved(page);
+  await expect(notes).toHaveValue("First thought");
+  await page.getByTestId("workspace-undo").click();
+  await workspaceSaved(page);
+  await expect(notes).toHaveValue(original);
+  await page.getByTestId("workspace-redo").click();
+  await workspaceSaved(page);
+  await expect(notes).toHaveValue("First thought");
+  await page.getByTestId("workspace-redo").click();
+  await workspaceSaved(page);
+  await expect(notes).toHaveValue("First thought continued");
+  await page.getByTestId("part-room:1:logic").click();
+  const input = page.locator(".monaco-editor textarea");
+  await input.focus();
+  await workspaceDocumentEnd(page);
+  await page.keyboard.insertText("\n// First thought");
+  // Both focus moves occur before a deferred editor blur notification can run.
+  await input.evaluate((element) => {
+    document.querySelector<HTMLElement>('[data-testid="workspace-undo"]')!.focus();
+    (element as HTMLElement).focus();
+  });
+  await page.keyboard.insertText(" continued");
+  await page.getByTestId("workspace-undo").click();
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const api = window as unknown as {
+          __AGI_PROJECT__: {
+            getSession(): { drafts(): { changes(): { key: string; content: string }[] } };
+          };
+        };
+        return api.__AGI_PROJECT__
+          .getSession()
+          .drafts()
+          .changes()
+          .find((c) => c.key === "logic:1")?.content;
+      }),
+    )
+    .toMatch(/\/\/ First thought$/);
+  await expect(page.locator(".monaco-editor")).toContainText("// First thought");
+  await expect(page.locator(".monaco-editor")).not.toContainText("// First thought continued");
+});
+
 async function tabTo(page: Page, target: Locator): Promise<void> {
   // Safari's Option+Tab visits buttons as well as text controls.
-  const tab = page.context().browser()?.browserType().name() === "webkit" ? "Alt+Tab" : "Tab";
-  for (let i = 0; i < 100; i++) {
+  const backwards = await target.evaluateAll((elements) => {
+    const active = document.activeElement;
+    return (
+      !!active &&
+      elements.some(
+        (element) => !!(active.compareDocumentPosition(element) & Node.DOCUMENT_POSITION_PRECEDING),
+      )
+    );
+  });
+  const tab = [
+    page.context().browser()?.browserType().name() === "webkit" ? "Alt" : "",
+    backwards ? "Shift" : "",
+    "Tab",
+  ]
+    .filter(Boolean)
+    .join("+");
+  const visited = new Set<number>();
+  for (;;) {
     if (
       await target.evaluateAll((elements) =>
         elements.some((element) => element === document.activeElement),
       )
     )
       return;
+    const active = await page.evaluate(() =>
+      [...document.querySelectorAll("*")].indexOf(document.activeElement!),
+    );
+    if (visited.has(active)) break;
+    visited.add(active);
     await page.keyboard.press(tab);
   }
   throw new Error(`Keyboard cannot reach ${target}`);
@@ -445,8 +712,11 @@ test("keyboard authors all three parts, undoes across them and reloads @webkit-d
     ),
   );
   await workspaceUpdated(page);
-  await page.keyboard.press("Control+`");
+  await focusWorkspaceGame(page);
   await page.keyboard.type("look");
+  await expect(page.getByRole("textbox", { name: "Game command", exact: true })).toHaveValue(
+    "look",
+  );
   await page.keyboard.press("Enter");
   await expect
     .poll(async () => (await textHook(page)).rows.join("\n"))
@@ -518,11 +788,8 @@ test("keyboard authors all three parts, undoes across them and reloads @webkit-d
     await expect(page.getByTestId("workspace-undo")).toBeEnabled();
   }
   await workspaceUpdated(page);
-  // Saved covers the documents; this reload also needs progress for the current image.
-  const checkpointCycle = (await textHook(page)).cycle;
-  await expect
-    .poll(async () => (await textHook(page)).autosave, { timeout: 10_000 })
-    .toBeGreaterThanOrEqual(checkpointCycle);
+  await checkpointEditedFiles(page);
+  await page.getByRole("radio", { name: "Create", exact: true }).click();
   await page.reload();
   await expect(page.getByTestId("parts-list")).toBeVisible();
   await expect
@@ -531,8 +798,11 @@ test("keyboard authors all three parts, undoes across them and reloads @webkit-d
   await expect
     .poll(() => page.evaluate((index) => window.__AGI_FRAME__?.()?.visual[index], pixel))
     .toBe(4);
-  await page.keyboard.press("Control+`");
+  await focusWorkspaceGame(page);
   await page.keyboard.type("look");
+  await expect(page.getByRole("textbox", { name: "Game command", exact: true })).toHaveValue(
+    "look",
+  );
   await page.keyboard.press("Enter");
   await expect
     .poll(async () => (await textHook(page)).rows.join("\n"))
@@ -541,6 +811,12 @@ test("keyboard authors all three parts, undoes across them and reloads @webkit-d
   await tabTo(page, page.getByTestId("btn-exit"));
   await page.keyboard.press("Enter");
   await expect.poll(() => page.evaluate(() => window.__AGI_STATE__?.phase)).toBe("idle");
+});
+
+test("keyboard creates a Blank game and adds its first room @webkit-desktop", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await isolateStorage(page);
+  await page.goto("/");
   await tabTo(page, page.getByRole("button", { name: "Make a new game", exact: true }));
   await page.keyboard.press("Enter");
   await tabTo(page, page.getByTestId("local-create-kind-starter"));
@@ -549,14 +825,16 @@ test("keyboard authors all three parts, undoes across them and reloads @webkit-d
   await expect(page.getByTestId("local-create-kind-blank")).toBeFocused();
   await tabTo(page, page.getByRole("button", { name: "Start building", exact: true }));
   await page.keyboard.press("Enter");
-  await expect(page.getByText("Nothing to play yet.", { exact: true })).toBeVisible();
+  await expect(
+    page.locator(".screen").getByText("Nothing to play yet.", { exact: true }),
+  ).toBeVisible();
   await tabTo(page, page.getByTestId("empty-add-room"));
   await page.keyboard.press("Enter");
   await expect(page.getByTestId("parts-list")).toBeVisible();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
 });
 
-test("adding a room waits for Update before its PICTURE opens on the visited stage @webkit-desktop", async ({
+test("adding a room leaves play in place until Update and restart enters it @webkit-desktop", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -565,15 +843,18 @@ test("adding a room waits for Update before its PICTURE opens on the visited sta
     .getByTestId("parts-list")
     .getByRole("button", { name: "Add a room", exact: true })
     .click();
-  await expect(page.getByTestId("workspace-guided-form")).toBeVisible();
-  await page.getByLabel("Room name", { exact: true }).fill("Garden");
-  await page
-    .getByTestId("workspace-guided-form")
-    .getByRole("button", { name: "Add", exact: true })
-    .click();
-  await workspaceUpdated(page);
+  const rename = page.getByTestId("room-rename-input");
+  await expect(rename).toBeVisible();
+  await rename.fill("Garden");
+  await rename.press("Enter");
   await expect(page.getByTestId("part-room:2:picture:2")).toBeVisible();
   await page.getByTestId("part-room:2:picture:2").click();
+  await expect(page.getByTestId("room-studio")).toBeVisible();
+  expect((await textHook(page)).room).toBe(1);
+  const action = page.getByTestId("workspace-update");
+  await expect(action).toBeVisible();
+  await expect(action).toHaveAccessibleName("Update and restart Garden");
+  await action.click();
   await expect(page.getByTestId("room-studio").locator(".studio-pane")).toBeVisible();
   const cycle = (await textHook(page)).cycle;
   await expect.poll(async () => (await textHook(page)).cycle).toBeGreaterThan(cycle);
@@ -581,16 +862,29 @@ test("adding a room waits for Update before its PICTURE opens on the visited sta
   await expect(page.getByTestId("room-studio").locator(".play-area")).toHaveCount(0);
   await expect(page.locator(".play-area")).toBeVisible();
   await expect.poll(async () => (await textHook(page)).room).toBe(2);
-  await expect(page.getByTestId("workspace-visit")).toBeVisible();
-  await expect(page.getByRole("button", { name: "Back to Room 1", exact: true })).toBeVisible();
+  const bar = page.getByTestId("workspace-game-bar");
+  await expect(bar).toBeVisible();
+  await expect(bar.getByTestId("workspace-room")).toContainText("Garden");
+  await expect(action).toHaveAccessibleName("Restart Garden");
   await workspaceUpdated(page);
 });
 
 test("Tab opens the Starter's inventory and keeps the keyboard in the game", async ({ page }) => {
   await starter(page);
   await page.getByRole("radio", { name: "Play", exact: true }).click();
+  await expect
+    .poll(() =>
+      page.evaluate(async () => {
+        const state = await (
+          window as unknown as { __AGI_PROJECT__: { query: WorkerQueryFn } }
+        ).__AGI_PROJECT__.query("state");
+        return state?.room === 1 && state.inputEnabled;
+      }),
+    )
+    .toBe(true);
   const command = page.locator("#game-command");
   await command.focus();
+  await expect(command).toBeFocused();
   await page.keyboard.press("Tab");
   await expect(command).toBeFocused();
   await expect.poll(async () => (await textHook(page)).modal).toBe("inventory");
@@ -599,6 +893,7 @@ test("Tab opens the Starter's inventory and keeps the keyboard in the game", asy
 test("Home Continue resumes the Starter in its room", async ({ page }) => {
   await starter(page);
   await page.getByRole("radio", { name: "Play", exact: true }).click();
+  await expect(page.locator("#game-command")).toBeFocused();
   const before = (await textHook(page)).egoX;
   await page.keyboard.press("Control+`");
   await page.keyboard.down("ArrowRight");
@@ -614,26 +909,22 @@ test("Home Continue resumes the Starter in its room", async ({ page }) => {
   await expect.poll(async () => (await textHook(page)).cycle).toBeGreaterThan(resumed);
 });
 
-test("parts preview replaces, double click and editing pin, close uses the keyboard", async ({
-  page,
-}) => {
+test("tabs persist until closed, close uses the keyboard or the tab's ×", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await starter(page);
   await page.getByTestId("part-room:1:picture:1").click();
-  await expect(page.getByTestId("project-tab-picture:1")).toHaveCSS("font-style", "italic");
+  await expect(page.getByTestId("project-tab-picture:1")).toBeVisible();
+  // Choosing another part adds a tab; the first stays open.
   await page.getByTestId("part-view:0").click();
-  await expect(page.getByTestId("project-tab-picture:1")).toHaveCount(0);
-  await page.getByTestId("part-view:0").dblclick();
-  await expect(page.getByTestId("project-tab-view:0")).toHaveCSS("font-style", "normal");
+  await expect(page.getByTestId("project-tab-picture:1")).toBeVisible();
+  await expect(page.getByTestId("project-tab-view:0")).toBeVisible();
   await page.getByTestId("part-words").click();
   await expect(page.getByTestId("project-tab-view:0")).toBeVisible();
-  await page.getByTestId("project-tab-words").dblclick();
-  await expect(page.getByTestId("project-tab-words")).toHaveCSS("font-style", "normal");
+  await expect(page.getByTestId("project-tab-words")).toBeVisible();
   await page.getByTestId("part-room:1:logic").click();
   await page.locator(".monaco-editor").click();
   await page.keyboard.press("ControlOrMeta+End");
-  await page.keyboard.insertText("\n// Pinned by typing");
-  await expect(page.getByTestId("project-tab-logic:1")).toHaveCSS("font-style", "normal");
+  await page.keyboard.insertText("\n// Edited");
   await page.keyboard.press("ControlOrMeta+w");
   await expect(page.getByTestId("project-tab-logic:1")).toHaveCount(0);
   const parts = await page
@@ -652,7 +943,7 @@ test("parts preview replaces, double click and editing pin, close uses the keybo
   expect(active.x + active.width).toBeLessThanOrEqual(stripBox.x + stripBox.width);
 });
 
-test("Undo and History restore update the editor while a game message waits", async ({ page }) => {
+test("Undo and History restore apply while a game message waits", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await starter(page);
   await page.getByTestId("part-room:1:logic").click();
@@ -667,7 +958,11 @@ test("Undo and History restore update the editor while a game message waits", as
   await page.getByTestId("workspace-undo").click();
   await expect(page.locator(".monaco-editor")).not.toContainText("Instant Undo");
   await expect(page.getByTestId("workspace-redo")).toBeEnabled();
-  await expect(page.getByTestId("workspace-live")).toHaveText("Updates when the game continues");
+  await expect(page.getByTestId("workspace-live")).toBeVisible();
+  await expect(page.getByTestId("workspace-live")).toHaveText("Now");
+  await expect
+    .poll(async () => (await textHook(page)).rows.join("\n"))
+    .not.toContain("sunny clearing");
   await page.getByTestId("workspace-redo").click();
   await expect(page.locator(".monaco-editor")).toContainText("Instant Undo");
   await page.getByTestId("workspace-saved").click();
@@ -688,9 +983,7 @@ test("Undo and History restore update the editor while a game message waits", as
   await page.keyboard.insertText("\n// Latest while waiting");
   await workspaceSaved(page);
   await page.getByTestId("workspace-update").click();
-  await expect(page.getByTestId("workspace-update")).toBeDisabled();
-  await page.keyboard.press("Control+`");
-  await page.keyboard.press("Enter");
+  await expect(page.getByTestId("workspace-update")).toBeEnabled();
   await expect(page.getByTestId("workspace-updated")).toBeVisible();
   await expect(page.getByTestId("workspace-live")).toBeVisible();
   await expect(page.getByTestId("workspace-live")).toHaveText("Now");
@@ -714,7 +1007,7 @@ for (const size of [
     await page.getByTestId("part-room:1:picture:1").click();
     const studio = page.getByTestId("room-studio");
     await expect(studio.getByRole("radiogroup", { name: "Lens", exact: true })).toBeVisible();
-    await expect(studio.getByRole("radio", { name: "Art", exact: true })).toHaveAttribute(
+    await expect(studio.getByRole("radio", { name: "Visual", exact: true })).toHaveAttribute(
       "aria-checked",
       "true",
     );
@@ -724,9 +1017,12 @@ for (const size of [
       .boundingBox())!;
     expect(lens.y).toBeGreaterThanOrEqual(options.y);
     expect(lens.y + lens.height).toBeLessThanOrEqual(options.y + options.height);
-    const footer = (await studio.locator(".studio__status").boundingBox())!;
-    const palette = (await studio.locator(".workspace-palette").boundingBox())!;
-    expect(footer.y).toBeGreaterThanOrEqual(palette.y + palette.height);
+    const footer = (await page.getByTestId("workspace-status").boundingBox())!;
+    const palette = studio.locator(".workspace-palette");
+    // The studio scrolls when the window is short; the palette still clears the shared bar.
+    await palette.scrollIntoViewIfNeeded();
+    const paletteBox = (await palette.boundingBox())!;
+    expect(footer.y + 1).toBeGreaterThanOrEqual(paletteBox.y + paletteBox.height);
     await expect(studio.getByTestId("studio-value-priority")).toBeVisible();
     await expect(studio.getByTestId("studio-value-priority")).toHaveText("None");
     await expect(studio.getByTestId("studio-value-priority")).toBeDisabled();
@@ -743,7 +1039,9 @@ for (const size of [
     expect(optionsFit).toBe(true);
     const edit = (await page.getByTestId("workspace-editor").boundingBox())!;
     const game = (await page.locator(".play-area").boundingBox())!;
-    expect(edit.width).toBeGreaterThan(game.width);
+    // Stacked is the default: the editor sits under the game at the same width.
+    expect(edit.y).toBeGreaterThan(game.y);
+    expect(edit.width).toBe(game.width);
     await shot("view");
     await page.getByTestId("part-words").click();
     await expect(
@@ -765,11 +1063,15 @@ for (const size of [
     await page.getByTestId("part-inventory").click();
     await expect(page.getByRole("columnheader", { name: "Object", exact: true })).toBeVisible();
     await expect(page.getByRole("columnheader", { name: "Room", exact: true })).toBeVisible();
-    await page.getByTestId("part-view:0").dblclick();
-    await page.getByTestId("part-words").dblclick();
+    await page.getByTestId("part-view:0").click();
+    await page.getByTestId("part-words").click();
     await page.getByTestId("part-room:1:picture:1").click();
-    await expect(page.getByTestId("project-tab-picture:1")).toHaveCSS("font-style", "italic");
-    await shot("preview-tabs");
+    // Tabs persist until closed: every opened part keeps its tab.
+    await expect(page.getByTestId("project-tab-picture:1")).toBeVisible();
+    await expect(page.getByTestId("project-tab-view:0")).toBeVisible();
+    await expect(page.getByTestId("project-tab-words")).toBeVisible();
+    await expect(page.getByTestId("project-tab-inventory")).toBeVisible();
+    await shot("persistent-tabs");
   });
 }
 

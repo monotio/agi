@@ -3,6 +3,33 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createProjectAutosave } from "../src/project/projectAutosave.ts";
 
+test("flush waits for the saved target to acquire its progress owner", async () => {
+  let acquired = false;
+  let release!: () => void;
+  const acquisition = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const writer = createProjectAutosave({
+    current: () => true,
+    write: async (value: number) => value,
+    saved: async () => {
+      await acquisition;
+      acquired = true;
+    },
+    conflict: () => false,
+  });
+  writer.enqueue(1);
+  const flush = writer.flush();
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.equal(writer.status().state, "saving");
+  release();
+  await flush;
+  assert.equal(acquired, true);
+  assert.equal(writer.status().state, "saved");
+  writer.dispose();
+});
+
 test("autosave serializes captures, retries the exact failed request, and fences newer content", async () => {
   const calls: number[] = [];
   let fail = true;

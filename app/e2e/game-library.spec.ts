@@ -544,7 +544,7 @@ test("removing a game forgets its progress, so the same bytes come back fresh", 
   await expect(card.getByTestId("btn-resume-cached")).toHaveText("Resume");
   expect(await stored()).toEqual(before);
 
-  // Download game first is the card's own Download game…, and the question stays open.
+  // Download game first downloads the project file, and the question stays open.
   await openLibraryActions(page, card);
   await page.getByTestId("remove-library-game").click();
   const download = page.waitForEvent("download");
@@ -598,7 +598,7 @@ test("a late Agent panel keeps Settings open @webkit-desktop", async ({ page }) 
   await expect(page.getByTestId("settings-menu-menu")).toBeVisible();
   await expect(page.getByTestId("toggle-mute")).toBeFocused();
   // The shell can finish its queued focus move before the panel has loaded.
-  await page.locator(".assistant-host").focus();
+  await page.locator(".agent-drawer .assistant-host").focus();
   await expect(page.getByTestId("settings-menu-menu")).toBeVisible();
   await expect(page.getByTestId("toggle-mute")).toBeFocused();
   const other = await page.context().newPage();

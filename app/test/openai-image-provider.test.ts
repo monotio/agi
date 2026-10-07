@@ -951,14 +951,6 @@ test("image quality and pixel count extend the whole-job timeout", async (t) => 
   }
 });
 
-test("paid request estimates use the documented image output calculator", async () => {
-  const { estimateImageOutputCost } = await import("../src/studio/creative/openaiImageProvider.ts");
-  assert.equal(estimateImageOutputCost("gpt-image-2", "low", "1024x1024"), 0.00588);
-  assert.equal(estimateImageOutputCost("gpt-image-2.5-sunburst", "low", "1024x1024"), 0.00588);
-  assert.equal(estimateImageOutputCost("gpt-image-2.5-flare", "high", "1024x1024"), 0.05268);
-  assert.equal(estimateImageOutputCost("unknown", "low", "1024x1024"), null);
-});
-
 test("streaming publishes a bounded partial before accepting the final image", async () => {
   const b64 = Buffer.from(PNG_1x1).toString("base64");
   const partial = `data: ${JSON.stringify({ type: "image_generation.partial_image", partial_image_index: 0, b64_json: b64 })}\r\n\r\n`;

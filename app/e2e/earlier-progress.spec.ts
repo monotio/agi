@@ -265,9 +265,14 @@ test("a saved game's Details carries the scoped section and closes to a stable c
   const dialog = await openSavedGameDetails(card);
   const section = dialog.getByTestId("earlier-progress");
   await expect(section).toBeVisible();
+  // A game made in the app takes its interpreter from the template.
+  await expect(dialog).toContainText("2.936 (from the template)");
   await expect(section.getByRole("heading", { name: "Earlier progress" })).toBeVisible();
-  // The game's own earlier spelling is the scoped read context.
-  await expect(section.getByTestId("earlier-row").filter({ hasText: projectId })).toBeVisible();
+  // The game's own earlier spelling is the scoped read context, named by the game's title.
+  const own = section.getByTestId("earlier-row").filter({ hasText: "Detour Adventure" });
+  await expect(own).toBeVisible();
+  await expect(own).not.toContainText(projectId);
+  await expect(own.locator(".earlier__row-sub")).toHaveAttribute("title", projectId);
   await reviewShot(page, "earlier-progress-details");
 
   // Browse widens the same section to every earlier source.

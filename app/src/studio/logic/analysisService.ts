@@ -1,4 +1,7 @@
-import { createLogicLspServer } from "../../../../src/logic/lspServer.ts";
+import {
+  createLogicLspServer,
+  type LogicLanguageSettings,
+} from "../../../../src/logic/lspServer.ts";
 import type { LspMessage, LspNotification, LspResponse } from "../../../../src/logic/lspTypes.ts";
 
 interface LanguagePort {
@@ -23,12 +26,12 @@ export function attachLogicLanguageServer(
   const queued = new Set<string | number>();
   port.onmessage = ({ data }) => {
     if (data.id === undefined) {
+      const settings = (
+        data.params as { settings?: { agiLogic?: LogicLanguageSettings } } | undefined
+      )?.settings?.agiLogic;
       if (
-        [
-          "workspace/didChangeConfiguration",
-          "textDocument/didChange",
-          "textDocument/didClose",
-        ].includes(data.method)
+        (data.method === "workspace/didChangeConfiguration" && settings?.project) ||
+        ["textDocument/didChange", "textDocument/didClose"].includes(data.method)
       )
         generation++;
       if (data.method === "$/cancelRequest") {

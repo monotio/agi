@@ -7,6 +7,190 @@ import {
 } from "../../../src/authoring/projectWorkspace.ts";
 import { historyLifetimeGuard, readBodyRecords, updateBodyRecords } from "./gameBodyStorage.ts";
 import { claimProjectSaveJournal } from "./projectSaveJournal.ts";
+import { rebaseWorldDraft } from "./projectWorld.ts";
+import type { ProjectSnapshot } from "../../../src/authoring/projectModel.ts";
+import {
+  compileProjectDocuments,
+  readBindingsDocument,
+  readMusicDocument,
+  ProjectDocumentCompileError,
+} from "../../../src/authoring/projectDocuments.ts";
+import {
+  inspectProjectRemoval,
+  launchRemovalMessages,
+} from "../../../src/authoring/projectRemoval.ts";
+import { inspectProjectReferences } from "../../../src/authoring/projectReferences.ts";
+import { inspectProjectSourceDependencies } from "../../../src/authoring/projectSourceDependencies.ts";
+import { pruneRoomLaunches } from "../../../src/authoring/launches.ts";
+import { validateAuthoringState } from "../../../src/authoring/authoringState.ts";
+import { openContainer } from "../../../src/container/container.ts";
+import type { AgiProfile } from "../../../src/runtime/profile.ts";
+import { documentLabel } from "../../../src/logic/numberedLabels.ts";
+
+export interface DraftRemovalProblem {
+  readonly document: string;
+  readonly line?: number;
+  readonly severity: "error";
+  readonly message: string;
+}
+/** Draft deletion shares the admission inventory, but keeps broken uses editable. */
+export function inspectPartDraftRemovals(
+  snapshot: ProjectSnapshot,
+  removals: readonly string[],
+  profile: AgiProfile,
+): readonly DraftRemovalProblem[] {
+  if (!removals.length) return [];
+  const documents = snapshot.documents();
+  try {
+    const bindings = readBindingsDocument(
+      typeof documents["bindings"] === "string" ? documents["bindings"] : "{}",
+    );
+    const compiled = compileProjectDocuments({
+      files: Object.fromEntries(snapshot.lastAdmissibleBuild?.files() ?? []),
+      documents,
+      profileId: profile.id,
+    });
+    const image = inspectProjectReferences({
+      container: openContainer(compiled.files(), { profile }),
+      profile,
+      bindings,
+    });
+    const world =
+      typeof documents["world"] === "string"
+        ? JSON.parse(documents["world"])
+        : { rooms: {}, facts: {}, quests: {} };
+    const authoring = validateAuthoringState({
+      version: 1,
+      bindings,
+      world,
+      ...(typeof documents["music"] === "string"
+        ? { music: readMusicDocument(documents["music"]) }
+        : {}),
+    });
+    const findings = inspectProjectRemoval({
+      removals,
+      image,
+      authoring,
+      tests: documents["tests"],
+      references: documents["references"],
+      drafts: [],
+      keptBindings: bindings,
+      profile,
+    });
+    const problems: DraftRemovalProblem[] = [];
+    for (const finding of findings) {
+      const logic = compiled.build.logics.find(
+        (logic) => `logic:${logic.num}` === finding.document,
+      );
+      const command = finding.command;
+      const pcs =
+        finding.pc !== undefined
+          ? [finding.pc]
+          : image.references
+              .filter(
+                (ref) =>
+                  ref.document === finding.document &&
+                  ref.command === command &&
+                  ("variable" in ref.target ||
+                    removals.includes(`${ref.target.kind}:${ref.target.num}`)),
+              )
+              .map((ref) => ref.pc);
+      for (const pc of pcs.length ? pcs : [undefined]) {
+        const entry =
+          pc === undefined ? undefined : logic?.sourceMap?.entries.find((entry) => entry.pc === pc);
+        const start =
+          entry && logic?.authoredStart !== undefined
+            ? Math.max(0, entry.start - logic.authoredStart)
+            : undefined;
+        const line =
+          start === undefined ? undefined : logic!.authored!.slice(0, start).split("\n").length;
+        problems.push({ ...finding, severity: "error", ...(line === undefined ? {} : { line }) });
+      }
+    }
+    // WORDS and OBJECT are complete documents. Their rows delete the document;
+    // individual dictionary and inventory entries retain their editor actions.
+    for (const key of removals.filter((key) => key === "words" || key === "inventory")) {
+      for (const [document, source] of Object.entries(documents)) {
+        if (!document.startsWith("logic:")) continue;
+        if (typeof source === "string") {
+          const uses = inspectProjectSourceDependencies({
+            source,
+            profile,
+            bindings,
+          }).references.filter((ref) => ref.dependency === key);
+          for (const use of uses)
+            problems.push({
+              document,
+              line: source.slice(0, use.start).split("\n").length,
+              severity: "error",
+              message: `${key} is still used by ${document} (${use.command}).`,
+            });
+        } else if (
+          image.references.some(
+            (ref) =>
+              ref.document === document && ref.target.kind === (key === "words" ? "word" : "item"),
+          )
+        )
+          problems.push({
+            document,
+            severity: "error",
+            message: `${key} is still used by ${document}.`,
+          });
+      }
+    }
+    return problems.sort((a, b) =>
+      a.document === b.document ? (a.line ?? 0) - (b.line ?? 0) : a.document < b.document ? -1 : 1,
+    );
+  } catch (cause) {
+    return [
+      {
+        document: cause instanceof ProjectDocumentCompileError ? cause.key : removals[0]!,
+        severity: "error",
+        message: cause instanceof Error ? cause.message : String(cause),
+      },
+    ];
+  }
+}
+
+/** Remove a room's own metadata in the same undoable draft; never rewrite code. */
+export function preparePartDraftRemoval(
+  snapshot: ProjectSnapshot,
+  key: string,
+  profile: AgiProfile,
+  room?: number,
+) {
+  const changes: ProjectChange[] = [{ key, content: null }];
+  const documents = { ...snapshot.documents() };
+  delete documents[key];
+  const metadata: string[] = [];
+  const removedRoom = room ?? (key.startsWith("logic:") ? Number(key.slice(6)) : undefined);
+  if (removedRoom !== undefined && typeof documents["world"] === "string") {
+    const world = validateAuthoringState({
+      version: 1,
+      bindings: {},
+      world: JSON.parse(documents["world"]),
+    }).world;
+    metadata.push(...launchRemovalMessages(world.launches, new Set([key])));
+    const next = pruneRoomLaunches(world, removedRoom);
+    if (Object.hasOwn(world.rooms, String(removedRoom)) || next !== world) {
+      delete next.rooms[String(removedRoom)];
+      const content = JSON.stringify(next, null, 2);
+      documents["world"] = content;
+      changes.push({ key: "world", content });
+    }
+  }
+  const candidate = { ...snapshot, keys: Object.keys(documents), documents: () => documents };
+  const problems = inspectPartDraftRemovals(candidate, [key], profile);
+  const messages = [
+    ...new Set(
+      problems.map(
+        (problem) =>
+          `Used in ${documentLabel(problem.document)}${problem.line === undefined ? "" : ` line ${problem.line}`}`,
+      ),
+    ),
+  ];
+  return { changes, problems, messages, metadata };
+}
 
 type Journal = Pick<Storage, "length" | "key" | "getItem" | "setItem" | "removeItem">;
 const liveJournals = new Set<string>();
@@ -56,6 +240,7 @@ export function openProjectDrafts(input: {
   delay?: number;
   currentImage?(): string;
   canWrite?(): boolean;
+  read?(key: string): ProjectContent | undefined;
 }) {
   const storage = input.journal ?? (typeof localStorage === "undefined" ? undefined : localStorage);
   const manifest = `part-drafts/${input.projectId}`;
@@ -74,6 +259,9 @@ export function openProjectDrafts(input: {
   let error = "";
   let busy = false;
   let blocked = false;
+  const past: { before: ProjectChange[]; after: ProjectChange[] }[] = [];
+  const future: { before: ProjectChange[]; after: ProjectChange[] }[] = [];
+  let typing: string | undefined;
   const observers = new Set<() => void>();
   const notify = () => {
     input.changed?.();
@@ -124,7 +312,6 @@ export function openProjectDrafts(input: {
           error = "Browser storage could not keep a recovery copy. Retry saving before closing.";
         }
       }
-      inspectBase(draft);
     }
     // A terminated page may have journaled a part before opening its IDB transaction.
     const journalKeys = Array.from({ length: storage?.length ?? 0 }, (_, index) =>
@@ -143,7 +330,6 @@ export function openProjectDrafts(input: {
         else if ((current?.receipt ?? null) === recovered.parent) {
           drafts[recovered.key] = recovered;
           pending.add(recovered.key);
-          inspectBase(recovered);
           try {
             storage!.setItem(journalKey(recovered.key), encode(recovered));
             storage!.removeItem(key);
@@ -163,6 +349,9 @@ export function openProjectDrafts(input: {
         });
       else recover();
     }
+    // A newer recovery journal may carry this page's accepted room image.
+    // Check the final recovered draft, after its receipt supersedes storage.
+    for (const draft of Object.values(drafts)) inspectBase(draft);
     notify();
     if (pending.size && !blocked && !disposed)
       timer = setTimeout(() => {
@@ -229,6 +418,55 @@ export function openProjectDrafts(input: {
     tail = result.catch(() => {});
     return result;
   }
+  function stage(changes: readonly ProjectChange[]): void {
+    checkWriter();
+    for (const { key } of changes) checkProjectDocumentKey(key);
+    for (const { key, content } of changes) {
+      const draft: PartDraft = {
+        projectId: `${manifest}/${key}`,
+        format: "monotio.agi.part-draft",
+        version: 1,
+        key,
+        lifetime: input.lifetime,
+        receipt: crypto.randomUUID(),
+        parent: receipts[key] ?? null,
+        baseImage: input.currentImage?.(),
+        content: content instanceof Uint8Array ? content.slice() : content,
+      };
+      drafts[key] = draft;
+      pending.add(key);
+      try {
+        storage?.setItem(journalKey(key), encode(draft));
+      } catch {
+        error = "Browser storage could not keep a recovery copy. Retry saving before closing.";
+      }
+    }
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      void flush().catch(() => {});
+    }, input.delay ?? 250);
+  }
+  function record(changes: readonly ProjectChange[], groupTyping = false): void {
+    if (changes.length === 0) return;
+    const before = changes.map(({ key }) => ({
+      key,
+      content: Object.hasOwn(drafts, key) ? drafts[key]!.content : (input.read?.(key) ?? null),
+    }));
+    const key = changes.length === 1 ? changes[0]!.key : undefined;
+    const merge =
+      groupTyping &&
+      key !== undefined &&
+      (key === "notes" || key.startsWith("logic:")) &&
+      typing === key &&
+      future.length === 0;
+    stage(changes);
+    const after = changes.map(({ key }) => ({ key, content: drafts[key]!.content }));
+    if (merge && past.length) past[past.length - 1]!.after = after;
+    else past.push({ before, after });
+    typing = groupTyping ? key : undefined;
+    future.length = 0;
+    notify();
+  }
   return {
     ready,
     subscribe(observer: () => void) {
@@ -238,39 +476,75 @@ export function openProjectDrafts(input: {
       };
     },
     stage(changes: readonly ProjectChange[]) {
-      if (disposed) throw new Error("Open this project again to edit it.");
-      for (const { key, content } of changes) {
-        checkProjectDocumentKey(key);
-        const draft: PartDraft = {
-          projectId: `${manifest}/${key}`,
-          format: "monotio.agi.part-draft",
-          version: 1,
-          key,
-          lifetime: input.lifetime,
-          receipt: crypto.randomUUID(),
-          parent: receipts[key] ?? null,
-          baseImage: input.currentImage?.(),
-          content: content instanceof Uint8Array ? content.slice() : content,
-        };
-        drafts[key] = draft;
-        pending.add(key);
-        try {
-          storage?.setItem(journalKey(key), encode(draft));
-        } catch {
-          error = "Browser storage could not keep a recovery copy. Retry saving before closing.";
-        }
-      }
+      record(changes, true);
+    },
+    stageTransaction(changes: readonly ProjectChange[]) {
+      record(changes);
+    },
+    /** Focus loss ends a typing group independently of rendering and save speed. */
+    endTyping(): void {
+      typing = undefined;
+    },
+    undo(): boolean {
+      const edit = past.at(-1);
+      if (!edit) return false;
+      stage(edit.before);
+      typing = undefined;
+      past.pop();
+      future.push(edit);
       notify();
-      clearTimeout(timer);
-      timer = setTimeout(() => {
-        void flush().catch(() => {});
-      }, input.delay ?? 250);
+      return true;
+    },
+    redo(): boolean {
+      const edit = future.at(-1);
+      if (!edit) return false;
+      stage(edit.after);
+      typing = undefined;
+      future.pop();
+      past.push(edit);
+      notify();
+      return true;
     },
     changes(): readonly ProjectChange[] {
       return Object.values(drafts).map(({ key, content }) => ({ key, content }));
     },
+    rebase(
+      before: { documentId: string; world: ProjectContent | undefined },
+      after: { documentId: string; world: ProjectContent | undefined },
+    ) {
+      if (
+        before.documentId === after.documentId ||
+        blocked ||
+        Object.values(drafts).some(
+          (draft) => draft.baseImage !== undefined && draft.baseImage !== before.documentId,
+        )
+      )
+        return;
+      const changes = Object.values(drafts).map((draft) => ({
+        key: draft.key,
+        content:
+          draft.key === "world"
+            ? rebaseWorldDraft(before.world, after.world, draft.content)
+            : draft.content,
+      }));
+      if (!changes.length) return;
+      stage(changes);
+      for (const transaction of [...past, ...future])
+        for (const change of [...transaction.before, ...transaction.after])
+          if (change.key === "world")
+            Object.assign(change, {
+              content: rebaseWorldDraft(before.world, after.world, change.content),
+            });
+      notify();
+    },
     status() {
-      return { busy, pending: pending.size > 0, error };
+      return {
+        busy,
+        pending: pending.size > 0,
+        error,
+        canUndo: past.length > 0,
+        canRedo: future.length > 0,
+      };
     },
     flush,
     async clear() {
@@ -306,6 +580,9 @@ export function openProjectDrafts(input: {
         delete recoveredJournals[key];
       }
       pending.clear();
+      past.length = 0;
+      typing = undefined;
+      future.length = 0;
       error = "";
       blocked = false;
       notify();

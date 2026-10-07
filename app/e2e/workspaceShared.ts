@@ -5,17 +5,30 @@ import {
   enterCreateMode,
   openLibraryActions,
   savedGameCard,
+  waitForGameInput,
   workspaceSaved,
   workspaceUpdated,
 } from "./engineProbe.ts";
 import { expect } from "./test.ts";
+
+export async function focusWorkspaceGame(page: Page): Promise<void> {
+  // Agent enables when the Create command adapter has registered its commands.
+  const commands = page.getByTestId("workspace-agent");
+  await expect(commands).toBeVisible();
+  await expect(commands).toBeEnabled();
+  await page.keyboard.press("Control+`");
+  await waitForGameInput(page);
+}
 
 export async function openStoredWorkspace(page: Page, title: string): Promise<void> {
   await openLibraryActions(page, savedGameCard(page, title));
   await page.getByTestId("edit-library-game").click();
   await expect(page.getByRole("heading", { name: title, exact: true, level: 1 })).toBeVisible();
   await expect(page.getByTestId("input-line")).toBeEnabled();
-  await expect(page.getByTestId("parts-list")).toBeVisible();
+  const parts = page.getByTestId("parts-list");
+  if (page.viewportSize()!.width <= 600 && !(await parts.isVisible()))
+    await page.getByTestId("workspace-parts").click();
+  await expect(parts).toBeVisible();
   await workspaceSaved(page);
 }
 
@@ -29,8 +42,21 @@ export async function openWorkspaceLogic(page: Page, num = 1): Promise<Locator> 
     .click();
   if (await show.isVisible()) await show.click();
   const editor = page.getByTestId("workspace-logic-editor").filter({ visible: true });
-  await expect(editor.locator(".monaco-editor")).toBeVisible({ timeout: 30_000 });
+  await expect(editor.locator('.monaco-editor[role="code"]')).toBeVisible({ timeout: 30_000 });
   return editor;
+}
+
+/** Map an AGI pixel after tool changes and font loading have settled the canvas. */
+export async function clickPictureCell(studio: Locator, x: number, y: number): Promise<void> {
+  const pane = studio.locator(".studio-pane").last();
+  await expect(pane).toBeVisible();
+  await pane.evaluate(() => document.fonts.ready);
+  // Playwright observes stable geometry and scrolls the pane into view.
+  await pane.click({ trial: true });
+  const box = (await pane.boundingBox())!;
+  await pane.click({
+    position: { x: ((x + 0.5) * box.width) / 160, y: ((y + 0.5) * box.height) / 168 },
+  });
 }
 
 export async function workspaceDocument(page: Page, key: string): Promise<string> {
@@ -81,6 +107,28 @@ export async function focusWorkspaceLogic(page: Page): Promise<void> {
     .focus();
 }
 
+/** Monaco selects its keyboard platform from the browser identity. */
+export async function findWorkspaceLogic(page: Page, text: string): Promise<void> {
+  await focusWorkspaceLogic(page);
+  const mac = await page.evaluate(
+    () =>
+      navigator.userAgent.includes("Macintosh") ||
+      (/iPad|iPhone/.test(navigator.userAgent) && navigator.maxTouchPoints > 0),
+  );
+  await page.keyboard.press(mac ? "Meta+f" : "Control+f");
+  await page.getByRole("textbox", { name: "Find", exact: true }).fill(text);
+  await page.keyboard.press("Escape");
+}
+
+/** A multiline paste keeps supplied indentation; insertText types each Enter. */
+export async function pasteWorkspaceLogic(page: Page, text: string): Promise<void> {
+  await page.evaluate(async (text) => {
+    const { monaco } = await import("/src/studio/logic/monacoLanguage.ts");
+    const editor = monaco.editor.getEditors().find((editor) => editor.hasTextFocus())!;
+    editor.trigger("spec", "paste", { text });
+  }, text);
+}
+
 /** Insert through Monaco's real input so braces and quotes remain verbatim. */
 export async function replaceWorkspaceDocument(
   page: Page,
@@ -91,8 +139,10 @@ export async function replaceWorkspaceDocument(
   if (key.startsWith("logic:")) {
     await openWorkspaceLogic(page, Number(key.split(":")[1]));
     await focusWorkspaceLogic(page);
-    await page.keyboard.press("ControlOrMeta+a");
-    await page.keyboard.insertText(text);
+    // Monaco chooses its keyboard platform from the browser's user agent.
+    const mac = await page.evaluate(() => navigator.userAgent.includes("Macintosh"));
+    await page.keyboard.press(mac ? "Meta+a" : "Control+a");
+    await pasteWorkspaceLogic(page, text);
     await page.keyboard.press("Escape");
   } else if (key === "words") {
     const show = page.getByTestId("workspace-show-game");
@@ -131,24 +181,28 @@ export async function replaceWorkspaceDocument(
         : (JSON.parse(text) as { name: string; startingRoom: number }[]).map(
             (row) => [row.name, row.startingRoom] as const,
           );
-    const first = VOCABULARY.objectColumn.label;
-    const second = key === "words" ? "Group" : "Room";
     // Table edits retain existing entries and append the requested vocabulary/objects.
     for (const [index, row] of rows.entries()) {
       if ((await table.locator("tbody tr").count()) <= index) {
         await table.getByRole("button", { name: "+ Add", exact: true }).click();
         await workspaceSaved(page);
       }
-      const name = table.getByLabel(`${first} ${index}`, { exact: true });
+      const name = table.locator("tbody tr").nth(index).getByRole("textbox");
       if ((await name.inputValue()) !== row[0]) {
         await name.fill(row[0]);
         await name.press("Tab");
         await workspaceSaved(page);
       }
-      const value = table.getByLabel(`${second} ${index}`, { exact: true });
+      const entry = table.locator("tbody tr").nth(index);
+      const value = entry.getByRole("combobox");
       if ((await value.inputValue()) !== String(row[1])) {
-        await value.fill(String(row[1]));
-        await value.press("Tab");
+        const known = await value.locator(`option[value="${row[1]}"]`).count();
+        await value.selectOption(known ? String(row[1]) : "other");
+        if (!known) {
+          const number = entry.getByRole("spinbutton");
+          await number.fill(String(row[1]));
+          await number.press("Tab");
+        }
         await workspaceSaved(page);
       }
     }
@@ -160,13 +214,24 @@ export async function replaceWorkspaceDocument(
   await workspaceSaved(page);
 }
 
+/** Room helpers live in Add; editor tools stay reachable through the priority overflow. */
+export async function clickContextAction(page: Page, testId: string): Promise<void> {
+  const edit = page.getByRole("button", { name: "Edit", exact: true });
+  if (await edit.isVisible()) await edit.click();
+  const action = page.getByTestId(testId);
+  if (!(await action.isVisible()))
+    await page
+      .getByTestId(testId.startsWith("room-action-") ? "room-actions-menu" : "context-more-actions")
+      .click();
+  await action.click();
+}
+
 export async function addWorkspaceResponse(
   page: Page,
   command: string,
   response: string,
 ): Promise<void> {
-  await page.getByTestId("workspace-add").click();
-  await page.getByRole("menuitem", { name: "Answer a sentence", exact: true }).click();
+  await clickContextAction(page, "room-action-response");
   const form = page.getByTestId("workspace-guided-form");
   await expect(form).toBeVisible();
   await form.getByLabel("When the player types…", { exact: true }).fill(command);
@@ -184,8 +249,34 @@ export async function addWorkspaceAction(
   changedKey: string,
 ): Promise<void> {
   const before = await workspaceDocument(page, changedKey);
-  await page.getByTestId("workspace-add").click();
-  await page.getByRole("menuitem", { name: label, exact: true }).click();
+  if (label === "Add a room") {
+    await page.getByRole("button", { name: "Add a room", exact: true }).click();
+    const input = page.getByTestId("room-rename-input");
+    await expect(input).toBeVisible();
+    const name = fields["Room name"];
+    if (name !== undefined) await input.fill(name);
+    await input.press("Enter");
+    await expect.poll(() => workspaceDocument(page, changedKey)).not.toBe(before);
+    await workspaceUpdated(page);
+    return;
+  }
+  const testId = (
+    {
+      "Place hero": "room-action-place-hero",
+      "Answer a sentence": "room-action-response",
+      Door: "room-action-door",
+      "Play a sound when…": "room-action-play-sound",
+      "Sound when…": "room-action-play-sound",
+    } as Record<string, string>
+  )[label]!;
+  await clickContextAction(page, testId);
+  if (label === "Door") {
+    // A door starts on the game; drive the form by exact numbers instead.
+    const overlay = page.getByTestId("guided-placement");
+    await expect(overlay).toBeVisible();
+    await overlay.press("Escape");
+    await expect(overlay).toBeHidden();
+  }
   const form = page.getByTestId("workspace-guided-form");
   await expect(form).toBeVisible();
   if (

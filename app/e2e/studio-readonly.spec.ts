@@ -1,20 +1,134 @@
 import type { Page } from "@playwright/test";
-import type { StudioHarnessProbe } from "../src/studio/harness.ts";
+import { ORIGINAL_SCENE_PICTURES } from "../../games/adventure-department/sceneArt.ts";
+import { createContainer } from "../../src/container/container.ts";
+import { assembleLogic } from "../../src/logic/assembler.ts";
+import { compilePictureSource, disassemblePicture } from "../../src/picture/source.ts";
+import { DEFAULT_V2_PROFILE } from "../../src/runtime/profile.ts";
+import { inferNativeItems } from "../../src/studio/nativeItems.ts";
+import { parsePictureDocument } from "../../src/studio/pictureDocument.ts";
+import { compileDocument, itemMask, renderUpTo } from "../../src/studio/pictureQuery.ts";
+import { buildView } from "../../src/view/view.ts";
+import { EGA_PALETTE } from "../src/render/palette.ts";
+import { parseGameHash } from "../src/shell/shellRoute.ts";
+import { DEMO_PICTURE_SOURCE } from "../src/studio/demoPicture.ts";
+import { testProjectId } from "../test/identity.ts";
+import { cacheGame, openWorkspacePicture, textHook, waitForCycles } from "./engineProbe.ts";
+import { workspaceDocument } from "./workspaceShared.ts";
 import { expect, test } from "./test.ts";
 
 /**
- * The read-only Room Studio on its harness (studio-harness.html). Expected
- * pixels and masks come from the kernel evaluated in the page on its own
+ * Room Studio read-only and inspection behaviors in the workspace. Expected
+ * pixels and masks come from the kernel evaluated on its own
  * compile of the source, or are hand-placed in the demo picture
- * (src/studio/demoPicture.ts), never from the component's state.
+ * (app/src/studio/demoPicture.ts), never from the component's state.
  */
 
-type HarnessWindow = Window & { studioHarness: StudioHarnessProbe };
+test.use({ viewport: { width: 1440, height: 900 } });
 
-async function open(page: Page, pic: string): Promise<void> {
-  await page.goto(`/studio-harness.html?pic=${pic}`);
-  await expect(page.locator(".studio-pane canvas")).toHaveCount(1);
-  await page.getByRole("group", { name: /^Canvas/ }).focus();
+const profile = DEFAULT_V2_PROFILE;
+const PROJECT_ID = testProjectId("studio-readonly-fixture");
+
+const SOURCE_70 = `${Array.from({ length: 70 }, (_, k) =>
+  [
+    `# @item i${k} "Item ${k}" art`,
+    `vis ${1 + (k % 2)}`,
+    `line ${2 * k},0 ${2 * k},5`,
+    "# @end",
+  ].join("\n"),
+).join("\n")}\nend\n`;
+
+const PIC1_BYTES = compilePictureSource(DEMO_PICTURE_SOURCE, { profile }).bytes;
+const PIC2_BYTES = compilePictureSource(ORIGINAL_SCENE_PICTURES[1]!, { profile }).bytes;
+const PIC3_BYTES = compilePictureSource(DEMO_PICTURE_SOURCE, { profile }).bytes;
+const PIC4_BYTES = compilePictureSource(SOURCE_70, { profile }).bytes;
+const PIC5_BYTES = compilePictureSource(ORIGINAL_SCENE_PICTURES[1]!, { profile }).bytes;
+
+const PIC2_DISASSEMBLED = disassemblePicture(PIC2_BYTES, { profile });
+
+function buildReadonlyFixture() {
+  const container = createContainer();
+  container.putResource("picture", 1, PIC1_BYTES);
+  container.putResource("picture", 2, PIC2_BYTES);
+  container.putResource("picture", 3, PIC3_BYTES);
+  container.putResource("picture", 4, PIC4_BYTES);
+  container.putResource("picture", 5, PIC5_BYTES);
+
+  const emptyView = buildView({
+    description: "ego",
+    loops: [{ cels: [{ width: 1, height: 1, pixels: new Uint8Array([0]) }] }],
+  });
+  container.putResource("view", 0, emptyView);
+
+  const roomLogic = (n: number) =>
+    `if(isset(f5)){assignn(v30,${n});load.pic(v30);draw.pic(v30);discard.pic(v30);show.pic();}return;`;
+
+  const logic = (src: string) => assembleLogic(src, { dictionary: new Map() }).payload;
+
+  container.putResource(
+    "logic",
+    0,
+    logic("if(!isset(f200)){set(f200);accept.input();new.room(1);}return;"),
+  );
+  container.putResource("logic", 1, logic(roomLogic(1)));
+  container.putResource("logic", 2, logic(roomLogic(2)));
+  container.putResource("logic", 3, logic(roomLogic(3)));
+  container.putResource("logic", 4, logic(roomLogic(4)));
+  container.putResource("logic", 5, logic(roomLogic(5)));
+
+  return container;
+}
+
+const fixtureAuthoringState = {
+  authoring: {
+    version: 1,
+    bindings: {},
+    world: {
+      rooms: {
+        "1": { title: "Demo", description: "", exits: {} },
+        "2": { title: "Gallery Disassembled", description: "", exits: {} },
+        "3": { title: "Rebuilt Demo", description: "", exits: {} },
+        "4": { title: "Sections 70", description: "", exits: {} },
+        "5": { title: "Gallery Authored", description: "", exits: {} },
+      },
+      facts: {},
+      quests: {},
+    },
+  },
+  sources: {
+    logics: [],
+    pictures: [
+      [1, DEMO_PICTURE_SOURCE],
+      // 2 is deliberately omitted: native disassembled picture
+      // 3 is deliberately omitted: native rebuilt demo picture
+      [4, SOURCE_70],
+      [5, ORIGINAL_SCENE_PICTURES[1]!],
+    ],
+  },
+};
+
+async function bootReadonlyGame(page: Page): Promise<void> {
+  await page.goto("/");
+  await cacheGame(page, {
+    projectId: PROJECT_ID,
+    title: "Readonly Studio Fixture",
+    provider: "stub",
+    model: "stub",
+    imported: false,
+    roomGeneration: true,
+    authoringState: fixtureAuthoringState,
+    files: Object.fromEntries(buildReadonlyFixture().files),
+    words: [["look", 1]],
+  });
+  await page.reload();
+  if (!parseGameHash(new URL(page.url()).hash)) {
+    await page.getByTestId("btn-resume-cached").click();
+  }
+  await expect.poll(async () => (await textHook(page)).room, { timeout: 30_000 }).toBe(1);
+  await waitForCycles(page, 2);
+}
+
+async function openRoomStudio(page: Page, room: number): Promise<void> {
+  await openWorkspacePicture(page, room, false);
 }
 
 /** Cells covered by the hover highlight: its fill path is one `M x y h w v1 h-w z` per row run. */
@@ -27,40 +141,23 @@ function highlightCells(page: Page): Promise<number[]> {
   });
 }
 
-/** The kernel's mask for an item, on a fresh compile of the harness source. */
-function kernelMaskCells(
-  page: Page,
-  itemId: string,
-  plane: "visual" | "priority",
-): Promise<number[]> {
-  return page.evaluate(
-    ([id, which]) => {
-      const { kernel, source, profile } = (window as unknown as HarnessWindow).studioHarness;
-      const annotated = kernel.inferNativeItems(source, { profile });
-      const { document } = kernel.parsePictureDocument(annotated);
-      const mask = kernel.itemMask(
-        kernel.compileDocument(document, profile),
-        document,
-        id!,
-        which!,
-      );
-      const cells: number[] = [];
-      mask.forEach((bit, i) => bit === 1 && cells.push(i));
-      return cells;
-    },
-    [itemId, plane] as const,
-  );
+/** The kernel's mask for an item, computed in Node from source. */
+function kernelMaskCells(source: string, itemId: string, plane: "visual" | "priority"): number[] {
+  const annotated = inferNativeItems(source, { profile });
+  const { document } = parsePictureDocument(annotated);
+  const mask = itemMask(compileDocument(document, profile), document, itemId, plane);
+  const cells: number[] = [];
+  mask.forEach((bit, i) => bit === 1 && cells.push(i));
+  return cells;
 }
 
-/** Move the pointer to the centre of logical cell x,y, placed with the kernel's toScreen. */
+/** Move the pointer to the centre of logical cell x,y on .studio-pane. */
 async function hoverCell(page: Page, x: number, y: number): Promise<void> {
   const point = await page.locator(".studio-pane").evaluate(
     (pane, [cx, cy]) => {
       const rect = pane.getBoundingClientRect();
       const zoom = rect.height / 168;
-      const { toScreen } = (window as unknown as HarnessWindow).studioHarness.kernel;
-      const viewport = { zoom, pixelAspect: 2 as const, offsetX: rect.left, offsetY: rect.top };
-      const at = toScreen(viewport, cx!, cy!)!;
+      const at = { x: rect.left + cx! * 2 * zoom, y: rect.top + cy! * zoom };
       return { x: at.x + zoom, y: at.y + zoom / 2 };
     },
     [x, y],
@@ -69,7 +166,8 @@ async function hoverCell(page: Page, x: number, y: number): Promise<void> {
 }
 
 test("hovering a scene row highlights exactly that item's pixels", async ({ page }) => {
-  await open(page, "demo");
+  await bootReadonlyGame(page);
+  await openRoomStudio(page, 1);
   await page.locator('[data-row="bench-occluder"]').hover();
   // The occluder is the filled rectangle 40,90..119,105 on the priority plane.
   const box = await page.locator('[data-role="hover-fill"]').evaluate((path) => {
@@ -82,13 +180,13 @@ test("hovering a scene row highlights exactly that item's pixels", async ({ page
   expect(await highlightCells(page)).toEqual(expected);
 
   // The gallery picture as an import sees it: bytes only, one item per element.
-  await open(page, "1&authored=0");
+  await openRoomStudio(page, 2);
   await page.getByTestId("scene-toggle-groups").click();
   for (const id of ["el-1", "el-20"]) {
     await page.locator(`[data-row="${id}"]`).hover();
     const cells = await highlightCells(page);
     expect(cells.length).toBeGreaterThan(0);
-    expect(cells).toEqual(await kernelMaskCells(page, id, "visual"));
+    expect(cells).toEqual(kernelMaskCells(PIC2_DISASSEMBLED, id, "visual"));
   }
 });
 
@@ -101,8 +199,13 @@ for (const deviceScaleFactor of [1, 2]) {
       viewport: { width: 1440, height: 900 },
     });
     const page = await context.newPage();
-
-    await open(page, "demo");
+    await bootReadonlyGame(page);
+    await openRoomStudio(page, 1);
+    await page
+      .getByRole("radiogroup", { name: "Side panel", exact: true })
+      .getByRole("radio", { name: "Inspector", exact: true })
+      .click();
+    await page.getByTestId("inspector-details").click();
     const zoomLevel = page.getByRole("group", { name: "Zoom" });
     const zooms: string[] = [];
     for (const step of ["fit", "+"]) {
@@ -118,7 +221,7 @@ for (const deviceScaleFactor of [1, 2]) {
         "data-row",
         "bench-occluder",
       );
-      await expect(page.locator('[data-role="status"]')).toContainText("x 80  y 97");
+      await expect(page.locator('[data-role="pixel"]')).toContainText("Pixel 80,97");
       // 80,60 is bare wall: the Depth lens falls back to the visual owner.
       await hoverCell(page, 80, 60);
       await expect(page.locator(".scene-list__row.is-hover")).toHaveAttribute("data-row", "wall");
@@ -147,7 +250,8 @@ for (const deviceScaleFactor of [1, 2]) {
 test("a group row highlights the union of its members, and a canvas click opens its group", async ({
   page,
 }) => {
-  await open(page, "1&authored=0");
+  await bootReadonlyGame(page);
+  await openRoomStudio(page, 2);
   const groups = page.locator('[role="treeitem"][aria-expanded]');
   // More than 40 items: every group starts closed, and no member row is shown.
   expect(await groups.count()).toBeGreaterThan(0);
@@ -182,13 +286,13 @@ test("a group row highlights the union of its members, and a canvas click opens 
   await header.hover();
   const union = new Set<number>();
   for (const id of members)
-    for (const cell of await kernelMaskCells(page, id, "visual")) union.add(cell);
+    for (const cell of kernelMaskCells(PIC2_DISASSEMBLED, id, "visual")) union.add(cell);
   expect(await highlightCells(page)).toEqual([...union].sort((a, b) => a - b));
 
   // Close it again; a click on a member's pixel selects that item and reopens the group.
   await header.locator('[data-role="twisty"]').click();
   await expect(header).toHaveAttribute("aria-expanded", "false");
-  const cell = (await kernelMaskCells(page, members[0]!, "visual"))[0]!;
+  const cell = kernelMaskCells(PIC2_DISASSEMBLED, members[0]!, "visual")[0]!;
   await hoverCell(page, cell % 160, Math.floor(cell / 160));
   await page.mouse.down();
   await page.mouse.up();
@@ -199,21 +303,8 @@ test("a group row highlights the union of its members, and a canvas click opens 
 test("a long list folds into draw-order sections, and a canvas click opens one", async ({
   page,
 }) => {
-  // 70 one-line items alternating blue and green: 70 rows, more than 60.
-  const source = `${Array.from({ length: 70 }, (_, k) =>
-    [
-      `# @item i${k} "Item ${k}" art`,
-      `vis ${1 + (k % 2)}`,
-      `line ${2 * k},0 ${2 * k},5`,
-      "# @end",
-    ].join("\n"),
-  ).join("\n")}\nend\n`;
-  await page.addInitScript((text) => {
-    (window as unknown as { studioHarnessInput: { source: string } }).studioHarnessInput = {
-      source: text,
-    };
-  }, source);
-  await open(page, "injected");
+  await bootReadonlyGame(page);
+  await openRoomStudio(page, 4);
   const sections = page.locator('[role="treeitem"][aria-level="1"][aria-expanded]');
   await expect(sections).toHaveCount(36);
   expect(
@@ -244,10 +335,11 @@ test("a long list folds into draw-order sections, and a canvas click opens one",
   );
 });
 
-test("Alt+arrow keys on the canvas step through items; ⌘\\ is focus mode, Tab and Shift+Tab leave", async ({
+test("Alt+arrow keys on the canvas step through items; Tab and Shift+Tab leave", async ({
   page,
 }) => {
-  await open(page, "demo");
+  await bootReadonlyGame(page);
+  await openRoomStudio(page, 1);
   const canvas = page.getByRole("group", { name: /^Canvas/ });
   await canvas.focus();
   const selected = page.locator('[role="treeitem"][aria-selected="true"]');
@@ -258,13 +350,6 @@ test("Alt+arrow keys on the canvas step through items; ⌘\\ is focus mode, Tab 
   await page.keyboard.press("Alt+ArrowUp");
   await expect(selected).toHaveAttribute("data-row", "floor");
   await page.keyboard.press("Alt+ArrowLeft");
-  await expect(selected).toHaveAttribute("data-row", "floor");
-  // ⌘\ (Ctrl+\ off a Mac) hides and shows the side panels; focus stays on the canvas.
-  await page.keyboard.press("ControlOrMeta+Backslash");
-  await expect(canvas).toBeFocused();
-  await expect(page.locator(".studio__scene")).toBeHidden();
-  await page.keyboard.press("ControlOrMeta+Backslash");
-  await expect(page.locator(".studio__scene")).toBeVisible();
   await expect(selected).toHaveAttribute("data-row", "floor");
   // Tab and Shift+Tab are never taken by the canvas: each moves focus on or back.
   await page.keyboard.press("Tab");
@@ -278,18 +363,21 @@ test("Alt+arrow keys on the canvas step through items; ⌘\\ is focus mode, Tab 
 });
 
 test("studio shortcuts keep working after clicking studio controls", async ({ page }) => {
-  await open(page, "demo");
+  await bootReadonlyGame(page);
+  await openRoomStudio(page, 1);
   const lens = (name: string) =>
-    page.getByTestId("studio-lens").getByRole("radio", { name: new RegExp(`^${name}`) });
-  await lens("Walk").click();
+    page
+      .getByRole("radiogroup", { name: "Lens", exact: true })
+      .getByRole("radio", { name: new RegExp(`^${name}`) });
+  await lens("Visual").click();
   await page.keyboard.press("2");
-  await expect(lens("Depth")).toHaveAttribute("aria-checked", "true");
-  // Bands shows only under Depth and Walk: after "1" hides it, keys still land in the studio.
-  await page.getByRole("button", { name: "Depth bands", exact: true }).click();
+  await expect(lens("Priority")).toHaveAttribute("aria-checked", "true");
+  // Band lines shows only under Priority: after "1" hides it, keys still land in the studio.
+  await page.getByRole("button", { name: "Band lines", exact: true }).click();
   await page.keyboard.press("1");
-  await expect(lens("Art")).toHaveAttribute("aria-checked", "true");
+  await expect(lens("Visual")).toHaveAttribute("aria-checked", "true");
   await page.keyboard.press("2");
-  await expect(lens("Depth")).toHaveAttribute("aria-checked", "true");
+  await expect(lens("Priority")).toHaveAttribute("aria-checked", "true");
   await page.getByRole("button", { name: "Zoom in" }).click();
   await page.keyboard.press("0");
   await expect(page.getByRole("button", { name: "Zoom to fit" })).toHaveAttribute(
@@ -298,67 +386,55 @@ test("studio shortcuts keep working after clicking studio controls", async ({ pa
   );
 });
 
-test("dragging the scrubber to command k paints exactly renderUpTo(k)", async ({ page }) => {
-  await open(page, "1");
+test("dragging the transport to a shape paints exactly renderUpTo(k)", async ({ page }) => {
+  await bootReadonlyGame(page);
+  await openRoomStudio(page, 5);
   const slider = page.getByRole("slider", { name: "Draw order", exact: true });
+  await expect(slider).toBeVisible();
   const total = Number(await slider.getAttribute("aria-valuemax"));
-  // The playhead counts drawing commands: every compiled span but the closing end.
-  expect(total).toBe(
-    await page.evaluate(() => {
-      const { kernel, source, profile } = (window as unknown as HarnessWindow).studioHarness;
-      const { document } = kernel.parsePictureDocument(
-        kernel.inferNativeItems(source, { profile }),
-      );
-      return kernel.compileDocument(document, profile).spans.length - 1;
-    }),
-  );
-  const k = 38;
+  const scene1Document = parsePictureDocument(ORIGINAL_SCENE_PICTURES[1]!).document;
+  const scene1Compiled = compileDocument(scene1Document, profile);
+  expect(total).toBe(scene1Compiled.spans.length - 1);
+
   const box = (await slider.boundingBox())!;
   await page.mouse.move(box.x + 2, box.y + box.height / 2);
   await page.mouse.down();
   await page.mouse.move(box.x + box.width * 0.2, box.y + box.height / 2, { steps: 4 });
-  await page.mouse.move(box.x + (box.width * k) / total, box.y + box.height / 2, { steps: 4 });
   await page.mouse.up();
-  await expect(slider).toHaveAttribute("aria-valuenow", String(k));
-  await expect(page.getByTestId("scrubber-step")).toHaveText(`Step ${k} of ${total}`);
+  // The marker lands on a shape boundary, wherever the drag stopped.
+  const k = Number(await slider.getAttribute("aria-valuenow"));
+  expect(k).toBeGreaterThan(0);
+  expect(k).toBeLessThan(total);
+  await expect(page.getByTestId("scrubber-position")).toHaveText(/^Drawing /);
 
-  const mismatches = await page.locator(".studio-pane canvas").evaluate((element, count) => {
-    const canvas = element as HTMLCanvasElement;
-    const { kernel, source, profile, palette } = (window as unknown as HarnessWindow).studioHarness;
-    const { document } = kernel.parsePictureDocument(kernel.inferNativeItems(source, { profile }));
-    const expected = kernel.renderUpTo(
-      kernel.compileDocument(document, profile),
-      count,
-      profile,
-    ).visual;
-    const scaleX = canvas.width / 160;
-    const scaleY = canvas.height / 168;
-    const pixels = canvas.getContext("2d")!.getImageData(0, 0, canvas.width, canvas.height).data;
-    let wrong = 0;
-    for (let y = 0; y < 168; y++)
-      for (let x = 0; x < 160; x++) {
-        const o =
-          (Math.floor((y + 0.5) * scaleY) * canvas.width + Math.floor((x + 0.5) * scaleX)) * 4;
-        const [r, g, b] = palette[expected[y * 160 + x]!]!;
-        if (pixels[o] !== r || pixels[o + 1] !== g || pixels[o + 2] !== b) wrong++;
-      }
-    return wrong;
-  }, k);
+  const expectedVisual = renderUpTo(scene1Compiled, k, profile).visual;
+  const mismatches = await page.locator(".studio-pane canvas").evaluate(
+    (element, { expected, palette }) => {
+      const canvas = element as HTMLCanvasElement;
+      const scaleX = canvas.width / 160;
+      const scaleY = canvas.height / 168;
+      const pixels = canvas.getContext("2d")!.getImageData(0, 0, canvas.width, canvas.height).data;
+      let wrong = 0;
+      for (let y = 0; y < 168; y++)
+        for (let x = 0; x < 160; x++) {
+          const o =
+            (Math.floor((y + 0.5) * scaleY) * canvas.width + Math.floor((x + 0.5) * scaleX)) * 4;
+          const [r, g, b] = palette[expected[y * 160 + x]!]!;
+          if (pixels[o] !== r || pixels[o + 1] !== g || pixels[o + 2] !== b) wrong++;
+        }
+      return wrong;
+    },
+    { expected: Array.from(expectedVisual), palette: EGA_PALETTE },
+  );
   expect(mismatches).toBe(0);
 
   // The full picture differs from the partial one, so the comparison is not vacuous.
-  const differs = await page.evaluate((count) => {
-    const { kernel, source, profile } = (window as unknown as HarnessWindow).studioHarness;
-    const { document } = kernel.parsePictureDocument(kernel.inferNativeItems(source, { profile }));
-    const compiled = kernel.compileDocument(document, profile);
-    const partial = kernel.renderUpTo(compiled, count, profile).visual;
-    return compiled.visual.some((value, i) => value !== partial[i]);
-  }, k);
-  expect(differs).toBe(true);
+  expect(scene1Compiled.visual.some((value, i) => value !== expectedVisual[i])).toBe(true);
 });
 
 test("lens keys switch lenses and studio keys never reach a window listener", async ({ page }) => {
-  await open(page, "demo");
+  await bootReadonlyGame(page);
+  await openRoomStudio(page, 1);
   await page.evaluate(() => {
     const seen: string[] = [];
     (window as unknown as { seenKeys: string[] }).seenKeys = seen;
@@ -368,23 +444,35 @@ test("lens keys switch lenses and studio keys never reach a window listener", as
       );
   });
   const lens = (name: string) =>
-    page.getByTestId("studio-lens").getByRole("radio", { name: new RegExp(`^${name}`) });
+    page
+      .getByRole("radiogroup", { name: "Lens", exact: true })
+      .getByRole("radio", { name: new RegExp(`^${name}`) });
   await page.keyboard.press("2");
-  await expect(lens("Depth")).toHaveAttribute("aria-checked", "true");
+  await expect(lens("Priority")).toHaveAttribute("aria-checked", "true");
+  // Band lines start off and the choice is remembered.
+  await expect(page.locator('[data-role="band-guides"]')).toHaveCount(0);
+  await page.getByRole("button", { name: "Band lines", exact: true }).click();
   await expect(page.locator('[data-role="band-guides"]')).toHaveCount(1);
-  await page.keyboard.press("3");
-  await expect(lens("Walk")).toHaveAttribute("aria-checked", "true");
-  // The Walk panel lists the walk lines, off the picture.
+  expect(await page.evaluate(() => localStorage.getItem("monotio_agi.studioBands"))).toBe("1");
+  // The Priority lens's room panel lists the control lines, off the picture.
   await expect(page.locator('.studio__inspector [data-role="control-legend"]')).toContainText(
     "0 · Wall",
   );
   await page.keyboard.press("1");
-  await expect(lens("Art")).toHaveAttribute("aria-checked", "true");
+  await expect(lens("Visual")).toHaveAttribute("aria-checked", "true");
 
+  // Items shows the list.
+  await page
+    .getByRole("radiogroup", { name: "Side panel", exact: true })
+    .getByRole("radio", { name: "Items", exact: true })
+    .click();
   const slider = page.getByRole("slider", { name: "Draw order", exact: true });
+  await expect(slider).toBeVisible();
   const total = Number(await slider.getAttribute("aria-valuemax"));
   await page.keyboard.press(",");
   await expect(slider).toHaveAttribute("aria-valuenow", String(total - 1));
+  // Home and End belong to a focused radiogroup; the canvas gives them to the studio.
+  await page.getByRole("group", { name: /^Canvas/ }).focus();
   await page.keyboard.press("Home");
   await expect(slider).toHaveAttribute("aria-valuenow", "0");
 
@@ -394,40 +482,34 @@ test("lens keys switch lenses and studio keys never reach a window listener", as
     .evaluate((root) =>
       root.dispatchEvent(new KeyboardEvent("keydown", { key: "2", bubbles: true })),
     );
-  await expect(lens("Depth")).toHaveAttribute("aria-checked", "true");
+  await expect(lens("Priority")).toHaveAttribute("aria-checked", "true");
   expect(await page.evaluate(() => (window as unknown as { seenKeys: string[] }).seenKeys)).toEqual(
     [],
   );
 
-  // Esc with nothing in hand stays in Studio: the × closes it.
+  // Esc with nothing in hand stays in Studio (its tab's × closes it, as in the workspace).
   await page.keyboard.press("Escape");
-  expect(await page.evaluate(() => (window as unknown as HarnessWindow).studioHarness.closes)).toBe(
-    0,
-  );
-  await page.getByTestId("studio-close").click();
-  expect(await page.evaluate(() => (window as unknown as HarnessWindow).studioHarness.closes)).toBe(
-    1,
-  );
+  await expect(page.getByTestId("room-studio")).toBeVisible();
   expect(await page.evaluate(() => (window as unknown as { seenKeys: string[] }).seenKeys)).toEqual(
     [],
   );
 });
 
-test("a picture rebuilt from the game's bytes reads as its own source once kept: the kept text is stored", async ({
+test("a picture rebuilt from the game's bytes reads as its own source once its draft is written back", async ({
   page,
 }) => {
-  await open(page, "demo&authored=0");
+  await bootReadonlyGame(page);
+  await openRoomStudio(page, 3);
   const source = page.getByTestId("studio-source-kind");
   await expect(source).toHaveText("Rebuilt");
-  // A rect by keys: R, Space at the cursor, three cells right and down, Space.
+  // A rect by keys: R, Enter at the cursor, three cells right and down, Enter.
   await page.locator(".studio__stage").focus();
   await page.keyboard.press("r");
-  await page.keyboard.press("Space");
+  await page.keyboard.press("Enter");
   for (const key of ["ArrowRight", "ArrowDown"])
     for (let i = 0; i < 3; i++) await page.keyboard.press(key);
-  await page.keyboard.press("Space");
-  await expect(page.getByTestId("studio-draft-status")).toHaveText("1 change");
-  await page.getByTestId("studio-keep").click();
-  await expect(page.getByTestId("studio-draft-status")).toHaveText("Kept");
+  await page.keyboard.press("Enter");
+  // The emitted draft is written back as the authored source: the rebuild is trusted.
   await expect(source).toHaveCount(0);
+  expect(await workspaceDocument(page, "picture:3")).toContain("rect");
 });

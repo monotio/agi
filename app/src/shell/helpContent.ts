@@ -8,14 +8,13 @@ import { VOCABULARY } from "../../../src/vocabulary.ts";
 /** Controls a Help topic can open; HelpGuide.vue decides which are available. */
 type HelpAction = "controls" | "map" | "hint" | "remix" | "ai-settings" | "create" | "add-game";
 
-/** Open a Studio on one resource of the current game, switching to Create first. */
-type HelpStudioAction =
-  | { readonly kind: "openRoomStudio"; readonly picture: number }
-  | { readonly kind: "openSpriteStudio"; readonly view: number };
-
-/** What a topic's "Show me" asks for: a control, or a Studio on a resource. */
-export type HelpRequest = { readonly kind: HelpAction } | HelpStudioAction;
-export type HelpActionKind = HelpRequest["kind"];
+/** What a topic's "Show me" asks for: a control on the current screen. */
+export type HelpRequest = { readonly kind: HelpAction };
+/**
+ * The actions the current screen can perform, plus "lessons": the guide's
+ * lessons can open their editors (each lesson carries its own resource).
+ */
+export type HelpActionKind = HelpAction | "lessons";
 
 interface HelpTopic {
   readonly id: string;
@@ -68,7 +67,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         id: "saving",
         title: "Saving and rewinding",
         body: [
-          "Most Sierra games save with F5 and restore with F7. In Create, click the game to use its keys. Click the editor to use F5 for debugging, or choose Run. The app also autosaves, so Resume picks up where you stopped.",
+          "Most Sierra games save with F5 and restore with F7. In Create, click the game to use its keys. Click the editor to use F5 for the top run action, or Continue while paused. Create runs pause at breakpoints; Disable breakpoints lets them pass. The app also autosaves, so Resume picks up where you stopped.",
           "Every session records itself. Open History under the game to look back, then Resume from here to play on from that moment. Undo rewind takes you back if you went too far.",
           "Start over keeps your earlier sessions: Undo start over, offered just after, returns to where you left off, and after that the timeline's mark where you started over is the way back.",
         ],
@@ -100,7 +99,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         body: [
           VOCABULARY.playCreate.help,
           "Choose a part from the list to edit it beside the running game. Focus gives the editor the whole screen. The agent, debugger and History open beside your work.",
-          "Your drafts save automatically. Update game puts the changed parts in the game together. You can also press ⌘Enter or Ctrl+Enter.",
+          "Your drafts save automatically. Update and restart puts the changed parts in the game together and starts the open room. You can also press ⌘Enter or Ctrl+Enter.",
         ],
         action: { kind: "remix", label: "Switch to Create" },
       },
@@ -118,7 +117,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         title: "Rooms appear as you walk",
         body: [
           "Walk into a room that is still unbuilt and play pauses while the agent writes it. Everything it makes is real AGI: pictures, views, logic and sound that you can inspect, download and play again.",
-          "Export game makes a playable ZIP of the rooms you have built. An unfinished room stops play there. Download game carries the editable project so you can keep building after importing it.",
+          "Download… offers both files. The playable game is a ZIP of the rooms you have built; an unfinished room stops play there. The project file carries the editable project so you can keep building after importing it.",
         ],
       },
       {
@@ -151,7 +150,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         title: "PICTURE editor",
         body: [
           VOCABULARY.picture.help,
-          "Choose PICTURE in the parts list. Art, Depth and Walk show what the player sees, what stands in front and where characters can go. Press 1, 2 or 3 to switch lenses.",
+          "Choose PICTURE in the parts list. A picture has two layers, as Sierra named them. Visual is what players see. Priority is what stands in front, plus the walls, water, triggers and gates that guide characters. Press 1 or 2 to switch.",
           VOCABULARY.focus.help,
         ],
       },
@@ -160,7 +159,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         title: "Locks",
         body: [
           VOCABULARY.lock.help,
-          "Each lens protects the other parts while you paint. Moving, copying or deleting a whole item carries its Art, Depth and Walk together. Unlock enables editing until you close the editor.",
+          "Each lens protects the other layer while you paint. Moving, copying or deleting a whole item carries its Visual and Priority together. Unlock enables editing until you close the editor.",
         ],
       },
       {
@@ -179,7 +178,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         body: [
           VOCABULARY.drawOrder.help,
           VOCABULARY.step.help,
-          "Drag the slider under the canvas to preview each step. New steps go at the marker. Select unassigned steps and Group them into a named item.",
+          "The transport under the canvas steps through the picture shape by shape. Insert here on an item makes new shapes draw before it, and Back to the end puts them last again. Select loose steps and Group them into a named item.",
         ],
       },
       {
@@ -195,7 +194,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         id: "studio-tools",
         title: "Drawing tools",
         body: [
-          "Line, Rectangle and Polygon draw with your Art colour and Depth value. Fill colours an enclosed area. Pipette picks colour and Depth. Hand pans the canvas.",
+          "Line, Rectangle and Polygon draw with your Visual colour and Priority value. Fill colours an enclosed area. Pipette picks Visual and Priority. Hand pans the canvas.",
           VOCABULARY.brush.help,
         ],
       },
@@ -203,7 +202,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         id: "studio-fill",
         title: "Fill",
         body: [
-          "An AGI fill spreads only over white. On coloured ground the options bar says the fill stops there; Why? names what painted the spot, and Draw before moves your drawing ahead of that background fill, where a filled shape lands on white.",
+          "On white, the bucket fills the area. On a colour, it recolours the shape that painted that spot, everywhere that shape painted, and the status bar offers Undo.",
         ],
       },
       {
@@ -223,7 +222,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
           ...[VOCABULARY.wall, VOCABULARY.gate, VOCABULARY.trigger, VOCABULARY.water].map(
             (term) => `${term.label}: ${term.help} ${term.technical}`,
           ),
-          "Test walk plays movement between two points.",
+          "Draw them in the Priority lens. Test walk plays movement between two points.",
         ],
       },
       {
@@ -327,9 +326,9 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
       },
       {
         id: "share",
-        title: "Export and share",
+        title: "Download and share",
         body: [
-          "Both live in Settings → This game. Export game makes a ZIP of the playable game and its public details. Download game adds available conversation, images, notes, tests, history and saves. A backup reports its limitations. These downloads contain accepted content. Download unsaved edits keeps current editor buffers separately. Game and project downloads open with Add game.",
+          "Both files live in Settings → This game → Download…. The playable game is a ZIP of the game and its public details. The project file adds available conversation, images, notes, tests, history and saves. A backup reports its limitations. These downloads contain accepted content. Download unsaved edits keeps current editor buffers separately. Game and project downloads open with Add game.",
         ],
       },
       {

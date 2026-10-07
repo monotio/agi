@@ -17,7 +17,7 @@ test("debug attach verifies source using the request's actual symbol bindings", 
     (message) => message.type === "debugAttached" || message.type === "debugError",
   );
   assert.equal(reply?.type, "debugAttached");
-  assert.equal(ctx.debugger.build?.logics[0]?.authored, "assignn(counter, 7); return;");
+  assert.equal(ctx.run.debugger.build?.logics[0]?.authored, "assignn(counter, 7); return;");
 });
 
 test("invalid watch configuration cannot reset the previous breakpoint's hit history", () => {
@@ -42,9 +42,9 @@ test("invalid watch configuration cannot reset the previous breakpoint's hit his
     watchpoints: [],
   });
   ctx.fns.tickEngine();
-  assert.equal(ctx.debugger.breakpointPlan?.status()[0]?.hits, 1);
-  const before = ctx.debugger.breakpointPlan?.status();
-  const revision = ctx.debugger.breakpointPlan?.revision;
+  assert.equal(ctx.run.debugger.breakpointPlan?.status()[0]?.hits, 1);
+  const before = ctx.run.debugger.breakpointPlan?.status();
+  const revision = ctx.run.debugger.breakpointPlan?.revision;
   ctx.fns.onDebugConfigure({
     type: "debugConfigure",
     id: 3,
@@ -55,13 +55,13 @@ test("invalid watch configuration cannot reset the previous breakpoint's hit his
   });
   const rejected = control.find((message) => message.type === "debugError" && message.id === 3);
   assert.ok(rejected);
-  assert.deepEqual(ctx.debugger.breakpointPlan?.status(), before);
-  assert.equal(ctx.debugger.breakpointPlan?.revision, revision);
-  assert.equal(ctx.debugger.configRevision, 1);
+  assert.deepEqual(ctx.run.debugger.breakpointPlan?.status(), before);
+  assert.equal(ctx.run.debugger.breakpointPlan?.revision, revision);
+  assert.equal(ctx.run.debugger.configRevision, 1);
   ctx.fns.tickEngine();
   ctx.fns.tickEngine();
   assert.ok(
-    ctx.engine?.executionStopInfo,
+    ctx.run.engine?.executionStopInfo,
     "the unchanged third-hit breakpoint must stop this pass",
   );
 });
@@ -96,7 +96,7 @@ test("conditional breakpoint reads logic and pc from its current executing bound
   );
   assert.equal(stopped.location?.logic, 0);
   assert.equal(stopped.location?.pc, 0);
-  assert.equal(ctx.engine?.vars[40], 0);
+  assert.equal(ctx.run.engine?.vars[40], 0);
   assert.deepEqual(stopped.reasons, [{ kind: "breakpoint", id: "here", hitCount: 1 }]);
 });
 
@@ -126,7 +126,7 @@ test("conditional watch reads the LOGIC location of the completed mutation", () 
     stopped?.type === "debugStopped",
     "a matching mutation condition must stop after the instruction",
   );
-  assert.equal(ctx.engine?.vars[40], 1);
+  assert.equal(ctx.run.engine?.vars[40], 1);
   assert.equal(stopped.cause.type, "instruction");
   const reason = stopped.reasons[0];
   assert.ok(reason?.kind === "watch");
@@ -149,8 +149,8 @@ test("room variable cannot be assigned by an advanced debugger value transaction
   ctx.fns.onDebugPause({ type: "debugPause", id: 2, epoch: attached.epoch });
   const stopped = control.find((message) => message.type === "debugStopped");
   assert.ok(stopped?.type === "debugStopped");
-  const beforeVars = [...ctx.engine!.vars];
-  const beforeFlags = [...ctx.engine!.flags];
+  const beforeVars = [...ctx.run.engine!.vars];
+  const beforeFlags = [...ctx.run.engine!.flags];
   ctx.fns.onDebugSetValues({
     type: "debugSetValues",
     id: 3,
@@ -168,10 +168,10 @@ test("room variable cannot be assigned by an advanced debugger value transaction
     "room navigation needs a new semantic room launch, not raw v0 assignment",
   );
   assert.equal(rejection.code, "invalidRequest");
-  assert.deepEqual([...ctx.engine!.vars], beforeVars);
-  assert.deepEqual([...ctx.engine!.flags], beforeFlags);
-  assert.equal(ctx.debugger.stopId, stopped.stopId);
-  assert.equal(ctx.debugger.modified, false);
+  assert.deepEqual([...ctx.run.engine!.vars], beforeVars);
+  assert.deepEqual([...ctx.run.engine!.flags], beforeFlags);
+  assert.equal(ctx.run.debugger.stopId, stopped.stopId);
+  assert.equal(ctx.run.debugger.modified, false);
 });
 
 test("published stopped snapshot keeps its actual instruction location for evaluation", () => {
@@ -203,5 +203,5 @@ test("published stopped snapshot keeps its actual instruction location for evalu
   assert.ok(evaluation?.type === "debugEvaluation");
   assert.equal(evaluation.ok, true, evaluation.error ?? "Expected a successful evaluation.");
   assert.equal(evaluation.value, true);
-  assert.equal(ctx.debugger.snapshot?.objects.length, ctx.engine!.screenObjects.length);
+  assert.equal(ctx.run.debugger.snapshot?.objects.length, ctx.run.engine!.screenObjects.length);
 });

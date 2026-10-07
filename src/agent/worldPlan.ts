@@ -10,6 +10,7 @@
  * Layout and notes stay in the map sidecar — they are UI data, not plan data.
  */
 import { validateAuthoringState, type AuthoringState } from "./authoringState.ts";
+import { pruneRoomLaunches } from "../authoring/launches.ts";
 
 export type WorldPlan = AuthoringState["world"];
 export type WorldRooms = WorldPlan["rooms"];
@@ -119,6 +120,7 @@ export function draftRenameRoom(draft: WorldDraft, room: number, title: string):
   if (!title.trim()) return "A room needs a title";
   return draftEdit(draft, (world) => {
     world.rooms[String(room)]!.title = title.trim();
+    delete world.rooms[String(room)]!.titleIsDefault;
   });
 }
 
@@ -143,7 +145,7 @@ export function draftAddRoom(
   });
 }
 
-/** Remove a planned room and prune every exit that pointed at it. */
+/** Remove a planned room and prune every exit that pointed at it, and delete its launches. */
 export function draftRemoveRoom(draft: WorldDraft, room: number): string | null {
   if (!draft.world.rooms[String(room)]) return `Room ${room} is not in the plan`;
   return draftEdit(draft, (world) => {
@@ -151,6 +153,9 @@ export function draftRemoveRoom(draft: WorldDraft, room: number): string | null 
     for (const entry of Object.values(world.rooms))
       for (const [name, target] of Object.entries(entry.exits))
         if (target === room) delete entry.exits[name];
+    const pruned = pruneRoomLaunches(world, room);
+    if (pruned.launches) world.launches = pruned.launches;
+    else delete world.launches;
   });
 }
 

@@ -1,0 +1,39 @@
+{
+  "name": "naming-message-vocabulary",
+  "description": "A vocabulary word is not a nearby game message supporting a state name.",
+  "naming": {
+    "logic:1": "set(f36); if (isset(f36) && said(\"brass\")) { print(m1); } return; #message 1 \"Look closer\"",
+    "words": "[[\"brass\",2]]",
+    "bindings": "{}"
+  },
+  "tool": "propose_names",
+  "args": {
+    "names": [
+      {
+        "name": "gate_open",
+        "kind": "flag",
+        "id": 36,
+        "logic": null,
+        "rename": null,
+        "evidence": [
+          {
+            "logic": 1,
+            "line": 1,
+            "role": "Changed",
+            "text": "set(f36); if (isset(f36) && said(\"brass\")) { print(m1); } return; #message 1 \"Look closer\"",
+            "nearbyMessages": ["brass"]
+          },
+          {
+            "logic": 1,
+            "line": 1,
+            "role": "Read",
+            "text": "set(f36); if (isset(f36) && said(\"brass\")) { print(m1); } return; #message 1 \"Look closer\"",
+            "nearbyMessages": ["brass"]
+          }
+        ]
+      }
+    ]
+  },
+  "expectedSuccess": false,
+  "expectedErrorSnippet": "Nearby messages must quote"
+}

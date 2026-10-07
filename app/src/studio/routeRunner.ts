@@ -27,7 +27,7 @@ export interface RouteWorkerInbound {
 
 export type RouteWorkerOutbound = { result: RouteTestResult } | { error: string };
 
-/** Runs one test walk; the Walk view injects its own in tests. */
+/** Runs one test walk; the room tools inject its own in tests. */
 export type RouteRunner = (input: RouteWorkerInbound) => Promise<RouteTestResult>;
 
 /** A walk that takes longer than this has failed. */

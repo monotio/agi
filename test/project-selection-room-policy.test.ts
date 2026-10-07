@@ -30,10 +30,10 @@ test("a static missing new.room target stays an error without the generation pol
   assert.equal(missingResource(candidate, "new.room")?.severity, "error");
 });
 
-test("the explicit generation policy narrows only new.room misses to warnings", () => {
+test("the explicit generation policy keeps only future new.room targets quiet", () => {
   const input = workspace({ "logic:0": "new.room(9); load.view(8); return;" });
   const candidate = compileProjectSelection({ ...input, keys: [], allowMissingRooms: true });
-  assert.equal(missingResource(candidate, "new.room")?.severity, "warning");
+  assert.equal(missingResource(candidate, "new.room"), undefined);
   assert.equal(missingResource(candidate, "load.view")?.severity, "error");
 });
 

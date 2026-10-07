@@ -102,7 +102,9 @@ function controller(running?: ProjectId) {
 
 test("formatProfileResolution names the profile, its source and an unpromoted build", () => {
   assert.equal(formatProfileResolution("2.936", "default"), "2.936 (container default)");
-  assert.equal(formatProfileResolution("2.411", "override"), "2.411 (your override)");
+  assert.equal(formatProfileResolution("2.411", "override"), "2.411 (set for this game)");
+  assert.equal(formatProfileResolution("2.411", "chosen"), "2.411 (you chose)");
+  assert.equal(formatProfileResolution("2.936", "template"), "2.936 (from the template)");
   assert.equal(
     formatProfileResolution("2.001", "binary", "2.001"),
     "2.001 (identified from interpreter files)",
@@ -114,6 +116,27 @@ test("formatProfileResolution names the profile, its source and an unpromoted bu
   assert.equal(
     formatProfileResolution("2.936", "binary", "2.903"),
     "2.936 (build 2.903, no dedicated profile; identified from interpreter files)",
+  );
+});
+
+test("a game made in the app says its interpreter comes from the template", () => {
+  const made = {
+    projectId: "local-made" as ProjectId,
+    title: "Forest Quest",
+    authoredAt: "2026-01-01T00:00:00.000Z",
+    templateId: "starter",
+    library: {
+      version: 1 as const,
+      revision: testRevision("made"),
+      source: "authored" as const,
+      profile: "2.936" as const,
+      validation: { status: "unverified" as const, message: "Ready to check." },
+    },
+  } satisfies CachedGameMeta;
+  assert.equal(describeGameProfile(made), "2.936 (from the template)");
+  assert.equal(
+    describeGameProfile({ ...made, library: { ...made.library, profile: "2.440" as const } }),
+    "2.440 (you chose)",
   );
 });
 
@@ -215,7 +238,7 @@ test("library Automatic clears an override and stores nothing otherwise", async 
   await c.applyProfileChoice("2.440");
   const overridden = getCachedGameMeta(game.projectId)!;
   assert.equal(overridden.library?.profile, "2.440");
-  assert.equal(describeGameProfile(overridden), "2.440 (your override)");
+  assert.equal(describeGameProfile(overridden), "2.440 (set for this game)");
 
   c.openLibraryProfileChoice(overridden);
   assert.equal(c.profileChoiceState.value?.override, "2.440");

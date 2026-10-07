@@ -1,0 +1,46 @@
+{
+  "name": "project-agent-finish-terminal",
+  "description": "A successful finish ends its batch; a later write must receive a rejection and never change the proposal.",
+  "projectAgent": {
+    "documents": {
+      "logic:0": "return;",
+      "logic:1": "return;",
+      "picture:1": "vis 1\nfill 0,0\nend\n",
+      "words": "[]"
+    },
+    "request": "Make the requested change",
+    "turns": [
+      {
+        "toolCalls": [
+          {
+            "id": "edit",
+            "name": "write_picture",
+            "input": {
+              "room": 1,
+              "source": "vis 2\nfill 0,0\nend\n"
+            }
+          },
+          {
+            "id": "finish",
+            "name": "finish",
+            "input": {
+              "notes": null
+            }
+          },
+          {
+            "id": "late",
+            "name": "write_picture",
+            "input": {
+              "room": 1,
+              "source": "vis 3\nfill 0,0\nend\n"
+            }
+          }
+        ]
+      }
+    ],
+    "expectedKeys": ["picture:1"],
+    "expectedOutcomes": {
+      "late": false
+    }
+  }
+}

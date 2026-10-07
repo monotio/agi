@@ -10,6 +10,7 @@ import {
   watch,
 } from "vue";
 import { useReadingPosition } from "../shell/useReadingPosition.ts";
+import { agentActivity } from "./agentActivity.ts";
 import AgentTaskControls from "./AgentTaskControls.vue";
 import { useEngineApi } from "../engine/engineContext.ts";
 import { useShellBridge } from "../shell/shellBridge.ts";
@@ -64,7 +65,6 @@ const powerUpEl = useTemplateRef("powerUpEl");
 
 /** The live tool-call feed for this remix turn: the transcript tail. */
 const asking = computed(() => state.powerUp.mode === "ask");
-const creatingRoom = computed(() => state.powerUp.mode === "room");
 const powerUpFeed = computed(() => {
   if (state.powerUp.feedStartSeq !== undefined) {
     return state.agentLog.filter((entry) => (entry.seq ?? 0) >= state.powerUp.feedStartSeq!);
@@ -93,45 +93,16 @@ watch(
 );
 const progressFeedEl = useTemplateRef("progressFeedEl");
 const followProgress = ref(true);
-const REMIX_ACTIVITY: Record<string, string> = {
-  read_state: "Inspecting the game…",
-  read_objects: "Inspecting the characters…",
-  read_frames: "Looking at the scene…",
-  read_logic: "Reading the room’s behavior…",
-  read_picture: "Examining the scenery…",
-  read_words: "Reading the vocabulary…",
-  list_resources: "Exploring the game’s resources…",
-  read_plan: "Checking the world…",
-  write_view: "Drawing sprites…",
-  write_picture: "Drawing the scenery…",
-  write_logic: "Updating the room’s behavior…",
-  write_words: "Adding vocabulary…",
-  write_objects: "Updating inventory…",
-  write_sound: "Composing sound…",
-  playtest_room: "Checking the updated room…",
-};
-const remixActivity = computed(() => {
-  const latest = powerUpFeed.value.at(-1);
-  const tool = (latest?.data as { tool?: string } | undefined)?.tool;
-  if (latest?.kind === "error") return "Adjusting after a problem…";
-  if (tool && latest?.kind === "request")
-    return (
-      REMIX_ACTIVITY[tool] ??
-      (creatingRoom.value
-        ? "Building the next room…"
-        : asking.value
-          ? "Investigating…"
-          : "Working on your changes…")
-    );
-  if (tool && latest?.kind === "response") return "Reviewing results…";
-  return creatingRoom.value
-    ? "Imagining the next room…"
-    : state.powerUp.needsConfig
+const remixActivity = computed(() =>
+  agentActivity(
+    powerUpFeed.value.at(-1),
+    state.powerUp.needsConfig
       ? "Connecting to your model…"
       : asking.value
         ? "Thinking…"
-        : "Thinking about your changes…";
-});
+        : "Thinking about your changes…",
+  ),
+);
 
 function onProgressScroll(): void {
   const el = progressFeedEl.value;
@@ -161,8 +132,7 @@ watch(
   () => state.powerUp.open,
   async (open, wasOpen) => {
     await nextTick();
-    if (open && creatingRoom.value) progressFeedEl.value?.focus({ preventScroll: true });
-    else if (!open && wasOpen && creatingRoom.value) bridge.focusGameInput();
+    if (!open && wasOpen) bridge.focusGameInput();
   },
 );
 watch(
@@ -185,7 +155,7 @@ async function onPowerUp(mode?: "ask" | "remix"): Promise<void> {
   if (state.powerUp.busy) return;
   if (state.powerUp.open) {
     // An explicit mode from a menu switches the surface rather than closing.
-    if (mode !== undefined && state.powerUp.mode !== mode && !creatingRoom.value) {
+    if (mode !== undefined && state.powerUp.mode !== mode) {
       state.powerUp.mode = mode;
       return;
     }
@@ -255,14 +225,7 @@ async function onBubbleReload(): Promise<void> {
     @pointerdown.stop
   >
     <header class="agent-bubble-head" data-testid="agent-bubble-head">
-      <h2 v-if="creatingRoom" class="agent-bubble-title">
-        {{ state.powerUp.error ? "Could not create this room" : "Creating the next room" }}
-      </h2>
-      <h2
-        v-else-if="surface === 'drawer'"
-        class="agent-bubble-title"
-        :title="VOCABULARY.agent.help"
-      >
+      <h2 v-if="surface === 'drawer'" class="agent-bubble-title" :title="VOCABULARY.agent.help">
         <UiIcon name="sparkles" :size="16" />{{ VOCABULARY.agent.label }}
       </h2>
       <div v-else class="agent-mode-switch" role="group" aria-label="Agent mode">
@@ -305,7 +268,6 @@ async function onBubbleReload(): Promise<void> {
           >Esc</UiKbd
         >
         <UiIconButton
-          v-if="!creatingRoom || !state.powerUp.busy"
           icon="x"
           label="Close"
           shortcut="Esc"
@@ -316,7 +278,7 @@ async function onBubbleReload(): Promise<void> {
         />
       </span>
     </header>
-    <div v-if="!creatingRoom && !aiConfigured" class="ai-connect assistant-connect">
+    <div v-if="!aiConfigured" class="ai-connect assistant-connect">
       <p>
         Connect your AI provider to ask about{{ surface === "dock" ? " or remix" : "" }} this game.
       </p>
@@ -330,7 +292,7 @@ async function onBubbleReload(): Promise<void> {
       </UiButton>
     </div>
     <div
-      v-if="!creatingRoom && state.powerUp.messages.length"
+      v-if="state.powerUp.messages.length"
       ref="conversationEl"
       class="agent-conversation"
       data-testid="agent-conversation"
@@ -366,13 +328,7 @@ async function onBubbleReload(): Promise<void> {
         {{ remixActivity }}
       </span>
       <progress
-        :aria-label="
-          creatingRoom
-            ? 'Room generation in progress'
-            : asking
-              ? 'Investigation in progress'
-              : 'Change in progress'
-        "
+        :aria-label="asking ? 'Investigation in progress' : 'Change in progress'"
       ></progress>
     </div>
     <AgentTaskControls
@@ -382,14 +338,14 @@ async function onBubbleReload(): Promise<void> {
       @resume="continueAgent"
       @discard="discardAgent"
     />
-    <details class="agent-activity" :open="creatingRoom || state.powerUp.busy">
+    <details class="agent-activity" :open="state.powerUp.busy">
       <summary>Activity</summary>
       <div
         ref="progressFeedEl"
         class="agent-bubble-feed"
         data-testid="agent-bubble-feed"
         role="region"
-        :aria-label="creatingRoom ? 'Room generation activity' : 'Agent activity'"
+        aria-label="Agent activity"
         tabindex="0"
         @scroll.passive="onProgressScroll"
       >
@@ -415,13 +371,13 @@ async function onBubbleReload(): Promise<void> {
       data-testid="agent-bubble-sound-preview"
     />
     <PendingReferences
-      v-if="!creatingRoom && !state.powerUp.needsConfig"
+      v-if="!state.powerUp.needsConfig"
       :busy="state.powerUp.busy"
       :room="state.powerUp.room"
       :allow-attach="!asking"
     />
     <form
-      v-if="!creatingRoom && !state.powerUp.needsConfig"
+      v-if="!state.powerUp.needsConfig"
       class="agent-bubble-form"
       :class="{ 'agent-bubble-form--remix': !asking }"
       @submit.prevent="onPowerUpSubmit"
@@ -475,7 +431,7 @@ async function onBubbleReload(): Promise<void> {
     </form>
     <!-- Playtest recording is editing tooling but needs no AI connection —
          it stays reachable while the provider prompt is all the bubble shows. -->
-    <div v-if="!asking && !creatingRoom && state.powerUp.needsConfig" class="agent-bubble-tools">
+    <div v-if="!asking && state.powerUp.needsConfig" class="agent-bubble-tools">
       <UiButton
         data-testid="btn-record-test"
         title="Record a playtest that checks this part still works after changes"

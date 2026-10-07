@@ -20,8 +20,6 @@ import {
  * room". No fixture needed — every byte here is generated.
  */
 
-test.use({ headless: process.platform !== "darwin" });
-
 test.beforeEach(async ({ page }) => {
   await isolateStorage(page);
 });
@@ -198,8 +196,8 @@ test("editing a planned node and walking into it builds the edited version", asy
   const brief = page.getByTestId("plan-room-brief");
   await brief.fill("A long gallery of portraits.");
   await brief.press("Tab");
-  await expect(page.getByTestId("world-map").getByTestId("map-node-2")).toContainText(
-    "The Gallery",
+  await expect(page.getByTestId("world-map").getByTestId("map-node-2")).toHaveAccessibleName(
+    "The Gallery (Room 2)",
   );
   await page.getByTestId("map-close").click();
   await expect.poll(async () => (await textHook(page)).paused).toBe(false);

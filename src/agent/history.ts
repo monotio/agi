@@ -28,6 +28,7 @@ import {
   type PortableProjectWorkspace,
 } from "../authoring/projectWorkspace.ts";
 import { PROFILES, type ProfileId } from "../runtime/profile.ts";
+import { readRngPolicy, type RngPolicy } from "../runtime/rng.ts";
 import { gameIdentity, type GameIdentity } from "../gameIdentity.ts";
 
 /** Current recording contract adds debugger boundaries and complete project admission events. */
@@ -249,6 +250,7 @@ export interface HistoryAnchor {
   /** Host-request serial, so replayed requests keep their answer pairing. */
   requestSerial: number;
   rng: number;
+  rngPolicy?: RngPolicy;
   clock: HistoryClock;
   /** Sound-clock fractional carry (ms·60 units) at this boundary. */
   soundRemainder?: number;
@@ -294,6 +296,7 @@ export interface HistoryBoot {
   clickQueue?: [number, number][];
   /** The RNG's 16-bit state word at this point (docs/fidelity.md, "Original RNG"). */
   rng: number;
+  rngPolicy?: RngPolicy;
   clock?: HistoryClock;
   /** Sound-clock fractional carry (ms·60 units) at this resume point. */
   soundRemainder?: number;
@@ -466,6 +469,7 @@ export interface HistorySemanticState {
   clickQueue?: [number, number][];
   requestSerial: number;
   rng: number;
+  rngPolicy?: RngPolicy;
   clock?: HistoryClock;
   soundRemainder?: number;
   soundDevice: number;
@@ -493,13 +497,16 @@ export function historyAnchorSemantic(
     resourceSet: anchor.resourceSet,
     patchGeneration: anchor.patchGeneration,
   };
+  if (anchor.rngPolicy !== undefined) out.rngPolicy = anchor.rngPolicy;
   if (anchor.clickQueue !== undefined) out.clickQueue = anchor.clickQueue;
   if (anchor.soundRemainder !== undefined) out.soundRemainder = anchor.soundRemainder;
   return out;
 }
 
 /** The semantic view of a segment boot — every resumable-state field it carries. */
-export function historyBootSemantic(boot: Omit<HistoryBoot, "fingerprint">): HistorySemanticState {
+export function historyBootSemantic(
+  boot: Omit<HistoryBoot, "fingerprint"> & { fingerprint?: HistoryFingerprint },
+): HistorySemanticState {
   const out: HistorySemanticState = {
     authorRooms: boot.authorRooms,
     dictionary: sortDictionary(boot.dictionary),
@@ -508,6 +515,7 @@ export function historyBootSemantic(boot: Omit<HistoryBoot, "fingerprint">): His
     soundDevice: boot.soundDevice,
     resourceSet: boot.resourceSet,
   };
+  if (boot.rngPolicy !== undefined) out.rngPolicy = boot.rngPolicy;
   if (boot.amigaRegion === "pal") out.amigaRegion = "pal";
   if (boot.project !== undefined) out.documentId = boot.project.documentId;
   if (boot.image !== undefined) out.image = boot.image;
@@ -519,6 +527,18 @@ export function historyBootSemantic(boot: Omit<HistoryBoot, "fingerprint">): His
   if (boot.clickQueue !== undefined) out.clickQueue = boot.clickQueue;
   if (boot.clock !== undefined) out.clock = boot.clock;
   if (boot.soundRemainder !== undefined) out.soundRemainder = boot.soundRemainder;
+  // Early PAL writers bound timing in replay state before adding the boot
+  // region to this hash. Both region fields must agree, and every other
+  // recorded field must still match the original fingerprint.
+  if (
+    boot.amigaRegion === "pal" &&
+    boot.replay?.amigaRegion === "pal" &&
+    boot.fingerprint?.v === 1
+  ) {
+    const earlier = { ...out };
+    delete earlier.amigaRegion;
+    if (historyFingerprint(earlier).hash === boot.fingerprint.hash) return earlier;
+  }
   return out;
 }
 
@@ -957,6 +977,7 @@ function anchor(value: unknown): HistoryAnchor {
       : {}),
     requestSerial: int(value["requestSerial"], "anchor requestSerial"),
     rng: int(value["rng"], "anchor rng", 0xffff),
+    ...(value["rngPolicy"] !== undefined ? { rngPolicy: readRngPolicy(value["rngPolicy"]) } : {}),
     clock: clock(value["clock"]),
     ...(value["soundRemainder"] !== undefined
       ? { soundRemainder: num(value["soundRemainder"], "anchor soundRemainder", 1000) }
@@ -1011,6 +1032,7 @@ export function validateHistoryBoot(value: unknown): HistoryBoot {
       ? { amigaRegion: value["amigaRegion"] as "ntsc" | "pal" }
       : {}),
     rng: int(value["rng"], "boot rng", 0xffff),
+    ...(value["rngPolicy"] !== undefined ? { rngPolicy: readRngPolicy(value["rngPolicy"]) } : {}),
     ...(value["resumedFrom"] !== undefined
       ? {
           resumedFrom: (() => {
@@ -1050,7 +1072,7 @@ export function validateHistoryBoot(value: unknown): HistoryBoot {
   if (value["soundRemainder"] !== undefined)
     out.soundRemainder = num(value["soundRemainder"], "boot soundRemainder", 1000);
   const stamp = fingerprint(value["fingerprint"]);
-  if (historyFingerprint(historyBootSemantic(out)).hash !== stamp.hash)
+  if (historyFingerprint(historyBootSemantic({ ...out, fingerprint: stamp })).hash !== stamp.hash)
     fail("boot fingerprint does not match its recorded state.");
   return { ...out, fingerprint: stamp };
 }

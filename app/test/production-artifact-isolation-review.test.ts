@@ -27,7 +27,7 @@ test("production runs retain sibling evidence and the preceding port's artifacts
     const sibling = join(root, "test-results", "sibling", "evidence.txt");
     await writeFile(sibling, "another run's evidence");
     await writeFile(join(root, "package.json"), JSON.stringify({ type: "module" }));
-    await symlink(join(appRoot, "node_modules"), join(root, "node_modules"), "dir");
+    await symlink(join(appRoot, "..", "node_modules"), join(root, "node_modules"), "dir");
     await writeFile(
       join(root, "production.config.ts"),
       await readFile(join(appRoot, "playwright.production.config.ts"), "utf8"),
@@ -49,7 +49,7 @@ test("production runs retain sibling evidence and the preceding port's artifacts
       const run = spawnSync(
         process.execPath,
         [
-          join(appRoot, "node_modules", "@playwright", "test", "cli.js"),
+          fileURLToPath(import.meta.resolve("@playwright/test/cli")),
           "test",
           "--config=proof.config.ts",
         ],

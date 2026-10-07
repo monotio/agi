@@ -57,7 +57,7 @@ import {
 import { requireProjectId } from "../src/gameIdentity.ts";
 import type { LspMessage, LspResponse, LspNotification, Range } from "../src/logic/lspTypes.ts";
 import { buildWordsTok } from "../src/logic/words.ts";
-import { buildTutorial } from "../games/adventure-department/game.ts";
+import { buildTutorial, TUTORIAL_LOGIC_SOURCES } from "../games/adventure-department/game.ts";
 import { buildProjectZip } from "../app/src/archive/projectArchive.ts";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
@@ -192,7 +192,7 @@ const positionAt = (text: string, offset: number) => {
 const diagnosticMessage = (entry: Diagnostic): string =>
   typeof entry.message === "string" ? entry.message : entry.message.value;
 
-test("numbered operands navigate across a two-LOGIC v2 project without becoming rename targets", async () => {
+test("numbered operands navigate and become binding rename targets across a two-LOGIC v2 project", async () => {
   const { createContainer } = await import("../src/container/container.ts");
   const { assembleLogic } = await import("../src/logic/assembler.ts");
   const { PROFILES } = await import("../src/runtime/profile.ts");
@@ -216,6 +216,13 @@ test("numbered operands navigate across a two-LOGIC v2 project without becoming 
   for (const [name, bytes] of container.files) writeFileSync(join(dir, name), bytes);
   writeFileSync(join(dir, "AGIDATA.OVL"), "Version 2.936");
   writeFileSync(join(dir, "WORDS.TOK"), buildWordsTok([{ word: "look", id: 100 }]));
+  const { buildObjectFile } = await import("../src/authoring/inventory.ts");
+  writeFileSync(
+    join(dir, "OBJECT"),
+    buildObjectFile(
+      Array.from({ length: 8 }, (_, num) => ({ name: `item ${num}`, startingRoom: 23 })),
+    ),
+  );
   writeFileSync(
     join(dir, "bindings.json"),
     JSON.stringify({ room_pic: { kind: "variable", num: 0 } }),
@@ -262,8 +269,11 @@ test("numbered operands navigate across a two-LOGIC v2 project without becoming 
     assert.deepEqual(await refs('12 "First"', true), messages);
     const binding = await server.connection.sendRequest(DefinitionRequest.type, at("v0"));
     assert.equal((binding as Location).uri, pathToFileURL(join(dir, "bindings.json")).href);
-    assert.equal(await server.connection.sendRequest(DefinitionRequest.type, at("f5")), null);
-    assert.deepEqual(await refs("0);\nprint"), []);
+    assert.deepEqual(
+      await server.connection.sendRequest(DefinitionRequest.type, at("f5")),
+      await refs("f5"),
+    );
+    assert.equal((await refs("0);\nprint")).length, 1);
     const highlights = (await server.connection.sendRequest(
       "textDocument/documentHighlight",
       at("v0"),
@@ -274,14 +284,18 @@ test("numbered operands navigate across a two-LOGIC v2 project without becoming 
     assert.match(JSON.stringify(hover), /room_pic/);
     assert.match(JSON.stringify(hover), /local/);
     assert.match(JSON.stringify(hover), /5 uses/);
-    await assert.rejects(
-      server.connection.sendRequest(PrepareRenameRequest.type, at("v0")),
-      /Numbered operands.*named binding/,
+    assert.match(
+      JSON.stringify(await server.connection.sendRequest(HoverRequest.type, at("i7"))),
+      /Starting room: 23/,
     );
-    await assert.rejects(
-      server.connection.sendRequest(RenameRequest.type, { ...at("v0"), newName: "picture" }),
-      /Numbered operands/,
-    );
+    const prepared = await server.connection.sendRequest(PrepareRenameRequest.type, at("v0"));
+    assert.ok(prepared && "placeholder" in prepared);
+    assert.equal(prepared.placeholder, "room_pic");
+    const numberedRename = await server.connection.sendRequest(RenameRequest.type, {
+      ...at("v0"),
+      newName: "picture",
+    });
+    assert.equal(numberedRename?.documentChanges?.length, 3);
     const renamed = await server.connection.sendRequest(RenameRequest.type, {
       ...at("local);"),
       newName: "scratch",
@@ -292,7 +306,7 @@ test("numbered operands navigate across a two-LOGIC v2 project without becoming 
       ...at("room_pic);"),
       newName: "picture",
     });
-    assert.equal(shared?.documentChanges?.length, 2);
+    assert.equal(shared?.documentChanges?.length, 3);
     const diagnostics = (await server.connection.sendRequest("textDocument/diagnostic", {
       textDocument: { uri },
     })) as { items: unknown[] };
@@ -433,7 +447,7 @@ test("initialize advertises only the implemented capabilities over the npm entry
         : false,
       true,
     );
-    assert.equal(capabilities.documentFormattingProvider, undefined);
+    assert.equal(capabilities.documentFormattingProvider, true);
     assert.equal(capabilities.workspace, undefined);
   } finally {
     await shutdown(server);
@@ -890,7 +904,7 @@ test("project archives resolve names and watched WORDS and bindings updates refr
       textDocument: { uri },
       position: { line: 0, character: 5 },
     });
-    assert.match(JSON.stringify(hover), /door 41/);
+    assert.match(JSON.stringify(hover), /door f41/);
     writeFileSync(join(dir, "bindings.json"), "{}");
     await server.connection.sendNotification("workspace/didChangeWatchedFiles", {
       changes: [{ uri: pathToFileURL(join(dir, "bindings.json")).href, type: 2 }],
@@ -1057,17 +1071,18 @@ test("code actions define missing names and repair syntax using compiler diagnos
       range: first.diagnostics[0]!.range,
       context: { diagnostics: first.diagnostics },
     })) as { title: string; edit: WorkspaceEdit }[];
-    assert.ok(actions.some((a) => a.title === "Define door as 0"));
-    const edit = actions.find((a) => a.title === "Define door as 0")!.edit.documentChanges![0]!;
+    assert.equal(actions[0]!.title, "Create flag door (Flag 16)");
+    const edit = actions.find((a) => a.title === "Define as a constant in this file…")!.edit
+      .documentChanges![0]!;
     assert.ok("textDocument" in edit);
     assert.equal(edit.textDocument.version, 1);
     assert.deepEqual(edit.edits, [
       {
         range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
-        newText: "#define door 0\n",
+        newText: "#define door 16\n",
       },
     ]);
-    await change(server, uri, "#define door 0\nset(door); return;", 2);
+    await change(server, uri, "#define door 16\nset(door); return;", 2);
     assert.deepEqual(
       (await waitFor("fixed name", () => published(server, uri, (p) => p.version === 2), server))
         .diagnostics,
@@ -1248,6 +1263,10 @@ test("tutorial compilation through the server matches the app compiler and shipp
   const { openContainer } = await import("../src/container/container.ts");
   const tutorial = buildTutorial();
   const input = readProjectLanguageInput(tutorial);
+  assert.deepEqual(
+    input.inventory?.map((item) => item.name),
+    input.objects,
+  );
   const dir = mkdtempSync(join(tmpdir(), "agi-lsp-compile-"));
   const archive = join(dir, "tutorial.zip");
   writeFileSync(
@@ -1417,7 +1436,7 @@ test("extracting project sources creates navigable .lgc files and refuses overwr
     const result = run();
     assert.equal(result.status, 0, result.stderr);
     assert.equal(result.stdout, "");
-    assert.match(readFileSync(join(output, "logic.0.lgc"), "utf8"), /return;/);
+    assert.equal(readFileSync(join(output, "logic.0.lgc"), "utf8"), TUTORIAL_LOGIC_SOURCES[0]);
     assert.deepEqual(
       JSON.parse(readFileSync(join(output, "bindings.json"), "utf8")),
       buildTutorial().project?.authoringState?.["authoring"] &&
@@ -1550,4 +1569,40 @@ test("line coordinates share an index across distant tokens and preserve UTF-16"
     end: { line: 3, character: 7 },
   });
   assert.equal(coordinates.offsetAt({ line: 2, character: 3 }), 16);
+});
+
+test("stdio formatting returns one edit, preserves invalid source and never changes the document", async () => {
+  const server = start();
+  try {
+    await initialize(server);
+    const uri = "file:///format.lgc";
+    await open(server, uri, "if(f1){v2=3;return;}", 1);
+    const edits = await server.connection.sendRequest<{ range: Range; newText: string }[]>(
+      "textDocument/formatting",
+      { textDocument: { uri }, options: { tabSize: 2, insertSpaces: true } },
+    );
+    assert.deepEqual(edits, [
+      {
+        range: { start: { line: 0, character: 0 }, end: { line: 0, character: 20 } },
+        newText: "if (f1) {\n  v2 = 3;\n  return;\n}\n",
+      },
+    ]);
+    assert.deepEqual(
+      await server.connection.sendRequest("textDocument/formatting", {
+        textDocument: { uri },
+        options: { tabSize: 2, insertSpaces: true },
+      }),
+      edits,
+    );
+    await change(server, uri, "if(f1){return;", 2);
+    assert.deepEqual(
+      await server.connection.sendRequest("textDocument/formatting", {
+        textDocument: { uri },
+        options: { tabSize: 2, insertSpaces: true },
+      }),
+      [],
+    );
+  } finally {
+    await shutdown(server);
+  }
 });

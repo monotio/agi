@@ -353,11 +353,6 @@ export function clearSelectionChanges(cel: SpriteCel, selection: CelRect): Pixel
   return out;
 }
 
-/** Total cels across the view's loops. */
-export function celCount(document: SpriteDocument): number {
-  return document.loops.reduce((sum, loop) => sum + loop.cels.length, 0);
-}
-
 /** WCAG relative luminance of an sRGB colour, 0..1. */
 function luminance([r, g, b]: readonly [number, number, number]): number {
   const linear = (channel: number): number => {

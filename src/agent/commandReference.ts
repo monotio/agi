@@ -15,7 +15,7 @@ const REFERENCE_SOURCE = "https://peterkelly.github.io/agi-re/spec/";
 
 export function formatCommandCatalog(profile: AgiProfile): string {
   const all = commandReference(profile);
-  return `Interpreter ${profile.id}: complete accepted command signatures.\nOperands: imm = literal byte; var = variable index (vN), read or written according to command semantics; flag = fN; object = screen object oN; item = inventory ID; resource = literal resource ID; message = message ID or quoted text; string = sN. Immediate operands are bytes 0..255.\nActions:\nreturn;\n${all
+  return `Interpreter ${profile.id}: complete accepted command signatures.\nOperands: imm = literal byte; var = variable index (vN), read or written according to command semantics; flag = fN; object = screen object oN; item = inventory ID; resource = literal resource ID; message = message ID or quoted text; string = sN. Immediate operands are bytes 0..255.\nA final return is automatic; use return; for an early exit.\nActions:\nreturn;\n${all
     .filter((c) => c.kind === "action")
     .map((c) => c.signature + ";")
     .join("\n")}\nConditions:\n${all

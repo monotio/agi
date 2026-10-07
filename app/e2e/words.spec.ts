@@ -1,15 +1,26 @@
+import { checkWordsAgentHandoff } from "./wordsAgentShared.ts";
 import { providerReply } from "../../test/provider-stream.ts";
 import { test, expect } from "./test.ts";
 import {
   isolateStorage,
   textHook,
   configureAi,
-  waitForAutosaveAfter,
+  savePlayProgress,
   workspaceUpdated,
 } from "./engineProbe.ts";
 
+for (const [width, height] of [
+  [1063, 815],
+  [1440, 900],
+] as const)
+  test(`WORDS shortcut opens the shared agent at ${width} @webkit-desktop`, async ({ page }) => {
+    await checkWordsAgentHandoff(page, width, height);
+  });
+
 for (const width of [1440, 1280])
-  test(`Words sentence, local playtest miss and Same as at ${width}`, async ({ page }) => {
+  test(`Words sentence, local playtest miss and Same as at ${width} @webkit-desktop`, async ({
+    page,
+  }) => {
     await page.setViewportSize({ width, height: 900 });
     await isolateStorage(page);
     await page.goto("/#create-adventure");
@@ -51,7 +62,7 @@ for (const width of [1440, 1280])
     await teaching.getByRole("button", { name: "Add", exact: true }).click();
     await expect(page.getByTestId("player-sentence")).toHaveCount(0);
     await sentence.fill("inspect");
-    await expect(page.getByTestId("sentence-parse")).toContainText("· 100");
+    await expect(page.getByTestId("sentence-parse")).toContainText("Word group 100");
     await expect(page.getByTestId("sentence-outcome")).toContainText("LOGIC 1");
     await expect(page.getByTestId("workspace-saved")).toBeVisible();
     await expect(page.getByTestId("workspace-saved")).toHaveText(/^(?:Saved|Draft saved)$/);
@@ -96,7 +107,7 @@ for (const width of [1440, 1280])
     await expect(page.locator(".play-area")).toBeVisible();
   });
 
-test("WORDS row actions, in-place stub suggestions and tester choices", async ({ page }) => {
+test("WORDS row actions, agent drawer prompts and tester choices", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await isolateStorage(page);
   await page.goto("/");
@@ -124,41 +135,32 @@ test("WORDS row actions, in-place stub suggestions and tester choices", async ({
   await expect(row.getByRole("textbox")).toBeFocused();
   await row.getByRole("textbox").press("Escape");
   await expect(row.getByRole("textbox")).toHaveCount(0);
+
+  // Suggest opens the agent drawer with a prepared request; Send runs it.
   await suggest.click();
   const panel = page.getByTestId("workspace-agent-panel");
-  await expect(panel).toBeHidden();
-  await expect(row.locator(".word-suggestion")).toHaveText(["inspect", "check"]);
-  await expect(row.locator(".word-suggestion").first()).toHaveCSS("border-style", "dashed");
-  await expect(words.getByRole("status")).toContainText("Suggestions from");
-  await expect(page.getByTestId("workspace-saved")).toBeVisible();
-  await expect(page.getByTestId("workspace-saved")).toHaveText(/^(?:Saved|Draft saved)$/);
+  await expect(panel).toBeVisible();
+  const composer = panel.getByTestId("agent-message");
+  await expect(composer).toHaveValue("Suggest words for look");
+  await page.screenshot({ path: test.info().outputPath("words-suggest-prefill-1440.png") });
+  await page.getByRole("button", { name: "Send", exact: true }).click();
+  await expect(panel).toContainText("Suggested inspect, check");
   await page.screenshot({ path: test.info().outputPath("words-suggestions-1440.png") });
-  await row.getByRole("button", { name: "Add all", exact: true }).click();
-  await expect(row.locator(".word-suggestion")).toHaveCount(0);
-  await expect(row.locator(".word-chip").filter({ hasText: "inspect" })).toHaveCount(1);
-  await expect(page.getByTestId("workspace-saved")).toBeVisible();
-  await expect(page.getByTestId("workspace-saved")).toHaveText(/^(?:Saved|Draft saved)$/);
-  const sentence = words.getByRole("textbox", { name: "A sentence a player might type" });
-  await sentence.fill("inspect");
-  await expect(page.getByTestId("sentence-parse")).toContainText("· 100");
-  await workspaceUpdated(page);
-  await page.getByRole("button", { name: "Undo", exact: true }).click();
-  await expect(row).not.toContainText("inspect");
-  await expect(row).not.toContainText("check");
-  await expect(page.getByTestId("sentence-parse")).toContainText("new word");
-  await page.getByRole("button", { name: "Redo", exact: true }).click();
-  await expect(page.getByTestId("sentence-parse")).toContainText("· 100");
-  await words.getByRole("button", { name: "Suggest sentences", exact: true }).click();
+  await panel.getByTestId("agent-panel-close").click();
   await expect(panel).toBeHidden();
-  const predicted = words.getByRole("region", { name: "Predicted commands" });
-  await expect(predicted).toContainText("climb tree");
-  await expect(predicted).toContainText("✦ look tree");
-  await expect(page.getByTestId("workspace-saved")).toBeVisible();
-  await expect(page.getByTestId("workspace-saved")).toHaveText(/^(?:Saved|Draft saved)$/);
+
+  const sentence = words.getByRole("textbox", { name: "A sentence a player might type" });
+  await sentence.fill("look");
+  await expect(page.getByTestId("sentence-parse")).toContainText("Word group 100");
+  await words.getByRole("button", { name: "Suggest sentences", exact: true }).click();
+  await expect(panel).toBeVisible();
+  await expect(composer).toHaveValue("Predict what players will try in Meadow");
+  await page.getByRole("button", { name: "Send", exact: true }).click();
+  await expect(panel).toContainText("Predicted 2 commands players will try in Meadow");
   await page.screenshot({ path: test.info().outputPath("words-predict-1440.png") });
-  await predicted.getByRole("button", { name: "Dismiss", exact: true }).focus();
-  await page.keyboard.press("Escape");
-  await expect(predicted).toHaveCount(0);
+  await panel.getByTestId("agent-panel-close").click();
+  await expect(panel).toBeHidden();
+
   await sentence.fill("climb tree");
   const verdict = page.getByTestId("sentence-outcome");
   await expect(verdict).toContainText("“climb” is a new word, so the game stops reading there.");
@@ -200,23 +202,19 @@ test("WORDS row actions, in-place stub suggestions and tester choices", async ({
   await expect(page.getByTestId("sentence-parse")).not.toContainText("new word");
   await expect(words.locator(".meaning-row").filter({ hasText: "wander" })).toHaveCount(1);
   await workspaceUpdated(page);
-  await waitForAutosaveAfter(page, (await textHook(page)).cycle);
-  await words.getByRole("button", { name: "Open chat", exact: true }).click();
+  await savePlayProgress(page);
+  await page.getByTestId("workspace-agent").click();
   await expect(panel).toBeVisible();
   await expect(panel).toContainText("Suggest words for look");
-  await expect(panel).toContainText("Suggested inspect, check · shown in WORDS");
+  await expect(panel).toContainText("Suggested inspect, check");
   await expect(panel).toContainText("Predict what players will try in Meadow");
-  await expect(page.getByTestId("workspace-saved")).toBeVisible();
-  await expect(page.getByTestId("workspace-saved")).toHaveText(/^(?:Saved|Draft saved)$/);
   await page.screenshot({ path: test.info().outputPath("words-chat-1440.png") });
   await page.reload();
-  await page.getByTestId("part-words").click();
-  await expect(words.locator('[data-word-group="100"]')).toContainText("inspect");
   await page.getByTestId("workspace-agent").click();
-  await expect(panel).toContainText("Suggested inspect, check · shown in WORDS");
+  await expect(panel).toContainText("Suggested inspect, check");
 });
 
-test("WORDS suggestions show progress, inline failures and retry while chat stays closed", async ({
+test("WORDS prompts open the agent drawer, and the chat shows failures and retries", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -264,43 +262,51 @@ test("WORDS suggestions show progress, inline failures and retry while chat stay
   const row = words.locator('[data-word-group="100"]');
   await row.hover();
   await row.getByRole("button", { name: "Suggest", exact: true }).click();
-  await expect(row).toContainText("Suggesting…");
-  await expect(page.getByTestId("workspace-agent-panel")).toBeHidden();
+  const panel = page.getByTestId("workspace-agent-panel");
+  await expect(panel).toBeVisible();
+  await expect(panel.getByTestId("agent-message")).toHaveValue("Suggest words for look");
+  await page.getByRole("button", { name: "Send", exact: true }).click();
+  await expect(panel.getByTestId("agent-message")).toBeDisabled();
   await page.screenshot({ path: test.info().outputPath("words-suggesting-1440.png") });
   release();
-  await expect(row.getByRole("alert")).toContainText("The reply’s JSON could not be read.");
+  await expect(panel).toContainText("The reply’s JSON could not be read.");
   await page.screenshot({ path: test.info().outputPath("words-retry-1440.png") });
-  await row.getByRole("button", { name: "Retry", exact: true }).click();
-  await expect(row.locator(".word-suggestion")).toHaveText("inspect");
-  await expect(words.getByRole("status")).toContainText("Suggestions from GPT-6.1 Sol · Open chat");
-  await row.getByRole("button", { name: "Dismiss", exact: true }).focus();
-  await page.keyboard.press("Escape");
-  await expect(row.locator(".word-suggestion")).toHaveCount(0);
+
+  // Retry is the same one-click prompt again, a follow-up in the same chat.
+  await panel.getByTestId("agent-panel-close").click();
+  await row.hover();
+  await row.getByRole("button", { name: "Suggest", exact: true }).click();
+  await expect(panel.getByTestId("agent-message")).toHaveValue("Suggest words for look");
+  await page.getByRole("button", { name: "Send", exact: true }).click();
+  await expect(panel).toContainText("Suggested inspect");
+  await panel.getByTestId("agent-panel-close").click();
   await words.getByRole("button", { name: "Suggest sentences", exact: true }).click();
-  await expect(words.getByRole("region", { name: "Predicted commands" })).toContainText(
-    "look tree",
+  await expect(panel.getByTestId("agent-message")).toHaveValue(
+    "Predict what players will try in Meadow",
   );
+  await page.getByRole("button", { name: "Send", exact: true }).click();
+  await expect(panel).toContainText("Predicted 1 command players will try in Meadow");
   expect(requests).toBe(3);
   expect(prompts[0]).toContain("meaning 100");
   expect(prompts[2]).toContain("draw.pic(v50)");
-  await words.getByRole("button", { name: "Open chat", exact: true }).click();
-  const panel = page.getByTestId("workspace-agent-panel");
   const user = panel.locator(".agent-panel__message--user").first();
+  await expect(user).toBeVisible();
   await expect(user.locator("p").first()).toHaveText("Suggest words for look");
   await expect(user.locator("details")).not.toHaveAttribute("open", "");
   await user.locator("summary").click();
   await expect(user).toContainText("Return a JSON object");
-  const reply = panel
-    .locator(".agent-panel__message")
-    .filter({ hasText: "Suggested inspect · shown in WORDS" });
+  const reply = panel.locator(".agent-panel__message").filter({ hasText: "Suggested inspect" });
   await reply.locator("summary").click();
+  await expect(reply.locator("pre")).toBeVisible();
   await expect(reply.locator("pre")).toHaveText('{"synonyms":["inspect"]}');
   await page.reload();
   await page.getByTestId("workspace-agent").click();
-  await expect(panel).toContainText("Suggested inspect · shown in WORDS");
+  await expect(panel).toContainText("Suggested inspect");
 });
 
-test("Create keeps a missed sentence across reload before WORDS first opens", async ({ page }) => {
+test("Create keeps a missed sentence across reload before WORDS first opens @webkit-desktop", async ({
+  page,
+}) => {
   await isolateStorage(page);
   await page.goto("/#create-adventure");
   await page.getByTestId("local-create-kind-starter").click();

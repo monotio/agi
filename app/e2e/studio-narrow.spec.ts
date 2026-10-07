@@ -78,9 +78,8 @@ for (const viewport of [
     const below = studio.getByTestId("studio-rail-more-below");
     const above = studio.getByTestId("studio-rail-more-above");
     for (const [key, name] of [
-      ["1", "Art"],
-      ["2", "Depth"],
-      ["3", "Walk"],
+      ["1", "Visual"],
+      ["2", "Priority"],
     ] as const) {
       await page.keyboard.press(key);
       await expect(lens.getByRole("radio", { name: new RegExp(name) })).toHaveAttribute(
@@ -89,11 +88,10 @@ for (const viewport of [
       );
       const context = `${name} at ${viewport.width}×${viewport.height}`;
       const top = await boxes([
-        ["Art tab", lens.getByRole("radio", { name: /Art/ })],
-        ["Depth tab", lens.getByRole("radio", { name: /Depth/ })],
-        ["Walk tab", lens.getByRole("radio", { name: /Walk/ })],
+        ["Visual tab", lens.getByRole("radio", { name: /Visual/ })],
+        ["Priority tab", lens.getByRole("radio", { name: /Priority/ })],
       ]);
-      expect(top.length, `${context}: all lens tabs show`).toBe(3);
+      expect(top.length, `${context}: all lens tabs show`).toBe(2);
       expectApart(top, context);
       const barBox = (await bar.boundingBox())!;
       for (const [part, box] of top) expect(inside(box, barBox), `${context}: ${part}`).toBe(true);
@@ -142,6 +140,8 @@ test("Sprite Studio at 1024×600: the options bar folds its view options into Mo
   await page.setViewportSize({ width: 1024, height: 600 });
   await playTutorial(page);
   await openWorkspaceView(page, 0);
+  await page.getByTestId("workspace-layout").click();
+  await expect(page.getByTestId("workspace-layout")).toHaveAttribute("aria-pressed", "true");
   const studio = page.getByTestId("sprite-studio");
   await expect(studio).toBeVisible();
   const bar = studio.getByTestId("sprite-options-bar");

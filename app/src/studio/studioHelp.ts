@@ -1,4 +1,4 @@
-import { VOCABULARY_ACTIONS } from "../../../src/vocabulary.ts";
+import { VOCABULARY } from "../../../src/vocabulary.ts";
 /**
  * The Studios' keyboard help, kept off the canvas: a tool's name and one
  * short line for the status bar, and the full key list the `?` sheet shows
@@ -24,23 +24,23 @@ export const ROOM_TOOL_NAMES: Record<StudioTool, string> = {
   brush: "Brush",
   pipette: "Pipette",
   hand: "Hand",
-  walk: VOCABULARY_ACTIONS.playtest_room.label,
+  walk: VOCABULARY.testWalk.label,
   door: "Door box",
   edge: "Edge exit",
 };
 
 /** The status bar's one line for the active Room Studio tool. */
 export const ROOM_TOOL_HINTS: Record<StudioTool, string> = {
-  select: `Click selects · drag draws a box · drag the selection to move it · ${SHIFT} adds`,
+  select: `${SHIFT} adds to the selection.`,
   point: "Drag a point's handle · the item itself stays put",
   line: "Click points · Enter or double-click finishes",
   rect: "Drag a rectangle · Shift keeps it square",
   polygon: "Click points · click the first point or Enter closes",
   fill: "Click where the fill starts · it spreads over white",
-  brush: "Drag to place plot points, one per pixel",
-  pipette: "Click to pick the colour and depth under the cursor",
-  hand: "Drag to pan · Space pans with any tool",
-  walk: VOCABULARY_ACTIONS.playtest_room.help,
+  brush: "",
+  pipette: "",
+  hand: "Hold Space to pan with any tool.",
+  walk: VOCABULARY.testWalk.help,
   door: "Drag a door box on the floor",
   edge: "Click near an edge: walking off it changes room",
 };
@@ -52,7 +52,7 @@ export const ROOM_PATH_HINT = "Backspace removes a point · Esc cancels";
 export const ROOM_EDIT_HINT = `Arrows nudge (${SHIFT} 8 px) · ${ALT} arrows next item · [ ] order`;
 
 /** With several items selected: how they move, at the foot of the inspector. */
-export const ROOM_GROUP_HINT = `Drag or arrows move them together (${SHIFT} 8 px) · [ ] reorder one at a time`;
+export const ROOM_GROUP_HINT = `${SHIFT} moves by 8 px; [ and ] reorder one item at a time.`;
 
 export const SPRITE_TOOL_NAMES: Record<SpriteTool, string> = {
   pencil: "Pencil",
@@ -66,13 +66,13 @@ export const SPRITE_TOOL_NAMES: Record<SpriteTool, string> = {
 };
 
 export const SPRITE_TOOL_HINTS: Record<SpriteTool, string> = {
-  pencil: "Drag to paint · Space: pen down at the cursor",
-  eraser: "Drag to paint the transparent colour",
-  fill: "Click to flood the area under the cursor",
+  pencil: "Space starts or stops painting at the cursor.",
+  eraser: "",
+  fill: "",
   line: "Drag a line, or Space at each end",
   rect: "Drag a rectangle, or Space at each corner",
-  select: `Drag a marquee · arrows move it (${ALT} copies) · H flips · Delete clears`,
-  pipette: "Click to pick the paint colour",
+  select: "Alt/Option + arrows copies the selection; H flips it.",
+  pipette: "",
   recolor: "Click a colour on the canvas to change it everywhere in scope",
 };
 
@@ -109,7 +109,7 @@ export function roomKeySheet(tool: StudioTool): KeySection[] {
         { keys: ["A"], does: "Points only" },
         { keys: ["L", "R", "P"], does: "Line, rectangle, polygon" },
         { keys: ["F", "B", "I"], does: "Fill, brush, pipette" },
-        { keys: ["T", "D", "E"], does: "Test walk, door box, edge exit (Walk lens)" },
+        { keys: ["T", "D", "E"], does: "Test walk, door box, edge exit (Priority lens)" },
         { keys: ["G"], does: "Stand-in" },
         { keys: ["H"], does: "Hand; hold Space to pan with any tool" },
       ],
@@ -140,7 +140,6 @@ export function roomKeySheet(tool: StudioTool): KeySection[] {
               { keys: [keyLabel("Alt+click"), "Insert"], does: "Add a point to the selected line" },
             ]),
         { keys: ["Esc"], does: "Cancel one thing per press" },
-        { keys: [keyLabel("Mod+\\")], does: "Hide or show the side panels (focus mode)" },
         { keys: ["Menu", keyLabel("Shift+F10")], does: "Canvas menu: Play here, test walks" },
       ],
     },
@@ -153,17 +152,52 @@ export function roomKeySheet(tool: StudioTool): KeySection[] {
         { keys: [keyLabel("Mod+Shift+G")], does: "Ungroup the selected group" },
         { keys: ["[", "]"], does: "Move one item back or forward in draw order" },
         { keys: [keyLabel("Mod+Z"), keyLabel("Mod+Shift+Z")], does: "Undo, redo" },
-        { keys: ["/"], does: "Tell the agent about the selection" },
       ],
     },
     {
       title: "View",
       rows: [
-        { keys: ["1", "2", "3"], does: "Art, Depth, Walk lens" },
+        { keys: ["1", "2"], does: "Visual or Priority lens" },
         { keys: [",", "."], does: "Step the draw order back or forward" },
         { keys: ["Home", "End"], does: "Draw order to the start or the end" },
         { keys: ["+", "−", "0"], does: "Zoom in, out, to fit" },
         { keys: ["?"], does: "This list" },
+      ],
+    },
+  ];
+}
+
+/** The LOGIC editor's keys: the debugger, code intelligence and the workspace. */
+export function logicKeySheet(): KeySection[] {
+  return [
+    {
+      title: "Run and stop",
+      rows: [
+        { keys: ["F9"], does: "Set or clear a breakpoint on this line" },
+        { keys: ["Click"], does: "Left of a line number: set or clear a breakpoint" },
+        { keys: ["F5"], does: "Run the top action, or continue while paused" },
+        { keys: [keyLabel("Shift+F5")], does: "Stop debugging" },
+        { keys: ["F10", "F11"], does: "Step over, step into" },
+        { keys: [keyLabel("Shift+F11")], does: "Step out" },
+      ],
+    },
+    {
+      title: "Names and code",
+      rows: [
+        { keys: ["F12"], does: "Go to definition" },
+        { keys: [keyLabel("Shift+F12")], does: "Find references" },
+        { keys: ["F2"], does: "Rename a name everywhere" },
+        { keys: [keyLabel("Ctrl+Space")], does: "Show completions" },
+        { keys: [keyLabel("Mod+F")], does: "Find in this LOGIC" },
+      ],
+    },
+    {
+      title: "Workspace",
+      rows: [
+        { keys: [keyLabel("Mod+Enter")], does: "Update and restart the room" },
+        { keys: [keyLabel("Mod+P")], does: "Quick open a part" },
+        { keys: [keyLabel("Mod+J")], does: "Show Problems" },
+        { keys: [keyLabel("Mod+W")], does: "Close this editor" },
       ],
     },
   ];
@@ -203,7 +237,6 @@ export function spriteKeySheet(): KeySection[] {
         { keys: ["<", ">"], does: "Previous or next loop" },
         { keys: ["+", "−", "0"], does: "Zoom in, out, to fit" },
         { keys: [keyLabel("Mod+Z"), keyLabel("Mod+Shift+Z")], does: "Undo, redo" },
-        { keys: ["/"], does: "Tell the agent about the cel or loop" },
         { keys: ["?"], does: "This list" },
       ],
     },

@@ -35,7 +35,7 @@ const SMALL = text(
   "end",
 );
 
-test("item lens marks follow drawing commands including all three lenses", () => {
+test("item lens marks follow drawing commands, a control line marking Priority", () => {
   const source = text(
     '# @item all "All lenses" mixed',
     "vis 4",
@@ -47,7 +47,10 @@ test("item lens marks follow drawing commands including all three lenses", () =>
     "end",
   );
   const model = buildStudioModel({ bytes: bytesOf(source), authoredSource: source, profile });
-  assert.deepEqual(model.rows[0]?.lenses, ["art", "depth", "walk"]);
+  assert.deepEqual(model.rows[0]?.lenses, ["art", "depth"]);
+  const wall = text('# @item w "Wall" walk', "vis off", "pri 0", "line 1,2 3,2", "# @end", "end");
+  const walls = buildStudioModel({ bytes: bytesOf(wall), authoredSource: wall, profile });
+  assert.deepEqual(walls.rows[0]?.lenses, ["depth"]);
   const single = buildStudioModel({ bytes: bytesOf(SMALL), authoredSource: SMALL, profile });
   assert.deepEqual(single.rows[0]?.lenses, ["art"]);
 });
@@ -141,9 +144,9 @@ test("branches fold consecutive inferred items of one kind and dominant value in
   assert.deepEqual(
     model.branches.map(({ group, rows }) => [group?.label ?? null, rows.map((row) => row.id)]),
     [
-      ["Brown art · 3", ["el-1", "el-2", "el-3"]],
+      ["Brown visual · 3", ["el-1", "el-2", "el-3"]],
       [null, ["el-4"]],
-      ["Brown art · 2", ["el-5", "el-6"]],
+      ["Brown visual · 2", ["el-5", "el-6"]],
       ["Depth band 9 · 2", ["el-7", "el-8"]],
     ],
   );
@@ -186,7 +189,7 @@ test("authored items always stand alone: they never join a group, but do break o
       [null, ["bench"]],
       [null, ["el-3"]],
       [null, ["el-4"]],
-      ["Brown art · 2", ["el-5", "el-6"]],
+      ["Brown visual · 2", ["el-5", "el-6"]],
       ["Depth band 9 · 2", ["el-7", "el-8"]],
     ],
   );
@@ -256,11 +259,11 @@ test("a list of more than 60 rows folds into draw-order sections", () => {
 });
 
 test("group labels name the colour, the priority meaning or a covered run", () => {
-  assert.equal(groupLabel("art", 6, 12), "Brown art · 12");
+  assert.equal(groupLabel("art", 6, 12), "Brown visual · 12");
   assert.equal(groupLabel("mixed", 7, 2), "Light grey mixed · 2");
   assert.equal(groupLabel("depth", 9, 4), "Depth band 9 · 4");
   assert.equal(groupLabel("walk", 0, 3), "Wall walk · 3");
-  assert.equal(groupLabel("art", null, 2), "Covered art · 2");
+  assert.equal(groupLabel("art", null, 2), "Covered visual · 2");
 });
 
 test("a group's highlight is the union of its members' masks", () => {

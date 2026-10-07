@@ -53,7 +53,7 @@ test("GPT-6.1 Sol is the new-user default; Stop and budget pauses retain a stage
       await route.fulfill(
         providerReply("openai", {
           id: `task${request}`,
-          usage: { input_tokens: 0, output_tokens: request === 3 ? 60000 : 0 },
+          usage: { input_tokens: 0, output_tokens: request === 3 ? 112000 : 0 },
           output:
             request === 1
               ? [
@@ -145,7 +145,7 @@ test("GPT-6.1 Sol is the new-user default; Stop and budget pauses retain a stage
   }
 });
 
-test("unknown spend waits for a request allowance in the real assistant", async ({ page }) => {
+test("unknown spend sends without guessing a price in the real assistant", async ({ page }) => {
   const game = createContainer();
   game.putResource(
     "logic",
@@ -192,16 +192,10 @@ test("unknown spend waits for a request allowance in the real assistant", async 
   await configureAi(page, { provider: "openai", model: "gpt-6-sol", key: "placeholder" });
   await page.getByTestId("agent-message").fill("Inspect this room.");
   await page.getByRole("button", { name: "Send", exact: true }).click();
-  await expect(page.getByTestId("agent-pause-reason")).toBeVisible();
-  await expect(page.getByTestId("agent-pause-reason")).toContainText("Choose how many requests");
-  const usage = page.getByRole("link", { name: "See your usage", exact: true });
-  await expect(usage).toBeVisible();
-  await expect(usage).toHaveCSS("color", "rgb(121, 229, 230)");
-  await expect(usage).toHaveAttribute("href", "https://platform.openai.com/usage");
-  expect(requests).toBe(0);
-  await page.getByTestId("agent-request-limit").fill("2");
-  await page.screenshot({ path: test.info().outputPath("request-allowance.png") });
-  await page.getByTestId("agent-continue").click();
+  await expect(page.getByTestId("agent-message")).toBeEnabled();
+  await expect(page.getByTestId("agent-spent")).toBeVisible();
+  await expect(page.getByTestId("agent-spent")).toHaveText("Spent: see your usage");
+  await expect(page.getByTestId("agent-continue")).toBeHidden();
   await expect(page.getByTestId("agent-message")).toBeEnabled();
   expect(requests).toBe(1);
 });

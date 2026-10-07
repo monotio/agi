@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { numberedLabel } from "../../../src/logic/numberedLabels.ts";
+import { useProjectLabels } from "../shell/useProjectLabels.ts";
 import { computed, nextTick, useTemplateRef, watch } from "vue";
 import UiDialog from "../ui/UiDialog.vue";
 
@@ -19,6 +21,7 @@ const {
   line?: number | null;
 }>();
 const open = defineModel<boolean>("open", { required: true });
+const labels = useProjectLabels();
 const lines = computed(() => text.split("\n"));
 const body = useTemplateRef("body");
 watch(open, async (value) => {
@@ -32,7 +35,7 @@ watch(open, async (value) => {
   <UiDialog
     v-model:open="open"
     size="lg"
-    :title="`Room ${room} logic`"
+    :title="`${numberedLabel('room', room, labels)} logic`"
     description="Ask the agent in Create to change this exit."
   >
     <pre ref="body" class="logic-text" data-testid="logic-text"><code><span

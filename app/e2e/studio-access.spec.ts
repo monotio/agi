@@ -146,7 +146,7 @@ async function repeat(page: Page, key: string, times: number): Promise<void> {
   for (let k = 0; k < times; k++) await page.keyboard.press(key);
 }
 
-test("keyboard only: an Art rectangle and a Walk wall line autosave @webkit-desktop", async ({
+test("keyboard only: an Art rectangle and a Priority wall line autosave @webkit-desktop", async ({
   page,
 }) => {
   await bootGame(page);
@@ -187,18 +187,36 @@ test("keyboard only: an Art rectangle and a Walk wall line autosave @webkit-desk
   await repeat(page, "Shift+ArrowDown", 2);
   await repeat(page, "ArrowDown", 4);
   await expect(announce).toHaveText("x 40 y 140");
-  await expect(studio.locator('[data-role="tool-overlay"] rect.tool-overlay__line')).toHaveCount(
-    await page.locator(".studio-pane").count(),
-  );
+  // The sized rect previews as the picture's own pixels: black over the grey floor at 30,130.
+  const art = studio.locator('[data-layer="art"] canvas');
+  await expect
+    .poll(() =>
+      art.evaluate((element) => {
+        const canvas = element as HTMLCanvasElement;
+        const x = Math.floor((canvas.width * 30.5) / 160);
+        const y = Math.floor((canvas.height * 130.5) / 168);
+        return [...canvas.getContext("2d")!.getImageData(x, y, 1, 1).data.slice(0, 3)];
+      }),
+    )
+    .toEqual([0, 0, 0]);
   await page.keyboard.press("Space");
   await workspaceUpdated(page, true);
   await expect(studio.locator('[data-row="rect-1"]')).toHaveAttribute("aria-selected", "true");
 
-  // Walk lens, the line tool: a barrier from 20,150 to 100,150.
+  // Priority lens, the line tool and the Wall pen: a wall from 20,150 to 100,150.
   await canvas.focus();
-  await page.keyboard.press("3");
+  await page.keyboard.press("2");
   await page.keyboard.press("l");
+  const palette = studio.getByRole("radiogroup", { name: "Priority", exact: true });
+  await palette
+    .getByRole("radio", { name: /^Depth/ })
+    .first()
+    .focus();
+  // Arrow keys walk the palette: left from band 4 lands on Water, then Trigger, Gate and Wall.
+  await repeat(page, "ArrowLeft", 4);
+  await expect(palette.getByRole("radio", { name: /^Wall:/ })).toBeFocused();
   await expect(studio.getByTestId("studio-value-priority")).toHaveAttribute("data-value", "0");
+  await canvas.focus();
   await expect(canvas).toBeFocused();
   // From 40,140 to 20,150, then 80 to the right: Enter there adds the
   // second point, Enter again on it finishes.
@@ -209,10 +227,10 @@ test("keyboard only: an Art rectangle and a Walk wall line autosave @webkit-desk
   await repeat(page, "Shift+ArrowRight", 10);
   await expect(announce).toHaveText("x 100 y 150");
   await page.keyboard.press("Enter");
-  await expect(studio.getByTestId("studio-hint")).toContainText("Backspace");
+  await expect(page.getByTestId("studio-hint")).toContainText("Backspace");
   await page.keyboard.press("Enter");
   await workspaceUpdated(page, true);
-  await expect(studio.locator('[data-row="wall-line-1"]')).toContainText("Wall line 1");
+  await expect(studio.locator('[data-row="wall-line-1"]')).toContainText("Wall line · 2 points");
 
   await workspaceUpdated(page, true);
   const kept = planes(await storedPicture(page));

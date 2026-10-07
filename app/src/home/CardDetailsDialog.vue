@@ -10,6 +10,7 @@ import { computed, nextTick, watch } from "vue";
 import UiButton from "../ui/UiButton.vue";
 import UiDialog from "../ui/UiDialog.vue";
 import EarlierProgressSection from "./EarlierProgressSection.vue";
+import RoomGenerationSetting from "./RoomGenerationSetting.vue";
 import { shownDetails } from "./cardDetails.ts";
 import { describeGameProfile } from "../library/profileChoice.ts";
 import { useGameLibrary } from "../library/useGameLibrary.ts";
@@ -123,22 +124,30 @@ async function changeInterpreter(): Promise<void> {
           <dd>
             {{
               liveGame.library?.validation.status === "unverified"
-                ? "Ready to check."
-                : (liveGame.library?.validation.message ?? "Ready to check.")
+                ? "Not checked yet"
+                : (liveGame.library?.validation.message ?? "Not checked yet")
             }}
             <UiButton
               v-if="liveGame.library?.validation.status === 'unverified'"
               size="sm"
               variant="ghost"
+              aria-label="Check opening"
               data-testid="check-library-game"
               :disabled="libraryActionBusy"
               @click="onCheckLibraryGame(liveGame)"
             >
-              {{ libraryActionBusy ? "Checking opening…" : "Check opening" }}
+              {{ libraryActionBusy ? "Checking…" : "Check" }}
             </UiButton>
           </dd>
         </template>
       </dl>
+      <RoomGenerationSetting
+        v-if="liveGame"
+        :key="liveGame.projectId"
+        :project-id="liveGame.projectId"
+        :enabled="liveGame.roomGeneration === true"
+        :generation="liveGame.generation"
+      />
       <EarlierProgressSection v-if="shownDetails.earlier" :context="shownDetails.earlier" />
     </template>
   </UiDialog>

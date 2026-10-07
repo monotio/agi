@@ -3,6 +3,7 @@ import {
   enterCreateMode,
   isolateStorage,
   openLibraryActions,
+  openPlayMore,
   openWorkspaceAgent,
   savedGameCard,
   textHook,
@@ -16,25 +17,42 @@ test.beforeEach(async ({ page }) => {
 
 test("first visit has one route per action and aligned sections", async ({ page }) => {
   const hero = page.locator(".hero");
+  await expect(hero).toBeVisible();
+  await expect(hero.getByRole("button").nth(0)).toBeVisible();
+  await expect(hero.getByRole("button").nth(1)).toBeVisible();
   await expect(hero.getByRole("button")).toHaveText(["Play the tutorial", "Make a new game"]);
-  await expect(hero.getByRole("link")).toHaveCount(1);
-  await expect(hero.getByRole("link")).toHaveAttribute(
-    "href",
-    "https://en.wikipedia.org/wiki/Adventure_Game_Interpreter",
+  await expect(hero.locator(".hero-line")).toBeVisible();
+  await expect(hero.locator(".hero-line")).toHaveText(
+    "Play Sierra-style adventures and build your own.",
   );
+  for (const [width, height] of [
+    [1440, 900],
+    [1063, 815],
+    [390, 844],
+  ] as const) {
+    await page.setViewportSize({ width, height });
+    await expect(hero.locator(".hero-line")).toBeVisible();
+    await page.screenshot({
+      path: test.info().outputPath(`home-hero-${width}.png`),
+      animations: "disabled",
+    });
+  }
   await page.getByTestId("create-adventure-toggle").click();
   await expect(page.getByTestId("create-adventure-disclosure")).toBeVisible();
   await expect(page.getByTestId("local-create-submit")).toBeHidden();
   await page.getByTestId("local-create-kind-starter").click();
-  await expect(page.getByTestId("create-adventure-disclosure")).toContainText(
-    "Opens with the game running. Everything you change is saved as you go.",
-  );
+  await expect(page.getByTestId("local-create-submit")).toBeVisible();
+  await expect(page.getByTestId("local-create-submit")).toHaveText("Start building");
   await expect(page.getByText(/AI for this adventure|Not configured/)).toHaveCount(0);
   await expect(page.getByTestId("connect-create-ai")).toBeHidden();
   await expect(page.getByTestId("boot-game")).toBeHidden();
   await expect(page.locator(".create-pane input[type=number]")).toHaveCount(0);
-  for (const width of [1440, 390]) {
-    await page.setViewportSize({ width, height: 900 });
+  for (const [width, height] of [
+    [1440, 900],
+    [1063, 815],
+    [390, 844],
+  ] as const) {
+    await page.setViewportSize({ width, height });
     const bounds = (await page.locator("#create-adventure").boundingBox())!;
     expect(bounds.x).toBeGreaterThanOrEqual(0);
     expect(bounds.x + bounds.width).toBeLessThanOrEqual(width);
@@ -43,7 +61,6 @@ test("first visit has one route per action and aligned sections", async ({ page 
     ).toHaveCount(4);
     await page.screenshot({
       path: test.info().outputPath(`first-visit-${width}.png`),
-      fullPage: true,
       animations: "disabled",
     });
   }
@@ -72,7 +89,7 @@ test("the featured opening image does not move the controls below it", async ({ 
   }
 });
 
-test("one Settings menu owns AI and budget while Remix stays compact", async ({ page }) => {
+test("Settings keeps the AI budget and the agent drawer stays compact", async ({ page }) => {
   await page.getByTestId("catalog-play-adventure-department").click();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
   await expect(page.getByRole("button", { name: "AI settings", exact: true })).toHaveCount(0);
@@ -85,15 +102,23 @@ test("one Settings menu owns AI and budget while Remix stays compact", async ({ 
   await enterCreateMode(page);
   await openWorkspaceAgent(page);
   const composer = page.getByTestId("workspace-agent-panel");
+  await expect(composer).toBeVisible();
   await expect(composer.getByTestId("agent-message")).toBeEnabled();
   await expect(composer.getByTestId("connect-assistant-ai")).toHaveCount(0);
   await expect(composer.locator("input[type=number]")).toHaveCount(0);
   await expect(composer).not.toContainText(/Change AI settings|Task budget|Not configured/);
+  const close = composer.getByTestId("agent-panel-close");
+  await expect(close).toBeVisible();
+  await close.click();
+  await expect(composer).toBeHidden();
   await page.getByTestId("settings-menu").click();
   await page.getByTestId("open-ai-settings").click();
+  await expect(dialog.getByTestId("task-budget")).toBeVisible();
   await expect(dialog.getByTestId("task-budget")).toHaveValue("3");
   await page.keyboard.press("Escape");
   await expect(page.getByTestId("settings-menu")).toBeFocused();
+  await openWorkspaceAgent(page);
+  await expect(composer).toBeVisible();
   for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: 900 });
     await page.screenshot({
@@ -115,29 +140,36 @@ test("library puts rename inline and secondary actions into menus", async ({ pag
   await expect(nameInput).toBeFocused();
   await expect(card.getByTestId("saved-game-title")).toBeHidden();
   await nameInput.fill("My tutorial");
-  await card.getByRole("button", { name: "Save name" }).click();
+  await card.getByRole("button", { name: "Rename" }).click();
   const renamed = savedGameCard(page, "My tutorial");
   await expect(renamed).toBeVisible();
   await expect(page.getByTestId("start-library-game-over")).toBeHidden();
-  await expect(page.getByTestId("download-library-game")).toBeHidden();
   await openLibraryActions(page, renamed);
   const menu = page.getByRole("menu", { name: "Game actions", exact: true });
-  await expect(menu.getByRole("menuitem", { name: "Start over", exact: true })).toBeVisible();
+  await expect(menu.getByRole("menuitem", { name: "Edit in Create", exact: true })).toBeVisible();
   await page.keyboard.press("End");
   await expect(menu.getByRole("menuitem", { name: "Remove game…", exact: true })).toBeFocused();
   await page.keyboard.press("Escape");
   await expect(renamed.getByRole("button", { name: "Game actions", exact: true })).toBeFocused();
   await expect(renamed.getByRole("button", { name: "Download", exact: true })).toHaveCount(0);
+  // Start over and the walkthrough moved to the play button's ▾ half.
+  const more = await openPlayMore(page, renamed);
+  await expect(more.getByRole("menuitem", { name: "Start over", exact: true })).toBeVisible();
+  await page.keyboard.press("Escape");
   await openLibraryActions(page, renamed);
-  await expect(menu.getByTestId("export-library-game")).toBeVisible();
-  await expect(menu.getByTestId("download-library-game")).toBeVisible();
+  await expect(menu.getByTestId("open-game-download")).toBeVisible();
   await expect(menu.getByRole("separator")).toHaveCount(2);
   const items = await menu.getByRole("menuitem").allInnerTexts();
-  // A saved copy of the tutorial keeps its walkthrough action at the top.
-  expect(items[0]).toMatch(/^Run walkthrough/);
-  expect(items).toContain("Start over");
-  expect(items.at(-1)).toBe("Remove game…");
-  expect(items.indexOf("Make a copy")).toBeLessThan(items.findIndex((t) => /Export game/.test(t)));
+  // The ⋯ menu is the flat list: edit, rename, copy, then download and
+  // details, then remove.
+  expect(items).toEqual([
+    "Edit in Create",
+    "Rename…",
+    "Make a copy",
+    "Download…",
+    "Details…",
+    "Remove game…",
+  ]);
   for (const width of [1440, 390]) {
     await page.keyboard.press("Escape");
     await page.setViewportSize({ width, height: 900 });

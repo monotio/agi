@@ -57,6 +57,7 @@ const OUTBOUND_TYPES = [
   "exportFiles",
   "restored",
   "booted",
+  "projectPlayed",
   "projectCreated",
   "roomTransition",
   "flushed",
@@ -201,6 +202,31 @@ function deliver(w: FakeWorker, msg: WorkerOutbound): void {
   w.onmessage!({ data: msg });
 }
 
+test("entering the generated room clears its overlay before returning to an earlier room", () => {
+  const { link, state } = makeLink();
+  const worker = fakeWorker();
+  link.wireWorker(worker as unknown as Worker);
+  state.roomGeneration = { room: 2, busy: false, error: "", feedStartSeq: 1 };
+  const transition: Extract<WorkerOutbound, { type: "roomTransition" }> = {
+    type: "roomTransition",
+    from: 1,
+    to: 2,
+    cycle: 10,
+    seq: 1,
+    cause: "logic",
+    patchGeneration: 1,
+    scoreDelta: 0,
+    gained: [],
+    lost: [],
+  };
+  deliver(worker, { ...transition, to: 3 });
+  assert.equal(state.roomGeneration.room, 2, "another room does not confirm this generation");
+  deliver(worker, transition);
+  assert.equal(state.roomGeneration, null);
+  deliver(worker, { ...transition, from: 2, to: 1, cycle: 11 });
+  assert.equal(state.roomGeneration, null, "returning does not reopen room generation");
+});
+
 function fakeObservation(over: Partial<ReplayObservation> = {}): ReplayObservation {
   return {
     sessionId: 0,
@@ -259,14 +285,16 @@ test("every WorkerOutbound member reaches its handler once", async () => {
         assert.equal(hook.cycle, 42);
         break;
       case "hostRequest": {
-        deliver(w, { type, id: 9, op: "getnum", context: {} });
+        deliver(w, { type, generation: 1, id: 9, op: "getnum", context: {} });
         await testScheduler.yield();
         const answer = w.posted.find((m) => (m as { type: string }).type === "hostAnswer");
         assert.ok(answer, "hostRequest must post a hostAnswer");
         break;
       }
       case "interactionCancelled":
-        deliver(w, { type, id: 1, op: "getnum" });
+        link.deps.handlePromptRequest = () => new Promise<string>(() => {});
+        deliver(w, { type: "hostRequest", generation: 1, id: 1, op: "getnum", context: {} });
+        deliver(w, { type, generation: 1, id: 1, op: "getnum" });
         assert.ok(depCalls.includes("cancelPrompt"));
         break;
       case "replay": {
@@ -527,6 +555,11 @@ test("every WorkerOutbound member reaches its handler once", async () => {
         }
         assert.ok(!audioCalls.some((call) => call.startsWith("setMode:")));
         break;
+      case "projectPlayed": {
+        const result = await roundTrip(link, w, "projectPlay", { type, id: 0, ok: true });
+        assert.equal((result as { ok: boolean }).ok, true);
+        break;
+      }
       case "projectCreated": {
         const result = await roundTrip(link, w, "projectCreate", {
           type,
@@ -958,3 +991,48 @@ test("a worker's boot acknowledgement stores only the bound physical resume poin
   deliver(w2, { type: "booted", profile: "2.917", kind: "binary" });
   assert.equal(store.get("monotio_agi.resumeTarget"), undefined);
 });
+
+for (const completion of ["answer", "failure"] as const) {
+  for (const retirement of ["cancel", "replace"] as const) {
+    test(`a host ${completion} after ${retirement} is suppressed before posting or follow-up`, async () => {
+      const { link, depCalls } = makeLink();
+      const w = fakeWorker();
+      link.wireWorker(w as unknown as Worker);
+      let resolve!: (value: string) => void;
+      let reject!: (reason: Error) => void;
+      const delayed = new Promise<string>((yes, no) => {
+        resolve = yes;
+        reject = no;
+      });
+      let answered = 0;
+      link.deps.handleRoomAuthoring = () => delayed;
+      link.deps.hostAnswered = () => {
+        answered++;
+      };
+      deliver(w, { type: "hostRequest", generation: 1, id: 1, op: "room", context: { room: 3 } });
+      if (retirement === "replace") link.wireWorker(fakeWorker() as unknown as Worker);
+      else {
+        deliver(w, { type: "interactionCancelled", generation: 1, id: 1, op: "room" });
+        link.deps.handlePromptRequest = async () => "9";
+        deliver(w, { type: "hostRequest", generation: 2, id: 1, op: "getnum", context: {} });
+        deliver(w, { type: "interactionCancelled", generation: 1, id: 1, op: "room" });
+      }
+      if (completion === "answer") resolve("old room");
+      else reject(new Error("old failure"));
+      await delayed.catch(() => {});
+      await testScheduler.yield();
+      const posted = w.posted as { type: string; generation?: number; response?: string }[];
+      assert.deepEqual(
+        posted.filter((m) => m.type === "hostAnswer"),
+        retirement === "replace"
+          ? []
+          : [{ type: "hostAnswer", generation: 2, id: 1, response: "9" }],
+      );
+      assert.equal(answered, retirement === "replace" ? 0 : 1);
+      assert.equal(
+        depCalls.filter((c) => c === "cancelPrompt").length,
+        retirement === "cancel" ? 1 : 0,
+      );
+    });
+  }
+}

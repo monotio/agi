@@ -27,7 +27,8 @@ async function start(page: Page) {
 }
 async function findWord(page: Page, word: string): Promise<void> {
   await focusWorkspaceLogic(page);
-  await page.keyboard.press("ControlOrMeta+f");
+  const mac = await page.evaluate(() => navigator.userAgent.includes("Macintosh"));
+  await page.keyboard.press(mac ? "Meta+f" : "Control+f");
   const find = page.getByRole("textbox", { name: "Find", exact: true });
   await expect(find).toBeVisible();
   await find.fill(word);
@@ -39,14 +40,17 @@ test("names open resources, peek game state and rename all authored uses @webkit
 }) => {
   await start(page);
   const parts = page.getByTestId("parts-list");
-  await expect(parts.getByRole("heading", { name: "Game state", exact: true })).toBeVisible();
+  await expect(parts.getByRole("heading", { name: "GAME STATE", exact: true })).toBeVisible();
+  await expect(
+    parts.getByRole("button", { name: "chime_done Flag 204", exact: true }),
+  ).toBeVisible();
   await parts.getByRole("button", { name: "chime_done Flag 204", exact: true }).click();
   const details = page.getByTestId("binding-details");
   await expect(details).toBeVisible();
-  await expect(details).toContainText("Set · LOGIC 1");
+  await expect(details).toContainText("Changed · first_room · LOGIC 1");
   await details.getByRole("button", { name: "Rename", exact: true }).click();
   await details.getByLabel("Name", { exact: true }).fill("birdsong_done");
-  await details.getByRole("button", { name: "Save name", exact: true }).click();
+  await details.getByRole("button", { name: "Rename", exact: true }).click();
   await workspaceUpdated(page);
   expect(await workspaceDocument(page, "bindings")).toContain("birdsong_done");
   expect(await workspaceDocument(page, "logic:1")).toContain("sound(chime_sound, birdsong_done)");
@@ -79,20 +83,12 @@ test("names open resources, peek game state and rename all authored uses @webkit
     { width: 390, height: 844 },
   ]) {
     await page.setViewportSize(viewport);
-    if (viewport.width === 390) {
-      const part = page.getByTestId("part-room:1:logic");
-      if (!(await part.isVisible())) await page.getByTestId("workspace-parts").click();
-      await expect(part).toBeVisible();
-      await part.click();
-    }
+    await expect(page.getByTestId("workspace-state")).toBeVisible();
+    await expect(page.getByTestId("state-flag-204")).toBeFocused();
     await expect(details).toBeVisible();
-    await expect(page.getByTestId("workspace-logic-editor").locator(".view-lines")).toBeVisible();
-    const sourceLine = page
-      .getByTestId("workspace-logic-editor")
-      .locator(".view-lines")
-      .getByText("load.sound", { exact: true });
-    await expect(sourceLine).toBeVisible();
-    await expect(sourceLine).toBeInViewport();
+    await expect(
+      details.getByRole("button", { name: /Read · first_room · LOGIC 1/ }),
+    ).toBeVisible();
     await page.screenshot({
       path: test.info().outputPath(`names-peek-${viewport.width}.png`),
       scale: "css",
@@ -191,7 +187,7 @@ test("switching chats opens the latest messages", async ({ page }) => {
   }
 });
 
-test("Create game owns F5 and F6 while the editor owns debugger F5", async ({ page }) => {
+test("Create game owns F5 and F6 while the editor owns the run action", async ({ page }) => {
   await start(page);
   await openWorkspaceLogic(page);
   const input = page.getByTestId("input-line");
@@ -202,16 +198,18 @@ test("Create game owns F5 and F6 while the editor owns debugger F5", async ({ pa
   await expect.poll(async () => (await textHook(page)).modal).toBe("save");
   await expect(page.getByTestId("debug-stop")).toHaveCount(0);
   await page.keyboard.press("Escape");
-  await focusWorkspaceLogic(page);
+  await findWord(page, "assignn(v50, clearing_pic)");
+  await page.keyboard.press("F9");
+  await expect(page.locator(".workspace-breakpoint")).toHaveCount(1);
   await page.keyboard.press("F5");
-  await expect(page.locator(".workspace-editor__header").getByTestId("debug-stop")).toBeVisible();
-  await expect(page.locator(".workspace-editor__header").getByTestId("debug-stop")).toBeEnabled();
+  await expect(page.locator(".workspace-context").getByTestId("debug-stop")).toBeVisible();
+  await expect(page.locator(".workspace-context").getByTestId("debug-stop")).toBeEnabled();
   await page.keyboard.press("Shift+F5");
   await expect(page.getByTestId("debug-stop")).toHaveCount(0);
   await expect(page.getByTestId("workspace-update")).toBeVisible();
   await focusWorkspaceLogic(page);
   await page.keyboard.press("F5");
-  await expect(page.locator(".workspace-editor__header").getByTestId("debug-stop")).toBeVisible();
+  await expect(page.locator(".workspace-context").getByTestId("debug-stop")).toBeVisible();
 });
 
 test("name hover opens resources and message actions keep readable text @webkit-desktop", async ({
@@ -228,22 +226,20 @@ test("name hover opens resources and message actions keep readable text @webkit-
   await editor.locator(".view-lines").getByText("chime_sound", { exact: true }).hover();
   const hover = page.locator(".monaco-hover:not(.hidden)");
   await expect(hover).toBeVisible();
-  await expect(hover).toContainText("chime_sound · SOUND 1 · used in 1 place");
-  await expect(hover.getByRole("link", { name: "Rename", exact: true })).toBeVisible();
-  await hover.getByRole("link", { name: "Rename", exact: true }).click();
-  const details = page.getByTestId("binding-details");
-  await expect(details).toBeVisible();
-  await details.getByLabel("Name", { exact: true }).fill("birdsong");
-  await expect(details.getByLabel("Name", { exact: true })).toBeFocused();
-  await expect(details.getByLabel("Name", { exact: true })).toHaveValue("birdsong");
-  await details.getByRole("button", { name: "Save name", exact: true }).click();
+  await expect(hover).toContainText("chime_sound · SOUND 1");
+  await expect(hover.getByRole("link", { name: "Rename…", exact: true })).toBeVisible();
+  await hover.getByRole("link", { name: "Rename…", exact: true }).click();
+  const rename = editor.locator(".rename-box input").filter({ visible: true });
+  await expect(rename).toBeFocused();
+  await rename.fill("birdsong");
+  await rename.press("Enter");
+  await expect(rename).toBeHidden();
   await workspaceUpdated(page);
-  await expect(details).toContainText("load.sound(birdsong);");
-  await expect(details.getByRole("button", { name: "Rename", exact: true })).toBeVisible();
-  await details.getByRole("button", { name: "Close", exact: true }).click();
+  await expect.poll(() => workspaceDocument(page, "logic:1")).toContain("load.sound(birdsong);");
+  await page.getByTestId("workspace-context").hover();
   await editor.locator(".view-lines").getByText("birdsong", { exact: true }).hover();
   await expect(hover).toBeVisible();
-  await expect(hover).toContainText("birdsong · SOUND 1 · used in 1 place");
+  await expect(hover).toContainText("birdsong · SOUND 1");
   await hover.getByRole("link", { name: "Open", exact: true }).click();
   await expect(page.getByTestId("workspace-sound")).toBeVisible();
   await openWorkspaceLogic(page);
@@ -269,14 +265,15 @@ test("name hover opens resources and message actions keep readable text @webkit-
   }
   await page.setViewportSize({ width: 1440, height: 900 });
   await findWord(page, "m1");
-  await page.keyboard.press("ControlOrMeta+.");
+  const mac = await page.evaluate(() => navigator.userAgent.includes("Macintosh"));
+  await page.keyboard.press(mac ? "Meta+." : "Control+.");
   const inline = page.getByText("Put text inline", { exact: true });
   await expect(inline).toBeVisible();
   await inline.click();
   await workspaceUpdated(page);
   expect(await workspaceDocument(page, "logic:1")).toContain('print("Hello there")');
-  await focusWorkspaceLogic(page);
-  await page.keyboard.press("ControlOrMeta+.");
+  await findWord(page, 'Hello there");');
+  await page.keyboard.press(mac ? "Meta+." : "Control+.");
   const numbered = page.getByText("Move text to #message", { exact: true });
   await expect(numbered).toBeVisible();
   await numbered.click();
@@ -296,12 +293,11 @@ test("Home offers one Your own game card and neutral entries clear an AI pick", 
   const card = button.locator("xpath=ancestor::article");
   await expect(card).toBeVisible();
   await expect(card).toContainText("Your own game");
-  await expect(card).toContainText("Pick a ready start or describe your idea");
+  await expect(button).toBeVisible();
+  await expect(button).toBeEnabled();
   await expect(card.getByRole("button")).toHaveCount(1);
   await expect(card.locator(".game-card__pill")).toHaveCount(0);
-  expect(
-    await card.locator(".game-card__meta").evaluate((node) => node.scrollWidth <= node.clientWidth),
-  ).toBe(true);
+  await expect(card.locator(".game-card__meta")).toHaveCount(0);
   await page.screenshot({ path: test.info().outputPath("home-neutral-card.png") });
   // The AI templates live inside New game, not on the Home shelf.
   await expect(page.locator('[data-testid^="shelf-template-"]')).toHaveCount(1);
@@ -327,6 +323,9 @@ test("Home offers one Your own game card and neutral entries clear an AI pick", 
 test("F5 runs from the parts list, header, agent and page without reloading", async ({ page }) => {
   await start(page);
   await openWorkspaceLogic(page);
+  await findWord(page, "assignn(v50, clearing_pic)");
+  await page.keyboard.press("F9");
+  await expect(page.locator(".workspace-breakpoint")).toHaveCount(1);
   let navigations = 0;
   page.on("framenavigated", (frame) => {
     if (frame === page.mainFrame()) navigations++;
@@ -344,7 +343,8 @@ test("F5 runs from the parts list, header, agent and page without reloading", as
         document.body.focus();
       });
     await page.keyboard.press("F5");
-    await expect(page.locator(".workspace-editor__header").getByTestId("debug-stop")).toBeVisible();
+    await expect(page.locator(".workspace-context").getByTestId("debug-stop")).toBeVisible();
+    await expect(page.locator(".workspace-context").getByTestId("debug-stop")).toBeEnabled();
     await page.keyboard.press("Shift+F5");
     await expect(page.getByTestId("debug-stop")).toHaveCount(0);
   }
@@ -355,13 +355,77 @@ test("switching names resets Rename and leaves both bindings unchanged", async (
   await start(page);
   const before = await workspaceDocument(page, "bindings");
   const parts = page.getByTestId("parts-list");
+  await expect(
+    parts.getByRole("button", { name: "chime_done Flag 204", exact: true }),
+  ).toBeVisible();
   await parts.getByRole("button", { name: "chime_done Flag 204", exact: true }).click();
   const details = page.getByTestId("binding-details");
   await expect(details).toBeVisible();
   await details.getByRole("button", { name: "Rename", exact: true }).click();
   await details.getByLabel("Name", { exact: true }).fill("birdsong_done");
+  await expect(parts.getByRole("button", { name: "dead Flag 202", exact: true })).toBeVisible();
   await parts.getByRole("button", { name: "dead Flag 202", exact: true }).click();
+  await expect(details.locator("header strong")).toBeVisible();
   await expect(details.locator("header strong")).toHaveText("dead");
   await expect(details.getByLabel("Name", { exact: true })).toBeHidden();
   expect(await workspaceDocument(page, "bindings")).toBe(before);
+});
+
+test("built-in names appear in code, completion, hover and coordinated rename @webkit-desktop", async ({
+  page,
+}) => {
+  await start(page);
+  const builtin = page.getByTestId("parts-list").getByTestId("game-state-builtin");
+  await builtin.locator(":scope > summary").click();
+  await expect(
+    builtin.getByRole("button", { name: "ego_in_water Flag 0", exact: true }),
+  ).toBeVisible();
+  await page.screenshot({
+    path: test.info().outputPath("builtin-source-names.png"),
+    animations: "disabled",
+  });
+  expect(await workspaceDocument(page, "logic:0")).toContain("call.v(current_room)");
+  expect(await workspaceDocument(page, "logic:1")).toContain("isset(new_room)");
+  await replaceWorkspaceDocument(page, "logic:1", "assignv(v50, cur); return;", false);
+  await page.evaluate(async () => {
+    const { monaco } = await import("/src/studio/logic/monacoLanguage.ts");
+    const editor = monaco.editor.getEditors().find((editor) => editor.hasTextFocus())!;
+    editor.setPosition(editor.getModel()!.getPositionAt("assignv(v50, cur".length));
+    editor.trigger("spec", "editor.action.triggerSuggest", {});
+  });
+  const suggestion = page.locator(".suggest-widget").filter({ visible: true });
+  await expect(suggestion).toContainText("current_room");
+  await page.keyboard.press("Enter");
+  await expect
+    .poll(() => workspaceDocument(page, "logic:1"))
+    .toBe("assignv(v50, current_room); return;");
+  await findWord(page, "current_room");
+  await page.evaluate(async () => {
+    const { monaco } = await import("/src/studio/logic/monacoLanguage.ts");
+    monaco.editor
+      .getEditors()
+      .find((editor) => editor.hasTextFocus())!
+      .trigger("spec", "editor.action.showHover", {});
+  });
+  await expect(page.locator(".monaco-hover").filter({ visible: true })).toContainText(
+    "current_room · Variable 0",
+  );
+  await page.keyboard.press("Escape");
+  await findWord(page, "current_room");
+  await page.keyboard.press("F2");
+  const rename = page.locator(".rename-box input").filter({ visible: true });
+  await expect(rename).toBeVisible();
+  await rename.fill("room_number");
+  await rename.press("Enter");
+  await expect(rename).not.toBeVisible();
+  await expect
+    .poll(() => workspaceDocument(page, "logic:1"))
+    .toContain("assignv(v50, room_number)");
+  await expect.poll(() => workspaceDocument(page, "logic:0")).toContain("call.v(room_number)");
+  expect(await workspaceDocument(page, "bindings")).toContain('"room_number"');
+  await workspaceUpdated(page);
+  await page.screenshot({
+    path: test.info().outputPath("builtin-renamed.png"),
+    animations: "disabled",
+  });
 });

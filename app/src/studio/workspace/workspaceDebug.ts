@@ -1,3 +1,4 @@
+import { numberedLabel } from "../../../../src/logic/numberedLabels.ts";
 /** Source-aware debugging of the existing MAIN run. Loaded by an explicit debug action. */
 import { computed, reactive, shallowRef } from "vue";
 import { openContainer } from "../../../../src/container/container.ts";
@@ -11,6 +12,7 @@ import type {
   DebugBreakpointSpec,
   DebugBreakpointStatus,
 } from "../../../../src/runtime/debugBreakpoints.ts";
+import type { LogicDebugState } from "../../../../src/logic/lspTypes.ts";
 import type { DebugValue } from "../../../../src/runtime/debugExpression.ts";
 import type { ExecutionBoundary } from "../../../../src/runtime/engine.ts";
 import type { ProfileId } from "../../../../src/runtime/profile.ts";
@@ -44,13 +46,17 @@ export function createWorkspaceDebug(input: {
   reveal(position: { logic: number; line: number }): void;
   stopped(): void;
   current?(): boolean;
+  breakpoints?: readonly DebugBreakpointSpec[];
+  disabled?: boolean;
+  remember?(breakpoints: readonly DebugBreakpointSpec[], disabled: boolean): void;
 }) {
   const state = reactive({
     epoch: 0,
     busy: false,
     stepping: false,
     error: "",
-    breakpoints: [] as DebugBreakpointSpec[],
+    breakpoints: [...(input.breakpoints ?? [])] as DebugBreakpointSpec[],
+    breakpointsDisabled: input.disabled ?? false,
     statuses: [] as DebugBreakpointStatus[],
     watches: [] as { id: number; expression: string; value: string }[],
   });
@@ -80,9 +86,9 @@ export function createWorkspaceDebug(input: {
     const at = position.value;
     const location = input.link.stopped.value.location;
     return at
-      ? `Paused at LOGIC ${at.logic}, line ${at.line}`
+      ? `Paused at ${numberedLabel("logic", at.logic, { bindings: bindings.value }, "row")}, line ${at.line}`
       : location
-        ? `Paused at LOGIC ${location.logic}, byte ${location.pc}`
+        ? `Paused at ${numberedLabel("logic", location.logic, { bindings: bindings.value }, "row")}, byte ${location.pc}`
         : "Paused";
   });
   function capture(override?: Record<string, string>): void {
@@ -121,16 +127,16 @@ export function createWorkspaceDebug(input: {
     const reply = await input.link.query("debugConfigure", {
       epoch: state.epoch,
       revision: ++revision,
-      breakpoints: state.breakpoints.map((point) => ({ ...point })),
+      breakpoints: state.breakpoints.map((point) => ({
+        ...point,
+        enabled: point.enabled && !state.breakpointsDisabled,
+      })),
     });
     state.statuses = [...reply.breakpoints];
   }
   async function start(): Promise<void> {
     if (input.current?.() === false) return;
-    if (state.epoch) {
-      if (input.link.stopped.value) await resume("continue");
-      return;
-    }
+    if (state.epoch) return;
     capture();
     const values = Object.fromEntries(
       Object.entries(bindings.value).filter(([, binding]) =>
@@ -183,6 +189,7 @@ export function createWorkspaceDebug(input: {
         ];
     try {
       await configure();
+      input.remember?.(state.breakpoints, state.breakpointsDisabled);
     } catch (error) {
       state.breakpoints = previous;
       throw error;
@@ -223,9 +230,12 @@ export function createWorkspaceDebug(input: {
     }
     if (event.type === "debugStopped") {
       state.stepping = false;
-      input.stopped();
-      const at = position.value;
-      if (at) input.reveal(at);
+      // A value write re-announces the stop: refresh values, keep the open view.
+      if (!event.reasons.length || !event.reasons.every((reason) => reason.kind === "mutated")) {
+        input.stopped();
+        const at = position.value;
+        if (at) input.reveal(at);
+      }
       void evaluateWatches();
     }
   });
@@ -265,9 +275,45 @@ export function createWorkspaceDebug(input: {
     resume,
     stop,
     toggle,
+    async setDisabled(disabled: boolean): Promise<void> {
+      const previous = state.breakpointsDisabled;
+      state.breakpointsDisabled = disabled;
+      try {
+        await configure();
+        input.remember?.(state.breakpoints, disabled);
+      } catch (error) {
+        state.breakpointsDisabled = previous;
+        throw error;
+      }
+    },
     run,
     framePosition(frame: ExecutionBoundary["frames"][number]) {
       return runningPosition(build.value, frame.logic, frame.pc);
+    },
+    logicState(
+      logic: number,
+      source: string,
+    ): (LogicDebugState & { epoch: number; stopId: number }) | undefined {
+      const stop = input.link.stopped.value;
+      if (
+        !stop ||
+        stop.epoch !== state.epoch ||
+        stop.buildId !== build.value?.identity.buildId ||
+        source !== sources.value[String(logic)]
+      )
+        return undefined;
+      const lines = [stop.location, stop.previousLocation].flatMap((location) => {
+        if (!location || location.logic !== logic) return [];
+        const at = runningPosition(build.value, logic, location.pc, location.kind);
+        return at ? [at.line - 1] : [];
+      });
+      return {
+        epoch: stop.epoch,
+        stopId: stop.stopId,
+        vars: stop.state.vars,
+        flags: stop.state.flags,
+        lines,
+      };
     },
     async setValue(kind: "variable" | "flag", slot: number, value: number): Promise<void> {
       const stop = input.link.stopped.value;

@@ -110,7 +110,7 @@ const AUXILIARY_FILES: Readonly<Record<string, string>> = {
   words: "WORDS.TOK",
   inventory: "OBJECT",
 };
-const WORLD_FIELDS = ["rooms", "facts", "quests"];
+const WORLD_FIELDS = ["rooms", "facts", "quests", "launches"];
 const UTF8_ENCODE = new TextEncoder();
 const UTF8_DECODE = new TextDecoder("utf-8", { fatal: true });
 
@@ -479,7 +479,7 @@ export function captureAgentWorkspace(input: {
         )
       )
         throw new AgentCandidateError("The world document cannot hydrate an authoring state.", [
-          diagnostic("world", "expected a {rooms, facts, quests} JSON record"),
+          diagnostic("world", "expected a {rooms, facts, quests, launches} JSON record"),
         ]);
       world = parsed.value as AuthoringState["world"];
     }

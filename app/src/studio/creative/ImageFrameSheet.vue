@@ -689,7 +689,7 @@ const thumbnails = computed(() => {
           px tall · like {{ name }}</label
         >
         <slot name="preview" />
-        <p class="frame-hint">Drag a box to adjust it. Drag on empty space to add one.</p>
+        <p class="frame-hint">Drag on empty space to add a frame.</p>
         <details v-if="active" class="frame-details">
           <summary>
             <span data-testid="frame-summary" role="status" aria-live="polite">{{ summary }}</span>
@@ -749,7 +749,6 @@ const thumbnails = computed(() => {
         </button>
       </div>
     </div>
-    <p class="frame-hint">Drag to reorder · Delete removes</p>
     <div class="frame-add">
       <label
         >Add to

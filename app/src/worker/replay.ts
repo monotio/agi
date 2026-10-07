@@ -11,7 +11,7 @@ import { Engine } from "../../../src/runtime/engine.ts";
 import { openContainer } from "../../../src/container/container.ts";
 import type { ReplayObservation } from "../walkthrough/replay.ts";
 import type { Inbound, ReplaySnapshot, WorkerContext } from "./context.ts";
-import { resetSession } from "./session.ts";
+import { replaceRun, detachedHost } from "./runSession.ts";
 
 /**
  * One virtual host poll on a replay context: advance the recorded tick
@@ -24,8 +24,8 @@ export function replayTick(ctx: WorkerContext, obs?: { sound?: number; cycle?: b
   const replay = ctx.replay.replay;
   if (replay === null) return;
   replay.tick++;
-  ctx.cycle.tickCount = replay.tick;
-  ctx.fns.stepHostTick((replay.tick * 1000) / (ctx.engine?.timing.soundHz ?? 60), obs);
+  ctx.run.cycle.tickCount = replay.tick;
+  ctx.fns.stepHostTick((replay.tick * 1000) / (ctx.run.engine?.timing.soundHz ?? 60), obs);
 }
 
 interface ReplayAdvanceOptions {
@@ -46,20 +46,20 @@ const REPLAY_SNAPSHOT_LIMIT = 128;
 
 export function createReplay(ctx: WorkerContext) {
   function postReplay(blocked: string | null, fullState = false): void {
-    if (!ctx.replay.replay || !ctx.engine) return;
+    if (!ctx.replay.replay || !ctx.run.engine) return;
     const isFull = fullState || blocked !== null;
-    const state = isFull ? ctx.engine.readState() : ctx.engine.readLeanState();
-    const rows = isFull ? Array.from({ length: 25 }, (_, row) => ctx.engine!.textRow(row)) : [];
+    const state = isFull ? ctx.run.engine.readState() : ctx.run.engine.readLeanState();
+    const rows = isFull ? Array.from({ length: 25 }, (_, row) => ctx.run.engine!.textRow(row)) : [];
     const observation: ReplayObservation = {
       sessionId: ctx.replay.currentSessionId,
       revision: ++ctx.replay.replay.revision,
       tick: ctx.replay.replay.tick,
-      cycle: ctx.cycle.cycleCount,
+      cycle: ctx.run.cycle.cycleCount,
       blocked,
       state,
       rows,
-      egoView: ctx.engine.screenObjects[0]!.view,
-      releaseGate: ctx.engine.releaseGate,
+      egoView: ctx.run.engine.screenObjects[0]!.view,
+      releaseGate: ctx.run.engine.releaseGate,
     };
     ctx.ports.control({
       type: "replay",
@@ -77,7 +77,7 @@ export function createReplay(ctx: WorkerContext) {
    * resumes the chunk.
    */
   function advanceReplay(remaining: number, options: ReplayAdvanceOptions): void {
-    if (!ctx.replay.replay || !ctx.engine) return;
+    if (!ctx.replay.replay || !ctx.run.engine) return;
     if (
       ctx.replay.replayRequest !== options.request ||
       ctx.replay.currentSessionId !== options.session
@@ -90,7 +90,7 @@ export function createReplay(ctx: WorkerContext) {
     const maxChunkMs = options.seeking ? 16 : 12;
     try {
       while (remaining > 0 && chunkTicks < maxChunkTicks) {
-        if (ctx.engine.awaitingHostAnswer) break;
+        if (ctx.run.engine.awaitingHostAnswer) break;
         // One sound tick per virtual poll — the walkthrough's perfect
         // region-rate clock; the cycle decision polls the clock reset to virtual
         // time.
@@ -108,7 +108,7 @@ export function createReplay(ctx: WorkerContext) {
 
     // The runner already has its blocked observation from postReplay(op);
     // the answer's delivery posts the next one.
-    if (ctx.engine.awaitingHostAnswer) return;
+    if (ctx.run.engine.awaitingHostAnswer) return;
     if (remaining > 0) {
       setTimeout(() => advanceReplay(remaining, options), 0);
       return;
@@ -122,7 +122,7 @@ export function createReplay(ctx: WorkerContext) {
   }
 
   function onReplayAdvance(msg: Inbound<"replayAdvance">): void {
-    if (!ctx.replay.replay || !ctx.engine) return;
+    if (!ctx.replay.replay || !ctx.run.engine) return;
     if (typeof msg.sessionId === "number") ctx.replay.currentSessionId = msg.sessionId;
     const ticks = Number(msg.ticks);
     if (!Number.isInteger(ticks) || ticks < 0 || ticks > 100_000)
@@ -139,6 +139,22 @@ export function createReplay(ctx: WorkerContext) {
     });
   }
 
+  /** Stop at the current host-tick boundary and settle the interrupted advance before the pause. */
+  function onReplayPause(msg: Inbound<"replayPause">): void {
+    if (!ctx.replay.replay || !ctx.run.engine || msg.sessionId !== ctx.replay.currentSessionId)
+      return;
+    const blocked =
+      ctx.run.hostRequests.hostRequestOutstanding?.op ??
+      (ctx.run.input.keyWaiting ? "waitkey" : null);
+    // Clearing the request invalidates every already-scheduled chunk. Its
+    // caller receives the partial position and resumes the remaining tape.
+    ctx.replay.isSeeking = false;
+    ctx.fns.postFrame();
+    if (ctx.replay.replayRequest !== null) postReplay(blocked);
+    ctx.replay.replayRequest = msg.id;
+    postReplay(blocked);
+  }
+
   /**
    * Store the current replay position as a seek target. Only resumable
    * boundaries snapshot — a live host request owns the answer and a text
@@ -146,7 +162,7 @@ export function createReplay(ctx: WorkerContext) {
    */
   function onReplaySnapshot(msg: Inbound<"replaySnapshot">): void {
     const replay = ctx.replay.replay;
-    const engine = ctx.engine;
+    const engine = ctx.run.engine;
     if (!replay || !engine || ctx.replay.historyReplay) return;
     if (
       typeof msg.sessionId === "number" &&
@@ -161,7 +177,7 @@ export function createReplay(ctx: WorkerContext) {
     // either — recordingImage would throw.
     if (
       engine.awaitingHostAnswer ||
-      ctx.hostRequests.hostRequestOutstanding !== null ||
+      ctx.run.hostRequests.hostRequestOutstanding !== null ||
       ctx.fns.debugCaptureBlocked()
     )
       return;
@@ -170,17 +186,18 @@ export function createReplay(ctx: WorkerContext) {
     const snapshots = ctx.replay.snapshots;
     snapshots.set(replay.tick, {
       tick: replay.tick,
-      cycle: ctx.cycle.cycleCount,
+      cycle: ctx.run.cycle.cycleCount,
       image,
       replay: engine.captureReplayState(),
-      rng: replay.random,
-      keyQueue: [...ctx.input.keyQueue],
-      deferredMovement: [...ctx.input.deferredMovement],
-      inputBuffer: [...ctx.input.inputBuffer],
-      clickQueue: ctx.input.clickQueue.map(([x, y]): [number, number] => [x, y]),
-      requestSerial: ctx.hostRequests.hostRequestSerial,
-      clock: ctx.cycle.pendingClock ?? ctx.clocks.cycle.snapshot(),
-      soundRemainder: ctx.clocks.sound.snapshot(),
+      rng: ctx.run.rng.word,
+      rngPolicy: { ...ctx.run.rng.policy },
+      keyQueue: [...ctx.run.input.keyQueue],
+      deferredMovement: [...ctx.run.input.deferredMovement],
+      inputBuffer: [...ctx.run.input.inputBuffer],
+      clickQueue: ctx.run.input.clickQueue.map(([x, y]): [number, number] => [x, y]),
+      requestSerial: ctx.run.hostRequests.hostRequestSerial,
+      clock: ctx.run.cycle.pendingClock ?? ctx.run.clocks.cycle.snapshot(),
+      soundRemainder: ctx.run.clocks.sound.snapshot(),
     });
     if (snapshots.size <= REPLAY_SNAPSHOT_LIMIT) return;
     const ticks = [...snapshots.keys()].sort((a, b) => a - b);
@@ -196,114 +213,135 @@ export function createReplay(ctx: WorkerContext) {
   function onReplayRestore(msg: Inbound<"replayRestore">): void {
     if (!ctx.boot.currentBootFiles || !ctx.boot.currentDictionary) return;
     if (!ctx.replay.replay || ctx.replay.historyReplay || ctx.view.recording !== null) return;
-    if (typeof msg.sessionId === "number") ctx.replay.currentSessionId = msg.sessionId;
-    ctx.replay.isSeeking = true;
-    // Supersede any advance still self-scheduling; the reply posts on this id.
-    ctx.replay.replayRequest = Number(msg.id);
-
     let snap: ReplaySnapshot | null = null;
     for (const candidate of ctx.replay.snapshots.values()) {
       if (candidate.tick <= msg.tick && (snap === null || candidate.tick > snap.tick))
         snap = candidate;
     }
 
-    if (ctx.engine) ctx.engine.stopSound();
-    // The live segment ends here, exactly as a reset's does.
-    ctx.fns.historyEnd("walkthrough");
-    ctx.fns.abandonHostRequest();
-    ctx.fns.setKeyWaiting(false);
-
     const tick = snap?.tick ?? 0;
-    ctx.replay.replay = {
-      tick,
-      revision: 0,
-      random: (snap?.rng ?? ctx.replay.lastReplaySeed ?? 0) & 0xffff,
-    };
-    ctx.replay.reseeds = [];
-    ctx.replay.reseedCursor = 0;
-    ctx.replay.historyReplay = false;
     // Tape-driven replacements regain Create authority only after taking control.
-    ctx.projectAdmission = null;
-    ctx.engine = new Engine(
+    const facade = detachedHost(ctx);
+    const replacement = new Engine(
       openContainer(
         ctx.boot.currentBootFiles,
         ctx.boot.profile ? { profile: ctx.boot.profile } : {},
       ),
-      ctx.host,
+      facade.host,
       ctx.boot.currentDictionary,
       {
         ...(ctx.boot.profile ? { profile: ctx.boot.profile } : {}),
         amigaRegion: ctx.boot.amigaRegion,
       },
     );
-    ctx.fns.armJournal();
-    ctx.engine.flags[9] = 1;
-    resetSession(ctx);
+    replacement.flags[9] = 1;
     if (snap !== null) {
-      // The image carries the recorded presentation — re-stamping status and
-      // input rows would rewrite the text ages the snapshot holds.
-      ctx.engine.restoreImage(snap.image, { preservePresentation: true });
-      ctx.engine.restoreReplayState(snap.replay);
-      ctx.input.keyQueue = [...snap.keyQueue];
-      ctx.input.deferredMovement = [...snap.deferredMovement];
-      ctx.input.inputBuffer = [...snap.inputBuffer];
-      ctx.input.clickQueue = snap.clickQueue.map(([x, y]): [number, number] => [x, y]);
-      ctx.hostRequests.hostRequestSerial = snap.requestSerial;
-      // The replay tick axis is virtual time; both clocks re-base onto it.
-      const virtualNow = (tick * 1000) / ctx.engine.timing.soundHz;
-      ctx.clocks.cycle.restore(snap.clock, virtualNow);
-      ctx.clocks.sound.restore(virtualNow, snap.soundRemainder);
-      ctx.cycle.paused = snap.clock.paused;
-      ctx.cycle.tickCount = tick;
-      ctx.cycle.cycleCount = snap.cycle;
-      if (ctx.engine.awaitingKey) ctx.fns.setKeyWaiting(true);
+      replacement.restoreImage(snap.image, { preservePresentation: true });
+      replacement.restoreReplayState(snap.replay);
     }
+    replaceRun(ctx, "replay", {
+      engine: replacement,
+      admission: null,
+      project: ctx.boot.project,
+      paused: snap?.clock.paused ?? false,
+      activate: facade.activate,
+      dictionary: ctx.boot.currentDictionary,
+      replay: {
+        ...ctx.replay,
+        currentSessionId:
+          typeof msg.sessionId === "number" ? msg.sessionId : ctx.replay.currentSessionId,
+        isSeeking: true,
+        replayRequest: Number(msg.id),
+        replay: { tick, revision: 0 },
+        reseeds: [],
+        reseedCursor: 0,
+        historyReplay: false,
+      },
+      rng: {
+        word: (snap?.rng ?? ctx.replay.lastReplaySeed ?? 0) & 0xffff,
+        policy: structuredClone(
+          snap?.rngPolicy ??
+            (ctx.replay.rngVersion === 2
+              ? { kind: "sequence", next: ctx.replay.lastReplaySeed! & 0xffff, cursor: 0 }
+              : { kind: "external" }),
+        ),
+      },
+      ...(snap
+        ? {
+            resume: {
+              cycle: snap.cycle,
+              tick,
+              virtualNow: (tick * 1000) / replacement.timing.soundHz,
+              boot: {
+                requestSerial: snap.requestSerial,
+                inputQueue: snap.keyQueue,
+                directionQueue: snap.deferredMovement,
+                inputLines: snap.inputBuffer,
+                clickQueue: snap.clickQueue,
+                clock: snap.clock,
+                soundRemainder: snap.soundRemainder,
+              },
+            },
+          }
+        : {}),
+    });
+    ctx.fns.setKeyWaiting(replacement.awaitingKey);
     // The scratch engine replaced the live one — a debug session rebinds
     // against its build under a fresh epoch.
-    ctx.fns.debugSessionReplaced();
     postReplay(null);
   }
 
   function onResetReplay(msg: Inbound<"resetReplay">): void {
     if (!ctx.boot.currentBootFiles || !ctx.boot.currentDictionary) return;
-    if (typeof msg.sessionId === "number") ctx.replay.currentSessionId = msg.sessionId;
-    ctx.replay.isSeeking = Boolean(msg.seeking);
-    ctx.replay.snapshots.clear();
-    if (ctx.engine) ctx.engine.stopSound();
     const seed =
       typeof msg.seed === "number"
         ? msg.seed
         : ctx.replay.lastReplaySeed !== null
           ? ctx.replay.lastReplaySeed
           : 0;
-    // The live segment ends here: the scratch session's traffic is never
-    // recorded, and resuming starts a fresh segment marked resumed-from.
-    ctx.fns.historyEnd("walkthrough");
-    ctx.replay.replay = { tick: 0, revision: 0, random: seed & 0xffff };
-    ctx.replay.reseeds = [];
-    ctx.replay.reseedCursor = 0;
-    ctx.replay.historyReplay = false;
-    // A request in flight belonged to the replaced engine; its late answer
-    // is dropped by the serial check and the host resolves its UI now.
-    ctx.fns.abandonHostRequest();
-    ctx.fns.setKeyWaiting(false);
-    ctx.projectAdmission = null;
-    ctx.engine = new Engine(
+    const rngVersion = msg.rngVersion ?? ctx.replay.rngVersion;
+    const facade = detachedHost(ctx);
+    const replacement = new Engine(
       openContainer(
         ctx.boot.currentBootFiles,
         ctx.boot.profile ? { profile: ctx.boot.profile } : {},
       ),
-      ctx.host,
+      facade.host,
       ctx.boot.currentDictionary,
       {
         ...(ctx.boot.profile ? { profile: ctx.boot.profile } : {}),
         amigaRegion: ctx.boot.amigaRegion,
       },
     );
-    ctx.fns.armJournal();
-    ctx.engine.flags[9] = 1;
-    resetSession(ctx);
-    ctx.fns.debugSessionReplaced();
+    replacement.flags[9] = 1;
+    replaceRun(ctx, "replay", {
+      engine: replacement,
+      admission: null,
+      project: ctx.boot.project,
+      paused: false,
+      activate: facade.activate,
+      replay: {
+        ...ctx.replay,
+        currentSessionId:
+          typeof msg.sessionId === "number" ? msg.sessionId : ctx.replay.currentSessionId,
+        isSeeking: Boolean(msg.seeking),
+        snapshots: new Map(),
+        rngVersion,
+        lastReplaySeed: seed,
+        replayRequest: null,
+        replay: { tick: 0, revision: 0 },
+        reseeds: [],
+        reseedCursor: 0,
+        historyReplay: false,
+      },
+      rng: {
+        word: seed & 0xffff,
+        policy:
+          rngVersion === 2
+            ? { kind: "sequence", next: seed & 0xffff, cursor: 0 }
+            : { kind: "external" },
+      },
+    });
     if (!msg.seeking) {
       ctx.fns.postFrame();
     }
@@ -311,9 +349,7 @@ export function createReplay(ctx: WorkerContext) {
   }
 
   function onExitReplay(): void {
-    // The replayed engine becomes the live one: its RNG word becomes the
-    // live RNG state so the resumed segment's boot records it faithfully.
-    if (ctx.replay.replay) ctx.history.rng = ctx.replay.replay.random;
+    // Taking control keeps the run's RNG word and entropy policy cursor.
     ctx.replay.replay = null;
     ctx.replay.reseeds = [];
     ctx.replay.reseedCursor = 0;
@@ -322,12 +358,12 @@ export function createReplay(ctx: WorkerContext) {
     ctx.replay.isSeeking = false;
     ctx.replay.snapshots.clear();
     ctx.fns.rebaselineJournal();
-    ctx.cycle.paused = false;
-    ctx.presentation.recentRing.reset();
-    ctx.presentation.historyRing.reset();
-    ctx.clocks.sound.reset(ctx.ports.now());
-    ctx.clocks.cycle.reset(ctx.ports.now());
-    ctx.cycle.lastCycleReportAt = ctx.ports.now();
+    ctx.run.cycle.paused = false;
+    ctx.run.presentation.recentRing.reset();
+    ctx.run.presentation.historyRing.reset();
+    ctx.run.clocks.sound.reset(ctx.ports.now());
+    ctx.run.clocks.cycle.reset(ctx.ports.now());
+    ctx.run.cycle.lastCycleReportAt = ctx.ports.now();
     ctx.fns.stopTimers();
     ctx.fns.startTimers();
     // Live play continues under a new segment marked resumed-from — the
@@ -339,6 +375,7 @@ export function createReplay(ctx: WorkerContext) {
   return {
     postReplay,
     onReplayAdvance,
+    onReplayPause,
     onReplaySnapshot,
     onReplayRestore,
     onResetReplay,

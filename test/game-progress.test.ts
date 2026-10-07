@@ -393,7 +393,8 @@ test("a store that fails mid-import is reported entry by entry; nothing claims t
     getItem: (key: string) => backing.get(key) ?? null,
     setItem: (key: string, value: string) => {
       writes += 1;
-      if (writes > 1) throw new Error("quota exceeded");
+      // The first write claims the progress writer; the second stores slot 1.
+      if (writes > 2) throw new Error("quota exceeded");
       backing.set(key, value);
     },
   };

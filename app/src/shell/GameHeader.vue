@@ -17,13 +17,13 @@ import SettingsSheet from "./SettingsSheet.vue";
 import UiButton from "../ui/UiButton.vue";
 import UiDialog from "../ui/UiDialog.vue";
 import UiToast from "../ui/UiToast.vue";
+import { useProjectLabels } from "./useProjectLabels.ts";
 import type { HelpActionKind, HelpRequest } from "./helpContent.ts";
 import { computed, onWatcherCleanup, ref, shallowRef, useTemplateRef, watch } from "vue";
 import { useEngineApi } from "../engine/engineContext.ts";
 import { useAiSettings } from "../settings/useAiSettings.ts";
 import { useShellBridge } from "./shellBridge.ts";
 import { useShell } from "./useShell.ts";
-import { useCreateWorkspace } from "./useCreateWorkspace.ts";
 import { useStudioLauncher } from "./useStudioLauncher.ts";
 import { useGameLibrary } from "../library/useGameLibrary.ts";
 import { getCachedGameMeta } from "../project/gameStorage.ts";
@@ -85,7 +85,6 @@ const { aiSettingsUnavailable, openAiSettings, llmConfig } = useAiSettings();
 const bridge = useShellBridge();
 const shell = useShell();
 const workspaceEditor = useWorkspaceEditor();
-const workspace = useCreateWorkspace();
 const { onStartOver: startGameOver } = useGameLibrary();
 
 watch(
@@ -126,7 +125,7 @@ const helpActions = computed<HelpActionKind[]>(() => {
   if (!state.powerUp.busy && !state.historyView.active) actions.push("hint");
   if (!state.powerUp.busy && shell.createAvailable.value) actions.push("remix");
   if (!aiSettingsUnavailable.value) actions.push("ai-settings");
-  if (studios.available.value) actions.push("openRoomStudio", "openSpriteStudio");
+  if (studios.available.value) actions.push("lessons");
   return actions;
 });
 
@@ -165,12 +164,6 @@ function onHelpLesson(lesson: StudioLesson): void {
 
 function onHelpAction(request: HelpRequest): void {
   switch (request.kind) {
-    case "openRoomStudio":
-      void studios.open({ studio: "room", picture: request.picture });
-      return;
-    case "openSpriteStudio":
-      void studios.open({ studio: "sprite", view: request.view });
-      return;
     case "controls":
       controlsOpen.value = true;
       return;
@@ -279,8 +272,6 @@ const historyExit = ref(false);
  */
 async function onStartOver(anyway = false): Promise<void> {
   historyStartOver.value = false;
-  // Room Studio's unkept changes are kept or thrown away before the game restarts.
-  if (!(await workspace.confirmStudioLeave())) return;
   if (!touchControls) bridge.focusGameInput();
   try {
     await startGameOver(anyway ? { abandonHistory: true } : undefined);
@@ -333,6 +324,7 @@ watch(
 /** Game-test recording: the worker captures; this dialog names and saves. */
 const recordDialog = useTemplateRef("recordDialog");
 const recordSnapshot = ref<RecordingSnapshot>();
+const labels = useProjectLabels();
 const recordSuggestions = ref<AssertionSuggestion[]>([]);
 const recordName = ref("");
 const recordError = ref("");
@@ -365,6 +357,7 @@ async function onRecordStop(): Promise<void> {
     snapshot.start.state,
     snapshot.endState,
     snapshot.printed,
+    labels.value,
   );
   recordName.value = "";
   recordError.value = "";
@@ -535,7 +528,7 @@ async function onRecordSave(): Promise<void> {
           :disabled="state.leaving || ejectBusy"
           @click="ejectRefusal = ''"
         >
-          Back to game
+          Cancel
         </UiButton>
       </div>
     </div>
@@ -551,7 +544,7 @@ async function onRecordSave(): Promise<void> {
           Leave anyway
         </UiButton>
         <UiButton variant="primary" size="sm" data-testid="eject-stay" @click="historyExit = false">
-          Stay
+          Cancel
         </UiButton>
         <UiButton
           variant="ghost"
@@ -575,9 +568,7 @@ async function onRecordSave(): Promise<void> {
         left it.
       </p>
       <div class="notice-actions">
-        <UiButton size="sm" data-testid="start-over-retry" @click="onStartOver()">
-          Try again
-        </UiButton>
+        <UiButton size="sm" data-testid="start-over-retry" @click="onStartOver()"> Retry </UiButton>
         <UiButton size="sm" data-testid="start-over-anyway" @click="onStartOver(true)">
           Start over anyway
         </UiButton>
@@ -587,7 +578,7 @@ async function onRecordSave(): Promise<void> {
           data-testid="start-over-stay"
           @click="historyStartOver = false"
         >
-          Stay
+          Cancel
         </UiButton>
       </div>
     </div>
@@ -634,7 +625,7 @@ async function onRecordSave(): Promise<void> {
         :title="`Not saved since ${new Date(state.historyUnsaved.since).toLocaleTimeString()}`"
         @click="retryHistorySave()"
       >
-        Try now
+        Retry
       </UiButton>
     </div>
     <div
@@ -699,9 +690,7 @@ async function onRecordSave(): Promise<void> {
       Shortcuts appear here when the game registers them.
     </p>
     <template v-else>
-      <p class="controls-hint">
-        Shortcuts from this game. Actions can depend on the current scene.
-      </p>
+      <p class="controls-hint">Some shortcuts work only in certain scenes.</p>
       <p v-if="shortcutsBlocked" class="controls-hint">Return to the game to use shortcuts.</p>
       <div class="shortcut-list">
         <button
@@ -868,6 +857,11 @@ a.publisher:hover > span {
   align-items: center;
   gap: var(--space-2);
   flex: none;
+  /* The band spans the window; only the notices themselves take clicks. */
+  pointer-events: none;
+}
+.shell-notices > * {
+  pointer-events: auto;
 }
 .shell-notices:not(:empty) {
   padding: var(--space-2) var(--space-4);
@@ -897,12 +891,15 @@ a.publisher:hover > span {
     width: 164px;
   }
 }
-/* Phones keep the toolbar and Edit/Playtest toggle clear: the note sits at the bottom. */
+/* Phones keep the toolbar and Edit/Game toggle clear: the note sits at the bottom. */
 @media (max-width: 600px) {
   .copy-created-note {
     position: fixed;
     top: auto;
-    bottom: calc(var(--space-3) + env(safe-area-inset-bottom, 0px));
+    /* The workspace's thin status bar owns the bottom edge in Create. */
+    bottom: calc(
+      var(--workspace-status-h, 0px) + var(--space-3) + env(safe-area-inset-bottom, 0px)
+    );
     width: calc(100% - var(--space-4));
   }
 }

@@ -8,8 +8,8 @@ import { testProjectId } from "../test/identity.ts";
 import {
   cacheGame,
   configureAi,
+  downloadFromSettings,
   isolateStorage,
-  openGameOptions,
   openWorkspacePicture,
   textHook,
   waitForAutosaveAfter,
@@ -115,6 +115,7 @@ async function keepInTabB(page: Page): Promise<Locator> {
   await studio.getByRole("group", { name: /^Canvas/ }).focus();
   await tabB.keyboard.press("ArrowDown");
   await workspaceUpdated(tabB);
+  await tabB.getByRole("radio", { name: "Play", exact: true }).click();
   await waitForAutosaveAfter(tabB, (await textHook(tabB)).cycle);
   return studio;
 }
@@ -170,9 +171,8 @@ function stored(page: Page) {
 }
 
 async function downloadGame(page: Page): Promise<void> {
-  await openGameOptions(page, "settings-menu");
   const download = page.waitForEvent("download");
-  await page.getByTestId("btn-download-game").click();
+  await downloadFromSettings(page, true);
   expect((await download).suggestedFilename()).toMatch(/\.zip$/);
   await page.keyboard.press("Escape");
 }
@@ -231,9 +231,11 @@ test("a tab running an older revision hears of another tab's saved edit at once 
   await expect(note).toHaveAttribute("role", "status");
   await expect(page.getByTestId("agent-bubble")).toHaveCount(0);
   await expect(page.locator("dialog[open]")).toHaveCount(0);
+  await expect(page.getByTestId("other-tab-notice")).toBeVisible();
+  await expect.poll(async () => (await textHook(page)).paused).toBe(true);
   const cycle = (await textHook(page)).cycle;
-  await expect.poll(async () => (await textHook(page)).cycle).toBeGreaterThan(cycle);
   await downloadGame(page);
+  expect((await textHook(page)).cycle).toBe(cycle);
   expect(await stored(page)).toEqual(kept);
   await expect(note.getByRole("button", { name: "Close", exact: true })).toHaveCount(0);
   await page.keyboard.press("Escape");

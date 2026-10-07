@@ -80,7 +80,7 @@ describe("an edit that changes another object's output reports it as a side effe
     assert.equal(report?.mask[at(20, 50)], 0, "the island's own outline is no side effect");
   });
 
-  it("reports an art fill moved before a mixed fill it pre-empts (Depth); Walk keeps the depth", () => {
+  it("reports an art fill moved before a mixed fill it pre-empts (Priority lens)", () => {
     const op = { type: "reorderItem", itemId: "patch", toIndex: 1 } as const;
     const depth = check(floorAndPatch, op, "depth");
     // The art is identical; the floor's depth is gone.
@@ -97,11 +97,6 @@ describe("an edit that changes another object's output reports it as a side effe
       ]),
       [["Room floor", "depth", INSIDE, { x0: 11, y0: 11, x1: 59, y1: 59 }, true]],
     );
-    // The Walk lens keeps depth values 4–15, however they change.
-    const walk = check(floorAndPatch, op, "walk").verdict;
-    assert.deepEqual(messages(walk), ["The Walk lens draws walk lines 0–3 only."]);
-    assert.equal(walk.violations[0]!.count, INSIDE);
-    assert.equal(walk.violations[0]!.mask[at(30, 30)], 1);
   });
 
   // Fuzz counterexamples kq1 PIC 1, kq1 PIC 37 and gr1 PIC 50, reduced: an
@@ -136,7 +131,6 @@ describe("an edit that changes another object's output reports it as a side effe
         "the line's 11 cells",
       );
     }
-    assert.equal(check(floorAndCrack, op, "walk").verdict.ok, false);
   });
 
   it("reports deleting an outline a later mixed fill stopped at, on both planes (Art, depth unlocked)", () => {
@@ -173,48 +167,6 @@ describe("an edit that changes another object's output reports it as a side effe
     assert.equal(report?.cells, 980, "a cell changed on both planes counts once");
   });
 
-  // Fuzz counterexample gr1 PIC 38, reduced: an inserted art fill pre-empts
-  // a mixed fill, uncovering the depth an earlier depth fill left there.
-  it("still refuses, in the Walk lens, an art fill that uncovers another object's depth value", () => {
-    const shaded = [
-      '# @item frame "Frame" mixed',
-      "vis 0",
-      "pri 0",
-      "rect 10,10 60,60",
-      "# @end",
-      '# @item shade "Shade" depth', //      6
-      "vis off",
-      "pri 14",
-      "fill 30,30",
-      "# @end",
-      '# @item floor "Floor" mixed', //      11
-      "vis 6",
-      "pri 9",
-      "fill 30,30",
-      "# @end",
-      "end",
-    ];
-    const { before, after, verdict } = check(
-      shaded,
-      {
-        type: "insertFill",
-        atLine: 11,
-        x: 30,
-        y: 30,
-        visual: 6,
-        priority: null,
-        id: "pre",
-        label: "Pre",
-      },
-      "walk",
-    );
-    // The same art, now drawn by the new fill; the floor's depth 9 is gone.
-    assert.deepEqual(after.visual, before.visual);
-    assert.deepEqual([before.priority[at(30, 30)], after.priority[at(30, 30)]], [9, 14]);
-    assert.deepEqual(messages(verdict), ["The Walk lens draws walk lines 0–3 only."]);
-    assert.equal(verdict.violations[0]!.count, INSIDE);
-  });
-
   it("reports nothing for an edit that stays within its own items", () => {
     const { before, after } = check(
       floorAndPatch,
@@ -222,51 +174,6 @@ describe("an edit that changes another object's output reports it as a side effe
       "art",
     );
     assert.equal(studioSideEffects(before, after, ["frame"]), null);
-  });
-});
-
-describe("the Walk lens keeps depth values 4–15", () => {
-  const scene = [
-    '# @item deep "Deep" depth',
-    "vis off",
-    "pri 9",
-    "rect 20,20 40,40",
-    "# @end",
-    '# @item edge "Edge" walk',
-    "vis off",
-    "pri 1",
-    "line 10,30 50,30",
-    "# @end",
-    "end",
-  ];
-
-  it("lets a barrier move over depth and uncover what it covered", () => {
-    const { before, after, verdict } = check(
-      scene,
-      { type: "moveItem", itemId: "edge", dx: 0, dy: 1 },
-      "walk",
-    );
-    // 9 under the old line comes back; the new line covers 9 and 4.
-    assert.deepEqual([before.priority[at(20, 30)], after.priority[at(20, 30)]], [1, 9]);
-    assert.deepEqual([before.priority[at(20, 31)], after.priority[at(20, 31)]], [9, 1]);
-    assert.deepEqual(verdict.violations, []);
-  });
-
-  it("refuses a barrier that takes a depth value, and a depth item that moves", () => {
-    const painted = check(
-      scene,
-      { type: "setItemColor", itemId: "edge", plane: "priority", value: 12 },
-      "walk",
-    ).verdict;
-    assert.deepEqual(messages(painted), ["The Walk lens draws walk lines 0–3 only."]);
-    assert.match(painted.violations[0]!.detail, /^Depth values 4–15 are locked in the Walk lens/);
-    const moved = check(scene, { type: "moveItem", itemId: "deep", dx: 1, dy: 0 }, "walk").verdict;
-    assert.equal(moved.ok, false);
-    const allowed = check(scene, { type: "moveItem", itemId: "deep", dx: 1, dy: 0 }, "walk", {
-      ...NO_UNLOCKS,
-      depthInWalk: true,
-    }).verdict;
-    assert.equal(allowed.ok, true);
   });
 });
 
@@ -286,36 +193,22 @@ describe("refusalText", () => {
       "# @end",
       "end",
     ];
-    // Walk: the floor's depth goes, which the Walk lens depth rule refuses.
-    const walk = check(scene, { type: "reorderItem", itemId: "patch", toIndex: 1 }, "walk");
-    assert.deepEqual(
-      walk.verdict.violations.map((v) => v.rule),
-      ["walk-depth"],
-    );
-    assert.deepEqual(refusalText(walk.verdict), {
-      message: "The Walk lens draws walk lines 0–3 only.",
-      detail:
-        "Depth values 4–15 are locked in the Walk lens: 2401 cells at 11,11..59,59 would change.",
-    });
     // Art: moving the frame moves the floor's depth, on a plane the lens locks.
     const art = check(scene, { type: "moveItem", itemId: "frame", dx: 0, dy: -1 }, "art");
     assert.deepEqual(
       art.verdict.violations.map((v) => v.rule),
       ["locked-plane"],
     );
-    assert.equal(
-      refusalText(art.verdict).message,
-      "Depth and walk lines are locked in the Art lens.",
-    );
+    assert.equal(refusalText(art.verdict).message, "Priority is locked in the Visual lens.");
   });
 
-  it("keeps the Art lens lock: painting depth on an art item is refused", () => {
+  it("keeps the Visual lens lock: painting depth on a visual item is refused", () => {
     const painted = check(
       FRAME.concat("end"),
       { type: "setItemColor", itemId: "frame", plane: "priority", value: 9 },
       "art",
     ).verdict;
-    assert.deepEqual(messages(painted), ["Depth and walk lines are locked in the Art lens."]);
+    assert.deepEqual(messages(painted), ["Priority is locked in the Visual lens."]);
     assert.equal(painted.violations[0]!.rule, "locked-plane");
     assert.equal(painted.violations[0]!.count, 200, "the frame's 200 outline cells");
   });

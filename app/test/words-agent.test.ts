@@ -3,9 +3,8 @@ import { test } from "node:test";
 import {
   wordsTaskPrompt,
   wordsTaskRequest,
-  readWordSuggestions,
   wordsTaskReply,
-} from "../src/studio/workspace/wordsAgent.ts";
+} from "../src/studio/workspace/wordsPrompts.ts";
 test("word tasks scope optional help to meanings or real room resources", () => {
   const documents = {
     "logic:1": 'if(said("look")){print("Tree");}return;',
@@ -20,32 +19,23 @@ test("word tasks scope optional help to meanings or real room resources", () => 
   assert.ok(
     wordsTaskPrompt({ kind: "suggest", group: 100, words: ["look"] }, documents).includes("100"),
   );
-  assert.deepEqual(
-    readWordSuggestions('```json\n{"synonyms":["inspect","check"]}\n```', "suggest"),
-    ["inspect", "check"],
-  );
-  assert.deepEqual(readWordSuggestions('{"commands":["look tree","climb tree"]}', "predict"), [
-    "look tree",
-    "climb tree",
-  ]);
-  assert.deepEqual(readWordSuggestions('{"synonyms":[{}]}', "suggest"), []);
 });
 
 test("word task replies summarize usable suggestions and keep the exact raw reply as context", () => {
   const suggest = { kind: "suggest", group: 100, words: ["look"] } as const;
   const raw = '```json\n{"synonyms":["inspect","check","inspect",{}]}\n```';
   assert.deepEqual(wordsTaskReply(raw, suggest), {
-    text: "Suggested inspect, check · shown in WORDS",
+    text: "Suggested inspect, check",
     context: raw,
   });
   assert.equal(
     wordsTaskReply('{"synonyms":["inspect","check","see","observe"]}', suggest).text,
-    "Suggested 4 words · shown in WORDS",
+    "Suggested 4 words",
   );
   const predict = { kind: "predict", room: 1, roomName: "Meadow" } as const;
   assert.equal(
     wordsTaskReply('{"commands":["look tree","look tree",{}]}', predict).text,
-    "Predicted 1 command · see Players will likely try in Meadow",
+    "Predicted 1 command players will try in Meadow",
   );
   assert.equal(
     wordsTaskReply(
@@ -54,11 +44,11 @@ test("word task replies summarize usable suggestions and keep the exact raw repl
       }),
       predict,
     ).text,
-    "Predicted 12 commands · see Players will likely try in Meadow",
+    "Predicted 12 commands players will try in Meadow",
   );
   assert.equal(
     wordsTaskReply('{"commands":["look tree","climb tree"]}', { kind: "predict", room: 7 }).text,
-    "Predicted 2 commands · see Players will likely try in ROOM 7",
+    "Predicted 2 commands players will try in Room 7",
   );
 });
 
@@ -81,10 +71,6 @@ test("unreadable and empty word replies name the problem and the action to retry
   assert.equal(
     wordsTaskReply('{"commands":[]}', { kind: "predict", room: 1 }).text,
     "The reply contained no usable commands. Try ✦ Suggest sentences again.",
-  );
-  assert.deepEqual(
-    wordsTaskReply("Ready for review.", { kind: "review", room: 1, commands: ["look tree"] }),
-    { text: "Ready for review." },
   );
 });
 

@@ -1,3 +1,6 @@
+import type { RoomEntryState } from "../../../src/runtime/roomEntry.ts";
+import type { RoomLaunchRequest } from "./roomLaunch.ts";
+import type { HostRngState } from "../../../src/runtime/rng.ts";
 import type { PortableProjectWorkspace } from "../../../src/authoring/projectWorkspace.ts";
 import type { ResourceRevision } from "../../../src/gameIdentity.ts";
 /**
@@ -153,11 +156,11 @@ export type SourceBindingKind = BindingKind | "string";
 
 // ---------- same-Engine Play-preview admission protocol ----------
 //
-// A frozen-test boot may grant the play-preview lane (`lane:
-// "play-preview"`): the attached session then also owns live update
-// authority for the physical run the boot minted, named by its `runToken`.
-// Every `previewUpdate` settles in exactly one `previewUpdateResult`; a
-// `previewUpdateStatus` query is a read-only reconciliation answer.
+// A `projectMode: "create"` boot grants the play-preview lane: the MAIN run
+// then owns live update authority for the physical run the boot minted,
+// named by its `runToken`. Every `previewUpdate` settles in exactly one
+// `previewUpdateResult`; a `previewUpdateStatus` query is a read-only
+// reconciliation answer.
 
 /**
  * The identity tuple a preview request pins and a result reports: the
@@ -165,7 +168,7 @@ export type SourceBindingKind = BindingKind | "string";
  * resource revision and the lane-local update serial.
  */
 export interface PreviewLaneIdentity {
-  /** Complete project document identity; legacy isolated previews omit it. */
+  /** Complete project document identity, set once the lane installed a document set. */
   documentId?: string;
   epoch: number;
   buildId: string;
@@ -209,40 +212,6 @@ export interface PreviewUpdateCandidateMessage {
   origins: { key: string; version: number }[];
 }
 
-/**
- * Isolated-test admission policy, consumed synchronously inside the boot
- * branch BEFORE any timer, input, sound clock or logic runs: the debugger
- * attaches under the verified build, the initial breakpoint/watchpoint
- * configuration lands atomically, and (unless `stopOnEntry` is explicitly
- * false) the engine latches an idle stop — `booted` posts only after all of
- * it. A refused admission posts `debugError` under `id` and never falls back
- * to running play: no timers start and no `booted` is posted. The policy
- * also pins room authoring off and disables ordinary history recording and
- * autosave for the run.
- */
-export interface FrozenTestBoot {
-  /** Correlates the admission replies (debugAttached / debugConfigured / debugAck / debugError). */
-  id: number;
-  /**
-   * The lane this isolated run serves. Absent or `"debug"` is the frozen
-   * test session; `"play-preview"` additionally grants same-Engine preview
-   * update authority — the `debugAttached` reply then carries the run's
-   * `preview` block (token + lane identity) the update protocol pins.
-   * `stopOnEntry:false` alone does not grant the lane.
-   */
-  lane?: "debug" | "play-preview";
-  /** Authored source per LOGIC number (string keys); each must reproduce the booted bytes. */
-  sources?: Record<string, string>;
-  /** The complete authored binding map — every kind, verified as the capture identity. */
-  sourceBindings?: Record<string, { kind: SourceBindingKind; num: number }>;
-  /** The expression-evaluator subview of sourceBindings; must agree exactly where they overlap. */
-  bindings?: Record<string, { kind: "variable" | "flag" | "string"; num: number }>;
-  breakpoints?: DebugBreakpointSpec[];
-  watchpoints?: DebugWatchSpec[];
-  /** Latch the pre-first-cycle idle stop at admission (default true). */
-  stopOnEntry?: boolean;
-}
-
 export interface BootMessage {
   amigaRegion?: "ntsc" | "pal";
   type: "boot";
@@ -271,25 +240,20 @@ export interface BootMessage {
    */
   restoreImage?: string;
   restoreMenus?: EngineMenuState;
+  restoreRng?: HostRngState;
   /** Test-mode host clock and reproducible random input. */
   replaySeed?: number;
+  replayRngVersion?: 1 | 2;
   /**
    * Live-session PRNG seed for the recorded history stream — the original's
    * 16-bit word (docs/fidelity.md, "Original RNG"); recorded into the
-   * segment's boot so the same random sequence replays offline. Under a
-   * frozenTest policy it seeds the run's RNG directly.
+   * segment's boot so the same random sequence replays offline.
    */
   rngSeed?: number;
-  /**
-   * Isolated-test admission: when present the boot is a frozen test run —
-   * debugger attached, configured and paused before the first tick, room
-   * authoring pinned off, history/autosave disabled. Replay seeds, autosave
-   * resume images and session ids are refused: a test run boots the actual
-   * LOGIC 0 of the shipped build, never a parked continuation.
-   */
-  frozenTest?: FrozenTestBoot;
   /** Explicit live authoring authority for the MAIN run. */
   projectMode?: "create";
+  /** Play progress remains durable; Create keeps its opening checkpoint. */
+  progressMode?: "create" | "play";
   projectDocuments?: PortableProjectWorkspace;
   projectHistory?: PortableProjectHistory;
 }
@@ -305,7 +269,10 @@ export interface PatchResource {
 }
 
 export type WorkerInbound =
+  | { type: "playOwner"; active: boolean; generation: number; epoch?: number }
   | { type: "observeSentences"; enabled: boolean }
+  /** Choosing Play restores the moment captured on entry to Create. */
+  | { type: "projectPlay"; id?: number; restart?: boolean }
   | BootMessage
   | { type: "pause"; paused: boolean }
   | { type: "key"; code: number; sessionId?: number }
@@ -319,7 +286,7 @@ export type WorkerInbound =
   | { type: "input"; text: string }
   | { type: "edit"; text: string }
   | { type: "dismissPrint" }
-  | { type: "hostAnswer"; id: number; response: string }
+  | { type: "hostAnswer"; generation: number; id: number; response: string }
   | { type: "reenter"; room?: number }
   /**
    * Play here: enter `room`, run its entry cycle and place ego's baseline at
@@ -333,6 +300,13 @@ export type WorkerInbound =
       y: number;
       /** Create visits use the room's placement and keep an exact return point. */
       visit?: "start" | "back";
+      /** A Create launch applies sparse inputs before LOGIC 0, or cold-boots. */
+      launch?: {
+        state?: RoomEntryState;
+        beginning?: boolean;
+        debug?: boolean;
+        fromMyGame?: boolean;
+      };
     }
   /**
    * Replace every listed resource, or none: the worker stages the whole set
@@ -372,7 +346,14 @@ export type WorkerInbound =
       renderFinal?: boolean;
       fullState?: boolean;
     }
-  | { type: "resetReplay"; seed?: number; seeking?: boolean; sessionId?: number }
+  | { type: "replayPause"; id: number; sessionId: number }
+  | {
+      type: "resetReplay";
+      seed?: number;
+      seeking?: boolean;
+      sessionId?: number;
+      rngVersion?: 1 | 2;
+    }
   /**
    * Record a restore point at the replay's current position — sent by the
    * runner at each walkthrough checkpoint so a backward seek replays only
@@ -390,6 +371,7 @@ export type WorkerInbound =
   | { type: "renderFrame" }
   | { type: "soundEnabled"; enabled: boolean }
   | { type: "soundDevice"; device: number }
+  | { type: "authorRooms"; enabled: boolean }
   | { type: "debug"; channels?: DebugChannels }
   | { type: "debugWrite"; id: number; vars?: [number, number][]; flags?: [number, number][] }
   | { type: "debugTrace"; id: number; since?: number }
@@ -563,8 +545,8 @@ export type WorkerInbound =
   | { type: "authoring"; snapshot: Record<string, unknown> }
   /**
    * Project admission pins one complete candidate to the running identity.
-   * Create boots and isolated play-preview boots grant it; deliberate
-   * restart and room-entry actions require Create authority. Every settled request is
+   * Create boots grant it; deliberate restart and room-entry actions require
+   * Create authority. Every settled request is
    * answered by exactly one `previewUpdateResult`. `id` is a strictly
    * increasing run-local transaction id; the exact request digest dedupes
    * retransmission, so a duplicate replays its settled outcome and an id
@@ -576,7 +558,8 @@ export type WorkerInbound =
       runToken: string;
       expected: PreviewLaneIdentity;
       candidate: PreviewUpdateCandidateMessage;
-      mode?: "restart" | "reenter";
+      mode?: "restart" | "reenter" | "keep" | "adoptRoom";
+      launch?: RoomLaunchRequest;
     }
   /**
    * Read-only reconciliation: reports the lane's actual current identity —
@@ -592,6 +575,7 @@ export type WorkerInbound =
   | {
       type: "projectCreate";
       id: number;
+      progressMode?: "create" | "play";
       documents?: PortableProjectWorkspace;
       history?: PortableProjectHistory;
     };
@@ -605,11 +589,12 @@ export type WorkerControl =
   | { type: "paused"; paused: boolean; cycle: number }
   | {
       type: "hostRequest";
+      generation: number;
       id: number;
       op: HostRequestOp;
       context: Record<string, unknown>;
     }
-  | { type: "interactionCancelled"; id: number; op: string }
+  | { type: "interactionCancelled"; generation: number; id: number; op: string }
   | {
       type: "replay";
       sessionId: number;
@@ -684,6 +669,7 @@ export type WorkerControl =
       id: number;
       taken: boolean;
       cycle: number;
+      temporary?: true;
     }
   | { type: "metadataPatched" }
   /**
@@ -764,18 +750,12 @@ export type WorkerControl =
       resourceSet?: string;
     }
   // ---------- execution-controller replies and events ----------
-  /**
-   * The attach handshake: session epoch and verified build identity. On a
-   * play-preview boot the `preview` block reports the granted lane's own
-   * identity — its physical run token and the tuple every previewUpdate
-   * pins its `expected` claim against.
-   */
+  /** The attach handshake: session epoch and verified build identity. */
   | {
       type: "debugAttached";
       id: number;
       epoch: number;
       buildId: string;
-      preview?: PreviewLaneIdentity & { runToken: string };
     }
   /** Success reply for detach/pause/resume/runTo. */
   | { type: "debugAck"; id: number; epoch: number; buildId: string }
@@ -842,6 +822,8 @@ export type WorkerControl =
       boundarySeq: number | null;
       cause: ExecutionCause;
       location: ExecutionBoundary | null;
+      /** Last executed LOGIC instruction in this run, for paused inline values. */
+      previousLocation?: ExecutionBoundary | null;
       wait: ExecutionWaitKind | null;
       reasons: readonly DebugStopReason[];
       state: EngineStateReport;
@@ -874,6 +856,12 @@ export type WorkerControl =
    * `expected` echoes the request's claimed identity; `current` is always
    * the lane's actual recomputed identity.
    */
+  | {
+      type: "projectPlayed";
+      id: number;
+      ok: boolean;
+      reason?: string;
+    }
   | {
       type: "projectCreated";
       id: number;
@@ -955,6 +943,8 @@ export type WorkerPresentation =
   | { type: "showObj"; viewNum: number }
   | {
       type: "autosave";
+      writerGeneration?: number;
+      rng?: HostRngState;
       image: string;
       revision?: ResourceRevision;
       menus: EngineMenuState;
@@ -1026,6 +1016,7 @@ export type WorkerOutbound = WorkerControl | WorkerPresentation;
  * waiter table because a flush can outlive the caller's await (pagehide).
  */
 interface WorkerQueryReplies {
+  projectPlay: Extract<WorkerControl, { type: "projectPlayed" }>;
   projectCreate: Extract<WorkerControl, { type: "projectCreated" }>;
   state: Extract<WorkerControl, { type: "engineState" }>;
   objects: Extract<WorkerControl, { type: "objects" }>;
@@ -1036,6 +1027,7 @@ interface WorkerQueryReplies {
   stopRecording: Extract<WorkerControl, { type: "recordingStopped" }>;
   replayAdvance: Extract<WorkerControl, { type: "replay" }>;
   replayRestore: Extract<WorkerControl, { type: "replay" }>;
+  replayPause: Extract<WorkerControl, { type: "replay" }>;
   historyViewStart: Extract<WorkerControl, { type: "historyView" }>;
   historyViewSeek: Extract<WorkerControl, { type: "historyView" }>;
   historyViewAdvance: Extract<WorkerControl, { type: "historyView" }>;
@@ -1065,6 +1057,7 @@ export type WorkerQueryType = keyof WorkerQueryReplies;
 
 /** The value a reply resolves its pending query with. */
 export interface WorkerQueryPayload {
+  projectPlay: WorkerQueryReplies["projectPlay"];
   projectCreate: WorkerQueryReplies["projectCreate"];
   state: WorkerQueryReplies["state"]["state"];
   objects: WorkerQueryReplies["objects"]["objects"];
@@ -1075,6 +1068,7 @@ export interface WorkerQueryPayload {
   stopRecording: WorkerQueryReplies["stopRecording"];
   replayAdvance: WorkerQueryReplies["replayAdvance"]["observation"];
   replayRestore: WorkerQueryReplies["replayRestore"]["observation"];
+  replayPause: WorkerQueryReplies["replayPause"]["observation"];
   historyViewStart: WorkerQueryReplies["historyViewStart"];
   historyViewSeek: WorkerQueryReplies["historyViewSeek"];
   historyViewAdvance: WorkerQueryReplies["historyViewAdvance"];

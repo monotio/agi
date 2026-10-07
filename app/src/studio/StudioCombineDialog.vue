@@ -11,11 +11,7 @@ import UiDialog from "../ui/UiDialog.vue";
  * to include them; loose drawing between them rules it out. The picture's
  * bytes never change, only its notes.
  */
-const {
-  count,
-  between,
-  loose = false,
-} = defineProps<{
+const { between, loose = false } = defineProps<{
   /** How many items are selected. */
   count: number;
   /** Labels of the items drawn between the selected ones, in draw order. */
@@ -47,7 +43,7 @@ function make(): void {
     v-model:open="open"
     size="sm"
     title="Group"
-    :description="`The ${count} selected items become one group in the Scene list. The picture stays exactly as it is.`"
+    description="Combines the selected items in the Items list."
   >
     <form class="combine" data-testid="combine-dialog" @submit.prevent="make">
       <label class="combine__label" :for="fieldId">Name</label>

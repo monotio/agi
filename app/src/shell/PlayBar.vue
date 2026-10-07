@@ -1,13 +1,16 @@
 <script setup lang="ts">
+import { numberedLabel } from "../../../src/logic/numberedLabels.ts";
+import { useProjectLabels } from "./useProjectLabels.ts";
 import { VOCABULARY } from "../../../src/vocabulary.ts";
 /**
  * The in-game top bar: back to Home, the game and its current room, the
  * Play | Create switch, and the player's tools — world map, the game's own
  * save and restore, help and the settings sheet. Dialogs live in GameHeader;
- * this bar only asks for them.
+ * this bar only asks for them. A blank game (no start-up LOGIC yet) shows the
+ * same bar in Create, with the tools that need a running game disabled.
  */
-import { computed, ref } from "vue";
-import UiDialog from "../ui/UiDialog.vue";
+import { computed } from "vue";
+import WorkspaceAction from "./WorkspaceAction.vue";
 import ActionMenu from "../ui/ActionMenu.vue";
 import UiButton from "../ui/UiButton.vue";
 import UiChip from "../ui/UiChip.vue";
@@ -21,9 +24,14 @@ import { hasWalkthrough } from "../walkthrough/walkthrough.ts";
 import { useShell, type ShellMode } from "./useShell.ts";
 import { useGameLibrary } from "../library/useGameLibrary.ts";
 
-const { settingsOpen } = defineProps<{ settingsOpen: boolean }>();
+const { settingsOpen, blank = undefined } = defineProps<{
+  settingsOpen: boolean;
+  /** The title of a game with no start-up LOGIC yet: Create shows it with nothing to run. */
+  blank?: string | undefined;
+}>();
 const emit = defineEmits<{
   exit: [];
+  agent: [];
   settings: [trigger: HTMLElement];
   "help-guide": [];
   "keyboard-shortcuts": [];
@@ -31,21 +39,13 @@ const emit = defineEmits<{
   "trigger-key": [code: number];
   "start-walkthrough": [alias: string];
 }>();
+const labels = useProjectLabels();
 
 const { state, currentGame, getBootedGame, roomMap, closePowerUp } = useEngineApi();
 const { identityTitle } = useGameLibrary();
 const shell = useShell();
 const commands = useOptionalCommands();
 const editor = useWorkspaceEditor();
-const discardOpen = ref(false);
-async function discardChanges(): Promise<void> {
-  try {
-    await editor.discardDrafts.value?.();
-    discardOpen.value = false;
-  } catch (cause) {
-    editor.error.value = cause instanceof Error ? cause.message : String(cause);
-  }
-}
 function toggleParts(): void {
   if (state.powerUp.open) closePowerUp();
   editor.focus.value = false;
@@ -63,8 +63,10 @@ const game = computed(() => {
   return currentGame();
 });
 const roomLabel = computed(() => {
+  // A blank game has no running engine, so no room map yet.
+  if (blank !== undefined) return "";
   const room = roomMap.currentRoom.value;
-  return room !== null && room > 0 ? `Room ${room}` : "";
+  return room !== null && room > 0 ? numberedLabel("room", room, labels.value, "row") : "";
 });
 const originLabel = computed(() => {
   void state.patchTick;
@@ -75,15 +77,24 @@ const originLabel = computed(() => {
 });
 
 const mode = computed<ShellMode>({
-  get: () => shell.mode.value,
+  get: () => (blank === undefined ? shell.mode.value : "create"),
   set: (next) => shell.setMode(next),
 });
 const modes = computed(() => [
-  { value: "play" as const, label: "Play" },
+  {
+    value: "play" as const,
+    label: "Play",
+    disabled: blank !== undefined || state.walkthrough.active || state.historyView.active,
+  },
   {
     value: "create" as const,
     label: "Create",
-    disabled: !shell.createAvailable.value || state.powerUp.busy,
+    disabled:
+      blank === undefined &&
+      (!shell.createAvailable.value ||
+        state.powerUp.busy ||
+        state.walkthrough.active ||
+        state.historyView.active),
   },
 ]);
 
@@ -103,18 +114,6 @@ const shortcutsBlocked = computed(
 </script>
 
 <template>
-  <UiDialog
-    v-model:open="discardOpen"
-    title="Discard changes?"
-    description="Your parts return to the game's last update."
-  >
-    <template #footer
-      ><UiButton variant="ghost" @click="discardOpen = false">Cancel</UiButton
-      ><UiButton :disabled="editor.busy.value" @click="discardChanges"
-        >Discard changes</UiButton
-      ></template
-    >
-  </UiDialog>
   <header class="play-bar" data-shell-keys>
     <nav class="play-bar__nav" aria-label="App options">
       <UiIconButton
@@ -125,7 +124,7 @@ const shortcutsBlocked = computed(
         @click="emit('exit')"
       />
       <div class="play-bar__title">
-        <h1 class="play-bar__game">{{ game?.title ?? "AGI IS HERE" }}</h1>
+        <h1 class="play-bar__game">{{ blank ?? game?.title ?? "AGI IS HERE" }}</h1>
         <span v-if="originLabel" class="play-bar__room" data-testid="play-origin">{{
           originLabel
         }}</span>
@@ -139,30 +138,38 @@ const shortcutsBlocked = computed(
         variant="ghost"
         data-testid="workspace-saved"
         :title="
-          editor.readOnly.value
+          blank === undefined && editor.readOnly.value
             ? editor.save.value
             : editor.save.value.startsWith('Draft')
               ? 'Your draft saves in this browser.'
               : VOCABULARY.saved.help
         "
         @click="
-          editor.save.value === 'Could not save. Retry'
-            ? editor.retry.value?.().catch(() => {})
-            : (editor.history.value = !editor.history.value)
+          blank !== undefined
+            ? undefined
+            : editor.save.value === 'Could not save. Retry'
+              ? editor.retry.value?.().catch(() => {})
+              : (editor.history.value = !editor.history.value)
         "
         ><UiChip
           :tone="
-            editor.save.value === 'Saved' || editor.save.value === 'Draft saved' ? 'ok' : 'warn'
+            blank !== undefined ||
+            editor.save.value === 'Saved' ||
+            editor.save.value === 'Draft saved'
+              ? 'ok'
+              : 'warn'
           "
           dot
           >{{
-            state.projectRemoved || editor.save.value.startsWith("This project was removed")
-              ? "Project removed"
-              : state.staleTab || editor.save.value.startsWith("Changed in another tab")
-                ? "Changed in another tab"
-                : editor.readOnly.value
-                  ? "Read-only"
-                  : editor.save.value
+            blank !== undefined
+              ? "Saved"
+              : state.projectRemoved || editor.save.value.startsWith("This project was removed")
+                ? "Project removed"
+                : state.staleTab || editor.save.value.startsWith("Changed in another tab")
+                  ? "Changed in another tab"
+                  : editor.readOnly.value
+                    ? "Read-only"
+                    : editor.save.value
           }}</UiChip
         ></UiButton
       >
@@ -174,53 +181,18 @@ const shortcutsBlocked = computed(
         {{ editor.changeCount.value === 1 ? "change" : "changes" }} not in the game yet</span
       >
       <span
-        v-else-if="editor.updatedParts.value && mode === 'create'"
+        v-else-if="editor.updateResult.value && mode === 'create'"
         class="play-bar__pending"
         data-testid="workspace-updated"
-        >Updated · {{ editor.updatedParts.value }}
-        {{ editor.updatedParts.value === 1 ? "part" : "parts" }} ·
+        >{{ editor.updateResult.value }} ·
         <button type="button" aria-label="Undo update" @click="editor.step('undo')">
           Undo
         </button></span
       >
-      <div v-if="mode === 'create' || editor.changeCount.value" class="play-bar__update">
-        <UiButton
-          size="sm"
-          data-testid="workspace-update"
-          :disabled="
-            editor.busy.value ||
-            editor.readOnly.value ||
-            (!editor.changeCount.value && !editor.problemCount.value)
-          "
-          title="Update game (⌘↵ / Ctrl+Enter)"
-          @click="editor.update.value?.()"
-          >{{
-            editor.problemCount.value
-              ? `${editor.problemCount.value} ${editor.problemCount.value === 1 ? "problem" : "problems"}`
-              : "Update game"
-          }}</UiButton
-        >
-        <ActionMenu
-          v-if="mode === 'create'"
-          label="Update options"
-          test-id="workspace-update-menu"
-          icon-only
-          size="sm"
-          :disabled="editor.busy.value || editor.readOnly.value"
-        >
-          <button type="button" role="menuitem" @click="editor.update.value?.(true)">
-            Update and play this room
-          </button>
-          <button
-            type="button"
-            role="menuitem"
-            :disabled="!editor.changeCount.value"
-            @click="discardOpen = true"
-          >
-            Discard changes…
-          </button>
-        </ActionMenu>
-      </div>
+      <WorkspaceAction
+        v-if="blank === undefined && (mode === 'create' || editor.changeCount.value)"
+        class="play-bar__update"
+      />
       <UiSegmented v-model="mode" class="play-bar__modes" label="Mode" :options="modes" />
       <div class="play-bar__actions">
         <template v-if="mode === 'create'">
@@ -238,7 +210,7 @@ const shortcutsBlocked = computed(
             label="Undo"
             :title="VOCABULARY.undo.help"
             data-testid="workspace-undo"
-            :disabled="!editor.canUndo.value || editor.busy.value"
+            :disabled="blank !== undefined || !editor.canUndo.value || editor.busy.value"
             @click="editor.step('undo')"
           />
           <UiIconButton
@@ -246,7 +218,7 @@ const shortcutsBlocked = computed(
             label="Redo"
             :title="VOCABULARY.redo.help"
             data-testid="workspace-redo"
-            :disabled="!editor.canRedo.value || editor.busy.value"
+            :disabled="blank !== undefined || !editor.canRedo.value || editor.busy.value"
             @click="editor.step('redo')"
           />
           <UiButton
@@ -254,15 +226,25 @@ const shortcutsBlocked = computed(
             variant="ghost"
             icon="sparkles"
             aria-label="Agent"
+            :aria-pressed="state.powerUp.open"
             data-testid="workspace-agent"
             :title="`${VOCABULARY.agent.help} (⌘I)`"
-            :disabled="!commands?.commands.value.some((command) => command.id === 'agent.focus')"
-            @click="commands?.execute('agent.focus')"
+            :disabled="
+              blank === undefined &&
+              !commands?.commands.value.some((command) => command.id === 'agent.focus')
+            "
+            @click="blank === undefined ? commands?.execute('agent.focus') : emit('agent')"
             >Agent</UiButton
           >
         </template>
-        <UiIconButton icon="map" label="World map" data-testid="btn-world-map" @click="showMap" />
-        <ActionMenu label="Save or restore" icon-only icon="save">
+        <UiIconButton
+          icon="map"
+          label="World map"
+          data-testid="btn-world-map"
+          :disabled="blank !== undefined"
+          @click="showMap"
+        />
+        <ActionMenu label="Save or restore" icon-only icon="save" :disabled="blank !== undefined">
           <button
             v-for="shortcut in saveShortcuts"
             :key="shortcut.key"
@@ -290,7 +272,7 @@ const shortcutsBlocked = computed(
             data-testid="btn-help-guide"
             @click="emit('help-guide')"
           >
-            <span>Help guide<small>Playing, creating and your games</small></span>
+            <span>Help guide</span>
           </button>
           <button
             v-if="commands?.commands.value.length"
@@ -305,9 +287,10 @@ const shortcutsBlocked = computed(
             type="button"
             role="menuitem"
             data-testid="btn-game-controls"
+            :disabled="blank !== undefined"
             @click="emit('controls')"
           >
-            <span>Game controls<small>Movement, input and this game's keys</small></span>
+            <span>Game controls</span>
           </button>
           <button
             v-if="hasWalkthrough(game?.revision ?? '') && !state.walkthrough.active && game?.alias"
@@ -388,6 +371,12 @@ const shortcutsBlocked = computed(
   flex: 1;
   min-width: 0;
   line-height: var(--leading-tight);
+}
+/* The game's name keeps a few letters beside a long action and its pending note. */
+@media (min-width: 601px) {
+  .play-bar__title {
+    min-width: 5rem;
+  }
 }
 .play-bar__game {
   margin: 0;

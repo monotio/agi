@@ -18,7 +18,7 @@ export interface Location {
   uri: string;
   range: Range;
 }
-interface TextEdit {
+export interface TextEdit {
   range: Range;
   newText: string;
 }
@@ -43,6 +43,7 @@ interface SymbolInformation {
   location: Location;
 }
 interface CompletionItem {
+  sortText?: string;
   label: string;
   detail: string;
   textEdit: TextEdit;
@@ -52,7 +53,20 @@ interface SignatureHelp {
   activeSignature: number;
   activeParameter: number;
 }
+/** A detached paused snapshot supplied by a debugger host for one document. */
+export interface LogicDebugState {
+  readonly vars: readonly number[];
+  readonly flags: readonly number[];
+  /** Zero-based source lines: the resume point and last executed instruction. */
+  readonly lines: readonly number[];
+}
+export interface LogicDebugValue {
+  readonly kind: "variable" | "flag";
+  readonly slot: number;
+  readonly text: string;
+}
 interface Hover {
+  debugValue?: LogicDebugValue;
   contents: { kind: "markdown"; value: string };
   range: Range;
 }
@@ -80,6 +94,7 @@ interface DiagnosticReport {
   items: Diagnostic[];
 }
 export interface LspOperations {
+  "textDocument/formatting": TextEdit[];
   "agi/bindings": BindingInfo[];
   "agi/renameBinding": WorkspaceEdit;
   "agi/bindingInfo": BindingInfo | null;
@@ -87,7 +102,7 @@ export interface LspOperations {
   "textDocument/completion": CompletionItem[] | null;
   "textDocument/signatureHelp": SignatureHelp | null;
   "textDocument/hover": Hover | null;
-  "textDocument/definition": Location | null;
+  "textDocument/definition": Location | Location[] | null;
   "textDocument/references": Location[] | null;
   "textDocument/prepareRename": { range: Range; placeholder: string } | null;
   "textDocument/rename": WorkspaceEdit | null;

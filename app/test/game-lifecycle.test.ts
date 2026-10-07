@@ -19,6 +19,7 @@ import {
 import { gameRevision } from "../src/project/gameMetadata.ts";
 import { bindProgressTarget } from "../src/project/progressBinding.ts";
 import { createContainer } from "../../src/container/container.ts";
+import { installedProgressTarget } from "../src/project/progressTarget.ts";
 import type { BootedGame, ProjectId } from "../src/project/gameTypes.ts";
 
 installIndexedDbFixture();
@@ -353,7 +354,7 @@ test("Exit leaves quietly when the current moment cannot be checkpointed", async
 test("Exit still refuses when browser storage fails or the autosave times out", async () => {
   for (const status of ["storage_failure", "timeout"]) {
     const { calls, state, lifecycle } = quitHarness({ status });
-    await assert.rejects(lifecycle.ejectGame(), /Settings → This game → Download game…/);
+    await assert.rejects(lifecycle.ejectGame(), /Settings → This game → Download…/);
     assert.deepEqual(calls, ["flush"], `${status} keeps the game running`);
     assert.equal(state.leaving, false);
   }
@@ -363,6 +364,7 @@ test("Exit still refuses when browser storage fails or the autosave times out", 
 function bootHarness(overrides: Partial<GameLifecycleOptions> = {}) {
   const workers: { posted: unknown[]; postMessage(m: unknown): void }[] = [];
   const sessions: unknown[] = [];
+  let currentWorker: (typeof workers)[number] | null = null;
   const noop = () => {};
   const state = {
     loading: null as unknown,
@@ -389,9 +391,13 @@ function bootHarness(overrides: Partial<GameLifecycleOptions> = {}) {
           terminate: noop,
         };
         workers.push(worker);
+        currentWorker = worker;
         return worker;
       },
-      terminateWorker: noop,
+      getWorker: () => currentWorker,
+      terminateWorker: () => {
+        currentWorker = null;
+      },
       drainPendingQueries: noop,
       clearShake: noop,
       query: async () => null,
@@ -399,7 +405,8 @@ function bootHarness(overrides: Partial<GameLifecycleOptions> = {}) {
     autosave: {
       // Ordinary boots only: no resume intent is armed here, so a foreign
       // carrier refuses the gate and admission defers to its dead intent.
-      beginResumeBoot: (carrier?: ResumeBootCarrier) => carrier === undefined,
+      beginResumeBoot: (carrier?: ResumeBootCarrier) =>
+        carrier === undefined || carrier.isCurrent(),
       takeResumeState: async (boot: ResumeBootCandidate, carrier?: ResumeBootCarrier) =>
         carrier === undefined ? { status: "none" as const } : carrier.admit(boot),
       resetScreen: noop,
@@ -432,10 +439,84 @@ function bootHarness(overrides: Partial<GameLifecycleOptions> = {}) {
     stopHistoryWriter: noop,
     ...overrides,
   } as unknown as GameLifecycleOptions);
-  return { lifecycle, workers, sessions, state };
+  return {
+    lifecycle,
+    workers,
+    sessions,
+    state,
+    replaceWorker: () => {
+      currentWorker = { posted: [], postMessage: () => {} };
+    },
+  };
 }
 
 const STUB_CONFIG = { provider: "stub" as const, apiKey: "", model: "offline-stub" };
+
+for (const path of ["installed", "cached"] as const) {
+  test(`${path} boot shows a checkpoint refusal after its carrier settles`, async (t) => {
+    const id = testProjectId(`refused-carrier-${path}`);
+    await saveBody(id, 11);
+    t.after(() => clearCachedGame(id));
+    const originalFetch = globalThis.fetch;
+    t.after(() => {
+      globalThis.fetch = originalFetch;
+    });
+    globalThis.fetch = async (input) =>
+      String(input).endsWith("/")
+        ? new Response(JSON.stringify(["WORDS.TOK"]))
+        : new Response(new Uint8Array(52));
+    let current = true;
+    const carrier: ResumeBootCarrier = {
+      isCurrent: () => current,
+      admit: async () => {
+        current = false;
+        return { status: "aborted", message: "The checkpoint could not be restored: truncated" };
+      },
+    };
+    const { lifecycle, state, workers } = bootHarness({ devFixtures: true });
+    if (path === "installed") await lifecycle.bootGame("synthetic", carrier);
+    else
+      await lifecycle.bootAuthoredGame("", STUB_CONFIG, {
+        projectId: id,
+        useCached: true,
+        resumeCarrier: carrier,
+      });
+    assert.equal(state.phase, "error");
+    assert.match(state.error, /checkpoint could not be restored: truncated/);
+    assert.equal(workers.length, 0);
+  });
+}
+
+for (const path of ["installed", "cached"] as const) {
+  test(`${path} opening settles ownership before replacing the surface that admitted it`, async (t) => {
+    const id = testProjectId(`opening-surface-${path}`);
+    await saveBody(id, 11);
+    t.after(() => clearCachedGame(id));
+    const originalFetch = globalThis.fetch;
+    t.after(() => {
+      globalThis.fetch = originalFetch;
+    });
+    globalThis.fetch = async (input) =>
+      String(input).endsWith("/")
+        ? new Response(JSON.stringify(["WORDS.TOK"]))
+        : new Response(new Uint8Array(52));
+    const { lifecycle, workers } = bootHarness({
+      devFixtures: true,
+      acquirePlayOwnership: async () => {},
+    });
+    // Replacing a worker clears the Home quit note that owns Play again.
+    const opening = { isCurrent: () => workers.length === 0 };
+    if (path === "installed") await lifecycle.bootGame("synthetic", undefined, opening);
+    else
+      await lifecycle.bootAuthoredGame("", STUB_CONFIG, {
+        projectId: id,
+        useCached: true,
+        opening,
+      });
+    assert.equal(workers.length, 1);
+    assert.equal(workers[0]!.posted.length, 1, "the admitted worker receives its boot");
+  });
+}
 
 test("Exit ignores a project flush that answers after the physical session is retired", async () => {
   let release: (() => void) | undefined;
@@ -612,6 +693,7 @@ for (const replacement of ["installed", "authored"] as const) {
       state,
       devFixtures: true,
       autosave: { beginResumeBoot: () => true },
+      link: { getWorker: () => null },
       flushProject: async () => {
         throw new Error("Could not save notes. Retry the save.");
       },
@@ -632,4 +714,171 @@ for (const replacement of ["installed", "authored"] as const) {
     assert.equal(state.loading, null);
     assert.equal(state.error, "");
   });
+}
+
+for (const path of ["installed", "fresh", "authored", "authored lazy", "cached"] as const) {
+  const actions = [
+    "supersede",
+    "shutdown",
+    "reject",
+    "retire intent",
+    "replace worker",
+    "replace game",
+    "superseded rejection",
+    ...(path === "installed" || path === "cached" ? ["retire resume" as const] : []),
+  ] as const;
+  for (const action of actions) {
+    test(`${path} boot stops after ownership ${action}`, async (t) => {
+      const id = testProjectId(
+        `ownership-${path.replaceAll(" ", "-")}-${action.replaceAll(" ", "-")}`,
+      );
+      const nextId = testProjectId(`${id}-next`);
+      t.after(async () => {
+        await clearCachedGame(id);
+        await clearCachedGame(nextId);
+      });
+      await saveBody(id, 11);
+      await saveBody(nextId, 22);
+      const files = { "WORDS.TOK": new Uint8Array(52) };
+      const revision = await gameRevision(files);
+      const target = installedProgressTarget({ folder: "synthetic" }, revision)!;
+      const originalFetch = globalThis.fetch;
+      t.after(() => {
+        globalThis.fetch = originalFetch;
+      });
+      globalThis.fetch = async (input) =>
+        String(input).endsWith("/")
+          ? new Response(JSON.stringify(Object.keys(files)))
+          : new Response(files["WORDS.TOK"]);
+      let release!: () => void;
+      let reject!: (e: Error) => void;
+      let entered!: () => void;
+      const waiting = new Promise<void>((resolve) => {
+        entered = resolve;
+      });
+      const held = new Promise<void>((yes, no) => {
+        release = yes;
+        reject = no;
+      });
+      let current = true;
+      let commits = 0;
+      const audio: number[] = [];
+      const attached: unknown[] = [];
+      const { lifecycle, workers, state, replaceWorker } = bootHarness({
+        devFixtures: true,
+        audio: {
+          useGameFiles: (f: Record<string, Uint8Array>) => audio.push(f["WORDS.TOK"]![0]!),
+          stop: () => {},
+          setPaused: () => {},
+        } as never,
+        ensureAuthoring: async () => {
+          entered();
+          await held;
+          return {
+            attachSessionRuntime: (s: unknown) => attached.push(s),
+            postSessionSnapshot: () => {},
+          } as never;
+        },
+        acquirePlayOwnership: async (game) => {
+          if (path !== "authored lazy" && game.projectId !== nextId) {
+            entered();
+            await held;
+          }
+        },
+        authoring:
+          path === "authored lazy"
+            ? null
+            : ({
+                getSession: () => null,
+                setSession: () => {},
+                resetSession: () => {},
+                attachSessionRuntime: (s: unknown) => attached.push(s),
+                postSessionSnapshot: () => {},
+              } as never),
+      });
+      const opening = action === "retire resume" ? undefined : { isCurrent: () => current };
+      const carrier =
+        action === "retire resume"
+          ? { isCurrent: () => current, admit: async () => ({ status: "none" as const }) }
+          : undefined;
+      const session = { getAuthoringState: () => ({}), getMessages: () => [] };
+      const boot =
+        path === "installed"
+          ? lifecycle.bootGame("synthetic", carrier, opening)
+          : path === "fresh"
+            ? lifecycle.bootInstalledFresh(
+                { kind: "installed", locator: target.locator, folder: "synthetic" },
+                {
+                  admitted: () => current,
+                  commit: () => {
+                    commits++;
+                  },
+                },
+              )
+            : path === "authored" || path === "authored lazy"
+              ? lifecycle.finishAuthoredBoot(
+                  session as never,
+                  { files, words: [], transcript: [], sessionId: "s1" },
+                  { projectId: id, title: id, config: STUB_CONFIG },
+                  undefined,
+                  () => current,
+                )
+              : lifecycle.bootAuthoredGame("", STUB_CONFIG, {
+                  projectId: id,
+                  useCached: true,
+                  ...(opening ? { opening } : {}),
+                  ...(carrier ? { resumeCarrier: carrier } : {}),
+                });
+      // Attach the rejection observer before releasing the controlled promise.
+      let failure: unknown;
+      const settled = boot.catch((error: unknown) => {
+        failure = error;
+      });
+      await waiting;
+      if (path === "fresh")
+        assert.equal(commits, 0, "fallible ownership precedes checkpoint deletion");
+      if (action === "supersede" || action === "superseded rejection")
+        await lifecycle.bootAuthoredGame("", STUB_CONFIG, { projectId: nextId, useCached: true });
+      else if (action === "shutdown") lifecycle.shutdownEngine();
+      else if (action === "retire intent" || action === "retire resume") {
+        current = false;
+      } else if (action === "replace worker") replaceWorker();
+      else if (action === "replace game")
+        lifecycle.setBootedGame({
+          installed: false,
+          title: "replacement",
+          revision,
+          files: {},
+          words: [],
+        });
+      const before = {
+        audio: [...audio],
+        messages: workers.map((w) => w.posted.length),
+        attached: attached.length,
+        phase: state.phase,
+        error: state.error,
+      };
+      if (action === "reject" || action === "superseded rejection")
+        reject(new Error("ownership refused"));
+      else release();
+      await settled;
+      assert.deepEqual(audio, before.audio, "retired or refused boots publish no audio");
+      assert.deepEqual(
+        workers.map((w) => w.posted.length),
+        before.messages,
+        "no boot reaches a retired worker",
+      );
+      assert.equal(attached.length, before.attached, "no stale runtime attaches");
+      if (path === "fresh") assert.equal(commits, 0);
+      if (action === "reject") {
+        if (path === "fresh" || path === "authored" || path === "authored lazy")
+          assert.match(String(failure), /ownership refused/);
+        else assert.match(state.error, /ownership refused/);
+      } else {
+        assert.equal(failure, undefined);
+        assert.equal(state.phase, before.phase);
+        assert.equal(state.error, before.error);
+      }
+    });
+  }
 }

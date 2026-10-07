@@ -6,7 +6,7 @@ copy.
 
 ## Building and serving
 
-Run `npm run build` and serve `app/dist` over HTTPS. Copy the security and cache
+Run `npm ci` at the root, then `npm run build`, and serve `app/dist` over HTTPS. Copy the security and cache
 headers from [app/staticwebapp.config.json](../app/staticwebapp.config.json):
 CSP, HSTS, `X-Content-Type-Options`, `Referrer-Policy`, `Permissions-Policy` and
 `Cache-Control`. Keep `https://api.openai.com` and `https://api.anthropic.com` in
@@ -79,6 +79,16 @@ missing or broken resources before play. Playing stores that release in the
 browser; later visits use the saved copy and checkpoint. Change the entry's
 version when you publish changed resources, so an existing player's saved
 release stays intact.
+
+## Upgrading to 1.2
+
+Existing 1.1 browser progress loads automatically in 1.2. The app adopts supported
+autosaves, save slots and visited-room maps into storage identities tied to the
+project lifetime or installed release, and retains the legacy records. Projects
+and private archives retain version 1 with optional workspace and History data;
+released recordings and recorded game tests remain readable through their
+version migrations. See [project storage and archives](../CONTRIBUTING.md#how-it-fits-together)
+for the format boundaries.
 
 ## Production releases
 

@@ -58,7 +58,8 @@ for (const size of [
       await page.getByTestId("agent-message").fill("Describe this room.");
       await page.getByRole("button", { name: "Send", exact: true }).click();
       await expect(page.getByTestId("agent-stop")).toBeVisible();
-      await expect(page.getByTestId("agent-spent")).toBeHidden();
+      await expect(page.getByTestId("agent-spent")).toBeVisible();
+      await expect(page.getByTestId("agent-spent")).toHaveText("$0.00 of $5 spent");
       release();
       await expect(page.getByTestId("agent-message")).toBeEnabled();
       await page.screenshot({
@@ -66,7 +67,7 @@ for (const size of [
         animations: "disabled",
       });
       await expect(page.getByTestId("agent-spent")).toBeVisible();
-      await expect(page.getByTestId("agent-spent")).toHaveText("Spent $0.07 of your $5.00 budget");
+      await expect(page.getByTestId("agent-spent")).toHaveText("$0.07 of $5 spent");
       await expect(panel.getByRole("link", { name: "See your usage", exact: true })).toBeVisible();
     } finally {
       release();
@@ -107,7 +108,12 @@ for (const size of [
       await page.getByTestId("generate-prompt").fill("A quiet clearing");
       await page.getByTestId("generate-review").click();
       await expect(page.getByTestId("generate-flight")).toBeVisible();
-      await expect(page.getByTestId("generate-spent")).toBeHidden();
+      await expect(page.getByTestId("generate-spent")).toBeVisible();
+      await expect(page.getByTestId("generate-spent")).toHaveText("$0.00 of $5 spent");
+      await page.screenshot({
+        path: test.info().outputPath(`spent-image-pending-${size.width}.png`),
+        animations: "disabled",
+      });
       release();
       await expect(page.getByTestId("generate-offer")).toBeVisible();
       await page.screenshot({
@@ -115,9 +121,7 @@ for (const size of [
         animations: "disabled",
       });
       await expect(page.getByTestId("generate-spent")).toBeVisible();
-      await expect(page.getByTestId("generate-spent")).toHaveText(
-        "Spent $0.07 of your $5.00 budget",
-      );
+      await expect(page.getByTestId("generate-spent")).toHaveText("$0.07 of $5 spent");
       await expect(
         page
           .getByTestId("generate-offer")
@@ -126,5 +130,48 @@ for (const size of [
     } finally {
       release();
     }
+  });
+}
+
+for (const action of ["Continue", "Stop"] as const) {
+  test(`image budget ${action} keeps the returned image @webkit-desktop`, async ({ page }) => {
+    await page.setViewportSize({ width: 1063, height: 815 });
+    await start(page);
+    let requests = 0;
+    await page.route("**/api/test-images/v1/images/generations", async (route) => {
+      requests++;
+      const pixels = new Uint8Array(1536 * 1024 * 4);
+      for (let i = 0; i < pixels.length; i += 4) pixels.set([0, 170, 170, 255], i);
+      await route.fulfill({
+        json: {
+          data: [{ b64_json: Buffer.from(encodePngRgba(1536, 1024, pixels)).toString("base64") }],
+          usage: {
+            input_tokens_details: { text_tokens: 0, image_tokens: 0 },
+            output_tokens: 170_667,
+          },
+        },
+      });
+    });
+    await page.getByTestId("part-room:1:picture:1").click();
+    await page.getByRole("button", { name: "Generate", exact: true }).click();
+    await page.getByTestId("generate-prompt").fill("A quiet clearing");
+    await page.getByTestId("generate-review").click();
+    await expect(page.getByTestId("generate-offer")).toBeVisible();
+    const pause = page.getByTestId("generate-budget");
+    await expect(pause).toBeVisible();
+    await expect(page.getByTestId("generate-spent")).toBeVisible();
+    await expect(page.getByTestId("generate-spent")).toHaveText("$5.12 of $5 spent");
+    expect(requests).toBe(1);
+    const preview = page.getByTestId("generate-preview");
+    await expect(preview).toBeVisible();
+    const image = await preview.getAttribute("src");
+    await pause.getByRole("button", { name: action, exact: true }).click();
+    await expect(pause).toBeHidden();
+    await expect(preview).toBeVisible();
+    await expect(preview).toHaveAttribute("src", image!);
+    await expect(page.getByTestId("generate-spent")).toHaveText(
+      `$5.12 of $${action === "Continue" ? "10" : "5"} spent`,
+    );
+    expect(requests).toBe(1);
   });
 }

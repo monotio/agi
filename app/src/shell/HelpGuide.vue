@@ -56,9 +56,6 @@ function run(request: HelpRequest): void {
   emit("action", request);
 }
 
-const studioKind = (lesson: StudioLesson): HelpActionKind =>
-  lesson.open.studio === "room" ? "openRoomStudio" : "openSpriteStudio";
-
 function runLesson(lesson: StudioLesson): void {
   shown.value = false;
   emit("lesson", lesson);
@@ -135,7 +132,7 @@ defineExpose({ open });
             Challenge: {{ lesson.challenge.prompt }}
           </p>
           <UiButton
-            v-if="props.available.includes(studioKind(lesson))"
+            v-if="props.available.includes('lessons')"
             class="help-show-me"
             icon="pencil"
             data-testid="help-lesson-open"

@@ -4,11 +4,21 @@ import type { ProjectSnapshot } from "../../../src/authoring/projectModel.ts";
 import { readBindingsDocument } from "../../../src/authoring/projectDocuments.ts";
 import { parseWordsTok } from "../../../src/logic/words.ts";
 import { offsetAt, type WorkspaceEdit } from "../../../src/logic/lspTypes.ts";
-import type { BindingInfo } from "../../../src/logic/projectNames.ts";
+import { projectOperandInfos, type BindingInfo } from "../../../src/logic/projectNames.ts";
+import { numberedLabel, documentLabel } from "../../../src/logic/numberedLabels.ts";
+import { systemName, systemMeaning } from "../../../src/logic/systemNames.ts";
+import { disassembleLogic } from "../../../src/logic/disassembler.ts";
+import { PROFILES } from "../../../src/runtime/profile.ts";
 import type { ProfileId } from "../../../src/runtime/profile.ts";
 import type { EngineApi } from "../engine/engineContext.ts";
 
-function namesProject(snapshot: ProjectSnapshot, profileId: ProfileId): LogicLanguageProject {
+type NamesSnapshot = Pick<ProjectSnapshot, "read" | "keys" | "version">;
+
+function namesProject(
+  snapshot: NamesSnapshot,
+  profileId: ProfileId,
+  includeDocuments = true,
+): LogicLanguageProject {
   const words = snapshot.read("words")?.content;
   const bindings = snapshot.read("bindings")?.content;
   return {
@@ -21,12 +31,14 @@ function namesProject(snapshot: ProjectSnapshot, profileId: ProfileId): LogicLan
           : [],
     bindings: typeof bindings === "string" ? readBindingsDocument(bindings) : {},
     documents: Object.fromEntries(
-      snapshot.keys.flatMap((key) => {
-        const document = snapshot.read(key);
-        return key.startsWith("logic:") && typeof document?.content === "string"
-          ? [[key, { source: document.content, version: document.version }]]
-          : [];
-      }),
+      snapshot.keys
+        .filter((key) => includeDocuments && key.startsWith("logic:"))
+        .flatMap((key) => {
+          const document = snapshot.read(key);
+          return typeof document?.content === "string"
+            ? [[key, { source: document.content, version: document.version }]]
+            : [];
+        }),
     ),
     bindingDocument: {
       uri: "agi-project:///bindings.json",
@@ -35,13 +47,165 @@ function namesProject(snapshot: ProjectSnapshot, profileId: ProfileId): LogicLan
   };
 }
 export function workspaceBindingInfos(
-  snapshot: ProjectSnapshot,
+  snapshot: NamesSnapshot,
   profileId: ProfileId,
 ): BindingInfo[] {
   const server = createLogicLspServer({ project: namesProject(snapshot, profileId) });
   return server.handle({ jsonrpc: "2.0", id: 1, method: "agi/bindings" })!.result as BindingInfo[];
 }
-export async function renameWorkspaceBinding(
+export interface ReservedStateInfo extends BindingInfo {
+  readonly meaning: string;
+  readonly usage: string;
+}
+/** Both creator names and interpreter slots keep numeric order within each kind. */
+export function workspaceGameStateInfos(
+  snapshot: NamesSnapshot,
+  profileId: ProfileId,
+  includeUses = true,
+): {
+  game: BindingInfo[];
+  builtin: ReservedStateInfo[];
+} {
+  const project = namesProject(snapshot, profileId, includeUses);
+  const infos = includeUses
+    ? workspaceOperandInfos(snapshot, profileId).filter(
+        (info) => info.kind === "flag" || info.kind === "variable",
+      )
+    : Object.entries(project.bindings)
+        .filter(([, binding]) => binding.kind === "flag" || binding.kind === "variable")
+        .map(([name, binding]) => ({ name, kind: binding.kind!, num: binding.num, uses: [] }));
+  const game = infos.filter(
+    (info) =>
+      info.name &&
+      Object.hasOwn(project.bindings, info.name) &&
+      info.name !== systemName(info.kind, info.num),
+  );
+  game.sort((a, b) =>
+    a.kind === b.kind
+      ? a.num - b.num || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0)
+      : a.kind === "flag"
+        ? -1
+        : 1,
+  );
+  const builtin: ReservedStateInfo[] = [];
+  for (const kind of ["flag", "variable"])
+    for (let num = 0; num <= (kind === "flag" ? 15 : 26); num++) {
+      const uses = infos
+        .filter((info) => info.kind === kind && info.num === num)
+        .flatMap((info) => info.uses);
+      // The operand index can describe a literal both by name and by slot.
+      const unique = uses.filter(
+        (use, index) =>
+          uses.findIndex(
+            (other) =>
+              other.key === use.key &&
+              other.range.start.line === use.range.start.line &&
+              other.range.start.character === use.range.start.character,
+          ) === index,
+      );
+      builtin.push({
+        name: numberedLabel(kind, num),
+        kind,
+        num,
+        uses: unique,
+        meaning: systemMeaning(kind, num)!,
+        usage: [
+          ...new Set(unique.map((use) => documentLabel(use.key, { bindings: project.bindings }))),
+        ].join(", "),
+      });
+    }
+  return { game, builtin };
+}
+function workspaceOperandInfos(snapshot: NamesSnapshot, profileId: ProfileId): BindingInfo[] {
+  const project = namesProject(snapshot, profileId);
+  const documents = { ...project.documents };
+  for (const key of snapshot.keys) {
+    if (!key.startsWith("logic:")) continue;
+    const content = snapshot.read(key)?.content;
+    if (content instanceof Uint8Array)
+      documents[key] = {
+        source: disassembleLogic(content, {
+          profile: PROFILES[profileId],
+          dictionary: new Map(project.words),
+        }),
+        version: snapshot.version(key),
+      };
+  }
+  return projectOperandInfos({ ...project, documents });
+}
+
+/** Resolve literal operands with the same source inventory as named references. */
+export function workspaceReferenceAt(
+  snapshot: NamesSnapshot,
+  profileId: ProfileId,
+  key: string,
+  position: { line: number; character: number },
+): BindingInfo | undefined {
+  return workspaceOperandInfos(snapshot, profileId).find((info) =>
+    info.uses.some(
+      (use) =>
+        use.key === key &&
+        use.range.start.line === position.line &&
+        use.range.start.character <= position.character &&
+        use.range.end.character >= position.character,
+    ),
+  );
+}
+
+/** Named aliases and literal slots share every use of the same operand. */
+export function workspaceReferenceInfo(
+  snapshot: NamesSnapshot,
+  profileId: ProfileId,
+  info: BindingInfo,
+): BindingInfo {
+  const uses = workspaceOperandInfos(snapshot, profileId)
+    .filter(
+      (entry) => entry.kind === info.kind && entry.num === info.num && entry.logic === info.logic,
+    )
+    .flatMap((entry) => entry.uses);
+  return {
+    ...info,
+    uses: uses
+      .filter(
+        (use, index) =>
+          uses.findIndex(
+            (other) =>
+              other.key === use.key &&
+              other.range.start.line === use.range.start.line &&
+              other.range.start.character === use.range.start.character,
+          ) === index,
+      )
+      .sort((a, b) =>
+        a.key < b.key
+          ? -1
+          : a.key > b.key
+            ? 1
+            : a.range.start.line - b.range.start.line ||
+              a.range.start.character - b.range.start.character,
+      ),
+  };
+}
+
+/** Rename a name across the project from the current working copy, after pending edits save. */
+export async function renameBindingInWorkspace(
+  engine: EngineApi,
+  flush: (() => Promise<unknown>) | undefined,
+  name: string,
+  newName: string,
+): Promise<void> {
+  await flush?.();
+  const snapshot = engine.getProjectSession()?.workingSnapshot();
+  if (!snapshot) throw new Error("Open a project to rename its parts.");
+  await renameWorkspaceBinding(
+    engine,
+    snapshot,
+    engine.roomMap.resources.value.profile?.id ?? "2.936",
+    name,
+    newName,
+  );
+}
+
+async function renameWorkspaceBinding(
   engine: EngineApi,
   base: ProjectSnapshot,
   profileId: ProfileId,

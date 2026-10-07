@@ -1,11 +1,14 @@
 import { assembleLogic, AssemblerError, type AssembleResult } from "../logic/assembler.ts";
+import { systemBindings } from "../logic/systemNames.ts";
 import type { AgiProfile } from "../runtime/profile.ts";
 import { analyzeLogicSyntax, scanLogicTokens } from "../logic/syntax.ts";
 
 interface ProjectLogicContext {
   readonly profile: AgiProfile;
   readonly dictionary: ReadonlyMap<string, number>;
-  readonly bindings: Readonly<Record<string, { readonly num: number }>>;
+  readonly bindings: Readonly<
+    Record<string, { readonly num: number; readonly kind?: string; readonly logic?: number }>
+  >;
   readonly sourceMap?: boolean;
 }
 
@@ -39,7 +42,8 @@ export function expandProjectLogic(
     .filter(([name]) => !defined.has(name))
     .map(([name, binding]) => {
       const start = prelude.length;
-      prelude += `#define ${name} ${binding.num}\n`;
+      const prefix = binding.kind === "flag" ? "f" : binding.kind === "variable" ? "v" : "";
+      prelude += `#define ${name} ${prefix}${binding.num}\n`;
       return { name, start, end: prelude.length };
     });
   return { authored: source, prelude, authoredStart: prelude.length, generated };
@@ -53,12 +57,25 @@ export function compileProjectLogic(
   const expansion = expandProjectLogic(source, context.bindings);
   const { prelude, generated } = expansion;
   try {
+    const assembly = assembleLogic(prelude + source, {
+      builtins: systemBindings(context.bindings),
+      dictionary: context.dictionary,
+      profile: context.profile,
+      sourceMap: context.sourceMap === true,
+    });
     return {
-      assembly: assembleLogic(prelude + source, {
-        dictionary: context.dictionary,
-        profile: context.profile,
-        sourceMap: context.sourceMap === true,
-      }),
+      assembly: {
+        ...assembly,
+        diagnostics: [
+          ...assembly.diagnostics,
+          ...projectNameDiagnostics(source, context.bindings).map((entry) => ({
+            ...entry,
+            start: entry.start + expansion.authoredStart,
+            end: entry.end + expansion.authoredStart,
+            line: entry.line + generated.length,
+          })),
+        ],
+      },
       expansion,
     };
   } catch (error) {
@@ -68,4 +85,42 @@ export function compileProjectLogic(
     const detail = error.message.slice(`${error.line}:${error.col}: `.length);
     throw new AssemblerError(detail, error.line - generated.length, error.col);
   }
+}
+
+/** Shadowing is permitted; the warning identifies both meanings at the use. */
+export function projectNameDiagnostics(source: string, bindings: ProjectLogicContext["bindings"]) {
+  const defaults = systemBindings();
+  const syntax = analyzeLogicSyntax(source, systemBindings(bindings));
+  return syntax.references.flatMap((reference) => {
+    if (!Object.hasOwn(bindings, reference.name) || !Object.hasOwn(defaults, reference.name))
+      return [];
+    const binding = bindings[reference.name];
+    const builtin = defaults[reference.name];
+    if (
+      !binding ||
+      !builtin ||
+      reference.definitionStart !== undefined ||
+      (binding.num === builtin.num &&
+        (binding.kind === undefined ||
+          binding.kind === (builtin.kind === "v" ? "variable" : "flag")))
+    )
+      return [];
+    const token = syntax.tokens.find((entry) => entry.start === reference.start)!;
+    const kind =
+      binding.kind === "flag"
+        ? "Flag"
+        : binding.kind === "variable" || binding.kind === undefined
+          ? "Variable"
+          : binding.kind.toUpperCase();
+    return [
+      {
+        code: "builtin-shadow" as const,
+        message: `'${reference.name}' names ${kind} ${binding.num} in this project and shadows built-in ${builtin.kind === "v" ? "Variable" : "Flag"} ${builtin.num}.`,
+        start: token.start,
+        end: token.end,
+        line: token.line,
+        col: token.col,
+      },
+    ];
+  });
 }

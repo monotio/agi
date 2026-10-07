@@ -20,7 +20,7 @@ class BrowserImage(unittest.TestCase):
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)
         self.root = Path(directory.name)
-        self.package = self.root / 'app/node_modules/playwright-core/package.json'
+        self.package = self.root / 'node_modules/playwright-core/package.json'
         self.package.parent.mkdir(parents=True)
         self.marker = self.root / '.docker-info'
         self.ref = 'mcr.microsoft.com/playwright:v1.63.0-noble@sha256:' + 'a' * 64

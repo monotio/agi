@@ -1,5 +1,6 @@
+import { numberedLabel, type NumberedLabelContext } from "../../../src/logic/numberedLabels.ts";
 /**
- * Room Studio's Walk view as pure data: the room's doors (door boxes and
+ * Room Studio's room tools (Priority lens) as pure data: the room's doors (door boxes and
  * edge exits, from the annotated rules and the compiled exits), their
  * labels and two-sided status in plain words, where an edge click or a
  * door puts a test walk's start, what stopped a walk, and the words for
@@ -25,7 +26,7 @@ import type { Point } from "../../../src/studio/shapes.ts";
 
 export type { EdgeSide };
 
-/** One exit as the Walk view shows it. */
+/** One exit as the room tools show it. */
 export interface WalkDoor {
   /** The rule id for an annotated rule; `native-<n>` for a compiled exit without one. */
   readonly id: string;
@@ -150,8 +151,7 @@ export function destinationLabel(
   destination: number,
   rooms: readonly { readonly room: number; readonly title: string }[],
 ): string {
-  const title = rooms.find((room) => room.room === destination)?.title;
-  return `→ ${title ? title : `Room ${destination}`}`;
+  return `→ ${numberedLabel("room", destination, { rooms })}`;
 }
 
 /**
@@ -320,8 +320,7 @@ export function outcomeTitle(
         ? missed(blockedBy && `blocked at ${blockedBy}`)
         : `Blocked at ${blockedBy ?? "a barrier"}`,
     room_changed: () => {
-      const title = rooms.find((room) => room.room === result.room)?.title;
-      return `${unattributed ? "Reached" : "Went to"} room ${result.room}${title ? ` (${title})` : ""}`;
+      return `${unattributed ? "Reached" : "Went to"} ${numberedLabel("room", result.room, { rooms }, "option")}`;
     },
     modal: () => "A message stopped the walk",
     no_control: () => "The game took over the player's movement",
@@ -472,10 +471,12 @@ export function resultPlace(
   from: Point,
   result: Pick<RouteTestResult, "outcome" | "end" | "room">,
   room: number,
+  context: NumberedLabelContext = {},
 ): { readonly term: string; readonly text: string } {
   if (result.outcome === "start_blocked")
     return { term: "Asked start", text: `${from.x},${from.y}` };
-  const elsewhere = result.room !== room ? ` in room ${result.room}` : "";
+  const elsewhere =
+    result.room !== room ? ` in ${numberedLabel("room", result.room, context, "option")}` : "";
   return { term: "Ended at", text: `${result.end.x},${result.end.y}${elsewhere}` };
 }
 

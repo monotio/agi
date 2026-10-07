@@ -16,6 +16,7 @@ import {
   getCurrentScope,
   onScopeDispose,
   reactive,
+  watch,
   shallowReactive,
   shallowRef,
 } from "vue";
@@ -49,6 +50,8 @@ import {
   PROJECT_REMOVED_MESSAGE,
   watchProjectWrites,
 } from "../project/projectTransaction.ts";
+import { createProgressOwnership } from "../saves/progressOwnership.ts";
+import { withCheckpointLock } from "../saves/gameProgress.ts";
 import { clearGameSaves } from "../saves/gameSaves.ts";
 import { writeResumePointer } from "../saves/resumePointer.ts";
 import { removeMapSidecar } from "../world/roomMapStore.ts";
@@ -118,6 +121,7 @@ export function useEngine(
 
   const state = reactive<EngineState>({
     agentTask: null,
+    roomGeneration: null,
     loading: null,
     leaving: false,
     controls: [],
@@ -159,6 +163,9 @@ export function useEngine(
     resumed: false,
     startOverNote: false,
     gameEnded: null,
+    otherTab: false,
+    returnProblem: "",
+    entryProblem: "",
     staleTab: false,
     projectRemoved: false,
     recording: { active: false, starting: false, error: "" },
@@ -194,6 +201,7 @@ export function useEngine(
   const urlReplaySeed = urlReplaySeedText === null ? null : Number(urlReplaySeedText);
   let activeReplaySeed: number | null =
     urlReplaySeed !== null && Number.isInteger(urlReplaySeed) ? urlReplaySeed : null;
+  let activeReplayRngVersion: 1 | 2 = 1;
   const observationListeners = new Set<(obs: ReplayObservation) => void>();
 
   let logger: ReturnType<typeof createAgentLogger> | undefined;
@@ -215,8 +223,15 @@ export function useEngine(
     logger?.releaseAgentAudioPreviews();
   }
   const promptController = usePromptController({ state, logAgent });
+  watch(
+    () => state.prompt,
+    (prompt, prior) => {
+      if (prior && !prompt) state.entryProblem = "";
+    },
+  );
   const saveSlotController = useSaveSlotController({
     getBootedGame: () => lifecycle.getBootedGame(),
+    getWriterGeneration: () => progressOwnership.generation(),
     logAgent,
   });
 
@@ -260,6 +275,29 @@ export function useEngine(
     audio: { setPaused: (paused) => audio?.setPaused(paused) },
     state,
   });
+  const progressOwnership = createProgressOwnership({
+    storage: localStorage,
+    owner: crypto.randomUUID(),
+    lock: withCheckpointLock,
+    changed(lost) {
+      state.otherTab = lost;
+      link.getWorker()?.postMessage({
+        type: "playOwner",
+        active: !lost,
+        generation: progressOwnership.lastGeneration(),
+        epoch: progressOwnership.epoch(),
+      } satisfies WorkerInbound);
+      if (lost) pauseEngine("otherTab");
+      else resumeEngine("otherTab");
+    },
+  });
+  const observeOwner = (event: StorageEvent) => progressOwnership.observe(event.key);
+  window.addEventListener("storage", observeOwner);
+  if (getCurrentScope())
+    onScopeDispose(() => {
+      window.removeEventListener("storage", observeOwner);
+      progressOwnership.close();
+    });
   const acquireRuntimePauseLease = createRuntimePauseLeaseAcquire({
     getWorker: () => link.getWorker(),
     pause: pauseEngine,
@@ -359,6 +397,7 @@ export function useEngine(
     // The worker grants the run before the editor modules finish loading.
     // Checkpoints keep that owner while its project session opens.
     getRunScope: () => projectSessionOpening ?? projectSession?.runToken,
+    getWriterGeneration: () => progressOwnership.generation(),
     getBootedGame: () => lifecycle.getBootedGame(),
     getWorker: link.getWorker,
     async prepareCheckpoint(game, files, checkpointRevision) {
@@ -400,12 +439,25 @@ export function useEngine(
     retireFailedRecovery: (game, message) => lifecycle.retireFailedRecovery(game, message),
   });
 
-  link.deps.projectClosed = () => {
+  link.deps.projectClosed = (preservePlayOwnership) => {
+    if (!preservePlayOwnership) progressOwnership.close();
     executionDebug?.reset();
     projectOpenEpoch++;
     projectSession?.dispose();
     projectSession = null;
     pendingProjectRestart.value = null;
+  };
+  link.deps.playOwnershipRetained = () => {
+    const active = progressOwnership.generation() !== undefined;
+    state.otherTab = !active;
+    if (active) resumeEngine("otherTab");
+    else pauseEngine("otherTab");
+    link.getWorker()?.postMessage({
+      type: "playOwner",
+      active,
+      generation: progressOwnership.lastGeneration(),
+      epoch: progressOwnership.epoch(),
+    } satisfies WorkerInbound);
   };
   async function openSession(
     grant: Extract<WorkerControl, { type: "booted" }>["projectAdmission"],
@@ -449,6 +501,7 @@ export function useEngine(
           query: link.query,
           current,
           waitForContinue: () => executionDebug?.waitForContinue(),
+          acceptedImage: () => projectSession?.model.capture().lastAdmissibleBuild,
         });
         projectSession = openProjectSession({
           data: game.authoredGame!,
@@ -458,7 +511,7 @@ export function useEngine(
             : {}),
           admission,
           current,
-          forked(data, lifetime) {
+          async forked(data, lifetime) {
             if (!current()) return;
             state.copyCreated = { projectId: data.projectId, originalTitle: game.title };
             game = {
@@ -473,9 +526,13 @@ export function useEngine(
             };
             lifecycle.setBootedGame(game);
             const target = bindProgressTarget(game);
-            if (target) writeResumePointer(localStorage, target.locator);
             autosaveController.reset();
             hook.autosave = -1;
+            if (target) {
+              await progressOwnership.acquire(target);
+              if (!current()) return;
+              writeResumePointer(localStorage, target.locator);
+            }
             state.patchTick++;
             state.worldTick++;
             void autosaveController.flushAutosave();
@@ -530,6 +587,11 @@ export function useEngine(
           },
           checkpointReady() {
             if (current() && !game.installed) void autosaveController.flushAutosave();
+          },
+          roomGenerationChanged(enabled) {
+            if (!current()) return;
+            link.getWorker()?.postMessage({ type: "authorRooms", enabled } satisfies WorkerInbound);
+            state.patchTick++;
           },
           changed() {
             if (current()) {
@@ -595,7 +657,7 @@ export function useEngine(
       data.workspace ? readProjectWorkspace(data.workspace) : {},
     );
     if (lifecycle.getBootedGame() !== game || link.getWorker() !== worker) return;
-    const reply = await link.query("projectCreate");
+    const reply = await link.query("projectCreate", { progressMode: projectMode });
     if (lifecycle.getBootedGame() !== game || link.getWorker() !== worker) return;
     if (!reply.grant) throw new Error(reply.reason ?? "Open this game in Create to edit it.");
     game.authoredGame = data;
@@ -773,6 +835,11 @@ export function useEngine(
     getProjectMode: () => projectMode,
     getSessionId: () => activeWalkthroughSession,
     nextSessionId: () => ++activeWalkthroughSession,
+    acquirePlayOwnership: async (game) => {
+      const target = resolveProgressTarget(game);
+      if (target) await progressOwnership.acquire(target);
+    },
+    getActiveReplayRngVersion: () => activeReplayRngVersion,
     getActiveReplaySeed: () => activeReplaySeed,
     setActiveReplaySeed: (seed) => {
       activeReplaySeed = seed;
@@ -861,6 +928,18 @@ export function useEngine(
       });
     } finally {
       resumeEngine("stageVisit");
+    }
+  }
+
+  async function launchRoom(
+    room: number,
+    launch: NonNullable<Extract<WorkerInbound, { type: "playHere" }>["launch"]> = {},
+  ): Promise<WorkerQueryPayload["playHere"]> {
+    pauseEngine("roomLaunch");
+    try {
+      return await link.query("playHere", { room, x: 0, y: 0, launch });
+    } finally {
+      resumeEngine("roomLaunch");
     }
   }
 
@@ -977,6 +1056,9 @@ export function useEngine(
     setActiveReplaySeed: (seed) => {
       activeReplaySeed = seed;
     },
+    setActiveReplayRngVersion: (version) => {
+      activeReplayRngVersion = version;
+    },
     observationListeners,
     cancelPendingPrompts,
     drainPendingQueries: link.drainPendingQueries,
@@ -1064,7 +1146,17 @@ export function useEngine(
       playerSentences.value = sentenceTools.resolvePlayerSentence(playerSentences.value, entry);
       if (triedProject) sentenceTools.savePlayerSentences(triedProject, playerSentences.value);
     },
-    setProjectMode(mode: "create" | "play") {
+    async setProjectMode(mode: "create" | "play", restart = false): Promise<boolean> {
+      const prior = projectMode;
+      if (mode === "create") state.entryProblem = "";
+      if (mode === "play" && state.phase === "running") {
+        const reply = await link.query("projectPlay", restart ? { restart: true } : {});
+        if (!reply.ok) {
+          state.returnProblem = reply.reason ?? "Your game needs a restart.";
+          return false;
+        }
+      }
+      if (mode === "play") state.returnProblem = "";
       projectMode = mode;
       loadTried();
       link.getWorker()?.postMessage({
@@ -1103,10 +1195,11 @@ export function useEngine(
         !game?.authoredGame ||
         state.phase !== "running"
       )
-        return;
+        return true;
       const data = game.authoredGame;
-      void link
+      return link
         .query("projectCreate", {
+          progressMode: projectMode,
           ...(data.workspace ? { documents: data.workspace } : {}),
           ...(data.projectHistory ? { history: data.projectHistory } : {}),
         })
@@ -1116,10 +1209,12 @@ export function useEngine(
             lifecycle.getBootedGame() !== game ||
             link.getWorker() !== worker
           )
-            return;
+            return false;
           if (!reply.grant) {
-            state.status = reply.reason ?? "Open this game in Create to edit it.";
-            return;
+            projectMode = prior;
+            state.entryProblem = reply.reason ?? "Open this game in Create to edit it.";
+            state.status = state.entryProblem;
+            return false;
           }
           if (projectSession && projectSession.runToken !== reply.grant.runToken) {
             await projectSession.flush();
@@ -1130,17 +1225,36 @@ export function useEngine(
               lifecycle.getBootedGame() !== game ||
               link.getWorker() !== worker
             )
-              return;
+              return false;
             if (saved === null) throw new Error("The saved project is missing. Reopen the game.");
             game.authoredGame = saved;
           }
           await openSession(reply.grant);
+          return true;
         })
         .catch((cause) => {
           if (lifecycle.getBootedGame() === game) state.status = String(cause);
+          projectMode = prior;
+          return false;
         });
     },
+    takePlayBack: () => progressOwnership.takeBack(),
     getProjectSession: () => projectSession,
+    async setRoomGeneration(
+      projectId: ProjectId,
+      enabled: boolean,
+      expectedGeneration?: number,
+    ): Promise<void> {
+      const session = projectSession;
+      const game = lifecycle.getBootedGame();
+      if (session && !session.closed && game?.projectId === projectId) {
+        await session.setRoomGeneration(enabled);
+        await session.flush();
+        return;
+      }
+      const { setStoredRoomGeneration } = await import("../project/gameStorage.ts");
+      await setStoredRoomGeneration(projectId, enabled, expectedGeneration);
+    },
     previewImageCels(bytes: Uint8Array | null, loops?: readonly number[]): void {
       if (projectSession)
         link.getWorker()?.postMessage({
@@ -1171,9 +1285,8 @@ export function useEngine(
         author: edit.author,
       });
     },
-    runStudioAssist: async (
-      ...args: Parameters<ReturnType<typeof useAuthoringController>["runStudioAssist"]>
-    ) => (await loadAuthoringController()).runStudioAssist(...args),
+    stopRoomGeneration: () => authoringController?.stopRoomGeneration(),
+    retryRoomGeneration: () => authoringController?.retryRoomGeneration(),
     stopAgent: () => authoringController?.getSession()?.task.stop(),
     continueAgent: (requestLimit?: number) =>
       authoringController?.getSession()?.task.resume(requestLimit),
@@ -1352,6 +1465,7 @@ export function useEngine(
       (await loadEngineDebug()).debugWrite(...args),
     playHere,
     visitRoom,
+    launchRoom,
     /** The live screen objects (ego first when animated): Room Studio's walkable estimate. */
     readObjects: () => link.query("objects"),
     debugEventsSince: async (

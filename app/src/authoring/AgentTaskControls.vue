@@ -1,12 +1,11 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import UiButton from "../ui/UiButton.vue";
-import { formatSpent } from "../agent/reportedSpend.ts";
+import { formatDollars, formatSpent } from "../agent/reportedSpend.ts";
 import type { AgentRunState } from "../agent/agentRun.ts";
 const { task, showText = true } = defineProps<{ task: AgentRunState | null; showText?: boolean }>();
 defineEmits<{ stop: []; resume: [requestLimit?: number]; discard: [] }>();
 const now = ref(Date.now());
-const requestLimit = ref(5);
 let clock: ReturnType<typeof setInterval>;
 onMounted(() => {
   clock = setInterval(() => {
@@ -64,22 +63,16 @@ const quiet = computed(() =>
         {{ task.progress.text }}
       </p>
     </div>
-    <p
-      v-if="task.status !== 'running' && task.requests > 0"
-      class="task-spent"
-      data-testid="agent-spent"
-    >
-      {{
+    <div class="task-row">
+      <span v-if="task.requests > 0" class="task-spent" data-testid="agent-spent">{{
         formatSpent({
-          amount: task.reportedSpent,
+          amount: task.spent,
           priceKnown: task.priceKnown,
           incomplete: task.usageIncomplete,
           budget: task.budget,
         })
-      }}
-    </p>
-    <div class="task-row">
-      <span>Budget ${{ task.budget.toFixed(2) }}</span>
+      }}</span>
+      <span v-else>Budget {{ formatDollars(task.budget) }}</span>
       <a :href="task.usageUrl ?? 'https://platform.openai.com/usage'" target="_blank" rel="noopener"
         >See your usage</a
       >
@@ -90,23 +83,14 @@ const quiet = computed(() =>
         v-else-if="task.status === 'paused'"
         variant="primary"
         data-testid="agent-continue"
-        @click="$emit('resume', task.priceKnown ? undefined : requestLimit)"
+        @click="$emit('resume')"
       >
         Continue
       </UiButton>
     </div>
     <template v-if="task.status === 'paused'">
-      <label v-if="!task.priceKnown">
-        Requests
-        <input
-          v-model.number="requestLimit"
-          type="number"
-          min="1"
-          step="1"
-          data-testid="agent-request-limit"
-        />
-      </label>
       <p role="status" data-testid="agent-pause-reason">{{ task.reason }}</p>
+      <UiButton data-testid="agent-paused-stop" @click="$emit('stop')">Stop</UiButton>
       <UiButton variant="danger" data-testid="agent-discard" @click="$emit('discard')">
         Discard this attempt
       </UiButton>

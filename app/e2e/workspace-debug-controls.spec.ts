@@ -1,6 +1,7 @@
 import { test, expect } from "./test.ts";
 import { isolateStorage, waitForRoom } from "./engineProbe.ts";
 import type { Page } from "@playwright/test";
+import { findWorkspaceLogic } from "./workspaceShared.ts";
 
 async function starter(page: Page): Promise<void> {
   await isolateStorage(page);
@@ -23,25 +24,42 @@ test("debug controls follow LOGIC and a paused session @webkit-desktop", async (
   await starter(page);
   await page.getByTestId("part-room:1:picture:1").click();
   await expect(page.getByTestId("room-studio")).toBeVisible();
-  const header = page.locator(".workspace-editor__header");
+  const header = page.locator(".workspace-context");
   await expect(header.getByRole("group", { name: "Debug controls" })).toHaveCount(0);
   await page.getByTestId("part-room:1:logic").click();
   await expect(page.getByTestId("workspace-logic-editor")).toBeVisible();
   await expect(page.getByTestId("workspace-update")).toBeVisible();
   await page.getByTestId("workspace-logic-editor").locator("textarea.inputarea").focus();
+  await page.keyboard.press("ControlOrMeta+Shift+p");
+  await expect(page.getByRole("option", { name: /^Restart Meadow F5$/ })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await findWorkspaceLogic(page, "assignn(v50, clearing_pic)");
+  await page.keyboard.press("F9");
+  await expect(page.locator(".workspace-breakpoint")).toHaveCount(1);
   await page.keyboard.press("F5");
-  await expect(header.getByRole("button", { name: "Pause", exact: true })).toBeVisible();
+  await expect(header.getByRole("button", { name: "Continue", exact: true })).toBeVisible();
+  await page.keyboard.press("ControlOrMeta+Shift+p");
+  await expect(page.getByRole("option", { name: /^Continue F5$/ })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await page.getByTestId("part-debug:variables").click();
+  const panel = page.getByTestId("workspace-debug-panel").filter({ visible: true });
+  await expect(panel).toBeVisible();
+  await expect(page.getByRole("group", { name: "Debug controls" })).toHaveCount(1);
+  await header.getByRole("button", { name: "Continue", exact: true }).click();
+  await page.getByTestId("project-tab-close-debug:variables").click();
+  await expect(panel).toBeHidden();
   await page.getByTestId("part-room:1:picture:1").click();
   await expect(page.getByTestId("room-studio")).toBeVisible();
   await expect(header.getByRole("group", { name: "Debug controls" })).toHaveCount(0);
   await page.keyboard.press("ControlOrMeta+j");
-  const dock = page.getByTestId("workspace-debug-panel");
-  await expect(dock).toBeVisible();
-  await expect(dock.getByRole("button", { name: "Pause", exact: true })).toBeVisible();
-  await dock.getByRole("button", { name: "Pause", exact: true }).click();
+  await expect(page.getByTestId("workspace-problems")).toBeVisible();
+  // The running session keeps controls hidden until a breakpoint stops it.
+  await page.getByTestId("project-tab-logic:1").click();
+  await expect(header.getByRole("group", { name: "Debug controls" })).toHaveCount(0);
+  await page.getByTestId("workspace-update").click();
   await expect(page.getByTestId("workspace-debug-status")).toBeVisible();
   await expect(page.getByTestId("workspace-debug-status")).toContainText("Paused");
-  // A stop reveals LOGIC; switching back to art keeps a way to continue and stop.
+  // While the session is stopped the controls stay on every tab's context row.
   await parts(page);
   await page.getByTestId("part-room:1:picture:1").click();
   await expect(page.getByTestId("room-studio")).toBeVisible();
@@ -62,9 +80,21 @@ for (const [width, height] of [
     await parts(page);
     await page.getByTestId("part-room:1:logic").click();
     await expect(page.getByTestId("workspace-logic-editor")).toBeVisible();
-    await page.getByTestId("workspace-logic-editor").locator("textarea.inputarea").focus();
+    await findWorkspaceLogic(page, "assignn(v50, clearing_pic)");
+    await page.keyboard.press("F9");
+    await expect(page.locator(".workspace-breakpoint")).toHaveCount(1);
     await page.keyboard.press("F5");
-    await expect(page.locator(".workspace-editor__header").getByTestId("debug-stop")).toBeVisible();
+    const context = page.getByTestId("workspace-context");
+    await expect(context.getByTestId("debug-stop")).toBeVisible();
+    await expect(page.locator(".workspace-stopped-line").first()).toBeVisible();
+    await page.screenshot({
+      path: test.info().outputPath(`debug-${width}.png`),
+      animations: "disabled",
+      scale: "css",
+    });
+    const status = context.getByTestId("workspace-debug-status");
+    await expect(status).toBeVisible();
+    await expect(status).toHaveText("Paused at first_room · LOGIC 1, line 3");
     await parts(page);
     await page.getByTestId("part-room:1:picture:1").click();
     await expect(page.getByTestId("room-studio")).toBeVisible();

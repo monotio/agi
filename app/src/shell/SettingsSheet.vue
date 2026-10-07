@@ -10,6 +10,8 @@
  * from dialogs).
  */
 import { nextTick, onBeforeUnmount, ref, useId, useTemplateRef } from "vue";
+import GameDownloadDialog from "../home/GameDownloadDialog.vue";
+import { useLogicFormatSettings } from "../settings/logicFormat.ts";
 import { useAmigaRegion } from "../settings/amigaRegion.ts";
 import { CRT_STEPS } from "../settings/crtPreference.ts";
 import UiIcon from "../ui/UiIcon.vue";
@@ -20,7 +22,6 @@ import { useEngineApi } from "../engine/engineContext.ts";
 import { useAiSettings } from "../settings/useAiSettings.ts";
 import { useShellBridge } from "./shellBridge.ts";
 import { nextAudioMode, soundChipLabel, soundFamily } from "../audio/useAudioController.ts";
-import { useShell } from "./useShell.ts";
 
 const { touchControls, crtAmount, originalAspect, gpuBackend, debugOpen, exportBusy } =
   defineProps<{
@@ -46,7 +47,7 @@ const emit = defineEmits<{
 const { state, resumeAudio, toggleMute, setAudioMode, currentGame } = useEngineApi();
 const { aiModelLabel, aiSettingsUnavailable, openAiSettings } = useAiSettings();
 const bridge = useShellBridge();
-const shell = useShell();
+const { formatOnLeaving, setFormatOnLeaving } = useLogicFormatSettings();
 
 const sheet = useTemplateRef("sheet");
 const crtId = useId();
@@ -159,6 +160,17 @@ function act(run: () => void): void {
   run();
 }
 
+/** Download… asks which file before the sheet's export-zip goes out. */
+const downloadOpen = ref(false);
+function openDownload(): void {
+  close("stay");
+  downloadOpen.value = true;
+}
+/** The dialog replaced the sheet; its close returns focus to the gear. */
+function onDownloadClosed(): void {
+  trigger?.focus({ preventScroll: true });
+}
+
 onBeforeUnmount(() => {
   window.removeEventListener("pointerdown", onOutsidePointerDown, true);
   window.removeEventListener("keydown", onWindowKeydown, true);
@@ -235,6 +247,17 @@ defineExpose({ toggle, close, open });
         </UiSwitch>
       </section>
 
+      <section class="settings-sheet__group" aria-labelledby="settings-editor">
+        <h3 id="settings-editor">LOGIC editor</h3>
+        <UiSwitch
+          class="settings-row"
+          :model-value="formatOnLeaving"
+          @update:model-value="setFormatOnLeaving"
+        >
+          Format on leaving<small>Indent code when leaving the LOGIC editor</small>
+        </UiSwitch>
+      </section>
+
       <section class="settings-sheet__group" aria-labelledby="settings-ai">
         <h3 id="settings-ai">AI</h3>
         <button
@@ -260,34 +283,11 @@ defineExpose({ toggle, close, open });
         <button
           type="button"
           class="settings-row"
-          data-testid="btn-edit-game"
-          :disabled="state.powerUp.busy || !shell.createAvailable.value"
-          @click="act(shell.openRemix)"
-        >
-          <span>Edit game…<small>Opens Create: rooms, art and playtests</small></span>
-        </button>
-        <button
-          type="button"
-          class="settings-row"
           data-testid="btn-download-game"
-          :disabled="exportBusy || state.powerUp.busy"
-          @click="act(() => emit('export-zip', true))"
+          :disabled="state.powerUp.busy"
+          @click="openDownload"
         >
-          <span>Download game…<small>Project files and available saves and history</small></span>
-        </button>
-        <button
-          type="button"
-          class="settings-row"
-          data-testid="btn-export-game"
-          :disabled="exportBusy || state.powerUp.busy"
-          @click="act(() => emit('export-zip', false))"
-        >
-          <span v-if="currentGame()?.workInProgress"
-            >Export game…<small data-testid="export-work-in-progress"
-              >ZIP, work in progress: exits to unbuilt rooms stop the game</small
-            ></span
-          >
-          <span v-else>Export game…<small>The playable game, ready to share</small></span>
+          <span>Download…<small>Project file or the playable game</small></span>
         </button>
         <button
           type="button"
@@ -295,11 +295,7 @@ defineExpose({ toggle, close, open });
           data-testid="btn-start-over"
           @click="act(() => emit('start-over'))"
         >
-          <span
-            >Start over<small
-              >Restart from the beginning; earlier sessions stay on the timeline</small
-            ></span
-          >
+          <span>Start over<small>Earlier sessions stay on the timeline.</small></span>
         </button>
       </section>
 
@@ -377,6 +373,15 @@ defineExpose({ toggle, close, open });
       </section>
     </template>
   </dialog>
+  <GameDownloadDialog
+    v-model:open="downloadOpen"
+    :title="currentGame()?.title ?? 'This game'"
+    :busy="exportBusy"
+    :work-in-progress="currentGame()?.workInProgress === true"
+    test-id="settings-download-dialog"
+    @choose="(project) => emit('export-zip', project)"
+    @closed="onDownloadClosed"
+  />
 </template>
 
 <style scoped>

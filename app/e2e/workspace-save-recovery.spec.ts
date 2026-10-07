@@ -3,13 +3,14 @@ import type { Page, Download } from "@playwright/test";
 import type { ProjectSession } from "../src/project/projectSession.ts";
 import { test, expect } from "./test.ts";
 import {
+  downloadFromSettings,
   isolateStorage,
   openGameOptions,
   workspaceSaved,
   workspaceUpdated,
   refuseDraftWrites,
 } from "./engineProbe.ts";
-import { openWorkspaceLogic, openStoredWorkspace } from "./workspaceShared.ts";
+import { clickContextAction, openWorkspaceLogic, openStoredWorkspace } from "./workspaceShared.ts";
 import { readGameZip } from "../src/archive/gameZip.ts";
 
 async function starter(page: Page): Promise<void> {
@@ -46,7 +47,7 @@ async function moveStorage(page: Page, other: Page, removed: boolean): Promise<v
 }
 
 for (const mode of ["refusal", "storage", "stale", "removed"] as const) {
-  test(`Download game preserves a backup after ${mode}`, async ({ page, context }) => {
+  test(`Project file download preserves a backup after ${mode}`, async ({ page, context }) => {
     const errors: string[] = [];
     page.on("pageerror", (error) => errors.push(error.message));
     await starter(page);
@@ -117,6 +118,9 @@ for (const mode of ["refusal", "storage", "stale", "removed"] as const) {
     page.on("download", (download) => downloads.push(download));
     await openGameOptions(page, "settings-menu");
     await page.getByTestId("btn-download-game").click();
+    const downloadDialog = page.getByTestId("settings-download-dialog");
+    await expect(downloadDialog).toBeVisible();
+    await downloadDialog.getByTestId("download-library-game").click();
     await expect
       .poll(async () => ({
         downloads: downloads.length,
@@ -255,10 +259,6 @@ for (const failure of ["flush", "admission", "journal"] as const) {
       page.on("pageerror", (error) => errors.push(error.message));
       await starter(page);
       await page.getByTestId("part-room:1:logic").click();
-      await page.getByTestId("workspace-add").click();
-      await page.getByRole("menuitem", { name: "Add a room", exact: true }).click();
-      const form = page.getByTestId("workspace-guided-form");
-      await form.getByLabel("Room name", { exact: true }).fill("Recovered room");
       await page.evaluate((failure) => {
         const session = (
           window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }
@@ -278,8 +278,12 @@ for (const failure of ["flush", "admission", "journal"] as const) {
           };
         }
       }, failure);
-      await form.getByRole("button", { name: "Add", exact: true }).click();
+      await page.getByRole("button", { name: "Add a room", exact: true }).click();
       if (failure === "journal") {
+        const rename = page.getByTestId("room-rename-input");
+        await expect(rename).toBeVisible();
+        await rename.fill("Recovered room");
+        await rename.press("Enter");
         await expect(page.getByTestId("parts-list")).toContainText("Recovered room");
         await workspaceSaved(page);
         expect(
@@ -298,7 +302,8 @@ for (const failure of ["flush", "admission", "journal"] as const) {
             .join("\n"),
         );
         expect(journal).not.toContain("Recovered room");
-        await expect(form).toBeVisible();
+        await expect(page.getByTestId("room-rename-input")).toHaveCount(0);
+        await expect(page.getByRole("button", { name: "Add a room", exact: true })).toBeEnabled();
       }
     },
   );
@@ -401,9 +406,8 @@ test("Export game reports a refused editor draft", async ({ page }) => {
   await refuseDraftWrites(page, "Injected export refusal");
   await page.getByLabel("Game notes", { exact: true }).fill("Unaccepted export note");
   await expect(page.getByTestId("workspace-saved")).toContainText("Could not save");
-  await openGameOptions(page, "settings-menu");
   const exported = page.waitForEvent("download");
-  await page.getByTestId("btn-export-game").click();
+  await downloadFromSettings(page);
   const archive = await readGameZip(
     new Uint8Array(await readFile((await (await exported).path())!)),
   );
@@ -573,8 +577,7 @@ test("a guided action finishing keeps Draft saving while LOGIC typing is pending
       return put.apply(this, args);
     };
   });
-  await page.getByTestId("workspace-add").click();
-  await page.getByRole("menuitem", { name: "Place hero", exact: true }).click();
+  await clickContextAction(page, "room-action-place-hero");
   const form = page.getByTestId("workspace-guided-form");
   await expect(form).toBeVisible();
   await form.getByText("Exact numbers", { exact: true }).click();

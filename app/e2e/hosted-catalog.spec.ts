@@ -1,6 +1,6 @@
 import { expect, test } from "./test.ts";
 import { buildTutorial } from "../../games/adventure-department/game.ts";
-import { isolateStorage, openLibraryActions, textHook } from "./engineProbe.ts";
+import { isolateStorage, openSavedGameDetails, textHook } from "./engineProbe.ts";
 import { buildPublicGameZip } from "../src/archive/projectArchive.ts";
 import { readGameZip } from "../src/archive/gameZip.ts";
 
@@ -106,10 +106,10 @@ test("a hosted game's declared interpreter is the one its library entry and play
   // production bundle runs this too).
   await page.getByTestId("btn-exit").click();
   const saved = page.getByTestId("saved-game-card-catalog-declared-1.0.0");
-  await openLibraryActions(page, saved);
-  await expect(page.getByTestId("interpreter-profile-menu-item")).toContainText(
-    "2.917 (your override)",
-  );
+  const details = await openSavedGameDetails(saved);
+  await expect(details.getByTestId("interpreter-profile-menu-item")).toBeVisible();
+  await expect(details).toContainText("2.917 (set for this game)");
+  await page.keyboard.press("Escape");
 });
 
 test("catalog and opening failures explain the problem before play and allow retry", async ({

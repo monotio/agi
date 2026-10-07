@@ -7,7 +7,7 @@ import UiIcon from "../ui/UiIcon.vue";
 import UiPanel from "../ui/UiPanel.vue";
 import { explain } from "./studioTerms.ts";
 import { keyLabel } from "../ui/keyLabel.ts";
-import { labelParts, type LabelParts } from "./studioView.ts";
+import { CONTROL_VALUES, labelParts, LENS_NAMES, type LabelParts } from "./studioView.ts";
 import type { SceneBranch, SceneGroupRow, SceneRow, SceneSectionRow } from "./useStudioDocument.ts";
 
 /**
@@ -18,10 +18,13 @@ import type { SceneBranch, SceneGroupRow, SceneRow, SceneSectionRow } from "./us
  * open and close a section or group, Enter selects; Shift+click or
  * Shift+Enter adds a row's items to the selection or takes them away, and a
  * group row selects all its members. The filter narrows to a
- * flat list of matching items. A label too long for the column ellipsizes in
+ * flat list of matching items, and Draw order lists every item flat in the
+ * order it draws. A label too long for the column ellipsizes in
  * its middle, so the numbers that tell rows apart stay (studioView.ts
- * `labelParts`); the whole label is its tooltip. The footer counts the
- * items and, with two or more selected, offers Group.
+ * `labelParts`); the whole label is its tooltip. Each row offers "insert
+ * here", which makes new shapes draw before it; while they do, a marker row
+ * stands at that place and the rows drawn after it dim. The footer counts
+ * the items and, with two or more selected, offers Group.
  */
 const {
   branches,
@@ -32,7 +35,8 @@ const {
   selectedIds,
   quietTag = undefined,
   groupable = false,
-  drawOrder = false,
+  insertAt = null,
+  movable = undefined,
 } = defineProps<{
   branches: readonly SceneBranch[];
   /** Draw-order sections over `branches`; empty for a short list. */
@@ -48,16 +52,24 @@ const {
   quietTag?: string | undefined;
   /** Two items or more are selected and may be grouped. */
   groupable?: boolean;
-  drawOrder?: boolean;
+  /** The step new shapes draw before, or null when they draw last. */
+  insertAt?: number | null;
+  /** Whether a row is a picture item a drag may reorder; absent, no rows drag. */
+  movable?: ((id: string) => boolean) | undefined;
 }>();
 /** `extend`: Shift was held, so the row's items join the selection or leave it. */
 const emit = defineEmits<{
   hover: [id: string | undefined];
   select: [id: string, extend: boolean];
   group: [];
-  "draw-order": [];
+  /** New shapes should draw before this row. */
+  insert: [id: string];
+  /** A dropped item: it goes before `target`, or after it. */
+  move: [id: string, target: string, edge: "before" | "after"];
 }>();
 const filter = defineModel<string>("filter", { required: true });
+/** List every item flat, in draw order, instead of in groups and sections. */
+const drawOrder = defineModel<boolean>("drawOrder", { required: true });
 
 /** Above this many items, groups start closed. Sections always do. */
 const OPEN_UP_TO = 40;
@@ -125,21 +137,31 @@ const entries = computed<(Entry & { label: LabelParts })[]>(() => {
   const out: Entry[] =
     matches !== null
       ? matches.map((row) => ({ row, level: 1 }))
-      : sections.length === 0
-        ? branchEntries(branches, 1, undefined)
-        : sections.flatMap((section): Entry[] => [
-            { row: section, level: 1, fold: section, section },
-            ...(expanded.value.has(section.id)
-              ? branchEntries(section.branches, 2, section.id)
-              : []),
-          ]);
+      : drawOrder.value
+        ? branches.flatMap(({ rows }) => rows.map((row): Entry => ({ row, level: 1 })))
+        : sections.length === 0
+          ? branchEntries(branches, 1, undefined)
+          : sections.flatMap((section): Entry[] => [
+              { row: section, level: 1, fold: section, section },
+              ...(expanded.value.has(section.id)
+                ? branchEntries(section.branches, 2, section.id)
+                : []),
+            ]);
   if (loose) out.push({ row: loose, level: 1 });
   return out.map((entry) => ({
     ...entry,
-    label: labelParts(entry.row === loose ? "Loose steps" : entry.row.label),
+    label: labelParts(entry.row === loose ? "Loose steps" : entry.row.display),
   }));
 });
 const allOpen = computed(() => folds.value.every((fold) => expanded.value.has(fold.id)));
+/** A row that draws, after the place new shapes go: it dims while they draw earlier. */
+const later = (entry: Entry): boolean =>
+  insertAt !== null &&
+  entry.row !== loose &&
+  entry.row.entries.length > 0 &&
+  entry.row.entries[0]! >= insertAt;
+/** The row the "New shapes go here" marker stands above, while shapes draw earlier. */
+const markerBefore = computed(() => entries.value.find(later)?.row.id);
 
 const optionId = (id: string): string => `${listId}-${id.replace(/[^a-z0-9_-]/g, "_")}`;
 
@@ -163,11 +185,17 @@ function shownFor(id: string | undefined): string | undefined {
 function reveal(id: string | undefined): void {
   const shown = shownFor(id);
   if (shown === undefined) return;
-  void nextTick(() =>
-    list.value
-      ?.querySelector(`#${CSS.escape(optionId(shown))}`)
-      ?.scrollIntoView({ block: "nearest" }),
-  );
+  void nextTick(() => {
+    const view = list.value;
+    const row = view?.querySelector<HTMLElement>(`#${CSS.escape(optionId(shown))}`);
+    if (!view || !row) return;
+    // Scroll only this list: scrollIntoView would also scroll outer
+    // containers (the whole studio when it overflows), moving the canvas.
+    const rowBox = row.getBoundingClientRect();
+    const viewBox = view.getBoundingClientRect();
+    if (rowBox.top < viewBox.top) view.scrollTop += rowBox.top - viewBox.top;
+    else if (rowBox.bottom > viewBox.bottom) view.scrollTop += rowBox.bottom - viewBox.bottom;
+  });
 }
 watch(
   () => hoveredId,
@@ -225,19 +253,68 @@ function onFilterKeydown(event: KeyboardEvent): void {
     event.preventDefault();
   }
 }
+
+/** A drag in the list reorders items: `dragRow` moves, `dropAt` shows where it lands. */
+const dragRow = ref<string>();
+const dropAt = ref<{ id: string; edge: "before" | "after" }>();
+/** Item rows drag while the list is in draw order (not filtered flat, not the loose steps). */
+const canDrag = (entry: Entry): boolean =>
+  matches === null && entry.fold === undefined && entry.row !== loose && movable !== undefined
+    ? movable(entry.row.id)
+    : false;
+const dropsOn = (entry: Entry): boolean => canDrag(entry) && dragRow.value !== entry.row.id;
+
+function onDragStart(entry: Entry, event: DragEvent): void {
+  if (!canDrag(entry)) {
+    event.preventDefault();
+    return;
+  }
+  dragRow.value = entry.row.id;
+  event.dataTransfer!.effectAllowed = "move";
+  event.dataTransfer!.setData("text/plain", entry.row.id);
+}
+function onDragOver(entry: Entry, event: DragEvent): void {
+  if (dragRow.value === undefined || !dropsOn(entry)) return;
+  event.preventDefault();
+  event.dataTransfer!.dropEffect = "move";
+  const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+  dropAt.value = {
+    id: entry.row.id,
+    edge: event.clientY - rect.top < rect.height / 2 ? "before" : "after",
+  };
+}
+function onDragLeave(entry: Entry): void {
+  if (dropAt.value?.id === entry.row.id) dropAt.value = undefined;
+}
+function onDragEnd(): void {
+  dragRow.value = undefined;
+  dropAt.value = undefined;
+}
+function onDrop(entry: Entry, event: DragEvent): void {
+  if (dragRow.value !== undefined && dropAt.value) {
+    event.preventDefault();
+    emit("move", dragRow.value, dropAt.value.id, dropAt.value.edge);
+  }
+  onDragEnd();
+}
 </script>
 
 <template>
   <UiPanel title="Items" flush class="scene-list">
     <template #actions>
       <span class="scene-list__meta"
-        ><UiButton variant="ghost" size="sm" :aria-pressed="drawOrder" @click="emit('draw-order')"
+        ><UiButton
+          variant="ghost"
+          size="sm"
+          :aria-pressed="drawOrder"
+          data-testid="scene-draw-order"
+          @click="drawOrder = !drawOrder"
           >Draw order</UiButton
         >
         <UiExplain v-bind="explain('order')"
       /></span>
       <UiButton
-        v-if="folds.length > 0 && matches === null"
+        v-if="folds.length > 0 && matches === null && !drawOrder"
         variant="ghost"
         size="sm"
         class="scene-list__all"
@@ -276,6 +353,14 @@ function onFilterKeydown(event: KeyboardEvent): void {
           <span>Loose</span><UiExplain v-bind="explain('loose')" />
         </li>
         <li
+          v-if="entry.row.id === markerBefore"
+          class="scene-list__marker"
+          role="presentation"
+          data-testid="scene-insert-marker"
+        >
+          <UiIcon name="arrow-right" :size="12" />New shapes go here
+        </li>
+        <li
           :id="optionId(entry.row.id)"
           class="scene-list__row"
           :class="{
@@ -283,6 +368,10 @@ function onFilterKeydown(event: KeyboardEvent): void {
             'is-hover': isHover(entry),
             'is-cursor': entry.row.id === cursor,
             'is-dim': entry.row.entries.length === 0,
+            'is-later': later(entry),
+            'is-dragged': entry.row.id === dragRow,
+            'is-drop-before': dropAt?.id === entry.row.id && dropAt.edge === 'before',
+            'is-drop-after': dropAt?.id === entry.row.id && dropAt.edge === 'after',
           }"
           role="treeitem"
           :aria-level="entry.level"
@@ -292,6 +381,12 @@ function onFilterKeydown(event: KeyboardEvent): void {
             (entry.parent !== undefined && selectedIds.includes(entry.parent))
           "
           :data-row="entry.row.id"
+          :draggable="canDrag(entry)"
+          @dragstart="onDragStart(entry, $event)"
+          @dragover="onDragOver(entry, $event)"
+          @dragleave="onDragLeave(entry)"
+          @drop="onDrop(entry, $event)"
+          @dragend="onDragEnd"
           @pointerenter="emit('hover', entry.row.id)"
           @click="emit('select', entry.row.id, $event.shiftKey)"
         >
@@ -333,8 +428,8 @@ function onFilterKeydown(event: KeyboardEvent): void {
               v-for="lens in entry.row.lenses"
               :key="lens"
               role="img"
-              :aria-label="VOCABULARY[lens].label"
-              :title="`${VOCABULARY[lens].label}: ${VOCABULARY[lens].help}`"
+              :aria-label="LENS_NAMES[lens].label"
+              :title="`${LENS_NAMES[lens].label}: ${LENS_NAMES[lens].help}`"
               ><UiIcon
                 :name="lens === 'art' ? 'eye' : lens === 'depth' ? 'layers' : 'footprints'"
                 :size="12"
@@ -343,7 +438,10 @@ function onFilterKeydown(event: KeyboardEvent): void {
           <span
             v-else-if="entry.row.kind === 'walk' && entry.row.tag !== quietTag"
             class="scene-list__tag"
-            :title="VOCABULARY.walk.help"
+            :title="
+              CONTROL_VALUES.find((control) => control.name === entry.row.tag)?.help ??
+              VOCABULARY.walk.help
+            "
             >{{ entry.row.tag }}</span
           >
           <span
@@ -354,10 +452,22 @@ function onFilterKeydown(event: KeyboardEvent): void {
           <span v-if="entry.row.locked" class="scene-list__lock" title="Locked item"
             ><UiIcon name="lock" :size="12"
           /></span>
+          <button
+            v-if="entry.row !== loose && entry.row.entries.length > 0"
+            type="button"
+            class="scene-list__insert"
+            data-testid="row-insert"
+            tabindex="-1"
+            :aria-label="`Insert here: new shapes draw before ${entry.label.full}`"
+            :title="`New shapes draw before ${entry.label.full}`"
+            @click.stop="emit('insert', entry.row.id)"
+          >
+            insert here
+          </button>
         </li>
       </template>
       <li v-if="entries.length === 0" class="scene-list__empty" role="presentation">
-        {{ filter ? `No items match “${filter}”.` : "Nothing drawn yet. Pick a tool to start." }}
+        {{ filter ? `No items match “${filter}”.` : "Nothing drawn yet." }}
       </li>
     </ul>
     <template #footer>
@@ -523,6 +633,18 @@ function onFilterKeydown(event: KeyboardEvent): void {
   border-radius: var(--radius-sm);
   background: var(--action);
 }
+.scene-list__row[draggable="true"] {
+  cursor: grab;
+}
+.scene-list__row.is-dragged {
+  opacity: 0.4;
+}
+.scene-list__row.is-drop-before {
+  box-shadow: inset 0 2px 0 0 var(--action);
+}
+.scene-list__row.is-drop-after {
+  box-shadow: inset 0 -2px 0 0 var(--action);
+}
 .scene-list__swatch {
   grid-column: 2;
   width: 12px;
@@ -587,6 +709,48 @@ function onFilterKeydown(event: KeyboardEvent): void {
   .scene-list__lock {
     grid-column: 4;
   }
+}
+.scene-list__row.is-later {
+  color: var(--ink-3);
+}
+.scene-list__row.is-later .scene-list__swatch {
+  opacity: 0.5;
+}
+.scene-list__marker {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  height: 24px;
+  padding: 0 var(--space-4) 0 var(--space-3);
+  color: var(--action);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-bold);
+  box-shadow: inset 0 -1px 0 0 var(--action-line);
+}
+/* "insert here" waits at the row's right edge: it shows on hover, focus and the selected row. */
+.scene-list__insert {
+  position: absolute;
+  top: 50%;
+  right: var(--space-2);
+  transform: translateY(-50%);
+  padding: 0 var(--space-2);
+  border: 1px solid var(--action-line);
+  border-radius: var(--radius-sm);
+  background: var(--surface-1);
+  color: var(--action);
+  font: var(--text-2xs) / 1.6 var(--font-sans);
+  white-space: nowrap;
+  cursor: pointer;
+  opacity: 0;
+}
+.scene-list__row:hover .scene-list__insert,
+.scene-list__row.is-cursor .scene-list__insert,
+.scene-list__row[aria-selected="true"] .scene-list__insert,
+.scene-list__insert:focus-visible {
+  opacity: 1;
+}
+.scene-list__insert:hover {
+  background: var(--action-soft);
 }
 .scene-list__empty {
   padding: var(--space-4) var(--space-5);

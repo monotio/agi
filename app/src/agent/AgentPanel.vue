@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { documentLabel, numberedLabel } from "../../../src/logic/numberedLabels.ts";
+import { useProjectLabels } from "../shell/useProjectLabels.ts";
 import UiIcon from "../ui/UiIcon.vue";
 import {
   computed,
@@ -6,7 +8,6 @@ import {
   h,
   nextTick,
   onBeforeUnmount,
-  onMounted,
   onWatcherCleanup,
   useTemplateRef,
   ref,
@@ -29,9 +30,22 @@ import { compileProjectDocuments } from "../../../src/authoring/projectDocuments
 import { openContainer } from "../../../src/container/container.ts";
 import UiChip from "../ui/UiChip.vue";
 import UiButton from "../ui/UiButton.vue";
+import UiIconButton from "../ui/UiIconButton.vue";
 import UiSegmented from "../ui/UiSegmented.vue";
 import AgentTaskControls from "../authoring/AgentTaskControls.vue";
 import "./agentPanel.css";
+import type { ProjectSession } from "../project/projectSession.ts";
+import type { ProfileId } from "../../../src/runtime/profile.ts";
+/**
+ * The drawer's panel. With no session prop it works on the running project's
+ * session; the blank stage passes its own (home/emptyStageSession.ts).
+ */
+const props = defineProps<{
+  session?: ProjectSession | null | undefined;
+  profileId?: ProfileId | undefined;
+}>();
+const emit = defineEmits<{ close: [] }>();
+const labels = useProjectLabels();
 const engine = useEngineApi();
 const editor = useWorkspaceEditor();
 const settings = useAiSettings();
@@ -65,9 +79,20 @@ const readOnly = ref(false);
 const taskContext = ref("");
 const formatReply = shallowRef<ReplyFormatter>();
 const composer = useTemplateRef("composer");
-onMounted(() => {
-  if (!document.querySelector("dialog[open]")) composer.value?.focus();
-});
+const openingFocus = document.activeElement;
+watch(
+  [agent, composer],
+  ([ready, element]) => {
+    if (
+      ready &&
+      element &&
+      document.activeElement === openingFocus &&
+      !document.querySelector("dialog[open]")
+    )
+      element.focus();
+  },
+  { flush: "post" },
+);
 watch(
   editor.agentPrefill,
   async (prefill) => {
@@ -91,14 +116,17 @@ let off: (() => void) | undefined;
 let retired = false;
 let sentReferenceIds: readonly string[] = [];
 async function attach() {
-  const session = engine.getProjectSession();
+  const session = props.session ?? engine.getProjectSession();
   if (!session) return;
   const runtime = await engine.getAgentRuntime();
-  if (retired || engine.getProjectSession() !== session || agent.value) return;
+  if (retired || (props.session ?? engine.getProjectSession()) !== session || agent.value) return;
   off?.();
-  agent.value = borrowWorkspaceAgent({
+  const attached = borrowWorkspaceAgent({
     session,
-    profileId: engine.roomMap.resources.value.profile?.id ?? "2.936",
+    profileId:
+      props.profileId ??
+      (engine.state.phase === "running" ? engine.roomMap.resources.value.profile?.id : undefined) ??
+      "2.936",
     config: settings.llmConfig,
     runtime: () => ({
       ...runtime,
@@ -108,13 +136,22 @@ async function attach() {
       await editor.flush.value?.();
     },
   });
+  // The first chat can create the editable copy. Settle it before accepting input.
+  try {
+    await session.flush();
+  } catch (cause) {
+    if (!retired) error.value = cause instanceof Error ? cause.message : String(cause);
+    return;
+  }
+  if (retired || (props.session ?? engine.getProjectSession()) !== session || agent.value) return;
+  agent.value = attached;
   off = agent.value.subscribe(() => {
     tick.value++;
   });
   tick.value++;
 }
 watch(
-  () => [engine.state.phase, engine.state.patchTick],
+  () => [engine.state.phase, engine.state.patchTick, props.session],
   () => {
     if (!agent.value) attach();
   },
@@ -147,28 +184,20 @@ watch(
 );
 const visibleMessages = computed(() => current.value?.messages);
 const feed = useTemplateRef("feed");
-const { following, readPosition, jumpToLatest } = useReadingPosition(feed);
+const { following, readPosition, jumpToLatest, followLatest } = useReadingPosition(feed);
 const feedContent = useTemplateRef("feedContent");
 watch(
   feedContent,
   (element) => {
     if (!element) return;
-    const observer = new ResizeObserver(() => {
-      if (following.value) jumpToLatest();
-    });
+    const observer = new ResizeObserver(followLatest);
     observer.observe(element);
     onWatcherCleanup(() => observer.disconnect());
   },
   { flush: "post" },
 );
 
-watch(
-  [() => current.value?.messages, review],
-  () => {
-    if (following.value) jumpToLatest();
-  },
-  { deep: true, flush: "post" },
-);
+watch([() => current.value?.messages, review], followLatest, { deep: true, flush: "post" });
 watch(
   () => current.value?.id,
   () => jumpToLatest(),
@@ -207,14 +236,14 @@ const approvalMode = computed({
 });
 const approvalModes = computed(() => [
   {
-    disabled: editor.readOnly.value,
+    disabled: !agent.value || editor.readOnly.value,
     value: "review",
     label: VOCABULARY.review.label,
     title: VOCABULARY.review.help,
     testid: "agent-review-mode",
   },
   {
-    disabled: editor.readOnly.value,
+    disabled: !agent.value || editor.readOnly.value,
     value: "auto",
     label: VOCABULARY.autoApprove.label,
     title: VOCABULARY.autoApprove.help,
@@ -222,19 +251,29 @@ const approvalModes = computed(() => [
   },
 ]);
 const roomName = computed(() => {
+  if (engine.state.phase !== "running") return null;
   const room = engine.roomMap.currentRoom.value ?? 0;
-  return (
-    engine.roomMap.graph.value.nodes.find((node) => node.room === room)?.title ||
-    editor.parts.value.find((part) => part.id === `logic:${room}`)?.title.split(" · ROOM ")[0] ||
-    `ROOM ${room}`
-  );
+  return numberedLabel("room", room, labels.value);
+});
+/** The selection the agent is looking at; × dismisses it until it changes. */
+const dismissedChip = ref<string>();
+const chip = computed(() => {
+  const context = editor.agentContext.value;
+  return context && context.label !== dismissedChip.value ? context : null;
 });
 function contextName(key: string): string {
-  const name = editor.parts.value.find((part) => part.id === key)?.title;
-  if (name && !name.includes(" · ROOM ") && !name.startsWith("ROOM ")) return name;
-  return key === "inventory" ? "OBJECT" : key.replace(":", " ").toUpperCase();
+  return documentLabel(key, labels.value);
 }
-const profile = computed(() => PROFILES[engine.roomMap.resources.value.profile?.id ?? "2.936"]!);
+const profile = computed(
+  () =>
+    PROFILES[
+      props.profileId ??
+        (engine.state.phase === "running"
+          ? engine.roomMap.resources.value.profile?.id
+          : undefined) ??
+        "2.936"
+    ]!,
+);
 const images = computed(() => {
   const proposal = review.value?.proposal;
   if (!proposal) return null;
@@ -286,11 +325,11 @@ async function send() {
     await editor.flush.value?.();
     const context = [
       scoped,
-      `Current room ${engine.roomMap.currentRoom.value ?? 0}`,
-      ...contexts.value,
-      ...(editor.agentContext.value
-        ? [`Selection: ${editor.agentContext.value.label}\n${editor.agentContext.value.text}`]
+      ...(engine.state.phase === "running"
+        ? [`Current room ${engine.roomMap.currentRoom.value ?? 0}`]
         : []),
+      ...contexts.value,
+      ...(chip.value ? [`Selection: ${chip.value.label}\n${chip.value.text}`] : []),
       ...(contexts.value.includes("Current problems")
         ? (engine
             .getProjectSession()
@@ -307,15 +346,32 @@ async function approve() {
   if (editor.readOnly.value) return;
   await action(() => agent.value?.approve(selected.value));
 }
+function close() {
+  engine.closePowerUp();
+  emit("close");
+  void nextTick().then(() => {
+    editor.returnFromAgent.value?.();
+  });
+}
 function newChat() {
   void action(() => agent.value?.newChat());
   chatList.value = false;
 }
+// Esc belongs to the panel only while focus is inside it: the game, the
+// editors and their popups keep their own Esc.
+function onEscapeKey(event: KeyboardEvent) {
+  if (document.querySelector("dialog[open]")) return;
+  event.preventDefault();
+  event.stopPropagation();
+  if (chatList.value) {
+    chatList.value = false;
+    return;
+  }
+  close();
+}
 function keys(event: KeyboardEvent) {
-  if (event.key === "Escape" && event.target === composer.value && !input.value.trim()) {
-    event.preventDefault();
-    event.stopPropagation();
-    editor.returnFromAgent.value?.();
+  if (event.key === "Escape") {
+    onEscapeKey(event);
     return;
   }
   if (!(event.metaKey || event.ctrlKey)) return;
@@ -331,6 +387,10 @@ function keys(event: KeyboardEvent) {
     newChat();
   }
 }
+const chatTitle = computed(() => {
+  const title = current.value?.title;
+  return title && title !== "New chat" ? title : "Chats";
+});
 const commands = useOptionalCommands();
 const offApprove = commands?.register({
   id: "agent.approve",
@@ -365,7 +425,7 @@ onBeforeUnmount(() => {
   >
     <header class="agent-panel__header">
       <button class="agent-panel__chat-title" @click="chatList = !chatList" aria-label="Chats">
-        {{ current?.title ?? "Agent" }} <UiIcon name="chevron-down" :size="16" /></button
+        {{ chatTitle }} <UiIcon name="chevron-down" :size="16" /></button
       ><UiButton
         size="sm"
         variant="ghost"
@@ -374,6 +434,7 @@ onBeforeUnmount(() => {
         title="New chat (⌘N)"
         >New chat</UiButton
       ><UiButton
+        v-if="engine.state.phase === 'running'"
         size="sm"
         variant="ghost"
         data-testid="btn-record-test"
@@ -384,7 +445,14 @@ onBeforeUnmount(() => {
           bridge.startPlaytest();
         "
         >Playtest</UiButton
-      >
+      ><UiIconButton
+        icon="x"
+        label="Close"
+        shortcut="Esc"
+        size="sm"
+        data-testid="agent-panel-close"
+        @click="close"
+      />
     </header>
     <div class="agent-panel__mode">
       <UiSegmented
@@ -450,9 +518,6 @@ onBeforeUnmount(() => {
     </div>
     <div ref="feed" class="agent-panel__feed" aria-live="polite" @scroll.passive="readPosition">
       <div ref="feedContent">
-        <p v-if="!current?.messages.length" class="agent-panel__intro">
-          {{ VOCABULARY.agent.help }}
-        </p>
         <article
           v-for="message in visibleMessages"
           :key="message.id"
@@ -500,9 +565,6 @@ onBeforeUnmount(() => {
         >
           <header>
             <h3>{{ review.proposal.label }}</h3>
-            <span class="agent-panel__preview" title="Approve applies this preview to the game."
-              >Card preview</span
-            >
           </header>
           <p v-if="review.stale()" role="alert" data-testid="agent-conflict">
             The project changed while the agent worked. Send a follow-up to revise these changes.
@@ -514,7 +576,7 @@ onBeforeUnmount(() => {
           >
             <label
               ><input type="checkbox" :value="change.key" v-model="selected" />{{
-                change.key === "inventory" ? "OBJECT" : change.key.replace(":", " ").toUpperCase()
+                documentLabel(change.key, labels)
               }}</label
             >
             <Suspense v-if="images">
@@ -559,6 +621,13 @@ onBeforeUnmount(() => {
     >
     <p v-if="!settings.aiConfigured.value" class="agent-panel__intro agent-panel__setup">
       Connect your AI provider in Settings to start a task.
+      <UiButton
+        size="sm"
+        variant="ghost"
+        data-testid="agent-open-ai-settings"
+        @click="settings.openAiSettings($event, 'assistant')"
+        >Open AI settings</UiButton
+      >
     </p>
     <p v-if="error" class="agent-panel__error" role="alert">{{ error }}</p>
     <AgentTaskControls
@@ -571,12 +640,20 @@ onBeforeUnmount(() => {
     <form class="agent-panel__composer" @submit.prevent="send">
       <PendingReferences
         :busy
-        :room="engine.roomMap.currentRoom.value ?? 0"
+        :room="engine.state.phase === 'running' ? (engine.roomMap.currentRoom.value ?? 0) : 0"
         :allow-attach="!readOnly"
       />
       <div class="agent-panel__context">
-        <span>{{ roomName }}</span
-        ><span v-if="editor.agentContext.value">{{ editor.agentContext.value.label }}</span
+        <span v-if="roomName">{{ roomName }}</span
+        ><span v-if="chip" class="agent-panel__context-selection" data-testid="agent-context-chip"
+          >{{ chip.label
+          }}<button
+            type="button"
+            aria-label="Ask about the whole game"
+            title="Ask about the whole game"
+            @click="dismissedChip = chip.label"
+          >
+            <UiIcon name="x" :size="16" /></button></span
         ><button
           v-for="context in contexts"
           :key="context"
@@ -606,7 +683,7 @@ onBeforeUnmount(() => {
         placeholder="Describe a change…"
         data-testid="agent-message"
         :rows="review ? 1 : 3"
-        :disabled="busy || editor.readOnly.value"
+        :disabled="!agent || busy || editor.readOnly.value"
       ></textarea>
       <div>
         <UiButton

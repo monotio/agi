@@ -9,6 +9,24 @@ import {
 } from "./engineProbe.ts";
 import type { ProjectSession } from "../src/project/projectSession.ts";
 import { workspaceDocument, runningWorkspaceDocument } from "./workspaceShared.ts";
+import type { Locator } from "@playwright/test";
+
+/** The Visual canvas's colour at logical cell x, y: what the editor shows there. */
+function artPixel(studio: Locator, x: number, y: number): Promise<number[]> {
+  return studio.locator('[data-layer="art"] canvas').evaluate(
+    (element, [x, y]) => {
+      const canvas = element as HTMLCanvasElement;
+      const at = (n: number, size: number, of: number) => Math.floor((size * (n + 0.5)) / of);
+      return [
+        ...canvas
+          .getContext("2d")!
+          .getImageData(at(x!, canvas.width, 160), at(y!, canvas.height, 168), 1, 1)
+          .data.slice(0, 3),
+      ];
+    },
+    [x, y],
+  );
+}
 
 test("Views are static at 0, 50 and 100; dragging drafts LOGIC and Update places it", async ({
   page,
@@ -46,14 +64,14 @@ test("Views are static at 0, 50 and 100; dragging drafts LOGIC and Update places
   await expect(figure).toBeVisible();
   await expect(figure).toHaveAttribute("data-x", "60");
   await expect(figure).toHaveAttribute("data-y", "140");
-  const at = (await figure.boundingBox())!;
   const pane = (await studio.locator('.studio-pane[data-layer="art"]').boundingBox())!;
-  await page.mouse.move(at.x + at.width / 2, at.y + at.height / 2);
+  // Grip the centre of a cell inside the figure, in whole pixels: WebKit drops
+  // a pointer's fraction, which at a zoom below 100% can land in the next cell.
+  const px = (col: number) => Math.round(pane.x + ((col + 0.5) * pane.width) / 160);
+  const py = (row: number) => Math.round(pane.y + ((row + 0.5) * pane.height) / 168);
+  await page.mouse.move(px(60), py(138));
   await page.mouse.down();
-  await page.mouse.move(
-    at.x + at.width / 2 + (14 * pane.width) / 160,
-    at.y + at.height / 2 - (3 * pane.height) / 168,
-  );
+  await page.mouse.move(px(74), py(135), { steps: 4 });
   await page.mouse.up();
   const preview = page.getByTestId("placement-preview");
   await expect(preview).toBeVisible();
@@ -77,7 +95,11 @@ test("Views are static at 0, 50 and 100; dragging drafts LOGIC and Update places
       .drafts()
       .stage([{ key: "picture:8", content: "vis 5\nfill 0,0\nend\n" }]),
   );
-  await expect(studio.getByTestId("stage-draft")).toBeVisible();
+  // The staged picture is the picture on the canvas, unmarked; its tab says it waits for Update.
+  await expect.poll(() => artPixel(studio, 80, 84)).toEqual([170, 0, 170]);
+  await expect(
+    page.getByRole("tab", { name: /PICTURE 8/ }).getByLabel("Pending change"),
+  ).toBeVisible();
   await workspaceUpdated(page);
   await expect
     .poll(async () => {
@@ -96,7 +118,7 @@ test("Views are static at 0, 50 and 100; dragging drafts LOGIC and Update places
   await page.getByTestId("workspace-undo").click();
   await expect.poll(() => runningWorkspaceDocument(page, "logic:8")).toBe(initial);
   await expect.poll(() => runningWorkspaceDocument(page, "picture:8")).toBe(initialPicture);
-  await expect(studio.getByTestId("stage-draft")).toHaveCount(0);
+  await expect.poll(() => artPixel(studio, 80, 84)).not.toEqual([170, 0, 170]);
   await workspaceSaved(page);
   await page.goto("/");
   await openLibraryActions(page, savedGameCard(page, "My adventure"));
@@ -110,7 +132,7 @@ test("Views are static at 0, 50 and 100; dragging drafts LOGIC and Update places
   await expect(page.getByRole("slider", { name: "Views", exact: true })).toHaveValue("100");
 });
 
-test("computed placements are dashed and locked, and game motion never paints the picture", async ({
+test("computed placements move a preview, and game motion never paints the picture", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -128,6 +150,8 @@ test("computed placements are dashed and locked, and game motion never paints th
     ]);
   });
   await open(page, "part-room:8:picture:8");
+  await expect(page.getByTestId("workspace-update")).toBeVisible();
+  await page.getByTestId("workspace-update").click();
   const studio = page.getByTestId("room-studio");
   await expect(studio).toBeVisible();
   const canvas = studio.locator('.studio-pane[data-layer="art"] canvas');
@@ -156,36 +180,45 @@ test("computed placements are dashed and locked, and game motion never paints th
     (el as HTMLInputElement).value = "100";
     el.dispatchEvent(new Event("input", { bubbles: true }));
   });
-  const locked = studio.locator('[data-object="0"]');
-  await expect(locked).toBeVisible();
-  await expect(locked).toHaveClass(/is-locked/);
-  await expect(locked).toHaveAttribute("aria-disabled", "true");
-  await expect(locked).toHaveAttribute("aria-label", /position.v uses variables/);
+  // A computed spot draws as in the game, moves a preview, never the line.
+  const figure = studio.locator('[data-object="0"]');
+  await expect(figure).toBeVisible();
+  await expect(figure).toHaveClass(/is-preview/);
+  await expect(figure).toHaveAttribute("aria-label", /position\.v uses variables/);
   await page.screenshot({
     path: test.info().outputPath("computed-placement.png"),
     animations: "disabled",
   });
   const source = await workspaceDocument(page, "logic:8");
-  const at = (await locked.boundingBox())!;
-  await page.mouse.move(at.x + at.width / 2, at.y + at.height / 2);
+  const pane = (await studio.locator('.studio-pane[data-layer="art"]').boundingBox())!;
+  const px = (col: number) => Math.round(pane.x + ((col + 0.5) * pane.width) / 160);
+  const py = Math.round(pane.y + (138.5 * pane.height) / 168);
+  await page.mouse.move(px(60), py);
   await page.mouse.down();
-  await page.mouse.move(at.x + at.width, at.y);
+  await page.mouse.move(px(70), py, { steps: 4 });
   await page.mouse.up();
   expect(await workspaceDocument(page, "logic:8")).toBe(source);
-  await expect(locked).toHaveAttribute("data-x", "60");
+  await expect(figure).toHaveAttribute("data-x", "70");
+  // The Views list shows the preview, with Reset and Copy position.
+  await studio
+    .getByRole("radiogroup", { name: "Side panel", exact: true })
+    .getByRole("radio", { name: "Views", exact: true })
+    .click();
+  const list = studio.getByTestId("views-panel");
+  await expect(list).toBeVisible();
+  await expect(list).toContainText("position.v uses variables");
+  await expect(list).toContainText("70, 140");
+  await list.getByTestId("view-reset").click();
+  await expect(figure).toHaveAttribute("data-x", "60");
   await page.evaluate(() =>
     (window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }).__AGI_PROJECT__
       .getSession()
       .drafts()
       .stage([{ key: "picture:8", content: "vis 4\npri 7\nfill 0,0\nend\n" }]),
   );
-  for (const lens of ["Art", "Depth", "Walk"]) {
-    await studio
-      .getByTestId("studio-options-bar")
-      .getByRole("radio", { name: lens, exact: true })
-      .click();
-    await expect(studio.getByTestId("stage-draft")).toBeVisible();
-  }
+  // The staged picture shows as it is, with nothing drawn over it.
+  await expect.poll(() => artPixel(studio, 80, 84)).toEqual([170, 0, 0]);
+  await expect(studio.locator(".studio-pane__overlay > *")).toHaveCount(0);
 });
 test("an unfinished bindings draft leaves the picture available", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -229,7 +262,7 @@ for (const size of [
       (el as HTMLInputElement).value = "100";
       el.dispatchEvent(new Event("input", { bubbles: true }));
     });
-    for (const lens of ["Art", "Depth", "Walk"]) {
+    for (const lens of ["Visual", "Priority"]) {
       await studio
         .getByRole("radiogroup", { name: "Lens", exact: true })
         .getByRole("radio", { name: lens, exact: true })
@@ -265,7 +298,10 @@ for (const size of [
     };
     await take("picture");
     if (size.width > 600) {
-      await page.getByRole("button", { name: "Stacked", exact: true }).click();
+      // Stacked is the default: the toggle turns Side by side on.
+      const layout = page.getByTestId("workspace-layout");
+      await expect(layout).toBeVisible();
+      if ((await layout.getAttribute("aria-pressed")) === "true") await layout.click();
       await take("stacked");
       const frame = page.getByTestId("workspace-editor");
       await expect(frame).toBeVisible();
@@ -292,12 +328,9 @@ for (const size of [
       await take("focus");
       await page.getByTestId("workspace-focus").click();
       await expect(page.locator(".play-area")).toBeVisible();
-      await expect(page.getByRole("button", { name: "Stacked", exact: true })).toHaveAttribute(
-        "aria-pressed",
-        "true",
-      );
+      await expect(page.getByTestId("workspace-layout")).toHaveAttribute("aria-pressed", "false");
     } else {
-      await page.getByRole("button", { name: "Playtest", exact: true }).click();
+      await page.getByRole("button", { name: "Game", exact: true }).click();
       await expect(page.locator(".play-area")).toBeVisible();
       await take("playtest");
       await page.getByRole("button", { name: "Edit", exact: true }).click();
@@ -308,7 +341,7 @@ for (const size of [
   });
 }
 
-test("Make it a room Undo warns for a computed jump and Remove anyway is one step", async ({
+test("Make it a room Undo reviews computed jumps after restoring the latest draft @webkit-desktop", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -337,14 +370,19 @@ test("Make it a room Undo warns for a computed jump and Remove anyway is one ste
     path: test.info().outputPath("room-removal-review.png"),
     animations: "disabled",
   });
-  await dialog.getByRole("button", { name: "Keep it", exact: true }).click();
+  await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
   await expect(dialog).toBeHidden();
   expect((await textHook(page)).room).toBe(2);
   await page.getByTestId("workspace-undo").click();
   await expect(dialog).toBeVisible();
   await dialog.getByRole("button", { name: "Remove anyway", exact: true }).click();
   await expect(dialog).toBeHidden();
+  expect((await textHook(page)).room).toBe(2);
+  await open(page, "part-room:1:logic");
+  await expect(page.getByTestId("workspace-update")).toBeVisible();
+  await page.getByTestId("workspace-update").click();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  await open(page, "part-picture:9");
   await expect(page.getByTestId("workspace-unused")).toBeVisible();
   expect(
     await page.evaluate(() =>
@@ -356,6 +394,7 @@ test("Make it a room Undo warns for a computed jump and Remove anyway is one ste
   ).toBeUndefined();
   await page.getByTestId("workspace-redo").click();
   await open(page, "part-room:2:picture:9");
+  await page.getByTestId("workspace-update").click();
   await expect.poll(async () => (await textHook(page)).room).toBe(2);
   await page.getByTestId("btn-world-map").click();
   const map = page.getByTestId("world-map");
@@ -373,9 +412,16 @@ test("Make it a room Undo warns for a computed jump and Remove anyway is one ste
   );
   await page.getByTestId("workspace-undo").click();
   await expect(dialog).toBeHidden();
-  const refusal = page.getByRole("alert");
-  await expect(refusal).toBeVisible();
-  await expect(refusal).toContainText("logic:2");
+  const source = await page.evaluate(
+    () =>
+      (window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }).__AGI_PROJECT__
+        .getSession()
+        .workingSnapshot()
+        .read("logic:99")?.content,
+  );
+  expect(source).toBe('get.num("Room",v20);new.room.v(v20);return;');
+  await page.getByTestId("workspace-undo").click();
+  await expect(dialog).toBeVisible();
   expect((await textHook(page)).room).toBe(2);
 });
 
@@ -428,12 +474,15 @@ test("the picture fits its 1063px side panel", async ({ page }) => {
   await expect(order).toBeVisible();
   const control = (await order.boundingBox())!;
   expect.soft(control.x + control.width).toBeLessThanOrEqual(frame.x + frame.width);
-  for (const name of ["Zoom out", "Zoom in", "Zoom to fit", "Keys"]) {
-    const button = studio.getByRole("button", { name, exact: true });
+  for (const name of ["Zoom out", "Zoom in", "Zoom to fit"]) {
+    // Zoom rides the shared status bar; keep it inside the window.
+    const button = page.getByRole("button", { name, exact: true });
     await expect(button).toBeVisible();
     const box = (await button.boundingBox())!;
-    expect.soft(box.x + box.width).toBeLessThanOrEqual(frame.x + frame.width);
+    expect.soft(box.x + box.width).toBeLessThanOrEqual(page.viewportSize()!.width);
   }
+  // The one Keys button lives on the workspace tab bar.
+  await expect(page.getByTestId("workspace-keys")).toBeVisible();
   const sun = studio.locator('[role="treeitem"][data-row="sun"]');
   await expect(sun).toBeVisible();
   await sun.click();
@@ -446,7 +495,7 @@ test("the picture fits its 1063px side panel", async ({ page }) => {
   }
   await studio
     .getByRole("radiogroup", { name: "Lens", exact: true })
-    .getByRole("radio", { name: "Walk", exact: true })
+    .getByRole("radio", { name: "Priority", exact: true })
     .click();
   const startWalk = studio.locator('[data-role="test-walk"] button').first();
   await expect(startWalk).toBeVisible();
@@ -459,7 +508,7 @@ test("phone Edit and Playtest alternate the picture and game; Update plays", asy
   await start(page);
   await open(page, "part-room:1:picture:1");
   await expect(page.getByTestId("room-studio")).toBeVisible();
-  const play = page.getByRole("button", { name: "Playtest", exact: true });
+  const play = page.getByRole("button", { name: "Game", exact: true });
   await expect(play).toBeVisible();
   await play.click();
   await expect(page.locator(".play-area")).toBeVisible();

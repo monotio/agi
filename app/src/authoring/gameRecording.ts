@@ -1,3 +1,4 @@
+import { numberedLabel, type NumberedLabelContext } from "../../../src/logic/numberedLabels.ts";
 import type { EngineReplayState } from "../../../src/runtime/replayState.ts";
 import type { RecordedOperation } from "../../../src/agent/recordedReplay.ts";
 import type { HistoryEventCause } from "../../../src/agent/history.ts";
@@ -135,13 +136,14 @@ export function suggestAssertions(
   start: RecorderStateSnapshot,
   end: RecorderStateSnapshot,
   printed: readonly string[],
+  context: NumberedLabelContext = {},
 ): AssertionSuggestion[] {
   const suggestions: AssertionSuggestion[] = [];
   suggestions.push({
     id: "room",
     kind: "room",
     room: end.room,
-    label: end.room === start.room ? `room ${end.room} (unchanged)` : `room ${end.room}`,
+    label: `${numberedLabel("room", end.room, context, "option")}${end.room === start.room ? " (unchanged)" : ""}`,
     selected: end.room !== start.room,
   });
   for (let id = 0; id < 256; id++) {
@@ -152,7 +154,7 @@ export function suggestAssertions(
         id: `flag-${id}`,
         kind: "flag",
         flag: { id, value: after },
-        label: `f${id} ${after ? "set" : "cleared"}`,
+        label: `${numberedLabel("flag", id, context, "option")} ${after ? "set" : "cleared"}`,
         selected: true,
       });
   }
@@ -173,7 +175,7 @@ export function suggestAssertions(
         id: `var-${id}`,
         kind: "var",
         var: { id, value: after },
-        label: `v${id} = ${after}`,
+        label: `${numberedLabel("variable", id, context, "option")} = ${after}`,
         selected: true,
       });
   }
@@ -186,7 +188,7 @@ export function suggestAssertions(
         id: `item-${item.num}`,
         kind: "item",
         item: item.num,
-        label: `carrying ${item.name?.trim() || `item ${item.num}`}`,
+        label: `carrying ${numberedLabel("inventory", item.num, { ...context, name: item.name?.trim() ?? "" }, "option")}`,
         selected: true,
       });
   const recent = printed

@@ -510,8 +510,7 @@ onMounted(() => {
   </div>
   <p class="sr-only" aria-live="polite" aria-atomic="true">{{ live }}</p>
   <p id="sound-grid-keys" class="sound-grid-help">
-    Arrows move. Enter adds or removes. Shift + ← → changes length. Alt + ↑ ↓ moves an octave.
-    Delete removes. Space plays.
+    Enter toggles a note. Shift + ← → changes its length; Alt + ↑ ↓ changes its octave. Space plays.
   </p>
 </template>
 <style scoped>

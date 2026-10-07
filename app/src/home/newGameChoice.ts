@@ -8,13 +8,13 @@ export const NEW_GAME_CHOICES: readonly {
   title: string;
   description: string;
 }[] = [
-  { value: "starter", title: "Starter", description: "One room with a hero, ready to play." },
+  { value: "starter", title: "Starter", description: "One room with a hero." },
   {
     value: "boilerplate",
     title: "Boilerplate",
-    description: "Menus, saving and game over. Art is up to you.",
+    description: "Menus, saving and game over.",
   },
-  { value: "blank", title: "Blank", description: "Nothing at all. Every part is yours to make." },
+  { value: "blank", title: "Blank", description: "An empty project." },
   {
     value: "ai",
     title: "Create with AI",

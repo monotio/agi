@@ -14,7 +14,138 @@ import { requireProjectId } from "../../src/gameIdentity.ts";
 installWebLocksFixture();
 installIndexedDbFixture();
 
-test("an Undo removal respects unselected drafts before offering a computed jump review", async () => {
+test("Launch edits save as metadata while room and code drafts wait for Update", async () => {
+  const world = {
+    rooms: { "1": { title: "Home", description: "", exits: {} } },
+    facts: {},
+    quests: {},
+  };
+  const documents = { "logic:0": "return;", "logic:1": "return;", world: JSON.stringify(world) };
+  const compiled = compileProjectDocuments({
+    files: Object.fromEntries(createContainer().files),
+    documents,
+    profileId: "2.936",
+  });
+  let stored: CachedGameData | undefined;
+  const session = openProjectSession({
+    data: {
+      projectId: requireProjectId("launch-metadata-drafts"),
+      title: "Metadata",
+      authoredAt: "",
+      files: Object.fromEntries(compiled.files()),
+      words: [],
+      workspace: writeProjectWorkspace(documents),
+    },
+    lifetime: "initial",
+    admission: {
+      runToken: "launch-metadata",
+      admit: async () => ({
+        status: "committed",
+        expected: null,
+        current: null,
+        patchGeneration: 0,
+      }),
+    },
+    async write(request) {
+      stored = request.data as CachedGameData;
+      return {
+        commitId: request.commitId,
+        workspaceId: request.workspaceId,
+        candidateHash: "a",
+        documents: request.documents,
+        saved: {
+          ...request.expected!,
+          generation: request.expected!.generation + 1,
+          buildId: request.buildId,
+        },
+      };
+    },
+  });
+  try {
+    const draftWorld = { ...world, rooms: { "1": { ...world.rooms["1"], title: "Garden" } } };
+    await session.stage([
+      { key: "logic:1", content: "// waiting\nreturn;" },
+      { key: "world", content: JSON.stringify(draftWorld) },
+    ]);
+    const launches = { "1": { entries: [{ id: "practice", name: "Practice" }] } };
+    await session.stage([{ key: "world", content: JSON.stringify({ ...draftWorld, launches }) }]);
+    await session.flush();
+    assert.deepEqual(JSON.parse(String(session.model.capture().read("world")!.content)), {
+      ...world,
+      launches,
+    });
+    assert.deepEqual(JSON.parse(String(session.workingSnapshot().read("world")!.content)), {
+      ...draftWorld,
+      launches,
+    });
+    assert.equal(session.model.capture().read("logic:1")!.content, "return;");
+    assert.equal(session.workingSnapshot().read("logic:1")!.content, "// waiting\nreturn;");
+    assert.ok(stored);
+    assert.deepEqual(stored.files, Object.fromEntries(compiled.files()));
+    await session.drafts().clear();
+    await session.undo();
+    assert.equal(
+      JSON.parse(String(session.model.capture().read("world")!.content)).launches,
+      undefined,
+    );
+    assert.equal(
+      JSON.parse(String(session.workingSnapshot().read("world")!.content)).launches,
+      undefined,
+    );
+  } finally {
+    session.dispose();
+  }
+});
+
+test("a fresh draft blocks Redo of an older Update", async () => {
+  const documents = { "logic:0": "return;" };
+  const compiled = compileProjectDocuments({
+    files: Object.fromEntries(createContainer().files),
+    documents,
+    profileId: "2.936",
+  });
+  const session = openProjectSession({
+    data: {
+      projectId: requireProjectId("draft-redo"),
+      title: "Redo",
+      authoredAt: "",
+      files: Object.fromEntries(compiled.files()),
+      words: [],
+      workspace: writeProjectWorkspace(documents),
+    },
+    lifetime: "initial",
+    admission: {
+      runToken: "redo-run",
+      admit: async () => ({
+        status: "committed",
+        expected: null,
+        current: null,
+        patchGeneration: 1,
+      }),
+    },
+  });
+  try {
+    await session.submit({
+      proposal: session.model.propose(session.model.capture(), "Note", [
+        { key: "notes", content: "old note" },
+      ]),
+      origin: "logic",
+      label: "Note",
+      author: "creator",
+    });
+    await session.undo();
+    const drafts = session.drafts();
+    await drafts.ready;
+    drafts.stage([{ key: "notes", content: "fresh note" }]);
+    assert.equal(await session.redo(), undefined);
+    assert.equal(session.model.capture().read("notes"), undefined);
+    assert.equal(session.workingSnapshot().read("notes")?.content, "fresh note");
+  } finally {
+    session.dispose();
+  }
+});
+
+test("Undo restores the newest unselected draft before offering a computed jump review", async () => {
   const documents = {
     "logic:0": "return;",
     "logic:99": 'get.num("Room",v20);new.room.v(v20);return;',
@@ -58,8 +189,12 @@ test("an Undo removal respects unselected drafts before offering a computed jump
     const drafts = session.drafts();
     await drafts.ready;
     drafts.stage([{ key: "logic:99", content: "new.room(254);return;" }]);
-    const refused = await session.undo();
-    assert.equal(refused?.status, "diagnostics");
+    const undone = await session.undo();
+    assert.equal(undone?.status, "draft");
+    assert.equal(
+      drafts.changes().find(({ key }) => key === "logic:99")?.content,
+      documents["logic:99"],
+    );
     assert.equal(session.model.capture().documentId, before.documentId);
     assert.equal(session.history.capture().cursor, cursor);
     await drafts.clear();
@@ -555,7 +690,7 @@ test("invalid typing retains the latest waiting runnable image and saves exact d
 });
 
 for (const source of ["catalog", "folder"] as const)
-  test(`${source} edits save to a remix and later writes keep that owner`, async () => {
+  test(`${source} edits keep the chosen room setting in a remix and later writes keep that owner`, async () => {
     const documents = { "logic:0": "return;" };
     const compiled = compileProjectDocuments({
       files: Object.fromEntries(createContainer().files),
@@ -599,6 +734,7 @@ for (const source of ["catalog", "folder"] as const)
         assert.equal(request.data.library?.source, "remix");
         assert.equal(request.data.library?.parent?.project, original);
         assert.equal(request.data.library?.catalog, undefined);
+        assert.equal(request.data.roomGeneration, true);
         return {
           commitId: request.commitId,
           workspaceId: request.workspaceId,
@@ -615,6 +751,8 @@ for (const source of ["catalog", "folder"] as const)
         };
       },
     });
+    assert.equal(session.allowMissingRooms, false);
+    await session.setRoomGeneration(true);
     for (const comment of ["first", "second"]) {
       await session.submit({
         proposal: session.model.propose(session.model.capture(), "Edit", [
@@ -1312,5 +1450,120 @@ test("checkpoint preparation returns not ready before a future admission boundar
   } finally {
     session.dispose();
     finish?.();
+  }
+});
+
+test("a missing room restart names Update and keep playing", async () => {
+  const documents = { "logic:0": "return;" };
+  const compiled = compileProjectDocuments({
+    files: Object.fromEntries(createContainer().files),
+    documents,
+    profileId: "2.936",
+  });
+  const session = openProjectSession({
+    data: {
+      projectId: requireProjectId("restart-action-copy"),
+      title: "Test",
+      authoredAt: "",
+      files: Object.fromEntries(compiled.files()),
+      words: [],
+      workspace: writeProjectWorkspace(documents),
+    },
+    lifetime: "initial",
+    admission: {
+      runToken: "copy-run",
+      admit: async () => ({
+        status: "committed",
+        expected: null,
+        current: null,
+        patchGeneration: 1,
+      }),
+    },
+    write: async () => {
+      throw new Error("Room restart refusal must precede storage.");
+    },
+  });
+  try {
+    await assert.rejects(
+      session.update([{ key: "logic:0", content: "// Changed\nreturn;" }], true),
+      /Use Update and keep playing/,
+    );
+  } finally {
+    session.dispose();
+  }
+});
+
+test("room generation switches validation immediately and persists through a rejected write and retry", async () => {
+  const documents = { "logic:0": "new.room(3); load.pic(v50); return;" };
+  const compiled = compileProjectDocuments({
+    files: Object.fromEntries(createContainer().files),
+    documents,
+    profileId: "2.936",
+  });
+  const data: CachedGameData = {
+    projectId: requireProjectId("generation-setting"),
+    title: "Setting",
+    authoredAt: "",
+    roomGeneration: true,
+    files: Object.fromEntries(compiled.files()),
+    words: [],
+    workspace: writeProjectWorkspace(documents),
+  };
+  let rejectWrite = true;
+  let stored = data;
+  const settings: boolean[] = [];
+  const session = openProjectSession({
+    data,
+    lifetime: "initial",
+    admission: {
+      runToken: "setting-run",
+      admit: async () => ({
+        status: "committed",
+        expected: null,
+        current: null,
+        patchGeneration: 1,
+      }),
+    },
+    roomGenerationChanged: (enabled: boolean) => {
+      settings.push(enabled);
+    },
+    write: async (request) => {
+      if (rejectWrite) throw new Error("Write rejected");
+      stored = {
+        ...request.data,
+        projectId: data.projectId,
+        authoredAt: "",
+        generation: (request.expected?.generation ?? 0) + 1,
+      };
+      return {
+        commitId: request.commitId,
+        workspaceId: request.workspaceId,
+        candidateHash: "a",
+        documents: request.documents,
+        saved: { ...request.expected!, generation: stored.generation!, buildId: request.buildId },
+      };
+    },
+  });
+  try {
+    assert.deepEqual(session.capture().diagnostics, []);
+    await session.setRoomGeneration(false);
+    assert.equal(session.allowMissingRooms, false);
+    assert.deepEqual(
+      session.capture().diagnostics.map((d) => d.message),
+      ["LOGIC 3 is absent."],
+    );
+    assert.equal(session.capture().diagnostics[0]?.severity, "error");
+    await assert.rejects(session.flush(), /Could not save/);
+    assert.equal(stored.roomGeneration, true);
+    rejectWrite = false;
+    await session.retry();
+    assert.equal(stored.roomGeneration, false);
+    await session.setRoomGeneration(true);
+    await session.flush();
+    assert.deepEqual(session.capture().diagnostics, []);
+    assert.equal(stored.roomGeneration, true);
+    assert.deepEqual(settings, [false, true]);
+  } finally {
+    session.dispose();
   }
 });

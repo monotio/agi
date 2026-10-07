@@ -3,10 +3,10 @@
  * Prompt-cache probe: how much of each provider request the previous one
  * already paid for.
  *
- *   npm run eval:cache -- --dry-run [--scenario remix-references,room-build,studio-assist,ask]
+ *   npm run eval:cache -- --dry-run [--scenario remix-references,room-build,ask]
  *                                   [--shape anthropic,openai] [--out evals/results/cache]
  *   npm run eval:cache -- --provider anthropic|openai --live --budget-usd 3 [--model <id>]
- *                         [--effort low] [--scenario ask,studio-assist,remix-references] [--diagnostics]
+ *                         [--effort low] [--scenario ask,remix-references] [--diagnostics]
  *
  * The dry run plays the scenarios in evals/lib/cache-scenarios.ts through the
  * production AgentSession and the real Anthropic and OpenAI clients with a
@@ -46,7 +46,7 @@ const MIN_RUN_USD = 0.01;
 /** A scenario still going after this long is cancelled and recorded. */
 const RUN_TIMEOUT_MS = 20 * 60_000;
 /** The live default: the short tasks; the room build is opt-in. */
-const LIVE_SCENARIOS = ["ask", "studio-assist", "remix-references"];
+const LIVE_SCENARIOS = ["ask", "remix-references"];
 
 interface Args {
   dryRun: boolean;

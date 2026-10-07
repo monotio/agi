@@ -1,7 +1,6 @@
 <script setup lang="ts">
 /** The new game page shares one name and one starting-point choice. */
 import {
-  computed,
   defineAsyncComponent,
   nextTick,
   onBeforeUnmount,
@@ -120,9 +119,6 @@ watch(
   },
   { immediate: true },
 );
-const outlineFile = computed(
-  () => `${selectedTemplateId.value === "custom" ? "your-premise" : selectedTemplateId.value}.md`,
-);
 const editingOutline = ref(false);
 watch(selectedTemplateId, () => {
   editingOutline.value = false;
@@ -159,10 +155,7 @@ async function onAiCreated(title: string): Promise<void> {
     @keydown.esc.stop="closeCreateSection"
   >
     <header class="create-head">
-      <div>
-        <h1 id="create-title">Make a new game</h1>
-        <p class="lead">Pick a place to start. You can change everything later.</p>
-      </div>
+      <h1 id="create-title">Make a new game</h1>
       <UiIconButton
         icon="x"
         label="Close"
@@ -204,7 +197,7 @@ async function onAiCreated(title: string): Promise<void> {
               data-testid="template-custom"
               @click="selectedTemplateId = 'custom'"
             >
-              <strong>Your own premise</strong><span>Start from an empty outline.</span>
+              <strong>Your own premise</strong>
             </button>
           </div>
           <div class="ai-brief">
@@ -226,11 +219,6 @@ async function onAiCreated(title: string): Promise<void> {
               spellcheck="false"
               data-testid="custom-adventure-input"
             />
-            <span v-if="editingOutline" class="id">{{ outlineFile }}</span>
-            <p class="note">
-              AI starts from Boilerplate and builds the game while you watch. You can edit every
-              part afterwards.
-            </p>
           </div>
         </div>
       </template>
@@ -262,11 +250,6 @@ async function onAiCreated(title: string): Promise<void> {
   font-size: var(--text-2xl);
   line-height: var(--leading-tight);
   text-wrap: balance;
-}
-.lead {
-  margin: var(--space-2) 0 0;
-  color: var(--ink-2);
-  font-size: var(--text-lg);
 }
 .ai-pick {
   display: grid;
@@ -313,10 +296,6 @@ async function onAiCreated(title: string): Promise<void> {
   font-size: var(--text-sm);
   font-weight: var(--weight-semibold);
 }
-.id {
-  font: var(--text-2xs) var(--font-mono);
-  color: var(--ink-3);
-}
 .ai-brief textarea {
   box-sizing: border-box;
   width: 100%;
@@ -328,11 +307,6 @@ async function onAiCreated(title: string): Promise<void> {
   background: var(--surface-0);
   color: var(--ink);
   font: var(--text-sm) / 1.6 var(--font-mono);
-}
-.note {
-  margin: 0;
-  color: var(--ink-2);
-  font-size: var(--text-sm);
 }
 @media (max-width: 760px) {
   .ai-pick {

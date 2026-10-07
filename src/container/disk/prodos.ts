@@ -1,10 +1,22 @@
-import { addDiskFile, diskName, diskView, type DiskFiles } from "./files.ts";
+import {
+  addDiskFile,
+  diskName,
+  diskView,
+  createDiskExtractionBudget,
+  reserveDiskBytes,
+  type DiskExtractionBudget,
+  type DiskFiles,
+} from "./files.ts";
 
 /** Apple's ProDOS Technical Reference, appendix B (file organization):
  * https://prodos8.com/docs/techref/file-organization/
  * 2IMG header specification: https://ciderpress2.com/formatdoc/TwoIMG-notes.html
  */
-export function readProDos(input: Uint8Array, wrapped: boolean): DiskFiles {
+export function readProDos(
+  input: Uint8Array,
+  wrapped: boolean,
+  budget: DiskExtractionBudget = createDiskExtractionBudget(),
+): DiskFiles {
   let image = input;
   if (wrapped) {
     const header = diskView(input, 0, 64);
@@ -70,7 +82,7 @@ export function readProDos(input: Uint8Array, wrapped: boolean): DiskFiles {
           visit(key, name + "/", depth + 1);
           continue;
         }
-        addDiskFile(result, name, () => {
+        addDiskFile(result, name, budget, () => {
           if (![1, 2, 3].includes(type))
             throw new Error(
               "This ProDOS file uses an unsupported storage type. Add an extracted copy of the file.",
@@ -81,6 +93,7 @@ export function readProDos(input: Uint8Array, wrapped: boolean): DiskFiles {
             (directory.getUint8(at + 23) << 16);
           if (size > image.length || (type === 1 && size > 512) || (type === 2 && size > 256 * 512))
             throw new Error("The ProDOS file length is damaged. Add a fresh copy of the disk.");
+          reserveDiskBytes(budget, size);
           const output = new Uint8Array(size);
           for (let offset = 0; offset < size; offset += 512) {
             const index = offset / 512;

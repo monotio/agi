@@ -4,7 +4,7 @@
  */
 import { openContainer } from "../../../src/container/container.ts";
 import { HostWait, type EngineHost } from "../../../src/runtime/engine.ts";
-import { rngDraw } from "../../../src/runtime/rng.ts";
+import { rngDraw, takeSequenceWord } from "../../../src/runtime/rng.ts";
 import { bytesToBase64 } from "../project/bytes.ts";
 import type { WorkerContext } from "./context.ts";
 
@@ -18,7 +18,7 @@ export function createEngineHost(ctx: WorkerContext): EngineHost {
       : `audio-${Date.now().toString(36)}-${++hostSerial}`;
   let stream = 0;
   let soundTick = 0;
-  return {
+  const host: EngineHost = {
     randomByte() {
       // Live and replay share the interpreter's 16-bit RNG
       // (docs/fidelity.md, "Original RNG"): the recorded state in the
@@ -27,22 +27,22 @@ export function createEngineHost(ctx: WorkerContext): EngineHost {
       // external input — so live sessions record each reseed onto the
       // tape and history replays drain them back in draw order.
       const replay = ctx.replay.replay;
-      const draw = rngDraw(replay ? replay.random : ctx.history.rng, () => {
+      const draw = rngDraw(ctx.run.rng.word, () => {
         if (replay === null) {
-          // The harness's modern stand-in for the BIOS-clock read: injected
-          // per port so tests stay deterministic, crypto in production —
-          // labeled different from Sierra's source per the plan.
+          // The port supplies the modern clock/entropy stand-in; only a
+          // zero-state draw reads it. See docs/fidelity.md, "Host RNG policy".
+          const policy = ctx.run.rng.policy;
           const word =
-            (ctx.ports.seedWord?.() ??
-              (typeof crypto !== "undefined"
-                ? crypto.getRandomValues(new Uint16Array(1))[0]!
-                : Math.floor(ctx.ports.now()))) & 0xffff;
+            (policy.kind === "sequence"
+              ? takeSequenceWord(policy)
+              : (ctx.ports.seedWord?.() ?? Math.floor(ctx.ports.now()))) & 0xffff;
           ctx.fns.historyRecord({ kind: "reseed", value: word });
           return word;
         }
         const recorded = ctx.replay.reseeds[ctx.replay.reseedCursor];
         if (recorded !== undefined) {
           ctx.replay.reseedCursor++;
+          if (ctx.run.rng.policy.kind === "sequence") takeSequenceWord(ctx.run.rng.policy);
           return recorded;
         }
         if (ctx.replay.historyReplay)
@@ -51,16 +51,17 @@ export function createEngineHost(ctx: WorkerContext): EngineHost {
           );
         // A walkthrough replay has no recorded lane; the tick-derived
         // word keeps the scratch session deterministic.
-        return replay.tick & 0xffff;
+        return ctx.run.rng.policy.kind === "sequence"
+          ? takeSequenceWord(ctx.run.rng.policy)
+          : replay.tick & 0xffff;
       });
-      if (replay) replay.random = draw.state;
-      else ctx.history.rng = draw.state;
-      ctx.recording.recording?.tape.host(["random", draw.byte]);
+      ctx.run.rng.word = draw.state;
+      ctx.run.recording.recording?.tape.host(["random", draw.byte]);
       return draw.byte;
     },
     print(text) {
-      if (ctx.recording.recording && ctx.recording.recording.printed.length < 16)
-        ctx.recording.recording.printed.push(text.slice(0, 400));
+      if (ctx.run.recording.recording && ctx.run.recording.recording.printed.length < 16)
+        ctx.run.recording.recording.printed.push(text.slice(0, 400));
       ctx.ports.presentation({ type: "print", text });
     },
     /**
@@ -76,9 +77,9 @@ export function createEngineHost(ctx: WorkerContext): EngineHost {
      * serving application messages meanwhile.
      */
     waitKey() {
-      const buffered = ctx.input.keyQueue.shift();
+      const buffered = ctx.run.input.keyQueue.shift();
       if (buffered !== undefined) {
-        ctx.recording.recording?.tape.host(["waitKey", buffered]);
+        ctx.run.recording.recording?.tape.host(["waitKey", buffered]);
         return buffered;
       }
       ctx.fns.setKeyWaiting(true);
@@ -89,19 +90,19 @@ export function createEngineHost(ctx: WorkerContext): EngineHost {
       ctx.ports.presentation({ type: "status", text });
     },
     takeInputLine() {
-      const line = ctx.input.inputBuffer.shift() ?? null;
-      ctx.recording.recording?.tape.host(["line", line]);
+      const line = ctx.run.input.inputBuffer.shift() ?? null;
+      ctx.run.recording.recording?.tape.host(["line", line]);
       if (
         line !== null &&
-        ctx.input.observeSentences &&
-        ctx.projectAdmission &&
-        ctx.engine?.inputEnabled &&
+        ctx.run.input.observeSentences &&
+        ctx.run.projectAdmission &&
+        ctx.run.engine?.inputEnabled &&
         !ctx.replay.replay
       ) {
-        ctx.input.sentence = {
-          engine: ctx.engine,
+        ctx.run.input.sentence = {
+          engine: ctx.run.engine,
           text: line,
-          room: ctx.engine.vars[0]!,
+          room: ctx.run.engine.vars[0]!,
           matched: false,
           unknown: "",
           parsed: false,
@@ -111,24 +112,31 @@ export function createEngineHost(ctx: WorkerContext): EngineHost {
       return line;
     },
     takeKeys() {
-      const keys = ctx.input.keyQueue.splice(0);
-      ctx.recording.recording?.tape.host(["keys", keys.slice()]);
+      const keys = ctx.run.input.keyQueue.splice(0);
+      ctx.run.recording.recording?.tape.host(["keys", keys.slice()]);
       return keys;
     },
+    roomInputBoundary() {
+      ctx.run.input.keyQueue.length = 0;
+      ctx.run.input.deferredMovement.length = 0;
+      ctx.run.input.inputBuffer.length = 0;
+      ctx.run.input.clickQueue.length = 0;
+      ctx.run.input.sentence = null;
+    },
     takePointerClicks() {
-      const clicks = ctx.input.clickQueue.splice(0);
+      const clicks = ctx.run.input.clickQueue.splice(0);
       // Recorded only when non-empty, so pre-click tapes stay byte-identical.
       if (clicks.length > 0)
-        ctx.recording.recording?.tape.host([
+        ctx.run.recording.recording?.tape.host([
           "clicks",
           clicks.map(([x, y]): [number, number] => [x, y]),
         ]);
       return clicks;
     },
     prepareRoom(room, from) {
-      if (!ctx.boot.authorRooms || !ctx.engine) return true;
-      const container = openContainer(ctx.engine.containerFiles, {
-        profile: ctx.engine.profile,
+      if (!ctx.boot.authorRooms || !ctx.run.engine) return true;
+      const container = openContainer(ctx.run.engine.containerFiles, {
+        profile: ctx.run.engine.profile,
       });
       if (container.getResource("logic", room)) return true;
       // The agent's answer lands in deliverHostResponse, which applies the
@@ -136,9 +144,9 @@ export function createEngineHost(ctx: WorkerContext): EngineHost {
       return ctx.fns.postHostRequest("room", {
         room,
         from,
-        edge: ctx.engine.vars[2],
-        state: ctx.engine.readState(),
-        objects: ctx.engine.readObjects(),
+        edge: ctx.run.engine.vars[2],
+        state: ctx.run.engine.readState(),
+        objects: ctx.run.engine.readObjects(),
       });
     },
     /** 0x6e shake.screen: cosmetic jitter on the main thread. */
@@ -180,7 +188,7 @@ export function createEngineHost(ctx: WorkerContext): EngineHost {
       return ctx.fns.postHostRequest("saveWrite", {
         slot,
         image: bytesToBase64(bytes),
-        amigaRegion: ctx.engine?.amigaRegion ?? "ntsc",
+        amigaRegion: ctx.run.engine?.amigaRegion ?? "ntsc",
       });
     },
     /** 0x7e restore.game: the save lookup is a host request; null = cancelled. */
@@ -193,8 +201,8 @@ export function createEngineHost(ctx: WorkerContext): EngineHost {
     },
     /** 0x8d version: stored into a string slot by the engine. */
     versionString() {
-      const value = ctx.engine ? `AGI ${ctx.engine.profile.id}` : "AGI IS HERE";
-      ctx.recording.recording?.tape.host(["version", value]);
+      const value = ctx.run.engine ? `AGI ${ctx.run.engine.profile.id}` : "AGI IS HERE";
+      ctx.run.recording.recording?.tape.host(["version", value]);
       return value;
     },
     quit() {
@@ -211,7 +219,7 @@ export function createEngineHost(ctx: WorkerContext): EngineHost {
       ctx.ports.presentation({ type: "sound", soundNum });
     },
     soundDevice() {
-      ctx.recording.recording?.tape.host(["soundDevice", ctx.boot.selectedSoundDevice]);
+      ctx.run.recording.recording?.tape.host(["soundDevice", ctx.boot.selectedSoundDevice]);
       return ctx.boot.selectedSoundDevice;
     },
     soundTickOutput(outputs, complete) {
@@ -219,8 +227,8 @@ export function createEngineHost(ctx: WorkerContext): EngineHost {
         type: "soundTick",
         stream: `${namespace}:${stream}`,
         tick: soundTick++,
-        ...(ctx.engine?.profile.frameTiming === "amiga-vblank"
-          ? { amigaRegion: ctx.engine.amigaRegion, hz: ctx.engine.timing.soundHz }
+        ...(ctx.run.engine?.profile.frameTiming === "amiga-vblank"
+          ? { amigaRegion: ctx.run.engine.amigaRegion, hz: ctx.run.engine.timing.soundHz }
           : {}),
         outputs,
         complete,
@@ -236,4 +244,10 @@ export function createEngineHost(ctx: WorkerContext): EngineHost {
       ctx.ports.presentation({ type: "stopSound" });
     },
   };
+  return new Proxy(host, {
+    get(target, key) {
+      if (key === "prepareRoom" && !ctx.boot.authorRooms) return undefined;
+      return Reflect.get(target, key);
+    },
+  });
 }

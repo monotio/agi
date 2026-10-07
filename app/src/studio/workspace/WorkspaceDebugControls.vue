@@ -1,19 +1,14 @@
 <script setup lang="ts">
 import { VOCABULARY } from "../../../../src/vocabulary.ts";
 import type { WorkspaceDebug } from "./workspaceDebug.ts";
-import { useEngineApi } from "../../engine/engineContext.ts";
 import UiButton from "../../ui/UiButton.vue";
 import UiIcon from "../../ui/UiIcon.vue";
-const props = defineProps<{ debug: WorkspaceDebug }>();
-const engine = useEngineApi();
+defineProps<{ debug: WorkspaceDebug }>();
 const steps = [
   { action: "over", vocabulary: VOCABULARY.stepOver, key: "F10" },
   { action: "into", vocabulary: VOCABULARY.stepInto, key: "F11" },
   { action: "out", vocabulary: VOCABULARY.stepOut, key: "⇧F11" },
 ] as const;
-async function pause(): Promise<void> {
-  await engine.executionDebug.query("debugPause", { epoch: props.debug.state.epoch });
-}
 </script>
 <template>
   <div class="workspace-debug-controls" role="group" aria-label="Debug controls">
@@ -21,10 +16,10 @@ async function pause(): Promise<void> {
       size="sm"
       variant="ghost"
       :disabled="debug.state.busy"
-      :title="debug.stopped.value ? 'Continue' : 'Pause'"
-      :aria-label="debug.stopped.value ? 'Continue' : 'Pause'"
-      @click="debug.run(debug.stopped.value ? () => debug.resume('continue') : pause)"
-      ><UiIcon :name="debug.stopped.value ? 'play' : 'pause'" :size="16"
+      title="Continue (F5)"
+      aria-label="Continue"
+      @click="debug.run(() => debug.resume('continue'))"
+      ><UiIcon name="play" :size="16"
     /></UiButton>
     <UiButton
       v-for="step in steps"

@@ -22,7 +22,7 @@ export function readProjectLanguageInput(input: {
   const dictionary = new Map(
     parseWordsTok(files.get("WORDS.TOK") ?? new Uint8Array()).map(({ word, id }) => [word, id]),
   );
-  let objects = readInventoryObjects(files.get("OBJECT"), profile).map((item) => item.name);
+  let inventory = readInventoryObjects(files.get("OBJECT"), profile);
   const state = input.project?.authoringState;
   let bindings = state?.["authoring"] ? validateAuthoringState(state["authoring"]).bindings : {};
   const sources: Record<string, string> = {};
@@ -41,11 +41,9 @@ export function readProjectLanguageInput(input: {
     }
     const bindingText = workspace["bindings"];
     if (typeof bindingText === "string") bindings = readBindingsDocument(bindingText);
-    const inventory = workspace["inventory"];
-    if (typeof inventory === "string")
-      objects = (JSON.parse(inventory) as { name: string }[]).map((item) => item.name);
-    else if (inventory instanceof Uint8Array)
-      objects = readInventoryObjects(inventory, profile).map((item) => item.name);
+    const content = workspace["inventory"];
+    if (typeof content === "string") inventory = JSON.parse(content) as typeof inventory;
+    else if (content instanceof Uint8Array) inventory = readInventoryObjects(content, profile);
     const words = workspace["words"];
     if (typeof words === "string") {
       dictionary.clear();
@@ -55,5 +53,12 @@ export function readProjectLanguageInput(input: {
       for (const { word, id } of parseWordsTok(words)) dictionary.set(word, id);
     }
   }
-  return { profile, dictionary, bindings, sources, objects };
+  return {
+    profile,
+    dictionary,
+    bindings,
+    sources,
+    inventory,
+    objects: inventory.map((item) => item.name),
+  };
 }

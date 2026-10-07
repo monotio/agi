@@ -26,9 +26,9 @@ export const WORDS_EDITOR_COPY = {
 } as const;
 
 export const WORDS_REPLY_COPY = {
-  suggested: "Suggested {words} · shown in WORDS",
-  suggestedCount: "Suggested {count} words · shown in WORDS",
-  predicted: "Predicted {count} {commands} · see Players will likely try in {room}",
+  suggested: "Suggested {words}",
+  suggestedCount: "Suggested {count} words",
+  predicted: "Predicted {count} {commands} players will try in {room}",
   command: "command",
   commands: "commands",
   unreadable: "The reply’s JSON could not be read.",
@@ -47,7 +47,7 @@ export const VOCABULARY = {
   },
   meaningButton: {
     id: "meaningButton",
-    label: "+ Meaning",
+    label: "Add meaning",
     help: "Starts a row of words with a new meaning.",
     technical: "",
   },
@@ -55,12 +55,6 @@ export const VOCABULARY = {
     id: "playtests",
     label: "from your playtests",
     help: "Sentences from your playtests.",
-    technical: "",
-  },
-  sentenceParser: {
-    id: "sentenceParser",
-    label: "The game’s own parser reads it",
-    help: "Reads the sentence with the current WORDS.",
     technical: "",
   },
   meanings: {
@@ -193,19 +187,19 @@ export const VOCABULARY = {
   lens: {
     id: "lens",
     label: "Lens",
-    help: "Shows Art, Depth or Walk while you draw.",
+    help: "Shows Visual or Priority while you draw.",
     technical: "",
   },
   drawingDepth: {
     id: "drawingDepth",
-    label: "Drawing depth",
-    help: "The depth the drawing tools also paint. None leaves the existing depth as you draw.",
+    label: "Priority",
+    help: "The priority the drawing tools also paint. None leaves the existing priority as you draw.",
     technical: "PICTURE priority drawing value.",
   },
   none: {
     id: "none",
     label: "None",
-    help: "Leaves the existing depth as you draw.",
+    help: "Leaves the existing priority as you draw.",
     technical: "Priority plane disabled.",
   },
   waitingUpdate: {
@@ -331,23 +325,28 @@ export const VOCABULARY = {
   art: { id: "art", label: "Art", help: "What the player sees.", technical: "Visual plane." },
   depth: {
     id: "depth",
-    label: "Depth",
+    label: "Priority",
     help: "What stands in front. Lower on the screen is nearer.",
     technical: "AGI calls this priority.",
   },
   depthBand: {
     id: "depthBand",
-    label: "depth band",
-    help: "Each row of the screen has a depth. A character's depth comes from the row its feet are on.",
+    label: "distance band",
+    help: "Each row of the screen sits in a distance band. A character's priority comes from the row its feet are on.",
     technical: "Priority band from set.pri.base.",
   },
   walk: {
     id: "walk",
     label: "Walk",
-    help: "Where characters can go.",
+    help: "Walls, gates, triggers and water: what happens where characters walk.",
     technical: "AGI calls this control.",
   },
-  wall: { id: "wall", label: "Wall", help: "Characters stop here.", technical: "Control 0." },
+  wall: {
+    id: "wall",
+    label: "Wall",
+    help: "Characters can't cross a wall.",
+    technical: "Control 0.",
+  },
   gate: {
     id: "gate",
     label: "Gate",
@@ -606,7 +605,7 @@ export const VOCABULARY = {
   review: {
     id: "review",
     label: "Review",
-    help: "Review shows each change for you to approve. Auto-approve applies changes at once; Undo takes them back.",
+    help: "Review asks before applying changes. Auto-approve applies them as they arrive.",
     technical: "",
   },
   approve: {
@@ -643,7 +642,7 @@ export const VOCABULARY = {
   autoApprove: {
     id: "autoApprove",
     label: "Auto-approve",
-    help: "Review shows each change for you to approve. Auto-approve applies changes at once; Undo takes them back.",
+    help: "Review asks before applying changes. Auto-approve applies them as they arrive.",
     technical: "",
   },
   reject: {
@@ -699,6 +698,12 @@ export const VOCABULARY = {
     label: "Game tests",
     help: "Game tests play part of your game automatically and check the result.",
     technical: "TESTS.JSON.",
+  },
+  testWalk: {
+    id: "testWalk",
+    label: "Test walk",
+    help: "Walks the hero from a start to a goal in the game and shows the path it took.",
+    technical: "Bounded engine simulation of the room's LOGIC.",
   },
   playtest: {
     id: "playtest",
@@ -772,9 +777,21 @@ export const VOCABULARY = {
     help: "The source text or bytes of one part of your game.",
     technical: "Exact authored document, including invalid source.",
   },
+  launch: {
+    id: "launch",
+    label: "Launch",
+    help: "Per-room launch configurations that preset entry state for testing.",
+    technical: "A named room entry state.",
+  },
 } as const satisfies Record<string, VocabularyTerm>;
 
 export const VOCABULARY_ACTIONS = {
+  configure_launch: {
+    ...VOCABULARY.launch,
+    id: "configure_launch",
+    label: "Configure launch",
+    tool: "configure_launch",
+  },
   write_notes: {
     id: "write_notes",
     label: "Write notes",
@@ -921,6 +938,24 @@ export const VOCABULARY_ACTIONS = {
     tool: "read_reference_image",
   },
   write_room: { ...VOCABULARY.room, id: "write_room", label: "Write room", tool: "write_room" },
+  edit_selection: {
+    ...VOCABULARY.editContext,
+    id: "edit_selection",
+    label: "Edit selection",
+    tool: "edit_selection",
+  },
+  withdraw_selection: {
+    ...VOCABULARY.editContext,
+    id: "withdraw_selection",
+    label: "Withdraw selection",
+    tool: "withdraw_selection",
+  },
+  propose_names: {
+    ...VOCABULARY.reserveName,
+    id: "propose_names",
+    label: "Propose names",
+    tool: "propose_names",
+  },
   read_edit_context: {
     ...VOCABULARY.editContext,
     id: "read_edit_context",

@@ -1,11 +1,9 @@
 /**
- * A Studio's side of a lesson: the session its request carries (when the Help
- * guide opened it from a lesson), the check each finished edit runs
- * (lessonCheck.ts), and the save notice that reports the verdict. Studio's
- * harness has no Create centre, and so no lesson.
+ * A Studio's side of a lesson: the session its tab request carries (when
+ * the Help guide opened it from a lesson), the check each finished edit
+ * runs (lessonCheck.ts), and the save notice that reports the verdict.
  */
 import { computed, shallowRef } from "vue";
-import { useOptionalCreateCenter } from "../shell/useCreateWorkspace.ts";
 import type { StudioNotice } from "../studio/useStudioNotice.ts";
 import {
   checkLessonKeep,
@@ -15,12 +13,9 @@ import {
 } from "./lessonCheck.ts";
 import { useLessonBadges } from "./lessonStorage.ts";
 
-export function useStudioLesson(request?: () => LessonSession | null | undefined) {
-  const center = useOptionalCreateCenter();
+export function useStudioLesson(request: () => LessonSession | null | undefined) {
   const badges = useLessonBadges();
-  const session = computed(() =>
-    request ? (request() ?? null) : (center?.studio.value?.lesson ?? null),
-  );
+  const session = computed(() => request() ?? null);
   /** The last checked edit's verdict; null when it had none. */
   const outcome = shallowRef<LessonOutcome | null>(null);
 

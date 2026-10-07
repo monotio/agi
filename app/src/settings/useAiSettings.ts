@@ -166,7 +166,7 @@ export function createAiSettings(engine: EngineApi, deps: AiSettingsDeps) {
 
 export type AiSettingsApi = ReturnType<typeof createAiSettings>;
 
-export const aiSettingsKey: InjectionKey<AiSettingsApi> = Symbol("agi-ai-settings");
+const aiSettingsKey: InjectionKey<AiSettingsApi> = Symbol("agi-ai-settings");
 
 export function provideAiSettings(api: AiSettingsApi): void {
   provide(aiSettingsKey, api);

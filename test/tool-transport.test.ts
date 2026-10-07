@@ -25,7 +25,7 @@ import { buildView } from "../src/view/view.ts";
 import { openContainer } from "../src/container/container.ts";
 import { Engine } from "../src/runtime/engine.ts";
 import { assertNoImageData } from "./modelText.ts";
-import { createStudioAssist, STUDIO_ASSIST_TOOLS } from "../src/agent/studioAssistTools.ts";
+import { createSelectionEdit, SELECTION_TOOLS } from "../src/agent/selectionTools.ts";
 import { draftRevision, pictureAssistScope } from "../src/studio/assistScope.ts";
 import { compileEditDocument } from "../src/studio/editValidation.ts";
 import { parsePictureDocument } from "../src/studio/pictureDocument.ts";
@@ -162,7 +162,7 @@ function bootedSession() {
   session.container.putResource(
     "logic",
     2,
-    assembleLogic("return;", { dictionary: session.sources.words }).payload,
+    assembleLogic("set(f32);", { dictionary: session.sources.words }).payload,
   );
   return session;
 }
@@ -260,13 +260,13 @@ test("every catalog tool produces bounded binary-free transport on real success 
           offset: null,
           limit: null,
         }).details?.["revision"],
-        edits: [{ find: "return;", replace: "set(f10); return;" }],
+        edits: [{ find: "set(f32);", replace: "set(f33);" }],
       }),
       bad: {
         kind: "logic",
         num: 2,
         expectedRevision: "stale",
-        edits: [{ find: "return;", replace: "set(f10); return;" }],
+        edits: [{ find: "set(f32);", replace: "set(f33);" }],
       },
     },
     update_plan: {
@@ -316,6 +316,36 @@ test("every catalog tool produces bounded binary-free transport on real success 
     play_sound: {
       good: { num: 6, startSeconds: null, durationSeconds: null, device: null },
       bad: { num: 255, startSeconds: null, durationSeconds: null, device: null },
+    },
+    configure_launch: {
+      good: {
+        room: 5,
+        action: "create",
+        id: null,
+        name: "Vacuum death",
+        note: null,
+        cameFrom: null,
+        flags: null,
+        variables: null,
+        items: null,
+        hero: null,
+        seed: null,
+        selected: null,
+      },
+      bad: {
+        room: 5,
+        action: "remove",
+        id: "missing",
+        name: "Vacuum death",
+        note: null,
+        cameFrom: null,
+        flags: null,
+        variables: null,
+        items: null,
+        hero: null,
+        seed: null,
+        selected: null,
+      },
     },
     draw_picture_items: {
       good: { room: 5, backgroundColor: 1, shapes: [] },
@@ -434,19 +464,19 @@ test("every catalog tool produces bounded binary-free transport on real success 
     },
   };
   // The Studio tools run against a creator's selection: the river-and-bridge
-  // fixture in the Walk lens, attached to the shared deps below.
+  // fixture in the Priority lens, attached to the shared deps below.
   const bridge = compileEditDocument(parsePictureDocument(BRIDGE_SOURCE).document, session.profile);
-  const studio = createStudioAssist({
+  const studio = createSelectionEdit({
     scope: pictureAssistScope({
       num: 1,
       compiled: bridge,
       targetIds: ["bridge"],
-      lens: "walk",
+      lens: "depth",
     }),
     draft: () => ({ kind: "picture", source: BRIDGE_SOURCE }),
-    lens: "walk",
+    lens: "depth",
   });
-  const proposeTool = STUDIO_ASSIST_TOOLS.find((tool) => tool.name === "propose_changes")!;
+  const proposeTool = SELECTION_TOOLS.find((tool) => tool.name === "edit_selection")!;
   const opFields = (
     proposeTool.parameters.properties["pictureOps"] as { items: { required: string[] } }
   ).items.required;
@@ -486,12 +516,12 @@ test("every catalog tool produces bounded binary-free transport on real success 
     good: { id: "art-0123456789", size: "small", region: null, grid: true },
     bad: { id: "art-0000000000", size: "small", region: null, grid: null },
   };
-  cases["propose_changes"] = {
+  cases["edit_selection"] = {
     good: proposal(draftRevision({ kind: "picture", source: BRIDGE_SOURCE })),
     bad: proposal("picture-1-00000000"),
   };
-  // After propose_changes's candidate: the first call withdraws it, the second finds none.
-  cases["withdraw_changes"] = {
+  // After edit_selection's candidate: the first call withdraws it, the second finds none.
+  cases["withdraw_selection"] = {
     good: { reason: "It cannot meet the request." },
     bad: { reason: "It cannot meet the request." },
   };
@@ -514,7 +544,7 @@ test("every catalog tool produces bounded binary-free transport on real success 
   }
   const deps = {
     allowedTools: AGENT_TOOLS.map((tool) => tool.name),
-    studio,
+    selection: studio,
     references: {
       art: [
         {
@@ -559,13 +589,14 @@ test("every catalog tool produces bounded binary-free transport on real success 
   };
   const expectedCatalog = [
     "add_depth",
+    "configure_launch",
     "edit_source",
     "finish",
     "read_plan",
     "edit_cels",
     "playtest_room",
     "play_sound",
-    "propose_changes",
+    "edit_selection",
     "read_authoring_guide",
     "read_command_reference",
     "read_diagnostic",
@@ -581,7 +612,7 @@ test("every catalog tool produces bounded binary-free transport on real success 
     "run_game_tests",
     "update_plan",
     "read_reference_image",
-    "withdraw_changes",
+    "withdraw_selection",
     "write_game_tests",
     "write_objects",
     "write_logic",

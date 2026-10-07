@@ -50,3 +50,15 @@ test("resource revisions distinguish absent, empty, and byte changes", () => {
     resourceCacheHint(new Uint8Array([1, 2])),
   );
 });
+
+test("naming evidence reads current and legacy roles without rewriting saved values", () => {
+  for (const role of ["Changed", "Read", "Used", "Set", "Checked"]) {
+    const state = createAuthoringState();
+    state.bindings["door_open"] = {
+      kind: "flag",
+      num: 40,
+      evidence: [{ logic: 1, line: 1, role, text: "set(f40);", nearbyMessages: [] }],
+    };
+    assert.deepEqual(validateAuthoringState(JSON.parse(JSON.stringify(state))), state);
+  }
+});

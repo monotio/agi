@@ -1,14 +1,36 @@
+import { readWorldLaunches, type WorldLaunches } from "./launches.ts";
+
 /** Portable authoring intent and stable names; game behavior remains in AGI resources. */
-export type BindingKind = "logic" | "picture" | "view" | "sound" | "flag" | "variable";
+export type BindingKind =
+  "logic" | "picture" | "view" | "sound" | "flag" | "variable" | "object" | "inventory" | "message";
 export interface AuthoringState {
   version: 1;
   /** Authored musical intent, usable only while the compiled SOUND revision matches. */
   music?: Record<string, { revision: string; tempo: number }>;
-  bindings: Record<string, { kind: BindingKind; num: number }>;
+  bindings: Record<
+    string,
+    {
+      kind: BindingKind;
+      num: number;
+      logic?: number;
+      evidence?: {
+        logic: number;
+        line: number;
+        role: string;
+        text: string;
+        nearbyMessages: string[];
+      }[];
+    }
+  >;
   world: {
-    rooms: Record<string, { title: string; description: string; exits: Record<string, number> }>;
+    rooms: Record<
+      string,
+      { title: string; description: string; exits: Record<string, number>; titleIsDefault?: true }
+    >;
     facts: Record<string, string>;
     quests: Record<string, { description: string; requires: string[]; completedFlag?: string }>;
+    /** Per-room launch configurations; absent means none are saved. */
+    launches?: WorldLaunches;
   };
 }
 
@@ -113,16 +135,64 @@ export function validateAuthoringState(value: unknown): AuthoringState {
     result.music = music;
   }
   for (const [name, entry] of Object.entries(record(raw["bindings"], "bindings", 1536))) {
-    const item = record(entry, "binding", 4);
+    const item = record(entry, "binding", 5);
     if (
       !/^[a-z][a-z0-9_]{0,63}$/.test(name) ||
-      !["logic", "picture", "view", "sound", "flag", "variable"].includes(String(item["kind"])) ||
+      ![
+        "logic",
+        "picture",
+        "view",
+        "sound",
+        "flag",
+        "variable",
+        "object",
+        "inventory",
+        "message",
+      ].includes(String(item["kind"])) ||
       !Number.isInteger(item["num"]) ||
       Number(item["num"]) < 0 ||
       Number(item["num"]) > 255
     )
       throw new Error(`Invalid binding '${name}'.`);
-    result.bindings[name] = { kind: item["kind"] as BindingKind, num: Number(item["num"]) };
+    if (
+      item["kind"] === "message" &&
+      (!Number.isInteger(item["logic"]) || Number(item["logic"]) < 0 || Number(item["logic"]) > 255)
+    )
+      throw new Error(`Message binding '${name}' needs a LOGIC number.`);
+    let evidence: NonNullable<AuthoringState["bindings"][string]["evidence"]> | undefined;
+    if (item["evidence"] !== undefined) {
+      if (!Array.isArray(item["evidence"]) || item["evidence"].length > 256)
+        throw new Error(`Invalid naming evidence for '${name}'.`);
+      evidence = item["evidence"].map((value) => {
+        const proof = record(value, "naming evidence", 5);
+        if (
+          !Number.isInteger(proof["logic"]) ||
+          Number(proof["logic"]) < 0 ||
+          Number(proof["logic"]) > 255 ||
+          !Number.isInteger(proof["line"]) ||
+          Number(proof["line"]) < 1 ||
+          // Legacy naming evidence remains readable without rewriting its saved roles.
+          !["Changed", "Read", "Used", "Set", "Checked"].includes(String(proof["role"])) ||
+          typeof proof["text"] !== "string" ||
+          !Array.isArray(proof["nearbyMessages"]) ||
+          proof["nearbyMessages"].some((message) => typeof message !== "string")
+        )
+          throw new Error(`Invalid naming evidence for '${name}'.`);
+        return {
+          logic: Number(proof["logic"]),
+          line: Number(proof["line"]),
+          role: String(proof["role"]),
+          text: proof["text"],
+          nearbyMessages: proof["nearbyMessages"] as string[],
+        };
+      });
+    }
+    result.bindings[name] = {
+      kind: item["kind"] as BindingKind,
+      num: Number(item["num"]),
+      ...(item["kind"] === "message" ? { logic: Number(item["logic"]) } : {}),
+      ...(evidence ? { evidence } : {}),
+    };
   }
   const world = record(raw["world"], "world", 4);
   for (const [num, entry] of Object.entries(record(world["rooms"], "rooms", 255))) {
@@ -137,6 +207,7 @@ export function validateAuthoringState(value: unknown): AuthoringState {
     }
     result.world.rooms[num] = {
       title: text(item["title"], "room title", 160),
+      ...(item["titleIsDefault"] === true ? { titleIsDefault: true as const } : {}),
       description: text(item["description"], "room description"),
       exits,
     };
@@ -156,5 +227,6 @@ export function validateAuthoringState(value: unknown): AuthoringState {
         : { completedFlag: text(item["completedFlag"], "completion flag", 64) }),
     };
   }
+  if (world["launches"] !== undefined) result.world.launches = readWorldLaunches(world["launches"]);
   return result;
 }

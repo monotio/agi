@@ -1,9 +1,11 @@
+import { waitUntil } from "./async.ts";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   STALE_SAVE_MESSAGE,
   useAuthoringController,
   type PowerUpUiState,
+  type RoomGenerationUiState,
 } from "../src/authoring/useAuthoringController.ts";
 import { ResourceCommitError } from "../src/project/projectTransaction.ts";
 import { openProjectSession } from "../src/project/projectSession.ts";
@@ -38,11 +40,6 @@ import type { DecodedImage } from "../src/references/referenceArt.ts";
 import { base64ToBytes, bytesToBase64 } from "../src/project/bytes.ts";
 import { resourceSetHint } from "../../src/agent/authoringState.ts";
 import type { HistoryBoot } from "../../src/agent/history.ts";
-import { pictureAssistScope } from "../../src/studio/assistScope.ts";
-import { compileEditDocument } from "../../src/studio/editValidation.ts";
-import { parsePictureDocument } from "../../src/studio/pictureDocument.ts";
-import { DEFAULT_V2_PROFILE } from "../../src/runtime/profile.ts";
-import { BRIDGE_SOURCE } from "../../test/studioAssistFixtures.ts";
 import type { BootedGame } from "../src/project/gameTypes.ts";
 import type { AwaitPatchedFn } from "../src/engine/workerQueries.ts";
 
@@ -474,7 +471,7 @@ test("an answered room checkpoints after its owned project publishes the install
   await clearCachedGame(projectId);
 });
 
-test("handleRoomAuthoring rejects and sets needsConfig when credentials are missing", async (t) => {
+test("handleRoomAuthoring shows recovery and sets needsConfig when credentials are missing", async (t) => {
   installLocalStorageMock(t);
   const projectId = testProjectId("imported-no-creds-proj");
   const files = createTestFiles();
@@ -538,16 +535,14 @@ test("handleRoomAuthoring rejects and sets needsConfig when credentials are miss
     getLlmConfig: () => activeConfig,
   });
 
-  await assert.rejects(
-    async () => {
-      await controller.handleRoomAuthoring(
-        { op: "room", context: { room: 2 } },
-        mockAgent,
-        () => {},
-      );
-    },
-    { message: "The next room could not be created. Connect your model and try again." },
+  const pendingRoom = controller.handleRoomAuthoring(
+    { op: "room", context: { room: 2 } },
+    mockAgent,
+    () => {},
   );
+  await new Promise((resolve) => setImmediate(resolve));
+  controller.stopRoomGeneration();
+  assert.equal(await pendingRoom, "");
 
   assert.equal(agentCalled, false);
   assert.equal(powerUp.needsConfig, true);
@@ -556,7 +551,7 @@ test("handleRoomAuthoring rejects and sets needsConfig when credentials are miss
   await clearCachedGame(projectId);
 });
 
-test("handleRoomAuthoring rejects when roomGeneration is false", async (t) => {
+test("handleRoomAuthoring stops without authoring when roomGeneration is false", async (t) => {
   installLocalStorageMock(t);
   const projectId = testProjectId("imported-public-proj");
   const files = createTestFiles();
@@ -610,16 +605,14 @@ test("handleRoomAuthoring rejects when roomGeneration is false", async (t) => {
     getLlmConfig: () => ({ provider: "stub", apiKey: "", model: "offline-stub" }),
   });
 
-  await assert.rejects(
-    async () => {
-      await controller.handleRoomAuthoring(
-        { op: "room", context: { room: 2 } },
-        mockAgent,
-        () => {},
-      );
-    },
-    { message: "The next room could not be created. Connect your model and try again." },
+  const pendingRoom = controller.handleRoomAuthoring(
+    { op: "room", context: { room: 2 } },
+    mockAgent,
+    () => {},
   );
+  await new Promise((resolve) => setImmediate(resolve));
+  controller.stopRoomGeneration();
+  assert.equal(await pendingRoom, "");
 
   assert.equal(powerUp.needsConfig, true);
   assert.equal(controller.getSession(), null);
@@ -1299,6 +1292,7 @@ for (const when of ["before the turn", "mid-turn"] as const) {
     const room = assembleLogic("return;", { dictionary: new Map() }).payload;
     let spent = false;
     const ui = {
+      roomGeneration: null as RoomGenerationUiState | null,
       phase: "running" as const,
       powerUp: createMockPowerUp(),
       agentTask: null,
@@ -1335,19 +1329,19 @@ for (const when of ["before the turn", "mid-turn"] as const) {
         return "Room created";
       },
     };
-    // The rejection is what the worker hears: an empty answer declines the
-    // room, so the player stays where they are and play resumes.
-    await assert.rejects(
-      controller.handleRoomAuthoring({ op: "room", context: { room: 2 } }, agent, () => {}),
-      (error) => {
-        assert.equal((error as { code?: string }).code, "stale");
-        return true;
-      },
+    const failedRoom = controller.handleRoomAuthoring(
+      { op: "room", context: { room: 2 } },
+      agent,
+      () => {},
     );
+    await waitUntil(() => !!ui.roomGeneration?.error, "the stale room error did not arrive");
+    assert.equal(ui.roomGeneration?.error, STALE_TURN_MESSAGE);
+    controller.stopRoomGeneration();
+    assert.equal(await failedRoom, "");
     assert.equal(spent, when === "mid-turn", "a turn already behind storage never spends");
     // The room panel the request opened shows the refusal and its recovery.
-    assert.equal(ui.powerUp.mode, "room");
-    assert.equal(ui.powerUp.error, STALE_TURN_MESSAGE);
+    assert.equal(ui.powerUp.mode, "remix");
+    assert.equal(ui.roomGeneration, null);
     assert.equal(ui.powerUp.offerReload, true);
     assert.equal(ui.powerUp.busy, false);
     assert.equal(controller.getSession()!.state.container.getResource("logic", 2), null);
@@ -1358,93 +1352,102 @@ for (const when of ["before the turn", "mid-turn"] as const) {
   });
 }
 
-test("the authoring stack loads on the first AI action, under the room's progress", async (t) => {
-  // Play boots without the authoring stack: constructing the controller
-  // loads nothing, and the first room a created game writes waits for the
-  // load while the room panel already shows the room being written.
-  installLocalStorageMock(t);
-  const projectId = testProjectId("lazy-authoring-stack");
-  const files = createTestFiles();
-  await saveAuthoredGame(projectId, {
-    title: "Lazy Stack Game",
-    provider: "stub",
-    model: "offline-stub",
-    files,
-    words: [],
-    roomGeneration: true,
-  });
-  const bootedGame: BootedGame = {
-    installed: false,
-    projectId,
-    title: "Lazy Stack Game",
-    revision: await gameRevision(files),
-    files,
-    words: [],
-  };
-  let loads = 0;
-  let release!: () => void;
-  const arrived = new Promise<void>((resolve) => (release = resolve));
-  const loadAuthoring: AuthoringLoader = async () => {
-    loads++;
-    await arrived;
-    return authoringStack;
-  };
-  const ui = {
-    phase: "running" as const,
-    powerUp: createMockPowerUp(),
-    agentTask: null,
-    agentLog: [],
-    profile: "2.936",
-    worldTick: 0,
-    planDurableRev: "",
-  };
-  const controller = useAuthoringController({
-    state: ui,
-    getWorker: () => null,
-    query: async <T>() => null as T,
-    logAgent: () => {},
-    readFrames: async () => [],
-    pauseEngine: () => {},
-    resumeEngine: () => {},
-    getBootedGame: () => bootedGame,
-    setBootedGame: () => {},
-    flushAutosave: async () => {},
-    getAutosaveWrite: async () => true,
-    clearAutosave: () => {},
-    awaitPatched: ackPatch,
-    configForGame: (_p, config) => config,
-    getLlmConfig: () => mockConfig,
-    loadAuthoring,
-  });
-  assert.equal(loads, 0, "constructing the controller loads nothing");
+for (const stopped of [false, true]) {
+  test(
+    stopped
+      ? "Stop before the authoring stack arrives prevents the room request"
+      : "the authoring stack loads on the first AI action, under the room's progress",
+    async (t) => {
+      // Play boots without the authoring stack: constructing the controller
+      // loads nothing, and the first room a created game writes waits for the
+      // load while the room panel already shows the room being written.
+      installLocalStorageMock(t);
+      const projectId = testProjectId("lazy-authoring-stack");
+      const files = createTestFiles();
+      await saveAuthoredGame(projectId, {
+        title: "Lazy Stack Game",
+        provider: "stub",
+        model: "offline-stub",
+        files,
+        words: [],
+        roomGeneration: true,
+      });
+      const bootedGame: BootedGame = {
+        installed: false,
+        projectId,
+        title: "Lazy Stack Game",
+        revision: await gameRevision(files),
+        files,
+        words: [],
+      };
+      let loads = 0;
+      let release!: () => void;
+      const arrived = new Promise<void>((resolve) => (release = resolve));
+      const loadAuthoring: AuthoringLoader = async () => {
+        loads++;
+        await arrived;
+        return authoringStack;
+      };
+      const ui = {
+        roomGeneration: null as RoomGenerationUiState | null,
+        phase: "running" as const,
+        powerUp: createMockPowerUp(),
+        agentTask: null,
+        agentLog: [],
+        profile: "2.936",
+        worldTick: 0,
+        planDurableRev: "",
+      };
+      const controller = useAuthoringController({
+        state: ui,
+        getWorker: () => null,
+        query: async <T>() => null as T,
+        logAgent: () => {},
+        readFrames: async () => [],
+        pauseEngine: () => {},
+        resumeEngine: () => {},
+        getBootedGame: () => bootedGame,
+        setBootedGame: () => {},
+        flushAutosave: async () => {},
+        getAutosaveWrite: async () => true,
+        clearAutosave: () => {},
+        awaitPatched: ackPatch,
+        configForGame: (_p, config) => config,
+        getLlmConfig: () => mockConfig,
+        loadAuthoring,
+      });
+      assert.equal(loads, 0, "constructing the controller loads nothing");
 
-  let handled = false;
-  const answer = controller.handleRoomAuthoring(
-    { op: "room", context: { room: 2 } },
-    {
-      handle: async () => {
-        handled = true;
-        return "Room created";
-      },
+      let handled = false;
+      const answer = controller.handleRoomAuthoring(
+        { op: "room", context: { room: 2 } },
+        {
+          handle: async () => {
+            handled = true;
+            return "Room created";
+          },
+        },
+        () => {},
+      );
+      await new Promise((resolve) => setImmediate(resolve));
+      assert.equal(loads, 1, "the first AI action starts the load");
+      assert.equal(controller.getSession(), null, "no session before the stack arrives");
+      assert.equal(handled, false);
+      assert.deepEqual(
+        { room: ui.roomGeneration?.room, busy: ui.roomGeneration?.busy, open: ui.powerUp.open },
+        { room: 2, busy: true, open: false },
+        "the room progress shows while the stack loads",
+      );
+
+      if (stopped) controller.stopRoomGeneration();
+      release();
+      assert.equal(await answer, stopped ? "" : "Room created");
+      assert.equal(handled, !stopped);
+      assert.equal(controller.getSession() instanceof AgentSession, !stopped);
+      await clearCachedGame(projectId);
     },
-    () => {},
   );
-  await new Promise((resolve) => setImmediate(resolve));
-  assert.equal(loads, 1, "the first AI action starts the load");
-  assert.equal(controller.getSession(), null, "no session before the stack arrives");
-  assert.equal(handled, false);
-  assert.deepEqual(
-    { mode: ui.powerUp.mode, open: ui.powerUp.open, busy: ui.powerUp.busy },
-    { mode: "room", open: true, busy: true },
-    "the room progress shows while the stack loads",
-  );
-
-  release();
-  assert.equal(await answer, "Room created");
-  assert.equal(handled, true);
-  assert.ok(controller.getSession() instanceof AgentSession);
-  await clearCachedGame(projectId);
-});
+}
 
 test("a failed authoring load reads plainly in Ask and leaves Play running", async () => {
   let loads = 0;
@@ -1649,29 +1652,6 @@ test("a stale tab's Ask says the game changed elsewhere and never saves over the
   assert.equal(ui.powerUp.messages.at(-1)?.role, "assistant", "the answer is shown");
   assert.equal(ui.powerUp.error, STALE_SAVE_MESSAGE);
   assert.equal(ui.powerUp.offerReload, true);
-  await untouched();
-});
-
-test("a stale tab's Studio assist request refuses as stale and never saves over the newer project", async (t) => {
-  const { controller, untouched } = await staleTab(t, "two-tab-studio-assist");
-  const compiled = compileEditDocument(
-    parsePictureDocument(BRIDGE_SOURCE).document,
-    DEFAULT_V2_PROFILE,
-  );
-  await assert.rejects(
-    controller.runStudioAssist(
-      {
-        instruction: "impossible: walk onto the ceiling",
-        focus: {
-          scope: pictureAssistScope({ num: 1, compiled, targetIds: ["bridge"], lens: "walk" }),
-          draft: () => ({ kind: "picture", source: BRIDGE_SOURCE }),
-          lens: "walk",
-        },
-      },
-      mockConfig,
-    ),
-    staleSave,
-  );
   await untouched();
 });
 
@@ -1941,108 +1921,79 @@ test("a history adoption with no session stores the adopted files over the recor
   assert.equal(game.revision, await gameRevision(files));
 });
 
-test("runStudioAssist asks the game's session, returns its candidate and saves only the conversation", async (t) => {
-  installLocalStorageMock(t);
-  const projectId = testProjectId("studio-assist-controller");
-  const files = createTestFiles();
-  const sources = { logics: [], pictures: [[1, BRIDGE_SOURCE]] };
-  await saveAuthoredGame(projectId, {
-    title: "Bridge",
-    provider: "stub",
-    model: "offline-stub",
-    files,
-    words: [],
-    authoringState: {
-      authoring: { version: 1, bindings: {}, world: { rooms: {}, facts: {}, quests: {} } },
-      sources,
-    },
+for (const action of ["retry", "stop"] as const) {
+  test(`room generation keeps its error visible with the drawer closed until ${action}`, async (t) => {
+    installLocalStorageMock(t);
+    const files = createTestFiles();
+    const projectId = testProjectId(`room-recovery-${action}`);
+    await saveAuthoredGame(projectId, {
+      title: "Room recovery",
+      provider: "stub",
+      model: "stub",
+      files,
+      words: [],
+      roomGeneration: true,
+    });
+    const game: BootedGame = {
+      installed: false,
+      projectId,
+      title: "Room recovery",
+      files,
+      words: [],
+      revision: await gameRevision(files),
+    };
+    const state = {
+      phase: "running" as const,
+      powerUp: createMockPowerUp(),
+      agentTask: null,
+      agentLog: [],
+      profile: "2.936",
+      worldTick: 0,
+      planDurableRev: "",
+      roomGeneration: null as { busy: boolean; error: string; room: number } | null,
+    };
+    const controller = useAuthoringController({
+      state,
+      getWorker: () => null,
+      query: async <T>() => null as T,
+      logAgent: () => {},
+      readFrames: async () => [],
+      pauseEngine: () => {},
+      resumeEngine: () => {},
+      getBootedGame: () => game,
+      setBootedGame: () => {},
+      flushAutosave: async () => {},
+      getAutosaveWrite: async () => true,
+      clearAutosave: () => {},
+      awaitPatched: ackPatch,
+      configForGame: (_p, config) => config,
+      getLlmConfig: () => mockConfig,
+    });
+    let attempts = 0;
+    const pending = controller.handleRoomAuthoring(
+      { op: "room", context: { room: 2, from: 1 } },
+      {
+        handle: async () => {
+          attempts++;
+          if (attempts === 1) throw new Error("The provider connection failed.");
+          return controller.getSession()!.handle({ op: "room", context: { room: 2, from: 1 } });
+        },
+      },
+      () => {},
+    );
+    void pending.catch(() => {});
+    await waitUntil(() => !!state.roomGeneration?.error, "the room error did not arrive");
+    assert.equal(state.powerUp.open, false);
+    assert.equal(state.roomGeneration?.room, 2);
+    assert.equal(state.roomGeneration?.busy, false);
+    assert.equal(state.roomGeneration?.error, "The provider connection failed.");
+    if (action === "retry") controller.retryRoomGeneration();
+    else controller.stopRoomGeneration();
+    const result = await pending;
+    assert.equal(Boolean(result), action === "retry");
+    assert.equal(attempts, action === "retry" ? 2 : 1);
+    if (action === "stop") assert.equal(state.roomGeneration, null);
+    controller.resetSession();
+    await clearCachedGame(projectId);
   });
-  t.after(() => void clearCachedGame(projectId));
-  const game: BootedGame = {
-    installed: false,
-    projectId,
-    title: "Bridge",
-    revision: await gameRevision(files),
-    files,
-    words: [],
-    historyLifetime: await readHistoryLifetime(projectId),
-  };
-  const ui = {
-    phase: "running" as const,
-    powerUp: createMockPowerUp(),
-    agentTask: null,
-    agentLog: [],
-    profile: "2.936",
-    worldTick: 0,
-    planDurableRev: "",
-  };
-  let loads = 0;
-  const controller = useAuthoringController({
-    state: ui,
-    getWorker: () => ({ postMessage() {} }) as unknown as Worker,
-    query: async <T>() => null as T,
-    logAgent: () => {},
-    readFrames: async () => [],
-    pauseEngine: () => {},
-    resumeEngine: () => {},
-    getBootedGame: () => game,
-    setBootedGame: () => {},
-    flushAutosave: async () => {},
-    getAutosaveWrite: async () => true,
-    clearAutosave: () => {},
-    awaitPatched: ackPatch,
-    loadAuthoring: async () => {
-      loads++;
-      return authoringStack;
-    },
-  });
-  const instruction = "Make this bridge walkable without changing the art";
-  const request = {
-    instruction,
-    focus: {
-      scope: pictureAssistScope({
-        num: 1,
-        compiled: compileEditDocument(
-          parsePictureDocument(BRIDGE_SOURCE).document,
-          DEFAULT_V2_PROFILE,
-        ),
-        targetIds: ["bridge"],
-        lens: "walk" as const,
-      }),
-      draft: () => ({ kind: "picture" as const, source: BRIDGE_SOURCE }),
-      lens: "walk" as const,
-    },
-  };
-
-  // Refused before any session: an agent turn owns the game, or no model is connected.
-  ui.powerUp.busy = true;
-  await assert.rejects(controller.runStudioAssist(request, mockConfig), /Wait for the current/);
-  ui.powerUp.busy = false;
-  await assert.rejects(
-    controller.runStudioAssist(request, { provider: "openai", apiKey: " ", model: "gpt-6" }),
-    /Connect an API key/,
-  );
-  assert.equal(loads, 0, "the authoring stack loads only for a request that runs");
-  assert.equal(controller.getSession(), null);
-
-  // The first request creates the game's session; the candidate is data for the Studio.
-  const result = await controller.runStudioAssist(request, mockConfig);
-  const session = controller.getSession();
-  assert.ok(session, "the session stays for the next request");
-  assert.equal(result.candidate?.kind, "picture");
-  assert.equal(result.proposals, 1);
-  await controller.runStudioAssist(request, mockConfig);
-  assert.equal(controller.getSession(), session, "later requests reuse it");
-  assert.equal(loads, 1);
-
-  // Only the conversation was written: the stored sources describe the bytes as before.
-  const stored = (await loadAuthoredGame(projectId))!;
-  assert.deepEqual(stored.authoringState!["sources"], sources);
-  assert.deepEqual(
-    (stored.authoringState!["chat"] as { role: string; text: string }[])
-      .filter(({ role }) => role === "user")
-      .map(({ text }) => text),
-    [instruction, instruction],
-  );
-  assert.equal(await gameRevision(stored.files), game.revision);
-});
+}

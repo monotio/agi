@@ -14,14 +14,9 @@
  * session's segment ends with reason "resume" — the tape is never
  * rewritten, only continued.
  */
-import { resetRecording, configureSessionTiming } from "./session.ts";
-import { Engine } from "../../../src/runtime/engine.ts";
-import { openContainer } from "../../../src/container/container.ts";
-import { base64ToBytes, bytesToBase64 } from "../project/bytes.ts";
+import { adoptResumePoint } from "./resumePoint.ts";
+import { bytesToBase64 } from "../project/bytes.ts";
 import {
-  HISTORY_FINGERPRINT_VERSION,
-  historyBootSemantic,
-  historyFingerprint,
   stampBoot,
   validateHistoryBoot,
   type HistoryBoot,
@@ -54,12 +49,12 @@ export function createHistoryView(
   /** Current position plus what the transport needs to gate Resume here. */
   function position() {
     const drive = ctx.view.drive;
-    const engine = drive?.ctx.engine ?? null;
+    const engine = drive?.ctx.run.engine ?? null;
     return {
       generation: ctx.view.generation,
       tick: drive?.tick ?? 0,
       seq: drive?.seq ?? 0,
-      cycle: drive?.ctx.cycle.cycleCount ?? 0,
+      cycle: drive?.ctx.run.cycle.cycleCount ?? 0,
       room: engine ? (engine.vars[V_ROOM] ?? 0) : 0,
       score: engine ? (engine.vars[V_SCORE] ?? 0) : 0,
       modal: engine?.modalKind ?? null,
@@ -200,11 +195,11 @@ export function createHistoryView(
         else opened = true;
       }
     };
-    const engine = scratch.engine;
+    const engine = scratch.run.engine;
     if (
       engine === null ||
       drive.tick !== 0 ||
-      scratch.cycle.initialLogicStarted ||
+      scratch.run.cycle.initialLogicStarted ||
       engine.readLeanState().pictureShown ||
       engine.textModeActive ||
       engine.modalKind !== null ||
@@ -226,7 +221,7 @@ export function createHistoryView(
         const start = ctx.ports.now();
         while (!preview.halted && !presented) {
           preview.step();
-          const engine = preview.ctx.engine;
+          const engine = preview.ctx.run.engine;
           presented =
             engine !== null &&
             (engine.readLeanState().pictureShown ||
@@ -320,13 +315,13 @@ export function createHistoryView(
     ctx.replay.isSeeking = false;
     ctx.view.drive = null;
     ctx.view.recording = null;
-    if (repaint && ctx.engine) {
+    if (repaint && ctx.run.engine) {
       // The displayed frame is a viewed one; the sameness cache would call
       // an identical live frame a no-op, so invalidate before reposting.
-      ctx.presentation.lastVisual = null;
-      ctx.presentation.lastText = null;
-      ctx.presentation.lastModal = null;
-      ctx.presentation.lastInputEdit = "";
+      ctx.run.presentation.lastVisual = null;
+      ctx.run.presentation.lastText = null;
+      ctx.run.presentation.lastModal = null;
+      ctx.run.presentation.lastInputEdit = "";
       ctx.fns.postFrame();
     }
   }
@@ -345,7 +340,7 @@ export function createHistoryView(
       from:
         h.segment === null
           ? null
-          : { segment: h.segment, seq: h.seq, tick: ctx.cycle.tickCount - h.tickBase },
+          : { segment: h.segment, seq: h.seq, tick: ctx.run.cycle.tickCount - h.tickBase },
     });
   }
 
@@ -359,93 +354,8 @@ export function createHistoryView(
     boot: HistoryBoot,
     from: { segment: string; seq: number; tick: number } | null,
   ): void {
-    const files = new Map(
-      Object.entries(boot.files).map(([name, data]) => [name, base64ToBytes(data)]),
-    );
-    const dictionary = new Map(boot.dictionary);
-    // Build and verify the incoming session before any live mutation: a boot
-    // whose recorded state does not reproduce after restore is refused with
-    // the departing session untouched. The image's recorded presentation is
-    // restored verbatim — the live-restore redraw would rewrite the text
-    // ages the snapshot carries.
-    const candidate = new Engine(
-      openContainer(files, boot.profile ? { profile: boot.profile } : {}),
-      ctx.host,
-      dictionary,
-      {
-        ...(boot.profile ? { profile: boot.profile } : {}),
-        amigaRegion: boot.amigaRegion ?? "ntsc",
-      },
-    );
-    if (boot.image !== undefined)
-      candidate.restoreImage(base64ToBytes(boot.image), { preservePresentation: true });
-    if (boot.menus !== undefined) candidate.restoreMenuState(boot.menus);
-    if (boot.replay !== undefined) candidate.restoreReplayState(boot.replay);
-    if (boot.fingerprint.v !== HISTORY_FINGERPRINT_VERSION)
-      throw new Error(`history boot carries fingerprint version ${boot.fingerprint.v}`);
-    const semantic = historyBootSemantic(boot);
-    if (candidate.amigaRegion === "pal") semantic.amigaRegion = "pal";
-    else delete semantic.amigaRegion;
-    if (semantic.image !== undefined) {
-      const image = candidate.recordingImage();
-      if (image === null) throw new Error("the adopted state is not a resumable boundary");
-      semantic.image = bytesToBase64(image);
-    }
-    if (semantic.replay !== undefined) semantic.replay = candidate.captureReplayState();
-    if (semantic.menus !== undefined) semantic.menus = candidate.readMenuState();
-    if (historyFingerprint(semantic).hash !== boot.fingerprint.hash)
-      throw new Error("the adopted state is not the recorded state");
-    const admission = ctx.projectLoader.prepareReplacement?.(candidate, boot.project) ?? null;
-    ctx.fns.abandonHostRequest();
-    endView(false);
-    ctx.fns.historyEnd("resume");
-    ctx.boot.liveDictionary = dictionary;
-    ctx.boot.currentBootFiles = files;
-    ctx.boot.project = boot.project;
-    ctx.boot.currentDictionary = dictionary;
-    ctx.boot.authorRooms = boot.authorRooms;
-    ctx.boot.profile = boot.profile ?? null;
-    ctx.boot.amigaRegion = candidate.amigaRegion;
-    ctx.boot.authoredWords = null;
-    ctx.boot.selectedSoundDevice = boot.soundDevice === 0 ? 0 : 1;
-    ctx.hostRequests.hostRequestOutstanding = null;
-    ctx.hostRequests.hostRequestSerial = boot.requestSerial;
-    ctx.hostRequests.pendingReenter = false;
-    ctx.input.keyQueue = [...(boot.inputQueue ?? [])];
-    ctx.input.deferredMovement = [...(boot.directionQueue ?? [])];
-    ctx.input.inputBuffer = [...(boot.inputLines ?? [])];
-    ctx.input.clickQueue = (boot.clickQueue ?? []).map(([x, y]): [number, number] => [x, y]);
-    resetRecording(ctx);
-    ctx.engine = candidate;
-    ctx.projectAdmission = admission?.lane ?? null;
-    if (admission !== null) ctx.boot.project = admission.project;
-    ctx.fns.armJournal();
-    ctx.fns.setKeyWaiting(ctx.engine.awaitingKey);
-    ctx.engine.vars[22] = ctx.boot.selectedSoundDevice === 0 ? 1 : 3;
-    // The adopted session is live but stays parked: the host's pause owners
-    // decide when it runs again (an open map or bubble can outlast the swap).
-    // Its host continuation is restored whole: the live PRNG resumes from the
-    // recorded state (not the abandoned future's) and the recorded cycle
-    // clock is deferred — a parked poll would discard its accumulators, so
-    // it lands on the host's first release instead.
-    configureSessionTiming(ctx);
-    ctx.cycle.pendingClock = boot.clock ?? null;
-    if (boot.clock === undefined) ctx.clocks.cycle.reset(ctx.ports.now());
-    if (boot.soundRemainder !== undefined)
-      ctx.clocks.sound.restore(ctx.ports.now(), boot.soundRemainder);
-    else ctx.clocks.sound.reset(ctx.ports.now());
-    ctx.cycle.paused = true;
-    ctx.ports.control({ type: "paused", paused: true, cycle: ctx.cycle.cycleCount });
-    ctx.history.resumedFrom = from;
-    ctx.history.rng = boot.rng;
-    ctx.fns.rebaselineJournal();
-    ctx.fns.historyResume();
-    // The adopted engine replaced the live run: a debug session mints a new
-    // epoch against the adopted image's build, or detaches if its captured
-    // sources no longer verify.
-    ctx.fns.debugSessionReplaced();
-    ctx.presentation.lastVisual = null;
-    ctx.fns.postFrame();
+    adoptResumePoint(ctx, boot, { currentFiles: false, paused: true, from });
+    ctx.ports.control({ type: "paused", paused: true, cycle: ctx.run.cycle.cycleCount });
   }
 
   /**
@@ -464,7 +374,7 @@ export function createHistoryView(
     const view = ctx.view;
     const drive = view.drive;
     const scratch = drive?.ctx;
-    const engine = scratch?.engine ?? null;
+    const engine = scratch?.run.engine ?? null;
     const segment = view.recording?.segments[view.segment];
     if (
       msg.generation !== view.generation ||
@@ -515,18 +425,21 @@ export function createHistoryView(
       image: bytesToBase64(image),
       replay: engine.captureReplayState(),
       menus: engine.readMenuState(),
-      inputQueue: [...scratch.input.keyQueue],
-      directionQueue: [...scratch.input.deferredMovement],
-      inputLines: [...scratch.input.inputBuffer],
-      ...(scratch.input.clickQueue.length > 0
-        ? { clickQueue: scratch.input.clickQueue.map(([x, y]): [number, number] => [x, y]) }
+      inputQueue: [...scratch.run.input.keyQueue],
+      directionQueue: [...scratch.run.input.deferredMovement],
+      inputLines: [...scratch.run.input.inputBuffer],
+      ...(scratch.run.input.clickQueue.length > 0
+        ? { clickQueue: scratch.run.input.clickQueue.map(([x, y]): [number, number] => [x, y]) }
         : {}),
-      clock: scratch.clocks.cycle.snapshot(),
-      soundRemainder: scratch.clocks.sound.snapshot(),
-      rng: scratch.replay.replay?.random ?? ctx.history.rng,
+      clock: scratch.run.clocks.cycle.snapshot(),
+      soundRemainder: scratch.run.clocks.sound.snapshot(),
+      rng: scratch.run.rng.word,
+      ...(scratch.run.rng.policy.kind === "sequence"
+        ? { rngPolicy: { ...scratch.run.rng.policy } }
+        : {}),
       soundDevice: scratch.boot.selectedSoundDevice,
       resourceSet: resourceSetHint({ getFiles: () => files }),
-      requestSerial: scratch.hostRequests.hostRequestSerial,
+      requestSerial: scratch.run.hostRequests.hostRequestSerial,
     });
     // The authoring state belonging to these bytes: the last checkpoint the
     // host committed at-or-before this position — earlier segments count, a

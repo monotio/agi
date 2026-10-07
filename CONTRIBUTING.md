@@ -18,7 +18,6 @@ Install Node.js 22.22 or newer, then:
 
 ```bash
 npm ci
-npm --prefix app ci
 npm run dev
 ```
 
@@ -28,12 +27,13 @@ offline stub provider the browser tests use; to choose another port, pass
 `-- --port N` to this app script. `AGI_DEV_KEYS=1 npm run dev` fills the AI
 settings from `OPENAI_API_KEY` and `ANTHROPIC_API_KEY` in your environment for
 browsers on this machine; keys already entered in Settings stay. Requests made
-with these keys are billed to your provider account. The repository has two package roots: the root
-holds the engine, tests and scripts, and `app/` the Vue shell. A third,
-`evals/`, holds the evaluation runners; its own package adds only promptfoo,
-which the live comparisons need (`npm --prefix evals install`). After switching
-branches or pulling dependency updates, run `npm ci` in both; `npm run check`
-verifies installed dependencies against both manifests before it tests anything.
+with these keys are billed to your provider account. The root package
+holds the engine, tests and scripts; the `app/` workspace holds the Vue shell.
+One root `npm ci` installs both from the shared lockfile. `evals/` keeps its
+separate install for optional live comparisons (`npm --prefix evals ci`):
+promptfoo adds a larger dependency tree with native packages. After switching
+branches or pulling dependency updates, run `npm ci`; `npm run check` verifies
+the installed tree and the engine dependency boundary before it tests anything.
 
 For browser tests, install Chromium once with
 `npm --prefix app exec -- playwright install chromium`, and WebKit too for the
@@ -60,9 +60,9 @@ server is already running, give the browser tests their own port:
 | `npm run check:dependencies`                                 | Check installed dependencies at both roots                            |
 | `npm run check`                                              | Dependency, type, lint, formatting, unit test and stored eval gate    |
 | `npm run eval:genesis`                                       | Authoring evaluation: genesis; see evals/README.md                    |
+| `npm run eval:image-style`                                   | Offline image-style evaluation                                        |
 | `npm run eval:picture`                                       | Authoring evaluation: picture; see evals/README.md                    |
 | `npm run eval:remix`                                         | Authoring evaluation: remix; see evals/README.md                      |
-| `npm run eval:studio`                                        | Authoring evaluation: studio; see evals/README.md                     |
 | `npm run eval:references`                                    | Authoring evaluation: references; see evals/README.md                 |
 | `npm run eval:cache`                                         | Authoring evaluation: cache; see evals/README.md                      |
 | `npm run eval:matrix`                                        | Authoring evaluation: matrix; see evals/README.md                     |
@@ -136,21 +136,22 @@ reason in the commit.
 ### CI verification
 
 Before pushing a code change, run `npm run check` and the affected browser specs.
-Push a development branch covered by the CI workflow for the Linux verdict;
-local browser results establish behavior on your local platform. CI runs on
-`main`, `lane/**`, `rc/**` and pull requests. A push with an open pull request
+Open a pull request for CI's Linux verdict; local browser results establish
+behavior on your local platform. Release lanes commit locally without pushing;
+the owner or integrator pushes the fully gated integration head. CI runs on
+`main`, `rc/**` and pull requests. A push with an open pull request
 leaves the full run to that pull request. New pushes cancel older runs for the
 same ref.
 
-| CI job                       | Coverage                                                                                                                                                                                   |
-| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Prepare CI                   | Changed-file classification, CI helper tests and one installation of both package roots, cached by lockfiles                                                                               |
-| Static checks and unit tests | Full `npm run check`, including offline eval replay                                                                                                                                        |
-| Build production artifact    | One production build, bundle boundaries and budgets, site and chunk-graph artifacts                                                                                                        |
-| Playwright                   | Ten Chromium shards and three tagged WebKit desktop shards balanced by measured spec durations, WebKit phone, and separate jobs for timing budgets and the storage benchmark on one worker |
-| Production browser           | Chromium and WebKit against the shared production artifact                                                                                                                                 |
-| PR burn-in                   | Up to 12 specs added or changed by the PR or its latest push, repeated five times in Chromium; tagged desktop tests also in WebKit; changed production specs in both engines               |
-| Nightly browser burn-in      | Every browser suite repeated three times; one issue records tests with both passing and failing attempts                                                                                   |
+| CI job                       | Coverage                                                                                                                                                                                              |
+| ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Prepare CI                   | Changed-file classification, CI helper tests and one installation of both package roots, cached by lockfiles                                                                                          |
+| Static checks and unit tests | Full `npm run check`, including offline eval replay                                                                                                                                                   |
+| Build production artifact    | One production build, bundle boundaries and budgets, site and chunk-graph artifacts                                                                                                                   |
+| Playwright                   | Ten Chromium shards and three tagged WebKit desktop shards balanced by measured spec durations, two WebKit phone shards, and separate jobs for timing budgets and the storage benchmark on one worker |
+| Production browser           | Chromium and WebKit against the shared production artifact                                                                                                                                            |
+| PR burn-in                   | Up to 12 specs added or changed by the PR or its latest push, repeated five times in Chromium; tagged desktop tests also in WebKit; changed production specs in both engines                          |
+| Nightly browser burn-in      | Every browser suite repeated three times; one issue records tests with both passing and failing attempts                                                                                              |
 
 The required contexts stay `Typecheck, lint, unit tests, build`,
 `Playwright (play, remix and export)` and the repository-managed `CodeQL`.
@@ -161,7 +162,7 @@ gate. Main builds and publishes each checked commit. Capture code
 under `docs/` still runs the browsers. CodeQL keeps its repository-managed policy.
 Browser jobs use the official Playwright Noble container pinned by digest in
 `scripts/ci/playwright-image.txt`. Setup checks its version against the restored
-`app/node_modules/playwright-core` package and the container metadata. When
+`node_modules/playwright-core` package and the container metadata. When
 upgrading Playwright, update the image tag and digest together with the lockfile.
 The image supplies browsers, fonts and system packages; setup restores the shared
 Node dependency cache. Browser JSON reports, screenshots and failure traces are
@@ -256,14 +257,23 @@ live owners, and acknowledges only exact observed entries. Browsers without
 `navigator.locks` open projects read-only with Download. Conditional IndexedDB
 commits fence project lifetimes and generations.
 
-Saved confirms project document storage, independently of runtime admission and
-play progress. Checkpoint preparation checks stored documents and returns not ready
+Draft saved confirms pending editor drafts are stored; Saved confirms project
+document storage, independently of play progress. Checkpoint preparation checks stored documents and returns not ready
 during saving or admission. Each acknowledgement requests a fresh checkpoint;
 preparation never waits for a future boundary or player input. Publication and clearing use a short
 per-project lock. Resume requires the exact executable revision, lifetime and
 compatible profile. An older position stays intact; Play and Create offer Start
-the latest version, explaining that a new saved position replaces the old one.
-Home binds progress from the body and lifetime; History blobs load when opened.
+the latest version. Play publishes progress under the current tab's writer generation.
+The newest tab takes control, and each physical progress or slot write checks that generation.
+Create captures the Play moment before it executes and uses temporary progress and save slots.
+From my game, Back and returning to Play adopt that moment on the current files.
+A changed resource that prevents exact return offers Restart.
+On upgrade from 1.1, supported legacy progress loads automatically into the
+current physical storage identity. Autosaves, slots and maps use project lifetime
+or installed-release identities; the current resume pointer is `resumeTarget`.
+Legacy records and the old `lastGame` pointer remain separately readable, so
+old-tab writes cannot replace current progress. Home binds progress from the
+body and lifetime; History blobs load when opened.
 A rejected History read keeps the original data available through raw Download.
 Its advisory rejection cache is scoped to lifetime and generation and clears
 when validation succeeds.
@@ -309,7 +319,9 @@ Three boundaries carry every feature. The Vue shell on the main thread owns the
 page; the engine worker owns the interpreter and its clock; the engine in
 `src/` is plain TypeScript with no platform access. The AI authoring stack
 loads on demand: `authoringLoader.ts` imports it on the first AI action.
-The workspace debugger also loads on first use and attaches to MAIN. Its stop
+The Create top action attaches the debugger to MAIN when enabled breakpoints exist.
+Runs without breakpoints keep the debugger lazy. Breakpoints and Disable breakpoints
+are remembered per project. Its stop
 holds project admission through steps; Continue releases queued edits at the
 next safe boundary and rebinds the source maps and breakpoints. Isolated test
 sessions remain helpers for offline tests.
@@ -361,7 +373,7 @@ flowchart LR
 
 **The agent writes a room**
 
-1. `new.room` calls the `prepareRoom` host hook (`Engine.newRoom`); `worker/host.ts` asks for a room only in a game made in the app, and only when the room has no logic yet.
+1. When the project's room-generation setting is on, `new.room` calls the `prepareRoom` host hook (`Engine.newRoom`); `worker/host.ts` asks for a room only when the room has no logic yet. Create with AI turns the setting on by default. Other games start with it off. The creator can switch it in Home or Create game Details.
 2. `worker/hostRequests.ts` posts a `hostRequest` and parks the interpreter; the worker keeps serving other messages.
 3. `authoring/useAuthoringController.ts` loads the authoring stack and hands the request to `AgentSession` (`agent/agentSession.ts`), which forks the game state.
 4. The provider conversation (`agent/llmClient.ts`) calls tools through `executeAgentToolAsync` (`src/agent/tools.ts`), which refuses any tool outside the session's allowlist.
@@ -376,8 +388,8 @@ flowchart LR
 2. A gesture on `StudioCanvas.vue` reaches `useStudioInput.ts` and then `useStudioDrag.ts`, `useStudioEditing.ts` or `useStudioTools.ts`.
 3. `useStudioDraft.ts` applies it as an edit operation (`src/studio/editOperations.ts`), which rewrites the source; several selected items take a batch (`applyEdits`), checked and undone as one edit.
 4. `compileEditDocument` (`src/studio/editValidation.ts`) compiles the source to bytes and decoded planes.
-5. `checkStudioEdit` (`studioLocks.ts`) checks the decoded pixels against the lens's locks (`validateEdit` in `editValidation.ts`, and the Walk lens depth rule in `lensRules.ts`). What an accepted edit changes in other items' output, such as a fill that pours differently around a moved outline, is reported as a side effect (`src/studio/sideEffects.ts`), not refused; AI proposals report theirs the same way.
-6. A completed gesture emits its edited document to `studio/workspace/CreateWorkspace.vue`. `project/projectSession.ts` validates the complete candidate, admits it to MAIN at a safe boundary, records History and saves it conditionally. The embedded editor previews a gesture locally until it completes.
+5. `checkStudioEdit` (`studioLocks.ts`) checks the decoded pixels against the lens's locks (`validateEdit` in `editValidation.ts`, with the lens locks from `lensRules.ts`). What an accepted edit changes in other items' output, such as a fill that pours differently around a moved outline, is reported as a side effect (`src/studio/sideEffects.ts`), not refused; AI proposals report theirs the same way.
+6. A completed gesture emits its edited document to `studio/workspace/CreateWorkspace.vue` and saves a per-part draft through `projectPartDrafts.ts`. The editor previews the draft while MAIN keeps the last update. Update and restart submits all changed parts together through `project/projectSession.ts`, which validates the complete candidate, admits it at a safe boundary, records one History step and saves it conditionally.
 
 **An image becomes project art**
 
@@ -391,15 +403,17 @@ Attachments use SHA-256 document keys and History's blob store. Private archive
 version 1 writes each image blob once in `ATTACHMENTS/`, shared by the workspace
 and History; public exports contain playable resources. Workspace and History
 version 1 include image documents, game notes and chat checkpoints.
-The image panel and generation controller load at their first use. Generation
-reviews a paid request before submission. Hero preview changes presentation
+The image panel and generation controller load at their first use. Generate
+submits the chosen prompt, model, quality and size directly. Agent and image
+requests share a budget with actual reported spend and Stop; a completed request
+that crosses the budget pauses the task with Continue and Stop. Hero preview changes presentation
 pixels; interpreter state and recorded play retain the admitted game.
 `src/creative/imageOperations.ts` detects alpha or corner-colour backgrounds,
 boxes connected figures across sheet gaps and derives cel width from one height.
 `src/creative/imageFrameGeometry.ts` owns pixel snapping, bounded drawing,
 linked edge resizing, unlinking, ordering and loop assignment. The sheet editor
 asks before replacing edited boxes and renders thumbnails from prepared cels.
-The marks stay local until Add cels stages the VIEW. Update game submits the proposal. Editing a mirror loop gives it independent cels while
+The marks stay local until Add cels stages the VIEW. Update and restart submits the proposal. Editing a mirror loop gives it independent cels while
 preserving its displayed frames.
 
 **A LOGIC edit becomes a saved project**
@@ -408,18 +422,18 @@ Library **Game actions → Create** opens the running workspace on a LOGIC.
 `studio/workspace/LogicEditor.vue` retains Monaco models and their view state,
 with code intelligence from the analysis worker. `projectPartDrafts.ts` saves only
 the edited part after a short pause and journals pending writes for recovery.
-Invalid source remains a draft while the admitted game runs. Update game sends
-the changed parts together through `ProjectSession` admission and adds one
-History step. Every editor shares the same update and history owner.
+Invalid source remains a draft while the admitted game runs. Update and restart sends the changed parts together through `ProjectSession`
+admission, adds one History step, and launches the open room. Its menu offers
+Update and keep playing at a message or completed cycle boundary. Every editor shares the same update and history owner.
 
 **Where authority lives.** Each of these is a check in code:
 
 - `WORKSPACE_AGENT_TOOLS` in `app/src/agent/workspaceAgentTools.ts` combines project changes, Notes and image tools for Create. Tool help comes from `VOCABULARY_ACTIONS` through `toolDescription`.
-- `AUTHORING_TOOL_NAMES`, `ASK_TOOLS` and `STUDIO_ASSIST_TASK_TOOLS` in `src/agent/tools.ts` are allowlists: a tool outside the list is refused before dispatch.
+- `AUTHORING_TOOL_NAMES`, `ASK_TOOLS` and `SELECTION_TASK_TOOLS` in `src/agent/tools.ts` are allowlists for room authoring, Play questions and offline selection checks: a tool outside the selected list is refused before dispatch. Create dispatches only `WORKSPACE_AGENT_TOOLS`.
 - `prepareRoomPatch` accepts a room only if it is whole: it parses every payload under the game's profile, lets the vocabulary only grow, and stages the result on a copy.
 - `editValidation.ts` checks Studio gestures by their decoded pixels. Workspace agent changes use `src/authoring/projectAgentCandidate.ts` to validate complete coordinated documents and native resources; `assistScope.ts` remains in detached Studio compatibility services.
 - `project/projectTransaction.ts` owns saved, installed and current: the base an edit was made from, what storage holds, and what the running game confirmed it installed. Every project write (an editor change, an AI turn, a room written mid-play, an autosave) is refused as stale unless storage still holds its base, and only an acknowledged install moves the booted game forward.
-- `project/projectSession.ts` owns Create’s current documents, diagnostics, live admission, autosave and History. Workspace editors store per-part drafts. Update game submits their complete change set; approved agent changes submit through the same admission pipeline. Review selects a validated coordinated change set; Auto-approve records each valid proposal immediately. Chat checkpoints identify the change and its preceding History commit.
+- `project/projectSession.ts` owns Create’s current documents, diagnostics, live admission, autosave and History. Workspace editors store per-part drafts. Update and restart submits their complete change set; approved agent changes submit through the same admission pipeline. Review selects a validated coordinated change set; Auto-approve records each valid proposal immediately. Chat checkpoints identify the change and its preceding History commit.
 - `project/resourceCommit.ts` and `project/editableProject.ts` retain the compatibility and detached authoring services exercised by their unit tests.
 - The logic assembler and the container writer are the validators of last resort.
 
@@ -446,8 +460,11 @@ exports still synthesize an empty `OBJECT` when a game lacks one.
 Playback recordings use version 2 for debugger boundaries and complete project
 admission events. Released version-1 tapes remain unchanged on read; the first
 committed append upgrades their recording header atomically. The archive and
-storage wrappers remain version 1. Engine replay state, authentic save files and
-recorded game tests retain their existing contracts.
+storage wrappers remain version 1. Authentic save files retain their existing
+contract. Recorded game tests migrate from `monotio.agi.tests.v1` to
+`monotio.agi.tests.v2` for deterministic entropy: v1 tests read with
+`rngVersion: 1`, and edits preserve those RNG semantics. New tests default to
+RNG version 2; the serializer writes the v2 envelope.
 
 The IndexedDB database uses schema version 2 to fence older application writers
 from the coordinated project/History transactions. Opening a released schema-1
@@ -470,12 +487,12 @@ See [extension recipes](docs/extending.md) for adding profiles and workspace age
 tools, [game briefs](games/README.md#adding-a-template) for templates, and
 [stored eval cases](evals/README.md#offline-verification) for regression inputs.
 
-| Task                                 | Files                                                                                                                                                                                                                                                          | Test                                                                                                                    | Gate                                   |
-| ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- | -------------------------------------- |
-| An agent tool                        | Its definition in the family's module (`src/agent/roomTools.ts`, `pictureTools.ts`, `authoringToolDefinitions.ts`, …), gathered into `AGENT_TOOLS` in `src/agent/tools.ts`; add it to `ASK_TOOLS` or `STUDIO_ASSIST_TASK_TOOLS` only if those sessions need it | `test/agent-tools.test.ts` or the family's test; a failure it must reject as a JSON case in `evals/fixtures/bad-cases/` | `npm run eval:replay`, `npm run check` |
-| An interpreter quirk for one profile | A flag on the profile in `src/runtime/profile.ts`, its behavior in `src/runtime/`, and an entry in `docs/fidelity.md` with build, binary hash, addresses and conclusion                                                                                        | A hand-computed engine test under `test/`; the code comment cites the entry, checked by `test/doc-citations.test.ts`    | `npm test`, `npm run check`            |
-| A fan game the app recognises        | A `KNOWN_GAMES` entry in `src/games/knownGames.ts`: the SHA-256 of its `WORDS.TOK` and `OBJECT`, its era and profile                                                                                                                                           | `app/test/known-games.test.ts`; `npm run fixtures:audit` on your copy in `games/`, where fixture tests skip without it  | `npm run check`                        |
-| A PICTURE editor tool                | `StudioTool` and `TOOL_SHORTCUTS` in `app/src/studio/studioTools.ts`, a rail entry in `StudioToolRail.vue`, its name, status-bar hint and cheat-sheet line in `studioHelp.ts`, handling in `useStudioTools.ts`                                                 | `app/test/studio-tools.test.ts`; `app/e2e/studio-tools.spec.ts` for the visible path                                    | `npm run check`, the spec              |
+| Task                                 | Files                                                                                                                                                                                                                                                                                                                                                | Test                                                                                                                    | Gate                                   |
+| ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- | -------------------------------------- |
+| An agent tool                        | Its definition in the family's module (`src/agent/roomTools.ts`, `pictureTools.ts`, `authoringToolDefinitions.ts`, …), gathered into `AGENT_TOOLS` in `src/agent/tools.ts`; add it to `ASK_TOOLS` or `SELECTION_TASK_TOOLS` only if those sessions need it; Create tools belong in `WORKSPACE_AGENT_TOOLS` in `app/src/agent/workspaceAgentTools.ts` | `test/agent-tools.test.ts` or the family's test; a failure it must reject as a JSON case in `evals/fixtures/bad-cases/` | `npm run eval:replay`, `npm run check` |
+| An interpreter quirk for one profile | A flag on the profile in `src/runtime/profile.ts`, its behavior in `src/runtime/`, and an entry in `docs/fidelity.md` with build, binary hash, addresses and conclusion                                                                                                                                                                              | A hand-computed engine test under `test/`; the code comment cites the entry, checked by `test/doc-citations.test.ts`    | `npm test`, `npm run check`            |
+| A fan game the app recognises        | A `KNOWN_GAMES` entry in `src/games/knownGames.ts`: the SHA-256 of its `WORDS.TOK` and `OBJECT`, its era and profile                                                                                                                                                                                                                                 | `app/test/known-games.test.ts`; `npm run fixtures:audit` on your copy in `games/`, where fixture tests skip without it  | `npm run check`                        |
+| A PICTURE editor tool                | `StudioTool` and `TOOL_SHORTCUTS` in `app/src/studio/studioTools.ts`, a rail entry in `StudioToolRail.vue`, its name, status-bar hint and cheat-sheet line in `studioHelp.ts`, handling in `useStudioTools.ts`                                                                                                                                       | `app/test/studio-tools.test.ts`; `app/e2e/studio-tools.spec.ts` for the visible path                                    | `npm run check`, the spec              |
 
 TypeScript holds the editor recipe together: a tool without a shortcut or help
 text does not compile, the rail reads its shortcut from `TOOL_SHORTCUTS`, and
@@ -492,7 +509,7 @@ icon buttons) live in `app/src/ui/`. `npm run lint:tokens` is a ratchet that
 fails on new raw colours, font sizes and radii outside the tokens file, so
 new chrome should reach for a token or a `ui/` component first. After a reviewed
 cleanup, `npm run lint:tokens -- --update` records the new baseline.
-`app/ui-gallery.html`, `app/studio-harness.html` and `app/sprite-harness.html`
+`app/ui-gallery.html` and `app/studio-harness.html?probe=1`
 are dev/test pages. Run `npm run dev`, then open their corresponding URLs.
 
 ### UI fonts

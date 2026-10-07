@@ -118,6 +118,8 @@ function check(schema: unknown, value: unknown, path: string, errors: string[]):
       // its `title`) into a one-step correction.
       else if (s["additionalProperties"] === false)
         errors.push(`${child} is not a known field (fields: ${Object.keys(props).join(", ")}).`);
+      else if (s["additionalProperties"] && typeof s["additionalProperties"] === "object")
+        check(s["additionalProperties"], item, child, errors);
     }
   }
 }

@@ -46,7 +46,7 @@ export function compileProjectSelection(input: {
   readonly dependencies?: Readonly<Record<string, readonly string[]>>;
   /**
    * Forwarded to reference inspection: only an explicit room-generation
-   * caller policy downgrades missing `new.room` targets to warnings. Every
+   * caller policy permits missing `new.room` targets. Every
    * other missing-resource diagnostic stays an error.
    */
   readonly allowMissingRooms?: boolean;

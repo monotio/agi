@@ -4,6 +4,7 @@ import { openContainer } from "../../src/container/container.ts";
 import { parseWordsTok } from "../../src/logic/words.ts";
 import {
   openLibraryActions,
+  storedAutosave,
   savedGameCard,
   screenText,
   textHook,
@@ -92,10 +93,9 @@ if (said("open", "gate")) {
   else { print("Find the bronze relic to open the gate."); }
 }
 if (said("pockets")) { status(); }
-return;
 `;
-    expect(room).toMatch(/return;\s*$/);
-    const source = room!.replace(/return;\s*$/, puzzle);
+    expect(room).not.toMatch(/return;\s*$/);
+    const source = `${room!.trimEnd()}\n${puzzle}`;
     const card = savedGameCard(page, title);
     await openLibraryActions(page, card);
     await page.getByTestId("edit-library-game").click();
@@ -131,9 +131,10 @@ return;
     expect(kept.files["OBJECT"]).not.toEqual(before.files["OBJECT"]);
     await page.getByTestId("btn-exit").click();
     await expect(page.getByTestId("parts-list")).toBeHidden();
-    // Playtest the newly kept bytes from the opening; earlier progress remains separate.
-    await openLibraryActions(page, savedGameCard(page, title));
-    await page.getByTestId("start-library-game-over").click();
+    // Play the kept project from its cold opening; Create has no Play progress.
+    await expect(card).toBeVisible();
+    expect(await storedAutosave(page, kept.id)).toBeNull();
+    await card.getByTestId("btn-resume-cached").click();
     await expect.poll(async () => (await textHook(page)).room).toBe(1);
     if (kind === "boilerplate") {
       await expect.poll(async () => (await textHook(page)).modal).toBe("print");

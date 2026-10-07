@@ -117,7 +117,6 @@ defineExpose({ show, close });
           v-model="draft.profiles[draft.provider].apiKey"
           type="password"
           autocomplete="off"
-          placeholder="Paste your provider API key"
           data-testid="api-key-input"
         />
         <p class="privacy-note" data-testid="api-key-note">

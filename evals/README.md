@@ -9,7 +9,6 @@ the tools give it enough feedback to correct mistakes.
 | Genesis           | `npm run eval:genesis`               | An adventure brief becoming playable resources, with tool failures and usage                |
 | Picture fidelity  | `npm run eval:picture`               | Render structure, pixel metrics and visual quality across authoring rounds                  |
 | Remix benchmark   | `npm run eval:remix`                 | Play hints and resource changes on a real engine: requests, cost, latency and cache per run |
-| Editor assistance | `npm run eval:studio`                | Selection-scoped editor edits: candidates, refusals, rounds, tokens and cost                |
 | Reference art     | `npm run eval:references`            | Full images against handles: tokens, cost, read_reference_image calls and match             |
 | Prompt cache      | `npm run eval:cache`                 | Prefix stability of consecutive requests offline; cache reads and writes live               |
 | Production effort | `npm --prefix evals run eval:effort` | Complete app Genesis runs, startup payloads, cost, repairs and playable output              |
@@ -51,10 +50,6 @@ set and a local server in the provider's place to prove nothing is sent. The cap
 is charged from provider usage at the model's list price and stops the run once
 spent. The runner headers document their options: [genesis](genesis-cli.ts) and
 [picture fidelity](picture-fidelity.ts).
-
-The editor assistance benchmark (`evals/studio-assist-benchmark.ts`) enforces its cap from
-provider usage across all its runs and has a `--dry-run` that drives the same
-session loop with the offline stub.
 
 The reference art benchmark (`evals/reference-benchmark.ts`) runs each case twice: with
 the full images in the request, the way references travelled before handles, and

@@ -8,7 +8,7 @@ import {
   isolateStorage,
   savedGameCard,
   textHook,
-  waitForAutosaveAfter,
+  savePlayProgress,
   waitForCycles,
 } from "./engineProbe.ts";
 import { expect, reviewShot, test } from "./test.ts";
@@ -174,7 +174,7 @@ for (const reopen of ["reload", "home"] as const) {
       type: "text",
       text: "if (",
     });
-    await waitForAutosaveAfter(page, (await textHook(page)).cycle);
+    await savePlayProgress(page);
     await expect(page).toHaveURL(/#create\/main-browser-proof/);
     if (reopen === "reload") await page.reload();
     else {

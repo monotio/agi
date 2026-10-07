@@ -64,7 +64,7 @@ function createParserProbe(session: AgentSessionState): (command: string) => str
   container.putResource(
     "logic",
     0,
-    assembleLogic("accept.input();\nreturn;", {
+    assembleLogic("accept.input();", {
       dictionary: session.sources.words,
       profile: session.profile,
     }).payload,
@@ -224,6 +224,7 @@ function testEvidenceKey(session: AgentSessionState, test: GameTest): string {
   feed(JSON.stringify(test));
   feed(session.profile.id);
   feed("seed:123456789");
+  feed(`rng:${test.rngVersion ?? 2}`);
   return hash.toString(16).padStart(8, "0");
 }
 
@@ -253,10 +254,11 @@ function runOne(
     // validated at read time, so this decode cannot fail.
     test.setup
       ? {
+          rngVersion: test.rngVersion ?? 2,
           setupImage: decodeBase64(test.setup.image, "setup.image"),
           ...(test.setup.replay ? { replay: decodeRecordedReplay(test.setup.replay) } : {}),
         }
-      : {},
+      : { rngVersion: test.rngVersion ?? 2 },
   );
   const details = result.details ?? {};
   const outcome: GameTestOutcome = {
@@ -455,6 +457,12 @@ export const GAME_TEST_TOOLS: readonly ToolDefinition[] = [
               steps: PLAYTEST_STEPS_SCHEMA,
               expect: PLAYTEST_EXPECT_SCHEMA,
               cycleBudget: { type: ["integer", "null"], minimum: 1, maximum: 60000 },
+              rngVersion: {
+                type: ["integer", "null"],
+                enum: [1, 2, null],
+                description:
+                  "1 keeps released RNG behavior. 2 advances deterministic entropy. Null keeps the existing version when merging.",
+              },
               setup: {
                 type: ["object", "null"],
                 additionalProperties: false,
@@ -473,6 +481,7 @@ export const GAME_TEST_TOOLS: readonly ToolDefinition[] = [
               "steps",
               "expect",
               "cycleBudget",
+              "rngVersion",
               "setup",
             ],
           },
@@ -564,9 +573,14 @@ export function executeGameTestTool(
     } else {
       const tests = args["tests"];
       if (!Array.isArray(tests) || !tests.length) fail(`${mode} needs at least one test in tests.`);
-      written = tests.map((test, index) =>
-        validateGameTest(test, `tests[${index}]`, session.profile),
-      );
+      written = tests.map((test, index) => {
+        const validated = validateGameTest(test, `tests[${index}]`, session.profile);
+        const requested = (test as Record<string, unknown>)["rngVersion"];
+        const previous = stored.find((entry) => entry.name === validated.name);
+        return mode === "merge" && requested == null && previous?.rngVersion === 1
+          ? { ...validated, rngVersion: 1 as const }
+          : validated;
+      });
       let probe: ((command: string) => string | null) | null = null;
       for (const test of written)
         for (const step of test.steps) {

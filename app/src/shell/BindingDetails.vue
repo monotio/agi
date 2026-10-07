@@ -1,9 +1,15 @@
 <script setup lang="ts">
+import { numberedLabel, numberedSlot } from "../../../src/logic/numberedLabels.ts";
+import ReferenceUses from "./ReferenceUses.vue";
 import { ref, watch } from "vue";
 import type { BindingInfo } from "../../../src/logic/projectNames.ts";
 import { useEngineApi } from "../engine/engineContext.ts";
 import { useWorkspaceEditor } from "./workspaceEditor.ts";
-import { renameWorkspaceBinding, workspaceBindingInfos } from "./workspaceNames.ts";
+import {
+  renameBindingInWorkspace,
+  workspaceBindingInfos,
+  workspaceReferenceInfo,
+} from "./workspaceNames.ts";
 import UiButton from "../ui/UiButton.vue";
 import UiIconButton from "../ui/UiIconButton.vue";
 const { info, rename = false } = defineProps<{ info: BindingInfo; rename?: boolean }>();
@@ -30,16 +36,7 @@ async function save(): Promise<void> {
   try {
     const newName = name.value.trim();
     const original = { name: info.name, kind: info.kind, num: info.num };
-    await workspace.flush.value?.();
-    const snapshot = engine.getProjectSession()?.workingSnapshot();
-    if (!snapshot) throw new Error("Open a project to rename its parts.");
-    await renameWorkspaceBinding(
-      engine,
-      snapshot,
-      engine.roomMap.resources.value.profile?.id ?? "2.936",
-      original.name,
-      newName,
-    );
+    await renameBindingInWorkspace(engine, workspace.flush.value, original.name, newName);
     const updated = engine.getProjectSession()!.workingSnapshot();
     const renamed = workspaceBindingInfos(
       updated,
@@ -47,22 +44,20 @@ async function save(): Promise<void> {
     ).find((entry) => entry.name === newName);
     if (info.kind === original.kind && info.num === original.num) {
       editing.value = false;
-      emit("renamed", renamed ?? { ...info, name: newName });
+      emit(
+        "renamed",
+        workspaceReferenceInfo(
+          updated,
+          engine.roomMap.resources.value.profile?.id ?? "2.936",
+          renamed ?? { ...info, name: newName },
+        ),
+      );
     }
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : String(cause);
   } finally {
     busy.value = false;
   }
-}
-function openUse(use: BindingInfo["uses"][number]): void {
-  workspace.open(use.key, true);
-  workspace.nameLocation.value = {
-    key: use.key,
-    line: use.range.start.line + 1,
-    serial: Date.now(),
-  };
-  emit("close");
 }
 </script>
 <template>
@@ -74,17 +69,8 @@ function openUse(use: BindingInfo["uses"][number]): void {
   >
     <header>
       <div>
-        <strong>{{ info.name }}</strong>
-        <small
-          >{{
-            info.kind === "flag"
-              ? "Flag"
-              : info.kind === "variable"
-                ? "Variable"
-                : info.kind.toUpperCase()
-          }}
-          {{ info.num }}</small
-        >
+        <strong>{{ numberedLabel(info.kind, info.num, { name: info.name }) }}</strong>
+        <small>{{ numberedSlot(info.kind, info.num) }}</small>
       </div>
       <UiIconButton icon="x" label="Close" size="sm" @click="emit('close')" />
     </header>
@@ -106,24 +92,13 @@ function openUse(use: BindingInfo["uses"][number]): void {
         type="submit"
         size="sm"
         :disabled="busy || !name.trim() || workspace.readOnly.value"
-        >Save name</UiButton
+        >Rename</UiButton
       ><UiButton size="sm" variant="ghost" :disabled="busy" @click="editing = false"
         >Cancel</UiButton
       >
     </form>
     <p v-if="error" role="alert">{{ error }}</p>
-    <ul>
-      <li
-        v-for="use in info.uses"
-        :key="`${use.key}:${use.range.start.line}:${use.range.start.character}`"
-      >
-        <button @click="openUse(use)">
-          {{ use.role }} · {{ use.key.replace(":", " ").toUpperCase() }} · line
-          {{ use.range.start.line + 1 }}<small>{{ use.text }}</small>
-        </button>
-      </li>
-    </ul>
-    <p v-if="!info.uses.length">Ready to use in your LOGIC.</p>
+    <ReferenceUses :uses="info.uses" @opened="emit('close')" />
   </section>
 </template>
 <style scoped>
@@ -151,6 +126,9 @@ header strong {
   min-width: 0;
   overflow-wrap: anywhere;
 }
+small {
+  display: block;
+}
 p,
 small {
   color: var(--ink-2);
@@ -166,25 +144,5 @@ input {
   color: var(--ink);
   border: 1px solid var(--hairline-strong);
   padding: var(--space-2);
-}
-ul {
-  padding: 0;
-  list-style: none;
-}
-li button {
-  display: grid;
-  width: 100%;
-  gap: var(--space-1);
-  padding: var(--space-2);
-  text-align: left;
-  font: var(--text-xs) var(--font-sans);
-  color: var(--action);
-  background: transparent;
-  border: 0;
-  cursor: pointer;
-}
-small {
-  display: block;
-  overflow-wrap: anywhere;
 }
 </style>

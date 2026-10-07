@@ -54,6 +54,8 @@ test("Home excludes agent, debugger, editor, words analysis and sound preview co
     "src/agent/roomTools.ts",
     "app/node_modules/openai/index.mjs",
     "app/node_modules/monaco-editor/editor.js",
+    "node_modules/openai/index.mjs",
+    "node_modules/monaco-editor/editor.js",
     "app/src/studio/workspace/WordsEditor.vue?vue&type=script",
   ])
     assert.equal(isHomeDeferredModule(module), true, module);

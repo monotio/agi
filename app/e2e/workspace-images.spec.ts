@@ -285,9 +285,29 @@ test("make a four-cel walk loop and preview it on the running hero", async ({ pa
         .getSession()
         .capture().history.commits.length,
   );
+  // Hold staging so Update cannot overtake the image operation.
+  await page.evaluate(() => {
+    const session = (
+      window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }
+    ).__AGI_PROJECT__.getSession();
+    const stage = session.stage.bind(session);
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    (window as unknown as { releaseImageStage: () => void }).releaseImageStage = release;
+    session.stage = async (changes) => {
+      await gate;
+      return stage(changes);
+    };
+  });
   await page.getByTestId("image-add-cels").click();
-  await page.getByTestId("workspace-update-menu").click();
-  await page.getByRole("menuitem", { name: "Update and play this room", exact: true }).click();
+  await expect(page.getByTestId("workspace-update")).toBeDisabled();
+  await page.evaluate(() => {
+    (window as unknown as { releaseImageStage: () => void }).releaseImageStage();
+  });
+  await expect(page.getByTestId("image-status")).toHaveText("Added 4 cels");
+  await page.getByTestId("workspace-update").click();
   await expect(page.getByTestId("workspace-updated")).toBeVisible();
   await expect(page.getByTestId("workspace-saved")).toBeVisible();
   await expect(page.getByTestId("workspace-saved")).toHaveText(/^(?:Saved|Draft saved)$/);
@@ -307,7 +327,9 @@ test("make a four-cel walk loop and preview it on the running hero", async ({ pa
     .toBe(commits + 1);
   await imageShot(page, "walk-cels");
 });
-test("Generate sends one styled request and Use this opens tracing", async ({ page }) => {
+test("Generate sends one styled request and Use image opens tracing @webkit-desktop", async ({
+  page,
+}) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await start(page);
   await page.evaluate(() =>
@@ -352,10 +374,37 @@ test("Generate sends one styled request and Use this opens tracing", async ({ pa
   await page.getByTestId("generate-review").click();
   await expect(page.getByTestId("generate-review-sheet")).toHaveCount(0);
   await expect(page.getByTestId("generate-offer")).toBeVisible();
+  await expect(page.getByTestId("generate-use")).toHaveText("Use image");
+  await expect(page.getByTestId("generate-again")).toHaveText("Generate again");
+  await expect(page.getByTestId("generate-dismiss")).toHaveText("Edit prompt");
+  // Use decodes and hashes the offered image before staging it. Await the
+  // staging receipt so these assertions follow that work even on a busy browser.
+  await page.evaluate(() => {
+    const session = (
+      window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }
+    ).__AGI_PROJECT__.getSession();
+    const stage = session.stage.bind(session);
+    const admission = new Promise<void>((resolve, reject) => {
+      session.stage = async (changes) => {
+        try {
+          const result = await stage(changes);
+          if (changes.some(({ key }) => key.startsWith("attachment:"))) resolve();
+          return result;
+        } catch (cause) {
+          reject(cause);
+          throw cause;
+        }
+      };
+    });
+    (window as unknown as { traceAdmission: Promise<void> }).traceAdmission = admission;
+  });
   await page.getByTestId("generate-use").click();
+  await page.evaluate(
+    () => (window as unknown as { traceAdmission: Promise<void> }).traceAdmission,
+  );
   await expect(page.getByTestId("trace-opacity")).toBeVisible();
   await expect(page.getByTestId("generate-offer")).toBeHidden();
-  // Tracing controls appear while the image transaction is still being admitted.
+  // Flush the admitted image before checking its saved document.
   await page.evaluate(() =>
     (window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }).__AGI_PROJECT__
       .getSession()
@@ -388,7 +437,7 @@ for (const viewport of [
   { width: 1440, height: 900 },
   { width: 390, height: 844 },
 ]) {
-  test(`image controls ${viewport.width} @webkit-desktop`, async ({ page }) => {
+  test(`image controls ${viewport.width} @webkit-desktop`, async ({ page, browserName }) => {
     await page.setViewportSize(viewport);
     await start(page);
     if (viewport.width < 600)
@@ -397,7 +446,68 @@ for (const viewport of [
     await page.getByRole("button", { name: "Generate", exact: true }).click();
     await expect(page.getByTestId("generate-prompt")).toBeVisible();
     await page.getByTestId("generate-prompt").fill("A quiet forest with a path to a cottage");
-    await imageShot(page, `image-controls-${viewport.width}`);
+    const shot = await page.screenshot({
+      path: test.info().outputPath(`image-controls-${viewport.width}.png`),
+      animations: "disabled",
+      scale: "css",
+    });
+    if (process.env["CI"] && browserName === "webkit" && viewport.width === 390)
+      console.log(`FRAME_SHOT:image-controls-${viewport.width}:${shot.toString("base64")}`);
+    const panel = page.getByTestId("image-reference");
+    await expect(panel).toBeVisible();
+    await expect
+      .poll(async () => {
+        const box = (await panel.boundingBox())!;
+        const generation = (await panel.locator(".image-reference__generation").boundingBox())!;
+        return Math.max(box.y + box.height, generation.y + generation.height);
+      })
+      .toBeLessThanOrEqual(viewport.height);
+    await panel.getByTestId("generate-review").scrollIntoViewIfNeeded();
+    await expect(panel.getByTestId("generate-review")).toBeInViewport({ ratio: 1 });
+  });
+  test(`cel image controls receive clicks at ${viewport.width} @webkit-desktop`, async ({
+    page,
+    browserName,
+  }) => {
+    await page.setViewportSize(viewport);
+    await start(page);
+    if (viewport.width < 600)
+      await page.getByRole("button", { name: "Parts", exact: true }).click();
+    await page.getByTestId("part-view:0").click();
+    await page.getByRole("button", { name: "Make cels from an image", exact: true }).click();
+    await upload(page);
+    await expect(page.getByTestId("image-frame")).toHaveCount(4);
+    const preview = page.getByTestId("image-preview-hero");
+    await expect(preview).toHaveText("Preview on hero");
+    await preview.scrollIntoViewIfNeeded();
+    const shot = await page.screenshot({
+      path: test.info().outputPath(`image-cels-${viewport.width}.png`),
+      animations: "disabled",
+      scale: "css",
+    });
+    if (process.env["CI"] && browserName === "webkit" && viewport.width === 390)
+      console.log(`FRAME_SHOT:image-cels-${viewport.width}:${shot.toString("base64")}`);
+    await expect(
+      page.getByTestId("workspace-status").getByRole("button", { name: "Zoom in", exact: true }),
+    ).toHaveCount(0);
+    await expect
+      .poll(() =>
+        preview.evaluate((button) => {
+          const box = button.getBoundingClientRect();
+          return button.contains(
+            document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2),
+          );
+        }),
+      )
+      .toBe(true);
+    await expect(preview).toBeInViewport({ ratio: 1 });
+    await preview.click();
+    await expect(preview).toHaveText("Stop preview");
+    await preview.click();
+    const add = page.getByTestId("image-add-cels");
+    await expect(add).toBeVisible();
+    await add.evaluate((element) => element.scrollIntoView({ block: "center" }));
+    await expect(add).toBeInViewport({ ratio: 1 });
   });
 }
 
@@ -509,9 +619,38 @@ test("trace opacity previews during input and serializes quick releases", async 
   await blankRoom(page);
   await page.getByTestId("part-room:1:picture:1").click();
   await page.getByRole("button", { name: "Trace an image", exact: true }).click();
+  // Keep upload completion parked after its draft exists, as a slow admission can.
+  await page.evaluate(() => {
+    const session = (
+      window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }
+    ).__AGI_PROJECT__.getSession();
+    const stage = session.stage.bind(session);
+    const completion = new Promise<void>((resolve) =>
+      window.addEventListener("complete-trace-upload", () => resolve(), { once: true }),
+    );
+    session.stage = async (changes) => {
+      const result = await stage(changes);
+      if (changes.some(({ key }) => key.startsWith("attachment:"))) await completion;
+      return result;
+    };
+  });
   await upload(page);
   const slider = page.getByTestId("trace-opacity");
   await expect(slider).toBeVisible();
+  const art = page.locator('[data-layer="art"] canvas');
+  await expect(art).toBeVisible();
+  const traceRed = () =>
+    art.evaluate((element) => {
+      const canvas = element as HTMLCanvasElement;
+      return canvas
+        .getContext("2d")!
+        .getImageData(
+          Math.floor((canvas.width * 32) / 160),
+          Math.floor((canvas.height * 80) / 168),
+          1,
+          1,
+        ).data[0]!;
+    });
   const saved = () =>
     page.evaluate(() => {
       const session = (
@@ -528,22 +667,10 @@ test("trace opacity previews during input and serializes quick releases", async 
     const slider = element as HTMLInputElement;
     slider.value = "0.9";
     slider.dispatchEvent(new Event("input", { bubbles: true }));
+    window.dispatchEvent(new Event("complete-trace-upload"));
   });
-  await expect
-    .poll(() =>
-      page.locator('[data-layer="art"] canvas').evaluate((element) => {
-        const canvas = element as HTMLCanvasElement;
-        return canvas
-          .getContext("2d")!
-          .getImageData(
-            Math.floor((canvas.width * 32) / 160),
-            Math.floor((canvas.height * 80) / 168),
-            1,
-            1,
-          ).data[0];
-      }),
-    )
-    .toBeLessThan(185);
+  // EGA brown (170) over white at 0.9 opacity: 170 * 0.9 + 255 * 0.1 = 178.5.
+  await expect.poll(async () => Math.abs((await traceRed()) - 178.5)).toBeLessThanOrEqual(1);
   expect(await saved()).toEqual(before);
   await slider.evaluate((element) => {
     const slider = element as HTMLInputElement;
@@ -556,6 +683,7 @@ test("trace opacity previews during input and serializes quick releases", async 
   await expect.poll(async () => (await saved()).images).toContain('"opacity":0.8');
   await expect(page.getByTestId("image-reference").getByRole("alert")).toHaveCount(0);
   await expect(slider).toHaveValue("0.8");
+  await expect.poll(async () => Math.abs((await traceRed()) - 187)).toBeLessThanOrEqual(1);
 });
 
 test("trace arrow keys stay draft until Update makes one History step", async ({ page }) => {

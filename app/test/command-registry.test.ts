@@ -5,6 +5,7 @@ import {
   createCommandRegistry,
   type CommandContext,
 } from "../src/shell/commands/commandRegistry.ts";
+import { commandItems } from "../src/shell/commands/chooserItems.ts";
 import { registerDefaultCommands } from "../src/shell/commands/defaultCommands.ts";
 
 function context(): { -readonly [K in keyof CommandContext]: CommandContext[K] } {
@@ -151,6 +152,7 @@ test("focused game owns F5 and F6; editor owns debugging and zone navigation", (
   assert.equal(registry.dispatch(key("F5").event), false);
   assert.equal(registry.dispatch(key("F6").event), false);
   ctx.debugging = true;
+  ctx.debugPaused = true;
   assert.equal(registry.dispatch(key("F10").event), true);
   ctx.gameFocus = false;
   ctx.editorFocus = true;
@@ -286,4 +288,30 @@ test("F5 runs from parts, agent and page focus while the game owns its input", (
   assert.equal(runs, 2);
   ctx.gameFocus = true;
   assert.equal(registry.dispatch(key("F5").event), false);
+});
+
+test("F5 presents the top action or Continue only while paused", () => {
+  const ctx = { ...context(), runLabel: "Restart Room 1", debugPaused: false };
+  const registry = createCommandRegistry(() => ctx, false);
+  registerDefaultCommands(registry, { run() {} });
+  assert.equal(
+    commandItems(registry, ctx).find((item) => item.id === "debug.run")?.title,
+    "Restart Room 1",
+  );
+  ctx.debugging = true;
+  assert.equal(
+    commandItems(registry, ctx).find((item) => item.id === "debug.run")?.title,
+    "Restart Room 1",
+  );
+  ctx.debugPaused = true;
+  assert.equal(
+    commandItems(registry, ctx).find((item) => item.id === "debug.run")?.title,
+    "Continue",
+  );
+  ctx.debugPaused = false;
+  ctx.runLabel = "Update and restart Room 2";
+  assert.equal(
+    commandItems(registry, ctx).find((item) => item.id === "debug.run")?.title,
+    "Update and restart Room 2",
+  );
 });

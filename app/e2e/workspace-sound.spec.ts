@@ -1,5 +1,6 @@
+import { clickContextAction } from "./workspaceShared.ts";
 import { expect, reviewShot, test } from "./test.ts";
-import { isolateStorage, textHook, waitForAutosaveAfter, workspaceUpdated } from "./engineProbe.ts";
+import { isolateStorage, textHook, savePlayProgress, workspaceUpdated } from "./engineProbe.ts";
 import type { Page } from "@playwright/test";
 import type { ProjectSession } from "../src/project/projectSession.ts";
 
@@ -109,7 +110,7 @@ test("SOUND drafts audition privately and play in MAIN after Update game @webkit
   }
   await reviewShot(page, "sound-listen");
   await page.keyboard.press("Enter");
-  await waitForAutosaveAfter(page, (await textHook(page)).cycle);
+  await savePlayProgress(page);
   await page.reload();
   await expect(page.getByTestId("parts-list")).toBeVisible();
   await page.getByTestId("part-sound:1").click();
@@ -149,7 +150,7 @@ test("sound presets, note keyboard edits and guided cue creation share the works
   await panel.getByLabel("Length in beats").fill("1");
   await panel.getByLabel("Length in beats").press("Tab");
   await expect(panel.getByLabel("Note", { exact: true })).toHaveValue("A4");
-  await panel.getByRole("button", { name: "Remove", exact: true }).click();
+  await panel.getByRole("button", { name: "Delete", exact: true }).click();
   await expect(note).toHaveValue("Rest");
   await note.fill("A4");
   await note.press("Enter");
@@ -158,8 +159,7 @@ test("sound presets, note keyboard edits and guided cue creation share the works
   await expect(page.getByTestId("workspace-saved")).toHaveText(/^(?:Saved|Draft saved)$/);
   await reviewShot(page, "sound-notes");
   await page.getByTestId("part-room:1:logic").click();
-  await page.getByTestId("workspace-add").click();
-  await page.getByRole("menuitem", { name: "Play a sound when…", exact: true }).click();
+  await clickContextAction(page, "room-action-play-sound");
   const form = page.getByTestId("workspace-guided-form");
   await expect(form).toBeVisible();
   await form.getByLabel("When the player types…", { exact: true }).fill("help");
@@ -194,7 +194,7 @@ test("sound presets, note keyboard edits and guided cue creation share the works
   await page.getByTestId("workspace-redo").click();
   await expect(page.getByTestId("workspace-saved")).toBeVisible();
   await expect(page.getByTestId("workspace-saved")).toHaveText(/^(?:Saved|Draft saved)$/);
-  await waitForAutosaveAfter(page, (await textHook(page)).cycle);
+  await savePlayProgress(page);
   await page.reload();
   await expect(page.getByTestId("parts-list")).toBeVisible();
   await page.getByTestId("part-sound:3").click();

@@ -8,6 +8,8 @@ export interface CommandContext {
   readonly textInputFocus: boolean;
   readonly dialogOpen: boolean;
   readonly debugging: boolean;
+  readonly debugPaused?: boolean;
+  readonly runLabel?: string;
 }
 
 export interface KeyBinding {
@@ -19,7 +21,7 @@ export interface KeyBinding {
 
 export interface Command {
   readonly id: string;
-  readonly title: string;
+  readonly title: string | ((context: CommandContext) => string);
   readonly category?: string;
   readonly keys?: readonly KeyBinding[];
   readonly when?: (context: CommandContext) => boolean;

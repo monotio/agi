@@ -1,17 +1,16 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createWorkspaceEditor } from "../src/shell/workspaceEditor.ts";
+
 import type { EngineApi } from "../src/engine/engineContext.ts";
-import { ref } from "vue";
-import { registerCreatePanel } from "../src/shell/createDocks.ts";
-import {
-  createCreateWorkspace,
-  DOCKS_STORAGE_KEY,
-  type PictureStudioRequest,
-  type StudioRequest,
-} from "../src/shell/useCreateWorkspace.ts";
-import { PROFILES } from "../../src/runtime/profile.ts";
-import { testRevision } from "./identity.ts";
+import { createCreateWorkspace, DOCKS_STORAGE_KEY } from "../src/shell/useCreateWorkspace.ts";
+
+test("an unavailable Launch editor names a present cause and a recovery action", () => {
+  const editor = createWorkspaceEditor({} as EngineApi);
+  editor.actionRoom.value = 1;
+  editor.requestLaunchEditor("edit");
+  assert.equal(editor.error.value, "The Launch editor is still opening. Try again.");
+});
 
 function memoryStorage(seed: Record<string, string> = {}) {
   const data = new Map(Object.entries(seed));
@@ -22,44 +21,40 @@ function memoryStorage(seed: Record<string, string> = {}) {
   };
 }
 
-test("workspace split orientation defaults side by side and remembers stacked", () => {
+test("workspace split orientation defaults stacked and remembers side by side", () => {
   const storage = memoryStorage();
   const previous = globalThis.localStorage;
   Object.assign(globalThis, { localStorage: storage });
   try {
     const editor = createWorkspaceEditor({} as EngineApi);
-    assert.equal(editor.splitAxis.value, "horizontal");
-    editor.setSplitAxis("vertical");
-    assert.equal(storage.data.get("monotio_agi.workspaceSplitAxis"), "vertical");
-    assert.equal(createWorkspaceEditor({} as EngineApi).splitAxis.value, "vertical");
+    assert.equal(editor.splitAxis.value, "vertical");
+    editor.setSplitAxis("horizontal");
+    assert.equal(storage.data.get("monotio_agi.workspaceSplitAxis"), "horizontal");
+    assert.equal(createWorkspaceEditor({} as EngineApi).splitAxis.value, "horizontal");
   } finally {
     Object.assign(globalThis, { localStorage: previous });
   }
 });
 
-function workspace(storage: Pick<Storage, "getItem" | "setItem">) {
-  const calls: string[] = [];
-  const ws = createCreateWorkspace({
-    pauseEngine: (owner) => calls.push(`pause:${owner}`),
-    resumeEngine: (owner) => calls.push(`resume:${owner}`),
-    focusGame: () => calls.push("focus"),
-    storage,
-  });
-  return { ws, calls };
+function workspace(
+  storage: Pick<Storage, "getItem" | "setItem">,
+  panelDock: (id: string) => "left" | "right" | undefined = () => undefined,
+) {
+  return createCreateWorkspace({ panelDock, storage });
 }
 
 test("a folded dock is remembered per viewer and survives unreadable storage", () => {
   const storage = memoryStorage();
-  const { ws } = workspace(storage);
+  const ws = workspace(storage);
   assert.deepEqual({ ...ws.collapsed }, { left: false, right: false });
   ws.toggleDock("left");
   assert.equal(storage.data.get(DOCKS_STORAGE_KEY), '{"left":true,"right":false}');
   // The next page load reads it back.
-  assert.equal(workspace(storage).ws.collapsed.left, true);
+  assert.equal(workspace(storage).collapsed.left, true);
   // Corrupt text or a throwing store leaves both docks open, and a refused
   // write still folds the dock for this page.
   assert.deepEqual(
-    { ...workspace(memoryStorage({ [DOCKS_STORAGE_KEY]: "{oops" })).ws.collapsed },
+    { ...workspace(memoryStorage({ [DOCKS_STORAGE_KEY]: "{oops" })).collapsed },
     { left: false, right: false },
   );
   const blocked = {
@@ -70,150 +65,45 @@ test("a folded dock is remembered per viewer and survives unreadable storage", (
       throw new Error("blocked");
     },
   };
-  const { ws: fallback } = workspace(blocked);
+  const fallback = workspace(blocked);
   assert.equal(fallback.collapsed.right, false);
   fallback.toggleDock("right");
   assert.equal(fallback.collapsed.right, true);
 });
 
 test("showing a panel selects its tab and unfolds its dock", () => {
-  const off = registerCreatePanel({ id: "inspect", dock: "right", title: "Inspect", order: 1 });
+  const editor = createWorkspaceEditor({} as EngineApi);
+  const off = editor.registerPanel({ id: "inspect", dock: "right", title: "Inspect", order: 1 });
   try {
     const storage = memoryStorage({ [DOCKS_STORAGE_KEY]: '{"left":false,"right":true}' });
-    const { ws } = workspace(storage);
+    const ws = workspace(storage, (id) => editor.panelDock(id));
     ws.showPanel("inspect");
     assert.equal(ws.active.right, "inspect");
     assert.equal(ws.active.left, "world");
     assert.equal(ws.collapsed.right, false);
     assert.equal(ws.active.sheet, "inspect");
+    // A panel nobody registered keeps the docks as they are.
+    ws.showPanel("nope");
+    assert.equal(ws.active.right, "inspect");
   } finally {
     off();
   }
 });
 
-function studioRequest(
-  room: number,
-  reload: () => StudioRequest | null = () => null,
-  reloadFromStorage: () => Promise<StudioRequest | null> = async () => null,
-): PictureStudioRequest {
-  return {
-    kind: "picture",
-    room,
-    pictureNumber: 5,
-    bytes: Uint8Array.of(0xff),
-    profile: Object.values(PROFILES)[0]!,
-    title: `Room ${room}`,
-    baseRevision: testRevision("studio"),
-    files: new Map(),
-    reload,
-    reloadFromStorage,
-  };
-}
-
-test("Studio holds its own pause and hands the keyboard back on close", () => {
-  const { ws, calls } = workspace(memoryStorage());
-  const request = studioRequest(2);
-  ws.openStudio(request);
-  ws.openStudio({ ...request, pictureNumber: 6 });
-  const open = ws.studio.value;
-  assert.equal(open?.kind === "picture" && open.pictureNumber, 6);
-  ws.closeStudio();
-  ws.closeStudio();
-  assert.equal(ws.studio.value, null);
-  assert.deepEqual(calls, ["pause:studio", "resume:studio", "focus"]);
+test("the shell's default panels sit in their docks", () => {
+  const editor = createWorkspaceEditor({} as EngineApi);
+  assert.equal(editor.panelDock("world"), "left");
+  assert.equal(editor.panelDock("assistant"), "right");
 });
 
-test("reopening Studio reads its picture again under the same pause, or closes when it is gone", async () => {
-  const { ws, calls } = workspace(memoryStorage());
-  const fresh = { ...studioRequest(2), baseRevision: testRevision("after") };
-  ws.openStudio(studioRequest(2, () => fresh));
-  await ws.reopenStudio();
-  assert.equal(ws.studio.value, fresh);
-  assert.deepEqual(calls, ["pause:studio"]);
-  await ws.reopenStudio();
-  assert.equal(ws.studio.value, null, "the fresh request's reload finds nothing");
-  assert.deepEqual(calls, ["pause:studio", "resume:studio", "focus"]);
-});
-
-test("reopening from storage keeps the old game paused until the reload is done", async () => {
-  const { ws, calls } = workspace(memoryStorage());
-  const reloaded = { ...studioRequest(2), baseRevision: testRevision("stored"), notice: "Loaded" };
-  let finish!: (request: StudioRequest | null) => void;
-  const pending = new Promise<StudioRequest | null>((resolve) => (finish = resolve));
-  ws.openStudio(studioRequest(2, undefined, () => pending));
-  const reopening = ws.reopenStudio(true);
-  // Studio leaves at once, but the old game's pause holds through the reload.
-  assert.equal(ws.studio.value, null);
-  assert.deepEqual(calls, ["pause:studio"]);
-  finish(reloaded);
-  await reopening;
-  // The reloaded game gets its own pause, and Studio opens on the stored bytes.
-  assert.equal(ws.studio.value, reloaded);
-  assert.deepEqual(calls, ["pause:studio", "resume:studio", "pause:studio"]);
-
-  // A reload that finds nothing leaves the game running with the keyboard.
-  const lost = workspace(memoryStorage());
-  lost.ws.openStudio(studioRequest(2));
-  await lost.ws.reopenStudio(true);
-  assert.equal(lost.ws.studio.value, null);
-  assert.deepEqual(lost.calls, ["pause:studio", "resume:studio", "focus"]);
-});
-
-test("editor requests are delivered at phone widths and release their temporary pause", () => {
-  const calls: string[] = [];
-  const fits = ref(false);
-  const ws = createCreateWorkspace({
-    pauseEngine: (owner) => calls.push(`pause:${owner}`),
-    resumeEngine: (owner) => calls.push(`resume:${owner}`),
-    focusGame: () => calls.push("focus"),
-    studioFits: () => fits.value,
-    storage: memoryStorage(),
-  });
-  const request = studioRequest(1);
-  assert.equal(ws.studioFits.value, false);
-  ws.openStudio(request);
-  assert.equal(ws.studio.value, request);
-  ws.closeStudio();
-  assert.deepEqual(calls, ["pause:studio", "resume:studio", "focus"]);
-  calls.length = 0;
-  fits.value = true;
-  ws.openStudio(request);
-  assert.equal(ws.studio.value, request);
-  assert.deepEqual(calls, ["pause:studio"]);
-});
-
-test("leaving asks an open Studio only while it holds unkept changes", async () => {
-  const { ws } = workspace(memoryStorage());
-  let unkept = true;
-  const asked: string[] = [];
-  let answer = true;
-  const guard = {
-    unkept: () => unkept,
-    confirm: () => {
-      asked.push("confirm");
-      return Promise.resolve(answer);
-    },
-  };
-  const release = ws.guardStudio(guard);
-  // No Studio open: nothing to settle, whatever the guard says.
-  assert.equal(ws.studioUnkept(), false);
-  assert.equal(await ws.confirmStudioLeave(), true);
-  ws.openStudio(studioRequest(1));
-  assert.equal(ws.studioUnkept(), true);
-  answer = false;
-  assert.equal(await ws.confirmStudioLeave(), false, "Cancel stays");
-  answer = true;
-  assert.equal(await ws.confirmStudioLeave(), true, "Keep or Discard goes on");
-  unkept = false;
-  assert.equal(await ws.confirmStudioLeave(), true);
-  assert.deepEqual(asked, ["confirm", "confirm"]);
-  // A released guard (Studio unmounted) is never asked again; a newer one stays.
-  const newer = { unkept: () => true, confirm: () => Promise.resolve(false) };
-  const releaseNewer = ws.guardStudio(newer);
-  release();
-  assert.equal(await ws.confirmStudioLeave(), false);
-  releaseNewer();
-  assert.equal(ws.studioUnkept(), false);
+test("panel replacement keeps one entry and an old disposer preserves its replacement", () => {
+  const editor = createWorkspaceEditor({} as EngineApi);
+  const first = editor.registerPanel({ id: "inspect", dock: "right", title: "First" });
+  const second = editor.registerPanel({ id: "inspect", dock: "left", title: "Second" });
+  first();
+  assert.equal(editor.panelDock("inspect"), "left");
+  second();
+  assert.equal(editor.panelDock("inspect"), undefined);
 });
 
 test("unsaved edits download reports a browser download failure and retains buffers", async (t) => {

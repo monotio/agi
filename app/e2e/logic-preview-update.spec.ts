@@ -56,21 +56,37 @@ test("Update game applies LOGIC while preserving play @webkit-desktop", async ({
   expect(progressed?.vars[42]).toBe(0);
   await openWorkspaceLogic(page);
   const source = await workspaceDocument(page, "logic:1");
-  const updated = source.replace(/return;\s*$/, "increment(v42);\nreturn;\n");
+  expect(source).not.toMatch(/return;\s*$/);
+  const updated = `${source.trimEnd()}\nincrement(v42);\n`;
   expect(updated).not.toBe(source);
-  await replaceWorkspaceDocument(page, "logic:1", updated);
+  await replaceWorkspaceDocument(page, "logic:1", updated, false);
+  await page.getByTestId("workspace-update-menu").click();
+  await expect(
+    page.getByRole("menuitem", { name: "Update and keep playing", exact: true }),
+  ).toBeVisible();
+  await page.getByRole("menuitem", { name: "Update and keep playing", exact: true }).click();
   await expect.poll(async () => (await state(page))?.vars[42]).toBeGreaterThan(0);
   expect((await state(page))?.egoX).toBe(progressed?.egoX);
   await expect.poll(async () => (await textHook(page)).cycle).toBeGreaterThan(cycle);
 
   const generation = (await state(page))?.patchGeneration;
   await replaceWorkspaceDocument(page, "logic:1", "this is not logic\n", false);
-  await expect(page.getByTestId("workspace-last-good")).toBeVisible();
+  await expect(page.getByTestId("workspace-status-problems")).toBeVisible();
+  await expect(page.locator(".workspace-build-error")).toBeHidden();
+  await page.getByTestId("workspace-update").click();
+  await expect(page.locator(".workspace-build-error")).toHaveText(
+    "LOGIC 1 has errors. Fix them to update the game. Go to error",
+  );
   const invalidCycle = (await textHook(page)).cycle;
   await expect.poll(async () => (await textHook(page)).cycle).toBeGreaterThan(invalidCycle);
   expect((await state(page))?.patchGeneration).toBe(generation);
-  await replaceWorkspaceDocument(page, "logic:1", "assignn(v43, 5);\nreturn;\n");
-  await expect(page.getByTestId("workspace-last-good")).toBeHidden();
+  await replaceWorkspaceDocument(page, "logic:1", "assignn(v43, 5);\nreturn;\n", false);
+  await page.getByTestId("workspace-update-menu").click();
+  await expect(
+    page.getByRole("menuitem", { name: "Update and keep playing", exact: true }),
+  ).toBeVisible();
+  await page.getByRole("menuitem", { name: "Update and keep playing", exact: true }).click();
+  await expect(page.getByTestId("workspace-status-problems")).toBeHidden();
   await expect.poll(async () => (await state(page))?.vars[43]).toBe(5);
   expect(
     await page.evaluate(() => {

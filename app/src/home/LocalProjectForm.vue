@@ -199,10 +199,7 @@ defineExpose({ focus, select: choice.select });
       >
         {{ saving ? "Creating…" : aiVisible ? "Create with AI" : "Start building" }}
       </UiButton>
-      <span v-if="!aiVisible" class="note"
-        >Opens with the game running. Everything you change is saved as you go.</span
-      >
-      <template v-else-if="!aiReady">
+      <template v-if="aiVisible && !aiReady">
         <span class="note" data-testid="create-ai-connect"
           >Needs an AI key. Connect one in Settings.</span
         >

@@ -42,6 +42,7 @@ export function createReplayDriver(ctx: ReplayDriverContext): ReplayDriver {
         ...(options?.fullState !== undefined ? { fullState: options.fullState } : {}),
       });
     },
+    pause: (sessionId) => ctx.query("replayPause", { sessionId }),
     key: (code, sessionId) => ctx.sendKey(code, sessionId),
     direction: (dir, sessionId) => ctx.sendDirection(dir, sessionId),
     answer: (text) => ctx.submitPrompt(text),

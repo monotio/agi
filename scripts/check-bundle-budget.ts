@@ -153,9 +153,11 @@ const BUDGETS: Record<Group, { readonly gzip: number; readonly brotli: number }>
   // Home through cold catalog Play: 565.0 kB gzip, 472.1 kB brotli after
   // the agent, debugger, editor and preview boundaries, plus the shared dismiss
   // control, first-run tip and reported-spend line in the shell. Home's GPU
-  // stage and tutorial build wait for Play.
+  // stage and tutorial build wait for Play. The game card's play split button
+  // and Download… dialog joined the Home path, which cannot wait for a later
+  // chunk: measured 474.5 kB brotli.
   // Room-flow analysis starts with the map or Create in a separate worker.
-  js: { gzip: 575_000, brotli: 474_000 },
+  js: { gzip: 575_000, brotli: 480_000 },
   // The stylesheets of those chunks: 16.4 kB gzip, 14.3 kB brotli.
   css: { gzip: 16_500, brotli: 14_500 },
   // The 1.2 engine and catalog workers share Engine's synchronous native
@@ -335,7 +337,7 @@ function main(): void {
       for (const module of new Set(chunk.modules))
         if (
           AUTHORING_MODULES.some((pattern) => pattern.test(module)) ||
-          /\/node_modules\/monaco-editor\//.test(module) ||
+          /(?:^|\/)node_modules\/monaco-editor\//.test(module) ||
           /^app\/src\/studio\/(RoomStudio|sprite\/SpriteStudio|workspace\/(LogicEditor|WordsEditor|TableEditor|SoundPanel))\.vue/.test(
             module,
           )

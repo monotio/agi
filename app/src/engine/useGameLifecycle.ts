@@ -91,6 +91,8 @@ export interface GameLifecycleOptions {
   readonly getProjectMode?: () => "create" | "play";
   readonly getSessionId: () => number;
   readonly nextSessionId: () => number;
+  readonly acquirePlayOwnership?: (game: BootedGame) => Promise<void>;
+  readonly getActiveReplayRngVersion?: () => 1 | 2;
   readonly getActiveReplaySeed: () => number | null;
   readonly setActiveReplaySeed: (seed: number | null) => void;
   readonly setActiveLlmConfig: (config: LlmConfig) => void;
@@ -177,6 +179,9 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
 
   function resetScreenState(): void {
     autosave.resetScreen();
+    state.otherTab = false;
+    state.returnProblem = "";
+    state.entryProblem = "";
     state.staleTab = false;
     state.projectRemoved = false;
     // The timeline notices belong to the session that raised them.
@@ -316,10 +321,17 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
               : {}),
           };
     if (opening !== undefined && !opening.isCurrent()) return;
+    const previousGame = booted;
+    const previousWorker = link.getWorker?.();
     const beforeFlush = ++lifecycleEpoch;
     await options.flushProject?.();
-    if (beforeFlush !== lifecycleEpoch || (opening !== undefined && !opening.isCurrent())) return;
-    const previousGame = booted;
+    if (
+      beforeFlush !== lifecycleEpoch ||
+      booted !== previousGame ||
+      link.getWorker?.() !== previousWorker ||
+      (opening !== undefined && !opening.isCurrent())
+    )
+      return;
     const previousSurface = { phase: state.phase, loading: state.loading, error: state.error };
     if (!autosave.beginResumeBoot(resumeCarrier)) return;
     if (!(options.devFixtures ?? import.meta.env?.DEV))
@@ -333,11 +345,20 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
     // completion must not touch the slot, the session, audio or the worker
     // that now owns them.
     const bootEpoch = lifecycleEpoch;
+    let slotGame = booted;
+    let slotWorker = link.getWorker?.();
+    const ownsSlot = () =>
+      bootEpoch === lifecycleEpoch &&
+      booted === slotGame &&
+      link.getWorker?.() === slotWorker &&
+      (opening === undefined || opening.isCurrent());
+    const isCurrent = () =>
+      ownsSlot() && (resumeCarrier === undefined || resumeCarrier.isCurrent());
     try {
       const { game, profile } = await prepareInstalledGame(query);
       // Superseded while the fixture served and hashed: the newer flow owns
       // the slot and the loading surface.
-      if (bootEpoch !== lifecycleEpoch) return;
+      if (!isCurrent()) return;
       state.loading = { title: game.title, generating: false };
       state.installedGames =
         state.installedGames?.map((entry) =>
@@ -355,25 +376,30 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
         {
           game,
           files: game.files,
-          isCurrent: () => bootEpoch === lifecycleEpoch,
+          isCurrent,
           ...(profile !== undefined ? { profile } : {}),
         },
         resumeCarrier,
       );
-      if (bootEpoch !== lifecycleEpoch) return;
       if (resumeAdmission.status === "aborted") {
-        state.phase = "error";
-        state.error = resumeAdmission.message ?? "The saved checkpoint could not be resumed.";
+        // Validation settles its carrier before returning the refusal. Its
+        // message still belongs to this slot unless another opening took it.
+        if (ownsSlot() && resumeAdmission.message !== undefined) {
+          state.phase = "error";
+          state.error = resumeAdmission.message;
+        }
         return;
       }
+      if (!isCurrent()) return;
 
       await options.prepareRun?.();
+      if (!isCurrent()) return;
       const openingAdmission = await admitQualifiedOpening(
         opening,
         game,
         game.files,
         profile,
-        () => bootEpoch === lifecycleEpoch,
+        isCurrent,
         () => state.installedGames,
       );
       if (openingAdmission === null || !openingAdmission()) {
@@ -384,19 +410,19 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
       if (resumeCarrier !== undefined && !resumeCarrier.isCurrent()) return;
       // A successful remix is saved as its own local game before playback resumes.
       const activeReplaySeed = options.getActiveReplaySeed();
-      if (
-        bootEpoch !== lifecycleEpoch ||
-        (opening !== undefined && !opening.isCurrent()) ||
-        (resumeCarrier !== undefined && !resumeCarrier.isCurrent())
-      )
-        return;
-      const w = link.spawnWorker();
+      if (!isCurrent()) return;
+      await options.acquirePlayOwnership?.(game);
+      if (!isCurrent()) return;
+      const w = link.spawnWorker(true);
+      slotWorker = link.getWorker?.();
       options.authoring?.resetSession();
       booted = game;
+      slotGame = game;
       options.audio?.useGameFiles(game.files);
       w.postMessage({
         type: "boot",
         amigaRegion: options.getAmigaRegion?.() ?? "ntsc",
+        progressMode: options.getProjectMode?.() ?? "play",
         ...(options.getProjectMode?.() === "create"
           ? {
               projectMode: "create" as const,
@@ -411,7 +437,12 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
             }
           : {}),
         sessionId: options.getSessionId(),
-        ...(activeReplaySeed !== null ? { replaySeed: activeReplaySeed } : {}),
+        ...(activeReplaySeed !== null
+          ? {
+              replaySeed: activeReplaySeed,
+              replayRngVersion: options.getActiveReplayRngVersion?.() ?? 1,
+            }
+          : {}),
         soundDevice: state.soundMode === "pc-speaker" ? 0 : 1,
         files: game.files,
         words: game.words,
@@ -420,6 +451,9 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
         ...(resumeAdmission.status === "restore"
           ? {
               restoreImage: resumeAdmission.restoreImage,
+              ...(resumeAdmission.restoreRng !== undefined
+                ? { restoreRng: resumeAdmission.restoreRng }
+                : {}),
               ...(resumeAdmission.restoreMenus !== undefined
                 ? { restoreMenus: resumeAdmission.restoreMenus }
                 : {}),
@@ -427,7 +461,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
           : {}),
       } satisfies WorkerInbound);
     } catch (e) {
-      if (bootEpoch !== lifecycleEpoch) return;
+      if (!isCurrent()) return;
       state.phase = "error";
       state.error = String(e);
       if (resumeCarrier?.isCurrent()) throw e;
@@ -457,42 +491,65 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
     if (!(options.devFixtures ?? import.meta.env?.DEV))
       throw new Error("Installed fixtures are development-only");
     const bootEpoch = lifecycleEpoch;
+    const previousGame = booted;
+    const previousWorker = link.getWorker?.();
+    const isCurrent = () =>
+      bootEpoch === lifecycleEpoch &&
+      booted === previousGame &&
+      link.getWorker?.() === previousWorker;
     let prepared: PreparedInstalledGame;
     try {
       prepared = await prepareInstalledGame(selected.folder);
     } catch (error) {
       // A preparation failure on a slot this call no longer owns stays with
       // the dead world; while still owned, the failure reaches the caller.
-      if (bootEpoch !== lifecycleEpoch) return { status: "superseded" };
+      if (!isCurrent()) return { status: "superseded" };
       throw error;
     }
-    if (bootEpoch !== lifecycleEpoch) return { status: "superseded" };
+    if (!isCurrent()) return { status: "superseded" };
     const landed = prepared.game.progressTarget;
     if (landed?.kind !== "installed" || landed.locator !== selected.locator)
       return { status: "refused" };
     if (!admission.admitted({ kind: "installed", locator: landed.locator, folder: landed.folder }))
       return { status: "superseded" };
-    // Every proof has run: the section below is synchronous — clear only the
-    // selected physical checkpoint, then install and post this candidate.
-    // A commit rejection means installation never began: it propagates with
-    // the previous world, its worker, phase and error state exactly as they
-    // were. The catch covers only failures after the slot starts moving.
+    // Finish fallible preparation while the selected checkpoint and prior
+    // worker remain intact. Re-prove admission after ownership settles;
+    // commit and installation then run synchronously.
     await options.flushProject?.();
+    if (
+      !isCurrent() ||
+      !admission.admitted({ kind: "installed", locator: landed.locator, folder: landed.folder })
+    )
+      return { status: "superseded" };
     await options.prepareRun?.();
-    if (bootEpoch !== lifecycleEpoch) return { status: "superseded" };
+    if (!isCurrent()) return { status: "superseded" };
+    if (!admission.admitted({ kind: "installed", locator: landed.locator, folder: landed.folder }))
+      return { status: "superseded" };
+    try {
+      await options.acquirePlayOwnership?.(prepared.game);
+    } catch (error) {
+      if (
+        !isCurrent() ||
+        !admission.admitted({ kind: "installed", locator: landed.locator, folder: landed.folder })
+      )
+        return { status: "superseded" };
+      throw error;
+    }
+    if (!isCurrent()) return { status: "superseded" };
     if (!admission.admitted({ kind: "installed", locator: landed.locator, folder: landed.folder }))
       return { status: "superseded" };
     admission.commit();
     try {
       retireGenesisStarter();
       const activeReplaySeed = options.getActiveReplaySeed();
-      const w = link.spawnWorker();
+      const w = link.spawnWorker(true);
       options.authoring?.resetSession();
       booted = prepared.game;
       options.audio?.useGameFiles(prepared.game.files);
       w.postMessage({
         type: "boot",
         amigaRegion: options.getAmigaRegion?.() ?? "ntsc",
+        progressMode: options.getProjectMode?.() ?? "play",
         ...(options.getProjectMode?.() === "create"
           ? {
               projectMode: "create" as const,
@@ -507,7 +564,12 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
             }
           : {}),
         sessionId: options.getSessionId(),
-        ...(activeReplaySeed !== null ? { replaySeed: activeReplaySeed } : {}),
+        ...(activeReplaySeed !== null
+          ? {
+              replaySeed: activeReplaySeed,
+              replayRngVersion: options.getActiveReplayRngVersion?.() ?? 1,
+            }
+          : {}),
         soundDevice: state.soundMode === "pc-speaker" ? 0 : 1,
         files: prepared.game.files,
         words: prepared.game.words,
@@ -592,7 +654,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
         const files = await link.query("exportFiles");
         if (!files)
           throw new Error(
-            "The current game could not be saved. Try Settings → This game → Download game… before leaving.",
+            "The current game could not be saved. Try Settings → This game → Download… before leaving.",
           );
         await options.authoring!.persistRemix(game, session, files).catch((error: unknown) => {
           if (!(error instanceof ResourceCommitError && error.code === "stale")) throw error;
@@ -609,11 +671,11 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
         const flushResult = await autosave.flushAutosaveDetailed(2000);
         if (flushResult.status === "storage_failure") {
           throw new Error(
-            "Browser storage could not save latest progress. Use Settings → This game → Download game… for a development backup, or leave with previously saved progress.",
+            "Browser storage could not save latest progress. Use Settings → This game → Download… for a development backup, or leave with previously saved progress.",
           );
         } else if (flushResult.status === "timeout") {
           throw new Error(
-            "Autosave timed out. Try again, use Settings → This game → Download game… for a development backup, or leave with previously saved progress.",
+            "Autosave timed out. Try again, use Settings → This game → Download… for a development backup, or leave with previously saved progress.",
           );
         }
       }
@@ -707,7 +769,16 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
       config: LlmConfig;
     },
     epoch?: number,
+    intent?: () => boolean,
   ): Promise<void> {
+    const bootEpoch = epoch ?? lifecycleEpoch;
+    let slotGame = booted;
+    let slotWorker = link.getWorker?.();
+    const isCurrent = () =>
+      bootEpoch === lifecycleEpoch &&
+      booted === slotGame &&
+      link.getWorker?.() === slotWorker &&
+      (intent?.() ?? true);
     const { files, words, transcript, sessionId } = resources;
     const { projectId, templateId, title, config } = boot;
     const authoringState = session.getAuthoringState();
@@ -726,10 +797,11 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
       roomGeneration: true,
     };
     const known = await detectKnownGame(files);
+    if (!isCurrent()) return;
     const revision = await gameRevision(files);
     // Superseded while detection and hashing ran: the newer flow owns the
     // slot, and this world's first save goes with the run that was retired.
-    if (epoch !== undefined && epoch !== lifecycleEpoch) return;
+    if (!isCurrent()) return;
     authoredGame.chats = migrateAgentChats({
       ...authoredGame,
       transcript: transcript?.length
@@ -763,11 +835,11 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
     });
     const historyLifetime = saved?.lifetime ?? null;
     if (saved !== null) authoredGame = saved.data;
-    if (epoch !== undefined && epoch !== lifecycleEpoch) return;
+    if (!isCurrent()) return;
     if (historyLifetime === null)
       logAgent(
         "error",
-        "Browser storage could not save this world. Use Settings → This game → Download game… to keep it.",
+        "Browser storage could not save this world. Use Settings → This game → Download… to keep it.",
       );
     if (historyLifetime !== null)
       logAgent(
@@ -776,10 +848,11 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
       );
 
     await options.flushProject?.();
-    if (epoch !== undefined && epoch !== lifecycleEpoch) return;
+    if (!isCurrent()) return;
     await options.prepareRun?.();
-    if (epoch !== undefined && epoch !== lifecycleEpoch) return;
+    if (!isCurrent()) return;
     const w = link.spawnWorker();
+    slotWorker = link.getWorker?.();
     const game: BootedGame = {
       installed: false,
       projectId,
@@ -795,9 +868,26 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
     // target before the worker can send its first history or save request.
     bindProgressTarget(game);
     booted = game;
+    slotGame = game;
+    try {
+      await options.acquirePlayOwnership?.(game);
+    } catch (error) {
+      if (!isCurrent()) return;
+      throw error;
+    }
+    if (!isCurrent()) return;
     // The world's first record is this tab's own authoring content.
     advanceAuthoring(game, authoringState);
-    const authoring = options.authoring ?? (await options.ensureAuthoring!());
+    let authoring = options.authoring;
+    if (!authoring) {
+      try {
+        authoring = await options.ensureAuthoring!();
+      } catch (error) {
+        if (!isCurrent()) return;
+        throw error;
+      }
+      if (!isCurrent()) return;
+    }
     authoring.attachSessionRuntime(session, game);
 
     const activeReplaySeed = options.getActiveReplaySeed();
@@ -805,6 +895,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
     w.postMessage({
       type: "boot",
       amigaRegion: options.getAmigaRegion?.() ?? "ntsc",
+      progressMode: options.getProjectMode?.() ?? "play",
       projectMode: "create",
       sessionId: options.getSessionId(),
       soundDevice: state.soundMode === "pc-speaker" ? 0 : 1,
@@ -812,7 +903,12 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
       words,
       autosaveFiles: true,
       authorRooms: true,
-      ...(activeReplaySeed !== null ? { replaySeed: activeReplaySeed } : {}),
+      ...(activeReplaySeed !== null
+        ? {
+            replaySeed: activeReplaySeed,
+            replayRngVersion: options.getActiveReplayRngVersion?.() ?? 1,
+          }
+        : {}),
     } satisfies WorkerInbound);
     // The baseline lands on the tape only now — attachSessionRuntime's post
     // ran before the segment existed. A rewind to before the first commit
@@ -848,10 +944,17 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
               : {}),
           };
     if (opening !== undefined && !opening.isCurrent()) return;
+    const previousGame = booted;
+    const previousWorker = link.getWorker?.();
     const beforeFlush = ++lifecycleEpoch;
     await options.flushProject?.();
-    if (beforeFlush !== lifecycleEpoch || (opening !== undefined && !opening.isCurrent())) return;
-    const previousGame = booted;
+    if (
+      beforeFlush !== lifecycleEpoch ||
+      booted !== previousGame ||
+      link.getWorker?.() !== previousWorker ||
+      (opening !== undefined && !opening.isCurrent())
+    )
+      return;
     const previousSurface = { phase: state.phase, loading: state.loading, error: state.error };
     const resumeCarrier = bootOptions?.resumeCarrier;
     if (!autosave.beginResumeBoot(resumeCarrier)) return;
@@ -868,6 +971,15 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
     // the slot, and this flow must stop before it mutates the session, arms
     // recovery or issues its provider request.
     const bootEpoch = lifecycleEpoch;
+    let slotGame = booted;
+    let slotWorker = link.getWorker?.();
+    const ownsSlot = () =>
+      bootEpoch === lifecycleEpoch &&
+      booted === slotGame &&
+      link.getWorker?.() === slotWorker &&
+      (opening === undefined || opening.isCurrent());
+    const isCurrent = () =>
+      ownsSlot() && (resumeCarrier === undefined || resumeCarrier.isCurrent());
     let genesisRun: {
       recovery: GenesisStarterRecovery;
       run: number;
@@ -883,7 +995,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
         const loaded = await loadAuthoredGameWithHistoryLifetime(projectId);
         // Superseded while storage answered: the newer flow owns the slot,
         // the session and the worker this boot would still spawn.
-        if (bootEpoch !== lifecycleEpoch) return;
+        if (!isCurrent()) return;
         const cached = loaded?.data;
         const historyLifetime = loaded?.lifetime ?? null;
         if (cached) {
@@ -907,10 +1019,11 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
               : null;
           // A boot superseded while the stack loaded owns nothing: bail
           // before its session can replace the newer flow's.
-          if (bootEpoch !== lifecycleEpoch) return;
+          if (!isCurrent()) return;
           const known = await detectKnownGame(cached.files);
+          if (!isCurrent()) return;
           const revision = await gameRevision(cached.files);
-          if (bootEpoch !== lifecycleEpoch) return;
+          if (!isCurrent()) return;
           const cachedSession = stack
             ? stack.AgentSession.fromAuthoredData(
                 cachedConfig,
@@ -948,24 +1061,27 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
             {
               game,
               files: cached.files,
-              isCurrent: () => bootEpoch === lifecycleEpoch,
+              isCurrent,
               ...(cached.library?.profile !== undefined ? { profile: cached.library.profile } : {}),
             },
             resumeCarrier,
           );
-          if (bootEpoch !== lifecycleEpoch) return;
           if (resumeAdmission.status === "aborted") {
-            state.phase = "error";
-            state.error = resumeAdmission.message ?? "The saved checkpoint could not be resumed.";
+            if (ownsSlot() && resumeAdmission.message !== undefined) {
+              state.phase = "error";
+              state.error = resumeAdmission.message;
+            }
             return;
           }
+          if (!isCurrent()) return;
           await options.prepareRun?.();
+          if (!isCurrent()) return;
           const openingAdmission = await admitQualifiedOpening(
             opening,
             game,
             cached.files,
             cached.library?.profile,
-            () => bootEpoch === lifecycleEpoch,
+            isCurrent,
           );
           if (openingAdmission === null || !openingAdmission()) {
             if (opening !== undefined && bootEpoch === lifecycleEpoch && booted === previousGame)
@@ -976,19 +1092,18 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
           options.setActiveLlmConfig(cachedConfig);
           if (cachedSession && !options.authoring) {
             await options.ensureAuthoring!();
-            if (bootEpoch !== lifecycleEpoch) return;
+            if (!isCurrent()) return;
           }
           options.authoring?.setSession(cachedSession);
-          if (
-            bootEpoch !== lifecycleEpoch ||
-            (opening !== undefined && !opening.isCurrent()) ||
-            (resumeCarrier !== undefined && !resumeCarrier.isCurrent())
-          )
-            return;
-          const w = link.spawnWorker();
+          if (!isCurrent()) return;
+          await options.acquirePlayOwnership?.(game);
+          if (!isCurrent()) return;
+          const w = link.spawnWorker(true);
+          slotWorker = link.getWorker?.();
           // The authoring content this boot read is the tab's base for it.
           hydrateAuthoring(game, cached.authoringState);
           booted = game;
+          slotGame = game;
           if (cachedSession) {
             options.authoring!.attachSessionRuntime(cachedSession, game);
           }
@@ -997,6 +1112,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
           w.postMessage({
             type: "boot",
             amigaRegion: options.getAmigaRegion?.() ?? "ntsc",
+            progressMode: options.getProjectMode?.() ?? "play",
             ...(options.getProjectMode?.() === "create"
               ? {
                   projectMode: "create" as const,
@@ -1011,7 +1127,12 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
                 }
               : {}),
             sessionId: options.getSessionId(),
-            ...(activeReplaySeed !== null ? { replaySeed: activeReplaySeed } : {}),
+            ...(activeReplaySeed !== null
+              ? {
+                  replaySeed: activeReplaySeed,
+                  replayRngVersion: options.getActiveReplayRngVersion?.() ?? 1,
+                }
+              : {}),
             soundDevice: state.soundMode === "pc-speaker" ? 0 : 1,
             files: cached.files,
             words: cached.words,
@@ -1021,6 +1142,9 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
             ...(resumeAdmission.status === "restore"
               ? {
                   restoreImage: resumeAdmission.restoreImage,
+                  ...(resumeAdmission.restoreRng !== undefined
+                    ? { restoreRng: resumeAdmission.restoreRng }
+                    : {}),
                   ...(resumeAdmission.restoreMenus !== undefined
                     ? { restoreMenus: resumeAdmission.restoreMenus }
                     : {}),
@@ -1045,15 +1169,15 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
 
       // Superseded while storage answered: the newer flow owns the settled
       // provider/model selection too.
-      if (bootEpoch !== lifecycleEpoch) return;
+      if (!isCurrent()) return;
       options.setActiveLlmConfig(config);
       const stack = await loadAuthoring();
       // A boot superseded while the stack loaded owns nothing: bail before
       // its session can replace the newer flow's.
-      if (bootEpoch !== lifecycleEpoch) return;
+      if (!isCurrent()) return;
       const genesisSession = new stack.AgentSession(config, logAgent);
       const authoring = options.authoring ?? (await options.ensureAuthoring!());
-      if (bootEpoch !== lifecycleEpoch) return;
+      if (!isCurrent()) return;
       authoring.setSession(genesisSession);
       // A provider-dependent run keeps the canonical Starter prepared beside
       // it — armed before the first request — so a refusal or cancel can
@@ -1061,18 +1185,19 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
       // stub needs none; it cannot fail its way here.
       if (config.provider !== "stub") {
         const recovery = await armedGenesisStarterRecovery();
-        if (bootEpoch !== lifecycleEpoch) return;
+        if (!isCurrent()) return;
         const run = await recovery.begin(title);
         // The seed prepared while a newer action took the slot: the retired
         // run's provider request must never be issued.
-        if (bootEpoch !== lifecycleEpoch || recovery.superseded(run)) return;
+        if (!isCurrent() || recovery.superseded(run)) return;
         genesisRun = { recovery, run };
       }
       const resources = await genesisSession.startGenesis(templateMarkdown);
+      if (!isCurrent()) return;
       if (genesisRun !== null) {
         // A run superseded while its request was in flight owns nothing: its
         // late result must not boot or save over what took the slot.
-        if (bootEpoch !== lifecycleEpoch || genesisRun.recovery.superseded(genesisRun.run)) return;
+        if (!isCurrent() || genesisRun.recovery.superseded(genesisRun.run)) return;
         genesisRun.recovery.handedOver(genesisRun.run);
         genesisRun = null;
       }
@@ -1086,13 +1211,20 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
           config,
         },
         bootEpoch,
+        () =>
+          (opening === undefined || opening.isCurrent()) &&
+          (resumeCarrier === undefined || resumeCarrier.isCurrent()),
       );
     } catch (e) {
       // A delayed failure from a run another action superseded belongs to no
       // screen: the newer flow owns the phase, whether or not the retired
       // flow had reached its arming.
       if (
-        bootEpoch !== lifecycleEpoch ||
+        (bootOptions?.useCached
+          ? !isCurrent()
+          : bootEpoch !== lifecycleEpoch ||
+            (opening !== undefined && !opening.isCurrent()) ||
+            (resumeCarrier !== undefined && !resumeCarrier.isCurrent())) ||
         (genesisRun !== null && genesisRun.recovery.superseded(genesisRun.run))
       )
         return;

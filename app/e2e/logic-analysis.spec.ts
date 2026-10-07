@@ -54,6 +54,7 @@ test("Logic Studio analysis loads on demand and resolves source through a real w
   expect(result.completions).toContainEqual({
     label: "open",
     detail: "Word group 100",
+    sortText: "00000",
     textEdit: {
       range: { start: { line: 1, character: 9 }, end: { line: 1, character: 12 } },
       newText: '"open"',
@@ -61,7 +62,9 @@ test("Logic Studio analysis loads on demand and resolves source through a real w
   });
   expect(result.signature?.signatures[0]?.label).toBe("said(word, ...)");
   expect(result.incomplete.items[0]?.range.start.line).toBe(1);
-  expect(result.definition?.uri).toBe("agi-project:///bindings.json");
+  expect((Array.isArray(result.definition) ? result.definition[0] : result.definition)?.uri).toBe(
+    "agi-project:///bindings.json",
+  );
   expect(result.valid.items).toEqual([]);
 });
 

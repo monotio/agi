@@ -24,7 +24,7 @@ function request(method: string, params: Record<string, unknown> = {}) {
     params: { textDocument: { uri: "agi-project:///logic.1.lgc" }, ...params },
   });
 }
-test("project names describe resource targets and state writes and checks without changing LSP definitions", () => {
+test("project names describe state evidence and resource definitions open their resource", () => {
   const at = { position: positionAt(source, source.indexOf("chime")) };
   const info = request("agi/bindingInfo", at)?.result as {
     name: string;
@@ -43,10 +43,10 @@ test("project names describe resource targets and state writes and checks withou
     ?.result as typeof info;
   assert.deepEqual(
     state.uses.map((use) => use.role),
-    ["Checked", "Set", "Set"],
+    ["Read", "Changed", "Changed"],
   );
   const definition = request("textDocument/definition", at)?.result as { uri: string };
-  assert.equal(definition.uri, "agi-project:///bindings.json");
+  assert.equal(definition.uri, "agi-project:///sound.1");
 });
 test("classic message calls have inlay text and can put text inline", () => {
   const hints = request("textDocument/inlayHint")?.result as { label: string }[];
@@ -99,7 +99,7 @@ test("new Starter and Boilerplate projects use inline print text", () => {
   }
 });
 
-test("both sides of a variable comparison are checked", () => {
+test("both sides of a variable comparison are read", () => {
   const server = createLogicLspServer({
     project: {
       ...project,
@@ -111,11 +111,11 @@ test("both sides of a variable comparison are checked", () => {
   const infos = response?.result as { name: string; uses: { role: string }[] }[];
   assert.deepEqual(
     infos.find((info) => info.name === "other_count")?.uses.map((use) => use.role),
-    ["Checked"],
+    ["Read"],
   );
   assert.deepEqual(
     infos.find((info) => info.name === "count")?.uses.map((use) => use.role),
-    ["Checked", "Set"],
+    ["Read", "Changed"],
   );
 });
 
@@ -128,7 +128,7 @@ test("name uses remain available while an unknown command is being edited", () =
   const infos = response?.result as { name: string; uses: { role: string }[] }[];
   assert.deepEqual(
     infos.find((info) => info.name === "count")?.uses.map((use) => use.role),
-    ["Used"],
+    ["Read"],
   );
 });
 
@@ -152,5 +152,28 @@ test("message actions use the first free slot when message 255 exists", async ()
   assert.deepEqual(
     actions[0]?.edit.documentChanges[0]?.edits.map((edit) => edit.newText),
     ["m2", '#message 2 "Hello"\n'],
+  );
+});
+
+test("state action inputs are Read while condition resources are Used", () => {
+  const server = createLogicLspServer({
+    project: {
+      ...project,
+      words: [["look", 1]],
+      bindings: { ...project.bindings, look: { kind: "word", num: 1 } },
+      documents: { "logic:1": { source: "assignv(v41, count);\nif (said(look)) { return; }" } },
+    },
+  });
+  const infos = server.handle({ jsonrpc: "2.0", id: 1, method: "agi/bindings" })?.result as {
+    name: string;
+    uses: { role: string }[];
+  }[];
+  assert.deepEqual(
+    infos.find((info) => info.name === "count")?.uses.map((use) => use.role),
+    ["Read"],
+  );
+  assert.deepEqual(
+    infos.find((info) => info.name === "look")?.uses.map((use) => use.role),
+    ["Used"],
   );
 });

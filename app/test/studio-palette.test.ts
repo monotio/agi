@@ -68,7 +68,7 @@ function setup(lens: StudioLens, ids: string[]) {
   return { ...result, stop: () => scope.stop() };
 }
 describe("palette context", () => {
-  for (const lens of ["art", "depth", "walk"] as const) {
+  for (const lens of ["art", "depth"] as const) {
     for (const selected of [false, true]) {
       it(`${lens}, selection ${selected}: each tool exposes its usable values`, () => {
         for (const tool of ["line", "rect", "polygon", "fill", "brush"] as const)
@@ -86,7 +86,8 @@ describe("palette context", () => {
 for (const [lens, ids, patch] of [
   ["art", ["a", "b"], { visual: 4 }],
   ["depth", ["b"], { priority: 10 }],
-  ["walk", ["w"], { priority: 3 }],
+  // The Priority lens recolours a control line too: the wall becomes water.
+  ["depth", ["w"], { priority: 3 }],
 ] as const) {
   it(`${lens}: recolours the selection in one reversible step and leaves drawing values alone`, () => {
     const s = setup(lens, [...ids]);
@@ -97,7 +98,7 @@ for (const [lens, ids, patch] of [
       assert.notEqual(s.draft.source.value, before);
       assert.equal(s.draft.history.value.past.length, 1);
       const at = lens === "art" ? "visual" : "priority";
-      const expected = lens === "art" ? 4 : lens === "depth" ? 10 : 3;
+      const expected = lens === "art" ? 4 : patch.priority;
       for (const [id, x, y] of [
         ["a", 10, 20],
         ["b", 40, 90],
@@ -134,19 +135,13 @@ for (const [lens, ids, patch, message] of [
     "art",
     ["a", "w"],
     { visual: 4 },
-    "Wall has no art colour. Select a shape with art to recolour it.",
+    "Wall has no visual colour. Select a shape with visual colour to recolour it.",
   ],
   [
     "depth",
     ["a"],
     { priority: 10 },
-    "Art has no depth band. Add depth or select a shape with depth.",
-  ],
-  [
-    "walk",
-    ["b"],
-    { priority: 0 },
-    "Both has no walk line. Select a Wall, Gate, Trigger or Water shape.",
+    "Art has no priority. Give it a Priority pen in the Inspector, or select a shape with one.",
   ],
 ] as const) {
   it(`${lens}: refuses the whole selection when an item lacks that kind of colour`, () => {

@@ -4,13 +4,7 @@ import { EGA_PALETTE } from "../render/palette.ts";
 import { SCREEN_HEIGHT, SCREEN_WIDTH } from "../../../src/types.ts";
 import type { LineHandle, LinePoint } from "../../../src/studio/editPoints.ts";
 import { toLogical, type Viewport, type ViewportPoint } from "../../../src/studio/viewport.ts";
-import {
-  CONTROL_VALUES,
-  paintLayer,
-  type BandGuide,
-  type ControlLabel,
-  type PaneLayer,
-} from "./studioView.ts";
+import { paintLayer, type BandGuide, type PaneLayer } from "./studioView.ts";
 
 export interface MaskPaths {
   fill: string;
@@ -22,15 +16,17 @@ export interface PanePress {
   readonly event: PointerEvent;
   readonly cell: ViewportPoint;
   readonly handle: LineHandle | undefined;
+  /** Rounded logical displacement from pointerdown, measured at the starting scale. */
+  readonly delta?: ViewportPoint | undefined;
 }
 
 /**
  * One picture pane: the engine's pixels on a <canvas> at integer zoom (2:1
  * AGI pixels, backing store scaled by devicePixelRatio) under an SVG overlay
- * in logical coordinates for highlights, band guides, control labels and the
+ * in logical coordinates for highlights, band guides and the
  * selected item's handles. A press captures the pointer, so a drag keeps
- * reporting cells past the pane's edge; the slot holds overlays placed in
- * CSS pixels (the contextual toolbar).
+ * reporting cells past the pane's edge; the slot holds what the creator
+ * handles on the picture itself (views, the trace's grips, the probe).
  */
 const {
   layer,
@@ -42,12 +38,9 @@ const {
   highlight = null,
   selection = null,
   guides = null,
-  labels = null,
   handles = null,
   ghost = null,
   flash = null,
-  changed = null,
-  spilled = null,
   underlay = null,
   movable = false,
   marquee = null,
@@ -61,17 +54,12 @@ const {
   highlight?: MaskPaths | null;
   selection?: MaskPaths | null;
   guides?: readonly BandGuide[] | null;
-  labels?: readonly ControlLabel[] | null;
   /** The selected item's points, drawn as draggable handles. */
   handles?: readonly LineHandle[] | null;
   /** Where an Alt+click adds a point to the selected line: a "+" mark. */
   ghost?: LinePoint | null;
   /** Cells an edit was refused for, highlighted briefly. */
   flash?: MaskPaths | null;
-  /** Cells an AI proposal changes, outlined while it awaits a verdict. */
-  changed?: MaskPaths | null;
-  /** The proposal's side effects: cells of other items it changes, outside the selection. */
-  spilled?: MaskPaths | null;
   /**
    * A prepared reference (160x168 RGBA) blended above art, or behind its marks.
    * It changes the drawing surface only; the PICTURE retains its native data.
@@ -97,38 +85,11 @@ const width = computed(() => SCREEN_WIDTH * viewport.pixelAspect * viewport.zoom
 const height = computed(() => SCREEN_HEIGHT * viewport.zoom);
 const backingWidth = computed(() => Math.round(width.value * dpr));
 const backingHeight = computed(() => Math.round(height.value * dpr));
-/** Logical units per 1 CSS px vertically, for text and strokes drawn in the overlay. */
-const unit = computed(() => 1 / viewport.zoom);
 /** Handle sizes in logical units: an 8 CSS px mark inside a 24 CSS px hit area, at any zoom. */
 const handleBox = computed(() => {
   const x = 1 / (viewport.pixelAspect * viewport.zoom);
   const y = 1 / viewport.zoom;
   return { markW: 8 * x, markH: 8 * y, hitW: 24 * x, hitH: 24 * y };
-});
-
-/** Control label text size and a monospace glyph's advance, in CSS px. */
-const LABEL_PX = 11;
-const LABEL_ADVANCE = 0.6 * LABEL_PX;
-/**
- * The control labels that read on their own at this zoom. Labels come
- * largest run first; one whose text would overlap another's columns within
- * two text lines of it would read as that label's second line, so it is
- * left out (the legend still names every value).
- */
-const readableLabels = computed(() => {
-  if (!labels) return null;
-  const { pixelAspect, zoom } = viewport;
-  const placed: { x0: number; x1: number; y: number }[] = [];
-  return labels.filter((tag) => {
-    const half = ((CONTROL_VALUES[tag.value]?.name.length ?? 0) * LABEL_ADVANCE) / 2;
-    const x = (tag.x + 0.5) * pixelAspect * zoom;
-    const box = { x0: x - half, x1: x + half, y: tag.y * zoom };
-    const stacks = placed.some(
-      (other) => box.x0 < other.x1 && other.x0 < box.x1 && Math.abs(box.y - other.y) < 2 * LABEL_PX,
-    );
-    if (!stacks) placed.push(box);
-    return !stacks;
-  });
 });
 
 let image: ImageData | undefined;
@@ -177,56 +138,110 @@ watchEffect(
 let last: ViewportPoint | undefined;
 /** The pointer this pane captured on a press, until release or cancel. */
 let captured: number | null = null;
+/** The pane's screen origin at the press: a reflow during the drag must not move its cells. */
+let anchor: { left: number; top: number; x: number; y: number; viewport: Viewport } | undefined;
 
-function cellAt(event: MouseEvent): ViewportPoint | undefined {
-  const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
-  return toLogical(viewport, event.clientX - rect.left, event.clientY - rect.top) ?? undefined;
+function cellAt(
+  rect: { left: number; top: number },
+  x: number,
+  y: number,
+): ViewportPoint | undefined {
+  return toLogical(viewport, x - rect.left, y - rect.top) ?? undefined;
 }
 /** The logical cell under the pointer, off the surface too (a drag may leave the pane). */
-function rawCell(event: MouseEvent): ViewportPoint {
-  const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+function rawCell(event: PointerEvent): ViewportPoint {
+  const rect =
+    event.pointerId === captured && anchor !== undefined
+      ? anchor
+      : (event.currentTarget as HTMLElement).getBoundingClientRect();
+  const scale = event.pointerId === captured && anchor !== undefined ? anchor.viewport : viewport;
   return {
-    x: Math.floor((event.clientX - rect.left) / (viewport.pixelAspect * viewport.zoom)),
-    y: Math.floor((event.clientY - rect.top) / viewport.zoom),
+    x: Math.floor((event.clientX - rect.left) / (scale.pixelAspect * scale.zoom)),
+    y: Math.floor((event.clientY - rect.top) / scale.zoom),
   };
 }
-function handleAt(event: PointerEvent): LineHandle | undefined {
-  const hit = (event.target as Element | null)?.closest("[data-handle]");
-  const index = hit === null || hit === undefined ? -1 : Number(hit.getAttribute("data-handle"));
-  return index >= 0 ? handles?.[index] : undefined;
+function dragDelta(event: PointerEvent): ViewportPoint | undefined {
+  if (event.pointerId !== captured || anchor === undefined) return undefined;
+  // Integer browser coordinates can straddle cell edges at fractional zoom.
+  // Round the displacement once, instead of subtracting two floored cells.
+  return {
+    x: Math.round(
+      (event.clientX - anchor.x) / (anchor.viewport.pixelAspect * anchor.viewport.zoom),
+    ),
+    y: Math.round((event.clientY - anchor.y) / anchor.viewport.zoom),
+  };
+}
+/**
+ * The handle under a press. A hit box is a fixed 24 CSS px square, so at a
+ * fractional zoom neighbouring points' boxes overlap: the press belongs to
+ * the nearest handle centre, not to whichever box the DOM finds on top.
+ */
+function handleAt(
+  event: PointerEvent,
+  rect: { left: number; top: number },
+): LineHandle | undefined {
+  if (!handles?.length) return undefined;
+  const px = event.clientX - rect.left;
+  const py = event.clientY - rect.top;
+  const { pixelAspect, zoom } = viewport;
+  let best: LineHandle | undefined;
+  let dist = Infinity;
+  for (const handle of handles) {
+    const dx = px - (handle.x + 0.5) * pixelAspect * zoom;
+    const dy = py - (handle.y + 0.5) * zoom;
+    const square = dx * dx + dy * dy;
+    if (Math.abs(dx) <= 12 && Math.abs(dy) <= 12 && square < dist) {
+      dist = square;
+      best = handle;
+    }
+  }
+  return best;
 }
 function onDown(event: PointerEvent): void {
   if (event.button !== 0 || captured !== null) return;
-  const cell = rawCell(event);
-  const handle = handleAt(event);
-  if (!handle && !cellAt(event)) return;
+  const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+  const handle = handleAt(event, rect);
+  if (!handle && cellAt(rect, event.clientX, event.clientY) === undefined) return;
   captured = event.pointerId;
+  anchor = {
+    left: rect.left,
+    top: rect.top,
+    x: event.clientX,
+    y: event.clientY,
+    viewport,
+  };
   (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
-  emit("press", { event, cell, handle });
+  emit("press", { event, cell: rawCell(event), handle });
 }
 function onMove(event: PointerEvent): void {
   if (event.pointerId === captured) {
-    emit("drag", { event, cell: rawCell(event), handle: undefined });
+    emit("drag", { event, cell: rawCell(event), handle: undefined, delta: dragDelta(event) });
     return;
   }
-  const cell = cellAt(event);
+  const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+  const cell = cellAt(rect, event.clientX, event.clientY);
   if (cell?.x === last?.x && cell?.y === last?.y) return;
   last = cell;
   emit("hover", cell);
 }
 function onUp(event: PointerEvent): void {
   if (event.pointerId !== captured) return;
+  const cell = rawCell(event);
+  const delta = dragDelta(event);
   captured = null;
-  emit("release", { event, cell: rawCell(event), handle: undefined });
+  anchor = undefined;
+  emit("release", { event, cell, handle: undefined, delta });
 }
 /** The browser took the pointer (a cancel, or capture lost without a release). */
 function onLost(event: PointerEvent): void {
   if (event.pointerId !== captured) return;
   captured = null;
+  anchor = undefined;
   emit("abort");
 }
 function onMenu(event: MouseEvent): void {
-  const cell = cellAt(event);
+  const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+  const cell = cellAt(rect, event.clientX, event.clientY);
   if (!cell) return;
   event.preventDefault();
   emit("menu", cell, { x: event.clientX, y: event.clientY });
@@ -274,29 +289,6 @@ function onLeave(): void {
           :y2="guide.y"
           vector-effect="non-scaling-stroke"
         />
-        <!-- Bands are 12 rows apart; below zoom 2 their numbers would overlap. -->
-        <text
-          v-for="guide in viewport.zoom >= 2 ? guides : []"
-          :key="`t${guide.y}`"
-          class="studio-pane__text"
-          text-anchor="end"
-          :font-size="10 * unit"
-          :transform="`translate(${SCREEN_WIDTH - 1} ${guide.y - unit * 2}) scale(0.5 1)`"
-        >
-          {{ guide.band }}
-        </text>
-      </g>
-      <g v-if="readableLabels" data-role="control-labels">
-        <text
-          v-for="tag in readableLabels"
-          :key="`${tag.x},${tag.y}`"
-          class="studio-pane__text studio-pane__text--control"
-          text-anchor="middle"
-          :font-size="LABEL_PX * unit"
-          :transform="`translate(${tag.x + 0.5} ${tag.y - unit * 3}) scale(0.5 1)`"
-        >
-          {{ CONTROL_VALUES[tag.value]?.name }}
-        </text>
       </g>
       <g v-if="selection" data-role="selection">
         <path class="studio-pane__sel-fill" :d="selection.fill" />
@@ -316,22 +308,6 @@ function onLeave(): void {
         :height="marquee.y2 - marquee.y1 + 1"
         vector-effect="non-scaling-stroke"
       />
-      <g v-if="changed" data-role="changed">
-        <path class="studio-pane__changed-fill" :d="changed.fill" />
-        <path
-          class="studio-pane__changed-line"
-          :d="changed.outline"
-          vector-effect="non-scaling-stroke"
-        />
-      </g>
-      <g v-if="spilled" data-role="spilled">
-        <path class="studio-pane__spilled-fill" :d="spilled.fill" />
-        <path
-          class="studio-pane__spilled-line"
-          :d="spilled.outline"
-          vector-effect="non-scaling-stroke"
-        />
-      </g>
       <g v-if="flash" data-role="refused">
         <path class="studio-pane__flash-fill" :d="flash.fill" />
         <path
@@ -427,19 +403,6 @@ function onLeave(): void {
   stroke-width: 1px;
   stroke-dasharray: 3 3;
 }
-.studio-pane__text {
-  font-family: var(--font-mono);
-  fill: var(--ink-2);
-  paint-order: stroke;
-  stroke: var(--surface-0);
-  stroke-width: 3px;
-  stroke-linejoin: round;
-  vector-effect: non-scaling-stroke;
-}
-.studio-pane__text--control {
-  fill: var(--ink);
-  font-weight: var(--weight-semibold);
-}
 .studio-pane__hl-fill {
   fill: var(--ink);
   fill-opacity: 0.2;
@@ -465,26 +428,6 @@ function onLeave(): void {
   stroke: var(--action);
   stroke-width: 1px;
   stroke-dasharray: 4 3;
-}
-.studio-pane__changed-fill {
-  fill: var(--ok);
-  fill-opacity: 0.12;
-}
-.studio-pane__changed-line {
-  fill: none;
-  stroke: var(--ok);
-  stroke-width: 2px;
-  stroke-dasharray: 4 2;
-}
-.studio-pane__spilled-fill {
-  fill: var(--warn);
-  fill-opacity: 0.12;
-}
-.studio-pane__spilled-line {
-  fill: none;
-  stroke: var(--warn);
-  stroke-width: 2px;
-  stroke-dasharray: 4 2;
 }
 .studio-pane__flash-fill {
   fill: var(--warn);

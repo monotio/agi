@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { numberedLabel } from "../../../src/logic/numberedLabels.ts";
 import UiButton from "../ui/UiButton.vue";
 import type { WalkthroughUiState } from "./useWalkthroughController.ts";
 
@@ -27,7 +28,7 @@ const emit = defineEmits<{ takeControl: [] }>();
       class="walkthrough-room"
       data-testid="walkthrough-room"
     >
-      Room {{ walkthrough.room }}
+      {{ numberedLabel("room", walkthrough.room) }}
     </span>
     <span v-if="walkthrough.status === 'completed'" class="walkthrough-completed-badge">
       Completed!

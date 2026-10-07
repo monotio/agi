@@ -32,7 +32,7 @@ const png = Buffer.from(
   encodePngRgb(1024, 1024, new Uint8Array(1024 * 1024 * 3).fill(170)),
 ).toString("base64");
 test(
-  "partial images show progress and Cancel closes the stub stream",
+  "partial images show actual spend and Stop closes the stub stream",
   { tag: "@webkit-desktop" },
   async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
@@ -81,6 +81,10 @@ test(
       await expect(page.getByTestId("generate-flight")).toBeVisible();
       await expect(page.getByTestId("generate-flight")).toContainText("Drawing your picture…");
       await expect(page.getByTestId("generate-partial")).toBeVisible();
+      await expect(page.getByTestId("generate-cancel")).toBeVisible();
+      await expect(page.getByTestId("generate-cancel")).toHaveText("Stop");
+      await expect(page.getByTestId("generate-spent")).toBeVisible();
+      await expect(page.getByTestId("generate-spent")).toHaveText("$0.00 of $5 spent");
       await expect(page.getByTestId("generate-elapsed")).toBeVisible();
       await expect(page.getByTestId("generate-elapsed")).toHaveText(/[1-9]\d*s/);
       await page.screenshot({
@@ -102,7 +106,9 @@ test(
     }
   },
 );
-test("VIEW generation uses sprite style and Use this opens the cel sheet", async ({ page }) => {
+test("VIEW generation uses sprite style and Use image opens the cel sheet @webkit-desktop", async ({
+  page,
+}) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   let requests = 0;
   await page.route("**/api/test-images/v1/images/generations", async (route) => {
@@ -123,6 +129,11 @@ test("VIEW generation uses sprite style and Use this opens the cel sheet", async
   await expect(page.getByTestId("generate-style")).toContainText("transparent background");
   await page.getByTestId("generate-review").click();
   await expect(page.getByTestId("generate-offer")).toBeVisible();
+  await expect(page.getByTestId("generate-use")).toHaveText("Use image");
+  await expect(page.getByTestId("generate-again")).toHaveText("Generate again");
+  await expect(page.getByTestId("generate-dismiss")).toHaveText("Edit prompt");
+  await page.getByTestId("generate-use").scrollIntoViewIfNeeded();
+  await page.screenshot({ path: test.info().outputPath("image-result.png") });
   await page.getByTestId("generate-use").click();
   await expect(page.getByTestId("image-reference")).toBeVisible();
   await expect(page.getByTestId("image-reference")).toContainText("Cels from an image");

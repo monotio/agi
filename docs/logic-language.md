@@ -12,7 +12,7 @@ bytecode. The [assembler](../src/logic/assembler.ts) and
 #define fDoorOpen 42
 
 start:
-if (isset(f5) && !isset(fDoorOpen)) {
+if (isset(new_room) && !isset(fDoorOpen)) {
   print(1);
   print("The door is closed.");
 } else {
@@ -22,13 +22,14 @@ if (isset(f5) && !isset(fDoorOpen)) {
   }
 }
 done:
-return;
 ```
 
 Commands take comma-separated operands in parentheses and end with `;`.
-`return;` ends the current LOGIC call. `if (condition) { ... }` can have an
+The assembler adds a final `return;` automatically; an explicit `return;` ends the current LOGIC call early. `if (condition) { ... }` can have an
 `else { ... }` block. Labels end with `:` and `goto label;` jumps to them;
 labels share one namespace across the document, including nested blocks.
+Format document (Shift+Alt+F) applies two-space indentation and spacing; Settings offers opt-in Format on leaving the editor.
+
 `//` comments run to the end of a line. Identifiers and command names are
 case-sensitive; use the spellings in the tables below. Numbers are decimal.
 
@@ -36,6 +37,32 @@ Variables, flags, screen objects, messages and strings use `v5`, `f5`, `o5`,
 `m5` and `s5`, or numeric operands. `#define name number` gives a numeric value
 an alias. Byte operands range from 0 to 255; messages are numbered 1 to 255.
 Commands validate operands against their declared kinds and the active profile.
+
+Built-in flags and variables have source names. Use `current_room`, `prev_room`,
+`ego_edge`, `score`, `ego_direction`, `cycle_speed` and `new_room` directly:
+
+```agi
+if (isset(new_room)) { load.pic(current_room); draw.pic(current_room); show.pic(); }
+score = current_room;
+if (current_room == prev_room) { set(input_handled); }
+```
+
+These names emit the same bytes as their `vN` or `fN` operands, including
+assignment and comparison shorthand. **Built-in** in Game state lists every
+reserved slot with its meaning; slots without a documented role use
+`reserved_flag_N` or `reserved_var_N`. Completion inserts the source name.
+Hover and Find references combine named and numbered uses. **Name it… F2**
+creates a project binding and updates the uses across LOGICs without changing
+compiled bytes.
+
+A project binding with the same name takes precedence. A named project flag or
+variable on the same slot replaces the built-in identifier; use the project
+name or the raw operand. If a project name shadows a built-in on a different
+slot or of a different kind, a warning identifies both. Local `#define`s take
+precedence over project and built-in names. Numeric definitions remain numeric
+aliases; `#define name vN` or `#define name fN` preserves the operand kind.
+Project flags and variables also preserve their kind in shorthand.
+Message substitutions such as `%v3` keep the AGI format's numbered spelling.
 
 New Starter and Boilerplate projects put printed text beside its rule with
 `print("text")`. Message hints show the text beside classic `print(mN)` calls.

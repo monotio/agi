@@ -631,16 +631,16 @@ test("LOGIC uses LSP rename, outline, folding and quick fixes", async ({ page })
     h.editor.setPosition({ lineNumber: 1, column: 6 });
     h.editor.trigger("spec", "editor.action.quickFix", {});
   });
-  await expect(page.getByText("Define lamp as 0", { exact: true })).toBeVisible();
+  await expect(page.getByText("Define as a constant in this file…", { exact: true })).toBeVisible();
   await reviewShot(page, "logic-quick-fix");
-  await page.getByText("Define lamp as 0", { exact: true }).click();
+  await page.getByText("Define as a constant in this file…", { exact: true }).click();
   await expect
     .poll(() =>
       page.evaluate(() =>
         (window as unknown as { __monacoHost: MonacoHost }).__monacoHost.model.getValue(),
       ),
     )
-    .toContain("#define lamp 0");
+    .toContain("#define lamp 16");
   await unmountEditor(page);
 });
 

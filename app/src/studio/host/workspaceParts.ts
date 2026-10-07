@@ -1,3 +1,4 @@
+import { numberedLabel, documentLabel } from "../../../../src/logic/numberedLabels.ts";
 import { VOCABULARY } from "../../../../src/vocabulary.ts";
 /** Resource rows shared by the parts list and Quick open. */
 interface WorkspacePart {
@@ -7,6 +8,8 @@ interface WorkspacePart {
   readonly child: boolean;
   readonly live: boolean;
   readonly room?: number;
+  readonly title?: string;
+  readonly secondary?: string;
 }
 export interface WorkspacePartGroup {
   readonly label: string;
@@ -14,7 +17,8 @@ export interface WorkspacePartGroup {
   readonly entries: readonly WorkspacePart[];
 }
 const HELP: Record<string, string> = {
-  GAME: "Notes hold your game’s style, tone and rules.",
+  TOOLS: "Problems, messages and notes about your game.",
+  "GAME STATE": "Flags and variables hold what your game remembers.",
   ROOMS: VOCABULARY.room.help,
   "SHARED LOGIC": VOCABULARY.sharedLogic.help,
   PICTURES: VOCABULARY.picture.help,
@@ -29,12 +33,14 @@ export function workspaceParts(input: {
     readonly room: number;
     readonly title?: string;
     readonly pictures: readonly number[];
+    readonly resources?: readonly string[];
   }[];
   readonly names?: Readonly<Record<string, string>>;
   readonly currentRoom: number | null;
+  /** While a debug session runs, its views join the data rows. */
+  readonly debugging?: boolean;
 }): readonly WorkspacePartGroup[] {
   const keys = new Set(input.keys);
-  const owned = new Set<number>();
   const rooms = new Set<number>();
   const group = (label: string, entries: WorkspacePart[]): WorkspacePartGroup => ({
     label,
@@ -54,17 +60,17 @@ export function workspaceParts(input: {
     if (!keys.has(`logic:${room.room}`)) continue;
     rooms.add(room.room);
     roomRows.push(
-      row(
-        `logic:${room.room}`,
-        room.title ? `${room.title} · ROOM ${room.room}` : `ROOM ${room.room}`,
-        { id: `room:${room.room}`, room: room.room, live: room.room === input.currentRoom },
-      ),
+      row(`logic:${room.room}`, numberedLabel("room", room.room, { rooms: input.rooms }, "row"), {
+        id: `room:${room.room}`,
+        room: room.room,
+        ...(room.title ? { title: room.title } : {}),
+        live: room.room === input.currentRoom,
+      }),
     );
-    for (const pic of room.pictures) {
+    for (const pic of [...room.pictures].sort((a, b) => a - b)) {
       if (!keys.has(`picture:${pic}`)) continue;
-      owned.add(pic);
       roomRows.push(
-        row(`picture:${pic}`, `PICTURE ${pic}`, {
+        row(`picture:${pic}`, numberedLabel("picture", pic, { names: input.names ?? {} }, "row"), {
           id: `room:${room.room}:picture:${pic}`,
           room: room.room,
           child: true,
@@ -72,44 +78,62 @@ export function workspaceParts(input: {
       );
     }
     roomRows.push(
-      row(`logic:${room.room}`, `LOGIC ${room.room}`, {
-        id: `room:${room.room}:logic`,
-        child: true,
-      }),
+      row(
+        `logic:${room.room}`,
+        numberedLabel("logic", room.room, { names: input.names ?? {} }, "row"),
+        {
+          id: `room:${room.room}:logic`,
+          child: true,
+        },
+      ),
     );
   }
-  const resources = (kind: string, label: string, accept: (num: number) => boolean = () => true) =>
+  const resources = (kind: string, accept: (num: number) => boolean = () => true) =>
     input.keys
       .filter((key) => key.startsWith(`${kind}:`) && accept(Number(key.split(":")[1])))
       .sort((a, b) => Number(a.split(":")[1]) - Number(b.split(":")[1]))
       .map((key) => {
         const num = Number(key.split(":")[1]);
-        const name =
-          input.names?.[key] ??
-          (kind === "logic"
-            ? num === 0
-              ? "Start-up and menus"
-              : num === 255
-                ? "Game over"
-                : undefined
-            : undefined);
-        return row(key, name ? `${name} · ${label} ${num}` : `${label} ${num}`);
+        const name = input.names?.[key];
+        const usedBy = [...input.rooms]
+          .sort((a, b) => a.room - b.room)
+          .filter(
+            (room) =>
+              rooms.has(room.room) &&
+              (kind === "picture" ? room.pictures.includes(num) : room.resources?.includes(key)),
+          )
+          .map((room) => numberedLabel("room", room.room, { rooms: input.rooms }, "row"));
+        return row(
+          key,
+          numberedLabel(kind, num, { name: name ?? "" }, "row"),
+          usedBy.length ? { secondary: usedBy.join(", ") } : {},
+        );
       });
   return [
-    group("GAME", [row("notes", "Notes")]),
+    group("TOOLS", [
+      row("problems", "Problems"),
+      row("messages", "Messages"),
+      row("notes", "Notes"),
+      ...(input.debugging
+        ? [
+            row("debug:variables", "Variables"),
+            row("debug:watch", "Watch"),
+            row("debug:stack", "Call stack"),
+            row("debug:breakpoints", "Breakpoints"),
+          ]
+        : []),
+    ]),
+    group("GAME STATE", [row("state", "Game state")]),
     group("ROOMS", roomRows),
     group(
       "SHARED LOGIC",
-      resources("logic", "LOGIC", (n) => !rooms.has(n)),
+      resources("logic", (n) => !rooms.has(n)),
     ),
-    group(
-      "PICTURES",
-      resources("picture", "PICTURE", (n) => !owned.has(n)),
-    ),
-    group("VIEWS", resources("view", "VIEW")),
-    group("SOUNDS", resources("sound", "SOUND")),
-    group("OBJECTS", keys.has("inventory") ? [row("inventory", "OBJECTS")] : []),
-    group("WORDS", keys.has("words") ? [row("words", "WORDS")] : []),
+    group("PICTURES", resources("picture")),
+    group("VIEWS", resources("view")),
+    group("SOUNDS", resources("sound")),
+    group("OBJECTS", [row("inventory", "Objects")]),
+    group("WORDS", [row("words", "Words")]),
   ];
 }
 
@@ -126,7 +150,7 @@ export function workspaceOpenParts(
       key: row.key,
       label:
         row.room !== undefined && !row.child
-          ? `${row.label} · ${row.key.replace(":", " ").toUpperCase()}`
+          ? `${row.label} · ${documentLabel(row.key)}`
           : row.label,
     });
   }

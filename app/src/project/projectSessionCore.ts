@@ -15,13 +15,18 @@ import {
   writeProjectHistory,
 } from "../../../src/authoring/projectHistoryCodec.ts";
 import { projectCommitLibrary } from "./gameMetadata.ts";
+import { sameWorldGameContent, copyWorldLaunches } from "./projectWorld.ts";
 import { compileWorkingProjectImage } from "./projectWorkingImage.ts";
 import {
   prepareProjectEdit,
   type PreparedProjectEdit,
+  type ReviewedRenumbering,
 } from "../../../src/authoring/projectEdit.ts";
+import { projectRenumberingBetween } from "../../../src/authoring/projectRenumber.ts";
+import { PROFILES } from "../../../src/runtime/profile.ts";
 import { prepareAndAdmitProjectEdit } from "./projectWritePipeline.ts";
 import type { ProjectDocumentsCompile } from "../../../src/authoring/projectDocuments.ts";
+import type { RoomLaunchRequest } from "../worker/roomLaunch.ts";
 import type { ProjectCommitMetadata } from "../../../src/authoring/projectHistoryData.ts";
 import {
   readProjectWorkspace,
@@ -51,7 +56,7 @@ import {
   type ProjectJournalCapture,
 } from "./projectJournalCapture.ts";
 import type { ProjectJournalOperation } from "./projectJournalReplay.ts";
-import type { ProjectChange } from "../../../src/authoring/projectContent.ts";
+import { sameProjectContent, type ProjectChange } from "../../../src/authoring/projectContent.ts";
 import { openProjectDrafts } from "./projectPartDrafts.ts";
 import type { PreviewUpdateOutcome } from "../worker/workerProtocol.ts";
 
@@ -148,6 +153,7 @@ function createSession(
       admit(
         compiled: ProjectDocumentsCompile,
         versions: { key: string; version: number }[],
+        mode?: "keep",
       ): Promise<PreviewUpdateOutcome>;
       admitPreparedRoom?(
         compiled: ProjectDocumentsCompile,
@@ -160,6 +166,7 @@ function createSession(
       reenter?(
         compiled: ProjectDocumentsCompile,
         versions: { key: string; version: number }[],
+        launch?: RoomLaunchRequest,
       ): Promise<PreviewUpdateOutcome>;
     };
     readonly openedAt?: number;
@@ -174,9 +181,10 @@ function createSession(
       outcome?: PreviewUpdateOutcome,
       nativeInstalled?: boolean,
     ) => void;
+    readonly roomGenerationChanged?: (enabled: boolean) => void;
     readonly changed?: () => void;
     readonly checkpointReady?: () => void;
-    readonly forked?: (data: CachedGameData, lifetime: string) => void;
+    readonly forked?: (data: CachedGameData, lifetime: string) => void | Promise<void>;
     readonly saved?: (
       data: ProjectCommitRequest["data"],
       lifetime: string,
@@ -301,7 +309,7 @@ function createSession(
         ? {
             title: `${data.title} Remix`,
             imported: true,
-            roomGeneration: false,
+            roomGeneration: capture.data.roomGeneration === true,
             library: {
               ...capture.data.library!,
               source: "remix" as const,
@@ -418,7 +426,7 @@ function createSession(
         ? (await storage.commit(capture.request!, capture.journal?.hash)).receipt
         : input.write(capture.request!);
     },
-    saved: (receipt, capture) => {
+    saved: async (receipt, capture) => {
       let previousKey: string | undefined;
       let releasePrevious: (() => void) | undefined;
       if (receipt.saved.projectId !== data.projectId) {
@@ -438,7 +446,7 @@ function createSession(
           if (held) persistPending();
           else session.stopWrites();
         });
-        input.forked?.(structuredClone(data), receipt.saved.lifetime);
+        await input.forked?.(structuredClone(data), receipt.saved.lifetime);
       }
       data.library = capture.request!.data.library;
       expected = { ...receipt.saved };
@@ -528,8 +536,11 @@ function createSession(
   let partDrafts: ReturnType<typeof openProjectDrafts> | undefined;
   let draftProjectId: string | undefined;
   function removalDrafts() {
+    const base = model.capture();
     return (partDrafts?.changes() ?? []).flatMap(({ key, content }) =>
-      content === null ? [] : [{ key, content }],
+      content === null || sameProjectContent(content, base.read(key)?.content)
+        ? []
+        : [{ key, content }],
     );
   }
   const draftObservers = new Set<() => void>();
@@ -541,11 +552,23 @@ function createSession(
     beforeCommit?: () => void,
     updateMode?: "keep" | "reenter",
     reviewedComputedRoomJumps?: readonly string[],
+    launch?: RoomLaunchRequest,
+    reviewedRenumbering?: ReviewedRenumbering,
+    beforeRenumber?: readonly ProjectChange[],
   ) {
     await ready;
+    if (action !== undefined)
+      reviewedRenumbering ??= projectRenumberingBetween(
+        model.capture().documents(),
+        proposal.documents(),
+        PROFILES[inspection.profileId],
+      );
     beforeCommit?.();
     if (!current() || autosave.status().state === "conflict")
       throw new Error("Project session is closed for writes.");
+    const beforeNumberDocuments = beforeRenumber?.length
+      ? model.propose(proposal.base, "Edits before number change", beforeRenumber).documents()
+      : undefined;
     const fence = {
       projectId: data.projectId,
       lifetime: input.lifetime,
@@ -559,6 +582,7 @@ function createSession(
       profileId: inspection.profileId,
       allowMissingRooms: data.roomGeneration === true,
       reviewedComputedRoomJumps,
+      reviewedRenumbering,
       drafts: removalDrafts(),
       current: () =>
         current() &&
@@ -572,21 +596,33 @@ function createSession(
           (fence.projectId === openedProjectId && data.projectId === forkId)),
       preflight() {
         beforeCommit?.();
-        if (action === undefined)
-          new ProjectHistory(sha256Hex, history.capture()).record(proposal.documents(), metadata);
+        if (action === undefined) {
+          const prospective = new ProjectHistory(sha256Hex, history.capture());
+          if (beforeNumberDocuments)
+            prospective.record(beforeNumberDocuments, {
+              ...metadata,
+              label: "Edits before number change",
+            });
+          prospective.record(proposal.documents(), metadata);
+        }
       },
       admit: (compiled, documents) => {
         beforeCommit?.();
         if (updateMode !== undefined) {
           const admit = updateMode === "reenter" ? input.admission.reenter : input.admission.admit;
           if (admit === undefined)
-            throw new Error("This game cannot restart its room. Use Update game.");
+            throw new Error("This game cannot restart its room. Use Update and keep playing.");
           return (async () => {
             let outcome: PreviewUpdateOutcome;
             do {
               if (!current() || writeBlock !== undefined)
                 throw new Error("Reopen this game before updating.");
-              outcome = await admit(compiled, documents);
+              outcome =
+                updateMode === "keep"
+                  ? await input.admission.admit(compiled, documents, "keep")
+                  : launch
+                    ? await input.admission.reenter!(compiled, documents, launch)
+                    : await admit(compiled, documents);
               if (outcome.status === "deferred")
                 await (input.boundary?.() ??
                   new Promise<void>((resolve) => setTimeout(resolve, 50)));
@@ -635,11 +671,20 @@ function createSession(
       pendingPreparedRoom = pendingImage !== undefined && preparedRoom;
     }
     diagnostics = prepared.diagnostics;
+    if (action === undefined && beforeNumberDocuments)
+      history.record(beforeNumberDocuments, { ...metadata, label: "Edits before number change" });
+    const before = model.capture();
     const snapshot = model.apply(prepared.application);
+    partDrafts?.rebase(
+      { documentId: before.documentId, world: before.read("world")?.content },
+      { documentId: snapshot.documentId, world: snapshot.read("world")?.content },
+    );
     if (action !== undefined) history.accept(action);
     else history.record(snapshot.documents(), metadata);
     recordOperation({
       kind: "edit",
+      ...(reviewedRenumbering === undefined ? {} : { reviewedRenumbering }),
+      ...(beforeRenumber === undefined ? {} : { beforeRenumber }),
       ...(reviewedComputedRoomJumps === undefined ? {} : { reviewedComputedRoomJumps }),
       changes: changes.map((change) => ({ ...change, version: snapshot.version(change.key) })),
       metadata,
@@ -781,6 +826,7 @@ function createSession(
           lifetime: expected.lifetime,
           currentImage: () => model.capture().documentId,
           canWrite: () => current() && writeBlock === undefined,
+          read: (key) => model.capture().read(key)?.content,
           changed() {
             for (const observer of draftObservers) observer();
           },
@@ -827,10 +873,39 @@ function createSession(
       await drafts.ready;
       if (!current() || writeBlock !== undefined)
         throw new Error(session.saveStatus().message || "Reopen this game before editing.");
-      drafts.stage(changes);
+      const world = changes.find((change) => change.key === "world");
+      if (
+        world &&
+        typeof world.content === "string" &&
+        sameWorldGameContent(session.workingSnapshot().read("world")?.content, world.content)
+      ) {
+        const edited = world.content;
+        const result = await schedule(() =>
+          apply(
+            model.propose(model.capture(), "Edit launches", [
+              {
+                key: "world",
+                content: copyWorldLaunches(model.capture().read("world")?.content, edited),
+              },
+            ]),
+            { label: "Edit launches", origin: "logic", author: "creator", time: Date.now() },
+          ),
+        );
+        if (result.status !== "committed")
+          throw new Error("Launch changes could not be saved. Try again.");
+        const remaining = changes.filter((change) => change.key !== "world");
+        if (remaining.length) drafts.stageTransaction(remaining);
+        return result;
+      }
+      drafts.stageTransaction(changes);
       return { status: "draft" as const, diagnostics: [] };
     },
-    update(changes: readonly ProjectChange[], restartRoom = false) {
+    update(
+      changes: readonly ProjectChange[],
+      restartRoom = false,
+      launch?: RoomLaunchRequest,
+      reviewedRenumbering?: ReviewedRenumbering,
+    ) {
       return schedule(() =>
         apply(
           model.propose(model.capture(), "Update game", changes),
@@ -839,6 +914,10 @@ function createSession(
           false,
           undefined,
           restartRoom ? "reenter" : "keep",
+          undefined,
+          launch,
+          reviewedRenumbering,
+          reviewedRenumbering ? partDrafts?.changes() : undefined,
         ),
       );
     },
@@ -847,6 +926,25 @@ function createSession(
     },
     get allowMissingRooms() {
       return data.roomGeneration === true;
+    },
+    setRoomGeneration(enabled: boolean) {
+      return schedule(async () => {
+        await ready;
+        if (!current() || writeBlock !== undefined)
+          throw new Error("Reopen this game before changing its settings.");
+        if (data.roomGeneration === enabled) return;
+        data.roomGeneration = enabled;
+        diagnostics = prepareProjectEdit({
+          model,
+          proposal: model.propose(model.capture(), "Room generation", []),
+          profileId: inspection.profileId,
+          policy: { allowMissingRooms: enabled },
+        }).diagnostics;
+        recordOperation({ kind: "roomGeneration", enabled });
+        input.roomGenerationChanged?.(enabled);
+        captureSave(model.capture());
+        notify();
+      });
     },
     chats() {
       return readAgentChats(data.chats);
@@ -908,6 +1006,7 @@ function createSession(
     },
     undo(review?: ComputedRoomRemovalReview) {
       return schedule(async () => {
+        if (partDrafts?.undo()) return { status: "draft" as const, diagnostics: [] };
         const action = history.undo(model);
         if (action === undefined) return undefined;
         const capture = model.capture();
@@ -915,7 +1014,14 @@ function createSession(
           model,
           proposal: action.proposal,
           profileId: inspection.profileId,
-          policy: { allowMissingRooms: data.roomGeneration === true },
+          policy: {
+            allowMissingRooms: data.roomGeneration === true,
+            reviewedRenumbering: projectRenumberingBetween(
+              capture.documents(),
+              action.proposal.documents(),
+              PROFILES[inspection.profileId],
+            ),
+          },
           drafts: removalDrafts(),
         });
         const errors = prepared.diagnostics.filter((d) => d.severity === "error");
@@ -951,6 +1057,8 @@ function createSession(
     },
     redo() {
       return schedule(async () => {
+        if (partDrafts?.redo()) return { status: "draft" as const, diagnostics: [] };
+        if (partDrafts?.status().canUndo) return undefined;
         const action = history.redo(model);
         return action === undefined
           ? undefined
@@ -1073,6 +1181,7 @@ function createSession(
         captureSave(model.capture());
         return;
       }
+      if (operation.kind === "roomGeneration") return session.setRoomGeneration(operation.enabled);
       if (operation.kind === "chats") return session.saveChats(operation.chats);
       if (operation.kind === "tag") return session.tag(operation.name);
       if (operation.kind === "renameTag") return session.renameTag(operation.name, operation.next);
@@ -1095,6 +1204,9 @@ function createSession(
         undefined,
         undefined,
         operation.reviewedComputedRoomJumps,
+        undefined,
+        operation.reviewedRenumbering,
+        operation.beforeRenumber,
       );
     },
     discard() {

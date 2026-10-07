@@ -1,4 +1,7 @@
 <script setup lang="ts">
+import { numberedLabel } from "../../../src/logic/numberedLabels.ts";
+import { useProjectLabels } from "../shell/useProjectLabels.ts";
+const labels = useProjectLabels();
 import { computed, reactive, ref, watch } from "vue";
 import UiButton from "../ui/UiButton.vue";
 import UiDialog from "../ui/UiDialog.vue";
@@ -265,10 +268,9 @@ function onReopenStaged(reference: StoredReference): void {
 
       <template v-if="kind === 'room'">
         <p class="reference-hint">
-          A room reference sets the look and layout; the agent redraws it with native picture
-          commands and decides the floor and exits. It presents best at a
-          {{ ROOM_REFERENCE_ASPECT.toFixed(2) }}:1 proportion (the 160×168 picture surface, drawn
-          double-wide).
+          Use an image to guide the room’s art and layout. A
+          {{ ROOM_REFERENCE_ASPECT.toFixed(2) }}:1 image fits best; the agent sets the floor and
+          exits.
         </p>
         <label>
           Room number
@@ -293,10 +295,10 @@ function onReopenStaged(reference: StoredReference): void {
 
       <template v-else>
         <p class="reference-hint">
-          One pose row per facing on a flat key colour or real alpha, four to six poses, feet on one
-          ground line. Missing facings reuse the opposite row, mirrored only when the design is
-          symmetric. The result stages as VIEW {{ characterViewNum }} (the player sprite) for you to
-          keep or revise.
+          Use one row of 4–6 poses per direction, with the feet aligned. Use transparency or one
+          background colour. Missing directions reuse the opposite row; symmetric designs may mirror
+          it. Creates player {{ numberedLabel("view", characterViewNum, labels, "option") }} for
+          review.
         </p>
         <label v-for="facing in FACINGS" :key="facing" class="reference-facing">
           {{ FACING_LABELS[facing] }}
@@ -367,7 +369,12 @@ function onReopenStaged(reference: StoredReference): void {
             />
             <span class="reference-existing-label">
               {{
-                reference.kind === "room" ? `Room ${reference.target}` : `View ${reference.target}`
+                numberedLabel(
+                  reference.kind === "room" ? "room" : "view",
+                  reference.target,
+                  labels,
+                  "option",
+                )
               }}
               <template v-if="reference.brief"> — {{ reference.brief }}</template>
             </span>
@@ -399,8 +406,8 @@ function onReopenStaged(reference: StoredReference): void {
     <div v-else class="reference-upload-body" data-testid="reference-staged">
       <template v-if="attached.staged">
         <p class="reference-hint">
-          Staged as VIEW {{ attached.staged.num }}. Check the contact sheet for silhouettes,
-          mirrored facings and the shared baseline.
+          Staged as {{ numberedLabel("view", attached.staged.num, labels, "option") }}. Check the
+          contact sheet for silhouettes, mirrored facings and the shared baseline.
         </p>
         <img
           v-if="stagedPreview"
@@ -431,8 +438,7 @@ function onReopenStaged(reference: StoredReference): void {
       </template>
       <template v-else>
         <p class="reference-hint" data-testid="reference-attached">
-          Reference attached and selected for your next agent message. Use it in an edit now with a
-          note.
+          Included with your next agent message.
         </p>
         <footer class="reference-upload-foot">
           <UiButton

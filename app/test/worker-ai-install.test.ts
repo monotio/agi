@@ -101,6 +101,7 @@ async function rig(
     drop?: (msg: WorkerInbound) => boolean;
     awaitPatched?: (link: AwaitPatchedFn) => AwaitPatchedFn;
     agent?: AgentHandler;
+    initialTicks?: number;
   } = {},
 ) {
   const files = hooks.files ?? gameFiles();
@@ -242,7 +243,7 @@ async function rig(
       ctx.fns.hostTick();
     }
   };
-  tick(6);
+  tick(hooks.initialTicks ?? 6);
   t.after(() => ctx.fns.stopTimers());
   const settle = () => testScheduler.yield();
 
@@ -326,7 +327,7 @@ test("a remix batch the worker refuses is saved, never installed, and stays safe
   await r.controller.openPowerUp(STUB);
   remixTurn(t, r);
   // The container refuses to pack the batch's logic: the worker installs none of it.
-  const container = (r.ctx.engine as unknown as { container: { pack(arg: unknown): void } })
+  const container = (r.ctx.run.engine as unknown as { container: { pack(arg: unknown): void } })
     .container;
   const pack = container.pack.bind(container);
   t.mock.method(container, "pack", (arg: unknown) => {
@@ -370,6 +371,8 @@ test("a room written mid-play that the worker declines is saved, never installed
   const room2 = { logic: logic("return;"), picture: picture(2) };
   const r = await rig(t, "ai-install-room", {
     files: gameFiles(true),
+    // Open the authoring session before the worker starts its room request.
+    initialTicks: 0,
     // The session stages a valid room, but the answer the worker receives
     // does not compile there: it declines the room.
     agent: {
@@ -385,14 +388,14 @@ test("a room written mid-play that the worker declines is saved, never installed
   await r.controller.openPowerUp(STUB);
   r.controller.closePowerUp();
   // Room 1 walks on into room 2: the worker asks for it, and waits.
-  for (let i = 0; i < 20 && r.ctx.hostRequests.hostRequestOutstanding === null; i++) r.tick();
-  assert.equal(r.ctx.hostRequests.hostRequestOutstanding?.op, "room");
+  for (let i = 0; i < 20 && r.ctx.run.hostRequests.hostRequestOutstanding === null; i++) r.tick();
+  assert.equal(r.ctx.run.hostRequests.hostRequestOutstanding?.op, "room");
   await r.behindStorageNotice;
 
   const saved = (await loadAuthoredGame(r.projectId))!;
   const savedRevision = await gameRevision(saved.files);
   assert.notEqual(savedRevision, r.revision, "the room was saved");
-  assert.equal(r.ctx.hostRequests.hostRequestOutstanding, null, "the worker got its answer");
+  assert.equal(r.ctx.run.hostRequests.hostRequestOutstanding, null, "the worker got its answer");
   assert.equal(r.game().revision, r.revision, "the booted game stays on what it confirmed");
   assert.equal(r.game().behindStorage, true);
   assert.equal(r.behindNotices(), 1, "the player hears it, with no panel open");

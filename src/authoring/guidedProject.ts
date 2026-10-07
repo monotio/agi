@@ -20,6 +20,7 @@
  * existing words/bindings/world documents and `// @rule` annotations; there is
  * no second serialized game model.
  */
+import { systemOperand } from "../logic/systemNames.ts";
 import { openContainer } from "../container/container.ts";
 import { AssemblerError } from "../logic/assembler.ts";
 import { quoteLogicString } from "../logic/disassembler.ts";
@@ -77,11 +78,24 @@ import { expandProjectLogic } from "./projectLogic.ts";
 import { inspectProjectReferences } from "./projectReferences.ts";
 import { inspectProjectSourceDependencies } from "./projectSourceDependencies.ts";
 import { allocateProjectIds } from "./resourceAllocation.ts";
-
+import { occupiedProjectNumbers } from "./projectRenumber.ts";
+import {
+  BOILERPLATE_PART_LABEL,
+  BOILERPLATE_PART_STEMS,
+  gameOverSource,
+  menusSource,
+  scoreSource,
+  type BoilerplatePart,
+} from "./boilerplateParts.ts";
 // ---------- Public types ----------
 
 export type GuidedOperationKind =
-  "add-room" | "place-hero" | "respond-to-command" | "connect-door" | "play-sound";
+  | "add-room"
+  | "place-hero"
+  | "respond-to-command"
+  | "connect-door"
+  | "play-sound"
+  | "add-boilerplate";
 
 /** What the operations need beyond their arguments: draft, kept image, profile. */
 export interface GuidedContext {
@@ -172,12 +186,6 @@ const RULE_ID = /^[a-z][a-z0-9_-]{0,31}$/;
 const BINDING_NAME = /^[a-z][a-z0-9_]{0,63}$/;
 const RULE_DIRECTIVE = /^\/\/\s*@(rule|end)(?=\s|$)(.*)$/;
 const RULE_LABEL = /^"(?:[^"\\]|\\.)*"/;
-
-function numBindings(bindings: Bindings): Record<string, { readonly num: number }> {
-  return Object.fromEntries(
-    Object.entries(bindings).map(([name, binding]) => [name, { num: binding.num }]),
-  );
-}
 
 function refuse(
   kind: GuidedOperationKind,
@@ -340,7 +348,7 @@ function occupiedResourceIds(img: GuidedImage, kind: "logic" | "picture" | "view
   });
   for (const reference of analysis.references)
     if (reference.target.kind === kind && "num" in reference.target) used.add(reference.target.num);
-  const numbers = numBindings(img.bindings);
+  const numbers = img.bindings;
   for (const key of img.snapshot.keys) {
     if (!key.startsWith("logic:")) continue;
     const source = img.documents[key];
@@ -366,6 +374,8 @@ function allocateResourceId(
   opKind: GuidedOperationKind,
 ): { id: number } | GuidedRefusal {
   const used = occupiedResourceIds(img, kind);
+  if (requested === undefined)
+    for (const number of occupiedProjectNumbers(img.documents, kind, img.profile)) used.add(number);
   if (requested !== undefined) {
     if (!intIn(requested, 1, 255))
       return refuse(
@@ -384,8 +394,8 @@ function allocateResourceId(
       );
     return { id: requested };
   }
-  // New rooms number like the seeds: lowest free slot, 1..254.
-  for (let candidate = 1; candidate <= 254; candidate++)
+  // Resources use the lowest free slot, including 255.
+  for (let candidate = 1; candidate <= 255; candidate++)
     if (!used.has(candidate)) return { id: candidate };
   return refuse(opKind, label, "occupied", `No free ${kind.toUpperCase()} ids remain.`);
 }
@@ -613,7 +623,7 @@ function allocateState(
   inFlight: Bindings,
 ): { num: number } | GuidedRefusal {
   const extra = new Set<number>();
-  const numbers = numBindings(inFlight);
+  const numbers = inFlight;
   for (const key of img.snapshot.keys) {
     if (!key.startsWith("logic:")) continue;
     const source = img.documents[key];
@@ -844,16 +854,16 @@ interface EgoSetup {
 type EgoRecognition = { ok: true; setup: EgoSetup } | { ok: false; problem: string };
 
 /**
- * Exactly one `if (isset(f5))` block with at most one literal ego
+ * Exactly one `if (isset(new_room))` block with at most one literal ego
  * set.view/position/draw. Anything else — a missing setup, a doubled
  * statement, a computed variant — is a problem to refuse on, not to guess at.
  */
 function recognizeEgoSetup(room: ParsedRoom): EgoRecognition {
   const inits = initBlocks(room.program);
   if (inits.length === 0)
-    return { ok: false, problem: "the room has no `if (isset(f5))` entry block" };
+    return { ok: false, problem: "the room has no `if (isset(new_room))` entry block" };
   if (inits.length > 1)
-    return { ok: false, problem: "the room has more than one `if (isset(f5))` entry block" };
+    return { ok: false, problem: "the room has more than one `if (isset(new_room))` entry block" };
   const init = inits[0]!;
   const body = init.then;
   const setViews = actionsNamed(body, "set.view").filter((s) => isEgo(s.args[0]));
@@ -1043,7 +1053,7 @@ function bindingsDocument(bindings: Bindings): string {
     Object.fromEntries(
       Object.entries(bindings)
         .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-        .map(([name, binding]) => [name, { kind: binding.kind, num: binding.num }]),
+        .map(([name, binding]) => [name, { ...binding }]),
     ),
   );
 }
@@ -1114,7 +1124,7 @@ function finish(
     dependencies[change.key] = inspectProjectSourceDependencies({
       source: change.content,
       profile: env.profile,
-      bindings: numBindings(mergedBindings),
+      bindings: mergedBindings,
     }).dependencies;
   }
   const selection = ctx.draft.select(changedKeys, dependencies);
@@ -1233,7 +1243,7 @@ function roomSourceOf(
       key,
     );
   try {
-    return { ok: true, key, source: doc, room: parseRoomSource(doc, numBindings(env.bindings)) };
+    return { ok: true, key, source: doc, room: parseRoomSource(doc, env.bindings) };
   } catch (error) {
     const detail =
       error instanceof AssemblerError
@@ -1252,10 +1262,38 @@ function roomSourceOf(
   }
 }
 
+function roomTitle(
+  env: Env,
+  num: number,
+  srcFound?: { ok: true; key: string; source: string; room: ParsedRoom },
+): string {
+  const planned = env.world.rooms[String(num)]?.title;
+  if (planned && planned.trim()) return planned.trim();
+  const src = srcFound?.key === `logic:${num}` ? srcFound : roomSourceOf(env, num);
+  if (src.ok) {
+    const inits = initBlocks(src.room.program);
+    const picNum = (inits[0] ? roomPicture(src.room, inits[0]) : null) ?? num;
+    const picDoc = env.documents[`picture:${picNum}`];
+    if (typeof picDoc === "string") {
+      const match = /^#\s*([^:\n—]+)(?::|—)/.exec(picDoc);
+      if (match?.[1]?.trim()) return match[1].trim();
+    }
+    const logicMatch = /^\/\/\s*([^:\n—]+)(?::|—)/.exec(src.source);
+    if (logicMatch?.[1]?.trim()) return logicMatch[1].trim();
+  } else {
+    const picDoc = env.documents[`picture:${num}`];
+    if (typeof picDoc === "string") {
+      const match = /^#\s*([^:\n—]+)(?::|—)/.exec(picDoc);
+      if (match?.[1]?.trim()) return match[1].trim();
+    }
+  }
+  return `Room ${num}`;
+}
+
 // ---------- 1. Add room ----------
 
 export interface GuidedAddRoomInput {
-  /** Explicit resource ids; defaults allocate the lowest free id 1..254. */
+  /** Explicit resource ids; defaults allocate the lowest free id 1..255. */
   readonly logicId?: number;
   readonly pictureId?: number;
   /** Use an existing picture as the room's art. */
@@ -1375,9 +1413,9 @@ export function prepareGuidedAddRoom(ctx: GuidedContext, input: GuidedAddRoomInp
 
   const picRef = input.pictureName !== undefined ? input.pictureName : String(pictureId);
   const lines: string[] = [
-    `// ${roomTitle} — an empty room. The f5 block runs once on room entry: draw`,
+    `// ${roomTitle} — an empty room. The ${systemOperand("flag", 5, bindings)} block runs once on room entry: draw`,
     `// the picture${heroView !== null ? ", place ego, then hand control to the player" : ""}.`,
-    `if (isset(f5)) {`,
+    `if (isset(${systemOperand("flag", 5, bindings)})) {`,
     `  assignn(${picVarName}, ${picRef});`,
     `  load.pic(${picVarName});`,
     `  draw.pic(${picVarName});`,
@@ -1394,7 +1432,7 @@ export function prepareGuidedAddRoom(ctx: GuidedContext, input: GuidedAddRoomInp
     if (view.loops.length > 2) lines.push(`  set.loop(o0, 2);`);
     lines.push(`  position(o0, ${spawn.x}, ${spawn.y});`, `  draw(o0);`, `  player.control();`);
   }
-  lines.push(`  accept.input();`, `}`, `return;`, ``);
+  lines.push(`  accept.input();`, `}`, ``);
   const roomSource = lines.join("\n");
   const picSource = `# ${roomTitle} — an empty picture. Draw on it or replace it.\nend\n`;
 
@@ -1402,6 +1440,7 @@ export function prepareGuidedAddRoom(ctx: GuidedContext, input: GuidedAddRoomInp
   const planned = world.rooms[String(logicId)];
   world.rooms[String(logicId)] = {
     title: roomTitle,
+    ...(title ? {} : { titleIsDefault: true as const }),
     description,
     exits: planned?.exits ?? {},
   };
@@ -1432,6 +1471,87 @@ export function prepareGuidedAddRoom(ctx: GuidedContext, input: GuidedAddRoomInp
         ? [[`picture:${pictureId}`, picSource] as const]
         : []),
     ]),
+  );
+}
+
+// ---------- 1b. Boilerplate part ----------
+
+export interface GuidedBoilerplateInput {
+  readonly part: BoilerplatePart;
+}
+
+/**
+ * Add a ready shared-code part: one named LOGIC holding the menus and
+ * Save/Restore, the game over box or a score screen, readable and editable.
+ * The part's bindings belong to the game.
+ */
+export function prepareGuidedBoilerplate(
+  ctx: GuidedContext,
+  input: GuidedBoilerplateInput,
+): GuidedOutcome {
+  const kind: GuidedOperationKind = "add-boilerplate";
+  const partLabel = BOILERPLATE_PART_LABEL[input.part];
+  if (partLabel === undefined)
+    return refuse(
+      kind,
+      "Add shared code",
+      "invalid-input",
+      "Choose one of the ready parts: Menus and Save/Restore, game over or score screen.",
+    );
+  const label = `Add ${partLabel}`;
+  const consulted = consult(ctx, kind, label);
+  if ("code" in consulted) return consulted;
+  const env: Env = { ...consulted, kind, label };
+
+  const logic = allocateResourceId(env, "logic", undefined, label, kind);
+  if (!("id" in logic)) return logic;
+  const bindings: Bindings = { ...env.bindings };
+  const logicName = freeBindingName(bindings, BOILERPLATE_PART_STEMS[input.part][0]!);
+  bindings[logicName] = { kind: "logic", num: logic.id };
+
+  const state = (stateKind: "flag" | "variable", stem: string) => {
+    const name = freeBindingName(bindings, stem);
+    const allocated = allocateState(env, label, kind, stateKind, bindings);
+    if (!("num" in allocated)) return allocated;
+    bindings[name] = { kind: stateKind, num: allocated.num };
+    return { name };
+  };
+
+  let source: string;
+  if (input.part === "menus") {
+    const ready = state("flag", "menus_ready");
+    if (!("name" in ready)) return ready;
+    source = menusSource({ menusLogic: logicName, menusReady: ready.name }, bindings);
+  } else if (input.part === "game-over") {
+    const dead = state("flag", "dead");
+    if (!("name" in dead)) return dead;
+    const chosen = state("flag", "game_over_chosen");
+    if (!("name" in chosen)) return chosen;
+    const cursor = state("variable", "game_over_cursor");
+    if (!("name" in cursor)) return cursor;
+    source = gameOverSource(
+      {
+        gameOverLogic: logicName,
+        dead: dead.name,
+        chosen: chosen.name,
+        cursor: cursor.name,
+      },
+      bindings,
+    );
+  } else {
+    source = scoreSource(logicName, bindings);
+  }
+
+  const key = `logic:${logic.id}`;
+  return finish(
+    ctx,
+    env,
+    [
+      { key, content: source },
+      { key: "bindings", content: bindingsDocument(bindings) },
+    ],
+    new Map([[key, [{ start: 0, end: source.length }]]]),
+    new Map([[key, source]]),
   );
 }
 
@@ -2094,8 +2214,17 @@ export function prepareGuidedConnectDoor(
   srcEdits.push(inserted);
 
   const world: World = JSON.parse(JSON.stringify(env.world)) as World;
-  const ensureRoomMeta = (num: number) =>
-    (world.rooms[String(num)] ??= { title: `Room ${num}`, description: "", exits: {} });
+  const ensureRoomMeta = (num: number) => {
+    let entry = world.rooms[String(num)];
+    if (!entry) {
+      entry = { title: roomTitle(env, num, src), description: "", exits: {} };
+      world.rooms[String(num)] = entry;
+    } else if (entry.title === `Room ${num}`) {
+      const better = roomTitle(env, num, src);
+      if (better !== `Room ${num}`) entry.title = better;
+    }
+    return entry;
+  };
   ensureRoomMeta(input.room).exits[srcId] = input.destination;
 
   if (input.returnDoor !== undefined || input.arrival !== undefined) {
@@ -2228,9 +2357,9 @@ export function prepareGuidedConnectDoor(
         );
       // Only arrivals *from this source room* land at the override point.
       const guard = insertAtThenEnd(dest.room, destSetup.setup.init, [
-        `if (equaln(v1, ${input.room})) {`,
+        `if (equaln(${systemOperand("variable", 1, env.bindings)}, ${input.room})) {`,
         `  position(o0, ${arrival.x}, ${arrival.y});`,
-        `  assignn(v6, 0);`,
+        `  assignn(${systemOperand("variable", 6, env.bindings)}, 0);`,
         `}`,
       ]);
       if (guard === "shared-line")
@@ -2302,9 +2431,9 @@ export function prepareGuidedConnectDoor(
           src.key,
         );
       const landingGuard = insertAtThenEnd(src.room, srcSetup.setup.init, [
-        `if (equaln(v1, ${input.destination})) {`,
+        `if (equaln(${systemOperand("variable", 1, env.bindings)}, ${input.destination})) {`,
         `  position(o0, ${landing.x}, ${landing.y});`,
-        `  assignn(v6, 0);`,
+        `  assignn(${systemOperand("variable", 6, env.bindings)}, 0);`,
         `}`,
       ]);
       if (landingGuard === "shared-line")
@@ -2426,7 +2555,10 @@ export function prepareGuidedPlaySound(
     if (existing) return { num: existing.num, name: chosen };
     const allocated = allocateState(env, label, kind, "flag", bindings);
     if (!("num" in allocated)) return allocated;
-    bindings[chosen] = { kind: "flag", num: allocated.num };
+    bindings[chosen] = {
+      kind: "flag",
+      num: allocated.num,
+    };
     return { num: allocated.num, name: chosen };
   };
 

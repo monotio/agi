@@ -9,10 +9,9 @@ import type { StudioWalk } from "./useStudioWalk.ts";
 import { edgeAnchor, type WalkDoor } from "./walkView.ts";
 
 /**
- * The Walk view over one picture pane: the walkable tint (an estimate), the
- * room's doors (boxes on the floor, arrows on the edges; the selected one
- * labelled with where it leads, the rest named in the Walk panel, clear of
- * the walk lines' own labels), the door box being drawn, and a test walk's start, goal,
+ * The room tools over one picture pane: the walkable tint (an estimate), the
+ * room's doors (boxes on the floor, arrows on the edges, each named in the
+ * panel), the door box being drawn, and a test walk's start, goal,
  * estimated path and the spot where the engine's walk ended. Doors take the
  * pointer with the Select and walk tools: Select picks a door and drags its
  * box; the test walk tool starts where the player comes in through it, or,
@@ -20,6 +19,7 @@ import { edgeAnchor, type WalkDoor } from "./walkView.ts";
  * its box, or to its edge and one step across. A
  * selected door box that can follow the art has a link handle at its lower
  * right corner: drag it onto a picture item and the box follows that item.
+ * What the handle would follow is said off the picture, by the studio.
  */
 const {
   walk,
@@ -27,7 +27,6 @@ const {
   tool,
   tint = true,
   itemAt,
-  itemLabel,
 } = defineProps<{
   walk: StudioWalk;
   viewport: Viewport;
@@ -36,10 +35,9 @@ const {
   tint?: boolean;
   /** The picture item drawn at a cell (the art first): what a link drop binds. */
   itemAt: (x: number, y: number) => string | undefined;
-  itemLabel: (id: string) => string;
 }>();
-/** `hover-item`: the item a link drag is over, for the canvas highlight. */
-const emit = defineEmits<{ "hover-item": [id: string | undefined] }>();
+/** `link`: a link drag and the item it is over (for the highlight and the status bar); null when it ends. */
+const emit = defineEmits<{ link: [target: { item: string | undefined } | null] }>();
 
 const root = useTemplateRef("root");
 const unit = computed(() => 1 / viewport.zoom);
@@ -61,22 +59,6 @@ function arrowPoints(door: WalkDoor): string {
       return `${at.x},${at.y} ${at.x - w},${at.y + h} ${at.x + w},${at.y + h}`;
     case "bottom":
       return `${at.x},${SCREEN_HEIGHT} ${at.x - w},${SCREEN_HEIGHT - h} ${at.x + w},${SCREEN_HEIGHT - h}`;
-  }
-}
-/** Where a door's "→ Room" label sits and how it anchors. */
-function labelAt(door: WalkDoor): { x: number; y: number; anchor: "start" | "middle" | "end" } {
-  if (door.box)
-    return { x: (door.box.x1 + door.box.x2 + 1) / 2, y: door.box.y1 - 1, anchor: "middle" };
-  const at = edgeAnchor(door.edge!, walk.horizon.value);
-  switch (door.edge!) {
-    case "left":
-      return { x: ARROW + 1, y: at.y + 3, anchor: "start" };
-    case "right":
-      return { x: SCREEN_WIDTH - ARROW - 1, y: at.y + 3, anchor: "end" };
-    case "top":
-      return { x: at.x, y: at.y + ARROW * 2 + 8, anchor: "middle" };
-    case "bottom":
-      return { x: at.x, y: SCREEN_HEIGHT - ARROW * 2 - 2, anchor: "middle" };
   }
 }
 const shownDoors = computed(() =>
@@ -126,6 +108,7 @@ function onLinkDown(event: PointerEvent, door: WalkDoor): void {
   event.preventDefault();
   dragging = "link";
   link.value = { id: door.id, at: cellOf(event), item: undefined };
+  emit("link", { item: undefined });
   (event.currentTarget as Element).setPointerCapture(event.pointerId);
 }
 function onMove(event: PointerEvent): void {
@@ -134,7 +117,7 @@ function onMove(event: PointerEvent): void {
     const at = cellOf(event);
     const item = itemAt(at.x, at.y);
     link.value = { ...link.value, at, item };
-    emit("hover-item", item);
+    emit("link", { item });
   }
 }
 function onUp(): void {
@@ -142,7 +125,7 @@ function onUp(): void {
   else if (dragging === "link" && link.value) {
     const { id, item } = link.value;
     link.value = null;
-    emit("hover-item", undefined);
+    emit("link", null);
     if (item) walk.setFollows(id, item);
   }
   dragging = null;
@@ -150,7 +133,7 @@ function onUp(): void {
 function onLost(): void {
   if (dragging === "box") walk.cancel();
   link.value = null;
-  emit("hover-item", undefined);
+  emit("link", null);
   dragging = null;
 }
 const selected = computed(() => walk.selectedDoor.value);
@@ -201,16 +184,6 @@ const selected = computed(() => walk.selectedDoor.value);
         :points="arrowPoints(door)"
         vector-effect="non-scaling-stroke"
       />
-      <!-- The Walk panel lists every door by name; the picture names the selected one. -->
-      <text
-        v-if="selected?.id === door.id"
-        class="walk-overlay__label"
-        :text-anchor="labelAt(door).anchor"
-        :font-size="11 * unit"
-        :transform="`translate(${labelAt(door).x} ${labelAt(door).y}) scale(0.5 1)`"
-      >
-        {{ walk.labelOf(door) }}
-      </text>
     </g>
 
     <g v-if="selected?.box && selected.editable && walk.canEditDoors.value" data-role="door-link">
@@ -233,14 +206,6 @@ const selected = computed(() => walk.selectedDoor.value);
         vector-effect="non-scaling-stroke"
         @pointerdown="onLinkDown($event, selected)"
       />
-      <text
-        v-if="link"
-        class="walk-overlay__label"
-        :font-size="11 * unit"
-        :transform="`translate(${link.at.x + 2} ${link.at.y - 2}) scale(0.5 1)`"
-      >
-        {{ link.item ? `Follows: ${itemLabel(link.item)}` : "Drop on the art to follow it" }}
-      </text>
     </g>
 
     <rect
@@ -341,17 +306,6 @@ const selected = computed(() => walk.selectedDoor.value);
 .walk-overlay__door.is-selected .walk-overlay__arrow {
   stroke: var(--focus);
   stroke-width: 3px;
-}
-.walk-overlay__label {
-  font-family: var(--font-sans);
-  font-weight: var(--weight-semibold);
-  fill: var(--ink);
-  paint-order: stroke;
-  stroke: var(--surface-0);
-  stroke-width: 3px;
-  stroke-linejoin: round;
-  vector-effect: non-scaling-stroke;
-  pointer-events: none;
 }
 .walk-overlay__link {
   fill: var(--surface-0);

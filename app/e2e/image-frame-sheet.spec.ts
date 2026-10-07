@@ -137,8 +137,7 @@ test("mark, resize and paint frames before one exact VIEW commit", async ({ page
   await expect(page.getByTestId("workspace-saved")).toHaveText(/^(?:Saved|Draft saved)$/);
   expect((await projectView(page)).commits).toBe(before.commits);
   await workspaceSaved(page);
-  await page.getByTestId("workspace-update-menu").click();
-  const restart = page.getByRole("menuitem", { name: "Update and play this room", exact: true });
+  const restart = page.getByTestId("workspace-update");
   await expect(restart).toBeVisible();
   await restart.click();
   await expect(page.getByTestId("workspace-updated")).toBeVisible();
@@ -327,8 +326,7 @@ test("white sheet finds tight linked figures and adds exact prepared cels", asyn
   await expect(page.getByTestId("image-status")).toHaveText("Added 4 cels");
   expect((await projectView(page)).commits).toBe(before.commits);
   await workspaceSaved(page);
-  await page.getByTestId("workspace-update-menu").click();
-  const restart = page.getByRole("menuitem", { name: "Update and play this room", exact: true });
+  const restart = page.getByTestId("workspace-update");
   await expect(restart).toBeVisible();
   await restart.click();
   await expect(page.getByTestId("workspace-updated")).toBeVisible();

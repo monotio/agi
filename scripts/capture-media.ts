@@ -12,6 +12,13 @@
  * fixtures on screen. Tool shots: scripts/capture-feedback.ts calls the
  * picture, sound, playtest and navigation tools on the tutorial.
  *
+ * Clips (app/e2e/media/clips.media.ts) record the browser's screencast
+ * frames; ffmpeg resamples and crops them to a fixed frame rate and gifski
+ * encodes the GIF. Both are optional local tools: without them the clips are
+ * skipped and the stills still refresh. The sound spectrograms
+ * (app/e2e/media/sound.media.ts) render the tutorial's own SOUNDs through
+ * the app's audio path.
+ *
  * Everything is staged in .captures/media first. A PNG of at most 256
  * colours is re-encoded losslessly as an indexed PNG; every PNG must fit the
  * size budget before docs/media is written. The report names each file as
@@ -33,31 +40,62 @@ const OUT = join(ROOT, "docs/media");
 const BUDGET = 350 * 1024;
 // CRT beams and phosphors carry continuous color detail; retain their rendered pixels.
 const CRT_BUDGET = 850 * 1024;
+/** A README clip: a few seconds at a palette and frame rate that stay near 2 MB. */
+const CLIP_BUDGET = 2 * 1024 * 1024;
+const CLIP_FPS = 15;
+/** GitHub shows README images up to about 900 CSS pixels wide. */
+const CLIP_WIDTH = 900;
 
-/** Named captures written by app/e2e/media/docs.media.ts. */
-const BROWSER_SHOTS = [
-  "home-1.2",
-  "new-game-1.2",
-  "play-crt-1.2",
-  "workspace-picture-1.2",
-  "logic-problems-1.2",
-  "cels-from-image-1.2",
-  "view-editor-1.2",
-  "words-1.2",
-  "sound-grid-1.2",
-  "agent-review-1.2",
-  "history-1.2",
-].map((name) => `${name}.png`);
-// Optional shot names keep a focused UI change's capture run small.
-const requested = process.argv.slice(2).map((name) => `${name.replace(/\.png$/, "")}.png`);
+/** Named captures written by app/e2e/media/*.media.ts, each with the test that writes it. */
+const SHOT_TESTS: Record<string, string> = {
+  "home-1.2": "home-1.2",
+  "new-game-1.2": "new-game-1.2",
+  "play-crt-1.2": "play-crt-1.2",
+  "workspace-picture-1.2": "workspace-picture-1.2",
+  "logic-problems-1.2": "logic-problems-1.2",
+  "cels-from-image-1.2": "view-cels-1.2",
+  "view-editor-1.2": "view-cels-1.2",
+  "words-1.2": "words-1.2",
+  "sound-grid-1.2": "sound-grid-1.2",
+  "agent-review-1.2": "agent-review-1.2",
+  "history-1.2": "history-1.2",
+  "blank-start-1.2": "blank-start-1.2",
+  "agent-drawer-1.2": "agent-drawer-1.2",
+  "picture-line-1.2": "picture-line-1.2",
+  "launch-menu-1.2": "launch-menu-1.2",
+  "action-states-1.2": "action-states-1.2",
+  "test-run-1.2": "test-run-1.2",
+  "room-setting-1.2": "room-setting-1.2",
+  "room-generation-1.2": "room-generation-1.2",
+  "sound-platforms": "sound-platforms",
+};
+/** Clips from app/e2e/media/clips.media.ts; the test and the GIF share the name. */
+const CLIPS = [
+  "clip-room-generation",
+  "clip-picture-line",
+  "clip-create-play",
+  "clip-crt-walk",
+  "clip-launch-restart",
+];
+// Optional names keep a focused UI change's capture run small.
+const requested = process.argv.slice(2).map((name) => name.replace(/\.(png|gif)$/, ""));
 for (const name of requested)
-  if (!BROWSER_SHOTS.includes(name)) throw new Error(`Unknown browser capture: ${name}`);
-const selectedShots = requested.length ? requested : BROWSER_SHOTS;
-const selectedTests = selectedShots.map((name) =>
-  name === "cels-from-image-1.2.png" || name === "view-editor-1.2.png"
-    ? "view-cels-1.2"
-    : name.slice(0, -4),
-);
+  if (!(name in SHOT_TESTS) && !CLIPS.includes(name))
+    throw new Error(`Unknown browser capture: ${name}`);
+const selectedShots = (
+  requested.length ? requested.filter((name) => name in SHOT_TESTS) : Object.keys(SHOT_TESTS)
+).map((name) => `${name}.png`);
+const installed = (name: string, flag: string) =>
+  spawnSync(name, [flag], { stdio: "ignore" }).status === 0;
+const encoders = installed("ffmpeg", "-version") && installed("gifski", "--version");
+if (!encoders) console.log("Clips skipped: install ffmpeg and gifski to encode them.");
+const selectedClips = encoders
+  ? (requested.length ? requested : CLIPS).filter((name) => CLIPS.includes(name))
+  : [];
+const selectedTests = [
+  ...new Set([...selectedShots.map((name) => SHOT_TESTS[name.slice(0, -4)]!), ...selectedClips]),
+];
+if (requested.length && !selectedTests.length) process.exit(0);
 /** The capture-feedback files the media gallery shows. */
 const TOOL_FILES = [
   "picture-controls-1.png",
@@ -67,8 +105,13 @@ const TOOL_FILES = [
   "sound-preview-1.wav",
 ];
 
-function run(args: string[], cwd: string, env: Record<string, string> = {}): void {
-  const result = spawnSync(process.execPath, args, {
+function run(
+  args: string[],
+  cwd: string,
+  env: Record<string, string> = {},
+  command = process.execPath,
+): void {
+  const result = spawnSync(command, args, {
     cwd,
     stdio: "inherit",
     env: { ...process.env, ...env },
@@ -146,6 +189,66 @@ function compactPng(bytes: Uint8Array): Uint8Array {
   return compact.length < bytes.length ? compact : bytes;
 }
 
+/**
+ * One clip as a GIF: the screencast frames held for their real durations,
+ * cropped to the recorded region at device pixels, resampled to CLIP_FPS and
+ * scaled to at most CLIP_WIDTH by ffmpeg, then palettised by gifski. The
+ * fixed-rate PNG sequence stays in .captures/media/clips for other cuts.
+ */
+function encodeClip(name: string, captures: string[]): Uint8Array {
+  const index = captures.filter((path) => path.endsWith(`${name}.frames/frames.json`));
+  if (index.length !== 1)
+    throw new Error(`Expected one recording for ${name}, got ${index.length}`);
+  const dir = join(raw, index[0]!.slice(0, -"/frames.json".length));
+  const { end, viewport, region, frames } = JSON.parse(
+    readFileSync(join(dir, "frames.json"), "utf8"),
+  ) as {
+    end: number;
+    viewport: { width: number };
+    region: { x: number; y: number; width: number; height: number };
+    frames: { file: string; time: number }[];
+  };
+  if (!frames.length) throw new Error(`${name} recorded no frames`);
+  const scale =
+    decodePng(new Uint8Array(readFileSync(join(dir, frames[0]!.file)))).width / viewport.width;
+  const even = (value: number) => 2 * Math.round((value * scale) / 2);
+  const list = frames.flatMap((frame, i) => [
+    `file '${join(dir, frame.file)}'`,
+    `duration ${Math.max(0.001, (frames[i + 1]?.time ?? end) - frame.time).toFixed(4)}`,
+  ]);
+  // The concat demuxer takes the last entry's duration only when the file repeats.
+  list.push(`file '${join(dir, frames.at(-1)!.file)}'`);
+  writeFileSync(join(dir, "concat.txt"), `${list.join("\n")}\n`);
+  const sequence = join(STAGING, "clips", name);
+  mkdirSync(sequence, { recursive: true });
+  const width = Math.min(CLIP_WIDTH, Math.round(region.width));
+  run(
+    [
+      "-v",
+      "error",
+      "-f",
+      "concat",
+      "-safe",
+      "0",
+      "-i",
+      join(dir, "concat.txt"),
+      "-vf",
+      `crop=${even(region.width)}:${even(region.height)}:${even(region.x)}:${even(region.y)},fps=${CLIP_FPS},scale=${width}:-2:flags=lanczos`,
+      join(sequence, "%05d.png"),
+    ],
+    ROOT,
+    {},
+    "ffmpeg",
+  );
+  const pngs = readdirSync(sequence)
+    .filter((file) => file.endsWith(".png"))
+    .sort()
+    .map((file) => join(sequence, file));
+  const gif = join(STAGING, `${name}.gif`);
+  run(["--fps", String(CLIP_FPS), "--quality", "80", "--output", gif, ...pngs], ROOT, {}, "gifski");
+  return new Uint8Array(readFileSync(gif));
+}
+
 rmSync(STAGING, { recursive: true, force: true });
 const raw = join(STAGING, "results");
 const tools = join(STAGING, "tools");
@@ -153,11 +256,13 @@ mkdirSync(raw, { recursive: true });
 
 run(
   [
-    join(APP, "node_modules/playwright/cli.js"),
+    join(ROOT, "node_modules/playwright/cli.js"),
     "test",
     "--config",
     "playwright.media.config.ts",
-    ...(requested.length ? ["--grep", selectedTests.map((name) => `${name}$`).join("|")] : []),
+    ...(requested.length || !encoders
+      ? ["--grep", selectedTests.map((name) => `${name}$`).join("|")]
+      : []),
   ],
   APP,
 );
@@ -178,13 +283,17 @@ const staged = [
   const bytes = new Uint8Array(readFileSync(from));
   return { name, bytes: name.endsWith(".png") ? compactPng(bytes) : bytes };
 });
+for (const clip of selectedClips)
+  staged.push({ name: `${clip}.gif`, bytes: encodeClip(clip, captures) });
+const budget = (name: string) =>
+  name.endsWith(".gif") ? CLIP_BUDGET : name === "play-crt-1.2.png" ? CRT_BUDGET : BUDGET;
 const over = staged.filter(
   ({ name, bytes }) =>
-    name.endsWith(".png") && bytes.length > (name === "play-crt-1.2.png" ? CRT_BUDGET : BUDGET),
+    (name.endsWith(".png") || name.endsWith(".gif")) && bytes.length > budget(name),
 );
 if (over.length)
   throw new Error(
-    `Over the media budget (350 KB, CRT 850 KB): ${over.map(({ name, bytes }) => `${name} ${Math.round(bytes.length / 1024)} KB`).join(", ")}`,
+    `Over the media budget (350 KB, CRT 850 KB, clips 2 MB): ${over.map(({ name, bytes }) => `${name} ${Math.round(bytes.length / 1024)} KB`).join(", ")}`,
   );
 
 mkdirSync(OUT, { recursive: true });

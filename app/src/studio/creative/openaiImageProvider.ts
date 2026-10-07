@@ -1,4 +1,3 @@
-import { imageTokenRates } from "./imageSpend.ts";
 /**
  * Optional BYOK OpenAI image transport for the creative workflow.
  *
@@ -1313,31 +1312,4 @@ export function createOpenAiImageProvider(
       }
     },
   };
-}
-
-/** Estimated output charge from OpenAI's image generation cost calculator.
- * https://developers.openai.com/api/docs/guides/image-generation#calculating-costs
- * Prompt and image input charges are additional.
- */
-export function estimateImageOutputCost(
-  model: string,
-  quality: OpenAiImageQuality,
-  size: string,
-): number | null {
-  const grid: Record<string, number> = model.startsWith("gpt-image-2.5-")
-    ? { low: 16, medium: 24, high: 48, xhigh: 64, max: 96 }
-    : model === "gpt-image-2"
-      ? { low: 16, medium: 48, high: 96 }
-      : {};
-  const edge = grid[quality];
-  const dimensions = /^(\d+)x(\d+)$/.exec(size);
-  if (edge === undefined || !dimensions) return null;
-  const width = Number(dimensions[1]),
-    height = Number(dimensions[2]);
-  const short = (edge * Math.min(width, height)) / Math.max(width, height);
-  const whole = Math.floor(short);
-  const rounded = short - whole === 0.5 ? whole + (whole % 2) : Math.round(short);
-  const tokens = Math.ceil((edge * rounded * (2_000_000 + width * height)) / 4_000_000);
-  const rate = imageTokenRates(model);
-  return rate ? (tokens * rate.output) / 1_000_000 : null;
 }

@@ -2,9 +2,37 @@ import { decodePng } from "../../scripts/png.ts";
 import type { Page } from "@playwright/test";
 import type { ProjectSession } from "../src/project/projectSession.ts";
 import { test, expect } from "./test.ts";
-import { textHook, waitForRoom, workspaceUpdated } from "./engineProbe.ts";
+import { textHook, waitForRoom, workspaceSaved } from "./engineProbe.ts";
 
 import { start, open } from "./pictureWorkspaceShared.ts";
+
+async function playRoom(page: Page): Promise<void> {
+  const action = page.getByTestId("workspace-update");
+  await expect(action).toBeVisible();
+  await action.click();
+  await expect(action).toBeEnabled();
+}
+async function updateKeepPlaying(page: Page): Promise<void> {
+  const pending = page.getByTestId("workspace-pending");
+  if (!(await pending.isVisible())) return;
+  await workspaceSaved(page);
+  await expect(page.getByTestId("workspace-update")).toHaveAccessibleName(/^Update and restart /);
+  await expect(page.getByTestId("workspace-update-menu")).toBeEnabled();
+  await page.getByTestId("workspace-update-menu").click();
+  const action = page.getByRole("menuitem", { name: "Update and keep playing", exact: true });
+  await expect(action).toBeVisible();
+  await action.click();
+  await expect(pending).toBeHidden();
+}
+
+async function makeRoom(page: Page): Promise<void> {
+  const action = page.getByRole("button", { name: "Make it a room", exact: true });
+  if (await action.isVisible()) await action.click();
+  else {
+    await page.getByTestId("context-more-actions").click();
+    await page.getByRole("menuitem", { name: "Make it a room", exact: true }).click();
+  }
+}
 
 async function shot(page: Page, name: string, expected?: readonly number[]) {
   if (page.viewportSize()!.width > 600 && !["unused", "view-unused", "focus"].includes(name)) {
@@ -25,7 +53,9 @@ async function shot(page: Page, name: string, expected?: readonly number[]) {
   await page.screenshot({ path: test.info().outputPath(`${name}.png`), animations: "disabled" });
 }
 
-test("opening pictures visits their rooms and Back restores the prior moment", async ({ page }) => {
+test("opening pictures leaves play in place; Play enters and Back restores the prior moment", async ({
+  page,
+}) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await start(page);
   await open(page, "part-room:1:picture:1");
@@ -33,14 +63,14 @@ test("opening pictures visits their rooms and Back restores the prior moment", a
   await expect(page.getByTestId("room-studio")).not.toHaveClass(/is-live-game/);
   const before = await textHook(page);
   await open(page, "part-room:8:picture:8");
+  await playRoom(page);
   await expect.poll(async () => (await textHook(page)).room).toBe(8);
-  await expect(page.getByTestId("workspace-visit")).toBeVisible();
-  await expect(page.getByTestId("workspace-visit")).toContainText("Visiting Room 8");
+  await expect(page.getByTestId("workspace-room")).toContainText("Room 8");
   await expect(page.locator(".play-area:visible")).toHaveCount(1);
   await expect(page.getByTestId("room-studio").filter({ visible: true })).not.toHaveClass(
     /is-live-game/,
   );
-  await page.getByRole("button", { name: "Back to Room 1", exact: true }).click();
+  await page.getByRole("button", { name: "Back to Home", exact: true }).click();
   await expect
     .poll(async () => {
       const state = await textHook(page);
@@ -53,6 +83,7 @@ test("switching Play and Create follows the running room without moving it", asy
   await page.setViewportSize({ width: 1440, height: 900 });
   await start(page);
   await open(page, "part-room:8:picture:8");
+  await playRoom(page);
   await expect.poll(async () => (await textHook(page)).room).toBe(8);
   const zoom = page.locator(".studio-zoom__level:visible");
   await expect(zoom).toBeVisible();
@@ -69,12 +100,67 @@ test("switching Play and Create follows the running room without moving it", asy
     /is-live-game/,
   );
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  await expect(page.getByTestId("workspace-visit")).toBeHidden();
 });
 
-test("room changes during Create keep the picture editor on the running room", async ({ page }) => {
+test("a late room visit reply preserves the captured Play room and selected editor", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.addInitScript(() => {
+    const onmessage = Object.getOwnPropertyDescriptor(Worker.prototype, "onmessage")!;
+    let held: (() => void) | null = null;
+    const hooks = window as unknown as {
+      roomVisitHeld(): boolean;
+      releaseRoomVisit(): void;
+    };
+    hooks.roomVisitHeld = () => held !== null;
+    hooks.releaseRoomVisit = () => {
+      const reply = held;
+      held = null;
+      reply?.();
+    };
+    Object.defineProperty(Worker.prototype, "onmessage", {
+      configurable: true,
+      get: onmessage.get!,
+      set(this: Worker, listener: (event: MessageEvent) => void) {
+        onmessage.set!.call(this, (event: MessageEvent) => {
+          if (event.data?.type === "playedHere" && event.data.returnRoom !== undefined) {
+            held = () => listener.call(this, event);
+            return;
+          }
+          listener.call(this, event);
+        });
+      },
+    });
+  });
+  await start(page);
+  await open(page, "part-room:8:picture:8");
+  const action = page.getByTestId("workspace-update");
+  await expect(action).toBeVisible();
+  await action.click();
+  await expect
+    .poll(() =>
+      page.evaluate(() => (window as unknown as { roomVisitHeld(): boolean }).roomVisitHeld()),
+    )
+    .toBe(true);
+  await expect.poll(async () => (await textHook(page)).room).toBe(8);
+  await page.getByRole("radio", { name: "Play", exact: true }).click();
+  await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  await page.evaluate(() => (window as unknown as { releaseRoomVisit(): void }).releaseRoomVisit());
+  await page.getByRole("radio", { name: "Create", exact: true }).click();
+  await expect(page.getByTestId("room-studio").filter({ visible: true })).toBeVisible();
+  await expect(page.getByTestId("workspace-visit")).toBeHidden();
+  await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  await expect(page.getByTestId("project-tab-picture:8")).toBeVisible();
+  await expect(page.getByTestId("project-tab-picture:8")).toHaveAttribute("aria-selected", "true");
+});
+
+test("room changes during Create keep the selected picture editor open", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await start(page);
   await open(page, "part-room:8:picture:8");
+  await playRoom(page);
   await expect.poll(async () => (await textHook(page)).room).toBe(8);
   const input = page.getByTestId("input-line");
   await expect(input).toBeVisible();
@@ -84,7 +170,7 @@ test("room changes during Create keep the picture editor on the running room", a
   const studio = page.getByTestId("room-studio").filter({ visible: true });
   await expect(studio).toBeVisible();
   await expect(studio).not.toHaveClass(/is-live-game/);
-  await expect(page.getByRole("tab", { selected: true })).toHaveText("PICTURE 1");
+  await expect(page.getByRole("tab", { selected: true })).toHaveText("PICTURE 8");
 });
 
 test("phone VIEW editing keeps a usable drawing canvas", async ({ page }) => {
@@ -96,10 +182,11 @@ test("phone VIEW editing keeps a usable drawing canvas", async ({ page }) => {
     await expect(canvas).toBeVisible();
     expect((await canvas.boundingBox())!.width).toBeGreaterThan(200);
   }
+  // Focus is an icon-only toggle on the tab bar.
   await page.getByTestId("workspace-focus").click();
   const done = page.getByTestId("workspace-focus");
   await expect(done).toBeVisible();
-  await expect(done).toHaveText("Done");
+  await expect(done).toHaveAttribute("aria-pressed", "true");
   await done.click();
   await expect.poll(async () => (await textHook(page)).paused).toBe(false);
 });
@@ -170,11 +257,12 @@ test("a shared PICTURE opens the room chosen in Parts", async ({ page }) => {
   await open(page, "part-room:1:picture:1");
   await expect(page.getByTestId("room-studio")).toBeVisible();
   await open(page, "part-room:8:picture:1");
+  await playRoom(page);
   await expect.poll(async () => (await textHook(page)).room).toBe(8);
   await expect(page.locator(".play-area:visible")).toHaveCount(1);
 });
 
-test("unused picture becomes a room in one Undo step", async ({ page }) => {
+test("unused picture becomes a room in one Undo step @webkit-desktop", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await start(page);
   await open(page, "part-picture:9");
@@ -185,16 +273,21 @@ test("unused picture becomes a room in one Undo step", async ({ page }) => {
   const previousRoom = (await textHook(page)).room;
   await page.getByRole("button", { name: "Make it a room", exact: true }).click();
   expect((await textHook(page)).room).toBe(previousRoom);
-  await workspaceUpdated(page);
+  await updateKeepPlaying(page);
   expect((await textHook(page)).room).toBe(previousRoom);
   await open(page, "part-room:2:picture:9");
+  await playRoom(page);
   await expect.poll(async () => (await textHook(page)).room).toBe(2);
   await expect(page.getByTestId("room-studio").filter({ visible: true })).not.toHaveClass(
     /is-live-game/,
   );
   await page.getByTestId("workspace-undo").click();
   await expect(page.getByTestId("workspace-unused")).toBeVisible();
+  // Removing the running LOGIC may await Restart; the next launch admits the Undo.
+  await open(page, "part-room:1:logic");
+  await playRoom(page);
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  await open(page, "part-picture:9");
   await expect
     .poll(() =>
       page.evaluate(() => {
@@ -208,26 +301,30 @@ test("unused picture becomes a room in one Undo step", async ({ page }) => {
     .toEqual([255, 255, 255]);
   await page.getByTestId("workspace-redo").click();
   await open(page, "part-room:2:picture:9");
+  await playRoom(page);
   await expect.poll(async () => (await textHook(page)).room).toBe(2);
   await expect(page.getByTestId("room-studio").filter({ visible: true })).not.toHaveClass(
     /is-live-game/,
   );
   await page.getByTestId("workspace-undo").click();
+  await open(page, "part-room:1:logic");
+  await playRoom(page);
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  await open(page, "part-picture:9");
   await expect(page.getByTestId("workspace-unused")).toBeVisible();
   await page.getByRole("button", { name: "Make it a room", exact: true }).click();
-  await workspaceUpdated(page);
+  await updateKeepPlaying(page);
   await open(page, "part-room:2:logic");
+  await playRoom(page);
   await expect.poll(async () => (await textHook(page)).room).toBe(2);
 });
 
-test("opening another room's VIEW visits it and unused VIEW can become a room", async ({
-  page,
-}) => {
+test("Play enters a VIEW's room and unused VIEW can become a room", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await start(page);
   await open(page, "part-view:8");
   await expect(page.getByTestId("sprite-studio")).toBeVisible();
+  await playRoom(page);
   await expect.poll(async () => (await textHook(page)).room).toBe(8);
   await open(page, "part-view:9");
   await expect(page.getByTestId("workspace-unused")).toBeVisible();
@@ -236,9 +333,10 @@ test("opening another room's VIEW visits it and unused VIEW can become a room", 
   const previousRoom = (await textHook(page)).room;
   await page.getByRole("button", { name: "Make it a room", exact: true }).click();
   expect((await textHook(page)).room).toBe(previousRoom);
-  await workspaceUpdated(page);
+  await updateKeepPlaying(page);
   expect((await textHook(page)).room).toBe(previousRoom);
   await open(page, "part-room:2:logic");
+  await playRoom(page);
   await expect.poll(async () => (await textHook(page)).room).toBe(2);
   await expect(page.getByTestId("workspace-unused")).toHaveCount(0);
   await page.getByTestId("workspace-undo").click();
@@ -268,8 +366,9 @@ test("opening another room's VIEW visits it and unused VIEW can become a room", 
   await page.setViewportSize({ width: 1440, height: 900 });
   await expect(page.getByTestId("workspace-unused")).toBeVisible();
   await page.getByRole("button", { name: "Make it a room", exact: true }).click();
-  await workspaceUpdated(page);
+  await updateKeepPlaying(page);
   await open(page, "part-room:2:logic");
+  await playRoom(page);
   await expect.poll(async () => (await textHook(page)).room).toBe(2);
 });
 
@@ -278,7 +377,7 @@ for (const size of [
   { width: 1063, height: 815 },
   { width: 390, height: 844 },
 ]) {
-  test(`a room that redirects entry shows its paused picture beside LOGIC ${size.width}`, async ({
+  test(`a room launch follows its LOGIC redirect and keeps the selected editor ${size.width}`, async ({
     page,
   }) => {
     await page.setViewportSize(size);
@@ -301,16 +400,20 @@ for (const size of [
       });
     });
     await open(page, "part-room:8:logic");
-    await expect(page.getByTestId("workspace-stage-note")).toBeVisible();
-    await expect(page.getByTestId("workspace-paused-picture")).toBeVisible();
-    await expect.poll(async () => (await textHook(page)).paused).toBe(true);
+    expect((await textHook(page)).room).toBe(1);
+    await playRoom(page);
+    await expect.poll(async () => (await textHook(page)).room).toBe(1);
+    if (size.width <= 600) await page.getByRole("button", { name: "Edit", exact: true }).click();
+    await expect(page.getByTestId("workspace-logic-editor")).toBeVisible();
+    const selectedTab = page.getByRole("tab", { selected: true });
+    await expect(selectedTab).toBeVisible();
+    await expect(selectedTab).toHaveText("LOGIC 8");
+    await expect(page.getByTestId("workspace-update")).toHaveAccessibleName("Play Garden");
+    await expect.poll(async () => (await textHook(page)).paused).toBe(false);
     await page.screenshot({
-      path: test.info().outputPath(`fallback-${size.width}.png`),
+      path: test.info().outputPath(`redirect-${size.width}.png`),
       animations: "disabled",
     });
-    await page.getByRole("button", { name: "Back to Room 1", exact: true }).click();
-    await expect.poll(async () => (await textHook(page)).room).toBe(1);
-    await expect(page.getByTestId("workspace-stage-note")).toHaveCount(0);
   });
 }
 
@@ -318,7 +421,9 @@ test("stacked persists on reload and its splitter drags vertically", async ({ pa
   await page.setViewportSize({ width: 1063, height: 815 });
   await start(page);
   await open(page, "part-room:1:logic");
-  await page.getByRole("button", { name: "Stacked", exact: true }).click();
+  // Stacked is the default: the toggle turns Side by side on.
+  const layout = page.getByTestId("workspace-layout");
+  if ((await layout.getAttribute("aria-pressed")) === "true") await layout.click();
   const splitter = page.getByRole("separator", { name: "Editor height" });
   await expect(splitter).toBeVisible();
   const panel = page.getByTestId("workspace-editor");
@@ -332,10 +437,7 @@ test("stacked persists on reload and its splitter drags vertically", async ({ pa
   await page.reload();
   await waitForRoom(page, 1);
   await open(page, "part-room:1:logic");
-  await expect(page.getByRole("button", { name: "Stacked", exact: true })).toHaveAttribute(
-    "aria-pressed",
-    "true",
-  );
+  await expect(page.getByTestId("workspace-layout")).toHaveAttribute("aria-pressed", "false");
   await expect(splitter).toBeVisible();
 });
 
@@ -354,41 +456,53 @@ for (const size of [
     await expect(page.getByTestId("room-studio")).toBeVisible();
     await shot(page, "picture");
     await open(page, "part-room:8:picture:8");
-    await expect(page.getByTestId("workspace-visit")).toBeVisible();
+    expect((await textHook(page)).room).toBe(1);
+    await playRoom(page);
+    if (size.width <= 600) await page.getByRole("button", { name: "Edit", exact: true }).click();
+    await expect.poll(async () => (await textHook(page)).room).toBe(8);
+    const visitBar = page.getByTestId(size.width <= 600 ? "workspace-visit" : "workspace-game-bar");
+    await expect(visitBar).toBeVisible();
+    await expect(visitBar).toContainText("Garden");
+    await expect(visitBar.getByRole("button", { name: "Back to Home", exact: true })).toBeVisible();
     await shot(page, "visiting");
-    await page.getByRole("button", { name: "Back to Room 1", exact: true }).click();
+    await page.getByRole("button", { name: "Back to Home", exact: true }).click();
     await expect.poll(async () => (await textHook(page)).room).toBe(1);
     await shot(page, "back");
     await open(page, "part-room:8:picture:8");
+    await playRoom(page);
     await expect.poll(async () => (await textHook(page)).room).toBe(8);
     await open(page, "part-picture:9");
     await expect(page.getByTestId("workspace-unused")).toBeVisible();
     await shot(page, "unused");
-    await page.getByRole("button", { name: "Make it a room", exact: true }).click();
-    await workspaceUpdated(page);
+    await makeRoom(page);
+    await updateKeepPlaying(page);
     await open(page, "part-room:2:picture:9");
+    await playRoom(page);
     await expect.poll(async () => (await textHook(page)).room).toBe(2);
     await shot(page, "make-room", [170, 0, 170]);
-    await page.getByRole("button", { name: "Back to Room 1", exact: true }).click();
+    if (size.width <= 600) await page.getByRole("button", { name: "Edit", exact: true }).click();
+    await page.getByRole("button", { name: "Back to Home", exact: true }).click();
     await expect.poll(async () => (await textHook(page)).room).toBe(1);
     await open(page, "part-view:8");
     await expect(page.getByTestId("sprite-studio").filter({ visible: true })).toBeVisible();
+    await playRoom(page);
     await expect.poll(async () => (await textHook(page)).room).toBe(8);
     await shot(page, "view");
     await open(page, "part-view:9");
     await expect(page.getByTestId("workspace-unused")).toBeVisible();
     await shot(page, "view-unused");
-    await page.getByRole("button", { name: "Make it a room", exact: true }).click();
-    await workspaceUpdated(page);
+    await makeRoom(page);
+    await updateKeepPlaying(page);
     await open(page, "part-room:3:logic");
+    await playRoom(page);
     await expect.poll(async () => (await textHook(page)).room).toBe(3);
     await shot(page, "view-make-room", [255, 255, 255]);
     await open(page, "part-room:8:logic");
     await expect(
       page.getByTestId("workspace-logic-editor").filter({ visible: true }),
     ).toBeVisible();
-    if (size.width <= 600)
-      await page.getByRole("button", { name: "Playtest", exact: true }).click();
+    await playRoom(page);
+    if (size.width <= 600) await page.getByRole("button", { name: "Game", exact: true }).click();
     const surface = page.locator(".game-surface:visible");
     await expect(surface).toBeVisible();
     const ratio = await surface.evaluate(
@@ -397,7 +511,10 @@ for (const size of [
     expect(ratio).toBeCloseTo(1.6, 1);
     await shot(page, "side-by-side");
     if (size.width > 600) {
-      await page.getByRole("button", { name: "Stacked", exact: true }).click();
+      // Stacked is the default: the toggle turns Side by side on and is
+      // remembered per viewer.
+      const layoutToggle = page.getByTestId("workspace-layout");
+      if ((await layoutToggle.getAttribute("aria-pressed")) === "true") await layoutToggle.click();
       const panel = (await page.getByTestId("workspace-editor").boundingBox())!;
       const stage = (await page.locator(".play-area").boundingBox())!;
       expect(panel.width).toBeCloseTo(stage.width, 0);
@@ -407,6 +524,11 @@ for (const size of [
           (el) => el.getBoundingClientRect().width / el.getBoundingClientRect().height,
         ),
       ).toBeCloseTo(1.6, 1);
+      await layoutToggle.click();
+      expect(
+        await page.evaluate(() => localStorage.getItem("monotio_agi.workspaceSplitAxis")),
+      ).toBe("horizontal");
+      await layoutToggle.click();
       expect(
         await page.evaluate(() => localStorage.getItem("monotio_agi.workspaceSplitAxis")),
       ).toBe("vertical");
@@ -429,7 +551,24 @@ for (const size of [
       await shot(page, name);
     }
     await page.getByRole("radio", { name: "Play", exact: true }).click();
-    await expect.poll(async () => (await textHook(page)).room).toBe(8);
-    await shot(page, "play");
+    await expect.poll(async () => (await textHook(page)).room).toBe(1);
+    await shot(page, "play", [0, 170, 0]);
   });
 }
+
+test("draft room logic counts in picture usage check", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await start(page);
+  await page.getByRole("button", { name: "Add a room", exact: true }).click();
+  const rename = page.getByTestId("room-rename-input");
+  await expect(rename).toBeVisible();
+  await rename.fill("Cave");
+  await rename.press("Enter");
+
+  // Room 2 was added in draft (staged). Open its picture (picture 2).
+  await open(page, "part-room:2:picture:2");
+  await expect(page.getByTestId("room-studio")).toBeVisible();
+  // Draft LOGIC 2 loads PICTURE 2, so PICTURE 2 must not be treated as unused.
+  await expect(page.getByTestId("workspace-unused")).toHaveCount(0);
+  await page.screenshot({ path: test.info().outputPath("draft-room-picture-used-1440.png") });
+});

@@ -51,40 +51,42 @@ for (const [width, height] of [
       seen.push(...(await clipped(target)).map((line) => `${name}: ${line}`));
     };
 
-    // The status readout of a pixel and the Select tool's hint.
+    // The pointer's place in the status line and the Select tool's hint.
     await studio.getByRole("treeitem", { name: /^West doorway/ }).click();
     await page.getByTestId("workspace-focus").click();
     await page.mouse.move(...(await cell(page, 80, 120)));
-    await expect(studio.getByTestId("studio-status")).toContainText("x 80");
-    await look("status", studio.getByTestId("studio-status"));
-    await look("hint", studio.getByTestId("studio-hint"));
+    await expect(page.getByTestId("studio-status")).toHaveText("x 80 · y 120");
+    await look("status", page.getByTestId("studio-status"));
+    await look("hint", page.getByTestId("studio-hint"));
 
-    // A fill on coloured ground: its Why, and a notice.
+    // The bucket on a painted spot recolours it: its notice reads whole.
     await studio.getByRole("group", { name: /^Canvas/ }).focus();
     await page.keyboard.press("f");
-    await look("fill hint", studio.getByTestId("studio-hint"));
+    await look("fill hint", page.getByTestId("studio-hint"));
+    await studio.locator('.workspace-palette [data-colour="4"]').click();
     await page.mouse.click(...(await cell(page, 80, 40)));
-    await look("fill why", studio.getByTestId("bar-notice-summary"));
+    await look("recolour", page.locator(".workspace-status").getByTestId("studio-notice"));
+    await page.locator(".workspace-status").getByTestId("studio-notice-close").click();
+    // The status bar docks in the frame: the keys that follow need the canvas focused.
+    await studio.getByRole("group", { name: /^Canvas/ }).focus();
     await page.keyboard.press("v");
     await page.keyboard.press("ArrowLeft");
-    await studio.getByRole("group", { name: /^Canvas/ }).focus();
     for (let k = 0; k < 30; k++) await page.keyboard.press("Shift+ArrowLeft");
-    await look("notice", studio.getByTestId("studio-notice"));
+    await look("notice", page.locator(".workspace-status").getByTestId("studio-notice"));
     // It stays in the status line, off the picture, until it is closed.
-    await expect(studio.locator(".studio__status").getByTestId("studio-notice")).toBeVisible();
+    await expect(page.locator(".studio__status").getByTestId("studio-notice")).toBeVisible();
     await page.clock.runFor(5500);
-    await expect(studio.getByTestId("studio-notice")).toBeVisible();
-    await studio.getByTestId("studio-notice-close").click();
-    await expect(studio.getByTestId("studio-notice")).toHaveCount(0);
-    await expect(studio.getByTestId("studio-hint")).toBeVisible();
+    await expect(page.locator(".workspace-status").getByTestId("studio-notice")).toBeVisible();
+    await page.locator(".workspace-status").getByTestId("studio-notice-close").click();
+    await expect(page.locator(".workspace-status").getByTestId("studio-notice")).toHaveCount(0);
+    await expect(page.getByTestId("studio-hint")).toBeVisible();
 
     await closeWorkspaceEditor(page);
     await expect(studio).toBeHidden();
 
     // The sprite's subtitle.
     await openWorkspaceView(page, 0, false);
-    const sprite = page.getByTestId("sprite-studio");
-    await look("sprite hint", sprite.getByTestId("sprite-hint"));
+    await look("sprite hint", page.getByTestId("sprite-hint"));
     expect(seen).toEqual([]);
   });
 }

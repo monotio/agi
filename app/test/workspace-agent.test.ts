@@ -23,9 +23,227 @@ import { assembleLogic } from "../../src/logic/assembler.ts";
 import { buildWordsTok } from "../../src/logic/words.ts";
 import { requireProjectId } from "../../src/gameIdentity.ts";
 import type { UnifiedConversation, LlmTurnResult } from "../src/agent/llmClient.ts";
-import { wordsTaskReply } from "../src/studio/workspace/wordsAgent.ts";
+import { wordsTaskReply } from "../src/studio/workspace/wordsPrompts.ts";
 
 let seq = 0;
+
+for (const mode of ["review", "auto", "background"] as const) {
+  for (const failure of ["exit", "tests"] as const) {
+    test(`${mode} rejects final admission after finish fails ${failure}`, async () => {
+      const { session } = fixture();
+      await session.submit({
+        proposal: session.model.propose(session.model.capture(), "Room", [
+          { key: "logic:1", content: "return;" },
+        ]),
+        label: "Room",
+        origin: "logic",
+        author: "creator",
+      });
+      const before = session.model.capture().documentId;
+      const commits = session.history.capture().commits.length;
+      const results: { toolCallId: string; result: { success: boolean } }[] = [];
+      const call =
+        failure === "exit"
+          ? {
+              id: "edit",
+              name: "update_plan",
+              input: {
+                rooms: [
+                  {
+                    num: 1,
+                    title: "Start",
+                    description: "Start",
+                    exits: [{ name: "north", room: 2 }],
+                  },
+                ],
+                facts: [],
+                quests: [],
+              },
+            }
+          : {
+              id: "edit",
+              name: "write_game_tests",
+              input: {
+                mode: "merge",
+                names: null,
+                tests: [
+                  {
+                    name: "Impossible score",
+                    room: 1,
+                    spawnX: null,
+                    spawnY: null,
+                    steps: [{ action: "wait", ticks: 1 }],
+                    expect: { score: 99 },
+                    cycleBudget: 100,
+                  },
+                ],
+              },
+            };
+      let round = 0;
+      const agent = createWorkspaceAgent({
+        session,
+        profileId: "2.936",
+        config: () => ({ provider: "stub", model: "stub", apiKey: "" }),
+        conversation: () => ({
+          setAvailableTools() {},
+          getTranscript: () => [],
+          async sendUserMessage() {
+            return { toolCalls: [call] };
+          },
+          appendToolResults(entries) {
+            results.push(...entries);
+            assert.equal(
+              entries.find((entry) => entry.toolCallId === "edit")?.result.success ?? true,
+              true,
+              JSON.stringify(entries),
+            );
+          },
+          async complete() {
+            return round++ === 0
+              ? { toolCalls: [{ id: "finish", name: "finish", input: { notes: null } }] }
+              : { text: "Done", toolCalls: [] };
+          },
+        }),
+      });
+      agent.autoApprove = mode === "auto";
+      try {
+        await assert.rejects(
+          mode === "background" ? agent.background("Task", "Edit") : agent.send("Edit"),
+          /Handover rejected/,
+        );
+        assert.equal(results.find((entry) => entry.toolCallId === "finish")?.result.success, false);
+        assert.equal(session.model.capture().documentId, before);
+        assert.equal(session.history.capture().commits.length, commits);
+        assert.equal(agent.pending(), null);
+        assert.match(agent.error ?? "", /Handover rejected/);
+      } finally {
+        session.dispose();
+      }
+    });
+  }
+}
+
+test("successful workspace finish ends the tool batch and provider turn", async () => {
+  const { session } = fixture();
+  const results: {
+    toolCallId: string;
+    result: { success: boolean; error?: string | undefined };
+  }[] = [];
+  let completions = 0;
+  const agent = createWorkspaceAgent({
+    session,
+    profileId: "2.936",
+    config: () => ({ provider: "stub", model: "stub", apiKey: "" }),
+    conversation: () => ({
+      setAvailableTools() {},
+      getTranscript: () => [],
+      async sendUserMessage() {
+        return {
+          toolCalls: [
+            {
+              id: "edit",
+              name: "write_picture",
+              input: { room: 1, source: "vis 2\nfill 0,0\nend\n" },
+            },
+            { id: "finish", name: "finish", input: { notes: null } },
+            {
+              id: "late",
+              name: "write_picture",
+              input: { room: 1, source: "vis 3\nfill 0,0\nend\n" },
+            },
+          ],
+        };
+      },
+      appendToolResults(entries) {
+        results.push(...entries);
+      },
+      async complete() {
+        completions++;
+        return { text: "Done", toolCalls: [] };
+      },
+    }),
+  });
+  try {
+    await agent.send("Recolor");
+    assert.equal(results.find((entry) => entry.toolCallId === "finish")?.result.success, true);
+    assert.equal(results.find((entry) => entry.toolCallId === "late")?.result.success, false);
+    assert.match(
+      results.find((entry) => entry.toolCallId === "late")?.result.error ?? "",
+      /successful finish/,
+    );
+    assert.equal(completions, 0);
+    assert.equal(
+      agent
+        .pending()
+        ?.changes()
+        .find((change) => change.key === "picture:1")?.content,
+      "vis 2\nfill 0,0\nend\n",
+    );
+  } finally {
+    session.dispose();
+  }
+});
+
+test("partial approval validates the selected candidate's handover", async () => {
+  const { session } = fixture();
+  await session.submit({
+    proposal: session.model.propose(session.model.capture(), "Rooms", [
+      { key: "logic:1", content: "return;" },
+      { key: "logic:2", content: "return;" },
+    ]),
+    label: "Rooms",
+    origin: "logic",
+    author: "creator",
+  });
+  const before = session.model.capture().documentId;
+  const agent = createWorkspaceAgent({
+    session,
+    profileId: "2.936",
+    config: () => ({ provider: "stub", model: "stub", apiKey: "" }),
+    conversation: () => ({
+      setAvailableTools() {},
+      getTranscript: () => [],
+      async sendUserMessage() {
+        return {
+          toolCalls: [
+            {
+              id: "proposal",
+              name: "propose_changes",
+              input: {
+                label: "Connect",
+                changes: [
+                  {
+                    key: "world",
+                    content: JSON.stringify({
+                      rooms: { "1": { title: "Start", description: "Start", exits: { north: 2 } } },
+                      facts: {},
+                      quests: {},
+                    }),
+                  },
+                  { key: "logic:1", content: "new.room(2); return;" },
+                ],
+              },
+            },
+          ],
+        };
+      },
+      appendToolResults() {},
+      async complete() {
+        return { text: "Connected", toolCalls: [] };
+      },
+    }),
+  });
+  try {
+    await agent.send("Connect rooms");
+    assert.ok(agent.pending());
+    await assert.rejects(agent.approve(["world"]), /Handover rejected/);
+    assert.equal(session.model.capture().documentId, before);
+    await agent.approve();
+    assert.notEqual(session.model.capture().documentId, before);
+  } finally {
+    session.dispose();
+  }
+});
 test("offline editing reads native vocabulary and changes the attached room", async () => {
   const { session } = fixture();
   await session.submit({
@@ -206,6 +424,37 @@ test("one coordinated review selects resources, records a chat checkpoint and un
   assert.equal(session.model.capture().read("logic:0")!.content, documents["logic:0"]);
   assert.equal(session.model.capture().read("picture:1")!.content, documents["picture:1"]);
   session.dispose();
+});
+test("a committed approval closes review while its chat save is still pending", async () => {
+  const { session, agent } = fixture();
+  await agent.send("Add a welcome sign");
+  const messageId = agent.pending()!.messageId;
+  const saveChats = session.saveChats;
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => (release = resolve));
+  let saving!: () => void;
+  const started = new Promise<void>((resolve) => (saving = resolve));
+  session.saveChats = async (chats) => {
+    saving();
+    await gate;
+    await saveChats(chats);
+  };
+  let reviewClosed = false;
+  const off = agent.subscribe(() => {
+    if (agent.pending() === null && agent.reviewOutcome(messageId) === "Approved")
+      reviewClosed = true;
+  });
+  const approval = agent.approve();
+  try {
+    await started;
+    assert.equal(reviewClosed, true, "committed review remains displayed during the chat save");
+    assert.equal(agent.busy, true);
+  } finally {
+    release();
+    await approval;
+    off();
+    session.dispose();
+  }
 });
 test("reject, auto-approve and stale proposals preserve the manual base", async () => {
   const { session, agent } = fixture();
@@ -752,18 +1001,18 @@ test("Ask stores a formatted reply with raw context and keeps ordinary follow-up
     await agent.ask("Suggest words for look", "WORDS", (text) =>
       wordsTaskReply(text, { kind: "suggest", group: 100, words: ["look"] }),
     ),
-    "Suggested inspect · shown in WORDS",
+    "Suggested inspect",
   );
   const message = agent.current().messages.at(-1)!;
   assert.deepEqual(message, {
     id: message.id,
     role: "assistant",
-    text: "Suggested inspect · shown in WORDS",
+    text: "Suggested inspect",
     context: raw,
   });
   assert.deepEqual(session.chats().chats[0]!.messages.at(-1), message);
   assert.deepEqual(agent.current().transcript, [{ role: "assistant", text: raw }]);
-  assert.deepEqual(agent.progress, ["Suggested inspect · shown in WORDS"]);
+  assert.deepEqual(agent.progress, ["Suggested inspect"]);
   reply = "Try looking around.";
   await agent.ask("Where next?");
   assert.equal(agent.current().messages.at(-1)!.text, reply);
@@ -1081,7 +1330,7 @@ for (const provider of ["openai", "anthropic"] as const) {
     const { session } = fixture();
     const model = provider === "openai" ? "gpt-6-sol" : "claude-opus-5-5";
     let spent = 0;
-    const usage = t.mock.method(AgentRun.prototype, "recordUsage");
+    const usage = t.mock.method(AgentRun.prototype, "recordStreamUsage");
     t.mock.method(
       globalThis,
       "fetch",
@@ -1122,7 +1371,7 @@ for (const provider of ["openai", "anthropic"] as const) {
     });
     await agent.send("Describe the project");
     const rate = MODEL_CAPABILITIES[model]!.price!;
-    assert.equal(usage.mock.callCount(), 1);
+    assert.equal(usage.mock.callCount(), provider === "anthropic" ? 2 : 1);
     assert.equal(spent, (1000 * rate.input + 100 * rate.output) / 1e6);
     session.dispose();
   });
@@ -1704,7 +1953,7 @@ test("completed spend stays with its chat when another chat is opened", async ()
 });
 
 test("background work retains image spend and a new person request starts a fresh allowance", async () => {
-  const { beginProviderTask, reserveImageBudget } = await import("../src/agent/providerBudget.ts");
+  const { beginProviderTask, trackImageSpend } = await import("../src/agent/providerBudget.ts");
   const { session } = fixture();
   const agent = createWorkspaceAgent({
     session,
@@ -1712,14 +1961,363 @@ test("background work retains image spend and a new person request starts a fres
     config: () => ({ provider: "stub", model: "stub", apiKey: "", budgetUsd: 1 }),
   });
   beginProviderTask(1);
-  reserveImageBudget(0.8)(0.8);
+  trackImageSpend()(0.8);
   await agent.background("Next room", "Tell me about this room");
   agent.resume(agent.chats().find((chat) => chat.background)!.id);
   assert.equal(agent.task?.spent, 0.8);
-  const settlePreviousImage = reserveImageBudget(0.1);
+  const settlePreviousImage = trackImageSpend();
   await agent.send("Tell me about this room");
   assert.equal(agent.task?.spent, 0);
   settlePreviousImage(0.1);
   assert.equal(agent.task?.spent, 0, "a late image response settles its original task");
+  session.dispose();
+});
+
+test("selected art tools use the workspace review and one Undo", async () => {
+  const { BRIDGE_SOURCE } = await import("../../test/studioAssistFixtures.ts");
+  const { session } = fixture();
+  await session.submit({
+    proposal: session.model.propose(session.model.capture(), "Bridge", [
+      { key: "picture:1", content: BRIDGE_SOURCE },
+    ]),
+    label: "Bridge",
+    origin: "picture",
+    author: "creator",
+  });
+  const before = session.model.capture().read("picture:1")!.content;
+  const agent = createWorkspaceAgent({
+    session,
+    profileId: "2.936",
+    config: () => ({ provider: "stub", model: "stub", apiKey: "" }),
+  });
+  await agent.send(
+    "bad: make this bridge walkable",
+    "Current room 1\nSelection: PICTURE 1 · Bridge\nSelected item ids: bridge. Lens: depth.",
+  );
+  assert.equal(agent.pending()?.changes().length, 1);
+  assert.equal(agent.pending()?.changes()[0]?.key, "picture:1");
+  assert.equal(session.model.capture().read("picture:1")!.content, before);
+  assert.ok(
+    agent.current().transcript.some((entry) => JSON.stringify(entry).includes("locked-plane")),
+  );
+  await agent.approve();
+  assert.notEqual(session.model.capture().read("picture:1")!.content, before);
+  await session.undo();
+  assert.equal(session.model.capture().read("picture:1")!.content, before);
+  session.dispose();
+});
+
+test("evidence naming batches all binding kinds for review with byte-preserving renames", async () => {
+  const { session } = fixture();
+  await session.submit({
+    proposal: session.model.propose(session.model.capture(), "Named code", [
+      { key: "bindings", content: '{"old_name":{"kind":"flag","num":36}}' },
+      {
+        key: "logic:1",
+        content:
+          'set(old_name); if (isset(old_name)) { print(m1); } set.view(o1, 1); get(i0); return; #message 1 "A brass key"',
+      },
+      { key: "view:1", content: (await import("../../test/studioAssistFixtures.ts")).DOT_EGO },
+      { key: "inventory", content: '[{"name":"Key","startingRoom":1}]' },
+    ]),
+    label: "Named code",
+    origin: "logic",
+    author: "creator",
+  });
+  const before = session.model.capture();
+  const payload = before.lastAdmissibleBuild!.files();
+  const names = [
+    { kind: "flag", id: 36, name: "key_found", rename: "old_name" },
+    { kind: "object", id: 1, name: "key_actor", rename: null },
+    { kind: "inventory", id: 0, name: "brass_key", rename: null },
+    { kind: "message", id: 1, name: "key_hint", rename: null },
+  ].map((item) => ({
+    ...item,
+    logic: item.kind === "message" ? 1 : null,
+    evidence: (item.kind === "flag" ? ["Changed", "Read"] : ["Used"]).map((role) => ({
+      logic: 1,
+      line: 1,
+      role,
+      text: String(before.read("logic:1")!.content),
+      nearbyMessages: ["A brass key"],
+    })),
+  }));
+  const namingResults: unknown[] = [];
+  const agent = createWorkspaceAgent({
+    session,
+    profileId: "2.936",
+    config: () => ({ provider: "stub", model: "stub", apiKey: "" }),
+    conversation: () => ({
+      setAvailableTools() {},
+      async sendUserMessage() {
+        return {
+          toolCalls: [
+            { id: "names", name: "propose_names", input: { names } },
+            {
+              id: "reserve",
+              name: "reserve_name",
+              input: { name: "extra_state", kind: "flag", id: 37, bindings: null },
+            },
+            {
+              id: "reuse",
+              name: "reserve_name",
+              input: { name: "key_found", kind: "flag", id: 36, bindings: null },
+            },
+          ],
+        };
+      },
+      appendToolResults(results) {
+        namingResults.push(...results);
+      },
+      async complete() {
+        return { text: "Named the key from its code.", toolCalls: [] };
+      },
+      getTranscript() {
+        return [];
+      },
+    }),
+  });
+  agent.autoApprove = true;
+  await agent.send("Name the key from its code", "");
+  assert.ok(agent.pending(), JSON.stringify(namingResults));
+  assert.ok(
+    String(
+      agent
+        .pending()!
+        .changes()
+        .find((c) => c.key === "bindings")?.content,
+    ).includes("brass_key"),
+  );
+  assert.deepEqual(
+    JSON.parse(
+      String(
+        agent
+          .pending()!
+          .changes()
+          .find((change) => change.key === "bindings")!.content,
+      ),
+    ).key_found.evidence,
+    names[0]!.evidence,
+    "reusing a reservation retains its reviewed evidence",
+  );
+  assert.equal(session.model.capture().documentId, before.documentId);
+  await agent.approve();
+  assert.deepEqual(session.model.capture().lastAdmissibleBuild!.files(), payload);
+  await session.undo();
+  assert.equal(session.model.capture().read("bindings")!.content, before.read("bindings")!.content);
+  session.dispose();
+});
+
+test("read-only agent inspects selected art and withdraw clears every pending edit", async () => {
+  const { BRIDGE_SOURCE } = await import("../../test/studioAssistFixtures.ts");
+  const { session } = fixture();
+  await session.submit({
+    proposal: session.model.propose(session.model.capture(), "Bridge", [
+      { key: "picture:1", content: BRIDGE_SOURCE },
+    ]),
+    label: "Bridge",
+    origin: "picture",
+    author: "creator",
+  });
+  const context =
+    "Current room 1\nSelection: PICTURE 1 · Bridge\nSelected item ids: bridge. Lens: depth.";
+  const agent = createWorkspaceAgent({
+    session,
+    profileId: "2.936",
+    config: () => ({ provider: "stub", model: "stub", apiKey: "" }),
+  });
+  await agent.ask("impossible: make the ceiling walkable", context);
+  assert.ok(
+    agent.current().transcript.some((entry) => JSON.stringify(entry).includes("selectionArea")),
+  );
+  assert.equal(agent.pending(), null);
+  await agent.send("withdraw: make this bridge walkable", context);
+  assert.equal(agent.pending(), null);
+  session.dispose();
+});
+
+test("selection context carries the live horizon and actor probe", async () => {
+  const { BRIDGE_SOURCE, DOT_EGO } = await import("../../test/studioAssistFixtures.ts");
+  const { session } = fixture();
+  await session.submit({
+    proposal: session.model.propose(session.model.capture(), "Bridge", [
+      { key: "picture:1", content: BRIDGE_SOURCE },
+      { key: "view:0", content: DOT_EGO },
+    ]),
+    label: "Bridge",
+    origin: "picture",
+    author: "creator",
+  });
+  const agent = createWorkspaceAgent({
+    session,
+    profileId: "2.936",
+    config: () => ({ provider: "stub", model: "stub", apiKey: "" }),
+    runtime: () => ({
+      engine: {
+        state: () => ({ room: 1, horizon: 112 }),
+        objects: () => [
+          { num: 0, view: 0, loop: 0, cel: 0, x: 64, y: 130, priority: 12, fixedPriority: false },
+        ],
+      },
+    }),
+  });
+  await agent.ask(
+    "impossible: change the selection",
+    "Current room 1\nSelection: PICTURE 1 · Bridge\nSelected item ids: bridge. Lens: depth.",
+  );
+  const result = agent
+    .current()
+    .transcript.flatMap((entry) => {
+      try {
+        return [
+          JSON.parse(String((entry as { text?: string }).text)) as {
+            result?: { details?: Record<string, unknown> };
+          },
+        ];
+      } catch {
+        return [];
+      }
+    })
+    .find((entry) => entry.result?.details?.["selectionArea"])?.result?.details;
+  assert.equal((result?.["walkable"] as { overall: number })?.overall, 55 * 160 - 356);
+  assert.equal((result?.["roomContext"] as { ghost?: { x: number } })?.ghost?.x, 64);
+  session.dispose();
+});
+
+test("selected VIEW edits share review, preserve other cels and Undo", async () => {
+  const { ROBOT_VIEW } = await import("../../test/studioAssistFixtures.ts");
+  const { parseView } = await import("../../src/view/view.ts");
+  const { session } = fixture();
+  await session.submit({
+    proposal: session.model.propose(session.model.capture(), "Robot", [
+      { key: "view:2", content: ROBOT_VIEW },
+    ]),
+    label: "Robot",
+    origin: "view",
+    author: "creator",
+  });
+  const agent = createWorkspaceAgent({
+    session,
+    profileId: "2.936",
+    config: () => ({ provider: "stub", model: "stub", apiKey: "" }),
+  });
+  await agent.send(
+    "Make the eyes blue",
+    "Current room 1\nSelection: VIEW 2 · Robot\nSelected VIEW 2, loop 1, cel 0.",
+  );
+  const change = agent
+    .pending()
+    ?.changes()
+    .find((change) => change.key === "view:2");
+  assert.ok(change, JSON.stringify(agent.current().transcript));
+  const result = parseView(change.content as Uint8Array);
+  assert.deepEqual(
+    result.loops[0]!.cels[1]!.pixels,
+    parseView(ROBOT_VIEW).loops[0]!.cels[1]!.pixels,
+  );
+  await agent.approve();
+  await session.undo();
+  assert.deepEqual(session.model.capture().read("view:2")!.content, ROBOT_VIEW);
+  session.dispose();
+});
+
+test("selected art carries reference handles and thumbnails once, then reuses the transcript", async () => {
+  const { BRIDGE_SOURCE } = await import("../../test/studioAssistFixtures.ts");
+  const { session } = fixture();
+  await session.submit({
+    proposal: session.model.propose(session.model.capture(), "Bridge", [
+      { key: "picture:1", content: BRIDGE_SOURCE },
+    ]),
+    label: "Bridge",
+    origin: "picture",
+    author: "creator",
+  });
+  let attached = true;
+  const agent = createWorkspaceAgent({
+    session,
+    profileId: "2.936",
+    config: () => ({ provider: "stub", model: "stub", apiKey: "" }),
+    runtime: () => ({
+      referenceArt: async () => ({
+        art: [
+          {
+            id: "art-0123456789",
+            label: "Bridge reference",
+            target: { kind: "room", num: 1 },
+            note: "",
+            attached,
+            pixels: () => ({ width: 1, height: 1, rgba: new Uint8Array([0, 0, 170, 255]) }),
+          },
+        ],
+      }),
+    }),
+  });
+  const context =
+    "Current room 1\nSelection: PICTURE 1 · Bridge\nSelected item ids: bridge. Lens: depth.";
+  await agent.send("Match the reference", context);
+  assert.match(
+    agent.current().messages.at(-1)!.text,
+    /I viewed art-0123456789.*one image \(72x72\)/,
+  );
+  const first = agent.current().transcript;
+  attached = false;
+  await agent.send("Match the reference", context);
+  assert.deepEqual(agent.current().transcript.slice(0, first.length), first);
+  const lastRequest = agent
+    .current()
+    .transcript.findLast((entry) => (entry as { role?: string }).role === "user") as {
+    text: string;
+    images: unknown[];
+  };
+  assert.equal(lastRequest.images.length, 0);
+  assert.ok(!lastRequest.text.includes("### REFERENCE ART"));
+  session.dispose();
+});
+
+test("the agent creates a Launch from a request, proposed for review with one Undo", async () => {
+  const { session } = fixture();
+  const capture = session.model.capture();
+  await session.submit({
+    proposal: session.model.propose(capture, "Add room 8", [
+      { key: "logic:8", content: "return;" },
+      { key: "picture:8", content: "vis 1\nfill 0,0\nend\n" },
+    ]),
+    label: "Add room 8",
+    origin: "logic",
+    author: "creator",
+  });
+  const agent = createWorkspaceAgent({
+    session,
+    profileId: "2.936",
+    config: () => ({ provider: "stub", model: "stub", apiKey: "" }),
+  });
+
+  await agent.send("make a launch for the vacuum death in Room 8", "Current room 8");
+  const pending = agent.pending();
+  assert.ok(pending, "a proposal is held for review");
+  const changes = pending.changes();
+  const worldChange = changes.find((change) => change.key === "world");
+  assert.ok(worldChange, "the proposal changes the world document");
+  const world = JSON.parse(String(worldChange.content));
+  assert.ok(world.launches?.["8"], "room 8 has launches");
+  const launch = world.launches["8"].entries[0];
+  assert.equal(launch.name, "Vacuum death");
+  assert.deepEqual(launch.cameFrom, { room: 7, edge: 4 });
+  assert.deepEqual(launch.flags, { "77": true });
+  assert.deepEqual(launch.variables, { "90": 123 });
+
+  // Approve the proposal
+  await agent.approve();
+  const committedContent = session.model.capture().read("world")?.content;
+  assert.ok(committedContent, "world document is committed");
+  const committedWorld = JSON.parse(String(committedContent));
+  assert.equal(committedWorld.launches?.["8"]?.entries[0]?.name, "Vacuum death");
+
+  // One Undo removes the launch
+  await session.undo();
+  const undoneContent = session.model.capture().read("world")?.content;
+  const undoneWorld = undoneContent ? JSON.parse(String(undoneContent)) : undefined;
+  assert.equal(undoneWorld?.launches?.["8"], undefined, "one Undo removes the launched state");
+
   session.dispose();
 });

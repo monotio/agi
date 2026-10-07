@@ -7,11 +7,13 @@ import { parseWordsTok } from "../../../../src/logic/words.ts";
 import { nextWordGroup } from "./wordGroups.ts";
 import {
   prepareGuidedAddRoom,
+  prepareGuidedBoilerplate,
   prepareGuidedPlaceHero,
   prepareGuidedRespondToCommand,
   prepareGuidedConnectDoor,
   prepareGuidedPlaySound,
 } from "../../../../src/authoring/guidedProject.ts";
+import type { BoilerplatePart } from "../../../../src/authoring/boilerplateParts.ts";
 
 export type WorkspaceAction =
   | { kind: "add-room"; title: string }
@@ -35,7 +37,8 @@ export type WorkspaceAction =
       y2: number;
       arrival?: { x: number; y: number };
     }
-  | { kind: "play-sound"; room: number; sound: number; command: string; preset?: string };
+  | { kind: "play-sound"; room: number; sound: number; command: string; preset?: string }
+  | { kind: "boilerplate"; part: BoilerplatePart };
 
 /** Guided kernels prepare detached changes; ProjectSession owns their admission and History. */
 export function prepareWorkspaceAction(
@@ -116,6 +119,8 @@ export function prepareWorkspaceAction(
         box: action,
         ...(action.arrival ? { arrival: action.arrival } : {}),
       });
+    case "boilerplate":
+      return prepareGuidedBoilerplate(context, { part: action.part });
     case "play-sound": {
       let sound = action.sound;
       const documents = snapshot.documents();

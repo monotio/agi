@@ -584,8 +584,8 @@ test("a real resume stays pending until the worker's own restored:true, then rep
   // snapshot replaces the resumed checkpoint under the same physical key.
   assert.equal(port.wctx !== null, true);
   const ctx = port.wctx!;
-  for (let i = 0; i < 8 && !ctx.engine!.autosaveImage(); i++) ctx.engine!.tick();
-  ctx.cycle.cycleCount = 8;
+  for (let i = 0; i < 8 && !ctx.run.engine!.autosaveImage(); i++) ctx.run.engine!.tick();
+  ctx.run.cycle.cycleCount = 8;
   assert.equal(ctx.fns.autosave(true), true, "the live worker emits a real autosave");
   port.deliver();
   assert.equal(await h.controller.getAutosaveWrite(), true);
@@ -891,8 +891,8 @@ test("an earlier checkpoint opens into its selected destination and preserves so
   // The old destination checkpoint stands until the live engine's own
   // autosave replaces it.
   const ctx = port.wctx!;
-  for (let i = 0; i < 8 && !ctx.engine!.autosaveImage(); i++) ctx.engine!.tick();
-  ctx.cycle.cycleCount = 8;
+  for (let i = 0; i < 8 && !ctx.run.engine!.autosaveImage(); i++) ctx.run.engine!.tick();
+  ctx.run.cycle.cycleCount = 8;
   assert.equal(ctx.fns.autosave(true), true);
   port.deliver();
   assert.equal(await h.controller.getAutosaveWrite(), true);
@@ -1756,7 +1756,7 @@ test("qualified unchanged saved opening installs its real native game", async (t
   worker.deliver();
   assert.equal(h.state.phase, "running");
   assert.equal(h.lifecycle.getBootedGame()?.progressTarget?.locator, saved.target.locator);
-  const engine = worker.wctx?.engine;
+  const engine = worker.wctx?.run.engine;
   assert.ok(engine, "qualified boot created a real Engine");
   // This recording port parks cycle scheduling; drive the real opening pass.
   for (let i = 0; i < 8 && engine.readState().room === 0; i++) engine.tick();

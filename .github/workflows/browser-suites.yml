@@ -30,13 +30,15 @@ jobs:
     timeout-minutes: ${{ inputs.repeat > 1 && 45 || 15 }}
     strategy:
       fail-fast: false
-      # At most 19 jobs including quality, production and one PR burn-in job.
+      # At most 20 jobs including quality, production and one PR burn-in job.
       max-parallel: 15
       matrix:
         include:
           - { browser: chromium, index: perf, label: timing budgets }
           - { browser: chromium, index: benchmark, label: storage benchmark }
-          - { browser: webkit, index: phone, label: webkit phone }
+          - { browser: webkit, index: phone-1, phone: 1, label: webkit phone 1/3 }
+          - { browser: webkit, index: phone-2, phone: 2, label: webkit phone 2/3 }
+          - { browser: webkit, index: phone-3, phone: 3, label: webkit phone 3/3 }
           - { browser: chromium, index: 1, label: chromium 1/10 }
           - { browser: chromium, index: 2, label: chromium 2/10 }
           - { browser: chromium, index: 3, label: chromium 3/10 }
@@ -47,9 +49,10 @@ jobs:
           - { browser: chromium, index: 8, label: chromium 8/10 }
           - { browser: chromium, index: 9, label: chromium 9/10 }
           - { browser: chromium, index: 10, label: chromium 10/10 }
-          - { browser: webkit, index: desktop-1, shard: 1, label: webkit desktop 1/3 }
-          - { browser: webkit, index: desktop-2, shard: 2, label: webkit desktop 2/3 }
-          - { browser: webkit, index: desktop-3, shard: 3, label: webkit desktop 3/3 }
+          - { browser: webkit, index: desktop-1, shard: 1, label: webkit desktop 1/4 }
+          - { browser: webkit, index: desktop-2, shard: 2, label: webkit desktop 2/4 }
+          - { browser: webkit, index: desktop-3, shard: 3, label: webkit desktop 3/4 }
+          - { browser: webkit, index: desktop-4, shard: 4, label: webkit desktop 4/4 }
     env:
       CI: "1"
       PLAYWRIGHT_JSON_OUTPUT_FILE: test-results/ci-reports/${{ matrix.browser }}-${{ matrix.index }}.json
@@ -77,16 +80,17 @@ jobs:
           REPEAT: ${{ inputs.repeat }}
         run: python3 scripts/ci/tools.py isolated --repeat "$REPEAT" --report app/test-results/ci-reports/chromium-benchmark.json
       - name: WebKit phone
-        if: matrix.index == 'phone'
+        if: matrix.phone != ''
         env:
           REPEAT: ${{ inputs.repeat }}
-        run: npm --prefix app run e2e:phone -- --project=iphone-webkit --repeat-each="$REPEAT" --reporter=list,json
+          INDEX: ${{ matrix.phone }}
+        run: npm --prefix app run e2e:phone -- --project=iphone-webkit --shard="$INDEX/3" --repeat-each="$REPEAT" --reporter=list,json
       - name: WebKit desktop
         if: matrix.shard != '' && matrix.browser == 'webkit'
         env:
           REPEAT: ${{ inputs.repeat }}
           INDEX: ${{ matrix.shard }}
-        run: python3 scripts/ci/tools.py shard --suite webkit --index "$INDEX" --count 3 --repeat "$REPEAT" --report "app/test-results/ci-reports/webkit-desktop-$INDEX.json"
+        run: python3 scripts/ci/tools.py shard --suite webkit --index "$INDEX" --count 4 --repeat "$REPEAT" --report "app/test-results/ci-reports/webkit-desktop-$INDEX.json"
       - if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:

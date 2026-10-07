@@ -26,18 +26,21 @@ test("admitted requests keep the model output ceiling across remaining allowance
   }
 });
 
-test("a productive output reserve pauses before spending the last cents", async () => {
+test("a small budget sends a request and pauses only after actual usage reaches it", async () => {
   const run = new AgentRun("gpt-6-sol", () => {}, 0.2);
   let sends = 0;
-  const work = run.run(() => run.request(async () => ++sends));
+  const work = run.run(() =>
+    run.request(async () => {
+      sends++;
+      run.recordUsage({ input: 0, output: 20_000, cachedInput: 0, cacheWriteInput: 0 });
+    }),
+  );
   await settle();
-  const paused = run.snapshot();
-  run.cancel();
-  await work.catch(() => {});
-  assert.equal(paused.status, "paused");
-  assert.match(paused.reason, /Budget/);
-  assert.match(paused.reason, /productive request/);
-  assert.equal(sends, 0);
+  assert.equal(sends, 1);
+  assert.equal(run.snapshot().status, "paused");
+  assert.match(run.snapshot().reason, /Budget reached/);
+  run.resume();
+  await work;
 });
 
 for (const change of ["revision", "image", "audio"] as const) {
@@ -78,17 +81,12 @@ for (const change of ["revision", "image", "audio"] as const) {
   });
 }
 
-test("unpriced models require an explicit request allowance before a paid request", async () => {
+test("unpriced models send without inventing spend or reserving a budget", async () => {
   const run = new AgentRun("unpriced", () => {});
-  let sends = 0;
-  const work = run.run(() => run.request(async () => ++sends));
-  await settle();
-  const paused = run.snapshot();
-  run.cancel();
-  await work.catch(() => {});
-  assert.equal(paused.status, "paused");
-  assert.equal(paused.reason, "Choose how many requests to allow, then Continue.");
-  assert.equal(sends, 0);
+  await run.run(() => run.request(async () => "sent"));
+  assert.equal(run.snapshot().requests, 1);
+  assert.equal(run.snapshot().spent, 0);
+  assert.equal(run.snapshot().priceKnown, false);
 });
 
 for (const provider of ["openai", "anthropic"] as const) {
@@ -172,40 +170,6 @@ for (const provider of ["openai", "anthropic"] as const) {
     }
   });
 }
-
-test("resuming a small allowance still waits until a productive request fits", async () => {
-  const run = new AgentRun("gpt-6-sol", () => {}, 0.1);
-  let sends = 0;
-  const work = run.run(() => run.request(async () => ++sends));
-  await settle();
-  run.resume();
-  await settle();
-  const state = run.snapshot();
-  run.cancel();
-  await work.catch(() => {});
-  assert.equal(sends, 0);
-  assert.equal(state.status, "paused");
-});
-
-test("an unpriced task consumes exactly the user's request allowance", async () => {
-  const run = new AgentRun("unpriced", () => {});
-  let sends = 0;
-  const work = run.run(async () => {
-    for (let i = 0; i < 3; i++) await run.request(async () => ++sends);
-  });
-  await settle();
-  run.resume();
-  await settle();
-  assert.equal(sends, 0, "Continue needs an explicit positive request limit");
-  run.resume(2);
-  await settle();
-  const state = run.snapshot();
-  run.cancel();
-  await work.catch(() => {});
-  assert.equal(sends, 2);
-  assert.equal(state.status, "paused");
-  assert.match(state.reason, /Choose how many requests/);
-});
 
 test("a final Anthropic refusal ends the active task with a distinct cause", async (t) => {
   t.mock.method(

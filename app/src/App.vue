@@ -7,8 +7,8 @@ import { createCommandRegistry } from "./shell/commands/commandRegistry.ts";
 import { emptyCommandContext, provideCommands } from "./shell/commands/commandContext.ts";
 import UiButton from "./ui/UiButton.vue";
 import UiDialog from "./ui/UiDialog.vue";
-import UiChip from "./ui/UiChip.vue";
 import UiToast from "./ui/UiToast.vue";
+import UiChip from "./ui/UiChip.vue";
 import {
   computed,
   defineAsyncComponent,
@@ -39,17 +39,19 @@ import { createShell, provideShell } from "./shell/useShell.ts";
 import { isGameRoute, parseGameHash } from "./shell/shellRoute.ts";
 import { createCreateWorkspace, provideCreateWorkspace } from "./shell/useCreateWorkspace.ts";
 import { useCreateMode } from "./shell/useCreateMode.ts";
-import { usePlayHereFromStudio } from "./shell/usePlayHere.ts";
 import { createInspector, provideInspector } from "./inspector/useInspector.ts";
 import { referenceUpload } from "./references/referenceUploadState.ts";
 
 const AgentLogPanel = defineAsyncComponent(() => import("./authoring/AgentLogPanel.vue"));
+const RoomGenerationOverlay = defineAsyncComponent(
+  () => import("./authoring/RoomGenerationOverlay.vue"),
+);
 const AgentBubble = defineAsyncComponent(() => import("./authoring/AgentBubble.vue"));
 const AiSettingsDialog = defineAsyncComponent(() => import("./settings/AiSettings.vue"));
 const SoundPreview = defineAsyncComponent(() => import("./authoring/SoundPreview.vue"));
 const PlayArea = defineAsyncComponent(() => import("./play/PlayArea.vue"));
 const ReferenceUpload = defineAsyncComponent(() => import("./references/ReferenceUpload.vue"));
-const AgentPanel = defineAsyncComponent(() => import("./agent/AgentPanel.vue"));
+const AgentDrawer = defineAsyncComponent(() => import("./agent/AgentDrawer.vue"));
 const ProjectRestartNotice = defineAsyncComponent(
   () => import("./project/ProjectRestartNotice.vue"),
 );
@@ -174,21 +176,12 @@ const { exportBusy, exportRefusal } = lib;
 /** A phone held upright: Create is one view-only sheet instead of two docks. */
 const phone = computed(() => touchControls.value && viewport.value.height >= viewport.value.width);
 const workspacePhone = computed(() => viewport.value.width <= 600);
-/**
- * Room Studio needs a larger screen than the phone layouts give it: the touch
- * portrait and short-landscape layouts, and any window as narrow as a phone.
- */
-const studioFits = computed(() => {
-  const { width, height } = viewport.value;
-  return width > 600 && !(touchControls.value && (height >= width || height <= 600));
-});
-/** The Create docks' tabs and folds, and the centre's Studio (shell/useCreateWorkspace.ts). */
+const workspaceEditor = createWorkspaceEditor(engine);
+provideWorkspaceEditor(workspaceEditor);
+/** The Create docks' tabs and folds (shell/useCreateWorkspace.ts). */
 const workspace = createCreateWorkspace({
-  pauseEngine: () => {},
-  resumeEngine: () => {},
-  focusGame: () => shellBridge.focusGameInput(),
+  panelDock: (id) => workspaceEditor.panelDock(id),
   viewOnly: () => phone.value,
-  studioFits: () => studioFits.value,
 });
 provideCreateWorkspace(workspace);
 /** Play or Create for the loaded game; the URL names both (shell/shellRoute.ts). */
@@ -220,8 +213,6 @@ const commands = createCommandRegistry(
   () => createKeyboard.value?.context() ?? emptyCommandContext(),
 );
 provideCommands(commands);
-const workspaceEditor = createWorkspaceEditor(engine);
-provideWorkspaceEditor(workspaceEditor);
 async function exportWorkspaceGame(project: boolean): Promise<void> {
   try {
     await lib.onExportAgiZip(true, project);
@@ -229,30 +220,12 @@ async function exportWorkspaceGame(project: boolean): Promise<void> {
     exportRefusal.value = cause instanceof Error ? cause.message : String(cause);
   }
 }
-watch(workspace.studio, (request) => {
-  if (!request) return;
-  const key =
-    request.kind === "picture" ? `picture:${request.pictureNumber}` : `view:${request.viewNumber}`;
-  workspaceEditor.studioRequests.value = {
-    ...workspaceEditor.studioRequests.value,
-    [key]: request,
-  };
-  workspaceEditor.open(key);
-  workspace.closeStudio();
-});
 watch(
   () => state.phase,
   (phase) => {
     if (phase === "idle") workspaceEditor.reset();
   },
 );
-const sheetOpen = workspace.sheetOpen;
-/** Room Studio's Play here: leave Studio, show Play, jump the game to the spot. */
-const playHereFromStudio = usePlayHereFromStudio({
-  closeStudio: () => workspace.closeStudio(),
-  showPlay: () => shell.setMode("play"),
-  playHere: (target) => engine.playHere(target),
-});
 const { onDockKey } = useCreateMode({
   state,
   workspace,
@@ -272,10 +245,6 @@ const { onKeydown: onGlobalKeydown, onKeyup: onGlobalKeyup } = useGameKeys({
     (creating.value &&
       (createKeyboard.value?.blocksGame(ev) ?? ev.target !== playArea.value?.inputEl)),
 });
-/** The stored-project studios' keyup gets the same isolation as its keydown. */
-function onShellKeyup(ev: KeyboardEvent): void {
-  onGlobalKeyup(ev);
-}
 /**
  * Developer activity is off the page everywhere: Settings → Advanced opens
  * it as a dialog.
@@ -284,37 +253,53 @@ const activitySheetOpen = ref(false);
 function openDeveloperActivity(): void {
   activitySheetOpen.value = true;
 }
-const assistantShown = computed(() =>
-  phone.value
-    ? sheetOpen.value && workspace.active.sheet === "assistant"
-    : workspace.active.right === "assistant" && !workspace.collapsed.right,
-);
-
-watch(shell.mode, (mode) => {
-  engine.setProjectMode(mode);
+async function restartPlay(): Promise<void> {
+  if (await engine.setProjectMode("play", true)) shell.setMode("play");
+}
+let modeChange = 0;
+let claimKeyboard = false;
+let modeKeyboard = false;
+watch(shell.mode, async (mode, previous) => {
+  const change = ++modeChange;
   releaseMovement();
-  // The switch keeps focus otherwise, and a focused control swallows game keys.
-  if (mode === "play" && !state.powerUp.open && !touchControls.value)
-    nextTick(() => playArea.value?.focusInput());
+  if (!(await engine.setProjectMode(mode))) {
+    if (change === modeChange) shell.setMode(previous);
+    return;
+  }
+  if (change !== modeChange) return;
+  // A cold return enables input when its opening LOGIC finishes.
+  if (mode === "play" && !state.powerUp.open && !touchControls.value) {
+    claimKeyboard = !state.inputReady;
+    modeKeyboard = claimKeyboard;
+    if (!claimKeyboard) nextTick(() => playArea.value?.focusInput());
+  }
 });
 // A game that starts from the keyboard (Enter on a Play button) takes the
 // keyboard once its input line first accepts text: the button that had
 // focus left with the menu. Focus another control or a dialog holds (the
 // profile picker, AI settings) stays where it is.
-let claimKeyboard = false;
 watch(
   () => [state.phase, state.inputReady] as const,
   ([phase, ready], previous) => {
     if (phase !== "running") {
       claimKeyboard = false;
+      modeKeyboard = false;
       return;
     }
     if (previous?.[0] !== "running") claimKeyboard = !touchControls.value;
     if (!claimKeyboard || !ready) return;
     claimKeyboard = false;
+    const fromMode = modeKeyboard;
+    modeKeyboard = false;
     void nextTick(() => {
       const focused = document.activeElement;
-      if (state.walkthrough.active || (focused && focused !== document.body)) return;
+      if (
+        state.walkthrough.active ||
+        (focused &&
+          focused !== document.body &&
+          !(fromMode && focused.closest('[role="radiogroup"][aria-label="Mode"]')))
+      )
+        return;
       playArea.value?.focusInput();
     });
   },
@@ -346,13 +331,12 @@ async function onPopState(): Promise<void> {
 }
 
 async function onStartWalkthrough(targetGame: string): Promise<void> {
-  if (!(await workspace.confirmStudioLeave())) return;
   await resumeAudio();
   clearPlayHash();
   await startWalkthrough(targetGame);
 }
 shellBridge.startWalkthrough = (target) => void onStartWalkthrough(target);
-async function openProjectPart(projectId: ProjectId, family: "logic" | "sound"): Promise<void> {
+async function openLogicProject(projectId: ProjectId): Promise<void> {
   engine.setProjectMode("create");
   if (engine.currentGame()?.projectId !== projectId) {
     const stored = lib.savedGames.value.find((game) => game.projectId === projectId);
@@ -366,16 +350,13 @@ async function openProjectPart(projectId: ProjectId, family: "logic" | "sound"):
   const { inspectEditableProject } = await import("./project/projectWorkspaceSource.ts");
   const keys = data
     ? Object.keys(inspectEditableProject(data).documents)
-        .filter((key) => key.startsWith(`${family}:`))
+        .filter((key) => key.startsWith("logic:"))
         .sort((a, b) => Number(a.split(":")[1]) - Number(b.split(":")[1]))
     : [];
-  workspaceEditor.open(keys.includes(`${family}:1`) ? `${family}:1` : (keys[0] ?? `${family}:1`));
+  workspaceEditor.open(keys.includes("logic:1") ? "logic:1" : (keys[0] ?? "logic:1"));
 }
 shellBridge.openLogicProject = (id) => {
-  void openProjectPart(id, "logic");
-};
-shellBridge.openSoundProject = (id) => {
-  void openProjectPart(id, "sound");
+  void openLogicProject(id);
 };
 
 const WATCH_HASH_PREFIX = "#watch/";
@@ -443,11 +424,6 @@ function clearPlayHash(): void {
 const latestAgentAudio = computed(
   () => [...state.agentLog].reverse().find((entry) => entry.audio?.length)?.audio ?? [],
 );
-const workspaceAgentAvailable = computed(() => {
-  void state.patchTick;
-  return creating.value && engine.getProjectSession() !== null;
-});
-
 function releaseMovement(): void {
   playArea.value?.releaseMovement();
 }
@@ -530,13 +506,14 @@ if (import.meta.hot) {
 // Resolve a game link before Home starts previews of unrelated library cards.
 const initialRoutePending = ref(parseGameHash(location.hash) !== null);
 async function mountApplication(): Promise<void> {
+  const initialHash = location.hash;
   // An unreadable game route can never resume: drop it before anything waits.
   if (isGameRoute(location.hash) && !parseGameHash(location.hash)) clearPlayHash();
   window.addEventListener("blur", releaseMovement);
   window.visualViewport?.addEventListener("resize", resizeViewport);
   window.addEventListener("resize", resizeViewport);
   window.addEventListener("keydown", onGlobalKeydown);
-  window.addEventListener("keyup", onShellKeyup);
+  window.addEventListener("keyup", onGlobalKeyup);
   window.addEventListener("hashchange", onMenuHashChange);
   window.addEventListener("popstate", onPopState);
   document.addEventListener("visibilitychange", onPageHidden);
@@ -551,6 +528,8 @@ async function mountApplication(): Promise<void> {
   lib.mountCatalog();
   onMenuHashChange();
   await discoverGames();
+  // Startup may finish after the player has opened a game from Home.
+  if (state.phase !== "idle" || location.hash !== initialHash) return;
   // Nobody loses progress to a reload: while a game runs the URL names it
   // (`#play/<aliasOrProjectId>`), and only a reload carrying that hash boots straight back
   // into the autosave. A reload from the picker lands on the picker, which
@@ -650,7 +629,7 @@ onUnmounted(() => {
   window.removeEventListener("resize", resizeViewport);
   presentation.dispose();
   window.removeEventListener("keydown", onGlobalKeydown);
-  window.removeEventListener("keyup", onShellKeyup);
+  window.removeEventListener("keyup", onGlobalKeyup);
   window.removeEventListener("hashchange", onMenuHashChange);
   window.removeEventListener("popstate", onPopState);
   document.removeEventListener("visibilitychange", onPageHidden);
@@ -703,7 +682,7 @@ watch(
       'layout-portrait': viewport.height >= viewport.width,
       'layout-landscape-short': viewport.width > viewport.height && viewport.height <= 600,
       'original-aspect': originalAspect,
-      'studio-open': creating && workspaceEditor.focus.value,
+      'workspace-focus': creating && workspaceEditor.focus.value,
     }"
     :style="{ '--layout-height': `${viewport.height}px` }"
   >
@@ -755,19 +734,18 @@ watch(
         :style="
           creating
             ? {
-                '--workspace-game': `minmax(0, ${workspaceEditor.effectiveSplit.value}fr)`,
-                '--workspace-edit': `minmax(0, ${100 - workspaceEditor.effectiveSplit.value}fr)`,
+                '--workspace-game': `minmax(var(--workspace-game-min), ${workspaceEditor.effectiveSplit.value}fr)`,
+                '--workspace-edit': `minmax(var(--workspace-edit-min), ${100 - workspaceEditor.effectiveSplit.value}fr)`,
               }
             : undefined
         "
         :class="{
           'shell-body--create': creating,
           'shell-body--workspace': creating,
-          'shell-body--agent': creating && state.powerUp.open && !workspaceEditor.focus.value,
           'shell-body--no-editor': creating && !workspaceEditor.selected.value,
           'shell-body--logic': creating && workspaceEditor.kind.value === 'logic',
           'shell-body--sound': creating && workspaceEditor.kind.value === 'sound',
-          'shell-body--stacked': creating && workspaceEditor.splitAxis.value === 'vertical',
+          'shell-body--stacked': creating && workspaceEditor.stackedLayout.value,
           'shell-body--focus':
             creating && workspaceEditor.focus.value && !!workspaceEditor.selected.value,
           'shell-body--sheet': creating && phone,
@@ -787,11 +765,8 @@ watch(
           v-if="state.phase === 'running'"
           v-show="
             !creating ||
-            (!workspaceEditor.stagePaused.value &&
-              (!workspaceEditor.selected.value ||
-                (workspacePhone
-                  ? workspaceEditor.phonePlaytest.value
-                  : !workspaceEditor.focus.value)))
+            !workspaceEditor.selected.value ||
+            (workspacePhone ? workspaceEditor.phonePlaytest.value : !workspaceEditor.focus.value)
           "
           ref="playArea"
           :touch-controls="touchControls"
@@ -799,24 +774,12 @@ watch(
           :original-aspect="originalAspect"
           :inspector-docked="creating"
         >
+          <template #room-generation>
+            <RoomGenerationOverlay v-if="state.roomGeneration" />
+          </template>
           <template #stage-actions>
-            <UiToast
-              v-if="playHereFromStudio.note.value"
-              tone="warn"
-              dismissible
-              data-testid="play-here-note"
-              @dismiss="playHereFromStudio.dismiss()"
-            >
-              {{ playHereFromStudio.note.value }}
-            </UiToast>
             <UiChip
-              v-if="creating && workspaceEditor.debugStatus.value"
-              tone="warn"
-              data-testid="workspace-debug-status"
-              >{{ workspaceEditor.debugStatus.value }}</UiChip
-            >
-            <UiChip
-              v-else-if="creating"
+              v-if="creating"
               :tone="workspaceEditor.pendingAdmission.value ? 'warn' : 'ok'"
               dot
               data-testid="workspace-live"
@@ -834,6 +797,17 @@ watch(
           </template>
           <template #screen-notes>
             <StartOverNote />
+            <UiToast v-if="state.entryProblem" tone="warn" data-testid="entry-notice">
+              {{ state.entryProblem }}
+            </UiToast>
+            <UiToast v-if="state.otherTab" tone="warn" data-testid="other-tab-notice">
+              <span>This game is open in another tab.</span>
+              <UiButton size="sm" @click="engine.takePlayBack()">Take back</UiButton>
+            </UiToast>
+            <UiToast v-if="state.returnProblem" tone="warn" data-testid="return-notice">
+              <span>{{ state.returnProblem }}</span>
+              <UiButton size="sm" @click="restartPlay">Restart</UiButton>
+            </UiToast>
           </template>
           <template #strip-actions>
             <UiButton
@@ -857,20 +831,20 @@ watch(
           </template>
         </PlayArea>
         <aside
-          v-show="!creating || state.powerUp.open"
+          v-show="!creating && state.powerUp.open"
           class="shell-side"
-          :class="{ 'shell-side--sheet': creating && phone, 'shell-side--open': sheetOpen }"
           aria-label="Agent"
           data-shell-keys
         >
-          <div v-show="!creating || assistantShown" class="assistant-host">
-            <!-- Mounted through the turn, so it sees the panel open and close. -->
-            <AgentPanel v-if="workspaceAgentAvailable && state.powerUp.open" />
-            <AgentBubble v-else-if="state.powerUp.open" surface="drawer" />
+          <div class="assistant-host">
+            <AgentBubble v-if="!creating && state.powerUp.open" surface="drawer" />
           </div>
         </aside>
       </div>
     </div>
+
+    <!-- The agent drawer overlays the workspace; it never takes a column. -->
+    <AgentDrawer />
 
     <AiSettingsDialog
       v-if="ai.dialogRequested.value"
@@ -891,7 +865,7 @@ watch(
       :unsupported-project="unsupportedRouteProject"
     />
 
-    <!-- Below the fold: while Studio holds the page still they wait hidden,
+    <!-- Below the fold: while Focus holds the page still they wait hidden,
          out of Tab's reach. -->
     <SoundPreview
       v-if="!state.powerUp.open && latestAgentAudio.length"

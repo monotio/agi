@@ -33,9 +33,7 @@ async function upload(page: Page) {
   });
   await expect(page.getByTestId("trace-opacity")).toBeVisible();
   await expect(
-    page
-      .getByTestId("image-reference")
-      .getByRole("button", { name: "Bring in an image", exact: true }),
+    page.getByTestId("image-reference").getByRole("button", { name: "Import image", exact: true }),
   ).toBeEnabled();
   await workspaceUpdated(page);
   if (page.viewportSize()!.width <= 600) {
@@ -68,7 +66,14 @@ for (const width of [1063, 1440, 390]) {
     await start(page, width);
     await picture(page);
     const studio = page.getByTestId("room-studio");
-    await studio.getByRole("radio", { name: "Walk", exact: true }).click();
+    await studio
+      .getByRole("radiogroup", { name: "Lens", exact: true })
+      .getByRole("radio", { name: "Priority", exact: true })
+      .click();
+    await studio
+      .getByRole("radiogroup", { name: "Side panel", exact: true })
+      .getByRole("radio", { name: "Inspector", exact: true })
+      .click();
     await studio.locator('[data-role="test-walk"] button').first().click();
     for (const x of [80, 100]) {
       const box = (await studio.locator(".studio-pane").last().boundingBox())!;
@@ -84,11 +89,12 @@ for (const width of [1063, 1440, 390]) {
     await shot(page, `walk-cleared-${width}`);
   });
 }
-test("Rename lives in a keyboard reachable row menu", async ({ page }) => {
+test("Rename lives in a keyboard reachable row menu @webkit-desktop", async ({ page }) => {
   await start(page);
   const row = page.getByTestId("part-room:1:picture:1").locator("..");
   const menu = row.getByLabel("Actions for clearing_pic", { exact: true });
-  const rename = row.getByRole("button", { name: /Rename/ });
+  const popup = page.getByRole("menu", { name: "Actions for clearing_pic", exact: true });
+  const rename = popup.getByRole("menuitem", { name: "Rename clearing_pic", exact: true });
   await expect(rename).toBeHidden();
   await page.getByTestId("part-room:1:picture:1").focus();
   await page.keyboard.press("Tab");
@@ -96,25 +102,45 @@ test("Rename lives in a keyboard reachable row menu", async ({ page }) => {
   await expect(menu).toBeFocused();
   await menu.press("Enter");
   await expect(rename).toBeVisible();
-  await page.keyboard.press("Tab");
   await expect(rename).toBeFocused();
-  await rename.click();
-  await expect(page.getByTestId("binding-details")).toBeVisible();
+  await page.keyboard.press("ArrowDown");
+  await expect(popup.getByRole("menuitem", { name: "Find references", exact: true })).toBeFocused();
+  await page.keyboard.press("ArrowUp");
+  await expect(rename).toBeFocused();
+  await page.keyboard.press("Enter");
+  // The name turns into a field on its own row.
+  const field = page
+    .getByTestId("parts-list")
+    .getByRole("textbox", { name: "New name for clearing_pic", exact: true });
+  await expect(field).toBeFocused();
+  await expect(page.getByTestId("binding-details")).toHaveCount(0);
 });
-test("unused game state says nowhere yet", async ({ page }) => {
+test("game state usage lives in the revealed entry", async ({ page }) => {
   await start(page);
   const row = page
     .getByTestId("parts-list")
     .getByRole("button", { name: "chime_done Flag 204", exact: true })
     .locator("..");
   await expect(row).toBeVisible();
-  await expect(row).toContainText("Checked: nowhere yet");
-  await expect(row).toContainText("Set: LOGIC 1");
+  await expect(row).not.toContainText("Read:");
+  await expect(row).not.toContainText("Changed:");
+  await row.getByLabel("Actions for chime_done", { exact: true }).click();
+  await page.getByRole("menuitem", { name: "Find references", exact: true }).click();
+  const details = page.getByTestId("binding-details");
+  await expect(details).toBeVisible();
+  await expect(page.getByTestId("state-flag-204")).toBeFocused();
+  await expect(details).toContainText("Changed · first_room · LOGIC 1");
 });
 for (const width of [1063, 1440])
-  test(`Items has room for eight rows at ${width}`, async ({ page }) => {
+  test(`Items has room for eight rows Side by side at ${width} @webkit-desktop`, async ({
+    page,
+  }) => {
     await start(page, width);
     await picture(page);
+    const layout = page.getByTestId("workspace-layout");
+    await expect(layout).toBeVisible();
+    await layout.click();
+    await expect(layout).toHaveAttribute("aria-pressed", "true");
     const scene = page.getByTestId("studio-scene");
     const row = scene.locator('[role="treeitem"][data-row]').first();
     await expect(scene).toBeVisible();

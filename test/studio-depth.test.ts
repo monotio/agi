@@ -85,6 +85,129 @@ it("stands a filled bush up with exact pixels, bounded bytes and ghost occlusion
   assert.equal(probe(stood, 12, 60).hiddenMask[at(12, 59)], 0);
 });
 
+it("stands in the room: the base band plus a wall line along the base, as exact bytes", () => {
+  const stood = edit(bush, { type: "standInRoom", itemId: "bush" });
+  assert.equal(stood.items[0]!.depth?.baseY, 60);
+  assert.equal(stood.items[0]!.depth?.wall, true);
+  const expected = doc(`# @item bush "Bush" art
+pri off
+vis 2
+rect 10,54 14,60
+fill 12,56
+# @depth base=60 wall
+vis off
+pri 6
+line 10,54 14,54
+line 10,55 14,55
+line 10,56 14,56
+line 10,57 14,57
+line 10,58 14,58
+line 10,59 14,59
+line 10,60 14,60
+pri 0
+line 10,60 14,60
+vis 2
+pri off
+# @depth end
+# @end
+vis 6
+line 30,70 32,70
+end`);
+  assert.equal(serializePictureDocument(stood), serializePictureDocument(expected));
+  assert.deepEqual(
+    compileDocument(stood, profile).bytes,
+    new Uint8Array([
+      0xf3, // pri off (item body)
+      0xf0,
+      0x02, // vis 2
+      0xf6,
+      10,
+      54,
+      14,
+      54,
+      14,
+      60,
+      10,
+      60,
+      10,
+      54, // rect outline
+      0xf8,
+      12,
+      56, // fill
+      0xf1, // vis off (depth block)
+      0xf2,
+      0x06, // pri 6: the band of base row 60
+      0xf6,
+      10,
+      54,
+      14,
+      54,
+      0xf6,
+      10,
+      55,
+      14,
+      55,
+      0xf6,
+      10,
+      56,
+      14,
+      56,
+      0xf6,
+      10,
+      57,
+      14,
+      57,
+      0xf6,
+      10,
+      58,
+      14,
+      58,
+      0xf6,
+      10,
+      59,
+      14,
+      59,
+      0xf6,
+      10,
+      60,
+      14,
+      60,
+      0xf2,
+      0x00, // pri 0: the wall along the base
+      0xf6,
+      10,
+      60,
+      14,
+      60,
+      0xf0,
+      0x02, // vis 2 restored
+      0xf3, // pri off restored
+      0xf0,
+      0x06, // vis 6 (loose tail)
+      0xf6,
+      30,
+      70,
+      32,
+      70,
+      0xff, // end
+    ]),
+  );
+  const picture = compileDocument(stood, profile);
+  for (let x = 10; x <= 14; x++) {
+    assert.equal(picture.priority[at(x, 60)], 0); // the wall on the base row
+    assert.equal(picture.priority[at(x, 59)], 6); // the band above it
+  }
+  // The wall and band are regenerated together: moving the bush moves both.
+  const down = edit(stood, { type: "moveItem", itemId: "bush", dx: 0, dy: 12 });
+  assert.equal(down.items[0]!.depth?.baseY, 72);
+  assert.equal(down.items[0]!.depth?.wall, true);
+  const moved = compileDocument(down, profile);
+  for (let x = 10; x <= 14; x++) {
+    assert.equal(moved.priority[at(x, 72)], 0);
+    assert.equal(moved.priority[at(x, 71)], 7);
+  }
+});
+
 it("moves, duplicates, deletes and batches derived depth in one history step each", () => {
   const stood = edit(bush, { type: "addDepth", itemId: "bush" });
   const down = edit(stood, { type: "moveItem", itemId: "bush", dx: 0, dy: 12 });

@@ -4,7 +4,8 @@ import { test } from "node:test";
 import ts from "typescript";
 import { baseParse, NodeTypes, type RootNode, type TemplateChildNode } from "@vue/compiler-dom";
 import { ROOM_TOOL_HINTS, ROOM_TOOL_NAMES } from "../src/studio/studioHelp.ts";
-import { VOCABULARY, VOCABULARY_ACTIONS, RETIRED_UI_TERMS } from "../../src/vocabulary.ts";
+import { ROOM_ACTION_LABELS } from "../src/studio/workspace/guidedActions.ts";
+import { VOCABULARY, RETIRED_UI_TERMS } from "../../src/vocabulary.ts";
 
 // These are persisted values, editor modes and resource identifiers, rather than visible copy.
 const IDENTIFIERS: Readonly<Record<string, true>> = {
@@ -97,15 +98,15 @@ function files(directory: string): string[] {
 function retiredPattern(retired: string): RegExp {
   return new RegExp(
     retired === "Keep"
-      ? "\\bKeep\\b(?! it\\s*$| this tab open(?: until it says Saved)?(?:[.!?]|\\s*$))"
+      ? "\\bKeep\\b(?! this tab open(?: until it says Saved)?(?:[.!?]|\\s*$))"
       : `\\b${retired}${["sprite", "proposal", "candidate", "drawing element"].includes(retired) ? "s?" : ""}\\b${retired === "Onion" ? "(?! skin)" : ""}`,
     retired === "Keep" ? "" : "i",
   );
 }
 
-test("Keep it names a room-removal choice while Keep remains retired for editor commits", () => {
+test("Keep remains retired for editor commits and dialog choices", () => {
   const keep = retiredPattern("Keep");
-  assert.equal(keep.test("Keep it"), false);
+  assert.equal(keep.test("Keep it"), true);
   assert.equal(keep.test("Keep"), true);
   assert.equal(keep.test("Keep changes"), true);
   assert.equal(keep.test("Keep it and apply"), true);
@@ -124,6 +125,25 @@ test("visible editor copy uses the shared vocabulary, allowing internal identifi
   assert.deepEqual(violations, []);
 });
 
+test("the meaning action uses the same Add meaning label as its accessible name", () => {
+  assert.equal(VOCABULARY.meaningButton.label, "Add meaning");
+  assert.equal(VOCABULARY.meaningButton.label, VOCABULARY.addGroup.label);
+});
+
+test("action labels use canonical verbs across app surfaces", () => {
+  const violations: string[] = [];
+  for (const file of files("app/src")) {
+    for (const copy of visibleCopy(file)) {
+      if (
+        /\b(?:Name it|Save name)\b/.test(copy) ||
+        /^(?:Not now|Stay|Back to game)$/.test(copy.trim())
+      )
+        violations.push(`${file}: ${copy.trim()}`);
+    }
+  }
+  assert.deepEqual(violations, []);
+});
+
 test("copy extraction detects visible text and dynamic tooltips while ignoring identifiers", () => {
   assert.deepEqual(
     strings(
@@ -136,13 +156,18 @@ test("copy extraction detects visible text and dynamic tooltips while ignoring i
 // The three tool actions currently exposed by editor controls. These bindings
 // must resolve to shared help; surrounding shortcut and refusal copy is separate.
 test("editor action tooltips bind to shared action help", () => {
-  assert.equal(ROOM_TOOL_NAMES.walk, VOCABULARY_ACTIONS.playtest_room.label);
-  assert.equal(ROOM_TOOL_HINTS.walk, VOCABULARY_ACTIONS.playtest_room.help);
+  assert.equal(ROOM_TOOL_NAMES.walk, VOCABULARY.testWalk.label);
+  assert.equal(ROOM_TOOL_HINTS.walk, VOCABULARY.testWalk.help);
+  assert.equal(ROOM_ACTION_LABELS["play-sound"], "Sound when…");
   const bindings: Readonly<Record<string, readonly string[]>> = {
-    "app/src/studio/workspace/GuidedAdd.vue": ['"play-sound": "Play a sound when…"'],
+    "app/src/studio/workspace/GuidedAdd.vue": [
+      'import { ROOM_ACTION_LABELS as labels, type RoomActionKind } from "./guidedActions.ts";',
+      'v-for="(label, actionKind) in labels"',
+    ],
+    "app/src/studio/workspace/guidedActions.ts": ['"play-sound": "Sound when…"'],
     "app/src/studio/StudioToolRail.vue": [
-      'if (entry.id === "walk") return VOCABULARY_ACTIONS.playtest_room.help;',
-      "label: VOCABULARY_ACTIONS.playtest_room.label",
+      'if (entry.id === "walk") return VOCABULARY.testWalk.help;',
+      "label: VOCABULARY.testWalk.label",
       ':title="toolTitle(entry)"',
     ],
   };
@@ -204,14 +229,14 @@ test("Words editor copy binds to the approved vocabulary", () => {
 
 test("download descriptions qualify available data and report limitations", () => {
   const help = visibleCopy("app/src/shell/helpContent.ts").find((copy) =>
-    copy.includes("Download game adds"),
+    copy.includes("The project file adds"),
   );
   assert.ok(help);
   assert.match(help, /\bavailable\b/);
   assert.match(help, /\blimitations\b/);
   const readme = readFileSync("README.md", "utf8")
     .split("\n")
-    .find((line) => line.includes("**Download game…**"));
+    .find((line) => line.includes("**Project file**"));
   assert.ok(readme);
   assert.match(readme, /\bavailable\b/);
   assert.match(readme, /\blimitations\b/);
@@ -235,4 +260,23 @@ test("Keep action labels are retired while tab-open sentences remain allowed", (
     "Could not save. Keep this tab open until it says Saved.",
   ])
     assert.equal(pattern.test(copy), false, copy);
+});
+
+test("Playtest names only the agent's playtest; the room tool and the phone tab say what they do", () => {
+  assert.equal(ROOM_TOOL_NAMES.walk, "Test walk");
+  assert.doesNotMatch(ROOM_TOOL_HINTS.walk, /playtest/i);
+  const workspace = readFileSync("app/src/studio/workspace/CreateWorkspace.vue", "utf8");
+  assert.doesNotMatch(workspace, />\s*Playtest\s*</);
+  assert.match(workspace, /phonePlaytest\.value = true"\s*>Game</);
+});
+
+test("reference roles retire Checked across analysis, tools and presentation", () => {
+  const paths = [
+    ...files("src/logic"),
+    ...files("src/agent"),
+    ...files("app/src/shell"),
+    ...files("app/src/studio"),
+  ];
+  const violations = paths.filter((file) => /\bChecked\b/.test(readFileSync(file, "utf8")));
+  assert.deepEqual(violations, []);
 });

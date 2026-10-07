@@ -86,21 +86,21 @@ export function createHistory(ctx: WorkerContext) {
   let bootOverBudget = false;
   /** A live segment records; scratch replay traffic never does. */
   function live(): boolean {
-    return ctx.history.segment !== null && ctx.replay.replay === null && ctx.engine !== null;
+    return ctx.history.segment !== null && ctx.replay.replay === null && ctx.run.engine !== null;
   }
-  const tick = () => ctx.cycle.tickCount - ctx.history.tickBase;
-  const cycle = () => ctx.cycle.cycleCount - ctx.history.cycleBase;
+  const tick = () => ctx.run.cycle.tickCount - ctx.history.tickBase;
+  const cycle = () => ctx.run.cycle.cycleCount - ctx.history.cycleBase;
 
   /** resourceSetHint of the live container — patches included. */
   function currentResourceSet(): string {
-    const files = new Map(ctx.engine!.containerFiles);
+    const files = new Map(ctx.run.engine!.containerFiles);
     if (ctx.boot.authoredWords) files.set("WORDS.TOK", ctx.boot.authoredWords);
     return resourceSetHint({ getFiles: () => files });
   }
 
   function bootFiles(): Record<string, string> {
     const files: Record<string, string> = {};
-    for (const [name, bytes] of ctx.engine!.containerFiles) files[name] = bytesToBase64(bytes);
+    for (const [name, bytes] of ctx.run.engine!.containerFiles) files[name] = bytesToBase64(bytes);
     return files;
   }
 
@@ -167,12 +167,12 @@ export function createHistory(ctx: WorkerContext) {
         ...executableProject({ documents: cause.documents, documentId: cause.documentId }),
       };
     }
-    const rec = ctx.recording.recording;
+    const rec = ctx.run.recording.recording;
     if (rec !== null) {
       if (rec.events.length >= 5000) {
         rec.tainted = "Recording reached its action limit; record a shorter scenario.";
       } else {
-        const event = recordedEventFromCause(cause, ctx.cycle.cycleCount);
+        const event = recordedEventFromCause(cause, ctx.run.cycle.cycleCount);
         if (event !== null) rec.events.push(event);
       }
     }
@@ -215,8 +215,8 @@ export function createHistory(ctx: WorkerContext) {
     // must claim that seq first or the mark would verify a pre-discharge
     // replay against post-discharge live state.
     flushSpill();
-    h.open.sync.push(computeSyncMark(ctx.engine!, h.seq, tick(), cycle()));
-    h.lastSyncCycle = ctx.cycle.cycleCount;
+    h.open.sync.push(computeSyncMark(ctx.run.engine!, h.seq, tick(), cycle()));
+    h.lastSyncCycle = ctx.run.cycle.cycleCount;
     h.openBytes += 96;
   }
 
@@ -238,7 +238,7 @@ export function createHistory(ctx: WorkerContext) {
       maybeResume();
       return;
     }
-    if (ctx.cycle.cycleCount - h.lastSyncCycle >= SYNC_CYCLE_INTERVAL) syncMark();
+    if (ctx.run.cycle.cycleCount - h.lastSyncCycle >= SYNC_CYCLE_INTERVAL) syncMark();
   }
 
   /**
@@ -252,7 +252,7 @@ export function createHistory(ctx: WorkerContext) {
       maybeResume();
       return;
     }
-    const engine = ctx.engine!;
+    const engine = ctx.run.engine!;
     const image = engine.recordingImage();
     if (!image) return;
     const h = ctx.history;
@@ -267,20 +267,21 @@ export function createHistory(ctx: WorkerContext) {
       reason,
       image: bytesToBase64(image),
       replay: engine.captureReplayState(),
-      inputQueue: [...ctx.input.keyQueue],
-      directionQueue: [...ctx.input.deferredMovement],
-      inputLines: [...ctx.input.inputBuffer],
+      inputQueue: [...ctx.run.input.keyQueue],
+      directionQueue: [...ctx.run.input.deferredMovement],
+      inputLines: [...ctx.run.input.inputBuffer],
       // Omitted while empty: a click-free session's fingerprint is unchanged.
-      ...(ctx.input.clickQueue.length > 0
-        ? { clickQueue: ctx.input.clickQueue.map(([x, y]): [number, number] => [x, y]) }
+      ...(ctx.run.input.clickQueue.length > 0
+        ? { clickQueue: ctx.run.input.clickQueue.map(([x, y]): [number, number] => [x, y]) }
         : {}),
-      requestSerial: ctx.hostRequests.hostRequestSerial,
-      rng: h.rng,
+      requestSerial: ctx.run.hostRequests.hostRequestSerial,
+      rng: ctx.run.rng.word,
+      ...(ctx.run.rng.policy.kind === "sequence" ? { rngPolicy: { ...ctx.run.rng.policy } } : {}),
       soundDevice: ctx.boot.selectedSoundDevice,
       // A deferred adoption clock pending release is the session's clock —
       // the same rule snapshotBoot follows.
-      clock: ctx.cycle.pendingClock ?? ctx.clocks.cycle.snapshot(),
-      soundRemainder: ctx.clocks.sound.snapshot(),
+      clock: ctx.run.cycle.pendingClock ?? ctx.run.clocks.cycle.snapshot(),
+      soundRemainder: ctx.run.clocks.sound.snapshot(),
       resourceSet: currentResourceSet(),
       patchGeneration: engine.patchGeneration,
     });
@@ -386,7 +387,7 @@ export function createHistory(ctx: WorkerContext) {
       type: "historyBatch",
       epoch: ctx.history.epoch,
       batch,
-      ...(ctx.engine ? { profile: ctx.engine.profile.id } : {}),
+      ...(ctx.run.engine ? { profile: ctx.run.engine.profile.id } : {}),
     });
   }
 
@@ -498,6 +499,7 @@ export function createHistory(ctx: WorkerContext) {
    */
   function historyEnd(reason: HistoryEndReason): void {
     const h = ctx.history;
+    h.resumePending = false;
     if (h.segment === null) return;
     const segment = h.segment;
     flushSpill();
@@ -566,8 +568,8 @@ export function createHistory(ctx: WorkerContext) {
     h.pendingSound = 0;
     h.pendingSpill = 0;
     h.pendingEndReply = null;
-    h.rng = (typeof msg.rngSeed === "number" ? msg.rngSeed : 1) & 0xffff;
     if (ctx.replay.replay) return; // a seeded boot is a scratch replay session
+    const image = msg.restoreImage ? ctx.run.engine?.recordingImage() : null;
     const project = ctx.boot.project ? executableProject(ctx.boot.project) : undefined;
     const boot = stampBoot({
       files: bootFiles(),
@@ -575,15 +577,19 @@ export function createHistory(ctx: WorkerContext) {
       dictionary: [...ctx.boot.liveDictionary.entries()],
       authorRooms: ctx.boot.authorRooms,
       ...(ctx.boot.profile ? { profile: ctx.boot.profile } : {}),
-      ...(ctx.engine?.amigaRegion === "pal" ? { amigaRegion: "pal" as const } : {}),
-      rng: h.rng,
+      ...(ctx.run.engine?.amigaRegion === "pal" ? { amigaRegion: "pal" as const } : {}),
+      rng: ctx.run.rng.word,
+      ...(ctx.run.rng.policy.kind === "sequence" ? { rngPolicy: { ...ctx.run.rng.policy } } : {}),
       soundDevice: ctx.boot.selectedSoundDevice,
       resourceSet: currentResourceSet(),
-      requestSerial: ctx.hostRequests.hostRequestSerial,
-      ...(typeof msg.restoreImage === "string" && msg.restoreImage
-        ? { image: msg.restoreImage }
+      requestSerial: ctx.run.hostRequests.hostRequestSerial,
+      ...(image
+        ? {
+            image: bytesToBase64(image),
+            replay: ctx.run.engine!.captureReplayState(),
+            menus: ctx.run.engine!.readMenuState(),
+          }
         : {}),
-      ...(msg.restoreMenus !== undefined ? { menus: msg.restoreMenus } : {}),
     });
     beginSegment(boot);
   }
@@ -592,9 +598,9 @@ export function createHistory(ctx: WorkerContext) {
     const h = ctx.history;
     h.segment = `${h.session}.s${++h.segmentSerial}`;
     h.seq = 0;
-    h.tickBase = ctx.cycle.tickCount;
-    h.cycleBase = ctx.cycle.cycleCount;
-    h.lastSyncCycle = ctx.cycle.cycleCount;
+    h.tickBase = ctx.run.cycle.tickCount;
+    h.cycleBase = ctx.run.cycle.cycleCount;
+    h.lastSyncCycle = ctx.run.cycle.cycleCount;
     h.segmentBytes = 0;
     h.segmentEvents = 0;
     h.open = { events: [], marks: [], sync: [], clock: [] };
@@ -623,8 +629,8 @@ export function createHistory(ctx: WorkerContext) {
    * set, the resumable image plus host replay state, queues, RNG, the cycle
    * clock accumulators and the resource-set identity.
    */
-  function snapshotBoot(): HistoryBoot | null {
-    const engine = ctx.engine;
+  function snapshotBoot(cold = false, allowUndrawn = false): HistoryBoot | null {
+    const engine = ctx.run.engine;
     if (!engine) return null;
     // A debugger-parked or armed mid-pass engine has no resumable boundary —
     // recordingImage refuses; the next boundary retries instead. The
@@ -633,11 +639,11 @@ export function createHistory(ctx: WorkerContext) {
     if (ctx.fns.debugCaptureBlocked()) return null;
     let image: Uint8Array | null;
     try {
-      image = engine.recordingImage();
+      image = engine.recordingImage(allowUndrawn);
     } catch {
       return null;
     }
-    if (!image) return null;
+    if (!image && !cold) return null;
     const h = ctx.history;
     const project = ctx.boot.project ? executableProject(ctx.boot.project) : undefined;
     const boot = stampBoot({
@@ -645,26 +651,28 @@ export function createHistory(ctx: WorkerContext) {
       ...(project ? { project } : {}),
       dictionary: [...ctx.boot.liveDictionary.entries()],
       authorRooms: ctx.boot.authorRooms,
-      ...(ctx.boot.profile ? { profile: ctx.boot.profile } : {}),
-      ...(ctx.engine?.amigaRegion === "pal" ? { amigaRegion: "pal" as const } : {}),
-      image: bytesToBase64(image),
-      replay: engine.captureReplayState(),
+      profile: engine.profile.id,
+      ...(ctx.run.engine?.amigaRegion === "pal" ? { amigaRegion: "pal" as const } : {}),
+      ...(image
+        ? { image: bytesToBase64(image), replay: engine.captureReplayState(allowUndrawn) }
+        : {}),
       menus: engine.readMenuState(),
-      inputQueue: [...ctx.input.keyQueue],
-      directionQueue: [...ctx.input.deferredMovement],
-      inputLines: [...ctx.input.inputBuffer],
-      ...(ctx.input.clickQueue.length > 0
-        ? { clickQueue: ctx.input.clickQueue.map(([x, y]): [number, number] => [x, y]) }
+      inputQueue: [...ctx.run.input.keyQueue],
+      directionQueue: [...ctx.run.input.deferredMovement],
+      inputLines: [...ctx.run.input.inputBuffer],
+      ...(ctx.run.input.clickQueue.length > 0
+        ? { clickQueue: ctx.run.input.clickQueue.map(([x, y]): [number, number] => [x, y]) }
         : {}),
       // An adoption's clock sits in pendingClock until the host releases the
       // parked session — snapshot it so the segment's boot records the
       // adopted continuation, not the abandoned session's stale live clock.
-      clock: ctx.cycle.pendingClock ?? ctx.clocks.cycle.snapshot(),
-      soundRemainder: ctx.clocks.sound.snapshot(),
-      rng: h.rng,
+      clock: ctx.run.cycle.pendingClock ?? ctx.run.clocks.cycle.snapshot(),
+      soundRemainder: ctx.run.clocks.sound.snapshot(),
+      rng: ctx.run.rng.word,
+      ...(ctx.run.rng.policy.kind === "sequence" ? { rngPolicy: { ...ctx.run.rng.policy } } : {}),
       soundDevice: ctx.boot.selectedSoundDevice,
       resourceSet: currentResourceSet(),
-      requestSerial: ctx.hostRequests.hostRequestSerial,
+      requestSerial: ctx.run.hostRequests.hostRequestSerial,
       ...(h.resumedFrom !== null ? { resumedFrom: h.resumedFrom } : {}),
     });
     return boot;
@@ -679,7 +687,7 @@ export function createHistory(ctx: WorkerContext) {
       !h.resumePending ||
       h.segment !== null ||
       ctx.replay.replay ||
-      !ctx.engine ||
+      !ctx.run.engine ||
       ctx.fns.debugAttached()
     )
       return;
@@ -709,7 +717,7 @@ export function createHistory(ctx: WorkerContext) {
    * with its continuation.
    */
   function onStartRecording(msg: Inbound<"startRecording">): void {
-    if (!ctx.engine) {
+    if (!ctx.run.engine) {
       ctx.ports.control({
         type: "recordingStarted",
         id: msg.id,
@@ -721,7 +729,7 @@ export function createHistory(ctx: WorkerContext) {
     let hostImage: Uint8Array | null = null;
     if (!ctx.fns.debugCaptureBlocked()) {
       try {
-        hostImage = ctx.engine.recordingImage();
+        hostImage = ctx.run.engine.recordingImage();
       } catch {
         hostImage = null;
       }
@@ -735,7 +743,7 @@ export function createHistory(ctx: WorkerContext) {
       });
       return;
     }
-    ctx.recording.recording = {
+    ctx.run.recording.recording = {
       tape: new OperationRecorder(),
       events: [],
       printed: [],
@@ -746,15 +754,15 @@ export function createHistory(ctx: WorkerContext) {
       id: msg.id,
       ok: true,
       image: bytesToBase64(hostImage),
-      replayState: ctx.engine.captureReplayState(),
-      cycle: ctx.cycle.cycleCount,
-      state: ctx.engine.readState(),
+      replayState: ctx.run.engine.captureReplayState(),
+      cycle: ctx.run.cycle.cycleCount,
+      state: ctx.run.engine.readState(),
     });
   }
 
   function onStopRecording(msg: Inbound<"stopRecording">): void {
-    const taken = ctx.recording.recording;
-    ctx.recording.recording = null;
+    const taken = ctx.run.recording.recording;
+    ctx.run.recording.recording = null;
     ctx.ports.control({
       type: "recordingStopped",
       id: msg.id,
@@ -762,13 +770,13 @@ export function createHistory(ctx: WorkerContext) {
       events: taken?.events ?? [],
       printed: taken?.printed ?? [],
       tainted: taken?.tainted ?? taken?.tape.error ?? null,
-      cycle: ctx.cycle.cycleCount,
-      state: ctx.engine ? ctx.engine.readState() : null,
+      cycle: ctx.run.cycle.cycleCount,
+      state: ctx.run.engine ? ctx.run.engine.readState() : null,
     });
   }
 
   function onCancelRecording(): void {
-    ctx.recording.recording = null;
+    ctx.run.recording.recording = null;
   }
 
   return {

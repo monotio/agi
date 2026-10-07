@@ -2,15 +2,24 @@
 import UiIcon from "../../ui/UiIcon.vue";
 /**
  * The project frame's open-document tabs. Pure: the host supplies the tab
- * rows (projectStudioDocuments.ts `projectStudioTabs` output) and the
- * selected key; the component reports `select` and `close` requests. `close`
- * names the tab to hide — the host decides what that means for the document
- * surface, and it never implies Keep, deletion or draft mutation. A tab
- * whose key left the document set stays listed, marked missing.
+ * rows and the selected key; the component reports `select` and `close`
+ * requests. `close` names the tab to hide — the host decides what that
+ * means for the document surface, and it never implies Keep, deletion or
+ * draft mutation. A tab whose key left the document set stays listed,
+ * marked missing.
  */
 import { computed, nextTick, ref, useTemplateRef, watch } from "vue";
 import UiChip from "../../ui/UiChip.vue";
-import type { ProjectStudioTab } from "./projectStudioDocuments.ts";
+
+/** One open tab: identity, resolved name, draft and availability state. */
+interface ProjectStudioTab {
+  readonly key: string;
+  readonly label: string;
+  readonly name?: string;
+  readonly dirty: boolean;
+  /** The key no longer names a document in the current set — a shown state. */
+  readonly missing: boolean;
+}
 
 const {
   tabs,
@@ -26,7 +35,6 @@ const {
 const emit = defineEmits<{
   select: [key: string];
   close: [key: string];
-  pin: [key: string];
 }>();
 
 const root = useTemplateRef("root");
@@ -153,7 +161,6 @@ function tabLabel(tab: ProjectStudioTab): string {
         role="tab"
         class="project-tabs__name"
         :aria-selected="tab.key === selectedKey"
-        :class="{ 'project-tabs__name--preview': tab.preview }"
         :aria-label="tabLabel(tab)"
         aria-keyshortcuts="Delete"
         :tabindex="rovingKey === tab.key ? 0 : -1"
@@ -161,7 +168,6 @@ function tabLabel(tab: ProjectStudioTab): string {
         :data-testid="`project-tab-${tab.key}`"
         :title="tab.name !== undefined ? `${tab.label}: ${tab.name}` : tab.label"
         @click="emit('select', tab.key)"
-        @dblclick="emit('pin', tab.key)"
         @focus="focusKey = tab.key"
       >
         <span
@@ -222,9 +228,6 @@ function tabLabel(tab: ProjectStudioTab): string {
   background: transparent;
   font: var(--text-sm) / var(--leading) var(--font-sans);
   cursor: pointer;
-}
-.project-tabs__name--preview {
-  font-style: italic;
 }
 .project-tabs__tab--active .project-tabs__name {
   color: var(--ink);

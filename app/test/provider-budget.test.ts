@@ -1,46 +1,46 @@
 import { beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
-import { beginProviderTask, reserveImageBudget } from "../src/agent/providerBudget.ts";
+import { beginProviderTask, trackImageSpend } from "../src/agent/providerBudget.ts";
 import { AgentRun } from "../src/agent/agentRun.ts";
 beforeEach(() => beginProviderTask(5));
-test("image reservations share agent allowance and require approval before crossing it", () => {
+test("images charge actual usage without reserving or predicting a request", () => {
   const account = beginProviderTask(5);
   account.spent = 4;
-  const settle = reserveImageBudget(0.8);
-  assert.throws(() => reserveImageBudget(0.3), /may pass your budget/);
-  settle(0.6);
-  assert.equal(account.spent, 4.6);
-  assert.equal(account.reserved, 0);
-  reserveImageBudget(1, true)(1);
-  assert.ok(account.limit >= account.spent);
+  const first = trackImageSpend();
+  const second = trackImageSpend();
+  assert.equal(account.spent, 4);
+  first(0.6);
+  second(0.5);
+  assert.equal(account.spent, 5.1);
+  assert.equal(account.limit, 5);
 });
 test("image usage pauses an agent before its next paid request", async () => {
   const run = new AgentRun("gpt-6-sol", () => {}, 1);
   const result = run.run(async () => {
-    reserveImageBudget(0.9)(0.9);
+    trackImageSpend()(1.1);
     await run.checkpoint();
     return "kept";
   });
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(run.snapshot().status, "paused");
-  assert.equal(run.snapshot().spent, 0.9);
+  assert.equal(run.snapshot().spent, 1.1);
   run.resume();
   assert.equal(await result, "kept");
 });
-test("starting an agent keeps an image request's reservation and usage", async () => {
+test("starting an agent keeps an image request's account and usage", async () => {
   beginProviderTask(1);
-  const settle = reserveImageBudget(0.8);
+  const settle = trackImageSpend();
   const run = new AgentRun("gpt-6-sol", () => {}, 1);
   await run.run(async () => {
     try {
-      assert.throws(() => reserveImageBudget(0.3), /may pass your budget/);
+      assert.doesNotThrow(() => trackImageSpend());
     } finally {
       settle(0.6);
     }
     assert.equal(run.snapshot().spent, 0.6);
   });
 });
-test("an agent request reserves allowance while its response is pending", async () => {
+test("an agent request spends nothing while its response is pending", async () => {
   const run = new AgentRun("gpt-6-sol", () => {}, 1);
   let finish!: () => void;
   const response = new Promise<void>((resolve) => {
@@ -49,26 +49,26 @@ test("an agent request reserves allowance while its response is pending", async 
   const result = run.run(() => run.request(async () => response));
   await new Promise((resolve) => setImmediate(resolve));
   try {
-    assert.throws(() => reserveImageBudget(0.9), /may pass your budget/);
+    assert.doesNotThrow(() => trackImageSpend());
   } finally {
     finish();
     await result;
   }
 });
 
-test("unreported image requests keep a budget hold without reporting it as spent", () => {
+test("unreported image requests mark usage incomplete and spend only reported charges", () => {
   const account = beginProviderTask(5);
-  const settle = reserveImageBudget(0.8);
+  const settle = trackImageSpend();
   assert.equal(account.reportedSpent, 0);
   settle(null);
   assert.equal(account.reportedSpent, 0);
   assert.equal(account.usageIncomplete, true);
-  assert.equal(account.spent, 0.8);
+  assert.equal(account.spent, 0);
 });
 
-test("partial image usage holds at least the reported charge against the budget", () => {
+test("partial image usage counts only the reported charge", () => {
   const account = beginProviderTask(5);
-  reserveImageBudget(0.01)(null, 0.018);
+  trackImageSpend()(null, 0.018);
   assert.equal(account.reportedSpent, 0.018);
   assert.equal(account.spent, 0.018);
   assert.equal(account.usageIncomplete, true);
@@ -76,10 +76,19 @@ test("partial image usage holds at least the reported charge against the budget"
 
 test("starting an agent retains a completed image charge in the same task", async () => {
   beginProviderTask(1);
-  reserveImageBudget(0.8)(0.8);
+  trackImageSpend()(0.8);
   const run = new AgentRun("gpt-6-sol", () => {}, 1);
   await run.run(async () => {
     assert.equal(run.snapshot().spent, 0.8);
-    assert.throws(() => reserveImageBudget(0.3), /may pass your budget/);
+    assert.doesNotThrow(() => trackImageSpend());
+  });
+});
+
+test("an image receipt updates the active task's visible spend immediately", async () => {
+  const seen: number[] = [];
+  const run = new AgentRun("gpt-6-sol", (state) => seen.push(state.spent));
+  await run.run(async () => {
+    trackImageSpend()(0.47);
+    assert.equal(seen.at(-1), 0.47);
   });
 });

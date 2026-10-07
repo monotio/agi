@@ -1,3 +1,4 @@
+import { numberedLabel } from "../../../src/logic/numberedLabels.ts";
 /**
  * Read-only editable-open source adapter. inspectEditableProject reads a
  * stored project's playable bytes beside its claimed authored documents —
@@ -76,7 +77,7 @@ const LEGACY_SOURCE_FIELDS = [
 
 function describeKey(key: string): string {
   const resource = RESOURCE_KEY.exec(key);
-  if (resource) return `${resource[1]!.toUpperCase()} ${resource[2]}`;
+  if (resource) return numberedLabel(resource[1]!, Number(resource[2]));
   if (key === "words") return "WORDS.TOK";
   if (key === "inventory") return "OBJECT";
   return "document";

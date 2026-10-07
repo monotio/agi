@@ -86,3 +86,33 @@ test("drop edits only the operand spans and refuses a placement changed during d
     /placement changed/,
   );
 });
+test("every placing line is listed, and a conditional placement offers each drawn spot", () => {
+  const source = `if(isset(f5)){${setup}if(isset(f6)){position(o5,60,140);}else{position(o5,100,120);}draw(o5);}return;`;
+  const [figure] = roomPlacements({ room: 6, sources: { "logic:6": source } });
+  assert.equal(figure?.reason, "Conditional placement");
+  assert.deepEqual([figure?.x, figure?.y], [null, null]);
+  // Both branches' lines, in source order, with the text each one holds.
+  assert.deepEqual(
+    figure?.lines.map((line) => [line.logic, line.offset, line.text]),
+    [
+      [6, source.indexOf("position(o5,60"), "position(o5,60,140)"],
+      [6, source.indexOf("position(o5,100"), "position(o5,100,120)"],
+    ],
+  );
+  assert.deepEqual(
+    figure?.spots.map((spot) => [spot.x, spot.y]),
+    [
+      [60, 140],
+      [100, 120],
+    ],
+  );
+});
+test("a figure drawn without a position is set in by its draw line", () => {
+  const source = `if(isset(f5)){${setup}draw(o5);}return;`;
+  const [figure] = roomPlacements({ room: 6, sources: { "logic:6": source } });
+  assert.deepEqual([figure?.x, figure?.y], [null, null]);
+  assert.deepEqual(
+    figure?.lines.map((line) => [line.offset, line.text]),
+    [[source.indexOf("draw(o5)"), "draw(o5)"]],
+  );
+});
