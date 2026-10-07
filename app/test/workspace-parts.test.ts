@@ -67,3 +67,12 @@ test("a picture shared by rooms remains listed in each room and appears once in 
   assert.equal(quick.find((row) => row.key === "logic:1")?.label, "ROOM 1 · LOGIC 1");
   assert.equal(groups[1]?.entries.find((e) => e.label === "ROOM 2")?.live, true);
 });
+
+test("the Objects and Words rows read in sentence case under their headings", () => {
+  const groups = workspaceParts({ keys: [], rooms: [], currentRoom: null });
+  const rows = Object.fromEntries(
+    groups.map((group) => [group.label, group.entries.map((entry) => entry.label)]),
+  );
+  assert.deepEqual(rows["OBJECTS"], ["Objects"]);
+  assert.deepEqual(rows["WORDS"], ["Words"]);
+});

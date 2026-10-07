@@ -13,7 +13,9 @@ async function blankGame(page: Page, title: string): Promise<void> {
     .fill(title);
   await page.getByTestId("local-create-kind-blank").click();
   await page.getByRole("button", { name: "Start building", exact: true }).click();
-  await expect(page.getByText("Nothing to play yet.", { exact: true })).toBeVisible();
+  await expect(
+    page.locator(".screen").getByText("Nothing to play yet.", { exact: true }),
+  ).toBeVisible();
 }
 
 async function firstRoom(page: Page, name: string): Promise<void> {
@@ -250,6 +252,29 @@ test("blank game to Meadow, Room 2, a door drawn on the game and Play Room 2 @we
   await action.click();
   await expect.poll(async () => (await textHook(page)).room).toBe(2);
 });
+
+for (const [width, height] of [
+  [1440, 900],
+  [390, 844],
+] as const) {
+  test(`a blank game's WORDS + adds the first room and opens WORDS at ${width} @webkit-desktop`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height });
+    await blankGame(page, `Blank parts ${width}`);
+    const parts = page.getByTestId("parts-list");
+    // The phone frame keeps the parts list behind Parts, as in a game with rooms.
+    if (width <= 600) {
+      await expect(parts).toBeHidden();
+      await page.getByTestId("workspace-parts").click();
+    }
+    await expect(parts).toBeVisible();
+    await parts.getByRole("button", { name: "Add a word", exact: true }).click();
+    await expect.poll(async () => (await textHook(page)).room).toBe(1);
+    await expect(page.getByRole("tab", { name: "WORDS", exact: true })).toBeVisible();
+    await expect(page.getByTestId("workspace-words-editor")).toBeVisible();
+  });
+}
 
 for (const [width, height] of [
   [1063, 815],
