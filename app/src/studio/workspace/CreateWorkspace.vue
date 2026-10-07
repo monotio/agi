@@ -1195,6 +1195,7 @@ function editorChanges(
 }
 const actionBusy = ref(false);
 const writerBusy = ref(false);
+const imageBusy = ref(false);
 function changedPartKeys(changes: readonly ProjectChange[], fallback = true): string[] {
   const parts = new Set<string>();
   for (const change of changes) {
@@ -1247,9 +1248,9 @@ function changedPartKeys(changes: readonly ProjectChange[], fallback = true): st
 }
 const pendingParts = createWorkspacePending((change) => changedPartKeys([change], false));
 watch(
-  [actionBusy, writerBusy],
-  ([action, writer]) => {
-    editor.busy.value = action || writer;
+  [actionBusy, writerBusy, imageBusy],
+  ([action, writer, image]) => {
+    editor.busy.value = action || writer || image;
   },
   { flush: "sync" },
 );
@@ -1336,7 +1337,7 @@ function reportProblems(key: string, entries: readonly { message: string; line: 
   );
 }
 async function updateGame(restartRoom = true): Promise<void> {
-  if (!session || actionBusy.value || editingPaused.value) return;
+  if (!session || actionBusy.value || imageBusy.value || editingPaused.value) return;
   if (editor.problemCount.value) {
     const first = updateProblems.value.find((entry) => entry.severity === "error");
     const typed = Object.entries(typingProblems).find(([, entries]) => entries.length);
@@ -2492,6 +2493,7 @@ onBeforeUnmount(() => {
         :image-revision="snapshot?.version('images') ?? 0"
         :resource-revision="snapshot?.version(imagePanel) ?? 0"
         @close="imagePanel = undefined"
+        @busy="imageBusy = $event"
         @changed="
           draftChanged(true);
           refresh();
@@ -2565,6 +2567,7 @@ onBeforeUnmount(() => {
         :image-revision="snapshot?.version('images') ?? 0"
         :resource-revision="snapshot?.version(key) ?? 0"
         @close="imagePanel = undefined"
+        @busy="imageBusy = $event"
         @changed="
           draftChanged(true);
           refresh();

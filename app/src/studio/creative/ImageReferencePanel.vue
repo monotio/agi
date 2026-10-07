@@ -50,7 +50,7 @@ const props = defineProps<{
   imageRevision: number;
   resourceRevision: number;
 }>();
-const emit = defineEmits<{ close: []; changed: [] }>();
+const emit = defineEmits<{ close: []; changed: []; busy: [value: boolean] }>();
 const CreativeGenerate = defineAsyncComponent(() => import("./CreativeGenerate.vue"));
 const engine = useEngineApi();
 const bridge = useShellBridge();
@@ -63,6 +63,7 @@ const error = ref("");
 const status = ref("");
 const previewing = ref(false);
 const busy = ref(false);
+watch(busy, (value) => emit("busy", value), { flush: "sync" });
 const generateOpen = ref(props.generate);
 const file = useTemplateRef("file");
 let traceWrites = Promise.resolve();
@@ -416,6 +417,7 @@ watch(
 );
 window.addEventListener("paste", paste);
 onBeforeUnmount(() => {
+  emit("busy", false);
   window.removeEventListener("paste", paste);
   previewTrace(props.session, props.target, opacity.value, behindArt.value, { adjust: undefined });
   closed = true;

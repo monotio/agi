@@ -36,7 +36,19 @@ for (const [width, height] of [
       await expect(launch).toBeVisible();
       const name = page.getByTestId("launch-name-input");
       await expect(name).toBeVisible();
+      await workspaceSaved(page);
       await name.fill("Practice");
+      // An older metadata publication must not replace text awaiting its change event.
+      await page.evaluate(async () => {
+        const session = (
+          window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }
+        ).__AGI_PROJECT__.getSession();
+        const world = JSON.parse(String(session.workingSnapshot().read("world")!.content));
+        world.launches["1"].entries[0].note = "Starting setup";
+        await session.stage([{ key: "world", content: JSON.stringify(world) }]);
+      });
+      await workspaceSaved(page);
+      await expect(name).toHaveValue("Practice");
       await name.press("Tab");
       await workspaceSaved(page);
       await launchShot(page, `launch-metadata-${width}`, browserName);
