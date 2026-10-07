@@ -269,3 +269,14 @@ test("Playtest names only the agent's playtest; the room tool and the phone tab 
   assert.doesNotMatch(workspace, />\s*Playtest\s*</);
   assert.match(workspace, /phonePlaytest\.value = true"\s*>Game</);
 });
+
+test("reference roles retire Checked across analysis, tools and presentation", () => {
+  const paths = [
+    ...files("src/logic"),
+    ...files("src/agent"),
+    ...files("app/src/shell"),
+    ...files("app/src/studio"),
+  ];
+  const violations = paths.filter((file) => /\bChecked\b/.test(readFileSync(file, "utf8")));
+  assert.deepEqual(violations, []);
+});

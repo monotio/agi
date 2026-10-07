@@ -36,8 +36,8 @@ for (const width of [1063, 1440, 390]) {
     await expect(state).toBeVisible();
     const row = state.getByTestId("state-flag-204");
     await expect(row).toBeVisible();
-    await expect(row).not.toContainText("Set:");
-    await expect(row).not.toContainText("Checked:");
+    await expect(row).not.toContainText("Changed:");
+    await expect(row).not.toContainText("Read:");
     await page.screenshot({
       animations: "disabled",
       scale: "css",
@@ -49,7 +49,7 @@ for (const width of [1063, 1440, 390]) {
     await expect(references).toBeVisible();
     await expect(row).toBeFocused();
     await expect(
-      references.getByRole("button", { name: /Set · first_room · LOGIC 1/ }),
+      references.getByRole("button", { name: /Changed · first_room · LOGIC 1/ }),
     ).toBeVisible();
     await page.screenshot({
       animations: "disabled",

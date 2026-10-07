@@ -58,7 +58,7 @@ export const NAMING_TOOL: ToolDefinition = {
                 properties: {
                   logic: { type: "integer", minimum: 0, maximum: 255 },
                   line: { type: "integer", minimum: 1 },
-                  role: { type: "string", enum: ["Set", "Checked", "Used"] },
+                  role: { type: "string", enum: ["Changed", "Read", "Used"] },
                   text: { type: "string", minLength: 1 },
                   nearbyMessages: { type: "array", items: { type: "string", minLength: 1 } },
                 },
@@ -121,7 +121,7 @@ function literalPictureReference(
     const writes = infos
       .filter((info) => info.kind === "variable" && info.num === variable)
       .flatMap((info) => info.uses)
-      .filter((use) => use.role === "Set");
+      .filter((use) => use.role === "Changed");
     return (
       writes.length > 0 &&
       writes.every((use) => {
@@ -199,9 +199,9 @@ export function proposeNames(input: {
       .flatMap((info) => info.uses);
     if (
       ["flag", "variable"].includes(proposal.kind) &&
-      !["Set", "Checked"].every((role) => proposal.evidence.some((e) => e.role === role))
+      !["Changed", "Read"].every((role) => proposal.evidence.some((e) => e.role === role))
     )
-      throw new Error("State names need evidence of where they are set and checked.");
+      throw new Error("State names need evidence of where they are changed and read.");
     if (!proposal.evidence.some((e) => e.nearbyMessages.length))
       throw new Error("Read nearby messages before proposing a name.");
     // An operand use, with the same binding resolution used by editor navigation,
@@ -269,7 +269,7 @@ export function proposeNames(input: {
             use.role === evidence.role,
         )
       )
-        throw new Error("Evidence roles must match the code's Set, Checked or Used operand.");
+        throw new Error("Evidence roles must match the code's Changed, Read or Used operand.");
       // Nearby messages must actually occur in this code; unsupported guesses are refused.
       for (const message of evidence.nearbyMessages)
         if (

@@ -42,17 +42,17 @@ for (const [width, height] of [
     await expect(entry.locator(".workspace-state__value")).toHaveText(/[01]/);
     await expect(state.getByRole("status")).toContainText("chime_done");
     const uses = state.getByTestId("state-uses-flag-204");
-    await expect(uses).toContainText("Set");
-    await expect(uses).toContainText("Checked");
+    await expect(uses).toContainText("Changed");
+    await expect(uses).toContainText("Read");
     await expect(
-      uses.getByRole("button", { name: /Set · first_room · LOGIC 1 · line 41/ }),
+      uses.getByRole("button", { name: /Changed · first_room · LOGIC 1 · line 41/ }),
     ).toBeVisible();
     await page.screenshot({
       path: test.info().outputPath(`state-reveal-${width}.png`),
       animations: "disabled",
       scale: "css",
     });
-    await uses.getByRole("button", { name: /Checked · first_room · LOGIC 1 · line 42/ }).click();
+    await uses.getByRole("button", { name: /Read · first_room · LOGIC 1 · line 42/ }).click();
     await expect(page.getByTestId("project-tab-logic:1")).toHaveAttribute("aria-selected", "true");
     await expect
       .poll(() =>
@@ -123,8 +123,8 @@ test("Built-in keyboard reveal opens its uses and empty result @webkit-desktop",
   await parts.getByLabel("Actions for new_room", { exact: true }).click();
   await page.getByRole("menuitem", { name: "Find references", exact: true }).click();
   const uses = page.getByTestId("state-uses-flag-5");
-  await expect(uses.getByRole("button", { name: /Checked · first_room · LOGIC 1/ })).toBeVisible();
-  await uses.getByRole("button", { name: /Checked · first_room · LOGIC 1/ }).click();
+  await expect(uses.getByRole("button", { name: /Read · first_room · LOGIC 1/ })).toBeVisible();
+  await uses.getByRole("button", { name: /Read · first_room · LOGIC 1/ }).click();
   await expect(page.getByTestId("workspace-logic-editor")).toBeVisible();
 });
 
@@ -209,13 +209,15 @@ test.describe("touch phone", () => {
     await expect(entry).toBeFocused();
     await expect(entry).toBeInViewport();
     const uses = page.getByTestId("state-uses-flag-204");
-    await expect(uses.getByRole("button", { name: /Set · first_room · LOGIC 1/ })).toBeVisible();
+    await expect(
+      uses.getByRole("button", { name: /Changed · first_room · LOGIC 1/ }),
+    ).toBeVisible();
     await page.screenshot({
       path: test.info().outputPath("state-reveal-iphone.png"),
       animations: "disabled",
       scale: "css",
     });
-    await uses.getByRole("button", { name: /Set · first_room · LOGIC 1/ }).tap();
+    await uses.getByRole("button", { name: /Changed · first_room · LOGIC 1/ }).tap();
     await expect(page.getByTestId("workspace-logic-editor")).toBeVisible();
     await showParts(page, 390);
     const builtin = parts.getByTestId("game-state-builtin");

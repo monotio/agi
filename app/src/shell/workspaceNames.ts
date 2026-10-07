@@ -163,13 +163,6 @@ export function workspaceReferenceInfo(
               other.range.start.character === use.range.start.character,
           ) === index,
       )
-      .map((use) => ({
-        ...use,
-        role:
-          use.role === "Used" && (info.kind === "flag" || info.kind === "variable")
-            ? ("Checked" as const)
-            : use.role,
-      }))
       .sort((a, b) =>
         a.key < b.key
           ? -1

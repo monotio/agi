@@ -171,7 +171,8 @@ export function validateAuthoringState(value: unknown): AuthoringState {
           Number(proof["logic"]) > 255 ||
           !Number.isInteger(proof["line"]) ||
           Number(proof["line"]) < 1 ||
-          !["Set", "Checked", "Used"].includes(String(proof["role"])) ||
+          // Legacy naming evidence remains readable without rewriting its saved roles.
+          !["Changed", "Read", "Used", "Set", "Checked"].includes(String(proof["role"])) ||
           typeof proof["text"] !== "string" ||
           !Array.isArray(proof["nearbyMessages"]) ||
           proof["nearbyMessages"].some((message) => typeof message !== "string")

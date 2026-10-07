@@ -569,10 +569,13 @@ export function createLogicLspServer(
   }
   function operandDetails(doc: Document, operand: NumberedOperand): string {
     const uses = operandInfo(doc, operand)?.uses ?? [];
-    const groups = ["Set", "Reset", "Checked", "View", "Positioned", "Drawn", "Used"];
+    const groups = ["Changed", "Read", "View", "Positioned", "Drawn", "Used"];
     const meaning = systemMeaning(operand.kind, operand.num);
     const details = groups.flatMap((role) => {
-      const group = uses.filter((use) => (use.operation ?? use.role) === role);
+      const group = uses.filter(
+        (use) =>
+          (["f", "v"].includes(operand.kind) ? use.role : (use.operation ?? use.role)) === role,
+      );
       if (!group.length) return [];
       const locations: Record<string, number[]> = {};
       for (const use of group) {

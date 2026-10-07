@@ -47,7 +47,7 @@ test("names open resources, peek game state and rename all authored uses @webkit
   await parts.getByRole("button", { name: "chime_done Flag 204", exact: true }).click();
   const details = page.getByTestId("binding-details");
   await expect(details).toBeVisible();
-  await expect(details).toContainText("Set · first_room · LOGIC 1");
+  await expect(details).toContainText("Changed · first_room · LOGIC 1");
   await details.getByRole("button", { name: "Rename", exact: true }).click();
   await details.getByLabel("Name", { exact: true }).fill("birdsong_done");
   await details.getByRole("button", { name: "Rename", exact: true }).click();
@@ -87,7 +87,7 @@ test("names open resources, peek game state and rename all authored uses @webkit
     await expect(page.getByTestId("state-flag-204")).toBeFocused();
     await expect(details).toBeVisible();
     await expect(
-      details.getByRole("button", { name: /Checked · first_room · LOGIC 1/ }),
+      details.getByRole("button", { name: /Read · first_room · LOGIC 1/ }),
     ).toBeVisible();
     await page.screenshot({
       path: test.info().outputPath(`names-peek-${viewport.width}.png`),

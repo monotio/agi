@@ -61,7 +61,7 @@ test("references include named and numeric uses, deduplicated by source location
   });
   assert.deepEqual(
     door.uses.map((use) => use.role),
-    ["Set", "Checked", "Set"],
+    ["Changed", "Read", "Changed"],
   );
   assert.equal(
     workspaceReferenceInfo(snapshot, "2.936", { name: "", kind: "sound", num: 9, uses: [] }).uses
@@ -70,7 +70,7 @@ test("references include named and numeric uses, deduplicated by source location
   );
 });
 
-test("state read operands are labelled Checked", () => {
+test("state read operands are labelled Read", () => {
   const source = "assignv(v90, v91); return;";
   const snapshot = {
     keys: ["logic:1"],
@@ -85,7 +85,7 @@ test("state read operands are labelled Checked", () => {
   });
   assert.deepEqual(
     state.uses.map((use) => use.role),
-    ["Checked"],
+    ["Read"],
   );
 });
 

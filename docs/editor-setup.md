@@ -113,7 +113,7 @@ returns proposed versioned edits for the client to apply. Project renames also
 edit `bindings.json` and reject conflicting names or changes to compiled bytes.
 The browser applies coordinated renames through project History, so Undo restores
 the affected documents together. In the app, a resource name opens its editor. A flag or variable opens a list of
-LOGIC lines where it is set and checked. Hover offers Open and Rename, and the
+LOGIC lines labelled Read or Changed. Resource references say Used. Hover offers Open and Rename, and the
 parts list includes Game state. External editors navigate to `bindings.json`.
 Closed-file references open in read-only source previews. Formatting is omitted: the project has no
 canonical LOGIC formatter, and preserving authored message text matters.
