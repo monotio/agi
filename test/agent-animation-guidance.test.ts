@@ -43,9 +43,9 @@ test("invented fix.priority is rejected with the authentic correction and no mut
   assert.match(JSON.stringify(bad.details), /set.priority/);
   assert.deepEqual(state.container.getResource("logic", 2), original);
   assert.match(AGI_SYSTEM_PROMPT, /cycle.time/);
-  assert.match(AGI_SYSTEM_PROMPT, /v10.*cycle delay/);
+  assert.match(AGI_SYSTEM_PROMPT, /cycle_speed.*global cycle delay/);
 });
 
 test("generated boot chooses a deliberate global cycle pace", () => {
-  assert.match(BASE_TEMPLATE_LOGIC0_SOURCE, /assignn\(v10, 2\)/);
+  assert.match(BASE_TEMPLATE_LOGIC0_SOURCE, /assignn\(cycle_speed, 2\)/);
 });

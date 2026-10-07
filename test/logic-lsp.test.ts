@@ -57,7 +57,7 @@ import {
 import { requireProjectId } from "../src/gameIdentity.ts";
 import type { LspMessage, LspResponse, LspNotification, Range } from "../src/logic/lspTypes.ts";
 import { buildWordsTok } from "../src/logic/words.ts";
-import { buildTutorial } from "../games/adventure-department/game.ts";
+import { buildTutorial, TUTORIAL_LOGIC_SOURCES } from "../games/adventure-department/game.ts";
 import { buildProjectZip } from "../app/src/archive/projectArchive.ts";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
@@ -1435,7 +1435,7 @@ test("extracting project sources creates navigable .lgc files and refuses overwr
     const result = run();
     assert.equal(result.status, 0, result.stderr);
     assert.equal(result.stdout, "");
-    assert.match(readFileSync(join(output, "logic.0.lgc"), "utf8"), /return;/);
+    assert.equal(readFileSync(join(output, "logic.0.lgc"), "utf8"), TUTORIAL_LOGIC_SOURCES[0]);
     assert.deepEqual(
       JSON.parse(readFileSync(join(output, "bindings.json"), "utf8")),
       buildTutorial().project?.authoringState?.["authoring"] &&

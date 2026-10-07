@@ -258,17 +258,14 @@ describe("boilerplate parts", () => {
     draft.edit(
       "logic:0",
       docText(draft, "logic:0").replace(
-        "call.v(v0);",
-        `call.v(v0);\nif (isset(dead)) { call(game_over_logic); }`,
+        "call.v(current_room);",
+        `call.v(current_room);\nif (isset(dead)) { call(game_over_logic); }`,
       ),
       draft.capture().version("logic:0"),
     );
     draft.edit(
       "logic:1",
-      docText(draft, "logic:1").replace(
-        "return;",
-        `if (said("die")) { call(game_over_logic); }\nreturn;`,
-      ),
+      `${docText(draft, "logic:1")}\nif (said("die")) { call(game_over_logic); }\n`,
       draft.capture().version("logic:1"),
     );
     const built = compileProjectDocuments({
