@@ -33,7 +33,9 @@ for (const size of [
   { width: 1440, height: 900 },
   { width: 1280, height: 720 },
 ]) {
-  test(`MAIN keyboard debugger at ${size.width}×${size.height}`, async ({ page }) => {
+  test(`MAIN keyboard debugger at ${size.width}×${size.height} @webkit-desktop`, async ({
+    page,
+  }) => {
     await page.setViewportSize(size);
     const loaded: string[] = [];
     page.on("request", (req) => loaded.push(req.url()));
@@ -141,7 +143,7 @@ for (const size of [
   });
 }
 
-test("stopped edits keep the running source, value edits and watches inspect MAIN", async ({
+test("stopped edits keep the running source, value edits and watches inspect MAIN @webkit-desktop", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -154,19 +156,6 @@ test("stopped edits keep the running source, value edits and watches inspect MAI
   await page.getByTestId("part-room:1:logic").click();
   const editor = page.getByTestId("workspace-logic-editor");
   await expect(editor).toBeVisible();
-  const source = await page.evaluate(
-    () =>
-      (
-        window as unknown as {
-          __AGI_PROJECT__: {
-            getSession(): { model: { capture(): { read(key: string): { content: string } } } };
-          };
-        }
-      ).__AGI_PROJECT__
-        .getSession()
-        .model.capture()
-        .read("logic:1").content,
-  );
   await editor.getByRole("textbox", { name: "Editor content", exact: true }).focus();
   await page.keyboard.press("ControlOrMeta+f");
   await page.keyboard.type('print("You stand');
@@ -212,10 +201,12 @@ test("stopped edits keep the running source, value edits and watches inspect MAI
   // The Call stack is its own tab: go back to LOGIC 1 to edit it.
   await page.getByTestId("project-tab-logic:1").click();
   await editor.getByRole("textbox", { name: "Editor content", exact: true }).focus();
-  await page.keyboard.press("ControlOrMeta+a");
-  await page.keyboard.insertText(
-    source.replace("You stand in a sunny clearing.", "A blue flower grows in the clearing."),
-  );
+  // Replace the message in place: multiline insertText is typed input, so Monaco's
+  // auto-indent would move the saved breakpoint column from print to the if.
+  await page.keyboard.press("ControlOrMeta+f");
+  await page.keyboard.type("You stand in a sunny clearing.");
+  await page.keyboard.press("Escape");
+  await page.keyboard.insertText("A blue flower grows in the clearing.");
   await expect(
     page.getByRole("button", { name: "Show running source", exact: true }),
   ).toBeVisible();
