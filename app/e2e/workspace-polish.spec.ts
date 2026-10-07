@@ -89,11 +89,12 @@ for (const width of [1063, 1440, 390]) {
     await shot(page, `walk-cleared-${width}`);
   });
 }
-test("Rename lives in a keyboard reachable row menu", async ({ page }) => {
+test("Rename lives in a keyboard reachable row menu @webkit-desktop", async ({ page }) => {
   await start(page);
   const row = page.getByTestId("part-room:1:picture:1").locator("..");
   const menu = row.getByLabel("Actions for clearing_pic", { exact: true });
-  const rename = row.getByRole("button", { name: /Rename/ });
+  const popup = page.getByRole("menu", { name: "Actions for clearing_pic", exact: true });
+  const rename = popup.getByRole("menuitem", { name: "Rename clearing_pic", exact: true });
   await expect(rename).toBeHidden();
   await page.getByTestId("part-room:1:picture:1").focus();
   await page.keyboard.press("Tab");
@@ -101,7 +102,10 @@ test("Rename lives in a keyboard reachable row menu", async ({ page }) => {
   await expect(menu).toBeFocused();
   await menu.press("Enter");
   await expect(rename).toBeVisible();
-  await page.keyboard.press("Tab");
+  await expect(rename).toBeFocused();
+  await page.keyboard.press("ArrowDown");
+  await expect(popup.getByRole("menuitem", { name: "Find references", exact: true })).toBeFocused();
+  await page.keyboard.press("ArrowUp");
   await expect(rename).toBeFocused();
   await page.keyboard.press("Enter");
   // The name turns into a field on its own row.

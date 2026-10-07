@@ -196,6 +196,7 @@ const GameStateTab = defineAsyncComponent(() => import("./GameStateTab.vue"));
 const MessagesTab = defineAsyncComponent(() => import("./MessagesTab.vue"));
 const LaunchEditor = defineAsyncComponent(() => import("./LaunchEditor.vue"));
 const engine = useEngineApi();
+const profile = computed(() => engine.roomMap.resources.value.profile!);
 const workspace = useCreateWorkspace();
 const editor = useWorkspaceEditor();
 const presentation = usePresentation();
@@ -778,7 +779,6 @@ const tabRows = computed(() =>
       (key !== "notes" || (optimistic.value[key]?.length ?? 0) > 0),
   })),
 );
-const profile = computed(() => engine.roomMap.resources.value.profile!);
 const revision = computed(() => snapshot.value?.lastAdmissibleBuild?.identity.revision);
 const files = computed(
   () => snapshot.value?.lastAdmissibleBuild?.files() ?? new Map<string, Uint8Array>(),
