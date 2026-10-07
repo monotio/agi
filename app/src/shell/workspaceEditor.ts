@@ -258,17 +258,12 @@ export function createWorkspaceEditor(engine: EngineApi) {
   /** Open or focus a tab; tabs stay until the person closes them. */
   function open(key: string): void {
     phonePlaytest.value = false;
+    // Focus is a moment, not a setting: opening another part returns to the full layout.
+    if (selected.value !== key) focus.value = false;
     selected.value = key;
     agentContext.value = agentContexts[key] ?? null;
     if (!tabs.value.includes(key)) tabs.value.push(key);
     if (!retained.value.includes(key)) retained.value.push(key);
-    try {
-      const pref = localStorage.getItem(`monotio_agi.workspaceFocus.${kind.value}`);
-      focus.value = pref === "on";
-    } catch {
-      focus.value = false;
-    }
-    if (focus.value) history.value = false;
   }
 
   function close(key: string): void {
@@ -281,11 +276,6 @@ export function createWorkspaceEditor(engine: EngineApi) {
     if (selected.value === undefined) return;
     focus.value = !focus.value;
     if (focus.value) history.value = false;
-    try {
-      localStorage.setItem(`monotio_agi.workspaceFocus.${kind.value}`, focus.value ? "on" : "off");
-    } catch {
-      /* Remember for this page. */
-    }
   }
   function resize(value: number): void {
     chosenSplit.value = true;
