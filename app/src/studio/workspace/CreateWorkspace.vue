@@ -1343,7 +1343,9 @@ async function updateGame(restartRoom = true): Promise<void> {
       editor.error.value = first
         ? `${first.message.replace(/[.]+$/, "")}. Fix this part, then update.`
         : "reason" in result && typeof result.reason === "string"
-          ? `${result.reason.replace(/[.]+$/, "")}. Choose Update and restart.`
+          ? result.status === "refused"
+            ? result.reason
+            : `${result.reason.replace(/[.]+$/, "")}. Choose Update and restart.`
           : "The game needs a fresh room. Choose Update and restart.";
       return;
     }
@@ -1447,7 +1449,11 @@ function edit(key: string, value: ProjectContent): void {
     return;
   editor.error.value = "";
   const changes = editorChanges(key, value);
-  session?.drafts().stage(changes);
+  if (key === "world") {
+    void session?.stage(changes).catch((cause: unknown) => {
+      editor.error.value = cause instanceof Error ? cause.message : String(cause);
+    });
+  } else session?.drafts().stage(changes);
   for (const change of changes)
     if (change.content !== null) optimistic.value[change.key] = change.content;
   delete typingProblems[key];

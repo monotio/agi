@@ -488,6 +488,7 @@ export function useEngine(
           query: link.query,
           current,
           waitForContinue: () => executionDebug?.waitForContinue(),
+          acceptedImage: () => projectSession?.model.capture().lastAdmissibleBuild,
         });
         projectSession = openProjectSession({
           data: game.authoredGame!,

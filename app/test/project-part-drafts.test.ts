@@ -5,6 +5,87 @@ import { openProjectDrafts } from "../src/project/projectPartDrafts.ts";
 
 const records = installIndexedDbFixture();
 
+for (const refuseWrite of [false, true])
+  test(`rebased room drafts recover after closing ${refuseWrite ? "after a refused write" : "before the write commits"}`, async () => {
+    const projectId = `draft-room-rebase-${refuseWrite}`;
+    const storage = journal();
+    let image = "before-room";
+    const world = { rooms: { "1": { title: "Home" } } };
+    const next = { rooms: { "1": { title: "Home" }, "2": { title: "Hall" } } };
+    const drafts = openProjectDrafts({
+      projectId,
+      lifetime: "initial",
+      journal: storage,
+      currentImage: () => image,
+    });
+    await drafts.ready;
+    drafts.stage([
+      { key: "notes", content: "keep my draft" },
+      { key: "world", content: JSON.stringify({ rooms: { "1": { title: "Garden" } } }) },
+    ]);
+    await drafts.flush();
+    image = "after-room";
+    drafts.rebase(
+      { documentId: "before-room", world: JSON.stringify(world) },
+      { documentId: image, world: JSON.stringify(next) },
+    );
+    const set = records.set.bind(records);
+    if (refuseWrite) {
+      records.set = (key, value) => {
+        if (key === `part-drafts/${projectId}/notes`) throw new Error("room draft write refused");
+        return set(key, value);
+      };
+      try {
+        await assert.rejects(drafts.flush(), /room draft write refused/);
+      } finally {
+        records.set = set;
+      }
+    }
+    drafts.dispose();
+    const recovered = openProjectDrafts({
+      projectId,
+      lifetime: "initial",
+      journal: storage,
+      currentImage: () => image,
+    });
+    try {
+      await recovered.ready;
+      assert.equal(recovered.status().error, "");
+      assert.equal(
+        recovered.changes().find((change) => change.key === "notes")!.content,
+        "keep my draft",
+      );
+      assert.deepEqual(
+        JSON.parse(String(recovered.changes().find((change) => change.key === "world")!.content)),
+        { rooms: { "1": { title: "Garden" }, "2": { title: "Hall" } } },
+      );
+      await recovered.flush();
+      const olderPage = openProjectDrafts({
+        projectId,
+        lifetime: "initial",
+        journal: journal(),
+        currentImage: () => "before-room",
+      });
+      try {
+        await olderPage.ready;
+        olderPage.rebase(
+          { documentId: "before-room", world: JSON.stringify(world) },
+          { documentId: image, world: JSON.stringify(next) },
+        );
+        await assert.rejects(olderPage.flush(), /another tab/);
+        assert.equal(
+          olderPage.changes().find((change) => change.key === "notes")!.content,
+          "keep my draft",
+        );
+      } finally {
+        olderPage.dispose();
+      }
+      await recovered.clear();
+    } finally {
+      recovered.dispose();
+    }
+  });
+
 test("a coordinated draft edit undoes and redoes as one transaction", async () => {
   const drafts = openProjectDrafts({
     projectId: "draft-transaction",

@@ -142,6 +142,97 @@ function harness() {
   return { ctx, state, admission, control };
 }
 
+test("a stale project refusal names the game change and keeps the candidate unapplied", () => {
+  const h = harness();
+  const initial = projectAdmissionIdentity(h.ctx, h.state)!;
+  h.admission.onPreviewUpdate({
+    type: "previewUpdate",
+    id: 1,
+    runToken: h.state.runToken,
+    expected: { ...initial, updateSerial: initial.updateSerial - 1 },
+    candidate: candidate(),
+  });
+  const result = h.control.at(-1);
+  assert.ok(result?.type === "previewUpdateResult");
+  assert.equal(result.status, "refused");
+  assert.equal(
+    result.reason,
+    "The game changed while this edit was waiting. Reopen the game, then try Update again.",
+  );
+  assert.deepEqual(projectAdmissionIdentity(h.ctx, h.state), initial);
+});
+
+test("Launch metadata saves during an entry print without restarting its continuation", async () => {
+  const messages: WorkerControl[] = [];
+  const ctx = createWorkerContext({
+    control: (m) => messages.push(m),
+    presentation() {},
+    now: () => 0,
+  });
+  ctx.host = createEngineHost(ctx);
+  const documents = {
+    "logic:0": 'print("Entry"); assignn(v80,7); return;',
+    world: '{"rooms":{},"facts":{},"quests":{}}',
+  };
+  const compiled = compileProjectDocuments({
+    files: Object.fromEntries(createContainer().files),
+    documents,
+    profileId: "2.936",
+  });
+  onWorkerMessage(ctx, {
+    type: "boot",
+    files: Object.fromEntries(compiled.files()),
+    words: [],
+    projectMode: "create",
+    projectDocuments: writeProjectWorkspace(compiled.documents()),
+  });
+  await ctx.projectLoader.loading;
+  ctx.fns.stopTimers();
+  ctx.fns.tickEngine();
+  assert.equal(ctx.run.engine!.modalKind, "print");
+  const image = ctx.run.engine!.getPresentation().text;
+  const next = compileProjectDocuments({
+    files: Object.fromEntries(compiled.files()),
+    documents: {
+      ...documents,
+      world: JSON.stringify({
+        rooms: {},
+        facts: {},
+        quests: {},
+        launches: { "1": { entries: [{ id: "practice", name: "Practice" }] } },
+      }),
+    },
+    profileId: "2.936",
+  });
+  onWorkerMessage(ctx, {
+    type: "previewUpdate",
+    id: 1,
+    runToken: ctx.run.projectAdmission!.runToken,
+    expected: projectAdmissionIdentity(ctx, ctx.run.projectAdmission)!,
+    candidate: {
+      files: Object.fromEntries(next.files()),
+      sources: { "0": documents["logic:0"] },
+      sourceBindings: {},
+      buildId: next.build.identity.buildId,
+      revision: next.build.identity.revision,
+      documents: writeProjectWorkspace(next.documents()),
+      documentId: projectDocumentId(next.documents(), sha256Hex),
+      origins: [],
+    },
+  });
+  const result = messages.findLast((m) => m.type === "previewUpdateResult");
+  assert.ok(
+    result?.type === "previewUpdateResult" && result.status === "committed",
+    JSON.stringify(result),
+  );
+  assert.equal(ctx.run.engine!.vars[80], 0);
+  assert.equal(ctx.run.engine!.modalKind, "print");
+  assert.deepEqual(ctx.run.engine!.getPresentation().text, image);
+  ctx.run.engine!.ackPrint();
+  ctx.fns.tickEngine();
+  assert.equal(ctx.run.engine!.vars[80], 7);
+});
+
 test("project admission installs complete document identities with no debugger controller", () => {
   const h = harness();
   assert.equal(h.ctx.debuggerLoader.installed, false);
@@ -320,7 +411,10 @@ test("adopting an authored room refuses a changed native image", () => {
   const result = h.control.at(-1);
   assert.ok(result?.type === "previewUpdateResult");
   assert.equal(result.status, "refused");
-  assert.match(result.reason!, /authored room image changed/);
+  assert.equal(
+    result.reason,
+    "The game changed while this room was being built. Reopen the game, then try again.",
+  );
   assert.deepEqual(projectAdmissionIdentity(h.ctx, h.state), before);
 });
 

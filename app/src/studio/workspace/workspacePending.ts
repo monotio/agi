@@ -4,6 +4,7 @@ import {
   type ProjectContent,
 } from "../../../../src/authoring/projectContent.ts";
 import type { ProjectSnapshot } from "../../../../src/authoring/projectModel.ts";
+import { sameWorldGameContent } from "../../project/projectWorld.ts";
 
 /** Reuse unchanged draft comparisons and metadata until the accepted image changes. */
 export function createWorkspacePending(partKeys: (change: ProjectChange) => readonly string[]) {
@@ -24,7 +25,10 @@ export function createWorkspacePending(partKeys: (change: ProjectChange) => read
         if (!cached || cached.content !== edit.content) {
           cached = {
             content: edit.content,
-            pending: !sameProjectContent(snapshot?.read(edit.key)?.content, edit.content),
+            pending: !(edit.key === "world" ? sameWorldGameContent : sameProjectContent)(
+              snapshot?.read(edit.key)?.content,
+              edit.content,
+            ),
           };
           compared[edit.key] = cached;
         }

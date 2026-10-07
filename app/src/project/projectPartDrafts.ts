@@ -7,6 +7,7 @@ import {
 } from "../../../src/authoring/projectWorkspace.ts";
 import { historyLifetimeGuard, readBodyRecords, updateBodyRecords } from "./gameBodyStorage.ts";
 import { claimProjectSaveJournal } from "./projectSaveJournal.ts";
+import { rebaseWorldDraft } from "./projectWorld.ts";
 
 type Journal = Pick<Storage, "length" | "key" | "getItem" | "setItem" | "removeItem">;
 const liveJournals = new Set<string>();
@@ -127,7 +128,6 @@ export function openProjectDrafts(input: {
           error = "Browser storage could not keep a recovery copy. Retry saving before closing.";
         }
       }
-      inspectBase(draft);
     }
     // A terminated page may have journaled a part before opening its IDB transaction.
     const journalKeys = Array.from({ length: storage?.length ?? 0 }, (_, index) =>
@@ -146,7 +146,6 @@ export function openProjectDrafts(input: {
         else if ((current?.receipt ?? null) === recovered.parent) {
           drafts[recovered.key] = recovered;
           pending.add(recovered.key);
-          inspectBase(recovered);
           try {
             storage!.setItem(journalKey(recovered.key), encode(recovered));
             storage!.removeItem(key);
@@ -166,6 +165,9 @@ export function openProjectDrafts(input: {
         });
       else recover();
     }
+    // A newer recovery journal may carry this page's accepted room image.
+    // Check the final recovered draft, after its receipt supersedes storage.
+    for (const draft of Object.values(drafts)) inspectBase(draft);
     notify();
     if (pending.size && !blocked && !disposed)
       timer = setTimeout(() => {
@@ -308,6 +310,35 @@ export function openProjectDrafts(input: {
     },
     changes(): readonly ProjectChange[] {
       return Object.values(drafts).map(({ key, content }) => ({ key, content }));
+    },
+    rebase(
+      before: { documentId: string; world: ProjectContent | undefined },
+      after: { documentId: string; world: ProjectContent | undefined },
+    ) {
+      if (
+        before.documentId === after.documentId ||
+        blocked ||
+        Object.values(drafts).some(
+          (draft) => draft.baseImage !== undefined && draft.baseImage !== before.documentId,
+        )
+      )
+        return;
+      const changes = Object.values(drafts).map((draft) => ({
+        key: draft.key,
+        content:
+          draft.key === "world"
+            ? rebaseWorldDraft(before.world, after.world, draft.content)
+            : draft.content,
+      }));
+      if (!changes.length) return;
+      stage(changes);
+      for (const transaction of [...past, ...future])
+        for (const change of [...transaction.before, ...transaction.after])
+          if (change.key === "world")
+            Object.assign(change, {
+              content: rebaseWorldDraft(before.world, after.world, change.content),
+            });
+      notify();
     },
     status() {
       return {
