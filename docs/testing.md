@@ -747,7 +747,7 @@ in-degree is not reachability.
 | `app/e2e/world-map.spec.ts`     | The browser contract: pause ownership, imported static graphs, Watch from here, no provider request, phone layout, and measured open/select timings on a 256-room synthetic map |
 
 The sidecar (`MAP.JSON` in project archives, `monotio_agi.map.<key>` in storage)
-is validated by `app/src/world/roomMapStore.ts`; unknown versions read as empty.
+is validated by `app/src/world/roomMapStore.ts`; unsupported versions are retained and refused on read and replacement.
 
 ## History and reference recovery
 

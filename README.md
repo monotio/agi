@@ -119,7 +119,8 @@ LOGIC has code completion,
 hover documentation, definition navigation and a Problems panel. Resource names
 open their editors; flags and variables show where they are set and checked.
 **Game state** in the parts list shows these names with Rename. Edits save
-automatically; **Saved** confirms they are stored in this browser. A source error
+automatically; **Draft saved** confirms pending edits are stored in this browser,
+and **Saved** confirms the updated project. A source error
 keeps the game on its last working build. **Undo** and
 **Redo** step across edits to every part, and **Saved** opens **History**.
 Games from the shared catalog need a personal copy before editing.
@@ -144,7 +145,9 @@ while the agent writes it:
 _The agent's reply in this clip is a recorded one that writes the tutorial's own
 Sprite Lab picture; checking, compiling and entering the room are the app's own._
 
-Along the way you can:
+**AI makes new rooms when the hero walks into one** controls this. It starts on
+for Create with AI and off for imported games and local templates. Change it in
+**Details…** from Home's Game actions or Create's game menu. Along the way you can:
 
 - open **World map** to rename rooms, edit their
   briefs and pin notes the agent reads when it builds that part of the world;
@@ -181,9 +184,11 @@ it, and ask for revisions when something is off.
 from the browser. Your key is saved in browser storage and sent only to the
 provider you choose, along with the game content each request needs. Requests
 are billed to your account; each task starts with a $5 budget that
-you can change. The app counts actual spending as your provider reports usage.
-A request finishes before the agent pauses when spending reaches the budget.
-Continue adds another task budget; Stop keeps your work in this tab.
+you can change. The app shows actual spending as your provider reports usage, for example
+**$0.14 of $5 spent**. One budget covers agent requests and generated images.
+The in-flight request finishes before the agent pauses after crossing the budget,
+so spending can exceed it. **Continue** adds another task budget; **Stop** ends
+the task and keeps your work in this tab.
 For models with unverified prices, check your provider's usage page.
 Long conversations compact their request context while keeping the
 full audit transcript. The provider's prompt cache reuses prior context at its
@@ -201,7 +206,7 @@ with the PICTURE editor’s tools, a LOGIC to edit its instructions, or a VIEW t
 loops and cels. WORDS groups words by meaning, tests sentences with the game’s parser and
 keeps a local list of missed playtest commands. OBJECTS has a table editor; SOUND has a step
 grid, tracker, presets and playback, and imports MIDI and VGM. **Focus** gives an editor the
-workspace while the game keeps running. **Done** returns to your chosen arrangement.
+workspace while the game keeps running. Toggle **Focus** again, or press Escape twice, to return to your chosen arrangement.
 Create works best on a larger screen; games play on phones too.
 
 **Trace an image** blends a dropped, pasted or chosen image over a PICTURE at
@@ -222,11 +227,15 @@ Editor changes save as drafts in the background. Dots mark parts waiting for
 **Update and restart**, which applies all changed parts together, adds one Undo
 step, and runs the open room’s entry LOGIC. The game keeps running your last
 update while you edit. The action menu selects **Carry over**, **From my game**, **From the beginning**,
-or a saved room Launch. **Update and keep playing** preserves the game’s moment;
+or a saved room Launch. **Launch options → New launch…** stores a named starting
+setup for the room: hero position, flags, variables and inventory. Launch metadata
+saves without applying drafts. The top-bar action shows an icon and the room name;
+its tooltip names **Update and restart**, **Restart** or **Play** for that room.
+**Update and keep playing** preserves the game’s moment;
 a waiting message finishes before its changed LOGIC runs. Create keeps the moment you left Play. **From my game**, Back and returning to Play
 restore that moment on your updated files. Create uses temporary progress and save slots.
 With two tabs open, the newest tab plays; **Take back** returns control to the older tab. **Discard changes…** returns parts to
-that last update. **Saved** confirms browser storage for drafts; it keeps their dots.
+that last update. **Draft saved** confirms browser storage for pending edits; their dots remain until Update.
 
 ![The action menu lists Carry over, From my game, From the beginning and the room's Launches above the Launch editor](docs/media/launch-menu-1.2.png)
 
@@ -242,8 +251,8 @@ visible focus zones from the editor; **Shift+F6** also leaves the game;
 **Ctrl+backtick** focuses the game. The game takes
 keys while its zone has focus. **Escape** closes the chooser and returns focus. **⌘K Z** toggles Focus; press
 **Escape** twice to return. Focus is remembered for each editor type.
-**⌘J** toggles the bottom panel: Problems, Variables, Watch, Call stack and
-Breakpoints. **F5** in LOGIC starts the selected Launch with Debug stopped at its first
+**⌘J** toggles the Problems tab. The debugger has Variables, Watch, Call stack
+and Breakpoints. **F5** in LOGIC starts the selected Launch with Debug stopped at its first
 instruction, or continues a stopped run. With the game focused, **F5** saves and **F6** belongs to the game.
 **F9** or a LOGIC gutter click toggles a breakpoint; **F10**, **F11**
 and **Shift+F11** step over, into and out. **Shift+F5** stops debugging and leaves
@@ -267,8 +276,8 @@ spectrograms._
   what the player sees, and Priority for what stands in front plus the walls,
   water, triggers and gates that steer the hero. The items list names what the
   picture draws, and "insert here" on an item draws new shapes before it.
-  Strokes stay drafts on the picture canvas until **Update and restart**. A
-  dashed outline marks pending cells. **Views** blends in the figures the room
+  Strokes stay drafts on the picture canvas until **Update and restart**.
+  **Views** blends in the figures the room
   places, as the game draws them. Drag a figure with a plain-number position to
   draft its LOGIC placement; a computed placement drags as a preview, with
   Reset and Copy position, and Set in opens the lines that place it.
@@ -289,7 +298,7 @@ spectrograms._
   Each lens locks painting on the other planes until you unlock them, while
   a whole item moves with all its planes. **Undo** steps back across parts.
 - **LOGIC** uses code intelligence, completion and diagnostics. Typing starts saving
-  the source; **Saved** confirms browser storage. Errors leave the last working build running. **+ Add** guides
+  the source; **Draft saved** confirms browser storage. Errors leave the last working build running. **+ Add** guides
   **Add a room**, **Place hero** with Start here or drag, a drawn **Door**,
   **Answer a sentence**, and **Play a sound when…**.
 - **SOUND** opens beside the game. Draw the three voices and Drums on the **Grid**,
@@ -316,6 +325,9 @@ spectrograms._
 Games, saves and history live in your browser. The game's own Save and Restore
 use the authentic AGI save format, with twelve named slots per game, and the
 app saves as you play, so **Resume** picks up where you left off.
+Upgrading from 1.1 loads existing progress automatically, including save slots
+and the visited-room map. An earlier position tied to older game files stays
+available; **Start the latest version** opens the newer files.
 
 | Settings → This game → **Download…** | What you get                                                                                                                                                                                                                       |
 | ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

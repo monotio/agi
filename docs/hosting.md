@@ -80,6 +80,16 @@ browser; later visits use the saved copy and checkpoint. Change the entry's
 version when you publish changed resources, so an existing player's saved
 release stays intact.
 
+## Upgrading to 1.2
+
+Existing 1.1 browser progress loads automatically in 1.2. The app adopts supported
+autosaves, save slots and visited-room maps into storage identities tied to the
+project lifetime or installed release, and retains the legacy records. Projects
+and private archives retain version 1 with optional workspace and History data;
+released recordings and recorded game tests remain readable through their
+version migrations. See [project storage and archives](../CONTRIBUTING.md#how-it-fits-together)
+for the format boundaries.
+
 ## Production releases
 
 The public site at [agi.monotio.com](https://agi.monotio.com/) deploys from

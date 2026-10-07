@@ -22,14 +22,21 @@ account and are subject to the provider's data handling policies.
 
 Image generation sends the prompt and any selected reference images to the
 OpenAI images API using your OpenAI key. Generated images stay in the project
-and can become native PICTURE or VIEW resources. The request preview shows its
-model, quality, size and estimated cost before sending.
+and can become native PICTURE or VIEW resources. **Details** selects the model,
+quality and size; **Generate** submits the request. Agent requests and images
+share a task budget, initially $5. The app displays actual provider-reported
+usage as spending, for example **$0.14 of $5 spent**, alongside **Stop**.
+An in-flight request finishes before the task pauses after crossing the budget;
+spending can exceed it. **Continue** adds another task budget, and **Stop** ends
+the task while keeping completed work. For unverified model prices, consult
+your provider's usage page.
 
 Projects are saved in IndexedDB with a localStorage index.
-**Settings → This game → Download game…** downloads authoring history and
-images alongside the game; **Settings → This game → Export game…** downloads
-playable resources and public metadata. API credentials are excluded from
-both. Downloads are local files; sharing them is a separate action.
+Open **Download…** from **Settings → This game** or Home's **Game actions**.
+**Project file** is a private backup containing available chats, notes, images,
+source, history and saved progress alongside the game. **Playable game** contains
+playable resources and public metadata for sharing. API credentials are excluded
+from both. Downloads are local files; sharing them is a separate action.
 
 ## Trust boundaries
 
