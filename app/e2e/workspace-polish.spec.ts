@@ -105,8 +105,13 @@ test("Rename lives in a keyboard reachable row menu", async ({ page }) => {
   await expect(rename).toBeVisible();
   await page.keyboard.press("Tab");
   await expect(rename).toBeFocused();
-  await rename.click();
-  await expect(page.getByTestId("binding-details")).toBeVisible();
+  await page.keyboard.press("Enter");
+  // The name turns into a field on its own row.
+  const field = page
+    .getByTestId("parts-list")
+    .getByRole("textbox", { name: "New name for clearing_pic", exact: true });
+  await expect(field).toBeFocused();
+  await expect(page.getByTestId("binding-details")).toHaveCount(0);
 });
 test("unused game state says nowhere yet", async ({ page }) => {
   await start(page);

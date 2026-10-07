@@ -154,6 +154,7 @@ async function discardChanges(): Promise<void> {
   }
   .workspace-action > button {
     min-width: 0;
+    padding-inline: var(--space-3);
     white-space: normal;
   }
   .workspace-action__stack {

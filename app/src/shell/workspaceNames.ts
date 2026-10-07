@@ -109,7 +109,26 @@ export function workspaceGameStateInfos(
     }
   return { game, builtin };
 }
-export async function renameWorkspaceBinding(
+/** Rename a name across the project from the current working copy, after pending edits save. */
+export async function renameBindingInWorkspace(
+  engine: EngineApi,
+  flush: (() => Promise<unknown>) | undefined,
+  name: string,
+  newName: string,
+): Promise<void> {
+  await flush?.();
+  const snapshot = engine.getProjectSession()?.workingSnapshot();
+  if (!snapshot) throw new Error("Open a project to rename its parts.");
+  await renameWorkspaceBinding(
+    engine,
+    snapshot,
+    engine.roomMap.resources.value.profile?.id ?? "2.936",
+    name,
+    newName,
+  );
+}
+
+async function renameWorkspaceBinding(
   engine: EngineApi,
   base: ProjectSnapshot,
   profileId: ProfileId,
