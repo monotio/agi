@@ -393,6 +393,8 @@ onMounted(() => {
     domReadOnly: props.readOnly,
     model,
     theme: "vs-dark",
+    // Suggestions and hovers draw above the tabs instead of being cut off at the editor's edge.
+    fixedOverflowWidgets: true,
     "semanticHighlighting.enabled": true,
     automaticLayout: false,
     editContext: false,
@@ -564,7 +566,10 @@ defineExpose({
 </script>
 <template>
   <div class="workspace-logic-surface">
-    <div v-if="differs || showRunning" class="workspace-running-source">
+    <div
+      v-if="(differs && stoppedLine !== undefined) || showRunning"
+      class="workspace-running-source"
+    >
       <span>{{ showRunning ? "Running source" : "The game is running an earlier build." }}</span>
       <button v-if="!showRunning" @click="showRunning = true">Show running source</button>
       <button v-else @click="showRunning = false">Return to editing</button>
@@ -609,6 +614,7 @@ defineExpose({
 </template>
 <style scoped>
 .workspace-logic-surface {
+  position: relative;
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -633,7 +639,14 @@ defineExpose({
   border: 0;
   cursor: pointer;
 }
+/* Shown only while paused here; it floats over the code so the editor never moves. */
 .workspace-running-source {
+  position: absolute;
+  top: var(--space-2);
+  right: var(--space-4);
+  z-index: 5;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
   display: flex;
   gap: var(--space-3);
   align-items: center;
