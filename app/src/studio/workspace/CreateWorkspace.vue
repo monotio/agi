@@ -2005,8 +2005,11 @@ function resize(event: PointerEvent): void {
   host.classList.add("is-resizing");
   const paint = () => {
     frame = 0;
-    host.style.setProperty("--workspace-game", `minmax(0, ${value}fr)`);
-    host.style.setProperty("--workspace-edit", `minmax(0, ${100 - value}fr)`);
+    host.style.setProperty("--workspace-game", `minmax(var(--workspace-game-min), ${value}fr)`);
+    host.style.setProperty(
+      "--workspace-edit",
+      `minmax(var(--workspace-edit-min), ${100 - value}fr)`,
+    );
   };
   const move = (e: PointerEvent) => {
     value = Math.min(

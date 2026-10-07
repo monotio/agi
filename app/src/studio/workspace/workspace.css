@@ -1,5 +1,7 @@
 .shell-body--workspace {
   --workspace-parts: 252px;
+  --workspace-game-min: 0px;
+  --workspace-edit-min: 0px;
   --workspace-game: minmax(0, 1fr);
   --workspace-edit: minmax(0, 1fr);
   grid-template-columns: var(--workspace-parts) var(--workspace-game) 5px var(--workspace-edit) !important;
@@ -32,6 +34,7 @@
   grid-column: 2;
   grid-row: 1;
   min-width: 0;
+  isolation: isolate;
 }
 .shell-body--workspace.shell-body--fold-left {
   --workspace-parts: 0px;
@@ -62,6 +65,8 @@
   max-width: 100%;
 }
 .shell-body--workspace.shell-body--stacked:not(.shell-body--no-editor):not(.shell-body--focus) {
+  --workspace-game-min: min(200px, 30%);
+  --workspace-edit-min: min(500px, 65%);
   grid-template-columns: var(--workspace-parts) minmax(0, 1fr) !important;
   grid-template-rows: var(--workspace-game) 5px var(--workspace-edit) auto;
 }
