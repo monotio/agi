@@ -19,6 +19,7 @@ import SoundPicker, { type SoundChoice, type NamedSound } from "./SoundPicker.vu
 import SentenceFields from "./SentenceFields.vue";
 import ActionMenu from "../../ui/ActionMenu.vue";
 import UiButton from "../../ui/UiButton.vue";
+import UiIcon from "../../ui/UiIcon.vue";
 const props = defineProps<{
   room: number;
   busy: boolean;
@@ -29,6 +30,8 @@ const props = defineProps<{
   thumbnails: Readonly<Record<string, string>>;
   views: Readonly<Record<string, Uint8Array>>;
   sounds: readonly NamedSound[];
+  /** Add the next room, as Rooms + does, and answer its number. */
+  newRoom?: () => Promise<number | undefined>;
 }>();
 const emit = defineEmits<{ add: [action: WorkspaceAction] }>();
 const kind = defineModel<WorkspaceAction["kind"] | undefined>("action");
@@ -292,6 +295,21 @@ onBeforeUnmount(() => {
     guidedPlacement.value = undefined;
   }
 });
+/** A Door's "New room": the added room becomes the destination. */
+const addingRoom = ref(false);
+async function pickNewRoom(): Promise<void> {
+  if (addingRoom.value || !props.newRoom) return;
+  addingRoom.value = true;
+  try {
+    const room = await props.newRoom();
+    if (room !== undefined) {
+      destination.value = room;
+      arrival.value = undefined;
+    }
+  } finally {
+    addingRoom.value = false;
+  }
+}
 const doorReady = computed(
   () =>
     kind.value !== "door" ||
@@ -409,6 +427,17 @@ narrowQuery.addEventListener("change", (event) => (narrow.value = event.matches)
             "
           >
             <img v-if="roomImages[entry.id]" :src="roomImages[entry.id]" alt="" />{{ entry.label }}
+          </button>
+          <button
+            v-if="newRoom"
+            type="button"
+            data-testid="door-new-room"
+            :disabled="busy || addingRoom"
+            @click="pickNewRoom"
+          >
+            <span class="guided-choices__new" aria-hidden="true"
+              ><UiIcon name="plus" :size="16" /></span
+            >New room
           </button>
         </div>
         <UiButton
@@ -554,6 +583,15 @@ select {
   width: 100%;
   aspect-ratio: 40 / 21;
   image-rendering: pixelated;
+}
+.guided-choices__new {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  aspect-ratio: 40 / 21;
+  border: 1px dashed var(--hairline-strong);
+  border-radius: var(--radius-sm);
+  color: var(--ink-2);
 }
 .guided-code {
   margin: var(--space-3) 0;

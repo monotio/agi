@@ -1638,8 +1638,17 @@ async function wordChange(
     editor.error.value = cause instanceof Error ? cause.message : String(cause);
   }
 }
-async function guidedAction(action: WorkspaceAction): Promise<void> {
-  if (writeConflict.value || actionBusy.value) return;
+/**
+ * Run a room action. `stay` keeps the open part and the action form, so a
+ * Door's "New room" adds the room and goes on with the Door. Returns the room
+ * an add-room made.
+ */
+async function guidedAction(
+  action: WorkspaceAction,
+  options: { stay?: boolean } = {},
+): Promise<number | undefined> {
+  if (writeConflict.value || actionBusy.value) return undefined;
+  let added: number | undefined;
   actionBusy.value = true;
   try {
     await writes.flush();
@@ -1673,11 +1682,12 @@ async function guidedAction(action: WorkspaceAction): Promise<void> {
       const room = logicKey ? Number(logicKey.slice(6)) : undefined;
       const key =
         prepared.changes.find((change) => change.key.startsWith("picture:"))?.key ?? logicKey;
-      if (key) openPart(key);
+      if (key && !options.stay) openPart(key);
       if (room !== undefined) {
+        added = room;
         renamingRoom.value = room;
         // Naming in place stays visible where the + lives, also on the phone.
-        editor.partsOpen.value = true;
+        if (!options.stay) editor.partsOpen.value = true;
       }
     }
     if (action.kind === "boilerplate") {
@@ -1685,7 +1695,7 @@ async function guidedAction(action: WorkspaceAction): Promise<void> {
       if (key) openPart(key);
     }
     draftChanged(true);
-    guidedKind.value = undefined;
+    if (!options.stay) guidedKind.value = undefined;
     editor.error.value = "";
   } catch (cause) {
     editor.error.value = String(cause instanceof Error ? cause.message : cause);
@@ -1693,6 +1703,7 @@ async function guidedAction(action: WorkspaceAction): Promise<void> {
     actionBusy.value = false;
     refresh();
   }
+  return added;
 }
 const versionName = ref("");
 const editingName = ref<string>();
@@ -2234,6 +2245,7 @@ onBeforeUnmount(() => {
         :thumbnails
         :views="viewThumbnails"
         :sounds="guidedSounds"
+        :new-room="() => guidedAction({ kind: 'add-room', title: '' }, { stay: true })"
         @add="guidedAction"
       />
       <span v-if="unusedArt" class="workspace-context__note" data-testid="workspace-unused"
