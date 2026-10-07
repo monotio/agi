@@ -1,7 +1,7 @@
 import type { Page } from "@playwright/test";
 import { test, expect } from "./test.ts";
 import { isolateStorage, textHook, workspaceSaved, workspaceUpdated } from "./engineProbe.ts";
-import { workspaceDocument } from "./workspaceShared.ts";
+import { clickContextAction, workspaceDocument } from "./workspaceShared.ts";
 
 /** The room-first journey: a blank game grows rooms, names and a door with no forms. */
 async function blankGame(page: Page, title: string): Promise<void> {
@@ -200,7 +200,7 @@ test("blank game to Meadow, Room 2, a door drawn on the game and Play Room 2 @we
   await page.getByTestId("part-room:1:picture:1").click();
   await expect(page.getByRole("region", { name: "PICTURE: PICTURE 1", exact: true })).toBeVisible();
   await workspaceSaved(page);
-  await page.getByTestId("room-action-door").click();
+  await clickContextAction(page, "room-action-door");
   const overlay = page.getByTestId("guided-placement");
   await expect(overlay).toBeVisible();
   await expect(overlay).toContainText("Drag a box where the hero leaves");

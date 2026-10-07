@@ -1,4 +1,4 @@
-import { storedDocument } from "./workspaceShared.ts";
+import { clickContextAction, storedDocument } from "./workspaceShared.ts";
 import type { BrowserContext, Page } from "@playwright/test";
 import type { WorkerQueryFn } from "../src/worker/workerProtocol.ts";
 import { readFile } from "node:fs/promises";
@@ -420,7 +420,7 @@ test("custom code stays precise: a rewritten entry block refuses Custom code, gu
   );
   expect(custom).not.toBe(source);
   await replaceWorkspaceDocument(page, "logic:1", custom);
-  await page.getByTestId("room-action-place-hero").click();
+  await clickContextAction(page, "room-action-place-hero");
   const form = page.getByTestId("workspace-guided-form");
   await expect(form).toBeVisible();
   await form.getByText("Exact numbers", { exact: true }).click();

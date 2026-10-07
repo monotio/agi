@@ -10,7 +10,7 @@ import {
   workspaceUpdated,
   refuseDraftWrites,
 } from "./engineProbe.ts";
-import { openWorkspaceLogic, openStoredWorkspace } from "./workspaceShared.ts";
+import { clickContextAction, openWorkspaceLogic, openStoredWorkspace } from "./workspaceShared.ts";
 import { readGameZip } from "../src/archive/gameZip.ts";
 
 async function starter(page: Page): Promise<void> {
@@ -577,7 +577,7 @@ test("a guided action finishing keeps Draft saving while LOGIC typing is pending
       return put.apply(this, args);
     };
   });
-  await page.getByTestId("room-action-place-hero").click();
+  await clickContextAction(page, "room-action-place-hero");
   const form = page.getByTestId("workspace-guided-form");
   await expect(form).toBeVisible();
   await form.getByText("Exact numbers", { exact: true }).click();

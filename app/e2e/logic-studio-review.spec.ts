@@ -83,7 +83,7 @@ test("invalid LOGIC and another document both autosave and reopen", async ({ pag
   const source = await workspaceDocument(page, "logic:1");
   const runningSource = await workspaceDocument(page, "logic:0");
   await replaceWorkspaceDocument(page, "logic:0", "if broken", false);
-  await expect(page.getByTestId("workspace-last-good")).toBeVisible();
+  await expect(page.getByTestId("workspace-status-problems")).toBeVisible();
   await replaceWorkspaceDocument(
     page,
     "logic:1",

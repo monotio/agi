@@ -97,7 +97,7 @@ test("one running workspace retains editors and opens Focus with a chord @webkit
   await page.locator(".monaco-editor").click();
   await page.keyboard.press("ControlOrMeta+a");
   await page.keyboard.insertText("if (");
-  await expect(page.getByTestId("workspace-last-good")).toBeVisible();
+  await expect(page.getByTestId("workspace-status-problems")).toBeVisible();
   await workspaceSaved(page);
   // Start the workspace chord outside Monaco's completion popup. Escape in
   // the editor dismisses that popup before the workspace's two-key sequence.
@@ -112,7 +112,7 @@ test("one running workspace retains editors and opens Focus with a chord @webkit
   await page.getByRole("radio", { name: "Play", exact: true }).click();
   await expect(page.getByTestId("workspace-editor")).toBeHidden();
   await page.getByRole("radio", { name: "Create", exact: true }).click();
-  await expect(page.getByTestId("workspace-last-good")).toBeVisible();
+  await expect(page.getByTestId("workspace-status-problems")).toBeVisible();
 });
 test("Blank adds its first room through the session @webkit-desktop", async ({ page }) => {
   await isolateStorage(page);
@@ -420,7 +420,7 @@ for (const size of [
     await page.locator(".monaco-editor").click();
     await page.keyboard.press("ControlOrMeta+a");
     await page.keyboard.insertText("if (");
-    await expect(page.getByTestId("workspace-last-good")).toBeVisible();
+    await expect(page.getByTestId("workspace-status-problems")).toBeVisible();
     await workspaceSaved(page);
     await page.keyboard.press("ControlOrMeta+j");
     await expect(page.getByTestId("workspace-problems")).toBeVisible();
