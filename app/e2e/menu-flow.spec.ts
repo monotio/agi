@@ -17,12 +17,26 @@ test.beforeEach(async ({ page }) => {
 
 test("first visit has one route per action and aligned sections", async ({ page }) => {
   const hero = page.locator(".hero");
+  await expect(hero).toBeVisible();
+  await expect(hero.getByRole("button").nth(0)).toBeVisible();
+  await expect(hero.getByRole("button").nth(1)).toBeVisible();
   await expect(hero.getByRole("button")).toHaveText(["Play the tutorial", "Make a new game"]);
-  await expect(hero.getByRole("link")).toHaveCount(1);
-  await expect(hero.getByRole("link")).toHaveAttribute(
-    "href",
-    "https://en.wikipedia.org/wiki/Adventure_Game_Interpreter",
+  await expect(hero.locator(".hero-line")).toBeVisible();
+  await expect(hero.locator(".hero-line")).toHaveText(
+    "Play Sierra-style adventures and build your own.",
   );
+  for (const [width, height] of [
+    [1440, 900],
+    [1063, 815],
+    [390, 844],
+  ] as const) {
+    await page.setViewportSize({ width, height });
+    await expect(hero.locator(".hero-line")).toBeVisible();
+    await page.screenshot({
+      path: test.info().outputPath(`home-hero-${width}.png`),
+      animations: "disabled",
+    });
+  }
   await page.getByTestId("create-adventure-toggle").click();
   await expect(page.getByTestId("create-adventure-disclosure")).toBeVisible();
   await expect(page.getByTestId("local-create-submit")).toBeHidden();
@@ -33,8 +47,12 @@ test("first visit has one route per action and aligned sections", async ({ page 
   await expect(page.getByTestId("connect-create-ai")).toBeHidden();
   await expect(page.getByTestId("boot-game")).toBeHidden();
   await expect(page.locator(".create-pane input[type=number]")).toHaveCount(0);
-  for (const width of [1440, 390]) {
-    await page.setViewportSize({ width, height: 900 });
+  for (const [width, height] of [
+    [1440, 900],
+    [1063, 815],
+    [390, 844],
+  ] as const) {
+    await page.setViewportSize({ width, height });
     const bounds = (await page.locator("#create-adventure").boundingBox())!;
     expect(bounds.x).toBeGreaterThanOrEqual(0);
     expect(bounds.x + bounds.width).toBeLessThanOrEqual(width);
@@ -43,7 +61,6 @@ test("first visit has one route per action and aligned sections", async ({ page 
     ).toHaveCount(4);
     await page.screenshot({
       path: test.info().outputPath(`first-visit-${width}.png`),
-      fullPage: true,
       animations: "disabled",
     });
   }

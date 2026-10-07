@@ -10,6 +10,7 @@ export type TraceUnderlay = {
   adjust?: ((transform: TraceTransform, release: boolean) => void) | undefined;
 };
 const presentations = new WeakMap<ProjectSession, Map<string, TraceUnderlay>>();
+const storedOptions = new WeakMap<TraceUnderlay, { opacity: number; behindArt: boolean }>();
 export function presentTrace(
   session: ProjectSession,
   target: string,
@@ -23,10 +24,22 @@ export function presentTrace(
   }
   const existing = targets.get(target);
   if (existing) {
-    Object.assign(existing, underlay);
+    const previous = storedOptions.get(existing);
+    // A repeated stored image keeps the slider's live input until its release.
+    const keepPreview =
+      !underlay.adjust &&
+      existing.adjust &&
+      previous?.opacity === underlay.opacity &&
+      previous.behindArt === underlay.behindArt;
+    const opacity = keepPreview ? existing.opacity : underlay.opacity;
+    const behindArt = keepPreview ? existing.behindArt : underlay.behindArt;
+    Object.assign(existing, underlay, { opacity, behindArt });
+    if (!underlay.adjust)
+      storedOptions.set(existing, { opacity: underlay.opacity, behindArt: underlay.behindArt });
     return existing;
   }
   const presented = shallowReactive(underlay);
+  storedOptions.set(presented, { opacity: underlay.opacity, behindArt: underlay.behindArt });
   targets.set(target, presented);
   return presented;
 }

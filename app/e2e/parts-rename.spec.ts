@@ -41,9 +41,12 @@ for (const [width, height] of [
     const parts = await start(page, width, height);
     const row = stateRow(page, "chime_done", 204);
     await row.getByLabel("Actions for chime_done", { exact: true }).click();
-    await row.getByRole("button", { name: "Rename chime_done", exact: true }).click();
+    const menu = page.getByRole("menu", { name: "Actions for chime_done", exact: true });
+    await expect(menu).toBeVisible();
+    await menu.getByRole("menuitem", { name: "Rename chime_done", exact: true }).click();
     const field = parts.getByRole("textbox", { name: "New name for chime_done", exact: true });
     await expect(field).toBeVisible();
+    await expect(menu).toBeHidden();
     await expect(field).toBeFocused();
     await expect(field).toHaveValue("chime_done");
     await expect(field).toBeInViewport();
@@ -64,6 +67,7 @@ for (const [width, height] of [
     const renamed = stateRow(page, "wind_chime", 204);
     await renamed.getByRole("button", { name: "wind_chime Flag 204", exact: true }).dblclick();
     const again = parts.getByRole("textbox", { name: "New name for wind_chime", exact: true });
+    await expect(again).toBeVisible();
     await expect(again).toBeFocused();
     await again.fill("not_kept");
     await again.press("Escape");
@@ -82,6 +86,33 @@ for (const [width, height] of [
     await expect(stateRow(page, "bell_done", 204)).toBeVisible();
     await workspaceUpdated(page);
     expect(await workspaceDocument(page, "bindings")).toContain("bell_done");
+
+    // Built-in rows use the same menu and keep focus through its close.
+    const builtin = parts.getByTestId("game-state-builtin");
+    await builtin.getByText("Built-in", { exact: true }).click();
+    await builtin.getByLabel("Actions for new_room", { exact: true }).click();
+    const builtinMenu = page.getByRole("menu", { name: "Actions for new_room", exact: true });
+    await expect(builtinMenu).toBeVisible();
+    const renameBuiltin = builtinMenu.getByRole("menuitem", {
+      name: "Rename new_room",
+      exact: true,
+    });
+    await expect(renameBuiltin).toBeVisible();
+    await renameBuiltin.click();
+    const builtinField = builtin.getByRole("textbox", {
+      name: "New name for new_room",
+      exact: true,
+    });
+    await expect(builtinField).toBeVisible();
+    await expect(builtinMenu).toBeHidden();
+    await expect(builtinField).toBeFocused();
+    await builtinField.fill("room_ready");
+    await builtinField.press("Escape");
+    await expect(builtinField).toHaveCount(0);
+    await expect(
+      builtin.getByRole("button", { name: "new_room Flag 5", exact: true }),
+    ).toBeVisible();
+    expect(await workspaceDocument(page, "bindings")).not.toContain("room_ready");
   });
 
 test("named parts rows and rooms rename on their row @webkit-desktop", async ({ page }) => {
@@ -91,6 +122,7 @@ test("named parts rows and rooms rename on their row @webkit-desktop", async ({ 
   await picture.getByLabel("Actions for clearing_pic", { exact: true }).click();
   await picture.getByRole("button", { name: "Rename clearing_pic", exact: true }).click();
   const field = parts.getByRole("textbox", { name: "New name for clearing_pic", exact: true });
+  await expect(field).toBeVisible();
   await expect(field).toBeFocused();
   await expect(page.getByTestId("binding-details")).toHaveCount(0);
   await field.press("Escape");
@@ -101,9 +133,11 @@ test("named parts rows and rooms rename on their row @webkit-desktop", async ({ 
   await sound.getByLabel("Actions for chime_sound", { exact: true }).click();
   await sound.getByRole("button", { name: "Rename chime_sound", exact: true }).click();
   const soundField = parts.getByRole("textbox", { name: "New name for chime_sound", exact: true });
+  await expect(soundField).toBeVisible();
   await expect(soundField).toBeFocused();
   await soundField.fill("bell_sound");
   await soundField.press("Enter");
+  await expect(page.getByTestId("part-sound:1")).toBeVisible();
   await expect(page.getByTestId("part-sound:1")).toContainText("bell sound · SOUND 1");
   await workspaceUpdated(page);
   expect(await workspaceDocument(page, "bindings")).toContain("bell_sound");
@@ -113,6 +147,7 @@ test("named parts rows and rooms rename on their row @webkit-desktop", async ({ 
   const death = page.getByTestId("part-sound:255").locator("..");
   await death.getByRole("button", { name: "death sound · SOUND 255" }).dblclick();
   const taken = parts.getByRole("textbox", { name: "New name for death_sound", exact: true });
+  await expect(taken).toBeVisible();
   await expect(taken).toBeFocused();
   await taken.fill("bell_sound");
   await taken.press("Enter");
@@ -123,12 +158,15 @@ test("named parts rows and rooms rename on their row @webkit-desktop", async ({ 
 
   // A room's ⋯ renames the room itself, as a double-click does.
   const room = page.getByTestId("part-room:1").locator("..");
+  await expect(page.getByTestId("part-room:1")).toBeVisible();
   const title = (await page.getByTestId("part-room:1").textContent())!.split(" · ")[0]!.trim();
   await room.getByLabel(`Actions for ${title}`, { exact: true }).click();
   await room.getByRole("button", { name: `Rename ${title}`, exact: true }).click();
   const roomField = page.getByTestId("room-rename-input");
+  await expect(roomField).toBeVisible();
   await expect(roomField).toBeFocused();
   await roomField.fill("Sunny meadow");
   await roomField.press("Enter");
+  await expect(page.getByTestId("part-room:1")).toBeVisible();
   await expect(page.getByTestId("part-room:1")).toContainText("Sunny meadow");
 });
