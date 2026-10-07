@@ -473,6 +473,7 @@ for (const size of [
       .getByTestId("inspector-details")
       .evaluate((toggle) => (toggle as HTMLElement).click());
     await expect(studio.getByTestId("picture-meta")).toBeVisible();
+    await studio.getByTestId("inspector-details-body").scrollIntoViewIfNeeded();
     await shot("6-details");
     // 7. The room's views and their list.
     await views(studio, 100);
