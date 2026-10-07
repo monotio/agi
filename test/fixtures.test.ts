@@ -290,15 +290,17 @@ test("a dirs installation is discovered as a v3 combined edition with an empty p
     clearFixtureCache();
   });
   // Same layout as a prefixed combined directory: logic in volume 0,
-  // view in volume 1, sound in volume 15, picture absent.
+  // view in volume 1, sound nibble-f, picture absent. An empty-prefix `dirs`
+  // falls back to the Amiga generation, where the nibble-f entry is absent
+  // outright rather than a VOL.15 reference (docs/testing.md).
   writeFileSync(
     join(dir, "dirs"),
     Uint8Array.of(8, 0, 11, 0, 14, 0, 17, 0, 0, 0, 0, 255, 255, 255, 0x10, 0, 0, 0xf0, 0, 0),
   );
   assert.deepEqual(combinedDirectory(target), { name: "dirs", prefix: "" });
-  assert.match(String(fixtureSkip(target)), /WORDS\.TOK.*VOL\.0.*VOL\.1.*VOL\.15/);
-  assert.doesNotMatch(String(fixtureSkip(target)), /LOGDIR/);
-  for (const name of ["object", "words.tok", "vol.0", "vol.1", "vol.15"]) {
+  assert.match(String(fixtureSkip(target)), /WORDS\.TOK.*VOL\.0.*VOL\.1/);
+  assert.doesNotMatch(String(fixtureSkip(target)), /VOL\.15|LOGDIR/);
+  for (const name of ["object", "words.tok", "vol.0", "vol.1"]) {
     writeFileSync(join(dir, name), new Uint8Array());
   }
   assert.equal(fixtureSkip(target), false);

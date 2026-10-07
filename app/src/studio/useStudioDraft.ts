@@ -67,6 +67,7 @@ export interface DraftBase {
 export interface StudioDraftOptions {
   readonly base: MaybeRefOrGetter<DraftBase>;
   readonly profile: MaybeRefOrGetter<AgiProfile>;
+  readonly priorityBase?: MaybeRefOrGetter<number | undefined>;
   readonly lens: MaybeRefOrGetter<StudioLens>;
   readonly unlocks: MaybeRefOrGetter<LensUnlocks>;
   /** The most undo steps the history keeps; DEFAULT_HISTORY_DEPTH when omitted. */
@@ -156,7 +157,8 @@ export function editedItems(document: PictureDocument, edit: DraftEdit): string[
     return [...new Set(edit.flatMap((op: EditOperation) => editedItems(document, op)))];
   const op = edit as EditOperation;
   switch (op.type) {
-    case "setPoint": {
+    case "setPoint":
+    case "setStepColor": {
       const item = pictureItemAtLine(document, op.line);
       return item ? [item.id] : [];
     }
@@ -225,7 +227,11 @@ export function useStudioDraft(options: StudioDraftOptions) {
   watch(
     () => toValue(options.base),
     (base, old) => {
-      if (base.source !== old.source || base.revision !== old.revision) reset(base);
+      if (base.source === old.source && base.revision === old.revision) return;
+      if (base.source === source.value) {
+        kept.value = base;
+        keptDepth.value = history.value.past.length;
+      } else reset(base);
     },
   );
 
@@ -235,7 +241,12 @@ export function useStudioDraft(options: StudioDraftOptions) {
    * preview frames leave to the gesture's end.
    */
   function evaluate(op: DraftEdit, report = true): DraftCandidate | DraftRefusal {
-    const result = applyEdits(document.value, batchOf(op), { profile: profile() });
+    const result = applyEdits(document.value, batchOf(op), {
+      profile: profile(),
+      ...(toValue(options.priorityBase) === undefined
+        ? {}
+        : { priorityBase: toValue(options.priorityBase)! }),
+    });
     if ("error" in result)
       return {
         kind: "kernel",
@@ -314,7 +325,7 @@ export function useStudioDraft(options: StudioDraftOptions) {
     } catch (error) {
       return refuse({
         kind: "kernel",
-        message: "The proposal doesn't compile any more.",
+        message: "The change doesn't compile any more.",
         detail: String(error),
       });
     }
@@ -322,7 +333,7 @@ export function useStudioDraft(options: StudioDraftOptions) {
     if (!scoped.ok)
       return refuse({
         kind: "kernel",
-        message: "The proposal now reaches outside its scope. Ask again.",
+        message: "The change now reaches outside its scope. Follow up.",
         detail: assistRefusalText(scoped),
       });
     const known = new Set(document.value.items.map((item) => item.id));
@@ -341,7 +352,7 @@ export function useStudioDraft(options: StudioDraftOptions) {
     if (!recorded.ok)
       return refuse({
         kind: "kernel",
-        message: "The picture changed while the AI worked. Ask again.",
+        message: "The picture changed while the AI worked. Follow up.",
         detail: recorded.reason,
       });
     history.value = recorded.history;

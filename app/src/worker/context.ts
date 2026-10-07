@@ -1,3 +1,5 @@
+import { newRunSession } from "./runState.ts";
+import type { PendingSentence } from "./missedSentences.ts";
 /**
  * Worker context: every piece of mutable worker state, grouped by the module
  * that owns it, plus the ports out of the worker and the cross-module
@@ -7,9 +9,9 @@
 import type { Engine, EngineHost } from "../../../src/runtime/engine.ts";
 import type { ProfileId } from "../../../src/runtime/profile.ts";
 import type { EngineReplayState } from "../../../src/runtime/replayState.ts";
-import { CycleClock } from "../../../src/runtime/cycleClock.ts";
-import { SoundClock } from "./soundClock.ts";
-import { FrameRing } from "./frameRing.ts";
+import type { CycleClock } from "../../../src/runtime/cycleClock.ts";
+import type { SoundClock } from "./soundClock.ts";
+import type { FrameRing } from "./frameRing.ts";
 import type { OperationRecorder } from "../../../src/agent/recordedReplay.ts";
 import type { RecordedEvent } from "../authoring/gameRecording.ts";
 import type {
@@ -18,6 +20,7 @@ import type {
   StampedTrace,
   WorkerControl,
   WorkerInbound,
+  PreviewLaneIdentity,
   WorkerPresentation,
 } from "./workerProtocol.ts";
 import { createInput } from "./input.ts";
@@ -27,11 +30,19 @@ import { createCycle } from "./cycle.ts";
 import { createAutosave } from "./autosave.ts";
 import { createPresentation } from "./presentation.ts";
 import { createDebug } from "./debug.ts";
+import type { ProjectAdmissionState } from "./projectAdmissionState.ts";
+import type { HistoryProjectDocuments } from "../../../src/agent/history.ts";
 import type { EdgeSide, RoomTransitionCause } from "../../../src/agent/roomMap.ts";
 import { createJournal } from "./journal.ts";
 import { createHistory } from "./history.ts";
 import { createHistoryView } from "./historyView.ts";
-import { createPlayHere } from "./playHere.ts";
+import { createPlayHereLoader } from "./playHereLoader.ts";
+import {
+  createDebuggerHooks,
+  newDebuggerLoaderState,
+  type DebuggerLoaderState,
+} from "./debugLoader.ts";
+import type { DebuggerState, PreviewPreparedSession } from "./debuggerState.ts";
 import type { HistoryDrive } from "./historyDrive.ts";
 import type {
   HistoryAnchor,
@@ -48,6 +59,7 @@ import type {
 } from "../../../src/agent/history.ts";
 import type { BootMessage } from "./workerProtocol.ts";
 import type { HostAnswerOutcome } from "./hostRequests.ts";
+import type { HostRngState, RngPolicy } from "../../../src/runtime/rng.ts";
 
 /** The only platform access worker modules get: the post boundary and a clock. */
 export interface WorkerPorts {
@@ -72,7 +84,9 @@ export interface WorkerPorts {
 
 /** Settings the boot message owns; a replay reset keeps them. */
 interface BootState {
+  project: HistoryProjectDocuments | undefined;
   authorRooms: boolean;
+  createAllowed: boolean;
   selectedSoundDevice: number;
   liveDictionary: Map<string, number>;
   authoredWords: Uint8Array | null;
@@ -80,10 +94,13 @@ interface BootState {
   currentDictionary: Map<string, number> | null;
   /** The boot's interpreter-profile override; null detects from the files. */
   profile: ProfileId | null;
+  amigaRegion: "ntsc" | "pal";
 }
 
 /** worker/input.ts */
 interface InputState {
+  observeSentences: boolean;
+  sentence: PendingSentence | null;
   /** Queued key presses; a parked key wait is answered straight from here. */
   keyQueue: number[];
   /** Admitted walking releases and later walking keys wait for ordinary input. */
@@ -98,20 +115,21 @@ interface InputState {
 /** worker/hostRequests.ts */
 interface HostRequestsState {
   hostRequestSerial: number;
+  scratchTimer: unknown | null;
   /**
    * The host request currently in flight, or null when none is. The engine's
    * pendingInteraction armed before the request posted; the matching
    * hostAnswer message feeds deliverHostResponse.
    */
-  hostRequestOutstanding: { id: number; op: string; authoring: boolean } | null;
+  hostRequestOutstanding: { generation: number; id: number; op: string; authoring: boolean } | null;
   /** A reenter suspended on room authoring owes the host a `reentered`. */
   pendingReenter: boolean;
 }
 
 /** worker/replay.ts */
 interface ReplayState {
-  /** `random` is the RNG's 16-bit state word (docs/fidelity.md, "Original RNG"). */
-  replay: { tick: number; revision: number; random: number } | null;
+  /** Virtual replay time and observation order; the RNG belongs to run.rng. */
+  replay: { tick: number; revision: number } | null;
   /**
    * The tape's recorded BIOS-clock words — each `reseed` event's value in
    * draw order — drained one per zero-state draw a history replay hits.
@@ -121,6 +139,7 @@ interface ReplayState {
   reseedCursor: number;
   replayRequest: number | null;
   lastReplaySeed: number | null;
+  rngVersion: 1 | 2;
   isSeeking: boolean;
   currentSessionId: number;
   /**
@@ -146,6 +165,7 @@ export interface ReplaySnapshot {
   image: Uint8Array;
   replay: EngineReplayState;
   rng: number;
+  rngPolicy?: RngPolicy;
   keyQueue: number[];
   deferredMovement: number[];
   inputBuffer: string[];
@@ -159,7 +179,7 @@ export interface ReplaySnapshot {
 interface CycleState {
   timer: number | null;
   soundTimer: number | null;
-  /** 60 Hz sound-clock ticks since session start — history's tick timeline. */
+  /** Region-rate sound-clock ticks since session start — history's tick timeline. */
   tickCount: number;
   /** Interpreter cycles completed since boot; the frame ring's timeline. */
   cycleCount: number;
@@ -252,7 +272,7 @@ interface JournalState {
   /** Carried item numbers at the last entry, for the next delta. */
   lastCarried: number[];
   /** The cause the next observed transition must be attributed to. */
-  pendingCause: "restore" | "reenter" | "jump" | null;
+  pendingCause: "restore" | "reenter" | "jump" | "restart" | null;
   /**
    * Transitions recorded at this boundary, awaiting the flush stamp. Score
    * and carried items are captured at record time, before the new room's
@@ -270,12 +290,6 @@ interface JournalState {
 
 /** worker/history.ts — the always-on recording stream. */
 interface HistoryState {
-  /**
-   * Live RNG state — the interpreter's 16-bit word (docs/fidelity.md,
-   * "Original RNG") — seeded per boot and recorded into every segment's
-   * boot and anchors. The scratch replay drive carries its own.
-   */
-  rng: number;
   /** Bumped per boot so a replaced session's historyAcks drop. */
   epoch: number;
   /**
@@ -302,7 +316,7 @@ interface HistoryState {
   };
   openBytes: number;
   /**
-   * 60 Hz sound ticks discharged inside the current host poll — the poll's
+   * Region-rate sound ticks discharged inside the current host poll — the poll's
    * clock observation counts them directly: they precede the poll's cycle
    * decision.
    */
@@ -391,7 +405,7 @@ export type Inbound<T extends WorkerInbound["type"]> = Extract<WorkerInbound, { 
  * functions. createWorkerContext fills it from the modules that have landed;
  * engine.worker.ts seeds the rest while they still live there.
  */
-interface WorkerFns {
+export interface WorkerFns {
   // input.ts
   setKeyWaiting(waiting: boolean): void;
   flushDeferredMovement(): void;
@@ -418,12 +432,27 @@ interface WorkerFns {
   // replay.ts
   postReplay(blocked: string | null, fullState?: boolean): void;
   onReplayAdvance(msg: Inbound<"replayAdvance">): void;
+  onReplayPause(msg: Inbound<"replayPause">): void;
   onReplaySnapshot(msg: Inbound<"replaySnapshot">): void;
   onReplayRestore(msg: Inbound<"replayRestore">): void;
   onResetReplay(msg: Inbound<"resetReplay">): void;
   onExitReplay(): void;
   // cycle.ts
-  tickEngine(): void;
+  /**
+   * One engine tick — the worker's single controlled-completion point.
+   * With execution control armed, returns whether this tick ran a pass to
+   * its post-logic tail (counted here, exactly once); a debugger stop,
+   * cooperative yield or fresh suspension returns false. Unarmed ticks
+   * always return false: the scheduler branch counts their completion.
+   */
+  tickEngine(): boolean;
+  /**
+   * Runs `run` as one worker tick entry — for callers whose engine tick is
+   * wrapped in a recorded operation. Same contract as tickEngine's
+   * completion half: armed and the pass reached its tail → counted and
+   * true; otherwise false.
+   */
+  runTickEntry(run: () => void): boolean;
   recordedClock(): void;
   advanceSoundClock(authoring?: boolean): void;
   /**
@@ -484,7 +513,7 @@ interface WorkerFns {
   historyResume(): void;
   historyFlush(reason?: HistoryAnchor["reason"]): void;
   /** The parked live session's resume point — the retained original. */
-  historySnapshot(): HistoryBoot | null;
+  historySnapshot(cold?: boolean, allowUndrawn?: boolean): HistoryBoot | null;
   onHistoryAck(msg: Inbound<"historyAck">): void;
   /** The eject handshake: end the segment, reply once the tail is durable. */
   onHistoryEnd(msg: Inbound<"historyEnd">): void;
@@ -497,26 +526,123 @@ interface WorkerFns {
   onHistoryViewTake(msg: Inbound<"historyViewTake">): void;
   onHistoryRetain(msg: Inbound<"historyRetain">): void;
   onHistoryViewRestore(msg: Inbound<"historyViewRestore">): void;
+  // debugController.ts — the execution-controller session
+  onDebugAttach(msg: Inbound<"debugAttach">): void;
+  onDebugDetach(msg: Inbound<"debugDetach">): void;
+  onDebugConfigure(msg: Inbound<"debugConfigure">): void;
+  onDebugPause(msg: Inbound<"debugPause">): void;
+  onDebugResume(msg: Inbound<"debugResume">): void;
+  onDebugRunTo(msg: Inbound<"debugRunTo">): void;
+  onDebugInspect(msg: Inbound<"debugInspect">): void;
+  onDebugEvaluate(msg: Inbound<"debugEvaluate">): void;
+  onDebugSetValues(msg: Inbound<"debugSetValues">): void;
+  /**
+   * Post-entry hook every engine-driving path ends on: lands a deferred
+   * control arm/disarm at the first completed-cycle boundary and publishes
+   * any stop the entry latched — so a stop inside advanceClock/soundTick
+   * reports before the next atomic operation in the same outer loop.
+   */
+  debugAfterEntry(): void;
+  /**
+   * A run-replacing command (patch/restore/reenter/playHere/adopt) releases
+   * the debugger latch before the replacement's engine asserts run.
+   */
+  debugBeforeReplace(): void;
+  prepareDebugReplacement(
+    engine: Engine,
+    authority?: Pick<PreviewPreparedSession, "sources" | "sourceBindings" | "bindings">,
+  ): PreviewPreparedSession;
+  /** The run's identity changed: mint a new epoch, rebind against the build. */
+  debugSessionReplaced(stopAtFirstInstruction?: boolean): void;
+  /** True while an attach owns this engine session. */
+  debugAttached(): boolean;
+  /** The engine's stop latch is held — the freeze every entry consults. */
+  debugStoppedHeld(): boolean;
+  /**
+   * A resumable-boundary image cannot describe a debugger-parked or armed
+   * mid-pass engine: autosave/checkpoint callers keep their last good image.
+   */
+  debugCaptureBlocked(): boolean;
+  // previewAdmission.ts — the play-preview lane, landing with the lazy
+  // controller; the inert seam answers an explicit refusal on every other
+  // context.
+  /**
+   * One previewUpdate request: validate the complete candidate detached,
+   * commit it through the real Engine at the strict idle boundary, then
+   * publish exactly one correlated previewUpdateResult.
+   */
+  onPreviewUpdate(msg: Inbound<"previewUpdate">): void;
+  /** The read-only reconciliation query answering a previewUpdateStatus. */
+  onPreviewStatus(msg: Inbound<"previewUpdateStatus">): void;
+  /**
+   * debugController.ts seam: install a prevalidated preview session — fresh
+   * epoch, verified build, sources and rebound plans — by bounded
+   * assignments only, after the native commit landed. Silent by contract:
+   * the single previewUpdateResult carries the new identity.
+   */
+  previewSessionInstall(prepared: PreviewPreparedSession): void;
 }
 
-export interface WorkerContext {
-  ports: WorkerPorts;
+/** All authority whose lifetime follows the running interpreter. */
+export interface RunSession {
+  generation: number;
+  owner: {
+    active: boolean;
+    generation: number;
+    epoch: number;
+    answers: { generation: number; id: number; response: string }[];
+  };
+  progress:
+    | { mode: "play" }
+    | { mode: "create"; returnPoint: HistoryBoot; cycle: number; tick: number; room: number };
+  rng: HostRngState;
+  scratchSlots: Record<string, { image: string; amigaRegion: "ntsc" | "pal" }>;
   engine: Engine | null;
-  /** The engine's host facade; assigned right after creation (it closes over ctx). */
-  host: EngineHost;
-  boot: BootState;
   clocks: { sound: SoundClock; cycle: CycleClock };
   input: InputState;
   hostRequests: HostRequestsState;
-  replay: ReplayState;
-  history: HistoryState;
-  view: HistoryViewState;
   cycle: CycleState;
   autosave: AutosaveState;
   presentation: PresentationState;
   debug: DebugState;
   journal: JournalState;
   recording: RecordingState;
+  projectAdmission: ProjectAdmissionState | null;
+  debugger: DebuggerState;
+}
+
+export interface WorkerContext {
+  imagePreviewEngine?: Engine | undefined;
+  imageHeroPreview?:
+    ((frame: ReturnType<Engine["getPresentation"]>, cycle: number) => void) | undefined;
+  imagePreviewSerial?: number;
+  ports: WorkerPorts;
+  run: RunSession;
+  /** The engine's host facade; assigned right after creation (it closes over ctx). */
+  host: EngineHost;
+  boot: BootState;
+  replay: ReplayState;
+  history: HistoryState;
+  view: HistoryViewState;
+  /** Choosing Play invalidates visits still waiting for their module. */
+  previewVisitSerial: number;
+  projectLoader: {
+    loading: Promise<void> | null;
+    installed: boolean;
+    queue: WorkerInbound[];
+    prepareBoot?: (
+      engine: Engine,
+      boot: BootMessage,
+    ) => { lane: ProjectAdmissionState; project: HistoryProjectDocuments };
+    prepareReplacement?: (
+      engine: Engine,
+      project: HistoryProjectDocuments | undefined,
+    ) => { lane: ProjectAdmissionState; project: HistoryProjectDocuments } | null;
+    identity?: () => PreviewLaneIdentity | null;
+    enterCreate?: (msg: Inbound<"projectCreate">) => void;
+  };
+  /** The controller's lazy loader (debugLoader.ts) — the inert seam's record. */
+  debuggerLoader: DebuggerLoaderState;
   fns: WorkerFns;
 }
 
@@ -533,39 +659,33 @@ export function createWorkerContext(ports: WorkerPorts): WorkerContext {
         ports.presentation(message, transfer);
       },
     },
-    engine: null,
+    run: newRunSession(now),
     host: undefined as unknown as EngineHost,
     boot: {
+      project: undefined,
       authorRooms: false,
+      createAllowed: false,
       selectedSoundDevice: 1,
       liveDictionary: new Map(),
       authoredWords: null,
       currentBootFiles: null,
       currentDictionary: null,
       profile: null,
+      amigaRegion: "ntsc",
     },
-    clocks: { sound: new SoundClock(now), cycle: new CycleClock(now) },
-    input: {
-      keyQueue: [],
-      deferredMovement: [],
-      inputBuffer: [],
-      clickQueue: [],
-      keyWaiting: false,
-    },
-    hostRequests: { hostRequestSerial: 0, hostRequestOutstanding: null, pendingReenter: false },
     replay: {
       replay: null,
       reseeds: [],
       reseedCursor: 0,
       replayRequest: null,
       lastReplaySeed: null,
+      rngVersion: 1,
       isSeeking: false,
       snapshots: new Map(),
       currentSessionId: 0,
       historyReplay: false,
     },
     history: {
-      rng: 1,
       epoch: 0,
       session: "",
       segmentSerial: 0,
@@ -601,69 +721,9 @@ export function createWorkerContext(ports: WorkerPorts): WorkerContext {
       request: null,
       timer: null,
     },
-    cycle: {
-      timer: null,
-      soundTimer: null,
-      tickCount: 0,
-      cycleCount: 0,
-      lastCycleReportAt: 0,
-      lastHistoryAt: 0,
-      initialLogicStarted: false,
-      lastInputReady: false,
-      paused: false,
-      pendingClock: null,
-    },
-    autosave: {
-      autosaveIntervalMs: 5_000,
-      autosaveFiles: false,
-      lastAutosaveAt: 0,
-      lastAutosaveCycle: -1,
-      lastPatchGeneration: 0,
-    },
-    presentation: {
-      recentRing: new FrameRing(100),
-      historyRing: new FrameRing(60),
-      lastVisual: null,
-      lastPriority: null,
-      lastText: null,
-      lastOwnership: null,
-      lastPreview: null,
-      lastPicture: null,
-      lastPicturePriority: null,
-      lastObjectsJson: "",
-      lastPicRow: -1,
-      lastTextMode: false,
-      lastInputEnabled: false,
-      lastReleaseGate: 0,
-      lastModal: null,
-      lastPatchGen: -1,
-      lastControls: "",
-      lastInputEdit: "",
-      lastSoundEnabled: null,
-    },
-    debug: {
-      channels: { ownership: false, objects: false, trace: false, picture: false },
-      debugEvents: [],
-      debugEventSeq: 0,
-      prevVars: null,
-      prevFlags: null,
-      traceRing: [],
-      traceSeq: 0,
-      pendingTrace: [],
-      traceEpoch: 0,
-      traceBatch: 0,
-      traceInFlight: 0,
-      traceDropped: 0,
-    },
-    journal: {
-      seq: 0,
-      lastRoom: null,
-      lastScore: 0,
-      lastCarried: [],
-      pendingCause: null,
-      pending: [],
-    },
-    recording: { recording: null },
+    previewVisitSerial: 0,
+    projectLoader: { loading: null, installed: false, queue: [] },
+    debuggerLoader: newDebuggerLoaderState(),
     fns: {} as WorkerFns,
   };
   Object.assign(ctx.fns, createInput(ctx));
@@ -677,6 +737,11 @@ export function createWorkerContext(ports: WorkerPorts): WorkerContext {
   Object.assign(ctx.fns, createHistory(ctx));
   // The viewer opens scratch sessions of its own through this same factory.
   Object.assign(ctx.fns, createHistoryView(ctx, createWorkerContext));
-  Object.assign(ctx.fns, createPlayHere(ctx));
+  Object.assign(ctx.fns, createPlayHereLoader(ctx));
+  // The execution controller stays off the startup path: every context
+  // carries the inert hooks and the session record, and the real table
+  // lands through the lazy loader's one-shot import on first actual use
+  // (debugLoader.ts). Fake-port tests may install it synchronously.
+  Object.assign(ctx.fns, createDebuggerHooks(ctx));
   return ctx;
 }

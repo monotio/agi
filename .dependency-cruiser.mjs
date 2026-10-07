@@ -1,8 +1,11 @@
+import { STUDIO_MODULES } from "./scripts/deferred-modules.mjs";
+
 // Modules of the AI authoring stack that reach Studio kernels. The app loads
 // the stack through one dynamic import (app/src/agent/authoringLoader.ts), and
 // scripts/check-bundle-budget.ts fails a build that puts these on the Play
 // boot path, so their static edges into src/studio never reach it.
-const LAZY_AUTHORING_MODULES = "^src/agent/(studioAssistTools|pictureTools|referenceTools)\\.ts$";
+const LAZY_AUTHORING_MODULES =
+  "^(src/agent/(selectionTools|pictureTools|referenceTools)|app/src/agent/workspaceSelection)\\.ts$";
 
 /** @type {import('dependency-cruiser').IConfiguration} */
 export default {
@@ -34,7 +37,18 @@ export default {
       name: "src-no-platform-modules",
       severity: "error",
       from: { path: "^src/" },
-      to: { dependencyTypes: ["core", "npm"] },
+      to: {
+        dependencyTypes: [
+          "core",
+          "npm",
+          "npm-dev",
+          "npm-optional",
+          "npm-peer",
+          "npm-bundled",
+          "npm-no-pkg",
+          "npm-unknown",
+        ],
+      },
     },
     {
       // AGENTS.md, Architecture rules: Studio code (app/src/studio, src/studio)
@@ -53,12 +67,14 @@ export default {
         ],
       },
       to: {
-        path: "^(?:app/src/studio/|src/studio/)",
+        path: STUDIO_MODULES.map((pattern) => pattern.source),
         dependencyTypesNot: ["dynamic-import", "type-only"],
       },
     },
   ],
   options: {
+    // Generated builds and traces can disappear during a browser run.
+    exclude: "^app/(?:dist|test-results)/",
     doNotFollow: { path: "node_modules" },
     tsPreCompilationDeps: true,
     enhancedResolveOptions: {

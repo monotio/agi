@@ -43,6 +43,17 @@ export type ProfileId =
 type ContainerKind = "v2-split" | "v3-combined";
 
 /**
+ * When a three-byte resource directory entry names no resource
+ * (docs/fidelity.md "Amiga directory absence"). "volume-nibble-f": an entry
+ * whose first byte's high nibble reads f is absent whatever its tail bytes
+ * hold — the v2 split rule, and the predicate the Amiga 2.310/2.316/2.333
+ * combined-directory loaders execute. "exact-fff": only the exact entry
+ * ff ff ff is absent, so the volume nibble can name a real VOL.15 — the
+ * DOS v3 rule.
+ */
+export type DirectoryAbsence = "volume-nibble-f" | "exact-fff";
+
+/**
  * Extra action slots above the shared 2.936 range (logic_bytecode "Version 3
  * extension actions"; "amiga-2.31x" is the Amiga 2.31x tail through 0xb6,
  * docs/fidelity.md "Amiga interpreter profiles"; "iigs" is the Apple IIgs
@@ -85,6 +96,16 @@ type ClickMoveRule = "none" | "amiga" | "amiga-2.31x" | "iigs";
  * countdown as it found it.
  */
 type MotionCounters = "byte" | "word";
+
+/**
+ * Action 0x84 `player.control` and object 0's autonomous motion
+ * (docs/fidelity.md "Original player.control handler"). "always" clears a
+ * running move.obj/follow/wander/click-move outright — the DOS handlers and
+ * Amiga 2.082. "on-control-transition" clears it only when the call follows
+ * program control: the inspected Amiga 2.176..2.333 handlers test the prior
+ * control field and return early when player control is already selected.
+ */
+type PlayerControlMotionClear = "always" | "on-control-transition";
 
 /**
  * Condition 0x13 semantics for profiles whose dispatchers reach it. The
@@ -162,7 +183,16 @@ type SoundProfile =
  */
 type SoundEnvelope = "2.917" | "3.002" | "amiga-2.176" | "amiga-2.202";
 
+export type AmigaRegion = "ntsc" | "pal";
+
+/** Session timing from the fixed VBlank dividers; docs/fidelity.md "Original Amiga sound player". */
+export function interpreterTiming(profile: AgiProfile, region: AmigaRegion = "ntsc") {
+  const soundHz = profile.frameTiming === "amiga-vblank" && region === "pal" ? 50 : 60;
+  return { soundHz, timerIncrementMs: 3000 / soundHz, gameSecondMs: 60000 / soundHz };
+}
+
 export interface AgiProfile {
+  readonly frameTiming: "fixed" | "amiga-vblank";
   /** Promoted profile identifier, e.g. "2.936". */
   readonly id: ProfileId;
 
@@ -171,6 +201,14 @@ export interface AgiProfile {
   readonly container: ContainerKind;
   /** Volume record header size: five bytes in v2, seven in v3. */
   readonly volumeHeaderBytes: 5 | 7;
+  /**
+   * Which three-byte directory entry spellings count as absent, selected
+   * before any entry is read. The v2 rule marks every first byte whose high
+   * nibble is f; the DOS v3 rule requires the exact ff ff ff triple and
+   * keeps VOL.15 usable. The Amiga 2.31x combined loaders execute the
+   * first-byte form too (docs/fidelity.md "Amiga directory absence").
+   */
+  readonly directoryAbsence: DirectoryAbsence;
   /**
    * Inventory metadata (OBJECT) storage: profiles 2.089, 2.230 and 2.272 store
    * it expanded and plain; later profiles apply the repeating-key transform
@@ -292,6 +330,12 @@ export interface AgiProfile {
   /** Wander and follow counter width: PC bytes, Amiga and IIgs words. */
   readonly motionCounters: MotionCounters;
   /**
+   * Whether action 0x84 `player.control` ends object 0's autonomous motion on
+   * every call or only on the program→player transition (docs/fidelity.md
+   * "Original player.control handler").
+   */
+  readonly playerControlMotionClear: PlayerControlMotionClear;
+  /**
    * Immediate room aliases applied by action 0x12 before the common room
    * effects. Supplied through an explicit profile override for build-specific
    * mappings (version_profiles.md 3.002.149).
@@ -360,6 +404,8 @@ export interface AgiProfile {
   // ---- sound ----
   /** Sound scheduling/output family. */
   readonly sound: SoundProfile;
+  /** Representative PC sound hardware; docs/fidelity.md "PCjr and Tandy noise". */
+  readonly psgNoise: "sn76496" | "ncr8496";
   /** Decay-envelope selection for the "common" family (unused by early/booter sound). */
   readonly soundEnvelope: SoundEnvelope;
 }
@@ -368,6 +414,7 @@ const BASE_2936: AgiProfile = {
   id: "2.936",
   container: "v2-split",
   volumeHeaderBytes: 5,
+  directoryAbsence: "volume-nibble-f",
   inventoryMetadataEncrypted: true,
   inventoryHeaderBytes: 3,
   inventoryEntryBytes: 3,
@@ -391,6 +438,7 @@ const BASE_2936: AgiProfile = {
   mousePosnAction: "noop",
   clickMove: "none",
   motionCounters: "byte",
+  playerControlMotionClear: "always",
   roomAliases: null,
   wordSequenceTailTerminator: true,
   directionLoops: "four-or-more",
@@ -412,7 +460,9 @@ const BASE_2936: AgiProfile = {
   heapDiagnosticExtraLine: true,
   saveBlocks: 5,
   saveBlock3Xor: false,
+  frameTiming: "fixed",
   sound: "common",
+  psgNoise: "ncr8496",
   soundEnvelope: "2.917",
 };
 
@@ -438,6 +488,7 @@ const BASE_EARLY: AgiProfile = {
   pictureMaxCommand: 0xf8,
   patternProfile: "none",
   sound: "early-2.089",
+  psgNoise: "sn76496",
 };
 
 /** Combined v3 container shape shared by the 3.002.x profiles. */
@@ -445,6 +496,7 @@ const BASE_V3: AgiProfile = {
   ...BASE_2936,
   container: "v3-combined",
   volumeHeaderBytes: 7,
+  directoryAbsence: "exact-fff",
   menuInteractionGate: true,
   patternProfile: "v3-center-row",
   saveBlock3Xor: true,
@@ -477,6 +529,10 @@ const AMIGA_INVENTORY = {
 const BASE_AMIGA_31X: AgiProfile = {
   ...BASE_V3,
   id: "amiga-2.310",
+  // The 2.31x loader's directory predicate marks any entry whose first
+  // byte's high nibble is f absent; only its volume reads reach a record
+  // (docs/fidelity.md "Amiga directory absence").
+  directoryAbsence: "volume-nibble-f",
   maxAction: 0xb6,
   maxCondition: 0x13,
   condition0x13: "click-move",
@@ -493,6 +549,7 @@ const BASE_AMIGA_31X: AgiProfile = {
   mousePosnAction: "write-pointer",
   clickMove: "amiga-2.31x",
   motionCounters: "word",
+  playerControlMotionClear: "on-control-transition",
   directionLoops: "exact-four",
   directionLoopTiming: "cadence-due",
   // The Amiga save writes the inventory region raw; the v3 XOR transform is
@@ -502,6 +559,7 @@ const BASE_AMIGA_31X: AgiProfile = {
   saveBlock3Xor: false,
   patternProfile: "center-row-320",
   heapDiagnosticExtraLine: false,
+  frameTiming: "amiga-vblank",
   sound: "amiga",
   soundEnvelope: "amiga-2.202",
   ...AMIGA_INVENTORY,
@@ -559,6 +617,7 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
     restartPromptBypassedByF16: false,
     heapDiagnosticExtraLine: false,
     sound: "early-2.411",
+    psgNoise: "sn76496",
   },
   // version_profiles.md "AGI 2.440 profile"; conformance matrix "2.440 variant selection".
   "2.440": {
@@ -569,6 +628,7 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
     directionLoops: "exact-four",
     heapDiagnosticExtraLine: false,
     sound: "early-2.440",
+    psgNoise: "sn76496",
   },
   // version_profiles.md "AGI 2.917 profile"; conformance matrix "2.917 variant selection".
   "2.917": {
@@ -654,6 +714,7 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
     // (docs/fidelity.md "Amiga interpreter profiles").
     movementClear: "later",
     saveBlocks: 5,
+    frameTiming: "amiga-vblank",
     sound: "amiga-2.082",
   },
   // Amiga "KQ2" 2.176 (KQ2 Amiga): 170 action slots through 0xa9, 19
@@ -668,6 +729,7 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
     maxAction: 0xa9,
     clickMove: "amiga",
     motionCounters: "word",
+    playerControlMotionClear: "on-control-transition",
     exitOperandBytes: 1,
     exitAlwaysImmediate: false,
     menuActions: "full",
@@ -692,6 +754,7 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
     patternProfile: "short-r1",
     heapDiagnosticExtraLine: false,
     saveBlocks: 5,
+    frameTiming: "amiga-vblank",
     sound: "amiga",
     soundEnvelope: "amiga-2.176",
   },
@@ -706,12 +769,14 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
     maxAction: 0xa9,
     clickMove: "amiga",
     motionCounters: "word",
+    playerControlMotionClear: "on-control-transition",
     menuInputAction: "noop",
     inputWidthActions: "noop",
     stringSlots: 13,
     directionLoops: "exact-four",
     patternProfile: "short-r1",
     heapDiagnosticExtraLine: false,
+    frameTiming: "amiga-vblank",
     sound: "amiga",
     soundEnvelope: "amiga-2.202",
   },

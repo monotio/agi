@@ -6,7 +6,9 @@ import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import { createAuthoringState } from "../../src/agent/authoringState.ts";
 import { commitWorldDraft, worldRevision, type WorldDraft } from "../../src/agent/worldPlan.ts";
+import { scanContainerExits } from "../../src/agent/roomMap.ts";
 import { useRoomMap } from "../src/world/useRoomMap.ts";
+import { installedProgressLocator } from "../src/project/progressTarget.ts";
 import { roomPictureUse } from "../../src/agent/roomPictures.ts";
 import { studioPictureSource } from "../src/world/studioSource.ts";
 import type { AgentSession } from "../src/agent/agentSession.ts";
@@ -61,6 +63,10 @@ function makeHarness(storage?: Pick<Storage, "getItem" | "setItem">): {
     folder: "test-game",
   };
   const map = useRoomMap({
+    startAnalysis: ({ logics, profile }, answer) => {
+      answer({ phase: "resolved", ...scanContainerExits(logics, profile, { main: true }) });
+      return () => {};
+    },
     state,
     hook,
     getBootedGame: () => game,
@@ -389,9 +395,10 @@ test("thumbnail reads are pure — no render, no version churn", async () => {
   );
   const { map, notice, boot } = makeHarness();
   await boot(Object.fromEntries(game.files));
+  map.openMap();
   notice({ to: 1, cause: "boot", cycle: 1 });
   await nextTick();
-  await nextTick(); // the graph watcher prepares static thumbs off-read
+  await nextTick(); // the map activity prepares static thumbs off-read
   const first = map.thumbnailFor(1);
   assert.equal(first?.kind, "static");
   const settled = map.thumbVersion.value;
@@ -531,12 +538,18 @@ function planHarness(opts: {
   const game: BootedGame = {
     installed: false,
     projectId: testProjectId("proj-1"),
+    // The boot-captured body epoch a saved game binds its progress target to.
+    historyLifetime: "initial",
     title: "Authored",
     revision: testRevision("rev-1"),
     files: {},
     words: [],
   };
   const map = useRoomMap({
+    startAnalysis: ({ logics, profile }, answer) => {
+      answer({ phase: "resolved", ...scanContainerExits(logics, profile, { main: true }) });
+      return () => {};
+    },
     state,
     hook,
     getBootedGame: () => game,
@@ -877,7 +890,7 @@ test("plan reads re-derive on worldTick — a plan-only turn invalidates the map
   map.openMap({ experience: "create" });
   const title = computed(() => map.plannedEntry(2)?.title);
   assert.equal(title.value, "Vault");
-  // A plan-only update_world lands no resource patch — only worldTick moves.
+  // A plan-only update_plan lands no resource patch — only worldTick moves.
   session.state.authoring.world.rooms["2"]!.title = "Treasury";
   await nextTick();
   assert.equal(title.value, "Vault", "no signal yet — the read is stale");
@@ -1057,4 +1070,37 @@ test("the in-memory revision stays exportable while the write is refused", async
     authoring: { world: { rooms: Record<string, { title: string }> } };
   };
   assert.equal(snapshot.authoring.world.rooms["2"]?.title, "Crypt");
+});
+
+test("a live map export is detached and structured-cloneable", async () => {
+  const { map, notice, boot } = makeHarness();
+  await boot();
+  notice({ to: 1, cause: "boot", gained: [3], lost: [4] });
+  notice({ from: 1, to: 2, cause: "logic", history: { segment: "s-map", seq: 2, tick: 8 } });
+  await nextTick();
+  map.moveNode(2, 100, 200);
+  map.setNote(2, "The silver door");
+  const snapshot = map.storedSidecar(installedProgressLocator("test-game", testRevision("rev-1"))!);
+  assert.deepEqual(structuredClone(snapshot), snapshot);
+  assert.equal(snapshot.journal.at(-1)?.to, 2);
+  assert.deepEqual(snapshot.layout["2"], { x: 100, y: 200 });
+});
+
+test("editing an exported map cannot change the live journal or layout", async () => {
+  const { map, notice, boot } = makeHarness();
+  await boot();
+  notice({ to: 1, cause: "boot", gained: [3], lost: [4] });
+  notice({ from: 1, to: 2, cause: "logic", history: { segment: "s-map", seq: 2, tick: 8 } });
+  await nextTick();
+  map.moveNode(2, 100, 200);
+  const snapshot = map.exportSidecar();
+  (snapshot.journal[0]!.gained as number[])[0] = 99;
+  snapshot.journal[1]!.history!.tick = 999;
+  snapshot.layout["2"]!.x = 999;
+  (snapshot.discovered.edges[0]! as { count: number }).count = 999;
+  const live = map.exportSidecar();
+  assert.deepEqual(live.journal[0]!.gained, [3]);
+  assert.equal(live.journal[1]!.history!.tick, 8);
+  assert.equal(live.layout["2"]!.x, 100);
+  assert.equal(live.discovered.edges[0]!.count, 1);
 });

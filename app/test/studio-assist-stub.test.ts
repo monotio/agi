@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { createStudioAssistStub } from "../src/agent/studioAssist.ts";
+import { createSelectionStub } from "../src/agent/selectionStub.ts";
 
 /** A read_edit_context details payload in the shape the real tool returns. */
 const PICTURE_CONTEXT = {
@@ -16,7 +16,7 @@ const PICTURE_CONTEXT = {
 
 describe("the Studio assist stub", () => {
   it("rejects a malformed read_edit_context payload instead of trusting it", async () => {
-    const stub = createStudioAssistStub("make this walkable");
+    const stub = createSelectionStub("make this walkable");
     const turn = await stub.sendUserMessage("make this walkable");
     const id = turn.toolCalls[0]!.id;
     assert.equal(turn.toolCalls[0]!.name, "read_edit_context");
@@ -32,13 +32,13 @@ describe("the Studio assist stub", () => {
     );
   });
 
-  it("takes a well-formed context and proceeds to propose_edit", async () => {
-    const stub = createStudioAssistStub("make this walkable");
+  it("takes a well-formed context and proceeds to edit_selection", async () => {
+    const stub = createSelectionStub("make this walkable");
     const turn = await stub.sendUserMessage("make this walkable");
     stub.appendToolResults([
       { toolCallId: turn.toolCalls[0]!.id, result: { success: true, details: PICTURE_CONTEXT } },
     ]);
     const next = await stub.complete();
-    assert.equal(next.toolCalls[0]?.name, "propose_edit");
+    assert.equal(next.toolCalls[0]?.name, "edit_selection");
   });
 });

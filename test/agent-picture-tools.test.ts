@@ -19,12 +19,12 @@ const rect = {
 };
 
 describe("accessible picture authoring", () => {
-  it("advertises one strict, bounded shape tool", () => {
+  it("advertises strict, bounded depth and shape tools", () => {
     assert.deepEqual(
       PICTURE_TOOLS.map((tool) => tool.name),
-      ["write_scene"],
+      ["add_depth", "draw_picture_items"],
     );
-    const tool = PICTURE_TOOLS[0]!;
+    const tool = PICTURE_TOOLS.find((tool) => tool.name === "draw_picture_items")!;
     assert.equal(tool.parameters.additionalProperties, false);
     assert.deepEqual(
       Object.keys(tool.parameters.properties).sort(),
@@ -34,7 +34,7 @@ describe("accessible picture authoring", () => {
 
   it("renders ordered filled rectangles, polygons, and lines into exact visual and priority pixels", () => {
     const state = createAgentSessionState();
-    const result = executePictureTool(state, "write_scene", {
+    const result = executePictureTool(state, "draw_picture_items", {
       room: 4,
       backgroundColor: 1,
       shapes: [
@@ -143,7 +143,7 @@ describe("accessible picture authoring", () => {
     ];
     for (const shape of badShapes) {
       const state = createAgentSessionState();
-      const result = executePictureTool(state, "write_scene", {
+      const result = executePictureTool(state, "draw_picture_items", {
         room: 9,
         backgroundColor: 0,
         shapes: [shape],
@@ -164,7 +164,7 @@ describe("accessible picture authoring", () => {
       x2: 159,
       y2: 167,
     }));
-    const result = executePictureTool(state, "write_scene", {
+    const result = executePictureTool(state, "draw_picture_items", {
       room: 10,
       backgroundColor: 1,
       shapes,
@@ -175,11 +175,13 @@ describe("accessible picture authoring", () => {
   });
 
   it("treats shape name as required-but-nullable, so calls predating it still validate", () => {
-    const tool = PICTURE_TOOLS[0]!;
+    const tool = PICTURE_TOOLS.find((tool) => tool.name === "draw_picture_items")!;
     const shape = (tool.parameters.properties["shapes"] as { items: Record<string, unknown> })
       .items;
     const props = shape["properties"] as Record<string, unknown>;
-    assert.deepEqual(props["name"], { type: ["string", "null"], maxLength: 48 });
+    const { description, ...nameSchema } = props["name"] as Record<string, unknown>;
+    assert.deepEqual(nameSchema, { type: ["string", "null"], maxLength: 48 });
+    assert.match(String(description), /Input name: string or null; maxLength 48/);
     assert.ok((shape["required"] as readonly string[]).includes("name"));
     const args = normalizeToolArguments(tool.parameters, {
       room: 6,
@@ -192,7 +194,7 @@ describe("accessible picture authoring", () => {
 
   it("annotates the stored scene with Studio items and compiles the pinned bytes", () => {
     const state = createAgentSessionState();
-    const result = executePictureTool(state, "write_scene", {
+    const result = executePictureTool(state, "draw_picture_items", {
       room: 6,
       backgroundColor: 1,
       shapes: [
@@ -265,7 +267,7 @@ describe("accessible picture authoring", () => {
   it("rejects an overlong or blank shape name before mutation", () => {
     for (const name of ["x".repeat(49), "   ", 7]) {
       const state = createAgentSessionState();
-      const result = executePictureTool(state, "write_scene", {
+      const result = executePictureTool(state, "draw_picture_items", {
         room: 8,
         backgroundColor: 1,
         shapes: [{ ...rect, name }],

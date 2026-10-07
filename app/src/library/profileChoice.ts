@@ -70,6 +70,8 @@ export interface ProfileChoiceState {
   build: string | undefined;
   /** The stored override, if any. */
   override: ProfileId | undefined;
+  /** Where the stored profile came from. */
+  stored: StoredProfileKind;
 }
 
 export interface ProfileChoiceControllerDeps {
@@ -88,7 +90,7 @@ export interface ProfileChoiceControllerDeps {
  */
 export function formatProfileResolution(
   profileId: ProfileId | string,
-  kind: ProfileDetectionKind | "override",
+  kind: ProfileDetectionKind | StoredProfileKind,
   build?: string | null,
 ): string {
   const named = build && build !== profileId ? `build ${build}, no dedicated profile; ` : "";
@@ -100,13 +102,30 @@ export function formatProfileResolution(
     case "default":
       return `${profileId} (container default)`;
     case "override":
-      return `${profileId} (your override)`;
+      return `${profileId} (set for this game)`;
+    case "chosen":
+      return `${profileId} (you chose)`;
+    case "template":
+      return `${profileId} (from the template)`;
   }
+}
+
+/**
+ * Where a stored profile came from. A game made in the app stores the
+ * template's interpreter, AGI 2.936, at creation, so any other profile there
+ * is the person's choice. An imported game's stored profile may have come
+ * with the game or from the person; the label covers both.
+ */
+type StoredProfileKind = "override" | "chosen" | "template";
+function storedProfileKind(game: CachedGameMeta): StoredProfileKind {
+  if (game.library?.source !== "authored") return "override";
+  return game.library.profile === "2.936" ? "template" : "chosen";
 }
 
 /** Short summary of a library game's current interpreter profile. */
 export function describeGameProfile(game: CachedGameMeta): string {
-  if (game.library?.profile) return formatProfileResolution(game.library.profile, "override");
+  if (game.library?.profile)
+    return formatProfileResolution(game.library.profile, storedProfileKind(game));
   const validation = game.library?.validation;
   if (!validation?.profile || !validation.kind) return "Automatic (opening not checked)";
   return formatProfileResolution(validation.profile, validation.kind, validation.build);
@@ -122,6 +141,7 @@ function choiceState(game: CachedGameMeta, mode: ProfileChoiceState["mode"]): Pr
     kind: validation?.kind,
     build: validation?.build,
     override: game.library?.profile,
+    stored: storedProfileKind(game),
   };
 }
 

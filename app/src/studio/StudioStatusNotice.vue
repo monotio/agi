@@ -11,8 +11,8 @@ import type { KeepBanner, KeepRecovery } from "./useStudioKeep.ts";
  * offers and its technical detail behind a disclosure that opens above the
  * line. Each has its own close button.
  */
-const { banner, notice } = defineProps<{
-  banner: KeepBanner | null;
+const { banner = null, notice } = defineProps<{
+  banner?: KeepBanner | null;
   notice: StudioNotice | null;
 }>();
 const emit = defineEmits<{
@@ -48,7 +48,7 @@ const RECOVERY_LABELS: Record<KeepRecovery, string> = {
     </UiButton>
     <UiIconButton
       icon="x"
-      label="Dismiss"
+      label="Close"
       size="sm"
       data-testid="studio-keep-error-close"
       @click="emit('close')"
@@ -74,7 +74,7 @@ const RECOVERY_LABELS: Record<KeepRecovery, string> = {
     </details>
     <UiIconButton
       icon="x"
-      label="Dismiss"
+      label="Close"
       size="sm"
       data-testid="studio-notice-close"
       @click="emit('dismiss')"

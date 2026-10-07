@@ -1,21 +1,23 @@
-import { expect, test } from "./test.ts";
 import type { Locator, Page } from "@playwright/test";
-import { testProjectId } from "../test/identity.ts";
+import { CHARACTER_VIEWS } from "../../games/adventure-department/characterViews.ts";
 import { createContainer, openContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import { buildWordsTok } from "../../src/logic/words.ts";
-import { compilePictureSource } from "../../src/picture/source.ts";
 import { renderPicture } from "../../src/picture/renderer.ts";
+import { compilePictureSource } from "../../src/picture/source.ts";
 import { createPictureSurface } from "../../src/types.ts";
 import { buildView } from "../../src/view/view.ts";
-import { CHARACTER_VIEWS } from "../../games/adventure-department/characterViews.ts";
+import { testProjectId } from "../test/identity.ts";
 import {
   cacheGame,
+  closeWorkspaceEditor,
   enterCreateMode,
+  openWorkspacePicture,
   textHook,
   waitForCycles,
-  openWorldRoom,
+  workspaceUpdated,
 } from "./engineProbe.ts";
+import { expect, test } from "./test.ts";
 
 /**
  * Room Studio's tool rail, end to end on the real app: a stored project
@@ -28,7 +30,7 @@ test.use({ viewport: { width: 1440, height: 900 } });
 const PROJECT = testProjectId("studio-tools");
 /** 12 drawing commands: wall 0–2, floor 3–5, bench 6–7, occluder 8–11; then `end`. */
 const SOURCE = [
-  '# @item wall "Wall" art',
+  '# @item wall "Wall" art locked',
   "vis 7",
   "rect 0,0 159,111",
   "fill 80,40",
@@ -104,12 +106,10 @@ async function openStudio(page: Page): Promise<Locator> {
     .poll(async () => (await resume.isVisible()) || (await textHook(page)).room === 1)
     .toBe(true);
   if (await resume.isVisible()) await resume.click();
-  await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  await expect.poll(async () => (await textHook(page)).room, { timeout: 30_000 }).toBe(1);
   await waitForCycles(page, 2);
   await enterCreateMode(page);
-  const panel = page.getByTestId("world-panel");
-  await openWorldRoom(panel, 1);
-  await panel.getByTestId("world-open-studio").click();
+  await openWorkspacePicture(page, 1);
   const studio = page.getByTestId("room-studio");
   await expect(studio).toBeVisible();
   return studio;
@@ -159,13 +159,9 @@ async function clickCell(page: Page, x: number, y: number) {
 }
 
 async function pickColour(studio: Locator, value: number) {
-  const values = studio.getByTestId("studio-current-values");
-  await values.getByTestId("studio-value-visual").click();
-  await values.locator(`[role="radio"][data-value="${value}"]`).click();
-  await expect(values.getByTestId("studio-value-visual")).toHaveAttribute(
-    "data-value",
-    String(value),
-  );
+  const colour = studio.locator(`.workspace-palette [data-colour="${value}"]`);
+  await colour.click();
+  await expect(colour).toHaveAttribute("aria-checked", "true");
 }
 
 const order = (studio: Locator) =>
@@ -179,20 +175,17 @@ test("a filled rect drawn in the Art lens keeps as those pixels and leaves prior
   const studio = await openStudio(page);
   await page.keyboard.press("r");
   await expect(studio.locator('button[data-tool="rect"]')).toHaveAttribute("aria-pressed", "true");
-  await expect(studio.getByTestId("studio-insert-at")).toHaveText("After step 12");
-  await expect(studio.getByTestId("studio-insert-at")).toHaveAttribute(
-    "title",
-    "New shapes go last, after step 12, on top of everything.",
-  );
+  // At the end the context row stays quiet and the transport says where shapes draw.
+  await expect(page.getByTestId("studio-insert-at")).toHaveCount(0);
+  await expect(studio.getByTestId("scrubber-position")).toHaveText("Drawing after Bench occluder");
   await studio.getByTestId("studio-tool-filled").check();
   await pickColour(studio, 4);
   await dragCells(page, [20, 120], [40, 140]);
-  await expect(studio.getByTestId("studio-draft-status")).toHaveText("1 change");
+  await workspaceUpdated(page);
   await expect(studio.locator('[data-row="rect-1"]')).toHaveAttribute("aria-selected", "true");
   expect(await order(studio)).toEqual(["wall", "floor", "bench", "occluder", "rect-1"]);
 
-  await studio.getByTestId("studio-keep").click();
-  await expect(studio.getByTestId("studio-draft-status")).toHaveText("Kept");
+  await workspaceUpdated(page);
   const kept = await storedPicture(page);
   expect(kept).toEqual(await draftBytes(page));
   const before = planes(PIC_5);
@@ -203,8 +196,8 @@ test("a filled rect drawn in the Art lens keeps as those pixels and leaves prior
 
   // The live room re-enters on the kept picture: its visual pixels in the
   // rect's box are the kept bytes' rendering.
-  await studio.getByTestId("studio-close").click();
-  await expect(studio).toHaveCount(0);
+  await closeWorkspaceEditor(page);
+  await expect(studio).toBeHidden();
   await expect
     .poll(() =>
       page.evaluate(() => {
@@ -224,20 +217,24 @@ test("a filled rect drawn in the Art lens keeps as those pixels and leaves prior
     );
 });
 
-test("a barrier line clicked out in the Walk lens writes priority 0 and not one art byte", async ({
+test("a wall line clicked out in the Priority lens writes priority 0 and not one art byte", async ({
   page,
 }) => {
   const studio = await openStudio(page);
-  await page.keyboard.press("3");
+  await page.keyboard.press("2");
   await page.keyboard.press("l");
+  await studio
+    .getByRole("radiogroup", { name: "Priority", exact: true })
+    .getByRole("radio", { name: /^Wall:/ })
+    .click();
   await expect(studio.getByTestId("studio-value-priority")).toHaveAttribute("data-value", "0");
   await clickCell(page, 20, 150);
   await clickCell(page, 100, 150);
   await page.keyboard.press("Enter");
-  await expect(studio.getByTestId("studio-draft-status")).toHaveText("1 change");
-  const row = studio.locator('[data-row="barrier-line-1"]');
-  await expect(row).toContainText("Barrier line 1");
-  await expect(row).toContainText("barrier");
+  await workspaceUpdated(page);
+  const row = studio.locator('[data-row="wall-line-1"]');
+  await expect(row).toContainText("Wall line · 2 points");
+  await expect(row).toContainText("Wall");
   const before = planes(PIC_5);
   const after = planes(await draftBytes(page));
   expect(after.visual).toEqual(before.visual);
@@ -246,27 +243,48 @@ test("a barrier line clicked out in the Walk lens writes priority 0 and not one 
   expect(after.priority[at(60, 151)]).toBe(before.priority[at(60, 151)]);
 });
 
-test("the fill tool on a seed that is not white explains the AGI rule and inserts nothing", async ({
+test("the bucket on a painted spot recolours the step that painted it, with Undo", async ({
   page,
 }) => {
   const studio = await openStudio(page);
   await page.keyboard.press("f");
-  await clickCell(page, 80, 40);
-  await expect(studio.getByTestId("bar-notice-summary")).toHaveText(
-    "Fill stops here: this spot is already light grey.",
-  );
-  await expect(studio.getByTestId("studio-draft-status")).toHaveText("No changes");
+  await pickColour(studio, 4);
+  // 80,140 is the floor's dark grey, flooded by its fill on line 8.
+  await clickCell(page, 80, 140);
+  const notice = page.locator(".workspace-status").getByTestId("studio-notice");
+  await expect(notice).toHaveText("Recoloured Floor to red.");
+  // A painted spot recolours: no "Fill stops here" advice, and no "Draw before" anywhere.
+  await expect(studio.getByTestId("studio-bar-notice")).toHaveCount(0);
+  await workspaceUpdated(page);
+  // The fill step alone recoloured: a `vis 4` inserted right before it.
+  const recoloured = compilePictureSource(
+    SOURCE.replace("fill 80,140", "vis 4\nfill 80,140"),
+  ).bytes;
+  expect(await draftBytes(page)).toEqual(recoloured);
+  const after = planes(await draftBytes(page));
+  const before = planes(PIC_5);
+  // Everywhere that step painted takes the new colour; the wall and bench stay.
+  for (const [x, y] of [
+    [80, 140],
+    [20, 130],
+    [150, 160],
+  ] as const)
+    expect(after.visual[at(x, y)]).toBe(4);
+  expect(after.visual[at(80, 40)]).toBe(7);
+  expect(after.visual[at(60, 92)]).toBe(6);
+  expect(after.priority).toEqual(before.priority);
+  // The notice's Undo takes it back.
+  await page.getByTestId("studio-notice-action").click();
+  await workspaceUpdated(page);
   expect(await draftBytes(page)).toEqual(PIC_5);
 });
 
-test("a fill drawn last on painted ground says why, and Draw before moves the drawing where it works", async ({
-  page,
-}) => {
+test("the bucket on a locked item's spot says why and inserts nothing", async ({ page }) => {
   const studio = await openStudio(page);
   const bar = studio.getByTestId("studio-options-bar");
   await page.keyboard.press("f");
   await pickColour(studio, 4);
-  // 40,40 is the wall's grey, flooded by its fill on line 4: a fill drawn last stops there.
+  // 40,40 is the wall's grey, flooded by its fill on line 4; the Wall is locked.
   await clickCell(page, 40, 40);
   await expect(bar.getByTestId("bar-notice-summary")).toHaveText(
     "Fill stops here: this spot is already light grey.",
@@ -280,53 +298,14 @@ test("a fill drawn last on painted ground says why, and Draw before moves the dr
   const why = bar.getByTestId("bar-notice-why");
   await why.click();
   await expect(bar.getByTestId("bar-notice-detail")).toContainText(
-    "An AGI fill only spreads over white. The light grey here was painted earlier by line 4 (Wall), so draw your shape before it in the draw order.",
+    "An AGI fill only spreads over white. The light grey here was painted earlier by line 4 (Wall), and the step that painted it is one the bucket cannot recolour.",
   );
   await page.keyboard.press("Escape");
   await expect(bar.getByTestId("bar-notice-detail")).toHaveCount(0);
   await expect(why).toBeFocused();
   await expect(studio).toBeVisible();
-
-  // The fix: the scrubber moves before the Wall, where the spot is still white, and
-  // Filled goes on, so the shape brings its own inside.
-  await bar.getByTestId("bar-notice-action").click();
-  await expect(bar.getByTestId("studio-bar-notice")).toHaveCount(0);
-  await expect(studio.getByTestId("studio-notice")).toHaveText(
-    "New shapes now go before Wall. Filled is on: draw a rectangle or polygon there.",
-  );
-  await expect(studio.getByTestId("studio-insert-at")).toHaveText("Before step 1");
-  await page.keyboard.press("r");
-  await expect(studio.getByTestId("studio-tool-filled")).toBeChecked();
-  await dragCells(page, [30, 30], [50, 50]);
-  await expect(studio.getByTestId("studio-draft-status")).toHaveText("1 change");
-  expect(await order(studio)).toEqual(["rect-1", "wall", "floor", "bench", "occluder"]);
-  const after = planes(await draftBytes(page));
-  const before = planes(PIC_5);
-  // Red inside and on the outline; the wall's grey still flows all round it.
-  for (const [x, y] of [
-    [30, 30],
-    [40, 40],
-    [50, 50],
-  ] as const)
-    expect(after.visual[at(x, y)]).toBe(4);
-  for (const [x, y] of [
-    [29, 40],
-    [51, 40],
-    [40, 29],
-    [80, 40],
-  ] as const)
-    expect(after.visual[at(x, y)]).toBe(7);
-  // Outside the new box nothing changed.
-  const changedOutside: string[] = [];
-  for (let y = 0; y < 168; y++)
-    for (let x = 0; x < 160; x++)
-      if (
-        (x < 30 || x > 50 || y < 30 || y > 50) &&
-        after.visual[at(x, y)] !== before.visual[at(x, y)]
-      )
-        changedOutside.push(`${x},${y}`);
-  expect(changedOutside).toEqual([]);
-  expect(after.priority).toEqual(before.priority);
+  await workspaceUpdated(page);
+  expect(await draftBytes(page)).toEqual(PIC_5);
 });
 
 test("an insert at a mid playhead lands at that draw-order position under later commands", async ({
@@ -337,15 +316,17 @@ test("an insert at a mid playhead lands at that draw-order position under later 
   await page.keyboard.press("Home");
   for (let k = 0; k < 6; k++) await page.keyboard.press(".");
   await page.keyboard.press("r");
-  await expect(studio.getByTestId("studio-insert-at")).toHaveText("After step 6");
-  await expect(studio.getByTestId("studio-insert-at")).toHaveAttribute(
+  // The frame's context row says where new shapes draw.
+  const context = page.getByTestId("workspace-context");
+  await expect(context.getByTestId("studio-insert-at")).toHaveText("Drawing before Bench");
+  await expect(context.getByTestId("studio-insert-at")).toHaveAttribute(
     "title",
-    /^New shapes go after step 6 of 12/,
+    "Drawing before Bench",
   );
   await studio.getByTestId("studio-tool-filled").check();
   await pickColour(studio, 1);
   await dragCells(page, [50, 88], [70, 100]);
-  await expect(studio.getByTestId("studio-draft-status")).toHaveText("1 change");
+  await workspaceUpdated(page);
   expect(await order(studio)).toEqual(["wall", "floor", "rect-1", "bench", "occluder"]);
   const drawn = planes(await draftBytes(page));
   // The bench outline, drawn later, is still on top of the new rect.
@@ -353,16 +334,11 @@ test("an insert at a mid playhead lands at that draw-order position under later 
   expect(drawn.visual[at(60, 95)]).toBe(1);
   // The playhead stays after the new item; the way back to the end is one click.
   // vis, pri off and 13 rows: 15 commands after the first 6.
-  await expect(studio.getByTestId("studio-insert-at")).toHaveText("After step 21");
-  await expect(studio.getByTestId("studio-playhead-end")).toHaveAccessibleName(
-    "Draw on top of everything",
-  );
-  await studio.getByTestId("studio-playhead-end").click();
-  await expect(studio.getByTestId("studio-insert-at")).toHaveText("After step 27");
-  await expect(studio.getByTestId("studio-insert-at")).toHaveAttribute(
-    "title",
-    "New shapes go last, after step 27, on top of everything.",
-  );
+  await expect(context.getByTestId("studio-insert-at")).toHaveText("Drawing before Bench");
+  await expect(context.getByTestId("studio-playhead-end")).toHaveAccessibleName("Back to the end");
+  await context.getByTestId("studio-playhead-end").click();
+  await expect(context.getByTestId("studio-insert-at")).toHaveCount(0);
+  await expect(studio.getByTestId("scrubber-position")).toHaveText("Drawing after Bench occluder");
 });
 
 test("G stands the ghost actor on the draft; dragged behind the occluder it reads Behind", async ({
@@ -373,10 +349,6 @@ test("G stands the ghost actor on the draft; dragged behind the occluder it read
   const ghost = studio.getByTestId("ghost-probe");
   await expect(ghost).toBeVisible();
   await expect(studio.getByTestId("studio-probe-toggle")).toHaveAttribute("aria-pressed", "true");
-  // Its readout docks at the top of the inspector, off the picture.
-  await expect(
-    studio.locator(".studio__inspector").getByTestId("ghost-probe-readout"),
-  ).toBeVisible();
   // From its start (baseline 120, band 11: in front) up to baseline 97 (band 9).
   const handle = studio.getByTestId("ghost-probe-handle");
   const box = (await handle.boundingBox())!;
@@ -391,9 +363,9 @@ test("G stands the ghost actor on the draft; dragged behind the occluder it read
   await expect(studio.locator('[data-role="ghost-verdict"]')).toContainText(
     "Behind Bench occluder",
   );
-  await expect(studio.locator('[data-role="ghost-band"]')).toContainText("y 97 → band 9");
+  await expect(studio.locator('[data-role="ghost-band"]')).toContainText("y 97 → distance band 9");
   // Dragging the ghost edited nothing.
-  await expect(studio.getByTestId("studio-draft-status")).toHaveText("No changes");
+  await workspaceUpdated(page);
   await page.keyboard.press("g");
   await expect(ghost).toHaveCount(0);
 });
@@ -404,83 +376,23 @@ async function nudgeOccluder(page: Page, studio: Locator) {
   await studio.locator('[data-row="occluder"]').click();
   await studio.getByRole("group", { name: /^Canvas/ }).focus();
   await page.keyboard.press("ArrowDown");
-  await expect(studio.getByTestId("studio-draft-status")).toHaveText("1 change");
+  await workspaceUpdated(page);
 }
 
-test("switching to Play with unkept changes asks: Cancel stays, Discard leaves @webkit-desktop", async ({
-  page,
-}) => {
+test("Undo and Redo autosave the restored picture bytes", async ({ page }) => {
   const studio = await openStudio(page);
-  await nudgeOccluder(page, studio);
-  const play = page.getByRole("radio", { name: "Play", exact: true });
-  const create = page.getByRole("radio", { name: "Create", exact: true });
-  await play.click();
-  await expect(page.getByTestId("studio-dialog-keep")).toBeVisible();
-  await page.getByTestId("studio-dialog-cancel").click();
-  await expect(page.getByTestId("studio-dialog-keep")).toBeHidden();
-  await expect(studio).toBeVisible();
-  await expect(create).toHaveAttribute("aria-checked", "true");
-  await expect(page).toHaveURL(/#create\//);
-  await expect(studio.getByTestId("studio-draft-status")).toHaveText("1 change");
-
-  await play.click();
-  await page.getByTestId("studio-dialog-discard").click();
-  await expect(studio).toHaveCount(0);
-  await expect(play).toHaveAttribute("aria-checked", "true");
-  await expect(page).toHaveURL(/#play\//);
-  expect(await storedPicture(page)).toEqual(PIC_5);
-});
-
-test("Back to Play asks too, and Exit with unkept changes can Keep them first", async ({
-  page,
-}) => {
-  const studio = await openStudio(page);
-  await nudgeOccluder(page, studio);
-  // Browser Back from #create to #play: the question, and Cancel keeps Create.
-  await page.goBack();
-  await expect(page.getByTestId("studio-dialog-keep")).toBeVisible();
-  await page.getByTestId("studio-dialog-cancel").click();
-  await expect(studio).toBeVisible();
-  await expect(page).toHaveURL(/#create\//);
-
-  const edited = await draftBytes(page);
-  await page.getByTestId("btn-exit").click();
-  await expect(page.getByTestId("studio-dialog-keep")).toBeVisible();
-  await page.getByTestId("studio-dialog-keep").click();
-  await expect(studio).toHaveCount(0);
-  await expect(page.getByTestId("btn-exit")).toHaveCount(0);
-  expect(await storedPicture(page)).toEqual(edited);
-});
-
-test("the page asks before unloading only while changes are unkept", async ({ page }) => {
-  const studio = await openStudio(page);
-  const dialogs: string[] = [];
-  page.on("dialog", (dialog) => {
-    dialogs.push(dialog.type());
-    void dialog.dismiss();
-  });
-  await nudgeOccluder(page, studio);
-  await page.close({ runBeforeUnload: true });
-  await expect.poll(() => dialogs).toEqual(["beforeunload"]);
-});
-
-test("undo after Keep reverts the kept edit as an unkept change", async ({ page }) => {
-  const studio = await openStudio(page);
-  const status = studio.getByTestId("studio-draft-status");
   await nudgeOccluder(page, studio);
   const edited = await draftBytes(page);
-  await studio.getByTestId("studio-keep").click();
-  await expect(status).toHaveText("Kept");
+  await workspaceUpdated(page);
   expect(await storedPicture(page)).toEqual(edited);
-  await expect(studio.getByTestId("studio-undo")).toBeEnabled();
+  await expect(page.getByTestId("workspace-undo")).toBeEnabled();
   await page.keyboard.press("ControlOrMeta+z");
-  await expect(status).toHaveText("1 change");
+  await workspaceUpdated(page);
   expect(await draftBytes(page)).toEqual(PIC_5);
-  await studio.getByTestId("studio-keep").click();
-  await expect(status).toHaveText("Kept");
+  await workspaceUpdated(page);
   expect(await storedPicture(page)).toEqual(PIC_5);
-  // Redo walks forward again past both Keeps.
+  // Redo walks forward again across both saved versions.
   await page.keyboard.press("ControlOrMeta+Shift+z");
-  await expect(status).toHaveText("1 change");
+  await workspaceUpdated(page);
   expect(await draftBytes(page)).toEqual(edited);
 });

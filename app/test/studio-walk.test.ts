@@ -1,3 +1,5 @@
+import { waitUntil } from "./async.ts";
+import { scheduler as testScheduler } from "node:timers/promises";
 /**
  * Room Studio's Walk view below the canvas: the pure door and outcome
  * helpers (walkView.ts), the room logic draft (useRoomLogicDraft.ts), the
@@ -8,7 +10,7 @@
  */
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { effectScope, shallowRef } from "vue";
+import { effectScope, nextTick, shallowRef } from "vue";
 import { buildTutorial } from "../../games/adventure-department/game.ts";
 import { createAgentSessionState } from "../../src/agent/agentState.ts";
 import { createContainer, openContainer } from "../../src/container/container.ts";
@@ -28,6 +30,7 @@ import {
   toStored,
   unfollowedText,
   useRoomLogicDraft,
+  type LogicDraftBase,
 } from "../src/studio/useRoomLogicDraft.ts";
 import {
   DEFAULT_EGO,
@@ -142,7 +145,7 @@ describe("walkView: doors and words", () => {
     );
     assert.equal(
       doorStatus({ destination: 2, contract: null }, none).wayBack,
-      "Written into the room when you Keep",
+      "Written into the room when you Save",
     );
   });
 
@@ -245,8 +248,8 @@ describe("walkView: doors and words", () => {
     assert.equal(words("reached"), "Reached");
     assert.equal(words("blocked", 1, "Rope barrier"), "Blocked at Rope barrier");
     assert.equal(words("blocked"), "Blocked at a barrier");
-    assert.equal(words("room_changed", 2), "Went to room 2 (Green room)");
-    assert.equal(words("room_changed", 9), "Went to room 9");
+    assert.equal(words("room_changed", 2), "Went to Green room (Room 2)");
+    assert.equal(words("room_changed", 9), "Went to Room 9");
     assert.equal(words("modal"), "A message stopped the walk");
     assert.equal(words("start_blocked"), "The start is not a spot the player can stand on");
   });
@@ -281,7 +284,7 @@ describe("walkView: doors and words", () => {
     );
     assert.equal(aimed("stayed"), "Reached the west edge, but the game stayed in this room");
     assert.equal(aimed("reached"), "Reached the west edge, but the game stayed in this room");
-    assert.equal(aimed("room_changed"), "Went to room 1 (Door hall)");
+    assert.equal(aimed("room_changed"), "Went to Door hall (Room 1)");
     assert.equal(aimed("modal"), "A message stopped the walk");
   });
 
@@ -316,7 +319,7 @@ describe("walkView: doors and words", () => {
     assert.deepEqual(resultPlace(from, run("reached"), 1), { term: "Ended at", text: "18,151" });
     assert.deepEqual(resultPlace(from, run("room_changed", 2), 1), {
       term: "Ended at",
-      text: "18,151 in room 2",
+      text: "18,151 in Room 2",
     });
     // The engine put ego at the room's entry (18,151); the card names the start asked for.
     assert.deepEqual(resultPlace(from, run("start_blocked"), 1), {
@@ -506,6 +509,7 @@ function walkRig(
   options: {
     runner?: (input: RouteWorkerInbound) => Promise<RouteTestResult>;
     liveState?: () => Promise<LiveGameState | null>;
+    currentSource?: () => string | undefined;
   } = {},
 ) {
   const files = roomGame();
@@ -519,6 +523,9 @@ function walkRig(
   const notices: StudioNotice[] = [];
   const runs: RouteWorkerInbound[] = [];
   const scope = effectScope();
+  const base = shallowRef<LogicDraftBase | null>(
+    source.logicSource ? { source: source.logicSource, bytes: source.logicBytes! } : null,
+  );
   const made = scope.run(() => {
     const session = () => {
       const state = createAgentSessionState(openContainer(new Map(files)), DEFAULT_V2_PROFILE);
@@ -526,9 +533,9 @@ function walkRig(
       return state;
     };
     const logic = useRoomLogicDraft({
-      base: () =>
-        source.logicSource ? { source: source.logicSource, bytes: source.logicBytes! } : null,
+      base,
       session,
+      currentSource: options.currentSource,
     });
     const ego: EgoShape = { ...DEFAULT_EGO, width: 3, height: 6 };
     const walk = useStudioWalk({
@@ -556,10 +563,55 @@ function walkRig(
     });
     return { logic, walk };
   })!;
-  return { ...made, source, files, kept, shown, notices, runs, stop: () => scope.stop() };
+  return { ...made, base, source, files, kept, shown, notices, runs, stop: () => scope.stop() };
 }
 
 describe("the room logic draft", () => {
+  it("preserves Undo when the undone draft is acknowledged later", async () => {
+    const rig = walkRig();
+    try {
+      assert.equal(rig.walk.addDoor({ x1: 120, y1: 130, x2: 145, y2: 150 }), true);
+      const submitted = { source: rig.logic.source.value, bytes: rig.logic.bytes.value! };
+      assert.equal(rig.logic.undo(), true);
+      rig.base.value = submitted;
+      await nextTick();
+      assert.equal(rig.logic.source.value, ROOM_1);
+      assert.equal(
+        rig.logic.dirty.value,
+        true,
+        "Undo still needs to be saved against the new base",
+      );
+      assert.equal(rig.logic.redo(), true);
+      assert.equal(rig.logic.source.value, submitted.source);
+      assert.equal(rig.logic.dirty.value, false);
+    } finally {
+      rig.stop();
+    }
+  });
+
+  it("keeps door edits private until their complete source is updated", async () => {
+    const rig = walkRig();
+    const { logic, walk } = rig;
+    const accepted = rig.base.value;
+    try {
+      assert.equal(walk.addDoor({ x1: 120, y1: 130, x2: 145, y2: 150 }), true);
+      assert.equal(walk.moveDoor("door-1", { x1: 121, y1: 130, x2: 145, y2: 150 }), true);
+      const edited = logic.source.value;
+      await nextTick();
+      assert.equal(rig.base.value, accepted);
+      assert.equal(logic.dirty.value, true);
+      rig.base.value = {
+        source: edited,
+        bytes: assembleLogic(edited, { dictionary: new Map() }).payload,
+      };
+      await nextTick();
+      assert.equal(logic.source.value, edited);
+      assert.equal(logic.dirty.value, false);
+    } finally {
+      rig.stop();
+    }
+  });
+
   it("trusts the room's authored text and edits it one rule at a time, with undo", () => {
     const rig = walkRig();
     const { logic, walk } = rig;
@@ -833,7 +885,7 @@ describe("test walks", () => {
     assert.equal(walk.running.value, true);
     assert.equal(walk.prompt.value, "Walking…");
     await Promise.resolve();
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await testScheduler.yield();
     assert.equal(walk.running.value, false);
     const run = rig.runs[0]!;
     assert.deepEqual([run.room, run.from, run.to], [1, { x: 40, y: 140 }, { x: 60, y: 100 }]);
@@ -850,8 +902,7 @@ describe("test walks", () => {
     const rig = walkRig({ liveState: async () => live });
     const { walk } = rig;
     const settle = async () => {
-      await new Promise((resolve) => setTimeout(resolve, 0));
-      while (walk.running.value) await new Promise((resolve) => setTimeout(resolve, 5));
+      await waitUntil(() => !walk.running.value, "the test walk did not finish");
     };
     // A door box just below the rope, open only while door_open (reserved as f32) is set.
     walk.addDoor({ x1: 60, y1: 122, x2: 72, y2: 127 });
@@ -881,7 +932,7 @@ describe("test walks", () => {
     vars[40] = 7;
     walk.again();
     await settle();
-    assert.equal(walk.result.value?.title, "Went to room 2 (Green room)");
+    assert.equal(walk.result.value?.title, "Went to Green room (Room 2)");
     assert.equal(walk.result.value?.state, "live");
     assert.deepEqual(
       rig.runs.at(-1)!.vars?.find((v) => v.id === 40),
@@ -924,8 +975,7 @@ describe("test walks", () => {
     });
     const { walk } = rig;
     const settle = async () => {
-      await new Promise((resolve) => setTimeout(resolve, 0));
-      while (walk.running.value) await new Promise((resolve) => setTimeout(resolve, 5));
+      await waitUntil(() => !walk.running.value, "the test walk did not finish");
     };
     const tested = (id: string) =>
       doorStatus(
@@ -942,7 +992,7 @@ describe("test walks", () => {
     walk.clickWalk({ x: 65, y: 150 });
     walk.clickWalk({ x: 65, y: 110 });
     await settle();
-    assert.equal(walk.result.value?.title, "Went to room 2 (Green room)");
+    assert.equal(walk.result.value?.title, "Went to Green room (Room 2)");
     assert.equal(walk.result.value?.door, "door-1");
     assert.equal(tested("door-1"), true);
     assert.equal(tested("door-2"), false, "a door to the same room is not certified");
@@ -968,7 +1018,7 @@ describe("test walks", () => {
     hold = true;
     walk.clickWalk({ x: 65, y: 150 });
     walk.clickWalk({ x: 65, y: 110 });
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await testScheduler.yield();
     assert.equal(walk.setDestination("door-2", 1), true);
     release();
     await settle();
@@ -995,9 +1045,8 @@ describe("test walks", () => {
     // From 40,140 to 60,150: nowhere near the door box.
     walk.clickWalk({ x: 40, y: 140 });
     walk.clickWalk({ x: 60, y: 150 });
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    while (walk.running.value) await new Promise((resolve) => setTimeout(resolve, 5));
-    assert.equal(walk.result.value?.title, "Reached room 2 (Green room)");
+    await waitUntil(() => !walk.running.value, "the test walk did not finish");
+    assert.equal(walk.result.value?.title, "Reached Green room (Room 2)");
     assert.equal(walk.result.value?.door, null);
     assert.equal(walk.tested.value.size, 0);
     rig.stop();
@@ -1016,8 +1065,7 @@ describe("test walks", () => {
     const rig = walkRig({ runner: async () => outcome });
     const { walk } = rig;
     const settle = async () => {
-      await new Promise((resolve) => setTimeout(resolve, 0));
-      while (walk.running.value) await new Promise((resolve) => setTimeout(resolve, 5));
+      await waitUntil(() => !walk.running.value, "the test walk did not finish");
     };
     assert.equal(walk.addEdge("left"), true);
     walk.selectDoor(null);
@@ -1032,7 +1080,7 @@ describe("test walks", () => {
     await settle();
     const run = rig.runs.at(-1)!;
     assert.deepEqual([run.to, run.cross], [{ x: 0, y: 135 }, "left"]);
-    assert.equal(walk.result.value?.title, "Went to room 2 (Green room)");
+    assert.equal(walk.result.value?.title, "Went to Green room (Room 2)");
     assert.equal(walk.result.value?.door, "exit-west-1");
     assert.equal(walk.tested.value.has("exit-west-1"), true);
 
@@ -1068,8 +1116,7 @@ describe("test walks", () => {
     });
     const { walk } = rig;
     const settle = async () => {
-      await new Promise((resolve) => setTimeout(resolve, 0));
-      while (walk.running.value) await new Promise((resolve) => setTimeout(resolve, 5));
+      await waitUntil(() => !walk.running.value, "the test walk did not finish");
     };
     // A box straddling the rope (y 121): its centre is on the wall, its floor from y 122.
     walk.addDoor({ x1: 60, y1: 110, x2: 72, y2: 125 });
@@ -1148,8 +1195,7 @@ describe("test walks", () => {
     walk.startFromDoor(west.id);
     assert.deepEqual(walk.start.value, { x: 18, y: 151 }, "the gallery's else-branch arrival");
     walk.clickWalk({ x: 30, y: 140 });
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    while (walk.running.value) await new Promise((resolve) => setTimeout(resolve, 5));
+    await waitUntil(() => !walk.running.value, "the test walk did not finish");
     assert.equal(walk.result.value?.title, "Reached", walk.result.value?.result.reason ?? "");
     assert.deepEqual(walk.result.value?.result.end, { x: 30, y: 140 });
 
@@ -1158,15 +1204,32 @@ describe("test walks", () => {
     assert.equal(walk.tested.value.has(west.id), false);
     walk.clickWalk({ x: 30, y: 140 });
     walk.clickWalk({ x: 0, y: 130 });
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    while (walk.running.value) await new Promise((resolve) => setTimeout(resolve, 5));
+    await waitUntil(() => !walk.running.value, "the test walk did not finish");
     assert.equal(
       walk.result.value?.title,
-      "Went to room 1 (Picture Gallery)",
+      "Went to Picture Gallery (Room 1)",
       walk.result.value?.result.reason ?? "",
     );
     assert.equal(walk.result.value?.door, west.id);
     assert.equal(walk.tested.value.has(west.id), true);
     scope.stop();
   });
+});
+
+it("Walk edits the current pending LOGIC and refuses invalid text", () => {
+  let source = ROOM_1 + "\n// My latest draft";
+  const rig = walkRig({ currentSource: () => source });
+  try {
+    assert.equal(rig.walk.addDoor({ x1: 120, y1: 130, x2: 145, y2: 150 }), true);
+    assert.ok(rig.logic.source.value.includes("// My latest draft"));
+    source = rig.logic.source.value + "\nprint(";
+    const before = rig.logic.source.value;
+    assert.equal(rig.walk.addDoor({ x1: 100, y1: 130, x2: 110, y2: 150 }), false);
+    assert.equal(rig.logic.source.value, before);
+    assert.equal(rig.notices.at(-1)?.text, "Fix the room’s LOGIC before changing its doors.");
+    assert.equal(rig.logic.undo(), false);
+    assert.equal(rig.logic.source.value, before);
+  } finally {
+    rig.stop();
+  }
 });

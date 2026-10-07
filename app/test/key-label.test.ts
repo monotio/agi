@@ -38,3 +38,10 @@ test("a shortcut reads ⇧⌥⌘ glyphs on Apple platforms and Ctrl, Alt, Shift 
     assert.equal(keyLabel(combo, false), other, `${combo} elsewhere`);
   }
 });
+
+test("workspace labels keep literal Control on Apple and show the Enter glyph", () => {
+  assert.equal(keyLabel("Ctrl+`", true), "⌃`");
+  assert.equal(keyLabel("Ctrl+`", false), "Ctrl+`");
+  assert.equal(keyLabel("Mod+Enter", true), "⌘↵");
+  assert.equal(keyLabel("Mod+Enter", false), "Ctrl+Enter");
+});

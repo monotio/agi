@@ -2,27 +2,27 @@
   "schema": "monotio.agi.walkthrough.v1",
   "identity": {
     "project": "adventure-department",
-    "revision": "dff9b56afa2c48180b8698dead64d2245333a3b3d829dddd931b3d38c60e7c9a"
+    "revision": "0461fc576fd342733d9a3484d8135e40c9b2ae0d46a43d7e7ea89e6adbbf8137"
   },
   "supportedRevisions": [
-    "dff9b56afa2c48180b8698dead64d2245333a3b3d829dddd931b3d38c60e7c9a"
+    "0461fc576fd342733d9a3484d8135e40c9b2ae0d46a43d7e7ea89e6adbbf8137"
   ],
   "coverage": "complete-game",
   "profile": "2.936",
   "seed": 1,
   "fixtureHashes": {
-    "LOGDIR": "8b3f3532480fe41f564454afdc9071858fb3a3251bd5e4f793cdb3b687064d20",
+    "LOGDIR": "cc0c748e60c03d167a99ed2acc80da56307bffdc403d22fff0aa7441bee8aa1f",
     "OBJECT": "1a3d0818f9664f9d92b8e1b4721bc2568419849067c44bf36fc1a4ed0e8d67a9",
-    "PICDIR": "5934bbc83f08c66e80d5798845163fc37e7f4818cbae3875bf298485304022a3",
-    "SNDDIR": "4fc85c0e039332166690199317797d7c33bcbe5237c01a46c1a7bdc95839a214",
-    "TESTS.JSON": "633457f3c5813f3205997c9ed2883a12c8865cdd9f4bea0ea0cee4d76b1b14c3",
-    "VIEWDIR": "169d8d65f4c2cf92945a8361f7b3887e090b79f0ec48b0907183fb0047bd1fe6",
-    "VOL.0": "db8365a09a2f39f7766c81633492fdcc2f12c69170d6cf1bf02d8a0fb99605ac",
+    "PICDIR": "dd86491c62eb7e1201ff7cc6e9e215dbc14dd59118f432dffb406d0bfde54afa",
+    "SNDDIR": "044481b3ba5d0c81f29b5867384bf686f480fcfe3cd588acefcb5ecdcf6a6767",
+    "TESTS.JSON": "209643aab442423585de808b152e98d65534bede21e36d37c886bc27889272b8",
+    "VIEWDIR": "19a86e09d1c7a8cbcc2f67fb43bcc1554e8043e9aca16ee0403f2ed0fc0c0d6c",
+    "VOL.0": "8b9abf3d01d05b8ee2c2dd96a40b2e4e5cc433a8f241345621668dbeb7e76e09",
     "WORDS.TOK": "397cff8894a7de92b8d5f834c004bb45cc2279ddc0f44dd9e020b05d0b68de62"
   },
   "status": "completed",
   "failure": null,
-  "elapsedMs": 46,
+  "elapsedMs": 51,
   "virtualTicks": 1622,
   "cycles": 169,
   "actions": [
@@ -911,7 +911,7 @@
       0,
       0,
       0,
-      0,
+      1,
       0,
       0,
       0,
@@ -1198,7 +1198,79 @@
     "inputEnabled": true,
     "pictureShown": true,
     "terminated": false,
-    "controls": [],
+    "controls": [
+      {
+        "key": 27,
+        "controller": 200,
+        "menuItems": []
+      },
+      {
+        "key": 15104,
+        "controller": 211,
+        "menuItems": [
+          {
+            "heading": "Help",
+            "text": "Instructions   F1",
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "key": 16128,
+        "controller": 201,
+        "menuItems": [
+          {
+            "heading": "File",
+            "text": "Save Game      F5",
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "key": 16640,
+        "controller": 202,
+        "menuItems": [
+          {
+            "heading": "File",
+            "text": "Restore Game   F7",
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "key": 17152,
+        "controller": 203,
+        "menuItems": [
+          {
+            "heading": "File",
+            "text": "Restart Game   F9",
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "key": 11264,
+        "controller": 204,
+        "menuItems": [
+          {
+            "heading": "File",
+            "text": "Quit          Alt+Z",
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "key": 9,
+        "controller": 213,
+        "menuItems": [
+          {
+            "heading": "Help",
+            "text": "Inventory     Tab",
+            "enabled": true
+          }
+        ]
+      }
+    ],
     "inventory": []
   }
 }

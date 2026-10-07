@@ -1,0 +1,132 @@
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import { workspaceParts, workspaceOpenParts } from "../src/studio/host/workspaceParts.ts";
+
+test("type sections include room shortcuts and all other resources", () => {
+  const groups = workspaceParts({
+    keys: [
+      "logic:0",
+      "logic:1",
+      "logic:255",
+      "picture:3",
+      "picture:9",
+      "view:0",
+      "sound:1",
+      "inventory",
+      "words",
+    ],
+    rooms: [{ room: 1, title: "Meadow", pictures: [3] }],
+    names: { "view:0": "Hero" },
+    currentRoom: 1,
+  });
+  assert.deepEqual(
+    groups.map((g) => g.label),
+    [
+      "TOOLS",
+      "GAME STATE",
+      "ROOMS",
+      "SHARED LOGIC",
+      "PICTURES",
+      "VIEWS",
+      "SOUNDS",
+      "OBJECTS",
+      "WORDS",
+    ],
+  );
+  // Tools have their own heading; GAME STATE holds only the names.
+  assert.deepEqual(
+    groups[0]?.entries.map((entry) => [entry.label, entry.key]),
+    [
+      ["Problems", "problems"],
+      ["Messages", "messages"],
+      ["Notes", "notes"],
+    ],
+  );
+  assert.deepEqual(
+    groups[1]?.entries.map((entry) => [entry.label, entry.key]),
+    [["Game state", "state"]],
+  );
+  assert.deepEqual(
+    groups[2]?.entries.map((e) => [e.label, e.key, e.live]),
+    [
+      ["Meadow · Room 1", "logic:1", true],
+      ["PICTURE 3", "picture:3", false],
+      ["LOGIC 1", "logic:1", false],
+    ],
+  );
+  assert.deepEqual(
+    groups[3]?.entries.map((e) => e.label),
+    ["LOGIC 0", "LOGIC 255"],
+  );
+  assert.deepEqual(
+    groups[4]?.entries.map((e) => e.key),
+    ["picture:3", "picture:9"],
+  );
+  assert.equal(groups[5]?.entries[0]?.label, "Hero · VIEW 0");
+});
+
+test("a picture shared by rooms remains listed in each room and appears once in quick open", () => {
+  const groups = workspaceParts({
+    keys: ["logic:1", "logic:2", "picture:4"],
+    rooms: [
+      { room: 1, pictures: [4] },
+      { room: 2, pictures: [4] },
+    ],
+    currentRoom: 2,
+  });
+  assert.equal(groups[2]?.entries.filter((e) => e.key === "picture:4").length, 2);
+  assert.equal(groups[4]?.entries.length, 1);
+  assert.equal(groups[4]?.entries[0]?.secondary, "Room 1, Room 2");
+  const quick = workspaceOpenParts(groups);
+  assert.equal(quick.filter((row) => row.key === "picture:4").length, 1);
+  assert.equal(quick.find((row) => row.key === "logic:1")?.label, "Room 1 · LOGIC 1");
+  assert.equal(groups[2]?.entries.find((e) => e.label === "Room 2")?.live, true);
+});
+
+test("the Objects and Words rows read in sentence case under their headings", () => {
+  const groups = workspaceParts({ keys: [], rooms: [], currentRoom: null });
+  const rows = Object.fromEntries(
+    groups.map((group) => [group.label, group.entries.map((entry) => entry.label)]),
+  );
+  assert.deepEqual(rows["OBJECTS"], ["Objects"]);
+  assert.deepEqual(rows["WORDS"], ["Words"]);
+});
+
+test("room titles remain data even when their text contains the row separator", () => {
+  const groups = workspaceParts({
+    keys: ["logic:1"],
+    rooms: [{ room: 1, title: "Atrium · West", pictures: [] }],
+    currentRoom: 1,
+  });
+  assert.equal(groups[2]!.entries[0]!.title, "Atrium · West");
+});
+
+test("a blank game's first picture appears under PICTURES with its room", () => {
+  const groups = workspaceParts({
+    keys: ["logic:0", "logic:1", "picture:1"],
+    rooms: [{ room: 1, pictures: [1] }],
+    currentRoom: 1,
+  });
+  assert.deepEqual(
+    groups
+      .find((group) => group.label === "PICTURES")
+      ?.entries.map((row) => [row.label, row.secondary]),
+    [["PICTURE 1", "Room 1"]],
+  );
+});
+
+test("room shortcuts sort pictures and deleted rooms no longer label their resources", () => {
+  const groups = workspaceParts({
+    keys: ["logic:1", "picture:9", "picture:3", "picture:7"],
+    rooms: [
+      { room: 1, pictures: [9, 3] },
+      { room: 2, pictures: [7] },
+    ],
+    currentRoom: null,
+  });
+  assert.deepEqual(
+    groups[2]?.entries.filter((row) => row.key.startsWith("picture:")).map((row) => row.key),
+    ["picture:3", "picture:9"],
+  );
+  assert.equal(groups[4]?.entries.find((row) => row.key === "picture:7")?.secondary, undefined);
+});

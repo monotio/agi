@@ -3,6 +3,7 @@ import { testProjectId } from "../test/identity.ts";
 import {
   cacheGame,
   isolateStorage,
+  openGameDownload,
   openGameOptions,
   openLibraryActions,
   savedGameCard,
@@ -90,8 +91,15 @@ test("a long card title and the card menu show in full", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await card.screenshot({ path: test.info().outputPath("long-title-card-1440.png") });
   await openLibraryActions(page, card);
-  await expect(page.getByTestId("export-library-game")).toBeVisible();
+  await expect(
+    page.getByRole("menu", { name: "Game actions", exact: true }).getByRole("menuitem").first(),
+  ).toBeVisible();
   await expectFits(page, "the card menu");
+  // Menus close on viewport resize; the download dialog rides the sweep out.
+  const download = await openGameDownload(page, card);
+  await expect(download.getByTestId("export-library-game")).toBeVisible();
+  await expectFits(page, "the download dialog");
+  await page.keyboard.press("Escape");
 });
 
 test("Settings rows and the history transport show in full", async ({ page }) => {
@@ -103,10 +111,10 @@ test("Settings rows and the history transport show in full", async ({ page }) =>
   await expectFits(page, "live play");
 
   await openGameOptions(page, "settings-menu");
-  await expect(page.getByTestId("btn-export-game")).toBeVisible();
+  await expect(page.getByTestId("btn-download-game")).toBeVisible();
   await expectFits(page, "the Settings sheet");
   await page.keyboard.press("Escape");
-  await expect(page.getByTestId("btn-export-game")).toBeHidden();
+  await expect(page.getByTestId("btn-download-game")).toBeHidden();
 
   // A timeline click opens the history: Resume from here, Watch from here and the readout.
   await page.setViewportSize({ width: 1440, height: 900 });

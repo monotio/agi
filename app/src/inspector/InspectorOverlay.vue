@@ -6,6 +6,7 @@
  * the stage's clicks — they latch a pick and never reach the game. In the
  * exploded view every mark is projected onto its priority band's layer.
  */
+import { useProjectLabels } from "../shell/useProjectLabels.ts";
 import { onBeforeUnmount, useTemplateRef, watch } from "vue";
 import { useEngineApi } from "../engine/engineContext.ts";
 import { usePresentation } from "../play/usePresentation.ts";
@@ -22,6 +23,7 @@ import { EGA_PALETTE } from "../render/palette.ts";
 import { useInspector } from "./useInspector.ts";
 
 const { state } = useEngineApi();
+const labels = useProjectLabels();
 const presentation = usePresentation();
 const { debugFrame, debugViewMode } = presentation;
 const inspector = useInspector();
@@ -56,7 +58,7 @@ function eventPoint(ev: PointerEvent): PickPoint | null {
     if (hit.band !== undefined) point.layerBand = hit.band;
     return point;
   }
-  return pickFromClient(ev.clientX, ev.clientY, rect, frame?.picRow ?? 1);
+  return pickFromClient(ev.clientX, ev.clientY, rect, frame?.picRow ?? 1, presentation.crtAmount);
 }
 
 function onOverlayMove(ev: PointerEvent): void {
@@ -180,10 +182,10 @@ function drawOverlay(): void {
         ctx.stroke();
       }
     }
-    ctx.font = "6px monospace";
+    ctx.font = `6px ${getComputedStyle(document.documentElement).getPropertyValue("--font-mono").trim()}`;
     ctx.textBaseline = "top";
-    for (const box of overlayBoxes(state.debugObjects)) {
-      const hot = box.label === `o${picked.value?.inspection.owner ?? -1}`;
+    for (const box of overlayBoxes(state.debugObjects, labels.value)) {
+      const hot = box.num === picked.value?.inspection.owner;
       const band = box.priority;
       // Project the box's four corners onto the object's layer — perspective
       // keystones the rectangle, so draw the quad, not an axis-aligned bbox.

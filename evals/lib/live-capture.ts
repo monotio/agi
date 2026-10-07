@@ -53,15 +53,62 @@ export function captureLive(provider: ScriptProvider, diagnostics: boolean): Cap
       request = { ...init, headers, body: JSON.stringify(body) };
     }
     const response = await original(input, request);
-    // Read the stream whole to find the response id and any diagnostics,
-    // then hand the client an identical body; the harness has no display.
-    const text = await response.text();
-    const id = /"id":"((?:msg|resp)_[^"]+)"/.exec(text)?.[1];
-    if (id) previousId = id;
+    const index = found.length;
+    found.push(null);
+    if (!response.body) return response;
+    const decoder = new TextDecoder();
+    let pending = "";
+    let data: string[] = [];
     const key = provider === "anthropic" ? "diagnostics" : "prompt_cache_diagnostics";
-    const match = new RegExp(`"${key}":(\\{[^{}]*(?:\\{[^{}]*\\}[^{}]*)*\\})`).exec(text);
-    found.push(match ? JSON.parse(match[1]!) : null);
-    return new Response(text, { status: response.status, headers: response.headers });
+    function inspect(value: unknown): void {
+      if (!value || typeof value !== "object") return;
+      const record = value as Record<string, unknown>;
+      if (record[key] !== undefined) found[index] = record[key];
+      for (const child of Object.values(record)) inspect(child);
+    }
+    function event(text: string): void {
+      try {
+        const value = JSON.parse(text) as Record<string, unknown>;
+        const message = (value["response"] ?? value["message"] ?? value) as Record<string, unknown>;
+        if (typeof message["id"] === "string") previousId = message["id"];
+        inspect(value);
+      } catch {
+        // Diagnostics are optional; the provider client parses the original bytes.
+      }
+    }
+    function consume(text: string, final = false): void {
+      pending += text;
+      let newline: number;
+      while ((newline = pending.indexOf("\n")) >= 0) {
+        const line = pending.slice(0, newline).replace(/\r$/, "");
+        pending = pending.slice(newline + 1);
+        if (!line) {
+          if (data.length) event(data.join("\n"));
+          data = [];
+        } else if (line.startsWith("data:")) data.push(line.slice(5).trimStart());
+      }
+      if (final) {
+        if (pending.startsWith("data:")) data.push(pending.slice(5).trimStart());
+        if (data.length) event(data.join("\n"));
+        else if (pending) event(pending);
+      }
+    }
+    const bodyStream = response.body.pipeThrough(
+      new TransformStream<Uint8Array, Uint8Array>({
+        transform(chunk, controller) {
+          consume(decoder.decode(chunk, { stream: true }));
+          controller.enqueue(chunk);
+        },
+        flush() {
+          consume(decoder.decode(), true);
+        },
+      }),
+    );
+    return new Response(bodyStream, {
+      status: response.status,
+      statusText: response.statusText,
+      headers: response.headers,
+    });
   }) as typeof fetch;
   return {
     bodies,

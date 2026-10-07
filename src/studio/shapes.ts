@@ -1,6 +1,6 @@
 /**
  * Scene shapes lowered to picture source text: the pure compiler behind the
- * agent `write_scene` tool and Room Studio shape authoring. A shape with
+ * agent `draw_picture_items` tool and Room Studio shape authoring. A shape with
  * `color: null` draws on the priority plane only. With `annotate` the
  * background fill and each shape are wrapped in `# @item`/`# @end` comments
  * (src/studio/pictureDocument.ts), which never change the compiled bytes.

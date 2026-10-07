@@ -16,6 +16,7 @@ export type OperandKind =
   | "item" // inventory item number
   | "object" // screen object number
   | "resource" // logic/picture/view/sound resource number
+  | "controller" // input controller number
   | "message" // message number in current logic
   | "string"; // string slot number
 
@@ -154,7 +155,7 @@ export const ACTIONS: readonly ActionSpec[] = [
   { code: 0x76, name: "get.num", operands: ["message", "var"] },
   { code: 0x77, name: "prevent.input", operands: [] },
   { code: 0x78, name: "accept.input", operands: [] },
-  { code: 0x79, name: "set.key", operands: ["imm", "imm", "imm"] },
+  { code: 0x79, name: "set.key", operands: ["imm", "imm", "controller"] },
   {
     code: 0x7a,
     name: "add.to.pic",
@@ -194,10 +195,10 @@ export const ACTIONS: readonly ActionSpec[] = [
   { code: 0x9a, name: "clear.text.rect", operands: ["imm", "imm", "imm", "imm", "imm"] },
   { code: 0x9b, name: "set.upper.left", operands: ["imm", "imm"] },
   { code: 0x9c, name: "set.menu", operands: ["message"] },
-  { code: 0x9d, name: "set.menu.item", operands: ["message", "imm"] },
+  { code: 0x9d, name: "set.menu.item", operands: ["message", "controller"] },
   { code: 0x9e, name: "submit.menu", operands: [] },
-  { code: 0x9f, name: "enable.item", operands: ["imm"] },
-  { code: 0xa0, name: "disable.item", operands: ["imm"] },
+  { code: 0x9f, name: "enable.item", operands: ["controller"] },
+  { code: 0xa0, name: "disable.item", operands: ["controller"] },
   { code: 0xa1, name: "menu.input", operands: [] },
   { code: 0xa2, name: "show.obj.v", operands: ["var"] },
   { code: 0xa3, name: "open.dialogue", operands: [] },
@@ -229,7 +230,7 @@ export const CONDITIONS: readonly ConditionSpec[] = [
   { code: 0x09, name: "has", operands: ["item"] },
   { code: 0x0a, name: "obj.in.room", operands: ["item", "var"] },
   { code: 0x0b, name: "posn", operands: ["object", "imm", "imm", "imm", "imm"] },
-  { code: 0x0c, name: "controller", operands: ["imm"] },
+  { code: 0x0c, name: "controller", operands: ["controller"] },
   { code: 0x0d, name: "have.key", operands: [] },
   { code: 0x0e, name: "said", operands: [] }, // variable length: count u8, then count * u16le word ids
   { code: 0x0f, name: "compare.strings", operands: ["string", "string"] },
@@ -327,21 +328,30 @@ const ACTION_ALIASES: Readonly<Record<string, string>> = {
   "object.on.anything": "obj.on.anything",
 };
 
+function ownSpec<T>(table: Readonly<Record<string, T>>, name: string): T | undefined {
+  return Object.hasOwn(table, name) ? table[name] : undefined;
+}
+
+export function conditionSpec(name: string): ConditionSpec | undefined {
+  return ownSpec(CONDITION_BY_NAME, name);
+}
+
 export function actionSpec(
   opcode: number | string,
   profile: AgiProfile = DEFAULT_V2_PROFILE,
 ): ActionSpec | undefined {
   // The IIgs tail slots carry their own actions, not the PC v3 names.
   if (profile.extraActions === "iigs") {
-    const iigs = typeof opcode === "number" ? IIGS_BY_CODE.get(opcode) : IIGS_BY_NAME[opcode];
+    const iigs =
+      typeof opcode === "number" ? IIGS_BY_CODE.get(opcode) : ownSpec(IIGS_BY_NAME, opcode);
     if (iigs) return iigs;
   }
   const spec =
     typeof opcode === "number"
       ? (ACTION_BY_CODE.get(opcode) ?? V3_BY_CODE.get(opcode) ?? AMIGA_BY_CODE.get(opcode))
-      : (ACTION_BY_NAME[ACTION_ALIASES[opcode] ?? opcode] ??
-        V3_BY_NAME[opcode] ??
-        AMIGA_BY_NAME[opcode]);
+      : (ownSpec(ACTION_BY_NAME, ownSpec(ACTION_ALIASES, opcode) ?? opcode) ??
+        ownSpec(V3_BY_NAME, opcode) ??
+        ownSpec(AMIGA_BY_NAME, opcode));
   if (!spec || spec.code > profile.maxAction) return undefined;
   if (spec.code === 0x86 && profile.exitOperandBytes === 0) return { ...spec, operands: [] };
   if (spec.code >= 0xb0 && profile.extraActions === "none") return undefined;

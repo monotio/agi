@@ -1,6 +1,21 @@
 import { expect, type Locator, type Page } from "@playwright/test";
 import type { CachedGameData } from "../src/project/gameTypes.ts";
 
+/** Reject the draft's actual background transaction, leaving its recovery journal available. */
+export async function refuseDraftWrites(page: Page, message: string): Promise<void> {
+  await page.evaluate((message) => {
+    const put = IDBObjectStore.prototype.put;
+    IDBObjectStore.prototype.put = function (...args) {
+      if (
+        this.name === "projects" &&
+        String((args[0] as { projectId?: string }).projectId).startsWith("part-drafts/")
+      )
+        throw new Error(message);
+      return put.apply(this, args);
+    };
+  }, message);
+}
+
 export interface AiConfiguration {
   provider: "anthropic" | "openai" | "stub";
   key?: string;
@@ -59,6 +74,39 @@ const EMPTY_HOOK: TextHook = {
 
 export async function textHook(page: Page): Promise<TextHook> {
   return page.evaluate((empty) => ({ ...empty, ...(window.__AGI_TEXT__ ?? {}) }), EMPTY_HOOK);
+}
+
+/** The async play surface has mounted and owns the player's keyboard. */
+export async function waitForGameInput(page: Page): Promise<void> {
+  const command = page.getByRole("textbox", { name: "Game command", exact: true });
+  await expect(command).toBeVisible();
+  await expect(command).toBeEnabled();
+  await expect(command).toBeFocused();
+  await expect.poll(async () => page.evaluate(() => window.__AGI_STATE__?.inputReady)).toBe(true);
+}
+
+/** Keyboard ownership and host activity alongside the worker heartbeat. */
+export async function gameInputProbe(page: Page) {
+  return page.evaluate(() => {
+    const state = window.__AGI_STATE__;
+    const active = document.activeElement;
+    return {
+      engine: window.__AGI_TEXT__,
+      focused: active
+        ? { tag: active.tagName, label: active.getAttribute("aria-label"), id: active.id }
+        : null,
+      phase: state?.phase,
+      inputReady: state?.inputReady,
+      inputEnabled: state?.inputEnabled,
+      waitingForKey: state?.waitingForKey,
+      prompt: state?.prompt,
+      paused: state?.paused,
+      hostRequests: state?.agentLog.filter(
+        (entry) => entry.kind === "request" || entry.kind === "response",
+      ),
+      agentTask: state?.agentTask,
+    };
+  });
 }
 
 export async function screenText(page: Page): Promise<string> {
@@ -205,10 +253,28 @@ export async function waitForAutosaveAfter(
 }
 
 /** The autosave record the host stored for `gameKey`, straight out of localStorage. */
+/** The live storage address bound to a saved body or a served fixture. */
+export async function progressStorageKey(page: Page, gameKey: string): Promise<string> {
+  return page.evaluate(async (key) => {
+    const bindingPath = "/src/project/progressBinding.ts";
+    const { bindSavedProgressTarget } = await import(/* @vite-ignore */ bindingPath);
+    const saved = await bindSavedProgressTarget(key);
+    if (saved) return saved.locator;
+    const discoveryPath = "/src/library/gameDiscovery.ts";
+    const metadataPath = "/src/project/gameMetadata.ts";
+    const targetPath = "/src/project/progressTarget.ts";
+    const { fetchFixtureFiles } = await import(/* @vite-ignore */ discoveryPath);
+    const { gameRevision } = await import(/* @vite-ignore */ metadataPath);
+    const { installedProgressLocator } = await import(/* @vite-ignore */ targetPath);
+    return installedProgressLocator(key, await gameRevision(await fetchFixtureFiles(key)))!;
+  }, gameKey);
+}
+
 export async function storedAutosave(
   page: Page,
   gameKey: string,
 ): Promise<{ room: number; cycle: number; imageLength: number } | null> {
+  const locator = await progressStorageKey(page, gameKey);
   return page.evaluate((key) => {
     const raw = localStorage.getItem(`monotio_agi.autosave.${key}`);
     if (!raw) return null;
@@ -218,7 +284,7 @@ export async function storedAutosave(
       cycle: Number(parsed.cycle),
       imageLength: atob(String(parsed.image)).length,
     };
-  }, gameKey);
+  }, locator);
 }
 
 /**
@@ -259,12 +325,9 @@ export async function isolateStorage(page: Page): Promise<void> {
       // The marker itself is what survives the reload, so the check has to be
       // in localStorage rather than in a page variable.
       if (localStorage.getItem("monotio_agi.e2e.isolated") === "1") return;
-      // The Studio tour's record, when a fixture seeded it (test.ts), outlives the clear.
-      const tour = localStorage.getItem("monotio_agi.studioTour");
       localStorage.clear();
       sessionStorage.clear();
       localStorage.setItem("monotio_agi.e2e.isolated", "1");
-      if (tour !== null) localStorage.setItem("monotio_agi.studioTour", tour);
     } catch {
       /* a context that blocks storage is already isolated */
     }
@@ -298,11 +361,39 @@ export async function openSavedGameDetails(card: Locator): Promise<Locator> {
   return dialog;
 }
 
-/** Open the native Create an adventure disclosure without toggling it closed. */
+/** Open a card's play split-button menu (Resume/Play, Start over, Watch walkthrough). */
+export async function openPlayMore(page: Page, card: Locator): Promise<Locator> {
+  const trigger = card.getByRole("button", { name: "More ways to play", exact: true });
+  await expect(trigger).toBeVisible();
+  await trigger.click({ trial: true, timeout: 5000 });
+  if ((await trigger.getAttribute("aria-expanded")) !== "true") await trigger.click();
+  const menu = page.getByRole("menu", { name: "More ways to play", exact: true });
+  await expect(menu).toBeVisible();
+  return menu;
+}
+
+/**
+ * Open a saved game's Download dialog from its ⋯ menu; returns the open
+ * dialog. Every card mounts its own dialog element, so the returned locator
+ * is scoped to the card — a page-level one matches every closed sibling.
+ */
+export async function openGameDownload(page: Page, card: Locator): Promise<Locator> {
+  await openLibraryActions(page, card);
+  await page
+    .getByRole("menu", { name: "Game actions", exact: true })
+    .getByTestId("open-game-download")
+    .click();
+  const dialog = card.getByTestId("game-download-dialog");
+  await expect(dialog).toBeVisible();
+  return dialog;
+}
+
+/** Open the new game page on its AI starting point. */
 export async function openCreateAdventure(page: Page): Promise<void> {
   const details = page.getByTestId("create-adventure-disclosure");
   if ((await details.getAttribute("open")) === null)
     await page.getByTestId("create-adventure-toggle").click();
+  await page.getByTestId("local-create-kind-ai").click();
 }
 
 /**
@@ -344,25 +435,11 @@ export async function openAiSettings(page: Page): Promise<void> {
   await expect(page.getByTestId("ai-settings-dialog")).toBeVisible();
 }
 
-/**
- * Wait out the document scroll a card's scroll-into-view started: a late
- * scroll event moves the trigger and closes an open menu mid-click.
- */
-async function settleScroll(page: Page): Promise<void> {
-  await expect
-    .poll(async () => {
-      const a = await page.evaluate(() => window.scrollY);
-      await page.waitForTimeout(80);
-      return a === (await page.evaluate(() => window.scrollY));
-    })
-    .toBe(true);
-}
-
 /** Saved-game actions live in a popup outside the card's clipping boundary. */
 export async function openLibraryActions(page: Page, card: Locator): Promise<void> {
   const trigger = card.getByRole("button", { name: "Game actions", exact: true });
   await trigger.scrollIntoViewIfNeeded();
-  await settleScroll(page);
+  await trigger.click({ trial: true, timeout: 5000 });
   if ((await trigger.getAttribute("aria-expanded")) !== "true") await trigger.click();
   await expect(page.getByRole("menu", { name: "Game actions", exact: true })).toBeVisible();
 }
@@ -370,14 +447,14 @@ export async function openLibraryActions(page: Page, card: Locator): Promise<voi
 /**
  * Open a game card's action menu. Cards can sit deep in the library: the
  * trigger's scroll-into-view plus scroll-anchored layout shifts can still be
- * settling as the menu opens, and a late scroll event moves the trigger and
- * closes the menu mid-click. Wait for the document scroll to go quiet first.
+ * settling as the menu opens. The opening click checks actionability after
+ * scrolling; a second trial click repeats that browser work under load.
  */
 export async function openCardMenu(page: Page, testId: string): Promise<void> {
   const trigger = page.getByTestId(testId);
   await trigger.scrollIntoViewIfNeeded();
-  await settleScroll(page);
-  if ((await trigger.getAttribute("aria-expanded")) !== "true") await trigger.click();
+  if ((await trigger.getAttribute("aria-expanded")) !== "true")
+    await trigger.click({ timeout: 5000 });
 }
 
 /**
@@ -418,6 +495,19 @@ export async function openGameOptions(
   if ((await trigger.getAttribute("aria-expanded")) !== "true") await trigger.click();
 }
 
+/**
+ * Download the running game through Settings → This game → Download…:
+ * `project` picks the project file, otherwise the playable game. The sheet
+ * closes for the dialog; register waitForEvent("download") before calling.
+ */
+export async function downloadFromSettings(page: Page, project = false): Promise<void> {
+  await openGameOptions(page, "settings-menu");
+  await page.getByTestId("btn-download-game").click();
+  const dialog = page.getByTestId("settings-download-dialog");
+  await expect(dialog).toBeVisible();
+  await dialog.getByTestId(project ? "download-library-game" : "export-library-game").click();
+}
+
 /** Open the Game controls dialog through the Help menu. */
 export async function openGameControls(page: Page): Promise<void> {
   await openGameOptions(page, "help-menu");
@@ -440,6 +530,7 @@ export async function openWorldMap(
  * whole stage for the game) and close the sheet again.
  */
 export async function openInspector(page: Page): Promise<void> {
+  await enterPlayMode(page);
   await openGameOptions(page, "settings-menu");
   const advanced = page.getByTestId("settings-advanced");
   if ((await advanced.getAttribute("aria-expanded")) !== "true") await advanced.click();
@@ -467,11 +558,159 @@ export async function openWorldRoom(panel: Locator, room: number): Promise<void>
   await expect(panel.getByTestId("map-detail")).toHaveAttribute("data-room", String(room));
 }
 
+/** Open a room's real PICTURE through the workspace parts list. */
+export async function openWorkspacePicture(
+  page: Page,
+  room: number,
+  showGame = true,
+): Promise<Locator> {
+  await enterCreateMode(page);
+  const show = page.getByTestId("workspace-show-game");
+  if (await show.isVisible()) await show.click();
+  await page.locator(`[data-testid^="part-room:${room}:picture:"]`).first().click();
+  if (showGame && (await show.isVisible())) await show.click();
+  if (
+    !showGame &&
+    (await page.getByTestId("workspace-focus").getAttribute("aria-pressed")) === "false"
+  )
+    await page.getByTestId("workspace-focus").click();
+  const studio = page.getByTestId("room-studio").filter({ visible: true });
+  await expect(studio).toBeVisible();
+  await studio.getByRole("group", { name: /^Canvas/ }).focus();
+  return studio;
+}
+
+/** Open a VIEW beside MAIN through the workspace parts list. */
+export async function openWorkspaceView(
+  page: Page,
+  view: number,
+  showGame = true,
+): Promise<Locator> {
+  await enterCreateMode(page);
+  const show = page.getByTestId("workspace-show-game");
+  if (await show.isVisible()) await show.click();
+  await page.getByTestId(`part-view:${view}`).click();
+  if (showGame && (await show.isVisible())) await show.click();
+  if (
+    !showGame &&
+    (await page.getByTestId("workspace-focus").getAttribute("aria-pressed")) === "false"
+  )
+    await page.getByTestId("workspace-focus").click();
+  const studio = page.getByTestId("sprite-studio").filter({ visible: true });
+  await expect(studio).toBeVisible();
+  await studio.getByTestId("sprite-stage").focus();
+  return studio;
+}
+
+/** Close the selected editor tab while keeping MAIN running. */
+export async function closeWorkspaceEditor(page: Page): Promise<void> {
+  const show = page.getByTestId("workspace-show-game");
+  if (await show.isVisible()) await show.click();
+  const tab = page.getByRole("tab", { selected: true });
+  await tab
+    .locator("..")
+    .getByRole("button", { name: /^Close / })
+    .click();
+}
+
+/** Observe durable editor drafts and accepted project writes. */
+export async function workspaceSaved(page: Page): Promise<void> {
+  await expect
+    .poll(
+      async () =>
+        page.evaluate(() => {
+          const probe = window as unknown as {
+            __AGI_PROJECT__: {
+              getSession(): { saveStatus(): { state: string; message: string } } | undefined;
+            };
+          };
+          const status = probe.__AGI_PROJECT__.getSession()?.saveStatus();
+          return status?.state === "failed" || status?.state === "conflict"
+            ? status.message
+            : status?.state;
+        }),
+      { intervals: [100] },
+    )
+    .toBe("saved");
+  await expect(page.getByTestId("workspace-saved")).toBeVisible();
+  await expect(page.getByTestId("workspace-saved")).toHaveText(/^(?:Saved|Draft saved)$/);
+  await page.evaluate(async () => {
+    const probe = window as unknown as {
+      __AGI_PROJECT__: { getSession(): { flush(): Promise<void> } };
+    };
+    await probe.__AGI_PROJECT__.getSession().flush();
+  });
+  await expect(page.getByTestId("workspace-saved")).toBeVisible();
+  await expect(page.getByTestId("workspace-saved")).toHaveText(/^(?:Saved|Draft saved)$/);
+}
+
+/** The approved storyboard replaces gesture publication with an explicit Update game. */
+export async function workspaceUpdated(page: Page, keyboard = false): Promise<void> {
+  await workspaceSaved(page);
+  const update = page.getByTestId("workspace-update");
+  if (
+    (await update.isVisible()) &&
+    (await page.getByTestId("workspace-pending").isVisible()) &&
+    (await update.isEnabled())
+  ) {
+    const previousFocus = await page.evaluateHandle(() => document.activeElement);
+    await expect(update).toBeVisible();
+    if (keyboard) await page.keyboard.press("ControlOrMeta+Enter");
+    else await update.click();
+    await workspaceSaved(page);
+    await expect(page.getByTestId("workspace-updated")).toBeVisible();
+    await previousFocus.evaluate((element) => {
+      if (element instanceof HTMLElement && element.isConnected) element.focus();
+    });
+    await previousFocus.dispose();
+  }
+}
+
+/** Record ordinary Play progress, then return to the editor's mode. */
+export async function savePlayProgress(page: Page): Promise<void> {
+  const create = page.getByRole("radio", { name: "Create", exact: true });
+  const play = page.getByRole("radio", { name: "Play", exact: true });
+  await expect(create).toBeVisible();
+  const creating = (await create.getAttribute("aria-checked")) === "true";
+  if (creating) await play.click();
+  await waitForAutosaveAfter(page, (await textHook(page)).cycle);
+  if (creating) await create.click();
+}
+
 export async function enterCreateMode(page: Page): Promise<void> {
   const create = page.getByRole("radio", { name: "Create", exact: true });
   if ((await create.getAttribute("aria-checked")) !== "true") await create.click();
   await expect(create).toHaveAttribute("aria-checked", "true");
   await expect(page).toHaveURL(/#create\//);
+}
+
+/** Open the Create assistant through its registered workspace command. */
+export async function openWorkspaceAgent(page: Page): Promise<void> {
+  await enterCreateMode(page);
+  const panel = page.getByTestId("workspace-agent-panel").or(page.getByTestId("agent-bubble"));
+  if (await panel.isVisible()) return;
+  await page.getByTestId("workspace-agent").click();
+  await expect(panel).toBeVisible();
+}
+
+/** Developer activity remains published while its dialog is closed. */
+export async function agentActivity(page: Page): Promise<string> {
+  return page.evaluate(() => {
+    const state = (
+      window as unknown as {
+        __AGI_STATE__: { agentLog: { kind: string; detail: string }[] };
+      }
+    ).__AGI_STATE__;
+    return state.agentLog.map((entry) => `[${entry.kind}] ${entry.detail}`).join("\n");
+  });
+}
+
+/** Return to the full game before opening player tools. */
+export async function enterPlayMode(page: Page): Promise<void> {
+  const play = page.getByRole("radio", { name: "Play", exact: true });
+  if ((await play.getAttribute("aria-checked")) !== "true") await play.click();
+  await expect(play).toHaveAttribute("aria-checked", "true");
+  await expect(page).toHaveURL(/#play\//);
 }
 
 /** Seed through the production persistence boundary, so fixtures use the release contract. */
@@ -501,4 +740,28 @@ export async function cacheGame(
   // that cancels those requests mid-flight can make WebKit fail the next
   // page's module loads outright, so callers reload only once they settle.
   await page.waitForLoadState("networkidle");
+}
+
+/** Visibility selection and measurement share one DOM read across the GPU handoff. */
+export async function surfaceBox(
+  page: Page,
+): Promise<{ x: number; y: number; width: number; height: number }> {
+  return page.locator(".game-surface").evaluateAll((surfaces) => {
+    const boxes = surfaces
+      .map((surface) => surface.getBoundingClientRect())
+      .filter((box) => box.width > 0 && box.height > 0);
+    if (boxes.length !== 1)
+      throw new Error(`Expected one visible game surface; found ${boxes.length}.`);
+    const { x, y, width, height } = boxes[0]!;
+    return { x, y, width, height };
+  });
+}
+
+/** Situation hints live in the key help bubble, opened without moving game focus. */
+export async function gameHint(page: Page, id: string): Promise<Locator> {
+  const status = page.getByTestId("game-keys");
+  await expect(status).toBeVisible();
+  await status.hover();
+  await expect(page.getByTestId("game-key-help")).toBeVisible();
+  return page.getByTestId(id);
 }

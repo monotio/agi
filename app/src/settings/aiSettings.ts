@@ -13,6 +13,9 @@ interface AiProviderSettings {
   effort: ModelEffort;
 }
 
+/** Initial spending allowance for a new AI task. */
+export const DEFAULT_TASK_BUDGET_USD = 5;
+
 export interface AiSettings {
   version: 1;
   provider: AiSettingsProvider;

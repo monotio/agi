@@ -2,6 +2,7 @@ import { expect, test } from "@playwright/test";
 import { clickTimelineMark, isolateStorage, openCardMenu } from "./engineProbe.ts";
 
 test.describe("Synthetic Walkthrough", () => {
+  test.use({ hasTouch: true });
   test("runs synthetic walkthrough from game actions menu with speed, seek, and take-control", async ({
     page,
   }) => {
@@ -11,10 +12,10 @@ test.describe("Synthetic Walkthrough", () => {
     // Open ActionMenu next to Play for synthetic
     await openCardMenu(page, "game-actions-synthetic");
 
-    // Verify "Run walkthrough" item is visible
+    // Verify the walkthrough item is visible
     const runBtn = page.getByTestId("run-walkthrough");
     await expect(runBtn).toBeVisible();
-    await expect(runBtn).toContainText("Run walkthrough");
+    await expect(runBtn).toContainText("Watch walkthrough");
     await runBtn.click();
 
     // Verify walkthrough HUD bar and bottom transport bar appear
@@ -22,14 +23,52 @@ test.describe("Synthetic Walkthrough", () => {
     await expect(bar).toBeVisible({ timeout: 15_000 });
     await expect(bar).toContainText("Walkthrough");
 
+    const pause = page.getByTestId("btn-walkthrough-pause");
+    await expect(pause).toBeVisible();
+    await pause.click();
+    await expect
+      .poll(() => page.evaluate(() => window.__AGI_STATE__?.walkthrough.status))
+      .toBe("paused");
+    for (const [width, height] of [
+      [1063, 815],
+      [1440, 900],
+      [390, 844],
+    ] as const) {
+      await page.setViewportSize({ width, height });
+      await page.getByRole("radio", { name: "Play", exact: true }).scrollIntoViewIfNeeded();
+      await expect(page.getByRole("radio", { name: "Play", exact: true })).toBeVisible();
+      await expect(page.getByRole("radio", { name: "Create", exact: true })).toBeVisible();
+      const bytes = await page.screenshot({
+        path: test.info().outputPath(`walkthrough-modes-${width}.png`),
+        animations: "disabled",
+        scale: "css",
+      });
+      if (process.env["CI"])
+        console.log(`FOLLOWUP_SHOT:walkthrough-modes-${width}:${bytes.toString("base64")}`);
+    }
+    await page.setViewportSize({ width: 1280, height: 720 });
+    for (const name of ["Play", "Create"]) {
+      const mode = page.getByRole("radio", { name, exact: true });
+      await expect(mode).toBeVisible();
+      await expect(mode).toBeDisabled();
+    }
+
     const transport = page.getByTestId("walkthrough-transport");
     await expect(transport).toBeVisible();
+
+    await pause.click();
 
     // Verify speed controls
     const speed4 = page.getByTestId("walkthrough-speed-4");
     await expect(speed4).toBeVisible();
-    await speed4.click();
+    const speedBox = (await speed4.boundingBox())!;
+    await page.mouse.move(speedBox.x + speedBox.width / 2, speedBox.y + speedBox.height / 2);
+    await page.mouse.down();
+    await expect(speed4).toBeFocused();
+    expect(await speed4.boundingBox()).toEqual(speedBox);
+    await page.mouse.up();
     await expect(speed4).toHaveClass(/walkthrough-speed-btn--active/);
+    await page.screenshot({ path: test.info().outputPath("walkthrough-speed-4.png") });
 
     // Timeline and markers
     const timeline = page.getByTestId("walkthrough-timeline");
@@ -52,21 +91,20 @@ test.describe("Synthetic Walkthrough", () => {
       )
       .toBe(2);
 
-    // Verify score reaches 50
-    await expect
-      .poll(
-        async () => {
-          const obs = await page.evaluate(() => window.__AGI_REPLAY__?.latest);
-          return obs?.state.vars[3] ?? 0;
-        },
-        { timeout: 15_000 },
-      )
-      .toBe(50);
+    // Observe the score and pause in the same browser turn. The tape has only
+    // 48 ticks left at score 50; a host-side poll followed by a click can arrive
+    // after completion at 4x.
+    await page.waitForFunction(() => {
+      if (window.__AGI_REPLAY__?.latest?.state.vars[3] !== 50) return false;
+      const pause = document.querySelector<HTMLButtonElement>(
+        '[data-testid="btn-walkthrough-pause"]',
+      );
+      if (!pause || pause.disabled) return false;
+      pause.click();
+      return true;
+    });
 
-    // Marker click seeks back to Start (marker 0). A seek keeps play or pause,
-    // and at 8x a playing replay passes tick 50 within a third of a second, so
-    // pause first: the paused seek holds where it lands.
-    await page.getByTestId("btn-walkthrough-pause").click();
+    // A paused seek holds at Start while we inspect its position.
     await expect
       .poll(() => page.evaluate(() => window.__AGI_STATE__?.walkthrough.status))
       .toBe("paused");

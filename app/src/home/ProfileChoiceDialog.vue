@@ -30,7 +30,7 @@ let settled = false;
 
 const current = computed(() =>
   choice.override
-    ? formatProfileResolution(choice.override, "override")
+    ? formatProfileResolution(choice.override, choice.stored)
     : choice.detected && choice.kind
       ? formatProfileResolution(choice.detected, choice.kind, choice.build)
       : "Automatic (opening not checked)",
@@ -77,15 +77,13 @@ function onDialogClose(): void {
         <UiIconButton icon="x" label="Close" @click="dismiss" />
       </header>
       <p v-if="choice.mode === 'import'" class="profile-picker-intro">
-        This game has no interpreter files and is not in the game catalog, so we could not tell
-        which version of Sierra's AGI interpreter it was made for. Games built with AGI Studio or
-        WinAGI usually target 2.917 or 2.936. If you are unsure, keep the default.
+        Choose the version of Sierra's AGI interpreter this game was made for. Games built with AGI
+        Studio or WinAGI usually target 2.917 or 2.936. If you are unsure, keep the default.
       </p>
       <p v-else class="profile-picker-intro">
         Current profile: <strong>{{ current }}</strong
         >. A running game restarts from its latest autosave under the new profile.
       </p>
-      <p class="profile-picker-intro">You can change this later from the game's ⋯ menu.</p>
 
       <label for="profile-select">Interpreter profile</label>
       <UiSelect id="profile-select" v-model="selected" block data-testid="profile-picker-select">

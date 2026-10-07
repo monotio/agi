@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { effectScope, ref, shallowRef } from "vue";
+import { effectScope, nextTick, ref, shallowRef } from "vue";
 import { DEFAULT_V2_PROFILE } from "../../src/runtime/profile.ts";
 import { testRevision } from "./identity.ts";
 import { NO_UNLOCKS, type LensUnlocks } from "../src/studio/studioLocks.ts";
@@ -174,7 +174,10 @@ describe("useStudioDraft", () => {
     assert.equal(draft.preview.value, null, "the preview snaps back to the start");
     const end = draft.endGesture(move("occ", 45, 0), "Move Occluder");
     assert.ok(!end.ok && end.refusal.kind === "kernel");
-    assert.equal(end.refusal.message, "That would move part of it off the picture.");
+    assert.equal(
+      end.refusal.message,
+      "Part of the item would leave the picture. Move it closer to the centre.",
+    );
     assert.match(end.refusal.detail ?? "", /off the surface at 164,105/);
     assert.equal(draft.source.value, SOURCE);
     assert.equal(draft.history.value.past.length, 0);
@@ -190,10 +193,10 @@ describe("useStudioDraft", () => {
       "Colour Box",
     );
     assert.ok(!art.ok && art.refusal.kind === "lock");
-    assert.equal(art.refusal.message, "Art is locked in the Depth lens.");
+    assert.equal(art.refusal.message, "Visual is locked in the Priority lens.");
     assert.equal(
       art.refusal.detail,
-      "Art is locked in the Depth lens: 80 cells at 10,10..30,30 would change.",
+      "Visual is locked in the Priority lens: 80 cells at 10,10..30,30 would change.",
     );
     assert.ok(art.refusal.cells.includes(1));
     assert.equal(draft.source.value, SOURCE);
@@ -203,10 +206,10 @@ describe("useStudioDraft", () => {
     const priority = { type: "setItemColor", itemId: "occ", plane: "priority", value: 12 } as const;
     const depth = draft.apply(priority, "Priority 12");
     assert.ok(!depth.ok && depth.refusal.kind === "lock");
-    assert.equal(depth.refusal.message, "Depth and walk lines are locked in the Art lens.");
+    assert.equal(depth.refusal.message, "Priority is locked in the Visual lens.");
     assert.equal(
       depth.refusal.detail,
-      "Depth and walk lines are locked in the Art lens: 188 cells at 40,90..119,105 would change.",
+      "Priority is locked in the Visual lens: 188 cells at 40,90..119,105 would change.",
     );
     // A point of its outline is editing within the plane too.
     const point = draft.apply(
@@ -249,7 +252,7 @@ describe("useStudioDraft", () => {
       "Priority 3",
     );
     assert.ok(!paint.ok && paint.refusal.kind === "lock");
-    assert.equal(paint.refusal.message, "Depth and walk lines are locked in the Art lens.");
+    assert.equal(paint.refusal.message, "Priority is locked in the Visual lens.");
     // So does a fill that would flood depth along with the art.
     const fill = mixed.draft.apply(
       {
@@ -265,7 +268,7 @@ describe("useStudioDraft", () => {
       "Fill",
     );
     assert.ok(!fill.ok && fill.refusal.kind === "lock");
-    assert.equal(fill.refusal.message, "Depth and walk lines are locked in the Art lens.");
+    assert.equal(fill.refusal.message, "Priority is locked in the Visual lens.");
     assert.equal(mixed.draft.history.value.past.length, 3);
     function both() {
       return [move("box", 0, 1), move("paint", 0, 1)];
@@ -285,37 +288,18 @@ describe("useStudioDraft", () => {
       }),
     )!;
     assert.equal(editing.nudge(1, 0), true);
-    assert.equal(editing.notice.value?.text, "Moved Pond with its walk lines.");
-    // The Depth lens shows the barrier and hides the water.
+    // Priority holds the control lines too: the pond's wall and water.
+    assert.equal(editing.notice.value?.text, "Moved Pond with its priority.");
+    // The Priority lens shows the wall and water and hides the visual.
     lens.value = "depth";
     assert.equal(editing.nudge(1, 0), true);
-    assert.equal(editing.notice.value?.text, "Moved Pond with its art.");
+    assert.equal(editing.notice.value?.text, "Moved Pond with its visual.");
     scope.stop();
     assert.equal(
-      movedWith("3 items", true, ["depth", "walk lines"]),
-      "Moved 3 items with their depth and walk lines.",
+      movedWith("3 items", true, ["priority", "walk lines"]),
+      "Moved 3 items with their priority and walk lines.",
     );
     assert.equal(movedWith("Box", false, []), null);
-  });
-
-  it("keeps depth values off limits in the Walk lens until they are allowed", () => {
-    const { draft, unlocks } = setup("walk");
-    // A barrier moves freely: the cells it leaves hold what was under it.
-    assert.equal(draft.apply(move("edge", 0, -2), "Move Floor edge").ok, true);
-    const paint = draft.apply(
-      { type: "setItemColor", itemId: "edge", plane: "priority", value: 12 },
-      "Priority 12",
-    );
-    assert.ok(!paint.ok && paint.refusal.kind === "lock");
-    assert.equal(paint.refusal.message, "The Walk lens draws walk lines 0–3 only.");
-    assert.match(paint.refusal.detail, /^Depth values 4–15 are locked in the Walk lens: 120 cells/);
-    // Reshaping the occluder changes depth; moving it whole carries its depth.
-    const reshape = { type: "setPoint", line: 12, pointIndex: 0, x: 44, y: 92 } as const;
-    assert.ok(!draft.apply(reshape, "Move point").ok);
-    assert.equal(draft.apply(move("occ", 1, 0), "Move Occluder").ok, true);
-    unlocks.value = { ...NO_UNLOCKS, depthInWalk: true };
-    assert.equal(draft.apply(reshape, "Move point").ok, true);
-    assert.equal(draft.changes.value, 3);
   });
 
   it("lands an edit that changes another item's output, as one step with its side effects", () => {
@@ -354,6 +338,46 @@ describe("useStudioDraft", () => {
     assert.ok(ended.ok);
     assert.equal(ended.sideEffects?.cells, 26019);
     assert.equal(draft.history.value.past.length, 1);
+  });
+
+  it("a matching saved source retains the next picture gesture and undo steps", async () => {
+    const { draft, base } = setup("art");
+    assert.ok(draft.apply({ type: "moveItem", itemId: "box", dx: 1, dy: 0 }, "Nudge").ok);
+    const saved = draft.source.value;
+    draft.beginGesture("Move");
+    draft.moveGesture({ type: "moveItem", itemId: "box", dx: 0, dy: 1 });
+    base.value = { source: saved, revision: testRevision("saved-picture") };
+    await nextTick();
+    assert.equal(draft.gesturing.value, true);
+    assert.ok(draft.endGesture({ type: "moveItem", itemId: "box", dx: 0, dy: 1 }, "Move").ok);
+    assert.equal(draft.history.value.past.length, 2);
+  });
+
+  it("clears an edit notice when project Undo restores the source", async () => {
+    const scope = effectScope();
+    const { draft, base, editing } = scope.run(() => {
+      const state = setup("art");
+      return {
+        ...state,
+        editing: useStudioEditing({
+          draft: state.draft,
+          selectedId: ref("box"),
+          frozen: () => false,
+          lens: () => "art",
+        }),
+      };
+    })!;
+    assert.equal(editing.nudge(20, 0), true);
+    const notice = editing.notice.value;
+    assert.ok(notice);
+    base.value = { source: draft.source.value, revision: testRevision("saved") };
+    await nextTick();
+    assert.equal(editing.notice.value, notice, "autosave retains the edit's notice");
+    base.value = { source: SOURCE, revision: testRevision("restored") };
+    await nextTick();
+    assert.equal(draft.source.value, SOURCE);
+    assert.equal(editing.notice.value, null);
+    scope.stop();
   });
 
   it("says in the status line what else changed, with the undo key, and clears it after", () => {
@@ -620,7 +644,10 @@ describe("useStudioDrag", () => {
     drag.release(at(110, 100));
     const stopped = reports.at(-1)!;
     assert.ok(!stopped.ok && stopped.refusal.kind === "kernel");
-    assert.equal(stopped.refusal.message, "Occluder is at the picture's right edge.");
+    assert.equal(
+      stopped.refusal.message,
+      "Occluder is at the picture's right edge. Move it inward.",
+    );
     assert.match(stopped.refusal.detail ?? "", /moving by 10,0: "Occluder" is at the right edge/);
     assert.equal(line(draft, 12), "rect 80,92 159,107");
     assert.equal(draft.history.value.past.length, 1);
@@ -642,8 +669,23 @@ describe("useStudioDrag", () => {
     assert.equal(draft.history.value.past.length, 1);
   });
 
+  it("moves by the pointer displacement at fractional zoom, with one undo step", () => {
+    const { draft, drag, frames, at } = dragRig();
+    // At fractional zoom, integer browser coordinates can put the endpoints
+    // four cells apart even when the pointer moves three cell widths.
+    drag.press(at(59, 95));
+    drag.drag({ ...at(63, 95), delta: { x: 3, y: 0 } });
+    frames.shift()!();
+    assert.match(draft.preview.value!.source, /rect 43,90 122,105/);
+    drag.release({ ...at(57, 96), delta: { x: -3, y: 2 } });
+    assert.equal(line(draft, 12), "rect 37,92 116,107");
+    assert.equal(draft.history.value.past.length, 1);
+    draft.undo();
+    assert.equal(draft.source.value, SOURCE);
+  });
+
   it("adds a point with an Alt+press by the line, placed by the drag, as one step each", () => {
-    const { draft } = setup("walk");
+    const { draft } = setup("depth");
     const frames: (() => void)[] = [];
     const drag = useStudioDrag({
       draft,
@@ -722,7 +764,7 @@ describe("several items as one", () => {
       "Colour 2 items",
     );
     assert.ok(!outcome.ok && outcome.refusal.kind === "lock");
-    assert.equal(outcome.refusal.message, "Art is locked in the Depth lens.");
+    assert.equal(outcome.refusal.message, "Visual is locked in the Priority lens.");
     assert.equal(draft.source.value, SOURCE, "the occluder did not change either");
     assert.equal(draft.history.value.past.length, 0);
   });
@@ -755,7 +797,7 @@ describe("several items as one", () => {
     assert.equal(line(draft, 3), "rect 0,10 20,30");
     assert.equal(line(draft, 7), "fill 10,20");
     assert.equal(editing.nudge(-1, 0), false);
-    assert.equal(editing.notice.value?.text, "Box is at the picture's left edge.");
+    assert.equal(editing.notice.value?.text, "Box is at the picture's left edge. Move it inward.");
     assert.equal(draft.history.value.past.length, 1);
     scope.stop();
   });
@@ -798,10 +840,7 @@ describe("several items as one", () => {
     // Draw order moves one item at a time.
     selection.ids = ["box", "paint"];
     assert.equal(editing.reorder(1), false);
-    assert.equal(
-      editing.notice.value?.text,
-      "Draw order changes one item at a time: select just one.",
-    );
+    assert.equal(editing.notice.value?.text, "Select one item to change its draw order.");
     scope.stop();
   });
 
@@ -862,7 +901,7 @@ describe("several items as one", () => {
     assert.ok(!draft.document.value.items.some((item) => item.id === "paint"));
     assert.deepEqual(editing.notice.value, {
       tone: "warn",
-      text: "Door to room 2 stays put now: Ungroup split Red box into drawing elements.",
+      text: "Door to room 2 stays put now: Ungroup split Red box into items.",
     });
     // One level down, Ungroup gives the members their ids back and the door keeps its art.
     assert.equal(draft.undo(), true);

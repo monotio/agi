@@ -7,11 +7,13 @@
 import type { ProfileId } from "../../../src/runtime/profile.ts";
 import type { AgentHandler, LlmRequest } from "../agent/hostRequests.ts";
 import type { AgiAudio } from "../audio/AgiAudio.ts";
+import { deliverSoundTick } from "../audio/useAudioController.ts";
 import type { BootedGame, Frame } from "../project/gameTypes.ts";
 import type { HistoryBatch } from "../../../src/agent/history.ts";
-import { decodeTextRows, gameStorageKey } from "../project/gameTypes.ts";
+import { decodeTextRows } from "../project/gameTypes.ts";
 import type { ReplayDriver, ReplayObservation } from "../walkthrough/replay.ts";
-import { LAST_GAME_KEY } from "../saves/useAutosaveController.ts";
+import { writeResumePointer } from "../saves/resumePointer.ts";
+import { resolveProgressTarget } from "../project/progressBinding.ts";
 import type { EngineState, ModalKind, TextHook } from "./useEngineTypes.ts";
 import type { LogAgentFn } from "../play/useInputController.ts";
 import { createPatchWaiters, createWorkerQueries } from "./workerQueries.ts";
@@ -25,6 +27,11 @@ import type {
 
 /** Controllers the wire dispatches to; useEngine fills it once each exists. */
 interface WorkerLinkDeps {
+  missedSentence?(msg: Extract<WorkerOutbound, { type: "missedSentence" }>): void;
+  projectBooted?(msg: Extract<WorkerOutbound, { type: "booted" }>): void;
+  projectClosed?(preservePlayOwnership?: boolean): void;
+  playOwnershipRetained?(): void;
+  recordingReset?(): void;
   resetScreenState(): void;
   cancelPrompt(): void;
   handleAutosave(msg: Extract<WorkerOutbound, { type: "autosave" }>): void;
@@ -38,6 +45,7 @@ interface WorkerLinkDeps {
   handleHistoryView(msg: Extract<WorkerOutbound, { type: "historyView" }>): void;
   handleFlushed(msg: Extract<WorkerOutbound, { type: "flushed" }>): void;
   handleRestored(msg: Extract<WorkerOutbound, { type: "restored" }>): void;
+  handleRecoveryError?(message: string): boolean;
   handleSaveSlotRequest(
     op: "restore" | "saveList" | "saveWrite",
     context: Record<string, unknown>,
@@ -60,6 +68,19 @@ interface WorkerLinkDeps {
   observeCycle?(msg: Extract<WorkerOutbound, { type: "cycle" }>): void;
   /** A live room transition — entering another room closes the Start over note. */
   observeRoom?(msg: Extract<WorkerOutbound, { type: "roomTransition" }>): void;
+  /**
+   * Debugger session events that are not query replies — stops, detach and
+   * session-reset notices, answer-ready and logpoint output.
+   */
+  handleDebugEvent?(
+    msg: Extract<
+      WorkerOutbound,
+      {
+        type:
+          "debugStopped" | "debugDetached" | "debugSessionReset" | "debugAnswerReady" | "debugLog";
+      }
+    >,
+  ): void;
 }
 
 /**
@@ -75,7 +96,7 @@ export type WorkerOutboundHandlers = {
 export interface WorkerLinkOptions {
   readonly state: EngineState;
   readonly hook: TextHook;
-  readonly audio: AgiAudio;
+  readonly audio: AgiAudio | null;
   readonly onFrame: (frame: Frame) => void;
   readonly logAgent: LogAgentFn;
   readonly getBootedGame: () => BootedGame | null;
@@ -86,8 +107,40 @@ export interface WorkerLinkOptions {
 }
 
 export function useWorkerLink(options: WorkerLinkOptions) {
-  const { state, hook, audio, onFrame, logAgent, observationListeners } = options;
+  const { state, hook, onFrame, logAgent, observationListeners } = options;
   const deps = {} as WorkerLinkDeps;
+
+  /**
+   * The worker's room-authoring suspension is a named audio pause owner, not
+   * a `paused || state.paused` OR: a local overlay releasing its hold must not
+   * lift a still-active worker freeze, and the worker's release must not lift
+   * an overlay's. Doubles that predate the owner API keep the old join.
+   */
+  const setWorkerAudioPause = (paused: boolean) => {
+    const audio = options.audio;
+    if (!audio) return;
+    if (typeof audio.setPauseOwner === "function") audio.setPauseOwner("worker", paused);
+    else audio.setPaused(paused || state.paused);
+  };
+
+  /**
+   * The debugger's own audio hold — a distinct pause owner so releasing it
+   * never lifts the worker-authoring or ambient holds. Only the epoch that
+   * raised it may release it; a replaced worker's hold dies with the worker.
+   */
+  let debugAudioEpoch: number | null = null;
+  const setDebugAudioPause = (paused: boolean, epoch?: number) => {
+    const audio = options.audio;
+    if (!audio) return;
+    if (typeof audio.setPauseOwner !== "function") return;
+    if (paused) {
+      debugAudioEpoch = epoch ?? null;
+      audio.setPauseOwner("debugger", true);
+    } else if (epoch === undefined || debugAudioEpoch === epoch) {
+      debugAudioEpoch = null;
+      audio.setPauseOwner("debugger", false);
+    }
+  };
 
   let worker: Worker | null = null;
   let latestFrame: Frame | null = null;
@@ -145,8 +198,12 @@ export function useWorkerLink(options: WorkerLinkOptions) {
 
   /** Terminate the current worker and forget it (eject / shutdown paths). */
   function terminateWorker(): void {
+    deps.projectClosed?.();
     worker?.terminate();
     worker = null;
+    // A dead worker holds no audio pause.
+    setWorkerAudioPause(false);
+    setDebugAudioPause(false);
     patchWaiters.drainPatchWaiters(new Error("engine worker stopped"));
   }
 
@@ -156,9 +213,10 @@ export function useWorkerLink(options: WorkerLinkOptions) {
     shakeTimer = null;
   }
 
-  function spawnWorker(): Worker {
+  function spawnWorker(preservePlayOwnership = false): Worker {
+    deps.projectClosed?.(preservePlayOwnership);
     worker?.terminate();
-    audio.stop();
+    options.audio?.stop();
     deps.resetScreenState();
     // A new session replaces the note about how the previous game ended.
     state.gameEnded = null;
@@ -167,6 +225,7 @@ export function useWorkerLink(options: WorkerLinkOptions) {
       type: "module",
     });
     wireWorker(w);
+    if (preservePlayOwnership) deps.playOwnershipRetained?.();
     return w;
   }
 
@@ -174,9 +233,11 @@ export function useWorkerLink(options: WorkerLinkOptions) {
     // Trace stream instance last seen from this worker; an epoch change
     // means the worker reset or re-armed the channel, so stale records drop.
     let traceEpochSeen = -1;
+    let pendingHostRequest: { generation: number; id: number } | null = null;
     // The map is required, not partial: a union member without a handler is a
     // type error here, so deleting one fails `npm run check` at compile time.
     const handlers: WorkerOutboundHandlers = {
+      missedSentence: (msg) => deps.missedSentence?.(msg),
       // Query replies — each settles its pending promise with the payload the
       // request asked for (see WorkerQueryReplies / WorkerQueryPayload).
       engineState: (msg) => workerQueries.resolveQuery(msg.id, msg.state),
@@ -188,8 +249,40 @@ export function useWorkerLink(options: WorkerLinkOptions) {
       playedHere: (msg) => workerQueries.resolveQuery(msg.id, msg),
       debugEvents: (msg) => workerQueries.resolveQuery(msg.id, msg),
       debugTrace: (msg) => workerQueries.resolveQuery(msg.id, msg),
+      // The execution-controller protocol: replies settle their pending
+      // query (debugError settles it refused); session events forward to the
+      // debug session owner and the audio hold tracks its owning epoch.
+      debugAttached: (msg) => workerQueries.resolveQuery(msg.id, msg),
+      debugAck: (msg) => workerQueries.resolveQuery(msg.id, msg),
+      debugConfigured: (msg) => workerQueries.resolveQuery(msg.id, msg),
+      debugInspection: (msg) => workerQueries.resolveQuery(msg.id, msg),
+      debugEvaluation: (msg) => workerQueries.resolveQuery(msg.id, msg),
+      debugSetValuesAck: (msg) => workerQueries.resolveQuery(msg.id, msg),
+      debugError: (msg) => {
+        workerQueries.rejectQuery(msg.id, new Error(msg.error));
+      },
+      debugStopped: (msg) => deps.handleDebugEvent?.(msg),
+      debugAnswerReady: (msg) => deps.handleDebugEvent?.(msg),
+      debugLog: (msg) => deps.handleDebugEvent?.(msg),
+      debugSessionReset: (msg) => deps.handleDebugEvent?.(msg),
+      debugDetached: (msg) => {
+        setDebugAudioPause(false, msg.epoch);
+        deps.handleDebugEvent?.(msg);
+      },
+      debugAudio: (msg) => {
+        if (msg.paused) setDebugAudioPause(true, msg.epoch);
+        else setDebugAudioPause(false, msg.epoch);
+      },
       recordingStarted: (msg) => workerQueries.resolveQuery(msg.id, msg),
       recordingStopped: (msg) => workerQueries.resolveQuery(msg.id, msg),
+      recordingReset: () => deps.recordingReset?.(),
+      // The play-preview lane's protocol: each settles its pending query —
+      // the result is the request's one terminal settlement, the status its
+      // read-only reconciliation.
+      projectPlayed: (msg) => workerQueries.resolveQuery(msg.id, msg),
+      projectCreated: (msg) => workerQueries.resolveQuery(msg.id, msg),
+      previewUpdateResult: (msg) => workerQueries.resolveQuery(msg.id, msg),
+      previewUpdateStatus: (msg) => workerQueries.resolveQuery(msg.id, msg),
       // The history transport's position reports: progress posts only update
       // the controller; the terminal one settles the requesting query.
       historyView: (msg) => {
@@ -216,11 +309,12 @@ export function useWorkerLink(options: WorkerLinkOptions) {
       waitingForKey: (msg) => {
         state.waitingForKey = msg.waiting;
       },
-      // The worker suspended on a host service. The request id settles the
-      // handshake: the matching hostAnswer resumes the parked interaction,
-      // and a stale id — the interaction was abandoned — is dropped there.
+      // The live identity combines run generation and replayable request serial.
+      // Abandoned completions cannot publish answers or follow-up checkpoints.
       hostRequest: (msg) => {
-        const id = msg.id;
+        const { generation, id } = msg;
+        const pending = { generation, id };
+        pendingHostRequest = pending;
         const req: LlmRequest = {
           op: msg.op,
           context: msg.context,
@@ -229,19 +323,31 @@ export function useWorkerLink(options: WorkerLinkOptions) {
         hostRequestHandler(currentSessionAgent)
           .handle(req)
           .then((response) => {
+            if (worker !== w || pendingHostRequest !== pending) return;
+            pendingHostRequest = null;
             logAgent("response", response.slice(0, 120));
-            w.postMessage({ type: "hostAnswer", id, response } satisfies WorkerInbound);
+            w.postMessage({ type: "hostAnswer", generation, id, response } satisfies WorkerInbound);
             deps.hostAnswered?.(req);
           })
           .catch((e) => {
+            if (worker !== w || pendingHostRequest !== pending) return;
+            pendingHostRequest = null;
             logAgent("response", `agent error: ${String(e)}`);
-            w.postMessage({ type: "hostAnswer", id, response: "" } satisfies WorkerInbound);
+            w.postMessage({
+              type: "hostAnswer",
+              generation,
+              id,
+              response: "",
+            } satisfies WorkerInbound);
           });
       },
       // The worker abandoned a suspended interaction (reenter, superseded
       // request): resolve the prompt widgets its in-flight request opened so
       // the UI stops waiting on an answer that is no longer consumed.
-      interactionCancelled: () => {
+      interactionCancelled: (msg) => {
+        if (pendingHostRequest?.generation !== msg.generation || pendingHostRequest.id !== msg.id)
+          return;
+        pendingHostRequest = null;
         deps.cancelPrompt();
       },
       frame: (msg) => {
@@ -301,16 +407,20 @@ export function useWorkerLink(options: WorkerLinkOptions) {
       },
       soundEnabled: (msg) => {
         state.soundMuted = !msg.enabled;
-        audio.setMuted(state.soundMuted);
+        options.audio?.setMuted(state.soundMuted);
       },
       sound: () => {
         state.soundPlaying = true;
       },
-      soundOutput: (msg) => audio.output(msg.output),
-      soundPaused: (msg) => audio.setPaused(msg.paused || state.paused),
+      soundOutput: (msg) => options.audio?.output(msg.output),
+      soundTick: (msg) => {
+        if (options.audio) deliverSoundTick(options.audio, msg);
+        if (msg.complete) state.soundPlaying = false;
+      },
+      soundPaused: (msg) => setWorkerAudioPause(msg.paused),
       stopSound: () => {
         state.soundPlaying = false;
-        audio.stop();
+        options.audio?.finishSound();
       },
       autosave: (msg) => deps.handleAutosave(msg),
       // The always-on recording's transport unit: commit it, then free the
@@ -415,16 +525,27 @@ export function useWorkerLink(options: WorkerLinkOptions) {
         // The world map's raw observations. Superseded sessions are already
         // dropped by the sessionId ingress filter; a replaced worker's late
         // traffic never reaches this handler.
+        hook.room = msg.to;
+        const generation = state.roomGeneration;
+        if (generation?.room === msg.to && !generation.busy && !generation.error)
+          state.roomGeneration = null;
+        publishHook();
         state.roomJournal.push(msg);
         deps.observeRoom?.(msg);
         if (state.roomJournal.length > 4000)
           state.roomJournal.splice(0, state.roomJournal.length - 4000);
       },
       booted: (msg) => {
+        deps.projectBooted?.(msg);
         const booted = options.getBootedGame();
-        if (booted) {
+        // The resume pointer moves only to the physical address the booted
+        // game bound — a superseded boot's acknowledgement cannot arrive
+        // (a replaced worker's messages never land), so the game in the
+        // slot is the one this worker boots.
+        const locator = booted !== null ? (resolveProgressTarget(booted)?.locator ?? null) : null;
+        if (locator !== null) {
           try {
-            localStorage.setItem(LAST_GAME_KEY, gameStorageKey(booted));
+            writeResumePointer(localStorage, locator);
           } catch {
             /* Playback can continue without browser storage. */
           }
@@ -444,11 +565,23 @@ export function useWorkerLink(options: WorkerLinkOptions) {
         publishHook();
       },
       error: (msg) => {
+        if (deps.handleRecoveryError?.(msg.message)) return;
         state.phase = "error";
         state.error = msg.message;
       },
     };
     worker = w;
+    w.onerror = (event: ErrorEvent) => {
+      if (worker !== w) return;
+      const message = event.message || "The game worker stopped.";
+      if (deps.handleRecoveryError?.(message)) return;
+      state.phase = "error";
+      state.error = message;
+    };
+    // The replacement boundary: the previous run's sound-pause holds die
+    // with it; this worker's own soundPaused/debugAudio messages re-arm them.
+    setWorkerAudioPause(false);
+    setDebugAudioPause(false);
     // A fresh worker boots with every debug channel disarmed; re-arm the set
     // the UI still expects so a game switch never silently blanks the dock.
     w.postMessage({
@@ -458,6 +591,12 @@ export function useWorkerLink(options: WorkerLinkOptions) {
     w.onmessage = (ev: MessageEvent) => {
       // A replaced worker's messages never land here.
       if (worker !== w) return;
+      const game = options.getBootedGame();
+      if (
+        (game?.removed || game?.behindStorage) &&
+        deps.handleRecoveryError?.("The saved checkpoint's project changed during recovery.")
+      )
+        return;
       // Ingress validation for whatever structured clone delivered: unknown
       // or malformed messages drop instead of reaching a handler.
       const data = ev.data;

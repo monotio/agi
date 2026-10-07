@@ -1,63 +1,38 @@
 import { expect, test } from "../test.ts";
-import type { Locator, Page } from "@playwright/test";
-import { testProjectId } from "../../test/identity.ts";
-import { parseGameHash } from "../../src/shell/shellRoute.ts";
-import { BRIDGE_SOURCE, DOT_EGO, ROBOT_VIEW } from "../../../test/studioAssistFixtures.ts";
-import { createContainer } from "../../../src/container/container.ts";
-import { assembleLogic } from "../../../src/logic/assembler.ts";
-import { compilePictureSource } from "../../../src/picture/source.ts";
+import type { Page } from "@playwright/test";
+import type { ProjectSession } from "../../src/project/projectSession.ts";
+import { createStarterProject } from "../../../src/authoring/starterProject.ts";
+import { encodePngRgba } from "../../../src/creative/composite.ts";
+import { EGA_RGB } from "../../../scripts/png.ts";
 import {
-  cacheGame,
-  clickTimelineMark,
   configureAi,
-  enterCreateMode,
   isolateStorage,
+  openWorkspaceAgent,
   settled,
   textHook,
-  waitForCycles,
-  waitForRoom,
-  openWorldRoom,
+  workspaceSaved,
 } from "../engineProbe.ts";
+import { open, start } from "../pictureWorkspaceShared.ts";
+import { openRoomGenerationGame, walkInto } from "./roomGeneration.ts";
+import {
+  clickPictureCell,
+  focusWorkspaceLogic,
+  runningWorkspaceDocument,
+  workspaceDocumentEnd,
+  replaceWorkspaceDocument,
+  workspaceDocument,
+} from "../workspaceShared.ts";
 
-/**
- * The README and docs/media screenshots, driven through the real app in test
- * mode (playwright.media.config.ts; run with `npm run media:capture`). Each
- * shot is a fresh context on the bundled Adventure Department tutorial or an
- * original test fixture, with the stub provider for AI state. The fixture
- * server's installed-game list is answered empty, so no local game library
- * reaches a picture. Shots wait on published state, never on a clock.
- *
- * Nothing is restyled for the camera. A live session's history transport
- * places its marks by how many ticks the session has run, which the wall
- * clock decides, and the engine's clock runs in its worker, beyond the reach
- * of Playwright's page.clock. So the Play shot starts from a finished tape:
- * the tutorial's recorded walkthrough, sought to a checkpoint while paused,
- * then Take control (takeControlAt). Create mode needs the tutorial's own
- * project, which a walkthrough session is not, so its transport keeps one
- * live mark: the start of the session, a few pixels into the lane.
- */
-
-/** Where the PNGs go: the capture script's staging folder, else the test's output. */
-const OUT = process.env["AGI_MEDIA_OUT"];
-
-/**
- * Save `name`.png at CSS pixel size: the page renders at device scale 2 and
- * the screenshot is downsampled from it. `clip` crops to a region in CSS px.
- */
-async function shot(
-  page: Page,
-  name: string,
-  clip?: { x: number; y: number; width: number; height: number },
-): Promise<void> {
+/** Original project screenshots from the real app with the deterministic stub provider. */
+async function shot(page: Page, name: string, pointer: "rest" | "keep" = "rest"): Promise<void> {
   // Nothing hovers: the pointer rests in the status bar's corner.
-  await page.mouse.move(1439, 899);
+  if (pointer === "rest") await page.mouse.move(1439, 899);
   await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur?.());
   await page.screenshot({
-    path: OUT ? `${OUT}/${name}.png` : test.info().outputPath(`${name}.png`),
+    path: test.info().outputPath(`${name}.png`),
     scale: "css",
     animations: "disabled",
     caret: "hide",
-    ...(clip ? { clip } : {}),
   });
 }
 
@@ -69,209 +44,373 @@ test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem("monotio_agi.originalAspect", "on"));
 });
 
-async function playTutorial(page: Page): Promise<void> {
+async function starter(page: Page): Promise<void> {
   await page.goto("/");
-  await page.getByTestId("catalog-play-adventure-department").click();
-  await waitForRoom(page, 1, { coldBoot: true });
+  await configureAi(page, { provider: "stub" });
+  await page.goto("/#create-adventure");
+  await page
+    .getByTestId("create-adventure-disclosure")
+    .getByLabel("Name", { exact: true })
+    .fill("My adventure");
+  await page.getByTestId("local-create-kind-starter").click();
+  await page.getByRole("button", { name: "Start building", exact: true }).click();
+  await expect(page.getByTestId("parts-list")).toBeVisible();
+  await expect.poll(async () => (await textHook(page)).room).toBe(1);
   await settled(page);
 }
 
-/**
- * The tutorial from its recorded walkthrough: paused, sought to checkpoint
- * `index`, taken over and resumed. The new session's transport has no marks
- * yet and fills once its first batch lands, the same on every run.
- */
-async function takeControlAt(
-  page: Page,
-  index: number,
-  { resume = true }: { resume?: boolean } = {},
-): Promise<void> {
-  await page.goto("/#watch/adventure-department");
-  await expect(page.getByTestId("walkthrough-bar")).toBeVisible({ timeout: 30_000 });
-  await page.getByTestId("btn-walkthrough-pause").click();
-  await expect
-    .poll(() => page.evaluate(() => window.__AGI_STATE__?.walkthrough.status))
-    .toBe("paused");
-  await clickTimelineMark(page, page.getByTestId(`walkthrough-marker-${index}`));
-  await expect
-    .poll(() => page.evaluate(() => window.__AGI_STATE__?.walkthrough.checkpointIndex))
-    .toBe(index);
-  await settled(page);
-  await page.getByTestId("btn-walkthrough-take-control").click();
-  await expect(page.getByTestId("walkthrough-bar")).toBeHidden();
-  // A paused walkthrough hands over a paused game; Resume plays on from here.
-  if (resume) await page.getByTestId("btn-transport-resume").click();
-  await expect(page.locator(".play-strip .transport-progress-fill")).toHaveAttribute(
-    "style",
-    /width: 100%/,
-  );
-  await expect(page.locator(".play-strip .transport-marker")).toHaveCount(0);
-  await settled(page);
+/** Build a sheet from Starter's original hero, with gaps for frame detection. */
+function heroSheet(): Buffer {
+  const cels = createStarterProject("starter").sources.views.get(0)!.loops[0]!.cels!;
+  const height = Math.max(...cels.map((cel) => cel.height)) + 8;
+  const width = cels.reduce((sum, cel) => sum + cel.width * 2 + 8, 0);
+  const rgba = new Uint8Array(width * height * 4);
+  let left = 4;
+  for (const cel of cels) {
+    for (let y = 0; y < cel.height; y++)
+      for (let x = 0; x < cel.width; x++) {
+        const colour = cel.pixels[y * cel.width + x]!;
+        if (colour === (cel.transparentColor ?? 0)) continue;
+        const rgb = EGA_RGB[colour]!;
+        for (let dx = 0; dx < 2; dx++)
+          rgba.set([...rgb, 255], ((y + 4) * width + left + x * 2 + dx) * 4);
+      }
+    left += cel.width * 2 + 8;
+  }
+  return Buffer.from(encodePngRgba(width, height, rgba));
 }
 
-async function openRoomStudio(page: Page, room: number): Promise<Locator> {
-  await enterCreateMode(page);
-  const panel = page.getByTestId("world-panel");
-  await openWorldRoom(panel, room);
-  await panel.getByTestId("world-open-studio").click();
-  const studio = page.getByTestId("room-studio");
-  await expect(studio).toBeVisible();
-  return studio;
-}
-
-/** The screen point at the centre of logical cell x,y of the picture pane. */
-async function cell(page: Page, x: number, y: number): Promise<[number, number]> {
-  const box = (await page.locator(".studio-pane").last().boundingBox())!;
-  const zoom = box.height / 168;
-  return [box.x + (x + 0.5) * 2 * zoom, box.y + (y + 0.5) * zoom];
-}
-
-/** Studio's stage and side panel, without the scene list and the scrubber. */
-const STAGE = { x: 348, y: 104, width: 1092, height: 690 };
-
-test("home", async ({ page }) => {
+test("home-1.2", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByTestId("catalog-play-adventure-department")).toBeVisible();
-  // Every card's thumbnail has drawn.
   await page.waitForLoadState("networkidle");
   await expect
     .poll(() => page.evaluate(() => [...document.images].every((image) => image.complete)))
     .toBe(true);
-  await shot(page, "home");
+  await shot(page, "home-1.2");
 });
 
-test("tutorial-gallery", async ({ page }) => {
-  // The moment the walkthrough has just painted the mural and dismissed its
-  // message: the status line reads "Mural fixed!".
-  await takeControlAt(page, 1);
-  expect((await textHook(page)).rows[0]).toContain("Score: 10 of 30");
-  await shot(page, "tutorial-gallery");
+test("new-game-1.2", async ({ page }) => {
+  await page.goto("/#create-adventure");
+  await expect(page.getByTestId("local-create-kind-starter")).toBeVisible();
+  await shot(page, "new-game-1.2");
 });
 
-test("create-mode", async ({ page }) => {
-  await playTutorial(page);
-  // Pause from the play bar at a fixed cycle: the timeline's length, and so
-  // where its boot mark sits, is then the same on every capture.
-  await expect
-    .poll(async () => (await textHook(page)).cycle, { timeout: 20_000 })
-    .toBeGreaterThanOrEqual(80);
-  await page.getByTestId("btn-transport-pause").click();
-  await expect(page.getByTestId("btn-transport-resume")).toBeVisible();
-  await configureAi(page, { provider: "stub" });
-  await enterCreateMode(page);
-  // All three rooms in the World panel's graph.
-  await page.getByTestId("world-panel").getByText("Fit", { exact: true }).click();
-  await page.getByTestId("power-up").click();
-  const input = page.getByTestId("agent-bubble-input");
-  await expect(input).toBeEnabled();
-  await input.fill("Hang a fourth painting beside the east door.");
-  await settled(page);
-  await shot(page, "create-mode");
-});
-
-test("room-studio", async ({ page }) => {
-  await playTutorial(page);
-  const studio = await openRoomStudio(page, 1);
-  await studio.locator('[data-row="rope"]').click();
-  await expect(studio.getByTestId("item-editor")).toBeVisible();
-  await shot(page, "room-studio");
-});
-
-test("room-studio-walk", async ({ page }) => {
-  await playTutorial(page);
-  const studio = await openRoomStudio(page, 2);
-  await page.keyboard.press("3");
-  await expect(studio.locator('[data-role="walkable-tint"]')).toBeVisible();
-  await page.keyboard.press("t");
-  // From the west door, where the player comes in from the gallery, to the console.
-  await studio.locator('[data-role="door"][data-destination="1"] polygon').click();
-  await expect(studio.locator('[data-role="walk-start"]')).toBeVisible();
-  await page.mouse.click(...(await cell(page, 104, 150)));
-  await expect(studio.getByTestId("walk-result-title")).toHaveText("Reached", { timeout: 30_000 });
-  await shot(page, "room-studio-walk", STAGE);
-});
-
-const ASSIST_PROJECT = testProjectId("studio-assist");
-const ASSIST_ROOM = [
-  "if (isset(f5)) {",
-  "  load.pic(v0); draw.pic(v0); discard.pic(v0); show.pic();",
-  "  load.view(1);",
-  "  load.view(0); animate.obj(o0); set.view(o0, 0); position(o0, 40, 100); draw(o0);",
-  "}",
-  "return;",
-  "",
-].join("\n");
-
-/** The Studio assist spec's river crossing: picture 1 is the bridge fixture. */
-async function bootAssistGame(page: Page): Promise<void> {
-  const game = createContainer();
-  const logic = (source: string) => assembleLogic(source, { dictionary: new Map() }).payload;
-  game.putResource(
-    "logic",
-    0,
-    logic("if (!isset(f200)) { set(f200); accept.input(); new.room(1); } call.v(v0); return;"),
-  );
-  game.putResource("logic", 1, logic(ASSIST_ROOM));
-  game.putResource("picture", 1, compilePictureSource(BRIDGE_SOURCE).bytes);
-  game.putResource("view", 0, DOT_EGO);
-  game.putResource("view", 1, ROBOT_VIEW);
+test("play-crt-1.2", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("monotio_agi.crt", "on"));
   await page.goto("/");
-  await cacheGame(page, {
-    projectId: ASSIST_PROJECT,
-    title: "River crossing",
-    provider: "stub",
-    model: "stub",
-    imported: false,
-    roomGeneration: false,
-    authoringState: {
-      authoring: {
-        version: 1,
-        bindings: {},
-        world: {
-          rooms: { "1": { title: "River", description: "A bridge.", exits: {} } },
-          facts: {},
-          quests: {},
-        },
-      },
-      sources: { logics: [[1, ASSIST_ROOM]], pictures: [[1, BRIDGE_SOURCE]] },
-    },
-    files: Object.fromEntries(game.files),
-    words: [],
-  });
-  await page.reload();
-  if (!parseGameHash(new URL(page.url()).hash)) await page.getByTestId("btn-resume-cached").click();
+  await page.getByTestId("catalog-play-adventure-department").click();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
-  await waitForCycles(page, 2);
+  await settled(page);
+  await shot(page, "play-crt-1.2");
+});
+
+test("workspace-picture-1.2", async ({ page }) => {
+  await starter(page);
+  await page.getByTestId("part-room:1:picture:1").click();
+  await expect(page.getByTestId("room-studio")).toBeVisible();
+  await shot(page, "workspace-picture-1.2");
+});
+
+test("logic-problems-1.2", async ({ page }) => {
+  await starter(page);
+  const source = await workspaceDocument(page, "logic:1");
+  await replaceWorkspaceDocument(
+    page,
+    "logic:1",
+    source.replace("return;", "unknown.command();\nreturn;"),
+    false,
+  );
+  await page.keyboard.press("ControlOrMeta+j");
+  await expect(page.getByTestId("workspace-problems")).toContainText("unknown.command");
+  // Problems is its own tab; the LOGIC tab shows the marked line.
+  await page.getByTestId("project-tab-logic:1").click();
+  await focusWorkspaceLogic(page);
+  await workspaceDocumentEnd(page);
+  await shot(page, "logic-problems-1.2");
+});
+
+test("view-cels-1.2", async ({ page }) => {
+  await starter(page);
+  await page.getByTestId("part-view:0").click();
+  await page.getByRole("button", { name: "Make cels from an image", exact: true }).click();
+  await page
+    .getByTestId("image-file")
+    .setInputFiles({ name: "starter-hero.png", mimeType: "image/png", buffer: heroSheet() });
+  await expect(page.getByTestId("image-frame").first()).toBeVisible();
+  await page.getByTestId("image-add-cels").click();
+  await expect(page.getByTestId("image-status")).toContainText("Added");
+  await workspaceSaved(page);
+  await shot(page, "cels-from-image-1.2");
+  await page
+    .getByTestId("image-reference")
+    .getByRole("button", { name: "Done", exact: true })
+    .click();
+  await expect(page.getByTestId("sprite-timeline")).toBeVisible();
+  await shot(page, "view-editor-1.2");
+});
+
+test("words-1.2", async ({ page }) => {
+  await starter(page);
+  await page.getByTestId("part-words").click();
+  await expect(page.getByTestId("workspace-words-editor")).toBeVisible();
+  await page.getByLabel("A sentence a player might type").fill("look at the tree");
+  await expect(page.getByTestId("sentence-parse")).toContainText("look");
+  await shot(page, "words-1.2");
+});
+
+test("sound-grid-1.2", async ({ page }) => {
+  await starter(page);
+  await page.getByTestId("part-sound:1").click();
+  await expect(page.getByTestId("workspace-sound")).toBeVisible();
+  // Focus gives the grid the workspace while the game keeps running.
+  await page.getByTestId("workspace-focus").click();
+  await shot(page, "sound-grid-1.2");
+});
+
+test("agent-review-1.2", async ({ page }) => {
+  await starter(page);
+  await page.getByTestId("part-room:1:logic").click();
+  await page.keyboard.press("ControlOrMeta+i");
+  await page.getByTestId("agent-message").fill("Add a welcome sign");
+  await page.getByRole("button", { name: "Send", exact: true }).click();
+  await expect(page.getByTestId("agent-review")).toBeVisible();
+  await expect(page.getByTestId("agent-code-diff").locator(".line-insert").first()).toBeVisible();
+  await expect(page.getByTestId("agent-art-review").locator("img").last()).toBeVisible();
+  await workspaceSaved(page);
+  await shot(page, "agent-review-1.2");
+});
+
+test("history-1.2", async ({ page }) => {
+  await starter(page);
+  await page.getByTestId("part-room:1:logic").click();
+  const source = await workspaceDocument(page, "logic:1");
+  await replaceWorkspaceDocument(
+    page,
+    "logic:1",
+    source.replace(/print\("[^"\n]*"\)/, 'print("Welcome to my adventure.")'),
+  );
+  await workspaceSaved(page);
+  await page.getByTestId("workspace-saved").click();
+  await expect(page.getByTestId("workspace-history")).toBeVisible();
+  await page.getByLabel("Version name", { exact: true }).fill("Opening message");
+  await page.getByRole("button", { name: "Name this version", exact: true }).click();
+  await expect(page.getByLabel("Version name", { exact: true })).toHaveValue("");
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const session = (
+          window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }
+        ).__AGI_PROJECT__.getSession();
+        const history = session.capture().history;
+        return history.tags["Opening message"] === history.cursor;
+      }),
+    )
+    .toBe(true);
+  await workspaceSaved(page);
+  await shot(page, "history-1.2");
+});
+
+test("blank-start-1.2", async ({ page }) => {
+  await page.goto("/#create-adventure");
+  await page
+    .getByTestId("create-adventure-disclosure")
+    .getByLabel("Name", { exact: true })
+    .fill("My game");
+  await page.getByTestId("local-create-kind-blank").click();
+  await page.getByRole("button", { name: "Start building", exact: true }).click();
+  const stage = page.getByTestId("empty-project-stage");
+  await expect(stage.getByText("Nothing to play yet.", { exact: true })).toBeVisible();
+  await expect(page.getByTestId("empty-add-room")).toBeVisible();
+  await shot(page, "blank-start-1.2");
+});
+
+test("agent-drawer-1.2", async ({ page }) => {
+  await starter(page);
+  await page.getByTestId("part-room:1:picture:1").click();
+  const studio = page.getByTestId("room-studio");
+  await expect(studio).toBeVisible();
+  await openWorkspaceAgent(page);
+  await expect(page.getByTestId("workspace-agent-panel")).toBeVisible();
+  await expect(page.getByTestId("agent-message")).toBeFocused();
+  await studio.getByRole("group", { name: /^Canvas/ }).focus();
+  await page.keyboard.press("Alt+ArrowDown");
+  await expect(page.getByTestId("agent-context-chip")).toContainText("PICTURE 1 ·");
+  await page.getByTestId("agent-message").fill("Make the sun lower, as if it were evening");
+  await shot(page, "agent-drawer-1.2");
+});
+
+test("picture-line-1.2", async ({ page }) => {
+  await starter(page);
+  await page.getByTestId("part-room:1:picture:1").click();
+  const studio = page.getByTestId("room-studio");
+  await expect(studio).toBeVisible();
+  await page.getByTestId("workspace-focus").click();
+  await studio.locator('button[data-tool="line"]').click();
+  await studio.locator('.workspace-palette__choices button[data-colour="15"]').click();
+  for (const [x, y] of [
+    [22, 150],
+    [48, 128],
+    [80, 122],
+    [112, 128],
+  ] as const)
+    await clickPictureCell(studio, x, y);
+  const path = page.getByTestId("workspace-context").getByTestId("studio-path");
+  await expect(path).toContainText("Line · 4 points");
+  // The next segment follows the pointer until Done.
+  const pane = studio.locator(".studio-pane").last();
+  const box = (await pane.boundingBox())!;
+  await page.mouse.move(box.x + (138.5 * box.width) / 160, box.y + (150.5 * box.height) / 168);
+  await shot(page, "picture-line-1.2", "keep");
+});
+
+test("launch-menu-1.2", async ({ page }) => {
+  await start(page);
+  await workspaceSaved(page);
+  await open(page, "part-room:1:logic");
+  await page.getByTestId("workspace-update-menu").click();
+  await page.getByRole("menuitem", { name: "New launch…" }).click();
+  const name = page.getByTestId("launch-name-input");
+  await expect(name).toBeVisible();
+  await page.getByTestId("launch-add-row-menu").click();
+  await page.getByRole("menuitem", { name: "Came from" }).click();
+  await expect(page.getByTestId("launch-row-came-from")).toBeVisible();
+  await page.getByTestId("launch-came-from-room").selectOption("8");
+  await page.getByTestId("launch-add-row-menu").click();
+  await page.getByRole("menuitem", { name: "Flag" }).click();
+  await expect(page.getByTestId("launch-row-flag")).toBeVisible();
+  await page.getByTestId("launch-flag-select").selectOption("204");
+  await page.getByTestId("launch-flag-toggle").click();
+  await page.getByTestId("launch-add-row-menu").click();
+  await page.getByRole("menuitem", { name: "Same random each time" }).click();
+  await expect(page.getByTestId("launch-row-seed")).toBeVisible();
+  await page.getByTestId("launch-select-for-run").click();
+  await expect(page.getByTestId("launch-selected-badge")).toBeVisible();
+  // The name goes in last, once the project holds every row: an edit made
+  // before the previous one lands can bring back "Launch 1".
+  await expect.poll(() => launchNames(page)).toEqual(["Launch 1"]);
+  await name.fill("Back from the garden");
+  await name.press("Tab");
+  await expect.poll(() => launchNames(page)).toEqual(["Back from the garden"]);
+  await workspaceSaved(page);
+  await page.getByTestId("workspace-update-menu").click();
+  await expect(page.getByRole("menuitem", { name: "Carry over" })).toBeVisible();
+  await expect(
+    page.getByRole("menuitem", { name: "Back from the garden", exact: true }),
+  ).toBeVisible();
+  await shot(page, "launch-menu-1.2", "keep");
+});
+
+/** The names of room 1's Launches in the working project. */
+function launchNames(page: Page): Promise<string[]> {
+  return page.evaluate(() => {
+    const session = (
+      window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }
+    ).__AGI_PROJECT__.getSession();
+    const world = session.workingSnapshot().read("world")?.content;
+    if (typeof world !== "string") return [];
+    const launches = (
+      JSON.parse(world) as {
+        launches?: Record<string, { entries: { name: string; seed?: number }[] }>;
+      }
+    ).launches;
+    return (launches?.["1"]?.entries ?? []).map((entry) =>
+      entry.seed === undefined ? `${entry.name} (no seed yet)` : entry.name,
+    );
+  });
 }
 
-test("studio-ask", async ({ page }) => {
-  await bootAssistGame(page);
-  await configureAi(page, { provider: "stub" });
-  const studio = await openRoomStudio(page, 1);
-  await studio.getByRole("radio", { name: /Walk/ }).click();
-  await studio.locator('[data-row="bridge"]').click();
-  await expect(studio.getByTestId("assist-chip").first()).toHaveText("Bridge");
-  const input = studio.getByTestId("assist-input");
-  await input.fill("Make this bridge walkable without changing the art");
-  await input.press("Enter");
-  await expect(studio.getByTestId("assist-candidate")).toBeVisible();
-  await expect(studio.getByTestId("assist-summary")).toHaveText(
-    "Opened the barrier under the bridge without touching its art.",
+test("action-states-1.2", async ({ page }) => {
+  await start(page);
+  await workspaceSaved(page);
+  const action = page.getByTestId("workspace-update");
+  const bar = page.getByRole("banner");
+  const crops: { label: string; png: Buffer }[] = [];
+  const crop = async (label: string) => {
+    await page.mouse.move(1439, 899);
+    const box = (await bar.boundingBox())!;
+    crops.push({
+      label,
+      png: await page.screenshot({
+        clip: { x: 500, y: box.y, width: 940, height: box.height },
+        scale: "css",
+        animations: "disabled",
+        caret: "hide",
+      }),
+    });
+  };
+  await open(page, "part-room:1:logic");
+  await focusWorkspaceLogic(page);
+  await expect(action).toHaveAccessibleName("Restart Home");
+  await crop("Restart Home · the game is in Home and up to date");
+  await open(page, "part-room:8:logic");
+  await expect(action).toHaveAccessibleName("Play Garden");
+  await crop("Play Garden · you are editing Garden while the game is in Home");
+  const source = await runningWorkspaceDocument(page, "logic:8");
+  await focusWorkspaceLogic(page);
+  await page.keyboard.press("ControlOrMeta+a");
+  await page.keyboard.insertText(
+    source.replace("accept.input();", 'accept.input(); print("The garden gate creaks.");'),
   );
-  await expect(studio.locator('[data-role="changed"]').first()).toBeVisible();
-  await shot(page, "studio-ask", STAGE);
+  await page.keyboard.press("Escape");
+  await workspaceSaved(page);
+  await expect(action).toHaveAccessibleName("Update and restart Garden");
+  await crop("Update and restart Garden · an edit is waiting for the game");
+  // One image: the three bars stacked, each with its state named underneath.
+  await page.setContent(
+    `<body style="margin:0;background:#0e1b1d"><div id="states" style="display:inline-block;padding:20px 0 4px;font:500 18px/1.3 system-ui,sans-serif;color:#cfe0dd">${crops
+      .map(
+        ({ label, png }) =>
+          `<figure style="margin:0 0 18px"><img style="display:block;width:940px" src="data:image/png;base64,${png.toString("base64")}"><figcaption style="padding:8px 24px 0">${label}</figcaption></figure>`,
+      )
+      .join("")}</div></body>`,
+  );
+  await page.locator("#states").screenshot({
+    path: test.info().outputPath("action-states-1.2.png"),
+    scale: "css",
+  });
 });
 
-test("sprite-studio", async ({ page }) => {
-  await playTutorial(page);
-  await enterCreateMode(page);
-  const panel = page.getByTestId("world-panel");
-  await openWorldRoom(panel, 2);
-  await panel.getByTestId("world-open-sprite-2").click();
-  const studio = page.getByTestId("sprite-studio");
-  await expect(studio).toBeVisible();
-  // The wave: cel 2 raises the arm.
-  await studio.locator('[data-loop="0"][data-cel="2"]').click();
-  await expect(studio.getByTestId("sprite-cel-summary")).toHaveText("Cel 2 · Loop 0");
-  await shot(page, "sprite-studio");
+test("test-run-1.2", async ({ page }) => {
+  await starter(page);
+  const chip = page
+    .getByTestId("workspace-game-bar")
+    .getByRole("button", { name: "Test run", exact: true });
+  await expect(chip).toBeVisible();
+  await chip.focus();
+  await expect(page.getByRole("tooltip")).toBeVisible();
+  await page.mouse.move(1439, 899);
+  await page.screenshot({
+    path: test.info().outputPath("test-run-1.2.png"),
+    scale: "css",
+    animations: "disabled",
+    caret: "hide",
+  });
+});
+
+test("room-setting-1.2", async ({ page }) => {
+  await starter(page);
+  await page.getByTestId("part-room:1:picture:1").click();
+  await expect(page.getByTestId("room-studio")).toBeVisible();
+  await page.getByTestId("workspace-more").click();
+  await page.getByRole("menuitem", { name: "Details…", exact: true }).click();
+  const details = page.getByTestId("workspace-game-details");
+  await expect(details).toBeVisible();
+  const setting = details.getByRole("switch", {
+    name: "AI makes new rooms when the hero walks into one",
+    exact: true,
+  });
+  await expect(setting).toBeVisible();
+  await setting.click();
+  await expect(setting).toHaveAttribute("aria-checked", "true");
+  await shot(page, "room-setting-1.2");
+});
+
+test("room-generation-1.2", async ({ page }) => {
+  const room = await openRoomGenerationGame(page);
+  await walkInto(page);
+  await expect(page.getByTestId("room-generation")).toBeVisible();
+  await expect(page.getByTestId("room-generation-step")).toHaveText("Building the next room…");
+  await shot(page, "room-generation-1.2");
+  room.release();
 });

@@ -13,7 +13,8 @@
  * version strings.
  */
 
-import { matchDictionaryPhrase } from "../logic/words.ts";
+import { parseSentence } from "./parser.ts";
+import { roomEntryProblem, type RoomEntryState } from "./roomEntry.ts";
 import type { GameContainer } from "../types.ts";
 import {
   createPictureSurface,
@@ -28,7 +29,10 @@ import { decodeInventoryFile } from "./inventoryFile.ts";
 import { actionSpec, CONDITION_BY_CODE, GOTO, IF, NOT, OR } from "../logic/opcodes.ts";
 import { parseView, selectViewCel, readViewCel, drawCel, type AgiView } from "../view/view.ts";
 import {
+  detectProfile,
   detectProfileDecision,
+  interpreterTiming,
+  type AmigaRegion,
   type AgiProfile,
   type ProfileDetectionKind,
   type ProfileId,
@@ -93,6 +97,35 @@ import {
   wrapLines,
   type SavedRect,
 } from "./textSurface.ts";
+import type {
+  ExecutionCause,
+  ExecutionObservation,
+  ExecutionObserver,
+  ExecutionPhaseKind,
+  ExecutionStopInfo,
+  ExecutionWaitKind,
+} from "./executionObservation.ts";
+import {
+  analyzeAuxiliaryChanges,
+  analyzeInventoryAppend,
+  canonicalizeCandidateFiles,
+  diffResources,
+  filesIdentical,
+  imageLayout,
+  inventoryInitials,
+  openStagedContainer,
+  PreviewBlock,
+  PreviewUpdatePlan,
+  sameViewStructure,
+  stageDictionary,
+  validateCandidateResource,
+  type IssuedPreviewPlan,
+  type PreviewUpdateCandidate,
+  type PreviewUpdateResult,
+  type PreviewUpdateStatus,
+  type StagedPreviewUpdate,
+} from "./previewAdmission.ts";
+import { analyzePictureComposition, renderComposedPicture } from "./previewPictureComposition.ts";
 
 export class UnimplementedOpcodeError extends Error {
   readonly code: number;
@@ -137,6 +170,8 @@ export interface EngineHost {
   takeInputLine(): string | null;
   /** Raw key events pending since last cycle (low byte values). */
   takeKeys(): number[];
+  /** Ordered drain of host queues at an accepted room transition. */
+  roomInputBoundary?(): void;
   /**
    * Left-button-down clicks pending since last cycle, as [x, y] in the
    * 320x200 screen's pixels. Profiles without click-to-walk ignore them
@@ -189,6 +224,8 @@ export interface EngineHost {
   playSound?(soundNum: number, payload: Uint8Array): void;
   /** Timed sound command; the backend synthesizes output without scheduling completion. */
   soundOutput?(output: SoundOutput): void;
+  /** Grouped presentation of one heartbeat, including its final silence writes. */
+  soundTickOutput?(outputs: readonly SoundOutput[], complete: boolean): void;
   /** Device selector for a new playback (default1, four channels). */
   soundDevice?(): number;
   /** Optional adapter override for v23 attenuation, read on every sound tick. */
@@ -343,6 +380,8 @@ const F_MENU_ENABLED = 14;
 /** Internal control-flow signal: new.room unwinds the current invocation. */
 class RoomChange {
   readonly room: number;
+  /** The boundary of the operation that threw, when an observer armed it. */
+  cause?: ExecutionCause;
 
   constructor(room: number) {
     this.room = room;
@@ -357,6 +396,8 @@ class RoomChange {
  */
 class ContinuationAbort {
   readonly resumeLogic: boolean;
+  /** The boundary of the operation that threw, when an observer armed it. */
+  cause?: ExecutionCause;
 
   constructor(resumeLogic = false) {
     this.resumeLogic = resumeLogic;
@@ -456,10 +497,75 @@ interface ClockBranch {
   clauses: ClockConditionTerm[][];
 }
 
+/** A session-local pre-execution occurrence, detached from mutable engine frames. */
+export interface ExecutionBoundary {
+  readonly sequence: number;
+  readonly logic: number;
+  readonly pc: number;
+  readonly kind: "action" | "return" | "goto" | "if" | "predicate";
+  /** Actual handler opcode; pc includes a condition's NOT source-map prefix. */
+  readonly opcodePc: number;
+  readonly frames: readonly {
+    readonly invocationId: number;
+    readonly logic: number;
+    readonly pc: number;
+    readonly callsite: number | null;
+  }[];
+}
+
+/**
+ * Which spans share one instruction allowance, selected at construction:
+ *
+ * - `"host-segment"` (compatibility Play, the default): the allowance renews
+ *   at each genuine pass start and at every real host boundary — a suspended
+ *   interaction's delivered answer, a drained modal window or a clock
+ *   busy-wait's next poll. This is the measured legacy behavior.
+ * - `"whole-pass"` (frozen Test): one allowance spans the whole pass,
+ *   including every host wait; it renews only at a genuine pass start.
+ *
+ * Debugger stops and internal cooperative slices are never host boundaries
+ * and never renew either policy; arming execution control does not select a
+ * policy. The allowance magnitude stays `instructionBudget`.
+ */
+export type ExecutionBudgetPolicy = "host-segment" | "whole-pass";
+
+interface ConditionCursor {
+  pc: number;
+  or: boolean;
+  satisfied: boolean;
+  negate: boolean;
+  failed: boolean;
+  /**
+   * Scan position already billed to this pass — a term that suspended the
+   * pass mid-IF keeps its pc across the wait, and resuming must not bill it
+   * again. Session-local only; a serialized continuation's fresh cursor
+   * re-bills from the replay boundary instead (see conditionReplayUntil).
+   */
+  chargedPc?: number;
+}
+
+/** Cooperative yields carry no AGI event, time advance or host answer. */
+class ExecutionYield {}
+
+/**
+ * Session-local resumable pass position recorded when a debugger stop lands
+ * between phases — the phase still owed work when the stop releases. `logic`
+ * resumes the interpreter loop; `room`/`reset` run the transition or re-entry
+ * tail first. Never serialized: a parked debugger pass cannot masquerade as a
+ * checkpoint.
+ */
+type CycleCursor =
+  | { phase: "input" | "pre-logic" | "logic" | "cycle-tail" | "motion" | "cycle-end" | "reset" }
+  | { phase: "room"; room: number };
+
 interface LogicFrame {
   logic: number;
   resource: LogicResource;
   pc: number;
+  condition?: ConditionCursor;
+  invocationId?: number;
+  callsite?: number;
+  boundary?: ExecutionBoundary;
   /** Clock conditions evaluated in this invocation and their untaken successors. */
   clockBranches?: Map<number, ClockBranch>;
   clockWrites?: Map<number, number[]>;
@@ -491,6 +597,20 @@ export class Engine {
   readonly strings: string[];
   /** Selected interpreter profile: the single source of version-variant behavior. */
   readonly profile: AgiProfile;
+  private sessionAmigaRegion: AmigaRegion = "ntsc";
+
+  get amigaRegion(): AmigaRegion {
+    return this.sessionAmigaRegion;
+  }
+
+  set amigaRegion(region: AmigaRegion) {
+    if (region !== "ntsc" && region !== "pal") throw new Error("Amiga region must be ntsc or pal.");
+    this.sessionAmigaRegion = this.profile.frameTiming === "amiga-vblank" ? region : "ntsc";
+  }
+
+  get timing() {
+    return interpreterTiming(this.profile, this.amigaRegion);
+  }
   /** How the edition was identified: an interpreter binary, the catalog, or neither. */
   readonly profileKind: ProfileDetectionKind;
   /** The interpreter build the identification named; null when unidentified. */
@@ -718,17 +838,88 @@ export class Engine {
    */
   private rngState = 0;
 
-  private readonly container: GameContainer;
+  /**
+   * The installed native image. `readonly` was relaxed for the preview
+   * admission transaction, which swaps in a detached, fully staged container
+   * — and only that staged container — inside `commitStagedPreview`.
+   */
+  private container: GameContainer;
   private readonly host: EngineHost;
-  private readonly dictionary: ReadonlyMap<string, number> | undefined;
+  /**
+   * The WORDS dictionary the parser reads, installed atomically with the
+   * matching native candidate by the preview admission transaction.
+   */
+  private dictionary: ReadonlyMap<string, number> | undefined;
   private readonly instructionBudget: number;
   private remainingInstructions: number;
+  /**
+   * Allowance renewal policy (see ExecutionBudgetPolicy). Session-local,
+   * never serialized, and never changed by installing an execution gate.
+   */
+  readonly executionBudgetPolicy: ExecutionBudgetPolicy;
+  private executionGate: ((boundary: ExecutionBoundary) => boolean) | null = null;
+  private executionObserver: ExecutionObserver | null = null;
+  /**
+   * The single execution-stop latch every stop kind shares: before-instruction
+   * gate stops (which also carry `suppress`, the boundary occurrence to skip
+   * once on resume), after-operation stops, phase stops and explicit pauses.
+   * `stoppedExecution` is gone — all freeze guards consult this latch.
+   */
+  private stopLatch: { info: ExecutionStopInfo; suppress: number | null } | null = null;
+  private stopSequence = 0;
+  /**
+   * The boundary of the in-flight operation, captured before dispatch when an
+   * observer is armed, so a suspension or unwind thrown mid-operation can
+   * still report its responsible instruction. Cleared by overwrite only.
+   */
+  private operationCause: ExecutionBoundary | null = null;
+  /**
+   * The next owed pass phase while stopped between operations — see
+   * CycleCursor. Session-local; never serialized.
+   */
+  private cycleCursor: CycleCursor | null = null;
+  /** Host room entry owes LOGIC 0 without another input phase. */
+  private hostRoomEntryPending = false;
+  private resumedSequence: number | null = null;
+  private executionSequence = 0;
+  private invocationSequence = 0;
+  private executionSlice = 1024;
+  private yieldedExecution = false;
+  /**
+   * The pass parked because dispatch opened a modal window. The window's own
+   * field may already be clear by the next entry (ackPrint ran between
+   * polls), so the host-boundary classification keeps this marker — like
+   * yieldedExecution, consumed and cleared on entry.
+   */
+  private parkedModalWait = false;
+  private executionFault: unknown = null;
+  /**
+   * Passes that ran their post-logic tail — the controlled-cycle completion
+   * witness. Session-local and never serialized; it rises only at the end of
+   * tickExecution, never at a debugger stop, cooperative yield, host
+   * suspension, modal wait or aborted continuation.
+   */
+  private completedCycles = 0;
+  /**
+   * Accepted in-place restarts applied to this instance — the run-identity
+   * witness a host holding per-run state (the worker's debugger epoch)
+   * compares across a tick entry. restart() is the single funnel: the f16
+   * bypass and the confirmed prompt both land here, a decline never does.
+   * Session-local and never serialized; a fresh engine starts at zero.
+   */
+  private runResets = 0;
 
   constructor(
     container: GameContainer,
     host: EngineHost,
     dictionary?: ReadonlyMap<string, number>,
-    options?: { restarted?: boolean; profile?: ProfileId | AgiProfile; instructionBudget?: number },
+    options?: {
+      restarted?: boolean;
+      amigaRegion?: AmigaRegion;
+      profile?: ProfileId | AgiProfile;
+      instructionBudget?: number;
+      executionBudgetPolicy?: ExecutionBudgetPolicy;
+    },
   ) {
     this.container = container;
     this.host = host;
@@ -738,7 +929,16 @@ export class Engine {
       (!Number.isInteger(options.instructionBudget) || options.instructionBudget < 1)
     )
       throw new Error("instructionBudget must be a positive integer.");
+    if (
+      options?.executionBudgetPolicy !== undefined &&
+      options.executionBudgetPolicy !== "host-segment" &&
+      options.executionBudgetPolicy !== "whole-pass"
+    )
+      throw new Error(
+        `executionBudgetPolicy must be "host-segment" or "whole-pass", got ${JSON.stringify(options.executionBudgetPolicy)}.`,
+      );
     this.instructionBudget = options?.instructionBudget ?? Infinity;
+    this.executionBudgetPolicy = options?.executionBudgetPolicy ?? "host-segment";
     this.remainingInstructions = this.instructionBudget;
     // The interpreter version is not in the resource data: an explicit profile
     // wins, otherwise detection reads the version string from an interpreter
@@ -746,6 +946,7 @@ export class Engine {
     // otherwise the container shape decides.
     const decision = detectProfileDecision(container.files, options?.profile);
     this.profile = decision.profile;
+    this.amigaRegion = options?.amigaRegion ?? "ntsc";
     this.profileKind = decision.kind;
     this.profileBuild = decision.build;
     // The table and its reserved records are one contiguous bank; only parse()
@@ -784,6 +985,7 @@ export class Engine {
       payload: Uint8Array;
     }[],
   ): void {
+    this.assertResourcePatchBoundary();
     this.container.putResources(resources);
     for (const { kind, num } of resources) this.evictPatched(kind, num);
   }
@@ -817,6 +1019,7 @@ export class Engine {
       this.presentationDirty = true;
     } else this.sounds.delete(num);
     this.patchGen++;
+    this.previewSerial++;
   }
 
   /** Replace game metadata while preserving the player's existing item locations. */
@@ -825,6 +1028,7 @@ export class Engine {
     objects?: Uint8Array;
     tests?: Uint8Array;
   }): void {
+    this.assertResourcePatchBoundary();
     const existingItems = this.inventoryMetadata().entryCount;
     if (files.words) this.container.putFile("WORDS.TOK", files.words);
     if (files.tests) this.container.putFile("TESTS.JSON", files.tests);
@@ -837,7 +1041,10 @@ export class Engine {
         this.itemLocations[item] = meta.payload[item * 3 + 2] ?? 0;
       }
     }
-    if (files.words || files.objects || files.tests) this.patchGen++;
+    if (files.words || files.objects || files.tests) {
+      this.patchGen++;
+      this.previewSerial++;
+    }
   }
 
   /**
@@ -860,6 +1067,483 @@ export class Engine {
     return this.patchGen;
   }
 
+  // ---------- same-Engine preview admission ----------
+
+  /**
+   * Prepare a detached, fully validated whole-image candidate for the
+   * Play-preview lane: a complete replacement container image (directory,
+   * volumes and WORDS.TOK/OBJECT/TESTS.JSON) plus every decoded consequence
+   * it implies. Nothing here mutates live state — the canonical files are
+   * copied, opened detached, diffed resource by resource, semantically
+   * parsed the way their next live use would parse them, and the picture
+   * backdrop is rebuilt on a detached PictureSurface when a changed PIC
+   * participates in the current composition.
+   *
+   * The returned plan is an opaque handle bound to this engine and to the
+   * installed-image generation it was prepared against. Candidate problems
+   * become a terminal verdict recorded in this engine's private issuer
+   * record; they never throw and never write.
+   */
+  preparePreviewUpdate(candidate: PreviewUpdateCandidate): PreviewUpdatePlan {
+    const plan = new PreviewUpdatePlan();
+    const issued: IssuedPreviewPlan = {
+      generation: this.previewSerial,
+      consumed: false,
+      terminal: null,
+      staged: null,
+    };
+    this.previewPlans.set(plan, issued);
+    try {
+      issued.staged = this.stagePreviewUpdate(candidate);
+      if (issued.staged === null) {
+        issued.terminal = { status: "unchanged", patchGeneration: this.patchGen };
+      }
+    } catch (error) {
+      issued.terminal = {
+        status: error instanceof PreviewBlock ? error.status : "refused",
+        reason: error instanceof Error ? error.message : String(error),
+        patchGeneration: this.patchGen,
+      };
+    }
+    return plan;
+  }
+
+  /**
+   * Commit a prepared preview plan synchronously into this same Engine.
+   * Commit runs only at a naturally completed idle-cycle boundary: no parked
+   * pass, cycle cursor, cooperative yield, suspended or queued host answer,
+   * modal state, fault, termination, or debug stop/step authority — and no
+   * `prepareRoom` park. A busy boundary defers without consuming the plan;
+   * the staged candidate may retry at a later boundary. Any installed-image
+   * change between prepare and commit makes the plan stale. Terminal
+   * verdicts and a successful commit consume the plan exactly once.
+   *
+   * `admission.sourceAuthorityChanged` covers the one case the native
+   * verdict cannot: the caller intends to install new source/binding
+   * authority on top of a byte-identical image. Flagged, an "unchanged"
+   * verdict is a real authority change and waits for the same idle
+   * boundary instead of settling early; an exact no-change still reports
+   * unchanged directly, and refused/restartRequired verdicts report
+   * honestly regardless. `messageWaiting` also admits a print/key wait: the
+   * parked frames keep their old instructions until the pass finishes, and
+   * host snapshots wait for that boundary before using the new resources.
+   */
+  commitPreviewUpdate(
+    plan: PreviewUpdatePlan,
+    admission?: { readonly sourceAuthorityChanged?: boolean; readonly messageWaiting?: boolean },
+  ): PreviewUpdateResult {
+    return this.commitPreparedPreview(plan, admission, false);
+  }
+
+  /** Explicit room-entry admission also accepts a message or have.key wait. */
+  prepareRoomReentry(candidate: PreviewUpdateCandidate): PreviewUpdatePlan {
+    return this.preparePreviewUpdate(candidate);
+  }
+
+  /** The host seals the previous timeline segment after validation, before the first write. */
+  commitRoomReentry(plan: PreviewUpdatePlan, beforeEntry?: () => void): PreviewUpdateResult {
+    return this.commitPreparedPreview(plan, undefined, true, beforeEntry);
+  }
+
+  private commitPreparedPreview(
+    plan: PreviewUpdatePlan,
+    admission:
+      { readonly sourceAuthorityChanged?: boolean; readonly messageWaiting?: boolean } | undefined,
+    roomReentry: boolean,
+    beforeEntry?: () => void,
+  ): PreviewUpdateResult {
+    const result = (status: PreviewUpdateStatus, reason?: string): PreviewUpdateResult => ({
+      status,
+      ...(reason === undefined ? {} : { reason }),
+      patchGeneration: this.patchGen,
+    });
+    // Issuer membership is the authority: only a handle registered by this
+    // engine's own preparePreviewUpdate resolves to a record.
+    const issued = this.previewPlans.get(plan);
+    if (issued === undefined) {
+      return result("refused", "preview plan was not issued by this engine");
+    }
+    if (issued.consumed) return result("refused", "preview plan is already consumed");
+    const settle = (outcome: PreviewUpdateResult): PreviewUpdateResult => {
+      issued.consumed = true;
+      issued.staged = null;
+      issued.terminal = null;
+      return outcome;
+    };
+    if (this.previewSerial !== issued.generation) {
+      return settle(
+        result("refused", "preview plan is stale: the installed image changed after preparation"),
+      );
+    }
+    if (issued.terminal !== null) {
+      // An "unchanged" verdict is terminal for the container image, but a
+      // flagged source-authority install rides on top of it and inherits
+      // the same idle boundary — deferred without consuming the plan.
+      if (
+        issued.terminal.status === "unchanged" &&
+        (admission?.sourceAuthorityChanged === true || roomReentry) &&
+        !(roomReentry || admission?.messageWaiting
+          ? this.roomReentryBoundary()
+          : this.previewBoundaryIdle())
+      ) {
+        return result("deferred");
+      }
+      if (issued.terminal.status === "unchanged" && roomReentry) {
+        if (this.container.getResource("logic", this.vars[V_ROOM]!) === null)
+          return settle(result("refused", "The current room needs a LOGIC to re-enter."));
+        beforeEntry?.();
+        this.reenterRoom();
+        return settle(result("committed"));
+      }
+      return settle({ ...issued.terminal, patchGeneration: this.patchGen });
+    }
+    if (
+      !(roomReentry || admission?.messageWaiting
+        ? this.roomReentryBoundary()
+        : this.previewBoundaryIdle())
+    )
+      return result("deferred");
+    if (issued.staged === null) {
+      return settle(result("refused", "preview plan carries no staged candidate"));
+    }
+    const blocked = this.previewDynamicBlock(issued.staged, roomReentry);
+    if (blocked !== null)
+      return settle({
+        ...result(blocked.status, blocked.reason),
+        ...(!roomReentry && this.previewDynamicBlock(issued.staged, true) === null
+          ? { roomReentry: true as const }
+          : {}),
+      });
+    if (roomReentry) {
+      if (issued.staged.container.getResource("logic", this.vars[V_ROOM]!) === null)
+        return settle(result("refused", "The current room needs a LOGIC to re-enter."));
+      beforeEntry?.();
+    }
+    if (!roomReentry && this.roomReentryWaiting()) this.messageUpdatePending = true;
+    this.commitStagedPreview(issued.staged);
+    if (roomReentry) this.reenterRoom();
+    return settle(result("committed"));
+  }
+
+  /**
+   * Synchronous preparation+commit for hosts that hold no plan across an
+   * await point: the candidate is staged and committed (or refused) inside
+   * one call, so the applied image is always the inspected one.
+   */
+  applyPreviewUpdate(candidate: PreviewUpdateCandidate): PreviewUpdateResult {
+    return this.commitPreviewUpdate(this.preparePreviewUpdate(candidate));
+  }
+
+  /**
+   * Stage the complete candidate detached. Returns null for a byte-identical
+   * native image (the "unchanged" outcome); throws PreviewBlock for every
+   * refusing verdict so no partially staged work can reach live state.
+   */
+  private stagePreviewUpdate(candidate: PreviewUpdateCandidate): StagedPreviewUpdate | null {
+    if (candidate === null || typeof candidate !== "object" || candidate.files == null) {
+      throw new PreviewBlock("refused", "preview candidate carries no file image");
+    }
+    const canonical = canonicalizeCandidateFiles(candidate.files);
+    const installedLayout = imageLayout(this.container.files);
+    const layout = imageLayout(canonical);
+    if (layout.kind !== installedLayout.kind || layout.prefix !== installedLayout.prefix) {
+      throw new PreviewBlock(
+        "restartRequired",
+        `preview candidate changes the container layout to ${layout.kind} '${layout.prefix}'`,
+      );
+    }
+    if (candidate.profile !== undefined && candidate.profile !== this.profile.id) {
+      throw new PreviewBlock(
+        "restartRequired",
+        `preview candidate targets profile '${candidate.profile}'`,
+      );
+    }
+    if (detectProfile(canonical).id !== detectProfile(this.container.files).id) {
+      throw new PreviewBlock(
+        "restartRequired",
+        "preview candidate files select a different interpreter profile",
+      );
+    }
+    const staged = openStagedContainer(canonical, this.profile);
+    if (filesIdentical(canonical, this.container.files)) return null;
+    const aux = analyzeAuxiliaryChanges(this.container.files, canonical, layout);
+    const { changes, removals } = diffResources(this.container, staged);
+    if (removals.length > 0) {
+      const first = removals[0]!;
+      throw new PreviewBlock(
+        "restartRequired",
+        `preview candidate removes ${first.kind} resource ${first.num}`,
+      );
+    }
+    const logicParses = new Map<number, { resource: LogicResource; codeChanged: boolean }>();
+    const viewParses = new Map<number, AgiView>();
+    const soundDevice = this.host.soundDevice?.() ?? 1;
+    for (const change of changes) {
+      const validated = validateCandidateResource(
+        change.kind,
+        change.num,
+        change.newPayload,
+        change.oldPayload,
+        this.profile,
+        soundDevice,
+      );
+      if (validated.logic !== undefined) logicParses.set(change.num, validated.logic);
+      if (validated.view !== undefined) viewParses.set(change.num, validated.view);
+    }
+    const wordsTok = canonical.get("WORDS.TOK");
+    const dictionary =
+      aux.changedAux.has("WORDS.TOK") && wordsTok !== undefined ? stageDictionary(wordsTok) : null;
+    let inventory: StagedPreviewUpdate["inventory"] = null;
+    const objectsFile = canonical.get("OBJECT");
+    if (aux.changedAux.has("OBJECT") && objectsFile !== undefined) {
+      const meta = this.inventoryMetadata();
+      inventory = analyzeInventoryAppend(
+        {
+          entryCount: meta.entryCount,
+          objectRecords: meta.objectRecords,
+          names: this.itemNames(),
+          initials: inventoryInitials(
+            meta.payload,
+            meta.entryCount,
+            this.profile.inventoryEntryBytes,
+          ),
+        },
+        objectsFile,
+        this.profile,
+        this.maxDrawnObjectsCount,
+      );
+    }
+    const composition = analyzePictureComposition(this.hostReplay, this.hostReplayOverflow);
+    const compositionAffected = changes.some(
+      (change) => change.kind === "picture" && composition.ops.some((op) => op.num === change.num),
+    );
+    let surface: PictureSurface | null = null;
+    let compositionBlocked: string | null = null;
+    const stampedViewChange = changes.find(
+      (change) => change.kind === "view" && composition.stampedViews.includes(change.num),
+    );
+    if (
+      !composition.complete &&
+      changes.some((change) => change.kind === "picture" || change.kind === "view")
+    ) {
+      compositionBlocked =
+        "Picture replay evidence is incomplete; restart applies these visual changes.";
+    } else if (stampedViewChange !== undefined) {
+      compositionBlocked = `view ${stampedViewChange.num} is baked into add.to.pic; restart applies this edit`;
+    }
+    if (compositionAffected && compositionBlocked === null) {
+      if (composition.staticStamps) {
+        compositionBlocked =
+          "the changed picture is on screen and add.to.pic stamps cannot be rebuilt";
+      } else {
+        try {
+          surface = renderComposedPicture(
+            composition.ops,
+            (num) => {
+              const payload = staged.getResource("picture", num);
+              if (payload === null) {
+                throw new PreviewBlock(
+                  "refused",
+                  `picture ${num} needed for the live composition is absent`,
+                );
+              }
+              return payload;
+            },
+            this.profile,
+          );
+        } catch (error) {
+          if (error instanceof PreviewBlock) throw error;
+          throw new PreviewBlock(
+            "refused",
+            `the picture composition could not be rebuilt: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          );
+        }
+      }
+    }
+    return {
+      container: staged,
+      changed: changes,
+      logicParses,
+      viewParses,
+      dictionary,
+      inventory,
+      composition,
+      compositionAffected,
+      surface,
+      compositionBlocked,
+    };
+  }
+
+  /**
+   * The strict idle-cycle boundary preview admission requires: stricter than
+   * assertExecutionBoundary — no suspended host interaction, no queued
+   * answer, no modal or persistent window, no selector or parked-modal wait,
+   * no armed step/observer authority, and no `prepareRoom` park (any parked
+   * pass defers regardless of its reason).
+   */
+  private previewBoundaryIdle(): boolean {
+    return (
+      !this.terminated &&
+      this.executionFault === null &&
+      this.stopLatch === null &&
+      this.cycleCursor === null &&
+      !this.yieldedExecution &&
+      !this.executionArmed &&
+      this.pendingLogic === null &&
+      this.pendingInteraction === null &&
+      this.pendingAnswer === undefined &&
+      !this.parkedModalWait &&
+      this.modal === null &&
+      this.persistentWindow === null &&
+      this.saveDialogMode === null &&
+      this.resumedSequence === null
+    );
+  }
+
+  /** Parked LOGIC frames retain their own parsed instructions until the pass finishes. */
+  private messageUpdatePending = false;
+
+  /** A host room change can discard a message or have.key pass after validation. */
+  private roomReentryWaiting(): boolean {
+    return (
+      !this.terminated &&
+      this.executionFault === null &&
+      this.stopLatch === null &&
+      !this.yieldedExecution &&
+      this.pendingLogic !== null &&
+      this.pendingAnswer === undefined &&
+      this.persistentWindow === null &&
+      this.saveDialogMode === null &&
+      this.resumedSequence === null &&
+      ((this.modal?.kind === "print" && this.pendingInteraction === null) ||
+        (this.modal === null && this.pendingInteraction?.kind === "key"))
+    );
+  }
+
+  private roomReentryBoundary(): boolean {
+    return this.previewBoundaryIdle() || this.roomReentryWaiting();
+  }
+
+  /**
+   * Dynamic checks that can only run against live state at commit time: the
+   * picture evidence must still match what preparation fingerprinted, a
+   * changed LOGIC with real instruction differences must not resume a parked
+   * scan.start offset, a changed VIEW must preserve the live loop/cel
+   * geometry of every loaded view and bound object, and genuinely new
+   * OBJECT slots must not already carry meaningful live locations.
+   */
+  private previewDynamicBlock(
+    staged: StagedPreviewUpdate,
+    roomReentry = false,
+  ): { readonly status: "refused" | "restartRequired"; readonly reason: string } | null {
+    const composition = analyzePictureComposition(this.hostReplay, this.hostReplayOverflow);
+    if (composition.fingerprint !== staged.composition.fingerprint) {
+      return {
+        status: "refused",
+        reason: "picture replay evidence moved between preparation and commit",
+      };
+    }
+    if (staged.compositionBlocked !== null && !roomReentry) {
+      return { status: "restartRequired", reason: staged.compositionBlocked };
+    }
+    for (const change of staged.changed) {
+      if (change.kind === "logic") {
+        const entry = staged.logicParses.get(change.num);
+        if (
+          entry?.codeChanged === true &&
+          (this.scanStart.get(change.num) ?? 0) !== 0 &&
+          !(roomReentry && change.num !== 0 && change.num === this.vars[V_ROOM])
+        ) {
+          return {
+            status: "restartRequired",
+            reason: `logic ${change.num} holds a nonzero scan.start resume offset`,
+          };
+        }
+      } else if (change.kind === "view" && this.views.has(change.num) && !roomReentry) {
+        const stagedView = staged.viewParses.get(change.num);
+        const loadedView = this.views.get(change.num);
+        if (stagedView === undefined || loadedView === undefined) continue;
+        if (!sameViewStructure(stagedView, loadedView)) {
+          return {
+            status: "restartRequired",
+            reason: `view ${change.num} changes its loop/cel layout while loaded`,
+          };
+        }
+        for (let index = 0; index < this.objects.length; index++) {
+          const object = this.objects[index]!;
+          // Only animated actors hold a live cel binding; unanimated rows
+          // carry view 0 by default and re-clamp on their next set.view.
+          if (!object.active || object.view !== change.num) continue;
+          const cel = readViewCel(stagedView, object.loop, object.cel);
+          if (cel === undefined || cel.width !== object.width || cel.height !== object.height) {
+            return {
+              status: "restartRequired",
+              reason: `view ${change.num} changes the live geometry of object ${index}`,
+            };
+          }
+        }
+      }
+    }
+    if (staged.inventory !== null) {
+      for (let i = 0; i < staged.inventory.initials.length; i++) {
+        if (this.itemLocations[staged.inventory.firstNew + i] !== 0) {
+          return {
+            status: "restartRequired",
+            reason: `new inventory slot ${staged.inventory.firstNew + i} already carries live state`,
+          };
+        }
+      }
+    }
+    return null;
+  }
+
+  /**
+   * The transaction's only writes: the staged container becomes installed,
+   * decoded caches for already-loaded resources are replaced in place,
+   * the staged WORDS dictionary and append-only OBJECT locations land, and
+   * the detached backdrop (when rebuilt) is copied onto the live surface.
+   * Everything that could throw already ran during staging; this body only
+   * assigns and copies.
+   */
+  private commitStagedPreview(staged: StagedPreviewUpdate): void {
+    this.container = staged.container;
+    for (const change of staged.changed) {
+      if (change.kind === "logic") {
+        const parsed = staged.logicParses.get(change.num);
+        if (parsed !== undefined && this.logics.has(change.num)) {
+          this.logics.set(change.num, parsed.resource);
+        }
+      } else if (change.kind === "view") {
+        const parsed = staged.viewParses.get(change.num);
+        if (parsed !== undefined && this.views.has(change.num)) {
+          this.views.set(change.num, parsed);
+          this.presentationDirty = true;
+        }
+      } else if (change.kind === "sound") {
+        if (this.sounds.has(change.num)) this.sounds.set(change.num, change.newPayload);
+      }
+      // A picture has no decoded cache: the loaded set stays intact and the
+      // next draw.pic/overlay.pic reads the new payload from the container.
+    }
+    if (staged.dictionary !== null) this.dictionary = staged.dictionary;
+    if (staged.inventory !== null) {
+      this.inventoryMetaCache = null;
+      this.itemNameCache = null;
+      for (let i = 0; i < staged.inventory.initials.length; i++) {
+        this.itemLocations[staged.inventory.firstNew + i] = staged.inventory.initials[i]!;
+      }
+    }
+    if (staged.surface !== null) {
+      this.surface.visual.set(staged.surface.visual);
+      this.surface.priority.set(staged.surface.priority);
+      this.presentationDirty = true;
+    }
+    this.patchGen++;
+    this.previewSerial++;
+  }
+
   // ---------- resource access ----------
 
   private loadLogic(num: number): LogicResource {
@@ -876,6 +1560,22 @@ export class Engine {
 
   /** Container patches applied so far; the host's change detector. */
   private patchGen = 0;
+  /**
+   * Monotonic native-image generation used to bind staged preview plans to
+   * the bytes they were prepared against. Unlike `patchGen` it never moves
+   * backward (restore paths assign patchGen from recorded state) and it
+   * increments on every mutation path that can touch installed files.
+   */
+  private previewSerial = 0;
+  /**
+   * Issuer records for prepared preview plans, keyed by the opaque public
+   * handle. Membership in this map is the only commit authority: a handle
+   * this engine never issued — constructed, cloned, spread, Object.create'd
+   * or another engine's — resolves to no record and is refused, and nothing
+   * on the handle itself exposes the staged candidate, verdict, generation
+   * or consumption kept here.
+   */
+  private readonly previewPlans = new WeakMap<PreviewUpdatePlan, IssuedPreviewPlan>();
 
   /**
    * Host acknowledged the open modal (Enter/Esc/click). For a print window
@@ -883,6 +1583,7 @@ export class Engine {
    * cancel path (v25 = 0xff); for a menu it closes without selection.
    */
   ackPrint(): void {
+    if (this.stopLatch !== null) return; // input is frozen while stopped
     if (!this.modal) return;
     if (this.modal.kind === "inventory" && this.modal.interactive)
       this.vars[V_SELECTED_ITEM] = 0xff;
@@ -957,6 +1658,425 @@ export class Engine {
     return this.modalKind !== null || this.persistentWindow !== null;
   }
 
+  private assertExecutionBoundary(): void {
+    if (this.executionFault !== null) throw this.executionFault;
+    if (
+      this.stopLatch !== null ||
+      (this.executionArmed &&
+        (this.pendingLogic !== null || this.cycleCursor !== null || this.yieldedExecution))
+    )
+      throw new Error(
+        "Cannot replace or bypass parked execution; finish the cycle or start a new engine.",
+      );
+  }
+
+  /**
+   * Boundary guard for resource/metadata patches. One armed-parked state still
+   * admits them: a suspended `prepareRoom` hook whose answer cannot be
+   * prepared without the room resources the patch delivers. The parked stack
+   * is abandoned by `completeNewRoom` on accept or by the decline abort, so
+   * no old PC resumes into replaced bytes. Every other park — latch, cursor,
+   * yield, a delivered answer, or any non-room interaction — keeps the
+   * unchanged boundary guard.
+   */
+  private assertResourcePatchBoundary(): void {
+    if (
+      this.executionFault === null &&
+      this.stopLatch === null &&
+      this.cycleCursor === null &&
+      !this.yieldedExecution &&
+      this.pendingInteraction?.kind === "room" &&
+      this.pendingAnswer === undefined
+    )
+      return;
+    this.assertExecutionBoundary();
+  }
+
+  /** Install control only between cycles; callbacks return true to stop before mutation. */
+  setExecutionGate(gate: ((boundary: ExecutionBoundary) => boolean) | null): void {
+    if (
+      this.pendingLogic !== null ||
+      this.pendingInteraction !== null ||
+      this.stopLatch !== null ||
+      this.cycleCursor !== null ||
+      this.executionFault !== null
+    )
+      throw new Error("Execution control can change only at a completed cycle boundary.");
+    this.executionGate = gate;
+  }
+
+  /**
+   * Install the after-operation observer — the same completed-cycle contract
+   * as `setExecutionGate`. The callback receives a detached, frozen
+   * ExecutionObservation after every actually completed operation or atomic
+   * phase; returning true stops before the next one runs. It must be bounded
+   * and observational: a throw faults the run rather than dropping the
+   * requested stop.
+   */
+  setExecutionObserver(observer: ExecutionObserver | null): void {
+    if (
+      this.pendingLogic !== null ||
+      this.pendingInteraction !== null ||
+      this.stopLatch !== null ||
+      this.cycleCursor !== null ||
+      this.executionFault !== null
+    )
+      throw new Error("Execution control can change only at a completed cycle boundary.");
+    this.executionObserver = observer;
+  }
+
+  /**
+   * The stopped pass's resume point, or null for a source-less stop. Kept
+   * contract for gate consumers: identical for before-instruction stops. For
+   * after-operation stops it reports the *next* boundary to execute — the
+   * resume point — never the responsible PC (that lives on
+   * `executionStopInfo.cause`).
+   */
+  get executionStop(): ExecutionBoundary | null {
+    return this.stopLatch?.info.location ?? null;
+  }
+
+  /**
+   * The latched stop record, authoritative for every stop kind: before-gate
+   * stops, after-operation stops, phase stops and explicit pauses. `cause`
+   * names what completed (or the wait overlaid); `location` is the detached
+   * resume point when a logic stack is parked.
+   */
+  get executionStopInfo(): ExecutionStopInfo | null {
+    return this.stopLatch?.info ?? null;
+  }
+
+  get executionYieldPending(): boolean {
+    return this.yieldedExecution;
+  }
+
+  /** Execution control is armed: an installed gate or observer can stop or slice a pass. */
+  get executionControlActive(): boolean {
+    return this.executionArmed;
+  }
+
+  private get executionArmed(): boolean {
+    return this.executionGate !== null || this.executionObserver !== null;
+  }
+
+  /**
+   * Monotonic serial advanced only by a pass that reached its post-logic
+   * tail — never by a stop, yield, suspension or abort. A host compares it
+   * across a tick entry to learn whether that entry completed a real cycle.
+   */
+  get completedCycleSerial(): number {
+    return this.completedCycles;
+  }
+
+  /**
+   * Accepted in-place restarts this instance has applied. The same Engine
+   * object keeps serving after restart.game — this serial, not the
+   * instance, is what names the current run.
+   */
+  get runResetSerial(): number {
+    return this.runResets;
+  }
+
+  /**
+   * Latch a debugger stop over whatever the engine is doing: an in-flight
+   * host interaction keeps its wait kind, an open modal reports "modal", a
+   * clock busy-wait "clock", and anything else — idle or a runnable parked
+   * pass — reports "idle". No work is synthesized; the cause reports the
+   * overlaid wait and `location` keeps the parked stack's resume point.
+   * Idempotent while stopped.
+   */
+  pauseExecution(): void {
+    if (this.executionFault !== null) throw this.executionFault;
+    if (this.stopLatch !== null) return;
+    const interaction = this.pendingInteraction;
+    const wait: ExecutionWaitKind =
+      interaction !== null
+        ? interaction.kind
+        : this.modal !== null
+          ? "modal"
+          : this.parkedClockWait
+            ? "clock"
+            : "idle";
+    const parked = this.pendingLogic;
+    let location: ExecutionBoundary | null = null;
+    if (parked !== null) {
+      location = this.resumeBoundary(parked);
+      if (location !== null) parked[parked.length - 1]!.boundary = location;
+    }
+    this.latchStop({ type: "wait", wait }, location, null);
+  }
+
+  /**
+   * Resume precisely the reported occurrence once, including a loop at the
+   * same PC. For a before-gate stop the exact boundary occurrence is
+   * suppressed once so it does not re-hit; after-operation, phase and wait
+   * stops resume the parked stack or phase cursor without re-running the
+   * completed operation.
+   */
+  resumeExecution(): void {
+    if (this.executionFault !== null) throw this.executionFault;
+    const latch = this.stopLatch;
+    if (latch === null) throw new Error("Execution is not stopped.");
+    this.stopLatch = null;
+    if (latch.suppress !== null) this.resumedSequence = latch.suppress;
+  }
+
+  /** Latch a stop. `suppress` is the boundary occurrence a resumed gate skips once. */
+  private latchStop(
+    cause: ExecutionCause,
+    location: ExecutionBoundary | null,
+    suppress: number | null,
+  ): void {
+    this.stopLatch = {
+      info: Object.freeze({
+        stopId: ++this.stopSequence,
+        cause: Object.freeze(cause),
+        location,
+        wait: this.currentWait(),
+      }),
+      suppress,
+    };
+  }
+
+  /** The outstanding wait a stop overlays, or null when nothing is in flight. */
+  private currentWait(): ExecutionWaitKind | null {
+    if (this.pendingInteraction !== null) return this.pendingInteraction.kind;
+    if (this.modal !== null) return "modal";
+    if (this.parkedClockWait) return "clock";
+    return null;
+  }
+
+  /**
+   * Detached boundary for the operation that will run next on the parked
+   * stack — the resume point, separate from the responsible cause boundary.
+   * Allocates a sequence like every boundary occurrence; a mid-IF cursor
+   * reports the next actually evaluated predicate term (or the enclosing
+   * `if` when the list has run out), since structural bytes and
+   * short-circuited terms are never encounters.
+   */
+  private resumeBoundary(frames: LogicFrame[]): ExecutionBoundary | null {
+    const frame = frames[frames.length - 1];
+    if (frame === undefined) return null;
+    const code = frame.resource.code;
+    const pc = frame.pc;
+    if (frame.condition !== undefined && pc < code.length && code[pc] === IF) {
+      // A parked mid-IF resumes inside its condition list: the next gate
+      // encounter is the next actually evaluated predicate term — structural
+      // bytes and short-circuited terms are not encounters — or the IF's own
+      // resolution when the list has run out. Mirrors evalConditionList's
+      // byte classification without evaluating anything.
+      let cp = frame.condition.pc;
+      let or = frame.condition.or;
+      let satisfied = frame.condition.satisfied;
+      let negate = frame.condition.negate;
+      let failed = frame.condition.failed;
+      while (cp < code.length) {
+        const b = code[cp]!;
+        const predicatePc = or && b === NOT ? cp + 1 : cp;
+        if (b === IF) return this.captureBoundary(frames, pc, "if");
+        if (!failed && b !== OR && (or ? !satisfied : b !== NOT))
+          return this.captureBoundary(
+            frames,
+            or ? cp : negate ? cp - 1 : cp,
+            "predicate",
+            predicatePc,
+          );
+        if (failed) {
+          cp = b === OR || b === NOT ? cp + 1 : this.skipCondition(code, cp);
+          continue;
+        }
+        if (b === OR) {
+          if (or) {
+            or = false;
+            if (!satisfied) failed = true;
+          } else {
+            or = true;
+            satisfied = false;
+          }
+          cp++;
+          continue;
+        }
+        if (!or && b === NOT) {
+          negate = true;
+          cp++;
+          continue;
+        }
+        cp = this.skipCondition(code, predicatePc);
+      }
+      return this.captureBoundary(frames, pc, "if");
+    }
+    const kind: ExecutionBoundary["kind"] =
+      pc >= code.length
+        ? "return"
+        : code[pc] === IF
+          ? "if"
+          : code[pc] === GOTO
+            ? "goto"
+            : code[pc] === 0
+              ? "return"
+              : "action";
+    return this.captureBoundary(frames, pc, kind);
+  }
+
+  /**
+   * The pre-dispatch occurrence boundary for the operation about to run, or
+   * null when no observer is armed (the unarmed path never allocates one).
+   */
+  private observationBoundary(
+    frames: LogicFrame[],
+    pc: number,
+    kind: ExecutionBoundary["kind"],
+    opcodePc = pc,
+  ): ExecutionBoundary | null {
+    return this.executionObserver === null
+      ? null
+      : this.captureBoundary(frames, pc, kind, opcodePc);
+  }
+
+  /** One pre-dispatch occurrence snapshot: executing invocation and stack, detached and frozen. */
+  private captureBoundary(
+    frames: LogicFrame[],
+    pc: number,
+    kind: ExecutionBoundary["kind"],
+    opcodePc = pc,
+  ): ExecutionBoundary {
+    const frame = frames[frames.length - 1]!;
+    return Object.freeze({
+      sequence: ++this.executionSequence,
+      logic: frame.logic,
+      pc,
+      kind,
+      opcodePc,
+      frames: Object.freeze(
+        frames.map((active) =>
+          Object.freeze({
+            invocationId: (active.invocationId ??= ++this.invocationSequence),
+            logic: active.logic,
+            pc: active === frame ? pc : active.pc,
+            callsite: active.callsite ?? null,
+          }),
+        ),
+      ),
+    });
+  }
+
+  /**
+   * Hand one completed operation or phase to the observer. Returns true when
+   * the callback requested a stop. A throwing observer faults the run — the
+   * stop request can never be silently dropped.
+   */
+  private emitObservation(
+    cause: ExecutionCause,
+    outcome: ExecutionObservation["outcome"],
+    result?: boolean,
+  ): boolean {
+    const observer = this.executionObserver;
+    if (observer === null) return false;
+    const observation: ExecutionObservation = Object.freeze({
+      // Emission order, not capture order: an enclosing boundary is
+      // allocated before dispatch but reported after the operations it ran.
+      sequence: ++this.executionSequence,
+      cause: Object.freeze(cause),
+      outcome,
+      ...(result === undefined ? {} : { result }),
+    });
+    let stop: boolean | void;
+    try {
+      stop = observer(observation);
+    } catch (error) {
+      this.executionFault = error;
+      throw error;
+    }
+    return stop === true;
+  }
+
+  /**
+   * Report a completed (or suspended/unwound) instruction operation. `boundary`
+   * was captured before dispatch, so calls attribute to the caller and returns
+   * to the pre-pop callee. A requested stop latches with the post-operation
+   * resume point — null after an unwind, whose stack is gone.
+   */
+  private observeOperation(
+    frames: LogicFrame[],
+    boundary: ExecutionBoundary | null,
+    outcome: ExecutionObservation["outcome"],
+    result?: boolean,
+  ): boolean {
+    if (boundary === null || this.executionObserver === null) return false;
+    const cause: ExecutionCause = { type: "instruction", boundary };
+    if (!this.emitObservation(cause, outcome, result)) return false;
+    const location = outcome === "unwind" ? null : this.resumeBoundary(frames);
+    // The parked frame's next gate encounter is exactly this resume point:
+    // plant it so the re-encounter reuses the reported occurrence's identity.
+    if (location !== null) frames[frames.length - 1]!.boundary = location;
+    this.latchStop(cause, location, null);
+    return true;
+  }
+
+  /**
+   * Report a completed atomic phase with no responsible LOGIC instruction.
+   * `resume` is the next owed pass phase, parked on the cursor only when the
+   * observer actually stops — the tail accounting phase parks nothing.
+   */
+  private observePhase(phase: ExecutionPhaseKind, resume: CycleCursor | null): boolean {
+    if (this.executionObserver === null) return false;
+    const cause: ExecutionCause = { type: "phase", phase };
+    if (!this.emitObservation(cause, "completed")) return false;
+    this.cycleCursor = resume;
+    this.latchStop(cause, null, null);
+    return true;
+  }
+
+  /**
+   * Report a delivered host answer's application — the pass's frames stay
+   * parked and resume the suspended operation's continuation exactly once.
+   */
+  private observeHostAnswer(frames: LogicFrame[]): boolean {
+    if (this.executionObserver === null) return false;
+    const cause: ExecutionCause = { type: "phase", phase: "host-answer" };
+    if (!this.emitObservation(cause, "completed")) return false;
+    const location = this.resumeBoundary(frames);
+    if (location !== null) frames[frames.length - 1]!.boundary = location;
+    this.latchStop(cause, location, null);
+    this.pendingLogic = frames;
+    return true;
+  }
+
+  /**
+   * Report an operation that threw HostWait: the responsible boundary was
+   * captured before dispatch (the suspending action, or the have.key
+   * predicate's handler byte), and the pass is parked waiting on the host.
+   */
+  private observeSuspension(frames: LogicFrame[]): void {
+    const boundary = this.operationCause;
+    if (boundary === null || this.executionObserver === null) return;
+    const cause: ExecutionCause = { type: "instruction", boundary };
+    if (this.emitObservation(cause, "awaiting-host")) {
+      const location = this.resumeBoundary(frames);
+      if (location !== null) frames[frames.length - 1]!.boundary = location;
+      this.latchStop(cause, location, null);
+    }
+  }
+
+  /**
+   * Report an operation that abandoned the pass — new.room's unwind or a
+   * session abort — and park the owed continuation phase on the cursor when
+   * the observer stops. The cause is the pre-dispatch boundary carried on the
+   * signal; with no live stack a phase cause reports the transition kind.
+   */
+  private operationUnwind(
+    signal: RoomChange | ContinuationAbort,
+    resume: CycleCursor | null,
+    fallbackPhase: ExecutionPhaseKind,
+  ): boolean {
+    if (this.executionObserver === null) return false;
+    const cause: ExecutionCause = signal.cause ?? { type: "phase", phase: fallbackPhase };
+    if (!this.emitObservation(cause, "unwind")) return false;
+    this.cycleCursor = resume;
+    this.latchStop(cause, null, null);
+    return true;
+  }
+
   /** A message has suspended a cycle, including after its timeout expires. */
   get continuationPending(): boolean {
     return this.pendingLogic !== null;
@@ -1023,6 +2143,9 @@ export class Engine {
    * Surfaces the interaction owned are restored.
    */
   abortInteraction(): void {
+    if (this.stopLatch !== null)
+      throw new Error("Execution is stopped; resume before abandoning the interaction.");
+    const roomWait = this.roomReentryWaiting();
     const pending = this.pendingInteraction;
     this.pendingInteraction = null;
     this.pendingAnswer = undefined;
@@ -1033,7 +2156,13 @@ export class Engine {
     }
     if (pending?.kind === "confirm" && this.modal?.serial === pending.modalSerial)
       this.closeModal();
-    if (pending !== null) this.pendingLogic = null;
+    if (pending !== null || roomWait) this.pendingLogic = null;
+    if (roomWait) {
+      while (this.modal !== null) this.closeModal();
+      this.cycleCursor = null;
+      this.parkedModalWait = false;
+      this.parkedClockWait = false;
+    }
   }
 
   /**
@@ -1346,6 +2475,7 @@ export class Engine {
    * mirrors it here so the input row shows what the player typed).
    */
   setEditLine(text: string): void {
+    if (this.stopLatch !== null) return; // input is frozen while stopped
     this.editLine = text.slice(0, this.inputCapacity());
     this.drawInputRow();
   }
@@ -1356,6 +2486,7 @@ export class Engine {
    * delaying delivery through a modal may supply eligibility captured at release.
    */
   releaseTrackedKey(eligible = this.keyReleaseGate !== 0): void {
+    if (this.stopLatch !== null) return; // input is frozen while stopped
     if (eligible) {
       for (const key of this.host.takeKeys()) this.inputQueue.enqueueKey(key);
       this.inputQueue.enqueue({ type: 2, value: 0 });
@@ -1406,6 +2537,7 @@ export class Engine {
 
   /** Host sound control refreshes status without overwriting an open modal. */
   setSoundEnabled(enabled: boolean): void {
+    if (this.stopLatch !== null) return; // engine state is frozen while stopped
     const value = enabled ? 1 : 0;
     if (this.flags[F_SOUND_ENABLED] === value) return;
     this.flags[F_SOUND_ENABLED] = value;
@@ -1495,6 +2627,7 @@ export class Engine {
 
   /** Key delivered while a modal is open (Enter/Esc/navigation per spec). */
   modalKey(key: number): void {
+    if (this.stopLatch !== null) return; // input is frozen while stopped
     if (key === 0x4600) {
       this.handleKey(key);
       return;
@@ -1545,6 +2678,7 @@ export class Engine {
 
   /** Type-2 navigation value (1..8) delivered while a modal is open. */
   modalNavigate(value: number): void {
+    if (this.stopLatch !== null) return; // input is frozen while stopped
     const m = this.modal;
     if (!m) return;
     if (m.kind === "inventory" && m.interactive && m.items.length > 0) {
@@ -1605,7 +2739,10 @@ export class Engine {
         serial: ++this.modalSerialCounter,
         kind: "print",
         saved,
-        remainingMs: !forceAcknowledgement && this.vars[21] !== 0 ? this.vars[21]! * 500 : null,
+        remainingMs:
+          !forceAcknowledgement && this.vars[21] !== 0
+            ? (this.vars[21]! * this.timing.gameSecondMs) / 2
+            : null,
         pauseClock,
       });
     }
@@ -2024,8 +3161,8 @@ export class Engine {
   }
 
   /** A recorder covers every runtime object, including ones outside save.game's allocation. */
-  recordingImage(): Uint8Array | null {
-    const snapshot = this.autosaveImage();
+  recordingImage(allowUndrawn = false): Uint8Array | null {
+    const snapshot = this.captureHostImage(allowUndrawn);
     if (!snapshot) return null;
     const { image, screen, presentation, continuation } = decodeHostImage(snapshot);
     const state = decodeSave(image, this.profile);
@@ -2035,13 +3172,48 @@ export class Engine {
       screen ?? [],
       presentation ?? undefined,
       continuation,
+      this.amigaRegion,
     );
   }
 
   /** Capture transient host-recording state at an autosave-safe boundary. */
-  captureReplayState(): EngineReplayState {
-    if (!this.autosaveImage()) throw new Error("Recording requires a resumable cycle boundary.");
+  captureReplayState(allowUndrawn = false): EngineReplayState {
+    if (!this.captureHostImage(allowUndrawn))
+      throw new Error("Recording requires a resumable cycle boundary.");
+    return this.replayState();
+  }
+
+  /** Entry clones abandon the current pass; its old instruction offsets never enter the clone. */
+  captureRoomLaunchState(resetGlobalScanStart = false): {
+    image: Uint8Array;
+    replay: EngineReplayState;
+  } {
+    if (this.pendingInteraction !== null && this.pendingInteraction.kind !== "key")
+      throw new Error("Finish the game's question, then launch this room");
+    if (this.hostReplayOverflow) throw new Error("Choose From the beginning to launch this game");
+    const state = decodeSave(this.serialize(), this.profile);
+    if (this.soundDoneFlag !== null) state.flags[this.soundDoneFlag] = 1;
+    state.objects = this.objects.map((_, num) => this.objectRecord(num));
+    state.replay = [];
+    state.replayActive = state.replayCheckpoint = 0;
+    state.logicResume = state.logicResume.filter(
+      (entry) => entry.logic === 0 && !resetGlobalScanStart,
+    );
     return {
+      image: encodeHostImage(
+        encodeSave(state, this.profile),
+        [],
+        undefined,
+        undefined,
+        this.amigaRegion,
+      ),
+      replay: { ...this.replayState(null), sound: null, terminated: false },
+    };
+  }
+
+  private replayState(continuation = this.captureContinuation()): EngineReplayState {
+    return {
+      ...(this.amigaRegion === "pal" ? { amigaRegion: this.amigaRegion } : {}),
       clockRemainderMs: this.clockRemainderMs,
       pictureShown: this.pictureShown,
       terminated: this.terminated,
@@ -2079,12 +3251,13 @@ export class Engine {
             }
           : null,
       patchGeneration: this.patchGen,
-      continuation: this.captureContinuation(),
+      continuation,
     };
   }
 
   /** Restore host-only recording state after restoreImage; authentic save semantics stay unchanged. */
   restoreReplayState(value: unknown): void {
+    this.assertExecutionBoundary();
     const state = validateEngineReplayState(value);
     const views = new Map<number, AgiView>();
     for (const num of state.viewCache.loaded) {
@@ -2099,6 +3272,7 @@ export class Engine {
       sound = new SoundPlayback(this.profile, payload, state.sound.playback.device);
       sound.restore(state.sound.playback);
     }
+    this.amigaRegion = state.amigaRegion ?? "ntsc";
     this.clockRemainderMs = state.clockRemainderMs;
     this.pictureShown = state.pictureShown;
     this.terminated = state.terminated;
@@ -2164,6 +3338,14 @@ export class Engine {
    * without the answer only the host can produce.
    */
   private captureContinuation(): ParkedContinuation | null {
+    // A latched stop or an armed parked pass can never masquerade as a
+    // checkpoint: the caller refuses the capture and keeps the prior state.
+    // serialize() — the synchronous save.game image — never reaches this.
+    if (
+      this.stopLatch !== null ||
+      (this.executionArmed && (this.pendingLogic !== null || this.cycleCursor !== null))
+    )
+      throw new Error("Instruction debugging requires a completed cycle checkpoint.");
     if (this.pendingLogic === null) return null;
     if (this.parkedClockWait) return null;
     if (this.pendingInteraction !== null && this.pendingInteraction.kind !== "key") return null;
@@ -2326,6 +3508,13 @@ export class Engine {
    * The caller skips this tick and tries the next one.
    */
   autosaveImage(): Uint8Array | null {
+    return this.captureHostImage(false);
+  }
+
+  /** Create can capture an undrawn return point without publishing Play progress. */
+  private captureHostImage(allowUndrawn: boolean): Uint8Array | null {
+    if (this.hostRoomEntryPending) return null;
+    if (this.messageUpdatePending) return null;
     // Window and parked-pass state travels in the continuation record. A
     // boundary it cannot describe — a live host request, or surface-owning
     // state without a parked pass to resume — still refuses the snapshot.
@@ -2343,7 +3532,7 @@ export class Engine {
     // script buffer (f7, the demo pack does) records no replay pairs at all,
     // and a resumed one has the sequence that rebuilt its screen but no
     // show.pic of its own yet.
-    if (this.hostReplay.length === 0 && !this.pictureShown) return null;
+    if (!allowUndrawn && this.hostReplay.length === 0 && !this.pictureShown) return null;
     // The host envelope wraps save.game's own image with the shadow record:
     // every load and draw since the room began, including the ones f7 kept out
     // of the game's sequence, so the resume rebuilds the room the game drew
@@ -2366,6 +3555,7 @@ export class Engine {
         })),
       },
       continuation,
+      this.amigaRegion,
     );
   }
 
@@ -2381,7 +3571,8 @@ export class Engine {
    * game untouched.
    */
   restoreImage(bytes: Uint8Array, options: { preservePresentation?: boolean } = {}): void {
-    const { image, screen, presentation, continuation } = decodeHostImage(bytes);
+    this.assertExecutionBoundary();
+    const { image, screen, presentation, continuation, amigaRegion } = decodeHostImage(bytes);
     // Run the same restore against disposable state and a silent host first.
     // This validates both packet grammar and referenced resources before the
     // live engine or host sees any mutation, without a second replay parser.
@@ -2418,6 +3609,7 @@ export class Engine {
     } catch (e) {
       if (!(e instanceof ContinuationAbort)) throw e;
     }
+    this.amigaRegion = amigaRegion ?? "ntsc";
     if (presentation) {
       this.textMode = false; // Host snapshots are taken only in graphics mode.
       this.text.cells.set(presentation.cells);
@@ -2737,7 +3929,15 @@ export class Engine {
   advanceClock(milliseconds: number): void {
     if (!Number.isFinite(milliseconds) || milliseconds < 0)
       throw new RangeError("Elapsed game time must be finite and nonnegative.");
-    if (this.terminated || this.timerPaused) return;
+    if (
+      this.terminated ||
+      this.executionFault !== null ||
+      this.timerPaused ||
+      this.stopLatch !== null ||
+      this.resumedSequence !== null ||
+      this.yieldedExecution
+    )
+      return;
     const modal = this.modal;
     if (modal !== null) {
       if (modal.kind === "print" && modal.remainingMs !== null) {
@@ -2752,8 +3952,9 @@ export class Engine {
     if (modal === null && this.pendingLogic !== null && this.pendingInteraction === null)
       this.clockWaitMs += milliseconds;
     const elapsed = this.clockRemainderMs + milliseconds;
-    let seconds = Math.floor((elapsed + 1e-7) / 1000);
-    this.clockRemainderMs = Math.max(0, elapsed - seconds * 1000);
+    const secondMs = this.timing.gameSecondMs;
+    let seconds = Math.floor((elapsed + 1e-7) / secondMs);
+    this.clockRemainderMs = Math.max(0, elapsed - seconds * secondMs);
     while (seconds-- > 0) {
       this.vars[11] = this.vars[11]! + 1;
       if (this.vars[11]! >= 60) {
@@ -2769,17 +3970,36 @@ export class Engine {
         this.vars[14] = this.vars[14]! + 1;
       }
     }
+    // One call is one clock phase: the elapsed advance completes, then a
+    // requested stop latches before anything else can run.
+    this.observePhase("clock", null);
   }
 
-  /** Advance one independent 60Hz sound tick, including during modal waits. */
+  /** Advance one independent sound heartbeat, including during modal waits. */
   soundTick(): void {
+    if (
+      this.stopLatch !== null ||
+      this.resumedSequence !== null ||
+      this.yieldedExecution ||
+      this.executionFault !== null
+    )
+      return;
     if (!this.soundPlayback) return;
     const tick = this.soundPlayback.tick(
       this.flags[F_SOUND_ENABLED] !== 0,
       this.host.soundAttenuation?.() ?? this.vars[23]!,
     );
-    for (const output of tick.outputs) this.host.soundOutput?.(output);
-    if (tick.complete) this.stopSound();
+    if (this.host.soundTickOutput) {
+      const outputs = tick.complete
+        ? [...tick.outputs, ...this.soundPlayback.stop()]
+        : tick.outputs;
+      this.host.soundTickOutput(outputs, tick.complete);
+      if (tick.complete) this.stopSound(false);
+    } else {
+      for (const output of tick.outputs) this.host.soundOutput?.(output);
+      if (tick.complete) this.stopSound();
+    }
+    this.observePhase("sound", null);
   }
 
   private loadSound(num: number): void {
@@ -2793,14 +4013,16 @@ export class Engine {
    * stop.sound state teardown, shared with pause (spec: pause stops sound);
    * the host also calls it before changing audio devices.
    */
-  stopSound(): void {
+  stopSound(present = true): void {
+    if (this.stopLatch !== null) return; // sound state is frozen while stopped
     if (this.playingSound === null) return;
-    for (const output of this.soundPlayback?.stop() ?? []) this.host.soundOutput?.(output);
+    const silence = this.soundPlayback?.stop() ?? [];
+    if (present) for (const output of silence) this.host.soundOutput?.(output);
     if (this.soundDoneFlag !== null) this.flags[this.soundDoneFlag] = 1;
     this.playingSound = null;
     this.soundDoneFlag = null;
     this.soundPlayback = null;
-    this.host.stopSound?.();
+    if (present) this.host.stopSound?.();
   }
 
   /**
@@ -2971,21 +4193,61 @@ export class Engine {
 
   /** One synchronous interpreter cycle (spec: top-level cycle order). */
   tick(): void {
-    this.remainingInstructions = this.instructionBudget;
-    this.backwardJumps = 0;
-    this.clockReadLogic = -1;
-    this.clockReadPc = -1;
+    if (this.executionFault !== null) throw this.executionFault;
+    try {
+      this.tickExecution();
+    } catch (error) {
+      if (this.executionArmed) this.executionFault = error;
+      throw error;
+    }
+  }
+
+  private tickExecution(): void {
+    if (this.stopLatch !== null) return;
+    const cursor = this.cycleCursor;
+    this.cycleCursor = null;
+    // Classify a parked pass's origin before this entry clears the park
+    // flags: a debugger resume is never a host boundary. What makes a host
+    // boundary is a real host artifact — a suspended interaction's answer,
+    // a modal window's park (the window itself may already be acknowledged)
+    // or a clock busy-wait — which a debug pause overlaid does not erase.
+    // Every other park handed control back to the host; a pure debugger
+    // stop did not.
+    const parkedOnHost =
+      this.pendingLogic !== null &&
+      !this.yieldedExecution &&
+      (this.pendingInteraction !== null ||
+        this.modal !== null ||
+        this.parkedClockWait ||
+        this.parkedModalWait);
+    this.executionSlice = 1024;
+    this.yieldedExecution = false;
+    this.parkedModalWait = false;
+    // The allowance renews at a genuine pass start and — under the
+    // compatibility host-segment policy — at each real host boundary. A
+    // whole-pass allowance spans every wait. A poll whose host answer is
+    // still in flight renews nothing under either policy; the actual answer
+    // landing is the boundary.
+    const awaitingAnswer =
+      this.pendingInteraction !== null &&
+      this.pendingAnswer === undefined &&
+      this.pendingInteraction.kind !== "restoreError";
+    if (
+      !awaitingAnswer &&
+      ((this.pendingLogic === null && cursor === null) ||
+        (this.executionBudgetPolicy === "host-segment" && parkedOnHost))
+    ) {
+      this.remainingInstructions = this.instructionBudget;
+      this.backwardJumps = 0;
+      this.clockReadLogic = -1;
+      this.clockReadPc = -1;
+    }
     if (this.terminated) return;
     // A suspended host interaction freezes the cycle until its answer lands;
     // the host's own event loop keeps serving application commands meanwhile.
     // The restore-error teardown is exempt: it waits on its error window,
     // which drains through the ordinary modal path below.
-    if (
-      this.pendingInteraction !== null &&
-      this.pendingAnswer === undefined &&
-      this.pendingInteraction.kind !== "restoreError"
-    )
-      return;
+    if (awaitingAnswer) return;
     // A host-initiated room suspension (reenterRoom parked on prepareRoom)
     // has no logic stack and belongs to no cycle: complete the transition
     // exactly as the synchronous re-entry did, and let the next poll cycle.
@@ -2996,7 +4258,8 @@ export class Engine {
         if (rc instanceof HostWait) return;
         if (rc instanceof ContinuationAbort) return;
         if (!(rc instanceof RoomChange)) throw rc;
-        this.finishRoomChange(rc.room);
+        if (this.operationUnwind(rc, null, "room")) return;
+        if (this.runRoomPhase(rc.room)) return;
       }
       return;
     }
@@ -3010,14 +4273,22 @@ export class Engine {
         if (event.type === 2) this.modalNavigate(event.value);
         else if (event.type === 1) this.modalKey(event.value);
       }
-      if (this.pendingLogic === null) return;
+      if (this.pendingLogic === null && cursor === null) return;
       // A delivered host answer applies even while its own window is still
       // open — applyConfirm closes the confirm modal by serial. Any other
       // still-open modal keeps the interpreter paused; restoreError arrives
       // here with no answer and drains through the modal path instead.
       if (this.modal && this.pendingAnswer === undefined) return;
     }
-    if (this.pendingLogic === null) {
+
+    // The pass is a phase sequence; a debugger stop between phases parks the
+    // owed remainder on the session-local cycle cursor and resumes here.
+    let stage: CycleCursor["phase"] | "entry" =
+      cursor?.phase ??
+      (this.pendingLogic === null && !this.hostRoomEntryPending ? "entry" : "logic");
+    this.hostRoomEntryPending = false;
+
+    if (stage === "entry") {
       this.presentationDirty = true;
       // The timer tick accumulator serialized as the save's tick count.
       this.timerTicks = (this.timerTicks + 1) >>> 0;
@@ -3025,7 +4296,11 @@ export class Engine {
       this.controllers.fill(0);
       this.flags[F_INPUT_READY] = 0;
       this.flags[F_SAID_MATCHED] = 0;
+      if (this.observePhase("cycle-entry", { phase: "input" })) return;
+      stage = "input";
+    }
 
+    if (stage === "input") {
       // 3. Input phase: clear v19/v9, consume pending input, then any
       // requested modal menu interaction.
       this.vars[V_KEY] = 0;
@@ -3059,11 +4334,20 @@ export class Engine {
       }
       const line = this.host.takeInputLine();
       if (line !== null && this.inputAccepted) this.acceptLine(line);
+      let menuOpened = false;
       if (this.menuRequested) {
         this.menuRequested = false;
-        if (this.openMenu()) return;
+        menuOpened = this.openMenu();
       }
+      // An opened menu abandons the rest of this pass, so a stop here owes no
+      // phase remainder — the modal wait keeps the pass parked, and the next
+      // pass's input phase delivers the selection's controller exactly once.
+      if (this.observePhase("input", menuOpened ? null : { phase: "pre-logic" })) return;
+      if (menuOpened) return;
+      stage = "pre-logic";
+    }
 
+    if (stage === "pre-logic") {
       // Autonomous direction and rectangle transitions are visible to this
       // cycle's logic; they do not move the objects yet.
       for (const obj of this.objects) {
@@ -3088,94 +4372,160 @@ export class Engine {
       else this.objects[0]!.direction = this.vars[V_EGO_DIR]!;
       this.cycleStatusScore = this.vars[V_SCORE]!;
       this.cycleStatusSound = this.flags[F_SOUND_ENABLED]!;
+      if (this.observePhase("pre-logic", { phase: "logic" })) return;
+      stage = "logic";
     }
 
-    // 6. Execute logic 0 (with re-entry on restart-style requests).
-    for (;;) {
-      try {
-        if (this.pendingLogic !== null) {
-          const frames = this.pendingLogic;
-          this.pendingLogic = null;
-          try {
-            this.applyInteraction(frames);
-          } catch (wait) {
-            if (!(wait instanceof HostWait)) throw wait;
-            this.parkedClockWait = false;
-            this.pendingLogic = frames;
-            return;
+    // A room/reset cursor resumes at its saved transition tail, then re-enters
+    // logic; a tail/motion/cycle-end cursor skips the interpreter loop.
+    if (stage === "room" || stage === "reset" || stage === "logic") {
+      if (stage === "room" && cursor?.phase === "room" && this.runRoomPhase(cursor.room)) return;
+      if (stage === "reset" && this.runResetPhase()) return;
+
+      // 6. Execute logic 0 (with re-entry on restart-style requests).
+      for (;;) {
+        try {
+          if (this.pendingLogic !== null) {
+            const frames = this.pendingLogic;
+            this.pendingLogic = null;
+            const applied = this.pendingInteraction !== null;
+            try {
+              this.applyInteraction(frames);
+            } catch (wait) {
+              if (!(wait instanceof HostWait)) {
+                if (
+                  this.executionArmed &&
+                  !(wait instanceof RoomChange) &&
+                  !(wait instanceof ContinuationAbort)
+                )
+                  this.pendingLogic = frames;
+                throw wait;
+              }
+              this.parkedClockWait = false;
+              this.pendingLogic = frames;
+              if (applied) {
+                const cause: ExecutionCause = { type: "phase", phase: "host-answer" };
+                if (this.emitObservation(cause, "awaiting-host"))
+                  this.latchStop(cause, this.resumeBoundary(frames), null);
+              }
+              return;
+            }
+            if (applied && this.observeHostAnswer(frames)) return;
+            if (this.pendingInteraction !== null) {
+              // The applied answer parked the pass again — a restore's error
+              // window, which drains through the modal path next tick.
+              this.parkedClockWait = false;
+              this.pendingLogic = frames;
+              return;
+            }
+            this.runLogicStack(frames);
+          } else {
+            this.clockWaitMs = 0;
+            this.execute(0);
           }
-          if (this.pendingInteraction !== null) {
-            // The applied answer parked the pass again — a restore's error
-            // window, which drains through the modal path next tick.
-            this.parkedClockWait = false;
-            this.pendingLogic = frames;
-            return;
+          // A stop may leave nothing parked — the emptied stack's owed tail
+          // sits on the phase cursor.
+          if (this.pendingLogic !== null || this.stopLatch !== null) return;
+          break;
+        } catch (rc) {
+          if (rc instanceof RoomChange) {
+            if (this.operationUnwind(rc, { phase: "room", room: rc.room }, "room")) return;
+            if (this.runRoomPhase(rc.room)) return;
+            continue; // next top-level pass begins with logic 0
           }
-          this.runLogicStack(frames);
-        } else {
-          this.clockWaitMs = 0;
-          this.execute(0);
+          if (rc instanceof ContinuationAbort) {
+            if (!rc.resumeLogic) {
+              this.operationUnwind(rc, null, "reset");
+              return;
+            }
+            if (this.operationUnwind(rc, { phase: "reset" }, "reset")) return;
+            if (this.runResetPhase()) return;
+            continue;
+          }
+          throw rc;
         }
-        if (this.pendingLogic !== null) return;
-        break;
-      } catch (rc) {
-        if (rc instanceof RoomChange) {
-          this.finishRoomChange(rc.room);
-          // new.room's handler returns the zero continuation result, taking
-          // the original's shared re-entry path: v9, v4, v5 and f2 clear, then
-          // logic 0 re-invokes in the same pass — only v19 and f4 set by the
-          // old room's last pass stay visible (docs/fidelity.md,
-          // "Original new.room sequence").
-          this.vars[V_OBJ_HIT] = 0;
-          this.vars[V_OBJ_EDGE] = 0;
-          this.vars[V_WORDS] = 0;
-          this.flags[F_INPUT_READY] = 0;
-          // agi-re "Top-level cycle order" refreshes remembered v3 only on reentry;
-          // retain the pre-logic f9 comparison so sound changes still redraw at the tail.
-          this.cycleStatusScore = this.vars[V_SCORE]!;
-          continue; // next top-level pass begins with logic 0
-        }
-        if (rc instanceof ContinuationAbort) {
-          if (!rc.resumeLogic) return;
-          // Original main-loop zero result resumes logic immediately without
-          // polling input or repeating pre-logic motion. Its normal tail then
-          // clears f6/f12 (fidelity.md, "Original save and restart audit").
-          this.vars[V_OBJ_HIT] = 0;
-          this.vars[V_OBJ_EDGE] = 0;
-          this.vars[V_WORDS] = 0;
-          this.flags[F_INPUT_READY] = 0;
-          this.cycleStatusScore = this.vars[V_SCORE]!;
-          continue;
-        }
-        throw rc;
       }
+      stage = "cycle-tail";
     }
 
-    // 8. Only score/sound changes redraw status; games can use the other cells.
-    this.objects[0]!.direction = this.vars[V_EGO_DIR]!;
-    if (
-      this.statusEnabled &&
-      (this.statusRefreshRequested ||
-        this.vars[V_SCORE] !== this.cycleStatusScore ||
-        this.flags[F_SOUND_ENABLED] !== this.cycleStatusSound)
-    ) {
-      if (!this.modal) this.drawStatus(); // a modal opened this cycle owns the surface
+    if (stage === "cycle-tail") {
+      // 8. Only score/sound changes redraw status; games can use the other cells.
+      this.objects[0]!.direction = this.vars[V_EGO_DIR]!;
+      if (
+        this.statusEnabled &&
+        (this.statusRefreshRequested ||
+          this.vars[V_SCORE] !== this.cycleStatusScore ||
+          this.flags[F_SOUND_ENABLED] !== this.cycleStatusSound)
+      ) {
+        if (!this.modal) this.drawStatus(); // a modal opened this cycle owns the surface
+      }
+
+      // 9. Clear object event bytes and cycle flags.
+      this.vars[V_OBJ_HIT] = 0;
+      this.vars[V_OBJ_EDGE] = 0;
+      this.flags[F_NEW_ROOM] = 0;
+      this.flags[F_RESTART] = 0;
+      this.flags[F_RESTORED] = 0;
+      if (this.observePhase("cycle-tail", { phase: "motion" })) return;
+      stage = "motion";
     }
 
-    // 9. Clear object event bytes and cycle flags.
+    if (stage === "motion") {
+      // 10. Post-logic object update (movement + cycling).
+      if (!this.textMode) {
+        // An open text window never suspends this update.
+        // docs/fidelity.md: window-update-gate
+        this.updateObjects();
+        this.presentationDirty = true;
+        this.updateEgoVisibility();
+      }
+      if (this.observePhase("motion", { phase: "cycle-end" })) return;
+      stage = "cycle-end";
+    }
+
+    if (stage === "cycle-end") {
+      // Every early return above — debugger stop, cooperative yield, host or
+      // modal wait, termination, abort — skipped this point, so the serial
+      // witnesses only a pass that truly ran its post-logic tail.
+      this.completedCycles++;
+      this.messageUpdatePending = false;
+      this.observePhase("cycle-end", null);
+    }
+  }
+
+  /**
+   * The room-transition tail after new.room's unwind: edge placement and f5,
+   * controller clear, text refresh — then the shared re-entry clears of v9,
+   * v4, v5 and f2 (docs/fidelity.md, "Original new.room sequence"). Runs once
+   * whether reached inline or from the parked cursor; returns true when the
+   * phase observation stopped the pass (logic re-entry is owed next).
+   */
+  private runRoomPhase(room: number, entry?: RoomEntryState): boolean {
+    this.finishRoomChange(room);
     this.vars[V_OBJ_HIT] = 0;
     this.vars[V_OBJ_EDGE] = 0;
-    this.flags[F_NEW_ROOM] = 0;
-    this.flags[F_RESTART] = 0;
-    this.flags[F_RESTORED] = 0;
-    // 10. Post-logic object update (movement + cycling).
-    if (!this.textMode) {
-      // An open text window never suspends this update.
-      // docs/fidelity.md: window-update-gate
-      this.updateObjects();
-      this.presentationDirty = true;
-      this.updateEgoVisibility();
-    }
+    this.vars[V_WORDS] = 0;
+    this.flags[F_INPUT_READY] = 0;
+    // agi-re "Top-level cycle order" refreshes remembered v3 only on reentry;
+    // retain the pre-logic f9 comparison so sound changes still redraw at the tail.
+    this.cycleStatusScore = this.vars[V_SCORE]!;
+    if (entry !== undefined) this.applyRoomEntry(entry);
+    return this.observePhase("room", { phase: "logic" });
+  }
+
+  /**
+   * The accepted restart/restore re-entry tail: original main-loop zero
+   * result resumes logic immediately without polling input or repeating
+   * pre-logic motion. Its normal tail then clears f6/f12 (fidelity.md,
+   * "Original save and restart audit").
+   */
+  private runResetPhase(): boolean {
+    this.vars[V_OBJ_HIT] = 0;
+    this.vars[V_OBJ_EDGE] = 0;
+    this.vars[V_WORDS] = 0;
+    this.flags[F_INPUT_READY] = 0;
+    this.cycleStatusScore = this.vars[V_SCORE]!;
+    return this.observePhase("reset", { phase: "logic" });
   }
 
   /**
@@ -3906,59 +5256,11 @@ export class Engine {
     this.flags[F_INPUT_READY] = 0;
     this.flags[F_SAID_MATCHED] = 0;
     this.lastInputLine = line;
-    this.parserCount = 0;
-    // Spec "Parser normalization": space and , . ? ! ( ) ; : [ ] { } separate;
-    // apostrophe, backtick, hyphen and double quote drop WITHOUT separating
-    // ("don't" is one token); separator runs collapse to one space; a trailing
-    // space is removed; ASCII matching ignores case. A leading separator
-    // leaves an empty leading token, which is not a token at all.
-    const normalized = line
-      .toLowerCase()
-      .replace(/['`\-"]/g, "")
-      .replace(/[ ,.?!();:[\]{}]+/g, " ")
-      .replace(/ $/, "");
-    const words: number[] = [];
-    const texts: string[] = [];
-    // Spec "Parser results": id-0 words occupy no slot; the first unknown
-    // token stores its text, v9 = retained count + 1, f2 set, stop parsing.
-    if (normalized.length > 0 && this.dictionary) {
-      let unknown = false;
-      const tokens = normalized.split(" ").filter((token) => token.length > 0);
-      for (let index = 0; index < tokens.length;) {
-        const { text: token, id, length } = matchDictionaryPhrase(tokens, index, this.dictionary);
-        index += length;
-        if (id === undefined) {
-          // First unknown token: v9 and the parser count take its one-based
-          // position; later tokens are not parsed. The token still occupies
-          // a parsed slot — group zero — so said(1) and said(0) match it
-          // (docs/fidelity.md, parser unknown-word audit).
-          texts.push(token);
-          this.parserCount = words.length + 1;
-          this.vars[V_WORDS] = this.parserCount;
-          if (words.length < 10) words.push(0);
-          unknown = true;
-          break;
-        }
-        if (id === 0) continue;
-        if (words.length < 10) {
-          words.push(id);
-          texts.push(token);
-        }
-      }
-      if (!unknown) {
-        // A fully recognised line leaves v9 at zero (spec: v9 is written only
-        // at an unknown token); the parser count is internal state.
-        this.parserCount = words.length;
-        // Only retained identifiers raise f2; an all-ignored line does not.
-        if (words.length === 0) {
-          this.parsedWords = words;
-          this.parsedWordTexts = texts;
-          return;
-        }
-      }
-    }
-    this.parsedWords = words;
-    this.parsedWordTexts = texts;
+    const parsed = parseSentence(line, this.dictionary);
+    this.parserCount = parsed.count;
+    if (parsed.unknownPosition > 0) this.vars[V_WORDS] = parsed.unknownPosition;
+    this.parsedWords = parsed.words;
+    this.parsedWordTexts = parsed.texts;
     if (this.parserCount > 0) this.flags[F_INPUT_READY] = 1;
   }
 
@@ -3966,6 +5268,7 @@ export class Engine {
 
   /** Execute until return, stream end, or a modal instruction suspends the call stack. */
   execute(logicNum: number): void {
+    this.assertExecutionBoundary();
     const resource = this.loadLogic(logicNum);
     this.runLogicStack([{ logic: logicNum, resource, pc: this.scanStart.get(logicNum) ?? 0 }]);
   }
@@ -3978,15 +5281,45 @@ export class Engine {
         const code = frame.resource.code;
         this.activation = { logic: frame.logic, messages: frame.resource.messages };
         if (frame.pc >= code.length) {
+          // Stream end is an implicit return: the responsible frame is the
+          // callee still on the stack, captured before the pop.
+          const boundary = this.observationBoundary(frames, frame.pc, "return");
+          this.operationCause = boundary;
           frames.pop();
+          if (this.observeOperation(frames, boundary, "completed")) {
+            // An emptied stack owes the post-logic tail, not a logic resume.
+            if (frames.length === 0) this.cycleCursor = { phase: "cycle-tail" };
+            else this.pendingLogic = frames;
+            return;
+          }
           continue;
         }
-        this.consumeInstructionBudget();
         const pc = frame.pc;
         const op = code[pc]!;
-        if (op !== IF) this.traceInstruction(code, pc);
+        let boundary: ExecutionBoundary | null = null;
+        if (frame.condition === undefined) {
+          this.checkExecutionSlice();
+          const kind: ExecutionBoundary["kind"] =
+            op === IF ? "if" : op === GOTO ? "goto" : op === 0 ? "return" : "action";
+          boundary = this.observationBoundary(frames, pc, kind);
+          this.operationCause = boundary;
+          if (this.gateExecution(frames, pc, kind)) {
+            this.pendingLogic = frames;
+            return;
+          }
+          this.consumeInstructionBudget();
+          if (op !== IF) this.traceInstruction(code, pc);
+        } else {
+          // A resumed mid-IF: the IF-completion cause is captured lazily below.
+          this.operationCause = null;
+        }
         if (op === 0x00) {
           frames.pop();
+          if (this.observeOperation(frames, boundary, "completed")) {
+            if (frames.length === 0) this.cycleCursor = { phase: "cycle-tail" };
+            else this.pendingLogic = frames;
+            return;
+          }
           continue;
         }
         if (op === GOTO) {
@@ -4017,19 +5350,41 @@ export class Engine {
               throw new Error(
                 `clock busy-wait in logic ${frame.logic} exceeded ${CLOCK_WAIT_LIMIT_MS / 1000} seconds of host time`,
               );
+            if (this.observeOperation(frames, boundary, "completed")) {
+              // The requested stop is itself the park; the resumed pass
+              // re-polls the loop head under the ordinary slice guard.
+              this.pendingLogic = frames;
+              return;
+            }
             this.parkedClockWait = true;
+            this.pendingLogic = frames;
+            return;
+          }
+          if (this.observeOperation(frames, boundary, "completed")) {
             this.pendingLogic = frames;
             return;
           }
           continue;
         }
         if (op === IF) {
-          this.clockReadPc = -1;
-          // A have.key suspension resumes the same list: the conditions it
-          // already passed replay their recorded outcomes instead of
-          // re-running their side effects.
-          if (this.conditionReplayUntil < 0) this.conditionOutcomes.clear();
-          const { result, next } = this.evalConditionList(code, pc + 1);
+          if (frame.condition === undefined) {
+            this.clockReadPc = -1;
+            if (this.conditionReplayUntil < 0) this.conditionOutcomes.clear();
+            frame.condition = {
+              pc: pc + 1,
+              or: false,
+              satisfied: false,
+              negate: false,
+              failed: false,
+            };
+          }
+          const outcome = this.evalConditionList(code, frames);
+          if (outcome === null) {
+            this.pendingLogic = frames;
+            return;
+          }
+          const { result, next } = outcome;
+          delete frame.condition;
           this.conditionReplayUntil = -1;
           const body = next + 2;
           const end = body + readS16(code, next);
@@ -4044,13 +5399,33 @@ export class Engine {
             });
           } else frame.clockBranches?.delete(pc);
           frame.pc = result ? body : end;
+          // A pass resumed mid-list never captured the IF's own boundary.
+          if (
+            this.observeOperation(
+              frames,
+              boundary ?? this.observationBoundary(frames, pc, "if"),
+              "completed",
+            )
+          ) {
+            this.pendingLogic = frames;
+            return;
+          }
           continue;
         }
         if (op === 0x16 || op === 0x17) {
           const logic = op === 0x16 ? code[pc + 1]! : this.vars[code[pc + 1]!]!;
           const resource = this.loadLogic(logic);
           frame.pc = pc + 2;
-          frames.push({ logic, resource, pc: this.scanStart.get(logic) ?? 0 });
+          frames.push({
+            logic,
+            resource,
+            pc: this.scanStart.get(logic) ?? 0,
+            ...(this.executionArmed ? { callsite: pc } : {}),
+          });
+          if (this.observeOperation(frames, boundary, "completed")) {
+            this.pendingLogic = frames;
+            return;
+          }
           continue;
         }
         const clockWrites = this.actionClockWrites(code, pc);
@@ -4068,19 +5443,48 @@ export class Engine {
           }
         }
         frame.pc = this.dispatchAction(code, pc);
+        if (this.observeOperation(frames, boundary, "completed")) {
+          this.parkedClockWait = false;
+          // The stop parks the pass — record the modal it just opened the
+          // same way the uninterrupted park below does, since ackPrint may
+          // clear the window itself before the next entry.
+          this.parkedModalWait = this.modal !== null;
+          this.pendingLogic = frames;
+          return;
+        }
         if (this.modal !== null) {
           this.parkedClockWait = false;
+          this.parkedModalWait = true;
           this.pendingLogic = frames;
           return;
         }
       }
     } catch (wait) {
       // A host interaction that cannot answer synchronously suspends the pass:
-      // the stack parks beside the pending interaction the throw armed.
-      if (wait instanceof HostWait) {
+      // the stack parks beside the pending interaction the throw armed. The
+      // suspended operation reports its boundary, never a false completion.
+      if (wait instanceof HostWait || wait instanceof ExecutionYield) {
         this.parkedClockWait = false;
         this.pendingLogic = frames;
+        this.yieldedExecution = wait instanceof ExecutionYield;
+        if (wait instanceof HostWait) this.observeSuspension(frames);
         return;
+      }
+      // RoomChange/ContinuationAbort carry their responsible boundary to the
+      // phase dispatcher, which reports the unwind beside the transition.
+      if (
+        (wait instanceof RoomChange || wait instanceof ContinuationAbort) &&
+        wait.cause === undefined &&
+        this.operationCause !== null
+      )
+        wait.cause = { type: "instruction", boundary: this.operationCause };
+      if (
+        this.executionArmed &&
+        !(wait instanceof RoomChange) &&
+        !(wait instanceof ContinuationAbort)
+      ) {
+        this.executionFault = wait;
+        this.pendingLogic = frames;
       }
       throw wait;
     } finally {
@@ -4298,68 +5702,98 @@ export class Engine {
     return seen;
   }
 
-  /** Evaluate a condition list starting at `from` (just after opening 0xff). */
-  private evalConditionList(code: Uint8Array, from: number): { result: boolean; next: number } {
-    let pc = from;
-    let negateNext = false;
+  private checkExecutionSlice(): void {
+    if (this.executionArmed && this.executionSlice-- === 0) throw new ExecutionYield();
+  }
+
+  private gateExecution(
+    frames: LogicFrame[],
+    pc: number,
+    kind: ExecutionBoundary["kind"],
+    opcodePc = pc,
+  ): boolean {
+    if (this.executionGate === null) return false;
+    const frame = frames[frames.length - 1]!;
+    const boundary = frame.boundary ?? this.captureBoundary(frames, pc, kind, opcodePc);
+    if (boundary.sequence === this.resumedSequence) {
+      this.resumedSequence = null;
+    } else if (this.executionGate(boundary)) {
+      frame.boundary = boundary;
+      this.latchStop({ type: "instruction", boundary }, boundary, boundary.sequence);
+      return true;
+    }
+    delete frame.boundary;
+    return false;
+  }
+
+  /** One retained cursor for normal, host-suspended and debugger-stepped IFs. */
+  private evalConditionList(
+    code: Uint8Array,
+    frames: LogicFrame[],
+  ): { result: boolean; next: number } | null {
+    const cursor = frames[frames.length - 1]!.condition!;
     for (;;) {
-      this.consumeInstructionBudget();
+      this.checkExecutionSlice();
+      const pc = cursor.pc;
       const b = code[pc]!;
-      if (b === IF) return { result: true, next: pc + 1 }; // all terms held
-      if (b === NOT) {
-        negateNext = true;
-        pc++;
+      const predicatePc = cursor.or && b === NOT ? pc + 1 : pc;
+      const evaluate =
+        !cursor.failed && b !== IF && b !== OR && (cursor.or ? !cursor.satisfied : b !== NOT);
+      const originPc = cursor.or ? pc : cursor.negate ? pc - 1 : pc;
+      if (evaluate && this.gateExecution(frames, originPc, "predicate", predicatePc)) return null;
+      // Bill each scanned item once per pass: a term that suspended the pass
+      // resumes at its already-charged pc, and a serialized continuation
+      // re-walks a completed prefix (pcs below the replay boundary) whose
+      // outcomes are already recorded — neither is billed again. Skipped
+      // terms, markers and fresh evaluations still count, keeping the scan
+      // itself bounded.
+      if (cursor.chargedPc !== pc && pc >= this.conditionReplayUntil) {
+        this.consumeInstructionBudget();
+        cursor.chargedPc = pc;
+      }
+      if (b === IF) {
+        if (cursor.or) throw new Error("invalid condition byte 0xff in unterminated OR group");
+        return { result: !cursor.failed, next: pc + 1 };
+      }
+      if (cursor.failed) {
+        cursor.pc = b === OR || b === NOT ? pc + 1 : this.skipCondition(code, pc);
         continue;
       }
       if (b === OR) {
-        // OR group: terms until closing 0xfc; first true term satisfies it,
-        // and the original skips the remaining members' handlers entirely —
-        // their bytes are stepped over without side effects (a skipped said
-        // or have.key never runs).
-        pc++;
-        let satisfied = false;
-        for (;;) {
-          this.consumeInstructionBudget();
-          const t = code[pc]!;
-          if (t === OR) {
-            pc++;
-            break;
-          }
-          let neg = false;
-          if (t === NOT) {
-            neg = true;
-            pc++;
-          }
-          if (satisfied) {
-            pc = this.skipCondition(code, pc);
-            continue;
-          }
-          const { result, next } = this.evalOneCondition(code, pc);
-          pc = next;
-          if (result !== neg) satisfied = true;
+        if (cursor.or) {
+          cursor.or = false;
+          if (!cursor.satisfied) cursor.failed = true;
+        } else {
+          cursor.or = true;
+          cursor.satisfied = false;
         }
-        if (!satisfied) return this.failList(code, pc);
+        cursor.pc++;
         continue;
       }
-      const { result, next } = this.evalOneCondition(code, pc);
-      pc = next;
-      if (result === negateNext) return this.failList(code, pc);
-      negateNext = false;
-    }
-  }
-
-  /** Skip the rest of the list to locate the closing 0xff for the false jump. */
-  private failList(code: Uint8Array, from: number): { result: false; next: number } {
-    let pc = from;
-    for (;;) {
-      this.consumeInstructionBudget();
-      const b = code[pc]!;
-      if (b === IF) return { result: false, next: pc + 1 };
-      if (b === OR || b === NOT) {
-        pc++;
+      if (!cursor.or && b === NOT) {
+        cursor.negate = true;
+        cursor.pc++;
         continue;
       }
-      pc = this.skipCondition(code, pc);
+      if (cursor.or && cursor.satisfied) {
+        cursor.pc = this.skipCondition(code, predicatePc);
+        continue;
+      }
+      // The responsible term is captured before evaluation: a HostWait thrown
+      // inside the handler still identifies it. Replayed prefix outcomes and
+      // skipped terms emit nothing.
+      const termBoundary = this.observationBoundary(frames, originPc, "predicate", predicatePc);
+      this.operationCause = termBoundary;
+      const { result, next, replayed } = this.evalOneCondition(code, predicatePc);
+      cursor.pc = next;
+      if (cursor.or) {
+        if (result !== (b === NOT)) cursor.satisfied = true;
+      } else {
+        if (result === cursor.negate) cursor.failed = true;
+        cursor.negate = false;
+      }
+      if (!replayed && this.observeOperation(frames, termBoundary, "completed", result))
+        return null;
     }
   }
 
@@ -4382,18 +5816,22 @@ export class Engine {
       );
   }
 
-  private evalOneCondition(code: Uint8Array, pc: number): { result: boolean; next: number } {
+  private evalOneCondition(
+    code: Uint8Array,
+    pc: number,
+  ): { result: boolean; next: number; replayed: boolean } {
     // Resumed from a have.key suspension: conditions already evaluated replay
     // their recorded outcome (and stay out of the trace) rather than running
     // their side effects a second time.
     if (pc < this.conditionReplayUntil) {
       const recorded = this.conditionOutcomes.get(pc);
-      if (recorded !== undefined) return { result: recorded, next: this.skipCondition(code, pc) };
+      if (recorded !== undefined)
+        return { result: recorded, next: this.skipCondition(code, pc), replayed: true };
     }
     const outcome = this.evaluateCondition(code, pc);
     this.conditionOutcomes.set(pc, outcome.result);
     this.traceInstruction(code, pc, outcome.result);
-    return outcome;
+    return { ...outcome, replayed: false };
   }
 
   private traceInstruction(code: Uint8Array, pc: number, result?: boolean): void {
@@ -4595,6 +6033,21 @@ export class Engine {
 
   itemLocation(item: number): number {
     return this.itemLocations[item] ?? 0;
+  }
+
+  /** Host inventory writes use OBJECT identities; room 255 means carried (Objects and inventory items). */
+  setItemLocation(item: number, room: number): void {
+    if (
+      !Number.isInteger(item) ||
+      item < 0 ||
+      item >= this.itemNames().length ||
+      !Number.isInteger(room) ||
+      room < 0 ||
+      room > 255
+    )
+      throw new Error("Inventory location needs an OBJECT item and a room from 0 to 255.");
+    this.assertExecutionBoundary();
+    this.itemLocations[item] = room;
   }
 
   /**
@@ -5588,13 +7041,19 @@ export class Engine {
       case 0x83:
         this.directionCoupling = 0;
         return next;
-      case 0x84:
-        // Player coupling and the end of object 0's autonomous motion; the
-        // direction byte is left alone (docs/fidelity.md, "Original
+      case 0x84: {
+        // Player coupling; the direction byte is left alone. The DOS and
+        // Amiga 2.082 handlers end object 0's autonomous motion outright; the
+        // inspected later Amiga handlers (2.176 through 2.333) return early
+        // when player control is already selected, so the motion word clears
+        // only on the program→player transition (docs/fidelity.md, "Original
         // player.control handler").
+        const wasProgramControl = this.directionCoupling === 0;
         this.directionCoupling = 1;
-        this.objects[0]!.motionMode = MOTION_NORMAL;
+        if (this.profile.playerControlMotionClear === "always" || wasProgramControl)
+          this.objects[0]!.motionMode = MOTION_NORMAL;
         return next;
+      }
       case 0x86:
         // The original stops sound before reading the operand, so a declined
         // quit prompt still completes the playing sound's done flag
@@ -5860,6 +7319,7 @@ export class Engine {
     // The original's input-flush step drains the BIOS buffer and event queues.
     this.inputQueue.clear();
     this.loadLogic(room);
+    this.host.roomInputBoundary?.();
     throw new RoomChange(room);
   }
 
@@ -6035,6 +7495,10 @@ export class Engine {
    * logic continuation.
    */
   private restart(): void {
+    // The run-identity witness turns before the aborting continuation
+    // unwinds: the reset-phase and re-entered logic observations already
+    // belong to the new run.
+    this.runResets++;
     this.pendingLogic = null;
     this.pendingInteraction = null;
     this.pendingAnswer = undefined;
@@ -6264,13 +7728,46 @@ export class Engine {
    * stack when the HOST calls this, so it is caught here and the same
    * post-switch sequence tick() runs is applied directly.
    */
-  reenterRoom(room: number = this.vars[V_ROOM]!): void {
+  reenterRoom(room: number = this.vars[V_ROOM]!, entry?: RoomEntryState): void {
+    if (entry !== undefined) {
+      const problem = roomEntryProblem(entry, this.itemNames().length);
+      if (problem) throw new Error(problem);
+    }
+    if (
+      !Number.isInteger(room) ||
+      room < 0 ||
+      room > 255 ||
+      (entry !== undefined && !this.container.getResource("logic", room))
+    )
+      throw new Error(`Room ${room} needs a LOGIC to enter.`);
+    // A deliberate host visit abandons the old pass before the new room runs.
+    if (this.roomReentryWaiting()) this.abortInteraction();
+    this.assertExecutionBoundary();
+    if (entry !== undefined) this.vars[V_EDGE] = entry.cameFrom?.edge ?? 0;
     try {
       this.newRoom(room);
     } catch (rc) {
       if (!(rc instanceof RoomChange)) throw rc;
     }
-    this.finishRoomChange(room);
+    this.runRoomPhase(room, entry);
+    this.messageUpdatePending = false;
+    this.hostRoomEntryPending = true;
+  }
+
+  private applyRoomEntry(entry: RoomEntryState): void {
+    // docs/fidelity.md: Changing rooms and Original new.room sequence.
+    for (const [num, value] of Object.entries(entry.variables ?? {}))
+      this.vars[Number(num)] = value;
+    for (const [num, value] of Object.entries(entry.flags ?? {}))
+      this.flags[Number(num)] = Number(value);
+    for (const [num, value] of Object.entries(entry.items ?? {}))
+      this.setItemLocation(Number(num), value);
+    if (entry.cameFrom) this.vars[V_PREV_ROOM] = entry.cameFrom.room;
+    if (entry.hero) {
+      const ego = this.objects[0]!;
+      ego.x = ego.prevX = entry.hero.x;
+      ego.y = ego.prevY = entry.hero.y;
+    }
   }
 }
 

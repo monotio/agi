@@ -5,28 +5,21 @@
  * turn for the dry run. A live run plays the same turns with a real model.
  *
  *   remix-references  two Remix turns with a room plate attached (manifest,
- *                     contact strip, view_reference, a picture write and
- *                     handover), then an Ask: the request after the second
+ *                     contact strip, read_reference_image, a picture write and
+ *                     finish), then an Ask: the request after the second
  *                     player message is where a viewed image could be
  *                     rewritten
  *   room-build        two just-in-time room builds, the second from the first
- *   studio-assist     a Studio request whose first proposal the host refuses
- *                     and a retry lands, then a second request
  *   ask               three Ask turns with inspection between them
  */
 import { AgentSession } from "../../app/src/agent/agentSession.ts";
 import type { LlmConfig } from "../../app/src/agent/llmClient.ts";
-import { createStudioAssistStub } from "../../app/src/agent/studioAssist.ts";
 import { roomReference, type DecodedImage } from "../../app/src/references/referenceArt.ts";
 import { referenceSource } from "../../app/src/references/referenceHandles.ts";
-import { buildTutorial, TUTORIAL_PICTURE_SOURCES } from "../../games/adventure-department/game.ts";
+import { buildTutorial } from "../../games/adventure-department/game.ts";
 import { requireProjectId, requireResourceRevision } from "../../src/gameIdentity.ts";
 import { referenceArtId } from "../../src/agent/referenceTools.ts";
-import type { StudioFocus } from "../../src/agent/studioAssistTools.ts";
 import { EGA_RGB, encodePngRgb } from "../../src/picture/png.ts";
-import { pictureAssistScope } from "../../src/studio/assistScope.ts";
-import { compileEditDocument } from "../../src/studio/editValidation.ts";
-import { parsePictureDocument } from "../../src/studio/pictureDocument.ts";
 import { decodePng } from "./decode-png.ts";
 import {
   installScriptedProvider,
@@ -57,8 +50,6 @@ const IDENTITY = {
   project: requireProjectId("cache-probe"),
   revision: requireResourceRevision("0".repeat(64)),
 };
-/** The tutorial rooms' walk horizon (sceneArt.ts FLOOR_Y). */
-const HORIZON = 112;
 const PLATE_ID = "ref-plate";
 
 /** A 320x168 room plate: sky, a sun and a green floor, drawn by script. */
@@ -82,7 +73,7 @@ function plate(): DecodedImage {
 }
 
 const stored = [roomReference(PLATE_ID, 1, "A sunlit gallery", IDENTITY, plate())];
-/** The plate's content-derived handle, the id view_reference is called with. */
+/** The plate's content-derived handle, the id read_reference_image is called with. */
 const PLATE_ART_ID = referenceArtId(Buffer.from(stored[0]!.images[0]!.png, "base64"));
 
 const picture = (sky: number, floor: number) =>
@@ -102,25 +93,10 @@ const roomLogic = (west: number) =>
   "if (isset(f5)) { load.pic(v0); draw.pic(v0); show.pic(); load.view(0); animate.obj(0); set.view(0,0); position(0,80,130); draw(0); accept.input(); }\n" +
   `if (v2 == 4) { new.room(${west}); }\nreturn;`;
 
-function pictureFocus(session: Session, num: number, targetIds: string[]): StudioFocus {
-  const source = TUTORIAL_PICTURE_SOURCES[num]!;
-  const compiled = compileEditDocument(
-    parsePictureDocument(source).document,
-    session.state.profile,
-  );
-  return {
-    scope: pictureAssistScope({ num, compiled, targetIds, lens: "walk" }),
-    draft: () => ({ kind: "picture", source }),
-    lens: "walk",
-    room: num,
-    horizon: HORIZON,
-  };
-}
-
 const view = (size: "thumb" | "small" | "full", region: boolean): ScriptedTurn => ({
   calls: [
     {
-      name: "view_reference",
+      name: "read_reference_image",
       input: {
         id: PLATE_ART_ID,
         size,
@@ -134,7 +110,7 @@ const call = (name: string, input: Record<string, unknown>): ScriptedTurn => ({
   calls: [{ name, input }],
 });
 const say = (text: string): ScriptedTurn => ({ text });
-const HANDOVER = call("handover", { notes: null });
+const HANDOVER = call("finish", { notes: null });
 
 export const SCENARIOS: readonly Scenario[] = [
   {
@@ -146,7 +122,7 @@ export const SCENARIOS: readonly Scenario[] = [
           {
             calls: [
               view("full", true).calls![0]!,
-              { name: "read_room_context", input: { room: 1, state: null, frames: null } },
+              { name: "read_room", input: { room: 1, state: null, frames: null } },
             ],
           },
           call("read_logic", { num: 1 }),
@@ -192,7 +168,7 @@ export const SCENARIOS: readonly Scenario[] = [
           {
             calls: [
               { name: "write_picture", input: { room: 4, source: picture(3, 6) } },
-              { name: "write_logic_source", input: { room: 4, source: roomLogic(3) } },
+              { name: "write_logic", input: { room: 4, source: roomLogic(3) } },
             ],
           },
           HANDOVER,
@@ -214,7 +190,7 @@ export const SCENARIOS: readonly Scenario[] = [
           {
             calls: [
               { name: "write_picture", input: { room: 5, source: picture(1, 7) } },
-              { name: "write_logic_source", input: { room: 5, source: roomLogic(4) } },
+              { name: "write_logic", input: { room: 5, source: roomLogic(4) } },
             ],
           },
           HANDOVER,
@@ -224,39 +200,12 @@ export const SCENARIOS: readonly Scenario[] = [
     ],
   },
   {
-    id: "studio-assist",
-    turns: [
-      {
-        label: "walkable rope with a refused first proposal",
-        script: [],
-        // The stub's "bad" script proposes an art change the lens refuses,
-        // then the walkable one; the request itself reads naturally.
-        stub: () => createStudioAssistStub("bad: walk through the rope barrier"),
-        run: (session) =>
-          session.runStudioAssist({
-            instruction: "Let the player walk through the rope barrier without changing the art.",
-            focus: pictureFocus(session, 1, ["rope-barrier"]),
-          }),
-      },
-      {
-        label: "second request on the same selection",
-        script: [],
-        stub: () => createStudioAssistStub("walk through the rope barrier"),
-        run: (session) =>
-          session.runStudioAssist({
-            instruction: "Open the rope barrier so the player can walk through it.",
-            focus: pictureFocus(session, 1, ["rope-barrier"]),
-          }),
-      },
-    ],
-  },
-  {
     id: "ask",
     turns: [
       {
         label: "ask about the keys",
         script: [
-          call("read_room_context", { room: 1, state: null, frames: null }),
+          call("read_room", { room: 1, state: null, frames: null }),
           say("Arrow keys walk; FAST and SLOW change speed."),
         ],
         run: (session) => session.runAsk("What keys do I press to play this game?", 1),
@@ -299,21 +248,25 @@ export function scenarioSession(
 
 /**
  * Play a scenario against the scripted model behind the real provider client
- * and return the request bodies it built.
+ * and return request bodies grouped by conversation. Background rooms start
+ * separate conversations; foreground turns continue their task.
  */
 export async function probeScenario(
   scenario: Scenario,
   provider: ScriptProvider,
   model: string,
-): Promise<CapturedRequest[]> {
+): Promise<CapturedRequest[][]> {
   const scripted = installScriptedProvider(provider);
   try {
     const session = scenarioSession({ provider, apiKey: "cache-probe-offline", model });
+    const tasks: CapturedRequest[][] = [];
     for (const turn of scenario.turns) {
+      const start = scripted.requests.length;
       scripted.use(turn.stub ? turn.stub() : queueScript(turn.script));
       await turn.run(session);
+      tasks.push(scripted.requests.slice(start));
     }
-    return scripted.requests;
+    return scenario.id === "room-build" ? tasks : [tasks.flat()];
   } finally {
     scripted.restore();
   }

@@ -4,22 +4,42 @@
  * lives in browser storage per game, and it travels only with a project
  * archive (under `SAVES/`), never with a published game.
  */
-import { Engine, type EngineHost, type EngineMenuState } from "../../../src/runtime/engine.ts";
-import { decodeHostImage, decodeSave } from "../../../src/runtime/persistence.ts";
-import { detectProfile, type ProfileId } from "../../../src/runtime/profile.ts";
-import { parseWordsTok } from "../../../src/logic/words.ts";
-import { openContainer } from "../../../src/container/container.ts";
-import { readGameSaves, writeGameSave } from "./gameSaves.ts";
+import type { EngineMenuState } from "../../../src/runtime/engine.ts";
+import { readHostRngState, type HostRngState } from "../../../src/runtime/rng.ts";
+import { base64ToBytes, bytesToBase64 } from "../project/bytes.ts";
+import { readGameSaveRecord, writeGameSave } from "./gameSaves.ts";
+import { claimProgressWriter, progressWriterMatches } from "./progressWriter.ts";
 import { isProgressPreview, storeRecordWithPreviewFallback } from "./progressPreview.ts";
 import type { ZipFileInput } from "../archive/zip.ts";
 import type { ProjectId } from "../project/gameTypes.ts";
+import { earlierProgressReceiptKey } from "../project/earlierProgressReceipt.ts";
+import {
+  parseProgressLocator,
+  type ProgressTarget,
+  type ProjectProgressTarget,
+} from "../project/progressTarget.ts";
 import {
   gameIdentity,
+  projectId,
   type GameIdentity,
   type ResourceRevision,
 } from "../../../src/gameIdentity.ts";
 
 const AUTOSAVE_PREFIX = "monotio_agi.autosave.";
+
+/** Short publication lock; project document commits have a separate IndexedDB fence. */
+export function withCheckpointLock<T>(
+  targetKey: string,
+  operation: () => Promise<T> | T,
+): Promise<T> {
+  const locator = parseProgressLocator(targetKey);
+  const project =
+    locator?.kind === "project" ? locator.project : locator === null ? projectId(targetKey) : null;
+  const locks = typeof navigator === "undefined" ? undefined : navigator.locks;
+  return locks
+    ? locks.request(`monotio_agi.checkpoint.${project ?? targetKey}`, operation)
+    : Promise.resolve(operation());
+}
 
 /**
  * Which entry a stored autosave belongs to: `installed` selects the resume
@@ -43,6 +63,8 @@ export interface AutosaveRecord {
   preview?: string;
   /** Menus are session state and are not present in the AGI save envelope. */
   menus?: EngineMenuState;
+  rng?: HostRngState;
+  writerGeneration?: number;
   cycle: number;
   room: number;
   savedAt: number;
@@ -55,6 +77,39 @@ function autosaveTargetKey(game: AutosaveGame): string {
 
 export function autosaveKey(target: string): string {
   return `${AUTOSAVE_PREFIX}${target}`;
+}
+
+/**
+ * Whether a stored record's embedded identity belongs under `targetKey`.
+ * The physical address decides first: a `project:` locator names the body
+ * id its record must embed, and an `installed:` locator names one exact
+ * folder build, so its records must carry the installed discriminator and
+ * the locator's full revision. A released spelling (a bare project id,
+ * folder, hash or alias) matches on the embedded project exactly as
+ * released reads did.
+ */
+export function autosaveMatchesKey(game: AutosaveGame, targetKey: string): boolean {
+  const parsed = parseProgressLocator(targetKey);
+  if (parsed?.kind === "installed")
+    return game.installed && game.identity.revision === parsed.revision;
+  if (parsed?.kind === "project") {
+    return !game.installed && game.identity.project === parsed.project;
+  }
+  return autosaveTargetKey(game) === targetKey;
+}
+
+/**
+ * The record a target writes must embed the target's own released
+ * identity: the installed discriminator and the full {project, revision}
+ * pair. A record naming another game writes nothing rather than claiming
+ * the address.
+ */
+function autosaveOwnedByTarget(game: AutosaveGame, target: ProgressTarget): boolean {
+  return (
+    game.installed === (target.kind === "installed") &&
+    game.identity.project === target.identity.project &&
+    game.identity.revision === target.identity.revision
+  );
 }
 
 /**
@@ -74,6 +129,12 @@ export function parseAutosaveRecord(raw: unknown): AutosaveRecord | null {
     if (typeof rawGame?.installed !== "boolean" || identity === null) return null;
     parsed.game = { installed: rawGame.installed, identity };
     if (!isProgressPreview(parsed.preview)) delete parsed.preview;
+    if (parsed.rng !== undefined) parsed.rng = readHostRngState(parsed.rng);
+    if (
+      parsed.writerGeneration !== undefined &&
+      (!Number.isSafeInteger(parsed.writerGeneration) || parsed.writerGeneration < 1)
+    )
+      return null;
     return parsed;
   } catch {
     return null;
@@ -84,18 +145,54 @@ export function parseAutosaveRecord(raw: unknown): AutosaveRecord | null {
  * Preserve recognized checkpoints with a future integer version. Malformed
  * and format-less records are replaceable, so corrupt metadata cannot block
  * autosave for good.
+ *
+ * The record is stored under the resolved target's physical locator —
+ * `installed:<folder digest>` or `project:<id>:<body epoch>` — and its
+ * embedded `game` must be the target's own identity, checked field by
+ * field before the write.
+ */
+export function writeAutosave(
+  storage: Pick<Storage, "getItem" | "setItem">,
+  target: ProgressTarget,
+  record: AutosaveRecord,
+): AutosaveRecord | null;
+/**
+ * The released spelling: the record keys itself under its embedded
+ * `game.identity.project`, the pre-target storage key. Kept for callers
+ * still on released storage keys; bound callers pass the ProgressTarget.
  */
 export function writeAutosave(
   storage: Pick<Storage, "getItem" | "setItem">,
   record: AutosaveRecord,
+): AutosaveRecord | null;
+export function writeAutosave(
+  storage: Pick<Storage, "getItem" | "setItem">,
+  targetOrRecord: ProgressTarget | AutosaveRecord,
+  record?: AutosaveRecord,
 ): AutosaveRecord | null {
-  const target = autosaveTargetKey(record.game);
-  if (!target) return null;
-  const key = autosaveKey(target);
+  let key: string;
+  let stored: AutosaveRecord;
+  if (record === undefined) {
+    stored = targetOrRecord as AutosaveRecord;
+    if (stored.format !== "monotio.agi.autosave") return null;
+    const legacyKey = autosaveTargetKey(stored.game);
+    if (!legacyKey) return null;
+    key = autosaveKey(legacyKey);
+  } else {
+    const target = targetOrRecord as ProgressTarget;
+    if (!autosaveOwnedByTarget(record.game, target)) return null;
+    stored = record;
+    key = autosaveKey(target.locator);
+  }
   try {
+    const locator =
+      record === undefined
+        ? autosaveTargetKey(stored.game)
+        : (targetOrRecord as ProgressTarget).locator;
+    if (!progressWriterMatches(storage, locator, stored.writerGeneration)) return null;
     const raw = storage.getItem(key);
     if (raw !== null && isFutureAutosave(raw)) return null;
-    return storeRecordWithPreviewFallback(storage, key, record);
+    return storeRecordWithPreviewFallback(storage, key, stored);
   } catch {
     return null;
   }
@@ -116,88 +213,80 @@ function isFutureAutosave(raw: string): boolean {
 }
 
 /** Where a project archive keeps the player's progress. */
-const AUTOSAVE_FILE = "SAVES/AUTOSAVE.JSON";
-const SLOT_FILE = /^SAVES\/SG\.(1[0-2]|[1-9])$/;
-/** A save image is a few kilobytes; the record adds a bounded PNG preview. */
-const MAX_SAVE_IMAGE_BYTES = 64 * 1024;
-const MAX_AUTOSAVE_RECORD_BYTES = 512 * 1024;
-
-/** Restore checks run against a boot of the imported game itself, not a live session. */
-const RESTORE_CHECK_HOST: EngineHost = {
-  print() {},
-  displayAt() {},
-  statusLine() {},
-  takeInputLine: () => null,
-  takeKeys: () => [],
-};
-
-/**
- * Structural decode is not enough for progress: a save can decode cleanly yet
- * replay resources the archive does not carry, importing as a checkpoint that
- * only fails when the player resumes it. Boot the imported game once and
- * dry-run every image's restore against it; failures name their archive entry.
- */
-function restoreChecker(
-  files: Record<string, Uint8Array>,
-  profile: ProfileId | undefined,
-): (label: string, image: Uint8Array) => void {
-  let engine: Engine | undefined;
-  return (label, image) => {
-    if (!engine) {
-      const words = files["WORDS.TOK"];
-      engine = new Engine(
-        openContainer(new Map(Object.entries(files))),
-        RESTORE_CHECK_HOST,
-        words
-          ? new Map(parseWordsTok(words).map(({ word, id }): [string, number] => [word, id]))
-          : undefined,
-        profile ? { profile } : undefined,
-      );
-    }
-    try {
-      engine.restoreImage(image);
-    } catch (error) {
-      throw new Error(
-        `${label} cannot be restored into this game: ${error instanceof Error ? error.message : String(error)}`,
-        { cause: error },
-      );
-    }
-  };
-}
-
+export const AUTOSAVE_FILE = "SAVES/AUTOSAVE.JSON";
 export interface GameProgress {
+  amigaRegions?: Record<string, "ntsc" | "pal">;
   /** Slot number ("1" to "12") to the raw save image. */
   saves: Record<string, Uint8Array>;
   autosave: AutosaveRecord | null;
 }
 
-/** The progress browser storage holds for a game; a corrupt entry stays behind. */
+/**
+ * The progress browser storage holds for a game; a corrupt entry stays
+ * behind. `target` is the physical address — a resolved `ProgressTarget`
+ * reads under its `locator`, a released spelling reads its own key — and
+ * the autosave's embedded identity must belong under it
+ * (autosaveMatchesKey).
+ */
 export function readGameProgress(
   storage: Pick<Storage, "getItem" | "setItem">,
-  targetKey: string,
+  target: ProgressTarget | string,
 ): GameProgress {
+  const targetKey = typeof target === "string" ? target : target.locator;
+  let releasedAutosave: AutosaveRecord | null = null;
+  // A released checkpoint still belongs to the matching saved body. Reads
+  // preserve its bytes; new writes keep using the bound physical address.
+  try {
+    if (
+      typeof target !== "string" &&
+      target.kind === "project" &&
+      target.bodyEpoch === "initial" &&
+      storage.getItem(earlierProgressReceiptKey(target.project)) === null &&
+      storage.getItem(autosaveKey(targetKey)) === null
+    ) {
+      for (const key of target.legacyKeys) {
+        const released = readGameProgress(storage, key);
+        if (
+          released.autosave !== null &&
+          !released.autosave.game.installed &&
+          released.autosave.game.identity.revision === target.identity.revision &&
+          released.autosave.game.identity.project === target.project
+        )
+          releasedAutosave = released.autosave;
+      }
+    }
+  } catch {
+    /* Storage can refuse reads; the ordinary reader reports an empty result. */
+  }
   const saves: Record<string, Uint8Array> = {};
   let slots: Record<string, string>;
+  let amigaRegions: Record<string, "ntsc" | "pal"> = {};
   try {
-    slots = readGameSaves(storage, targetKey);
+    ({ slots, amigaRegions } = readGameSaveRecord(storage, target));
   } catch {
     slots = {};
   }
   for (const [slot, image] of Object.entries(slots)) {
     try {
-      saves[slot] = fromBase64(image);
+      saves[slot] = base64ToBytes(image);
     } catch {
       /* not a save image */
     }
   }
   let autosave: AutosaveRecord | null;
   try {
-    autosave = parseAutosaveRecord(storage.getItem(autosaveKey(targetKey)));
+    autosave = parseAutosaveRecord(storage.getItem(autosaveKey(targetKey))) ?? releasedAutosave;
   } catch {
     autosave = null;
   }
-  if (autosave && autosaveTargetKey(autosave.game) !== targetKey) autosave = null;
-  return { saves, autosave };
+  if (
+    autosave &&
+    !(typeof target === "string"
+      ? autosaveMatchesKey(autosave.game, targetKey)
+      : autosaveOwnedByTarget(autosave.game, target))
+  )
+    autosave = null;
+  return { saves, autosave, ...(Object.keys(amigaRegions).length ? { amigaRegions } : {}) };
 }
 
 /**
@@ -212,67 +301,14 @@ export function progressEntries(progress: GameProgress): ZipFileInput[] {
     .sort((a, b) => a - b);
   for (const slot of slots)
     entries.push({ name: `SAVES/SG.${slot}`, data: progress.saves[String(slot)]! });
+  if (progress.amigaRegions && Object.keys(progress.amigaRegions).length)
+    entries.push({
+      name: "SAVES/TIMING.JSON",
+      data: JSON.stringify({ amigaRegions: progress.amigaRegions }),
+    });
   if (progress.autosave)
     entries.push({ name: AUTOSAVE_FILE, data: JSON.stringify(progress.autosave) });
   return entries;
-}
-
-/**
- * The progress an archive carries under `root`, checked against the game it
- * arrived with: every slot image and the autosave's image must decode as a
- * save file for the game's interpreter profile. Other names under SAVES/ are
- * ignored; a slot that is not a save file is an error, since a player moving
- * between machines would otherwise lose it without a word.
- */
-export function readProgressEntries(
-  entries: ReadonlyMap<string, Uint8Array>,
-  root: string,
-  files: Record<string, Uint8Array>,
-  override?: ProfileId,
-): GameProgress | undefined {
-  const saves: Record<string, Uint8Array> = {};
-  let autosaveBytes: Uint8Array | undefined;
-  for (const [path, bytes] of entries) {
-    if (!path.startsWith(root)) continue;
-    const name = path.slice(root.length);
-    if (name === AUTOSAVE_FILE) autosaveBytes = bytes;
-    else {
-      const slot = SLOT_FILE.exec(name)?.[1];
-      if (slot) saves[slot] = bytes;
-    }
-  }
-  if (autosaveBytes === undefined && Object.keys(saves).length === 0) return undefined;
-  // Saves decode under the interpreter the game boots under.
-  const profile = detectProfile(new Map(Object.entries(files)), override);
-  const restores = restoreChecker(files, override);
-  for (const [slot, image] of Object.entries(saves)) {
-    if (image.length > MAX_SAVE_IMAGE_BYTES)
-      throw new Error(`SAVES/SG.${slot} is too large to be a save file.`);
-    try {
-      decodeSave(image, profile);
-    } catch {
-      throw new Error(`SAVES/SG.${slot} is not a save file for this game.`);
-    }
-    restores(`SAVES/SG.${slot}`, image);
-  }
-  let autosave: AutosaveRecord | null = null;
-  if (autosaveBytes) {
-    if (autosaveBytes.length > MAX_AUTOSAVE_RECORD_BYTES)
-      throw new Error("SAVES/AUTOSAVE.JSON is too large to be an autosave record.");
-    const parsed = parseAutosaveRecord(new TextDecoder().decode(autosaveBytes));
-    if (!parsed)
-      throw new Error("SAVES/AUTOSAVE.JSON is not an autosave record this app understands.");
-    let hostImage: Uint8Array;
-    try {
-      hostImage = fromBase64(parsed.image);
-      decodeSave(decodeHostImage(hostImage).image, profile);
-    } catch {
-      throw new Error("SAVES/AUTOSAVE.JSON does not hold a save image for this game.");
-    }
-    restores("SAVES/AUTOSAVE.JSON", hostImage);
-    autosave = parsed;
-  }
-  return { saves, autosave };
 }
 
 /** What an import actually persisted: browser storage can refuse any single entry. */
@@ -290,12 +326,14 @@ export interface ImportStorageReport {
 }
 
 /**
- * Store imported progress under the project ID the game received. The
- * autosave is re-addressed to that project ID and to the imported revision: the
- * export compacts the container, so the bytes it wrote are not the bytes the
- * autosave hashed, and the interpreter restores its saves without such a
- * check anyway. What is checked is that every image decodes for the game's
- * profile and restores against the imported archive (readProgressEntries).
+ * Store imported progress under the destination body's physical target —
+ * the `project:<id>:<epoch>` locator of the stored body that was just
+ * written. The autosave is re-addressed to that body's released identity:
+ * the export compacts the container, so the bytes it wrote are not the
+ * bytes the autosave hashed, and the interpreter restores its saves
+ * without such a check anyway. What is checked is that every image decodes
+ * for the game's profile and restores against the imported archive
+ * (readProgressEntries).
  *
  * A storage failure mid-import is not hidden: the report names every entry
  * that landed and every entry storage refused, so the caller never presents a
@@ -303,34 +341,67 @@ export interface ImportStorageReport {
  */
 export function storeImportedProgress(
   storage: Pick<Storage, "getItem" | "setItem">,
+  target: ProjectProgressTarget,
+  progress: GameProgress,
+): ImportStorageReport;
+/**
+ * The released spelling: imported progress lands under the bare project id
+ * and the imported revision. Kept for callers not yet bound to a target.
+ */
+export function storeImportedProgress(
+  storage: Pick<Storage, "getItem" | "setItem">,
   projectId: ProjectId,
   revision: ResourceRevision,
   progress: GameProgress,
+): ImportStorageReport;
+export function storeImportedProgress(
+  storage: Pick<Storage, "getItem" | "setItem">,
+  targetOrId: ProjectProgressTarget | ProjectId,
+  revisionOrProgress: ResourceRevision | GameProgress,
+  maybeProgress?: GameProgress,
 ): ImportStorageReport {
   const report: ImportStorageReport = { slots: [], failedSlots: [], autosave: null };
+  const locator = typeof targetOrId === "string" ? targetOrId : targetOrId.locator;
+  const identity: GameIdentity =
+    typeof targetOrId === "string"
+      ? { project: targetOrId, revision: revisionOrProgress as ResourceRevision }
+      : targetOrId.identity;
+  const progress = (maybeProgress ?? revisionOrProgress) as GameProgress;
   const slots = Object.keys(progress.saves)
     .map(Number)
     .filter((slot) => Number.isInteger(slot))
     .sort((a, b) => a - b);
+  let writerGeneration: number;
+  try {
+    writerGeneration = claimProgressWriter(storage, { locator }, "archive-import").generation;
+  } catch {
+    report.failedSlots = slots;
+    return report;
+  }
   for (const slot of slots) {
-    if (writeGameSave(storage, projectId, slot, toBase64(progress.saves[String(slot)]!)))
+    if (
+      writeGameSave(
+        storage,
+        locator,
+        slot,
+        bytesToBase64(progress.saves[String(slot)]!),
+        progress.amigaRegions?.[String(slot)],
+        writerGeneration,
+      )
+    )
       report.slots.push(slot);
     else report.failedSlots.push(slot);
   }
-  if (progress.autosave)
-    report.autosave = writeAutosave(storage, {
+  if (progress.autosave) {
+    const record: AutosaveRecord = {
       ...progress.autosave,
-      game: { installed: false, identity: { project: projectId, revision } },
-    });
+      writerGeneration,
+      game: { installed: false, identity },
+    };
+    report.autosave =
+      typeof targetOrId === "string"
+        ? writeAutosave(storage, record)
+        : writeAutosave(storage, targetOrId, record);
+  }
   return report;
-}
-
-function toBase64(bytes: Uint8Array): string {
-  let binary = "";
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary);
-}
-
-function fromBase64(text: string): Uint8Array {
-  return Uint8Array.from(atob(text), (c) => c.charCodeAt(0));
 }

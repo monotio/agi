@@ -33,11 +33,11 @@ export interface StudioSelectionOptions {
 /** Row id of a selection of two rows or more (not a valid item id). */
 const SEVERAL = "(selection)";
 
-/** "Bench, depth, 4 steps". */
-export function describeRow(row: Pick<SceneRow, "label" | "kind" | "entries">): string {
+/** "Green line · 7 points, art, 2 steps". */
+export function describeRow(row: Pick<SceneRow, "display" | "kind" | "entries">): string {
   const n = row.entries.length;
   const kind = row.kind === "loose" ? "not in an item" : row.kind;
-  return `${row.label}, ${kind}, ${n} ${n === 1 ? "step" : "steps"}`;
+  return `${row.display}, ${kind}, ${n} ${n === 1 ? "step" : "steps"}`;
 }
 
 export function useStudioSelection({
@@ -99,6 +99,7 @@ export function useStudioSelection({
     return {
       id: SEVERAL,
       label: `${itemIds.value.length} items`,
+      display: `${itemIds.value.length} items`,
       kind: kinds.size === 1 && kind !== undefined ? kind : "mixed",
       locked: parts.every((row) => row.locked),
       entries: [...new Set(parts.flatMap((row) => row.entries))].sort((a, b) => a - b),

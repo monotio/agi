@@ -7,8 +7,8 @@ test("a shared picture names the rooms it is shared with and opens in Studio", (
     { built: true, runtime: false, pictures: [{ picture: 5, exists: true, sharedWith: [6] }] },
     false,
   );
-  assert.equal(labels.chip, "PIC 5 · shared");
-  assert.equal(labels.detail, "PIC 5 · shared with room 6");
+  assert.equal(labels.chip, "PICTURE 5 · shared");
+  assert.equal(labels.detail, "PICTURE 5 · shared with Room 6");
   assert.deepEqual(labels.studioPictures, [5]);
   assert.equal(labels.studioBlocked, undefined);
   assert.equal(
@@ -20,7 +20,7 @@ test("a shared picture names the rooms it is shared with and opens in Studio", (
       },
       false,
     ).detail,
-    "PIC 5 · shared with rooms 2, 6 and 9",
+    "PICTURE 5 · shared with Room 2, Room 6 and Room 9",
   );
 });
 
@@ -34,12 +34,12 @@ test("runtime, missing, unbuilt and pictureless rooms explain why Studio cannot 
     { built: true, runtime: true, pictures: [{ picture: 7, exists: false, sharedWith: [] }] },
     false,
   );
-  assert.equal(missing.chip, "PIC 7");
+  assert.equal(missing.chip, "PICTURE 7");
   assert.equal(
     missing.detail,
-    "PIC 7 · not in this game's resources, plus a picture chosen at runtime",
+    "PICTURE 7 · not in this game's resources, plus a picture chosen at runtime",
   );
-  assert.match(missing.studioBlocked ?? "", /PIC 7 is not in this game's resources/);
+  assert.match(missing.studioBlocked ?? "", /PICTURE 7 is not in this game's resources/);
   assert.deepEqual(missing.studioPictures, []);
 
   const planned = roomPictureLabels({ built: false, runtime: false, pictures: [] }, true);
@@ -64,7 +64,20 @@ test("a room that draws several pictures offers each existing one to Studio, in 
     },
     false,
   );
-  assert.equal(labels.chip, "PIC 1, PIC 9, PIC 4");
+  assert.equal(labels.chip, "PICTURE 1, PICTURE 9, PICTURE 4");
   assert.deepEqual(labels.studioPictures, [1, 4]);
   assert.equal(labels.studioBlocked, undefined);
+});
+
+test("picture chips and shared-room references resolve creator names", () => {
+  const labels = roomPictureLabels(
+    { built: true, runtime: false, pictures: [{ picture: 5, exists: true, sharedWith: [6] }] },
+    false,
+    {
+      bindings: { garden_picture: { kind: "picture", num: 5 } },
+      rooms: [{ room: 6, title: "Garden" }],
+    },
+  );
+  assert.equal(labels.chip, "garden_picture (PICTURE 5) · shared");
+  assert.equal(labels.detail, "garden_picture (PICTURE 5) · shared with Garden (Room 6)");
 });

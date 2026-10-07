@@ -11,10 +11,143 @@ import { resourceCacheHint } from "../../../src/agent/authoringState.ts";
 import { base64ToBytes, bytesToBase64 } from "../project/bytes.ts";
 import { AUTOSAVE_INTERVAL_MS } from "./autosave.ts";
 import type { WorkerContext } from "./context.ts";
-import { resetSession } from "./session.ts";
-import type { BootMessage, WorkerInbound } from "./workerProtocol.ts";
+import { replaceRun, detachedHost, type PreparedRun } from "./runSession.ts";
+import { readHostRngState } from "../../../src/runtime/rng.ts";
+import { controllerDemand, ensureDebugController } from "./debugLoader.ts";
+import type { BootMessage, WorkerControl, WorkerInbound } from "./workerProtocol.ts";
+import { prepareCreateProgress, returnToPlay } from "./resumePoint.ts";
+
+/**
+ * Replay the messages the gate held while the controller module loaded —
+ * in arrival order, demand first — through the normal dispatch.
+ */
+function drainDebugQueue(ctx: WorkerContext): void {
+  const pending = ctx.debuggerLoader.queue;
+  ctx.debuggerLoader.queue = [];
+  for (const msg of pending) onWorkerMessage(ctx, msg);
+}
+
+/**
+ * Whether an inbound must wait on the controller's one-shot lazy load:
+ * every `debug*` command demands it — and kicks the import off — while
+ * everything else queues only behind an in-flight load. A settled failure
+ * falls through to the inert hooks, which refuse explicitly.
+ */
+function debugLoadGate(ctx: WorkerContext, msg: WorkerInbound): boolean {
+  const loader = ctx.debuggerLoader;
+  if (loader.installed) return false;
+  if (loader.failed) return false;
+  if (loader.loading === null && !controllerDemand(msg)) return false;
+  if (loader.loading === null) {
+    void ensureDebugController(ctx).then(() => drainDebugQueue(ctx));
+  }
+  loader.queue.push(msg);
+  return true;
+}
 
 export function onWorkerMessage(ctx: WorkerContext, msg: WorkerInbound): void {
+  if (msg.type === "playOwner") {
+    const epoch = msg.epoch ?? ctx.run.owner.epoch;
+    if (
+      !Number.isSafeInteger(epoch) ||
+      epoch < ctx.run.owner.epoch ||
+      !Number.isSafeInteger(msg.generation) ||
+      msg.generation < 0 ||
+      (epoch === ctx.run.owner.epoch && msg.generation < ctx.run.owner.generation)
+    )
+      return;
+    ctx.run.owner.active = msg.active;
+    ctx.run.owner.generation = msg.generation;
+    ctx.run.owner.epoch = epoch;
+    if (msg.active) {
+      const answers = ctx.run.owner.answers;
+      ctx.run.owner.answers = [];
+      for (const answer of answers) ctx.fns.onHostAnswer({ type: "hostAnswer", ...answer });
+    }
+    return;
+  }
+  const loader = ctx.projectLoader;
+  if (
+    loader.loading !== null ||
+    (((msg.type === "boot" && msg.projectMode === "create") || msg.type === "projectCreate") &&
+      !loader.installed)
+  ) {
+    loader.queue.push(msg);
+    if (loader.loading === null) {
+      loader.loading = import("./projectAdmission.ts")
+        .then(
+          ({
+            createProjectAdmission,
+            projectAdmissionIdentity,
+            enterProjectCreate,
+            prepareProjectAdmissionReplacement,
+            prepareProjectBoot,
+          }) => {
+            Object.assign(
+              ctx.fns,
+              createProjectAdmission(ctx, { lane: () => ctx.run.projectAdmission }),
+            );
+            loader.prepareBoot = (engine, boot) => prepareProjectBoot(ctx, engine, boot);
+            loader.identity = () => projectAdmissionIdentity(ctx, ctx.run.projectAdmission);
+            loader.prepareReplacement = (engine, project) =>
+              prepareProjectAdmissionReplacement(ctx, engine, project);
+            loader.enterCreate = (request) => enterProjectCreate(ctx, request);
+            loader.installed = true;
+          },
+        )
+        .catch((error: unknown) => {
+          ctx.ports.control({
+            type: "error",
+            message: `Project admission failed to load: ${String(error)}`,
+          });
+          loader.queue = [];
+        })
+        .finally(() => {
+          loader.loading = null;
+          const pending = loader.queue;
+          loader.queue = [];
+          for (const held of pending) onWorkerMessage(ctx, held);
+        });
+    }
+    return;
+  }
+  if (msg.type === "projectCreate") {
+    loader.enterCreate!(msg);
+    return;
+  }
+  if (msg.type === "imageHeroPreview") {
+    const lane = ctx.run.projectAdmission;
+    if (lane === null || lane.engine !== ctx.run.engine || lane.runToken !== msg.runToken) return;
+    const serial = (ctx.imagePreviewSerial ?? 0) + 1;
+    ctx.imagePreviewSerial = serial;
+    ctx.imageHeroPreview = undefined;
+    ctx.imagePreviewEngine = undefined;
+    if (msg.bytes === null) {
+      ctx.fns.postFrame();
+      return;
+    }
+    void import("./imageHeroPreview.ts")
+      .then(({ createImageHeroPreview }) => {
+        if (
+          ctx.run.projectAdmission !== lane ||
+          ctx.run.engine !== lane.engine ||
+          ctx.imagePreviewSerial !== serial
+        )
+          return;
+        ctx.imagePreviewEngine = lane.engine;
+        ctx.imageHeroPreview = createImageHeroPreview(
+          lane.engine,
+          msg.bytes!,
+          ctx.run.cycle.cycleCount,
+        );
+        ctx.fns.postFrame();
+      })
+      .catch(() => {
+        /* Invalid previews leave the game presentation intact. */
+      });
+    return;
+  }
+  if (debugLoadGate(ctx, msg)) return;
   const control = ctx.ports.control;
   try {
     if (msg.type === "pause") {
@@ -67,8 +200,8 @@ export function onWorkerMessage(ctx: WorkerContext, msg: WorkerInbound): void {
         id: msg.id,
         batches: [...ctx.history.sent, ...ctx.history.queue.map((entry) => entry.batch)],
         boot: ctx.fns.historySnapshot(),
-        cycle: ctx.cycle.cycleCount,
-        room: ctx.engine?.vars[0] ?? 0,
+        cycle: ctx.run.cycle.cycleCount,
+        room: ctx.run.engine?.vars[0] ?? 0,
       });
       return;
     }
@@ -99,6 +232,10 @@ export function onWorkerMessage(ctx: WorkerContext, msg: WorkerInbound): void {
       ctx.fns.onReplayAdvance(msg);
       return;
     }
+    if (msg.type === "replayPause") {
+      ctx.fns.onReplayPause(msg);
+      return;
+    }
     if (msg.type === "replaySnapshot") {
       ctx.fns.onReplaySnapshot(msg);
       return;
@@ -119,7 +256,7 @@ export function onWorkerMessage(ctx: WorkerContext, msg: WorkerInbound): void {
       control({
         type: "engineState",
         id: msg.id,
-        state: ctx.engine ? ctx.engine.readState() : null,
+        state: ctx.run.engine ? ctx.run.engine.readState() : null,
       });
       return;
     }
@@ -127,7 +264,7 @@ export function onWorkerMessage(ctx: WorkerContext, msg: WorkerInbound): void {
       control({
         type: "objects",
         id: msg.id,
-        objects: ctx.engine ? ctx.engine.readObjects() : [],
+        objects: ctx.run.engine ? ctx.run.engine.readObjects() : [],
       });
       return;
     }
@@ -136,6 +273,17 @@ export function onWorkerMessage(ctx: WorkerContext, msg: WorkerInbound): void {
       return;
     }
     if (msg.type === "debugWrite") {
+      // While the execution controller owns the run, the legacy direct
+      // write is refused: mutation goes through the atomic debugSetValues
+      // path, which publishes a fresh pinned stop instead.
+      if (ctx.fns.debugAttached()) {
+        control({
+          type: "debugWritten",
+          id: msg.id,
+          error: "debugWrite is disabled while the debugger owns execution; use debugSetValues.",
+        });
+        return;
+      }
       ctx.fns.historyRecord({
         kind: "debugWrite",
         vars: msg.vars ?? [],
@@ -144,12 +292,60 @@ export function onWorkerMessage(ctx: WorkerContext, msg: WorkerInbound): void {
       ctx.fns.onDebugWrite(msg);
       return;
     }
+    if (msg.type === "debugAttach") {
+      ctx.fns.onDebugAttach(msg);
+      return;
+    }
+    if (msg.type === "debugDetach") {
+      ctx.fns.onDebugDetach(msg);
+      return;
+    }
+    if (msg.type === "debugConfigure") {
+      ctx.fns.onDebugConfigure(msg);
+      return;
+    }
+    if (msg.type === "debugPause") {
+      ctx.fns.onDebugPause(msg);
+      return;
+    }
+    if (msg.type === "debugResume") {
+      ctx.fns.onDebugResume(msg);
+      return;
+    }
+    if (msg.type === "debugRunTo") {
+      ctx.fns.onDebugRunTo(msg);
+      return;
+    }
+    if (msg.type === "debugInspect") {
+      ctx.fns.onDebugInspect(msg);
+      return;
+    }
+    if (msg.type === "debugEvaluate") {
+      ctx.fns.onDebugEvaluate(msg);
+      return;
+    }
+    if (msg.type === "debugSetValues") {
+      ctx.fns.onDebugSetValues(msg);
+      return;
+    }
     if (msg.type === "debugEvents") {
       ctx.fns.onDebugEvents(msg);
       return;
     }
     if (msg.type === "debugTrace") {
       ctx.fns.onDebugTrace(msg);
+      return;
+    }
+    if (msg.type === "previewUpdate") {
+      // The play-preview lane's own transaction: a complete candidate,
+      // staged detached and committed at a strict idle boundary — never a
+      // patch, never a metadata patch, never a reset. Every context that
+      // did not grant the lane gets an explicit refused result.
+      ctx.fns.onPreviewUpdate(msg);
+      return;
+    }
+    if (msg.type === "previewUpdateStatus") {
+      ctx.fns.onPreviewStatus(msg);
       return;
     }
     if (msg.type === "traceAck") {
@@ -174,9 +370,9 @@ export function onWorkerMessage(ctx: WorkerContext, msg: WorkerInbound): void {
     }
     if (msg.type === "exportFiles") {
       // Explicit local downloads work even while a print window is open.
-      const files: Record<string, Uint8Array> | null = ctx.engine ? {} : null;
-      if (files && ctx.engine) {
-        for (const [name, bytes] of ctx.engine.containerFiles) files[name] = bytes.slice();
+      const files: Record<string, Uint8Array> | null = ctx.run.engine ? {} : null;
+      if (files && ctx.run.engine) {
+        for (const [name, bytes] of ctx.run.engine.containerFiles) files[name] = bytes.slice();
         if (ctx.boot.authoredWords) files["WORDS.TOK"] = ctx.boot.authoredWords;
       }
       control({ type: "exportFiles", id: msg.id, files });
@@ -192,76 +388,105 @@ export function onWorkerMessage(ctx: WorkerContext, msg: WorkerInbound): void {
     }
     if (msg.type === "boot") {
       const boot: BootMessage = msg;
-      // A fresh session discards any open history view — its scratch engine
-      // and pending request settle before the reset wipes the live one.
-      ctx.fns.onHistoryViewEnd();
-      ctx.replay.currentSessionId = typeof boot.sessionId === "number" ? boot.sessionId : 0;
-      ctx.replay.replay = Number.isInteger(boot.replaySeed)
-        ? { tick: 0, revision: 0, random: boot.replaySeed! & 0xffff }
-        : null;
-      ctx.replay.reseeds = [];
-      ctx.replay.reseedCursor = 0;
-      ctx.replay.historyReplay = false;
-      ctx.replay.snapshots.clear();
+      const replay = Number.isInteger(boot.replaySeed) ? { tick: 0, revision: 0 } : null;
       const files = new Map<string, Uint8Array>(Object.entries(boot.files));
-      ctx.boot.liveDictionary = new Map<string, number>(boot.words);
-      ctx.boot.currentBootFiles = files;
-      ctx.boot.currentDictionary = ctx.boot.liveDictionary;
-      ctx.replay.lastReplaySeed = Number.isInteger(boot.replaySeed) ? boot.replaySeed! : null;
-      ctx.boot.authoredWords = null;
-      ctx.boot.authorRooms = boot.authorRooms === true;
-      ctx.boot.selectedSoundDevice = boot.soundDevice === 0 ? 0 : 1;
-      ctx.boot.profile = boot.profile ?? null;
-      ctx.engine = new Engine(
-        openContainer(files),
-        ctx.host,
-        ctx.boot.liveDictionary,
-        ctx.boot.profile ? { profile: ctx.boot.profile } : undefined,
+      const dictionary = new Map<string, number>(boot.words);
+      const facade = detachedHost(ctx, boot.soundDevice === 0 ? 0 : 1);
+      const engine = new Engine(
+        openContainer(files, boot.profile ? { profile: boot.profile } : {}),
+        facade.host,
+        dictionary,
+        {
+          ...(boot.profile ? { profile: boot.profile } : {}),
+          amigaRegion: boot.amigaRegion ?? "ntsc",
+        },
       );
-      ctx.fns.armJournal();
-      // Browser sessions start with game sound enabled; saved games restore their own flag.
-      ctx.engine.flags[9] = 1;
-      // A boot clears the in-flight request and key wait silently: the worker
-      // is fresh, there is no host UI or parked wait to resolve.
-      ctx.hostRequests.hostRequestOutstanding = null;
-      ctx.input.keyWaiting = false;
-      ctx.replay.isSeeking = false;
-      // v10 selects the number of 50ms timer increments between logic cycles.
-      // Modal/input presentation remains responsive at the host polling cadence.
-      resetSession(ctx);
-      ctx.autosave.autosaveIntervalMs = Number(boot.autosaveMs ?? AUTOSAVE_INTERVAL_MS);
-      ctx.autosave.autosaveFiles = boot.autosaveFiles === true;
-      ctx.autosave.lastAutosaveAt = Date.now();
-      ctx.autosave.lastAutosaveCycle = -1;
-      ctx.autosave.lastPatchGeneration = ctx.engine.patchGeneration;
-      // Autosave resume: replay the stored image into the engine before it has
-      // run a single cycle, through the same restore path restore.game uses.
-      // A corrupt or profile-mismatched image throws out of the decode with no
-      // state touched, so the game just carries on with its normal boot.
-      if (typeof boot.restoreImage === "string" && boot.restoreImage) {
+      engine.flags[9] = 1;
+      let restored: Extract<WorkerControl, { type: "restored" }> | undefined;
+      if (boot.restoreImage) {
         try {
-          ctx.engine.restoreImage(base64ToBytes(boot.restoreImage));
-          ctx.engine.restoreMenuState(boot.restoreMenus);
-          const restored = ctx.engine.readState();
-          control({
+          engine.restoreImage(base64ToBytes(boot.restoreImage));
+          engine.restoreMenuState(boot.restoreMenus);
+          const state = engine.readState();
+          restored = {
             type: "restored",
             ok: true,
-            room: restored.room,
-            egoX: restored.egoX,
-            egoY: restored.egoY,
-          });
-          // A checkpoint parked at a have.key wait restores still waiting:
-          // the host needs the flag to route the answering key back.
-          if (ctx.engine.awaitingKey) ctx.fns.setKeyWaiting(true);
-        } catch (e) {
-          control({ type: "restored", ok: false, message: String(e) });
+            room: state.room,
+            egoX: state.egoX,
+            egoY: state.egoY,
+          };
+        } catch (cause) {
+          restored = { type: "restored", ok: false, message: String(cause) };
         }
       }
-      // The always-on recording opens its segment once the engine is restored:
-      // the boot record carries the image the session resumed from.
+      const admission =
+        boot.projectMode === "create" ? loader.prepareBoot?.(engine, boot) : undefined;
+      // Lazy zero-state startup: docs/fidelity.md, "Host RNG policy".
+      const rng = replay
+        ? {
+            word: boot.replaySeed! & 0xffff,
+            policy:
+              boot.replayRngVersion === 2
+                ? { kind: "sequence" as const, next: boot.replaySeed! & 0xffff, cursor: 0 }
+                : { kind: "external" as const },
+          }
+        : boot.restoreRng === undefined
+          ? { word: (boot.rngSeed ?? 0) & 0xffff, policy: { kind: "external" as const } }
+          : readHostRngState(boot.restoreRng);
+      const prepared: PreparedRun = {
+        engine,
+        dictionary,
+        admission: admission?.lane ?? null,
+        project: admission?.project,
+        rng,
+        replay: {
+          ...ctx.replay,
+          currentSessionId: typeof boot.sessionId === "number" ? boot.sessionId : 0,
+          replay,
+          rngVersion: boot.replayRngVersion ?? 1,
+          lastReplaySeed: replay ? boot.replaySeed! : null,
+          reseeds: [],
+          reseedCursor: 0,
+          historyReplay: false,
+          snapshots: new Map(),
+          replayRequest: null,
+          isSeeking: false,
+        },
+        activate: facade.activate,
+        paused: false,
+        settings: {
+          authorRooms: boot.authorRooms === true,
+          createAllowed: true,
+          selectedSoundDevice: boot.soundDevice === 0 ? 0 : 1,
+        },
+        autosave: {
+          autosaveIntervalMs: Number(boot.autosaveMs ?? AUTOSAVE_INTERVAL_MS),
+          autosaveFiles: boot.autosaveFiles === true,
+        },
+      };
+      if ((boot.progressMode ?? (boot.projectMode === "create" ? "create" : "play")) === "create")
+        prepared.progress = prepareCreateProgress(ctx, prepared);
+      replaceRun(ctx, "boot", prepared);
+      if (restored) control(restored);
+      ctx.fns.setKeyWaiting(engine.awaitingKey);
+      // The always-on recording opens its segment once the engine is
+      // restored: the boot record carries the image the session resumed
+      // from.
       ctx.fns.historyBoot(boot);
       if (!ctx.replay.replay) ctx.fns.startTimers();
-      control({ type: "booted", profile: ctx.engine.profile.id, kind: ctx.engine.profileKind });
+      control({
+        type: "booted",
+        profile: engine.profile.id,
+        kind: engine.profileKind,
+        ...(ctx.run.projectAdmission !== null
+          ? {
+              projectAdmission: {
+                runToken: ctx.run.projectAdmission.runToken,
+                identity: loader.identity!()!,
+              },
+            }
+          : {}),
+      });
       ctx.fns.postReplay(null);
       return;
     }
@@ -278,16 +503,21 @@ export function onWorkerMessage(ctx: WorkerContext, msg: WorkerInbound): void {
       return;
     }
     if (msg.type === "patchMetadata") {
-      if (!ctx.engine) return;
+      if (!ctx.run.engine) return;
       const files = msg.files;
-      if (ctx.recording.recording && (files["WORDS.TOK"] || files["OBJECT"]))
-        ctx.recording.recording.tainted = "Game resources changed during recording.";
+      if (ctx.run.recording.recording && (files["WORDS.TOK"] || files["OBJECT"]))
+        ctx.run.recording.recording.tainted = "Game resources changed during recording.";
       const words = files["WORDS.TOK"] ? new Uint8Array(files["WORDS.TOK"]) : undefined;
       const objects = files["OBJECT"] ? new Uint8Array(files["OBJECT"]) : undefined;
       const tests = files["TESTS.JSON"] ? new Uint8Array(files["TESTS.JSON"]) : undefined;
+      // A pinned debug stop or an armed parked pass has no patchable
+      // boundary: refuse rather than dropping the stop for a patch that
+      // cannot apply. Resume or detach first.
+      if (ctx.fns.debugCaptureBlocked())
+        throw new Error("Cannot patch metadata while execution is stopped or parked mid-cycle.");
       // Validate the dictionary before changing either the container or parser.
       const entries = words ? parseWordsTok(words) : undefined;
-      ctx.engine.patchAuxiliaryFiles({
+      ctx.run.engine.patchAuxiliaryFiles({
         ...(words ? { words } : {}),
         ...(objects ? { objects } : {}),
         ...(tests ? { tests } : {}),
@@ -303,6 +533,7 @@ export function onWorkerMessage(ctx: WorkerContext, msg: WorkerInbound): void {
         ...(objects ? { object: bytesToBase64(objects) } : {}),
         ...(tests ? { tests: bytesToBase64(tests) } : {}),
       });
+      ctx.fns.debugSessionReplaced();
       control({ type: "metadataPatched" });
       return;
     }
@@ -319,19 +550,27 @@ export function onWorkerMessage(ctx: WorkerContext, msg: WorkerInbound): void {
           patchGen,
           error,
         });
-      if (!ctx.engine) {
+      if (!ctx.run.engine) {
         refused(0, "No game is running.");
         return;
       }
-      if (ctx.recording.recording)
-        ctx.recording.recording.tainted = "Game resources changed during recording.";
+      if (ctx.run.recording.recording)
+        ctx.run.recording.recording.tainted = "Game resources changed during recording.";
+      // Same refusal: the pinned stop survives a patch that cannot apply.
+      if (ctx.fns.debugCaptureBlocked()) {
+        refused(
+          ctx.run.engine.patchGeneration,
+          "Cannot patch resources while execution is stopped or parked mid-cycle.",
+        );
+        return;
+      }
       try {
         // All or none: a refusal leaves every resource on its old bytes.
-        ctx.engine.patchResources(resources);
+        ctx.run.engine.patchResources(resources);
       } catch (e) {
         // The ack names the refusal for a caller awaiting it; the rethrow
         // keeps the session error every patch sender has always raised.
-        refused(ctx.engine.patchGeneration, String(e));
+        refused(ctx.run.engine.patchGeneration, String(e));
         throw e;
       }
       for (const { kind, num, payload } of resources)
@@ -341,6 +580,7 @@ export function onWorkerMessage(ctx: WorkerContext, msg: WorkerInbound): void {
           num,
           data: bytesToBase64(payload),
         });
+      ctx.fns.debugSessionReplaced();
       control({
         type: "patched",
         resources: resources.map(({ kind, num, payload }) => ({
@@ -348,7 +588,7 @@ export function onWorkerMessage(ctx: WorkerContext, msg: WorkerInbound): void {
           num,
           hint: resourceCacheHint(payload),
         })),
-        patchGen: ctx.engine.patchGeneration,
+        patchGen: ctx.run.engine.patchGeneration,
       });
       return;
     }
@@ -367,21 +607,50 @@ export function onWorkerMessage(ctx: WorkerContext, msg: WorkerInbound): void {
       return;
     }
     if (msg.type === "soundEnabled") {
-      if (!ctx.engine) return;
-      ctx.recording.recording?.tape.record(["soundEnabled", msg.enabled ? 1 : 0]);
-      ctx.engine.setSoundEnabled(msg.enabled);
+      if (!ctx.run.engine) return;
+      ctx.run.recording.recording?.tape.record(["soundEnabled", msg.enabled ? 1 : 0]);
+      ctx.run.engine.setSoundEnabled(msg.enabled);
       ctx.fns.historyRecord({ kind: "sound", enabled: msg.enabled === true });
       ctx.fns.postFrame();
       return;
     }
+    if (msg.type === "authorRooms") {
+      if (ctx.boot.authorRooms === msg.enabled) return;
+      ctx.fns.historyEnd("resume");
+      ctx.boot.authorRooms = msg.enabled;
+      if (ctx.run.recording.recording)
+        ctx.run.recording.recording.tainted = "Room generation changed during recording.";
+      ctx.fns.historyResume();
+      return;
+    }
     if (msg.type === "soundDevice") {
-      if (ctx.recording.recording)
-        ctx.recording.recording.tainted = "The sound device changed during recording.";
+      if (ctx.run.recording.recording)
+        ctx.run.recording.recording.tainted = "The sound device changed during recording.";
       const device = msg.device === 0 ? 0 : 1;
-      if (device !== ctx.boot.selectedSoundDevice) ctx.engine?.stopSound();
+      if (device !== ctx.boot.selectedSoundDevice) ctx.run.engine?.stopSound();
       ctx.boot.selectedSoundDevice = device;
-      if (ctx.engine) ctx.engine.vars[22] = device === 0 ? 1 : 3;
+      if (ctx.run.engine) ctx.run.engine.vars[22] = device === 0 ? 1 : 3;
       ctx.fns.historyRecord({ kind: "device", device });
+      return;
+    }
+    if (msg.type === "projectPlay") {
+      ctx.previewVisitSerial++;
+      try {
+        returnToPlay(ctx, msg.restart);
+        if (msg.id !== undefined) control({ type: "projectPlayed", id: msg.id, ok: true });
+      } catch (cause) {
+        const reason = cause instanceof Error ? cause.message : String(cause);
+        if (msg.id === undefined) throw cause;
+        control({ type: "projectPlayed", id: msg.id, ok: false, reason });
+      }
+      return;
+    }
+    if (msg.type === "observeSentences") {
+      ctx.run.input.observeSentences = msg.enabled;
+      if (!msg.enabled) {
+        ctx.run.input.sentence = null;
+        ctx.fns.applyTraceChannel();
+      }
       return;
     }
     if (msg.type === "input") {

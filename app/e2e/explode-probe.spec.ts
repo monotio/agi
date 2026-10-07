@@ -1,13 +1,12 @@
 import { cacheGame, textHook, openInspector } from "./engineProbe.ts";
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./test.ts";
 import { testProjectId } from "../test/identity.ts";
 import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import { buildView } from "../../src/view/view.ts";
 
-test.use({ headless: process.platform !== "darwin" });
-
 test("explode screenshot", async ({ page }) => {
+  await page.clock.install();
   const game = createContainer();
   game.putResource(
     "picture",
@@ -52,7 +51,10 @@ test("explode screenshot", async ({ page }) => {
   await expect.poll(async () => (await textHook(page)).modal).toBe("print");
   await openInspector(page);
   await page.getByTestId("dbg-mode-explode").click();
+  await expect(page.getByTestId("dbg-mode-explode")).toHaveAttribute("aria-checked", "true");
   await page.getByTestId("dbg-collapse").click();
-  await page.waitForTimeout(900);
-  await page.getByTestId("gpu-canvas").screenshot({ path: "test-results/explode-gpu.png" });
+  await page.clock.runFor(900);
+  await page
+    .getByTestId("gpu-canvas")
+    .screenshot({ path: test.info().outputPath("explode-gpu.png") });
 });

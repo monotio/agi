@@ -1,21 +1,23 @@
-import { providerReply } from "../../test/provider-stream.ts";
-import { expect, test, keepDetectedProfile } from "./test.ts";
 import { readFile } from "node:fs/promises";
-import { readGameZip } from "../src/archive/gameZip.ts";
 import { openContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
-import { buildZip } from "../src/archive/zip.ts";
 import { disassembleLogic } from "../../src/logic/disassembler.ts";
+import { providerReply } from "../../test/provider-stream.ts";
+import { readGameZip } from "../src/archive/gameZip.ts";
+import { buildZip } from "../src/archive/zip.ts";
 import {
   configureAi,
+  downloadFromSettings,
+  enterCreateMode,
   isolateStorage,
   openDeveloperActivity,
-  openGameOptions,
+  openGameDownload,
   openLibraryActions,
+  openWorkspaceAgent,
   savedGameCard,
   textHook,
-  enterCreateMode,
 } from "./engineProbe.ts";
+import { expect, keepDetectedProfile, test } from "./test.ts";
 
 test("a friend opens an exported world in a fresh browser without a key @webkit-desktop", async ({
   page,
@@ -29,18 +31,20 @@ test("a friend opens an exported world in a fresh browser without a key @webkit-
   await expect(page.getByTestId("input-line")).toBeVisible();
   await expect.poll(async () => (await textHook(page)).frame).toBeGreaterThan(0);
   await expect.poll(async () => (await textHook(page)).cycle).toBeGreaterThan(0);
-  if ((await textHook(page)).modal) {
-    await page.keyboard.press("Enter");
-    await expect.poll(async () => (await textHook(page)).modal).toBeNull();
-  }
+  // Room 1's entry LOGIC opens a print window; finish it so "east" reaches the parser.
+  await expect.poll(async () => (await textHook(page)).modal).toBe("print");
+  await expect
+    .poll(async () => (await textHook(page)).rows.join(" "))
+    .toContain("generated room 1.");
+  await page.keyboard.press("Enter");
+  await expect.poll(async () => (await textHook(page)).modal).toBeNull();
   await page.getByTestId("input-line").fill("east");
   await page.getByTestId("input-line").press("Enter");
   await expect
     .poll(async () => (await textHook(page)).rows.join(" "))
     .toContain("generated room 2");
   const downloading = page.waitForEvent("download");
-  await openGameOptions(page, "settings-menu");
-  await page.getByTestId("btn-export-game").click();
+  await downloadFromSettings(page);
   const zip = await downloading;
   const context = await browser.newContext();
   try {
@@ -57,10 +61,13 @@ test("a friend opens an exported world in a fresh browser without a key @webkit-
     await friend.getByTestId("btn-resume-cached").click();
     await expect(friend.getByTestId("input-line")).toBeVisible();
     await expect.poll(async () => (await textHook(friend)).room).toBe(1);
-    if ((await textHook(friend)).modal) {
-      await friend.keyboard.press("Enter");
-      await expect.poll(async () => (await textHook(friend)).modal).toBeNull();
-    }
+    // new.room posts its room before the entry LOGIC opens its print window.
+    await expect.poll(async () => (await textHook(friend)).modal).toBe("print");
+    await expect
+      .poll(async () => (await textHook(friend)).rows.join(" "))
+      .toContain("generated room 1.");
+    await friend.keyboard.press("Enter");
+    await expect.poll(async () => (await textHook(friend)).modal).toBeNull();
     await friend.getByTestId("input-line").fill("east");
     await friend.getByTestId("input-line").press("Enter");
     await expect
@@ -68,7 +75,7 @@ test("a friend opens an exported world in a fresh browser without a key @webkit-
       .toContain("generated room 2");
     expect(providerCalls).toBe(0);
     expect(await friend.evaluate(() => localStorage.getItem("monotio_agi.aiSettings"))).toBeNull();
-    await friend.screenshot({ path: "test-results/shared-zip-playing.png" });
+    await friend.screenshot({ path: test.info().outputPath("shared-zip-playing.png") });
     await friend.getByTestId("btn-exit").click();
     const before = await friend.evaluate(() =>
       Object.keys(localStorage).filter((key) => key.startsWith("monotio_agi.authored.imported-")),
@@ -117,10 +124,14 @@ test("a friend opens an exported world in a fresh browser without a key @webkit-
     await friend.getByTestId("input-line").fill("west");
     await friend.getByTestId("input-line").press("Enter");
     await expect.poll(async () => (await textHook(friend)).room).toBe(1);
-    if ((await textHook(friend)).modal) {
-      await friend.keyboard.press("Enter");
-      await expect.poll(async () => (await textHook(friend)).modal).toBeNull();
-    }
+    // new.room posts its room before the entry LOGIC opens its print window.
+    // Finish that interaction before the agent can defer its image behind it.
+    await expect.poll(async () => (await textHook(friend)).modal).toBe("print");
+    await expect
+      .poll(async () => (await textHook(friend)).rows.join(" "))
+      .toContain("generated room 1.");
+    await friend.keyboard.press("Enter");
+    await expect.poll(async () => (await textHook(friend)).modal).toBeNull();
     const exported = await readGameZip(bytes);
     const originalSource = disassembleLogic(
       openContainer(new Map(Object.entries(exported.files))).getResource("logic", 1)!,
@@ -143,10 +154,13 @@ test("a friend opens an exported world in a fresh browser without a key @webkit-
                     type: "function_call",
                     id: "patch",
                     call_id: "patch",
-                    name: "write_logic_source",
+                    name: "propose_changes",
                     arguments: JSON.stringify({
-                      room: 1,
-                      source: patchedSource,
+                      label: "Complete the world and remix room one",
+                      changes: [
+                        { key: "logic:1", content: patchedSource },
+                        { key: "logic:3", content: "return;" },
+                      ],
                     }),
                   },
                 ]
@@ -161,19 +175,52 @@ test("a friend opens an exported world in a fresh browser without a key @webkit-
       );
     });
     await enterCreateMode(friend);
-    await friend.getByTestId("power-up").click();
-    await expect(friend.getByTestId("connect-assistant-ai")).toBeVisible();
-    await friend.screenshot({ path: "test-results/power-up-connect.png" });
+    await openWorkspaceAgent(friend);
+    await expect(friend.getByTestId("workspace-agent-panel")).toContainText(
+      "Connect your AI provider in Settings to start a task.",
+    );
+    await friend.screenshot({ path: test.info().outputPath("power-up-connect.png") });
     await configureAi(friend, { provider: "openai", key: "test-placeholder" });
-    await expect(friend.getByTestId("agent-bubble-input")).toBeEnabled();
-    await friend.getByTestId("agent-bubble-input").fill("remix the room description");
-    await friend.getByTestId("agent-bubble-send").click();
-    await expect(friend.getByTestId("agent-bubble")).toBeHidden();
+    await expect(friend.getByTestId("agent-message")).toBeEnabled();
+    await friend.getByTestId("agent-message").fill("remix the room description");
+    await friend.getByRole("button", { name: "Send", exact: true }).click();
+    await expect(friend.getByTestId("agent-review")).toBeVisible();
+    await friend.getByTestId("agent-approve").click();
+    await expect(friend.getByTestId("agent-review")).toHaveCount(0);
+    await friend.getByTestId("input-line").fill("look");
+    await friend.getByTestId("input-line").press("Enter");
     await expect
       .poll(async () => (await textHook(friend)).rows.join(" "))
       .toContain("Remixed room one.");
     expect(remixRequests).toHaveLength(2);
-    await friend.screenshot({ path: "test-results/shared-zip-remixed.png" });
+    await friend.screenshot({ path: test.info().outputPath("shared-zip-remixed.png") });
+    await friend.keyboard.press("Enter");
+    await expect.poll(async () => (await textHook(friend)).modal).toBeNull();
+    const remixDownloading = friend.waitForEvent("download");
+    await downloadFromSettings(friend);
+    const remixedZip = await remixDownloading;
+    const remixedArchive = await readGameZip(await readFile((await remixedZip.path())!));
+    const remixedLogic = openContainer(new Map(Object.entries(remixedArchive.files))).getResource(
+      "logic",
+      1,
+    )!;
+    expect(Array.from(remixedLogic)).toEqual(
+      Array.from(assembleLogic(patchedSource, { dictionary: new Map(exported.words) }).payload),
+    );
+    const remixedBrowser = await browser.newContext();
+    try {
+      const recipient = await remixedBrowser.newPage();
+      await keepDetectedProfile(recipient);
+      await recipient.goto(page.url());
+      await recipient.getByTestId("game-zip-input").setInputFiles((await remixedZip.path())!);
+      await recipient.getByTestId("btn-resume-cached").click();
+      await expect
+        .poll(async () => (await textHook(recipient)).rows.join(" "))
+        .toContain("Remixed room one.");
+      await recipient.screenshot({ path: test.info().outputPath("remixed-zip-fresh-browser.png") });
+    } finally {
+      await remixedBrowser.close();
+    }
   } finally {
     await context.close();
   }
@@ -221,7 +268,7 @@ test("a v3 game can be imported, remixed, exported and opened in a fresh session
                   type: "function_call",
                   id: "patch",
                   call_id: "patch",
-                  name: "write_logic_source",
+                  name: "write_logic",
                   arguments: JSON.stringify({ room: 0, source: patched }),
                 },
               ]
@@ -236,17 +283,18 @@ test("a v3 game can be imported, remixed, exported and opened in a fresh session
     );
   });
   await enterCreateMode(page);
-  await page.getByTestId("power-up").click();
+  await openWorkspaceAgent(page);
   await configureAi(page, { provider: "openai", key: "test-placeholder" });
-  await expect(page.getByTestId("agent-bubble-input")).toBeEnabled();
-  await page.getByTestId("agent-bubble-input").fill("remix the room description");
-  await page.getByTestId("agent-bubble-send").click();
+  await expect(page.getByTestId("agent-message")).toBeEnabled();
+  await page.getByTestId("agent-message").fill("remix the room description");
+  await page.getByRole("button", { name: "Send", exact: true }).click();
+  await expect(page.getByTestId("agent-review")).toBeVisible();
+  await page.getByTestId("agent-approve").click();
   await expect
     .poll(async () => (await textHook(page)).rows.join(" "))
     .toContain("A remixed v3 adventure.");
   const downloading = page.waitForEvent("download");
-  await openGameOptions(page, "settings-menu");
-  await page.getByTestId("btn-export-game").click();
+  await downloadFromSettings(page);
   const download = await downloading;
   const downloaded = await readFile((await download.path())!);
   const imported = await readGameZip(downloaded);
@@ -262,13 +310,19 @@ test("a v3 game can be imported, remixed, exported and opened in a fresh session
     const friend = await fresh.newPage();
     await keepDetectedProfile(friend);
     // Cover a cold worker request instead of depending on the runner's load speed.
+    const workerRequested = Promise.withResolvers<void>();
+    const releaseWorker = Promise.withResolvers<void>();
     await friend.route("**/engine.worker.ts*", async (route) => {
-      await new Promise((resolve) => setTimeout(resolve, 6000));
+      workerRequested.resolve();
+      await releaseWorker.promise;
       await route.continue();
     });
     await friend.goto(page.url());
     await friend.getByTestId("game-zip-input").setInputFiles((await download.path())!);
     await friend.getByTestId("btn-resume-cached").click();
+    await workerRequested.promise;
+    expect((await textHook(friend)).profile).toBeNull();
+    releaseWorker.resolve();
     // A fresh browser must load and boot its worker before it can paint game text.
     await expect
       .poll(async () => (await textHook(friend)).profile, { timeout: 15_000 })
@@ -276,7 +330,7 @@ test("a v3 game can be imported, remixed, exported and opened in a fresh session
     await expect
       .poll(async () => (await textHook(friend)).rows.join(" "))
       .toContain("A remixed v3 adventure.");
-    await friend.screenshot({ path: "test-results/shared-v3-zip-remixed.png" });
+    await friend.screenshot({ path: test.info().outputPath("shared-v3-zip-remixed.png") });
   } finally {
     await fresh.close();
   }
@@ -325,10 +379,10 @@ test("rename preserves a saved game and travels with its ZIP", async ({ page, br
   await openLibraryActions(page, card);
   await page.getByTestId("rename-game").click();
   await name.fill("   ");
-  await expect(page.getByRole("button", { name: "Save name", exact: true })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Rename", exact: true })).toBeDisabled();
   await name.fill("  The Midnight Appointment  ");
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.screenshot({ path: "test-results/rename-game-mobile.png" });
+  await page.screenshot({ path: test.info().outputPath("rename-game-mobile.png") });
   await name.press("Enter");
   const renamedCard = savedGameCard(page, "The Midnight Appointment");
   await expect(renamedCard.getByTestId("saved-game-title")).toHaveText("The Midnight Appointment");
@@ -342,8 +396,8 @@ test("rename preserves a saved game and travels with its ZIP", async ({ page, br
   await page.reload();
   await expect(renamedCard.getByTestId("saved-game-title")).toHaveText("The Midnight Appointment");
   const downloading = page.waitForEvent("download");
-  await openLibraryActions(page, renamedCard);
-  await page.getByTestId("export-library-game").click();
+  const downloadDialog = await openGameDownload(page, renamedCard);
+  await downloadDialog.getByTestId("export-library-game").click();
   const exported = await downloading;
   const content = await readGameZip(new Uint8Array(await readFile((await exported.path())!)));
   expect(content.title).toBe("The Midnight Appointment");

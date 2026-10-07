@@ -20,11 +20,21 @@
  */
 import { validateEngineReplayState, type EngineReplayState } from "../runtime/replayState.ts";
 import type { EngineMenuState } from "../runtime/engine.ts";
+import { sha256Hex } from "../crypto.ts";
+import { projectDocumentId } from "../authoring/projectContent.ts";
+import {
+  readProjectWorkspace,
+  writeProjectWorkspace,
+  type PortableProjectWorkspace,
+} from "../authoring/projectWorkspace.ts";
 import { PROFILES, type ProfileId } from "../runtime/profile.ts";
+import { readRngPolicy, type RngPolicy } from "../runtime/rng.ts";
 import { gameIdentity, type GameIdentity } from "../gameIdentity.ts";
 
-/** Current recording contract: game identity, original 16-bit RNG and reseed events. */
-export const HISTORY_FORMAT_VERSION = 1;
+/** Current recording contract adds debugger boundaries and complete project admission events. */
+export const HISTORY_FORMAT_VERSION = 2;
+/** Released recordings remain unchanged on read; the next append upgrades the header. */
+export const HISTORY_FORMAT_READ_VERSIONS: readonly number[] = [1, HISTORY_FORMAT_VERSION];
 
 /** Worker in-memory ring bounds: records and bytes pending the host's ack. */
 export const HISTORY_EVENT_LIMIT = 250_000;
@@ -57,16 +67,26 @@ export interface HistoryCommittedPatch {
   tests?: string;
 }
 
-export type HistoryEndReason = "boot" | "walkthrough" | "resume" | "quit" | "budget" | "eject";
+export type HistoryEndReason =
+  | "boot"
+  | "walkthrough"
+  | "resume"
+  | "quit"
+  | "budget"
+  | "eject"
+  /** The debugger took over mid-session; the tape resumes in a later segment. */
+  | "debugger";
 
-const END_REASONS: ReadonlySet<HistoryEndReason> = new Set([
-  "boot",
-  "walkthrough",
-  "resume",
-  "quit",
-  "budget",
-  "eject",
-]);
+/**
+ * The end reasons each recording version may carry. Version 1 is the
+ * released contract — a version-1 record never admits "debugger", so the
+ * released reader could not have silently carried a reason it cannot name.
+ * Version 2 admits every released reason plus "debugger".
+ */
+const HISTORY_END_REASONS: Record<number, ReadonlySet<HistoryEndReason>> = {
+  1: new Set(["boot", "walkthrough", "resume", "quit", "budget", "eject"]),
+  2: new Set(["boot", "walkthrough", "resume", "quit", "budget", "eject", "debugger"]),
+};
 
 export type HistoryEventCause =
   | { kind: "key"; code: number }
@@ -86,6 +106,13 @@ export type HistoryEventCause =
       room?: number;
       prepared?: boolean;
       patch?: HistoryCommittedPatch;
+    }
+  | {
+      kind: "projectImage";
+      files: Record<string, string>;
+      documents: PortableProjectWorkspace;
+      documentId: string;
+      nativeChanged: boolean;
     }
   | { kind: "patch"; resource: HistoryPatchKind; num: number; data: string }
   | { kind: "patchMeta"; words?: string; object?: string; tests?: string }
@@ -223,6 +250,7 @@ export interface HistoryAnchor {
   /** Host-request serial, so replayed requests keep their answer pairing. */
   requestSerial: number;
   rng: number;
+  rngPolicy?: RngPolicy;
   clock: HistoryClock;
   /** Sound-clock fractional carry (ms·60 units) at this boundary. */
   soundRemainder?: number;
@@ -239,7 +267,14 @@ export interface HistoryAnchor {
  * dictionary at segment start, plus the resume point when the segment
  * continues mid-play (autosave resume, replay takeover, budget rollover).
  */
+export interface HistoryProjectDocuments {
+  readonly documents: PortableProjectWorkspace;
+  readonly documentId: string;
+}
+
 export interface HistoryBoot {
+  /** The admitted source/native documents when a segment continues an edited run. */
+  project?: HistoryProjectDocuments;
   /** base64 per file name — the exact resources the segment replays onto. */
   files: Record<string, string>;
   /** liveDictionary entries at segment start. */
@@ -248,6 +283,8 @@ export interface HistoryBoot {
   authorRooms: boolean;
   /** Interpreter-profile override the session booted under; absent detects from `files`. */
   profile?: ProfileId;
+  /** Absent uses the released NTSC timing. */
+  amigaRegion?: "ntsc" | "pal";
   /** Set when the segment continues an earlier one (replay takeover, budget rollover). */
   resumedFrom?: { segment: string; seq: number; tick: number };
   image?: string;
@@ -259,6 +296,7 @@ export interface HistoryBoot {
   clickQueue?: [number, number][];
   /** The RNG's 16-bit state word at this point (docs/fidelity.md, "Original RNG"). */
   rng: number;
+  rngPolicy?: RngPolicy;
   clock?: HistoryClock;
   /** Sound-clock fractional carry (ms·60 units) at this resume point. */
   soundRemainder?: number;
@@ -418,6 +456,8 @@ export interface HistoryFingerprint {
  *   in-flight interaction, not resumable state.
  */
 export interface HistorySemanticState {
+  amigaRegion?: "ntsc" | "pal";
+  documentId?: string;
   authorRooms?: boolean;
   dictionary?: [string, number][];
   image?: string;
@@ -429,6 +469,7 @@ export interface HistorySemanticState {
   clickQueue?: [number, number][];
   requestSerial: number;
   rng: number;
+  rngPolicy?: RngPolicy;
   clock?: HistoryClock;
   soundRemainder?: number;
   soundDevice: number;
@@ -456,13 +497,16 @@ export function historyAnchorSemantic(
     resourceSet: anchor.resourceSet,
     patchGeneration: anchor.patchGeneration,
   };
+  if (anchor.rngPolicy !== undefined) out.rngPolicy = anchor.rngPolicy;
   if (anchor.clickQueue !== undefined) out.clickQueue = anchor.clickQueue;
   if (anchor.soundRemainder !== undefined) out.soundRemainder = anchor.soundRemainder;
   return out;
 }
 
 /** The semantic view of a segment boot — every resumable-state field it carries. */
-export function historyBootSemantic(boot: Omit<HistoryBoot, "fingerprint">): HistorySemanticState {
+export function historyBootSemantic(
+  boot: Omit<HistoryBoot, "fingerprint"> & { fingerprint?: HistoryFingerprint },
+): HistorySemanticState {
   const out: HistorySemanticState = {
     authorRooms: boot.authorRooms,
     dictionary: sortDictionary(boot.dictionary),
@@ -471,6 +515,9 @@ export function historyBootSemantic(boot: Omit<HistoryBoot, "fingerprint">): His
     soundDevice: boot.soundDevice,
     resourceSet: boot.resourceSet,
   };
+  if (boot.rngPolicy !== undefined) out.rngPolicy = boot.rngPolicy;
+  if (boot.amigaRegion === "pal") out.amigaRegion = "pal";
+  if (boot.project !== undefined) out.documentId = boot.project.documentId;
   if (boot.image !== undefined) out.image = boot.image;
   if (boot.replay !== undefined) out.replay = boot.replay;
   if (boot.menus !== undefined) out.menus = boot.menus;
@@ -480,6 +527,18 @@ export function historyBootSemantic(boot: Omit<HistoryBoot, "fingerprint">): His
   if (boot.clickQueue !== undefined) out.clickQueue = boot.clickQueue;
   if (boot.clock !== undefined) out.clock = boot.clock;
   if (boot.soundRemainder !== undefined) out.soundRemainder = boot.soundRemainder;
+  // Early PAL writers bound timing in replay state before adding the boot
+  // region to this hash. Both region fields must agree, and every other
+  // recorded field must still match the original fingerprint.
+  if (
+    boot.amigaRegion === "pal" &&
+    boot.replay?.amigaRegion === "pal" &&
+    boot.fingerprint?.v === 1
+  ) {
+    const earlier = { ...out };
+    delete earlier.amigaRegion;
+    if (historyFingerprint(earlier).hash === boot.fingerprint.hash) return earlier;
+  }
   return out;
 }
 
@@ -706,7 +765,11 @@ function committedPatch(value: unknown): HistoryCommittedPatch {
   return out;
 }
 
-function eventCause(value: unknown): HistoryEventCause {
+function eventCause(
+  value: unknown,
+  endReasons: ReadonlySet<HistoryEndReason>,
+  version: number,
+): HistoryEventCause {
   if (!isObj(value)) fail("event cause must be an object.");
   switch (value["kind"]) {
     case "key":
@@ -738,6 +801,32 @@ function eventCause(value: unknown): HistoryEventCause {
       if (value["prepared"] !== undefined) out.prepared = value["prepared"] === true;
       if (value["patch"] !== undefined) out.patch = committedPatch(value["patch"]);
       return out;
+    }
+    case "projectImage": {
+      if (version < 2) fail("project images require recording version 2.");
+      const files = value["files"];
+      if (!isObj(files) || Object.keys(files).length > 1024)
+        fail("project files must be a bounded map.");
+      const documentId = value["documentId"];
+      if (typeof documentId !== "string" || !/^[a-f0-9]{64}$/.test(documentId))
+        fail("project document identity is invalid.");
+      if (typeof value["nativeChanged"] !== "boolean")
+        fail("project image native change is invalid.");
+      const documents = readProjectWorkspace(value["documents"]);
+      if (projectDocumentId(documents, sha256Hex) !== documentId)
+        fail("project document identity differs from its documents.");
+      return {
+        kind: "projectImage",
+        documentId,
+        nativeChanged: value["nativeChanged"],
+        documents: writeProjectWorkspace(documents),
+        files: Object.fromEntries(
+          Object.entries(files).map(([name, data]) => {
+            if (!/^[A-Z0-9._-]+$/i.test(name)) fail("project file name is invalid.");
+            return [name, b64(data, `project file ${name}`)];
+          }),
+        ),
+      };
     }
     case "patch":
       if (!["logic", "picture", "view", "sound"].includes(String(value["resource"])))
@@ -794,7 +883,7 @@ function eventCause(value: unknown): HistoryEventCause {
       return { kind: "reseed", value: int(value["value"], "reseed value", 0xffff) };
     case "end": {
       const reason = text(value["reason"], "end reason", 64);
-      if (!END_REASONS.has(reason as HistoryEndReason)) fail("end reason is invalid.");
+      if (!endReasons.has(reason as HistoryEndReason)) fail("end reason is invalid.");
       return { kind: "end", reason: reason as HistoryEndReason };
     }
     default:
@@ -802,7 +891,11 @@ function eventCause(value: unknown): HistoryEventCause {
   }
 }
 
-function events(value: unknown): HistoryEvent[] {
+function events(
+  value: unknown,
+  endReasons: ReadonlySet<HistoryEndReason>,
+  version: number,
+): HistoryEvent[] {
   if (!Array.isArray(value) || value.length > MAX_HISTORY_EVENTS)
     fail("events must be a bounded list.");
   return value.map((e) => {
@@ -811,7 +904,7 @@ function events(value: unknown): HistoryEvent[] {
       seq: int(e["seq"], "event seq"),
       tick: int(e["tick"], "event tick"),
       cycle: int(e["cycle"], "event cycle"),
-      cause: eventCause(e["cause"]),
+      cause: eventCause(e["cause"], endReasons, version),
     };
   });
 }
@@ -884,6 +977,7 @@ function anchor(value: unknown): HistoryAnchor {
       : {}),
     requestSerial: int(value["requestSerial"], "anchor requestSerial"),
     rng: int(value["rng"], "anchor rng", 0xffff),
+    ...(value["rngPolicy"] !== undefined ? { rngPolicy: readRngPolicy(value["rngPolicy"]) } : {}),
     clock: clock(value["clock"]),
     ...(value["soundRemainder"] !== undefined
       ? { soundRemainder: num(value["soundRemainder"], "anchor soundRemainder", 1000) }
@@ -904,9 +998,24 @@ function profileId(value: unknown, label = "boot profile"): ProfileId {
   return value as ProfileId;
 }
 
+function projectDocuments(value: unknown): HistoryProjectDocuments {
+  if (!isObj(value)) fail("project documents must be an object.");
+  const documents = readProjectWorkspace(value["documents"]);
+  const documentId = value["documentId"];
+  if (typeof documentId !== "string" || projectDocumentId(documents, sha256Hex) !== documentId)
+    fail("project document identity differs from its documents.");
+  return { documents: writeProjectWorkspace(documents), documentId };
+}
+
 /** Validate a standalone boot record (a retained original carried over messages). */
 export function validateHistoryBoot(value: unknown): HistoryBoot {
   if (!isObj(value)) fail("boot must be an object.");
+  if (
+    value["amigaRegion"] !== undefined &&
+    value["amigaRegion"] !== "pal" &&
+    value["amigaRegion"] !== "ntsc"
+  )
+    fail("boot region must be ntsc or pal.");
   const files = value["files"];
   if (!isObj(files) || Object.keys(files).length > 1024) fail("boot.files must be a bounded map.");
   const out: Omit<HistoryBoot, "fingerprint"> = {
@@ -919,7 +1028,11 @@ export function validateHistoryBoot(value: unknown): HistoryBoot {
     dictionary: dictionary(value["dictionary"]),
     authorRooms: value["authorRooms"] === true,
     ...(value["profile"] !== undefined ? { profile: profileId(value["profile"]) } : {}),
+    ...(value["amigaRegion"] !== undefined
+      ? { amigaRegion: value["amigaRegion"] as "ntsc" | "pal" }
+      : {}),
     rng: int(value["rng"], "boot rng", 0xffff),
+    ...(value["rngPolicy"] !== undefined ? { rngPolicy: readRngPolicy(value["rngPolicy"]) } : {}),
     ...(value["resumedFrom"] !== undefined
       ? {
           resumedFrom: (() => {
@@ -937,6 +1050,7 @@ export function validateHistoryBoot(value: unknown): HistoryBoot {
     resourceSet: text(value["resourceSet"], "boot resourceSet", MAX_HISTORY_STRING),
     requestSerial: int(value["requestSerial"], "boot requestSerial"),
   };
+  if (value["project"] !== undefined) out.project = projectDocuments(value["project"]);
   if (value["image"] !== undefined) out.image = b64(value["image"], "boot image");
   if (value["replay"] !== undefined) {
     try {
@@ -958,7 +1072,7 @@ export function validateHistoryBoot(value: unknown): HistoryBoot {
   if (value["soundRemainder"] !== undefined)
     out.soundRemainder = num(value["soundRemainder"], "boot soundRemainder", 1000);
   const stamp = fingerprint(value["fingerprint"]);
-  if (historyFingerprint(historyBootSemantic(out)).hash !== stamp.hash)
+  if (historyFingerprint(historyBootSemantic({ ...out, fingerprint: stamp })).hash !== stamp.hash)
     fail("boot fingerprint does not match its recorded state.");
   return { ...out, fingerprint: stamp };
 }
@@ -966,8 +1080,10 @@ export function validateHistoryBoot(value: unknown): HistoryBoot {
 /** Validate untrusted history data (a project archive's HISTORY.JSON). */
 export function validateHistoryRecording(value: unknown): HistoryRecording {
   if (!isObj(value)) fail("recording must be an object.");
-  if (value["version"] !== HISTORY_FORMAT_VERSION)
-    fail(`unsupported version ${String(value["version"])}.`);
+  const version = value["version"];
+  if (typeof version !== "number" || HISTORY_END_REASONS[version] === undefined)
+    fail(`unsupported version ${String(version)}.`);
+  const endReasons = HISTORY_END_REASONS[version]!;
   const segments = value["segments"];
   if (!Array.isArray(segments) || segments.length > 4096) fail("segments must be a bounded list.");
   const rawIdentity = value["identity"];
@@ -982,7 +1098,7 @@ export function validateHistoryRecording(value: unknown): HistoryRecording {
   );
   if (identity === null) fail("recording identity is invalid.");
   return {
-    version: HISTORY_FORMAT_VERSION,
+    version,
     identity,
     profile: profileId(value["profile"], "recording profile"),
     resourceSet: text(value["resourceSet"], "resourceSet", MAX_HISTORY_STRING),
@@ -990,13 +1106,15 @@ export function validateHistoryRecording(value: unknown): HistoryRecording {
     ...(value["dropped"] !== undefined ? { dropped: int(value["dropped"], "dropped") } : {}),
     segments: segments.map((s): HistorySegment => {
       if (!isObj(s)) fail("segment must be an object.");
+      if (version < 2 && isObj(s["boot"]) && s["boot"]["project"] !== undefined)
+        fail("project documents require recording version 2.");
       const segment: HistorySegment = {
         id: text(s["id"], "segment id", 64),
         boot: validateHistoryBoot(s["boot"]),
         anchors: Array.isArray(s["anchors"])
           ? s["anchors"].map(anchor)
           : fail("anchors must be a list."),
-        events: events(s["events"]),
+        events: events(s["events"], endReasons, version),
         marks: roomMarks(s["marks"]),
         sync: syncMarks(s["sync"]),
         ...(s["clock"] !== undefined ? { clock: clockRuns(s["clock"]) } : {}),
@@ -1005,7 +1123,7 @@ export function validateHistoryRecording(value: unknown): HistoryRecording {
         const e = s["end"];
         if (!isObj(e)) fail("segment end must be an object.");
         const reason = e["reason"];
-        if (!END_REASONS.has(reason as HistoryEndReason)) fail("end reason is invalid.");
+        if (!endReasons.has(reason as HistoryEndReason)) fail("end reason is invalid.");
         segment.end = {
           seq: int(e["seq"], "end seq"),
           tick: int(e["tick"], "end tick"),

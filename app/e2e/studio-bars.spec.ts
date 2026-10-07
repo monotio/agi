@@ -1,11 +1,18 @@
-import { expect, test } from "./test.ts";
 import type { Locator, Page } from "@playwright/test";
-import { enterCreateMode, isolateStorage, textHook, openWorldRoom } from "./engineProbe.ts";
+import {
+  closeWorkspaceEditor,
+  enterCreateMode,
+  isolateStorage,
+  openWorkspacePicture,
+  openWorkspaceView,
+  textHook,
+} from "./engineProbe.ts";
+import { expect, test } from "./test.ts";
 
 /**
  * At 1024 wide, each part of Studio's top bars and options bars keeps to
  * its own place: no child's visible content runs under another's, in Room
- * Studio (a selection and the Walk lens) and in Sprite Studio (a painting
+ * Studio (a selection and the Priority lens) and in Sprite Studio (a painting
  * tool, whose colour names itself).
  */
 test.use({ viewport: { width: 1024, height: 600 } });
@@ -67,36 +74,30 @@ function overlaps(bar: Locator): Promise<string[]> {
 
 test("at 1024 no part of a Studio bar runs under another", async ({ page }) => {
   await playTutorial(page);
-  const panel = page.getByTestId("world-panel");
   const seen: string[] = [];
   const look = async (name: string, bar: Locator) => {
     await expect(bar).toBeVisible();
     seen.push(...(await overlaps(bar)).map((pair) => `${name}: ${pair}`));
   };
 
-  await openWorldRoom(panel, 2);
-  await panel.getByTestId("world-open-studio").click();
+  await openWorkspacePicture(page, 2);
   const studio = page.getByTestId("room-studio");
   await studio.getByRole("treeitem", { name: /^West doorway/ }).click();
-  await look("room top", studio.locator(".top-bar"));
+  await page.getByTestId("workspace-focus").click();
+  await look("room top", studio.getByRole("radiogroup", { name: "Lens", exact: true }));
   await look("room options", studio.getByTestId("studio-options-bar"));
   await studio.getByRole("group", { name: /^Canvas/ }).focus();
-  await page.keyboard.press("3");
-  await look("room walk top", studio.locator(".top-bar"));
-  await look("room walk options", studio.getByTestId("studio-options-bar"));
-  await studio.getByTestId("studio-close").click();
+  await page.keyboard.press("2");
+  await look("room priority top", studio.getByRole("radiogroup", { name: "Lens", exact: true }));
+  await look("room priority options", studio.getByTestId("studio-options-bar"));
+  await closeWorkspaceEditor(page);
 
-  await openWorldRoom(panel, 1);
-  await panel.getByTestId("world-open-sprite-0").click();
+  await openWorkspaceView(page, 0, false);
   const sprite = page.getByTestId("sprite-studio");
   await sprite.getByTestId("sprite-stage").focus();
   await page.keyboard.press("b");
-  await look("sprite top", sprite.locator(".sprite-top"));
+  await look("sprite top", page.locator(".workspace-editor__header"));
   await look("sprite options", sprite.getByTestId("sprite-options-bar"));
-
-  // A view many rooms use: its usage keeps clear of Undo, Redo and Keep.
-  await page.goto("/sprite-harness.html?view=0&rooms=14");
-  await look("sprite top, 14 rooms", page.getByTestId("sprite-studio").locator(".sprite-top"));
   expect(seen).toEqual([]);
 });
 
@@ -128,26 +129,30 @@ function hiddenTools(rail: Locator): Promise<string[]> {
 
 test("at 1024×600 every rail tool is on screen or behind a chevron", async ({ page }) => {
   await playTutorial(page);
-  const panel = page.getByTestId("world-panel");
-  await openWorldRoom(panel, 2);
-  await panel.getByTestId("world-open-studio").click();
+  await openWorkspacePicture(page, 2);
   const studio = page.getByTestId("room-studio");
   const rail = studio.getByRole("toolbar", { name: "Tools" });
   const seen: string[] = [];
-  for (const lens of ["1", "3"]) {
+  for (const lens of ["1", "2"]) {
     await studio.getByRole("group", { name: /^Canvas/ }).focus();
     await page.keyboard.press(lens);
     seen.push(...(await hiddenTools(rail)).map((line) => `room lens ${lens}: ${line}`));
   }
-  await studio.getByTestId("studio-close").click();
+  await closeWorkspaceEditor(page);
 
-  await openWorldRoom(panel, 1);
-  await panel.getByTestId("world-open-sprite-0").click();
+  await openWorkspaceView(page, 0, false);
   const sprite = page.getByTestId("sprite-studio");
-  seen.push(
-    ...(await hiddenTools(sprite.getByRole("toolbar", { name: "Tools" }))).map(
-      (line) => `sprite: ${line}`,
-    ),
-  );
+  const spriteRail = sprite.getByRole("toolbar", { name: "Tools" });
+  for (const tool of await spriteRail.locator("[data-tool]").all()) {
+    await tool.scrollIntoViewIfNeeded();
+    expect(
+      await tool.evaluate((element) => {
+        const box = element.getBoundingClientRect();
+        return element.contains(
+          document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2),
+        );
+      }),
+    ).toBe(true);
+  }
   expect(seen).toEqual([]);
 });

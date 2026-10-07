@@ -8,11 +8,10 @@
  * stays in the authoring state; journal observations are append-only facts;
  * the static graph is derived from the resources and never stored.
  */
-import {
-  serializeMapSidecar,
-  validateMapSidecar,
-  type RoomMapSidecar,
-} from "../../../src/agent/roomMap.ts";
+import { serializeMapSidecar, validateMapSidecar } from "../../../src/agent/roomSidecar.ts";
+import type { RoomMapSidecar } from "../../../src/agent/roomMap.ts";
+import type { ProgressTarget } from "../project/progressTarget.ts";
+import { earlierProgressReceiptKey } from "../project/earlierProgressReceipt.ts";
 
 const MAP_PREFIX = "monotio_agi.map.";
 /** Where a project archive keeps the sidecar. */
@@ -38,8 +37,19 @@ export function emptyMapSidecar(): RoomMapSidecar {
  * unsupported data throws — the caller explains a reset or reimport — and the
  * record is left in place so the failure stays visible.
  */
-export function readMapSidecar(storage: Pick<Storage, "getItem">, target: string): RoomMapSidecar {
-  const raw = storage.getItem(mapKey(target));
+export function readMapSidecar(
+  storage: Pick<Storage, "getItem">,
+  target: string | ProgressTarget,
+): RoomMapSidecar {
+  const key = typeof target === "string" ? target : target.locator;
+  const raw =
+    storage.getItem(mapKey(key)) ??
+    (typeof target !== "string" &&
+    target.kind === "project" &&
+    target.bodyEpoch === "initial" &&
+    storage.getItem(earlierProgressReceiptKey(target.project)) === null
+      ? storage.getItem(mapKey(target.project))
+      : null);
   if (raw === null) return emptyMapSidecar();
   if (raw.length > MAX_MAP_BYTES) throw new Error("Stored map data is too large.");
   let parsed: unknown;
@@ -59,18 +69,22 @@ export function readMapSidecar(storage: Pick<Storage, "getItem">, target: string
 }
 
 /**
- * Write the sidecar. Storage refusal and quota errors are reported, not
- * hidden: the caller keeps the map in memory and offers retry or export.
- * Nothing is reported saved before the write commits.
+ * Write the sidecar. A record already stored under the target must first
+ * read through the released schema: unknown, corrupt or oversize data — or
+ * a failed read — refuses the write and keeps the stored bytes exactly;
+ * removeMapSidecar is the explicit reset. Storage refusal and quota errors
+ * are reported, not hidden: the caller keeps the map in memory and offers
+ * retry or export. Nothing is reported saved before the write commits.
  */
 export function writeMapSidecar(
-  storage: Pick<Storage, "setItem">,
+  storage: Pick<Storage, "getItem" | "setItem">,
   target: string,
   sidecar: RoomMapSidecar,
 ): boolean {
   try {
     const raw = JSON.stringify(serializeMapSidecar(sidecar));
     if (raw.length > MAX_MAP_BYTES) return false;
+    readMapSidecar(storage, target);
     storage.setItem(mapKey(target), raw);
     return true;
   } catch {

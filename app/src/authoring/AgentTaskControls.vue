@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import UiButton from "../ui/UiButton.vue";
+import { formatDollars, formatSpent } from "../agent/reportedSpend.ts";
 import type { AgentRunState } from "../agent/agentRun.ts";
 const { task, showText = true } = defineProps<{ task: AgentRunState | null; showText?: boolean }>();
-defineEmits<{ stop: []; resume: []; discard: [] }>();
+defineEmits<{ stop: []; resume: [requestLimit?: number]; discard: [] }>();
 const now = ref(Date.now());
 let clock: ReturnType<typeof setInterval>;
 onMounted(() => {
@@ -15,12 +16,12 @@ onUnmounted(() => clearInterval(clock));
 const TOOL_SUBJECTS: Record<string, string> = {
   write_picture: "scenery",
   write_view: "sprites",
-  write_logic_source: "room behavior",
+  write_logic: "room behavior",
   write_words: "vocabulary",
-  write_inventory_objects: "inventory",
+  write_objects: "inventory",
   write_sound: "sound",
   write_music: "music",
-  read_room_context: "a room inspection",
+  read_room: "a room inspection",
   playtest_room: "a playtest",
 };
 const activity = computed(() => {
@@ -63,18 +64,18 @@ const quiet = computed(() =>
       </p>
     </div>
     <div class="task-row">
-      <span
-        title="Estimated from reported tokens and standard API rates. A response may cross the budget; interrupted requests may still be billed."
+      <span v-if="task.requests > 0" class="task-spent" data-testid="agent-spent">{{
+        formatSpent({
+          amount: task.spent,
+          priceKnown: task.priceKnown,
+          incomplete: task.usageIncomplete,
+          budget: task.budget,
+        })
+      }}</span>
+      <span v-else>Budget {{ formatDollars(task.budget) }}</span>
+      <a :href="task.usageUrl ?? 'https://platform.openai.com/usage'" target="_blank" rel="noopener"
+        >See your usage</a
       >
-        {{
-          task.priceKnown
-            ? task.status === "idle"
-              ? `Last task: $${task.spent.toFixed(2)} est.`
-              : `$${task.spent.toFixed(2)} est. / $${task.budget.toFixed(2)}`
-            : "Usage estimate unavailable"
-        }}
-        <span v-if="task.usageIncomplete"> · partial usage</span>
-      </span>
       <UiButton v-if="task.status === 'running'" data-testid="agent-stop" @click="$emit('stop')">
         Stop
       </UiButton>
@@ -84,15 +85,12 @@ const quiet = computed(() =>
         data-testid="agent-continue"
         @click="$emit('resume')"
       >
-        {{
-          task.reason.startsWith("Budget")
-            ? `Add $${task.allowance.toFixed(2)} & continue`
-            : "Continue"
-        }}
+        Continue
       </UiButton>
     </div>
     <template v-if="task.status === 'paused'">
       <p role="status" data-testid="agent-pause-reason">{{ task.reason }}</p>
+      <UiButton data-testid="agent-paused-stop" @click="$emit('stop')">Stop</UiButton>
       <UiButton variant="danger" data-testid="agent-discard" @click="$emit('discard')">
         Discard this attempt
       </UiButton>
@@ -102,15 +100,23 @@ const quiet = computed(() =>
 
 <style scoped>
 .task-controls {
-  padding: 10px 0;
+  padding: 10px 12px;
   color: var(--ink-2);
   font: var(--text-xs) / var(--leading) var(--font-sans);
+}
+.task-spent,
+.task-row {
+  font-variant-numeric: tabular-nums;
 }
 .task-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  flex-wrap: wrap;
+}
+.task-row a {
+  color: var(--action);
 }
 .stream-progress {
   margin-bottom: 10px;

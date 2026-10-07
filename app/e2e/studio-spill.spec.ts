@@ -1,21 +1,22 @@
-import { expect, test, reviewShot } from "./test.ts";
 import type { Locator, Page } from "@playwright/test";
-import { ISLAND_MOVE, ISLAND_SOURCE } from "../../test/studioAssistFixtures.ts";
-import { testProjectId } from "../test/identity.ts";
-import { parseGameHash } from "../src/shell/shellRoute.ts";
 import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
-import { compilePictureSource } from "../../src/picture/source.ts";
 import { renderPicture } from "../../src/picture/renderer.ts";
+import { compilePictureSource } from "../../src/picture/source.ts";
 import { DEFAULT_V2_PROFILE } from "../../src/runtime/profile.ts";
 import { createPictureSurface } from "../../src/types.ts";
+import { ISLAND_MOVE, ISLAND_SOURCE } from "../../test/studioAssistFixtures.ts";
+import { parseGameHash } from "../src/shell/shellRoute.ts";
+import { testProjectId } from "../test/identity.ts";
 import {
   cacheGame,
   enterCreateMode,
+  openWorkspacePicture,
   textHook,
   waitForCycles,
-  openWorldRoom,
+  workspaceUpdated,
 } from "./engineProbe.ts";
+import { expect, reviewShot, test } from "./test.ts";
 
 /**
  * Side effects on the real app: an island outline drawn BEFORE the grass
@@ -69,15 +70,13 @@ async function bootIslandGame(page: Page): Promise<void> {
   });
   await page.reload();
   if (!parseGameHash(new URL(page.url()).hash)) await page.getByTestId("btn-resume-cached").click();
-  await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  await expect.poll(async () => (await textHook(page)).room, { timeout: 30_000 }).toBe(1);
   await waitForCycles(page, 2);
   await enterCreateMode(page);
 }
 
 async function openStudio(page: Page): Promise<Locator> {
-  const panel = page.getByTestId("world-panel");
-  await openWorldRoom(panel, 1);
-  await panel.getByTestId("world-open-studio").click();
+  await openWorkspacePicture(page, 1);
   const studio = page.getByTestId("room-studio");
   await expect(studio).toBeVisible();
   return studio;
@@ -104,7 +103,6 @@ test("dragging an outline another item's fill pours around lands, names the fill
 }) => {
   await bootIslandGame(page);
   const studio = await openStudio(page);
-  const status = studio.getByTestId("studio-draft-status");
   const original = await draftBytes(page);
   expect(original).toEqual(PIC_1);
 
@@ -116,8 +114,9 @@ test("dragging an outline another item's fill pours around lands, names the fill
   for (const x of [22, 25, 28]) await page.mouse.move(...(await cell(page, x, 50)));
   await page.mouse.up();
 
-  await expect(status).toHaveText("1 change");
-  const notice = studio.getByTestId("studio-notice");
+  await workspaceUpdated(page);
+  const notice = page.locator(".workspace-status").getByTestId("studio-notice");
+  await expect(notice).toBeVisible();
   await expect(notice).toHaveText(NOTE);
   const moved = planes(await draftBytes(page));
   const expected = planes(compilePictureSource(MOVED).bytes);
@@ -130,54 +129,7 @@ test("dragging an outline another item's fill pours around lands, names the fill
 
   await studio.locator(".studio__stage").focus();
   await page.keyboard.press("ControlOrMeta+z");
-  await expect(status).toHaveText("No changes");
+  await workspaceUpdated(page);
   await expect(notice).toHaveCount(0);
-  expect(await draftBytes(page)).toEqual(original);
-});
-
-test("Ask: a proposal that re-pours another item's fill outlines it and names it; Accept and Undo", async ({
-  page,
-}) => {
-  await bootIslandGame(page);
-  const studio = await openStudio(page);
-  const original = await draftBytes(page);
-  await studio.locator('[data-row="island"]').click();
-  await studio.getByTestId("assist-connect").click();
-  const dialog = page.getByTestId("ai-settings-dialog");
-  await dialog.getByTestId("provider-select").selectOption("stub");
-  await dialog.getByTestId("ai-settings-save").click();
-  await expect(dialog).toBeHidden();
-  await expect(studio.getByTestId("assist-chip").first()).toHaveText("Island");
-
-  const input = studio.getByTestId("assist-input");
-  await input.fill("Move the island to the right");
-  await input.press("Enter");
-  await expect(studio.getByTestId("assist-candidate")).toBeVisible();
-  await expect(studio.getByTestId("assist-summary")).toHaveText("Moved the island 8 pixels right.");
-  // The island's own cells, then the grass's: each counted once.
-  await expect(studio.getByTestId("assist-changes")).toHaveText("Island: 108 art cells change");
-  await expect(studio.getByTestId("assist-also")).toHaveText(
-    `Also changes: Grass, ${ISLAND_MOVE.cells} cells.`,
-  );
-  // The grass's changed cells, outside the selection, in their own colour and key.
-  const compare = studio.getByTestId("studio-options-bar").getByTestId("assist-compare");
-  await expect(compare.getByTestId("assist-compare-spilled")).toHaveText("other items");
-  await expect(studio.locator('[data-role="spilled"]').first()).toBeVisible();
-  await expect(studio.locator('[data-role="changed"]').first()).toBeVisible();
-  await reviewShot(page, "spill-ask-proposal");
-  // Nothing is applied until Accept.
-  expect(await draftBytes(page)).toEqual(original);
-
-  await studio.getByTestId("assist-accept").click();
-  await expect(studio.getByTestId("studio-draft-status")).toHaveText("1 change");
-  await expect(studio.getByTestId("studio-notice")).toHaveText(NOTE);
-  expect(planes(await draftBytes(page)).visual).toEqual(
-    planes(compilePictureSource(MOVED).bytes).visual,
-  );
-  await expect(studio.locator('[data-role="spilled"]')).toHaveCount(0);
-
-  await studio.locator(".studio__stage").focus();
-  await page.keyboard.press("ControlOrMeta+z");
-  await expect(studio.getByTestId("studio-draft-status")).toHaveText("No changes");
-  expect(await draftBytes(page)).toEqual(original);
+  await expect.poll(() => draftBytes(page)).toEqual(original);
 });

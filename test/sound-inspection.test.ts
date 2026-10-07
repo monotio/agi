@@ -107,7 +107,7 @@ test("sound previews are read-only WAV attachments and provider requests keep on
   const before = state.container.getResource("sound", 5)!.slice();
   const result = await executeAgentToolAsync(
     state,
-    "preview_sound",
+    "play_sound",
     { num: 5, startSeconds: 0, durationSeconds: 1, device: "tandy" },
     { allowedTools: ASK_TOOLS, readOnly: true },
   );

@@ -1,9 +1,9 @@
 import type { Page } from "@playwright/test";
-import { expect, test } from "./test.ts";
 import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import { buildZip } from "../src/archive/zip.ts";
-import { isolateStorage, textHook, waitForAutosaveAfter } from "./engineProbe.ts";
+import { gameHint, isolateStorage, textHook, waitForAutosaveAfter } from "./engineProbe.ts";
+import { expect, test } from "./test.ts";
 
 test("top navigation groups controls and follows game sound through shortcuts, app toggles and restore", async ({
   page,
@@ -41,7 +41,7 @@ test("top navigation groups controls and follows game sound through shortcuts, a
   const settings = nav.getByTestId("settings-menu");
   const exit = nav.getByTestId("btn-exit");
   await expect(nav).toBeVisible();
-  await expect(exit).toHaveAccessibleName("Exit to game selection");
+  await expect(exit).toHaveAccessibleName("Back to library");
 
   // The map is a top-bar button and read-only assistance the stage's Ask
   // button; Help owns the guide, movement/input help and the walkthrough, with
@@ -87,22 +87,21 @@ test("top navigation groups controls and follows game sound through shortcuts, a
   await page.keyboard.press("Escape");
   await waitForAutosaveAfter(page, (await textHook(page)).cycle);
   await page.reload();
-  await expect(page.getByTestId("resume-caption")).toBeVisible();
+  await expect(await gameHint(page, "resume-caption")).toBeVisible();
+  await page.mouse.move(0, 0);
   await settings.click();
   await expect(sound).toHaveAttribute("aria-checked", "false");
 
-  // The sheet's game section is the creator/export actions plus Start over —
-  // no history or recording entries.
+  // The sheet's game section offers Download… and Start over.
   const gameItems = page
     .getByTestId("settings-menu-menu")
     .getByRole("region", { name: "This game", exact: true });
-  await expect(gameItems.getByTestId("btn-edit-game")).toBeVisible();
+  await expect(gameItems.getByTestId("btn-edit-game")).toHaveCount(0);
   await expect(gameItems.getByTestId("btn-download-game")).toBeVisible();
-  await expect(gameItems.getByTestId("btn-export-game")).toBeVisible();
   await expect(gameItems.getByTestId("btn-start-over")).toBeVisible();
   await expect(page.getByTestId("btn-look-back")).toBeHidden();
   await expect(page.getByTestId("btn-record-test")).toBeHidden();
-  await expect(gameItems.getByRole("button")).toHaveCount(4);
+  await expect(gameItems.getByRole("button")).toHaveCount(2);
   await page.keyboard.press("Escape");
   await expect(settings).toHaveAttribute("aria-expanded", "false");
 
@@ -157,9 +156,8 @@ test("top navigation groups controls and follows game sound through shortcuts, a
   await expect(page.getByTestId("game-controls")).toBeHidden();
   await settings.click();
   await page.screenshot({ path: test.info().outputPath("navigation-mobile.png") });
-  // An outside click closes the sheet. The key hint in the strip under the
-  // game is a neutral target.
-  await page.locator("#game-input-help").click();
+  // An outside click on the game command closes the sheet.
+  await nav.getByRole("heading").click();
   await expect(settings).toHaveAttribute("aria-expanded", "false");
 });
 
@@ -195,8 +193,10 @@ test("the strip does not offer Esc for a menu Escape does not open", async ({ pa
     page,
     `set.key(0,60,2); set.menu("Game"); set.menu.item("Sound <F2>",2); submit.menu();`,
   );
-  const help = page.locator("#game-input-help");
-  await expect(help).toContainText("Arrows or numpad walk");
+  await page.getByTestId("game-keys").hover();
+  const help = page.getByTestId("game-key-help");
+  await expect(help).toBeVisible();
+  await expect(help).toContainText("Arrows or numpad to walk");
   await expect(help).not.toContainText("game menu");
 });
 
@@ -205,5 +205,8 @@ test("the strip names Esc as the game menu when Esc opens a submitted menu", asy
     page,
     `set.key(27,0,1); set.key(0,60,2); set.menu("Game"); set.menu.item("Sound <F2>",2); submit.menu();`,
   );
-  await expect(page.locator("#game-input-help")).toContainText("Esc game menu");
+  await page.getByTestId("game-keys").hover();
+  const help = page.getByTestId("game-key-help");
+  await expect(help).toBeVisible();
+  await expect(help).toContainText("Esc for the game menu");
 });

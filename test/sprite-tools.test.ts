@@ -33,7 +33,7 @@ describe("sprite authoring tools", () => {
   it("advertises strict, bounded schemas", () => {
     assert.deepEqual(
       SPRITE_TOOLS.map((tool) => tool.name),
-      ["patch_view_cels"],
+      ["edit_cels"],
     );
     for (const tool of SPRITE_TOOLS) {
       assert.equal(tool.parameters.additionalProperties, false);
@@ -163,7 +163,7 @@ describe("sprite authoring tools", () => {
     const state = createAgentSessionState();
     writeView(state, ACTOR);
     const before = state.container.getResource("view", 0)!.slice();
-    const result = executeSpriteTool(state, "patch_view_cels", {
+    const result = executeSpriteTool(state, "edit_cels", {
       num: 0,
       expectedRevision: "view:stale",
       patches: [{ loop: 2, cel: 0, rows: ["111", "111"] }],
@@ -197,7 +197,7 @@ describe("sprite authoring tools", () => {
       cels: [{ loop: 1, cel: 0 }],
       rows: true,
     })!;
-    const result = executeSpriteTool(state, "patch_view_cels", {
+    const result = executeSpriteTool(state, "edit_cels", {
       num: 7,
       expectedRevision: read.details?.["revision"],
       patches: [{ loop: 1, cel: 0, rows: ["E0D"] }],
@@ -230,7 +230,7 @@ describe("sprite authoring tools", () => {
       executeAgentTool(state, "read_view", { num: 7, cels: [{ loop: 0, cel: 0 }], rows: true })!
         .details?.["revision"],
     );
-    const result = executeSpriteTool(state, "patch_view_cels", {
+    const result = executeSpriteTool(state, "edit_cels", {
       num: 7,
       expectedRevision: revision,
       patches: [{ loop: 0, cel: 0, rows: null, recolor: [{ from: 4, to: 12 }] }],
@@ -243,14 +243,14 @@ describe("sprite authoring tools", () => {
     assert.deepEqual([...selectViewCel(view, 1, 0)!.pixels], [0, 6, 4]);
 
     const remapped = state.container.getResource("view", 7)!.slice();
-    const xor = executeSpriteTool(state, "patch_view_cels", {
+    const xor = executeSpriteTool(state, "edit_cels", {
       num: 7,
       expectedRevision: String(result?.details?.["revision"]),
       patches: [{ loop: 0, cel: 0, rows: ["111"], recolor: [{ from: 1, to: 2 }] }],
     });
     assert.equal(xor?.success, false);
     assert.match(xor?.error ?? "", /exactly one of/);
-    const transparent = executeSpriteTool(state, "patch_view_cels", {
+    const transparent = executeSpriteTool(state, "edit_cels", {
       num: 7,
       expectedRevision: String(result?.details?.["revision"]),
       patches: [{ loop: 0, cel: 0, rows: null, recolor: [{ from: 0, to: 5 }] }],
@@ -281,7 +281,7 @@ describe("sprite authoring tools", () => {
       executeAgentTool(state, "read_view", { num: 7, cels: [{ loop: 0, cel: 0 }], rows: true })!
         .details?.["revision"],
     );
-    const result = executeSpriteTool(state, "patch_view_cels", {
+    const result = executeSpriteTool(state, "edit_cels", {
       num: 7,
       expectedRevision: revision,
       patches: [
@@ -300,7 +300,7 @@ describe("sprite authoring tools", () => {
     assert.deepEqual([...selectViewCel(view, 1, 0)!.pixels], [0, 2, 1]);
     assert.deepEqual([...selectViewCel(view, 1, 1)!.pixels], [13, 14, 15]);
 
-    const duplicate = executeSpriteTool(state, "patch_view_cels", {
+    const duplicate = executeSpriteTool(state, "edit_cels", {
       num: 7,
       expectedRevision: String(result.details?.["revision"]),
       patches: [
@@ -311,7 +311,7 @@ describe("sprite authoring tools", () => {
     assert.equal(duplicate.success, false);
     assert.match(duplicate.error ?? "", /duplicate target/);
 
-    const absent = executeSpriteTool(state, "patch_view_cels", {
+    const absent = executeSpriteTool(state, "edit_cels", {
       num: 7,
       expectedRevision: String(result.details?.["revision"]),
       patches: [{ loop: 9, cel: 0, rows: ["999"] }],

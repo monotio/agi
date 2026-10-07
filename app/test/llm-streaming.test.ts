@@ -1,8 +1,12 @@
+import { waitUntil } from "./async.ts";
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import { beforeEach, test } from "node:test";
 import { AgentRun } from "../src/agent/agentRun.ts";
+import { beginProviderTask } from "../src/agent/providerBudget.ts";
 import { createAnthropicConversation, createOpenAiConversation } from "../src/agent/llmClient.ts";
 import { sseEvent, providerSse } from "../../test/provider-stream.ts";
+
+beforeEach(() => beginProviderTask(5));
 
 for (const provider of ["openai", "anthropic"] as const) {
   test(`${provider} Stop aborts the stream and Continue retries without keeping a draft`, async (t) => {
@@ -93,7 +97,7 @@ for (const provider of ["openai", "anthropic"] as const) {
     const run = new AgentRun(provider === "openai" ? "gpt-6-sol" : "claude-opus-5-5", (state) => {
       if (state.status === "paused") paused();
     });
-    const config = { provider, apiKey: "placeholder", model: "test" };
+    const config = { provider, apiKey: "placeholder", model: "gpt-6-sol" };
     const conversation =
       provider === "openai"
         ? createOpenAiConversation(config, undefined, undefined, run)
@@ -103,7 +107,10 @@ for (const provider of ["openai", "anthropic"] as const) {
     try {
       await Promise.race([ready, work]);
       // Drain queued provider events before stopping the still-open response.
-      for (let i = 0; i < 10; i++) await new Promise(setImmediate);
+      await waitUntil(
+        () => run.snapshot().progress?.text === "Discard this draft",
+        "the draft did not stream",
+      );
       assert.equal(run.snapshot().progress?.text, "Discard this draft");
       run.stop();
       await Promise.race([pause, work]);
@@ -111,6 +118,11 @@ for (const provider of ["openai", "anthropic"] as const) {
       assert.equal(requests, 1);
       assert.equal(run.snapshot().progress, null);
       assert.equal(run.snapshot().usageIncomplete, true);
+      assert.equal(
+        run.snapshot().reportedSpent,
+        provider === "anthropic" ? 0.00005 : 0,
+        "reported partial usage counts as spent",
+      );
       assert.doesNotMatch(JSON.stringify(conversation.getTranscript()), /Discard this draft/);
       run.resume();
       await work;
@@ -135,7 +147,7 @@ for (const provider of ["openai", "anthropic"] as const) {
       started = resolve;
     });
     const run = new AgentRun(provider === "openai" ? "gpt-6-sol" : "claude-opus-5-5", () => {});
-    const config = { provider, apiKey: "placeholder", model: "test" };
+    const config = { provider, apiKey: "placeholder", model: "gpt-6-sol" };
     let request: Record<string, unknown> = {};
     t.mock.method(globalThis, "fetch", async (_url: unknown, init: RequestInit) => {
       request = JSON.parse(String(init.body));
@@ -186,8 +198,10 @@ for (const provider of ["openai", "anthropic"] as const) {
       // Every byte is a separate chunk, including the multi-byte é and SSE delimiters.
       for (const byte of new TextEncoder().encode(events.map(sseEvent).join("")))
         controller.enqueue(Uint8Array.of(byte));
-      for (let i = 0; i < 30 && run.snapshot().progress?.text !== "Hello, café"; i++)
-        await new Promise(setImmediate);
+      await waitUntil(
+        () => run.snapshot().progress?.text === "Hello, café",
+        "the UTF-8 draft did not stream",
+      );
       assert.equal(request["stream"], true);
       assert.equal(run.snapshot().progress?.text, "Hello, café");
       assert.equal(conversation.getTranscript().length, 1, "draft output must not enter history");
@@ -285,7 +299,7 @@ for (const provider of ["openai", "anthropic"] as const) {
         }),
     );
     const run = new AgentRun("gpt-6-sol", () => {});
-    const config = { provider, apiKey: "placeholder", model: "test" };
+    const config = { provider, apiKey: "placeholder", model: "gpt-6-sol" };
     const conversation =
       provider === "openai"
         ? createOpenAiConversation(config, undefined, undefined, run)
@@ -337,7 +351,7 @@ test("Opus 5.5 and Sonnet 5.5 show their thinking between tool calls instead of 
     try {
       assert.deepEqual(
         request["thinking"],
-        displayed ? { type: "adaptive", display: "summarized" } : undefined,
+        displayed ? { type: "adaptive", display: "updates" } : undefined,
       );
       controller.enqueue(
         new TextEncoder().encode(
@@ -367,8 +381,7 @@ test("Opus 5.5 and Sonnet 5.5 show their thinking between tool calls instead of 
             .join(""),
         ),
       );
-      for (let i = 0; i < 30 && !run.snapshot().progress?.text; i++)
-        await new Promise(setImmediate);
+      await waitUntil(() => !!run.snapshot().progress?.text, "the tool explanation did not stream");
       assert.equal(run.snapshot().progress?.text, "Checking the moat's control lines.");
     } finally {
       run.cancel();
@@ -381,3 +394,221 @@ test("Opus 5.5 and Sonnet 5.5 show their thinking between tool calls instead of 
     }
   }
 });
+
+test("Responses keeps assistant identities and phases separate, and bounds commentary continuation", async (t) => {
+  let requests = 0;
+  let commentaryOnly = false;
+  t.mock.method(globalThis, "fetch", async () => {
+    requests++;
+    const output =
+      commentaryOnly || requests === 1
+        ? [
+            {
+              type: "message",
+              id: `c${requests}`,
+              role: "assistant",
+              phase: "commentary",
+              status: "completed",
+              content: [{ type: "output_text", text: "Checking." }],
+            },
+          ]
+        : [
+            {
+              type: "message",
+              id: "final",
+              role: "assistant",
+              phase: "final_answer",
+              status: "completed",
+              content: [{ type: "output_text", text: "Done." }],
+            },
+          ];
+    return new Response(
+      providerSse("openai", {
+        id: `r${requests}`,
+        output,
+        usage: { input_tokens: 1, output_tokens: 1 },
+      }),
+      { headers: { "content-type": "text/event-stream" } },
+    );
+  });
+  const conversation = createOpenAiConversation({
+    provider: "openai",
+    model: "gpt-6-sol",
+    apiKey: "offline",
+  });
+  const result = await conversation.sendUserMessage("Build");
+  assert.equal(requests, 2);
+  assert.equal(result.text, "Done.");
+  assert.deepEqual(result.assistantMessages, [
+    { id: "c1", phase: "commentary", status: "completed", text: "Checking." },
+    { id: "final", phase: "final_answer", status: "completed", text: "Done." },
+  ]);
+  commentaryOnly = true;
+  const before = requests;
+  await assert.rejects(conversation.sendUserMessage("Continue"), /commentary|final answer/i);
+  assert.equal(requests - before, 4);
+});
+for (const provider of ["openai", "anthropic"] as const) {
+  test(`${provider} refusal is distinct and preserves the provider explanation without retrying`, async (t) => {
+    let requests = 0;
+    t.mock.method(globalThis, "fetch", async () => {
+      requests++;
+      return new Response(
+        providerSse(
+          provider,
+          provider === "openai"
+            ? {
+                id: "r",
+                output: [
+                  {
+                    type: "message",
+                    role: "assistant",
+                    content: [{ type: "refusal", refusal: "I cannot provide that content." }],
+                  },
+                ],
+                usage: { input_tokens: 4, output_tokens: 2 },
+              }
+            : {
+                id: "r",
+                role: "assistant",
+                type: "message",
+                stop_reason: "refusal",
+                content: [{ type: "text", text: "I cannot provide that content." }],
+                usage: { input_tokens: 4, output_tokens: 2 },
+              },
+        ),
+        { headers: { "content-type": "text/event-stream" } },
+      );
+    });
+    const run = new AgentRun(provider === "openai" ? "gpt-6-sol" : "claude-opus-5-5", (state) => {
+      if (state.status === "paused") run.cancel();
+    });
+    const config = {
+      provider,
+      model: provider === "openai" ? "gpt-6-sol" : "claude-opus-5-5",
+      apiKey: "offline",
+    };
+    const conversation =
+      provider === "openai"
+        ? createOpenAiConversation(config, [], undefined, run)
+        : createAnthropicConversation(config, [], run);
+    await assert.rejects(
+      run.run(() => conversation.sendUserMessage("Build")),
+      (error: unknown) => {
+        assert.equal((error as { outcome: string }).outcome, "refused");
+        assert.match(String(error), /I cannot provide that content/);
+        return true;
+      },
+    );
+    assert.equal(requests, 1);
+  });
+}
+
+for (const provider of ["openai", "anthropic"] as const) {
+  test(`${provider} reports cumulative stream usage live and pauses after completion`, async (t) => {
+    let controller!: ReadableStreamDefaultController<Uint8Array>;
+    let ready!: () => void;
+    const opened = new Promise<void>((resolve) => {
+      ready = resolve;
+    });
+    t.mock.method(
+      globalThis,
+      "fetch",
+      async () =>
+        new Response(
+          new ReadableStream<Uint8Array>({
+            start(stream) {
+              controller = stream;
+              ready();
+            },
+          }),
+          { headers: { "content-type": "text/event-stream" } },
+        ),
+    );
+    const config = { provider, model: "gpt-6-sol", apiKey: "test-placeholder" };
+    const run = new AgentRun(config.model, () => {}, 1);
+    const conversation =
+      provider === "openai"
+        ? createOpenAiConversation(config, undefined, undefined, run)
+        : createAnthropicConversation(config, undefined, run);
+    const work = run.run(() => conversation.sendUserMessage("Build the hall."));
+    void work.catch(() => {});
+    await opened;
+    const emit = (event: Record<string, unknown>) =>
+      controller.enqueue(new TextEncoder().encode(sseEvent(event)));
+    try {
+      emit(
+        provider === "openai"
+          ? {
+              type: "response.in_progress",
+              response: {
+                id: "usage",
+                output: [],
+                usage: { input_tokens: 0, output_tokens: 47_000 },
+              },
+            }
+          : {
+              type: "message_start",
+              message: {
+                id: "usage",
+                role: "assistant",
+                content: [],
+                usage: { input_tokens: 0, output_tokens: 47_000 },
+              },
+            },
+      );
+      await waitUntil(() => run.snapshot().spent === 0.47, "stream usage did not update live");
+      emit(
+        provider === "openai"
+          ? {
+              type: "response.in_progress",
+              response: {
+                id: "usage",
+                output: [],
+                usage: { input_tokens: 0, output_tokens: 112_000 },
+              },
+            }
+          : {
+              type: "message_delta",
+              delta: { stop_reason: null },
+              usage: { output_tokens: 112_000 },
+            },
+      );
+      await waitUntil(() => run.snapshot().spent === 1.12, "stream usage did not cross the budget");
+      assert.equal(run.snapshot().status, "running");
+      controller.enqueue(
+        new TextEncoder().encode(
+          provider === "openai"
+            ? providerSse(provider, {
+                id: "usage",
+                output: [],
+                usage: { input_tokens: 0, output_tokens: 112_000 },
+              })
+            : sseEvent({
+                type: "message_delta",
+                delta: { stop_reason: "end_turn" },
+                usage: { output_tokens: 112_000 },
+              }) + sseEvent({ type: "message_stop" }),
+        ),
+      );
+      controller.close();
+      await waitUntil(
+        () => run.snapshot().status === "paused",
+        "the completed request did not pause",
+      );
+      assert.equal(run.snapshot().spent, 1.12);
+      run.resume();
+      await work;
+      assert.equal(run.snapshot().budget, 2);
+      assert.equal(conversation.getUsage?.().output, 112_000);
+    } finally {
+      run.cancel();
+      try {
+        controller.close();
+      } catch {
+        /* The completed stream is already closed. */
+      }
+      await work.catch(() => {});
+    }
+  });
+}

@@ -1,5 +1,7 @@
+import { toolDescription, parameterDescriptions } from "../vocabulary.ts";
 /** Room scaffolding compiles ordinary AGI resources; the low-level source tools remain available. */
-import { assembleLogic } from "../logic/assembler.ts";
+import { compileProjectLogic } from "../authoring/projectLogic.ts";
+import { systemOperand } from "../logic/systemNames.ts";
 import { buildWordsTok, parseWordsTok, matchDictionaryPhrase } from "../logic/words.ts";
 import { openContainer } from "../container/container.ts";
 import { parseView, readViewCel } from "../view/view.ts";
@@ -28,8 +30,11 @@ const EDGES: Readonly<Record<string, number>> = { top: 1, right: 2, bottom: 3, l
 export const ROOM_TOOLS: readonly ToolDefinition[] = [
   {
     name: "write_room",
-    description: `Compile a complete room scaffold with picture, ego, spawn, edge exits and command interactions; title and description record the room intent. Resource references are integer IDs or reserved binding names, not quoted numbers. Registers needed words while preserving IDs. Use expectedRevision "${resourceCacheHint(null)}" for a new room; otherwise match its revision. Picture, ego view and inventory items must exist; exit rooms can be authored later. Leaves boot logic intact and returns revision, bindings, commands and intent updates.`,
-    parameters: {
+    description: toolDescription(
+      "write_room",
+      `Compile a complete room scaffold with picture, ego, spawn, edge exits and command interactions; title and description record the room intent. Resource references are integer IDs or reserved binding names, not quoted numbers. Registers needed words while preserving IDs. Use expectedRevision "${resourceCacheHint(null)}" for a new room; otherwise match its revision. Picture, ego view and inventory items must exist; exit rooms can be authored later. Leaves boot logic intact and returns revision, bindings, commands and intent updates.`,
+    ),
+    parameters: parameterDescriptions("write_room", {
       type: "object",
       additionalProperties: false,
       properties: {
@@ -117,7 +122,7 @@ export const ROOM_TOOLS: readonly ToolDefinition[] = [
         "exits",
         "interactions",
       ],
-    },
+    }),
   },
 ];
 
@@ -147,7 +152,7 @@ function referenceId(
     const binding = state.authoring.bindings[value];
     if (!binding || binding.kind !== kind)
       throw new Error(
-        `${label}: '${value}' needs a ${kind} binding. Use reserve_binding or a numeric ID.`,
+        `${label}: '${value}' needs a ${kind} binding. Use reserve_name or a numeric ID.`,
       );
     return integer(binding.num, label, min, 255);
   }
@@ -158,7 +163,7 @@ function flag(state: AgentSessionState, value: unknown): number | null {
   if (typeof value === "number") return integer(value, "flag", 0, 255);
   if (typeof value !== "string")
     throw new Error("A flag must be a named binding, numeric ID, or null.");
-  const result = executeAuthoringTool(state, "reserve_binding", {
+  const result = executeAuthoringTool(state, "reserve_name", {
     name: value,
     kind: "flag",
     id: null,
@@ -277,12 +282,12 @@ export function executeRoomTool(
       throw new Error("exits must contain at most four edge definitions.");
     if (!Array.isArray(interactions) || interactions.length > 32)
       throw new Error(
-        "interactions must contain at most 32 entries in this helper. Use write_logic_source for more elaborate room behavior.",
+        "interactions must contain at most 32 entries in this helper. Use write_logic for more elaborate room behavior.",
       );
 
     const files = state.getFiles();
     const detached = createAgentSessionState(
-      openContainer(files, { kind: state.profile.container }),
+      openContainer(files, { kind: state.profile.container, profile: state.profile }),
     );
     const staged: AgentSessionState = {
       ...detached,
@@ -303,7 +308,7 @@ export function executeRoomTool(
       const id = integer(value, label, 0, 255);
       if (!inventory[id])
         throw new Error(
-          `${label}: inventory item ${id} is missing. Define it with write_inventory_objects mode "merge" first.`,
+          `${label}: inventory item ${id} is missing. Define it with write_objects mode "merge" first.`,
         );
       return id;
     };
@@ -316,7 +321,7 @@ export function executeRoomTool(
       "room_ego_current_x",
       "room_ego_current_y",
     ] as const;
-    const reserved = executeAuthoringTool(staged, "reserve_binding", {
+    const reserved = executeAuthoringTool(staged, "reserve_name", {
       bindings: variableNames.map((name) => ({ name, kind: "variable", id: null })),
     });
     if (!reserved?.success)
@@ -333,18 +338,18 @@ export function executeRoomTool(
     const currentXVariable = roomVariables["room_ego_current_x"]!;
     const currentYVariable = roomVariables["room_ego_current_y"]!;
     const lines = [
-      `if (isset(f5)) {`,
+      `if (isset(${systemOperand("flag", 5, staged.authoring.bindings)})) {`,
       `  assignn(v${pictureVariable}, ${picture}); load.pic(v${pictureVariable}); draw.pic(v${pictureVariable}); show.pic();`,
       `  set.horizon(${horizon}); load.view(${egoView}); animate.obj(0); set.view(0, ${egoView});`,
       `  assignn(v${stepTimeVariable}, 1); step.time(0, v${stepTimeVariable});`,
       `  assignn(v${cycleTimeVariable}, 3); cycle.time(0, v${cycleTimeVariable});`,
       `  position(0, ${x}, ${y}); draw(0); normal.motion(0); normal.cycle(0); stop.cycling(0);`,
       `  get.posn(0, v${previousXVariable}, v${previousYVariable});`,
-      `  assignn(v6, 0); player.control(); accept.input();`,
+      `  assignn(${systemOperand("variable", 6, staged.authoring.bindings)}, 0); player.control(); accept.input();`,
       `}`,
       `get.posn(0, v${currentXVariable}, v${currentYVariable});`,
-      `if (equaln(v6, 0)) { stop.cycling(0); }`,
-      `if (!equaln(v6, 0) && (!equalv(v${currentXVariable}, v${previousXVariable}) || !equalv(v${currentYVariable}, v${previousYVariable}))) { start.cycling(0); }`,
+      `if (equaln(${systemOperand("variable", 6, staged.authoring.bindings)}, 0)) { stop.cycling(0); }`,
+      `if (!equaln(${systemOperand("variable", 6, staged.authoring.bindings)}, 0) && (!equalv(v${currentXVariable}, v${previousXVariable}) || !equalv(v${currentYVariable}, v${previousYVariable}))) { start.cycling(0); }`,
       `if (equalv(v${currentXVariable}, v${previousXVariable}) && equalv(v${currentYVariable}, v${previousYVariable})) { stop.cycling(0); }`,
       `assignv(v${previousXVariable}, v${currentXVariable}); assignv(v${previousYVariable}, v${currentYVariable});`,
     ];
@@ -366,10 +371,12 @@ export function executeRoomTool(
       const destination = referenceId(staged, exit["destination"], "logic", "exit destination", 1);
       namedExits[edge] = destination;
       const required = flag(staged, exit["requiresFlag"]);
-      lines.push(`if (equaln(v2, ${EDGES[edge]})) {`);
+      lines.push(
+        `if (equaln(${systemOperand("variable", 2, staged.authoring.bindings)}, ${EDGES[edge]})) {`,
+      );
       if (required !== null)
         lines.push(
-          `  if (isset(f${required})) { new.room(${destination}); } else { assignn(v6, 0); print(${JSON.stringify(exit["blockedResponse"] == null ? "That way is closed for now." : text(exit["blockedResponse"], "blockedResponse", 1000))}); }`,
+          `  if (isset(f${required})) { new.room(${destination}); } else { assignn(${systemOperand("variable", 6, staged.authoring.bindings)}, 0); print(${JSON.stringify(exit["blockedResponse"] == null ? "That way is closed for now." : text(exit["blockedResponse"], "blockedResponse", 1000))}); }`,
         );
       else lines.push(`  new.room(${destination});`);
       lines.push("}");
@@ -420,7 +427,7 @@ export function executeRoomTool(
       lines.push(`if (${[...new Set(patterns)].join(" || ")}) {`);
       if (conditions.length) lines.push(`  if (${conditions.join(" && ")}) {`);
       if (giveItem !== null) lines.push(`  get(${giveItem});`);
-      // drop writes location 0; put reads its location from a variable, and v0 is this room.
+      // drop writes location 0; put reads its location from a variable, and current_room is this room.
       if (removeItem !== null) lines.push(`  drop(${removeItem});`);
       if (setFlag !== null) lines.push(`  set(f${setFlag});`);
       const response = text(interaction["response"], "response", 1000);
@@ -438,9 +445,12 @@ export function executeRoomTool(
       }
       lines.push("}");
     }
-    lines.push("return;");
     const normalized = normalizeAuthoredLogic(lines.join("\n"));
-    const compiled = assembleLogic(normalized.source, { dictionary, profile: state.profile });
+    const compiled = compileProjectLogic(normalized.source, {
+      dictionary,
+      profile: state.profile,
+      bindings: staged.authoring.bindings,
+    }).assembly;
     const wordsPayload = buildWordsTok([...dictionary].map(([word, id]) => ({ word, id })));
     staged.authoring.world.rooms[String(room)] = { title, description, exits: namedExits };
     const authoring = validateAuthoringState(staged.authoring);

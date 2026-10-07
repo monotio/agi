@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { useProjectLabels } from "../shell/useProjectLabels.ts";
+import { numberedLabel, numberedSlot } from "../../../src/logic/numberedLabels.ts";
 /**
  * One room's inspector, shaped like Studio's: a header with the room's name
  * and its resource chips (the `chips` slot), the Studio actions (the `lead`
@@ -35,6 +37,11 @@ const {
   viewOnly?: boolean;
 }>();
 
+const labels = useProjectLabels();
+const roomHeading = computed(() =>
+  numberedLabel("room", node.room, { ...labels.value, name: node.title ?? "" }),
+);
+const hasTitle = computed(() => roomHeading.value !== numberedSlot("room", node.room));
 const engine = useEngineApi();
 const map = engine.roomMap;
 const graph = computed(() => map.graph.value);
@@ -179,11 +186,6 @@ watch(
   },
 );
 
-/** A connected room's name, for the exit list. */
-function roomTitle(room: number): string | undefined {
-  return graph.value.nodes.find((n) => n.room === room)?.title;
-}
-
 /**
  * The evidence behind the room, in plain words, for the Details disclosure.
  * The first fact doubles as its summary.
@@ -198,7 +200,7 @@ const facts = computed(() => {
   if (node.picture) out.push("its picture is in the game");
   if (node.variableExit) out.push("one exit is worked out while the game runs");
   if (node.unknownCalls)
-    out.push("its logic calls another the map cannot read, so exits may be missing");
+    out.push("its logic calls an unreadable resource, so the map may be missing exits");
   if (node.unknownSource) out.push("shared logic sends players here, so where from is unknown");
   return out;
 });
@@ -237,14 +239,14 @@ defineExpose({ focusHeading: () => heading.value?.focus() });
   >
     <header class="ri-head">
       <div class="ri-heading">
-        <p v-if="node.title || currentRoom === node.room" class="ri-eyebrow">
-          <span v-if="node.title">Room {{ node.room }}</span>
+        <p v-if="hasTitle || currentRoom === node.room" class="ri-eyebrow">
+          <span v-if="hasTitle">{{ numberedSlot("room", node.room) }}</span>
           <span v-if="currentRoom === node.room" class="ri-here"
             ><span class="ri-here__dot" aria-hidden="true"></span>you are here</span
           >
         </p>
         <h3 ref="heading" class="ri-title" tabindex="-1">
-          {{ node.title || `Room ${node.room}` }}
+          {{ roomHeading }}
         </h3>
       </div>
     </header>
@@ -275,10 +277,24 @@ defineExpose({ focusHeading: () => heading.value?.focus() });
       :aria-label="side === 'out' ? 'Exits' : 'Entrances'"
     >
       <h4 class="ri-sec__title">{{ side === "out" ? "Exits" : "Entrances" }}</h4>
-      <p v-if="!edges[side].length" class="ri-note">
+      <p
+        v-if="!edges[side].length && !(side === 'out' && (node.variableExit || node.unknownCalls))"
+        class="ri-note"
+      >
         {{ side === "out" ? "No observed exit yet." : "Connection unknown." }}
       </p>
       <ul v-else class="ri-list">
+        <li
+          v-if="side === 'out' && (node.variableExit || node.unknownCalls)"
+          class="ri-exit"
+          data-testid="map-computed-exit"
+        >
+          <UiIcon class="ri-exit__icon" name="arrow-right" :size="14" />
+          <span class="ri-exit__main">
+            <span class="ri-exit__room">Computed at runtime</span>
+            <span class="ri-exit__how">Worked out while you play</span>
+          </span>
+        </li>
         <li v-for="(e, i) in edges[side]" :key="i" class="ri-exit">
           <UiIcon
             class="ri-exit__icon"
@@ -286,12 +302,9 @@ defineExpose({ focusHeading: () => heading.value?.focus() });
             :size="14"
           />
           <span class="ri-exit__main">
-            <span class="ri-exit__room"
-              >Room {{ side === "out" ? e.to : e.from
-              }}<span v-if="roomTitle(side === 'out' ? e.to : e.from)" class="ri-exit__name">
-                {{ roomTitle(side === "out" ? e.to : e.from) }}</span
-              ></span
-            >
+            <span class="ri-exit__room">{{
+              numberedLabel("room", side === "out" ? e.to : e.from, labels, "row")
+            }}</span>
             <span class="ri-exit__how" :class="`ri-exit__how--${e.provenance}`">{{
               edgeWord(e)
             }}</span>

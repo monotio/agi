@@ -11,6 +11,7 @@
  */
 
 import { createAgentSessionState } from "../../src/agent/agentState.ts";
+import { installBoilerplateSeed } from "../../src/agent/baseTemplate.ts";
 import { executeAgentTool } from "../../src/agent/tools.ts";
 
 import type { EntryResult } from "../picture-fidelity.ts";
@@ -89,6 +90,9 @@ function extractToolCalls(
 
 /**
  * Validates that all tool calls in the turn compile cleanly through the real engine compiler.
+ * The Genesis prompt promises the complete installed Boilerplate, so the replay
+ * session must start from that same seed: read_* tools inspect seeded room 1,
+ * and write_* tools amend it, exactly as the real turn offers.
  */
 export function validateGenesisToolCalls(output: unknown, context?: AssertionContext) {
   const calls = extractToolCalls(output, context?.providerResponse);
@@ -101,6 +105,7 @@ export function validateGenesisToolCalls(output: unknown, context?: AssertionCon
   }
 
   const session = createAgentSessionState();
+  installBoilerplateSeed(session);
   const errors = [];
   const executed = [];
 

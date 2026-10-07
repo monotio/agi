@@ -361,7 +361,8 @@ function analyzeLogic(
     saidPatterns.push([...m[1]!.matchAll(/"w(\d+)"|\b(\d+)\b/g)].map((w) => Number(w[1] ?? w[2])));
   const nums = (re: RegExp) =>
     [...new Set([...body.matchAll(re)].map((m) => Number(m[1])))].sort((a, b) => a - b);
-  const scan = scanStaticExits(payload, undefined, num);
+  // This metric counts literal exits so historical benchmarks stay comparable.
+  const scan = scanStaticExits(payload, undefined, num, { targets: "literal" });
   const scoreAwards = insns
     .filter((i) => i.kind === "action" && i.name === "addn" && i.args?.[0] === 3)
     .map((i) => i.args![1]!);
@@ -732,8 +733,8 @@ function analyzeSession(ref: RunRef) {
         const a = e.data?.args ?? {};
         const pictureEdit =
           tool === "write_picture" ||
-          tool === "write_scene" ||
-          (tool === "edit_resource_source" && a["kind"] === "picture");
+          tool === "draw_picture_items" ||
+          (tool === "edit_source" && a["kind"] === "picture");
         if (pictureEdit) {
           const s = [
             a["source"] ?? "",

@@ -1,0 +1,34 @@
+id: no-text-close-button
+snapshots:
+  '<UiButton :disabled="count > 0">Close</UiButton>':
+    labels:
+    - source: '<UiButton :disabled="count > 0">Close</UiButton>'
+      style: primary
+      start: 0
+      end: 48
+  <UiButton size="sm" @click="dismiss">Close</UiButton>:
+    labels:
+    - source: <UiButton size="sm" @click="dismiss">Close</UiButton>
+      style: primary
+      start: 0
+      end: 53
+  ? |
+    <UiButton size="sm">
+      Close
+    </UiButton
+    >
+  : labels:
+    - source: |-
+        <UiButton size="sm">
+          Close
+        </UiButton
+        >
+      style: primary
+      start: 0
+      end: 41
+  <button>Close</button>:
+    labels:
+    - source: <button>Close</button>
+      style: primary
+      start: 0
+      end: 22

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { buildView } from "../src/view/view.ts";
 import { authoredPictureSource, createAgentSessionState } from "../src/agent/agentState.ts";
 import { executeAgentTool } from "../src/agent/tools.ts";
 import { executeAuthoringTool } from "../src/agent/authoringTools.ts";
@@ -17,11 +18,11 @@ function logicRevision(state: AgentSessionState, num: number): string {
 
 test("named binding allocation avoids compiled references and preserves stable identities", () => {
   const state = createAgentSessionState();
-  executeAgentTool(state, "write_logic_source", {
+  executeAgentTool(state, "write_logic", {
     room: 0,
     source: "set(f32); assignn(v32,1); return;",
   });
-  const first = executeAuthoringTool(state, "reserve_binding", {
+  const first = executeAuthoringTool(state, "reserve_name", {
     kind: "flag",
     name: "gate_open",
     id: null,
@@ -29,25 +30,25 @@ test("named binding allocation avoids compiled references and preserves stable i
   assert.equal(first.success, true);
   assert.equal(state.authoring.bindings["gate_open"]?.num, 33);
   assert.equal(
-    executeAuthoringTool(state, "reserve_binding", { kind: "flag", name: "gate_open", id: null })!
+    executeAuthoringTool(state, "reserve_name", { kind: "flag", name: "gate_open", id: null })!
       .success,
     true,
   );
   assert.equal(
-    executeAuthoringTool(state, "reserve_binding", { kind: "flag", name: "gate_open", id: 34 })!
+    executeAuthoringTool(state, "reserve_name", { kind: "flag", name: "gate_open", id: 34 })!
       .success,
     false,
   );
-  executeAgentTool(state, "write_logic_source", { room: 1, source: "set(gate_open); return;" });
+  executeAgentTool(state, "write_logic", { room: 1, source: "set(gate_open); return;" });
   assert.deepEqual(
     [...parseLogicResource(state.container.getResource("logic", 1)!).code],
     [12, 33, 0],
   );
 });
 
-test("batch reserve_binding allocates multiple IDs and returns defines", () => {
+test("batch reserve_name allocates multiple IDs and returns defines", () => {
   const state = createAgentSessionState();
-  const result = executeAuthoringTool(state, "reserve_binding", {
+  const result = executeAuthoringTool(state, "reserve_name", {
     bindings: [
       { name: "bridge_down", kind: "flag", id: null },
       { name: "chest_opened", kind: "flag", id: null },
@@ -72,7 +73,7 @@ test("batch reserve_binding allocates multiple IDs and returns defines", () => {
 test("inventory merges allocate stable IDs without sending the complete table", () => {
   const state = createAgentSessionState();
   const upsert = (item: Record<string, unknown>) =>
-    executeAgentTool(state, "write_inventory_objects", {
+    executeAgentTool(state, "write_objects", {
       mode: "merge",
       objects: null,
       item,
@@ -107,12 +108,12 @@ test("inventory merges allocate stable IDs without sending the complete table", 
 
 test("revision-checked source edits change only one matched section and reject stale copies", () => {
   const state = createAgentSessionState();
-  executeAgentTool(state, "write_logic_source", {
+  executeAgentTool(state, "write_logic", {
     room: 1,
     source: 'print("Old greeting."); return;',
   });
   const revision = logicRevision(state, 1);
-  const edit = executeAgentTool(state, "edit_resource_source", {
+  const edit = executeAgentTool(state, "edit_source", {
     kind: "logic",
     num: 1,
     expectedRevision: revision,
@@ -123,7 +124,7 @@ test("revision-checked source edits change only one matched section and reject s
     "Hello again.",
   ]);
   assert.equal(
-    executeAgentTool(state, "edit_resource_source", {
+    executeAgentTool(state, "edit_source", {
       kind: "logic",
       num: 1,
       expectedRevision: revision,
@@ -135,12 +136,12 @@ test("revision-checked source edits change only one matched section and reject s
 
 test("a batch of source edits resolves on one snapshot and applies once", () => {
   const state = createAgentSessionState();
-  executeAgentTool(state, "write_logic_source", {
+  executeAgentTool(state, "write_logic", {
     room: 1,
     source: 'print("aaa"); print("bbb"); return;',
   });
   const revision = logicRevision(state, 1);
-  const edited = executeAgentTool(state, "edit_resource_source", {
+  const edited = executeAgentTool(state, "edit_source", {
     kind: "logic",
     num: 1,
     expectedRevision: revision,
@@ -158,7 +159,7 @@ test("a batch of source edits resolves on one snapshot and applies once", () => 
   assert.match(source, /"ccc".*"ddd"/, "both edits landed in one pass");
 
   // Overlapping occurrences of one find count: 'aa' in 'aaa' occurs twice.
-  const ambiguous = executeAgentTool(state, "edit_resource_source", {
+  const ambiguous = executeAgentTool(state, "edit_source", {
     kind: "logic",
     num: 1,
     expectedRevision: logicRevision(state, 1),
@@ -170,7 +171,7 @@ test("a batch of source edits resolves on one snapshot and applies once", () => 
   assert.equal(diagnostic?.editIndex, 0);
 
   // Two finds hitting the same snapshot range are rejected, not shifted.
-  const overlapping = executeAgentTool(state, "edit_resource_source", {
+  const overlapping = executeAgentTool(state, "edit_source", {
     kind: "logic",
     num: 1,
     expectedRevision: logicRevision(state, 1),
@@ -189,7 +190,7 @@ test("a batch of source edits resolves on one snapshot and applies once", () => 
   assert.equal(after, source, "a failed batch changes nothing");
 
   // Adjacent edits touching at a boundary are allowed.
-  const adjacent = executeAgentTool(state, "edit_resource_source", {
+  const adjacent = executeAgentTool(state, "edit_source", {
     kind: "logic",
     num: 1,
     expectedRevision: logicRevision(state, 1),
@@ -218,7 +219,7 @@ test("picture edits match the authored source read_picture returns, comments and
   assert.equal(read.success, true, read.error ?? "");
   const lines = String(read.details?.["source"]).split("\n");
   assert.deepEqual(lines, authored);
-  const edit = executeAgentTool(state, "edit_resource_source", {
+  const edit = executeAgentTool(state, "edit_source", {
     kind: "picture",
     num: 3,
     expectedRevision: read.details?.["revision"],
@@ -236,9 +237,9 @@ test("picture edits match the authored source read_picture returns, comments and
   assert.notEqual(after.details?.["revision"], read.details?.["revision"]);
 });
 
-test("a source edit on an annotated write_scene picture keeps its Studio items and stays trusted", () => {
+test("a source edit on an annotated draw_picture_items picture keeps its Studio items and stays trusted", () => {
   const state = createAgentSessionState();
-  const written = executeAgentTool(state, "write_scene", {
+  const written = executeAgentTool(state, "draw_picture_items", {
     room: 7,
     backgroundColor: 1,
     shapes: [
@@ -260,7 +261,7 @@ test("a source edit on an annotated write_scene picture keeps its Studio items a
   const read = executeAgentTool(state, "read_picture", { num: 7, include: "source" });
   assert.equal(read.success, true, read.error ?? "");
   assert.match(String(read.details?.["source"]), /# @item oak-tree "Oak tree" art/);
-  const edit = executeAgentTool(state, "edit_resource_source", {
+  const edit = executeAgentTool(state, "edit_source", {
     kind: "picture",
     num: 7,
     expectedRevision: read.details?.["revision"],
@@ -297,7 +298,7 @@ test("a stored picture source that no longer matches its resource is not trusted
     [...state.container.getResource("picture", 3)!],
     "the shown source compiles to the stored resource",
   );
-  const edit = executeAgentTool(state, "edit_resource_source", {
+  const edit = executeAgentTool(state, "edit_source", {
     kind: "picture",
     num: 3,
     expectedRevision: read.details?.["revision"],
@@ -310,7 +311,7 @@ test("a stored picture source that no longer matches its resource is not trusted
 test("world intent is durable and partial updates preserve other facts", () => {
   const state = createAgentSessionState();
   assert.equal(
-    executeAuthoringTool(state, "update_world", {
+    executeAuthoringTool(state, "update_plan", {
       rooms: [],
       facts: [{ name: "key", text: "Belongs to the caretaker." }],
       quests: [],
@@ -318,7 +319,7 @@ test("world intent is durable and partial updates preserve other facts", () => {
     true,
   );
   assert.equal(
-    executeAuthoringTool(state, "update_world", {
+    executeAuthoringTool(state, "update_plan", {
       rooms: [
         { num: 1, title: "Hall", description: "A quiet hall.", exits: [{ name: "east", room: 2 }] },
       ],
@@ -331,10 +332,10 @@ test("world intent is durable and partial updates preserve other facts", () => {
   assert.equal(state.authoring.world.rooms["1"]?.exits["east"], 2);
 });
 
-test("write_logic_source warns on non-diegetic (+N) score counters without deleting copy", () => {
+test("write_logic warns on non-diegetic (+N) score counters without deleting copy", () => {
   const state = createAgentSessionState();
   const source = 'print("Elevator (+1) to roof. (+10)"); return;';
-  const res = executeAgentTool(state, "write_logic_source", {
+  const res = executeAgentTool(state, "write_logic", {
     room: 1,
     source,
   });
@@ -355,11 +356,11 @@ test("a source revision covers what its text depends on, not unrelated vocabular
     true,
   );
   assert.equal(
-    executeAuthoringTool(state, "reserve_binding", { kind: "flag", name: "gate_open", id: null })!
+    executeAuthoringTool(state, "reserve_name", { kind: "flag", name: "gate_open", id: null })!
       .success,
     true,
   );
-  const written = executeAgentTool(state, "write_logic_source", {
+  const written = executeAgentTool(state, "write_logic", {
     room: 1,
     // Message text is not vocabulary: registering "save" later must not
     // stale this source, which only prints it (as the template's menu does).
@@ -377,12 +378,12 @@ test("a source revision covers what its text depends on, not unrelated vocabular
     true,
   );
   assert.equal(
-    executeAuthoringTool(state, "reserve_binding", { kind: "flag", name: "lamp_lit", id: null })!
+    executeAuthoringTool(state, "reserve_name", { kind: "flag", name: "lamp_lit", id: null })!
       .success,
     true,
   );
   assert.equal(logicRevision(state, 1), revision);
-  const edit = executeAgentTool(state, "edit_resource_source", {
+  const edit = executeAgentTool(state, "edit_source", {
     kind: "logic",
     num: 1,
     expectedRevision: revision,
@@ -391,7 +392,7 @@ test("a source revision covers what its text depends on, not unrelated vocabular
   assert.equal(edit.success, true, edit.error ?? "");
 
   // The edit moved the text, so the old revision is stale now.
-  const stale = executeAgentTool(state, "edit_resource_source", {
+  const stale = executeAgentTool(state, "edit_source", {
     kind: "logic",
     num: 1,
     expectedRevision: revision,
@@ -406,18 +407,18 @@ test("assembler errors point at the line the agent wrote, with or without named 
   // one with no bindings at all, and by one more per binding.
   const source = "assignn(v40, 1);\nassignn(v41, 300);\nreturn;";
   const state = createAgentSessionState();
-  const bare = executeAgentTool(state, "write_logic_source", { room: 1, source });
+  const bare = executeAgentTool(state, "write_logic", { room: 1, source });
   assert.match(bare.error ?? "", /AssemblerError: 2:\d+: byte value out of range/);
   for (const name of ["gate_open", "lamp_lit"])
-    executeAuthoringTool(state, "reserve_binding", { kind: "flag", name, id: null });
-  const bound = executeAgentTool(state, "write_logic_source", { room: 1, source });
+    executeAuthoringTool(state, "reserve_name", { kind: "flag", name, id: null });
+  const bound = executeAgentTool(state, "write_logic", { room: 1, source });
   assert.match(bound.error ?? "", /AssemblerError: 2:\d+: byte value out of range/);
 });
 
 test("a room's name is its title, and other unknown fields list the ones accepted", () => {
   // Opus named plan rooms `name` in every Genesis benchmark run.
   const state = createAgentSessionState();
-  const named = executeAgentTool(state, "update_world", {
+  const named = executeAgentTool(state, "update_plan", {
     rooms: [{ num: 2, name: "Hall", description: "The great hall.", exits: [] }],
     facts: [],
     quests: [],
@@ -426,7 +427,7 @@ test("a room's name is its title, and other unknown fields list the ones accepte
   assert.equal(state.authoring.world.rooms["2"]?.title, "Hall");
   // It also left a stray `name` ("", "x", "unused" or a shorter title) beside
   // a room's real title in every run; the title stands.
-  const stray = executeAgentTool(state, "update_world", {
+  const stray = executeAgentTool(state, "update_plan", {
     rooms: [
       { num: 4, title: "The Great Hall", name: "x", description: "", exits: [] },
       { name: "", num: 5, title: "Main Street", description: "", exits: [] },
@@ -437,7 +438,7 @@ test("a room's name is its title, and other unknown fields list the ones accepte
   assert.equal(stray.success, true, stray.error ?? "");
   assert.equal(state.authoring.world.rooms["4"]?.title, "The Great Hall");
   assert.equal(state.authoring.world.rooms["5"]?.title, "Main Street");
-  const labelled = executeAgentTool(state, "update_world", {
+  const labelled = executeAgentTool(state, "update_plan", {
     rooms: [{ num: 3, title: "Moat", label: "moat", description: "", exits: [] }],
     facts: [],
     quests: [],
@@ -476,10 +477,280 @@ test("write_words declares ignored words the parser drops before matching", () =
   assert.match(moved.error ?? "", /'look' is already a word/);
   // A stored test may now phrase its command naturally.
   assert.equal(
-    executeAgentTool(state, "write_logic_source", {
+    executeAgentTool(state, "write_logic", {
       room: 1,
       source: 'if (said("look", "notice")) { print("It reads: help wanted."); } return;',
     }).success,
     true,
   );
+});
+
+test("default source reads return every line of an ordinary resource", () => {
+  const state = createAgentSessionState();
+  const source = "// detail\n".repeat(500) + "return;";
+  const written = executeAgentTool(state, "write_logic", { room: 1, source });
+  assert.equal(written.success, true, written.error ?? "");
+  const read = executeAgentTool(state, "read_logic", { num: 1 });
+  assert.equal(read.details?.["source"], source);
+  assert.equal(read.details?.["nextOffset"], null);
+});
+
+test("source edits coordinate more than sixty-four disjoint changes", () => {
+  const state = createAgentSessionState();
+  const comments = Array.from({ length: 65 }, (_, i) => `// note-${i}!`);
+  const source = comments.join("\n") + "\nreturn;";
+  assert.equal(executeAgentTool(state, "write_logic", { room: 1, source }).success, true);
+  const read = executeAgentTool(state, "read_logic", { num: 1 });
+  const result = executeAgentTool(state, "edit_source", {
+    kind: "logic",
+    num: 1,
+    expectedRevision: read.details?.["revision"],
+    edits: comments.map((find) => ({ find, replace: find + " updated" })),
+  });
+  assert.equal(result.success, true, result.error ?? "");
+  assert.match(state.sources.logics.get(1) ?? "", /note-64! updated/);
+});
+
+test("word and intent reads return multiple complete entries by default", () => {
+  const state = createAgentSessionState();
+  for (let i = 0; i < 150; i++) state.sources.words.set(`word${i}`, i + 1);
+  for (let i = 0; i < 20; i++) state.authoring.world.facts[`fact${i}`] = `value${i}`;
+  const words = executeAgentTool(state, "read_words", {});
+  assert.equal(words.details?.["nextOffset"], null);
+  assert.equal((words.details?.["groups"] as unknown[]).length, 150);
+  const intent = executeAgentTool(state, "read_plan", {
+    filter: "intent",
+    section: "facts",
+  });
+  assert.equal(Object.keys(intent.details?.["entries"] as object).length, 20);
+  assert.equal(intent.details?.["nextOffset"], null);
+});
+
+test("argument validation reports every distinct error", () => {
+  const state = createAgentSessionState();
+  const result = executeAgentTool(state, "edit_source", {
+    kind: "logic",
+    num: 1,
+    expectedRevision: "revision",
+    edits: Array.from({ length: 10 }, () => ({ find: 1, replace: 2 })),
+  });
+  assert.equal(result.success, false);
+  assert.match(result.error ?? "", /edits\[9\]/);
+});
+
+test("whole ordinary VIEW reads fit a generous character page", () => {
+  const state = createAgentSessionState();
+  state.container.putResource(
+    "view",
+    1,
+    buildView({
+      loops: [
+        {
+          cels: Array.from({ length: 2 }, () => ({
+            width: 160,
+            height: 168,
+            transparentColor: 0,
+            pixels: new Uint8Array(160 * 168).fill(1),
+          })),
+        },
+      ],
+    }),
+  );
+  const view = executeAgentTool(state, "read_view", { num: 1, rows: true });
+  assert.equal(view.success, true, view.error ?? "");
+  const rows = view.details?.["rows"] as { rows: string[] }[];
+  assert.equal(rows.length, 2);
+  assert.equal(rows[1]?.rows.length, 168);
+});
+
+test("whole ordinary SOUND reads fit a generous character page", () => {
+  const state = createAgentSessionState();
+  const written = executeAgentTool(state, "write_music", {
+    num: 1,
+    tempo: 120,
+    tracks: [
+      {
+        channel: "melody",
+        volume: 10,
+        events: Array.from({ length: 200 }, () => ({ note: "C4", beats: 1, repeat: 1 })),
+      },
+    ],
+  });
+  assert.equal(written.success, true, written.error ?? "");
+  const sound = executeAgentTool(state, "read_sound", { num: 1 });
+  assert.equal(sound.success, true, sound.error ?? "");
+  assert.equal((sound.details?.["events"] as unknown[]).length, 200);
+  assert.equal(sound.details?.["nextOffset"], null);
+});
+
+test("configure_launch creates, updates, selects and removes launches through authoring tools", () => {
+  const state = createAgentSessionState();
+
+  // Create a launch
+  const created = executeAuthoringTool(state, "configure_launch", {
+    room: 8,
+    action: "create",
+    name: "Vacuum death",
+    cameFrom: { room: 7, edge: 4 },
+    flags: [{ id: 77, value: true }],
+    variables: [{ id: 90, value: 123 }],
+    seed: 58235,
+    selected: true,
+  });
+  assert.ok(created);
+  assert.equal(created.success, true);
+  assert.equal(created.details?.["authoringChanged"], true);
+
+  const roomLaunches = state.authoring.world.launches?.["8"];
+  assert.ok(roomLaunches);
+  assert.equal(roomLaunches.entries.length, 1);
+  const launchId = roomLaunches.entries[0]!.id;
+  assert.equal(roomLaunches.entries[0]!.name, "Vacuum death");
+  assert.equal(roomLaunches.selected, launchId);
+  assert.deepEqual(roomLaunches.entries[0]!.cameFrom, { room: 7, edge: 4 });
+  assert.deepEqual(roomLaunches.entries[0]!.flags, { "77": true });
+  assert.deepEqual(roomLaunches.entries[0]!.variables, { "90": 123 });
+  assert.equal(roomLaunches.entries[0]!.seed, 58235);
+
+  // Update the launch
+  const updated = executeAuthoringTool(state, "configure_launch", {
+    room: 8,
+    action: "update",
+    id: launchId,
+    name: "Airless death",
+    hero: { x: 50, y: 100 },
+  });
+  assert.ok(updated);
+  assert.equal(updated.success, true);
+  assert.equal(state.authoring.world.launches?.["8"]?.entries[0]!.name, "Airless death");
+  assert.deepEqual(state.authoring.world.launches?.["8"]?.entries[0]!.hero, { x: 50, y: 100 });
+  assert.equal(state.authoring.world.launches?.["8"]?.entries[0]!.seed, 58235);
+
+  // Dispatch via executeAgentTool (tests schema validation & parameter normalization)
+  const agentCreated = executeAgentTool(state, "configure_launch", {
+    room: 3,
+    action: "create",
+    name: "Meadow stroll",
+  });
+  assert.equal(agentCreated.success, true, agentCreated.error ?? "");
+  assert.equal(state.authoring.world.launches?.["3"]?.entries[0]!.name, "Meadow stroll");
+
+  // Remove the launch
+  const removed = executeAuthoringTool(state, "configure_launch", {
+    room: 8,
+    action: "remove",
+    id: launchId,
+  });
+  assert.ok(removed);
+  assert.equal(removed.success, true);
+  assert.equal(state.authoring.world.launches?.["8"], undefined);
+
+  // Validation refusals
+  const invalidRoom = executeAuthoringTool(state, "configure_launch", {
+    room: 0,
+    action: "create",
+    name: "Invalid",
+  });
+  assert.equal(invalidRoom?.success, false);
+
+  const missingIdOnUpdate = executeAuthoringTool(state, "configure_launch", {
+    room: 3,
+    action: "update",
+  });
+  assert.equal(missingIdOnUpdate?.success, false);
+});
+
+test("public Launch updates retain null fields, set arrays and clear explicitly", () => {
+  const state = createAgentSessionState();
+  const inputs = {
+    room: 8,
+    id: "vacuum",
+    name: "Vacuum",
+    note: "A test",
+    cameFrom: { room: 7, edge: 4 },
+    flags: [{ id: 77, value: true }],
+    variables: [{ id: 90, value: 123 }],
+    items: [{ id: 0, value: 255 }],
+    hero: { x: 50, y: 100 },
+    seed: 58235,
+    selected: true,
+    clear: [],
+  };
+  const created = executeAgentTool(state, "configure_launch", { ...inputs, action: "create" });
+  assert.equal(created.success, true, created.error ?? "");
+  const before = structuredClone(state.authoring.world.launches);
+  const renamed = executeAgentTool(state, "configure_launch", {
+    room: 8,
+    action: "update",
+    id: "vacuum",
+    name: "Renamed",
+  });
+  assert.equal(renamed.success, true, renamed.error ?? "");
+  before!["8"]!.entries[0]!.name = "Renamed";
+  assert.deepEqual(state.authoring.world.launches, before);
+  const duplicate = executeAgentTool(state, "configure_launch", { ...inputs, action: "create" });
+  assert.equal(duplicate.success, false);
+  assert.deepEqual(state.authoring.world.launches, before);
+  const conflict = executeAgentTool(state, "configure_launch", {
+    room: 8,
+    action: "update",
+    id: "vacuum",
+    seed: 1,
+    clear: ["seed"],
+  });
+  assert.equal(conflict.success, false);
+  assert.deepEqual(state.authoring.world.launches, before);
+  const changed = executeAgentTool(state, "configure_launch", {
+    room: 8,
+    action: "update",
+    id: "vacuum",
+    flags: [{ id: 78, value: false }],
+    clear: ["note", "cameFrom", "variables", "items", "hero", "seed"],
+    selected: false,
+  });
+  assert.equal(changed.success, true, changed.error ?? "");
+  assert.deepEqual(state.authoring.world.launches?.["8"], {
+    entries: [{ id: "vacuum", name: "Renamed", flags: { "78": false } }],
+  });
+  const repeated = executeAgentTool(state, "configure_launch", {
+    room: 8,
+    action: "update",
+    id: "vacuum",
+    flags: [
+      { id: 78, value: true },
+      { id: 78, value: false },
+    ],
+  });
+  assert.equal(repeated.success, false);
+  assert.deepEqual(state.authoring.world.launches?.["8"]?.entries[0]?.flags, { "78": false });
+});
+
+test("a public rename preserves every existing Launch input", () => {
+  const state = createAgentSessionState();
+  const created = executeAuthoringTool(state, "configure_launch", {
+    room: 8,
+    action: "create",
+    id: "saved",
+    name: "Before",
+    note: "Keep",
+    cameFrom: { room: 7, edge: 4 },
+    hero: { x: 50, y: 100 },
+    seed: 1,
+  });
+  assert.equal(created?.success, true);
+  const renamed = executeAgentTool(state, "configure_launch", {
+    room: 8,
+    action: "update",
+    id: "saved",
+    name: "After",
+  });
+  assert.equal(renamed.success, true, renamed.error ?? "");
+  assert.deepEqual(state.authoring.world.launches?.["8"]?.entries[0], {
+    id: "saved",
+    name: "After",
+    note: "Keep",
+    cameFrom: { room: 7, edge: 4 },
+    hero: { x: 50, y: 100 },
+    seed: 1,
+  });
 });

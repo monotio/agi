@@ -227,7 +227,8 @@ same pass. Other details that games depend on:
   next due step into a zero-step re-check.
 - **Ego and the player.** `move.obj`, `move.obj.v` and `wander` on ego take
   control away from the player; arrival or a border stop gives it back and
-  clears v6. `player.control` ends any scripted motion of ego outright.
+  clears v6. `player.control` ends any scripted motion of ego outright (on the
+  later Amiga builds, only when the call follows program control).
 - **Loops and cels.** `set.view` keeps the current loop, and `set.loop` the
   current cel, whenever the new view or loop has enough of them; only an
   out-of-range index falls back to 0.
@@ -563,9 +564,11 @@ volume variable; the older 2.082 driver has no envelope, uses a square wave, and
 lets v23 make notes louder.
 
 The engine emits the values each driver writes to Paula's period and volume
-registers, and the app plays them as looping samples at the PAL Paula clock. Two
+registers, and the app plays them as looping samples at the selected Paula clock
+(NTSC by default, with PAL in Settings > Advanced). Two
 rendering choices come from the hardware rather than the drivers: very short
-periods play at Paula's DMA limit, and period 0 is silent (an inference).
+periods play at Paula's DMA limit, and period 0 counts 65,536 clocks at the
+programmed volume.
 
 **Evidence:** [Original Amiga sound player](#original-amiga-sound-player).
 
@@ -655,6 +658,29 @@ These entries describe the engine's own contracts with its host: how it waits
 for answers the browser cannot give synchronously, how it reports errors, and
 what it exposes for inspection. They are the engine's own design rather than
 findings about the original interpreters.
+
+### Host RNG policy
+
+Ordinary cold boots without restored RNG metadata and unseeded From the
+beginning Launches start at word zero. Their first random draw reads the
+injected host clock/entropy port; subsequent draws read it only when the word
+is zero again. This follows the lazy startup boundary established in the
+[original startup audit](#startup-and-reconstruction-execution).
+The browser supplies cryptographic entropy as a modern stand-in for the BIOS
+clock word; hosts without an entropy port use their injected clock.
+
+Explicit boot seeds remain controlled inputs. Seeded Launches also own an
+advancing deterministic entropy sequence: Play releases that policy at the
+next room change, while Create retains it across rooms. Unseeded room Launches
+carry the current word and policy. Native restart and restore retain the stream;
+exact host checkpoints restore both the word and entropy cursor.
+
+Game-test RNG policy v1 retains its constant reseed word; v2 advances the
+entropy sequence. Walkthrough v1 keeps its tick-derived reseed fallback and
+v2 uses the deterministic sequence. History replays consume recorded reseeds
+in draw order and reject an exhausted lane. Tapes retain recorded random-byte
+answers. These replay policies and released format versions are unchanged by
+the fresh-start default.
 
 ### Parked host waits
 
@@ -1340,7 +1366,26 @@ touches nothing else. Fact: `player.control` ends a running `move.obj`,
 Switching only the coupling would let a scripted ego walk continue after the
 script hands control back; Police Quest depends on the stop.
 
-**Tests:** [ego-motion-control.test.ts](../test/ego-motion-control.test.ts).
+The Amiga builds split on the prior control state (hunk-relative offsets
+resolved through each executable's relocation table; the six-byte dispatch
+record for opcode 0x84 names each entry). SQ1 2.082's handler at h120+0x412
+(hunk `a9b73f7f501b21aa`) matches the DOS form: store 1 in the player-control
+field (state hunk `+0x1a`), clear ego's motion word, done. The five later
+builds — KQ2 2.176, SQ2 2.202, PQ1 2.310, GR 2.316 and MH2 2.333 — share one
+handler at h165+0x41e (hunk `b16f88c2b26e6c01`): it tests the prior control
+field at h206+0x1a and returns without touching ego when player control is
+already selected, so the motion word clears only on a program→player
+transition. Executing each relocated handler against both prior states and
+autonomous modes 1–4 confirms the branch reads the control field, not the
+motion: the later builds preserve modes 1–4 under prior player control and
+clear them under prior program control, 2.082 clears in both, and the
+direction byte is untouched either way. PQ1's logic 0 issues `player.control`
+on every ordinary cycle while its program-control flag is clear, so the
+unconditional form strands its click-walks mid-path with the first heading
+kept. `AgiProfile.playerControlMotionClear` selects between the two forms.
+
+**Tests:** [ego-motion-control.test.ts](../test/ego-motion-control.test.ts),
+[amiga-player-control.test.ts](../test/amiga-player-control.test.ts).
 
 ### Border variables cleared
 
@@ -1554,9 +1599,12 @@ KQ4's closing intro window shows the cycling wave through its top border.
 **Specification:** The spec's modal-text chapter does not address whether object updates continue under
 an open window.
 
-**Evidence:** The shipped main loops gate the object-update call on a state byte set only around the
-full-screen selector UI, never by the window-open routine: the gate byte is `[0x17c7]` in 3.002.086
-and `[0x1757]` in 2.936, set around the selector UI (0x3569 in 3.002.086); the window-open routine
+**Evidence:** The shipped main loops gate the object-update call on the text-screen mode byte, which
+the window-open routine never sets. In KQ4 3.002.086 (static disassembly) the main loop tests
+`[0x17c7]` at 0x241. Action 0x6a `text.screen` (handler 0x7b09, dispatch entry `AGIDATA.OVL`
+0x7c5) sets it at 0x7b14, and action 0x6b `graphics` (handler 0x7b41) clears it through 0x7d0a at
+0x7d0f. A search of the image finds no other direct write. 2.936 gates on `[0x1757]`, which the
+agi-re evidence book attributes to the same pair (0x6a handler 0x76ca). The window-open routine
 (0x204F in 3.002.086) sets `[0xd53]`, which no draw or update path reads.
 
 **Tests:** [kq4-regressions.test.ts](../test/kq4-regressions.test.ts).
@@ -1897,8 +1945,9 @@ the same register remains selected, and single-byte attenuation/noise writes.
 Those documented formats do not establish what every chip variant does with
 a continuation byte after an attenuation/noise latch, nor resolve divisor-zero
 behavior for PCjr/Tandy devices. No independent silicon measurement was made.
-The browser's analog/noise synthesis remains an approximation; software port
-traces establish command bytes and completion behavior only.
+Software port traces establish command bytes and completion behavior. The
+[PCjr and Tandy noise](#pcjr-and-tandy-noise) generator models chip feedback;
+analogue speaker response remains approximate.
 
 Original tone-zero output is also established: the player emits two 0x00 port
 bytes before attenuation on device 1. The engine's suppression is therefore a
@@ -1961,8 +2010,9 @@ Two failure modes arise if hardware latching semantics and rest notes are not mo
    Suppression is a deliberate presentation divergence, not reproduced original
    command-stream behavior. Resolve chip/device semantics before changing it.
 
-**Specification:** The AGI behavioral specification documents the 5-byte note structure and defines
-tone divisor 0 as silence/rest, but does not detail the TI SN76489 chip latching state machine.
+**Specification:** The AGI behavioral specification documents the 5-byte note structure and treats
+control attenuation `0x0f` as silence. It gives tone 0 no rest meaning of its own and does not detail
+the TI SN76489 chip latching state machine.
 
 **Tests:** [audio.test.ts](../app/test/audio.test.ts) (rejection of data bytes on attenuation latches),
 [sound-playback.test.ts](../test/sound-playback.test.ts) (rest note tone suppression).
@@ -2671,6 +2721,45 @@ from GR 2.316 only in version, disk-count and game-ID strings, one init
 routine and relocations. `soundEnvelope` is inert on 2.082, whose driver has
 no envelope table.
 
+### Amiga directory absence
+
+The 2.31x combined-directory loader decides whether a three-byte entry
+names a resource before any volume is opened. Its predicate lives at
+h100+0x118 in the PQ 2.310 and MH2 2.333 executables (sha256
+`72ddbb3ecda804b8dac2f65ed115099af0241d475ac8d432de48428b28cd5cca` and
+`5ce3b163bd32ee025f6ba8ca8c946b03a06ff2960da8cc723c1d6184a3cc346a`); both
+builds' predicate bytes hash identically
+(`02a9c19a546c9fef0ad9dfcf09df609d3b4b4fa8b6425702d68bb40f88470e87`), and
+GR 2.316 (`7bfa2f36616923a41ecb5aa9e3595e7225cdd48ea453e1c1b8310ace0fcdb7db`)
+carries the same bytes — a static identity; its routine was not executed.
+
+The original routine was executed unchanged on controlled inputs: 768
+three-byte entries per build, 1536 of 1536 agreeing with the rule that an
+entry whose first byte's high nibble is `f` is absent, regardless of its
+remaining bytes (`00 00 00` and `ef ff fc` present; `f0 00 00`,
+`ff ff fc` and `ff ff ff` absent). That differs from the DOS v3 rule,
+where only the exact `ff ff ff` triple is absent and the nibble can name
+a real `VOL.15`. An absent entry answers "no such resource": the loader
+never reaches the volume open, so an `f`-nibble entry cannot trigger the
+missing-volume report a real `VOL.14` reference produces, and it is never
+treated as a successful load. The MH2 `dirs` (sha256
+`4c4ed1128707c0b5cf35ae978b9bb77b9bb98f18b98e0f87a9911620d54515da`,
+picture section at offset 599) lists picture 106 as `ff ff fc` at file
+offset 0x395: absent under this rule, not a reference to an unshipped
+`VOL.15`.
+
+The probes establish the predicate on the 2.310/2.316/2.333
+combined-directory builds — executed on 2.310 and 2.333, byte-identical
+on 2.316. The earlier Amiga builds and the IIgs were not exercised here.
+In the engine, the rule is the profile's `directoryAbsence`
+(`volume-nibble-f` on these three profiles, `exact-fff` on the DOS v3
+profiles); the same boundary caps a pack's destination volume at 14 for
+the nibble-f rule and 15 under exact-fff.
+
+**Tests:** [amiga-directory.test.ts](../test/amiga-directory.test.ts),
+[amiga-directory-review.test.ts](../test/amiga-directory-review.test.ts),
+[container-profile-roundtrip.test.ts](../app/test/container-profile-roundtrip.test.ts).
+
 ### Original Amiga sound player
 
 The Amiga editions play the same SOUND resources as the PC releases (the
@@ -2852,26 +2941,336 @@ strings — no envelope table.
 The profile family `amiga-2.082` keeps these behaviors distinct;
 `amiga` is the 2.176+ driver only.
 
+#### Paula onset and A500 output
+
+**Region and pitch.** Commodore's [Amiga Hardware Reference Manual,
+chapter 5, "Limitations on Selection of Sampling Period", p. 138](https://retro-commodore.eu/files/downloads/amigamanuals-xiik.net/Other/Amiga%20Hardware%20Reference%20%28within%20all%20pictures%29%20-%20Manual-ENG.pdf)
+lists the audio clock as 3,579,545 Hz for NTSC and 3,546,895 Hz for PAL.
+The byte rate is clock / AUDxPER; an eight-byte tone at period 1,000 is
+447.443125 Hz on NTSC and 443.361875 Hz on PAL. Settings > Advanced offers
+Amiga timing: NTSC (US) or PAL (Europe), saved locally for the next start.
+The session region selects the audio clock and frame timing.
+
+The NTSC default follows a MAME 0.289 NTSC A500 comparison using the US
+PQ1 2.310 and SQ2 2.202 releases. The previous PAL-clock output measured
+median pitch errors of -15.87 and -15.85 cents respectively, against
+`1200 * log2(3546895 / 3579545) = -15.86` cents predicted by the hardware
+clock ratio. This is measured emulation evidence for the default, distinct
+from the original driver machine-code facts below.
+A fresh 60-second NTSC engine render against the retained reference measures
+PQ1's median error as +0.01 cents (119 mixed-voice spectral candidates;
++0.01 cents also across the 52 confidently aligned intro-note peaks).
+SQ2's 111 candidates have a median within 0.01 cents of zero. These medians
+establish removal of the colour-clock tuning error; PQ1's later SOUND 30
+alignment remains uncertain and individual mixed-voice peaks remain ambiguous.
+
+**Original frame timing facts.** The PQ1 and SQ2 executable hashes are
+listed below and in [Amiga interpreter profiles](#amiga-interpreter-profiles).
+Their h135 interrupt code has the same unrelocated SHA-256
+`6b82c1fe6db6009af28c6bf069a90765ab17f9e4b7730910ab4aa2cd8f2734a9`.
+PQ1 h200 (base `0xf7c0`, SHA-256
+`4360355b398b9e16bb40c7ec212eea871a178944965241d21d910d2af1a6beef`)
+and SQ2 h200 (base `0xf020`, SHA-256
+`eda9acd119d343110a8db5f6acf2084764f7a22e18ec823b9ff4aa92ff34c19d`)
+install h135 through Exec AddIntServer with interrupt number 5 (VERTB) at
+h200+0x1b8..0x1d6. PQ1's Exec veneer h246+0..0x14 calls vector -168;
+[Commodore's Exec interrupt documentation](https://wiki.amigaos.net/wiki/Exec_Interrupts)
+identifies this as the vertical-blank server chain.
+
+| Interpreter operation                     | Hunk offsets    | PQ1 2.310 addresses | SQ2 2.202 addresses |
+| ----------------------------------------- | --------------- | ------------------- | ------------------- |
+| Sound soft interrupt each active frame    | h135+0x06..0x16 | `0xa8aa..0xa8ba`    | `0xa1b2..0xa1c2`    |
+| Game soft interrupt every third frame     | h135+0x1a..0x38 | `0xa8be..0xa8dc`    | `0xa1c6..0xa1e4`    |
+| Game callback installed                   | h200+0x222      | `0xf9e2` → `0xee48` | `0xf242` → `0xe6a8` |
+| Sound callback installed                  | h200+0x274      | `0xfa34` → `0xf10a` | `0xf294` → `0xe96a` |
+| Game seconds increment every 20 callbacks | h194+0x16..0x38 | `0xee5e..0xee80`    | `0xe6be..0xe6e0`    |
+
+Both h194 timer hunks have unrelocated SHA-256
+`162c154512ea27ee43e31904b581fa27e52cf82faf72fa9183c92e7feef90dbc`.
+Sound callbacks decrement the driver note countdown and step its envelope;
+these are interpreter instructions, separate from SOUND and LOGIC bytecode.
+The frame divider and 20-callback second counter contain fixed constants.
+
+**Measured PAL timing.** MAME 0.289 ran the original PQ1 2.310 and SQ2
+2.202 executables on `a500` (PAL) and `a500n` (NTSC), both with `kick13`.
+Captures used `-video none -sound none -nothrottle`, 48 kHz WAV output, no
+keyboard input, and 200 emulated seconds for PQ1 or 150 for SQ2. SQ2 used
+its bootable original disk (SHA-256
+`e46084876466879600fbde240a512dcd23b10e23058c680151d7f0e608dee4c4`).
+PQ1 used a reconstructed OFS boot disk containing the unchanged original
+executable and resources (SHA-256
+`a0509b8e161b05e8c9a1312a66977f22efc9063f4d68cb51cc4393cdf6cd0220`),
+rather than a preservation image. Periodic screenshots established that both
+intros reached the measured music.
+
+A read-only Lua probe located relocated h194 in RAM from its instruction
+signature, obtained the callback counter and v11 addresses from its relocated
+operands, and observed them each emulated frame. It neither wrote RAM nor
+changed game resources. Loaded addresses were:
+
+| Game / machine | h194      | Callback counter | v11       |
+| -------------- | --------- | ---------------- | --------- |
+| PQ1 / PAL      | `0x271f0` | `0x28068`        | `0x2833d` |
+| PQ1 / NTSC     | `0x24ef0` | `0x25d68`        | `0x2603d` |
+| SQ2 / PAL      | `0x26a38` | `0x278b0`        | `0x27b85` |
+| SQ2 / NTSC     | `0x24738` | `0x255b0`        | `0x25885` |
+
+Every measured game-second interval contained 60 frames and 20 callbacks.
+PQ1 supplied 140 PAL intervals and 169 NTSC intervals; SQ2 supplied 99 and 119. Both games measured 1.199993233 seconds per game second on PAL and
+0.998800022 on NTSC. MAME's reconstructed frame rates are approximately
+50.000282 and 60.072086 Hz, explaining the small difference from nominal
+50/60 Hz. These are observed counter changes in the original interpreter,
+independent of the TypeScript engine.
+
+The opening PQ1 SOUND 36 passage supplied four resolved first-channel note
+attacks at sound ticks 0, 39, 148 and 186. SQ2 SOUND 60 supplied sixteen
+resolved second-channel attacks through tick 500. Regression of attack time
+against sound ticks measured PAL/NTSC duration ratios of 1.200988 (PQ1) and
+1.200669 (SQ2). Median pitch shifts were −15.842 and −15.864 cents. Thus PAL
+music is about 16.7% slower; pitch is about 0.9% lower, following Paula's
+colour clock rather than the frame-rate ratio. Analysis retained the raw 48 kHz
+captures, demodulated resolved note frequencies for attacks, and used an FFT
+with interpolated log peaks in each note's middle half for pitch. Temporary
+12 kHz analysis copies had no time stretching or equalization. Mixed voices,
+short attacks and unresolved later effects are outside these measurements.
+
+**Other Amiga profiles.** Static inspection extends the fixed frame divider to
+KQ2 2.176, GR 2.316 and MH2 2.333: their h135 and h194 hashes match those
+above. Their executable identities are in
+[Amiga interpreter profiles](#amiga-interpreter-profiles). SQ1 2.082 uses the
+same interrupt bytes in h97; its h136 timer (SHA-256
+`9561d22a00dac7c15bcba73fbd5cf99bbf3474cbaa1ceeb5c67b7fc3472bb110`)
+increments at +0x16, compares against 20 at +0x1c and increments v11 at
++0x34. Its h141 (base `0xecdc`, SHA-256
+`d6f72da253a4451b762ca6768ebc4ca3d305fdc0bfb8f7f445ad5a42b25b9e9d`)
+installs h97 through AddIntServer 5 at +0x1c0..0x1ca and h136 as the callback
+at +0x216. Unlike h194's greater-or-equal test, h136
+uses equality; the normal frame division is the same. These additional
+profiles were inspected statically, without a full-machine PAL measurement.
+
+| Build     | Frame hunk / image base | Timer hunk / image base |
+| --------- | ----------------------- | ----------------------- |
+| SQ1 2.082 | h97 / `0xa2d0`          | h136 / `0xe50c`         |
+| KQ2 2.176 | h135 / `0xa16c`         | h194 / `0xe668`         |
+| GR 2.316  | h135 / `0xaa1c`         | h194 / `0xefc0`         |
+| MH2 2.333 | h135 / `0xa9e8`         | h194 / `0xefa0`         |
+
+**Regional release limit.** The measured executables came from US releases.
+The [PQ1 release catalogue](https://www.mobygames.com/game/146/police-quest-in-pursuit-of-the-death-angel/releases/)
+identifies a 1993 U.S. Gold Kixx XL Amiga release in France, Germany, Italy
+and the United Kingdom. A verified executable from that release was unavailable
+for this comparison. Its timing, and any European timing patch, remain unverified.
+
+**Engine timing.** The Amiga profile variants use nominal 60 Hz NTSC or 50 Hz
+PAL sound heartbeats, three frames per pacing increment and 20 increments per
+game second. PAL therefore has 60 ms pacing increments and 1.2-second game
+seconds. PC and IIgs keep their existing timing. Settings > Advanced > Amiga
+timing selects the region for the next start. The running session keeps its
+region; autosaves, numbered saves, tapes and recorded tests restore it.
+Optional region metadata preserves existing format versions, with omission
+meaning NTSC. Numbered saves retain authentic native bytes and carry the region
+in their host storage or archive metadata.
+
+A fresh PQ1 PAL run through the shipped offline audio graph used 48 kHz output,
+RNG/noise seed 1 and master gain 0.1. Against the four resolved MAME PAL SOUND
+36 notes, median pitch error was +0.017 cents and tempo error was −0.22%
+(regressed attack spacing). Envelope/filter attack uncertainty is several
+milliseconds; this establishes the opening passage's tuning and tempo rather
+than a sample-exact match or alignment of later SOUND 30 effects.
+
+Reproduce the static checks with privately supplied executables:
+
+```bash
+python scripts/probe-interpreter-amiga.py disasm games/pq1-amiga/PQ 200 --start 0x172 --end 0x27e
+python scripts/probe-interpreter-amiga.py disasm games/sq2-amiga/SQ2 200 --start 0x172 --end 0x27e
+python scripts/probe-interpreter-amiga.py disasm games/pq1-amiga/PQ 135 --start 0 --end 0x40
+python scripts/probe-interpreter-amiga.py disasm games/sq2-amiga/SQ2 135 --start 0 --end 0x40
+python scripts/probe-interpreter-amiga.py disasm games/pq1-amiga/PQ 194 --start 0 --end 0xd8
+python scripts/probe-interpreter-amiga.py disasm games/sq2-amiga/SQ2 194 --start 0 --end 0xd8
+```
+
+**Original driver facts.** PQ Amiga 2.310 (`PQ`, SHA-256
+`72ddbb3ecda804b8dac2f65ed115099af0241d475ac8d432de48428b28cd5cca`)
+has h197 at image base `0xef40`. Its unrelocated code SHA-256 is
+`06c91c9320595f165ae819201d6654c87880c8a9ab4dd99ee51918cd6db2cdd8`,
+identical to GR 2.316 (`GR`, SHA-256
+`7bfa2f36616923a41ecb5aa9e3595e7225cdd48ea453e1c1b8310ace0fcdb7db`).
+The following are relocated **interpreter machine-code** addresses, cross-checked
+against both executables; the SOUND and LOGIC resources are separate bytecode.
+
+| Operation                            | h197 offset    | PQ 2.310       | GR 2.316       |
+| ------------------------------------ | -------------- | -------------- | -------------- |
+| Noise AUDxLC, then AUDxLEN = 0x800   | +0x574, +0x57a | 0xf4b4, 0xf4ba | 0xf62c, 0xf632 |
+| Tone AUDxLC, then AUDxLEN = 4        | +0x582, +0x588 | 0xf4c2, 0xf4c8 | 0xf63a, 0xf640 |
+| Note AUDxPER                         | +0x382         | 0xf2c2         | 0xf43a         |
+| Call envelope step                   | +0x38a         | 0xf2ca         | 0xf442         |
+| Note AUDxVOL                         | +0x38e         | 0xf2ce         | 0xf446         |
+| Set DMACON channel bit (OR 0x8000)   | +0x39c         | 0xf2dc         | 0xf454         |
+| Held-tick AUDxVOL                    | +0x224         | 0xf164         | 0xf2dc         |
+| Terminator clears DMACON channel bit | +0x5b0         | 0xf4f0         | 0xf668         |
+
+LC/LEN are set during sound setup, before the first note enables DMA.
+The note routine writes PER, computes the envelope, writes VOL, then sets
+the DMA bit. It contains no DMA clear, LC/LEN rewrite, raster wait or timed
+attack ramp. The envelope subroutine includes the division helper, so these
+writes have instruction execution time between them; this inspection establishes
+order, rather than a measured bus-cycle delay. Between notes DMA remains enabled.
+The positive `2, 1, 0` envelope entries are the attack values described above.
+A terminator or stop clears DMA. Consequently a new note on an enabled channel
+continues phase; a new DMA activation reloads the sample start.
+The terminator at h197+0x5a6..0x5ba (`0xf4e6..0xf4fa`) tests and clears
+the channel's software active field, then writes its mask to DMACON. It
+writes no AUDxVOL. The emitted null-period event's zero volume is therefore
+a software stop marker, rather than a hardware volume write.
+
+No instruction in h197 accesses CIA-A PRA or its direction register.
+A literal-address census of all hunks in both executables finds no operands
+`0xbfe001`, `0xbfe201`, `0xbfe000` or `0xbfe200`. This establishes the
+absence of direct literal accesses; it does not observe OS calls or indirect
+addresses. The driver uses `audio.device` to allocate channels and writes
+Paula registers itself. These checks can be reproduced without distributing
+interpreter bytes:
+
+```bash
+python scripts/probe-interpreter-amiga.py disasm games/pq1-amiga/PQ 197 --start 0x372 --end 0x3aa
+python scripts/probe-interpreter-amiga.py disasm games/goldrush-amiga/GR 197 --start 0x372 --end 0x3aa
+python scripts/probe-interpreter-amiga.py cia games/pq1-amiga/PQ
+```
+
+**Hardware facts.** Commodore's [Amiga Hardware Reference Manual,
+chapter 5](https://oldcrap.org/wp-content/uploads/2023/04/amiga-all-hw-ref-manual.pdf),
+"Playing the Waveform", "Joining Tones" and "The Audio State Machine",
+describes DMA start, pointer/length reload and high-byte/low-byte output.
+The period counter reloads from AUDxPER at each byte transition; setting an
+already-set DMACON bit leaves DMA running. Channels 0 and 3 feed the left
+output; 1 and 2 feed the right output. The manual's "Low-Pass Filter" section
+and appendix F identify CIA-A bit 1 as the active-low power LED/filter control
+on later A500 models.
+
+The [Commodore A500 rev 6a/7 schematic, sheet 4](https://www.amigawiki.org/dnl/schematics/A500_R6.pdf)
+gives the always-connected RC stage as R321/R331 = 360 ohm and
+C321/C331 = 0.1 uF: a 4,421 Hz pole. The switched unity-gain Sallen-Key
+stage uses 10 kohm resistors and 6,800/3,900 pF capacitors: nominal
+frequency 3,091 Hz and Q 0.6602, with a 12 dB/octave roll-off.
+Component tolerances and board revisions affect these frequencies.
+
+The schematic also places C324/C325 (22 uF + 0.33 uF in parallel) between
+the left filter output and R324 (1 kohm), with R325 (390 ohm) to ground;
+C334/C335 and R334/R335 mirror this on the right. **Circuit inference:**
+an unloaded jack has a 31.0387 ms high-pass time constant, a 5.128 Hz pole,
+and passband gain 390/1390. An external load changes both. The presentation
+normalizes that passband gain into the existing host volume scale.
+
+The manual's non-DMA section states that an idle DAC retains its last
+value. [Figure 5-8 in the third edition, printed page 166](https://www.ikod.se/wp-content/uploads/2020/08/Amiga_Hardware_Reference_Manual_3rd_Edition.pdf)
+shows exit from the low-byte state 011 without a data or volume clear.
+The model finishes the current word and retains its low byte and volume;
+a re-enable before that exit keeps phase. Interrupt service and horizontal
+DMA slot timing remain unmeasured.
+
+**Presentation model and limits.** The app selects this A500 analogue path
+with the LED bright, since the inspected driver leaves the filter control alone.
+This is an explicit boot-state assumption; OS LED state was not captured.
+A first-order IIR models the RC stage and a Web Audio lowpass biquad models
+the LED stage. [Web Audio's lowpass Q](https://www.w3.org/TR/webaudio-1.0/#dom-biquadfilternode-q)
+uses decibels, so the circuit's dimensionless Q is converted with `20 * log10(Q)`. The two low-pass filters and output coupling preserve state across notes.
+The four voices route to the hardware's stereo sides.
+
+DMA starts at sample byte zero with the playback rate installed **before**
+its start quantum. On period changes, a replacement source starts at the next
+byte boundary and the current sample offset. Volume writes land at the
+register tick independently of that boundary. This avoids Web Audio's k-rate `playbackRate` transition, which
+otherwise emits several fast cycles at onset before the intended period takes
+effect. Each signed DAC byte occupies 32 identical buffer frames, so browser
+reconstruction approximates a held sample rather than interpolating across
+the entire byte period. The browser's sample reconstruction remains an approximation; this
+model does not claim bus-cycle accuracy, DAC PWM emulation or measured analogue
+component tolerances. Period 0 counts 65,536 clocks while keeping volume;
+it can emit slow changes. A DMA clear retains output through the coupling
+stage. Natural SOUND completion preserves that graph for the next sound;
+explicit host disposal releases its nodes.
+
+**Click cause and limits.** The later tone bytes
+`0, 64, 127, 64, 0, -64, -127, -64` have exact mean zero and first byte zero.
+The older 2.082 tone `0, -128, 0, -128` has mean -64. Volume changes scale
+the currently held byte immediately; a retrigger restarts the positive
+`2, 1, 0` attack while DMA continues. These finite gain steps can click on
+hardware. DMA stop holds a level, and the coupling circuit turns that level
+into a decaying transient. Its 5.128 Hz pole barely changes the click band
+above 20 Hz. This establishes a physical mechanism, rather than a measured
+A500 recording or a guarantee of quieter playback. No added attack ramp
+or sample recentering conceals the original driver behavior.
+
+**Regression evidence.** [paula-offline.test.ts](../app/test/paula-offline.test.ts)
+boots PQ's original LOGIC and captures 1,800 sound heartbeats through the real
+`AgiAudio` graph in headless Chromium's `OfflineAudioContext`. It covers SOUND
+36, repeated SOUND 19, then SOUND 37 and the intro music in SOUND 30.
+The harness advances the game clock and uses the shipped `CycleClock` for
+`v10` pacing, with controlled game and presentation RNG seeds of 1.
+The same harness boots PQ PC/Amiga and SQ2 PC/Amiga/IIgs, using each edition's
+own LOGIC and scheduler. IIgs loads the original wave RAM and instrument bank.
+Per-voice renders measure starts, ends, rests, DMA clears and IIgs source
+halts. Metrics include adjacent jumps in 4 ms, the difference of signed
+2 ms means, 20 ms local means and whole-capture voice DC, and DC-removed
+20–800 Hz energy in 10 ms against a nearby tone window. The periodogram
+integrates on a 20 Hz grid; its actual resolution is about 100 Hz. These
+finite windows include carrier phase, pitch, envelope and leakage, so their
+energy and mean differences are proxies rather than isolated click energy.
+
+An independent held-byte DAC reference follows the documented register
+sequence through the nominal filters. PQ's baseline fails the DMA-off step
+comparison by 0.06680 full scale; corrected DMA-off errors stay below one
+output DAC LSB (`0.4 / 128 / 2`), and rests below two. The earlier high-band
+bound is replaced by these step comparisons: held bytes have legitimate
+harmonics which whole-byte interpolation removed. The 0.08 adjacent-jump
+bound remains, and high-band energy remains reported.
+Optional `AGI_AUDIO_RENDER_DIR` writes float WAVs, fixed-scale spectrograms
+and per-boundary JSON, preserving over-range IIgs samples for analysis.
+Each fixture explicitly skips with content-identified setup instructions.
+[paula.test.ts](../app/test/paula.test.ts) checks phase, signed DAC output,
+coupling and measurements with hand-computed expectations;
+[audio.test.ts](../app/test/audio.test.ts) checks register scheduling,
+held output and filter-state survival across completed streams.
+
+**Backend comparison.** TI's [SN76489 family data sheet](https://ftp.whtech.com/datasheets%20and%20manuals/Datasheets%20-%20TI/SN76489.pdf)
+describes separate frequency counters and attenuation registers. The app
+keeps its bipolar square oscillators running while an attenuation latch
+gates their gain; a rest reaches zero gain without a persistent signed DAC
+level. Abrupt gain changes still have carrier-dependent steps. Exact NCR
+8496/SN76496 phase behavior remains the hardware evidence gap described in
+[SN76489 attenuation latching](#sn76489-attenuation-latching-and-rest-notes).
+Apple's [IIgs hardware reference](https://downloads.reactivemicro.com/Apple%20II%20Items/Documentation/Manuals/IIgs/IIgs%20Hardware%20Reference.pdf)
+defines DOC halt on zero data or the halt bit. The Note Synthesizer's
+instrument attack/release envelope can reduce a tone before its oscillators
+halt; a halt itself is abrupt. See the instrument and driver evidence under
+[IIgs sound](#sound-format-fact-except-where-marked). Apple's
+[technical note 11](https://apple2.gs/technotes/tn-iigs-011/) also documents
+physical DOC swap clicks, which this presentation does not model.
+Those captures preceded the [Tandy clock](#tandy-psg-clock) and
+[IIgs DOC corrections](#iigs-doc-pitch-volume-and-headroom). Their carrier,
+arrangement and presentation levels differ, so raw step maxima alone establish
+neither smaller clicks nor listener preference.
+
 #### Engine/app mapping
 
 `SoundPlayback` emits `{kind: "paula", channel, period, volume, driver?}`
-per voice on the same 60 Hz clock: the 2.176+ family every tick for every
-live voice, the 2.082 family (`driver: "2.082"`) on decode ticks only.
+per voice on the session's 60 Hz NTSC or 50 Hz PAL clock: the 2.176+ family
+every tick for every live voice, the 2.082 family (`driver: "2.082"`) on decode
+ticks only.
 `period` is the value written to AUDxPER (null when the voice's DMA is
-off) and `volume` the value written to AUDxVOL, always 0..64
+off) and `volume` the value written to AUDxVOL while DMA is on, always 0..64.
+With a null period its zero volume is a software stop marker
 (`AMIGA_ENVELOPE_TABLE`, `AMIGA_2176_ENVELOPE_TABLE`,
 `AMIGA_2082_NOISE_PERIODS`, `AMIGA_TONE_SAMPLE`,
 `AMIGA_2082_TONE_SAMPLE`, `amigaNoisePcm` in `src/sound/sound.ts`).
-`app/src/audio/AgiAudio.ts` renders the voices with looping buffer
-sources whose buffers are fixed per voice as in the drivers — sample rate
-`3546895 / period` against the PAL Paula clock — and per-voice gains; a
-change of driver rebuilds the voices. Two render choices come from the
-hardware, not the drivers: periods below 124 colour clocks render at 124,
-because Paula's audio DMA cannot fetch samples faster (the Amiga Hardware
-Reference Manual's minimum); and period 0 renders silent — an inference
-that a zero period gives no audible pitch, not a measurement. The
-`soundDevice` operand stays a PC-family selection and does not reach this
-path.
+`app/src/audio/AgiAudio.ts` renders fixed per-channel buffers at
+`3579545 / period` for NTSC or `3546895 / period` for PAL, through stereo
+A500 output filters.
+A driver change rebuilds the voices. Phase, register boundaries and the LED
+model are described in [Paula onset and A500 output](#paula-onset-and-a500-output).
+Periods below 124 colour clocks retain the DMA-limit approximation, and period 0
+counts 65,536 clocks at the programmed volume. The `soundDevice` operand stays a PC-family
+selection. PC and IIgs graphs keep their own synthesis paths.
 
 ### Original Amiga and IIgs pattern brushes
 
@@ -2898,6 +3297,90 @@ The stipple generator is the PC one: the seed is ORed with 1, then
 selects `short-r1` for 2.176/2.202 and `center-row-320` for the 2.31x
 generation and the IIgs. Tests:
 [picture-profile.test.ts](../test/picture-profile.test.ts).
+
+### Original native menu dispatch
+
+The Amiga menu event path is separate from `menu.input`. In PQ1 Amiga
+2.310, the action table dispatches that opcode to the no-op h6+0x64.
+Intuition MENUVERIFY and MENUPICK messages enter h106 instead. Addresses
+below identify interpreter machine code, with hunk relocations resolved;
+they describe the original event boundary, not game LOGIC or a browser
+implementation of the native OS.
+
+PQ1 executable SHA-256 is
+`72ddbb3ecda804b8dac2f65ed115099af0241d475ac8d432de48428b28cd5cca`.
+MENUHOT verification at h106+0x106 rejects a nonzero h206+0x410 inhibit,
+text-screen state h180+0 equal to 1, or clear AGI flag 14. The text-screen
+meaning is established by the dispatched text.screen/graphics handlers in
+h179. The separate inhibit is written by dialog and picture-transfer paths;
+it is broader than a single modal kind. Successful verification sets freeze
+flag h4+2 and menu ownership h108+8 only if the freeze was previously clear.
+MENUPICK at h106+0xdc clears those fields only when h108+8 identifies this
+owner. The timer tests h4+2 at h194+0x0c and returns before game-clock and
+pacing updates when it is set. These instructions establish the game-clock
+gate, not original OS scheduling or an audio-pause rule.
+
+Selection h221+0x434 returns immediately for `0xffff` cancellation. Otherwise
+it calls ItemAddress, reads the selected item's status byte at +0x1a,
+sign-extends it, enqueues type 3 through h103+0x40 and follows NextSelect at
++0x20. Controlled M68000 execution of the unchanged selection, queue, input
+drain and condition dispatch tested all 256 status bytes. Only OS ItemAddress
+was replaced with a synthetic lookup; the controller array and surrounding
+memory started zeroed. The drain's h85+0xac arm sign-extends the event word
+again and writes byte 1 relative to controller base h120. Statuses 0..127
+write their positive slots; 128..255 write offsets -128..-1. Condition 12's
+ordinary unsigned controller predicate is true for 0..127 and false for
+128..255 in this controlled case. This proves the consumer does not fold
+negative statuses back to unsigned. It does not establish adjacent-memory
+effects, real disabled-item selection or whole-game behavior, and does not
+justify reproducing the original out-of-bounds write.
+
+Static comparisons extend those inspected instruction boundaries to Gold
+Rush 2.316 (`7bfa2f36616923a41ecb5aa9e3595e7225cdd48ea453e1c1b8310ace0fcdb7db`)
+and MH2 2.333 (`5ce3b163bd32ee025f6ba8ca8c946b03a06ff2960da8cc723c1d6184a3cc346a`).
+Their selection h221+0x434..0x482, signed controller-write arm h85+0xac..0xbe,
+MENUHOT h106+0x106..0x158, MENUPICK h106+0xdc..0x106, flag predicate
+h175+0xa2..0xc2, ItemAddress veneer h248+0x88..0xa0 and initial timer
+h194+0..0x40 match PQ1, including every resolved relocation target. Their
+unsigned controller predicate matches at h23+0x19c..0x1ac. This is static
+identity of those regions; it does not substitute for original OS interaction
+or independently prove every downstream callee.
+
+Earlier native gates differ. Sierra/SQ1 2.082
+(`80c6b0c4912a4ca5b44ad94c1c1b66a42e2b490f8a4ace90fb8b05f1fb39ea0f`)
+MENUHOT h78+0x106 checks inhibitor h80+0x0c and text mode h129+0, with no
+flag-14 test before freeze at +0x12c. KQ2 2.176
+(`62b17ac8049a982e08b1830463f067e102960feb2abb78e992e28bbe15a1cf42`)
+and SQ2 2.202
+(`557215fbbf431193e99578be53372496bd4bf1cfad7c4ba93a61968e5c760dec`)
+check h108+0x0c, text mode h180+0 and flag 14 at h106+0x106..0x158.
+Their print worker restores the prior inhibitor before its nonblocking f15
+return; PQ1 does likewise at h57+0x1a8. A persistent window therefore
+does not itself prove native menu inhibition on these builds.
+
+The early controller paths also sign-extend selected status: SQ1 selection
+h159+0x410 and write h63+0xa2 use controller base h86; KQ2/SQ2 use h85+0xa8
+and h120. SQ1's condition-table h18 slot 12 resolves to h17+0x484, which
+zero-extends the operand before reading h86. KQ2/SQ2's unsigned predicate
+at h23+0x19c matches the later predicate. These are static consumer/predicate
+findings, separately from the executed PQ1 cases.
+
+SQ2 IIgs 1.014 executable SHA-256 is
+`e1a2788f92cb76220e5ac228945bf2eaf7f3a97208f0c3af2ae81d947407717f`.
+Its native menu.input handler seg3+0x142f returns unchanged. The top-bar
+entry at seg3+0x910..0x919 requires flag 14, `$0090==0` and `$00b3!=1`.
+Native selection seg3+0x13d7 masks the identifier to eight bits before
+enqueueing type 3; construction and enable/disable use `id & 0xff | 0x0100`.
+This unsigned path differs from the inspected Amiga consumer. `$00b3` is
+text mode: text.screen seg2+0x6ac writes 1 at +0x6ba, while the graphics
+helper clears it at +0x88c. `$0090` inhibits drawing/dialog interaction:
+picture transfer main+0xf8e sets it and +0xfcc clears it; print/wait
+seg2+0x2251 sets it. The nonblocking f15 return at +0x22a5 branches past
+the clear at +0x2352, so the persistent print window retains menu inhibition
+until window close. This differs from the inspected Amiga f15 return.
+Full TaskMaster completion routing and original time/audio ownership remain
+separate evidence questions. These IIgs findings are static, with no original
+Toolbox execution claimed.
 
 ### Original click-to-walk
 
@@ -2972,7 +3455,7 @@ the menu flag set, a click enqueues Enter.
 
 **Apple IIgs 1.014.** The Event Manager loop's mouse-down arm (seg3+0x8eb)
 sends clicks on rows 0-7 (`where.y - 8` negative, signed) to the menu bar
-unless byte `$0090` is set or `$00b3` is 1. Other clicks go through a hit
+when AGI flag 14 is set, `$0090` is zero and `$00b3` is not 1. Other clicks go through a hit
 test (`jsl $000e1f` with the position, seg3+0x9be); a zero result or part 2
 of its four-way table (seg3+0xa3a) reaches the walk arm (seg3+0xa4b), which
 starts the walk when `$1592` and `$00b3` are both zero or `$1590` is set,
@@ -2983,8 +3466,10 @@ and otherwise turns the click into Enter when `$00b3` is 1. The walk arm calls
 flag for mode 4 and hands control back; the mover's edge case
 (`moveobjsse+0x1ec`) finishes only mode 3; `newroomseg+0x115` clears a mode-4
 ego and v6. The IIgs has no `mouse.posn`, flag-19 or nudge surface. The
-meanings of `$0090`, `$00b3`, `$1590`, `$1592` and the hit test's parts are
-not decoded (**not found**), so the engine applies the normal case: rows 0-7
+menu gate fields `$0090` and `$00b3` are described under
+[Original native menu dispatch](#original-native-menu-dispatch). The remaining
+click-specific roles of `$1590`, `$1592` and the hit test's parts are not
+fully decoded, so the engine applies the normal case: rows 0-7
 never walk, and below them the player-control gate decides.
 
 **Engine mapping.** The host reports left-button-downs through
@@ -3339,21 +3824,21 @@ zero sample, or at the end of its table in one-shot mode. 33 samples end with
 a zero byte. The other 16 fill their table exactly (the byte count equals
 `256 << T`): four are one-shot and halt at the table's end, and twelve are
 free-running loops — they play until the game stops the sound, and their done
-flag never sets. The engine completes a halting sample after (bytes played) /
-(256 × f(semitone)) seconds, at the first heartbeat past that time. The 256
-bytes per cycle is the Note Synthesizer's wave convention; the
-semitone-to-frequency table lives in the toolset ROM, and the engine's equal
-temperament with semitone 69 at 440 Hz is an **inference**.
+flag never sets. The engine completes a halting sample at the first heartbeat
+at or after its start plus bytes played / DOC byte rate. The byte rate uses
+the same frequency word, relative pitch and resolution as the renderer;
+see [IIgs DOC pitch, volume and headroom](#iigs-doc-pitch-volume-and-headroom).
 
 **Rendering (host).** The app builds each note from its instrument: the A and
-B wave entries whose top key covers the semitone, each a table of
+B wave entries whose exclusive upper key covers the semitone, each a table of
 `256 << T` bytes from its DOC page, ending at its first zero byte; one-shot
 waves play once and free-running waves loop (the swap mode's A/B hand-off is
 approximated as a loop, and a halted oscillator is silent). Envelope levels
 are logarithmic — 16 steps per 6 dB — and each segment ramps at
 `increment / 256` levels per 60 Hz update; an increment of 0 sustains, and a
-note-off jumps to the release segment. The note volume scales the note
-linearly, an **inference**. A game without `SIERRASTANDARD` or its `.SYS16`
+note-off jumps to the release segment. Envelope and note volume combine before
+conversion to the DOC's 8-bit volume. Pitch, resolution and mix scaling follow
+the evidence below. A game without `SIERRASTANDARD` or its `.SYS16`
 falls back to a triangle per note. Tests:
 [sound-playback.test.ts](../test/sound-playback.test.ts),
 [iigs-synth.test.ts](../app/test/iigs-synth.test.ts).
@@ -3467,6 +3952,318 @@ false, `targetMotionDeferred` false, `inventorySelector` true,
 `restartPromptBypassedByF16` true (flag 16 tested before the prompt) and
 `saveBlock3Xor` false (the save writer never calls `encryptseg`).
 `soundEnvelope` is inert: the IIgs driver has no Paula envelope.
+
+### Tandy PSG clock
+
+**Evidence class:** hardware documentation, combined with the original divisor
+write evidence in [PC sound](#pc-sound),
+[Original sound player audit](#original-sound-player-audit) and
+[SN76489 attenuation latching](#sn76489-attenuation-latching-and-rest-notes).
+The [Tandy 1000 SX Technical Reference Manual](https://www.lo-tech.co.uk/downloads/manuals/tandy/Tandy_1000SX_Technical_Reference_Manual.pdf)
+audio/joystick schematic, sheet 7 of 10 (PDF page 72), connects `CLK358`
+to the SN76496's clock pin 14. Its Timing Control Generator specification
+defines that clock as the 28.63636 MHz oscillator divided by eight:
+3,579,545 Hz. The [TI SN76489 family data sheet](https://map.grauw.nl/resources/sound/texas_instruments_sn76489an.pdf)
+defines a tone counter clocked at input / 16 and toggling after each divisor
+count, hence tone frequency `3579545 / (32 * divisor)`.
+
+The renderer now uses that PSG clock independently of the PC speaker's
+1,193,180 Hz PIT clock. Divisor 226 gives 494.9592090707965 Hz on the PSG;
+speaker divisor 2,712 gives 439.9631268436578 Hz. Original resource divisor
+bytes, profile selection and the speaker path retain their existing contracts.
+The same PSG constant drives SOUND previews, decoded frequencies, note-name
+editing, MIDI import/export and VGM clock conversion. An authored A4 uses
+divisor 254 (440.39677657480314 Hz); C4 uses 428 (261.3569655373832 Hz).
+Existing resources retain their stored native divisors. The editor and agent
+feedback display pitches using this clock as well.
+New preset applications encode their named notes through the same conversion.
+[audio.test.ts](../app/test/audio.test.ts) failed with the shared clock and
+passes with these hand-computed frequencies. The same 16 PQ1 publisher-note
+windows used in the MAME comparison have median error +0.0032 cents after
+the correction, versus -203.8781 cents before. The subsequent
+[PCjr and Tandy noise](#pcjr-and-tandy-noise) change uses the same clock.
+
+### PCjr and Tandy noise
+
+**Evidence class:** manufacturer hardware documentation for chip identities,
+mode, clock and rate; reported hardware sampling for exact feedback and reset.
+The generator is independently written from these behavioral descriptions.
+Original AGI port-write evidence is recorded in
+[SN76489 attenuation latching](#sn76489-attenuation-latching-and-rest-notes).
+
+The [IBM PCjr Technical Reference](https://bitsavers.trailing-edge.com/pdf/ibm/pc/pc_jr/PCjr_Technical_Reference_Nov83.pdf),
+Sound Subsystem, identifies the TI SN76496N. The
+[original Tandy 1000 manual](https://manualzz.com/doc/54837143/tandy-1000-ms-dos-technical-reference-manual)
+includes the TI SN76496 specification and sound schematic. The
+[SX manual](https://www.lo-tech.co.uk/downloads/manuals/tandy/Tandy_1000SX_Technical_Reference_Manual.pdf)
+also depicts that part. The
+[HX manual](https://www.lo-tech.co.uk/downloads/manuals/tandy/Tandy_1000HX_Technical_Reference_Manual.pdf)
+includes NCR's own 8496 datasheet (Devices section, PDF pages 313–325).
+Section 2.3 on PDF pages 320–321 specifies XNOR noise feedback, white/periodic
+selection and shift rates input clock / 512, / 1024, / 2048 or tone generator 3's
+output. At 3,579,545 Hz the fixed rates are 6,991.298828125, 3,495.6494140625 and
+1,747.82470703125 shifts per second. Coupled mode shifts once per complete
+tone-2 period, `3579545 / (32 * divisor)`; zero selects divisor 1,024.
+
+Hardware identity has a production boundary as well as a model boundary:
+
+| Machine                   | Chip                   | Evidence and limits                                                                                                                                                                                                    |
+| ------------------------- | ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| PCjr                      | TI SN76496             | IBM technical reference.                                                                                                                                                                                               |
+| Tandy 1000, A, HD         | TI SN76496             | Original 1000 manual; A/HD production identities rely on component reports.                                                                                                                                            |
+| Tandy EX, SX              | TI SN76496 or NCR 8496 | SX schematic shows TI; mixed production is reported in the [component survey](https://nerdlypleasures.blogspot.com/2015/10/the-journey-of-pcjrtandy-sound-chip.html). Board-specific identity needs a component check. |
+| Tandy HX, TX              | NCR 8496               | HX manufacturer datasheet and schematic; TX identity also appears in the component survey.                                                                                                                             |
+| Tandy SL, TL, RL families | PSSJ                   | Integrated sound core; the component survey identifies the NCR-derived core. Exact PSSJ revisions have thinner evidence.                                                                                               |
+
+Interpreter versions can run on several of these machines. The profile's
+`psgNoise` is a representative playback choice: PC profiles 2.001 through
+2.440 use the TI SN76496; common-family 2.917, 2.936 and 3.002.x use the NCR
+8496, representing an NCR-equipped SX/HX/TX. This is a presentation policy,
+with the era and available hardware as its basis. It establishes no particular
+board identity for a game's interpreter. Amiga and IIgs use their existing
+output families. PSG events carry optional chip metadata on noise writes;
+the renderer also accepts SN76489 and PSSJ-3 for an explicit hardware selection.
+The profile ids and saved interpreter replay state keep their existing format.
+
+The detailed sequence follows the hardware-sampling findings recorded in the
+[MAME chip investigation history](https://github.com/mamedev/mame/blob/mame0289/src/devices/sound/sn76496.cpp),
+including the 2010 periodic-ring correction and 2018 NCR/PSSJ findings. These
+are reported measurements, with exact tap/reset behavior still awaiting an
+independent silicon capture. MAME's general Tandy machine selection is broader
+than the hardware identities above.
+
+Bit numbering below uses a right shift and output at bit 0. Storage width
+includes output stages after the 15-stage feedback ring; this explains the
+different width and tap labels in descriptions of the chip's physical ring.
+
+| Chip               | Storage width | White feedback into highest bit | Output voltage | Register reset             |
+| ------------------ | ------------- | ------------------------------- | -------------- | -------------------------- |
+| SN76489            | 15            | bit 0 XOR bit 1                 | Negated        | Every noise write          |
+| SN76489A / SN76496 | 17            | bit 2 XOR bit 3                 | Positive       | Every noise write          |
+| NCR 8496           | 16            | bit 1 XNOR bit 5                | Negated        | White/periodic bit changes |
+| PSSJ-3             | 16            | bit 1 XNOR bit 5                | Positive       | White/periodic bit changes |
+
+Reset seeds the highest storage bit and clears the other storage bits.
+Periodic mode feeds back the first tap alone: a single pulse every 15 shifts,
+with the variant's output delay at startup. A register reset leaves the held
+output and pending shift edge in place. Rate writes and both bytes of a tone-2
+update take effect after that pending edge. Preserving the output flip-flop and
+counter phase is inferred from the counter model and emulator behavior; it has
+yet to receive an independent silicon measurement. Attenuation remains latched through
+the existing gain path; data-only noise/attenuation writes keep their existing
+ignored-byte contract. Natural SOUND completion leaves the quiet PSG clocking;
+an explicit audio transport stop releases it.
+
+[psg-noise.test.ts](../test/psg-noise.test.ts) checks hand-computed bits,
+periodic rates, repeated/rate/mode writes and shift-counter phase.
+[audio.test.ts](../app/test/audio.test.ts) checks actual buffer bits, held DAC
+frames, variant selection, tone-2 updates and quiet SOUND boundaries.
+Web Audio plays complete deterministic sequences with their transient prefix
+outside the loop. Each bit occupies 32 frames before resampling, keeping the
+DAC level flat for most of the shift interval. The analogue amplifier, output
+filter, cold-boot divider phase and exact resampler remain presentation limits.
+
+### IIgs DOC pitch, volume and headroom
+
+**Evidence class:** original 65816 machine-code inspection, observed DOC bus
+writes during original SQ2 execution, and chip documentation. Inputs are the
+SQ2 1.014 disk interpreter and wave RAM identified in
+[Original games through MAME audio](#original-games-through-mame-audio),
+Apple ROM 01 `342-0077-b` SHA-256
+`34cd454c6201bfd26839d6ace2ff6b1231e09d6279e49b4890311756dc3825fb`,
+and the disk's loaded Note Synthesizer `TOOL025` SHA-256
+`611fcd90f75ba50f63657d611a9caf1c10dfd93b006c839b584b923df65abe86`.
+Offsets below refer to the tool's loaded OMF segment, rather than resource
+LOGIC bytecode or file offsets. Its code base in the observed boot was
+`04:e8a9`. Original code and bulk disassembly remain private.
+
+**Clock and address rate.** ROM Sound Manager initialization at
+`FF:3ebd..3ed3` writes `$3e` to DOC register `$e1`, enabling all 32
+oscillators. Note Synthesizer startup at `TOOL025+0105..0147` configures
+oscillator 14 as its interrupt timer, with frequency word 300, volume zero,
+size/resolution zero and control `$08` for `NSStartUp(150)`.
+The [ICS1261 / Ensoniq 5503 DOC data sheet](https://audiopro.r-massive.com/Ensoniq/Schematics/ICS1261%20%28rebadged%205503%20DOC%29.pdf),
+pages 3–5, specifies the master clock divided by eight, one slot per enabled
+oscillator plus two refresh slots, and a 24-bit phase accumulator.
+With the capture system's nominal 7,159,090 Hz DOC clock and 32 enabled oscillators, scan rate is
+`7159090 / (8 * 34)` Hz. Table size `T` selects `256 << T` bytes and
+resolution `R` selects accumulator address bits: byte rate is
+`scan * frequencyWord / 2^(9 + R - T)`. Table size also masks the low
+wave-pointer bits. Resolution and table size have separate effects.
+
+**Note setup.** SQ2 `seg3+1fb5..205b` passes the resource note unchanged,
+uses the channel volume rather than note-on velocity, and selects the
+instrument through its relocated program map. `TOOL025+0311..0347` selects
+each A/B wave using `note < topKey`. At `+0349..0368` it adds the signed
+relative pitch to `note << 8`; the carry from A survives into B's addition.
+The pitch conversion at `+074a..076b` discards the low pitch bit, indexes
+1,536 fractional-semitone words at `+0a4c..164b`, then shifts by octave.
+The independently calculated `floor(20905.466 * 2^(fraction / 3072))`
+matches all 1,536 observed words before their integer octave shifts. This
+replaces the earlier 69 = 440 Hz / 256-byte-wave inference. For example,
+note 69 with relative pitch +256 produces frequency word 1,164 and byte
+rate 59,837.29291130515 Hz at `T=R=0`.
+
+The bus capture agrees with this decoding: at the intro's first notes,
+oscillators 0/1 receive frequency words 217/216, volume 188, page 4 and
+size/resolution `$12`; percussion oscillators 16/17 receive frequency 163,
+volume 63, page `$88` and size/resolution `$1b`. A later instrument-20 pair
+receives 1,042/1,043, confirming the A-to-B carry. The eight intro channels
+select programs 40, 41, 20, 32, 20, 35, 1 and 40. Their instruments use
+`R=T`, with free-running or one-shot oscillators. Swap and sync modes are
+absent from this intro; their existing host approximations remain.
+
+**Volume and envelope.** The envelope updater at `+05f7..0683` advances
+signed 8.8 levels, clamps at a breakpoint and proceeds to the next segment.
+At `+0613..063e` the envelope's integer level and note volume combine as
+`max(0, level + volume - 127)` before lookup in a 128-entry byte-volume table
+at `+094c..09cb`; both oscillators receive the result. Independent exponential
+calculation `max(1, floor(255 * 2^((index - 127) / 16)))` matches that table
+with upward rounding by one at indices 44, 60, 76, 92 and 108. For example,
+envelope 90 and note volume 96 produce register value 13, while two levels
+of 111 produce 63. The host now schedules these byte-volume steps at 60 Hz,
+including channel-volume changes during release. Continuous envelope segment
+durations still approximate the original tick-clamped breakpoint transitions
+and initial update; these timing details remain a fidelity limit.
+
+**Headroom.** The DOC multiplies an 8-bit wave sample by an 8-bit volume and
+time-multiplexes its enabled oscillators. The host's wave and volume are
+already normalized by 128 and 255, so a mix gain of `1/32` bounds a physical
+32-oscillator sum by one. Zero data halts an oscillator; the largest sounding
+sample magnitude is 127/128. This scale preserves relative oscillator levels
+and is independent of the tune. The real SQ2 intro graph at master 1 now
+has zero over-range samples. This fixture result covers the Web Audio graph;
+the mathematical bound alone does not cover resampler overshoot or arbitrary
+event streams exceeding the physical oscillator count. Original `AllocGen`
+at `+01f4..0249` manages 14 paired generators by priority and age; that finite
+allocator remains unmodelled by the host.
+
+**Regression and comparison.** Hand-computed tests in
+[iigs-synth.test.ts](../app/test/iigs-synth.test.ts) failed first for pitch,
+resolution, key splits, pointer masking, paired carry, volume and mix gain.
+[sound-playback.test.ts](../test/sound-playback.test.ts) covers sampled-note
+completion using the same byte rate, including its first-tick start.
+[paula-offline.test.ts](../app/test/paula-offline.test.ts) failed with an SQ2
+full-gain peak of 6.27356 and now checks that the real intro stays within full
+scale, skipping explicitly when its private fixture is absent.
+
+The stored MAME capture and corrected 48 kHz float render use the same
+45-second window and 20 Hz DC-removal highpass. Results are:
+
+| SQ2 IIgs measurement             |   Before |   After |              MAME |
+| -------------------------------- | -------: | ------: | ----------------: |
+| Peak at master 1                 |  6.27350 | 0.08289 | Uncalibrated gain |
+| AC RMS at master 1               |  1.14851 | 0.01544 | Uncalibrated gain |
+| Samples over unity at master 0.5 |  8.7846% |      0% | Uncalibrated gain |
+| AC energy above 4 kHz            | 27.9969% | 3.7000% |           2.1391% |
+
+Separate host channel renders show the bass channel 3 changing from -1.60 dB
+to +0.84 dB relative to channel 0, and percussion channel 6 from -8.46 dB to
+-5.19 dB. These measure host balance before and after; the stored mixed MAME
+capture does not isolate individual voices. The residual high-band difference
+has an unresolved cause. Web Audio interpolates the wave buffers, whereas
+the DOC addresses discrete bytes at its scan rate. Native DOC output holding,
+analogue filtering and envelope timing remain separate evidence questions;
+no equalizer or inferred instrument remapping was added. Listening pairs
+use one AC-RMS match and common peak-safe gain, with MAME followed by the
+corrected render. Absolute GS system gain remains uncalibrated.
+
+### Original games through MAME audio
+
+**Evidence class:** original interpreter execution on MAME 0.289 reconstructed
+hardware. This supplements the machine-code findings above. Chip emulation,
+resampling, output gain and analogue filtering remain separate evidence questions.
+The comparison used `t1000sx`, `a500n` with Kickstart 1.3, and `apple2gsr1`.
+MAME was operated through boot media, keyboard input, screen captures and WAV
+output. Its implementation was neither inspected nor copied for this comparison.
+
+PQ1 used PC 2.936 and Amiga 2.310. SQ2 used the original Amiga 2.202 disk and
+the bootable IIgs 2MG edition, with its own extracted resources and instruments.
+That IIgs interpreter identifies as 1.014; `SQ2.SYS16` SHA-256 is
+`e5c414881d6b1a12f65ed662e2d179688b61ac3df713fec159577af5b2912678`.
+It differs at file offsets `0x1f66` and `0xea94` from the unpacked interpreter
+documented above: the disk has `af`, the unpacked file `22`, at both locations.
+The instrument bank used for rendering came from this disk interpreter.
+Its `SIERRASTANDARD` hash is the one recorded above. SQ2 Amiga's interpreter
+SHA-256 is `557215fbbf431193e99578be53372496bd4bf1cfad7c4ba93a61968e5c760dec`;
+its resources match the unpacked 2.202 fixture.
+
+The offline app render booted the same resources through `Engine`, `CycleClock`
+and 60 Hz sound packets into headless Chromium's `OfflineAudioContext` at
+48 kHz. Master volume 0.1 preserved headroom. Four 45-second pairs start at
+the first audible note. Individual SOUND calls were matched by cross-correlation
+of pitched spectral energy; individual notes were refined with demodulated
+envelope slopes and envelope correlation. Repeated effects, short notes and
+overlapping partials retain explicit uncertainty. PQ1 Amiga's later intro SOUND
+30 had low alignment confidence within this span: its logo sequence takes
+longer on the original emulated machine than in the offline harness.
+
+| Comparison                    | Measured pitch difference, app minus MAME                                                                                 | Other observations                                                                                                                       |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| PQ1 Tandy, publisher SOUND 36 | Median -203.88 cents, 16 resolved spectral peaks                                                                          | Ten longer note windows have median start/end residuals -0.75/-0.83 ms; the demodulation method has about 20 ms mixed-voice uncertainty. |
+| PQ1 Amiga, publisher SOUND 36 | Median -15.87 cents, 16 resolved spectral peaks                                                                           | Median start/end residuals +12.54/+1.00 ms in ten longer windows; output bandwidth differs substantially.                                |
+| SQ2 Amiga, SOUND 60           | Median -15.85 cents, 162 resolved spectral peaks                                                                          | Median start/end residuals +34.42/+21.33 ms in 135 longer windows; drift and filter-dependent attacks need separate investigation.       |
+| SQ2 IIgs, SOUND 60            | Dominant wavetable partials usually fall near their counterparts; dense mixtures prevent a single reliable tuning verdict | Strong level and instrument-balance differences; spectral alignment confidence 0.58, so note timing remains unresolved.                  |
+
+**Tandy finding at capture.** The app used the PC speaker's `99431.67 / divisor` constant
+for PSG oscillators. MAME reports an NCR8496 at 3,579,545 Hz; its measured tone
+frequencies agree with `3579545 / (32 * divisor)`. The ratio predicts
+-203.91 cents, matching the measured error. Original interpreter port-write
+evidence in [Original sound player audit](#original-sound-player-audit) already
+establishes the divisor bytes. This is a strong app presentation finding.
+The next change should separate the PSG and speaker clocks and verify the
+chosen Tandy hardware clock. The envelope contour of a held publisher note
+supports approximately 2 dB attenuation steps. PQ1 SOUND 19 also exercises
+noise: the app's random buffer and bandpass approximation need replacement
+with independently specified chip behavior, including periodic noise and
+tone-channel coupling. The exact NCR noise variant still needs hardware evidence.
+
+**IIgs finding.** The unclipped offline render reaches 6.27 full-scale units
+at master volume 1. At the app's default 0.5 setting, 8.78% of the stereo
+samples in the compared span would exceed full scale. MAME's corresponding
+DOC outputs have no clipped samples. Headroom is therefore the first app fix
+to investigate. After level matching, the app remains much brighter: energy
+above 4 kHz is approximately 28.0% of its AC spectrum, against 2.14% in the
+reference. This does not identify a filter correction by itself. Verify the
+Note Synthesizer's oscillator pairing, waveform resolution, volume conversion
+and instrument envelopes against the original ROM/toolset before adjusting
+voice balance. MAME exports separate DOC output channels; the app combines its
+voices into mono. Their relationship to the stock IIgs speaker and an external
+stereo adapter must be specified before treating this routing difference as a bug.
+
+**Amiga boundary.** The requested NTSC reference runs at a different clock
+from the app's PAL Paula constant. Their clock ratio predicts the measured
+15.86-cent difference. Region selection is the appropriate follow-up.
+The reference carries far more high harmonic energy than the app's documented
+A500 RC and LED filter path. The original driver's register order remains the
+authority for onset/offset work. A maximum adjacent-sample jump in a mixed WAV
+also includes ordinary waveform transitions, so it cannot establish a click defect
+on its own. This comparison leaves the analogue-filter coverage of MAME's
+Paula path and its effective LED state unresolved.
+
+**Capture limits.** MAME documents a default DC-removal highpass and optional
+output effects in its [Audio Effects menu](https://docs.mamedev.org/usingmame/mamemenus.html#audio-effects-menu).
+The headless `-sound none -wavwrite` files here retain separate output channels
+and substantial Tandy DC. The listening comparison therefore applies a stated
+20 Hz highpass to both members; untouched speaker-channel WAVs are retained.
+No additional cabinet lowpass was selected. The declared filtered PC speaker
+device is separate from the PSG. Analogue Tandy speaker response and IIgs DOC
+output filtering were not established by this black-box run. Absolute MAME gain
+and GS system-volume calibration remain unknown; clipping headroom and
+level-matched timbre carry stronger conclusions than an absolute loudness ratio.
+
+The original SQ2 PC TD0 fails in MAME's floppy conversion at cylinder 6,
+head 0: `expected_size=100000, current_size=256032`. Its overlapping,
+bad-CRC protection sectors cannot be represented as independent full sectors
+within that DD track. A file copy reaches the original Sierra disk check and
+does not pass it. This leaves SQ2 Tandy audio unmeasured; it supplies no chip
+evidence. The extracted PC interpreter identifies as 2.936 and matches the
+unpacked fixture, including `AGI` SHA-256
+`2d4c5389e6665570f83f024cdbe9b369d048b864183d2921ca45e7f6758021cc`.
+A preservation image that retains the protection track is needed for that pair.
+The alternate IIgs PO dump also remained at its original-disk check; the 2MG
+dump supplied the successful IIgs measurement. See the repeatable method in
+[Testing](testing.md#original-interpreter-audio-comparison).
 
 ## Appendix D: Tooling and open questions
 

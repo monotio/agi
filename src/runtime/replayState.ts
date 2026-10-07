@@ -65,6 +65,7 @@ export interface PlaybackState {
   }[];
 }
 export interface EngineReplayState {
+  amigaRegion?: "ntsc" | "pal";
   clockRemainderMs: number;
   pictureShown: boolean;
   terminated: boolean;
@@ -307,7 +308,11 @@ export function validateEngineReplayState(value: unknown): EngineReplayState {
     "patchGeneration",
     "continuation",
   ];
-  const s = record(value, fields);
+  const hasRegion =
+    value !== null && typeof value === "object" && Object.hasOwn(value, "amigaRegion");
+  const s = record(value, hasRegion ? [...fields, "amigaRegion"] : fields);
+  if (s["amigaRegion"] !== undefined && s["amigaRegion"] !== "pal" && s["amigaRegion"] !== "ntsc")
+    throw new Error("Replay region must be ntsc or pal.");
   const controllers = array(s["controllers"], 256, (v) => number(v, 0, 1));
   const objectExtras = array(s["objectExtras"], 256, (v) => {
     const o = record(v, ["priority"]);
@@ -337,7 +342,13 @@ export function validateEngineReplayState(value: unknown): EngineReplayState {
     };
   }
   return {
-    clockRemainderMs: number(s["clockRemainderMs"], 0, 1000, false),
+    ...(s["amigaRegion"] !== undefined ? { amigaRegion: s["amigaRegion"] as "ntsc" | "pal" } : {}),
+    clockRemainderMs: number(
+      s["clockRemainderMs"],
+      0,
+      s["amigaRegion"] === "pal" ? 1200 : 1000,
+      false,
+    ),
     pictureShown: bool(s["pictureShown"]),
     terminated: bool(s["terminated"]),
     statusRefreshRequested: bool(s["statusRefreshRequested"]),

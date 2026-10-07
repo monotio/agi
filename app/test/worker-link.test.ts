@@ -1,3 +1,4 @@
+import { scheduler as testScheduler } from "node:timers/promises";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { useWorkerLink, type WorkerOutboundHandlers } from "../src/engine/useWorkerLink.ts";
@@ -9,6 +10,9 @@ import type {
 import type { EngineState, TextHook } from "../src/engine/useEngineTypes.ts";
 import type { AgiAudio } from "../src/audio/AgiAudio.ts";
 import type { ReplayObservation } from "../src/walkthrough/replay.ts";
+import type { BootedGame } from "../src/project/gameTypes.ts";
+import { installedProgressLocator } from "../src/project/progressTarget.ts";
+import { testRevision } from "./identity.ts";
 
 /**
  * The outbound dispatch table is a required mapped type — a WorkerOutbound
@@ -18,6 +22,7 @@ import type { ReplayObservation } from "../src/walkthrough/replay.ts";
  * and replacement guards.
  */
 const OUTBOUND_TYPES = [
+  "missedSentence",
   "paused",
   "hostRequest",
   "interactionCancelled",
@@ -30,12 +35,30 @@ const OUTBOUND_TYPES = [
   "playedHere",
   "debugEvents",
   "debugTrace",
+  "debugAttached",
+  "debugAck",
+  "debugError",
+  "debugConfigured",
+  "debugInspection",
+  "debugEvaluation",
+  "debugSetValuesAck",
+  "debugStopped",
+  "debugDetached",
+  "debugSessionReset",
+  "debugAnswerReady",
+  "debugLog",
+  "debugAudio",
   "checkpoint",
   "recordingStarted",
   "recordingStopped",
+  "recordingReset",
+  "previewUpdateResult",
+  "previewUpdateStatus",
   "exportFiles",
   "restored",
   "booted",
+  "projectPlayed",
+  "projectCreated",
   "roomTransition",
   "flushed",
   "metadataPatched",
@@ -61,6 +84,7 @@ const OUTBOUND_TYPES = [
   "soundEnabled",
   "sound",
   "soundOutput",
+  "soundTick",
   "soundPaused",
   "stopSound",
   "quit",
@@ -123,16 +147,20 @@ function fakeHook(): TextHook {
   };
 }
 
-function makeLink() {
+function makeLink(over: { getBootedGame?: () => BootedGame | null } = {}) {
   const state = fakeState();
   const hook = fakeHook();
   const audioCalls: string[] = [];
   const audio = {
     setMuted: () => audioCalls.push("setMuted"),
     setPaused: () => audioCalls.push("setPaused"),
+    setPauseOwner: (owner: string, paused: boolean) =>
+      audioCalls.push(`pauseOwner:${owner}:${paused}`),
     setMode: (mode: string) => audioCalls.push(`setMode:${mode}`),
     stop: () => audioCalls.push("stop"),
+    finishSound: () => audioCalls.push("finishSound"),
     output: () => audioCalls.push("output"),
+    outputTick: () => audioCalls.push("outputTick"),
   } as unknown as AgiAudio;
   const depCalls: string[] = [];
   const logged: string[] = [];
@@ -144,7 +172,7 @@ function makeLink() {
     audio,
     onFrame: (f) => frames.push(f),
     logAgent: (kind, text) => logged.push(`${kind}:${text}`),
-    getBootedGame: () => null,
+    getBootedGame: over.getBootedGame ?? (() => null),
     getActiveWalkthroughSession: () => 7,
     observationListeners: new Set(),
   });
@@ -165,6 +193,7 @@ function makeLink() {
     getAgentSession: () => null,
     getReplayDriver: () => driver,
     gameQuit: () => depCalls.push("gameQuit"),
+    handleDebugEvent: (msg: { type: string }) => depCalls.push(`debugEvent:${msg.type}`),
   });
   return { link, state, hook, audioCalls, depCalls, logged, frames, driver };
 }
@@ -172,6 +201,31 @@ function makeLink() {
 function deliver(w: FakeWorker, msg: WorkerOutbound): void {
   w.onmessage!({ data: msg });
 }
+
+test("entering the generated room clears its overlay before returning to an earlier room", () => {
+  const { link, state } = makeLink();
+  const worker = fakeWorker();
+  link.wireWorker(worker as unknown as Worker);
+  state.roomGeneration = { room: 2, busy: false, error: "", feedStartSeq: 1 };
+  const transition: Extract<WorkerOutbound, { type: "roomTransition" }> = {
+    type: "roomTransition",
+    from: 1,
+    to: 2,
+    cycle: 10,
+    seq: 1,
+    cause: "logic",
+    patchGeneration: 1,
+    scoreDelta: 0,
+    gained: [],
+    lost: [],
+  };
+  deliver(worker, { ...transition, to: 3 });
+  assert.equal(state.roomGeneration.room, 2, "another room does not confirm this generation");
+  deliver(worker, transition);
+  assert.equal(state.roomGeneration, null);
+  deliver(worker, { ...transition, from: 2, to: 1, cycle: 11 });
+  assert.equal(state.roomGeneration, null, "returning does not reopen room generation");
+});
 
 function fakeObservation(over: Partial<ReplayObservation> = {}): ReplayObservation {
   return {
@@ -216,20 +270,31 @@ test("every WorkerOutbound member reaches its handler once", async () => {
     depCalls.length = 0;
     audioCalls.length = 0;
     switch (type) {
+      case "missedSentence": {
+        let observed = "";
+        link.deps.missedSentence = (message) => {
+          observed = message.text;
+        };
+        deliver(w, { type, text: "sit", room: 1, unknown: "sit" });
+        assert.equal(observed, "sit");
+        break;
+      }
       case "paused":
         deliver(w, { type, paused: true, cycle: 42 });
         assert.equal(hook.paused, true);
         assert.equal(hook.cycle, 42);
         break;
       case "hostRequest": {
-        deliver(w, { type, id: 9, op: "getnum", context: {} });
-        await new Promise((r) => setTimeout(r, 0));
+        deliver(w, { type, generation: 1, id: 9, op: "getnum", context: {} });
+        await testScheduler.yield();
         const answer = w.posted.find((m) => (m as { type: string }).type === "hostAnswer");
         assert.ok(answer, "hostRequest must post a hostAnswer");
         break;
       }
       case "interactionCancelled":
-        deliver(w, { type, id: 1, op: "getnum" });
+        link.deps.handlePromptRequest = () => new Promise<string>(() => {});
+        deliver(w, { type: "hostRequest", generation: 1, id: 1, op: "getnum", context: {} });
+        deliver(w, { type, generation: 1, id: 1, op: "getnum" });
         assert.ok(depCalls.includes("cancelPrompt"));
         break;
       case "replay": {
@@ -302,6 +367,138 @@ test("every WorkerOutbound member reaches its handler once", async () => {
         assert.equal((r as { cycle: number }).cycle, 1);
         break;
       }
+      case "debugAttached": {
+        const r = await roundTrip(link, w, "debugAttach", {
+          type,
+          id: 0,
+          epoch: 3,
+          buildId: "b1",
+        });
+        assert.equal((r as { epoch: number }).epoch, 3);
+        break;
+      }
+      case "debugAck": {
+        const r = await roundTrip(link, w, "debugPause", {
+          type,
+          id: 0,
+          epoch: 3,
+          buildId: "b1",
+        });
+        assert.equal((r as { epoch: number }).epoch, 3);
+        break;
+      }
+      case "debugError": {
+        // A structured refusal settles the query rejected, never resolved.
+        const pending = link.query("debugPause", { epoch: 3 });
+        const sent = w.posted.at(-1) as { id: number };
+        deliver(w, {
+          type,
+          id: sent.id,
+          epoch: 3,
+          buildId: "b1",
+          code: "staleEpoch",
+          error: "stale epoch",
+        });
+        await assert.rejects(pending, /stale epoch/);
+        break;
+      }
+      case "debugConfigured": {
+        const r = await roundTrip(link, w, "debugConfigure", {
+          type,
+          id: 0,
+          epoch: 3,
+          buildId: "b1",
+          revision: 2,
+          breakpoints: [],
+          watchpoints: [],
+        });
+        assert.equal((r as { revision: number }).revision, 2);
+        break;
+      }
+      case "debugInspection": {
+        const r = await roundTrip(link, w, "debugInspect", {
+          type,
+          id: 0,
+          epoch: 3,
+          buildId: "b1",
+          stopId: 1,
+          section: "state",
+          data: { room: 4 },
+        });
+        assert.equal((r as { stopId: number }).stopId, 1);
+        break;
+      }
+      case "debugEvaluation": {
+        const r = await roundTrip(link, w, "debugEvaluate", {
+          type,
+          id: 0,
+          epoch: 3,
+          buildId: "b1",
+          stopId: 1,
+          ok: true,
+          value: 7,
+        });
+        assert.equal((r as { value: number }).value, 7);
+        break;
+      }
+      case "debugSetValuesAck": {
+        const r = await roundTrip(link, w, "debugSetValues", {
+          type,
+          id: 0,
+          epoch: 3,
+          buildId: "b1",
+          stopId: 2,
+        });
+        assert.equal((r as { stopId: number }).stopId, 2);
+        break;
+      }
+      case "debugStopped":
+        deliver(w, {
+          type,
+          epoch: 3,
+          buildId: "b1",
+          stopId: 5,
+          boundarySeq: 12,
+          cause: { type: "wait", wait: "idle" },
+          location: null,
+          wait: "idle",
+          reasons: [{ kind: "pause" }],
+          state: {} as never,
+          answerReady: [],
+        });
+        assert.ok(depCalls.includes("debugEvent:debugStopped"));
+        break;
+      case "debugDetached":
+        // A detach from the owning epoch lifts the debugger audio hold.
+        deliver(w, { type: "debugAudio", paused: true, epoch: 3 });
+        assert.ok(audioCalls.includes("pauseOwner:debugger:true"));
+        deliver(w, { type, epoch: 3, buildId: "b1", reason: "detach" });
+        assert.ok(audioCalls.includes("pauseOwner:debugger:false"));
+        assert.ok(depCalls.includes("debugEvent:debugDetached"));
+        break;
+      case "debugSessionReset":
+        deliver(w, { type, epoch: 4, buildId: "b2", breakpoints: [], watchpoints: [] });
+        assert.ok(depCalls.includes("debugEvent:debugSessionReset"));
+        break;
+      case "debugAnswerReady":
+        deliver(w, { type, epoch: 3, stopId: 5, id: 11, op: "getnum" });
+        assert.ok(depCalls.includes("debugEvent:debugAnswerReady"));
+        break;
+      case "debugLog":
+        deliver(w, { type, epoch: 3, sequence: 2, breakpoint: "bp1", text: "hit" });
+        assert.ok(depCalls.includes("debugEvent:debugLog"));
+        break;
+      case "debugAudio":
+        deliver(w, { type, paused: true, epoch: 3 });
+        assert.ok(audioCalls.includes("pauseOwner:debugger:true"));
+        deliver(w, { type, paused: false, epoch: 3 });
+        assert.ok(audioCalls.includes("pauseOwner:debugger:false"));
+        // A stale epoch's release must not lift the current hold.
+        audioCalls.length = 0;
+        deliver(w, { type, paused: true, epoch: 4 });
+        deliver(w, { type, paused: false, epoch: 3 });
+        assert.ok(!audioCalls.includes("pauseOwner:debugger:false"));
+        break;
       case "checkpoint": {
         // A checkpoint reply must settle the query — before the exhaustive
         // map this member had no handler and the promise hung to timeout.
@@ -310,6 +507,11 @@ test("every WorkerOutbound member reaches its handler once", async () => {
         assert.equal(r, image);
         break;
       }
+      case "recordingReset":
+        link.deps.recordingReset = () => depCalls.push("recordingReset");
+        deliver(w, { type });
+        assert.ok(depCalls.includes("recordingReset"));
+        break;
       case "recordingStarted": {
         const r = await roundTrip(link, w, "startRecording", { type, id: 0, ok: true });
         assert.equal((r as { ok: boolean }).ok, true);
@@ -353,6 +555,20 @@ test("every WorkerOutbound member reaches its handler once", async () => {
         }
         assert.ok(!audioCalls.some((call) => call.startsWith("setMode:")));
         break;
+      case "projectPlayed": {
+        const result = await roundTrip(link, w, "projectPlay", { type, id: 0, ok: true });
+        assert.equal((result as { ok: boolean }).ok, true);
+        break;
+      }
+      case "projectCreated": {
+        const result = await roundTrip(link, w, "projectCreate", {
+          type,
+          id: 0,
+          reason: "Open Create",
+        });
+        assert.equal((result as { reason: string }).reason, "Open Create");
+        break;
+      }
       case "roomTransition":
         deliver(w, {
           type,
@@ -368,6 +584,11 @@ test("every WorkerOutbound member reaches its handler once", async () => {
         });
         assert.equal(state.roomJournal.length, 1, "the journal collected the observation");
         assert.equal(state.roomJournal[0]!.to, 3);
+        assert.equal(
+          hook.room,
+          3,
+          "the room transition updates the player observation immediately",
+        );
         break;
       case "flushed":
         deliver(w, {
@@ -465,7 +686,7 @@ test("every WorkerOutbound member reaches its handler once", async () => {
             sync: [],
           },
         });
-        await new Promise((r) => setTimeout(r, 0));
+        await testScheduler.yield();
         assert.ok(depCalls.includes("historyBatch"));
         assert.ok(
           w.posted.some(
@@ -501,7 +722,7 @@ test("every WorkerOutbound member reaches its handler once", async () => {
           diverged: null,
           error: null,
         });
-        await new Promise((r) => setTimeout(r, 0));
+        await testScheduler.yield();
         assert.equal(settled, false, "progress must not resolve the query");
         assert.ok(depCalls.includes("historyView"));
         deliver(w, {
@@ -536,6 +757,30 @@ test("every WorkerOutbound member reaches its handler once", async () => {
       case "historyTaken": {
         const r = await roundTrip(link, w, "historyViewTake", { type, id: 0, ok: true });
         assert.equal(r.ok, true);
+        break;
+      }
+      case "previewUpdateResult": {
+        const r = await roundTrip(link, w, "previewUpdate", {
+          type,
+          id: 0,
+          runToken: "t",
+          status: "committed",
+          expected: null,
+          current: null,
+          patchGeneration: 2,
+        });
+        assert.equal((r as { status: string }).status, "committed");
+        break;
+      }
+      case "previewUpdateStatus": {
+        const r = await roundTrip(link, w, "previewUpdateStatus", {
+          type,
+          id: 0,
+          runToken: "t",
+          current: null,
+          transaction: "unknown",
+        });
+        assert.equal((r as { transaction: string }).transaction, "unknown");
         break;
       }
       case "historyViewRestored": {
@@ -589,14 +834,19 @@ test("every WorkerOutbound member reaches its handler once", async () => {
         deliver(w, { type, output: {} as never });
         assert.ok(audioCalls.includes("output"));
         break;
+      case "soundTick":
+        deliver(w, { type, stream: "test", tick: 0, outputs: [], complete: true });
+        assert.ok(audioCalls.includes("outputTick"));
+        assert.equal(state.soundPlaying, false);
+        break;
       case "soundPaused":
         deliver(w, { type, paused: true });
-        assert.ok(audioCalls.includes("setPaused"));
+        assert.ok(audioCalls.includes("pauseOwner:worker:true"));
         break;
       case "stopSound":
         deliver(w, { type });
         assert.equal(state.soundPlaying, false);
-        assert.ok(audioCalls.includes("stop"));
+        assert.ok(audioCalls.includes("finishSound"));
         break;
       case "quit":
         deliver(w, { type });
@@ -612,7 +862,8 @@ test("every WorkerOutbound member reaches its handler once", async () => {
   }
 });
 
-test("a stale-session replay observation cannot settle a current query", async () => {
+test("a stale-session replay observation cannot settle a current query", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
   const { link } = makeLink();
   const w = fakeWorker();
   link.wireWorker(w as unknown as Worker);
@@ -630,7 +881,7 @@ test("a stale-session replay observation cannot settle a current query", async (
     id: sent.id,
     observation: fakeObservation({ sessionId: 99 }),
   });
-  await new Promise((r) => setTimeout(r, 20));
+  await testScheduler.yield();
   assert.equal(settled, "pending");
   // The current session's reply does settle it.
   deliver(w, {
@@ -639,11 +890,12 @@ test("a stale-session replay observation cannot settle a current query", async (
     id: sent.id,
     observation: fakeObservation({ sessionId: 7 }),
   });
-  await new Promise((r) => setTimeout(r, 20));
+  await testScheduler.yield();
   assert.ok(typeof settled === "object" && settled !== null, "current-session reply settles");
 });
 
-test("a replaced worker's replies are dropped before dispatch", async () => {
+test("a replaced worker's replies are dropped before dispatch", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
   const { link, state } = makeLink();
   const w1 = fakeWorker();
   link.wireWorker(w1 as unknown as Worker);
@@ -652,7 +904,7 @@ test("a replaced worker's replies are dropped before dispatch", async () => {
   const w2 = fakeWorker();
   link.wireWorker(w2 as unknown as Worker);
   deliver(w1, { type: "objects", id: 1, objects: [] });
-  await new Promise((r) => setTimeout(r, 20));
+  await testScheduler.yield();
   // w1's message never reached its handler; the query stays pending.
   state.debugObjects = [];
   deliver(w2, { type: "objects", id: 1, objects: [{ num: 1 }] as never });
@@ -686,3 +938,101 @@ test("drainPendingQueries cancels outstanding requests", async () => {
   link.drainPendingQueries();
   await assert.rejects(pending, /aborted/);
 });
+
+test("a worker's boot acknowledgement stores only the bound physical resume pointer", (t) => {
+  const store = new Map<string, string>();
+  const descriptor = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+  t.after(() => {
+    if (descriptor) Object.defineProperty(globalThis, "localStorage", descriptor);
+    else Reflect.deleteProperty(globalThis, "localStorage");
+  });
+  Object.defineProperty(globalThis, "localStorage", {
+    configurable: true,
+    value: {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => void store.set(key, value),
+      removeItem: (key: string) => void store.delete(key),
+    },
+  });
+  const booted: BootedGame = {
+    installed: true,
+    title: "KQ1",
+    revision: testRevision("booted-rev"),
+    files: {},
+    words: [],
+    folder: "games/kq1",
+    hash: "e".repeat(64),
+    alias: "kq1",
+  };
+  const { link, state } = makeLink({ getBootedGame: () => booted });
+  const w = fakeWorker();
+  link.wireWorker(w as unknown as Worker);
+  deliver(w, { type: "booted", profile: "2.917", kind: "binary" });
+  assert.equal(state.phase, "running");
+  assert.equal(
+    store.get("monotio_agi.resumeTarget"),
+    installedProgressLocator("games/kq1", booted.revision),
+    "the pointer names the served folder's physical address",
+  );
+  assert.equal(
+    store.get("monotio_agi.lastGame"),
+    undefined,
+    "the released key stays another release's value",
+  );
+
+  // A boot that bound no target — legacy read context, no folder — moves
+  // nothing.
+  store.clear();
+  const unbound = makeLink({
+    getBootedGame: () => ({ ...booted, folder: undefined }),
+  });
+  const w2 = fakeWorker();
+  unbound.link.wireWorker(w2 as unknown as Worker);
+  deliver(w2, { type: "booted", profile: "2.917", kind: "binary" });
+  assert.equal(store.get("monotio_agi.resumeTarget"), undefined);
+});
+
+for (const completion of ["answer", "failure"] as const) {
+  for (const retirement of ["cancel", "replace"] as const) {
+    test(`a host ${completion} after ${retirement} is suppressed before posting or follow-up`, async () => {
+      const { link, depCalls } = makeLink();
+      const w = fakeWorker();
+      link.wireWorker(w as unknown as Worker);
+      let resolve!: (value: string) => void;
+      let reject!: (reason: Error) => void;
+      const delayed = new Promise<string>((yes, no) => {
+        resolve = yes;
+        reject = no;
+      });
+      let answered = 0;
+      link.deps.handleRoomAuthoring = () => delayed;
+      link.deps.hostAnswered = () => {
+        answered++;
+      };
+      deliver(w, { type: "hostRequest", generation: 1, id: 1, op: "room", context: { room: 3 } });
+      if (retirement === "replace") link.wireWorker(fakeWorker() as unknown as Worker);
+      else {
+        deliver(w, { type: "interactionCancelled", generation: 1, id: 1, op: "room" });
+        link.deps.handlePromptRequest = async () => "9";
+        deliver(w, { type: "hostRequest", generation: 2, id: 1, op: "getnum", context: {} });
+        deliver(w, { type: "interactionCancelled", generation: 1, id: 1, op: "room" });
+      }
+      if (completion === "answer") resolve("old room");
+      else reject(new Error("old failure"));
+      await delayed.catch(() => {});
+      await testScheduler.yield();
+      const posted = w.posted as { type: string; generation?: number; response?: string }[];
+      assert.deepEqual(
+        posted.filter((m) => m.type === "hostAnswer"),
+        retirement === "replace"
+          ? []
+          : [{ type: "hostAnswer", generation: 2, id: 1, response: "9" }],
+      );
+      assert.equal(answered, retirement === "replace" ? 0 : 1);
+      assert.equal(
+        depCalls.filter((c) => c === "cancelPrompt").length,
+        retirement === "cancel" ? 1 : 0,
+      );
+    });
+  }
+}

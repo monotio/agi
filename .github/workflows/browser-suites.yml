@@ -1,0 +1,169 @@
+name: Browser suites
+on:
+  workflow_call:
+    inputs:
+      browser_image:
+        type: string
+        required: true
+      repeat:
+        type: number
+        default: 1
+      production:
+        type: boolean
+        default: false
+permissions:
+  contents: read
+jobs:
+  e2e:
+    name: Playwright (${{ matrix.label }})
+    runs-on: ubuntu-24.04
+    container:
+      image: ${{ inputs.browser_image }}
+      options: --init --ipc=host
+      # Match the runner dependency cache's compression without package installs.
+      volumes:
+        - /usr/bin/zstd:/usr/local/bin/zstd:ro
+        - /usr/bin/unzstd:/usr/local/bin/unzstd:ro
+    defaults:
+      run:
+        shell: bash
+    timeout-minutes: ${{ inputs.repeat > 1 && 45 || 15 }}
+    strategy:
+      fail-fast: false
+      # At most 20 jobs including quality, production and one PR burn-in job.
+      max-parallel: 15
+      matrix:
+        include:
+          - { browser: chromium, index: perf, label: timing budgets }
+          - { browser: chromium, index: benchmark, label: storage benchmark }
+          - { browser: webkit, index: phone-1, phone: 1, label: webkit phone 1/3 }
+          - { browser: webkit, index: phone-2, phone: 2, label: webkit phone 2/3 }
+          - { browser: webkit, index: phone-3, phone: 3, label: webkit phone 3/3 }
+          - { browser: chromium, index: 1, label: chromium 1/10 }
+          - { browser: chromium, index: 2, label: chromium 2/10 }
+          - { browser: chromium, index: 3, label: chromium 3/10 }
+          - { browser: chromium, index: 4, label: chromium 4/10 }
+          - { browser: chromium, index: 5, label: chromium 5/10 }
+          - { browser: chromium, index: 6, label: chromium 6/10 }
+          - { browser: chromium, index: 7, label: chromium 7/10 }
+          - { browser: chromium, index: 8, label: chromium 8/10 }
+          - { browser: chromium, index: 9, label: chromium 9/10 }
+          - { browser: chromium, index: 10, label: chromium 10/10 }
+          - { browser: webkit, index: desktop-1, shard: 1, label: webkit desktop 1/4 }
+          - { browser: webkit, index: desktop-2, shard: 2, label: webkit desktop 2/4 }
+          - { browser: webkit, index: desktop-3, shard: 3, label: webkit desktop 3/4 }
+          - { browser: webkit, index: desktop-4, shard: 4, label: webkit desktop 4/4 }
+    env:
+      CI: "1"
+      PLAYWRIGHT_JSON_OUTPUT_FILE: test-results/ci-reports/${{ matrix.browser }}-${{ matrix.index }}.json
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./scripts/ci/setup
+        with:
+          browser: ${{ matrix.browser }}
+      - name: Chromium shard
+        if: matrix.browser == 'chromium' && matrix.index != 'perf' && matrix.index != 'benchmark'
+        env:
+          INDEX: ${{ matrix.index }}
+          REPEAT: ${{ inputs.repeat }}
+        run: python3 scripts/ci/tools.py shard --index "$INDEX" --repeat "$REPEAT" --report "app/test-results/ci-reports/chromium-$INDEX.json"
+      - name: Timing budgets on one worker
+        if: matrix.index == 'perf'
+        env:
+          REPEAT: ${{ inputs.repeat }}
+        run: npm --prefix app run e2e:perf -- --repeat-each="$REPEAT" --reporter=list,json
+      - name: Storage benchmark on one worker
+        if: matrix.index == 'benchmark'
+        env:
+          REPEAT: ${{ inputs.repeat }}
+        run: python3 scripts/ci/tools.py isolated --repeat "$REPEAT" --report app/test-results/ci-reports/chromium-benchmark.json
+      - name: WebKit phone
+        if: matrix.phone != ''
+        env:
+          REPEAT: ${{ inputs.repeat }}
+          INDEX: ${{ matrix.phone }}
+        run: npm --prefix app run e2e:phone -- --project=iphone-webkit --shard="$INDEX/3" --repeat-each="$REPEAT" --reporter=list,json
+      - name: WebKit desktop
+        if: matrix.shard != '' && matrix.browser == 'webkit'
+        env:
+          REPEAT: ${{ inputs.repeat }}
+          INDEX: ${{ matrix.shard }}
+        run: python3 scripts/ci/tools.py shard --suite webkit --index "$INDEX" --count 4 --repeat "$REPEAT" --report "app/test-results/ci-reports/webkit-desktop-$INDEX.json"
+      - if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: browser-report-${{ matrix.browser }}-${{ matrix.index }}
+          path: app/test-results/ci-reports/*.json
+          if-no-files-found: error
+          retention-days: 14
+      - if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: browser-screenshots-${{ matrix.browser }}-${{ matrix.index }}
+          path: app/test-results/**/*.png
+          if-no-files-found: ignore
+          retention-days: 7
+      - if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: browser-failure-${{ matrix.browser }}-${{ matrix.index }}
+          path: app/test-results/
+          retention-days: 7
+
+  production:
+    name: Production browser (${{ matrix.browser }})
+    if: inputs.production
+    runs-on: ubuntu-24.04
+    container:
+      image: ${{ inputs.browser_image }}
+      options: --init --ipc=host
+      # Match the runner dependency cache's compression without package installs.
+      volumes:
+        - /usr/bin/zstd:/usr/local/bin/zstd:ro
+        - /usr/bin/unzstd:/usr/local/bin/unzstd:ro
+    defaults:
+      run:
+        shell: bash
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chromium, webkit]
+    env:
+      CI: "1"
+      PLAYWRIGHT_JSON_OUTPUT_FILE: test-results/ci-reports/production-${{ matrix.browser }}.json
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./scripts/ci/setup
+        with:
+          browser: ${{ matrix.browser }}
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: agi-site
+          path: app/dist
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: agi-bundle-graph
+          path: app/node_modules/.agi
+      - name: Production tests
+        env:
+          BROWSER: ${{ matrix.browser }}
+          REPEAT: ${{ inputs.repeat }}
+        run: npm --prefix app run e2e:production -- --browser="$BROWSER" --repeat-each="$REPEAT" --reporter=list,json
+      - if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: browser-report-production-${{ matrix.browser }}
+          path: app/test-results/ci-reports/*.json
+          if-no-files-found: error
+          retention-days: 14
+      - if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: browser-failure-production-${{ matrix.browser }}
+          path: app/test-results/
+          retention-days: 7

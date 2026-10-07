@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { numberedLabel } from "../../../src/logic/numberedLabels.ts";
 /**
  * The installed-fixture and hosted-catalog cards on the Home shelf: installed
  * games with their autosave state, and catalog entries whose openings load
@@ -11,7 +12,6 @@ import ActionMenu from "../ui/ActionMenu.vue";
 import UiButton from "../ui/UiButton.vue";
 import GameCard from "./GameCard.vue";
 import StartFresh from "./StartFresh.vue";
-import { installedThumbnail, type ThumbnailSource } from "./useLazyThumbnail.ts";
 import { catalogProjectId, useProjectRecovery } from "./projectRecovery.ts";
 import { catalogDetails, showDetails } from "./cardDetails.ts";
 import { isInstalledCatalogCopy } from "./shelfIdentity.ts";
@@ -23,7 +23,7 @@ import { useAiSettings } from "../settings/useAiSettings.ts";
 import { useGameLibrary } from "../library/useGameLibrary.ts";
 import { useShellBridge } from "../shell/shellBridge.ts";
 import { hasWalkthrough } from "../walkthrough/walkthrough.ts";
-import { gameStorageKey, type InstalledGameDescriptor } from "../project/gameTypes.ts";
+import type { InstalledGameDescriptor } from "../project/gameTypes.ts";
 import type { GameCatalogEntry } from "../library/gameCatalog.ts";
 
 const { resumeAudio, startOver } = useEngineApi();
@@ -32,6 +32,7 @@ const {
   featuredCatalog,
   localGames,
   localAutosave,
+  installedProgress,
   availableCatalogEntries,
   catalogOpenings,
   catalogErrors,
@@ -54,7 +55,7 @@ const shelfLocalGames = computed(() =>
 function localMeta(game: InstalledGameDescriptor): string {
   const autosave = localAutosave(game);
   if (autosave)
-    return `Room ${autosave.room} · played ${formatRelativeTime(autosave.savedAt, now.value)}`;
+    return `${numberedLabel("room", autosave.room)} · played ${formatRelativeTime(autosave.savedAt, now.value)}`;
   return game.folder && game.folder !== game.alias ? game.folder : "Installed game";
 }
 
@@ -77,8 +78,12 @@ function playHosted(entry: GameCatalogEntry): void {
 }
 
 function onStartLocalGameOver(game: InstalledGameDescriptor): void {
+  // Start over answers only to the instance's proven physical target — the
+  // folder/hash/alias spellings stay routing and read context, never proof.
+  const progress = installedProgress(game);
+  if (progress.status !== "ready") return;
   resumeAudio();
-  startOver(gameStorageKey({ installed: true, ...game }), llmConfig());
+  startOver(progress.target.locator, llmConfig());
 }
 
 function localImage(game: InstalledGameDescriptor) {
@@ -93,21 +98,8 @@ function localImage(game: InstalledGameDescriptor) {
 }
 
 function catalogImage(entry: GameCatalogEntry) {
-  const src = catalogOpenings.value[entry.id]?.preview;
+  const src = catalogOpenings.value[entry.id]?.preview ?? entry.preview;
   return src ? { src, alt: `${entry.title} opening scene`, kind: "opening" as const } : undefined;
-}
-
-/** The opening is the catalog's own check, run through the shelf's queue. */
-function catalogThumbnail(entry: GameCatalogEntry): ThumbnailSource {
-  return {
-    key: `catalog:${entry.id}:${entry.version}`,
-    async render() {
-      await loadCatalogOpening(entry.id);
-      const preview = catalogOpenings.value[entry.id]?.preview;
-      if (!preview) throw new Error(catalogErrors.value[entry.id] ?? "No opening preview.");
-      return preview;
-    },
-  };
 }
 </script>
 <template>
@@ -117,8 +109,6 @@ function catalogThumbnail(entry: GameCatalogEntry): ThumbnailSource {
     :title="game.title"
     :monogram="(game.alias || game.hash).slice(0, 8).toUpperCase()"
     :image="localImage(game)"
-    :lazy="installedThumbnail(game)"
-    :lazy-alt="`${game.title} opening scene`"
     :meta="localMeta(game)"
     :play-label="localAutosave(game) ? 'Resume' : 'Play'"
     :play-disabled="libraryActionBusy || importBusy"
@@ -149,7 +139,7 @@ function catalogThumbnail(entry: GameCatalogEntry): ThumbnailSource {
           data-testid="run-walkthrough"
           @click="bridge.startWalkthrough(game.folder ?? game.hash)"
         >
-          <span>Run walkthrough<small>Watch real-time playthrough</small></span>
+          Watch walkthrough
         </button>
         <button
           v-if="localAutosave(game)"
@@ -169,7 +159,6 @@ function catalogThumbnail(entry: GameCatalogEntry): ThumbnailSource {
     :title="entry.title"
     monogram="AGI"
     :image="catalogImage(entry)"
-    :lazy="catalogErrors[entry.id] ? undefined : catalogThumbnail(entry)"
     :pending="catalogBusy[entry.id] === true"
     :meta="entry.author ? `${entry.author} · ${entry.license}` : entry.license"
     :play-label="
@@ -218,7 +207,7 @@ function catalogThumbnail(entry: GameCatalogEntry): ThumbnailSource {
           :disabled="catalogBusy[entry.id] || libraryActionBusy || importBusy"
           @click="playCatalogWalkthrough(entry.id)"
         >
-          <span>Run walkthrough<small>Watch real-time playthrough</small></span>
+          Watch walkthrough
         </button>
         <button type="button" role="menuitem" @click="showDetails(catalogDetails(entry))">
           Details…

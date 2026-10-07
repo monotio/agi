@@ -1,5 +1,5 @@
 /**
- * Room Studio's Walk view: where the player can stand (an estimate), test
+ * Room Studio's room tools (Priority lens): where the player can stand (an estimate), test
  * walks the real game runs, and the room's doors.
  *
  * - The tint is `walkableMask` for ego's size on the planes on screen: an
@@ -207,7 +207,7 @@ export function useStudioWalk(options: StudioWalkOptions) {
     const files = options.files();
     if (!files) return out;
     try {
-      const container = openContainer(new Map(files));
+      const container = openContainer(new Map(files), { profile: options.profile() });
       for (let n = 0; n < 256; n++) {
         const payload = container.getResource("logic", n);
         if (payload) out.set(n, payload);
@@ -294,16 +294,21 @@ export function useStudioWalk(options: StudioWalkOptions) {
     done: string,
     onRefusal?: (error: string) => void,
   ): boolean {
-    if (options.frozen()) return refuse("This room is view only: its doors can't be changed.");
-    if (options.paused?.()) return refuse("Accept or reject the AI's proposal first.");
+    if (options.frozen()) return refuse("This room's doors are read-only.");
+    if (options.paused?.()) return refuse("Approve or reject the AI's change first.");
     if (!logic.editable.value)
       return refuse(
-        "This room's script isn't in a form the door tools can change: edit its exits as text, or ask the assistant.",
+        "These exits use a different script structure. Edit them as text or tell the agent to change them.",
       );
     const outcome = logic.apply(op, label);
     if (!outcome.ok) {
       onRefusal?.(outcome.error);
-      return refuse("The door can't be changed that way.", outcome.error);
+      return refuse(
+        outcome.error === "Fix the room’s LOGIC before changing its doors."
+          ? outcome.error
+          : "Door edit rejected. Open Details for the reason.",
+        outcome.error,
+      );
     }
     options.say({ tone: "ok", text: done });
     return true;
@@ -560,8 +565,7 @@ export function useStudioWalk(options: StudioWalkOptions) {
   /** What a test walk step asks for next, in words. */
   const prompt = computed(() => {
     if (running.value) return "Walking…";
-    if (!start.value)
-      return "Click where the walk starts, or a door to start where the player enters.";
+    if (!start.value) return "Choose a start point. A door uses the player’s entry position.";
     if (!goal.value) return "Click the goal.";
     return "Click to start another walk.";
   });
@@ -581,6 +585,7 @@ export function useStudioWalk(options: StudioWalkOptions) {
     result.value = null;
     failure.value = null;
     running.value = false;
+    options.say(null);
   }
 
   function setStart(at: Point, how?: string): void {
@@ -635,7 +640,7 @@ export function useStudioWalk(options: StudioWalkOptions) {
   function draftFiles(): Record<string, Uint8Array> | null {
     const files = options.files();
     if (!files) return null;
-    const container = openContainer(new Map(files));
+    const container = openContainer(new Map(files), { profile: options.profile() });
     container.putResource("picture", options.pictureNumber(), options.pictureBytes());
     if (logic.editable.value && room.value > 0) {
       const followed = logic.forKeep(options.keptPicture(), options.shownPicture());
@@ -652,11 +657,13 @@ export function useStudioWalk(options: StudioWalkOptions) {
     if (!from || !to) return;
     if (!files || room.value < 1) {
       failure.value = "This picture is not framed by a room the game can enter.";
+      options.say({ tone: "warn", text: failure.value });
       return;
     }
     const mine = ++run;
     const version = draftVersion.value;
     running.value = true;
+    options.say({ tone: "ok", text: "Walking…" });
     result.value = null;
     failure.value = null;
     const plan = estimate.value;
@@ -743,7 +750,13 @@ export function useStudioWalk(options: StudioWalkOptions) {
       if (mine !== run) return;
       failure.value = error instanceof Error ? error.message : String(error);
     } finally {
-      if (mine === run) running.value = false;
+      if (mine === run) {
+        running.value = false;
+        options.say({
+          tone: failure.value ? "warn" : "ok",
+          text: failure.value ?? result.value?.title ?? "Click to start another walk.",
+        });
+      }
     }
   }
 
@@ -763,10 +776,10 @@ export function useStudioWalk(options: StudioWalkOptions) {
     if (!canEditDoors.value) {
       refuse(
         !logic.editable.value
-          ? "This room's script isn't in a form the door tools can change: edit its exits as text, or ask the assistant."
+          ? "This room's script isn't in a form the door tools can change: edit its exits as text, or tell the agent to change them."
           : logicBlocked.value !== null
             ? "Fix the room's rule annotations as text first; door editing is off until then."
-            : "This room is view only: its doors can't be changed.",
+            : "This room's doors are read-only.",
       );
       return true;
     }

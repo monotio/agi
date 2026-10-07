@@ -1,6 +1,6 @@
 import { fixtureSkip, KNOWN_GAME_HASH } from "../../test/fixtures.ts";
 import { expect, test } from "@playwright/test";
-import { isolateStorage, textHook } from "./engineProbe.ts";
+import { gameHint, isolateStorage, textHook } from "./engineProbe.ts";
 
 /**
  * The authentic v3 fixture in the REAL app: a local, gitignored Sierra
@@ -40,7 +40,8 @@ test("boots the v3 demo pack, shows its intro text and starts a demonstration", 
     .toContain("Press any key...");
   // Enter is keymapped to the demo-select controller, so authentically it is
   // not "any key": the hint names only unmapped keys.
-  await expect(page.getByTestId("title-prompt-hint")).toContainText("Press Space to start");
+  await expect(await gameHint(page, "title-prompt-hint")).toContainText("Press Space to start");
+  await page.mouse.move(0, 0);
   await page.screenshot({ path: "test-results/demopac4-intro.png" });
 
   // A letter with the input line unfocused (input is prevented in this game).
@@ -79,9 +80,10 @@ test.describe("on a touch screen", () => {
     await expect
       .poll(async () => (await textHook(page)).rows[24] ?? "", { timeout: 20_000 })
       .toContain("Press any key...");
-    await expect(page.getByTestId("title-prompt-hint")).toContainText(
+    await expect(await gameHint(page, "title-prompt-hint")).toContainText(
       "Tap screen or: Press Space to start",
     );
+    await page.mouse.move(0, 0);
     // A tap is the title's key: Enter is the script's controller here, so the
     // tap must send a key that have.key reads.
     await page.locator(".screen").tap();

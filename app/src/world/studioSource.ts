@@ -29,7 +29,6 @@ import { parseWordsTok } from "../../../src/logic/words.ts";
 import { sourceCompilesTo } from "../../../src/picture/source.ts";
 import { detectProfile, type AgiProfile } from "../../../src/runtime/profile.ts";
 import type { ScannedResources } from "./useRoomMap.ts";
-import type { SpriteRoom } from "../shell/useCreateWorkspace.ts";
 import { scanContainerExits, type StaticRoomScan } from "../../../src/agent/roomMap.ts";
 import { roomPictureUse } from "../../../src/agent/roomPictures.ts";
 import { openSprite, type SpriteCel } from "../../../src/view/spriteDocument.ts";
@@ -61,14 +60,14 @@ export function studioPictureSource(
   stored?: Record<string, unknown> | undefined,
 ): StudioPictureSource | null {
   const files = new Map(Object.entries(resources.files));
+  const profile = resources.profile ?? detectProfile(files);
   let bytes: Uint8Array | undefined;
   try {
-    bytes = openContainer(files).getResource("picture", picture) ?? undefined;
+    bytes = openContainer(files, { profile }).getResource("picture", picture) ?? undefined;
   } catch {
     return null;
   }
   if (!bytes) return null;
-  const profile = resources.profile ?? detectProfile(files);
   let authoredSource: string | undefined;
   if (session) {
     // authoredPictureSource trusts the text only while it compiles to the
@@ -147,7 +146,7 @@ export function studioRoomSource(
   const profile = resources.profile ?? detectProfile(files);
   let logicBytes: Uint8Array | null;
   try {
-    logicBytes = openContainer(files).getResource("logic", room);
+    logicBytes = openContainer(files, { profile }).getResource("logic", room);
   } catch {
     logicBytes = null;
   }
@@ -235,7 +234,7 @@ interface ViewScan {
 }
 
 /** One VIEW as the Resources tab and the World panel list it. */
-export interface ViewSummary {
+interface ViewSummary {
   readonly view: number;
   readonly description?: string | undefined;
   /** Loop 0, cel 0 as displayed; undefined when the view does not decode. */
@@ -247,7 +246,7 @@ export interface ViewSummary {
 const viewScans = new WeakMap<object, ViewScan>();
 
 /** Which logics name which VIEWs, and which rooms draw which pictures, in the booted files. */
-export function viewScan(resources: Pick<ScannedResources, "files" | "profile">): ViewScan {
+function viewScan(resources: Pick<ScannedResources, "files" | "profile">): ViewScan {
   const cached = viewScans.get(resources.files);
   if (cached) return cached;
   const files = new Map(Object.entries(resources.files));
@@ -256,7 +255,7 @@ export function viewScan(resources: Pick<ScannedResources, "files" | "profile">)
   const pictures = new Set<number>();
   const payloads = new Map<number, Uint8Array>();
   try {
-    const container = openContainer(files);
+    const container = openContainer(files, { profile });
     for (let num = 0; num < 256; num++) {
       const logic = container.getResource("logic", num);
       if (logic) logics.set(num, logic);
@@ -283,14 +282,6 @@ export function viewScan(resources: Pick<ScannedResources, "files" | "profile">)
   return scan;
 }
 
-/** The VIEWs a room's logic (or a logic it calls) names as constants and the game holds, ascending. */
-export function roomViews(
-  resources: Pick<ScannedResources, "files" | "profile">,
-  room: number,
-): ViewSummary[] {
-  return viewScan(resources).views.filter((summary) => summary.usage.rooms.includes(room));
-}
-
 /** What Sprite Studio opens on: one VIEW's stored bytes, where it is used, and rooms to stand it in. */
 export interface StudioSpriteSource {
   readonly bytes: Uint8Array;
@@ -298,6 +289,13 @@ export interface StudioSpriteSource {
   readonly files: ReadonlyMap<string, Uint8Array>;
   readonly usage: ViewUsage;
   readonly rooms: readonly SpriteRoom[];
+}
+
+/** A room the in-room preview can stand a sprite in: its number and the picture it draws. */
+export interface SpriteRoom {
+  readonly room: number;
+  readonly picture: number;
+  readonly title?: string | undefined;
 }
 
 /**
@@ -314,14 +312,14 @@ export function studioSpriteSource(
   staged?: Uint8Array,
 ): StudioSpriteSource | null {
   const files = new Map(Object.entries(resources.files));
+  const profile = resources.profile ?? detectProfile(files);
   let bytes = staged;
   try {
-    bytes ??= openContainer(files).getResource("view", view) ?? undefined;
+    bytes ??= openContainer(files, { profile }).getResource("view", view) ?? undefined;
   } catch {
     return null;
   }
   if (!bytes) return null;
-  const profile = resources.profile ?? detectProfile(files);
   const scan = viewScan(resources);
   const usage = viewUsage(scan.index, view);
   const rooms = usage.rooms.flatMap((room): SpriteRoom[] => {

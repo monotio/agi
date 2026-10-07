@@ -38,7 +38,7 @@ function warnings(code: readonly number[], messages: readonly string[] = []): re
 
 test("minimal program: message table becomes #message, action becomes a call", () => {
   // 65 01 = print(message 1), 00 = return.
-  assert.equal(dis([0x65, 0x01, 0x00], ["Hello."]), '#message 1 "Hello."\n\nprint(m1);\nreturn;\n');
+  assert.equal(dis([0x65, 0x01, 0x00], ["Hello."]), '#message 1 "Hello."\n\nprint(m1);\n');
 });
 
 test("operand kinds render with the assembler's sigils", () => {
@@ -108,7 +108,7 @@ test("jumps the block structure cannot express become goto plus a top-level labe
   // 65 01 | fe 02 00 | 65 01 | 00 : the goto at 2 skips to offset 7.
   assert.equal(
     dis([0x65, 0x01, 0xfe, 0x02, 0x00, 0x65, 0x01, 0x00], ["x"]),
-    '#message 1 "x"\n\nprint(m1);\ngoto L7;\nprint(m1);\nL7:\nreturn;\n',
+    '#message 1 "x"\n\nprint(m1);\ngoto L7;\nprint(m1);\nL7:\n',
   );
   // Backward jump to offset 0: delta -3 = fd ff.
   assert.equal(dis([0xfe, 0xfd, 0xff]), "L0:\ngoto L0;\n");
@@ -128,7 +128,6 @@ test("unknown opcode byte is emitted as a comment and warned, never dropped", ()
   assert.equal(
     dis([0xb2, 0x00]),
     "// !! raw byte 0xb2 at 0: not an opcode in this profile\n" +
-      "return;\n" +
       "\n" +
       "// !! offset 0: unknown opcode byte 0xb2 (emitted as a comment; cannot re-assemble)\n",
   );
@@ -178,15 +177,12 @@ test("an absent message slot is emitted as a bare #message N", () => {
   const payload = buildLogicResource(new Uint8Array([0x00]), [null, "Hi", null]);
   assert.equal(
     disassembleLogic(payload, { dictionary: DICT }),
-    '#message 1\n#message 2 "Hi"\n#message 3\n\nreturn;\n',
+    '#message 1\n#message 2 "Hi"\n#message 3\n\n',
   );
 });
 
 test("non-printable and high message bytes are escaped, not dropped", () => {
-  assert.equal(
-    dis([0x00], ["a\nb\\c\u0080\u0007"]),
-    '#message 1 "a\\nb\\\\c\\x80\\x07"\n\nreturn;\n',
-  );
+  assert.equal(dis([0x00], ["a\nb\\c\u0080\u0007"]), '#message 1 "a\\nb\\\\c\\x80\\x07"\n\n');
 });
 
 test("said() word id above 255 without a dictionary is reported, not silently truncated", () => {
@@ -201,7 +197,7 @@ test("said() word id above 255 without a dictionary is reported, not silently tr
 });
 
 test("message text is escaped so the assembler's lexer reads it back", () => {
-  assert.equal(dis([0x00], ['He said "hi".']), '#message 1 "He said \\"hi\\"."\n\nreturn;\n');
+  assert.equal(dis([0x00], ['He said "hi".']), '#message 1 "He said \\"hi\\"."\n\n');
 });
 
 // ---------- Round-trip: the actual contract ----------
@@ -290,6 +286,11 @@ for (const expected of EXPECTED) {
         const original = parseLogicResource(payload);
         const source = disassembleLogic(payload, { dictionary: dict });
         const warns = disassembleLogicWarnings(payload, { dictionary: dict });
+        assert.doesNotMatch(
+          source,
+          /(?:^|\n)return;\n$/,
+          `${expected.alias} logic ${num}: final top-level return remains`,
+        );
         // Nothing is dropped in silence: every warning is visible in the source.
         for (const w of warns)
           assert.ok(source.includes(w), `${expected.alias} logic ${num}: warning not in source`);

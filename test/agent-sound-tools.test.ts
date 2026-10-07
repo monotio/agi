@@ -8,7 +8,7 @@ describe("compact music authoring tools", () => {
   it("advertises strict, bounded schemas", () => {
     assert.deepEqual(
       SOUND_TOOLS.map((tool) => tool.name),
-      ["write_music", "read_sound", "preview_sound"],
+      ["write_music", "read_sound", "play_sound"],
     );
     for (const tool of SOUND_TOOLS) {
       assert.equal(tool.parameters.additionalProperties, false);
@@ -51,16 +51,18 @@ describe("compact music authoring tools", () => {
         attenuation: note.attenuation,
       })),
       [
-        { duration: 30, divisor: 226, attenuation: 0 },
-        { duration: 30, divisor: 226, attenuation: 0 },
+        { duration: 30, divisor: 254, attenuation: 0 },
+        { duration: 30, divisor: 254, attenuation: 0 },
       ],
     );
     assert.equal(sound.channels[2]!.notes[0]!.duration, 60);
-    assert.equal(sound.channels[2]!.notes[0]!.freqDivisor, 760);
+    assert.equal(sound.channels[2]!.notes[0]!.freqDivisor, 855);
     assert.equal(sound.channels[2]!.notes[0]!.attenuation, 10);
     assert.deepEqual(result?.details?.["writtenResources"], [{ kind: "sound", num: 5 }]);
     assert.equal(typeof result?.details?.["revision"], "string");
-    assert.equal(state.sources.sounds.get(5)?.length, 4);
+    const writtenSource = state.sources.sounds.get(5);
+    assert.ok(Array.isArray(writtenSource));
+    assert.equal(writtenSource.length, 4);
   });
 
   it("maps all named noise modes to exact authentic control bits", () => {
@@ -214,9 +216,9 @@ describe("compact music authoring tools", () => {
         {
           channel: 0,
           index: 1,
-          tone: 0x8315,
+          tone: 0x8d17,
           control: 0x92,
-          freqDivisor: 339,
+          freqDivisor: 381,
           duration: 20,
           attenuation: 2,
         },

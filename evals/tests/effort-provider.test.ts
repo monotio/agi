@@ -97,7 +97,7 @@ test("captures the actual Anthropic Genesis turn with the full tool catalog", as
       "Anthropic advertises the full stable catalog; availability is host-enforced",
     );
     // Genesis is one flow: the first request is the single genesis turn that
-    // records the world through update_world and builds the opening room.
+    // records the world through update_plan and builds the opening room.
     assert.equal(body.messages[0].content.startsWith("### GENESIS:"), true);
     assert.equal(body.messages[0].content.endsWith("# Tiny template\n---"), true);
   } finally {

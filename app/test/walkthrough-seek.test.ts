@@ -1,3 +1,4 @@
+import { scheduler as testScheduler } from "node:timers/promises";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
@@ -6,6 +7,7 @@ import {
   type WalkthroughControllerContext,
   type WalkthroughUiState,
 } from "../src/walkthrough/useWalkthroughController.ts";
+import { clearWalkthroughCache } from "../src/walkthrough/walkthrough.ts";
 import type { ReplayDriver, ReplayObservation } from "../src/walkthrough/replay.ts";
 import type { AgiAudio } from "../src/audio/AgiAudio.ts";
 import type { BootedGame } from "../src/project/gameTypes.ts";
@@ -92,13 +94,15 @@ function harness() {
       }
     },
   } as unknown as Worker;
+  const booted = { revision: REVISION } as unknown as BootedGame;
 
   const ctx: WalkthroughControllerContext = {
     state,
     audio: { stop() {}, setPaused() {} } as unknown as AgiAudio,
     replayDriver: driver,
     getWorker: () => worker,
-    getBootedGame: () => ({ revision: REVISION }) as unknown as BootedGame,
+    getWorkerProfile: () => "2.917",
+    getBootedGame: () => booted,
     isCurrentGame: () => true,
     nextSessionId: () => ++sessionId,
     getActiveSessionId: () => sessionId,
@@ -117,7 +121,16 @@ function harness() {
   };
 
   const controller = useWalkthroughController(ctx);
-  return { state, driver, posted, restoreCalls, playBatchStarts, batchOptions, controller };
+  return {
+    state,
+    driver,
+    posted,
+    restoreCalls,
+    playBatchStarts,
+    batchOptions,
+    controller,
+    session: () => sessionId,
+  };
 }
 
 const ARTIFACT = {
@@ -139,7 +152,7 @@ const ARTIFACT = {
 };
 
 async function flush(): Promise<void> {
-  for (let i = 0; i < 4; i++) await new Promise((resolve) => setTimeout(resolve, 0));
+  await testScheduler.yield();
 }
 
 test("a retarget ahead of the live replay head retunes the seek instead of restarting", async () => {
@@ -253,4 +266,86 @@ test("a seek on a finished walkthrough lands paused at the new position", async 
     globalThis.fetch = originalFetch;
     controller.abort();
   }
+});
+
+test("a refused walkthrough leaves the running tape's batch and seek intact", async () => {
+  const originalFetch = globalThis.fetch;
+  // "other" is the refused start: a tape recorded on another interpreter.
+  const other = {
+    ...ARTIFACT,
+    identity: { project: "adventure-department", revision: REVISION },
+    profile: "2.936",
+  };
+  globalThis.fetch = (async (input: unknown) => {
+    const name = /walkthroughs\/([^/?]+)\.json/.exec(String(input))?.[1];
+    return { ok: true, json: async () => (name === "other" ? other : ARTIFACT) };
+  }) as unknown as typeof fetch;
+  clearWalkthroughCache();
+  const { state, driver, restoreCalls, playBatchStarts, batchOptions, controller, session } =
+    harness();
+  try {
+    void controller.startWalkthrough("kq1");
+    await flush();
+    assert.equal(state.walkthrough.status, "playing");
+    const run = batchOptions[0]!;
+
+    // The running game reports 2.917; the requested tape requires 2.936.
+    // Refused in preflight, it leaves the tape under play alive — same
+    // session, same unaborted batch, same alias.
+    void controller.startWalkthrough("other");
+    await flush();
+    assert.equal(state.walkthrough.status, "playing");
+    assert.equal(state.walkthrough.active, true);
+    assert.equal(state.walkthrough.alias, "kq1");
+    assert.equal(session(), 1);
+    assert.equal(run.signal?.aborted, false, "the live batch was never aborted");
+    assert.equal(run.isCurrentSession?.(), true, "the live batch still owns the session");
+    assert.match(state.walkthrough.error, /2\.936/);
+
+    // And its seek still replays its own tape: restore near the target,
+    // resume at the checkpoint after it — the refused start's artifact is
+    // never what a seek could revive, because nothing was retired.
+    driver.latest = fakeObservation(900);
+    await controller.seekToTick(700);
+    await flush();
+    assert.equal(restoreCalls.at(-1)?.tick, 700);
+    assert.equal(restoreCalls.at(-1)?.sessionId, 2);
+    assert.equal(playBatchStarts.at(-1), 2, "the kq1 tape resumes after its checkpoint");
+    assert.equal(state.walkthrough.status, "playing");
+  } finally {
+    globalThis.fetch = originalFetch;
+    clearWalkthroughCache();
+    controller.abort();
+  }
+});
+
+test("pause reports the worker's acknowledged tick before playback can resume", async () => {
+  const { state, driver, controller } = harness();
+  state.walkthrough.active = true;
+  state.walkthrough.status = "playing";
+  state.walkthrough.totalTicks = 100;
+  const pending = Promise.withResolvers<ReplayObservation>();
+  driver.pause = () => pending.promise;
+  controller.pauseWalkthrough();
+  assert.equal(state.walkthrough.pausePending, true, "pause waits for the in-flight advance");
+  const stopped = fakeObservation(32, 0);
+  driver.latest = stopped;
+  pending.resolve(stopped);
+  await flush();
+  assert.equal(state.walkthrough.pausePending, false);
+  assert.equal(state.walkthrough.status, "paused");
+  assert.equal(state.walkthrough.tick, 32);
+  assert.equal(state.walkthrough.requestedTick, 32);
+  controller.resumeWalkthrough();
+  assert.equal(state.walkthrough.status, "playing");
+  const late = Promise.withResolvers<ReplayObservation>();
+  driver.pause = () => late.promise;
+  controller.pauseWalkthrough();
+  controller.resumeWalkthrough();
+  state.walkthrough.tick = 40;
+  late.resolve(stopped);
+  await flush();
+  assert.equal(state.walkthrough.status, "playing", "a late pause reply keeps the resumed intent");
+  assert.equal(state.walkthrough.tick, 40, "a late pause reply keeps the resumed position");
+  assert.equal(state.walkthrough.pausePending, false);
 });

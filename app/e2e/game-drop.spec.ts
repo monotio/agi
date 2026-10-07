@@ -53,6 +53,9 @@ async function dispatchFolderDrop(page: Page, files: BrowserFile[]): Promise<voi
       createReader?: () => { readEntries(success: (entries: Entry[]) => void): void };
     }
 
+    const gate = Promise.withResolvers<void>();
+    Reflect.set(window, "releaseFolderReads", gate.resolve);
+    Reflect.set(window, "folderReadPending", false);
     const fileEntries: Entry[] = droppedFiles.map(({ name, bytes }) => {
       const file = new File([Uint8Array.from(bytes)], name);
       return {
@@ -60,7 +63,8 @@ async function dispatchFolderDrop(page: Page, files: BrowserFile[]): Promise<voi
         isDirectory: false,
         name,
         file(success): void {
-          setTimeout(() => success(file), 35);
+          Reflect.set(window, "folderReadPending", true);
+          void gate.promise.then(() => success(file));
         },
       };
     });
@@ -81,7 +85,7 @@ async function dispatchFolderDrop(page: Page, files: BrowserFile[]): Promise<voi
                       isDirectory: false,
                       name: note.name,
                       file(done): void {
-                        setTimeout(() => done(note), 35);
+                        void gate.promise.then(() => done(note));
                       },
                     },
                   ]
@@ -123,6 +127,10 @@ async function dispatchFolderDrop(page: Page, files: BrowserFile[]): Promise<voi
     });
     target.dispatchEvent(event);
   }, files);
+  await page.waitForFunction(() => {
+    // The import has reached its first held file read.
+    return Reflect.get(window, "folderReadPending") === true;
+  });
 }
 
 async function dispatchAmbiguousDrop(page: Page): Promise<void> {
@@ -181,6 +189,8 @@ test("a nested multi-batch folder drop is staged only after its opening is valid
         Object.keys(localStorage).filter((key) => key.startsWith("monotio_agi.authored.")).length,
     ),
   ).toBe(0);
+
+  await page.evaluate(() => (Reflect.get(window, "releaseFolderReads") as () => void)());
 
   await expect(page.getByTestId("game-import-ready")).toContainText("added to your library");
   const card = savedGameCard(page, "Dropped Folder");

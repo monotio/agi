@@ -20,14 +20,14 @@ test("minimal program: print + return, hand-computed bytes", () => {
 
 test("action with multiple operands", () => {
   // display = 0x67, operands row, col, message
-  assert.deepEqual(code('#message 1 "x"\ndisplay(2, 3, m1);'), [0x67, 0x02, 0x03, 0x01]);
+  assert.deepEqual(code('#message 1 "x"\ndisplay(2, 3, m1);'), [0x67, 0x02, 0x03, 0x01, 0x00]);
 });
 
 test("if without else: false-delta skips then-branch", () => {
   // ff 07 05 ff <d:2> 65 01  — delta = end(8) - (4+2) = 2
   assert.deepEqual(
     code('#message 1 "x"\nif (isset(f5)) { print(1); }'),
-    [0xff, 0x07, 0x05, 0xff, 0x02, 0x00, 0x65, 0x01],
+    [0xff, 0x07, 0x05, 0xff, 0x02, 0x00, 0x65, 0x01, 0x00],
   );
 });
 
@@ -36,13 +36,13 @@ test("if/else: false-delta lands on else, goto skips else", () => {
   // false delta = 11 - 6 = 5; goto delta = 13 - 11 = 2
   assert.deepEqual(
     code('#message 1 "a"\n#message 2 "b"\nif (isset(f5)) { print(1); } else { print(2); }'),
-    [0xff, 0x07, 0x05, 0xff, 0x05, 0x00, 0x65, 0x01, 0xfe, 0x02, 0x00, 0x65, 0x02],
+    [0xff, 0x07, 0x05, 0xff, 0x05, 0x00, 0x65, 0x01, 0xfe, 0x02, 0x00, 0x65, 0x02, 0x00],
   );
 });
 
 test("goto backward to label: negative s16 delta", () => {
   // fe <d:2> where d = 0 - 3 = -3 -> fd ff
-  assert.deepEqual(code("start:\ngoto start;"), [0xfe, 0xfd, 0xff]);
+  assert.deepEqual(code("start:\ngoto start;"), [0xfe, 0xfd, 0xff, 0x00]);
 });
 
 test("goto forward over statements", () => {
@@ -55,7 +55,7 @@ test("said(): variable-length condition with dictionary ids", () => {
   // ff 0e 02 64 00 c8 00 ff <d:2> 00 ; delta = 11 - 10 = 1
   assert.deepEqual(
     code('if (said("look", "door")) { return; }'),
-    [0xff, 0x0e, 0x02, 0x64, 0x00, 0xc8, 0x00, 0xff, 0x01, 0x00, 0x00],
+    [0xff, 0x0e, 0x02, 0x64, 0x00, 0xc8, 0x00, 0xff, 0x01, 0x00, 0x00, 0x00],
   );
 });
 
@@ -72,7 +72,7 @@ test("OR group with negated member", () => {
   // fc fd 07 05 01 01 03 fc inside ff ... ff
   assert.deepEqual(
     code("if (!isset(f5) || equaln(v1, 3)) { return; }"),
-    [0xff, 0xfc, 0xfd, 0x07, 0x05, 0x01, 0x01, 0x03, 0xfc, 0xff, 0x01, 0x00, 0x00],
+    [0xff, 0xfc, 0xfd, 0x07, 0x05, 0x01, 0x01, 0x03, 0xfc, 0xff, 0x01, 0x00, 0x00, 0x00],
   );
 });
 
@@ -92,20 +92,20 @@ test("De Morgan: !(A || B) becomes AND of negations", () => {
 });
 
 test("#define names usable as operands", () => {
-  assert.deepEqual(code("#define fDoor 42\nset(fDoor);"), [0x0c, 0x2a]);
+  assert.deepEqual(code("#define fDoor 42\nset(fDoor);"), [0x0c, 0x2a, 0x00]);
 });
 
 test("inline strings auto-allocate messages and dedupe", () => {
   const r = assembleLogic('print("Hi there.");\nprint("Hi there.");\nprint("Other.");', {
     dictionary: DICT,
   });
-  assert.deepEqual([...r.code], [0x65, 0x01, 0x65, 0x01, 0x65, 0x02]);
+  assert.deepEqual([...r.code], [0x65, 0x01, 0x65, 0x01, 0x65, 0x02, 0x00]);
   assert.deepEqual(r.messages, ["", "Hi there.", "Other."]);
 });
 
 test("explicit and inline messages coexist; inline starts after max explicit", () => {
   const r = assembleLogic('#message 5 "five"\nprint(m5);\nprint("inline");', { dictionary: DICT });
-  assert.deepEqual([...r.code], [0x65, 0x05, 0x65, 0x06]);
+  assert.deepEqual([...r.code], [0x65, 0x05, 0x65, 0x06, 0x00]);
   assert.equal(r.messages[5], "five");
   assert.equal(r.messages[6], "inline");
 });
@@ -189,11 +189,11 @@ test("error: message 0 rejected", () => {
   );
 });
 
-test("error: unknown identifier suggests ref syntax", () => {
+test("error: an unknown name is reported plainly", () => {
   assert.throws(
     () => assembleLogic("set(door);", { dictionary: DICT }),
     (e: unknown) =>
-      e instanceof AssemblerError && /unknown identifier 'door'/.test((e as Error).message),
+      e instanceof AssemblerError && /Nothing is named door\./.test((e as Error).message),
   );
 });
 
@@ -205,7 +205,7 @@ test("label inside a block: goto targets the byte offset it marks", () => {
   // the goto at 10 ends at 13 and targets 8, so its delta is 8 - 13 = -5 = fb ff.
   assert.deepEqual(
     code('#message 1 "x"\nif (isset(f5)) { print(1); inner: print(1); }\ngoto inner;'),
-    [0xff, 0x07, 0x05, 0xff, 0x04, 0x00, 0x65, 0x01, 0x65, 0x01, 0xfe, 0xfb, 0xff],
+    [0xff, 0x07, 0x05, 0xff, 0x04, 0x00, 0x65, 0x01, 0x65, 0x01, 0xfe, 0xfb, 0xff, 0x00],
   );
 });
 
@@ -220,7 +220,7 @@ test("label inside an else-block, jumped to from outside", () => {
     ),
     [
       0xff, 0x07, 0x05, 0xff, 0x05, 0x00, 0x65, 0x01, 0xfe, 0x02, 0x00, 0x65, 0x02, 0xfe, 0xfb,
-      0xff,
+      0xff, 0x00,
     ],
   );
 });
@@ -239,17 +239,20 @@ test("a parenthesized single literal emits 0xfc markers; bare does not", () => {
   // ff fc 07 01 fc ff <1:2> 00 : the group markers wrap the one predicate.
   assert.deepEqual(
     code("if ((isset(f1))) { return; }"),
-    [0xff, 0xfc, 0x07, 0x01, 0xfc, 0xff, 0x01, 0x00, 0x00],
+    [0xff, 0xfc, 0x07, 0x01, 0xfc, 0xff, 0x01, 0x00, 0x00, 0x00],
   );
   // Without the parentheses the same test is a plain clause: no 0xfc at all.
-  assert.deepEqual(code("if (isset(f1)) { return; }"), [0xff, 0x07, 0x01, 0xff, 0x01, 0x00, 0x00]);
+  assert.deepEqual(
+    code("if (isset(f1)) { return; }"),
+    [0xff, 0x07, 0x01, 0xff, 0x01, 0x00, 0x00, 0x00],
+  );
 });
 
 test("a parenthesized single negated literal keeps the group markers", () => {
   // ff fc fd 07 01 fc ff <1:2> 00
   assert.deepEqual(
     code("if ((!isset(f1))) { return; }"),
-    [0xff, 0xfc, 0xfd, 0x07, 0x01, 0xfc, 0xff, 0x01, 0x00, 0x00],
+    [0xff, 0xfc, 0xfd, 0x07, 0x01, 0xfc, 0xff, 0x01, 0x00, 0x00, 0x00],
   );
 });
 
@@ -257,14 +260,14 @@ test("one-term group beside a plain clause", () => {
   // ff fc 07 01 fc 07 02 ff <1:2> 00
   assert.deepEqual(
     code("if ((isset(f1)) && isset(f2)) { return; }"),
-    [0xff, 0xfc, 0x07, 0x01, 0xfc, 0x07, 0x02, 0xff, 0x01, 0x00, 0x00],
+    [0xff, 0xfc, 0x07, 0x01, 0xfc, 0x07, 0x02, 0xff, 0x01, 0x00, 0x00, 0x00],
   );
 });
 
 test("parentheses around a multi-term expression still group as before", () => {
   assert.deepEqual(
     code("if ((isset(f1) || isset(f2))) { return; }"),
-    [0xff, 0xfc, 0x07, 0x01, 0x07, 0x02, 0xfc, 0xff, 0x01, 0x00, 0x00],
+    [0xff, 0xfc, 0x07, 0x01, 0x07, 0x02, 0xfc, 0xff, 0x01, 0x00, 0x00, 0x00],
   );
 });
 

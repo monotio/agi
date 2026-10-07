@@ -112,21 +112,19 @@ function compileOrNull(
 /** Challenge 1: change the sun, and only the sun. */
 export function verifyMuralObject(input: LessonVerifyInput): Verdict {
   if (input.kind !== "picture" || input.num !== MURAL)
-    return fail("This challenge is for the mural, PIC 4. Open it from the lesson.");
+    return fail("This challenge uses the mural (PICTURE 4). Open it from the lesson.");
   if (sameBytes(input.before, input.after))
-    return fail(
-      "Nothing has changed yet. Pick Sun in the list, then give it a new colour or a new place.",
-    );
+    return fail("Make your first change: pick Sun in the list and resize or recolour it.");
   const before = beforeDocument(input);
   if (!before || input.afterSource === undefined)
-    return fail("Make this change in Room Studio, so it can see which object you changed.");
+    return fail("Open the PICTURE editor and select Sun to make this change.");
   const after = parsePictureDocument(input.afterSource).document;
   if (!after.items.some((item) => item.id === SUN))
     return fail("The sun needs to stay in the sky. Change its colour, size or place.");
   const changed = changedItems(before, after);
   // A new object (a drawn shape, a copy) counts as a change of its own.
   if (changed.some((id) => !before.items.some((item) => item.id === id)))
-    return fail("Only the sun should change, and this also added a new shape.");
+    return fail("A new item was added. Undo that change, then edit Sun.");
   const others = changed.filter((id) => id !== SUN);
   if (others.length > 0) {
     const names = others.map((id) => labelOf([after, before], id)).join(", ");
@@ -134,25 +132,24 @@ export function verifyMuralObject(input: LessonVerifyInput): Verdict {
     const what = `${removed ? "removed" : "changed"} ${names}`;
     return fail(
       changed.includes(SUN)
-        ? `Only the sun should change, and this also ${what}.`
-        : `Only the sun should change, but this ${what}. Undo that, then change the sun.`,
+        ? `This also ${what}. Undo your last change, then edit Sun.`
+        : `This ${what}. Undo that change, then edit Sun.`,
     );
   }
   if (changed.length === 0)
-    return fail("Your change is outside every named object. Change the sun: pick Sun in the list.");
+    return fail("The change is outside Sun. Undo it, then pick Sun in the list.");
   const label = labelOf([after, before], SUN);
   const a = compileOrNull(before, input);
   const b = compileOrNull(after, input);
-  if (!a || !b) return fail("The recipe has a mistake in it now. Undo your last step.");
+  if (!a || !b) return fail("The picture source has an invalid step. Undo your last change.");
   const moved = [...a.visual].some((value, i) => value !== b.visual[i]);
-  if (!moved)
-    return fail(`${label} changed in the recipe, but not on screen. Try a colour that stands out.`);
+  if (!moved) return fail(`${label} still looks the same. Try a colour that stands out.`);
   const allowed = unionMask(footprintMask(a, SUN, "both"), footprintMask(b, SUN, "both"));
   const { ok, violations } = validateEdit(a, b, { lockedPlanes: [], allowedMask: allowed });
   if (!ok) {
     const cells = violations.reduce((sum, v) => sum + ("count" in v ? v.count : 0), 0);
     return fail(
-      `${cells} pixel${cells === 1 ? "" : "s"} outside ${label} changed too. Keep ${label} clear of the other objects.`,
+      `${cells} pixel${cells === 1 ? "" : "s"} outside ${label} changed too. Undo your last change, then keep edits inside ${label}.`,
     );
   }
   return { ok: true };
@@ -172,16 +169,14 @@ export function verifyMirrorEdit(input: LessonVerifyInput): Verdict {
     before = openSprite(input.before, input.profile);
     after = openSprite(input.after, input.profile);
   } catch {
-    return fail("That view cannot be read. Undo your last step.");
+    return fail("The VIEW data is invalid. Undo your last change to restore it.");
   }
   const check = validateSpriteEdit(before, after, { protectedLoops: [0], targetLoops: [1] });
   if (check.changedCels.length === 0 && check.metadata.length === 0)
-    return fail(
-      "Nothing has changed yet. Pick a cel in loop 1, where he faces left, and repaint his eye.",
-    );
+    return fail("To begin, pick a cel in loop 1, where he faces left, and repaint his eye.");
   if (check.violations.some((v) => v.constraint === "protected-loop"))
-    return fail("The right-facing loop 0 changed too. Undo that: only loop 1 should change.");
-  if (!check.ok) return fail("Something outside loop 1 changed. Only the left-facing loop should.");
+    return fail("Loop 0 changed too. Undo that change, then edit loop 1.");
+  if (!check.ok) return fail("The edit reached another loop. Undo it, then edit loop 1.");
   const cels = before.loops[1]?.cels.length ?? 0;
   if (after.loops[1]?.cels.length !== cels)
     return fail(
@@ -197,15 +192,13 @@ export function verifyMirrorEdit(input: LessonVerifyInput): Verdict {
 /** Challenge 3: give the ledger stand the counter's depth without touching the picture. */
 export function verifyStandDepth(input: LessonVerifyInput): Verdict {
   if (input.kind !== "picture" || input.num !== ARCHIVE)
-    return fail("This challenge is for the archive, PIC 3. Open it from the lesson.");
+    return fail("This challenge uses the archive (PICTURE 3). Open it from the lesson.");
   if (sameBytes(input.before, input.after))
-    return fail("Nothing has changed yet. Switch to the Depth lens and select Counter depth.");
+    return fail("To begin, switch to the Depth lens and select Counter depth.");
   const a = planes(input.before, input);
   const b = planes(input.after, input);
   if (a.visual.some((value, i) => value !== b.visual[i]))
-    return fail(
-      "The picture itself changed. This one is depth only: undo, and edit in the Depth lens.",
-    );
+    return fail("The Art changed. Undo that change, then edit in the Depth lens.");
 
   // The stand's pixels, from the shipped archive: its art item's visual footprint.
   const shipped = parsePictureDocument(TUTORIAL_PICTURES[ARCHIVE]!).document;
@@ -258,7 +251,7 @@ export function verifyStandDepth(input: LessonVerifyInput): Verdict {
     return fail(
       others
         ? "Some of the stand is closer than 11 (a bigger number), so it would hide the apprentice standing in front. Use the counter's 11."
-        : `The stand isn't covered yet: ${hidden} of its ${standCells} pixels have depth 11. Cover all of it.`,
+        : `The stand has ${hidden} of ${standCells} pixels at depth 11. Paint depth 11 over the rest.`,
     );
   }
   const before = beforeDocument(input);
@@ -270,7 +263,7 @@ export function verifyStandDepth(input: LessonVerifyInput): Verdict {
     });
     if (notDepth.length > 0)
       return fail(
-        `${labelOf([after], notDepth[0]!)} is not a depth object. Put the depth in Counter depth.`,
+        `${labelOf([after], notDepth[0]!)} contains Art. Undo that change, then put Depth in Counter depth.`,
       );
   }
   return { ok: true };
@@ -278,15 +271,15 @@ export function verifyStandDepth(input: LessonVerifyInput): Verdict {
 
 export const TUTORIAL_LESSONS: LessonSet = {
   catalogId: "adventure-department",
-  version: "1.1.0",
+  version: "1.2.0",
   title: "Adventure Department",
   lessons: [
     {
       id: "ad-gallery-recipe",
-      title: "The mural is a recipe",
-      teaser: "Scrub the draw order and watch the mural paint itself, one step at a time.",
+      title: "PICTURE steps",
+      teaser: "A PICTURE is a list of drawing steps, like a recipe.",
       steps: [
-        "Drag the draw-order slider back to the start: the canvas is empty.",
+        "In the PICTURE editor, choose Draw order above Items. Drag the slider back to the start.",
         "Drag it forward slowly. Each step is one drawing command: a line, or a fill of colour.",
         "Watch the sky: it pours in last, because a fill only floods white.",
         "Click Sun in the list. Every step in it lights up.",
@@ -299,12 +292,12 @@ export const TUTORIAL_LESSONS: LessonSet = {
     },
     {
       id: "ad-lab-mirror",
-      title: "One robot, two directions",
-      teaser: "The robot's left-facing loop is a mirror. Fix it, and only that facing changes.",
+      title: "VIEW loops",
+      teaser: "A VIEW holds loops and cels, like a flipbook. Edit the robot's left loop.",
       steps: [
-        "Loop 0 is the robot facing right: four drawings, or cels, that make his wave.",
-        "Loop 1 faces left. It has no drawings of its own: it mirrors loop 0.",
-        "Turn on Onion to see one cel over the next.",
+        "In the VIEW editor, loop 0 is the robot facing right: four cels that make his wave.",
+        "Loop 1 faces left. It mirrors the cels in loop 0.",
+        "Turn on Onion skin to see one cel over the next.",
         "Click a cel in the Loop 1 row first. Edit it: loop 1 becomes its own copy, and loop 0 stays as it was.",
       ],
       open: { studio: "sprite", view: ROBOT_VIEW, loop: 1, cel: 0 },
@@ -316,17 +309,17 @@ export const TUTORIAL_LESSONS: LessonSet = {
     {
       id: "ad-archive-depth",
       title: "Depth decides who is in front",
-      teaser: "Drag a ghost behind the counter and see why its 11 hides Felix at 10.",
+      teaser: "Drag a stand-in behind the counter and see why its 11 hides Felix at 10.",
       steps: [
         "Switch to the Depth lens. Every colour is a depth number, which AGI calls priority.",
-        "Turn on the ghost and drag it behind the counter: the counter's 11 hides it. Lower on the screen means a bigger number, so in front it shows.",
-        "Now drag it behind the ledger stand. It floats in front: the stand has no depth.",
-        "Click Counter depth in the list, then its last step under Details › Steps. New shapes go from there, before the walk barriers.",
+        "Place the stand-in and drag it behind the counter: the counter's 11 hides it. Lower on the screen means a bigger number, so in front it shows.",
+        "Now drag it behind the ledger stand. It floats in front: the stand needs Depth.",
+        "Click Counter depth in the list, then its last step under Details › Steps. New steps go from there, before the Walls and Gates.",
       ],
       open: { studio: "room", picture: ARCHIVE },
       challenge: {
         prompt:
-          "Draw a filled rectangle of depth 11 over the ledger stand, so the ghost hides behind it too. Change depth only.",
+          "Draw a filled rectangle of depth 11 over the ledger stand, so the stand-in hides behind it too. Change depth only.",
         verify: verifyStandDepth,
       },
     },

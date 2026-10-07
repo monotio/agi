@@ -46,7 +46,7 @@ export function buildSyntheticGame(): SyntheticGamePayload {
   const sound1 = buildSound([
     {
       notes: [
-        { note: "A4", duration: 4 },
+        { freqDivisor: 226, duration: 4 },
         { note: "rest", duration: 1 },
       ],
     },
@@ -73,7 +73,6 @@ if (!isset(f200)) {
   new.room.v(v0);
 }
 call.v(v0);
-return;
 `,
     { dictionary: dict },
   ).payload;
@@ -116,7 +115,6 @@ if (said("east") || posn(o0, 150, 110, 159, 150)) {
 if (equaln(v2, 2)) {
   new.room(2);
 }
-return;
 `,
     { dictionary: dict },
   ).payload;
@@ -149,7 +147,6 @@ if (said("answer")) {
   set(f32);
   print(2);
 }
-return;
 `,
     { dictionary: dict },
   ).payload;

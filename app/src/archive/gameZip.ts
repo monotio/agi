@@ -1,18 +1,22 @@
+import { MAX_GAME_ZIP_BYTES } from "./gameZipLimits.ts";
 import { readProjectContext, type ProjectContext } from "./projectArchive.ts";
-import { readProgressEntries, type GameProgress } from "../saves/gameProgress.ts";
+import { readProgressEntries } from "../saves/gameProgressImport.ts";
+import type { GameProgress } from "../saves/gameProgress.ts";
 import { readMapArchive } from "../world/roomMapStore.ts";
 import { readHistoryArchive, type ProjectHistory } from "./historyArchive.ts";
 import type { RoomMapSidecar } from "../../../src/agent/roomMap.ts";
 import { crc32 } from "./zip.ts";
 import { readPublicMetadata, type PublicGameMetadata } from "../project/gameMetadata.ts";
-import type { ProfileId } from "../../../src/runtime/profile.ts";
+import { detectProfile, type ProfileId } from "../../../src/runtime/profile.ts";
 import { openContainer, DIRECTORY_FILES } from "../../../src/container/container.ts";
 import { canonicalResourceName, isPlayableFileName } from "../../../src/container/playableFiles.ts";
-import { decodeBooter, isBooterImage } from "../../../src/container/booter.ts";
+import { isBooterImage } from "../../../src/container/booter.ts";
+import { isDiskImageName, readDiskImage } from "../../../src/container/disk/image.ts";
+import { createDiskExtractionBudget, reserveDiskBytes } from "../../../src/container/disk/files.ts";
+import { unshippedDiskVolumes } from "../../../src/container/disk/volumes.ts";
 import { parseWordsTok } from "../../../src/logic/words.ts";
 import { parseLogicResource } from "../../../src/logic/resource.ts";
 
-export const MAX_GAME_ZIP_BYTES = 128 * 1024 * 1024;
 const MAX_EXPANDED_BYTES = 256 * 1024 * 1024;
 const MAX_ENTRY_BYTES = 64 * 1024 * 1024;
 
@@ -152,22 +156,81 @@ export async function readGameZip(bytes: Uint8Array): Promise<OpenedGame> {
   return readGameFiles(entries);
 }
 
-/**
- * A dropped PC booter disk image (any path, detected by geometry and boot
- * signature) decodes into the ordinary container files at its own folder
- * root, keeping the native interpreter bytes as AGIDATA.OVL so profile
- * detection preserves the 2.001 identity across import and reload.
+/** Disk media contribute the same playable file vocabulary as folder imports.
+ * Desktop metadata and disk launch scripts are outside that vocabulary.
+ * Resource paths are flattened so disks with different volume labels combine;
+ * native interpreter files above DATA remain available to profile detection.
  */
-function expandBooterImage(entries: Map<string, Uint8Array>): void {
-  const images = [...entries].filter(([, bytes]) => isBooterImage(bytes));
-  if (images.length === 0) return;
-  if (images.length > 1) throw new Error("Choose one PC booter disk image at a time.");
-  const [imagePath, imageBytes] = images[0]!;
-  const decoded = decodeBooter(imageBytes);
-  entries.delete(imagePath);
-  const root = imagePath.slice(0, imagePath.lastIndexOf("/") + 1);
-  for (const [name, bytes] of decoded.files) entries.set(root + name, bytes);
-  entries.set(`${root}AGIDATA.OVL`, decoded.evidence.interpreterData);
+function expandDiskImages(entries: Map<string, Uint8Array>): boolean {
+  const images = [...entries].filter(
+    ([path, bytes]) => isDiskImageName(path) || isBooterImage(bytes),
+  );
+  const origins = new Map<string, string>();
+  const unreadable = new Map<string, { disk: string; cause: string }>();
+  for (const [path] of images) entries.delete(path);
+  const budget = createDiskExtractionBudget();
+  budget.files = entries.size;
+  for (const bytes of entries.values()) reserveDiskBytes(budget, bytes.length);
+  for (const [imagePath, imageBytes] of images) {
+    const decoded = readDiskImage(imagePath, imageBytes, budget);
+    for (const [path, bytes] of decoded.files) {
+      const name = canonicalResourceName(path.slice(path.lastIndexOf("/") + 1));
+      if (!isPlayableFileName(name)) continue;
+      const previous = entries.get(name);
+      if (
+        previous &&
+        (previous.length !== bytes.length || previous.some((byte, index) => byte !== bytes[index]))
+      )
+        throw new Error(
+          `${name} has different bytes on ${origins.get(name) ?? name} and ${imagePath}. Add disks from the same game edition.`,
+        );
+      if (!previous) {
+        entries.set(name, bytes);
+        origins.set(name, imagePath);
+      }
+    }
+    for (const [path, cause] of decoded.unreadable) {
+      const name = canonicalResourceName(path.slice(path.lastIndexOf("/") + 1));
+      if (isPlayableFileName(name)) unreadable.set(name, { disk: imagePath, cause });
+    }
+  }
+  for (const [name, failure] of unreadable) {
+    if (!entries.has(name))
+      throw new Error(`${name} on ${failure.disk} is unreadable. ${failure.cause}`);
+  }
+  return images.length > 0;
+}
+
+/** Every directory reference must have its volume when importing disk sets. */
+function checkDiskVolumes(files: Record<string, Uint8Array>, profile?: ProfileId): void {
+  const detected = detectProfile(new Map(Object.entries(files)), profile);
+  const split = Object.values(DIRECTORY_FILES);
+  for (const [name, data] of Object.entries(files)) {
+    if (!name.endsWith("DIR")) continue;
+    const combined = !split.includes(name);
+    const prefix = combined ? name.slice(0, -3) : "";
+    const unshipped = combined ? unshippedDiskVolumes(data) : [];
+    const ranges = combined
+      ? [0, 1, 2, 3]
+          .map((index) => data[index * 2]! | (data[index * 2 + 1]! << 8))
+          .concat(data.length)
+      : [0, data.length];
+    for (let range = 0; range + 1 < ranges.length; range++) {
+      const end = Math.min(ranges[range + 1]!, ranges[range]! + 256 * 3);
+      for (let at = ranges[range]!; at + 2 < end; at += 3) {
+        const absent =
+          detected.directoryAbsence === "exact-fff"
+            ? data[at] === 255 && data[at + 1] === 255 && data[at + 2] === 255
+            : data[at]! >> 4 === 15;
+        if (absent) continue;
+        const number = data[at]! >> 4;
+        if (unshipped.includes(number)) continue;
+        const volume = `${prefix}VOL.${number}`;
+        if (!files[volume])
+          throw new Error(`${volume} is on another disk. Add all the game's disks together.`);
+      }
+    }
+  }
 }
 /** Shared folder/ZIP boundary: normalize paths, select one root, then validate AGI resources. */
 export function readGameFiles(input: ReadonlyMap<string, Uint8Array>): OpenedGame {
@@ -195,7 +258,7 @@ export function readGameFiles(input: ReadonlyMap<string, Uint8Array>): OpenedGam
       throw new Error("The game exceeds the import size limit.");
     entries.set(name, bytes);
   }
-  expandBooterImage(entries);
+  const fromDisks = expandDiskImages(entries);
   const decoder = new TextDecoder();
   const directories = [...entries.keys()].filter((path) => {
     const name = path.slice(path.lastIndexOf("/") + 1);
@@ -204,6 +267,8 @@ export function readGameFiles(input: ReadonlyMap<string, Uint8Array>): OpenedGam
     );
   });
   const roots = [...new Set(directories.map((path) => path.slice(0, path.lastIndexOf("/") + 1)))];
+  if (fromDisks && roots.length === 0)
+    throw new Error("This disk has no AGI game files. Add the disk with VOL.0 and WORDS.TOK.");
   if (roots.length !== 1)
     throw new Error(
       "Choose one AGI game folder with resource directories (LOGDIR or a v3 DIR file).",
@@ -216,18 +281,15 @@ export function readGameFiles(input: ReadonlyMap<string, Uint8Array>): OpenedGam
     // The shared playable vocabulary, plus the stored game tests.
     if (isPlayableFileName(name) || name === "TESTS.JSON") files[name] = data;
   }
-  if (!files["WORDS.TOK"]) throw new Error("The game is missing WORDS.TOK.");
-  const container = openContainer(new Map(Object.entries(files)));
-  // Validate the boot resource now. Some playable local games have dangling
-  // references to unused assets; preserve those bytes rather than refusing
-  // the whole game. Referenced resources are checked when the engine loads them.
-  const boot = container.getResource("logic", 0);
-  if (!boot) throw new Error("The game is missing its starting logic (logic 0).");
-  parseLogicResource(boot);
-  const words: [string, number][] = parseWordsTok(files["WORDS.TOK"]).map(({ word, id }) => [
-    word,
-    id,
-  ]);
+  if (!files["WORDS.TOK"])
+    throw new Error(
+      fromDisks
+        ? "WORDS.TOK is on another disk. Add all the game's disks together."
+        : "The game is missing WORDS.TOK.",
+    );
+  // The declared metadata — a supported version and a profile this build
+  // ships — is validated before any directory entry is read: the declared
+  // edition, not detection over the bytes, decides which entries exist.
   const metadata = entries.get(`${root}GAME.JSON`);
   if (metadata && metadata.length >= 16384) throw new Error("GAME.JSON is too large.");
   let rawMetadata: unknown;
@@ -243,8 +305,32 @@ export function readGameFiles(input: ReadonlyMap<string, Uint8Array>): OpenedGam
   const gameMetadata = metadata
     ? readPublicMetadata(rawMetadata)
     : { roomGeneration: false, workInProgress: false };
+  const container = openContainer(
+    new Map(Object.entries(files)),
+    gameMetadata.profile ? { profile: gameMetadata.profile } : {},
+  );
+  if (fromDisks) checkDiskVolumes(files, gameMetadata.profile);
+  // Validate the boot resource now. Some playable local games have dangling
+  // references to unused assets; preserve those bytes rather than refusing
+  // the whole game. Referenced resources are checked when the engine loads them.
+  const boot = container.getResource("logic", 0);
+  if (!boot) throw new Error("The game is missing its starting logic (logic 0).");
+  parseLogicResource(boot);
+  const words: [string, number][] = parseWordsTok(files["WORDS.TOK"]).map(({ word, id }) => [
+    word,
+    id,
+  ]);
   const projectBytes = entries.get(`${root}PROJECT.JSON`);
-  const project = projectBytes ? readProjectContext(projectBytes, entries, root) : undefined;
+  const project = projectBytes
+    ? // The container's own resolution — the same detectProfile the session
+      // applies — decides the profile a sound document source is checked
+      // against, and its stored SOUND bytes are the claim's authority. The
+      // claim's pinned profile is never trusted to choose the interpreter.
+      readProjectContext(projectBytes, entries, root, {
+        profileId: detectProfile(container.files, gameMetadata.profile).id,
+        nativeSound: (num) => container.getResource("sound", num),
+      })
+    : undefined;
   const progress = project
     ? readProgressEntries(entries, root, files, gameMetadata.profile)
     : undefined;

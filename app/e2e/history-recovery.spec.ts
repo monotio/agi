@@ -1,8 +1,16 @@
+import { decodeHostImage, decodeSave } from "../../src/runtime/persistence.ts";
+import { PROFILES } from "../../src/runtime/profile.ts";
 import type { Page } from "@playwright/test";
 import { expect, test } from "./test.ts";
 import { readFile } from "node:fs/promises";
 import { readGameZip } from "../src/archive/gameZip.ts";
-import { isolateStorage, openGameOptions, textHook, waitForCycles } from "./engineProbe.ts";
+import {
+  downloadFromSettings,
+  isolateStorage,
+  openGameOptions,
+  textHook,
+  waitForCycles,
+} from "./engineProbe.ts";
 
 function entries(bytes: Uint8Array): Map<string, Uint8Array> {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
@@ -25,14 +33,14 @@ async function boot(page: Page): Promise<void> {
   await isolateStorage(page);
   await page.goto("/");
   await page.getByTestId("catalog-play-adventure-department").click();
-  await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  // The worker's existing readiness check precedes the room assertion.
   await waitForCycles(page, 3);
+  await expect.poll(async () => (await textHook(page)).room).toBe(1);
 }
 
 async function download(page: Page) {
   const pending = page.waitForEvent("download");
-  await openGameOptions(page, "settings-menu");
-  await page.getByTestId("btn-download-game").click();
+  await downloadFromSettings(page, true);
   const path = (await (await pending).path())!;
   const bytes = new Uint8Array(await readFile(path));
   return { path, opened: await readGameZip(bytes), files: entries(bytes) };
@@ -81,9 +89,14 @@ test("blocked stores still download current game and checkpoint with explicit re
   expect(report.complete).toBe(false);
   expect(report.notes.join(" ")).toContain("could not be read");
   expect(result.opened.backupWarning).toContain("Keep the original ZIP");
-  await expect(page.getByTestId("export-refusal")).toContainText(
-    "Backup downloaded with limitations",
+  await expect(page.getByTestId("export-refusal")).toContainText("Downloaded the game.");
+  // The download captures a worker checkpoint after the last displayed frame.
+  const checkpoint = decodeSave(
+    decodeHostImage(new Uint8Array(Buffer.from(result.opened.progress!.autosave!.image, "base64")))
+      .image,
+    PROFILES[result.opened.profile ?? "2.936"],
   );
+  const downloadedX = checkpoint.objects[0]!.x;
   const fresh = await browser.newContext();
   try {
     const imported = await fresh.newPage();
@@ -92,32 +105,61 @@ test("blocked stores still download current game and checkpoint with explicit re
     await expect(imported.getByText(/added to your library.*Keep the original ZIP/)).toBeVisible();
     await imported.getByTestId("btn-resume-cached").click();
     await expect.poll(async () => (await textHook(imported)).room).toBe(1);
-    await expect.poll(async () => (await textHook(imported)).egoX).toBe(before.egoX);
+    await expect.poll(async () => (await textHook(imported)).egoX).toBe(downloadedX);
   } finally {
     await fresh.close();
   }
 });
 
-test("an unreadable history manifest produces a visible incomplete-download notice", async ({
-  page,
-}) => {
-  await boot(page);
-  await page.evaluate(() => {
-    const get = IDBObjectStore.prototype.get;
-    IDBObjectStore.prototype.get = function (key) {
-      if (typeof key === "string" && key.startsWith("history/"))
-        throw new Error("Injected history read failure");
-      return get.call(this, key);
-    };
+for (const [width, height] of [
+  [1063, 815],
+  [1440, 900],
+  [390, 844],
+] as const) {
+  test.describe(`History download ${width}`, () => {
+    test.use({ viewport: { width, height }, hasTouch: width === 390 });
+    test("an unreadable history manifest produces a visible incomplete-download notice", async ({
+      page,
+      browserName,
+    }) => {
+      await boot(page);
+      await expect(page.locator(".game-surface:visible")).toBeVisible();
+      const before = await page.screenshot({
+        path: test.info().outputPath(`history-before-${width}.png`),
+        animations: "disabled",
+        scale: "css",
+      });
+      await page.evaluate(() => {
+        const get = IDBObjectStore.prototype.get;
+        IDBObjectStore.prototype.get = function (key) {
+          if (typeof key === "string" && key.startsWith("history/"))
+            throw new Error("Injected history read failure");
+          return get.call(this, key);
+        };
+      });
+      const result = await download(page);
+      expect(result.files.has("BACKUP.JSON")).toBe(true);
+      expect(result.opened.history).toBeUndefined();
+      expect(result.opened.progress?.autosave?.room).toBe(1);
+      const notice = page.getByTestId("export-refusal");
+      await expect(notice).toBeVisible();
+      await expect(notice).toContainText(
+        "Saved play history could not be read: Injected history read failure",
+      );
+      const report = JSON.parse(new TextDecoder().decode(result.files.get("BACKUP.JSON")));
+      expect(report.notes.join(" ")).toContain("Injected history read failure");
+      const after = await page.screenshot({
+        path: test.info().outputPath(`history-after-${width}.png`),
+        animations: "disabled",
+        scale: "css",
+      });
+      if (process.env["CI"] && browserName === "webkit" && width === 390) {
+        console.log(`HISTORY_BEFORE_SHOT:${before.toString("base64")}`);
+        console.log(`HISTORY_AFTER_SHOT:${after.toString("base64")}`);
+      }
+    });
   });
-  const result = await download(page);
-  expect(result.files.has("BACKUP.JSON")).toBe(true);
-  expect(result.opened.history).toBeUndefined();
-  expect(result.opened.progress?.autosave?.room).toBe(1);
-  await expect(page.getByTestId("export-refusal")).toContainText(
-    "Stored session history could not be read",
-  );
-});
+}
 
 test("Exit keeps the game playable after history failure and succeeds after storage recovers", async ({
   page,
@@ -259,6 +301,6 @@ test("unreadable saved slots are reported even when current checkpoint and histo
     false,
   );
   await expect(page.getByTestId("export-refusal")).toContainText(
-    "previously saved progress could not be read",
+    "saved play positions could not be read",
   );
 });

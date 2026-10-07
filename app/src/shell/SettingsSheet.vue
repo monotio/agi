@@ -9,20 +9,24 @@
  * close it. Keys pressed inside never reach the game (App.vue skips events
  * from dialogs).
  */
-import { nextTick, onBeforeUnmount, ref, useTemplateRef } from "vue";
+import { nextTick, onBeforeUnmount, ref, useId, useTemplateRef } from "vue";
+import GameDownloadDialog from "../home/GameDownloadDialog.vue";
+import { useLogicFormatSettings } from "../settings/logicFormat.ts";
+import { useAmigaRegion } from "../settings/amigaRegion.ts";
+import { CRT_STEPS } from "../settings/crtPreference.ts";
 import UiIcon from "../ui/UiIcon.vue";
 import UiIconButton from "../ui/UiIconButton.vue";
+import UiSelect from "../ui/UiSelect.vue";
 import UiSwitch from "../ui/UiSwitch.vue";
 import { useEngineApi } from "../engine/engineContext.ts";
 import { useAiSettings } from "../settings/useAiSettings.ts";
 import { useShellBridge } from "./shellBridge.ts";
 import { nextAudioMode, soundChipLabel, soundFamily } from "../audio/useAudioController.ts";
-import { useShell } from "./useShell.ts";
 
-const { touchControls, crtEnabled, originalAspect, gpuBackend, debugOpen, exportBusy } =
+const { touchControls, crtAmount, originalAspect, gpuBackend, debugOpen, exportBusy } =
   defineProps<{
     touchControls: boolean;
-    crtEnabled: boolean;
+    crtAmount: number;
     originalAspect: boolean;
     gpuBackend: string | undefined;
     debugOpen: boolean;
@@ -31,7 +35,7 @@ const { touchControls, crtEnabled, originalAspect, gpuBackend, debugOpen, export
 
 const emit = defineEmits<{
   "update:touchControls": [value: boolean];
-  "update:crtEnabled": [value: boolean];
+  "update:crtAmount": [value: number];
   "update:originalAspect": [value: boolean];
   "update:debugOpen": [value: boolean];
   "export-zip": [project: boolean];
@@ -43,9 +47,12 @@ const emit = defineEmits<{
 const { state, resumeAudio, toggleMute, setAudioMode, currentGame } = useEngineApi();
 const { aiModelLabel, aiSettingsUnavailable, openAiSettings } = useAiSettings();
 const bridge = useShellBridge();
-const shell = useShell();
+const { formatOnLeaving, setFormatOnLeaving } = useLogicFormatSettings();
 
 const sheet = useTemplateRef("sheet");
+const crtId = useId();
+const amigaRegionId = useId();
+const { region: amigaRegion, setRegion: setAmigaRegion } = useAmigaRegion();
 const open = ref(false);
 /** Advanced disclosure: sound-chip emulation and diagnostics live under it. */
 const advanced = ref(false);
@@ -104,14 +111,17 @@ function onWindowKeydown(event: KeyboardEvent): void {
 }
 
 /**
- * Focus taken outside by anything but Tab (the game claiming its input, a
- * click the outside handler has not seen) closes the sheet behind it.
+ * Keep the sheet's keyboard focus through delayed background focus requests.
+ * Outside pointer clicks, Escape and actions close it through their own handlers.
  */
 function onFocusOut(event: FocusEvent): void {
   const next = event.relatedTarget;
   if (!(next instanceof Node)) return;
   if (sheet.value?.contains(next) || trigger?.contains(next)) return;
-  close("stay");
+  const previous = event.target;
+  void nextTick(() => {
+    if (open.value && previous instanceof HTMLElement) previous.focus({ preventScroll: true });
+  });
 }
 
 async function show(from: HTMLElement | null): Promise<void> {
@@ -150,6 +160,17 @@ function act(run: () => void): void {
   run();
 }
 
+/** Download… asks which file before the sheet's export-zip goes out. */
+const downloadOpen = ref(false);
+function openDownload(): void {
+  close("stay");
+  downloadOpen.value = true;
+}
+/** The dialog replaced the sheet; its close returns focus to the gear. */
+function onDownloadClosed(): void {
+  trigger?.focus({ preventScroll: true });
+}
+
 onBeforeUnmount(() => {
   window.removeEventListener("pointerdown", onOutsidePointerDown, true);
   window.removeEventListener("keydown", onWindowKeydown, true);
@@ -170,7 +191,7 @@ defineExpose({ toggle, close, open });
     <template v-if="open">
       <header class="settings-sheet__head">
         <h2 id="settings-sheet-title">Settings</h2>
-        <UiIconButton icon="x" label="Close settings" size="sm" @click="close('game')" />
+        <UiIconButton icon="x" label="Close" size="sm" @click="close('game')" />
       </header>
 
       <section class="settings-sheet__group" aria-labelledby="settings-sound-display">
@@ -187,15 +208,27 @@ defineExpose({ toggle, close, open });
         >
           Sound<small>Linked to the game’s own sound setting</small>
         </UiSwitch>
-        <UiSwitch
-          v-if="gpuBackend"
-          class="settings-row"
-          data-testid="toggle-crt"
-          :model-value="crtEnabled"
-          @update:model-value="emit('update:crtEnabled', $event)"
-        >
-          Display<small>CRT scanlines, glow and curved glass</small>
-        </UiSwitch>
+        <div v-if="gpuBackend" class="settings-row settings-row--crt">
+          <label :for="crtId">CRT<small>Scanlines, glow and curved glass in Play</small></label>
+          <output :for="crtId" class="setting-value" data-testid="crt-value">{{
+            CRT_STEPS[Math.round(crtAmount * 4)]
+          }}</output>
+          <input
+            :id="crtId"
+            type="range"
+            data-testid="crt-amount"
+            min="0"
+            max="1"
+            step="0.25"
+            :value="crtAmount"
+            :aria-valuetext="CRT_STEPS[Math.round(crtAmount * 4)]"
+            aria-label="CRT"
+            @input="emit('update:crtAmount', Number(($event.target as HTMLInputElement).value))"
+          />
+          <div class="crt-steps" aria-hidden="true">
+            <span v-for="label in CRT_STEPS" :key="label">{{ label }}</span>
+          </div>
+        </div>
         <UiSwitch
           class="settings-row"
           data-testid="toggle-original-aspect"
@@ -211,6 +244,17 @@ defineExpose({ toggle, close, open });
           @update:model-value="emit('update:touchControls', $event)"
         >
           On-screen controls<small>Directions, keyboard and game keys</small>
+        </UiSwitch>
+      </section>
+
+      <section class="settings-sheet__group" aria-labelledby="settings-editor">
+        <h3 id="settings-editor">LOGIC editor</h3>
+        <UiSwitch
+          class="settings-row"
+          :model-value="formatOnLeaving"
+          @update:model-value="setFormatOnLeaving"
+        >
+          Format on leaving<small>Indent code when leaving the LOGIC editor</small>
         </UiSwitch>
       </section>
 
@@ -239,40 +283,11 @@ defineExpose({ toggle, close, open });
         <button
           type="button"
           class="settings-row"
-          data-testid="btn-edit-game"
-          :disabled="state.powerUp.busy || !shell.createAvailable.value"
-          @click="act(shell.openRemix)"
-        >
-          <span>Edit game…<small>Opens Create: rooms, art and playtests</small></span>
-        </button>
-        <button
-          type="button"
-          class="settings-row"
           data-testid="btn-download-game"
-          :disabled="exportBusy || state.powerUp.busy"
-          @click="act(() => emit('export-zip', true))"
+          :disabled="state.powerUp.busy"
+          @click="openDownload"
         >
-          <span
-            >Download game…<small>ZIP for development: editing work, saves and history</small></span
-          >
-        </button>
-        <button
-          type="button"
-          class="settings-row"
-          data-testid="btn-export-game"
-          :disabled="exportBusy || state.powerUp.busy"
-          @click="act(() => emit('export-zip', false))"
-        >
-          <span v-if="currentGame()?.workInProgress"
-            >Export game…<small data-testid="export-work-in-progress"
-              >ZIP, work in progress: exits to unbuilt rooms stop the game</small
-            ></span
-          >
-          <span v-else
-            >Export game…<small
-              >ZIP for publishing: the playable game and its public details</small
-            ></span
-          >
+          <span>Download…<small>Project file or the playable game</small></span>
         </button>
         <button
           type="button"
@@ -280,7 +295,7 @@ defineExpose({ toggle, close, open });
           data-testid="btn-start-over"
           @click="act(() => emit('start-over'))"
         >
-          <span>Start over<small>Throw away this game’s progress and restart it</small></span>
+          <span>Start over<small>Earlier sessions stay on the timeline.</small></span>
         </button>
       </section>
 
@@ -317,6 +332,23 @@ defineExpose({ toggle, close, open });
             >
             <span v-if="soundFamily(state.profile) === 'pc'" class="setting-value">Change</span>
           </button>
+          <div
+            v-if="state.phase === 'running' && soundFamily(state.profile) === 'amiga'"
+            class="settings-row"
+          >
+            <label :for="amigaRegionId">Amiga timing<small>Applies on the next start</small></label>
+            <span class="setting-value">
+              <UiSelect
+                :id="amigaRegionId"
+                size="sm"
+                :model-value="amigaRegion"
+                @update:model-value="setAmigaRegion"
+              >
+                <option value="ntsc">NTSC (US)</option>
+                <option value="pal">PAL (Europe)</option>
+              </UiSelect>
+            </span>
+          </div>
           <UiSwitch
             v-if="state.phase === 'running'"
             class="settings-row"
@@ -341,6 +373,15 @@ defineExpose({ toggle, close, open });
       </section>
     </template>
   </dialog>
+  <GameDownloadDialog
+    v-model:open="downloadOpen"
+    :title="currentGame()?.title ?? 'This game'"
+    :busy="exportBusy"
+    :work-in-progress="currentGame()?.workInProgress === true"
+    test-id="settings-download-dialog"
+    @choose="(project) => emit('export-zip', project)"
+    @closed="onDownloadClosed"
+  />
 </template>
 
 <style scoped>
@@ -421,6 +462,28 @@ defineExpose({ toggle, close, open });
 }
 .settings-row small {
   display: block;
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  font-weight: 400;
+}
+.settings-sheet .settings-row--crt {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-1) var(--space-3);
+  cursor: default;
+}
+.settings-row--crt input {
+  grid-column: 1 / -1;
+  width: 100%;
+  margin: 0;
+  min-height: var(--control-h-sm);
+  accent-color: var(--action);
+  cursor: pointer;
+}
+.crt-steps {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: space-between;
   color: var(--ink-3);
   font-size: var(--text-xs);
   font-weight: 400;

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { numberedLabel } from "../../../src/logic/numberedLabels.ts";
 /**
  * "Your games": the Home screen's one shelf. It holds the tutorial, saved
  * and remixed games (inline rename and a per-game action menu), installed
@@ -15,20 +16,32 @@ import UiButton from "../ui/UiButton.vue";
 import CardDetailsDialog from "./CardDetailsDialog.vue";
 import GameCard from "./GameCard.vue";
 import SavedGameCard from "./SavedGameCard.vue";
+import UnsupportedProject from "./UnsupportedProject.vue";
 import TemplateCard from "./TemplateCard.vue";
 import TutorialCard from "./TutorialCard.vue";
 import { catalogLibraryCopy } from "./shelfIdentity.ts";
+import { earlierProgressDetails, showDetails } from "./cardDetails.ts";
 import { formatRelativeTime } from "./relativeTime.ts";
+import { useEarlierProgressPresence } from "./useEarlierProgress.ts";
 import { useNow } from "./useNow.ts";
-import { BUILTIN_TEMPLATES } from "../library/gameTemplates.ts";
 import { useGameLibrary } from "../library/useGameLibrary.ts";
 import { useShellBridge } from "../shell/shellBridge.ts";
+import { installedProgressTarget } from "../project/progressTarget.ts";
 import { getKnownGameByRevision } from "../../../src/games/knownGames.ts";
-import { computed } from "vue";
+import { computed, useTemplateRef } from "vue";
+
+const diskInput = useTemplateRef("diskInput");
+async function addDisks(event: Event): Promise<void> {
+  const input = event.target as HTMLInputElement;
+  await onGameFolder(input.files ?? undefined);
+  input.value = "";
+}
 
 const {
   savedGames,
+  unsupportedProjects,
   pendingAutosave,
+  pendingProgressTarget,
   localGames,
   featuredCatalog,
   hostedCatalogError,
@@ -51,6 +64,21 @@ const {
 } = useGameLibrary();
 const bridge = useShellBridge();
 const now = useNow();
+const {
+  presence: earlierPresence,
+  presenceError: earlierPresenceError,
+  retryPresence: retryEarlierPresence,
+} = useEarlierProgressPresence(savedGames);
+
+/** The footer's one Earlier progress link opens the shared Details dialog. */
+function openEarlierProgress(event: MouseEvent): void {
+  const trigger = event.currentTarget;
+  showDetails(
+    earlierProgressDetails({
+      returnFocus: trigger instanceof HTMLElement ? trigger : undefined,
+    }),
+  );
+}
 
 /** The tutorial's library copy shows on the tutorial's own card. */
 const shelfSavedGames = computed(() => {
@@ -58,23 +86,50 @@ const shelfSavedGames = computed(() => {
   return savedGames.value.filter((game) => game !== tutorial);
 });
 
-/** The leftover-autosave card's name: a known game's title, else its storage key. */
-const pendingAutosaveTitle = computed(
-  () =>
+/**
+ * The leftover-autosave card's name: the exact instance's title when the
+ * pending target resolves to a served descriptor, then a known game's
+ * release title, then the record's own id — never a same-spelled card's
+ * name from the other domain.
+ */
+const pendingAutosaveTitle = computed(() => {
+  const target = pendingProgressTarget.value;
+  const descriptor =
+    target?.kind === "installed"
+      ? localGames.value.find(
+          (game) =>
+            game.revision !== undefined &&
+            installedProgressTarget(game, game.revision)?.locator === target.locator,
+        )
+      : undefined;
+  return (
+    descriptor?.title ??
     getKnownGameByRevision(pendingAutosave.value?.game.identity.revision ?? "")?.title ??
     pendingAutosave.value?.game.identity.project ??
-    "Saved game",
-);
+    "Saved game"
+  );
+});
 
-/** A leftover autosave from an installed or unavailable game gets a card of its own. */
+/**
+ * A leftover autosave whose own instance has no card on the shelf gets one.
+ * The claim is physical: the pending offer's target names the domain — a
+ * project locator is a saved card's when the ids match, an installed
+ * locator is a local card's only when the card's own bound target is the
+ * same address. A shared spelling across domains claims nothing.
+ */
 const orphanAutosave = computed(() => {
   const record = pendingAutosave.value;
-  if (!record) return undefined;
-  const project = record.game.identity.project;
-  if (savedGames.value.some((game) => game.projectId === project)) return undefined;
-  if (localGames.value.some((game) => (game.folder ?? game.hash ?? game.alias) === project))
-    return undefined;
-  return record;
+  const target = pendingProgressTarget.value;
+  if (!record || !target) return undefined;
+  if (target.kind === "project")
+    return savedGames.value.some((game) => game.projectId === target.project) ? undefined : record;
+  return localGames.value.some(
+    (game) =>
+      game.revision !== undefined &&
+      installedProgressTarget(game, game.revision)?.locator === target.locator,
+  )
+    ? undefined
+    : record;
 });
 
 /** Initials stand in for a screen that cannot be shown. */
@@ -99,7 +154,7 @@ function startCreating(templateId: string): void {
     <header class="shelf-head">
       <h2 id="library-title">Your games</h2>
       <div id="open-game" class="shelf-add" role="group" aria-label="Add game">
-        <p class="shelf-hint">Drop a ZIP or folder anywhere to add a game</p>
+        <p class="shelf-hint">Add a game folder, a ZIP, or its disk images</p>
         <ActionMenu
           :label="importBusy ? 'Adding game…' : 'Add game'"
           test-id="open-game-menu"
@@ -112,6 +167,14 @@ function startCreating(templateId: string): void {
             @click="zipInput?.click()"
           >
             ZIP file
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            data-testid="open-game-disks"
+            @click="diskInput?.click()"
+          >
+            Disk images
           </button>
           <button
             type="button"
@@ -129,6 +192,15 @@ function startCreating(templateId: string): void {
           data-testid="game-zip-input"
           hidden
           @change="onGameZip(($event.target as HTMLInputElement).files?.[0])"
+        />
+        <input
+          ref="diskInput"
+          type="file"
+          multiple
+          accept=".img,.ima,.dsk,.td0,.adf,.po,.2mg"
+          data-testid="game-disk-input"
+          hidden
+          @change="addDisks"
         />
         <input
           ref="folderInput"
@@ -175,6 +247,16 @@ function startCreating(templateId: string): void {
     <div class="shelf-grid" data-testid="saved-game-gallery">
       <TutorialCard />
       <SavedGameCard v-for="game in shelfSavedGames" :key="game.projectId" :game />
+      <GameCard
+        v-for="game in unsupportedProjects"
+        :key="game.projectId"
+        :title="game.title"
+        :monogram="monogram(game.title)"
+        :data-testid="`unsupported-project-card-${game.projectId}`"
+        :data-project-id="game.projectId"
+      >
+        <UnsupportedProject :game />
+      </GameCard>
       <CatalogPanel />
       <!-- Autosave left over from an installed or unavailable game. -->
       <GameCard
@@ -191,7 +273,7 @@ function startCreating(templateId: string): void {
             : undefined
         "
         badge="In progress"
-        :meta="`Room ${orphanAutosave.room} · played ${formatRelativeTime(orphanAutosave.savedAt, now)}`"
+        :meta="`${numberedLabel('room', orphanAutosave.room)} · played ${formatRelativeTime(orphanAutosave.savedAt, now)}`"
         play-label="Resume"
         data-testid="autosave-panel"
         @play="onResumeAutosave"
@@ -218,25 +300,44 @@ function startCreating(templateId: string): void {
         </template>
       </GameCard>
       <TemplateCard
-        v-for="tmpl in BUILTIN_TEMPLATES"
-        :key="tmpl.id"
-        :title="tmpl.title"
-        detail="Template · create with AI"
-        :test-id="`shelf-template-${tmpl.id}`"
-        @select="startCreating(tmpl.id)"
-      />
-      <TemplateCard
-        title="Your own premise"
-        detail="Describe it, AI builds it"
+        title="Your own game"
         blank
         test-id="shelf-template-custom"
-        @select="startCreating('custom')"
+        @select="startCreating('')"
       />
     </div>
 
     <footer class="shelf-notes">
+      <p v-if="earlierPresence === 'present'" data-testid="earlier-progress-note">
+        Explore
+        <button
+          type="button"
+          class="shelf-notes__link"
+          data-testid="earlier-progress-link"
+          @click="openEarlierProgress"
+        >
+          earlier progress
+        </button>
+        saved in this browser.
+      </p>
+      <p
+        v-else-if="earlierPresence === 'failed'"
+        role="status"
+        class="shelf-message--error"
+        data-testid="earlier-progress-error"
+      >
+        {{ earlierPresenceError }}
+        <button
+          type="button"
+          class="shelf-notes__link"
+          data-testid="earlier-progress-retry"
+          @click="retryEarlierPresence"
+        >
+          Retry
+        </button>
+      </p>
       <p data-testid="verified-games-hint">
-        Verified to boot: King's Quest, Space Quest, Police Quest and more.
+        Tested openings: King's Quest, Space Quest, Police Quest and more.
         <button
           type="button"
           class="shelf-notes__link"
@@ -247,7 +348,7 @@ function startCreating(templateId: string): void {
         </button>
       </p>
       <p data-testid="fan-games-hint">
-        No Sierra copies? Fans have made over a hundred free AGI games:
+        Explore over a hundred free AGI games made by fans:
         <a
           href="https://agiwiki.sierrahelp.com/index.php/Fan_AGI_Release_List"
           target="_blank"
@@ -260,7 +361,7 @@ function startCreating(templateId: string): void {
           target="_blank"
           rel="noopener noreferrer"
           >SCI Programming</a
-        >. Their content varies, as fan works do.
+        >.
       </p>
     </footer>
 

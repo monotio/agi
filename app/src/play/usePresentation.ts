@@ -6,7 +6,7 @@
  */
 import { inject, provide, ref, shallowRef } from "vue";
 import type { InjectionKey } from "vue";
-import { AgiStage } from "../three/AgiStage.ts";
+import type { AgiStage } from "../three/AgiStage.ts";
 import {
   FRAME_HEIGHT,
   FRAME_WIDTH,
@@ -25,6 +25,7 @@ export function createPresentation() {
   // WebGPU/WebGL init fails or has not finished yet.
   const gpuBackend = ref<string>();
   let stage: AgiStage | null = null;
+  let crtAmount = 1;
   const lastFrame = shallowRef<Frame | null>(null);
   /** Composed 320x200 RGBA frame shared by the probe canvas and the GPU stage. */
   const composed = new Uint8ClampedArray(FRAME_WIDTH * FRAME_HEIGHT * 4);
@@ -156,8 +157,16 @@ export function createPresentation() {
     if (lastFrame.value) present(lastFrame.value, text);
   }
 
-  function setCrt(on: boolean): void {
-    if (stage) stage.crt = on;
+  function setCrtAmount(amount: number): void {
+    crtAmount = amount;
+    if (stage) stage.crtAmount = amount;
+  }
+
+  let attention = { focused: false, standby: false };
+  /** Light the glass while the game has the keyboard; dim it in standby. */
+  function setAttention(focused: boolean, standby: boolean): void {
+    attention = { focused, standby };
+    stage?.setAttention(focused, standby);
   }
 
   function setExplodedMode(on: boolean): void {
@@ -185,12 +194,17 @@ export function createPresentation() {
   }
 
   /** Create the GPU stage once the canvas is mounted. */
-  async function initStage(crt: boolean): Promise<void> {
+  async function initStage(amount: number): Promise<void> {
+    crtAmount = amount;
     if (!gpuCanvasEl.value) return;
-    stage = await AgiStage.create(gpuCanvasEl.value);
+    const canvas = gpuCanvasEl.value;
+    const { AgiStage } = await import("../three/AgiStage.ts");
+    if (gpuCanvasEl.value !== canvas) return;
+    stage = await AgiStage.create(canvas);
     gpuBackend.value = stage?.backend;
     if (stage) {
-      stage.crt = crt;
+      stage.crtAmount = crtAmount;
+      stage.setAttention(attention.focused, attention.standby);
       if (lastFrame.value) present(lastFrame.value);
     }
   }
@@ -205,6 +219,9 @@ export function createPresentation() {
   }
 
   return {
+    get crtAmount(): number {
+      return stage?.crtAmount ?? 0;
+    },
     testMode,
     canvasEl,
     gpuCanvasEl,
@@ -217,7 +234,8 @@ export function createPresentation() {
     present,
     repaint,
     presentWithText,
-    setCrt,
+    setCrtAmount,
+    setAttention,
     setExplodedMode,
     debugProject,
     debugPick3d,

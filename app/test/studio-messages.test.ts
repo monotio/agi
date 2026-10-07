@@ -3,7 +3,7 @@ import { describe, it } from "node:test";
 import { DEFAULT_V2_PROFILE } from "../../src/runtime/profile.ts";
 import { applyEdit, type EditOperation } from "../../src/studio/editOperations.ts";
 import { parsePictureDocument } from "../../src/studio/pictureDocument.ts";
-import { insertionText, kernelDetail, plainKernelRefusal } from "../src/studio/studioMessages.ts";
+import { kernelDetail, plainKernelRefusal } from "../src/studio/studioMessages.ts";
 
 const { document } = parsePictureDocument(
   [
@@ -32,10 +32,10 @@ describe("plainKernelRefusal", () => {
   it("says a move would leave the picture, without coordinates", () => {
     const [technical, plain] = refusal({ type: "moveItem", itemId: "edge", dx: 0, dy: -1 });
     assert.match(technical, /moving by 0,-1 puts line 3 off the surface at 0,-1/);
-    assert.equal(plain, "That would move part of it off the picture.");
+    assert.equal(plain, "Part of the item would leave the picture. Move it closer to the centre.");
     assert.equal(
       refusal({ type: "moveItem", itemId: "edge", dx: -1, dy: -1 })[1],
-      "That would move part of it off the picture.",
+      "Part of the item would leave the picture. Move it closer to the centre.",
     );
     assert.equal(
       refusal({
@@ -46,49 +46,38 @@ describe("plainKernelRefusal", () => {
         newId: "copy",
         newLabel: "Copy",
       })[1],
-      "The copy would leave the picture.",
+      "The copy would leave the picture. Move it closer to the centre.",
     );
   });
 
   it("words points, short-step lines and locked objects plainly", () => {
     assert.equal(
       refusal({ type: "setPoint", line: 3, pointIndex: 0, x: -2, y: 0 })[1],
-      "The point would leave the picture.",
+      "The point would leave the picture. Choose a point inside it.",
     );
     const [technical, plain] = refusal({ type: "setPoint", line: 6, pointIndex: 1, x: 90, y: 80 });
     assert.match(technical, /rel delta 1 would be 10,0, outside -7\.\.7/);
     assert.equal(
       plain,
-      "That point is too far from its neighbour for this kind of line (7 pixels at most).",
+      "The points are more than 7 pixels apart. Move them closer or add a point.",
     );
     assert.equal(
       refusal({ type: "moveItem", itemId: "held", dx: 1, dy: 0 })[1],
-      "This object is locked. Unlock it first.",
+      "This item is locked. Unlock it first.",
     );
   });
 
   it("falls back to a general sentence for anything else", () => {
     assert.equal(
       refusal({ type: "reorderItem", itemId: "edge", toIndex: 9 })[1],
-      "The picture can't be changed that way.",
+      "PICTURE edit: toIndex 9 is outside 0..2. Correct the source or undo your last change.",
     );
   });
 });
 
-describe("insertionText", () => {
-  it("names the step new shapes follow, in 1-based steps", () => {
-    assert.equal(
-      insertionText(7, 303),
-      "New shapes go after step 7 of 303; the steps after them paint over them.",
-    );
-    assert.equal(
-      insertionText(0, 12),
-      "New shapes go first, before step 1 of 12; the steps after them paint over them.",
-    );
-    assert.equal(insertionText(12, 12), "New shapes go last, after step 12, on top of everything.");
-    assert.equal(insertionText(0, 0), "New shapes are the first steps.");
-  });
-});
+// "insertionText" is gone: the drawing position is useStudioReadout's
+// `position` ("Drawing before Cottage"), whose naming plainItemName covers in
+// studio-view.test.ts and the browser suite asserts in studio-tools.spec.ts.
 
 describe("kernelDetail", () => {
   it("names items by their labels, never their ids", () => {
@@ -123,10 +112,10 @@ describe("plainKernelRefusal of Group and Ungroup", () => {
       '"Edge" and "Held" are not next to each other in the draw order: "Step" is drawn between them',
     );
   });
-  it("says an item of one drawing element has no parts", () => {
+  it("explains what Ungroup needs", () => {
     assert.equal(
       refusal({ type: "ungroupItem", itemId: "edge" })[1],
-      "This item is one drawing element: it has no parts to ungroup.",
+      "This item has one step. Select an item with several steps to ungroup.",
     );
   });
 });

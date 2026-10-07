@@ -5,21 +5,60 @@
  * shelf; dropping a ZIP or folder anywhere on it imports a game. The splash
  * shows while a new game is generated or a plain boot runs long.
  */
-import { ref } from "vue";
-import AgentTaskControls from "../authoring/AgentTaskControls.vue";
+import { defineAsyncComponent, ref, watch } from "vue";
+
+import UiButton from "../ui/UiButton.vue";
 import CreatePanel from "./CreatePanel.vue";
 import LibraryPanel from "./LibraryPanel.vue";
 import HomeHero from "./HomeHero.vue";
+import UnsupportedProject from "./UnsupportedProject.vue";
+import type { UnsupportedStoredProject } from "../project/gameStorage.ts";
+import { emptyProject } from "./emptyProjectRoute.ts";
 import BootCard from "../ui/BootCard.vue";
 import { useEngineApi } from "../engine/engineContext.ts";
 import { useGameLibrary } from "../library/useGameLibrary.ts";
+import { useShell } from "../shell/useShell.ts";
 
 /** Why Home opened instead of the game a link named (App.vue). */
-const { routeNote = "" } = defineProps<{ routeNote?: string }>();
+const {
+  routeNote = "",
+  routePending = false,
+  unsupportedProject = undefined,
+} = defineProps<{
+  routeNote?: string;
+  routePending?: boolean;
+  unsupportedProject?: UnsupportedStoredProject | undefined;
+}>();
+const AgentTaskControls = defineAsyncComponent(() => import("../authoring/AgentTaskControls.vue"));
+const EmptyProjectStage = defineAsyncComponent(
+  () => import("../studio/workspace/EmptyWorkspace.vue"),
+);
 
-const { state, stopAgent, continueAgent, discardAgent } = useEngineApi();
-const { activeTemplate, onGameDrop } = useGameLibrary();
+const { state, stopAgent, continueAgent, discardAgent, openStarterRecovery, currentGame } =
+  useEngineApi();
+const shell = useShell();
+
+/**
+ * "Open starter" after a failed Create commits the prepared project and
+ * boots it; landing on its Create view matches a manual create, and the
+ * shell only spends the switch when that project is the running one.
+ */
+async function openStarter(): Promise<void> {
+  await openStarterRecovery();
+  const projectId = currentGame()?.projectId;
+  if (projectId) shell.expectCreate(projectId);
+}
+const { activeTemplate, onGameDrop, latestVersion } = useGameLibrary();
 const createOpen = ref(false);
+watch(emptyProject, (project) => {
+  if (project) createOpen.value = false;
+});
+watch(
+  () => state.phase,
+  (phase) => {
+    if (phase === "loading" || phase === "running") createOpen.value = false;
+  },
+);
 
 /** Nested dragenter/dragleave pairs: the outline stays while anything is over Home. */
 const dragDepth = ref(0);
@@ -30,9 +69,9 @@ function onDrop(event: DragEvent): void {
 </script>
 <template>
   <div
-    v-if="state.phase === 'idle' || state.phase === 'error'"
+    v-if="!routePending && (state.phase === 'idle' || state.phase === 'error')"
     class="setup-panel"
-    :class="{ dragging: dragDepth > 0 }"
+    :class="{ dragging: dragDepth > 0, 'new-game-page': createOpen }"
     data-testid="game-zip-drop"
     @dragenter.prevent="dragDepth++"
     @dragleave="dragDepth = Math.max(0, dragDepth - 1)"
@@ -42,13 +81,35 @@ function onDrop(event: DragEvent): void {
     <p v-if="routeNote" class="route-note" role="status" data-testid="route-note">
       {{ routeNote }}
     </p>
-    <HomeHero :create-open="createOpen" />
-    <div v-if="state.phase === 'error'" class="error-banner" data-testid="error-panel" role="alert">
+    <UnsupportedProject
+      v-if="unsupportedProject"
+      :game="unsupportedProject"
+      heading
+      class="route-note"
+      data-testid="unsupported-project-route"
+    />
+    <EmptyProjectStage v-if="emptyProject" :project="emptyProject" />
+    <HomeHero v-if="!emptyProject" v-show="!createOpen" :create-open="createOpen" />
+    <div
+      v-if="state.phase === 'error' && !emptyProject && !latestVersion"
+      class="error-banner"
+      data-testid="error-panel"
+      role="alert"
+    >
       <span class="error-badge">ERROR</span>
       <span class="error-msg">{{ state.error }}</span>
+      <UiButton
+        v-if="state.genesisStarter"
+        size="sm"
+        data-testid="open-starter"
+        :disabled="state.genesisStarter.opening"
+        @click="openStarter"
+      >
+        Open starter
+      </UiButton>
     </div>
-    <CreatePanel v-model:open="createOpen" />
-    <LibraryPanel />
+    <CreatePanel v-if="!emptyProject" v-model:open="createOpen" />
+    <LibraryPanel v-if="!emptyProject" v-show="!createOpen" />
   </div>
 
   <!-- Interstitial Splash / Loading Screen during Genesis -->
@@ -81,10 +142,8 @@ function onDrop(event: DragEvent): void {
             state.loading?.generating === false ? "Loading…" : "Preparing your adventure…"
           }}</span>
         </div>
-        <p v-if="state.loading?.generating !== false" class="splash-subtext">
-          Your game will appear here when it is ready.
-        </p>
         <AgentTaskControls
+          v-if="state.agentTask"
           :task="state.agentTask"
           @stop="stopAgent"
           @resume="continueAgent"
@@ -109,6 +168,14 @@ function onDrop(event: DragEvent): void {
   outline: 2px dashed transparent;
   outline-offset: var(--space-4);
   transition: outline-color var(--duration-fast) var(--ease-out);
+}
+.new-game-page {
+  margin-top: calc(-1 * var(--space-8));
+}
+@media (max-width: 700px) {
+  .new-game-page {
+    margin-top: calc(-1 * var(--space-5));
+  }
 }
 .route-note {
   margin: 0;
@@ -178,12 +245,6 @@ function onDrop(event: DragEvent): void {
     opacity: 1;
     transform: scale(1.2);
   }
-}
-
-.splash-subtext {
-  font-size: var(--text-2xs);
-  color: var(--ink-3);
-  margin: 0;
 }
 
 .error-banner {

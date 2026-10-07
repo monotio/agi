@@ -1,24 +1,106 @@
-import { expect, test } from "./test.ts";
-import { testProjectId } from "../test/identity.ts";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { TUTORIAL_LOGIC_SOURCES } from "../../games/adventure-department/game.ts";
 import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
-import { buildZip } from "../src/archive/zip.ts";
+import { providerReply } from "../../test/provider-stream.ts";
 import { buildProjectZip } from "../src/archive/projectArchive.ts";
+import { buildZip } from "../src/archive/zip.ts";
+import { testProjectId } from "../test/identity.ts";
 import {
+  gameHint,
   configureAi,
+  enterCreateMode,
   isolateStorage,
   openLibraryActions,
+  openWorkspaceAgent,
   savedGameCard,
   storedAutosave,
   textHook,
   waitForCycles,
-  enterCreateMode,
 } from "./engineProbe.ts";
-import { providerReply } from "../../test/provider-stream.ts";
-import { TUTORIAL_LOGIC_SOURCES } from "../../games/adventure-department/game.ts";
+import { expect, test } from "./test.ts";
+import { readFile } from "node:fs/promises";
+import { decodeJournalValue } from "../src/project/projectJournalCapture.ts";
+
+for (const mode of ["create", "play"]) {
+  test(`future-version project stays on the shelf and its ${mode} link offers recovery`, async ({
+    page,
+  }) => {
+    await isolateStorage(page);
+    await page.goto("/");
+    const id = testProjectId(`future-${mode}`);
+    await page.evaluate(async (projectId) => {
+      const storage = await import("/src/project/gameStorage.ts");
+      await storage.saveAuthoredGame(projectId, {
+        title: "Tomorrow's adventure",
+        files: { "WORDS.TOK": new Uint8Array([0, 128, 255]) },
+        words: [],
+      });
+      await storage.bodyTransaction("readwrite", (store) => {
+        const request = store.get(projectId);
+        request.onsuccess = () =>
+          store.put({
+            ...request.result,
+            version: 999,
+            future: { bytes: new Uint8Array([4, 5, 255]), optional: undefined },
+          });
+        return request;
+      });
+    }, id);
+    await page.goto("/");
+    const card = page.getByTestId(`unsupported-project-card-${id}`);
+    await expect(card.getByRole("heading")).toHaveText("Tomorrow's adventure");
+    await expect(card).toContainText("Saved project format needs another app version");
+    const before = await page.evaluate(async (id) => {
+      const storage = await import("/src/project/gameStorage.ts");
+      const codec = await import("/src/project/projectJournalCapture.ts");
+      const value = await storage.bodyTransaction("readonly", (store) => store.get(id));
+      return JSON.stringify(codec.encodeJournalValue(value));
+    }, id);
+    const download = page.waitForEvent("download");
+    await card.getByRole("button", { name: "Download", exact: true }).click();
+    const file = await download;
+    expect(file.suggestedFilename()).toBe(`${id}-stored-project.json`);
+    const downloaded = JSON.parse(await readFile((await file.path())!, "utf8"));
+    expect(downloaded.record).toEqual(JSON.parse(before));
+    const decoded = decodeJournalValue(downloaded.record) as { files: Record<string, Uint8Array> };
+    expect(decoded.files["WORDS.TOK"]).toEqual(new Uint8Array([0, 128, 255]));
+    await page.goto(`/#${mode}/${id}`);
+    const note = page.getByTestId("unsupported-project-route");
+    await expect(note).toContainText("Saved project format needs another app version");
+    await expect(note.getByRole("button", { name: "Download", exact: true })).toBeVisible();
+    await expect(page.getByTestId("input-line")).toBeHidden();
+    await note.getByRole("button", { name: "Remove", exact: true }).click();
+    const dialog = note.getByTestId("remove-game-dialog");
+    await expect(dialog.getByRole("heading")).toHaveText("Remove Tomorrow's adventure?");
+    await expect(dialog.getByTestId("remove-game-cancel")).toBeFocused();
+    await dialog.getByTestId("remove-game-cancel").click();
+    expect(
+      await page.evaluate(async (id) => {
+        const storage = await import("/src/project/gameStorage.ts");
+        const codec = await import("/src/project/projectJournalCapture.ts");
+        return JSON.stringify(
+          codec.encodeJournalValue(
+            await storage.bodyTransaction("readonly", (store) => store.get(id)),
+          ),
+        );
+      }, id),
+    ).toBe(before);
+    await page.screenshot({ path: test.info().outputPath(`future-${mode}.png`), fullPage: true });
+    await note.getByRole("button", { name: "Remove", exact: true }).click();
+    await dialog.getByTestId("remove-game-confirm").click();
+    await expect(card).toHaveCount(0);
+    await expect(note).toHaveCount(0);
+    expect(
+      await page.evaluate(async (id) => {
+        const storage = await import("/src/project/gameStorage.ts");
+        return (await storage.bodyTransaction("readonly", (store) => store.get(id))) === undefined;
+      }, id),
+    ).toBe(true);
+  });
+}
 
 function tinyGame(message = "A library adventure."): {
   files: { name: string; data: Uint8Array }[];
@@ -249,32 +331,56 @@ test("index recovery preserves a game saved while another entry is being reconci
   expect(retained).toEqual(["before-recovery", "during-recovery"]);
 });
 
-test("a vanished saved game fails locally without contacting a provider", async ({ page }) => {
-  let providerCalls = 0;
-  await page.route("**/api/**", (route) => {
-    providerCalls++;
-    return route.abort();
-  });
-  await isolateStorage(page);
-  await page.goto("/");
-  const { zip } = tinyGame();
-  await page.getByTestId("game-zip-input").setInputFiles({
-    name: "vanishing.zip",
-    mimeType: "application/zip",
-    buffer: zip,
-  });
-  const card = savedGameCard(page, "vanishing");
-  await expect(card.getByTestId("btn-resume-cached")).toBeVisible();
-  await page.evaluate(() => {
-    const key = Object.keys(localStorage).find((item) => item.startsWith("monotio_agi.authored."));
-    if (key) localStorage.removeItem(key);
-  });
-  await card.getByTestId("btn-resume-cached").click();
-  await expect(page.getByTestId("error-panel")).toContainText("is missing from this browser");
-  expect(providerCalls).toBe(0);
-});
+for (const missingBody of [false, true]) {
+  test(
+    missingBody
+      ? "a vanished saved game fails locally without contacting a provider"
+      : "a saved game survives index loss without contacting a provider",
+    async ({ page }) => {
+      let providerCalls = 0;
+      await page.route("**/api/**", (route) => {
+        providerCalls++;
+        return route.abort();
+      });
+      await isolateStorage(page);
+      await page.goto("/");
+      const { zip } = tinyGame();
+      await page.getByTestId("game-zip-input").setInputFiles({
+        name: "vanishing.zip",
+        mimeType: "application/zip",
+        buffer: zip,
+      });
+      const card = savedGameCard(page, "vanishing");
+      await expect(card.getByTestId("btn-resume-cached")).toBeVisible();
+      const projectId = await card.getAttribute("data-project-id");
+      if (!projectId) throw new Error("Imported game has no project identity");
+      await page.evaluate(
+        async ({ projectId, missingBody }) => {
+          localStorage.removeItem(`monotio_agi.authored.${projectId}`);
+          if (missingBody) {
+            const storage = await import("/src/project/gameStorage.ts");
+            // Simulate storage loss after the card rendered, without a UI delete event.
+            await storage.bodyTransaction("readwrite", (store) => store.delete(projectId));
+          }
+        },
+        { projectId, missingBody },
+      );
+      await card.getByTestId("btn-resume-cached").click();
+      if (missingBody) {
+        await expect(page.getByTestId("error-panel")).toContainText("is missing from this browser");
+      } else {
+        await expect.poll(async () => (await textHook(page)).room).toBe(1);
+        await expect
+          .poll(async () => (await textHook(page)).rows.join(" "))
+          .toContain("A library adventure.");
+        await expect(page.getByTestId("error-panel")).toBeHidden();
+      }
+      expect(providerCalls).toBe(0);
+    },
+  );
+}
 
-test("the offline tutorial has a generated thumbnail and fits a phone", async ({ page }) => {
+test("the offline tutorial has a cached thumbnail and fits a phone", async ({ page }) => {
   let providerCalls = 0;
   await page.route("**/api/**", (route) => {
     providerCalls++;
@@ -285,14 +391,15 @@ test("the offline tutorial has a generated thumbnail and fits a phone", async ({
   await page.goto("/");
   const card = page.getByTestId("catalog-adventure-department");
   await expect(card).toBeVisible();
-  await expect(card.getByRole("img")).toHaveAttribute("src", /^data:image\/png/);
+  await expect(card.getByRole("img")).toHaveAttribute("src", "catalog/adventure-department.png");
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: test.info().outputPath("game-library-phone.png"), fullPage: true });
   await page.getByTestId("catalog-play-adventure-department").click();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
   await expect.poll(async () => (await textHook(page)).cycle).toBeGreaterThan(5);
   await expect.poll(async () => (await textHook(page)).rows.join(" ")).toContain("HELP");
-  await expect(page.getByTestId("resume-caption")).toHaveCount(0);
+  await expect(await gameHint(page, "resume-caption")).toHaveCount(0);
+  await page.mouse.move(0, 0);
   expect(providerCalls).toBe(0);
 });
 
@@ -300,8 +407,8 @@ test("the first catalog edit forks a remix and preserves the original", async ({
   await isolateStorage(page);
   await page.goto("/");
   const card = page.getByTestId("catalog-adventure-department");
-  await expect(card.getByRole("button", { name: "Play now" })).toBeEnabled();
-  await card.getByRole("button", { name: "Play now" }).click();
+  await expect(card.getByRole("button", { name: "Play", exact: true })).toBeEnabled();
+  await card.getByRole("button", { name: "Play", exact: true }).click();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
   const before = await page.evaluate(async () => {
     const storage = await import("/src/project/gameStorage.ts");
@@ -331,7 +438,7 @@ test("the first catalog edit forks a remix and preserves the original", async ({
                   type: "function_call",
                   id: "patch",
                   call_id: "patch",
-                  name: "write_logic_source",
+                  name: "write_logic",
                   arguments: JSON.stringify({ room: 1, source: patched }),
                 },
               ]
@@ -346,11 +453,13 @@ test("the first catalog edit forks a remix and preserves the original", async ({
     );
   });
   await enterCreateMode(page);
-  await page.getByTestId("power-up").click();
+  await openWorkspaceAgent(page);
   await configureAi(page, { provider: "openai", key: "test-placeholder" });
-  await page.getByTestId("agent-bubble-input").fill("Rename the picture gallery");
-  await page.getByTestId("agent-bubble-send").click();
-  await expect(page.getByTestId("agent-bubble")).toBeHidden();
+  await page.getByTestId("agent-message").fill("Rename the picture gallery");
+  await page.getByRole("button", { name: "Send", exact: true }).click();
+  await expect(page.getByTestId("agent-review")).toBeVisible();
+  await page.getByTestId("agent-approve").click();
+  await expect(page.getByTestId("agent-review")).toHaveCount(0);
   await expect.poll(() => requests).toBe(2);
   const after = await page.evaluate(async (originalProjectId) => {
     const storage = await import("/src/project/gameStorage.ts");
@@ -366,7 +475,7 @@ test("the first catalog edit forks a remix and preserves the original", async ({
       remixProjectId: remix.projectId,
       remixSource: remix.library!.source,
       parent: remix.library!.parent,
-      currentProjectId: localStorage.getItem("monotio_agi.lastGame"),
+      currentProjectId: localStorage.getItem("monotio_agi.resumeTarget")?.split(":")[1],
     };
   }, before.projectId);
   expect(after.count).toBe(2);
@@ -398,6 +507,15 @@ test("removing a game forgets its progress, so the same bytes come back fresh", 
   await expect(page.getByTestId("saved-game-gallery")).toBeVisible();
   await expect.poll(() => storedAutosave(page, projectId)).not.toBeNull();
   await expect(card.getByTestId("btn-resume-cached")).toHaveText("Resume");
+  // What players typed that the game missed belongs to the project too.
+  await page.evaluate(
+    (id) =>
+      localStorage.setItem(
+        `monotio_agi.tried.${id}`,
+        JSON.stringify([{ text: "pet dog", room: 1, unknown: "pet", count: 1 }]),
+      ),
+    projectId,
+  );
 
   // Removing is previewed: the dialog names the game and what goes with it,
   // and Cancel — the default focus — keeps every record.
@@ -426,7 +544,7 @@ test("removing a game forgets its progress, so the same bytes come back fresh", 
   await expect(card.getByTestId("btn-resume-cached")).toHaveText("Resume");
   expect(await stored()).toEqual(before);
 
-  // Download game first is the card's own Download game…, and the question stays open.
+  // Download game first downloads the project file, and the question stays open.
   await openLibraryActions(page, card);
   await page.getByTestId("remove-library-game").click();
   const download = page.waitForEvent("download");
@@ -444,17 +562,53 @@ test("removing a game forgets its progress, so the same bytes come back fresh", 
       (s) =>
         Object.keys(localStorage).filter(
           (key) =>
-            (key.startsWith("monotio_agi.autosave.") || key.startsWith("monotio_agi.saves.")) &&
+            (key.startsWith("monotio_agi.autosave.") ||
+              key.startsWith("monotio_agi.saves.") ||
+              key.startsWith("monotio_agi.tried.")) &&
             key.includes(s),
         ),
       projectId,
     ),
   ).toEqual([]);
-  expect(await page.evaluate(() => localStorage.getItem("monotio_agi.lastGame"))).toBeNull();
+  expect(await page.evaluate(() => localStorage.getItem("monotio_agi.resumeTarget"))).toBeNull();
 
   await page.getByTestId("game-zip-input").setInputFiles(upload);
   const readded = savedGameCard(page, "forgettable");
   await expect(readded).toHaveAttribute("data-project-id", projectId);
   await expect(readded.getByTestId("btn-resume-cached")).toHaveText("Play");
   await expect(readded.getByText("IN PROGRESS", { exact: true })).toHaveCount(0);
+});
+
+test("a late Agent panel keeps Settings open @webkit-desktop", async ({ page }) => {
+  await isolateStorage(page);
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route("**/agent/AgentPanel.vue", async (route) => {
+    await held;
+    await route.continue();
+  });
+  await page.goto("/");
+  await page.getByTestId("catalog-play-adventure-department").click();
+  await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  await enterCreateMode(page);
+  await page.getByTestId("workspace-agent").click();
+  await page.getByTestId("settings-menu").click();
+  await expect(page.getByTestId("settings-menu-menu")).toBeVisible();
+  await expect(page.getByTestId("toggle-mute")).toBeFocused();
+  // The shell can finish its queued focus move before the panel has loaded.
+  await page.locator(".agent-drawer .assistant-host").focus();
+  await expect(page.getByTestId("settings-menu-menu")).toBeVisible();
+  await expect(page.getByTestId("toggle-mute")).toBeFocused();
+  const other = await page.context().newPage();
+  await other.bringToFront();
+  await page.bringToFront();
+  await other.close();
+  await expect(page.getByTestId("settings-menu-menu")).toBeVisible();
+  release();
+  await expect(page.getByTestId("workspace-agent-panel")).toBeVisible();
+  await expect(page.getByTestId("open-ai-settings")).toBeVisible();
+  await page.getByTestId("open-ai-settings").click();
+  await expect(page.getByTestId("ai-settings-dialog")).toBeVisible();
 });

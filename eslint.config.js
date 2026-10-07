@@ -32,6 +32,7 @@ export default defineConfig([
     "app/test-results/",
     "app/playwright-report/",
     ".captures/",
+    ".local/",
     // Stryker mutation sandboxes and reports are generated output, not source.
     ".stryker-tmp/",
     "reports/",
@@ -87,18 +88,9 @@ export default defineConfig([
         {
           patterns: [
             {
-              group: [
-                "node:*",
-                "fs",
-                "path",
-                "os",
-                "url",
-                "crypto",
-                "child_process",
-                "worker_threads",
-              ],
+              regex: "^(?!\\.{1,2}/)",
               message:
-                "src/ must not import Node built-ins; inject a platform adapter (AGENTS.md).",
+                "src/ has zero package dependencies; use a relative engine import or inject an adapter (AGENTS.md).",
             },
           ],
         },

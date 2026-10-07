@@ -1,11 +1,13 @@
 <script setup lang="ts">
+import { numberedLabel } from "../../../src/logic/numberedLabels.ts";
+import { useProjectLabels } from "../shell/useProjectLabels.ts";
 import { computed, nextTick, useTemplateRef, watch } from "vue";
 import UiDialog from "../ui/UiDialog.vue";
 
 /**
  * The room's logic as text, read only: the annotated source when it is
  * trusted, else a disassembly. Native exits change here in words — the
- * assistant (Create's Remix) can edit the logic; Room Studio's door tools
+ * assistant (Create’s agent) can edit the logic; Room Studio's door tools
  * only edit the rules they wrote. The line a door starts on is marked and
  * scrolled into view.
  */
@@ -19,6 +21,7 @@ const {
   line?: number | null;
 }>();
 const open = defineModel<boolean>("open", { required: true });
+const labels = useProjectLabels();
 const lines = computed(() => text.split("\n"));
 const body = useTemplateRef("body");
 watch(open, async (value) => {
@@ -32,8 +35,8 @@ watch(open, async (value) => {
   <UiDialog
     v-model:open="open"
     size="lg"
-    :title="`Room ${room} logic`"
-    description="Read only. Ask the assistant (Create › Remix) to change an exit written this way."
+    :title="`${numberedLabel('room', room, labels)} logic`"
+    description="Ask the agent in Create to change this exit."
   >
     <pre ref="body" class="logic-text" data-testid="logic-text"><code><span
       v-for="(content, index) in lines"

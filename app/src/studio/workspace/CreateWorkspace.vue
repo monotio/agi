@@ -1,0 +1,3185 @@
+<script setup lang="ts">
+import {
+  numberedLabel,
+  documentLabel,
+  numberedSlot,
+} from "../../../../src/logic/numberedLabels.ts";
+import { projectLabelContext, pictureRoomTitle } from "../../shell/projectLabelContext.ts";
+import UiIcon from "../../ui/UiIcon.vue";
+import {
+  addLaunch,
+  newLaunchId,
+  readWorldLaunches,
+  type Launch,
+  type RoomLaunches,
+} from "../../../../src/authoring/launches.ts";
+import type { AuthoringState } from "../../../../src/authoring/authoringState.ts";
+import { inspectLaunches, repairLaunches } from "./launchRecovery.ts";
+import { renameRoomTitle } from "../../../../src/authoring/world.ts";
+import { gameRoomMenu, roomMenuArmed } from "../../play/roomActionMenu.ts";
+import UiDialog from "../../ui/UiDialog.vue";
+import GuidedAdd from "./GuidedAdd.vue";
+import ContextActions, { type ContextAction } from "./ContextActions.vue";
+import { useOptionalCommands } from "../../shell/commands/commandContext.ts";
+import TestRunChip from "./TestRunChip.vue";
+import {
+  roomPlacements,
+  moveRoomPlacement,
+  type PlacementLine,
+  type RoomPlacement,
+} from "../../../../src/authoring/roomPlacements.ts";
+import { lineOf } from "../../../../src/authoring/guidedSource.ts";
+import { soundProjectChanges } from "../sound/soundEdits.ts";
+import { VOCABULARY } from "../../../../src/vocabulary.ts";
+import "./workspace.css";
+import {
+  computed,
+  defineAsyncComponent,
+  onBeforeUnmount,
+  onMounted,
+  onWatcherCleanup,
+  ref,
+  shallowRef,
+  watch,
+} from "vue";
+import { compilePictureSource } from "../../../../src/picture/source.ts";
+import { openContainer } from "../../../../src/container/container.ts";
+import {
+  readMusicDocument,
+  readBindingsDocument,
+  readWordsDocument,
+} from "../../../../src/authoring/projectDocuments.ts";
+import { diffProjectDocuments } from "../../../../src/authoring/projectContent.ts";
+import { preparePartDraftRemoval } from "../../project/projectPartDrafts.ts";
+import { createWorkspaceResourceUses } from "./workspaceResourceUses.ts";
+import {
+  occupiedProjectNumbers,
+  type prepareProjectRenumber,
+} from "../../../../src/authoring/projectRenumber.ts";
+import type { ProjectChange, ProjectContent } from "../../../../src/authoring/projectContent.ts";
+import type { ProjectSnapshot } from "../../../../src/authoring/projectModel.ts";
+import {
+  prepareProjectEdit,
+  type ProjectEditDiagnostic,
+  type ProjectValidationPolicy,
+} from "../../../../src/authoring/projectEdit.ts";
+import type { ProjectHistoryState } from "../../../../src/authoring/projectHistoryData.ts";
+import type { ProjectSession } from "../../project/projectSession.ts";
+import { layoutDragging } from "../../play/layoutDrag.ts";
+import { usePresentation } from "../../play/usePresentation.ts";
+import { workspaceStudioContext } from "./studioContext.ts";
+import type { PlayHereTarget } from "../../../../src/runtime/playHere.ts";
+import type { BindingKind } from "../../../../src/agent/authoringState.ts";
+import type { EngineStateReport, ScreenObjectState } from "../../../../src/runtime/engine.ts";
+import { useEngineApi } from "../../engine/engineContext.ts";
+import { useCreateWorkspace } from "../../shell/useCreateWorkspace.ts";
+import { useWorkspaceEditor } from "../../shell/workspaceEditor.ts";
+import { openExplainer } from "../../ui/explain.ts";
+import UiButton from "../../ui/UiButton.vue";
+import RoomGenerationSetting from "../../home/RoomGenerationSetting.vue";
+import UiChip from "../../ui/UiChip.vue";
+import UiIconButton from "../../ui/UiIconButton.vue";
+import ActionMenu from "../../ui/ActionMenu.vue";
+import PartsList from "./PartsList.vue";
+import ProjectTabs from "../host/ProjectTabs.vue";
+import { workspaceParts, workspaceOpenParts } from "../host/workspaceParts.ts";
+import { roomPictureUse } from "../../../../src/agent/roomPictures.ts";
+import { useNodeThumbs } from "../../world/nodeThumbs.ts";
+import { parseWordsTok } from "../../../../src/logic/words.ts";
+import { readInventoryObjects } from "../../../../src/authoring/inventory.ts";
+import { derivedLogicSource } from "../logic/logicWorkspace.ts";
+import { roomPictureNumber } from "../logic/guided/guidedPreview.ts";
+import { createWorkspacePending } from "./workspacePending.ts";
+import type { WorkspaceAction } from "./workspaceGuided.ts";
+import { useWorkspaceDebug, type LogicEditorHandle } from "./useWorkspaceDebug.ts";
+const props = defineProps<{ creating: boolean }>();
+const ChangeNumberDialog = defineAsyncComponent(() => import("./ChangeNumberDialog.vue"));
+const numberDialog = ref(false);
+const numberResource = ref("");
+const numberSnapshot = shallowRef<ProjectSnapshot>();
+const numberError = ref("");
+const numberRestart = ref(false);
+const numberedPart = computed(() =>
+  /^(logic|picture|view|sound):\d+$/.test(editor.selected.value ?? "")
+    ? editor.selected.value
+    : undefined,
+);
+function changeNumber(): void {
+  if (!session || !numberedPart.value) return;
+  numberResource.value = numberedPart.value;
+  numberSnapshot.value = session.workingSnapshot();
+  numberError.value = "";
+  numberRestart.value = false;
+  numberDialog.value = true;
+}
+async function applyNumber(
+  plan: Extract<ReturnType<typeof prepareProjectRenumber>, { ok: true }>,
+  restart: boolean,
+): Promise<void> {
+  if (!session || actionBusy.value || writeConflict.value || !numberSnapshot.value) return;
+  actionBusy.value = true;
+  numberError.value = "";
+  try {
+    if (plan.key === numberResource.value) {
+      numberDialog.value = false;
+      return;
+    }
+    await writes.flush();
+    if (
+      diffProjectDocuments(numberSnapshot.value.documents(), session.workingSnapshot().documents())
+        .length
+    ) {
+      numberError.value = "This part changed. Open Change number again.";
+      return;
+    }
+    const changes = diffProjectDocuments(session.model.capture().documents(), plan.documents);
+    const room = selectedRoom.value;
+    const launchRoom =
+      room !== undefined && numberResource.value === `logic:${room}`
+        ? Number(plan.key.split(":")[1])
+        : room;
+    const result = await session.update(
+      changes,
+      restart,
+      restart && launchRoom !== undefined ? { room: launchRoom } : undefined,
+      { key: numberResource.value, number: Number(plan.key.split(":")[1]) },
+    );
+    if (!["committed", "unchanged"].includes(result.status)) {
+      numberRestart.value = result.status === "restartRequired";
+      numberError.value = numberRestart.value
+        ? "The game needs a fresh room. Choose Update and restart."
+        : (result.diagnostics.find((entry) => entry.severity === "error")?.message ??
+          "The change could not apply. Try again.");
+      return;
+    }
+    await session.drafts().clear();
+    await session.flush();
+    optimistic.value = {};
+    draftKeys = "";
+    editor.tabs.value = editor.tabs.value.map((key) =>
+      key === numberResource.value ? plan.key : key,
+    );
+    editorEpoch.value++;
+    derivedText.clear();
+    nativeCache.clear();
+    placementPreviews.value = {};
+    openPart(plan.key);
+    numberDialog.value = false;
+    refresh();
+    draftChanged(true);
+  } catch (cause) {
+    numberError.value = cause instanceof Error ? cause.message : String(cause);
+  } finally {
+    actionBusy.value = false;
+  }
+}
+const NotesEditor = defineAsyncComponent(() => import("./NotesEditor.vue"));
+const DocumentEditor = defineAsyncComponent(() => import("./DocumentEditor.vue"));
+const ImageReferencePanel = defineAsyncComponent(
+  () => import("../creative/ImageReferencePanel.vue"),
+);
+const imagePanel = ref<string>();
+const imageGenerate = ref(false);
+const traceUnderlays = shallowRef<
+  Record<string, { pixels: Uint8Array; opacity: number; behindArt: boolean } | null>
+>({});
+let imageRefresh = 0;
+const SoundPanel = defineAsyncComponent(() => import("./SoundPanel.vue"));
+const SoundImport = defineAsyncComponent(() => import("../sound/SoundImport.vue"));
+const WordsEditor = defineAsyncComponent(() => import("./WordsEditor.vue"));
+const TableEditor = defineAsyncComponent(() => import("./TableEditor.vue"));
+const RoomStudio = defineAsyncComponent(() => import("../RoomStudio.vue"));
+const SpriteStudio = defineAsyncComponent(() => import("../sprite/SpriteStudio.vue"));
+const LogicEditor = defineAsyncComponent(() => import("./LogicEditor.vue"));
+const DebugPanel = defineAsyncComponent(() => import("./WorkspaceDebugPanel.vue"));
+const DebugControls = defineAsyncComponent(() => import("./WorkspaceDebugControls.vue"));
+const StudioKeySheet = defineAsyncComponent(() => import("../StudioKeySheet.vue"));
+const ReferencesTab = defineAsyncComponent(() => import("./ReferencesTab.vue"));
+const GameStateTab = defineAsyncComponent(() => import("./GameStateTab.vue"));
+const MessagesTab = defineAsyncComponent(() => import("./MessagesTab.vue"));
+const LaunchEditor = defineAsyncComponent(() => import("./LaunchEditor.vue"));
+const engine = useEngineApi();
+const profile = computed(() => engine.roomMap.resources.value.profile!);
+const workspace = useCreateWorkspace();
+const editor = useWorkspaceEditor();
+const commands = useOptionalCommands();
+const presentation = usePresentation();
+const InspectPanel = defineAsyncComponent(() => import("../../inspector/InspectPanel.vue"));
+const phoneQuery = window.matchMedia("(max-width: 600px)");
+const phoneWidth = ref(phoneQuery.matches);
+function phoneLayout(event: MediaQueryListEvent): void {
+  phoneWidth.value = event.matches;
+}
+phoneQuery.addEventListener("change", phoneLayout);
+const stacked = computed(() => phoneWidth.value || editor.stackedLayout.value);
+const roomHint = shallowRef<{ key: string; room: number }>();
+function openPart(key: string, room?: number): void {
+  roomHint.value = room === undefined ? undefined : { key, room };
+  if (window.innerWidth <= 1280 && engine.state.powerUp.open) engine.closePowerUp();
+  if ((key === "words" || key === "inventory") && text(key) === undefined) edit(key, "[]\n");
+  editor.open(key);
+  if (window.innerWidth <= 600) {
+    editor.partsOpen.value = false;
+  }
+}
+/** The Game state + row names a flag or variable: it joins the bindings. */
+function nameState(kind: "flag" | "variable", num: number, name: string): void {
+  const current = content("bindings");
+  const bindings = typeof current === "string" ? readBindingsDocument(current) : {};
+  edit("bindings", JSON.stringify({ ...bindings, [name]: { kind, num } }));
+  openPart("state");
+}
+/** The Parts room row names the room in place; the world keeps everything else. */
+function renameRoom(room: number, title: string): void {
+  renamingRoom.value = undefined;
+  const current = content("world");
+  const world =
+    typeof current === "string"
+      ? (JSON.parse(current) as AuthoringState["world"])
+      : { rooms: {}, facts: {}, quests: {} };
+  edit("world", JSON.stringify(renameRoomTitle(world, room, title)));
+}
+/** The ⋯ menu's rare actions for the open tab, plus the frame's own. */
+const gameDetailsOpen = ref(false);
+const roomGeneration = ref(false);
+const frameMenuItems = computed(() => {
+  const key = editor.selected.value;
+  return [
+    ...(key ? (editor.frameActions.value[key]?.() ?? []) : []),
+    {
+      id: "details",
+      label: "Details…",
+      testId: "workspace-more-details",
+      disabled: undefined,
+      title: undefined,
+      run: () => {
+        gameDetailsOpen.value = true;
+      },
+    },
+    {
+      id: "history",
+      label: "History",
+      testId: "workspace-more-history",
+      disabled: undefined,
+      title: undefined,
+      run: () => (editor.history.value = true),
+    },
+  ];
+});
+/** One shortcut sheet for the workspace, opened at the tab's own section. */
+const keySheet = computed(() => {
+  const key = editor.selected.value;
+  return (
+    (key ? editor.keySheets.value[key]?.() : undefined) ?? {
+      name: "Workspace",
+      sections: [],
+    }
+  );
+});
+/** Quiet right side of the shared status bar: size, then the AGI profile. */
+const statusMeta = computed(() => {
+  const key = editor.selected.value;
+  if (!key || !profile.value) return "";
+  const registered = editor.statusMeta.value[key]?.();
+  const size =
+    registered ??
+    (key.includes(":")
+      ? native(key)?.length
+      : ["words", "inventory", "notes", "bindings"].includes(key)
+        ? text(key)?.length
+        : undefined);
+  return [
+    size === undefined
+      ? ""
+      : typeof size === "string"
+        ? size
+        : `${size.toLocaleString("en")} bytes`,
+    `AGI ${profile.value.id}`,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+});
+/** The game bar's room label: the room the game is in by name. */
+const currentRoomLabel = computed(() => {
+  const room = engine.roomMap.currentRoom.value;
+  if (room === null) return "";
+  const label = groups.value
+    .flatMap((group) => group.entries)
+    .find((entry) => entry.room === room && !entry.child)?.title;
+  const title = label ?? "";
+  return numberedLabel("room", room, { name: title ?? "" }, "row");
+});
+/** The keys dot in the game bar: on while the game has focus. */
+const gameFocused = ref(false);
+function trackGameFocus(): void {
+  gameFocused.value = !!document.querySelector(".play-area")?.contains(document.activeElement);
+}
+document.addEventListener("focusin", trackGameFocus);
+document.addEventListener("focusout", trackGameFocus);
+function focusGameInput(): void {
+  document.getElementById("game-command")?.focus();
+}
+/** The room whose name is being edited in place in Parts (a fresh add starts there). */
+const renamingRoom = ref<number>();
+/** Each page restores its own tabs; a fresh page inherits the latest list. */
+let tabsProject = "";
+let savedTabs = "";
+watch(
+  [() => engine.state.phase, () => props.creating, () => engine.state.patchTick],
+  ([, creating]) => {
+    const project = engine.currentGame()?.projectId;
+    if (!creating || !project) return;
+    const storageKey = `monotio_agi.workspaceTabs.${project}`;
+    if (tabsProject === storageKey) return;
+    tabsProject = storageKey;
+    const rename = localStorage.getItem(`monotio_agi.workspaceRename.${project}`);
+    if (rename !== null) {
+      localStorage.removeItem(`monotio_agi.workspaceRename.${project}`);
+      const room = Number(rename);
+      if (Number.isInteger(room) && room > 0 && room <= 255) {
+        renamingRoom.value = room;
+        editor.partsOpen.value = true;
+      }
+    }
+    if (editor.tabs.value.length) {
+      try {
+        savedTabs = JSON.stringify({ tabs: editor.tabs.value, selected: editor.selected.value });
+        sessionStorage.setItem(storageKey, savedTabs);
+        localStorage.setItem(storageKey, savedTabs);
+      } catch {
+        /* Keep this page's tabs in memory. */
+      }
+      return;
+    }
+    try {
+      const saved = JSON.parse(
+        sessionStorage.getItem(storageKey) ?? localStorage.getItem(storageKey) ?? "null",
+      ) as {
+        tabs?: string[];
+        selected?: string;
+      } | null;
+      for (const key of saved?.tabs ?? [])
+        if (!editor.tabs.value.includes(key)) editor.tabs.value.push(key);
+      for (const key of editor.tabs.value)
+        if (!editor.retained.value.includes(key)) editor.retained.value.push(key);
+      if (saved?.selected && editor.tabs.value.includes(saved.selected))
+        editor.selected.value = saved.selected;
+      savedTabs = JSON.stringify({ tabs: editor.tabs.value, selected: editor.selected.value });
+      sessionStorage.setItem(storageKey, savedTabs);
+    } catch {
+      /* Open empty. */
+    }
+  },
+  { immediate: true },
+);
+watch(
+  () => [editor.tabs.value.join("\u0000"), editor.selected.value],
+  () => {
+    if (!props.creating || !tabsProject) return;
+    try {
+      const saved = JSON.stringify({ tabs: editor.tabs.value, selected: editor.selected.value });
+      if (saved === savedTabs) return;
+      sessionStorage.setItem(tabsProject, saved);
+      localStorage.setItem(tabsProject, saved);
+      savedTabs = saved;
+    } catch {
+      /* Keep this session's tabs only. */
+    }
+  },
+);
+const snapshot = shallowRef<ProjectSnapshot>();
+const languageSnapshot = shallowRef<ProjectSnapshot>();
+let languageInputs: readonly (ProjectContent | undefined)[] = [];
+const languageBase = computed(() =>
+  ["words", "inventory", "bindings"].map((key) => snapshot.value?.read(key)?.content),
+);
+const {
+  debug,
+  logicEditors,
+  reveal: revealDebug,
+  toggleBreakpoint,
+  armRun,
+} = useWorkspaceDebug({
+  creating: () => props.creating,
+  engine,
+  editor,
+  snapshot,
+  profile: () => profile.value.id,
+});
+const historyState = shallowRef<ProjectHistoryState>();
+const optimistic = shallowRef<Record<string, ProjectContent>>({});
+let offDrafts: (() => void) | undefined;
+let draftKeys = "";
+let draftError = "";
+const draftMembership = shallowRef<readonly string[]>([]);
+const deletedParts = shallowRef<readonly string[]>([]);
+const partRemovalReview = shallowRef<{
+  owner: ProjectSession;
+  snapshot: ProjectSnapshot;
+  key: string;
+  room?: number;
+  plan: ReturnType<typeof preparePartDraftRemoval>;
+}>();
+const groupMetadata = shallowRef<{
+  world: ProjectContent | undefined;
+  bindings: ProjectContent | undefined;
+}>({ world: undefined, bindings: undefined });
+const editorEpoch = ref(0);
+let session: ProjectSession | null = null;
+let unsubscribe: (() => void) | undefined;
+let retired = false;
+const writeConflict = ref(false);
+const editingPaused = computed(() => writeConflict.value || engine.state.otherTab);
+watch(
+  editingPaused,
+  (paused) => {
+    editor.readOnly.value = paused;
+  },
+  { flush: "sync" },
+);
+const musicDrop = shallowRef<File>();
+const musicDropTarget = ref<string>();
+function musicDrag(event: DragEvent): void {
+  if (
+    props.creating &&
+    (event.target as HTMLElement).closest?.(".play-area") &&
+    event.dataTransfer?.types.includes("Files")
+  )
+    event.preventDefault();
+}
+function dropMusic(event: DragEvent): void {
+  if (!props.creating || !(event.target as HTMLElement).closest?.(".play-area")) return;
+  const file = event.dataTransfer?.files[0];
+  if (!file || !/\.(mid|midi|vgm)$/i.test(file.name)) return;
+  event.preventDefault();
+  event.stopPropagation();
+  musicDropTarget.value = editor.selected.value?.startsWith("sound:")
+    ? editor.selected.value
+    : undefined;
+  musicDrop.value = file;
+}
+function addImportedSound(bytes: Uint8Array, tempo: number): void {
+  const used = occupiedProjectNumbers(
+    session!.workingSnapshot().documents(),
+    "sound",
+    profile.value,
+  );
+  let number = 1;
+  while (used.has(number) && number < 256) number++;
+  if (number > 255) {
+    editor.error.value = "SOUND resources are full. Replace an existing SOUND.";
+    return;
+  }
+  const key = `sound:${number}`;
+  editSound(key, bytes, tempo);
+  openPart(key);
+  musicDrop.value = undefined;
+}
+window.addEventListener("dragover", musicDrag, true);
+window.addEventListener("drop", dropMusic, true);
+function refresh(): void {
+  if (!session) return;
+  const capture = session.capture();
+  roomGeneration.value = session.allowMissingRooms;
+  snapshot.value = capture.snapshot;
+  const ticket = ++imageRefresh;
+  if (session.workingSnapshot().keys.includes("images")) {
+    void import("../../../../src/creative/imageOperations.ts").then(({ imageTraceUnderlay }) => {
+      if (ticket !== imageRefresh || retired) return;
+      const documents = session!.workingSnapshot().documents();
+      void import("../creative/tracePresentation.ts").then(({ presentTrace }) => {
+        if (ticket !== imageRefresh || retired) return;
+        traceUnderlays.value = Object.fromEntries(
+          capture.snapshot.keys
+            .filter((key) => key.startsWith("picture:"))
+            .map((key) => [key, presentTrace(session!, key, imageTraceUnderlay(documents, key))]),
+        );
+      });
+    });
+  } else traceUnderlays.value = {};
+  const draftStatus = session.drafts().status();
+  writeConflict.value =
+    capture.save.state === "conflict" || draftStatus.error.includes("another tab");
+  editor.readOnly.value = editingPaused.value;
+  editor.pendingChanges.value =
+    session.pendingChanges || editor.busy.value || draftStatus.pending || !!draftStatus.error;
+  if (writeConflict.value) editor.error.value = "";
+  historyState.value = capture.history;
+  editor.pendingAdmission.value = capture.pendingAdmission;
+  editor.save.value =
+    capture.save.state === "saved"
+      ? draftStatus.error
+        ? "Could not save. Retry"
+        : draftStatus.pending || draftStatus.busy
+          ? "Draft saving…"
+          : editor.changeCount.value
+            ? "Draft saved"
+            : "Saved"
+      : capture.save.state === "pending" || capture.save.state === "saving"
+        ? "Saving…"
+        : capture.save.message;
+  editor.canUndo.value =
+    draftStatus.canUndo ||
+    !!capture.history.commits.find((commit) => commit.id === capture.history.cursor)?.parent;
+  editor.canRedo.value =
+    draftStatus.canRedo || (!draftStatus.canUndo && capture.history.future.length > 0);
+}
+function attach(): void {
+  const next = engine.getProjectSession();
+  if (next !== session) {
+    unsubscribe?.();
+    session = next;
+    offDrafts?.();
+    optimistic.value = {};
+    deletedParts.value = [];
+    partRemovalReview.value = undefined;
+    groupMetadata.value = { world: undefined, bindings: undefined };
+    draftKeys = "";
+    if (session) {
+      unsubscribe = session.subscribe(refresh);
+      const drafts = session.drafts();
+      offDrafts = session.subscribeDrafts(draftChanged);
+      void drafts.ready
+        .then(() => {
+          draftChanged(true);
+        })
+        .catch((cause: unknown) => {
+          editor.error.value = cause instanceof Error ? cause.message : String(cause);
+          editor.readOnly.value = writeConflict.value = true;
+        });
+    }
+  }
+  refresh();
+}
+watch(() => [engine.state.phase, engine.state.patchTick, engine.state.status], attach, {
+  immediate: true,
+});
+function content(key: string): ProjectContent | undefined {
+  return deletedParts.value.includes(key)
+    ? undefined
+    : (optimistic.value[key] ?? snapshot.value?.read(key)?.content);
+}
+const container = computed(() => {
+  const build = snapshot.value?.lastAdmissibleBuild;
+  return (
+    build &&
+    openContainer(new Map(build.files()), { profile: engine.roomMap.resources.value.profile! })
+  );
+});
+const resourceUses = createWorkspaceResourceUses();
+const groups = computed(() => {
+  const keys = [...new Set([...(snapshot.value?.keys ?? []), ...draftMembership.value])].filter(
+    (key) => !deletedParts.value.includes(key),
+  );
+  const scan = engine.roomMap.resources.value;
+  const admitted = snapshot.value?.lastAdmissibleBuild?.documents() ?? {};
+  let plan: Record<string, { title?: string }> = {};
+  try {
+    const world = groupMetadata.value.world ?? snapshot.value?.read("world")?.content;
+    if (typeof world === "string") plan = (JSON.parse(world) as { rooms: typeof plan }).rooms;
+  } catch {
+    /* Native room relationships remain available. */
+  }
+  const roomIds = new Set([
+    ...engine.roomMap.graph.value.nodes.map((node) => node.room),
+    ...[...scan.scans]
+      .filter(([room, logic]) => !scan.shared.has(room) && logic.roomEvidence)
+      .map(([room]) => room),
+    ...[...scan.scans.values()].flatMap((logic) => logic.targets.map((target) => target.to)),
+    ...Object.keys(plan).map(Number),
+  ]);
+  for (const key of draftMembership.value) {
+    if (key.startsWith("logic:")) {
+      const room = Number(key.slice(6));
+      if (room > 0 && room <= 255 && !scan.shared.has(room)) roomIds.add(room);
+    }
+  }
+  const rooms = [...roomIds]
+    .filter((room) => room > 0 && room <= 255)
+    .map((room) => {
+      const node = engine.roomMap.graph.value.nodes.find((node) => node.room === room);
+      const draftLogic = optimistic.value[`logic:${room}`];
+      const draftText =
+        typeof draftLogic === "string"
+          ? draftLogic
+          : draftLogic instanceof Uint8Array
+            ? new TextDecoder().decode(draftLogic)
+            : undefined;
+      const bound = groupMetadata.value.bindings ?? snapshot.value?.read("bindings")?.content;
+      const boundText =
+        typeof bound === "string"
+          ? bound
+          : bound instanceof Uint8Array
+            ? new TextDecoder().decode(bound)
+            : undefined;
+      const draftPicture = draftText !== undefined ? roomPictureNumber(draftText, boundText) : null;
+      const pictures =
+        draftPicture !== null
+          ? [draftPicture]
+          : roomPictureUse(room, {
+              scans: scan.scans,
+              shared: scan.shared,
+              pictures: scan.picture,
+            })
+              .pictures.filter((use) => use.exists)
+              .map((use) => use.picture);
+      const logic = admitted[`logic:${room}`];
+      if (pictures.length === 0 && typeof logic === "string") {
+        const picture = roomPictureNumber(logic, boundText);
+        if (picture !== null) pictures.push(picture);
+      }
+      const art =
+        pictures[0] === undefined
+          ? undefined
+          : (optimistic.value[`picture:${pictures[0]}`] ??
+            snapshot.value?.read(`picture:${pictures[0]}`)?.content);
+      const artText =
+        typeof art === "string"
+          ? art
+          : art instanceof Uint8Array
+            ? new TextDecoder().decode(art)
+            : undefined;
+      const heading = pictureRoomTitle(artText);
+      const title = plan[String(room)]?.title || heading || node?.title;
+      const resources = new Set((scan.scans.get(room)?.calls ?? []).map((num) => `logic:${num}`));
+      for (const dependency of resourceUses(
+        `logic:${room}`,
+        content(`logic:${room}`),
+        boundText,
+        profile.value,
+      ))
+        resources.add(dependency);
+      return { room, ...(title ? { title } : {}), pictures, resources: [...resources] };
+    });
+  const names: Record<string, string> = {};
+  const bound = groupMetadata.value.bindings ?? snapshot.value?.read("bindings")?.content;
+  if (typeof bound === "string") {
+    try {
+      const bindings = readBindingsDocument(bound);
+      for (const binding of Object.values(bindings))
+        names[`${binding.kind}:${binding.num}`] = numberedLabel(binding.kind, binding.num, {
+          bindings,
+        });
+    } catch {
+      /* Resource ids remain reachable. */
+    }
+  }
+  return workspaceParts({
+    keys,
+    rooms,
+    names,
+    currentRoom: engine.roomMap.currentRoom.value,
+    debugging: editor.debugging.value || (debug.value?.state.breakpoints.length ?? 0) > 0,
+  });
+});
+const roomThumbs = useNodeThumbs(engine.roomMap, () => engine.roomMap.graph.value.nodes);
+const thumbnails = computed<Readonly<Record<string, string>>>(() => {
+  void engine.roomMap.thumbVersion.value;
+  const result: Record<string, string> = {};
+  for (const row of groups.value.flatMap((group) => group.entries)) {
+    if (row.child || row.room === undefined) continue;
+    const thumb = roomThumbs.value.get(row.room);
+    if (thumb) result[row.id] = thumb;
+  }
+  return result;
+});
+watch(
+  groups,
+  (next) => {
+    editor.parts.value = workspaceOpenParts(next).map((row) => ({
+      id: row.key,
+      title: row.label,
+      run: () => openPart(row.key),
+    }));
+  },
+  { immediate: true },
+);
+const parsedWorld = computed<AuthoringState["world"]>(() => {
+  const worldText = groupMetadata.value.world ?? content("world");
+  if (typeof worldText === "string") {
+    try {
+      return JSON.parse(worldText);
+    } catch {
+      /* Stored world may be unparseable during edits. */
+    }
+  }
+  return {};
+});
+const launchRecovery = computed(() => inspectLaunches(parsedWorld.value));
+watch(
+  () => launchRecovery.value.error,
+  (error) => {
+    if (error && props.creating && !editor.selected.value) {
+      const room = Object.keys(parsedWorld.value.launches ?? {})[0];
+      if (room !== undefined) openPart(`launches:${room}`, Number(room));
+    }
+  },
+);
+function repairSavedLaunches(): void {
+  if (editingPaused.value) return;
+  try {
+    edit("world", JSON.stringify(repairLaunches(parsedWorld.value), null, 2));
+  } catch (cause) {
+    editor.error.value = cause instanceof Error ? cause.message : String(cause);
+  }
+}
+function roomName(room: number): string {
+  return (
+    parsedWorld.value.rooms?.[room]?.title ||
+    groups.value.flatMap((group) => group.entries).find((entry) => entry.id === `room:${room}`)
+      ?.title ||
+    numberedLabel("room", room)
+  );
+}
+const labels = computed(() => {
+  void revision.value;
+  return projectLabelContext(
+    snapshot.value?.documents() ?? {},
+    engine.roomMap.resources.value.profile ?? undefined,
+  );
+});
+const DATA_LABELS: Record<string, string> = {
+  uses: "References",
+  state: "Game state",
+  problems: "Problems",
+  messages: "Messages",
+  "debug:variables": "Variables",
+  "debug:watch": "Watch",
+  "debug:stack": "Call stack",
+  "debug:breakpoints": "Breakpoints",
+};
+const tabRows = computed(() =>
+  editor.tabs.value.map((key) => ({
+    key,
+    label: key.startsWith("launches:")
+      ? `Launches · ${roomName(Number(key.slice(9)))}`
+      : (DATA_LABELS[key] ??
+        (key === "words"
+          ? "WORDS"
+          : key === "inventory"
+            ? "OBJECTS"
+            : key === "notes"
+              ? "Notes"
+              : documentLabel(key, labels.value))),
+    dirty:
+      draftMembership.value.includes(key) ||
+      (key.startsWith("launches:") && draftMembership.value.includes("world")),
+    missing:
+      !key.startsWith("launches:") &&
+      DATA_LABELS[key] === undefined &&
+      !snapshot.value?.keys.includes(key) &&
+      (key !== "notes" || (optimistic.value[key]?.length ?? 0) > 0),
+  })),
+);
+const revision = computed(() => snapshot.value?.lastAdmissibleBuild?.identity.revision);
+const files = computed(
+  () => snapshot.value?.lastAdmissibleBuild?.files() ?? new Map<string, Uint8Array>(),
+);
+const livePreview = shallowRef<{
+  state: EngineStateReport | null;
+  objects: readonly ScreenObjectState[];
+}>({ state: null, objects: [] });
+let previewRead = 0;
+watch(
+  [editor.selected, revision, engine.roomMap.currentRoom],
+  async () => {
+    const ticket = ++previewRead;
+    const [state, objects] = await Promise.all([
+      engine.readEngineState().catch(() => null),
+      engine.readObjects().catch(() => []),
+    ]);
+    if (ticket === previewRead && !retired) livePreview.value = { state, objects };
+  },
+  { immediate: true },
+);
+let studioContextKey = "";
+let admittedStudioContext: ReturnType<typeof workspaceStudioContext>;
+const studioContext = computed(() => {
+  const documents = snapshot.value?.lastAdmissibleBuild?.documents() ?? {};
+  const rooms = engine.roomMap.graph.value.nodes.map((node) => ({
+    room: node.room,
+    title: node.title ?? "",
+  }));
+  const key = JSON.stringify([revision.value, documents["bindings"], documents["world"], rooms]);
+  if (key === studioContextKey && admittedStudioContext) return admittedStudioContext;
+  studioContextKey = key;
+  return (admittedStudioContext = workspaceStudioContext(
+    files.value,
+    snapshot.value?.lastAdmissibleBuild?.documents() ?? {},
+    profile.value,
+    engine.roomMap.graph.value.nodes.map((node) => ({ room: node.room, title: node.title ?? "" })),
+  ));
+});
+const pictureWalks = computed(() =>
+  Object.fromEntries(
+    editor.retained.value
+      .filter((key) => key.startsWith("picture:"))
+      .map((key) => {
+        const request = editor.studioRequests.value[key];
+        const uses = groups.value
+          .flatMap((group) => group.entries)
+          .filter((row) => row.key === key && row.room !== undefined);
+        const room =
+          roomHint.value?.key === key
+            ? roomHint.value.room
+            : (request?.room ??
+              uses.find((row) => row.room === engine.roomMap.currentRoom.value)?.room ??
+              uses[0]?.room);
+        return [key, room === undefined || room < 1 ? null : studioContext.value.room(room)];
+      }),
+  ),
+);
+const spriteContexts = computed(() =>
+  Object.fromEntries(
+    editor.retained.value
+      .filter((key) => key.startsWith("view:"))
+      .map((key) => [
+        key,
+        studioContext.value.sprite(
+          Number(key.slice(5)),
+          engine.roomMap.currentRoom.value ?? undefined,
+        ),
+      ]),
+  ),
+);
+const selectedRoom = computed(() => {
+  const key = editor.selected.value;
+  if (!key) return undefined;
+  if (key.startsWith("launches:")) {
+    const room = Number(key.slice(9));
+    return Number.isFinite(room) ? room : undefined;
+  }
+  const uses = key.startsWith("view:")
+    ? (spriteContexts.value[key]?.usage.rooms ?? [])
+    : groups.value
+        .flatMap((group) => group.entries)
+        .filter((row) => row.key === key && row.room !== undefined)
+        .map((row) => row.room!);
+  if (roomHint.value?.key === key && uses.includes(roomHint.value.room)) return roomHint.value.room;
+  const current = engine.roomMap.currentRoom.value;
+  if (
+    key.startsWith("view:") &&
+    current !== null &&
+    (spriteContexts.value[key]?.usage.logics.includes(0) ||
+      (livePreview.value.state?.vars[0] === current &&
+        livePreview.value.objects.some((object) => object.view === Number(key.slice(5)))))
+  )
+    return current;
+  return uses.find((room) => room === current) ?? uses[0];
+});
+const rememberedLaunches = ref<Record<string, string>>({});
+watch(
+  [selectedRoom, engine.roomMap.currentRoom, snapshot, groupMetadata, groups],
+  () => {
+    const room = selectedRoom.value ?? engine.roomMap.currentRoom.value ?? undefined;
+    editor.actionRoom.value = room;
+    let world: {
+      rooms?: Record<string, { title?: string }>;
+      launches?: Record<string, { selected?: string; entries: Launch[] }>;
+    } = {};
+    try {
+      world = JSON.parse(
+        String(groupMetadata.value.world ?? snapshot.value?.read("world")?.content ?? "{}"),
+      );
+    } catch {
+      /* Room identities stay available. */
+    }
+    editor.actionRoomName.value =
+      room === undefined
+        ? ""
+        : world.rooms?.[room]?.title ||
+          groups.value
+            .flatMap((group) => group.entries)
+            .find((entry) => entry.id === `room:${room}`)?.title ||
+          numberedLabel("room", room);
+    const launches = launchRecovery.value.launches;
+    const choices = room === undefined ? undefined : launches[room];
+    editor.launchChoices.value = choices?.entries ?? [];
+    const selectionKey = `monotio_agi.workspaceLaunch.${engine.currentGame()?.projectId}.${room}`;
+    let selected = choices?.selected ?? "carry";
+    try {
+      selected =
+        rememberedLaunches.value[selectionKey] ?? localStorage.getItem(selectionKey) ?? selected;
+    } catch {
+      selected = rememberedLaunches.value[selectionKey] ?? selected;
+    }
+    editor.selectedLaunch.value =
+      selected === "beginning" ||
+      selected === "carry" ||
+      selected === "my-game" ||
+      editor.launchChoices.value.some((entry) => entry.id === selected)
+        ? selected
+        : "carry";
+  },
+  { immediate: true },
+);
+editor.selectLaunch.value = async (id) => {
+  const room = editor.actionRoom.value;
+  if (room !== undefined) await selectRoomLaunch(room, id);
+};
+let launchSerial = 0;
+async function runSelectedLaunch(entry?: {
+  room: number;
+  beginning: boolean;
+  fromMyGame: boolean;
+  state?: Launch;
+}): Promise<void> {
+  const serial = ++launchSerial;
+  const room = entry?.room ?? editor.actionRoom.value;
+  if (room === undefined) throw new Error("Open a room to play it.");
+  const state =
+    entry === undefined
+      ? editor.launchChoices.value.find((choice) => choice.id === editor.selectedLaunch.value)
+      : entry.state;
+  const result = await engine.launchRoom(room, {
+    beginning: entry?.beginning ?? editor.selectedLaunch.value === "beginning",
+    fromMyGame: entry?.fromMyGame ?? editor.selectedLaunch.value === "my-game",
+    ...(state ? { state } : {}),
+  });
+  if (!result.ok) throw new Error(result.reason ?? "Launch could not start. Try again.");
+  if (serial === launchSerial && props.creating) {
+    returnRoom.value = result.returnRoom;
+    visitingRoom.value = result.room;
+  }
+}
+const unusedArt = computed(
+  () =>
+    (editor.kind.value === "picture" || editor.kind.value === "view") &&
+    selectedRoom.value === undefined,
+);
+/** The context row shows only when the open tab has tools to offer. */
+const contextRow = computed(() => {
+  const kind = editor.kind.value;
+  return (
+    kind === "picture" ||
+    kind === "view" ||
+    kind === "sound" ||
+    (kind === "logic" && snapshot.value !== undefined) ||
+    (debug.value?.state.epoch !== undefined &&
+      debug.value.state.epoch > 0 &&
+      (kind === "logic" || debug.value.stopped.value || debug.value.state.stepping)) ||
+    unusedArt.value
+  );
+});
+const madeRoomArt: Record<string, string> = {};
+const returnRoom = ref<number>();
+const visitingRoom = ref<number>();
+const visitBusy = ref(false);
+
+watch(
+  () => props.creating,
+  () => {
+    launchSerial++;
+  },
+);
+watch([editor.selected, roomHint, () => props.creating], () => {
+  if (!props.creating) returnRoom.value = visitingRoom.value = undefined;
+});
+
+let returningRemovedRoom = false;
+watch(snapshot, async (current) => {
+  const room = engine.roomMap.currentRoom.value;
+  if (
+    !props.creating ||
+    returningRemovedRoom ||
+    returnRoom.value === undefined ||
+    room === null ||
+    !current ||
+    current.keys.includes(`logic:${room}`)
+  )
+    return;
+  returningRemovedRoom = true;
+  const selected = editor.selected.value;
+  const art = selected && madeRoomArt[selected];
+  if (selected && art && !current.keys.includes(selected) && current.keys.includes(art))
+    openPart(art);
+  try {
+    await backToGame(false);
+  } finally {
+    returningRemovedRoom = false;
+  }
+});
+async function backToGame(openRoom = true): Promise<void> {
+  visitBusy.value = true;
+  try {
+    await flushWorkspace();
+    const result = await engine.visitRoom("back");
+    if (!result.ok) throw new Error(result.reason);
+    returnRoom.value = visitingRoom.value = undefined;
+    if (openRoom) {
+      const picture = groups.value
+        .flatMap((group) => group.entries)
+        .find((row) => row.room === result.room && row.key.startsWith("picture:"));
+      if (picture) openPart(picture.key);
+      else editor.selected.value = undefined;
+    }
+  } catch (cause) {
+    editor.error.value = cause instanceof Error ? cause.message : String(cause);
+  } finally {
+    visitBusy.value = false;
+  }
+}
+const previewCyclers = computed(() =>
+  livePreview.value.objects.map(({ num, view, loop, cycling, cycleTime }) => ({
+    num,
+    view,
+    loop,
+    cycling,
+    cycleTime,
+  })),
+);
+async function playHere(target: PlayHereTarget): Promise<void> {
+  try {
+    await flushWorkspace();
+    const result = await engine.playHere(target);
+    if (!result.ok) throw new Error(result.reason);
+    editor.focus.value = false;
+    document.querySelector<HTMLInputElement>('[data-testid="input-line"]')?.focus();
+  } catch (cause) {
+    editor.error.value = cause instanceof Error ? cause.message : String(cause);
+  }
+}
+function stagedRequest(key: string) {
+  return editor.studioRequests.value[key]?.staged;
+}
+const coordinatedChanges = new Map<string, readonly ProjectChange[]>();
+function editRoom(
+  pictureKey: string,
+  room: number,
+  source: string,
+  bindings: Readonly<Record<string, { kind: BindingKind; num: number }>>,
+  pictureSource: string | undefined,
+): void {
+  const key = pictureSource === undefined ? `logic:${room}` : pictureKey;
+  const value = pictureSource ?? source;
+  const changes: ProjectChange[] = [{ key: `logic:${room}`, content: source }];
+  if (pictureSource !== undefined) changes.push({ key, content: pictureSource });
+  if (Object.keys(bindings).length) {
+    const current = text("bindings");
+    changes.push({
+      key: "bindings",
+      content: JSON.stringify({ ...(current ? readBindingsDocument(current) : {}), ...bindings }),
+    });
+  }
+  coordinatedChanges.set(`${key}\0${value}`, changes);
+  edit(key, value);
+}
+function editView(key: string, bytes: Uint8Array): void {
+  const staged = stagedRequest(key);
+  if (staged && staged.baseRevision !== revision.value) {
+    editor.error.value = "The game changed since this sheet was staged. Attach the sheet again.";
+    return;
+  }
+  edit(key, bytes);
+  if (staged) {
+    const request = editor.studioRequests.value[key];
+    if (request)
+      editor.studioRequests.value = {
+        ...editor.studioRequests.value,
+        [key]: { ...request, staged: undefined },
+      };
+  }
+}
+const nativeCache = new Map<string, Uint8Array>();
+const viewThumbnails = computed(() =>
+  Object.fromEntries(
+    (snapshot.value?.keys ?? [])
+      .filter((key) => key.startsWith("view:"))
+      .map((key) => [key, native(key)!]),
+  ),
+);
+const guidedSounds = computed(() =>
+  (groups.value.find((group) => group.label === "SOUNDS")?.entries ?? []).map((row) => ({
+    sound: Number(row.key.split(":")[1]),
+    name: row.label,
+    bytes: soundBytes(row.key),
+  })),
+);
+const placementInput = computed(() => {
+  try {
+    return {
+      room: selectedRoom.value ?? 0,
+      sources: Object.fromEntries(
+        (snapshot.value?.keys ?? [])
+          .filter((key) => key.startsWith("logic:"))
+          .flatMap((key) => {
+            const source = text(key);
+            return source === undefined ? [] : [[key, source]];
+          }),
+      ),
+      bindings: readBindingsDocument(
+        String(groupMetadata.value.bindings ?? text("bindings") ?? "{}"),
+      ),
+    };
+  } catch {
+    // An unfinished bindings draft supplies no provable figures.
+    return undefined;
+  }
+});
+const figures = computed(() => {
+  if (selectedRoom.value === undefined || !placementInput.value) return [];
+  return roomPlacements(placementInput.value);
+});
+const placementPreviews = ref<
+  Record<
+    string,
+    {
+      room: number;
+      logic: number;
+      object: number;
+      startX: number;
+      startY: number;
+      x: number;
+      y: number;
+      command: string;
+    }
+  >
+>({});
+const visiblePlacementPreviews = computed(() =>
+  Object.fromEntries(
+    Object.entries(placementPreviews.value).flatMap(([key, preview]) => {
+      const figure = figures.value.find(
+        (figure) =>
+          figure.object === preview.object &&
+          figure.logic === preview.logic &&
+          figure.x === preview.x &&
+          figure.y === preview.y,
+      );
+      return preview.room === selectedRoom.value &&
+        figure &&
+        draftMembership.value.includes(`logic:${preview.logic}`)
+        ? [
+            [
+              key,
+              `${numberedLabel("logic", preview.logic, labels.value, "row")} · ${preview.command}(o${preview.object}, ${preview.startX}, ${preview.startY}) → (${preview.x}, ${preview.y})`,
+            ],
+          ]
+        : [];
+    }),
+  ),
+);
+function placeFigure(figure: RoomPlacement, x: number, y: number): void {
+  if (editingPaused.value || !placementInput.value) return;
+  try {
+    const source = moveRoomPlacement(placementInput.value, figure, x, y);
+    const key = `logic:${figure.logic}`;
+    const previewKey = `${selectedRoom.value}:${figure.object}`;
+    const previous = placementPreviews.value[previewKey];
+    placementPreviews.value = {
+      ...placementPreviews.value,
+      [previewKey]: {
+        room: selectedRoom.value!,
+        logic: figure.logic,
+        object: figure.object,
+        startX: previous?.startX ?? figure.x!,
+        startY: previous?.startY ?? figure.y!,
+        x,
+        y,
+        command: figure.command,
+      },
+    };
+    edit(key, source, true);
+    if (!editor.tabs.value.includes(key)) editor.tabs.value.push(key);
+    draftChanged(true);
+  } catch (cause) {
+    editor.error.value = cause instanceof Error ? cause.message : String(cause);
+  }
+}
+const pendingNative: Record<string, { content: ProjectContent; bytes: Uint8Array }> = {};
+function native(key: string): Uint8Array | undefined {
+  const [kind, num] = key.split(":");
+  if (kind !== "picture" && kind !== "view" && kind !== "sound") return undefined;
+  const pending = optimistic.value[key];
+  if (pending instanceof Uint8Array) return pending;
+  if (typeof pending === "string" && kind === "picture") {
+    const cached = pendingNative[key];
+    if (cached?.content === pending) return cached.bytes;
+    try {
+      const bytes = compilePictureSource(pending, { profile: profile.value }).bytes;
+      pendingNative[key] = { content: pending, bytes };
+      return bytes;
+    } catch {
+      /* The editor keeps the last rendered picture beside invalid source. */
+    }
+  }
+  const bytes = container.value?.getResource(kind, Number(num)) ?? undefined;
+  const prior = nativeCache.get(key);
+  if (
+    bytes &&
+    prior &&
+    bytes.length === prior.length &&
+    bytes.every((byte, index) => byte === prior[index])
+  )
+    return prior;
+  if (bytes) nativeCache.set(key, bytes);
+  return bytes;
+}
+const soundTempos = new WeakMap<Uint8Array, number>();
+function editorChanges(
+  key: string,
+  value: ProjectContent,
+  music = content("music"),
+): readonly ProjectChange[] {
+  if (typeof value === "string") {
+    const coordinated = coordinatedChanges.get(`${key}\0${value}`);
+    if (coordinated) return coordinated;
+  }
+  const tempo = value instanceof Uint8Array ? soundTempos.get(value) : undefined;
+  if (key.startsWith("sound:") && value instanceof Uint8Array && tempo !== undefined) {
+    return soundProjectChanges(key, value, tempo, typeof music === "string" ? music : undefined);
+  }
+  return [{ key, content: value }];
+}
+const actionBusy = ref(false);
+const imageBusy = ref(false);
+function changedPartKeys(changes: readonly ProjectChange[], fallback = true): string[] {
+  const parts = new Set<string>();
+  for (const change of changes) {
+    if (
+      /^(logic|picture|view|sound):/.test(change.key) ||
+      ["words", "inventory", "notes"].includes(change.key)
+    )
+      parts.add(change.key);
+    else if (change.key === "images" && typeof change.content === "string") {
+      const before = JSON.parse(
+        String(snapshot.value?.read("images")?.content ?? '{"traces":{}}'),
+      ) as { traces?: Record<string, unknown> };
+      const after = JSON.parse(change.content) as { traces?: Record<string, unknown> };
+      for (const key of new Set([
+        ...Object.keys(before.traces ?? {}),
+        ...Object.keys(after.traces ?? {}),
+      ]))
+        if (JSON.stringify(before.traces?.[key]) !== JSON.stringify(after.traces?.[key]))
+          parts.add(key);
+    } else if (change.key === "bindings" && typeof change.content === "string") {
+      try {
+        const before = readBindingsDocument(
+          String(snapshot.value?.read("bindings")?.content ?? "{}"),
+        );
+        const after = readBindingsDocument(change.content);
+        for (const name of new Set([...Object.keys(before), ...Object.keys(after)])) {
+          if (JSON.stringify(before[name]) === JSON.stringify(after[name])) continue;
+          const binding = after[name] ?? before[name];
+          if (binding && ["logic", "picture", "view", "sound"].includes(binding.kind))
+            parts.add(`${binding.kind}:${binding.num}`);
+        }
+      } catch {
+        parts.add(change.key);
+      }
+    } else if (change.key === "world" && typeof change.content === "string") {
+      const before = JSON.parse(
+        String(snapshot.value?.read("world")?.content ?? '{"rooms":{}}'),
+      ) as { rooms?: Record<string, unknown> };
+      const after = JSON.parse(change.content) as { rooms?: Record<string, unknown> };
+      for (const room of new Set([
+        ...Object.keys(before.rooms ?? {}),
+        ...Object.keys(after.rooms ?? {}),
+      ]))
+        if (JSON.stringify(before.rooms?.[room]) !== JSON.stringify(after.rooms?.[room]))
+          parts.add(`logic:${room}`);
+    }
+  }
+  if (fallback && !parts.size && changes.length) parts.add(changes[0]!.key);
+  return [...parts];
+}
+const pendingParts = createWorkspacePending((change) => changedPartKeys([change], false));
+watch(
+  [actionBusy, imageBusy],
+  ([action, image]) => {
+    editor.busy.value = action || image;
+  },
+  { flush: "sync" },
+);
+function draftChanged(force = false): void {
+  if (!session || retired) return;
+  const drafts = session.drafts();
+  const changes = pendingParts.changes(snapshot.value, drafts.changes());
+  deletedParts.value = changes
+    .filter((change) => change.content === null)
+    .map((change) => change.key);
+  const next: Record<string, ProjectContent> = {};
+  for (const { key, content: value } of changes) if (value !== null) next[key] = value;
+  const metadata = { world: next["world"], bindings: next["bindings"] };
+  if (
+    metadata.world !== groupMetadata.value.world ||
+    metadata.bindings !== groupMetadata.value.bindings
+  )
+    groupMetadata.value = metadata;
+  const keys = [...Object.keys(next), ...deletedParts.value.map((key) => `deleted:${key}`)]
+    .sort()
+    .join("\0");
+  const membershipChanged = keys !== draftKeys;
+  const parts = pendingParts.parts(snapshot.value, changes);
+  if (parts.slice().sort().join("\0") !== draftMembership.value.slice().sort().join("\0"))
+    draftMembership.value = parts;
+  const textChanged = changes.some(
+    ({ key, content }) =>
+      (key === "notes" || key.startsWith("logic:")) && optimistic.value[key] !== content,
+  );
+  if (force || keys !== draftKeys || textChanged) {
+    optimistic.value = next;
+    draftKeys = keys;
+  } else Object.assign(optimistic.value, next);
+  const state = drafts.status();
+  const history = session.capture().history;
+  editor.canUndo.value =
+    state.canUndo || !!history.commits.find((commit) => commit.id === history.cursor)?.parent;
+  editor.canRedo.value = state.canRedo || (!state.canUndo && history.future.length > 0);
+  if (!state.error && editor.error.value === draftError) editor.error.value = "";
+  draftError = state.error;
+  editor.changeCount.value = parts.length;
+  const context = ["words", "inventory", "bindings"].map(
+    (key, index) => next[key] ?? languageBase.value[index],
+  );
+  if (
+    membershipChanged ||
+    languageSnapshot.value?.revision !== snapshot.value?.revision ||
+    context.some((value, index) => value !== languageInputs[index])
+  ) {
+    languageInputs = context;
+    languageSnapshot.value = session.workingSnapshot();
+  }
+  editor.pendingChanges.value =
+    state.pending || state.busy || !!state.error || (session.pendingChanges ?? false);
+  const gameSave = session.saveStatus();
+  editor.save.value =
+    gameSave.state !== "saved"
+      ? gameSave.state === "pending" || gameSave.state === "saving"
+        ? "Saving…"
+        : gameSave.message
+      : state.error
+        ? "Could not save. Retry"
+        : state.pending || state.busy
+          ? "Draft saving…"
+          : parts.length
+            ? "Draft saved"
+            : "Saved";
+  if (state.error) {
+    editor.error.value = state.error;
+    if (state.error.includes("another tab")) {
+      editor.readOnly.value = writeConflict.value = true;
+    }
+  }
+}
+const writes = {
+  flush: async () => {
+    await session?.drafts().flush();
+    await session?.flush();
+    draftChanged();
+  },
+  retry: async () => {
+    await session?.drafts().flush();
+    draftChanged();
+  },
+  dispose: () => {},
+};
+const buildErrorLocation = ref<{ problem: ProjectEditDiagnostic; message: string }>();
+const buildErrorNotice = computed(() => buildErrorLocation.value?.message === editor.error.value);
+function refuseBuild(problem: ProjectEditDiagnostic): void {
+  const document = problem.document;
+  const message = `${document.replace(":", " ").toUpperCase()} has errors. Fix them to update the game.`;
+  buildErrorLocation.value = { problem, message };
+  editor.error.value = message;
+}
+function goToBuildError(): void {
+  const location = buildErrorLocation.value;
+  if (!location) return;
+  revealProblem(location.problem);
+}
+async function updateGame(restartRoom = true): Promise<void> {
+  if (!session || actionBusy.value || imageBusy.value || editingPaused.value) return;
+  const firstError = diagnostics.value.find(
+    (entry) => entry.severity === "error" && (restartRoom || entry.code !== "launch-input"),
+  );
+  if (editor.problemCount.value && firstError) {
+    refuseBuild(firstError);
+    return;
+  }
+  buildErrorLocation.value = undefined;
+  const room = editor.actionRoom.value;
+  const roomName = editor.actionRoomName.value;
+  const state = editor.launchChoices.value.find(
+    (entry) => entry.id === editor.selectedLaunch.value,
+  );
+  const beginning = editor.selectedLaunch.value === "beginning";
+  const fromMyGame = editor.selectedLaunch.value === "my-game";
+  const launch =
+    room === undefined ? undefined : { room, ...(state ? { state } : {}), beginning, fromMyGame };
+  actionBusy.value = true;
+  if (restartRoom) engine.pauseEngine("debugLaunch");
+  try {
+    await writes.flush();
+    if (restartRoom) await armRun();
+    const changes = pendingParts.changes(snapshot.value, session.drafts().changes());
+    if (!changes.length && !session.pendingRestart) {
+      if (restartRoom) {
+        await runSelectedLaunch(launch);
+      }
+      editor.phonePlaytest.value = !debug.value?.stopped.value;
+      return;
+    }
+    const updatedParts = pendingParts.parts(snapshot.value, changes).length;
+    const waiting = engine.state.modal !== null || engine.state.waitingForKey;
+    const result = await session.update(changes, restartRoom, restartRoom ? launch : undefined);
+    if (!["committed", "unchanged", "draft"].includes(result.status)) {
+      editor.problemCount.value = Math.max(
+        1,
+        result.diagnostics.filter((entry) => entry.severity === "error").length,
+      );
+      const first = result.diagnostics.find((entry) => entry.severity === "error");
+      if (first) refuseBuild(first);
+      else
+        editor.error.value =
+          "reason" in result && typeof result.reason === "string"
+            ? result.status === "refused"
+              ? result.reason
+              : `${result.reason.replace(/[.]+$/, "")}. Choose Update and restart.`
+            : "The game needs a fresh room. Choose Update and restart.";
+      return;
+    }
+    await session.flush();
+    await session.drafts().clear();
+    if (restartRoom && fromMyGame) await runSelectedLaunch(launch);
+    optimistic.value = {};
+    draftKeys = "";
+    editor.updatedParts.value = updatedParts;
+    editor.updateResult.value = updatedParts
+      ? restartRoom
+        ? fromMyGame
+          ? "Updated · returned to my game"
+          : beginning
+            ? "Updated · started from beginning"
+            : `Updated · ${roomName} restarted`
+        : waiting
+          ? "Updated · applies after this message"
+          : "Updated · kept your place"
+      : "";
+    editor.problemCount.value = 0;
+    editor.error.value = "";
+    placementPreviews.value = {};
+    editor.phonePlaytest.value = !debug.value?.stopped.value;
+
+    refresh();
+    draftChanged(true);
+  } catch (cause) {
+    editor.error.value = cause instanceof Error ? cause.message : String(cause);
+  } finally {
+    if (restartRoom) engine.resumeEngine("debugLaunch");
+    actionBusy.value = false;
+  }
+}
+async function discardChanges(): Promise<void> {
+  if (!session) return;
+  actionBusy.value = true;
+  try {
+    await session.drafts().clear();
+    optimistic.value = {};
+    draftKeys = "";
+    coordinatedChanges.clear();
+    placementPreviews.value = {};
+    editorEpoch.value++;
+    editor.problemCount.value = 0;
+    editor.error.value = "";
+    draftChanged(true);
+  } finally {
+    actionBusy.value = false;
+  }
+}
+watch(snapshot, () => draftChanged());
+editor.update.value = updateGame;
+editor.discardDrafts.value = discardChanges;
+async function flushWorkspace(): Promise<void> {
+  if (session?.saveStatus().state === "conflict") return;
+  try {
+    await writes.flush();
+  } catch (cause) {
+    editor.error.value = cause instanceof Error ? cause.message : String(cause);
+    editor.save.value = "Could not save. Retry";
+    throw cause;
+  }
+}
+editor.flush.value = flushWorkspace;
+editor.discard.value = async () => {
+  await discardChanges();
+  writes.dispose();
+  session?.discard();
+};
+editor.retry.value = async () => {
+  if (session?.saveStatus().state === "conflict") return;
+  try {
+    await writes.retry();
+    editor.error.value = "";
+    refresh();
+  } catch (cause) {
+    editor.error.value = cause instanceof Error ? cause.message : String(cause);
+    editor.save.value = "Could not save. Retry";
+    throw cause;
+  }
+};
+async function retrySave(): Promise<void> {
+  try {
+    await editor.retry.value?.();
+  } catch {
+    /* The save notice keeps the cause and Retry. */
+  }
+}
+function edit(key: string, value: ProjectContent, transaction = false): void {
+  if (editingPaused.value) return;
+  const before = content(key);
+  if (typeof before === "string" && before === value) return;
+  if (
+    before instanceof Uint8Array &&
+    value instanceof Uint8Array &&
+    before.length === value.length &&
+    before.every((byte, index) => value[index] === byte)
+  )
+    return;
+  editor.error.value = "";
+  buildErrorLocation.value = undefined;
+  const changes = editorChanges(key, value);
+  if (key === "world") {
+    void session?.stage(changes).catch((cause: unknown) => {
+      editor.error.value = cause instanceof Error ? cause.message : String(cause);
+    });
+  } else if (transaction) session?.drafts().stageTransaction(changes);
+  else session?.drafts().stage(changes);
+  const next = { ...optimistic.value };
+  for (const change of changes) if (change.content !== null) next[change.key] = change.content;
+  optimistic.value = next;
+  editor.updatedParts.value = 0;
+  draftChanged(!key.startsWith("logic:") && key !== "notes");
+}
+function endTyping(): void {
+  session?.drafts().endTyping();
+}
+function editSound(key: string, bytes: Uint8Array, tempo: number): void {
+  if (editingPaused.value) return;
+  soundTempos.set(bytes, tempo);
+  if (soundTempo(key) === tempo) edit(key, bytes);
+  else {
+    editor.error.value = "";
+    session?.drafts().stage(editorChanges(key, bytes));
+    draftChanged(true);
+  }
+}
+function soundTempo(key: string): number {
+  const draft = optimistic.value[key];
+  const pending = draft instanceof Uint8Array ? soundTempos.get(draft) : undefined;
+  if (pending !== undefined) return pending;
+  const music = content("music");
+  if (typeof music !== "string") return 120;
+  try {
+    return readMusicDocument(music)[key.split(":")[1]!]?.tempo ?? 120;
+  } catch {
+    return 120;
+  }
+}
+function soundBytes(key: string): Uint8Array {
+  const value = content(key);
+  return value instanceof Uint8Array ? value : native(key)!;
+}
+function text(key: string): string | undefined {
+  if (deletedParts.value.includes(key)) return undefined;
+  const version = snapshot.value?.version(key) ?? 0;
+  const cached = derivedText.get(key);
+  if (
+    optimistic.value[key] === undefined &&
+    cached?.version === version &&
+    cached.wordsVersion === snapshot.value?.version("words")
+  )
+    return cached.text;
+  const value = content(key);
+  if (typeof value === "string") return value;
+  if (!(value instanceof Uint8Array)) return undefined;
+  if (key === "words")
+    return JSON.stringify(parseWordsTok(value).map(({ word, id }) => [word, id]));
+  if (key === "inventory") return JSON.stringify(readInventoryObjects(value, profile.value));
+  if (key.startsWith("logic:")) {
+    const source = text("words");
+    let words: [string, number][] = [];
+    try {
+      words = source ? readWordsDocument(source).map(({ word, id }) => [word, id]) : [];
+    } catch {
+      /* Invalid WORDS remains editable beside a native LOGIC preview. */
+    }
+    const cached = derivedText.get(key);
+    if (cached?.value === value && cached.words === source) return cached.text;
+    const derived = derivedLogicSource(value, profile.value.id, words).source;
+    derivedText.set(key, {
+      value,
+      version,
+      wordsVersion: snapshot.value?.version("words") ?? 0,
+      words: source,
+      text: derived,
+    });
+    return derived;
+  }
+  return undefined;
+}
+function roomLaunches(room: number): RoomLaunches | undefined {
+  return launchRecovery.value.launches[room];
+}
+function roomSelectedLaunch(room: number): string | undefined {
+  const key = `monotio_agi.workspaceLaunch.${engine.currentGame()?.projectId}.${room}`;
+  const remembered = rememberedLaunches.value[key];
+  if (remembered !== undefined) return remembered;
+  try {
+    const stored = localStorage.getItem(key);
+    if (stored !== null) return stored;
+  } catch {
+    /* Fall back to the project's default. */
+  }
+  return launchRecovery.value.launches[room]?.selected;
+}
+function roomPictureBytes(room: number): Uint8Array | undefined {
+  const direct = native(`picture:${room}`);
+  if (direct) return direct;
+  const group = groups.value.find((g) => g.entries.some((e) => e.room === room));
+  const picEntry = group?.entries.find((e) => e.key.startsWith("picture:"));
+  if (picEntry) return native(picEntry.key);
+  return undefined;
+}
+const allRooms = computed<readonly { room: number; title: string }[]>(() => {
+  const map = new Map<number, string>();
+  for (const node of engine.roomMap.graph.value.nodes) {
+    map.set(node.room, node.title ?? "");
+  }
+  if (parsedWorld.value.rooms) {
+    for (const [key, r] of Object.entries(parsedWorld.value.rooms)) {
+      const roomNum = Number(key);
+      if (Number.isFinite(roomNum) && r.title) {
+        map.set(roomNum, r.title);
+      }
+    }
+  }
+  for (const group of groups.value) {
+    for (const entry of group.entries) {
+      if (entry.room !== undefined && !map.get(entry.room)) {
+        map.set(entry.room, entry.title ?? "");
+      }
+    }
+  }
+  return [...map.entries()].sort(([a], [b]) => a - b).map(([room, title]) => ({ room, title }));
+});
+const parsedInventory = computed<readonly { num: number; name: string }[]>(() => {
+  const invText = text("inventory");
+  if (!invText) return [];
+  try {
+    const list = JSON.parse(invText) as { name: string; startingRoom?: number }[];
+    return list.map((item, index) => ({ num: index, name: item.name }));
+  } catch {
+    return [];
+  }
+});
+function editRoomLaunches(room: number, launches: RoomLaunches): void {
+  if (editingPaused.value) return;
+  const currentWorld = { ...parsedWorld.value };
+  const currentLaunches = currentWorld.launches ? { ...currentWorld.launches } : {};
+  if (launches.entries.length === 0) {
+    delete currentLaunches[String(room)];
+  } else {
+    currentLaunches[String(room)] = launches;
+  }
+  if (Object.keys(currentLaunches).length === 0) {
+    delete currentWorld.launches;
+  } else {
+    currentWorld.launches = currentLaunches;
+  }
+  try {
+    readWorldLaunches(currentWorld.launches ?? {});
+    edit("world", JSON.stringify(currentWorld, null, 2));
+  } catch (cause) {
+    editor.error.value = cause instanceof Error ? cause.message : String(cause);
+  }
+}
+async function selectRoomLaunch(room: number, id: string): Promise<void> {
+  // The choice is a browser preference (it never joins the project or its Undo).
+  const key = `monotio_agi.workspaceLaunch.${engine.currentGame()?.projectId}.${room}`;
+  rememberedLaunches.value = { ...rememberedLaunches.value, [key]: id };
+  if (editor.actionRoom.value === room) editor.selectedLaunch.value = id;
+  try {
+    localStorage.setItem(key, id);
+  } catch {
+    /* Keep this session's selection, like its open tabs. */
+  }
+}
+editor.openLaunchEditor.value = (mode: "new" | "edit", room: number) => {
+  const tabKey = `launches:${room}`;
+  if (mode === "new") {
+    const currentLaunches = roomLaunches(room);
+    const id = newLaunchId(currentLaunches);
+    const count = (currentLaunches?.entries.length ?? 0) + 1;
+    const name = `Launch ${count}`;
+    const nextWorld = addLaunch(parsedWorld.value, room, { id, name });
+    edit("world", JSON.stringify(nextWorld, null, 2));
+  }
+  openPart(tabKey, room);
+};
+function workingSnapshot(): ProjectSnapshot | undefined {
+  if (session) return session.workingSnapshot();
+  const base = snapshot.value;
+  if (!base) return undefined;
+  const documents = { ...base.documents(), ...optimistic.value };
+  return {
+    ...base,
+    keys: Object.keys(documents),
+    read(key) {
+      const value = documents[key];
+      return value === undefined ? undefined : { key, version: base.version(key), content: value };
+    },
+    documents: () => documents,
+  };
+}
+const derivedText = new Map<
+  string,
+  {
+    value: ProjectContent;
+    version: number;
+    wordsVersion: number;
+    words: string | undefined;
+    text: string;
+  }
+>();
+const diagnosticPolicy = computed<ProjectValidationPolicy>((previous) => {
+  const room = editor.actionRoom.value;
+  const id = editor.selectedLaunch.value;
+  const launch =
+    room !== undefined && editor.launchChoices.value.some((entry) => entry.id === id)
+      ? { room, id }
+      : undefined;
+  const allowMissingRooms = roomGeneration.value;
+  if (
+    previous &&
+    previous.allowMissingRooms === allowMissingRooms &&
+    previous.launch?.room === launch?.room &&
+    previous.launch?.id === launch?.id
+  )
+    return previous;
+  return { allowMissingRooms, launch };
+});
+const diagnostics = computed(() => {
+  void snapshot.value;
+  void optimistic.value;
+  if (!session) return [];
+  return prepareProjectEdit({
+    model: session.model,
+    proposal: session.model.propose(
+      session.model.capture(),
+      "Check working image",
+      pendingParts.changes(snapshot.value, session.drafts().changes()),
+    ),
+    profileId: profile.value.id,
+    policy: diagnosticPolicy.value,
+  }).diagnostics;
+});
+watch(
+  diagnostics,
+  (entries) => {
+    editor.problemCount.value = entries.length;
+  },
+  { immediate: true },
+);
+const acceptedDocuments = computed(() => snapshot.value?.documents() ?? {});
+const workingDocuments = computed(() => {
+  const documents = { ...acceptedDocuments.value, ...optimistic.value };
+  for (const key of deletedParts.value) delete documents[key];
+  return documents;
+});
+// Table editors need renderable rows; damaged JSON is repaired as source text.
+const textTables = computed(() => {
+  const keys: string[] = [];
+  for (const key of ["words", "inventory"]) {
+    const source = text(key);
+    if (source === undefined) continue;
+    try {
+      if (key === "words") readWordsDocument(source);
+      else {
+        const rows: unknown = JSON.parse(source);
+        if (
+          !Array.isArray(rows) ||
+          rows.some(
+            (row: unknown) =>
+              !row ||
+              typeof row !== "object" ||
+              Array.isArray(row) ||
+              typeof (row as Record<string, unknown>)["name"] !== "string" ||
+              ((row as Record<string, unknown>)["startingRoom"] !== undefined &&
+                typeof (row as Record<string, unknown>)["startingRoom"] !== "number"),
+          )
+        )
+          keys.push(key);
+      }
+    } catch {
+      keys.push(key);
+    }
+  }
+  return keys;
+});
+const guidedKind = ref<WorkspaceAction["kind"]>();
+const guidedCommand = ref("");
+const contextActions = computed(() => {
+  const actions: ContextAction[] = [];
+  const disabled = actionBusy.value || editingPaused.value;
+  const title = writeConflict.value
+    ? "Editing is paused. Download your unsaved edits, then reload."
+    : "";
+  const kind = editor.kind.value;
+  if (kind === "picture" || kind === "view") {
+    actions.push(
+      {
+        id: "trace",
+        label: kind === "picture" ? VOCABULARY.traceImage.label : VOCABULARY.makeCels.label,
+        disabled,
+        title,
+        run: () => {
+          imagePanel.value = editor.selected.value;
+          imageGenerate.value = false;
+        },
+      },
+      {
+        id: "generate",
+        label: "Generate",
+        disabled,
+        title,
+        run: () => {
+          imagePanel.value = editor.selected.value;
+          imageGenerate.value = true;
+        },
+      },
+    );
+  }
+  if (unusedArt.value)
+    actions.push({
+      id: "make-room",
+      label: "Make it a room",
+      disabled,
+      title,
+      run: () => guidedAction({ kind: "make-room", key: editor.selected.value! }),
+    });
+  return actions;
+});
+const contextSecondary = computed<ContextAction[]>(() => {
+  const actions: ContextAction[] = [];
+  if (numberedPart.value)
+    actions.push({
+      id: "number",
+      label: "Change number…",
+      disabled: writeConflict.value || actionBusy.value,
+      run: changeNumber,
+    });
+  if (editor.kind.value === "logic") {
+    const id = `logic.format.${editor.selected.value}`;
+    actions.push({
+      id: "format",
+      label: "Format document",
+      disabled: editingPaused.value || actionBusy.value || !commands?.enabled(id),
+      run: () => commands?.execute(id),
+    });
+  }
+  return actions;
+});
+
+/** Guided previews validate against the working snapshot, drafts included. */
+const guidedSnapshot = computed(() => {
+  void editor.changeCount.value;
+  void snapshot.value;
+  return workingSnapshot();
+});
+/** Right-click on the game offers the current room's actions, whichever editor is open. */
+onMounted(() => {
+  roomMenuArmed.value = true;
+});
+watch(gameRoomMenu, (open) => {
+  if (!open) return;
+  const keys = (event: KeyboardEvent) => {
+    if (event.key === "Escape") gameRoomMenu.value = undefined;
+  };
+  window.addEventListener("keydown", keys);
+  onWatcherCleanup(() => window.removeEventListener("keydown", keys));
+});
+function pickRoomAction(kind: "door" | "response" | "place-hero" | "play-sound"): void {
+  const menu = gameRoomMenu.value;
+  gameRoomMenu.value = undefined;
+  if (!menu) return;
+  openPart(`logic:${menu.room}`);
+  guidedKind.value = kind;
+}
+const unknownSentence = computed(() =>
+  engine.playerSentences.value.findLast(
+    (entry) => entry.unknown && entry.room === engine.roomMap.currentRoom.value,
+  ),
+);
+const logicLocation = ref<{
+  key: string;
+  line: number;
+  serial: number;
+  start?: number;
+  end?: number;
+}>();
+const documentLocation = ref<{
+  key: string;
+  serial: number;
+  row?: number;
+  start?: number;
+  end?: number;
+  launchId?: string;
+  item?: number;
+}>();
+function revealProblem(problem: ProjectEditDiagnostic): void {
+  const key = problem.navigation?.key ?? problem.document;
+  documentLocation.value = {
+    ...problem,
+    ...problem.navigation,
+    key,
+    serial: (documentLocation.value?.serial ?? 0) + 1,
+  };
+  if (key.startsWith("logic:")) {
+    const source = text(key) ?? "";
+    logicLocation.value = {
+      key,
+      line: problem.start === undefined ? 1 : lineOf(source, problem.start),
+      serial: (logicLocation.value?.serial ?? 0) + 1,
+      ...(problem.start === undefined ? {} : { start: problem.start }),
+      ...(problem.end === undefined ? {} : { end: problem.end }),
+    };
+  }
+  openPart(key);
+}
+function openWordLogic(logic: number, line: number): void {
+  const key = `logic:${logic}`;
+  logicLocation.value = { key, line, serial: (logicLocation.value?.serial ?? 0) + 1 };
+  openPart(key);
+}
+/** The Views list's "Set in": one LOGIC line that places the figure. */
+function revealFigure(place: PlacementLine): void {
+  const key = `logic:${place.logic}`;
+  const source = text(key);
+  if (source !== undefined)
+    logicLocation.value = {
+      key,
+      line: lineOf(source, place.offset),
+      serial: (logicLocation.value?.serial ?? 0) + 1,
+    };
+  openPart(key);
+}
+function wordResponse(room: number, command: string): void {
+  openPart(`logic:${room}`);
+  guidedCommand.value = command;
+  guidedKind.value = "response";
+}
+async function wordChange(
+  action: { from: number; to: number; word?: string } | { remove: string },
+): Promise<void> {
+  if (editingPaused.value) return;
+  try {
+    if (writeConflict.value) throw new Error(session!.saveStatus().message);
+    await writes.flush();
+    const captured = workingSnapshot();
+    if (!captured) return;
+    const { changeMeaning, removeMeaningWord } = await import("./wordsAnalysis.ts");
+    const document = captured.read("words")!.content;
+    const words =
+      typeof document === "string"
+        ? (JSON.parse(document) as [string, number][])
+        : parseWordsTok(document).map(({ word, id }) => [word, id] as [string, number]);
+    const changes =
+      "remove" in action
+        ? removeMeaningWord(words, captured.documents(), action.remove, profile.value)
+        : changeMeaning(words, captured.documents(), action, profile.value);
+    const result = await engine.submitProjectEdit({
+      changes,
+      origin: "words",
+      author: "creator",
+      label:
+        "remove" in action
+          ? `Removed word ${action.remove}`
+          : `Changed meaning ${action.from} to ${action.to}`,
+    });
+    if (!["committed", "unchanged", "draft"].includes(result.status))
+      throw new Error("Check Problems before changing this meaning.");
+    draftChanged(true);
+    if (!editor.tabs.value.includes("words")) editor.tabs.value.push("words");
+    editor.error.value = "";
+    refresh();
+  } catch (cause) {
+    editor.error.value = cause instanceof Error ? cause.message : String(cause);
+  }
+}
+/**
+ * Run a room action. `stay` keeps the open part and the action form, so a
+ * Door's "New room" adds the room and goes on with the Door. Returns the room
+ * an add-room made.
+ */
+async function guidedAction(
+  action: WorkspaceAction,
+  options: { stay?: boolean } = {},
+): Promise<number | undefined> {
+  if (editingPaused.value || actionBusy.value) return undefined;
+  let added: number | undefined;
+  actionBusy.value = true;
+  try {
+    await writes.flush();
+    const capture = workingSnapshot();
+    if (!capture) return;
+    const { prepareWorkspaceAction } = await import("./workspaceGuided.ts");
+    const prepared = prepareWorkspaceAction(capture, profile.value.id, action);
+    if (!prepared.ok) throw new Error(prepared.message);
+    const result = await engine.submitProjectEdit({
+      changes: prepared.changes,
+      label: prepared.label,
+      origin: "logic",
+      author: "creator",
+    });
+    if (!["committed", "unchanged", "draft"].includes(result.status))
+      throw new Error("The action could not build. Check Problems and retry.");
+    if (action.kind === "response") {
+      const entry = engine.playerSentences.value.find(
+        (row) => row.room === action.room && row.text === action.command,
+      );
+      if (entry) engine.resolvePlayerSentence(entry);
+    }
+    if (action.kind === "make-room") {
+      refresh();
+      const key = prepared.changes.find((change) => change.key.startsWith("logic:"))?.key;
+      if (key) madeRoomArt[key] = action.key;
+      if (key) openPart(key);
+    }
+    if (action.kind === "add-room") {
+      const logicKey = prepared.changes.find((change) => change.key.startsWith("logic:"))?.key;
+      const room = logicKey ? Number(logicKey.slice(6)) : undefined;
+      const key =
+        prepared.changes.find((change) => change.key.startsWith("picture:"))?.key ?? logicKey;
+      if (key && !options.stay) openPart(key);
+      if (room !== undefined) {
+        added = room;
+        renamingRoom.value = room;
+        // Naming in place stays visible where the + lives, also on the phone.
+        if (!options.stay) editor.partsOpen.value = true;
+      }
+    }
+    if (action.kind === "boilerplate") {
+      const key = prepared.changes.find((change) => change.key.startsWith("logic:"))?.key;
+      if (key) openPart(key);
+    }
+    draftChanged(true);
+    if (!options.stay) guidedKind.value = undefined;
+    editor.error.value = "";
+  } catch (cause) {
+    editor.error.value = String(cause instanceof Error ? cause.message : cause);
+  } finally {
+    actionBusy.value = false;
+    refresh();
+  }
+  return added;
+}
+const versionName = ref("");
+const editingName = ref<string>();
+const versionNames = computed(() => {
+  const names: Record<string, string[]> = {};
+  for (const [name, id] of Object.entries(historyState.value?.tags ?? {}))
+    (names[id] ??= []).push(name);
+  return names;
+});
+async function historyAction(action: () => Promise<unknown>): Promise<void> {
+  if (editingPaused.value) return;
+  actionBusy.value = true;
+  try {
+    if (writeConflict.value) throw new Error(session!.saveStatus().message);
+    await writes.flush();
+    await action();
+    await session?.flush();
+    editor.error.value = "";
+  } catch (cause) {
+    editor.error.value = cause instanceof Error ? cause.message : String(cause);
+  } finally {
+    actionBusy.value = false;
+    refresh();
+  }
+}
+async function restore(id: string): Promise<void> {
+  await historyAction(async () => session?.restore(id));
+}
+async function nameVersion(): Promise<void> {
+  if (!versionName.value.trim()) return;
+  await historyAction(async () => {
+    if (editingName.value === undefined) await session?.tag(versionName.value.trim());
+    else await session?.renameTag(editingName.value, versionName.value.trim());
+    versionName.value = "";
+    editingName.value = undefined;
+  });
+}
+async function clearName(name: string): Promise<void> {
+  await historyAction(async () => {
+    await session?.renameTag(name, null);
+    if (editingName.value === name) {
+      editingName.value = undefined;
+      versionName.value = "";
+    }
+  });
+}
+async function deletePart(key: string, room?: number): Promise<void> {
+  if (!session || editingPaused.value || actionBusy.value) return;
+  const owner = session;
+  try {
+    await writes.flush();
+    if (session !== owner || editingPaused.value || actionBusy.value) return;
+    const captured = owner.workingSnapshot();
+    if (!captured.read(key)) return;
+    const plan = preparePartDraftRemoval(captured, key, profile.value, room);
+    if (plan.problems.length) {
+      partRemovalReview.value = {
+        owner,
+        snapshot: captured,
+        key,
+        ...(room === undefined ? {} : { room }),
+        plan,
+      };
+    } else applyPartRemoval(plan.changes);
+  } catch (cause) {
+    editor.error.value = cause instanceof Error ? cause.message : String(cause);
+  }
+}
+function applyPartRemoval(changes: readonly ProjectChange[]): void {
+  if (!session || editingPaused.value || actionBusy.value) return;
+  session.drafts().stageTransaction(changes);
+  partRemovalReview.value = undefined;
+  editor.error.value = "";
+  buildErrorLocation.value = undefined;
+  draftChanged(true);
+  if (editor.selected.value && deletedParts.value.includes(editor.selected.value))
+    openPart("problems");
+}
+async function confirmPartRemoval(): Promise<void> {
+  const review = partRemovalReview.value;
+  if (!session || !review || session !== review.owner) return;
+  if (
+    diffProjectDocuments(review.snapshot.documents(), session.workingSnapshot().documents()).length
+  ) {
+    partRemovalReview.value = undefined;
+    await deletePart(review.key, review.room);
+    return;
+  }
+  applyPartRemoval(review.plan.changes);
+}
+async function add(group: string, option?: string): Promise<void> {
+  if (editingPaused.value || actionBusy.value) return;
+  if (group === "SHARED LOGIC" && option !== undefined && option !== "empty") {
+    await guidedAction({ kind: "boilerplate", part: option as "menus" | "game-over" | "score" });
+    return;
+  }
+  if (group === "WORDS" || group === "OBJECTS") {
+    const key = group === "WORDS" ? "words" : "inventory";
+    const source = text(key);
+    const rows = typeof source === "string" ? (JSON.parse(source) as unknown[]) : [];
+    if (group === "WORDS") {
+      const { nextWordGroup } = await import("./wordGroups.ts");
+      rows.push(["word", nextWordGroup(rows as [string, number][])]);
+    } else rows.push({ name: "Object", startingRoom: 255 });
+    edit(key, JSON.stringify(rows));
+    openPart(key);
+    return;
+  }
+  if (group === "SHARED LOGIC") {
+    const used = occupiedProjectNumbers(
+      workingSnapshot()?.documents() ?? {},
+      "logic",
+      profile.value,
+    );
+    let num = 1;
+    while (used.has(num) && num < 256) num++;
+    if (num > 255) {
+      editor.error.value = "This resource group is full. Edit an existing part.";
+      return;
+    }
+    edit(`logic:${num}`, "return;\n");
+    openPart(`logic:${num}`);
+    return;
+  }
+  if (group === "ROOMS") {
+    await guidedAction({ kind: "add-room", title: "" });
+    return;
+  }
+  const kind = group === "PICTURES" ? "picture" : group === "VIEWS" ? "view" : "sound";
+  const view = kind === "view" ? await import("../../../../src/view/view.ts") : undefined;
+  const sound = kind === "sound" ? await import("../../../../src/sound/document.ts") : undefined;
+  const presets = kind === "sound" ? await import("../../../../src/sound/presets.ts") : undefined;
+  if (editingPaused.value) return;
+  // Allocate after the imports, so two quick Adds read the same working snapshot in turn.
+  const used = new Set(
+    Object.keys(workingSnapshot()?.documents() ?? {})
+      .filter((key) => key.startsWith(`${kind}:`))
+      .map((key) => Number(key.split(":")[1])),
+  );
+  let num = 1;
+  while (used.has(num) && num < 256) num++;
+  if (num > 255) {
+    editor.error.value = "This resource group is full. Edit an existing part.";
+    return;
+  }
+  // A new picture is blank and white: `end` alone compiles to one 0xff byte.
+  if (kind === "picture") edit(`picture:${num}`, "end\n");
+  else if (kind === "view") {
+    edit(
+      `view:${num}`,
+      view!.buildView({
+        loops: [
+          {
+            cels: [
+              { width: 8, height: 8, transparentColor: 15, pixels: new Uint8Array(64).fill(15) },
+            ],
+          },
+        ],
+      }),
+    );
+  } else {
+    edit(
+      `sound:${num}`,
+      presets!
+        .applySoundPreset(sound!.createSoundDocument({ profileId: profile.value.id }), "discovery")
+        .encode(),
+    );
+  }
+  openPart(`${kind}:${num}`);
+}
+let endResize: (() => void) | undefined;
+function resize(event: PointerEvent): void {
+  endResize?.();
+  const target = event.currentTarget as HTMLElement;
+  const host = target.parentElement!;
+  target.setPointerCapture(event.pointerId);
+  const area = host.getBoundingClientRect();
+  const left = host.querySelector(".parts-list")?.getBoundingClientRect().width ?? 0;
+  let value = editor.effectiveSplit.value;
+  let frame = 0;
+  layoutDragging.value = true;
+  host.classList.add("is-resizing");
+  const paint = () => {
+    frame = 0;
+    host.style.setProperty("--workspace-game", `minmax(var(--workspace-game-min), ${value}fr)`);
+    host.style.setProperty(
+      "--workspace-edit",
+      `minmax(var(--workspace-edit-min), ${100 - value}fr)`,
+    );
+  };
+  const move = (e: PointerEvent) => {
+    value = Math.min(
+      75,
+      Math.max(
+        25,
+        stacked.value
+          ? (100 * (e.clientY - area.top)) / area.height
+          : (100 * (e.clientX - area.left - left)) / (area.width - left),
+      ),
+    );
+    if (!frame) frame = requestAnimationFrame(paint);
+  };
+  const end = () => {
+    cancelAnimationFrame(frame);
+    editor.resize(value);
+    host.classList.remove("is-resizing");
+    layoutDragging.value = false;
+    target.removeEventListener("pointermove", move);
+    target.removeEventListener("pointerup", end);
+    target.removeEventListener("pointercancel", end);
+    target.removeEventListener("lostpointercapture", end);
+    endResize = undefined;
+  };
+  endResize = end;
+  target.addEventListener("pointermove", move);
+  target.addEventListener("pointerup", end);
+  target.addEventListener("pointercancel", end);
+  target.addEventListener("lostpointercapture", end);
+}
+let lastEscape = 0;
+function escape(event: KeyboardEvent): void {
+  if (event.key !== "Escape" || !props.creating || !editor.focus.value) return;
+  if (
+    openExplainer.value !== null ||
+    [
+      ...document.querySelectorAll(
+        'dialog[open], [role="menu"], .suggest-widget.visible, .monaco-hover, .workspace-guided__form, .words-choice, .word-suggestion',
+      ),
+    ].some((popover) => popover.getClientRects().length > 0)
+  ) {
+    lastEscape = 0;
+    return;
+  }
+  const now = Date.now();
+  if (now - lastEscape < 700) {
+    editor.toggleFocus();
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    lastEscape = 0;
+  } else lastEscape = now;
+}
+window.addEventListener("keydown", escape, true);
+function warnBeforeUnload(event: BeforeUnloadEvent): void {
+  event.preventDefault();
+  event.returnValue = "";
+}
+watch(
+  () => editor.pendingChanges.value,
+  (unsaved) => {
+    if (unsaved) window.addEventListener("beforeunload", warnBeforeUnload);
+    else window.removeEventListener("beforeunload", warnBeforeUnload);
+  },
+  { immediate: true, flush: "sync" },
+);
+function flushHidden(): void {
+  if (!writeConflict.value) void flushWorkspace().catch(() => {});
+}
+function visibilityChanged(): void {
+  if (document.visibilityState === "hidden") flushHidden();
+}
+window.addEventListener("pagehide", flushHidden);
+document.addEventListener("visibilitychange", visibilityChanged);
+editor.unsavedEdits.value = () => {
+  const buffers = {
+    ...(session?.saveStatus().state === "saved" ? {} : snapshot.value?.documents()),
+    ...optimistic.value,
+  };
+  for (const [key, value] of Object.entries(buffers))
+    if (key.startsWith("sound:"))
+      for (const change of editorChanges(key, value, buffers["music"]))
+        buffers[change.key] = change.content!;
+  return buffers;
+};
+onBeforeUnmount(() => {
+  roomMenuArmed.value = false;
+  gameRoomMenu.value = undefined;
+  document.removeEventListener("focusin", trackGameFocus);
+  document.removeEventListener("focusout", trackGameFocus);
+  offDrafts?.();
+  editor.update.value = undefined;
+  editor.selectLaunch.value = undefined;
+  editor.discardDrafts.value = undefined;
+  editor.changeCount.value = 0;
+  phoneQuery.removeEventListener("change", phoneLayout);
+  endResize?.();
+  retired = true;
+  window.removeEventListener("beforeunload", warnBeforeUnload);
+  window.removeEventListener("pagehide", flushHidden);
+  document.removeEventListener("visibilitychange", visibilityChanged);
+  editor.unsavedEdits.value = undefined;
+  editor.pendingChanges.value = false;
+  writes.dispose();
+  editor.flush.value = undefined;
+  editor.discard.value = undefined;
+  editor.retry.value = undefined;
+  unsubscribe?.();
+  document.removeEventListener("focusin", trackGameFocus);
+  document.removeEventListener("focusout", trackGameFocus);
+  window.removeEventListener("keydown", escape, true);
+  window.removeEventListener("dragover", musicDrag, true);
+  window.removeEventListener("drop", dropMusic, true);
+});
+</script>
+<template>
+  <UiDialog
+    :open="!!editor.removalReview.value"
+    title="Remove room"
+    @update:open="
+      (value) => {
+        if (!value) editor.removalReview.value = undefined;
+      }
+    "
+  >
+    <p v-for="message in editor.removalReview.value?.messages" :key="message">{{ message }}</p>
+    <template #footer>
+      <UiButton variant="ghost" @click="editor.removalReview.value = undefined">Cancel</UiButton>
+      <UiButton
+        :disabled="editor.busy.value || editingPaused"
+        @click="editor.step('undo', editor.removalReview.value)"
+        >Remove anyway</UiButton
+      >
+    </template>
+  </UiDialog>
+  <UiDialog
+    :open="!!partRemovalReview"
+    :title="
+      partRemovalReview?.room === undefined
+        ? `Delete ${documentLabel(partRemovalReview?.key ?? '')}`
+        : 'Delete room'
+    "
+    size="sm"
+    @update:open="
+      (value) => {
+        if (!value) partRemovalReview = undefined;
+      }
+    "
+  >
+    <p v-for="message in partRemovalReview?.plan.messages" :key="message">{{ message }}</p>
+    <p>These will show as problems until you change them.</p>
+    <p v-for="message in partRemovalReview?.plan.metadata" :key="message">{{ message }}</p>
+    <template #footer>
+      <UiButton variant="ghost" @click="partRemovalReview = undefined">Cancel</UiButton>
+      <UiButton
+        :disabled="editingPaused || actionBusy"
+        :title="
+          editingPaused
+            ? 'Editing is paused. Download your unsaved edits, then reload.'
+            : actionBusy
+              ? 'Wait for the current change to finish.'
+              : ''
+        "
+        @click="confirmPartRemoval"
+        >Delete</UiButton
+      >
+    </template>
+  </UiDialog>
+  <div
+    v-if="creating && phoneWidth && editor.selected.value"
+    class="workspace-phone-toggle"
+    role="group"
+    aria-label="Picture workspace"
+  >
+    <UiButton
+      size="sm"
+      variant="ghost"
+      :aria-pressed="!editor.phonePlaytest.value"
+      @click="editor.phonePlaytest.value = false"
+      >Edit</UiButton
+    >
+    <UiButton
+      size="sm"
+      variant="ghost"
+      :aria-pressed="editor.phonePlaytest.value"
+      @click="editor.phonePlaytest.value = true"
+      >Game</UiButton
+    >
+  </div>
+  <aside
+    v-if="creating && presentation.debugOpen.value"
+    class="workspace-inspector"
+    aria-label="Game inspector"
+    @keydown.esc.stop.prevent="presentation.debugOpen.value = false"
+  >
+    <header>
+      <strong>Inspector</strong
+      ><UiButton
+        size="sm"
+        variant="ghost"
+        aria-label="Close"
+        @click="presentation.debugOpen.value = false"
+        ><UiIcon name="x" :size="16"
+      /></UiButton>
+    </header>
+    <InspectPanel />
+  </aside>
+  <PartsList
+    :data-analysis="engine.roomMap.analysisStatus.value"
+    :active="
+      creating && !editor.focus.value && (!workspace.collapsed.left || editor.partsOpen.value)
+    "
+    :read-only="editingPaused || actionBusy"
+    :class="{ 'parts-list--open': editor.partsOpen.value }"
+    v-show="
+      creating && !editor.focus.value && (!workspace.collapsed.left || editor.partsOpen.value)
+    "
+    :pending="draftMembership"
+    :bindings="typeof content('bindings') === 'string' ? String(content('bindings')) : undefined"
+    :groups="groups"
+    :selected="editor.selected.value"
+    :thumbnails="thumbnails"
+    :views="viewThumbnails"
+    :profile="profile"
+    :rename-room="renamingRoom"
+    @open="(key, room) => openPart(key, room)"
+    @add="add"
+    @name-state="nameState"
+    @rename="renameRoom"
+    @rename-cancel="renamingRoom = undefined"
+    @remove="deletePart"
+    @number="
+      (key, room) => {
+        openPart(key, room);
+        changeNumber();
+      }
+    "
+  />
+  <div
+    v-show="creating && editor.selected.value && !editor.focus.value && !phoneWidth"
+    class="workspace-splitter"
+    role="separator"
+    :aria-label="stacked ? 'Editor height' : 'Editor width'"
+    :aria-orientation="stacked ? 'horizontal' : 'vertical'"
+    tabindex="0"
+    :aria-valuenow="editor.split.value"
+    aria-valuemin="25"
+    aria-valuemax="75"
+    @pointerdown="resize"
+    @keydown.left.prevent="editor.resize(editor.split.value - 2)"
+    @keydown.right.prevent="editor.resize(editor.split.value + 2)"
+    @keydown.up.prevent="editor.resize(editor.split.value - 2)"
+    @keydown.down.prevent="editor.resize(editor.split.value + 2)"
+  ></div>
+  <Teleport defer to=".play-area"
+    ><UiButton
+      v-if="creating && unknownSentence"
+      size="sm"
+      variant="ghost"
+      class="workspace-teach"
+      @click="wordResponse(unknownSentence.room, unknownSentence.text)"
+      >Teach this</UiButton
+    ></Teleport
+  >
+  <Teleport defer to=".play-area">
+    <div v-if="creating" class="workspace-game-bar" data-testid="workspace-game-bar">
+      <span class="workspace-game-bar__where"
+        ><span class="workspace-game-bar__room" data-testid="workspace-room">{{
+          currentRoomLabel
+        }}</span
+        ><TestRunChip
+      /></span>
+      <UiButton
+        v-if="visitingRoom !== undefined && returnRoom !== undefined"
+        size="sm"
+        variant="ghost"
+        :disabled="visitBusy"
+        :title="visitBusy ? 'Entering the room' : ''"
+        @click="backToGame()"
+        >Back to {{ numberedLabel("room", returnRoom, { rooms: allRooms }) }}</UiButton
+      >
+      <button
+        type="button"
+        class="workspace-game-keys"
+        :class="{ on: gameFocused }"
+        data-testid="workspace-game-keys"
+        @click="focusGameInput"
+      >
+        <span class="led" aria-hidden="true"></span>
+        <span>{{ gameFocused ? "Keys go to the game" : "Click the game to play" }}</span>
+      </button>
+    </div>
+  </Teleport>
+  <UiDialog
+    v-model:open="gameDetailsOpen"
+    title="Game details"
+    size="sm"
+    data-testid="workspace-game-details"
+  >
+    <RoomGenerationSetting
+      v-if="engine.currentGame()?.projectId"
+      :project-id="engine.currentGame()!.projectId!"
+      :enabled="roomGeneration"
+      :disabled="writeConflict"
+    />
+  </UiDialog>
+  <section
+    v-show="creating && editor.selected.value && (!phoneWidth || !editor.phonePlaytest.value)"
+    class="workspace-editor"
+    :class="{ 'workspace-editor--focus': editor.focus.value }"
+    data-testid="workspace-editor"
+    data-shell-keys
+  >
+    <header class="workspace-editor__header">
+      <ProjectTabs
+        pending
+        :tabs="tabRows"
+        :selected-key="editor.selected.value ?? null"
+        @select="(key) => openPart(key)"
+        @close="editor.close"
+      />
+      <div class="workspace-frame-controls">
+        <UiIconButton
+          v-if="!phoneWidth"
+          icon="panel-left"
+          size="sm"
+          label="Side by side"
+          data-testid="workspace-layout"
+          :aria-pressed="editor.splitAxis.value === 'horizontal'"
+          :title="editor.narrowFrame.value ? 'Side by side needs a wider window' : 'Side by side'"
+          :disabled="editor.narrowFrame.value"
+          @click="
+            editor.setSplitAxis(editor.splitAxis.value === 'horizontal' ? 'vertical' : 'horizontal')
+          "
+        />
+        <UiIconButton
+          icon="keyboard"
+          size="sm"
+          label="Keyboard shortcuts"
+          data-testid="workspace-keys"
+          aria-keyshortcuts="?"
+          aria-haspopup="dialog"
+          @click="editor.keysOpen.value = true"
+        />
+        <UiIconButton
+          icon="expand"
+          size="sm"
+          label="Focus"
+          :title="VOCABULARY.focus.help"
+          data-testid="workspace-focus"
+          :aria-pressed="editor.focus.value"
+          @click="editor.toggleFocus"
+        />
+        <ActionMenu
+          label="More actions"
+          test-id="workspace-more"
+          icon-only
+          icon="ellipsis"
+          size="sm"
+        >
+          <button
+            v-for="item in frameMenuItems"
+            :key="item.id"
+            type="button"
+            role="menuitem"
+            :data-testid="item.testId ?? `workspace-more-${item.id}`"
+            :disabled="item.disabled"
+            :title="item.title"
+            @click="item.run()"
+          >
+            {{ item.label }}
+          </button>
+        </ActionMenu>
+      </div>
+    </header>
+    <ChangeNumberDialog
+      v-if="numberDialog && numberSnapshot"
+      v-model:open="numberDialog"
+      :snapshot="numberSnapshot"
+      :resource="numberResource"
+      :profile
+      :busy="actionBusy"
+      :error="numberError"
+      :restart-required="numberRestart"
+      @change="applyNumber"
+    />
+    <div v-if="contextRow" class="workspace-context" data-testid="workspace-context">
+      <DebugControls v-if="debug?.stopped.value" :debug="debug" />
+      <UiChip v-if="editor.debugStatus.value" tone="warn" data-testid="workspace-debug-status">{{
+        editor.debugStatus.value
+      }}</UiChip>
+      <GuidedAdd
+        v-if="
+          (editor.kind.value === 'logic' || editor.kind.value === 'picture') &&
+          selectedRoom !== undefined &&
+          snapshot
+        "
+        v-model:action="guidedKind"
+        :room="selectedRoom"
+        :initial-command="guidedCommand"
+        :busy="actionBusy || editingPaused"
+        :snapshot="guidedSnapshot ?? snapshot"
+        :profile-id="profile.id"
+        :groups
+        :thumbnails
+        :views="viewThumbnails"
+        :sounds="guidedSounds"
+        :new-room="() => guidedAction({ kind: 'add-room', title: '' }, { stay: true })"
+        @add="guidedAction"
+      />
+      <ContextActions :actions="contextActions" :secondary="contextSecondary" />
+      <span v-if="unusedArt" class="workspace-context__note" data-testid="workspace-unused"
+        >Not used by a room yet</span
+      >
+      <!-- The open editor's own context (the picture's drawing place) teleports here. -->
+      <span id="workspace-context-editor" class="workspace-context__editor"></span>
+      <ImageReferencePanel
+        v-if="
+          !editingPaused &&
+          imagePanel === editor.selected.value &&
+          imagePanel?.startsWith('picture:') &&
+          session
+        "
+        :key="imagePanel"
+        :session="session"
+        :target="imagePanel"
+        :profile="profile"
+        :generate="imageGenerate"
+        active
+        :image-revision="snapshot?.version('images') ?? 0"
+        :resource-revision="snapshot?.version(imagePanel) ?? 0"
+        @close="imagePanel = undefined"
+        @busy="imageBusy = $event"
+        @changed="
+          draftChanged(true);
+          refresh();
+        "
+      />
+    </div>
+    <!-- Back stays available while the editor fills the workspace. -->
+    <p
+      v-if="launchRecovery.error"
+      class="workspace-error"
+      role="alert"
+      data-testid="launch-recovery-error"
+    >
+      {{ launchRecovery.error }} Repair launches to remove the inputs set by a room transition.
+      <UiButton
+        :disabled="editingPaused"
+        :title="editingPaused ? 'Editing is paused while another tab has this game.' : ''"
+        @click="repairSavedLaunches"
+        >Repair launches</UiButton
+      >
+    </p>
+    <div
+      v-if="
+        visitingRoom !== undefined && returnRoom !== undefined && (editor.focus.value || phoneWidth)
+      "
+      class="workspace-stage-note"
+      data-testid="workspace-visit"
+    >
+      <span>Visiting {{ numberedLabel("room", visitingRoom, { rooms: allRooms }) }}</span>
+      <UiButton
+        size="sm"
+        variant="ghost"
+        :disabled="visitBusy"
+        :title="visitBusy ? 'Entering the room' : ''"
+        @click="backToGame()"
+        >Back to {{ numberedLabel("room", returnRoom, { rooms: allRooms }) }}</UiButton
+      >
+    </div>
+    <Teleport
+      v-if="creating && editor.error.value && !engine.state.leaving && !editor.exitRefusal.value"
+      defer
+      :to="editor.history.value ? '#workspace-history-errors' : undefined"
+      :disabled="!editor.history.value"
+    >
+      <p
+        class="workspace-error"
+        :class="{ 'workspace-build-error': buildErrorNotice }"
+        role="alert"
+      >
+        {{ editor.error.value }}
+        <UiButton v-if="buildErrorNotice" @click="goToBuildError">Go to error</UiButton>
+        <UiButton v-else-if="!writeConflict" @click="retrySave">Retry</UiButton>
+      </p>
+    </Teleport>
+    <div
+      v-for="key in editor.retained.value"
+      :key="`${key}:${editorEpoch}`"
+      v-show="key === editor.selected.value"
+      class="workspace-editor__surface"
+    >
+      <ImageReferencePanel
+        v-if="!editingPaused && imagePanel === key && session && key.startsWith('view:')"
+        :session="session"
+        :target="key"
+        :profile="profile"
+        :generate="imageGenerate"
+        :active="key === editor.selected.value"
+        :image-revision="snapshot?.version('images') ?? 0"
+        :resource-revision="snapshot?.version(key) ?? 0"
+        @close="imagePanel = undefined"
+        @busy="imageBusy = $event"
+        @changed="
+          draftChanged(true);
+          refresh();
+        "
+      />
+      <RoomStudio
+        :read-only="editingPaused || actionBusy"
+        v-if="key.startsWith('picture:') && native(key) && profile"
+        :active="creating && key === editor.selected.value"
+        :figures="key === editor.selected.value ? figures : []"
+        @place-figure="placeFigure"
+        @reveal-figure="revealFigure"
+        @agent-context="editor.setAgentContext(key, $event)"
+        :underlay="traceUnderlays[key] ?? null"
+        :walk="pictureWalks[key]"
+        :current-room-source="
+          () => (pictureWalks[key] ? text(`logic:${pictureWalks[key]!.room}`) : undefined)
+        "
+        :priority-base="livePreview.state?.priorityBase"
+        :lesson-session="editor.studioRequests.value[key]?.lesson"
+        @room-edit="
+          (room, source, bindings, pictureSource) =>
+            editRoom(key, room, source, bindings, pictureSource)
+        "
+        @play-here="playHere"
+        :picture-number="Number(key.split(':')[1])"
+        :bytes="native(key)!"
+        :authored-source="text(key)"
+        :profile="profile"
+        :title="tabRows.find((tab) => tab.key === key)?.label ?? key"
+        :base-revision="revision"
+        :files="files"
+        @edit="edit(key, $event)"
+      />
+      <SpriteStudio
+        :read-only="editingPaused || actionBusy"
+        v-else-if="key.startsWith('view:') && (native(key) || stagedRequest(key)) && profile"
+        v-show="imagePanel !== key"
+        :workspace-focus="editor.focus.value || phoneWidth"
+        :active="creating && key === editor.selected.value && imagePanel !== key"
+        embedded
+        :usage="spriteContexts[key]?.usage ?? { rooms: [], logics: [], dynamic: false }"
+        :rooms="spriteContexts[key]?.rooms ?? []"
+        :speed="livePreview.state?.vars[10] ?? 2"
+        :cyclers="previewCyclers"
+        :priority-base="livePreview.state?.priorityBase"
+        :staged-reference="stagedRequest(key)?.reference"
+        :lesson-session="editor.studioRequests.value[key]?.lesson"
+        :view-number="Number(key.split(':')[1])"
+        @agent-context="editor.setAgentContext(key, $event)"
+        @use-staged="editView(key, $event)"
+        :bytes="stagedRequest(key)?.bytes ?? native(key)!"
+        :profile="profile"
+        :base-revision="revision"
+        :files="files"
+        @edit="editView(key, $event)"
+      />
+      <LogicEditor
+        :read-only="editingPaused || actionBusy"
+        v-else-if="key.startsWith('logic:') && text(key) !== undefined && snapshot"
+        :ref="
+          (instance) => {
+            if (instance) logicEditors.set(key, instance as unknown as LogicEditorHandle);
+            else logicEditors.delete(key);
+          }
+        "
+        :document-key="key"
+        :breakpoints="
+          debug?.state.breakpoints
+            .filter((point) => point.logic === Number(key.slice(6)))
+            .map((point) => point.line)
+        "
+        :stopped-line="
+          debug?.position.value?.logic === Number(key.slice(6))
+            ? debug.position.value.line
+            : undefined
+        "
+        :running-source="debug?.state.epoch ? debug.sources.value[key.slice(6)] : undefined"
+        :debug="debug ?? undefined"
+        @breakpoint="toggleBreakpoint(key, $event)"
+        :location="logicLocation?.key === key ? logicLocation : undefined"
+        :source="text(key)!"
+        :snapshot="languageSnapshot ?? snapshot"
+        :profile-id="profile.id"
+        :diagnostics
+        :active="creating && key === editor.selected.value"
+        @edit="edit(key, $event)"
+        @typing-end="endTyping"
+        @selection="editor.setAgentContext(key, $event)"
+      />
+      <WordsEditor
+        :read-only="editingPaused || actionBusy"
+        v-else-if="
+          key === 'words' && !textTables.includes(key) && text(key) !== undefined && snapshot
+        "
+        :source="text(key)!"
+        :documents="workingDocuments"
+        :snapshot
+        :profile="profile"
+        :location="documentLocation?.key === key ? documentLocation : undefined"
+        :room="engine.roomMap.currentRoom.value ?? 0"
+        :active="creating && key === editor.selected.value"
+        @edit="edit(key, $event)"
+        @move="wordChange"
+        @remove="wordChange({ remove: $event })"
+        @open-logic="openWordLogic"
+        @response="wordResponse"
+        @guided="guidedAction"
+      />
+      <TableEditor
+        :read-only="editingPaused || actionBusy"
+        v-else-if="key === 'inventory' && !textTables.includes(key) && text(key) !== undefined"
+        :kind="key"
+        :location="documentLocation?.key === key ? documentLocation : undefined"
+        :source="text(key)!"
+        @edit="edit(key, $event)"
+      />
+      <SoundPanel
+        :read-only="editingPaused || actionBusy"
+        v-else-if="key.startsWith('sound:') && native(key)"
+        :document-key="key"
+        :bytes="soundBytes(key)"
+        :tempo="soundTempo(key)"
+        :sounds="guidedSounds"
+        :profile-id="profile.id"
+        :active="creating && key === editor.selected.value"
+        @edit="(bytes, tempo) => editSound(key, bytes, tempo)"
+        :import-file="musicDropTarget === key ? musicDrop : undefined"
+        @imported="musicDrop = undefined"
+        @add="addImportedSound"
+        @open="openPart(`sound:${$event}`)"
+      />
+      <NotesEditor
+        :read-only="editingPaused || actionBusy"
+        v-else-if="key === 'notes'"
+        :source="text(key) ?? ''"
+        @edit="edit(key, $event)"
+        @typing-end="endTyping"
+      />
+      <ReferencesTab
+        v-else-if="key === 'uses'"
+        :active="creating && key === editor.selected.value"
+        :snapshot="workingSnapshot()"
+        :profile-id="profile.id"
+      />
+      <GameStateTab
+        v-else-if="key === 'state'"
+        :active="creating && key === editor.selected.value"
+        :snapshot="workingSnapshot()"
+        :state="livePreview.state"
+        :profile="profile"
+      />
+      <MessagesTab
+        v-else-if="key === 'messages'"
+        :container="container"
+        :keys="snapshot?.keys ?? []"
+        :profile="profile"
+      />
+      <Suspense v-else-if="key === 'problems' || key.startsWith('debug:')">
+        <DebugPanel
+          v-if="key === 'problems' || debug"
+          :debug="debug ?? undefined"
+          :problems="diagnostics"
+          :view="
+            key === 'problems'
+              ? 'problems'
+              : (key.slice(6) as 'variables' | 'watch' | 'stack' | 'breakpoints')
+          "
+          @reveal="revealDebug"
+          @problem="revealProblem"
+        />
+        <template #fallback><p>Loading…</p></template>
+      </Suspense>
+      <LaunchEditor
+        :read-only="editingPaused || actionBusy"
+        v-else-if="key.startsWith('launches:')"
+        :room="Number(key.slice(9))"
+        :location="documentLocation?.key === key ? documentLocation : undefined"
+        :room-name="roomName(Number(key.slice(9)))"
+        :launches="roomLaunches(Number(key.slice(9)))"
+        :selected-launch-id="roomSelectedLaunch(Number(key.slice(9)))"
+        :bindings="typeof content('bindings') === 'string' ? String(content('bindings')) : ''"
+        :live-preview="livePreview"
+        :picture-bytes="roomPictureBytes(Number(key.slice(9)))"
+        :profile="profile"
+        :rooms="allRooms"
+        :inventory="parsedInventory"
+        @edit="(launches) => editRoomLaunches(Number(key.slice(9)), launches)"
+        @select-launch="(launchId) => selectRoomLaunch(Number(key.slice(9)), launchId)"
+        @close="editor.close(key)"
+      />
+      <DocumentEditor
+        v-else-if="text(key) !== undefined"
+        :document-key="key"
+        :source="text(key)!"
+        :read-only="editingPaused || actionBusy"
+        :location="documentLocation?.key === key ? documentLocation : undefined"
+        @edit="edit(key, $event)"
+        @typing-end="endTyping"
+      />
+      <p v-else class="workspace-error">Open an authored part to edit it.</p>
+      <p
+        v-for="(preview, object) in key === editor.selected.value && key.startsWith('picture:')
+          ? visiblePlacementPreviews
+          : {}"
+        :key="object"
+        class="workspace-placement-preview"
+        data-testid="placement-preview"
+      >
+        {{ preview }}
+      </p>
+    </div>
+    <button
+      v-if="editor.focus.value && !phoneWidth"
+      class="workspace-game-chip"
+      data-testid="workspace-show-game"
+      @click="editor.toggleFocus"
+    >
+      Game · {{ numberedSlot("room", engine.roomMap.currentRoom.value ?? 0) }} · Show
+    </button>
+    <footer class="workspace-status" data-testid="workspace-status" aria-label="Status bar">
+      <div id="workspace-status-left" class="workspace-status__left"></div>
+      <button
+        v-if="editor.problemCount.value"
+        type="button"
+        class="workspace-status__problems"
+        data-testid="workspace-status-problems"
+        @click="editor.open('problems')"
+      >
+        ⚠ {{ editor.problemCount.value }}
+        {{ editor.problemCount.value === 1 ? "problem" : "problems" }}
+      </button>
+      <div class="workspace-status__right">{{ statusMeta }}</div>
+    </footer>
+  </section>
+  <StudioKeySheet
+    v-model:open="editor.keysOpen.value"
+    :name="keySheet.name"
+    :sections="keySheet.sections"
+    :where="keySheet.where"
+  />
+  <aside
+    v-if="creating && editor.history.value"
+    class="workspace-history"
+    aria-label="History"
+    data-testid="workspace-history"
+    @keydown.esc.stop.prevent="editor.history.value = false"
+  >
+    <header>
+      <h2>History</h2>
+      <UiButton size="sm" variant="ghost" aria-label="Close" @click="editor.history.value = false"
+        ><UiIcon name="x" :size="16"
+      /></UiButton>
+    </header>
+    <div id="workspace-history-errors"></div>
+    <p>{{ VOCABULARY.history.help }}</p>
+    <form @submit.prevent="nameVersion">
+      <input v-model="versionName" aria-label="Version name" placeholder="Opening scene" /><UiButton
+        size="sm"
+        type="submit"
+        :disabled="editingPaused || editor.busy.value"
+        >{{ editingName === undefined ? "Name this version" : "Rename" }}</UiButton
+      >
+      <UiButton
+        v-if="editingName !== undefined"
+        size="sm"
+        variant="ghost"
+        @click="
+          editingName = undefined;
+          versionName = '';
+        "
+        >Cancel</UiButton
+      >
+    </form>
+    <div
+      v-for="commit in [...(historyState?.commits ?? [])].reverse()"
+      :key="commit.id"
+      class="workspace-history__row"
+    >
+      <div class="workspace-history__labels">
+        <div
+          v-for="name in versionNames[commit.id] ?? []"
+          :key="name"
+          class="workspace-history__checkpoint"
+        >
+          <span class="workspace-history__name">{{ name }}</span>
+          <div class="workspace-history__actions">
+            <UiButton
+              size="sm"
+              variant="ghost"
+              :disabled="editingPaused || editor.busy.value"
+              :aria-label="`Rename ${name}`"
+              @click="
+                editingName = name;
+                versionName = name;
+              "
+              >Rename</UiButton
+            >
+            <UiButton
+              size="sm"
+              variant="ghost"
+              :disabled="editingPaused || editor.busy.value"
+              :aria-label="`Clear ${name}`"
+              @click="clearName(name)"
+              >Clear</UiButton
+            >
+          </div>
+        </div>
+        <span
+          class="workspace-history__label"
+          :class="{ 'is-secondary': versionNames[commit.id]?.length }"
+          >{{ commit.label }}</span
+        >
+      </div>
+      <UiButton
+        size="sm"
+        :disabled="editingPaused || commit.id === historyState?.cursor || editor.busy.value"
+        @click="restore(commit.id)"
+        >Restore</UiButton
+      >
+    </div>
+  </aside>
+  <aside
+    v-if="creating && musicDrop && !musicDropTarget"
+    class="workspace-music-preview"
+    aria-label="Music import"
+  >
+    <SoundImport
+      :file="musicDrop"
+      :profile-id="profile.id"
+      @apply="(bytes, tempo) => addImportedSound(bytes, tempo)"
+      @cancel="musicDrop = undefined"
+    />
+  </aside>
+  <div
+    v-if="creating && gameRoomMenu"
+    class="game-room-menu__backdrop"
+    @click="gameRoomMenu = undefined"
+    @contextmenu.prevent="gameRoomMenu = undefined"
+  >
+    <div
+      class="game-room-menu"
+      role="menu"
+      aria-label="Room actions"
+      data-testid="game-room-menu"
+      :style="{ left: `${gameRoomMenu.x}px`, top: `${gameRoomMenu.y}px` }"
+      @click.stop
+    >
+      <button type="button" role="menuitem" @click="pickRoomAction('door')">Door</button>
+      <button type="button" role="menuitem" @click="pickRoomAction('response')">
+        Answer a sentence
+      </button>
+      <button type="button" role="menuitem" @click="pickRoomAction('place-hero')">
+        Place hero
+      </button>
+      <button type="button" role="menuitem" @click="pickRoomAction('play-sound')">
+        Sound when…
+      </button>
+    </div>
+  </div>
+</template>
+
+<style scoped>
+.workspace-music-preview {
+  position: absolute;
+  right: var(--space-5);
+  bottom: var(--space-5);
+  width: min(440px, 90%);
+  z-index: var(--z-popover);
+}
+.workspace-context:has(.workspace-debug-controls) {
+  flex-wrap: wrap;
+}
+.workspace-context {
+  position: relative;
+  z-index: 1;
+}
+.workspace-game-bar__where {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.workspace-game-bar__room {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.game-room-menu__backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-popover);
+}
+.game-room-menu {
+  position: fixed;
+  display: grid;
+  min-width: 180px;
+  padding: var(--space-2);
+  background: var(--surface-3);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-pop);
+}
+.game-room-menu button {
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+.game-room-menu button:hover,
+.game-room-menu button:focus-visible {
+  background: var(--action-soft);
+}
+</style>

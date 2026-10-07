@@ -31,6 +31,43 @@ function stageWith(texName: "ownerTexture" | "previewTexture") {
   return { stage, tex };
 }
 
+test("flat unchanged frames keep the uploaded texture and avoid another GPU draw", () => {
+  const rgba = new Uint8Array(8);
+  const texture = new THREE.DataTexture(rgba, 2, 1);
+  let draws = 0;
+  let glows = 0;
+  const stage = Object.create(AgiStage.prototype) as AgiStage;
+  Object.assign(stage, {
+    disposed: false,
+    rgba,
+    texture,
+    amount: { value: 1 },
+    exploded: false,
+    pendingRaf: null,
+    renderPass: () => draws++,
+    updateGlow: () => glows++,
+  });
+  const black = new Uint8Array(8);
+  stage.render(black, true);
+  assert.equal(draws, 1, "the first frame must draw even when it matches the initial buffer");
+  assert.equal(glows, 1);
+  const uploaded = texture.version;
+  stage.render(black.slice(), true);
+  assert.equal(draws, 1, "stationary game cycles keep the already presented frame");
+  assert.equal(texture.version, uploaded, "unchanged bytes need no texture upload");
+  assert.equal(glows, 1, "unchanged bytes need no CRT glow recomputation");
+  const changed = Uint8Array.from([1, 2, 3, 255, 4, 5, 6, 255]);
+  stage.render(changed, true);
+  assert.deepEqual(rgba, changed);
+  assert.equal(draws, 2, "a changed frame draws immediately");
+  assert.ok(texture.version > uploaded);
+  assert.equal(glows, 2);
+
+  Object.assign(stage, { exploded: true });
+  stage.render(changed, true);
+  assert.equal(draws, 3, "exploded layers can change while the composed pixels stay the same");
+});
+
 test("an absent ownership channel zeroes the ownership texture", () => {
   const { stage, tex } = stageWith("ownerTexture");
   stage.setOwnershipData(new Uint16Array(8).fill(4));
@@ -73,4 +110,34 @@ test("a wrong-length ownership buffer is ignored, not truncated into", () => {
     texData(tex).every((v) => v === 255),
     "owner numbers clamp to the 8-bit mask",
   );
+});
+
+test("first fit matches the backing store even when output uniforms already match CSS", () => {
+  const canvas = { clientWidth: 640, clientHeight: 400, width: 960, height: 600 };
+  const outSize = { value: new THREE.Vector2(640, 400) };
+  const dpr = { value: 1 };
+  const sizes: number[][] = [];
+  const stage = Object.create(AgiStage.prototype) as AgiStage;
+  Object.assign(stage, {
+    disposed: false,
+    outSize,
+    dpr,
+    scene: { children: [] },
+    renderer: {
+      setSize(width: number, height: number, updateStyle: boolean) {
+        assert.equal(updateStyle, false);
+        sizes.push([width, height]);
+        canvas.width = width;
+        canvas.height = height;
+      },
+    },
+  });
+  const fit = stage as unknown as { fit(element: typeof canvas): void };
+  fit.fit(canvas);
+  assert.deepEqual(sizes, [[640, 400]]);
+  assert.deepEqual([canvas.width, canvas.height], [640, 400]);
+  assert.deepEqual(outSize.value.toArray(), [640, 400]);
+  assert.equal(dpr.value, 1);
+  fit.fit(canvas);
+  assert.equal(sizes.length, 1, "a matching backing store avoids another allocation");
 });

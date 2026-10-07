@@ -2,7 +2,7 @@
  * The world plan's revisioned write path.
  *
  * `AuthoringState.world` is the canonical plan; every writer — the agent's
- * update_world and the player's map edits — goes through
+ * update_plan and the player's map edits — goes through
  * validateAuthoringState, so both share the same limits. A player draft forks
  * from a base revision and commits only while the world still matches it; a
  * mismatch is a conflict the caller surfaces rather than a silent overwrite.
@@ -10,6 +10,7 @@
  * Layout and notes stay in the map sidecar — they are UI data, not plan data.
  */
 import { validateAuthoringState, type AuthoringState } from "./authoringState.ts";
+import { pruneRoomLaunches } from "../authoring/launches.ts";
 
 export type WorldPlan = AuthoringState["world"];
 export type WorldRooms = WorldPlan["rooms"];
@@ -56,7 +57,7 @@ export type WorldCommit =
 /**
  * Commit a draft back: the base revision must still match (unless the draft
  * is an adoption), then the merged world passes the shared validator —
- * the same limits update_world enforces. `authoring` is never mutated.
+ * the same limits update_plan enforces. `authoring` is never mutated.
  */
 export function commitWorldDraft(authoring: AuthoringState, draft: WorldDraft): WorldCommit {
   if (draft.baseRevision !== "" && worldRevision(authoring.world) !== draft.baseRevision)
@@ -119,6 +120,7 @@ export function draftRenameRoom(draft: WorldDraft, room: number, title: string):
   if (!title.trim()) return "A room needs a title";
   return draftEdit(draft, (world) => {
     world.rooms[String(room)]!.title = title.trim();
+    delete world.rooms[String(room)]!.titleIsDefault;
   });
 }
 
@@ -143,7 +145,7 @@ export function draftAddRoom(
   });
 }
 
-/** Remove a planned room and prune every exit that pointed at it. */
+/** Remove a planned room and prune every exit that pointed at it, and delete its launches. */
 export function draftRemoveRoom(draft: WorldDraft, room: number): string | null {
   if (!draft.world.rooms[String(room)]) return `Room ${room} is not in the plan`;
   return draftEdit(draft, (world) => {
@@ -151,6 +153,9 @@ export function draftRemoveRoom(draft: WorldDraft, room: number): string | null 
     for (const entry of Object.values(world.rooms))
       for (const [name, target] of Object.entries(entry.exits))
         if (target === room) delete entry.exits[name];
+    const pruned = pruneRoomLaunches(world, room);
+    if (pruned.launches) world.launches = pruned.launches;
+    else delete world.launches;
   });
 }
 

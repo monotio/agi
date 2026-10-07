@@ -1,66 +1,46 @@
 /**
- * Open a Studio on one resource of the running game by number: Room Studio
- * on picture N, Sprite Studio on view N. The Help guide's actions and its
- * lessons use it; it switches to Create first (a catalog game opens there
- * read-only until its first Keep forks a remix) and opens through the Create
- * centre like the World panel does. A lesson rides on the request, with the
- * resource as Studio first opened on it, through every reopen.
+ * Open a resource's editor from the Help guide by number: the picture editor
+ * on picture N, the VIEW editor on view N. The guide's lessons use it; it
+ * switches to Create first and opens the workspace tab directly, like
+ * choosing the part in the workspace. A lesson rides on the tab's request,
+ * checked against the resource as it was when the guide opened the editor.
  */
 import { computed } from "vue";
 import { useEngineApi } from "../engine/engineContext.ts";
-import type { LessonSession } from "../lessons/lessonCheck.ts";
 import type { LessonTarget, StudioLesson } from "../lessons/types.ts";
-import { useRoomStudio } from "../world/useRoomStudio.ts";
-import { useSpriteStudio } from "../world/useSpriteStudio.ts";
-import { useCreateWorkspace, type StudioRequest } from "./useCreateWorkspace.ts";
+import { useWorkspaceEditor } from "./workspaceEditor.ts";
 import { useShell } from "./useShell.ts";
 
-function withLesson(request: StudioRequest, lesson: LessonSession): StudioRequest {
-  const attach = (next: StudioRequest | null) => next && withLesson(next, lesson);
-  return {
-    ...request,
-    lesson,
-    reload: () => attach(request.reload()),
-    reloadFromStorage: async () => attach(await request.reloadFromStorage()),
-  };
-}
-
 export function useStudioLauncher() {
-  const { state } = useEngineApi();
+  const engine = useEngineApi();
+  const { state } = engine;
   const shell = useShell();
-  const workspace = useCreateWorkspace();
-  const rooms = useRoomStudio();
-  const sprites = useSpriteStudio();
+  const editor = useWorkspaceEditor();
 
-  /** A Studio can open now: Create is available and the screen fits one. */
-  const available = computed(
-    () => shell.createAvailable.value && workspace.studioFits.value && !state.powerUp.busy,
-  );
+  /** An editor can open now: Create is available and the agent is ready. */
+  const available = computed(() => shell.createAvailable.value && !state.powerUp.busy);
 
-  /** Open `target` (for `lesson`, when given); resolves whether a Studio opened on it. */
+  /** Open `target` (for `lesson`, when given); resolves whether its editor opened. */
   async function open(target: LessonTarget, lesson?: StudioLesson): Promise<boolean> {
     if (!available.value) return false;
-    if (workspace.studio.value) {
-      if (!(await workspace.confirmStudioLeave())) return false;
-      workspace.closeStudio();
-    }
     shell.setMode("create");
     if (shell.mode.value !== "create") return false;
+    // Lazy imports: the studio sources stay off the Play boot path (check:bundle).
     const request =
       target.studio === "room"
-        ? rooms.requestPicture(target.picture)
-        : await sprites.request(target.view);
+        ? (await import("../world/useRoomStudio.ts"))
+            .useRoomStudio(engine)
+            .requestPicture(target.picture, lesson)
+        : (await import("../world/useSpriteStudio.ts"))
+            .useSpriteStudio(engine, editor)
+            .request(target.view, lesson);
     if (!request) return false;
-    workspace.openStudio(
-      lesson
-        ? withLesson(request, {
-            lesson,
-            before: request.bytes.slice(),
-            beforeSource: request.kind === "picture" ? request.authoredSource : undefined,
-          })
-        : request,
-    );
-    return workspace.studio.value !== null;
+    editor.studioRequests.value = {
+      ...editor.studioRequests.value,
+      [request.key]: request,
+    };
+    editor.open(request.key);
+    return editor.selected.value === request.key;
   }
 
   return { available, open };

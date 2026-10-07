@@ -10,6 +10,7 @@ const config: KnipConfig = {
         // documented in docs/media/README.md, not package.json.
         "scripts/benchmark-media.ts",
         "scripts/capture-feedback.ts",
+        "scripts/generate-logic-reference.ts",
         // Spawned as a shell string by app/playwright.production.config.ts
         // (webServer command), which knip cannot resolve as an import.
         "scripts/serve-production.ts",
@@ -28,12 +29,13 @@ const config: KnipConfig = {
         // (`/src/...`) that knip does not follow from html entry files.
         "src/ui/gallery.ts",
         "src/studio/harness.ts",
-        "src/studio/sprite/harness.ts",
         // The default playwright.config.ts is auto-detected; the variant
         // configs (phone/capture/production/speedrun/media) are not.
         "playwright*.config.ts",
         // Documentation captures, matched by playwright.media.config.ts.
         "e2e/media/*.media.ts",
+        // Dynamically imported by the tab keyboard spec through a URL string.
+        "e2e/fixtures/studioFrameTabsReview.ts",
         "production/**/*.spec.ts",
         // node --test glob from the app `test:app` script.
         "test/*.test.ts",

@@ -1,0 +1,28 @@
+[
+  {
+    "id": "forest-path",
+    "target": "picture",
+    "intent": "A forest path leading to a cottage, with a stream on the left"
+  },
+  {
+    "id": "castle-gate",
+    "target": "picture",
+    "intent": "A castle gate with a drawbridge and open ground in front"
+  },
+  {
+    "id": "space-lab",
+    "target": "picture",
+    "intent": "A space station laboratory with a doorway at the right"
+  },
+  {
+    "id": "fox",
+    "target": "view",
+    "intent": "A friendly fox standing and walking to the right in four poses"
+  },
+  {
+    "id": "robot",
+    "target": "view",
+    "intent": "A small blue robot with two legs, standing in side view"
+  },
+  { "id": "key", "target": "view", "intent": "A large brass key seen from the side" }
+]

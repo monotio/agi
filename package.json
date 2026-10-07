@@ -1,8 +1,23 @@
 {
   "name": "agi-is-here",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Create, play and remix authentic AGI adventures with AI. Open-source TypeScript engine and browser authoring tools by Monotio.",
+  "private": true,
+  "workspaces": [
+    "app"
+  ],
+  "keywords": [
+    "agi",
+    "sierra",
+    "adventure-games",
+    "interpreter",
+    "typescript",
+    "game-editor"
+  ],
   "type": "module",
+  "bin": {
+    "agi-language-server": "scripts/agi-language-server.ts"
+  },
   "license": "MIT",
   "author": "Joakim Riedel <joakim@monotio.com>",
   "homepage": "https://agi.monotio.com",
@@ -29,12 +44,12 @@
     "media:capture": "node --experimental-strip-types scripts/capture-media.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p evals/tsconfig.json --noEmit",
     "typecheck:app": "npm --prefix app run typecheck",
-    "check:dependencies": "npm ls --depth=0 && npm --prefix app ls --depth=0",
+    "check:dependencies": "npm ls --depth=0 && node --experimental-strip-types scripts/check-engine-dependencies.ts",
     "check": "run-s check:dependencies typecheck typecheck:app lint lint:ast lint:dead lint:deps lint:tokens format:check test test:app eval:replay",
     "eval:genesis": "node --experimental-strip-types evals/genesis-cli.ts",
+    "eval:image-style": "node --experimental-strip-types evals/image-style.ts",
     "eval:picture": "node --experimental-strip-types evals/picture-fidelity.ts",
     "eval:remix": "node --experimental-strip-types evals/remix-benchmark.ts",
-    "eval:studio": "node --experimental-strip-types evals/studio-assist-benchmark.ts",
     "eval:references": "node --experimental-strip-types evals/reference-benchmark.ts",
     "eval:cache": "node --experimental-strip-types evals/cache-probe.ts",
     "eval:matrix": "node --experimental-strip-types evals/genesis-matrix.ts",
@@ -43,6 +58,7 @@
     "conformance": "node --experimental-strip-types scripts/conformance.ts",
     "eval:replay": "node --test --experimental-strip-types 'evals/tests/**/*.test.ts'",
     "eval": "npm --prefix evals run eval --",
+    "language-server": "node --experimental-strip-types scripts/agi-language-server.ts",
     "lint": "eslint . --max-warnings 0",
     "lint:dead": "knip",
     "lint:deps": "node scripts/lint-deps.mjs",
@@ -54,22 +70,27 @@
     "format": "prettier --write .",
     "format:check": "prettier --check ."
   },
+  "overrides": {
+    "typed-rest-client": {
+      "qs": "6.16.0"
+    }
+  },
   "devDependencies": {
-    "@anthropic-ai/sdk": "^0.128.0",
     "@ast-grep/cli": "0.45.3",
     "@eslint/js": "^10.0.1",
     "@stryker-mutator/core": "^10.0.0",
-    "@types/node": "^26.6.2",
-    "dependency-cruiser": "^18.4.0",
+    "@types/node": "^26.6.3",
+    "dependency-cruiser": "^18.5.0",
     "eslint": "^10.11.0",
-    "eslint-plugin-vue": "^10.11.0",
+    "eslint-plugin-vue": "^10.11.1",
     "globals": "^17.12.0",
-    "knip": "^6.38.0",
+    "knip": "^6.39.0",
     "npm-run-all2": "^9.0.3",
-    "openai": "^7.22.0",
-    "prettier": "^3.9.8",
+    "prettier": "^3.9.9",
     "typescript": "~6.0.3",
-    "typescript-eslint": "^8.70.1",
+    "typescript-eslint": "^8.71.0",
+    "vscode-languageserver": "10.1.2",
+    "vscode-languageserver-protocol": "3.18.4",
     "vue-eslint-parser": "^10.4.1"
   }
 }

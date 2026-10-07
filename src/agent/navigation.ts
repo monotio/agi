@@ -9,6 +9,7 @@ import {
   smoothAnchors,
   type SearchOptions,
 } from "./navigationSearch.ts";
+import { validateTarget, type Target } from "./navigationTarget.ts";
 
 export interface NavigationState {
   readonly engine: Engine;
@@ -19,12 +20,7 @@ export interface NavigationRun extends NavigationState {
   walkTo(x: number, y: number, maxTicks?: number): void;
 }
 
-export interface Target {
-  x0: number;
-  y0: number;
-  x1: number;
-  y1: number;
-}
+export { validateTarget, type Target } from "./navigationTarget.ts";
 
 export interface Plan {
   found: boolean;
@@ -60,19 +56,6 @@ export interface PlanOptions {
   maxSteps?: number;
   /** Controller-only terminal constraint: validate a complete cardinal border crossing. */
   exitDirection?: number;
-}
-
-export function validateTarget(target: Target): void {
-  if (
-    ![target.x0, target.x1, target.y0, target.y1].every(Number.isInteger) ||
-    target.x0 < 0 ||
-    target.x1 > 159 ||
-    target.y0 < 0 ||
-    target.y1 > 167 ||
-    target.x0 > target.x1 ||
-    target.y0 > target.y1
-  )
-    throw new RangeError("Target must be an ordered integer rectangle within 160x168.");
 }
 
 export function canWalkDirect(

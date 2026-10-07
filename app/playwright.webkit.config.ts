@@ -14,5 +14,22 @@ import base from "./playwright.config.ts";
 export default defineConfig({
   ...base,
   grep: /@webkit-desktop/,
-  projects: [{ name: "desktop-webkit", use: { ...devices["Desktop Safari"] } }],
+  projects: [
+    {
+      name: "desktop-webkit",
+      use: {
+        ...devices["Desktop Safari"],
+        // Desktop Safari advertises macOS even on Linux. Monaco derives its
+        // shortcuts from that identity; the shell and Playwright use the host OS.
+        ...(process.platform === "linux"
+          ? {
+              userAgent: devices["Desktop Safari"].userAgent.replace(
+                "Macintosh; Intel Mac OS X 10_15_7",
+                "X11; Linux x86_64",
+              ),
+            }
+          : {}),
+      },
+    },
+  ],
 });

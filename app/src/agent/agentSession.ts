@@ -1,3 +1,6 @@
+import { beginProviderTask } from "./providerBudget.ts";
+import type { AgentChat } from "../../../src/agent/chats.ts";
+import { computeResourceRevision } from "../../../src/authoring/resourceRevision.ts";
 import { AgentRun } from "./agentRun.ts";
 /**
  * Agent Session: Manages the ever-growing, append-only frontier LLM session
@@ -14,14 +17,14 @@ import {
 } from "../../../src/agent/agentState.ts";
 import {
   ASK_TOOLS,
+  validateAgentHandover,
   buildSound,
   type SoundTrackInput,
-  executeAgentTool,
+  type executeAgentTool,
   executeAgentToolAsync,
   GENESIS_TOOLS,
   REMIX_TOOLS,
   ROOM_AUTHORING_TOOLS,
-  STUDIO_ASSIST_TASK_TOOLS,
   withReferences,
   type AgentRuntimeDeps,
   type AgentToolDeps,
@@ -33,6 +36,10 @@ import {
   type ReferenceSource,
 } from "../../../src/agent/referenceTools.ts";
 import { buildView, type BuildViewInput } from "../../../src/view/view.ts";
+import {
+  isSoundDocumentEnvelopeClaim,
+  readSoundDocumentSource,
+} from "../../../src/sound/source.ts";
 import {
   resourceSetHint,
   validateAuthoringState,
@@ -47,7 +54,7 @@ import {
 import { readInventoryObjects } from "../../../src/agent/inventory.ts";
 import { prepareRoomPatch } from "../../../src/agent/roomPatch.ts";
 import type { ProfileId } from "../../../src/runtime/profile.ts";
-import { installBaseTemplate } from "../../../src/agent/baseTemplate.ts";
+import { installBoilerplateSeed } from "../../../src/agent/baseTemplate.ts";
 import { buildWordsTok } from "../../../src/logic/words.ts";
 import { openContainer } from "../../../src/container/container.ts";
 import {
@@ -75,17 +82,7 @@ import {
 } from "./llmClient.ts";
 import { GAME_DICTIONARY, StubAgent } from "./stubAgent.ts";
 import { createReferenceStub } from "./referenceStub.ts";
-import {
-  createStudioAssistPrompt,
-  createStudioAssistStub,
-  MAX_STUDIO_ROUNDS,
-  type StudioAssistRequest,
-  type StudioAssistResult,
-} from "./studioAssist.ts";
-import { createStudioAssist } from "../../../src/agent/studioAssistTools.ts";
 import { projectToolResult } from "../../../src/agent/toolTransport.ts";
-import { runGameTests } from "../../../src/agent/gameTests.ts";
-import { verifyPlanConnections } from "../../../src/agent/roomMap.ts";
 import type { AgentEventSink, AgentHandler, LlmRequest } from "./hostRequests.ts";
 import { continuationTranscript } from "../archive/projectArchive.ts";
 
@@ -149,41 +146,20 @@ The world is frozen at a cycle boundary in room ${room}, and the player has aske
 
 "${instruction.trim()}"
 
-Look before you write: read_room_context carries the room's live state, object table and resources — pass its 'frames' arg for the paused screen and 'state' for the full tables; read_logic / read_picture only when the request touches that resource. Patch the smallest thing that achieves what was asked — a color remap is patch_view_cels with 'recolor', no pixel rows needed — in the room the player is standing in unless they said otherwise. handover runs the full stored suite; playtest only when behavior is uncertain. When you are done, reply with one short sentence telling the player what changed — that sentence closes the bubble and the game resumes.`;
+Look before you write: read_room carries the room's live state, object table and resources — pass its 'frames' arg for the paused screen and 'state' for the full tables; read_logic / read_picture only when the request touches that resource. Patch the smallest thing that achieves what was asked — a color remap is edit_cels with 'recolor', no pixel rows needed — in the room the player is standing in unless they said otherwise. finish runs the full stored suite; playtest only when behavior is uncertain. When you are done, reply with one short sentence telling the player what changed — that sentence closes the bubble and the game resumes.`;
 }
 
 /**
  * The host verdict for a staged remix candidate — the executable half of
- * handover. Every stored game test replays against the staged resources
+ * finish. Every stored game test replays against the staged resources
  * and every declared plan exit needs a reachable compiled transition. The
  * genesis boot check is absent on purpose: the running game already proves
  * it boots, and an imported game has no genesis to re-litigate. Returns the
  * rejection text, or null when the candidate may commit.
  */
 function remixVerdict(staged: AgentSessionState): string | null {
-  const testRun = runGameTests(staged, null);
-  if (!testRun.success) return `Stored game tests failed: ${testRun.error ?? "unknown failure"}`;
-  const logics = new Map<number, Uint8Array>();
-  for (let num = 0; num <= 255; num++) {
-    const payload = staged.container.getResource("logic", num);
-    if (payload) logics.set(num, payload);
-  }
-  const connections = verifyPlanConnections(logics, staged.authoring.world.rooms, staged.profile);
-  if (connections.missing.length || connections.mismatched.length) {
-    const first = connections.missing[0] ?? connections.mismatched[0]!;
-    const cause =
-      "compiled" in first
-        ? `its compiled transition leaves the ${first.compiled} edge instead`
-        : "no compiled new.room transition reaches it";
-    const extra = connections.missing.length + connections.mismatched.length - 1;
-    return (
-      `room ${first.from} declares exit ${JSON.stringify(first.name)} ` +
-      `to room ${first.to} but ${cause}. ` +
-      "Implement the exit in the room's logic or revise the plan with update_world." +
-      (extra > 0 ? ` ${extra} more declared exit(s) also fail validation.` : "")
-    );
-  }
-  return null;
+  const verdict = validateAgentHandover(staged, null, false);
+  return verdict.success ? null : (verdict.error ?? "Handover rejected.");
 }
 
 /** A checkpoint off the tape is untrusted input: it must be an object before stateFromAuthoredData validates its fields. */
@@ -209,7 +185,7 @@ function stateFromAuthoredData(
   profile?: ProfileId,
 ): AgentSessionState {
   const fileMap = new Map(Object.entries(files));
-  const container = openContainer(fileMap);
+  const container = openContainer(fileMap, profile ? { profile } : {});
   const state = createAgentSessionState(container, profile);
   // Real copies, not refs: a Node Buffer's .slice() is a view, so callers
   // must never rely on the session detaching their byte arrays itself.
@@ -261,8 +237,25 @@ function stateFromAuthoredData(
             buildView(entry[1] as BuildViewInput, state.profile);
             state.sources.views.set(entry[0], entry[1] as BuildViewInput);
           } else {
-            buildSound(entry[1] as SoundTrackInput[]);
-            state.sources.sounds.set(entry[0], entry[1] as SoundTrackInput[]);
+            const body: unknown = entry[1];
+            if (isSoundDocumentEnvelopeClaim(body)) {
+              // A tagged `agi.sound-document` claim is validated under this
+              // session's profile, must reproduce the native SOUND bytes
+              // exactly, and is stored as the owned envelope — never
+              // adopted over an absent or different resource, never read
+              // as legacy tracks.
+              state.sources.sounds.set(
+                entry[0],
+                readSoundDocumentSource(
+                  body,
+                  state.profile.id,
+                  container.getResource("sound", entry[0]),
+                ),
+              );
+            } else {
+              buildSound(body as SoundTrackInput[]);
+              state.sources.sounds.set(entry[0], body as SoundTrackInput[]);
+            }
           }
         }
       }
@@ -279,12 +272,13 @@ export class AgentSession implements AgentHandler {
   private profileOverride: ProfileId | undefined;
   private readonly config: LlmConfig;
   private readonly onEvent: AgentEventSink;
-  private readonly conversation: UnifiedConversation | null;
+  private conversation: UnifiedConversation | null;
+  private backgroundChats: AgentChat[] = [];
   private readonly stubFallback: StubAgent | null;
   /** Conversation data retained while a non-stub provider has no connected key. */
   private readonly retainedTranscript: unknown[];
   private readonly retainedSessionId: string | undefined;
-  /** Live-game sources for read_room_context. */
+  /** Live-game sources for read_room. */
   private runtime: AgentRuntimeDeps = {};
   /** Local tool-execution ms since the last provider request, for telemetry. */
   private pendingToolMs = 0;
@@ -318,6 +312,8 @@ export class AgentSession implements AgentHandler {
         this.config,
         this.retainedTranscript,
         this.task,
+        undefined,
+        sessionId,
       );
       this.stubFallback = null;
     } else if (config.provider === "openai" && config.apiKey.trim()) {
@@ -349,6 +345,7 @@ export class AgentSession implements AgentHandler {
   }
 
   runAsk(question: string, room: number, attachments?: TurnReferences): Promise<string> {
+    if (this.task.snapshot().status === "idle") beginProviderTask(this.task.snapshot().allowance);
     return this.task.run(() => this.ask(question, room, attachments));
   }
   private async ask(question: string, room: number, attachments?: TurnReferences): Promise<string> {
@@ -359,9 +356,9 @@ export class AgentSession implements AgentHandler {
     this.onEvent("request", `[Ask] ${question}`, { instruction: question, room });
     const context = await this.orientationContext(room, ASK_TOOLS, true);
     if (!this.conversation) {
-      const result = await executeAgentToolAsync(
+      const result = await this.executeTool(
         this.state,
-        "read_room_context",
+        "read_room",
         {
           room,
           state: { compact: true, variables: null, flags: null },
@@ -398,11 +395,13 @@ Answer the player's question using evidence from inspection when needed. For hin
         for (const call of turn.toolCalls) {
           await this.task.checkpoint(false);
           this.onEvent("request", `[Ask] ${call.name}`, { tool: call.name });
+          this.task.assertActive();
+          this.assertAdoptable();
           const toolStart = performance.now();
           const result = watch.record(
             call.name,
             call.input,
-            await executeAgentToolAsync(inspected, call.name, call.input, {
+            await this.executeTool(inspected, call.name, call.input, {
               ...this.runtime,
               readOnly: true,
               allowedTools: tools,
@@ -415,7 +414,12 @@ Answer the player's question using evidence from inspection when needed. For hin
             `[Ask] ${call.name} → ${result.success ? (result.message ?? "Done") : result.error}`,
             { tool: call.name, result: { ...result, images: undefined } },
           );
-          this.task.recordTool(call.name, call.input, result);
+          this.task.recordTool(
+            call.name,
+            call.input,
+            result,
+            computeResourceRevision(Object.fromEntries(this.state.getFiles())),
+          );
           results.push({ toolCallId: call.id, result: this.projectForModel(result) });
         }
         this.conversation.appendToolResults(results);
@@ -434,6 +438,14 @@ Answer the player's question using evidence from inspection when needed. For hin
     }
   }
 
+  private executeTool(
+    ...args: Parameters<typeof executeAgentToolAsync>
+  ): ReturnType<typeof executeAgentToolAsync> {
+    this.task.assertActive();
+    this.assertAdoptable();
+    return executeAgentToolAsync(...args);
+  }
+
   /** Register local context; opening or connecting the panel never calls the provider. */
   setOrientation(input: Pick<OrientationInput, "game" | "profile">): void {
     if (!this.oriented) this.orientation = input;
@@ -441,7 +453,7 @@ Answer the player's question using evidence from inspection when needed. For hin
 
   /**
    * The first request's scene brief, read under the task's own list. Ask
-   * (`readOnly`) reads the room as its read_room_context calls do, so the
+   * (`readOnly`) reads the room as its read_room calls do, so the
    * plan entry that tool withholds from the player's surface stays out of
    * the brief too.
    */
@@ -453,16 +465,16 @@ Answer the player's question using evidence from inspection when needed. For hin
     if (!this.orientation || this.oriented) return "";
     const input = { ...this.orientation, room };
     // The compact scene brief reads through the same tools the model uses —
-    // read_room_context, read_picture — so the brief and the
+    // read_room, read_picture — so the brief and the
     // on-demand deep dive can never disagree about what the session holds.
     const [roomContext, picture] = [
-      await executeAgentToolAsync(
+      await this.executeTool(
         this.state,
-        "read_room_context",
+        "read_room",
         { room, state: null, frames: null },
         { ...this.runtime, allowedTools, readOnly },
       ),
-      executeAgentTool(this.state, "read_picture", { num: room }),
+      await this.executeTool(this.state, "read_picture", { num: room }, { allowedTools, readOnly }),
     ];
     const objects =
       roomContext.success && Array.isArray(roomContext.details?.["liveObjects"])
@@ -502,6 +514,7 @@ Answer the player's question using evidence from inspection when needed. For hin
     attachments?: TurnReferences,
     beforeAdopt?: () => Promise<void>,
   ): Promise<PowerUpResult> {
+    if (this.task.snapshot().status === "idle") beginProviderTask(this.task.snapshot().allowance);
     return this.task.run(() => this.remix(instruction, room, attachments, beforeAdopt));
   }
   private async remix(
@@ -520,9 +533,9 @@ Answer the player's question using evidence from inspection when needed. For hin
       // The stub looks at the running game before it patches, exactly as the
       // model path does. That keeps the offline e2e a proof of the whole
       // perception chain: worker frame ring -> transfer -> composited PNG.
-      const frames = await executeAgentToolAsync(
+      const frames = await this.executeTool(
         this.state,
-        "read_room_context",
+        "read_room",
         {
           room,
           state: null,
@@ -532,13 +545,16 @@ Answer the player's question using evidence from inspection when needed. For hin
       );
       this.onEvent(
         frames.success ? "response" : "error",
-        `[Remix] read_room_context -> ${frames.success ? (frames.message ?? "").split("\n")[0] : frames.error}`,
+        `[Remix] read_room -> ${frames.success ? (frames.message ?? "").split("\n")[0] : frames.error}`,
         { images: frames.images?.map((i) => i.caption) },
       );
+      this.task.assertActive();
       const result = await this.stubFallback.powerUp(instruction, room);
       // The commit gate runs before anything staged lands: a refusal leaves
       // the session's resources as the turn found them.
       await beforeAdopt?.();
+      this.task.assertActive();
+      this.assertAdoptable();
       this.messages.push({ role: "assistant", text: result.text });
       for (const resource of result.patched)
         this.state.container.putResource(resource.kind, resource.num, resource.payload);
@@ -564,30 +580,28 @@ Answer the player's question using evidence from inspection when needed. For hin
       // text turn closes the remix in one of two ways: no write succeeded,
       // or the host's own verdict — every stored game test and every
       // declared plan exit checked against this exact staged candidate —
-      // passes. The genesis leg of handover is skipped here: the running
+      // passes. The genesis leg of finish is skipped here: the running
       // game already proves it boots, and imported games have no genesis
       // to re-litigate. A failing verdict goes back to the model for repair
-      // up to three times — a text reply can be a progress note, not a
-      // final answer — and a further plain-text reply discards the
-      // candidate rather than adopting it.
+      // until completion or a visible task pause. A text reply may be a
+      // progress note while the staged candidate still needs repair.
       let stagedChanges = false;
-      let verdictsSent = 0;
       for (;;) {
         if (turn.toolCalls.length === 0) {
           if (!stagedChanges) break;
           const verdict = remixVerdict(staged);
           if (verdict === null) break;
-          if (verdictsSent === 3) {
-            const text = `${turn.text ?? "Done."} The staged changes were not applied: ${verdict}`;
-            this.messages.push({ role: "assistant", text });
-            this.onEvent("response", `[Remix] ${text.slice(0, 300)}`, { text, patched: [] });
-            return { text, patched: [], files: {} };
-          }
-          verdictsSent++;
+          this.task.recordTool(
+            "remix_verdict",
+            {},
+            { success: false, error: verdict },
+            computeResourceRevision(Object.fromEntries(staged.getFiles())),
+          );
+          await this.task.checkpoint(false);
           turn = await this.observeTurn(
             this.conversation.sendUserMessage(
               `The staged changes cannot be committed: ${verdict} ` +
-                "Repair them and call handover. If something blocks the repair, say what blocks it.",
+                "Repair them and call finish. If something blocks the repair, say what blocks it.",
             ),
             "remix",
           );
@@ -598,6 +612,8 @@ Answer the player's question using evidence from inspection when needed. For hin
         for (const tc of turn.toolCalls) {
           await this.task.checkpoint(false);
           this.onEvent("request", `[Remix] ${tc.name}`, { tool: tc.name, args: tc.input });
+          this.task.assertActive();
+          this.assertAdoptable();
           const toolStart = performance.now();
           const candidate = forkAgentState(staged);
           let res: AgentToolResult;
@@ -607,13 +623,13 @@ Answer the player's question using evidence from inspection when needed. For hin
             res = {
               success: false,
               error:
-                "Not executed: this turn ended at a successful handover. Ask for this change in the next Remix request.",
+                "Not executed: this turn ended at a successful finish. Ask for this change in the next Remix request.",
             };
           } else {
             res = watch.record(
               tc.name,
               tc.input,
-              await executeAgentToolAsync(candidate, tc.name, tc.input, {
+              await this.executeTool(candidate, tc.name, tc.input, {
                 ...this.runtime,
                 allowedTools: tools,
                 references: art.references,
@@ -622,7 +638,7 @@ Answer the player's question using evidence from inspection when needed. For hin
           }
           if (res.success) {
             Object.assign(staged, candidate);
-            if (tc.name === "handover") handedOver = true;
+            if (tc.name === "finish") handedOver = true;
             else if (
               res.details?.["writtenResources"] ||
               res.details?.["updatedFiles"] ||
@@ -642,11 +658,16 @@ Answer the player's question using evidence from inspection when needed. For hin
             { tool: tc.name, args: tc.input, result: { ...res, images: undefined } },
           );
           this.pendingToolMs += performance.now() - toolStart;
-          this.task.recordTool(tc.name, tc.input, res);
+          this.task.recordTool(
+            tc.name,
+            tc.input,
+            res,
+            computeResourceRevision(Object.fromEntries(staged.getFiles())),
+          );
           results.push({ toolCallId: tc.id, result: this.projectForModel(res) });
         }
         this.conversation.appendToolResults(results);
-        // A passing handover is the host's own verdict: append the results,
+        // A passing finish is the host's own verdict: append the results,
         // commit below and resume without another provider request.
         if (handedOver) break;
         turn = await this.observeTurn(this.conversation.complete(), "remix");
@@ -655,6 +676,8 @@ Answer the player's question using evidence from inspection when needed. For hin
       // The host's commit gate: a refusal throws into the turn's failure
       // path, which discards the staged candidate untouched.
       await beforeAdopt?.();
+      this.task.assertActive();
+      this.assertAdoptable();
       const patched = changedResources(this.state, staged);
       const files: Partial<Record<"WORDS.TOK" | "OBJECT" | "TESTS.JSON", Uint8Array>> = {};
       for (const name of ["WORDS.TOK", "OBJECT", "TESTS.JSON"] as const) {
@@ -684,109 +707,6 @@ Answer the player's question using evidence from inspection when needed. For hin
     } catch (error) {
       this.conversation.recordInterruption?.(
         `The remix turn did not finish. Its staged changes were discarded; the game resources remain as before this turn. ${String(error)}`,
-      );
-      throw error;
-    }
-  }
-
-  /**
-   * One Studio assist request: the creator's selection in Room Studio or
-   * Sprite Studio and what they asked for it. The model reads the focus and
-   * proposes candidates through the Studio tools only; nothing reaches the
-   * game or this session's resources. The result's candidate is what the UI
-   * previews and, on accept, applies as one undo step. The stub provider
-   * runs the same loop with a scripted conversation.
-   */
-  runStudioAssist(request: StudioAssistRequest): Promise<StudioAssistResult> {
-    return this.task.run(() => this.studioAssist(request));
-  }
-  private async studioAssist(request: StudioAssistRequest): Promise<StudioAssistResult> {
-    this.assertAdoptable();
-    const conversation =
-      this.conversation ?? (this.stubFallback ? createStudioAssistStub(request.instruction) : null);
-    if (!conversation)
-      throw new Error("Connect an API key in AI settings before asking the Studio assistant.");
-    const { instruction, focus } = request;
-    const assist = createStudioAssist(
-      focus,
-      request.maxProposals === undefined ? {} : { maxProposals: request.maxProposals },
-    );
-    const label = `${focus.scope.kind} ${focus.scope.num}`;
-    this.messages.push({ role: "user", text: instruction });
-    this.onEvent("request", `[Studio] "${instruction}" (${label})`, { instruction, scope: label });
-    const art = await this.referenceTurn({ referenceIds: request.referenceIds });
-    const tools = withReferences(STUDIO_ASSIST_TASK_TOOLS, art.references);
-    conversation.setAvailableTools(tools);
-    const deps: AgentToolDeps = {
-      allowedTools: tools,
-      studio: assist,
-      references: art.references,
-    };
-    const watch = createReferenceWatch(art.references);
-    // Inspection reads a fork, as Ask does: nothing this turn runs may
-    // reach the session's resources. It reads under the draft's profile,
-    // the one Accept re-checks the candidate with.
-    const inspected = forkAgentState(this.state);
-    if (focus.profile) Object.assign(inspected, { profile: focus.profile });
-    try {
-      let turn = await this.observeTurn(
-        conversation.sendUserMessage(
-          art.text + createStudioAssistPrompt(instruction, focus),
-          art.images,
-        ),
-        "studio",
-      );
-      for (let round = 1; turn.toolCalls.length; round++) {
-        const results: { toolCallId: string; result: AgentToolResult }[] = [];
-        for (const call of turn.toolCalls) {
-          await this.task.checkpoint(false);
-          this.onEvent("request", `[Studio] ${call.name}`, { tool: call.name, args: call.input });
-          const toolStart = performance.now();
-          const result =
-            round > MAX_STUDIO_ROUNDS
-              ? {
-                  success: false,
-                  error: `Not executed: this request reached its ${MAX_STUDIO_ROUNDS}-round limit.`,
-                }
-              : watch.record(
-                  call.name,
-                  call.input,
-                  await executeAgentToolAsync(inspected, call.name, call.input, deps),
-                );
-          this.pendingToolMs += performance.now() - toolStart;
-          this.onEvent(
-            result.success ? "response" : "error",
-            `[Studio] ${call.name} -> ${result.success ? (result.message ?? "ok").split("\n")[0] : result.error}`,
-            { tool: call.name, result: { ...result, images: undefined } },
-          );
-          this.task.recordTool(call.name, call.input, result);
-          results.push({ toolCallId: call.id, result: this.projectForModel(result) });
-        }
-        conversation.appendToolResults(results);
-        if (round > MAX_STUDIO_ROUNDS) break;
-        turn = await this.observeTurn(conversation.complete(), "studio");
-      }
-      const text =
-        turn.toolCalls.length === 0 && turn.text
-          ? turn.text
-          : (assist.candidate?.summary ?? "No change was proposed.");
-      this.noteUnviewed("Studio", watch.unviewed(text));
-      this.messages.push({ role: "assistant", text });
-      this.onEvent("response", `[Studio] ${text.slice(0, 300)}`, {
-        text,
-        candidate: assist.candidate?.candidateId ?? null,
-        proposals: assist.proposals,
-        refusals: assist.refusals,
-      });
-      return {
-        text,
-        candidate: assist.candidate,
-        proposals: assist.proposals,
-        refusals: assist.refusals,
-      };
-    } catch (error) {
-      conversation.recordInterruption?.(
-        `The Studio assist request was interrupted. Nothing was applied. ${String(error)}`,
       );
       throw error;
     }
@@ -846,7 +766,7 @@ Answer the player's question using evidence from inspection when needed. For hin
 
   private async observeTurn(
     pending: Promise<LlmTurnResult>,
-    phase: "ask" | "remix" | "genesis" | "room" | "studio",
+    phase: "ask" | "remix" | "genesis" | "room",
   ): Promise<LlmTurnResult> {
     try {
       const turn = await pending;
@@ -891,6 +811,10 @@ Answer the player's question using evidence from inspection when needed. For hin
       }
       throw error;
     }
+  }
+
+  getBackgroundChats(): AgentChat[] {
+    return structuredClone(this.backgroundChats);
   }
 
   getTranscript(): unknown[] {
@@ -1076,6 +1000,7 @@ Answer the player's question using evidence from inspection when needed. For hin
       sameProtocol ? this.getSessionId() : undefined,
     );
     replacement.messages = this.getMessages();
+    replacement.backgroundChats = this.getBackgroundChats();
     replacement.runtime = this.runtime;
     // A mid-swap credential change must not unlock authoring against bytes
     // the session has not adopted — the hold belongs to the shared state.
@@ -1121,12 +1046,13 @@ Answer the player's question using evidence from inspection when needed. For hin
   }
 
   /**
-   * Genesis is one turn: the agent records the world through update_world —
+   * Genesis is one turn: the agent records the world through update_plan —
    * the map shows the plan as it lands — and builds the opening room in the
    * same run. There is no separate plan approval: the map stays editable
    * afterwards and later rooms build when entered or from Build this room.
    */
   startGenesis(templateMarkdown: string): Promise<BootResources> {
+    if (this.task.snapshot().status === "idle") beginProviderTask(this.task.snapshot().allowance);
     return this.task.run(() => this.buildTurn(templateMarkdown));
   }
 
@@ -1158,26 +1084,40 @@ Answer the player's question using evidence from inspection when needed. For hin
   }
 
   private async buildTurn(templateMarkdown: string): Promise<BootResources> {
+    this.task.assertActive();
     this.assertAdoptable();
     if (!this.conversation && !this.stubFallback)
       throw new Error("Connect an API key in AI settings before creating a game.");
-    // Seed editable boilerplate before the first model turn. These are
-    // ordinary resources the agent can use, extend or replace.
-    installBaseTemplate(this.state, this.state.profile);
-    // Genesis carries no reference art yet, so view_reference stays off its list.
+    // Install the complete deterministic Boilerplate before the first model
+    // turn — the same playable snapshot manual Create produces without a
+    // provider. Admission is explicit: a blank session and the untouched
+    // seed are seeded; a session holding completed, imported or divergent
+    // authored work is refused rather than silently reseeded.
+    const seed = installBoilerplateSeed(this.state);
+    // Genesis carries no reference art yet, so read_reference_image stays off its list.
     const genesisTools = withReferences(GENESIS_TOOLS, undefined);
     this.conversation?.setAvailableTools(genesisTools);
     if (this.stubFallback) {
       this.onEvent("request", "Starting Genesis using offline StubAgent");
-      // The stub records its world plan through the same update_world tool —
+      this.task.assertActive();
+      // The stub records its world plan through the same update_plan tool —
       // the map's planned nodes land in the same turn the room does.
       this.stubFallback.plan(this.state);
       const resources = this.stubFallback.initialResources();
       for (const res of resources) {
         this.state.container.putResource(res.kind, res.num, res.payload);
+        // Stub-authored bytes carry no recorded source: the seed's claim
+        // over a number the stub replaced would read as a false source.
+        if (res.kind === "logic") this.state.sources.logics.delete(res.num);
+        else if (res.kind === "picture") this.state.sources.pictures.delete(res.num);
+        else if (res.kind === "view") this.state.sources.views.delete(res.num);
+        else this.state.sources.sounds.delete(res.num);
       }
       this.state.genesisComplete = true;
       const stubWords: [string, number][] = [...GAME_DICTIONARY];
+      // The stub rebuilds WORDS.TOK from its own dictionary; the claims
+      // must describe the file it wrote, not the seeded vocabulary.
+      this.state.sources.words.clear();
       for (const [w, id] of stubWords) {
         this.state.sources.words.set(w, id);
       }
@@ -1193,7 +1133,7 @@ Answer the player's question using evidence from inspection when needed. For hin
       `Beginning Genesis authoring with ${this.config.provider} (${this.config.model})`,
     );
 
-    const genesisPrompt = createGenesisPrompt(templateMarkdown);
+    const genesisPrompt = createGenesisPrompt(templateMarkdown, seed);
     let turn = await this.observeTurn(this.conversation.sendUserMessage(genesisPrompt), "genesis");
 
     while (!this.state.genesisComplete) {
@@ -1203,16 +1143,18 @@ Answer the player's question using evidence from inspection when needed. For hin
         for (const tc of turn.toolCalls) {
           await this.task.checkpoint(false);
           this.onEvent("request", `[Genesis] ${tc.name}`, { tool: tc.name, args: tc.input });
+          this.task.assertActive();
+          this.assertAdoptable();
           const toolStart = performance.now();
-          // Terminal barrier: a successful handover ends the batch; later
+          // Terminal barrier: a successful finish ends the batch; later
           // calls get an explicit rejection result, never a silent drop.
           const res = this.state.genesisComplete
             ? {
                 success: false,
                 error:
-                  "Not executed: this turn ended at a successful handover. Use an Ask or Remix request for further changes.",
+                  "Not executed: this turn ended at a successful finish. Use an Ask or Remix request for further changes.",
               }
-            : await executeAgentToolAsync(this.state, tc.name, tc.input, {
+            : await this.executeTool(this.state, tc.name, tc.input, {
                 allowedTools: genesisTools,
               });
           this.pendingToolMs += performance.now() - toolStart;
@@ -1223,21 +1165,31 @@ Answer the player's question using evidence from inspection when needed. For hin
               : `[Genesis] ${tc.name} failed: ${res.error}`,
             { tool: tc.name, args: tc.input, result: { ...res, images: undefined } },
           );
-          this.task.recordTool(tc.name, tc.input, res);
+          this.task.recordTool(
+            tc.name,
+            tc.input,
+            res,
+            computeResourceRevision(Object.fromEntries(this.state.getFiles())),
+          );
           results.push({ toolCallId: tc.id, result: this.projectForModel(res) });
         }
         this.conversation.appendToolResults(results);
         if (this.state.genesisComplete) break;
         turn = await this.observeTurn(this.conversation.complete(), "genesis");
       } else {
-        this.task.recordTool("unfinished_reply", {}, { success: false, message: turn.text ?? "" });
+        this.task.recordTool(
+          "unfinished_reply",
+          {},
+          { success: false, message: turn.text ?? "" },
+          computeResourceRevision(Object.fromEntries(this.state.getFiles())),
+        );
         // Model answered with text instead of tools, remind it to complete genesis
         this.onEvent("response", `[Genesis text] ${(turn.text ?? "").slice(0, 150)}`, {
           text: turn.text,
         });
         turn = await this.observeTurn(
           this.conversation.sendUserMessage(
-            "Genesis resources are not complete yet. Please invoke write_words, write_view, write_picture, write_logic_source, and handover.",
+            "Genesis is not finished: record the world plan with update_plan, adapt the seeded opening room to the brief with your write_* tools, then call finish.",
           ),
           "genesis",
         );
@@ -1258,13 +1210,40 @@ Answer the player's question using evidence from inspection when needed. For hin
     beforeAdopt?: () => Promise<void>,
     attachments?: TurnReferences,
   ): Promise<string> {
-    return this.task.run(() => this.prepareRoom(req, beforeAdopt, attachments));
+    return this.task.run(async () => {
+      const previous = this.conversation;
+      const previousMessages = this.messages;
+      this.messages = [];
+      if (this.config.provider === "openai" && this.config.apiKey.trim())
+        this.conversation = createOpenAiConversation(this.config, [], undefined, this.task);
+      else if (this.config.provider === "anthropic" && this.config.apiKey.trim())
+        this.conversation = createAnthropicConversation(this.config, [], this.task);
+      try {
+        return await this.prepareRoom(req, beforeAdopt, attachments);
+      } finally {
+        const id = `room-task-${Date.now()}-${this.backgroundChats.length}`;
+        this.backgroundChats.push({
+          id,
+          title: `Built room ${Number(req.context["room"])}`,
+          ...this.getProviderContext(),
+          transcript: this.conversation?.getTranscript() ?? [
+            { role: "user", text: `Build room ${Number(req.context["room"])}` },
+            ...this.messages,
+          ],
+          messages: this.messages.map((message, index) => ({ ...message, id: `${id}-${index}` })),
+          background: true,
+        });
+        this.conversation = previous;
+        this.messages = previousMessages;
+      }
+    });
   }
   private async prepareRoom(
     req: LlmRequest,
     beforeAdopt?: () => Promise<void>,
     attachments?: TurnReferences,
   ): Promise<string> {
+    this.task.assertActive();
     this.assertAdoptable();
     if (!this.conversation && !this.stubFallback)
       throw new Error("Connect an API key in AI settings before creating the next room.");
@@ -1274,8 +1253,10 @@ Answer the player's question using evidence from inspection when needed. For hin
         // Same commit gate as a remix turn: refuse before the staged room
         // lands in the session's container.
         await beforeAdopt?.();
+        this.task.assertActive();
+        this.assertAdoptable();
         const patch = prepareRoomPatch(
-          openContainer(this.state.getFiles()),
+          openContainer(this.state.getFiles(), { profile: this.state.profile }),
           Number(req.context["room"]),
           response,
           this.state.sources.words,
@@ -1318,22 +1299,18 @@ Answer the player's question using evidence from inspection when needed. For hin
       roomNotes: this.runtime.roomNotes,
     };
     this.onEvent("request", `[Runtime room] authoring room ${room} from room ${from}`);
-    const resources = executeAgentTool(staged, "inspect_world_bible", {
-      filter: "slots",
-      section: null,
-      name: null,
-      offset: null,
-      kind: null,
-    });
-    const previous = executeAgentTool(staged, "read_logic", { num: from });
+    const resources = await this.executeTool(
+      staged,
+      "read_plan",
+      { filter: "slots", section: null, name: null, offset: null, kind: null },
+      snapshot,
+    );
+    const previous = await this.executeTool(staged, "read_logic", { num: from }, snapshot);
     // Player intent pinned on the map for this room — provenance the host
-    // attached to the request, validated to a bounded list of strings.
+    // attached to the request; every supplied string travels in the prompt.
     const rawNotes = req.context["playerNotes"];
     const playerNotes = Array.isArray(rawNotes)
-      ? rawNotes
-          .filter((note): note is string => typeof note === "string")
-          .slice(0, 16)
-          .map((note) => note.slice(0, 400))
+      ? rawNotes.filter((note): note is string => typeof note === "string")
       : undefined;
     // A map-built extension names the planned exit it is realizing: the turn
     // must leave that route implemented in the source room's logic.
@@ -1347,6 +1324,9 @@ Answer the player's question using evidence from inspection when needed. For hin
         this.conversation.sendUserMessage(
           art.text +
             createRuntimeRoomPrompt(room, from, playerNotes, plannedExit) +
+            (typeof req.context["gameNotes"] === "string"
+              ? `\nGame notes:\n${req.context["gameNotes"]}`
+              : "") +
             `\nResources: ${resources.message ?? ""}\nInventory (preserve this order): ${JSON.stringify(staged.sources.objects)}\nPrevious room logic:\n${previous.message ?? ""}`,
           art.images,
         ),
@@ -1355,7 +1335,7 @@ Answer the player's question using evidence from inspection when needed. For hin
       let completed = false;
       for (;;) {
         if (turn.toolCalls.length === 0) {
-          // Only a passing handover — the host's own validation of the exact
+          // Only a passing finish — the host's own validation of the exact
           // staged candidate — completes the room; a text reply commits
           // nothing, whether or not the resources merely exist.
           const missing =
@@ -1365,12 +1345,13 @@ Answer the player's question using evidence from inspection when needed. For hin
             "unfinished_reply",
             {},
             { success: false, message: turn.text ?? "" },
+            computeResourceRevision(Object.fromEntries(staged.getFiles())),
           );
           turn = await this.observeTurn(
             this.conversation.sendUserMessage(
               missing
                 ? `Room ${room} still needs both logic and picture. Author the missing resources.`
-                : `Room ${room} is authored but not handed over. Call handover to validate and commit it; a text reply alone commits nothing.`,
+                : `Room ${room} is authored but not handed over. Call finish to validate and commit it; a text reply alone commits nothing.`,
             ),
             "room",
           );
@@ -1380,6 +1361,8 @@ Answer the player's question using evidence from inspection when needed. For hin
         for (const tc of turn.toolCalls) {
           await this.task.checkpoint(false);
           this.onEvent("request", `[Room tool] ${tc.name}`, { tool: tc.name, args: tc.input });
+          this.task.assertActive();
+          this.assertAdoptable();
           const toolStart = performance.now();
           const candidate = forkAgentState(staged);
           let result: AgentToolResult;
@@ -1388,16 +1371,16 @@ Answer the player's question using evidence from inspection when needed. For hin
               result = {
                 success: false,
                 error:
-                  "Not executed: this turn ended at a successful handover. The room is already committed.",
+                  "Not executed: this turn ended at a successful finish. The room is already committed.",
               };
-            } else if (tc.name === "handover") {
+            } else if (tc.name === "finish") {
               if (
                 staged.container.getResource("logic", room) &&
                 staged.container.getResource("picture", room)
               ) {
                 // The room's structural gate first, then the shared host
                 // validation (stored game tests) against the staged candidate.
-                result = await executeAgentToolAsync(candidate, "handover", tc.input, snapshot);
+                result = await this.executeTool(candidate, "finish", tc.input, snapshot);
                 if (result.success) {
                   staged = candidate;
                   completed = true;
@@ -1412,7 +1395,7 @@ Answer the player's question using evidence from inspection when needed. For hin
               result = watch.record(
                 tc.name,
                 tc.input,
-                await executeAgentToolAsync(candidate, tc.name, tc.input, snapshot),
+                await this.executeTool(candidate, tc.name, tc.input, snapshot),
               );
               if (result.success) {
                 validateRoomCandidate(this.state, staged, candidate);
@@ -1438,7 +1421,12 @@ Answer the player's question using evidence from inspection when needed. For hin
             { tool: tc.name, result: { ...result, images: undefined } },
           );
           this.pendingToolMs += performance.now() - toolStart;
-          this.task.recordTool(tc.name, tc.input, result);
+          this.task.recordTool(
+            tc.name,
+            tc.input,
+            result,
+            computeResourceRevision(Object.fromEntries(staged.getFiles())),
+          );
           results.push({ toolCallId: tc.id, result: this.projectForModel(result) });
         }
         this.conversation.appendToolResults(results);
@@ -1451,6 +1439,8 @@ Answer the player's question using evidence from inspection when needed. For hin
       // The host's commit gate: a refusal discards the staged room through
       // the turn's failure path.
       await beforeAdopt?.();
+      this.task.assertActive();
+      this.assertAdoptable();
       const changed = changedResources(this.state, staged).map(({ kind, num, payload }) => ({
         kind,
         num,
@@ -1464,7 +1454,7 @@ Answer the player's question using evidence from inspection when needed. For hin
         ...(staged.testsPayload ? { tests: Array.from(staged.testsPayload) } : {}),
       });
       prepareRoomPatch(
-        openContainer(this.state.getFiles()),
+        openContainer(this.state.getFiles(), { profile: this.state.profile }),
         room,
         response,
         this.state.sources.words,

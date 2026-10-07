@@ -1,3 +1,4 @@
+import { toolDescription, parameterDescriptions } from "../vocabulary.ts";
 /** Accessible, bounded shape authoring compiled to authentic AGI picture commands. */
 import { resourceCacheHint } from "./authoringState.ts";
 import {
@@ -14,12 +15,15 @@ import { compilePictureSource } from "../picture/source.ts";
 import { sceneSource, validateSimplePolygon } from "../studio/shapes.ts";
 import type { Point, SceneShape } from "../studio/shapes.ts";
 import { createPictureSurface, SCREEN_HEIGHT, SCREEN_WIDTH } from "../types.ts";
+import { editableSource, sourceContextRevision } from "./authoringTools.ts";
+import { applyEdit } from "../studio/editOperations.ts";
+import { parsePictureDocument, serializePictureDocument } from "../studio/pictureDocument.ts";
 
 const MAX_SHAPES = 128;
 const MAX_VERTICES_PER_SHAPE = 64;
 const MAX_TOTAL_VERTICES = 2048;
-/** The largest picture write_scene compiles; Room Studio's byte meter warns against it. */
-export const MAX_PAYLOAD_BYTES = 60_000;
+/** The largest picture draw_picture_items compiles. */
+const MAX_PAYLOAD_BYTES = 60_000;
 const MAX_SHAPE_NAME = 48;
 
 const POINT_SCHEMA = {
@@ -35,10 +39,31 @@ const POINT_SCHEMA = {
 /** Strict-compatible schema for deterministic scene geometry. */
 export const PICTURE_TOOLS: readonly ToolDefinition[] = [
   {
-    name: "write_scene",
-    description:
+    name: "add_depth",
+    description: toolDescription(
+      "add_depth",
+      "Adds derived Depth to picture `num` item `itemId`. Read the picture first and pass its `expectedRevision`. Null `baseY` uses the item's lowest drawn row; null `priorityBase` uses 48, the default set.pri.base. Supply the room's current priority base when it differs. Replaces the item's painted Depth with ordinary AGI lines and records the base line so later item edits regenerate it. Locked items, stale revisions, invalid source or excessive byte size leave the resource unchanged. Returns the new editable-source revision and written resource. Art stays unchanged.",
+    ),
+    parameters: parameterDescriptions("add_depth", {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        num: { type: "integer", minimum: 0, maximum: 255 },
+        itemId: { type: "string", minLength: 1 },
+        expectedRevision: { type: "string", minLength: 1 },
+        baseY: { type: ["integer", "null"], minimum: 0, maximum: 167 },
+        priorityBase: { type: ["integer", "null"], minimum: 0, maximum: 167 },
+      },
+      required: ["num", "itemId", "expectedRevision", "baseY", "priorityBase"],
+    }),
+  },
+  {
+    name: "draw_picture_items",
+    description: toolDescription(
+      "draw_picture_items",
       "Compile a complete picture `room` from ordered `shapes` (rects, polygons and lines in logical coordinates) over a full `backgroundColor` fill. Rects use x1,y1,x2,y2; other shapes use points. Unused coordinates and visual-only priority are null. Later shapes paint over earlier ones. Returns the rendered comparison, spatial metrics and revision; invalid geometry stores nothing. Name shapes so the creator can find and edit them in Room Studio.",
-    parameters: {
+    ),
+    parameters: parameterDescriptions("draw_picture_items", {
       type: "object",
       additionalProperties: false,
       properties: {
@@ -113,7 +138,7 @@ export const PICTURE_TOOLS: readonly ToolDefinition[] = [
         },
       },
       required: ["room", "backgroundColor", "shapes"],
-    },
+    }),
   },
 ];
 
@@ -202,13 +227,58 @@ function parseShape(value: unknown, index: number): SceneShape {
   return { kind, color, priority, filled, points, label: shapeLabel };
 }
 
-/** Execute write_scene, or return undefined when another registry owns the name. */
+/** Execute draw_picture_items, or return undefined when another registry owns the name. */
 export function executePictureTool(
   state: AgentSessionState,
   name: string,
   args: Record<string, unknown>,
 ): AgentToolResult | undefined {
-  if (name !== "write_scene") return undefined;
+  if (name === "add_depth") {
+    try {
+      const num = integer(args["num"], "Picture number", 0, 255);
+      const source = editableSource(state, "picture", num);
+      if (source === undefined)
+        throw new Error(`Picture ${num} is missing. Read the plan to choose an existing picture.`);
+      if (sourceContextRevision(state, "picture", num, source) !== args["expectedRevision"])
+        throw new Error("The picture changed. Read it again and retry with its current revision.");
+      const parsed = parsePictureDocument(source);
+      if (parsed.diagnostics.length)
+        throw new Error("The picture's item annotations are invalid. Repair its source first.");
+      const result = applyEdit(
+        parsed.document,
+        {
+          type: "addDepth",
+          itemId: String(args["itemId"]),
+          ...(args["baseY"] == null ? {} : { baseY: integer(args["baseY"], "Base line", 0, 167) }),
+        },
+        {
+          profile: state.profile,
+          priorityBase:
+            args["priorityBase"] == null
+              ? 48
+              : integer(args["priorityBase"], "Priority base", 0, 167),
+        },
+      );
+      if ("error" in result) throw new Error(result.error);
+      const next = serializePictureDocument(result.document);
+      const compiled = compilePictureSource(next, { profile: state.profile });
+      if (compiled.bytes.length > MAX_PAYLOAD_BYTES)
+        throw new Error(`Depth exceeds ${MAX_PAYLOAD_BYTES} bytes. Simplify the item first.`);
+      state.container.putResource("picture", num, compiled.bytes);
+      state.sources.pictures.set(num, next);
+      return {
+        success: true,
+        message: `Added depth to ${args["itemId"]}.`,
+        details: {
+          revision: sourceContextRevision(state, "picture", num, next),
+          writtenResources: [{ kind: "picture", num }],
+        },
+      };
+    } catch (error) {
+      return { success: false, error: String(error) };
+    }
+  }
+  if (name !== "draw_picture_items") return undefined;
   try {
     const room = integer(args["room"], "Picture number", 0, 255);
     const backgroundColor = integer(args["backgroundColor"], "Background color", 0, 15);

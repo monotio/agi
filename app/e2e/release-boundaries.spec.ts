@@ -6,8 +6,9 @@ import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import { buildWordsTok } from "../../src/logic/words.ts";
 import {
+  downloadFromSettings,
+  gameHint,
   isolateStorage,
-  openGameOptions,
   savedGameCard,
   textHook,
   waitForAutosaveAfter,
@@ -75,7 +76,8 @@ for (const failure of ["unsafe", "timeout", "storage"] as const) {
     if (failure === "unsafe") {
       await page.getByTestId("input-line").fill("look");
       await page.getByTestId("input-line").press("Enter");
-      await expect(page.getByTestId("prompt-hint")).toBeVisible();
+      await expect(await gameHint(page, "prompt-hint")).toBeVisible();
+      await page.mouse.move(0, 0);
     } else if (failure === "timeout") {
       await page.evaluate(() => {
         const post = Worker.prototype.postMessage;
@@ -97,11 +99,8 @@ for (const failure of ["unsafe", "timeout", "storage"] as const) {
     let downloads = 0;
     page.on("download", () => downloads++);
     const download = page.waitForEvent("download");
-    await openGameOptions(page, "settings-menu");
-    await page.getByTestId("btn-download-game").click();
-    await expect(page.getByTestId("export-refusal")).toContainText(
-      "Backup downloaded with limitations",
-    );
+    await downloadFromSettings(page, true);
+    await expect(page.getByTestId("export-refusal")).toContainText("Downloaded the game.");
     if (failure === "unsafe")
       await page.screenshot({ path: testInfo.outputPath("checkpoint-limitations.png") });
     const path = (await (await download).path())!;

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import UiIcon from "../../ui/UiIcon.vue";
 import { computed, nextTick, shallowRef, useTemplateRef } from "vue";
 import UiExplain from "../../ui/UiExplain.vue";
 import { sameDisplay, type SpriteDocument } from "../../../../src/view/spriteDocument.ts";
@@ -261,7 +262,7 @@ function onMenuFocusOut(event: FocusEvent): void {
 
 /** The loop picker: every loop (a move skips the cel's own), then Back. */
 /** Why the timeline's edits are off, on their tooltips. */
-const PAUSED = "Editing waits while the view is view only or an AI proposal is open";
+const PAUSED = "Editing pauses while the actor is read-only or an AI change is open";
 const ONE_CEL = "A loop keeps at least one cel";
 
 function loopPicker(l: number, c: number, pick: "copy" | "move"): MenuItem[][] {
@@ -444,7 +445,7 @@ function onMenuKey(event: KeyboardEvent): void {
               }
             "
           >
-            ⋯
+            <UiIcon name="ellipsis" :size="16" />
           </button>
         </div>
         <div class="timeline__cels" role="gridcell">

@@ -1,3 +1,11 @@
+/**
+ * Adventure Department, the bundled tutorial. Its copy is written for a newcomer of
+ * about eleven: one idea per message box, the next command last and in capitals, and
+ * each term tied to what it does (a picture is a recipe, a view a flipbook, depth a
+ * secret number). HELP lists only the current room's verbs, natural wrong actions get
+ * a Sierra-style reply, and a typo reply names the unknown word and the room's next
+ * step. Messages are single-byte 40-column text.
+ */
 import type { OpenedGame } from "../../app/src/archive/gameZip.ts";
 import { serializeGameTests } from "../../src/agent/gameTestFormat.ts";
 import { TUTORIAL_GAME_TESTS } from "./tests.ts";
@@ -150,9 +158,9 @@ function hint(text: string): string {
 
 /** The line each repair ends with: where to see how it works. */
 const STUDIO_LINE: Readonly<Record<number, string>> = {
-  1: "Curious how it works? Switch to CREATE and open this room in Room Studio.",
-  2: "Curious how it works? Switch to CREATE and open the robot in Sprite Studio.",
-  3: "Curious how it works? Switch to CREATE, open this room in Room Studio and try the Depth lens.",
+  1: "Curious how it works? Choose Create, then open this room's PICTURE editor.",
+  2: "Curious how it works? Choose Create, then open the robot's VIEW editor.",
+  3: "Curious how it works? Choose Create, open this room's PICTURE editor and try Depth.",
 };
 
 /**
@@ -167,6 +175,13 @@ const GRADUATED_HINT = hint("All fixed! Now make your own adventure.");
 
 export const TUTORIAL_LOGIC_SOURCES: Readonly<Record<number, string>> = {
   0: String.raw`
+#define C_MENU 200
+#define C_SAVE 201
+#define C_RESTORE 202
+#define C_RESTART 203
+#define C_QUIT 204
+#define C_HELP 211
+#define C_INVENTORY 213
 #message 1 "Only EAST and WEST lead anywhere in this building."
 #message 2 "No need to open anything: the doorways are always open. Walk through them, or type EAST or WEST."
 #message 3 "You're the new apprentice at the Adventure Department. Your job: fix all three exhibits."
@@ -192,6 +207,15 @@ export const TUTORIAL_LOGIC_SOURCES: Readonly<Record<number, string>> = {
 #message 23 "Three exhibits need fixing: the mural in the Picture Gallery, the robot in the Sprite Lab and Felix in the Priority Archive. %s1"
 #message 24 "All three exhibits work: the mural, the robot and Felix. You fixed every one!"
 #message 25 "Each exhibit has its own fix. %s1"
+#message 26 "Type a command and press ENTER. Arrow keys walk. TAB opens your inventory. ESC opens the menu."
+#message 27 "File"
+#message 28 "Save Game      F5"
+#message 29 "Restore Game   F7"
+#message 30 "Restart Game   F9"
+#message 31 "Quit          Alt+Z"
+#message 32 "Help"
+#message 33 "Instructions   F1"
+#message 34 "Inventory     Tab"
 
 // Boot once, then dispatch the current room every interpreter cycle.
 if (!isset(f200)) {
@@ -203,6 +227,23 @@ if (!isset(f200)) {
   assignn(v63, 0);
   script.size(100);
   status.line.on();
+  set.menu(m27);
+  set.menu.item(m28, C_SAVE);
+  set.menu.item(m29, C_RESTORE);
+  set.menu.item(m30, C_RESTART);
+  set.menu.item(m31, C_QUIT);
+  set.menu(m32);
+  set.menu.item(m33, C_HELP);
+  set.menu.item(m34, C_INVENTORY);
+  submit.menu();
+  set(f14);
+  set.key(27, 0, C_MENU);
+  set.key(0, 59, C_HELP);
+  set.key(0, 63, C_SAVE);
+  set.key(0, 65, C_RESTORE);
+  set.key(0, 67, C_RESTART);
+  set.key(0, 44, C_QUIT);
+  set.key(9, 0, C_INVENTORY);
   new.room(1);
 }
 if (said("fast") || said("fast", "speed")) {
@@ -241,6 +282,13 @@ if (said("fix", "exhibit")) {
   if (isset(f33)) { print(24); } else { print(25); }
 }
 call.v(v0);
+if (controller(C_MENU)) { menu.input(); }
+if (controller(C_SAVE)) { save.game(); }
+if (controller(C_RESTORE)) { restore.game(); }
+if (controller(C_RESTART)) { restart.game(); }
+if (controller(C_QUIT)) { quit(0); }
+if (controller(C_HELP)) { print(m26); }
+if (controller(C_INVENTORY)) { status(); }
 // Whatever the room did not handle gets a Sierra-style reply naming the
 // unknown word and the room's next step (s1, which each room keeps current).
 if (isset(f2) && !isset(f4)) {
@@ -257,8 +305,9 @@ if (isset(f5)) {
   get.posn(o0, v56, v57);
 }
 get.posn(o0, v54, v55);
+// Stand on cel 0 when still, or held against a wall; walk the cels while moving.
 if (equaln(v6, 0)) {
-  stop.cycling(o0); assignn(v63, 0);
+  stop.cycling(o0); set.cel(o0, 0); assignn(v63, 0);
 }
 if (!equaln(v6, 0) && (!equalv(v54, v56) || !equalv(v55, v57))) {
   start.cycling(o0); assignn(v63, 0);
@@ -273,10 +322,9 @@ if (!equaln(v6, 0) && (!equalv(v54, v56) || !equalv(v55, v57))) {
 }
 if (!equaln(v6, 0) && equalv(v54, v56) && equalv(v55, v57)) {
   if (lessn(v63, 2)) { increment(v63); }
-  if (equaln(v63, 2)) { stop.cycling(o0); }
+  if (equaln(v63, 2)) { stop.cycling(o0); set.cel(o0, 0); }
 }
 assignv(v56, v54); assignv(v57, v55);
-return;
 `,
   1: String.raw`
 #message 1 "ADVENTURE DEPARTMENT: PICTURE GALLERY"
@@ -372,7 +420,6 @@ if ((equaln(v9, 0) && said("paint", "*"))) { print(32); }
 if (said("west")) { print(10); }
 if (said("east")) { new.room(2); }
 if (equaln(v2, 2)) { new.room(2); }
-return;
 `,
   2: String.raw`
 #message 1 "ADVENTURE DEPARTMENT: SPRITE LAB"
@@ -494,7 +541,6 @@ if (said("west")) { new.room(1); }
 if (said("east")) { new.room(3); }
 if (equaln(v2, 4)) { new.room(1); }
 if (equaln(v2, 2)) { new.room(3); }
-return;
 `,
   3: String.raw`
 #message 1 "ADVENTURE DEPARTMENT: PRIORITY ARCHIVE"
@@ -517,7 +563,7 @@ return;
 #message 18 "You see nothing special about that."
 #message 19 "Felix would rather you didn't. Everything here is filed exactly where it belongs."
 #message 20 "Felix, busy behind his counter. Priority 10: one step behind the counter's 11."
-#message 21 "A tall ledger stand with a paper tag on it: DEPTH PENDING. It has no depth number of its own yet, so if you walk behind it you float in front! Fixing that is a job for Room Studio."
+#message 21 "A tall ledger stand with a paper tag on it: DEPTH PENDING. Give it depth in Create, in the PICTURE editor, so you walk behind it."
 #message 22 "The depth chart: every priority from 4 (far away, at the top) to 15 (right in front). SHOW PRIORITY paints the room in these colours."
 #message 23 "A globe of a world where every adventure is still waiting to be written."
 #message 24 "A map of the Adventure Department: the red gallery, the blue lab and the green archive. You are here."
@@ -534,7 +580,7 @@ return;
 #message 35 "Felix's priority is fixed already. He's exactly where he belongs."
 #message 36 "A thick red carpet. It muffles footsteps, and Felix likes it quiet."
 #message 37 "Wait: you're BEHIND the ledger stand, yet you float in front of it! The tag on it says DEPTH PENDING. Nobody has given the stand a depth number yet."
-#message 38 "The stand's depth isn't a typed fix. It's a Room Studio job: LOOK STAND explains."
+#message 38 "Change the stand's depth in Create, in the PICTURE editor. LOOK STAND explains."
 #message 39 "You're too far away. Walk up to Felix's counter, then FIX PRIORITY."
 
 if (isset(f5)) {
@@ -621,7 +667,6 @@ if (said("fix", "priority") || said("fix", "clerk", "priority")) {
 if (said("west")) { new.room(2); }
 if (said("east")) { print(10); }
 if (equaln(v2, 4)) { new.room(2); }
-return;
 `,
 };
 
@@ -720,7 +765,7 @@ export function buildTutorial(): TutorialGame {
     title: "Adventure Department",
     roomGeneration: false,
     metadata: {
-      description: "Learn pictures, sprites and priority in a three-room tutorial.",
+      description: "Learn pictures, views and depth in a three-room tutorial.",
       author: "Monotio",
       license: "MIT",
     },

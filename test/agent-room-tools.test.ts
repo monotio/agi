@@ -372,3 +372,14 @@ test("write_room warns when declared edge exit is blocked by priority barrier", 
   assert.ok(Array.isArray(warnings));
   assert.ok(warnings.some((w) => w.includes("Declared exit 'right' is not reachable")));
 });
+
+test("write_room uses creator names for reserved state slots", () => {
+  const state = setup();
+  state.authoring.bindings["entered"] = { kind: "flag", num: 5 };
+  state.authoring.bindings["walking"] = { kind: "variable", num: 6 };
+  const result = executeRoomTool(state, "write_room", args())!;
+  assert.equal(result.success, true, result.error ?? "");
+  const source = state.sources.logics.get(1)!;
+  assert.match(source, /isset\(entered\)/);
+  assert.match(source, /assignn\(walking, 0\)/);
+});

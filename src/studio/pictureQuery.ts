@@ -243,3 +243,27 @@ export function whyNotFilled(
     : `It no longer holds ${target}, so a later fill stops at it.`;
   return { plane, x, y, value, target, line, fillable, message: `${cause} ${rule} ${outcome}` };
 }
+
+/**
+ * An item's visual coverage just after it draws, before later items cover it.
+ * Includes painted white, fills and pen pixels; an empty item has bottom null.
+ */
+export function itemVisualFootprint(
+  document: PictureDocument,
+  itemId: string,
+  profile: AgiProfile = DEFAULT_V2_PROFILE,
+): { mask: Uint8Array; bottom: number | null } {
+  const item = document.items.find((candidate) => candidate.id === itemId);
+  if (!item) return { mask: new Uint8Array(SCREEN_WIDTH * SCREEN_HEIGHT), bottom: null };
+  const prefix = { ...document, lines: document.lines.slice(0, item.closeLine - 1) };
+  const compiled = compileDocument(prefix, profile);
+  const mask = itemMask(compiled, prefix, itemId, "visual");
+  let bottom: number | null = null;
+  for (let i = mask.length - 1; i >= 0; i--) {
+    if (mask[i]) {
+      bottom = Math.floor(i / SCREEN_WIDTH);
+      break;
+    }
+  }
+  return { mask, bottom };
+}

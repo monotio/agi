@@ -17,7 +17,7 @@ import { roomDrawsPicture } from "../../../src/agent/roomPictures.ts";
 import { roomBakesView, scanViewUsage } from "../../../src/agent/viewUsage.ts";
 import { viewSpec } from "../../../src/view/celEdit.ts";
 import type { BuildViewInput } from "../../../src/view/view.ts";
-import type { AgiProfile } from "../../../src/runtime/profile.ts";
+import { detectProfile, type AgiProfile } from "../../../src/runtime/profile.ts";
 import {
   loadGameConversation,
   saveAuthoredGameWithLifetime,
@@ -41,9 +41,9 @@ import {
   type SavedBase,
 } from "./projectTransaction.ts";
 import { stagedRefusal, type StoredReference } from "../references/referenceArt.ts";
-import { gameStorageKey, type BootedGame } from "./gameTypes.ts";
+import type { BootedGame } from "./gameTypes.ts";
+import { bindProgressTarget } from "./progressBinding.ts";
 import {
-  projectId,
   requireProjectId,
   type ProjectId,
   type ResourceRevision,
@@ -174,6 +174,23 @@ function staleAuthoring(what: string): ResourceCommitError {
   );
 }
 
+/**
+ * The physical address an installed edition's conversation record lives
+ * under — the bound `installed:` locator, never the folder, hash or alias
+ * spellings two distinct folders can share. A booted game with no bound
+ * target has no record to read or refuse against: the edit is refused as
+ * unbindable rather than routed to a shared legacy key.
+ */
+function installedEditionLocator(game: BootedGame, what: string): string {
+  const target = game.progressTarget;
+  if (target?.kind !== "installed")
+    throw new ResourceCommitError(
+      "stale",
+      `This installation has no progress binding; reload it before keeping ${what}.`,
+    );
+  return target.locator;
+}
+
 function sameBytes(a: Uint8Array, b: Uint8Array): boolean {
   return a.length === b.length && a.every((byte, i) => byte === b[i]);
 }
@@ -216,7 +233,6 @@ export function createResourceCommit(
     setBootedGame,
     getAutosaveWrite,
     flushAutosave,
-    clearAutosave,
     onRemixCreated,
     getSession,
     postSessionSnapshot,
@@ -305,8 +321,8 @@ export function createResourceCommit(
       await getAutosaveWrite();
       // The record the edit lands in must still hold its base: the bytes
       // and the authoring content this tab holds, in this game's lifetime.
-      // An installed edition's discussion is read the same way.
-      const conversationKey = game.hash ?? game.alias ?? "installed";
+      // An installed edition's discussion is read the same way, under its
+      // own physical locator.
       let stored: CachedGameData | null = null;
       let lifetime: string | null = null;
       let conversation: GameConversation | undefined;
@@ -319,7 +335,7 @@ export function createResourceCommit(
       if (!game.installed) {
         ({ data: stored, lifetime } = await requireSaved(game, savedBase));
       } else {
-        conversation = await loadGameConversation(conversationKey);
+        conversation = await loadGameConversation(installedEditionLocator(game, what));
         if (!hydrateAuthoring(game, conversation?.authoringState)) throw staleAuthoring(what);
       }
       const resolved = edit.resolve(stored);
@@ -337,7 +353,11 @@ export function createResourceCommit(
           `The running game changed before ${what} could be kept.`,
         );
 
-      const container = openContainer(new Map(Object.entries(exported)));
+      const editProfile = author?.state.profile ?? stored?.library?.profile;
+      const container = openContainer(
+        new Map(Object.entries(exported)),
+        editProfile ? { profile: editProfile } : {},
+      );
       // Only the resources whose bytes differ are written and installed.
       const changed = resolved.patches.filter(({ kind, num, payload }) => {
         const current = container.getResource(kind, num);
@@ -395,7 +415,10 @@ export function createResourceCommit(
         forkCatalog || forkInstalled
           ? requireProjectId(`remix-${crypto.randomUUID()}`)
           : (game.projectId ?? null);
-      const parentProject = game.projectId ?? projectId(gameStorageKey(game)) ?? undefined;
+      // The original's own logical identity — the bound target's project
+      // (an installed edition's minted or folder id), never a physical
+      // locator or a shared hash/alias spelling.
+      const parentProject = game.progressTarget?.identity.project ?? game.projectId ?? undefined;
       const remixLibrary = (library: LibraryMetadata | undefined): LibraryMetadata => ({
         ...library,
         version: 1,
@@ -412,12 +435,31 @@ export function createResourceCommit(
       let data: CachedGameData | null = null;
       if (stored) {
         const references = resolved.references ?? stored.references;
+        // The workspace rides the same conditional write as the changed
+        // resources: every admitted patch — byte-changing or source-only —
+        // is projected from the saved files and claims, and every unrelated
+        // document is preserved exactly, so the envelope an editable open
+        // re-verifies can never trail the files it describes. The module is
+        // loaded by the Keep itself — the source compilers it verifies with
+        // stay off the Play startup graph.
+        const workspace =
+          stored.workspace === undefined
+            ? undefined
+            : (await import("./resourceWorkspace.ts")).reconcileResourceWorkspace({
+                workspace: stored.workspace,
+                files,
+                profileId: detectProfile(new Map(Object.entries(files)), stored.library?.profile)
+                  .id,
+                authoringState: candidate.authoringState,
+                changedDocuments: resolved.patches.map(({ kind, num }) => `${kind}:${num}`),
+              });
         data = {
           ...stored,
           files,
           words,
           references,
           authoringState: candidate.authoringState,
+          ...(workspace === undefined ? {} : { workspace }),
           ...(forkCatalog
             ? {
                 projectId: targetId!,
@@ -476,7 +518,7 @@ export function createResourceCommit(
       } else {
         try {
           await saveGameConversation(
-            conversationKey,
+            installedEditionLocator(game, what),
             { ...context, authoringState: candidate.authoringState },
             { fingerprint: authoringBaseOf(game)! },
           );
@@ -501,7 +543,7 @@ export function createResourceCommit(
         status: "committed",
         projectId: targetId,
         revision,
-        authoring: authoringFingerprint(candidate.authoringState),
+        authoring: authoringFingerprint(candidate.authoringState, data?.workspace),
       };
       if (moved()) throw notInstalled();
       if (bytesChanged) {
@@ -527,8 +569,10 @@ export function createResourceCommit(
       // and the tape follow with no await between them.
       candidate.adopt();
       // A fork runs on as its remix: same worker and tape, new identity.
+      // An installed edition's source-only edit forked nothing — its
+      // targetId stays null — and keeps running as the same game.
       const adoptedGame: BootedGame =
-        targetId === game.projectId
+        targetId === (game.projectId ?? null)
           ? game
           : game.installed
             ? {
@@ -550,10 +594,15 @@ export function createResourceCommit(
       adoptedGame.files = files;
       adoptedGame.words = words;
       adoptedGame.revision = revision;
-      advanceAuthoring(adoptedGame, candidate.authoringState);
+      // The physical binding follows the identity that owns the bytes now:
+      // a fork binds its new body+epoch (the save's own returned lifetime)
+      // before it is installed or announced; an in-place commit rebinds the
+      // same address under the committed revision. The original's progress
+      // records — physical or legacy — are never cleared by a fork.
+      bindProgressTarget(adoptedGame);
+      advanceAuthoring(adoptedGame, candidate.authoringState, data?.workspace ?? null);
       if (data) adoptedGame.authoredGame = data;
       if (adoptedGame !== game) {
-        clearAutosave(gameStorageKey(game));
         setBootedGame(adoptedGame);
         onRemixCreated?.(targetId!);
       }
@@ -792,7 +841,7 @@ export function viewEdit(edit: ViewEdit): ResourceEdit {
     reenter: (room, files, profile) => {
       const logics = new Map<number, Uint8Array>();
       try {
-        const container = openContainer(new Map(files));
+        const container = openContainer(new Map(files), { profile });
         for (let n = 0; n < 256; n++) {
           const logic = container.getResource("logic", n);
           if (logic) logics.set(n, logic);

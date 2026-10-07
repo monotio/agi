@@ -5,7 +5,7 @@
  */
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { ref } from "vue";
+import { nextTick, ref } from "vue";
 import { buildTutorial } from "../../games/adventure-department/game.ts";
 import { openContainer } from "../../src/container/container.ts";
 import { DEFAULT_V2_PROFILE } from "../../src/runtime/profile.ts";
@@ -114,7 +114,7 @@ describe("useSpriteDraft", () => {
     assert.equal(refused.ok, false);
     assert.match(
       !refused.ok ? refused.refusal.message : "",
-      /would also change loop 1\. Turn on Edit both to allow it\./,
+      /would also change loop 1\. Turn on Edit both, or edit only this loop\./,
     );
     assert.equal(draft.document.value, original);
     const outcome = draft.apply(
@@ -150,7 +150,7 @@ describe("useSpriteDraft", () => {
     assert.equal(outcome.ok, false);
     assert.equal(
       !outcome.ok && outcome.refusal.message,
-      "That is the transparent colour. The eraser paints it.",
+      "That is the transparent colour. Use the eraser to paint it.",
     );
     assert.equal(draft.changes.value, 0);
   });
@@ -181,6 +181,26 @@ describe("useSpriteDraft", () => {
     draft.cancelGesture();
     assert.deepEqual(draft.bytes.value, APPRENTICE);
     assert.equal(draft.canRedo.value, true, "a cancelled stroke leaves redo alone");
+  });
+
+  it("an autosave echo retains the next open stroke and local undo history", async () => {
+    const { draft, base } = setup();
+    const op = (x: number) => ({
+      op: { type: "setPixels" as const, loop: 2, cel: 0, changes: [{ x, y: 20, color: 4 }] },
+      targets: [2],
+    });
+    draft.beginGesture("Pencil");
+    draft.endGesture(op(1), "Pencil");
+    const saved = draft.bytes.value.slice();
+    draft.beginGesture("Pencil");
+    draft.moveGesture(op(2));
+    base.value = { bytes: saved, revision: testRevision("saved-stroke") };
+    await nextTick();
+    assert.equal(draft.gesturing.value, true);
+    assert.equal(at(celOf(draft.shown.value, 2), 2, 20), 4);
+    draft.endGesture(op(2), "Pencil");
+    assert.equal(draft.history.value.past.length, 2);
+    assert.equal(at(celOf(draft.document.value, 2), 2, 20), 4);
   });
 
   it("moves a cel to another loop as one undo step, and a refused part changes nothing", () => {
@@ -377,25 +397,25 @@ describe("spriteRecolor", () => {
   }
 
   it("counts one loop's pixels and splits it from its mirror, as the kernel does", () => {
-    // Loop 0's four cels hold 39, 33, 39 and 33 cyan pixels (decoded and counted by hand).
+    // Loop 0's four cels hold 31, 32, 31 and 32 cyan pixels (decoded and counted by hand).
     const edit = recolorEdit("loop", { loop: 0, cel: 2 }, CYAN, BLUE, false);
     assert.deepEqual(edit, { type: "recolor", from: CYAN, to: BLUE, scope: "loop", loop: 0 });
     const targets = recolorTargets(document, edit);
     assert.deepEqual(targets, [0]);
     assert.deepEqual(recolorCount(document, edit), {
-      pixels: 144,
+      pixels: 126,
       cels: 4,
       clash: null,
       copies: [0],
     });
-    assert.deepEqual(kernel(edit, targets), { ok: true, loops: [0], pixels: 144, isolated: [0] });
+    assert.deepEqual(kernel(edit, targets), { ok: true, loops: [0], pixels: 126, isolated: [0] });
   });
 
   it("reaches the linked group when edits propagate, and every loop over the view", () => {
     const linked = recolorEdit("loop", { loop: 1, cel: 0 }, CYAN, BLUE, true);
     assert.deepEqual(recolorTargets(document, linked), [0, 1]);
     assert.deepEqual(recolorCount(document, linked), {
-      pixels: 288,
+      pixels: 252,
       cels: 8,
       clash: null,
       copies: [],
@@ -403,15 +423,15 @@ describe("spriteRecolor", () => {
     assert.deepEqual(kernel(linked, [0, 1]), {
       ok: true,
       loops: [0, 1],
-      pixels: 288,
+      pixels: 252,
       isolated: [],
     });
-    // Loops 2 and 3 add 54 in each of their cels.
+    // Loops 2 and 3 add 40 in each of their cels.
     const view = recolorEdit("view", { loop: 3, cel: 1 }, CYAN, BLUE, false);
     assert.deepEqual(recolorTargets(document, view), [0, 1, 2, 3]);
-    assert.equal(recolorCount(document, view).pixels, 720);
+    assert.equal(recolorCount(document, view).pixels, 572);
     assert.deepEqual(recolorCount(document, view).copies, []);
-    assert.equal(kernel(view, [0, 1, 2, 3]).pixels, 720);
+    assert.equal(kernel(view, [0, 1, 2, 3]).pixels, 572);
     // Without the right targets the loop check refuses what the kernel did.
     assert.equal(kernel(view, [3]).ok, false);
   });
@@ -420,8 +440,8 @@ describe("spriteRecolor", () => {
     const cel = recolorEdit("cel", { loop: 2, cel: 2 }, CYAN, BLUE, false);
     assert.deepEqual(cel.scope, [{ loop: 2, cel: 2 }]);
     assert.deepEqual(recolorTargets(document, cel), [2]);
-    assert.equal(recolorCount(document, cel).pixels, 54);
-    assert.equal(kernel(cel, [2]).pixels, 54);
+    assert.equal(recolorCount(document, cel).pixels, 40);
+    assert.equal(kernel(cel, [2]).pixels, 40);
     // Transparent pixels are never a colour to change.
     assert.equal(
       recolorCount(document, recolorEdit("loop", { loop: 2, cel: 0 }, 13, 1, false)).pixels,
@@ -446,7 +466,6 @@ describe("spriteKeys", () => {
     undo: () => log.push("undo"),
     redo: () => log.push("redo"),
     tool: (key) => (log.push(`tool ${key}`), key === "b"),
-    ask: () => (log.push("ask"), true),
     keySheet: () => log.push("key sheet"),
   });
   const key = (init: KeyboardEventInit & { key: string; target?: unknown }) =>
@@ -462,7 +481,6 @@ describe("spriteKeys", () => {
     assert.equal(spriteKey(key({ key: ">" }), act), true);
     assert.equal(spriteKey(key({ key: "z", metaKey: true, shiftKey: true }), act), true);
     assert.equal(spriteKey(key({ key: "B" }), act), true);
-    assert.equal(spriteKey(key({ key: "/" }), act), true);
     assert.equal(spriteKey(key({ key: "q" }), act), false);
     assert.equal(spriteKey(key({ key: "Escape" }), act), true);
     assert.deepEqual(log, [
@@ -473,7 +491,6 @@ describe("spriteKeys", () => {
       "loop 1",
       "redo",
       "tool b",
-      "ask",
       "tool q",
     ]);
   });
@@ -659,13 +676,16 @@ describe("sprite view helpers", () => {
   it("words the kernel's refusals plainly", () => {
     assert.equal(
       plainSpriteRefusal("cannot delete the last cel of loop 2; delete the loop"),
-      "A loop needs at least one cel. Delete the loop instead.",
+      "Loops hold one or more cels. To remove this cel, delete the loop.",
     );
     assert.equal(
       plainSpriteRefusal("loop 3's cels are not exact mirror images of loop 1's; pass force"),
       "Loop 3 differs from loop 1 flipped. Replace it to mirror.",
     );
-    assert.equal(plainSpriteRefusal("something new"), "The view can't be changed that way.");
+    assert.equal(
+      plainSpriteRefusal("something new"),
+      "VIEW edit: something new. Correct the source or undo your last change.",
+    );
   });
 });
 

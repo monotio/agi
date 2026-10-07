@@ -772,3 +772,45 @@ test("recording preserves the historical ego visibility flag with custom priorit
     false,
   );
 });
+
+test("a PAL recorded setup keeps its timing in the operation tape and authored tail", () => {
+  const state = createAgentSessionState(
+    openContainer(new Map(), {
+      kind: PROFILES["amiga-2.310"].container,
+      profile: PROFILES["amiga-2.310"],
+    }),
+    PROFILES["amiga-2.310"],
+  );
+  state.objectPayload = buildObjectFile([], state.profile, 20);
+  state.container.putResource("picture", 1, Uint8Array.of(0xff));
+  state.container.putResource(
+    "logic",
+    0,
+    assembleLogic(
+      "assignn(v10,1); assignn(v0,1); load.pic(v0); draw.pic(v0); show.pic(); return;",
+      { dictionary: new Map() },
+    ).payload,
+  );
+  const engine = new Engine(
+    openContainer(state.getFiles(), { kind: state.profile.container, profile: state.profile }),
+    { print() {}, displayAt() {}, statusLine() {}, takeInputLine: () => null, takeKeys: () => [] },
+    undefined,
+    { profile: state.profile, amigaRegion: "pal" },
+  );
+  engine.tick();
+  const image = engine.recordingImage()!;
+  const replay = validateRecordedReplay({
+    state: engine.captureReplayState(),
+    operations: [["clock", 60]],
+  });
+  const result = playtestRoom(
+    state,
+    { room: 1, steps: [{ action: "wait", ticks: 20 }], expect: { vars: [{ id: 11, value: 2 }] } },
+    { setupImage: image, replay },
+  );
+  assert.equal(
+    result.success,
+    true,
+    String(result.error ?? result.message ?? JSON.stringify(result.details)),
+  );
+});

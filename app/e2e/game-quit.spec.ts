@@ -69,7 +69,7 @@ test("a game that quits lands Home saying so, keeps its last picture and can be 
 
   const ended = page.getByTestId("game-ended");
   await expect(ended).toBeVisible();
-  await expect(ended).toContainText("The game ended (it quit).");
+  await expect(ended).toContainText("The game ended.");
   await expect(ended).toContainText("quitter");
   await page.screenshot({ path: test.info().outputPath("game-ended.png") });
   // The black screen before the quit is not the card's picture.
@@ -83,7 +83,9 @@ test("a game that quits lands Home saying so, keeps its last picture and can be 
   await expect(ended).toHaveCount(0);
 });
 
-test("a fixture-served game that quits offers Play again from its fixture", async ({ page }) => {
+test("a fixture-served game that quits offers Play again from its fixture @webkit-desktop", async ({
+  page,
+}) => {
   const files = quittingGameFiles();
   await page.route("**/fixtures/**", async (route) => {
     const path = new URL(route.request().url()).pathname;
@@ -104,7 +106,8 @@ test("a fixture-served game that quits offers Play again from its fixture", asyn
   await page.getByTestId("input-line").press("Enter");
 
   const ended = page.getByTestId("game-ended");
-  await expect(ended).toContainText("QUITTER · The game ended (it quit).");
+  await expect(ended).toBeVisible();
+  await expect(ended).toContainText("QUITTER · The game ended.");
   await page.getByTestId("game-ended-play-again").click();
   await expect.poll(async () => (await textHook(page)).rows.join(" ")).toContain("Type QUIT");
   await expect(ended).toHaveCount(0);

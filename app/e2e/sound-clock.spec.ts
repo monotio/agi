@@ -1,15 +1,21 @@
 import type { EngineStateReport } from "../../src/runtime/engine.ts";
-import type { SoundOutput } from "../../src/sound/sound.ts";
-import { test, expect } from "@playwright/test";
+import type { SoundTick } from "../src/audio/soundTiming.ts";
+import { test, expect } from "./test.ts";
 import { fileURLToPath } from "node:url";
 
 /** The worker replies this test reads (engine.worker.ts, "Messages out"). */
 type WorkerReply =
   | { type: "cycle"; cycle: number }
   | { type: "error"; message: string }
-  | { type: "soundOutput"; output: SoundOutput }
+  | ({ type: "soundTick" } & SoundTick)
   | { type: "stopSound" }
-  | { type: "hostRequest"; id: number; op: string; context: Record<string, unknown> }
+  | {
+      type: "hostRequest";
+      generation: number;
+      id: number;
+      op: string;
+      context: Record<string, unknown>;
+    }
   | { type: "engineState"; id: number; state: EngineStateReport };
 type Reply<T extends WorkerReply["type"]> = Extract<WorkerReply, { type: T }>;
 
@@ -37,11 +43,11 @@ test("sound ticks and completion continue during a blocking host prompt", async 
           { dictionary: new Map() },
         ).payload,
       );
-      // Channel0: duration3, divisor258, audible. Other channels terminate immediately.
+      // Channel0: duration30, divisor258, audible. Other channels terminate immediately.
       container.putResource(
         "sound",
         0,
-        new Uint8Array([8, 0, 15, 0, 15, 0, 15, 0, 3, 0, 0x10, 0x82, 0x90, 255, 255, 255, 255]),
+        new Uint8Array([8, 0, 15, 0, 15, 0, 15, 0, 30, 0, 0x10, 0x82, 0x90, 255, 255, 255, 255]),
       );
       const worker = new EngineWorker() as Worker;
       const messages: WorkerReply[] = [];
@@ -53,6 +59,7 @@ test("sound ticks and completion continue during a blocking host prompt", async 
       const wait = <T extends WorkerReply>(
         predicate: (message: WorkerReply) => message is T,
       ): Promise<T> =>
+        // wall-clock: bounds a missing worker reply; success resolves on the reply event.
         new Promise((resolve, reject) => {
           const timeout = setTimeout(() => {
             waiters.delete(check);
@@ -80,29 +87,58 @@ test("sound ticks and completion continue during a blocking host prompt", async 
           soundDevice: 0,
         });
         const audible = await wait(
-          (message): message is Reply<"soundOutput"> =>
-            message.type === "soundOutput" &&
-            message.output.kind === "speaker" &&
-            message.output.divisor !== null,
-        );
-        await wait(
-          (message): message is Reply<"stopSound"> =>
-            message.type === "stopSound" && messages.indexOf(message) > messages.indexOf(audible),
+          (message): message is Reply<"soundTick"> =>
+            message.type === "soundTick" &&
+            message.outputs.some((output) => output.kind === "speaker" && output.divisor !== null),
         );
         const request = await wait(
           (message): message is Reply<"hostRequest"> => message.type === "hostRequest",
         );
-        const cycleWhileBlocked = messages.some((message) => message.type === "cycle");
-        worker.postMessage({ type: "hostAnswer", id: request.id, response: "7" });
+        worker.postMessage({ type: "state", id: 0 });
+        const blocked = await wait(
+          (message): message is Reply<"engineState"> =>
+            message.type === "engineState" && message.id === 0,
+        );
+        const blockedCycle = messages.findLast(
+          (message): message is Reply<"cycle"> => message.type === "cycle",
+        )?.cycle;
+        const blockedAt = messages.length;
+        await wait(
+          (message): message is Reply<"soundTick"> =>
+            message.type === "soundTick" &&
+            message.complete &&
+            messages.indexOf(message) > messages.indexOf(audible),
+        );
+        const cyclesWhileBlocked = messages
+          .slice(blockedAt)
+          .filter((message): message is Reply<"cycle"> => message.type === "cycle")
+          .map((message) => message.cycle);
+        worker.postMessage({ type: "state", id: 2 });
+        const completed = await wait(
+          (message): message is Reply<"engineState"> =>
+            message.type === "engineState" && message.id === 2,
+        );
+        worker.postMessage({
+          type: "hostAnswer",
+          generation: request.generation,
+          id: request.id,
+          response: "7",
+        });
         worker.postMessage({ type: "state", id: 1 });
         const after = await wait(
           (message): message is Reply<"engineState"> =>
             message.type === "engineState" && message.id === 1,
         );
         return {
-          audible: audible.output,
+          audible: audible.outputs.find(
+            (output) => output.kind === "speaker" && output.divisor !== null,
+          ),
           prompt: request.op,
-          cycleWhileBlocked,
+          blockedCycle,
+          cyclesWhileBlocked,
+          blockedVars: blocked.state.vars,
+          completedVars: completed.state.vars,
+          completedFlags: completed.state.flags,
           vars: after.state.vars,
         };
       } finally {
@@ -118,7 +154,14 @@ test("sound ticks and completion continue during a blocking host prompt", async 
   );
   expect(result.audible).toEqual({ kind: "speaker", divisor: 3096 });
   expect(result.prompt).toBe("getnum");
-  expect(result.cycleWhileBlocked).toBe(false);
+  expect(new Set(result.cyclesWhileBlocked).size).toBeLessThanOrEqual(1);
+  if (result.blockedCycle !== undefined)
+    expect(result.cyclesWhileBlocked.every((cycle) => cycle === result.blockedCycle)).toBe(true);
+  expect(result.blockedVars[202]).toBe(0);
+  expect(result.blockedVars[203]).toBe(0);
+  expect(result.completedVars[202]).toBe(0);
+  expect(result.completedVars[203]).toBe(0);
+  expect(result.completedFlags[200]).toBe(1);
   expect(result.vars[202]).toBe(7);
   expect(result.vars[203]).toBe(88);
 });

@@ -41,12 +41,12 @@ import {
 } from "./authoringTools.ts";
 import { SPRITE_TOOLS, executeSpriteTool } from "./spriteTools.ts";
 import {
-  executeStudioAssistTool,
-  STUDIO_ASSIST_TOOL_NAMES,
-  STUDIO_ASSIST_TOOLS,
-  STUDIO_ONLY,
-  type StudioAssist,
-} from "./studioAssistTools.ts";
+  executeSelectionEditTool,
+  SELECTION_TOOL_NAMES,
+  SELECTION_TOOLS,
+  SELECTION_REQUIRED,
+  type SelectionEdit,
+} from "./selectionTools.ts";
 import { compileViewSource, viewSourceWarnings } from "../view/viewSource.ts";
 import { SOUND_TOOLS, executeSoundTool } from "./soundTools.ts";
 import { PICTURE_TOOLS, executePictureTool } from "./pictureTools.ts";
@@ -131,17 +131,16 @@ export const AGENT_TOOLS: readonly ToolDefinition[] = [
   AUTHORING_GUIDE_TOOL,
   ...GAME_TEST_TOOLS,
   ...CORE_AGENT_TOOLS,
-  ...STUDIO_ASSIST_TOOLS,
+  ...SELECTION_TOOLS,
   VIEW_REFERENCE_TOOL,
 ];
 
 /**
- * Every tool except the Studio assist tools: the availability of Genesis,
- * room authoring and Remix. The studio tools need a creator's selection and
- * are refused wherever no StudioAssist is attached.
+ * Whole-game authoring tools for Genesis, room creation and Remix.
+ * Selection tools require the editor context supplied by the workspace.
  */
 export const AUTHORING_TOOL_NAMES: readonly string[] = AGENT_TOOLS.map((tool) => tool.name).filter(
-  (name) => !STUDIO_ASSIST_TOOL_NAMES.includes(name),
+  (name) => !SELECTION_TOOL_NAMES.includes(name),
 );
 
 const STANDARD_NAV_WORDS = [
@@ -311,7 +310,7 @@ function prepareAgentToolCall(
   if (errors.length)
     return {
       success: false,
-      error: `Invalid arguments for ${name}; nothing was changed. ${errors.slice(0, 8).join(" ")}`,
+      error: `Invalid arguments for ${name}; nothing was changed. ${[...new Set(errors)].join(" ")}`,
     };
   return { success: true, args };
 }
@@ -374,7 +373,7 @@ function readDiagnostic(
     };
   const fields = args["fields"];
   const offset = typeof args["offset"] === "number" ? args["offset"] : 0;
-  const limit = Math.min(typeof args["limit"] === "number" ? args["limit"] : 16000, 32000);
+  const limit = Math.min(typeof args["limit"] === "number" ? args["limit"] : 131072, 131072);
   let selected: unknown = {
     success: stored.success,
     message: stored.message,
@@ -408,16 +407,16 @@ function readDiagnostic(
   };
 }
 
-/** edit_resource_source compiles its patched text through the ordinary logic or picture writer. */
+/** edit_source compiles its patched text through the ordinary logic or picture writer. */
 function executeSourceEdit(
   session: AgentSessionState,
   name: string,
   args: Record<string, unknown>,
 ): AgentToolResult | undefined {
-  if (name !== "edit_resource_source") return undefined;
+  if (name !== "edit_source") return undefined;
   const edit = resolveSourceEdit(session, args);
   if ("success" in edit) return edit;
-  return executeAgentTool(session, edit.kind === "logic" ? "write_logic_source" : "write_picture", {
+  return executeAgentTool(session, edit.kind === "logic" ? "write_logic" : "write_picture", {
     room: edit.num,
     source: edit.source,
   });
@@ -431,10 +430,10 @@ function executeValidatedAgentTool(
   /** Ask-mode context: withhold creator intent. */
   readOnly = false,
 ): AgentToolResult {
-  if (STUDIO_ASSIST_TOOL_NAMES.includes(name))
-    return { success: false, error: `'${name}' ${STUDIO_ONLY}` };
+  if (SELECTION_TOOL_NAMES.includes(name))
+    return { success: false, error: `'${name}' ${SELECTION_REQUIRED}` };
   // Reference pixels come from the host's source, which only the async dispatcher carries.
-  if (name === "view_reference") return { success: false, error: NO_REFERENCES };
+  if (name === "read_reference_image") return { success: false, error: NO_REFERENCES };
   if (name === "read_command_reference") return readCommandReference(session.profile, args);
   if (name === "read_authoring_guide") return readAuthoringGuide(args);
   if (name === "read_diagnostic") return readDiagnostic(session, args);
@@ -475,7 +474,7 @@ function executeValidatedAgentTool(
     // rather than a tool-name list.
     const legacyKind = (
       {
-        write_logic_source: "logic",
+        write_logic: "logic",
         write_picture: "picture",
         write_view: "view",
         write_sound: "sound",
@@ -503,7 +502,7 @@ function executeValidatedAgentTool(
         },
       };
     }
-    if (name === "write_words" || name === "write_inventory_objects")
+    if (name === "write_words" || name === "write_objects")
       result = {
         ...result,
         details: {
@@ -511,7 +510,7 @@ function executeValidatedAgentTool(
           updatedFiles: [name === "write_words" ? "WORDS.TOK" : "OBJECT"],
         },
       };
-    // Writers that delegate to another write tool (edit_resource_source)
+    // Writers that delegate to another write tool (edit_source)
     // already carry the inner call's rerun verdict;
     // never run the tests twice.
     if (!result.details?.["gameTestsRerun"]) {
@@ -523,8 +522,16 @@ function executeValidatedAgentTool(
     const full = String(result.details?.["source"] ?? "");
     const lines = full.split("\n");
     const offset = Number(args["offset"] ?? 0);
-    const limit = Math.min(400, Number(args["limit"] ?? 200));
-    const source = lines.slice(offset, offset + limit).join("\n");
+    const requestedLines = Math.min(65536, Number(args["limit"] ?? lines.length));
+    const pageLines: string[] = [];
+    let chars = 0;
+    for (const line of lines.slice(offset, offset + requestedLines)) {
+      if (pageLines.length && chars + line.length + 1 > 65536) break;
+      pageLines.push(line);
+      chars += line.length + 1;
+    }
+    const limit = pageLines.length;
+    const source = pageLines.join("\n");
     const include = name === "read_picture" ? (args["include"] ?? "both") : "source";
     if (!["source", "image", "both"].includes(String(include)))
       return { success: false, error: "include must be source, image, both, or null." };
@@ -688,7 +695,7 @@ function executeLegacyTool(
       }
     }
 
-    case "write_logic_source": {
+    case "write_logic": {
       const room =
         typeof args["room"] === "number" ? args["room"] : parseInt(String(args["room"]), 10);
       const source = typeof args["source"] === "string" ? args["source"] : "";
@@ -705,7 +712,7 @@ function executeLegacyTool(
         session.sources.logics.set(room, normalized.source);
         // A rewrite that drops a declared plan exit still commits — the plan
         // may be about to change — but the write reports the broken contract
-        // instead of letting handover be the first to notice.
+        // instead of letting finish be the first to notice.
         const planExits = session.authoring.world.rooms[String(room)]?.exits;
         const roomCheck = planExits
           ? verifyPlanConnections(
@@ -968,10 +975,10 @@ function executeLegacyTool(
             for (const [celNum, cel] of loop.cels.entries()) {
               if (selected.size && !selected.has(`${loopNum}:${celNum}`)) continue;
               rowPixels += cel.width * cel.height;
-              if (rowPixels > 32768)
+              if (rowPixels > 65536)
                 return {
                   success: false,
-                  error: `Rows exceed the 32768-pixel budget; select fewer cels via 'cels'.`,
+                  error: `Rows exceed the 65536-pixel budget; select fewer cels via 'cels'.`,
                 };
               rowCels.push({
                 loop: loopNum,
@@ -1075,7 +1082,7 @@ function executeLegacyTool(
         .sort((a, b) => a[0] - b[0])
         .map(([id, words]) => ({ id, words: [...words].sort() }));
       const offset = Number(args["offset"] ?? 0);
-      const limit = Math.min(100, Number(args["limit"] ?? 60));
+      const limit = Math.min(65536, Number(args["limit"] ?? 65536));
       const shown = groups.slice(offset, offset + limit);
       const summary = shown.map((g) => `${g.id}: ${g.words.join("/")}`).join("\n");
       return {
@@ -1136,74 +1143,10 @@ function executeLegacyTool(
       }
     }
 
-    case "handover": {
-      // Handover is the validation gate, not the agent's word that it tested:
-      // every stored game test runs against the current resources (unchanged
-      // verdicts come from the evidence cache), every declared plan exit must
-      // be backed by a reachable compiled transition, and the first handover
-      // of a session also boots the world to a shown, interactive scene.
-      const testRun = runGameTests(session, null);
-      const gameTests = testRun.details?.["gameTests"];
-      if (!testRun.success)
-        return {
-          success: false,
-          error: `Handover rejected: ${testRun.error ?? "stored game tests failed"}`,
-          details: { ...testRun.details, genesisComplete: session.genesisComplete },
-          ...(testRun.images ? { images: testRun.images.slice(0, 1) } : {}),
-        };
-      const connections = verifyPlanConnections(
-        collectLogics(session.container),
-        session.authoring.world.rooms,
-        session.profile,
-      );
-      if (connections.missing.length || connections.mismatched.length) {
-        const first = connections.missing[0] ?? connections.mismatched[0]!;
-        const cause =
-          "compiled" in first
-            ? `its compiled transition leaves the ${first.compiled} edge instead`
-            : "no compiled new.room transition reaches it";
-        const extra = connections.missing.length + connections.mismatched.length - 1;
-        return {
-          success: false,
-          error:
-            `Handover rejected: room ${first.from} declares exit ${JSON.stringify(first.name)} ` +
-            `to room ${first.to} but ${cause}. ` +
-            `Implement the exit in room ${first.from}'s logic or revise the plan with update_world.` +
-            (extra > 0 ? ` ${extra} more declared exit(s) also fail validation.` : ""),
-          details: { connections, genesisComplete: session.genesisComplete, gameTests },
-        };
-      }
-      if (!session.genesisComplete) {
-        const result = validateGenesis(session);
-        if (!result.success)
-          return {
-            ...result,
-            details: { ...result.details, genesisComplete: false, gameTests, connections },
-          };
-        session.genesisComplete = true;
-        return {
-          ...result,
-          details: { ...result.details, genesisComplete: true, gameTests, connections },
-        };
-      }
-      return {
-        success: true,
-        message:
-          "Handover validated: stored game tests pass" +
-          (connections.verified.length
-            ? ` and ${connections.verified.length} declared exit(s) reach a compiled transition`
-            : "") +
-          ". Resuming gameplay.",
-        details: {
-          genesisComplete: true,
-          notes: args["notes"] ?? null,
-          gameTests,
-          connections,
-        },
-      };
-    }
+    case "finish":
+      return validateAgentHandover(session, args["notes"] ?? null);
 
-    case "write_inventory_objects": {
+    case "write_objects": {
       let mergedItem: { id: number; name: string } | undefined;
       const mode = args["mode"] == null ? "replace" : String(args["mode"]);
       if (mode !== "replace" && mode !== "merge")
@@ -1353,7 +1296,7 @@ function executeLegacyTool(
       }
     }
 
-    case "inspect_world_bible": {
+    case "read_plan": {
       const filter = args["filter"] ?? "all";
       if (!["all", "rooms", "objects", "words", "intent", "slots"].includes(String(filter)))
         return {
@@ -1366,7 +1309,7 @@ function executeLegacyTool(
         return {
           success: false,
           error:
-            "The authoring plan is not available in Ask. Inspect the compiled resources — read_logic, read_picture, inspect_world_bible with filter 'rooms' — for what the game currently implements.",
+            "The authoring plan is not available in Ask. Inspect the compiled resources — read_logic, read_picture, read_plan with filter 'rooms' — for what the game currently implements.",
         };
       if (filter === "slots") return listResources(session, args["kind"]);
       try {
@@ -1378,11 +1321,11 @@ function executeLegacyTool(
                 authoredIntent: Object.fromEntries(
                   Object.entries(session.authoring.world).map(([section, entries]) => [
                     section,
-                    { count: Object.keys(entries).length, keys: Object.keys(entries).slice(0, 16) },
+                    { count: Object.keys(entries).length, keys: Object.keys(entries) },
                   ]),
                 ),
               }),
-          bindings: Object.fromEntries(Object.entries(session.authoring.bindings).slice(0, 32)),
+          bindings: { ...session.authoring.bindings },
           bindingCount: Object.keys(session.authoring.bindings).length,
         };
         if (filter === "intent") {
@@ -1395,10 +1338,11 @@ function executeLegacyTool(
               : session.authoring.world[section as "rooms" | "facts" | "quests"],
           );
           const offset = Number(args["offset"] ?? 0);
+          const limit = Math.min(65536, Number(args["limit"] ?? 65536));
           const selected =
             typeof args["name"] === "string"
               ? entries.filter(([name]) => name === args["name"])
-              : entries.slice(offset, offset + 1);
+              : entries.slice(offset, offset + limit);
           return {
             success: true,
             message: `Authored intent: ${section}. This records the author's intent; inspect compiled logic or playtest to verify implementation.`,
@@ -1407,7 +1351,10 @@ function executeLegacyTool(
               entries: Object.fromEntries(selected),
               count: entries.length,
               offset,
-              nextOffset: args["name"] == null && offset + 1 < entries.length ? offset + 1 : null,
+              nextOffset:
+                args["name"] == null && offset + selected.length < entries.length
+                  ? offset + selected.length
+                  : null,
             },
           };
         }
@@ -1450,7 +1397,7 @@ function executeLegacyTool(
 /**
  * Live-game sources injected by the host.
  *
- * The live-inspection sections — read_room_context's live summary, state and
+ * The live-inspection sections — read_room's live summary, state and
  * frames plus playtest_room's live checkpoint — read the INTERPRETER, which
  * lives in a Web Worker and answers asynchronously. The synchronous
  * `executeAgentTool` above cannot reach it, so the host passes these in to
@@ -1461,8 +1408,8 @@ function executeLegacyTool(
 export interface AgentRuntimeDeps {
   /**
    * Ask mode: read-only tools only, and authored plan intent stays out of
-   * every result — inspect_world_bible's intent filter is refused and
-   * read_room_context carries no plan entry.
+   * every result — read_plan's intent filter is refused and
+   * read_room carries no plan entry.
    */
   readonly readOnly?: boolean;
   readonly frames?: FrameSource | undefined;
@@ -1476,13 +1423,13 @@ export interface AgentRuntimeDeps {
    */
   readonly roomNotes?: ((room: number) => readonly string[]) | undefined;
   /**
-   * A Studio assist request's selection, draft and candidate slot. Only with
-   * it do the Studio assist tools run; see studioAssistTools.ts.
+   * A captured editor selection, draft and candidate slot.
+   * Selection tools require this host-owned context.
    */
-  readonly studio?: StudioAssist | undefined;
+  readonly selection?: SelectionEdit | undefined;
   /**
    * The reference art this task may view (referenceTools.ts). Without it
-   * view_reference refuses, and withReferences leaves it off the task's list.
+   * read_reference_image refuses, and withReferences leaves it off the task's list.
    */
   readonly references?: ReferenceSource | undefined;
   /**
@@ -1530,14 +1477,14 @@ function describeControls(
 
 /** Returned when a runtime tool is called with no interpreter attached. */
 const NO_LIVE_GAME =
-  "No live game is attached to this session, so live inspection is unavailable. Use read_logic, read_picture and inspect_world_bible instead.";
+  "No live game is attached to this session, so live inspection is unavailable. Use read_logic, read_picture and read_plan instead.";
 
 /**
  * Genesis: the whole authoring catalog except the Studio tools, which need a
  * creator's selection. The three writing tasks share one list so the
  * advertised catalog stays stable across phases for prompt-cache reuse; each
  * keeps its own name, so narrowing one is a deliberate edit here. Each list
- * includes view_reference; a turn without reference art drops it
+ * includes read_reference_image; a turn without reference art drops it
  * (withReferences).
  */
 export const GENESIS_TOOLS: readonly string[] = AUTHORING_TOOL_NAMES;
@@ -1549,11 +1496,11 @@ export const ROOM_AUTHORING_TOOLS: readonly string[] = AUTHORING_TOOL_NAMES;
 export const REMIX_TOOLS: readonly string[] = AUTHORING_TOOL_NAMES;
 
 /**
- * A Studio assist task: the Studio tools plus read-only inspection.
+ * Offline selection checks: selection tools plus read-only inspection.
  * Everything else is denied before dispatch.
  */
-export const STUDIO_ASSIST_TASK_TOOLS: readonly string[] = [
-  ...STUDIO_ASSIST_TOOL_NAMES,
+export const SELECTION_TASK_TOOLS: readonly string[] = [
+  ...SELECTION_TOOL_NAMES,
   "read_picture",
   "read_view",
   "read_logic",
@@ -1561,37 +1508,38 @@ export const STUDIO_ASSIST_TASK_TOOLS: readonly string[] = [
   "read_command_reference",
   "read_authoring_guide",
   "read_diagnostic",
-  "view_reference",
+  "read_reference_image",
 ];
 
 /** Explicit capabilities for a discussion turn; new tools require deliberate approval here. */
 export const ASK_TOOLS: readonly string[] = [
-  "read_room_context",
-  "view_reference",
+  "read_edit_context",
+  "read_room",
+  "read_reference_image",
   "read_diagnostic",
   "read_picture",
   "read_logic",
   "read_words",
   "read_view",
   "read_sound",
-  "preview_sound",
+  "play_sound",
   "read_command_reference",
   "read_authoring_guide",
   "read_game_tests",
   "run_game_tests",
-  "inspect_world_bible",
+  "read_plan",
   "playtest_room",
 ];
 
 /**
- * A task's list for one turn: view_reference only when the turn has
+ * A task's list for one turn: read_reference_image only when the turn has
  * reference art to view. Every other name is unchanged.
  */
 export function withReferences(
   list: readonly string[],
   references: ReferenceSource | undefined,
 ): readonly string[] {
-  return references?.art.length ? list : list.filter((name) => name !== "view_reference");
+  return references?.art.length ? list : list.filter((name) => name !== "read_reference_image");
 }
 
 function clampInt(value: unknown, fallback: number, min: number, max: number): number {
@@ -1614,7 +1562,7 @@ async function executeReadFrames(
   if (planeArg !== "visual" && planeArg !== "priority") {
     return {
       success: false,
-      error: `read_room_context frames: plane must be 'visual', 'priority' or null; got '${planeArg}'.`,
+      error: `read_room frames: plane must be 'visual', 'priority' or null; got '${planeArg}'.`,
     };
   }
   const plane: FramePlane = planeArg;
@@ -1623,7 +1571,7 @@ async function executeReadFrames(
   try {
     frames = await source.read({ count, stride });
   } catch (err) {
-    return { success: false, error: `read_room_context frames failed: ${String(err)}` };
+    return { success: false, error: `read_room frames failed: ${String(err)}` };
   }
   if (frames.length === 0) {
     return {
@@ -1700,12 +1648,12 @@ export async function executeAgentToolAsync(
   const call = prepareAgentToolCall(name, args);
   if (!call.success) return call;
   args = call.args;
-  if (STUDIO_ASSIST_TOOL_NAMES.includes(name))
-    return deps?.studio
-      ? executeStudioAssistTool(session, deps.studio, name, args)!
-      : { success: false, error: `'${name}' ${STUDIO_ONLY}` };
-  if (name === "view_reference") return viewReference(deps.references, args);
-  if (name === "read_room_context") {
+  if (SELECTION_TOOL_NAMES.includes(name))
+    return deps?.selection
+      ? executeSelectionEditTool(session, deps.selection, name, args)!
+      : { success: false, error: `'${name}' ${SELECTION_REQUIRED}` };
+  if (name === "read_reference_image") return viewReference(deps.references, args);
+  if (name === "read_room") {
     const stateArg = args["state"] as Record<string, unknown> | null | undefined;
     const framesArg = args["frames"] as Record<string, unknown> | null | undefined;
     let live: Record<string, unknown> | null = null;
@@ -1721,7 +1669,7 @@ export async function executeAgentToolAsync(
     const room = args["room"] ?? live?.["room"];
     if (typeof room !== "number" || !Number.isInteger(room) || room < 0 || room > 255)
       return { success: false, error: "Supply room 0..255 when no live room is attached." };
-    const logic = executeAgentTool(session, "read_logic", { num: room, offset: 0, limit: 80 });
+    const logic = executeAgentTool(session, "read_logic", { num: room, offset: null, limit: null });
     const index = listResources(session, null);
     const images: { png: Uint8Array; caption: string }[] = [];
     let framesMessage: string | null = null;
@@ -1734,7 +1682,7 @@ export async function executeAgentToolAsync(
       // Ask mode is the player's surface: the room's plan entry — its brief
       // and exits to rooms not yet built — is creator intent, withheld here.
       ...(deps?.readOnly ? {} : { intent: session.authoring.world.rooms[String(room)] ?? null }),
-      bindings: Object.fromEntries(Object.entries(session.authoring.bindings).slice(0, 32)),
+      bindings: { ...session.authoring.bindings },
       bindingCount: Object.keys(session.authoring.bindings).length,
       inventoryDefinitions: readInventoryObjects(session.getFiles().get("OBJECT"), session.profile),
     };
@@ -1818,4 +1766,76 @@ export async function executeAgentToolAsync(
     name,
     executeValidatedAgentTool(session, name, args, deps?.readOnly === true),
   );
+}
+
+/** The shared host verdict for the exact candidate being handed over. */
+export function validateAgentHandover(
+  session: AgentSessionState,
+  notes: unknown = null,
+  checkGenesis = true,
+): AgentToolResult {
+  // Handover is the validation gate, not the agent's word that it tested:
+  // every stored game test runs against the current resources (unchanged
+  // verdicts come from the evidence cache), every declared plan exit must
+  // be backed by a reachable compiled transition, and the first finish
+  // of a session also boots the world to a shown, interactive scene.
+  const testRun = runGameTests(session, null);
+  const gameTests = testRun.details?.["gameTests"];
+  if (!testRun.success)
+    return {
+      success: false,
+      error: `Handover rejected: ${testRun.error ?? "stored game tests failed"}`,
+      details: { ...testRun.details, genesisComplete: session.genesisComplete },
+      ...(testRun.images ? { images: testRun.images.slice(0, 1) } : {}),
+    };
+  const connections = verifyPlanConnections(
+    collectLogics(session.container),
+    session.authoring.world.rooms,
+    session.profile,
+  );
+  if (connections.missing.length || connections.mismatched.length) {
+    const first = connections.missing[0] ?? connections.mismatched[0]!;
+    const cause =
+      "compiled" in first
+        ? `its compiled transition leaves the ${first.compiled} edge instead`
+        : "no compiled new.room transition reaches it";
+    const extra = connections.missing.length + connections.mismatched.length - 1;
+    return {
+      success: false,
+      error:
+        `Handover rejected: room ${first.from} declares exit ${JSON.stringify(first.name)} ` +
+        `to room ${first.to} but ${cause}. ` +
+        `Implement the exit in room ${first.from}'s logic or revise the plan with update_plan.` +
+        (extra > 0 ? ` ${extra} more declared exit(s) also fail validation.` : ""),
+      details: { connections, genesisComplete: session.genesisComplete, gameTests },
+    };
+  }
+  if (checkGenesis && !session.genesisComplete) {
+    const result = validateGenesis(session);
+    if (!result.success)
+      return {
+        ...result,
+        details: { ...result.details, genesisComplete: false, gameTests, connections },
+      };
+    session.genesisComplete = true;
+    return {
+      ...result,
+      details: { ...result.details, genesisComplete: true, gameTests, connections },
+    };
+  }
+  return {
+    success: true,
+    message:
+      "Handover validated: stored game tests pass" +
+      (connections.verified.length
+        ? ` and ${connections.verified.length} declared exit(s) reach a compiled transition`
+        : "") +
+      ". Resuming gameplay.",
+    details: {
+      genesisComplete: true,
+      notes,
+      gameTests,
+      connections,
+    },
+  };
 }

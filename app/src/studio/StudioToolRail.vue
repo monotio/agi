@@ -1,21 +1,23 @@
 <script setup lang="ts">
+import { VOCABULARY } from "../../../src/vocabulary.ts";
 import { computed, nextTick, onWatcherCleanup, ref, useTemplateRef, watch } from "vue";
 import UiIcon from "../ui/UiIcon.vue";
 import UiIconButton from "../ui/UiIconButton.vue";
 import type { IconName } from "../ui/icons.ts";
 import StudioCurrentValues from "./StudioCurrentValues.vue";
 import type { LensUnlocks } from "./studioLocks.ts";
+import type { PaletteAction, PaletteValues } from "./useStudioPalette.ts";
 import { TOOL_SHORTCUTS, type CurrentValues, type StudioTool } from "./studioTools.ts";
 import type { StudioLens } from "./studioView.ts";
 
 /**
  * The tool rail on the canvas's left edge: select and point, the drawing
- * tools, the pipette, in the Walk view the test walk and door tools, the
+ * tools, the pipette, in the Priority lens the test walk and door tools, the
  * actor probe and the hand, each with its key, and under them the values
- * new content draws with.
+ * for new drawing or the current selection.
  *
  * The tools scroll inside the rail's column when it is shorter than they are
- * (the Walk lens's three extra tools at 1280×720, any lens on a short
+ * (the Priority lens's three extra tools at 1280×720, any lens on a short
  * screen); the values stay pinned under them, so their pickers are never
  * clipped. An edge where more tools lie beyond it fades and carries a
  * chevron button that scrolls the next tools into view (a short screen's
@@ -31,6 +33,7 @@ const {
   lens,
   unlocks,
   values,
+  paletteAction,
   cursorY = undefined,
   doorsEditable = false,
 } = defineProps<{
@@ -41,9 +44,10 @@ const {
   probeAvailable: boolean;
   lens: StudioLens;
   unlocks: LensUnlocks;
-  values: CurrentValues;
+  values: PaletteValues;
+  paletteAction: PaletteAction;
   cursorY?: number | undefined;
-  /** The Walk view can add doors: the room's logic is editable. */
+  /** The room tools can add doors: the room's logic is editable. */
   doorsEditable?: boolean;
 }>();
 const emit = defineEmits<{
@@ -74,20 +78,22 @@ const GROUPS: readonly (readonly RailTool[])[] = [
     { id: "pipette", icon: "pipette", label: "Pipette" },
   ],
 ];
-/** The Walk view's own tools: a test walk the game runs, and the room's doors. */
+/** The Priority lens's room tools: a test walk the game runs, and the room's doors. */
 const WALK_GROUP: readonly RailTool[] = [
-  { id: "walk", icon: "footprints", label: "Test walk" },
+  { id: "walk", icon: "footprints", label: VOCABULARY.testWalk.label },
   { id: "door", icon: "exit", label: "Door box", doors: true },
   { id: "edge", icon: "move", label: "Edge exit", doors: true },
 ];
-const groups = computed(() => (lens === "walk" ? [...GROUPS, WALK_GROUP] : GROUPS));
+const groups = computed(() => (lens === "depth" ? [...GROUPS, WALK_GROUP] : GROUPS));
 /** Why a tool is off, on its tooltip; its name and key while it is on. */
-const PAUSED = "Drawing waits while the picture is view only or an AI proposal is open";
-const NEEDS_LOGIC = "This room's script holds its exits: edit them as text";
-const PROBE_NEEDS_VIEWS = "Ghost · G (this game has no characters)";
+const PAUSED = "Drawing pauses while the picture is read-only or an AI change is open";
+const NEEDS_LOGIC =
+  "Edit this room's scripted exits in LOGIC editor or tell the agent to change them";
+const PROBE_NEEDS_VIEWS = "Stand-in · G · needs a character in the game";
 function toolTitle(entry: RailTool): string {
   if ((entry.draws || entry.doors) && frozen) return PAUSED;
   if (entry.doors && !doorsEditable) return NEEDS_LOGIC;
+  if (entry.id === "walk") return VOCABULARY.testWalk.help;
   return `${entry.label} · ${TOOL_SHORTCUTS[entry.id]}`;
 }
 
@@ -117,7 +123,9 @@ function page(direction: 1 | -1): void {
   const el = scroller.value;
   if (!el) return;
   const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
-  const step = Math.max(32, el.clientHeight - 48);
+  // A tool's height follows the control size: 32 px where a short window shrinks them.
+  const toolHeight = el.querySelector(".tool-rail__tool")?.getBoundingClientRect().height ?? 48;
+  const step = Math.max(32, el.clientHeight - toolHeight);
   el.scrollBy({ top: direction * step, behavior: reduce ? "auto" : "smooth" });
 }
 const revealPressed = () => reveal(scroller.value?.querySelector('[aria-pressed="true"]'));
@@ -165,11 +173,11 @@ watch(scroller, (el) => {
           <div class="tool-rail__tool">
             <UiIconButton
               icon="actor"
-              label="Ghost"
+              label="Stand-in"
               :shortcut="TOOL_SHORTCUTS.probe"
               :pressed="probeActive"
               :disabled="!probeAvailable"
-              :title="probeAvailable ? `Ghost · ${TOOL_SHORTCUTS.probe}` : PROBE_NEEDS_VIEWS"
+              :title="probeAvailable ? `Stand-in · ${TOOL_SHORTCUTS.probe}` : PROBE_NEEDS_VIEWS"
               data-testid="studio-probe-toggle"
               @click="emit('probe')"
             />
@@ -221,6 +229,8 @@ watch(scroller, (el) => {
       :lens
       :unlocks
       :values
+      :palette-action
+      :frozen
       :cursor-y="cursorY"
       @values="emit('values', $event)"
       @unlocks="emit('unlocks', $event)"
@@ -237,6 +247,15 @@ watch(scroller, (el) => {
   padding: 0 0 var(--space-2);
   border-right: 1px solid var(--hairline);
   background: var(--surface-1);
+  /* A very short rail scrolls as a whole: the tools keep room for two and the
+     values slide below the fold instead of covering them. */
+  overflow-y: auto;
+  /* Native reveal scrolling rounds offsets to pixels; keep fractional swatches inside. */
+  scroll-padding-block: 1px;
+  scrollbar-width: none;
+}
+.tool-rail::-webkit-scrollbar {
+  display: none;
 }
 /* The tools' column: the scrolling list with its chevrons laid over its edges. */
 .tool-rail__column {
@@ -245,7 +264,8 @@ watch(scroller, (el) => {
   flex: 0 1 auto;
   flex-direction: column;
   align-self: stretch;
-  min-height: 0;
+  /* At least two tools stay fully in reach; the rail scrolls for the rest. */
+  min-height: calc(2 * var(--control-h-sm) + var(--space-2));
 }
 .tool-rail__more {
   position: absolute;
@@ -279,7 +299,8 @@ watch(scroller, (el) => {
   --fade: var(--space-5);
   flex: 0 1 auto;
   align-self: stretch;
-  min-height: 0;
+  /* At least two tools stay fully in reach; the rail scrolls for the rest. */
+  min-height: calc(2 * var(--control-h-sm) + var(--space-2));
   overflow: hidden auto;
   overscroll-behavior: contain;
   scroll-padding-block: var(--fade);

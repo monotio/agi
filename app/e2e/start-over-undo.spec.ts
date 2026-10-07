@@ -1,9 +1,14 @@
 import type { Page } from "@playwright/test";
+import type { WorkerQueryFn } from "../src/worker/workerProtocol.ts";
+import type { EngineStateReport } from "../../src/runtime/engine.ts";
+import { createContainer } from "../../src/container/container.ts";
+import { assembleLogic } from "../../src/logic/assembler.ts";
+import { gameRevision } from "../src/project/gameMetadata.ts";
 import { expect, reviewShot, test } from "./test.ts";
 import {
   isolateStorage,
   openGameOptions,
-  openLibraryActions,
+  openPlayMore,
   savedGameCard,
   textHook,
   waitForCycles,
@@ -16,16 +21,35 @@ import {
  */
 
 const note = (page: Page) => page.getByTestId("start-over-note");
-const startedOverMarks = (page: Page) =>
-  page.locator('.history-marker--restart[title="Started over"]');
+const startedOverMarks = (page: Page) => page.locator(".transport-marker--restart");
+
+/** Read the stopped worker state; a heartbeat can still precede the stop input. */
+async function stoppedState(page: Page): Promise<EngineStateReport> {
+  await expect
+    .poll(() =>
+      page.evaluate(async () => {
+        const probe = (window as unknown as { __AGI_PROJECT__: { query: WorkerQueryFn } })
+          .__AGI_PROJECT__;
+        return (await probe.query("state"))?.egoDirection;
+      }),
+    )
+    .toBe(0);
+  const stopped = await page.evaluate(() => {
+    const probe = (window as unknown as { __AGI_PROJECT__: { query: WorkerQueryFn } })
+      .__AGI_PROJECT__;
+    return probe.query("state");
+  });
+  if (!stopped) throw new Error("The worker has no running game");
+  return stopped;
+}
 
 /** Exit to Home and use Start over on the tutorial's saved card. */
 async function startOverFromHome(page: Page): Promise<void> {
   await page.getByTestId("btn-exit").click();
   const card = savedGameCard(page, "Adventure Department");
   await expect(card).toBeVisible();
-  await openLibraryActions(page, card);
-  await page.getByTestId("start-library-game-over").click();
+  const more = await openPlayMore(page, card);
+  await more.getByTestId("start-library-game-over").click();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
 }
 
@@ -49,7 +73,7 @@ test("Undo start over returns to the earlier session, and the timeline marks the
   await expect.poll(async () => (await textHook(page)).egoX).toBeGreaterThan(spawnX + 12);
   await page.keyboard.press("ArrowRight");
   await waitForCycles(page, 4);
-  const stopped = await textHook(page);
+  const stopped = await stoppedState(page);
   expect(stopped.room).toBe(1);
 
   await startOverFromHome(page);
@@ -60,6 +84,9 @@ test("Undo start over returns to the earlier session, and the timeline marks the
   await expect(undo, "the note never takes focus").not.toBeFocused();
   await expect(startedOverMarks(page)).toHaveCount(1);
   // The note sits clear of the command line: the engine's input row (22 of 25).
+  await note(page).evaluate(async (el) => {
+    await Promise.all(el.getAnimations({ subtree: true }).map((animation) => animation.finished));
+  });
   const noteBox = (await note(page).boundingBox())!;
   const screen = (await page.locator(".game-surface:visible").boundingBox())!;
   const inputRowTop = screen.y + (screen.height * 22) / 25;
@@ -128,7 +155,7 @@ test("Undo after the game's own Start over returns to the exact moment it was us
   await expect.poll(async () => (await textHook(page)).egoX).toBeGreaterThan(spawnX + 12);
   await page.keyboard.press("ArrowRight");
   await waitForCycles(page, 4);
-  const stopped = await textHook(page);
+  const stopped = await stoppedState(page);
   expect(stopped.room).toBe(1);
 
   await page.getByTestId("settings-menu").click();
@@ -140,6 +167,44 @@ test("Undo after the game's own Start over returns to the exact moment it was us
   await expect.poll(async () => (await textHook(page)).egoX).toBe(stopped.egoX);
   const back = await textHook(page);
   expect([back.room, back.egoX, back.egoY]).toEqual([stopped.room, stopped.egoX, stopped.egoY]);
+});
+
+test("Start over hands an installed game's title screen the keyboard", async ({ page }) => {
+  const game = createContainer();
+  for (const [num, source] of [
+    [0, "if (v0 == 0) { new.room(1); } call.v(v0); return;"],
+    [1, 'display(10,4,"Press any key"); if (have.key()) { new.room(2); } return;'],
+    [2, 'accept.input(); display(0,0,"Playing"); return;'],
+  ] as const)
+    game.putResource("logic", num, assembleLogic(source, { dictionary: new Map() }).payload);
+  game.putFile("WORDS.TOK", new Uint8Array(52));
+  const revision = await gameRevision(Object.fromEntries(game.files));
+  await page.route("**/fixtures/**", (route) => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === "/fixtures/") return route.fulfill({ json: [{ folder: "title-game", revision }] });
+    if (path === "/fixtures/title-game/") return route.fulfill({ json: [...game.files.keys()] });
+    const bytes = game.files.get(path.split("/").at(-1)!);
+    return route.fulfill(bytes ? { body: Buffer.from(bytes) } : { status: 404 });
+  });
+  await isolateStorage(page);
+  await page.goto("/");
+  await page.getByTestId("boot-title-game").click();
+  const input = page.getByTestId("input-line");
+  await expect(input).toBeVisible();
+  await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  await page.keyboard.press("Enter");
+  await expect.poll(async () => (await textHook(page)).room).toBe(2);
+  await openGameOptions(page, "settings-menu");
+  await page.getByTestId("btn-start-over").click();
+  await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  const keys = page.getByTestId("game-keys");
+  await expect(keys).toBeVisible();
+  await expect(keys).toHaveText("Keys go to the game");
+  await page.keyboard.press("Enter");
+  await expect.poll(async () => (await textHook(page)).room).toBe(2);
+  await page.keyboard.type("look");
+  await expect(input).toHaveValue("look");
+  await expect(page.getByTestId("settings-menu-menu")).toBeHidden();
 });
 
 /** Storage refuses (true) or takes (false) this game's timeline writes. */
@@ -175,7 +240,7 @@ test("the game's Start over waits for an unsaved timeline, and Start over anyway
     await expect.poll(async () => (await textHook(page)).egoX).toBeGreaterThan(spawnX + 12);
     await page.keyboard.press("ArrowRight");
     await waitForCycles(page, 4);
-    const stopped = await textHook(page);
+    const stopped = await stoppedState(page);
     expect(stopped.room).toBe(1);
     return stopped;
   };

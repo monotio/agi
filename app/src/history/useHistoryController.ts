@@ -14,9 +14,9 @@
  *
  * One key change is not a switch: a catalog game that becomes its remix
  * project mid-session keeps the SAME worker and tape under a new
- * `gameStorageKey`. A batch whose segment still belongs to the active
- * session nonce then moves the stored record to the new key first —
- * serialized behind pending old-key commits — so the continuing stream
+ * progress target. A batch whose segment still belongs to the active
+ * session nonce then moves the stored record to the new target first —
+ * serialized behind pending old-tape commits — so the continuing stream
  * never lands on a record that never saw its boot.
  *
  * A stored tape this version cannot extend (the pre-1.0 whole-tape record,
@@ -40,8 +40,9 @@ import {
   UnextendableHistoryError,
   HISTORY_WRITER_RENEW_MS,
 } from "./historyStorage.ts";
-import { gameStorageKey, type BootedGame } from "../project/gameTypes.ts";
-import { projectId } from "../../../src/gameIdentity.ts";
+import type { BootedGame } from "../project/gameTypes.ts";
+import { resolveProgressTarget } from "../project/progressBinding.ts";
+import type { ProgressTarget } from "../project/progressTarget.ts";
 import type { HistoryBatch } from "../../../src/agent/history.ts";
 import type { AgentLogEntry } from "../agent/agentLog.ts";
 
@@ -113,17 +114,18 @@ export function useHistoryController(ctx: HistoryControllerContext): HistoryCont
   const commits = new Set<Promise<unknown>>();
   /** `${segment}:${batch}` → when the commit first failed. */
   const unsaved = new Map<string, number>();
-  let activeKey = "";
-  /** The session nonce owning the tape under `activeKey`. */
+  /** The physical target the running tape writes under; null until bound. */
+  let activeTarget: ProgressTarget | null = null;
+  /** The session nonce owning the tape under `activeTarget`. */
   let activeSession = "";
-  /** A storage-key relocation in flight; commits queue behind it. */
+  /** A tape relocation in flight; commits queue behind it. */
   let relocating: Promise<void> | null = null;
   let writerSegment = "";
   let writerSession = "";
   let latestBootBatch = -1;
   let cancelRenewal: (() => void) | null = null;
-  /** The storage key whose tape this version cannot extend; its batches skip storage. */
-  let blockedKey: string | null = null;
+  /** The tape locator this version cannot extend; its batches skip storage. */
+  let blockedLocator: string | null = null;
   /** The session that found it: a later session reads the stored tape afresh. */
   let blockedSession = "";
   /** The pending Try now, told of every commit and renewal that settles. */
@@ -142,22 +144,32 @@ export function useHistoryController(ctx: HistoryControllerContext): HistoryCont
   /** Renew the live writer's lease once; its outcome feeds the ledger and Try now. */
   function renewWriter(): Promise<void> {
     const segment = writerSegment;
-    const key = activeKey;
+    const target = activeTarget;
     const game = ctx.getBootedGame();
-    if (!segment || !game || game.removed || gameStorageKey(game) !== key || blockedKey === key)
+    // The lease renews only while the live game still resolves to the tape
+    // this writer owns — a switch leaves the old tape's lease to expire.
+    const live = game === null ? null : resolveProgressTarget(game);
+    if (
+      !segment ||
+      !game ||
+      game.removed ||
+      target === null ||
+      live?.locator !== target.locator ||
+      blockedLocator === target.locator
+    )
       return Promise.resolve();
     const lease = `lease:${segment}`;
-    const run = renewHistoryWriter(key, segment, game.historyLifetime)
+    const run = renewHistoryWriter(target, segment, game.historyLifetime)
       .then((renewed) => {
-        if (activeKey !== key || writerSegment !== segment) return;
+        if (activeTarget?.locator !== target.locator || writerSegment !== segment) return;
         if (renewed) unsaved.delete(lease);
         else refused(lease, "the timeline's writer could not be renewed");
         syncUnsaved();
         retryWatch?.(renewed ? "committed" : "refused");
       })
       .catch((error: unknown) => {
-        if (activeKey !== key || writerSegment !== segment) return;
-        if (error instanceof UnextendableHistoryError) block(key, error);
+        if (activeTarget?.locator !== target.locator || writerSegment !== segment) return;
+        if (error instanceof UnextendableHistoryError) block(target.locator, error);
         else {
           refused(lease, "browser storage refused the write");
           syncUnsaved();
@@ -195,11 +207,11 @@ export function useHistoryController(ctx: HistoryControllerContext): HistoryCont
   /**
    * The game's stored tape cannot be extended: said once, the unsaved
    * ledger and the lease go (no resend can land), and later batches for
-   * this key are answered without storage until a new timeline starts.
+   * this locator are answered without storage until a new timeline starts.
    */
-  function block(storageKey: string, error: UnextendableHistoryError): void {
-    if (blockedKey === storageKey) return;
-    blockedKey = storageKey;
+  function block(locator: string, error: UnextendableHistoryError): void {
+    if (blockedLocator === locator) return;
+    blockedLocator = locator;
     blockedSession = activeSession;
     stopWriterRenewal();
     unsaved.clear();
@@ -217,7 +229,7 @@ export function useHistoryController(ctx: HistoryControllerContext): HistoryCont
   }
 
   function unblock(): void {
-    blockedKey = null;
+    blockedLocator = null;
     ctx.state.historyBlocked = null;
   }
 
@@ -237,24 +249,28 @@ export function useHistoryController(ctx: HistoryControllerContext): HistoryCont
     const pending = (async (): Promise<"committed" | "refused" | "blocked"> => {
       if (relocating !== null) await relocating;
       const game = ctx.getBootedGame();
-      const storageKey = game ? gameStorageKey(game) : "";
-      if (storageKey !== activeKey) {
+      const target = game ? resolveProgressTarget(game) : null;
+      if ((target?.locator ?? null) !== (activeTarget?.locator ?? null)) {
         if (
-          activeKey !== "" &&
-          storageKey !== "" &&
+          activeTarget !== null &&
+          target !== null &&
           sessionOf(msg.batch.segment) === activeSession
         ) {
-          // Same live tape, new storage identity — a mid-session remix
-          // converted the game. Move the record (behind the old key's
-          // pending commits, ahead of this key's) rather than let the
+          // Same live tape, new physical address — a mid-session remix
+          // converted the game. Move the record (behind the old tape's
+          // pending commits, ahead of this one's) rather than let the
           // continuing stream refuse against a record that never booted.
-          const from = activeKey;
-          const run = moveHistoryRecord(from, storageKey, game?.historyLifetime).finally(() => {
+          const from = activeTarget;
+          const run = moveHistoryRecord(from, target, game?.historyLifetime).finally(() => {
             if (relocating === run) relocating = null;
           });
           relocating = run;
           await run;
-          activeKey = storageKey;
+          // The live game may have moved on during the move: adopt the
+          // destination as the tape owner only while it still resolves there.
+          const now = ctx.getBootedGame();
+          if (now !== null && resolveProgressTarget(now)?.locator === target.locator)
+            activeTarget = target;
         } else {
           // A replaced worker's un-acked batches can never resend — the
           // ledger they left behind belongs to the previous session, not
@@ -263,11 +279,11 @@ export function useHistoryController(ctx: HistoryControllerContext): HistoryCont
           unsaved.clear();
           unblock();
           ctx.state.historyRetry = null;
-          activeKey = storageKey;
+          activeTarget = target;
           syncUnsaved();
         }
       }
-      if (!storageKey || game === null) return "refused";
+      if (target === null || game === null) return "refused";
       // A removed project stores nothing: its batches are answered without
       // storage, un-acked, as a blocked tape's are.
       if (game.removed) {
@@ -275,8 +291,9 @@ export function useHistoryController(ctx: HistoryControllerContext): HistoryCont
         return "blocked";
       }
       // A new session of the same game asks storage again, and says it again.
-      if (blockedKey === storageKey && sessionOf(msg.batch.segment) !== blockedSession) unblock();
-      if (blockedKey === storageKey) return "blocked";
+      if (blockedLocator === target.locator && sessionOf(msg.batch.segment) !== blockedSession)
+        unblock();
+      if (blockedLocator === target.locator) return "blocked";
       activeSession = sessionOf(msg.batch.segment);
       if (writerSession !== activeSession) {
         stopWriterRenewal();
@@ -290,25 +307,19 @@ export function useHistoryController(ctx: HistoryControllerContext): HistoryCont
       }
       if (msg.batch.end && writerSegment === msg.batch.segment) stopWriterRenewal();
       armRenewal();
-      const project = projectId(storageKey);
-      if (project === null) return "refused";
       try {
         const committed = await appendHistoryBatch(
-          storageKey,
+          target,
           msg.batch,
           // The batch names the running profile; the booted one is the same
           // interpreter once the page has heard of it.
           msg.profile ?? knownProfile(ctx.getProfile()),
-          {
-            project,
-            revision: game.revision,
-          },
           game.historyLifetime,
         );
         return committed ? "committed" : "refused";
       } catch (error) {
         if (!(error instanceof UnextendableHistoryError)) throw error;
-        block(storageKey, error);
+        block(target.locator, error);
         return "blocked";
       }
     })()
@@ -380,17 +391,16 @@ export function useHistoryController(ctx: HistoryControllerContext): HistoryCont
 
   async function startNewTimeline(): Promise<void> {
     const game = ctx.getBootedGame();
-    const key = game ? gameStorageKey(game) : "";
+    const target = game ? resolveProgressTarget(game) : null;
     const profile = knownProfile(ctx.getProfile());
-    const project = projectId(key);
-    if (!game || blockedKey !== key || project === null || profile === undefined) return;
-    await storeNewTimeline(
-      key,
-      { project, revision: game.revision },
-      profile,
-      game.historyLifetime,
-    );
-    if (blockedKey !== key) return;
+    if (!game || target === null || blockedLocator !== target.locator || profile === undefined)
+      return;
+    await storeNewTimeline(target, profile, game.historyLifetime);
+    // A game switch during the write owns its own banner: this call clears
+    // the block only while the same incarnation still carries it.
+    const live = ctx.getBootedGame();
+    if (live === null || resolveProgressTarget(live)?.locator !== target.locator) return;
+    if (blockedLocator !== target.locator) return;
     unblock();
     ctx.logAgent("log", "Started a new rewind timeline; the old one is kept as it was.");
     ctx.retryWorker?.();
@@ -398,7 +408,8 @@ export function useHistoryController(ctx: HistoryControllerContext): HistoryCont
 
   function readOldGameTimeline(): Promise<string | null> {
     const game = ctx.getBootedGame();
-    return game ? readOldTimeline(gameStorageKey(game)) : Promise.resolve(null);
+    const target = game ? resolveProgressTarget(game) : null;
+    return target === null ? Promise.resolve(null) : readOldTimeline(target.locator);
   }
 
   return {

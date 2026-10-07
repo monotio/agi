@@ -1,6 +1,12 @@
-import { expect, test } from "./test.ts";
 import type { Locator, Page } from "@playwright/test";
-import { enterCreateMode, isolateStorage, waitForRoom, openWorldRoom } from "./engineProbe.ts";
+import {
+  enterCreateMode,
+  isolateStorage,
+  openWorkspacePicture,
+  openWorkspaceView,
+  waitForRoom,
+} from "./engineProbe.ts";
+import { expect, test } from "./test.ts";
 
 /**
  * The Studios in small windows: a small laptop's 1024×600, a 900 px wide
@@ -62,21 +68,18 @@ for (const viewport of [
     // The chevrons scroll at once, not smoothly: each click lands where it scrolled to.
     await page.emulateMedia({ reducedMotion: "reduce" });
     await playTutorial(page);
-    const panel = page.getByTestId("world-panel");
-    await openWorldRoom(panel, 2);
-    await panel.getByTestId("world-open-studio").click();
+    await openWorkspacePicture(page, 2, false);
     const studio = page.getByTestId("room-studio");
     await expect(studio).toBeVisible();
-    const lens = studio.getByTestId("studio-lens");
-    const bar = studio.locator(".top-bar");
+    const lens = studio.getByRole("radiogroup", { name: "Lens", exact: true });
+    const bar = studio.getByRole("radiogroup", { name: "Lens", exact: true });
     const rail = studio.getByRole("toolbar", { name: "Tools" });
     const tools = studio.getByTestId("studio-rail-tools");
     const below = studio.getByTestId("studio-rail-more-below");
     const above = studio.getByTestId("studio-rail-more-above");
     for (const [key, name] of [
-      ["1", "Art"],
-      ["2", "Depth"],
-      ["3", "Walk"],
+      ["1", "Visual"],
+      ["2", "Priority"],
     ] as const) {
       await page.keyboard.press(key);
       await expect(lens.getByRole("radio", { name: new RegExp(name) })).toHaveAttribute(
@@ -85,18 +88,10 @@ for (const viewport of [
       );
       const context = `${name} at ${viewport.width}×${viewport.height}`;
       const top = await boxes([
-        ["Art tab", lens.getByRole("radio", { name: /Art/ })],
-        ["Depth tab", lens.getByRole("radio", { name: /Depth/ })],
-        ["Walk tab", lens.getByRole("radio", { name: /Walk/ })],
-        ["lock", studio.locator(".top-bar__lens").getByTestId("studio-lock-chip")],
-        ["undo", studio.getByTestId("studio-undo")],
-        ["redo", studio.getByTestId("studio-redo")],
-        ["status", studio.getByTestId("studio-draft-status")],
-        ["discard", studio.getByTestId("studio-discard")],
-        ["keep", studio.getByTestId("studio-keep")],
-        ["close", studio.getByTestId("studio-close")],
+        ["Visual tab", lens.getByRole("radio", { name: /Visual/ })],
+        ["Priority tab", lens.getByRole("radio", { name: /Priority/ })],
       ]);
-      expect(top.length, `${context}: the lens tabs and draft controls show`).toBeGreaterThan(8);
+      expect(top.length, `${context}: all lens tabs show`).toBe(2);
       expectApart(top, context);
       const barBox = (await bar.boundingBox())!;
       for (const [part, box] of top) expect(inside(box, barBox), `${context}: ${part}`).toBe(true);
@@ -144,9 +139,9 @@ test("Sprite Studio at 1024×600: the options bar folds its view options into Mo
 }) => {
   await page.setViewportSize({ width: 1024, height: 600 });
   await playTutorial(page);
-  const panel = page.getByTestId("world-panel");
-  await openWorldRoom(panel, 1);
-  await panel.getByTestId("world-open-sprite-0").click();
+  await openWorkspaceView(page, 0);
+  await page.getByTestId("workspace-layout").click();
+  await expect(page.getByTestId("workspace-layout")).toHaveAttribute("aria-pressed", "true");
   const studio = page.getByTestId("sprite-studio");
   await expect(studio).toBeVisible();
   const bar = studio.getByTestId("sprite-options-bar");
@@ -165,31 +160,39 @@ test("Sprite Studio at 1024×600: the options bar folds its view options into Mo
     if (await locator.isVisible()) expect(await onTop(locator), `${name} is on top`).toBe(true);
   await page.screenshot({ path: test.info().outputPath("sprite-studio-1024x600.png") });
 
-  // The folded options live in More: the grid, the baseline and All cels. The
-  // backdrop and the Onion menu stay in the bar.
-  await expect(studio.getByTestId("sprite-backdrop")).toBeVisible();
+  // The options bar measures its available width: at this size the backdrop
+  // joins the grid, baseline and All cels in More. Onion stays in the bar.
+  await expect(studio.getByTestId("sprite-backdrop")).toBeHidden();
   await expect(studio.getByTestId("sprite-onion")).toBeVisible();
   await expect(studio.getByTestId("sprite-grid")).toBeHidden();
-  const more = studio.getByTestId("sprite-view-more");
+  const more = studio.getByTestId("actor-view-more");
   await expect(more).toBeVisible();
   await more.click();
-  const menu = page.getByTestId("sprite-view-more-menu");
+  const menu = page.getByTestId("actor-view-more-menu");
   await expect(menu).toBeVisible();
   const grid = menu.getByRole("menuitemcheckbox", { name: "Grid" });
   const gridWas = await grid.getAttribute("aria-checked");
   const gridNow = gridWas === "true" ? "false" : "true";
   await grid.click();
   await expect(grid).toHaveAttribute("aria-checked", gridNow);
-  await expect(menu.getByRole("menuitemcheckbox", { name: "Baseline" })).toBeVisible();
+  await expect(menu.getByRole("menuitemcheckbox", { name: "Feet" })).toBeVisible();
   await expect(menu.getByRole("menuitemcheckbox", { name: "All cels" })).toBeVisible();
-  await expect(menu.getByRole("menuitemradio")).toHaveCount(0);
+  await expect(
+    menu.getByRole("menuitemradio", { name: "Dark checker", exact: true }),
+  ).toBeVisible();
+  await menu.getByRole("menuitemradio", { name: "Light checker", exact: true }).click();
+  await expect(
+    menu.getByRole("menuitemradio", { name: "Light checker", exact: true }),
+  ).toHaveAttribute("aria-checked", "true");
   await page.screenshot({ path: test.info().outputPath("sprite-studio-1024x600-more.png") });
   await page.keyboard.press("Escape");
   await expect(menu).toBeHidden();
 
-  // A wide window has room for every option in the bar, and no More.
+  // Focus gives the editor room for every option in the bar, and no More.
   await page.setViewportSize({ width: 1440, height: 900 });
+  await page.getByTestId("workspace-focus").click();
   await expect(studio.getByTestId("sprite-backdrop")).toBeVisible();
+  await expect(studio.getByTestId("sprite-backdrop")).toHaveValue("checker-light");
   await expect(studio.getByTestId("sprite-grid")).toHaveAttribute("aria-pressed", gridNow);
   await expect(more).toBeHidden();
 });

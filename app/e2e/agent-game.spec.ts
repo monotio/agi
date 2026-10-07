@@ -1,10 +1,13 @@
 import { expect, test, type Page } from "@playwright/test";
 import { readFile } from "node:fs/promises";
+import type { ProjectSession } from "../src/project/projectSession.ts";
+import type { WorkerQueryFn } from "../src/worker/workerProtocol.ts";
 import {
-  canvasPicHash,
+  gameHint,
+  configureAi,
   openAiSettings,
   isolateStorage,
-  observe,
+  agentActivity,
   openCreateAdventure,
   openDeveloperActivity,
   openGameOptions,
@@ -14,7 +17,10 @@ import {
   storedAutosave,
   textHook,
   waitForAutosaveAfter,
+  savePlayProgress,
   enterCreateMode,
+  openWorkspaceAgent,
+  workspaceSaved,
 } from "./engineProbe.ts";
 
 /**
@@ -45,27 +51,26 @@ async function bootAgentGame(page: Page): Promise<void> {
   await expect(page.getByTestId("input-line")).toBeVisible({ timeout: 15_000 });
   // Authoring finishes before room 1 can be entered, and room 1 has to be
   // drawn before any pixel assertion means anything.
-  await expect(page.getByTestId("agent-panel")).toContainText("assembled room 1", {
-    timeout: 30_000,
-  });
+  await expect.poll(() => agentActivity(page), { timeout: 30_000 }).toContain("assembled room 1");
   await expect.poll(async () => (await probe(page)).frame, { timeout: 20_000 }).toBeGreaterThan(0);
   await expect.poll(() => cycleOf(page), { timeout: 20_000 }).toBeGreaterThan(0);
 }
 
-/**
- * Wait for an engine print window and return its text with the box border
- * glyphs stripped and the wrapped lines re-joined.
- */
-async function printWindowText(page: Page): Promise<string> {
+/** Wait for the print window, then its rendered text. */
+async function expectPrintWindow(page: Page, text: string): Promise<void> {
   await expect.poll(async () => (await textHook(page)).modal, { timeout: 10_000 }).toBe("print");
-  return (await textHook(page)).rows.join(" ").replace(/#/g, " ").replace(/\s+/g, " ");
+  await expect
+    .poll(async () => (await textHook(page)).rows.join(" ").replace(/#/g, " ").replace(/\s+/g, " "))
+    .toContain(text);
 }
 
 /** Close any open engine window first (Enter would only dismiss it), then submit. */
 async function typeCommand(page: Page, text: string): Promise<void> {
-  const openMenu = page.locator(".game-nav details[open] summary");
-  if (await openMenu.count()) await openMenu.press("Escape");
+  const settings = page.getByTestId("settings-menu-menu");
+  if (await settings.isVisible())
+    await settings.getByRole("button", { name: "Close", exact: true }).click();
   const input = page.getByTestId("input-line");
+  await expect(input).toBeVisible();
   await input.focus();
   if ((await textHook(page)).modal !== null) {
     await page.keyboard.press("Enter");
@@ -78,22 +83,23 @@ async function typeCommand(page: Page, text: string): Promise<void> {
 test("agent game boots into generated room 1", async ({ page }) => {
   await bootAgentGame(page);
   // Room 1 rendered: sky + ground + priority line (at least 3 colors).
-  const colors = await page.evaluate(() => {
-    const c = document.querySelector<HTMLCanvasElement>("[data-testid='game-canvas']")!;
-    const d = c.getContext("2d")!.getImageData(0, 8, 320, 168).data;
-    const set = new Set<string>();
-    for (let i = 0; i < d.length; i += 4) set.add(`${d[i]},${d[i + 1]},${d[i + 2]}`);
-    return set.size;
-  });
-  expect(colors).toBeGreaterThanOrEqual(3);
+  const colors = () =>
+    page.evaluate(() => {
+      const c = document.querySelector<HTMLCanvasElement>("[data-testid='game-canvas']")!;
+      const d = c.getContext("2d")!.getImageData(0, 8, 320, 168).data;
+      const set = new Set<string>();
+      for (let i = 0; i < d.length; i += 4) set.add(`${d[i]},${d[i + 1]},${d[i + 2]}`);
+      return set.size;
+    });
+  await expect.poll(colors).toBeGreaterThanOrEqual(3);
   // The debug screen shows the agent assembling room 1.
-  await expect(page.getByTestId("agent-panel")).toContainText("assembled room 1");
+  await expect.poll(() => agentActivity(page)).toContain("assembled room 1");
 });
 
 test("returning to the menu preserves the saved room and offers continue", async ({ page }) => {
   await bootAgentGame(page);
   await typeCommand(page, "east");
-  expect(await printWindowText(page)).toContain("generated room 2");
+  await expectPrintWindow(page, "generated room 2");
   await page.keyboard.press("Enter");
   await waitForAutosaveAfter(page, (await textHook(page)).cycle);
   await page.getByTestId("btn-exit").click();
@@ -102,30 +108,83 @@ test("returning to the menu preserves the saved room and offers continue", async
   await expect.poll(async () => (await textHook(page)).room).toBe(2);
 });
 
+test("a late project session checkpoints a generated room while its entry window waits", async ({
+  page,
+}) => {
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route("**/src/engine/mainProjectAdmission.ts", async (route) => {
+    await held;
+    await route.continue();
+  });
+  try {
+    await bootAgentGame(page);
+    await typeCommand(page, "east");
+    await expectPrintWindow(page, "generated room 2");
+    release();
+    await expect
+      .poll(() =>
+        page.evaluate(async () => {
+          const project = (
+            window as unknown as {
+              __AGI_PROJECT__: {
+                getSession(): ProjectSession | null;
+                query: WorkerQueryFn;
+              };
+            }
+          ).__AGI_PROJECT__;
+          const session = project.getSession();
+          if (!session) return "opening";
+          const status = await project.query("previewUpdateStatus");
+          return session.prepareCheckpoint(status.current?.revision);
+        }),
+      )
+      .toBe("ready");
+    await waitForAutosaveAfter(page, (await textHook(page)).cycle - 1);
+    expect((await storedAutosave(page, "custom"))?.room).toBe(2);
+    await expect.poll(async () => (await textHook(page)).modal).toBe("print");
+    await page.reload();
+    await expect.poll(() => page.evaluate(() => window.__AGI_STATE__?.resumed)).toBe(true);
+    await expect.poll(async () => (await textHook(page)).room).toBe(2);
+    await expectPrintWindow(page, "generated room 2");
+  } finally {
+    release();
+  }
+});
+
 test("in-game ZIP exports the live game after a patch and reload", async ({ page }) => {
   await bootAgentGame(page);
   await typeCommand(page, "east");
-  expect(await printWindowText(page)).toContain("generated room 2");
+  await expectPrintWindow(page, "generated room 2");
   await page.keyboard.press("Enter");
   await expect.poll(async () => (await textHook(page)).modal).toBe(null);
+  await configureAi(page, { provider: "stub" });
   await enterCreateMode(page);
-  await page.getByTestId("power-up").click();
-  await expect(page.getByTestId("agent-bubble-room")).toContainText("room 2");
-  await page.getByTestId("agent-bubble-input").fill("put up a sign by the road");
-  await page.getByTestId("agent-bubble-send").click();
-  await expect(page.getByTestId("agent-bubble")).toBeHidden();
-  // A patch re-enters the room and prints two messages. Acknowledge each
-  // once, then wait for a stored checkpoint before testing reload.
-  expect(await printWindowText(page)).toContain("generated room 2");
-  await page.keyboard.press("Enter");
-  await expect.poll(() => printWindowText(page)).toContain("weathered sign");
+  await openWorkspaceAgent(page);
+  await page
+    .getByTestId("agent-message")
+    .fill("Add a welcome sign. Typing look at sign should describe it.");
+  await page.getByRole("button", { name: "Send", exact: true }).click();
+  await expect(page.getByTestId("agent-review")).toBeVisible();
+  await page.getByTestId("agent-approve").click();
+  await expect(page.getByTestId("agent-review")).toHaveCount(0);
+  await workspaceSaved(page);
+  await typeCommand(page, "look at sign");
+  await expectPrintWindow(page, "Welcome sign");
   await page.keyboard.press("Enter");
   await expect.poll(async () => (await textHook(page)).modal).toBe(null);
   const downloadPromise = page.waitForEvent("download");
   await openGameOptions(page, "settings-menu");
+  await page.getByTestId("btn-download-game").click();
+  const downloadDialog = page.getByTestId("settings-download-dialog");
+  await expect(downloadDialog).toBeVisible();
   // A growing world says what a published copy of it is before it is exported.
-  await expect(page.getByTestId("export-work-in-progress")).toContainText("work in progress");
-  await page.getByTestId("btn-export-game").click();
+  await expect(downloadDialog.getByTestId("export-work-in-progress")).toContainText(
+    "work in progress",
+  );
+  await downloadDialog.getByTestId("export-library-game").click();
   const download = await downloadPromise;
   expect(download.suggestedFilename()).toBe("agi-custom-game.zip");
   const bytes = await readFile((await download.path())!);
@@ -161,34 +220,35 @@ test("in-game ZIP exports the live game after a patch and reload", async ({ page
   expect(gameJson.roomGeneration, "the export marks the world as still growing").toBe(true);
   expect(Object.keys(files)).not.toContain("PROJECT.JSON");
   expect(Object.keys(files)).not.toContain("transcript.json");
-  await waitForAutosaveAfter(page, (await textHook(page)).cycle);
+  await savePlayProgress(page);
   await page.reload();
   // The live patch travels with the autosave, so the reload resumes the
   // patched world where the player left it (room 2) without reauthoring.
-  await expect(page.getByText("Resumed where you left off")).toBeVisible({ timeout: 15_000 });
+  await expect.poll(() => page.evaluate(() => window.__AGI_STATE__?.resumed)).toBe(true);
   await expect.poll(async () => (await textHook(page)).room).toBe(2);
   await expect.poll(async () => (await textHook(page)).modal).toBe(null);
   await openGameOptions(page, "settings-menu");
-  await expect(page.getByTestId("btn-export-game")).toBeVisible();
+  await expect(page.getByTestId("btn-download-game")).toBeVisible();
   await expect.poll(async () => (await textHook(page)).cycle).toBeGreaterThan(0);
   // Re-entering room 2 runs its patched entry code: the sign is really there.
   await typeCommand(page, "west");
-  expect(await printWindowText(page)).toContain("generated room 1");
+  await expectPrintWindow(page, "generated room 1");
   // typeCommand owns this acknowledgement; a second Enter can dismiss
   // room 2's message depending on when the worker publishes the transition.
   await typeCommand(page, "east");
-  expect(await printWindowText(page)).toContain("generated room 2");
+  await expectPrintWindow(page, "generated room 2");
   await page.keyboard.press("Enter");
-  await expect.poll(() => printWindowText(page)).toContain("weathered sign");
-  await page.screenshot({ path: "test-results/live-zip-export.png" });
+  await typeCommand(page, "look at sign");
+  await expectPrintWindow(page, "Welcome sign");
+  await page.screenshot({ path: test.info().outputPath("live-zip-export.png") });
 });
 
 test("unknown input gets an offline AGI hint without an authoring call", async ({ page }) => {
   await bootAgentGame(page);
   await typeCommand(page, "sing to the trees");
-  expect(await printWindowText(page)).toContain("Try LOOK, EAST or WEST.");
-  await expect(page.getByTestId("agent-panel")).not.toContainText("say {");
-  await expect(page.getByTestId("agent-panel")).not.toContainText("room {");
+  await expectPrintWindow(page, "Try LOOK, EAST or WEST.");
+  await expect.poll(() => agentActivity(page)).not.toContain("say {");
+  await expect.poll(() => agentActivity(page)).not.toContain("room {");
 });
 
 test("new.room: east authors a new room live; west returns to the old one", async ({ page }) => {
@@ -197,16 +257,15 @@ test("new.room: east authors a new room live; west returns to the old one", asyn
 
   await typeCommand(page, "east");
   // The agent authors room 2 and patches it into the VOL, live.
-  await expect(page.getByTestId("agent-panel")).toContainText("authored room 2", {
-    timeout: 10_000,
-  });
-  expect(await printWindowText(page)).toContain("generated room 2");
+  await expect.poll(() => agentActivity(page), { timeout: 10_000 }).toContain("authored room 2");
+  await expect(page.locator(".game-surface:visible")).toBeVisible();
+  await expectPrintWindow(page, "generated room 2");
   const room2Hash = (await settled(page)).picHash;
   expect(room2Hash).not.toBe(room1Hash);
 
   // Old rooms stay alive: west returns to room 1 without new authoring.
   await typeCommand(page, "west");
-  expect(await printWindowText(page)).toContain("generated room 1");
+  await expectPrintWindow(page, "generated room 1");
   expect((await settled(page)).picHash).toBe(room1Hash);
 });
 
@@ -218,16 +277,16 @@ test("new.room: east authors a new room live; west returns to the old one", asyn
  * image's replay sequence refers to — or the resumed game would restore into
  * a room whose logic the store never received.
  */
-test("an autosave resumes a room the agent authored mid-play, across a reload", async ({
+test("an autosave resumes a room the agent authored mid-play, across a reload @webkit-desktop", async ({
   page,
+  browserName,
 }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
   await bootAgentGame(page);
 
   await typeCommand(page, "east");
-  await expect(page.getByTestId("agent-panel")).toContainText("authored room 2", {
-    timeout: 10_000,
-  });
-  expect(await printWindowText(page)).toContain("generated room 2");
+  await expect.poll(() => agentActivity(page), { timeout: 10_000 }).toContain("authored room 2");
+  await expectPrintWindow(page, "generated room 2");
 
   // The window pauses the world, and an autosave is refused while it is up:
   // dismiss it, then wait for a snapshot taken in room 2.
@@ -243,25 +302,49 @@ test("an autosave resumes a room the agent authored mid-play, across a reload", 
   await page.reload();
 
   await expect(page.getByTestId("input-line")).toBeVisible({ timeout: 30_000 });
-  await expect(page.getByTestId("resume-caption")).toBeVisible({ timeout: 30_000 });
+  await expect(await gameHint(page, "resume-caption")).toBeVisible({ timeout: 30_000 });
+  await page.mouse.move(0, 0);
   await expect.poll(async () => (await textHook(page)).room, { timeout: 20_000 }).toBe(2);
   // The room came out of the persisted container, not out of the agent: a
   // second authoring turn would have logged one, and none did.
-  await expect(page.getByTestId("agent-panel")).toContainText("Booting saved world");
-  await expect(page.getByTestId("agent-panel")).not.toContainText("authored room 2");
+  await expect.poll(() => agentActivity(page)).toContain("Booting saved world");
+  await expect.poll(() => agentActivity(page)).not.toContain("authored room 2");
   expect((await settled(page)).picHash).toBe(room2Hash);
-  await page.screenshot({ path: "test-results/agent-game-resumed-room2.png" });
+  await page.screenshot({ path: test.info().outputPath("agent-game-resumed-room2.png") });
 
   // A fresh agent session must honour the destination already in bytecode.
   await typeCommand(page, "east");
-  expect(await printWindowText(page)).toContain("generated room 3");
+  await expectPrintWindow(page, "generated room 3");
   await typeCommand(page, "west");
-  expect(await printWindowText(page)).toContain("generated room 2");
+  await expectPrintWindow(page, "generated room 2");
+  // Returning to an authored room keeps the game available at every workspace size.
+  const screen = page.locator(".screen:visible");
+  await expect(screen).toBeVisible();
+  let previousWidth = 0;
+  for (const viewport of [
+    { width: 390, height: 844 },
+    { width: 1063, height: 815 },
+    { width: 1440, height: 900 },
+  ]) {
+    await page.setViewportSize(viewport);
+    await expect
+      .poll(async () => (await screen.boundingBox())!.width)
+      .toBeGreaterThan(previousWidth);
+    previousWidth = (await screen.boundingBox())!.width;
+    const shot = await page.screenshot({
+      path: test.info().outputPath(`return-room-${viewport.width}.png`),
+      animations: "disabled",
+      scale: "css",
+    });
+    if (process.env["CI"] && browserName === "webkit")
+      console.log(`RETURN_ROOM_SHOT:${viewport.width}:${shot.toString("base64")}`);
+  }
+  await expect(page.getByTestId("room-generation")).toBeHidden();
   await typeCommand(page, "east");
-  expect(await printWindowText(page)).toContain("generated room 3");
-  const log = (await page.getByTestId("agent-panel").textContent()) ?? "";
+  await expectPrintWindow(page, "generated room 3");
+  const log = await agentActivity(page);
   expect(log.match(/authored room 3:/g)).toHaveLength(1);
-  await page.screenshot({ path: "test-results/agent-game-grown-after-reload.png" });
+  await page.screenshot({ path: test.info().outputPath("agent-game-grown-after-reload.png") });
 });
 
 test("template picker displays built-in templates and allows selection", async ({ page }) => {
@@ -274,7 +357,7 @@ test("template picker displays built-in templates and allows selection", async (
   await expect(page.getByTestId("template-custom")).toBeVisible();
 
   await page.getByTestId("template-mop-jockey").click();
-  await expect(page.getByTestId("template-mop-jockey")).toHaveClass(/selected/);
+  await expect(page.getByTestId("template-mop-jockey")).toHaveAttribute("aria-selected", "true");
 
   await page.getByTestId("template-custom").click();
   await expect(page.getByTestId("custom-adventure-input")).toBeVisible();
@@ -337,97 +420,13 @@ test("sound controls allow toggling mute and switching sound chip mode", async (
   await expect(modeBtn).toContainText("Tandy 4-Voice");
 });
 
-/**
- * The power-up: one round button freezes
- * the world at a cycle boundary, the bubble takes an instruction into the
- * SAME session transcript the genesis and room turns used, the agent patches
- * real resources, the room re-enters, and the interpreter resumes on exactly
- * the cycle it parked on. The stub agent runs the real assembler, so this
- * proves the whole path with no API key.
- */
-test("power-up: freezes the world, patches the room live, resumes", async ({ page }) => {
-  await bootAgentGame(page);
-  await page.keyboard.press("Enter");
-  await expect.poll(async () => (await textHook(page)).modal).toBe(null);
-  await expect.poll(async () => cycleOf(page)).toBeGreaterThanOrEqual(4);
-
-  await enterCreateMode(page);
-  await page.getByTestId("power-up").click();
-  await expect(page.getByTestId("agent-bubble")).toBeVisible();
-  await expect(page.getByTestId("agent-bubble-room")).toContainText("room 1");
-  // The freeze is instant and the interpreter is parked, not stopped.
-  await expect.poll(async () => (await textHook(page)).paused).toBe(true);
-  await expect(page.getByTestId("agent-bubble-room")).toContainText("Paused");
-  await expect(page.getByTestId("agent-mode-remix")).toHaveAttribute("aria-pressed", "true");
-  await page.screenshot({ path: "test-results/power-up-bubble-open.png" });
-
-  const input = page.getByTestId("agent-bubble-input");
-  await input.fill("put up a sign by the road");
-  await input.press("Enter");
-
-  // Every tool call streams into the debug feed, exactly like the genesis turn.
-  await expect(page.getByTestId("agent-panel")).toContainText("[Remix]", { timeout: 15_000 });
-  // read_room_context really reached the worker's frame ring and composited a sheet.
-  await expect(page.getByTestId("agent-panel")).toContainText(
-    /read_room_context -> Room \d+: .*4 frame\(s\), visual plane, stride 1, cycles \d+, \d+, \d+, \d+\./,
-  );
-  await expect(page.getByTestId("agent-panel")).toContainText("patched logic 1");
-  await expect(page.getByTestId("agent-panel")).toContainText("Re-entering room 1");
-
-  // Final text turn closes the bubble and the world runs again.
-  await expect(page.getByTestId("agent-bubble")).toBeHidden({ timeout: 15_000 });
-  await expect.poll(async () => (await textHook(page)).paused).toBe(false);
-
-  // The change is really in the running game: the re-entered room prints the
-  // room description, then the patched line after its acknowledgement.
-  expect(await printWindowText(page)).toContain("generated room 1");
-  await page.keyboard.press("Enter");
-  await expect
-    .poll(async () => (await textHook(page)).rows.join(" ").replace(/#/g, " "), { timeout: 10_000 })
-    .toContain("weathered sign");
-  await page.screenshot({ path: "test-results/power-up-after-patch.png" });
-});
-
-test("power-up: Escape closes the bubble and resumes without changing anything", async ({
-  page,
-}) => {
-  await bootAgentGame(page);
-  await page.keyboard.press("Enter");
-  await expect.poll(async () => (await textHook(page)).modal).toBe(null);
-  const before = (await settled(page)).picHash;
-
-  await enterCreateMode(page);
-  await page.getByTestId("power-up").click();
-  await expect(page.getByTestId("agent-bubble")).toBeVisible();
-  await expect.poll(async () => (await textHook(page)).paused).toBe(true);
-
-  // Frozen means frozen: the interpreter's own cycle counter stops dead. The
-  // observation window is browser frames, not a wall-clock guess — a slower
-  // machine only gives the counter MORE chances to move, never fewer.
-  const parkedAt = await cycleOf(page);
-  expect(parkedAt).toBeGreaterThan(0);
-  await observe(page);
-  expect((await probe(page)).cycle).toBe(parkedAt);
-
-  await page.keyboard.press("Escape");
-  await expect(page.getByTestId("agent-bubble")).toBeHidden();
-  await expect.poll(async () => (await textHook(page)).paused).toBe(false);
-
-  // Resumed from exactly where it parked, rather than after a fixed delay.
-  await expect.poll(async () => cycleOf(page), { timeout: 15_000 }).toBeGreaterThan(parkedAt);
-
-  // Nothing was patched, so the room is the room we froze.
-  expect(await canvasPicHash(page)).toBe(before);
-  await expect(page.getByTestId("agent-panel")).not.toContainText("patched logic");
-});
-
 test("walking across the east edge authors its standard new.room destination", async ({ page }) => {
   await bootAgentGame(page);
   await page.keyboard.press("Enter");
   await expect.poll(async () => (await textHook(page)).modal).toBe(null);
   await page.keyboard.down("ArrowRight");
-  expect(await printWindowText(page)).toContain("generated room 2");
+  await expectPrintWindow(page, "generated room 2");
   await page.keyboard.up("ArrowRight");
   await expect.poll(async () => (await textHook(page)).room).toBe(2);
-  await page.screenshot({ path: "test-results/agent-game-walked-east.png" });
+  await page.screenshot({ path: test.info().outputPath("agent-game-walked-east.png") });
 });

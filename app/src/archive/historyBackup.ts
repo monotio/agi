@@ -28,17 +28,22 @@ export async function collectHistoryBackup(
       report.recoveryBatches = await recover();
       if (report.recoveryBatches.length)
         report.notes.push(
-          "Recent history batches are preserved in HISTORY-RECOVERY.JSON as raw recovery data. They are not automatically restored as replay history. Keep this original ZIP.",
+          "The ZIP has a recovery file for recent play history. Reopening the game will not restore that history.",
         );
     } catch {
-      report.notes.push("The live worker's history recovery data could not be captured.");
+      report.notes.push(
+        "Recent play history could not be downloaded. Keep this tab open and try downloading again.",
+      );
     }
   }
   let history: ProjectHistory | null = null;
   try {
     history = await load();
-  } catch {
-    report.notes.push("Stored session history could not be read and is missing from this backup.");
+  } catch (error) {
+    const cause = (error instanceof Error ? error.message : String(error)).replace(/[.\s]+$/, "");
+    report.notes.push(
+      `Saved play history could not be read: ${cause}. Keep this tab open and try downloading again.`,
+    );
   }
   report.complete = report.notes.length === 0;
   return { history, report };

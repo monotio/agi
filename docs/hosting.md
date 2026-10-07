@@ -1,13 +1,22 @@
 # Hosting
 
-AGI IS HERE is a static web app with no server of its own: players' browsers
+AGI IS HERE is a static web app: players' browsers
 talk to their AI provider directly. Any static host that serves HTTPS can run a
 copy.
 
 ## Building and serving
 
-Run `npm run build` and serve `app/dist` over HTTPS. No special response headers
-are required: the app uses no shared memory or isolation-gated features.
+Run `npm ci` at the root, then `npm run build`, and serve `app/dist` over HTTPS. Copy the security and cache
+headers from [app/staticwebapp.config.json](../app/staticwebapp.config.json):
+CSP, HSTS, `X-Content-Type-Options`, `Referrer-Policy`, `Permissions-Policy` and
+`Cache-Control`. Keep `https://api.openai.com` and `https://api.anthropic.com` in
+CSP `connect-src` so browser provider requests can reach them. The CSP permits
+local workers, blob media and image previews, and restricts scripts to the app's
+origin. Configure the `/assets/*` immutable cache rule alongside the default
+`no-store` policy.
+
+`node --experimental-strip-types scripts/serve-production.ts` serves `app/dist`
+with those headers for local production checks (`AGI_E2E_PORT`, default 5299).
 
 For a subpath such as `/agi/`, build with:
 
@@ -21,7 +30,7 @@ requests locally.
 
 ## Including games on your site
 
-The bundled tutorial needs no setup. To offer additional games you have
+The tutorial is included in the build. To offer additional games you have
 permission to redistribute, put their public AGI resources under
 `app/public/games/<id>/` and add an entry to `app/public/catalog.json` before
 building. You can also upload these folders and the manifest directly beside a
@@ -71,6 +80,16 @@ browser; later visits use the saved copy and checkpoint. Change the entry's
 version when you publish changed resources, so an existing player's saved
 release stays intact.
 
+## Upgrading to 1.2
+
+Existing 1.1 browser progress loads automatically in 1.2. The app adopts supported
+autosaves, save slots and visited-room maps into storage identities tied to the
+project lifetime or installed release, and retains the legacy records. Projects
+and private archives retain version 1 with optional workspace and History data;
+released recordings and recorded game tests remain readable through their
+version migrations. See [project storage and archives](../CONTRIBUTING.md#how-it-fits-together)
+for the format boundaries.
+
 ## Production releases
 
 The public site at [agi.monotio.com](https://agi.monotio.com/) deploys from
@@ -111,7 +130,14 @@ To roll back, open a revert pull request and let it pass the same checks.
 Re-running CI rebuilds the same commit, so never re-run an older release job to
 roll back.
 
-Verify a deployment with:
+Verify build identity and asset hashes against a downloaded CI artifact with:
+
+```bash
+npm run verify:deploy -- --url https://agi.monotio.com --commit COMMIT_SHA --artifact ARTIFACT_DIR
+```
+
+Optional `--attempts` and `--delay` control retry count and delay. Then verify
+browser behavior with:
 
 ```bash
 AGI_DEPLOY_URL=https://agi.monotio.com npm --prefix app run e2e:production

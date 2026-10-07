@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { useProjectLabels } from "../shell/useProjectLabels.ts";
+import { numberedLabel, numberedSlot } from "../../../src/logic/numberedLabels.ts";
 /**
  * The world graph: rooms as thumbnail nodes over their exits, in plain SVG.
  * No graph library: compared with the candidates (d3-force, Cytoscape.js,
@@ -31,6 +33,8 @@ import { useNodeDrag } from "./useNodeDrag.ts";
 
 const { compact = false } = defineProps<{ compact?: boolean }>();
 
+const emit = defineEmits<{ pick: [room: number] }>();
+const labels = useProjectLabels();
 const map = useEngineApi().roomMap;
 const { selected } = map;
 const graph = computed(() => map.graph.value);
@@ -64,9 +68,6 @@ const bounds = computed(() => {
   if (!Number.isFinite(minX)) return { x: 0, y: 0, w: 640, h: 400 };
   return { x: minX - 40, y: minY - 40, w: maxX - minX + 80, h: maxY - minY + 80 };
 });
-const viewBox = computed(
-  () => `${bounds.value.x} ${bounds.value.y} ${bounds.value.w} ${bounds.value.h}`,
-);
 
 /** Position lookup for the template — every edge endpoint is a graph node. */
 function posOf(room: number): { x: number; y: number } {
@@ -79,13 +80,53 @@ function posOf(room: number): { x: number; y: number } {
 
 const graphScroll = useTemplateRef("graphScroll");
 const zoom = ref(1);
-const svgW = computed(() => Math.max(1, Math.round(bounds.value.w * zoom.value)));
-const svgH = computed(() => Math.max(1, Math.round(bounds.value.h * zoom.value)));
+const viewportOrigin = ref<{ x: number; y: number }>();
+const svgW = computed(() =>
+  Math.max(
+    1,
+    Math.round(bounds.value.w * zoom.value),
+    Math.ceil(
+      (graphScroll.value?.clientWidth ?? 0) +
+        Math.max(0, ((viewportOrigin.value?.x ?? bounds.value.x) - bounds.value.x) * zoom.value),
+    ),
+  ),
+);
+const svgH = computed(() =>
+  Math.max(
+    1,
+    Math.round(bounds.value.h * zoom.value),
+    Math.ceil(
+      (graphScroll.value?.clientHeight ?? 0) +
+        Math.max(0, ((viewportOrigin.value?.y ?? bounds.value.y) - bounds.value.y) * zoom.value),
+    ),
+  ),
+);
+const viewBox = computed(
+  () => `${bounds.value.x} ${bounds.value.y} ${svgW.value / zoom.value} ${svgH.value / zoom.value}`,
+);
+
+// Room positions stay fixed while staged analysis expands the world. Offset
+// the scroll origin by the same expansion so the user's viewport stays put.
+watch(
+  () => [bounds.value.x, bounds.value.y] as const,
+  ([x, y], [oldX, oldY]) => {
+    const el = graphScroll.value;
+    if (!el || followLive) return;
+    const left = el.scrollLeft + (oldX - x) * zoom.value;
+    const top = el.scrollTop + (oldY - y) * zoom.value;
+    void nextTick(() => el.scrollTo({ left, top, behavior: "instant" }));
+  },
+);
 
 function fitZoom(): number {
   const el = graphScroll.value;
   if (!el) return 1;
   return Math.min(el.clientWidth / bounds.value.w, el.clientHeight / bounds.value.h, 1.5);
+}
+
+function fitGraph(): void {
+  viewportOrigin.value = { x: bounds.value.x, y: bounds.value.y };
+  setZoom(fitZoom());
 }
 
 function setZoom(next: number, clientX?: number, clientY?: number): void {
@@ -171,10 +212,12 @@ function centerNode(room: number, instant = false): void {
 function selectRoom(room: number, center = false): void {
   followLive = false;
   map.select(room);
+  emit("pick", room);
   if (center) void nextTick(() => centerNode(room));
 }
 
 onMounted(() => {
+  viewportOrigin.value = { x: bounds.value.x, y: bounds.value.y };
   // Phones read the list first; the graph stays one tap away.
   if (matchMedia("(max-width: 700px)").matches) graphOpen.value = false;
   // A dock is narrow: open zoomed out so neighbours show around the room.
@@ -249,7 +292,7 @@ defineExpose({ selectRoom });
         data-testid="map-graph-fold"
         @click="graphOpen = !graphOpen"
       >
-        {{ graphOpen ? "▾" : "▸" }} Graph
+        <UiIcon :name="graphOpen ? 'chevron-down' : 'chevron-right'" :size="16" /> Graph
       </button>
       <span v-show="graphOpen" class="map-zoom">
         <button
@@ -259,7 +302,7 @@ defineExpose({ selectRoom });
           aria-label="Zoom out"
           @click="setZoom(zoom / 1.25)"
         >
-          −
+          <UiIcon name="minus" :size="16" />
         </button>
         <button
           type="button"
@@ -277,14 +320,9 @@ defineExpose({ selectRoom });
           aria-label="Zoom in"
           @click="setZoom(zoom * 1.25)"
         >
-          +
+          <UiIcon name="plus" :size="16" />
         </button>
-        <button
-          type="button"
-          class="map-zoom-btn"
-          data-testid="map-zoom-fit"
-          @click="setZoom(fitZoom())"
-        >
+        <button type="button" class="map-zoom-btn" data-testid="map-zoom-fit" @click="fitGraph">
           Fit
         </button>
         <button
@@ -378,7 +416,9 @@ defineExpose({ selectRoom });
           :transform="`translate(${posOf(node.room).x} ${posOf(node.room).y})`"
           tabindex="0"
           role="button"
-          :aria-label="`Room ${node.room}${node.title ? `, ${node.title}` : ''}`"
+          :aria-label="
+            numberedLabel('room', node.room, { ...labels, name: node.title ?? '' }, 'option')
+          "
           :data-testid="`map-node-${node.room}`"
           @click="selectRoom(node.room)"
           @pointerenter="hovered = node.room"
@@ -403,7 +443,7 @@ defineExpose({ selectRoom });
             clip-path="url(#map-node-clip)"
           />
           <text v-else class="node-empty-label" :x="NODE_W / 2" :y="IMG_H / 2">
-            Room {{ node.room }}
+            {{ numberedSlot("room", node.room) }}
           </text>
           <rect
             class="node-caption"
@@ -412,7 +452,7 @@ defineExpose({ selectRoom });
             :height="CAP_H"
             clip-path="url(#map-node-clip)"
           />
-          <text class="node-label" x="8" :y="IMG_H + 15">{{ nodeLabel(node) }}</text>
+          <text class="node-label" x="8" :y="IMG_H + 15">{{ nodeLabel(node, labels) }}</text>
         </g>
       </svg>
     </div>

@@ -9,17 +9,131 @@ import { assembleLogic } from "../../src/logic/assembler.ts";
 import { buildWordsTok } from "../../src/logic/words.ts";
 import { Engine } from "../../src/runtime/engine.ts";
 import {
+  gameHint,
   isolateStorage,
+  agentActivity,
+  downloadFromSettings,
   openDeveloperActivity,
-  openGameOptions,
+  openLibraryActions,
+  progressStorageKey,
   savedGameCard,
   storedAutosave,
   textHook,
+  type TextHook,
   waitForAutosaveAfter,
   waitForCycles,
 } from "./engineProbe.ts";
 
-const TUTORIAL_PROJECT_ID = "catalog-adventure-department-1.1.0";
+type TextFrame = Pick<TextHook, "cycle" | "frame" | "room" | "modal" | "rows">;
+
+const TUTORIAL_PROJECT_ID = "catalog-adventure-department-1.2.0";
+
+for (const size of [
+  { width: 1063, height: 815 },
+  { width: 1280, height: 800 },
+  { width: 1440, height: 900 },
+  { width: 390, height: 844 },
+]) {
+  for (const destination of ["Play", "Create"] as const) {
+    test(`${destination} preserves an older checkpoint and offers the latest version ${size.width}`, async ({
+      page,
+    }) => {
+      await page.setViewportSize(size);
+      const game = createContainer();
+      game.putResource(
+        "logic",
+        0,
+        assembleLogic('display(20,2,"Latest opening"); return;', { dictionary: new Map() }).payload,
+      );
+      const archive = buildZip(
+        [...game.files]
+          .map(([name, data]) => ({ name, data }))
+          .concat([{ name: "WORDS.TOK", data: buildWordsTok([]) }]),
+      );
+      await isolateStorage(page);
+      await page.goto("/");
+      await page.getByTestId("game-zip-input").setInputFiles({
+        name: "older-position.zip",
+        mimeType: "application/zip",
+        buffer: Buffer.from(archive),
+      });
+      await expect(savedGameCard(page, "older-position")).toBeVisible();
+      const original = await page.evaluate(async () => {
+        const { listCachedGames } = await import("/src/project/gameStorage.ts");
+        const { bindSavedProgressTarget } = await import("/src/project/progressBinding.ts");
+        const { autosaveKey } = await import("/src/saves/useAutosaveController.ts");
+        const project = listCachedGames().find(
+          (game) => game.title === "older-position",
+        )!.projectId;
+        const target = (await bindSavedProgressTarget(project))!;
+        const key = autosaveKey(target.locator);
+        const raw = JSON.stringify({
+          format: "monotio.agi.autosave",
+          version: 1,
+          image: "b2xk",
+          cycle: 17,
+          room: 99,
+          savedAt: 1,
+          game: { installed: false, identity: { project, revision: "a".repeat(64) } },
+        });
+        localStorage.setItem(key, raw);
+        return { project, key, raw };
+      });
+      if (destination === "Create") {
+        await openLibraryActions(page, savedGameCard(page, "older-position"));
+        await page.getByTestId("edit-library-game").click();
+      } else await savedGameCard(page, "older-position").getByTestId("btn-resume-cached").click();
+      await expect(page.getByTestId("start-latest-version")).toBeVisible();
+      await expect(page.getByTestId("older-position-choice")).toContainText(
+        "The old position is replaced when the new run saves.",
+      );
+      const refusal = await page.getByTestId("older-position-choice").innerText();
+      expect(refusal.match(/Start the latest version\?/g)).toHaveLength(1);
+      expect(refusal.match(/The old position is replaced when the new run saves\./g)).toHaveLength(
+        1,
+      );
+      expect(await page.evaluate((key) => localStorage.getItem(key), original.key)).toBe(
+        original.raw,
+      );
+      await page.screenshot({
+        path: test.info().outputPath(`older-position-${destination}-${size.width}.png`),
+      });
+      const choice = page.getByTestId("older-position-choice");
+      await expect.soft(choice).not.toContainText("ERROR");
+      await expect.soft(choice).toHaveCSS("font-family", /sans/);
+      await expect
+        .soft(savedGameCard(page, "older-position").getByTestId("older-position-choice"))
+        .toBeVisible();
+      if (await choice.getByRole("button", { name: "Cancel", exact: true }).count()) {
+        await choice.getByRole("button", { name: "Cancel", exact: true }).click();
+        await expect(choice).toHaveCount(0);
+        expect(await page.evaluate((key) => localStorage.getItem(key), original.key)).toBe(
+          original.raw,
+        );
+        if (destination === "Create") {
+          await openLibraryActions(page, savedGameCard(page, "older-position"));
+          await page.getByTestId("edit-library-game").click();
+        } else await savedGameCard(page, "older-position").getByTestId("btn-resume-cached").click();
+      }
+      const choiceBox = (await choice.boundingBox())!;
+      for (const label of ["Start the latest version", "Cancel"]) {
+        const button = choice.getByRole("button", { name: label, exact: true });
+        const box = (await button.boundingBox())!;
+        expect.soft(box.x + box.width).toBeLessThanOrEqual(choiceBox.x + choiceBox.width);
+      }
+      await page.getByTestId("start-latest-version").click();
+      await expect
+        .poll(async () => (await textHook(page)).rows.join(" "))
+        .toContain("Latest opening");
+      expect((await textHook(page)).room).toBe(0);
+      if (destination === "Create")
+        await expect(page.getByRole("radio", { name: "Create", exact: true })).toHaveAttribute(
+          "aria-checked",
+          "true",
+        );
+    });
+  }
+}
 
 test("project import names each stored and refused progress entry", async ({ page }, testInfo) => {
   const container = createContainer();
@@ -97,9 +211,12 @@ test("project import names each stored and refused progress entry", async ({ pag
     const { listCachedGames } = await import("/src/project/gameStorage.ts");
     const { readGameSaves } = await import("/src/saves/gameSaves.ts");
     const projectId = listCachedGames()[0]!.projectId;
+    const bindingPath = "/src/project/progressBinding.ts";
+    const { bindSavedProgressTarget } = await import(bindingPath);
+    const target = await bindSavedProgressTarget(projectId);
     return {
-      slots: Object.keys(readGameSaves(localStorage, projectId)),
-      autosave: localStorage.getItem(`monotio_agi.autosave.${projectId}`),
+      slots: Object.keys(readGameSaves(localStorage, target!.locator)),
+      autosave: localStorage.getItem(`monotio_agi.autosave.${target!.locator}`),
     };
   });
   expect(stored).toEqual({ slots: ["1"], autosave: null });
@@ -137,8 +254,7 @@ test("the project archive moves the autosave to another browser; the game export
 
   // The project download from the running game carries the checkpoint.
   const projectDownload = page.waitForEvent("download");
-  await openGameOptions(page, "settings-menu");
-  await page.getByTestId("btn-download-game").click();
+  await downloadFromSettings(page, true);
   const saved = await projectDownload;
   const savedPath = (await saved.path())!;
   const project = await readGameZip(new Uint8Array(await readFile(savedPath)));
@@ -148,8 +264,7 @@ test("the project archive moves the autosave to another browser; the game export
 
   // The game export is for publishing: no progress in it.
   const publicDownload = page.waitForEvent("download");
-  await openGameOptions(page, "settings-menu");
-  await page.getByTestId("btn-export-game").click();
+  await downloadFromSettings(page);
   const published = await publicDownload;
   const publicGame = await readGameZip(new Uint8Array(await readFile((await published.path())!)));
   // Publication safety: tests, saves and authoring context each excluded on their own.
@@ -188,7 +303,8 @@ test("the project archive moves the autosave to another browser; the game export
         message: "the imported checkpoint is restored, not a boot from room 1",
       })
       .toBe(stopped.egoX);
-    await expect(other.getByTestId("resume-caption")).toBeVisible();
+    await expect(await gameHint(other, "resume-caption")).toBeVisible();
+    await other.mouse.move(0, 0);
   } finally {
     await fresh.close();
   }
@@ -199,7 +315,17 @@ test("the project archive moves the autosave to another browser; the game export
  * a reload resumes into the same open window on the identical instruction,
  * and Enter finishes what was interrupted rather than restarting the room.
  */
-test("a reload resumes into the checkpoint's parked window", async ({ page }) => {
+test("a reload resumes into the checkpoint's parked window @webkit-desktop", async ({
+  page,
+  browserName,
+}) => {
+  // The agent-room case below covers the throttled journey on every run; this
+  // one throttles only when AGI_PROGRESS_CPU_RATE asks for it.
+  const rate = Number(process.env["AGI_PROGRESS_CPU_RATE"] ?? 1);
+  if (browserName === "chromium" && rate !== 1) {
+    const cdp = await page.context().newCDPSession(page);
+    await cdp.send("Emulation.setCPUThrottlingRate", { rate });
+  }
   const game = createContainer();
   game.putResource("picture", 1, Uint8Array.of(0xf0, 1, 0xf8, 0, 0, 0xff));
   game.putResource(
@@ -243,11 +369,19 @@ test("a reload resumes into the checkpoint's parked window", async ({ page }) =>
   await expect
     .poll(async () => (await textHook(page)).autosave, { timeout: 30_000 })
     .toBeGreaterThanOrEqual(parked.cycle);
+  const projectId = await page.evaluate(async () => {
+    const { listCachedGames } = await import("/src/project/gameStorage.ts");
+    return listCachedGames().find((game) => game.title === "parked-checkpoint")!.projectId;
+  });
+  const checkpointCycle = (await textHook(page)).cycle;
+  expect((await storedAutosave(page, projectId))?.cycle).toBe(checkpointCycle);
 
   await page.reload();
 
   // The #play hash boots straight into the checkpoint: the same window is
-  // still up, on the identical instruction.
+  // still up, on the identical instruction. Check the running surface before
+  // polling its modal so cold worker loading is a separate assertion.
+  await expect(page.getByTestId("input-line")).toBeVisible();
   await expect.poll(async () => (await textHook(page)).modal).toBe("print");
   expect((await textHook(page)).rows.join(" ")).toContain("Checkpoint window");
 
@@ -256,7 +390,7 @@ test("a reload resumes into the checkpoint's parked window", async ({ page }) =>
   await expect
     .poll(async () => (await textHook(page)).rows.join(" "))
     .toContain("Beyond the window");
-  await expect.poll(async () => (await textHook(page)).cycle).toBeGreaterThan(parked.cycle);
+  await expect.poll(async () => (await textHook(page)).cycle).toBeGreaterThan(checkpointCycle);
 });
 
 /**
@@ -266,45 +400,147 @@ test("a reload resumes into the checkpoint's parked window", async ({ page }) =>
  * logic written after boot, and a reload has to hold the same window for
  * Enter to finish the interrupted pass.
  */
-test("a reload resumes the parked window in an agent-authored room", async ({ page }) => {
+test("a reload resumes the parked window in an agent-authored room @webkit-desktop", async ({
+  page,
+  browserName,
+}) => {
+  if (browserName === "chromium") {
+    const cdp = await page.context().newCDPSession(page);
+    await cdp.send("Emulation.setCPUThrottlingRate", {
+      rate: Number(process.env["AGI_PROGRESS_CPU_RATE"] ?? 6),
+    });
+  }
+  await page.addInitScript(() => {
+    let value: Window["__AGI_TEXT__"];
+    const frames: TextFrame[] = [];
+    Object.defineProperty(window, "__AGI_FRAME_LOG__", { value: frames });
+    Object.defineProperty(window, "__AGI_TEXT__", {
+      configurable: true,
+      get: () => value,
+      set: (next: Window["__AGI_TEXT__"]) => {
+        value = next;
+        if (next)
+          frames.push({
+            cycle: next.cycle,
+            frame: next.frame,
+            room: next.room,
+            modal: next.modal,
+            rows: [...next.rows],
+          });
+      },
+    });
+  });
   await isolateStorage(page);
   await page.goto("/");
   await openDeveloperActivity(page);
   await page.getByTestId("boot-agent").click();
   await expect(page.getByTestId("input-line")).toBeVisible({ timeout: 15_000 });
-  await expect(page.getByTestId("agent-panel")).toContainText("assembled room 1", {
-    timeout: 30_000,
-  });
+  await expect.poll(() => agentActivity(page), { timeout: 30_000 }).toContain("assembled room 1");
 
   // Room 1's entry window is parked too; acknowledge it, then walk east so
   // the stub authors room 2 and its entry print parks the pass there.
   const input = page.getByTestId("input-line");
+  await expect.poll(async () => (await textHook(page)).modal).toBe("print");
   await input.focus();
   await page.keyboard.press("Enter");
   await expect.poll(async () => (await textHook(page)).modal, { timeout: 5_000 }).toBe(null);
   await input.fill("east");
   await input.press("Enter");
-  await expect(page.getByTestId("agent-panel")).toContainText("authored room 2", {
-    timeout: 10_000,
-  });
-  await expect.poll(async () => (await textHook(page)).modal, { timeout: 10_000 }).toBe("print");
+  await expect.poll(() => agentActivity(page), { timeout: 10_000 }).toContain("authored room 2");
+  await expect(page.locator(".game-surface:visible")).toBeVisible();
+  await expect
+    .poll(
+      async () => {
+        const frame = await textHook(page);
+        return [frame.room, frame.modal, frame.rows.join(" ")];
+      },
+      { timeout: 10_000 },
+    )
+    .toEqual([2, "print", expect.stringContaining("generated room 2")]);
   const parked = await textHook(page);
   expect(parked.rows.join(" ")).toContain("generated room 2");
-  await expect
-    .poll(async () => (await textHook(page)).autosave, { timeout: 30_000 })
-    .toBeGreaterThanOrEqual(parked.cycle);
+  try {
+    await expect
+      .poll(
+        async () => {
+          const current = await textHook(page);
+          const record = await storedAutosave(page, "custom");
+          return (
+            record?.room === 2 &&
+            record.cycle === current.cycle &&
+            current.autosave >= current.cycle
+          );
+        },
+        { timeout: 30_000 },
+      )
+      .toBe(true);
+  } finally {
+    await test.info().attach("checkpoint-trace", {
+      body: JSON.stringify({
+        hook: await textHook(page),
+        stored: await storedAutosave(page, "custom"),
+        frames: await page.evaluate(() => Reflect.get(window, "__AGI_FRAME_LOG__") as TextFrame[]),
+      }),
+      contentType: "application/json",
+    });
+  }
 
+  const frames = await page.evaluate(() => Reflect.get(window, "__AGI_FRAME_LOG__") as TextFrame[]);
+  const firstPrint = frames.findIndex(
+    (frame) => frame.room === 2 && frame.rows.join(" ").includes("generated room 2"),
+  );
+  expect(firstPrint).toBeGreaterThanOrEqual(0);
+  expect(
+    frames
+      .slice(firstPrint)
+      .filter(
+        (frame) => frame.modal !== "print" || !frame.rows.join(" ").includes("generated room 2"),
+      ),
+    "every published frame keeps the parked room window",
+  ).toEqual([]);
+
+  await page.screenshot({ path: test.info().outputPath("parked-room.png") });
+
+  const stored = await storedAutosave(page, "custom");
+  // Publication and the cycle acknowledgement belong to the room-2 parked image.
+  const checkpointCycle = (await textHook(page)).cycle;
+  expect(stored?.cycle).toBe(checkpointCycle);
+  expect(stored?.room).toBe(2);
+
+  // Hold the lazy game surface while the worker restores its parked window.
+  // The probe can report the window before that surface handles keyboard input.
+  let release!: () => void;
+  const surface = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route("**/src/play/PlayArea.vue", async (route) => {
+    await surface;
+    await route.continue();
+  });
   await page.reload();
 
   // The authored bytes persisted beside the image, so the continuation is
   // still keyed on identical logic: the same window is back up.
-  await expect.poll(async () => (await textHook(page)).modal, { timeout: 30_000 }).toBe("print");
-  expect((await textHook(page)).rows.join(" ")).toContain("generated room 2");
-
-  await page.keyboard.press("Enter");
+  try {
+    await expect
+      .poll(
+        async () => {
+          const frame = await textHook(page);
+          return [frame.room, frame.modal, frame.rows.join(" ")];
+        },
+        { timeout: 30_000 },
+      )
+      .toEqual([2, "print", expect.stringContaining("generated room 2")]);
+    expect((await textHook(page)).rows.join(" ")).toContain("generated room 2");
+    expect(await input.count()).toBe(0);
+  } finally {
+    release();
+  }
+  await expect(input).toBeVisible();
+  await input.press("Enter");
   await expect.poll(async () => (await textHook(page)).modal).toBe(null);
   await expect.poll(async () => (await textHook(page)).room).toBe(2);
-  await expect.poll(async () => (await textHook(page)).cycle).toBeGreaterThan(parked.cycle);
+  await expect.poll(async () => (await textHook(page)).cycle).toBeGreaterThan(checkpointCycle);
 });
 
 /**
@@ -371,5 +607,73 @@ test("Exit leaves a moment it cannot checkpoint and keeps the last save point", 
   await expect(page.getByTestId("eject-refusal")).toHaveCount(0);
   const kept = (await storedAutosave(page, projectId))?.cycle ?? 0;
   expect(kept, "the save point from before the window is kept").toBeGreaterThan(0);
-  expect(kept).toBeLessThan(windowUp.cycle);
+  // Frame rows and the cycle heartbeat arrive separately. Read the saved
+  // image's own flag to prove it predates the key that opened the window.
+  const locator = await progressStorageKey(page, projectId);
+  const image = await page.evaluate((key) => {
+    const stored = JSON.parse(localStorage.getItem(`monotio_agi.autosave.${key}`)!);
+    return [...atob(stored.image)].map((char) => char.charCodeAt(0));
+  }, locator);
+  const restored = new Engine(game, {
+    print() {},
+    displayAt() {},
+    statusLine() {},
+    takeInputLine: () => null,
+    takeKeys: () => [],
+  });
+  restored.restoreImage(Uint8Array.from(image));
+  expect(restored.flags[201], "the stored game predates the window-opening key").toBe(0);
+});
+
+test("page hide stores play progress when the document flush fails", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await isolateStorage(page);
+  await page.goto("/#create-adventure");
+  await page
+    .getByTestId("create-adventure-disclosure")
+    .getByLabel("Name", { exact: true })
+    .fill("Hide progress");
+  await page.getByTestId("local-create-kind-starter").click();
+  await page.getByRole("button", { name: "Start building", exact: true }).click();
+  await expect(page.getByTestId("parts-list")).toBeVisible();
+  await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  const project = await page.evaluate(async () => {
+    const { listCachedGames } = await import("/src/project/gameStorage.ts");
+    return listCachedGames().find((game) => game.title === "Hide progress")!.projectId;
+  });
+  await page.getByRole("radio", { name: "Play", exact: true }).click();
+  await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  // The last Create frame can still be visible while cold Play starts.
+  await waitForCycles(page, 2, 5000);
+  // Establish ordinary Play progress before testing the pagehide failure path.
+  await page.evaluate(() => {
+    const probe = window as unknown as { __AGI_PROJECT__: { getWorker(): Worker } };
+    probe.__AGI_PROJECT__.getWorker().postMessage({ type: "flush", id: 77778 });
+  });
+  await expect.poll(() => storedAutosave(page, project)).not.toBeNull();
+  const storedCycle = (await storedAutosave(page, project))!.cycle;
+  await expect.poll(async () => (await textHook(page)).cycle).toBeGreaterThan(storedCycle);
+  await page.evaluate(() => {
+    const probe = window as unknown as {
+      __AGI_PROJECT__: { getSession(): { flush(): Promise<void> } };
+      hideFlushes: number;
+    };
+    probe.__AGI_PROJECT__.getSession().flush = () =>
+      Promise.reject(new Error("Injected document flush failure"));
+    probe.hideFlushes = 0;
+    const post = Worker.prototype.postMessage;
+    Worker.prototype.postMessage = function (message, ...args) {
+      if (message.type === "flush") probe.hideFlushes++;
+      return Reflect.apply(post, this, [message, ...args]);
+    };
+    window.dispatchEvent(new Event("pagehide"));
+  });
+  await expect
+    .poll(() => page.evaluate(() => (window as unknown as { hideFlushes: number }).hideFlushes))
+    .toBeGreaterThan(0);
+  await expect
+    .poll(async () => (await storedAutosave(page, project))!.cycle)
+    .toBeGreaterThan(storedCycle);
+  expect(errors).toEqual([]);
 });

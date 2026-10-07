@@ -1,3 +1,5 @@
+import { waitUntil } from "./async.ts";
+import { scheduler as testScheduler } from "node:timers/promises";
 import { providerSse } from "../../test/provider-stream.ts";
 import assert from "node:assert/strict";
 import { test } from "node:test";
@@ -38,7 +40,7 @@ test("Ask refuses mutations even when the provider requests them, and keeps the 
   const state = createAgentSessionState();
   const before = [...state.getFiles()].map(([name, bytes]) => [name, [...bytes]]);
   const session = new AgentSession(
-    { provider: "openai", apiKey: "test-placeholder", model: "test" },
+    { provider: "openai", apiKey: "test-placeholder", model: "gpt-6-sol" },
     () => {},
     state,
   );
@@ -66,13 +68,13 @@ test("an unanswered historical tool call is reported as unexecuted, never succes
     });
   });
   const conversation = createOpenAiConversation(
-    { provider: "openai", apiKey: "test-placeholder", model: "test" },
+    { provider: "openai", apiKey: "test-placeholder", model: "gpt-6-sol" },
     [
       {
         type: "function_call",
         id: "item",
         call_id: "pending",
-        name: "write_logic_source",
+        name: "write_logic",
         arguments: '{"room":1,"source":"return;"}',
       },
     ],
@@ -86,7 +88,7 @@ test("an unanswered historical tool call is reported as unexecuted, never succes
   assert.match(JSON.parse(result.output!).error, /not executed/);
 });
 
-test("a successful handover ends the turn with no provider request and rejects bundled calls", async (t) => {
+test("a successful finish ends the turn with no provider request and rejects bundled calls", async (t) => {
   let requests = 0;
   t.mock.method(globalThis, "fetch", async () => {
     requests++;
@@ -103,7 +105,7 @@ test("a successful handover ends the turn with no provider request and rejects b
           {
             type: "function_call",
             call_id: "h",
-            name: "handover",
+            name: "finish",
             arguments: JSON.stringify({ notes: null }),
           },
           {
@@ -142,24 +144,24 @@ test("a successful handover ends the turn with no provider request and rejects b
     ).payload,
   );
   const session = new AgentSession(
-    { provider: "openai", apiKey: "test-placeholder", model: "test" },
+    { provider: "openai", apiKey: "test-placeholder", model: "gpt-6-sol" },
     () => {},
     state,
   );
   const result = await session.runPowerUp("add the word lamp then finish", 1);
-  // The handover call was terminal: no second provider request was made.
+  // The finish call was terminal: no second provider request was made.
   assert.equal(requests, 1);
   const words = parseWordsTok(state.wordsPayload!).map(({ word }) => word);
-  assert.ok(words.includes("lamp"), "the write before handover committed");
-  assert.ok(!words.includes("oops"), "the bundled write after handover never ran");
+  assert.ok(words.includes("lamp"), "the write before finish committed");
+  assert.ok(!words.includes("oops"), "the bundled write after finish never ran");
   const transcript = JSON.stringify(session.getTranscript());
-  assert.match(transcript, /Not executed: this turn ended at a successful handover/);
+  assert.match(transcript, /Not executed: this turn ended at a successful finish/);
   assert.equal(result.patched.length >= 0, true);
 });
 
 test("a remix ending in text commits only after the host verdict passes", async (t) => {
   // Offline bad case: the provider staged a write that broke a declared
-  // exit, handover rejected it, and the model answered "Done." anyway.
+  // exit, finish rejected it, and the model answered "Done." anyway.
   // The host must produce its own verdict on the exact staged candidate
   // instead of adopting it on the provider's word.
   const requests: Record<string, unknown>[] = [];
@@ -173,13 +175,13 @@ test("a remix ending in text commits only after the host verdict passes", async 
             {
               type: "function_call",
               call_id: "break",
-              name: "write_logic_source",
+              name: "write_logic",
               arguments: JSON.stringify({ room: 1, source: "return;" }),
             },
             {
               type: "function_call",
               call_id: "h",
-              name: "handover",
+              name: "finish",
               arguments: '{"notes":null}',
             },
           ]
@@ -188,7 +190,7 @@ test("a remix ending in text commits only after the host verdict passes", async 
               {
                 type: "function_call",
                 call_id: "fix",
-                name: "write_logic_source",
+                name: "write_logic",
                 arguments: JSON.stringify({
                   room: 1,
                   source:
@@ -198,7 +200,7 @@ test("a remix ending in text commits only after the host verdict passes", async 
               {
                 type: "function_call",
                 call_id: "h2",
-                name: "handover",
+                name: "finish",
                 arguments: '{"notes":null}',
               },
             ]
@@ -245,21 +247,21 @@ test("a remix ending in text commits only after the host verdict passes", async 
     exits: { east: 2 },
   };
   const session = new AgentSession(
-    { provider: "openai", apiKey: "test-placeholder", model: "test" },
+    { provider: "openai", apiKey: "test-placeholder", model: "gpt-6-sol" },
     () => {},
     state,
   );
 
   const result = await session.runPowerUp("simplify room 1", 1);
 
-  // Failed handover followed by "Done.": the host re-checked the staged
+  // Failed finish followed by "Done.": the host re-checked the staged
   // candidate itself, handed the verdict back for repair, and never
   // adopted it — the live logic was still the original at that moment.
   assert.equal(requests.length, 3);
   assert.match(JSON.stringify(requests[1]!["input"]), /Handover rejected: room 1 declares exit/);
   assert.deepEqual(liveLogicWhenTexted, originalRoom);
   assert.match(JSON.stringify(requests[2]!["input"]), /cannot be committed.*declares exit/);
-  // The repaired candidate is what a passing handover commits.
+  // The repaired candidate is what a passing finish commits.
   const { disassembleLogic } = await import("../../src/logic/disassembler.ts");
   assert.match(
     disassembleLogic(state.container.getResource("logic", 1)!, {
@@ -270,7 +272,7 @@ test("a remix ending in text commits only after the host verdict passes", async 
   assert.equal(result.text, "Changes are ready.");
 });
 
-test("a staged change the model abandons in text is discarded, not adopted", async (t) => {
+test("unvalidated Remix progress replies pause visibly on repetition and keep live bytes", async (t) => {
   const requests: Record<string, unknown>[] = [];
   t.mock.method(globalThis, "fetch", async (_url: unknown, init: RequestInit) => {
     requests.push(JSON.parse(String(init.body)));
@@ -281,7 +283,7 @@ test("a staged change the model abandons in text is discarded, not adopted", asy
             {
               type: "function_call",
               call_id: "break",
-              name: "write_logic_source",
+              name: "write_logic",
               arguments: JSON.stringify({ room: 1, source: "return;" }),
             },
           ]
@@ -315,22 +317,20 @@ test("a staged change the model abandons in text is discarded, not adopted", asy
     exits: { east: 2 },
   };
   const session = new AgentSession(
-    { provider: "openai", apiKey: "test-placeholder", model: "test" },
+    { provider: "openai", apiKey: "test-placeholder", model: "gpt-6-sol" },
     () => {},
     state,
   );
 
-  const result = await session.runPowerUp("simplify room 1", 1);
-
-  // Opus 5.5 can end a turn with a progress note while work is owed, so the
-  // verdict goes back three times, as Anthropic's guidance for unattended
-  // runs suggests, before a fourth plain-text reply discards the unvalidated
-  // candidate and says so instead of claiming it landed.
-  assert.equal(requests.length, 5);
-  for (const request of requests.slice(2))
-    assert.match(JSON.stringify(request["input"]), /cannot be committed.*what blocks it/);
+  const pending = session.runPowerUp("simplify room 1", 1);
+  await waitUntil(() => session.task.snapshot().status === "paused", "the agent did not pause");
+  const paused = session.task.snapshot();
+  session.task.cancel();
+  await pending.catch(() => {});
+  assert.equal(paused.status, "paused");
+  assert.match(paused.reason, /repeating/);
+  assert.ok(requests.length > 5, "repair continues beyond the former three verdicts");
   assert.deepEqual(state.container.getResource("logic", 1), originalRoom);
-  assert.match(result.text, /not applied/);
 });
 
 test("a provider power-up returns compiled vocabulary and inventory files with its resource patches", async (t) => {
@@ -351,7 +351,7 @@ test("a provider power-up returns compiled vocabulary and inventory files with i
               type: "function_call",
               id: "object-item",
               call_id: "object",
-              name: "write_inventory_objects",
+              name: "write_objects",
               arguments: JSON.stringify({ objects: [{ name: "Crystal", startingRoom: 255 }] }),
             },
           ]
@@ -369,7 +369,7 @@ test("a provider power-up returns compiled vocabulary and inventory files with i
   });
   const state = createAgentSessionState();
   const session = new AgentSession(
-    { provider: "openai", apiKey: "test-placeholder", model: "test" },
+    { provider: "openai", apiKey: "test-placeholder", model: "gpt-6-sol" },
     () => {},
     state,
   );
@@ -397,7 +397,7 @@ test("room helper edits are transactional and may rewrite another room", async (
             {
               type: "function_call",
               call_id: "cross",
-              name: "edit_resource_source",
+              name: "edit_source",
               arguments: JSON.stringify({
                 kind: "logic",
                 num: 1,
@@ -413,7 +413,7 @@ test("room helper edits are transactional and may rewrite another room", async (
             {
               type: "function_call",
               call_id: "room",
-              name: "write_logic_source",
+              name: "write_logic",
               arguments: JSON.stringify({ room: 2, source: "return;" }),
             },
             {
@@ -425,7 +425,7 @@ test("room helper edits are transactional and may rewrite another room", async (
             {
               type: "function_call",
               call_id: "fact",
-              name: "update_world",
+              name: "update_plan",
               arguments: JSON.stringify({
                 rooms: [],
                 facts: [{ name: "weather", text: "rain" }],
@@ -437,7 +437,7 @@ test("room helper edits are transactional and may rewrite another room", async (
             {
               type: "function_call",
               call_id: "done",
-              name: "handover",
+              name: "finish",
               arguments: '{"notes":null}',
             },
           ];
@@ -446,7 +446,7 @@ test("room helper edits are transactional and may rewrite another room", async (
     });
   });
   const session = new AgentSession(
-    { provider: "openai", apiKey: "placeholder", model: "test" },
+    { provider: "openai", apiKey: "placeholder", model: "gpt-6-sol" },
     () => {},
     state,
   );
@@ -478,7 +478,7 @@ test("pinned map notes reach the room turn's request body", async (t) => {
             {
               type: "function_call",
               call_id: "room",
-              name: "write_logic_source",
+              name: "write_logic",
               arguments: JSON.stringify({ room: 2, source: "return;" }),
             },
             {
@@ -492,7 +492,7 @@ test("pinned map notes reach the room turn's request body", async (t) => {
             {
               type: "function_call",
               call_id: "done",
-              name: "handover",
+              name: "finish",
               arguments: '{"notes":null}',
             },
           ];
@@ -501,7 +501,7 @@ test("pinned map notes reach the room turn's request body", async (t) => {
     });
   });
   const session = new AgentSession(
-    { provider: "openai", apiKey: "placeholder", model: "test" },
+    { provider: "openai", apiKey: "placeholder", model: "gpt-6-sol" },
     () => {},
     createAgentSessionState(),
   );
@@ -510,7 +510,10 @@ test("pinned map notes reach the room turn's request body", async (t) => {
     context: {
       room: 2,
       from: 1,
-      playerNotes: ["the vault door should feel trapped"],
+      playerNotes: [
+        "the vault door should feel trapped",
+        ...Array.from({ length: 20 }, (_, i) => `note ${i}: ${"x".repeat(500)} END`),
+      ],
     },
   });
   const request = JSON.parse(bodies[0]!);
@@ -521,6 +524,10 @@ test("pinned map notes reach the room turn's request body", async (t) => {
     "the pinned note reaches the provider's request body",
   );
   assert.match(firstUser, /"playerNotes"/);
+  assert.ok(
+    firstUser.includes(`note 19: ${"x".repeat(500)} END`),
+    "every complete note reaches the model",
+  );
 });
 
 test("a stalled remix pauses and can be discarded without claiming completion", async (t) => {
@@ -536,7 +543,7 @@ test("a stalled remix pauses and can be discarded without claiming completion", 
             {
               type: "function_call",
               call_id: String(calls),
-              name: "inspect_world_bible",
+              name: "read_plan",
               arguments: '{"filter":"slots","section":null,"name":null,"offset":null,"kind":null}',
             },
           ],
@@ -545,13 +552,12 @@ test("a stalled remix pauses and can be discarded without claiming completion", 
       ),
   );
   const session = new AgentSession(
-    { provider: "openai", apiKey: "placeholder", model: "test" },
+    { provider: "openai", apiKey: "placeholder", model: "gpt-6-sol" },
     () => {},
   );
   const work = session.runPowerUp("Keep working", 1);
   const rejected = assert.rejects(work, /cancelled/i);
-  for (let i = 0; i < 100 && session.task.snapshot().status !== "paused"; i++)
-    await new Promise((resolve) => setImmediate(resolve));
+  await waitUntil(() => session.task.snapshot().status === "paused", "the agent did not pause");
   assert.equal(session.task.snapshot().status, "paused");
   assert.ok(calls < 24);
   session.task.cancel();
@@ -625,13 +631,12 @@ test("a truncated response pauses without discarding earlier staged resources", 
     );
   });
   const session = new AgentSession(
-    { provider: "openai", apiKey: "test-placeholder", model: "test" },
+    { provider: "openai", apiKey: "test-placeholder", model: "gpt-6-sol" },
     () => {},
   );
   const work = session.runPowerUp("Add sparkle", 1);
   void work.catch(() => {});
-  for (let i = 0; i < 100 && session.task.snapshot().status !== "paused"; i++)
-    await new Promise((resolve) => setImmediate(resolve));
+  await waitUntil(() => session.task.snapshot().status === "paused", "the agent did not pause");
   assert.equal(session.task.snapshot().status, "paused");
   assert.equal(session.state.sources.words.has("sparkle"), false);
   session.task.resume();
@@ -645,12 +650,12 @@ test("Genesis executes advertised room inspection through the shared asynchronou
   t.mock.method(globalThis, "fetch", async () => {
     // A 400 ends the bounded test; the SDK retries connection errors.
     if (++requests > 1) return new Response("End this bounded inspection test.", { status: 400 });
-    // The one-flow genesis turn's read_room_context is the call under test.
+    // The one-flow genesis turn's read_room is the call under test.
     const output = [
       {
         type: "function_call",
         call_id: "context",
-        name: "read_room_context",
+        name: "read_room",
         arguments: '{"room":1}',
       },
     ];
@@ -662,7 +667,7 @@ test("Genesis executes advertised room inspection through the shared asynchronou
     { provider: "openai", apiKey: "test-placeholder", model: "gpt-6-sol" },
     (_type, message, data) => {
       const event = data as { result?: typeof result } | undefined;
-      if (message.startsWith("[Genesis] read_room_context") && event?.result) result = event.result;
+      if (message.startsWith("[Genesis] read_room") && event?.result) result = event.result;
     },
   );
   await assert.rejects(session.startGenesis("A quiet courtyard."));
@@ -676,13 +681,13 @@ test("genesis is one turn: the world plan and resource writes share the tool sur
     requests.push(JSON.parse(String(init.body)));
     // A 400 ends the bounded test; the SDK retries connection errors.
     if (requests.length > 1) return new Response("End this bounded genesis test.", { status: 400 });
-    // One flow: update_world and a resource write land in the same turn —
+    // One flow: update_plan and a resource write land in the same turn —
     // no plan phase gates either of them.
     const output = [
       {
         type: "function_call",
         call_id: "world",
-        name: "update_world",
+        name: "update_plan",
         arguments: JSON.stringify({
           rooms: [
             {
@@ -709,13 +714,13 @@ test("genesis is one turn: the world plan and resource writes share the tool sur
     });
   });
   const session = new AgentSession(
-    { provider: "openai", apiKey: "test-placeholder", model: "test" },
+    { provider: "openai", apiKey: "test-placeholder", model: "gpt-6-sol" },
     () => {},
   );
   await assert.rejects(session.startGenesis("A dockside mystery."));
   const tools = requests[0]!.tool_choice!.tools.map((tool) => tool.name);
-  assert.ok(tools.includes("update_world"));
-  assert.ok(tools.includes("write_logic_source"), "resource tools share the genesis surface");
+  assert.ok(tools.includes("update_plan"));
+  assert.ok(tools.includes("write_logic"), "resource tools share the genesis surface");
   // Both calls ran: the plan recorded and the write landed in one turn.
   assert.equal(session.state.authoring.world.rooms["1"]?.title, "Dock");
   assert.equal(session.state.authoring.world.rooms["2"]?.title, "Tide Room");
@@ -747,7 +752,7 @@ test("a map edit mid-turn is refused, and the turn's world survives a clean adop
   const state = createAgentSessionState();
   state.authoring.world.rooms["1"] = { title: "Hall", description: "", exits: {} };
   const session = new AgentSession(
-    { provider: "openai", apiKey: "test-placeholder", model: "test" },
+    { provider: "openai", apiKey: "test-placeholder", model: "gpt-6-sol" },
     () => {},
     state,
   );
@@ -755,7 +760,7 @@ test("a map edit mid-turn is refused, and the turn's world survives a clean adop
   const turn = session.runPowerUp("paint the room blue", 1);
   try {
     // The request is in flight — the map's commit is refused, not lost.
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await testScheduler.yield();
     const draft = createWorldDraft(state.authoring.world);
     assert.equal(draftRenameRoom(draft, 1, "Parlor"), null);
     assert.equal(session.commitPlanDraft(draft).status, "busy");
@@ -893,7 +898,7 @@ test("a session keeps the game's interpreter override through adoption and recon
   assert.equal(automatic.state.profile.id, "2.936");
 });
 
-test("Ask's first-turn brief withholds the room's plan entry, as read_room_context does in Ask", async (t) => {
+test("Ask's first-turn brief withholds the room's plan entry, as read_room does in Ask", async (t) => {
   const bodies: string[] = [];
   t.mock.method(globalThis, "fetch", async (_url: unknown, init: RequestInit) => {
     bodies.push(String(init.body));
@@ -918,7 +923,7 @@ test("Ask's first-turn brief withholds the room's plan entry, as read_room_conte
     return state;
   };
   const ask = new AgentSession(
-    { provider: "openai", apiKey: "test-placeholder", model: "test" },
+    { provider: "openai", apiKey: "test-placeholder", model: "gpt-6-sol" },
     () => {},
     plan(createAgentSessionState()),
   );
@@ -928,3 +933,163 @@ test("Ask's first-turn brief withholds the room's plan entry, as read_room_conte
   for (const secret of ["Vault antechamber", "lever behind the tapestry", "north"])
     assert.doesNotMatch(bodies[0]!, new RegExp(secret), `Ask withholds ${secret}`);
 });
+
+for (const provider of ["openai", "anthropic"] as const) {
+  for (const boundary of ["notification", "commit"] as const) {
+    test(`${provider} legacy remix fences cancellation at ${boundary}`, async (t) => {
+      const state = createAgentSessionState();
+      const before = [...state.getFiles()].map(([key, bytes]) => [key, [...bytes]]);
+      let successfulTools = 0;
+      t.mock.method(
+        globalThis,
+        "fetch",
+        async () =>
+          new Response(
+            providerSse(
+              provider,
+              provider === "openai"
+                ? {
+                    id: "r",
+                    output:
+                      boundary === "notification"
+                        ? [
+                            {
+                              type: "function_call",
+                              call_id: "w",
+                              name: "write_words",
+                              arguments: '{"words":["lamp"],"groups":null}',
+                            },
+                          ]
+                        : [
+                            {
+                              type: "message",
+                              role: "assistant",
+                              content: [{ type: "output_text", text: "Ready" }],
+                            },
+                          ],
+                  }
+                : {
+                    id: "r",
+                    type: "message",
+                    role: "assistant",
+                    content:
+                      boundary === "notification"
+                        ? [
+                            {
+                              type: "tool_use",
+                              id: "w",
+                              name: "write_words",
+                              input: { words: ["lamp"], groups: null },
+                            },
+                          ]
+                        : [{ type: "text", text: "Ready" }],
+                  },
+            ),
+            { headers: { "content-type": "text/event-stream" } },
+          ),
+      );
+      const session = new AgentSession(
+        {
+          provider,
+          model: provider === "openai" ? "gpt-6-sol" : "claude-opus-5-5",
+          apiKey: "offline",
+        },
+        (kind, message, detail) => {
+          if (
+            boundary === "notification" &&
+            kind === "request" &&
+            message === "[Remix] write_words"
+          )
+            session.task.cancel();
+          if (
+            kind === "response" &&
+            (
+              (detail as Record<string, unknown> | undefined)?.["result"] as
+                { success?: boolean } | undefined
+            )?.success
+          )
+            successfulTools++;
+        },
+        state,
+      );
+      await assert.rejects(
+        session.runPowerUp("Inspect", 1, undefined, async () => {
+          if (boundary === "commit") session.task.cancel();
+        }),
+        /cancel/i,
+      );
+      assert.equal(successfulTools, 0);
+      assert.deepEqual(
+        [...state.getFiles()].map(([key, bytes]) => [key, [...bytes]]),
+        before,
+      );
+    });
+  }
+}
+
+for (const provider of ["openai", "anthropic"] as const) {
+  test(`${provider} cancellation in the initial request also prevents orientation tools`, async () => {
+    let tools = 0;
+    const session = new AgentSession(
+      {
+        provider,
+        model: provider === "openai" ? "gpt-6-sol" : "claude-opus-5-5",
+        apiKey: "offline",
+      },
+      (kind, message) => {
+        if (kind === "request" && message === "[Ask] Inspect") session.task.cancel();
+      },
+    );
+    session.setOrientation({ game: "Test", profile: "2.936" });
+    session.setRuntime({
+      roomNotes: () => {
+        tools++;
+        return [];
+      },
+    });
+    await assert.rejects(session.runAsk("Inspect", 1), /cancel/i);
+    assert.equal(tools, 0);
+  });
+}
+test("offline Genesis cancellation prevents the plan and resource commit", async () => {
+  const state = createAgentSessionState();
+  let before: [string, Uint8Array][] = [];
+  const session = new AgentSession(
+    { provider: "stub", model: "stub", apiKey: "" },
+    (kind, message) => {
+      if (kind === "request" && message === "Starting Genesis using offline StubAgent") {
+        before = [...state.getFiles()].map(([key, bytes]) => [key, bytes.slice()]);
+        session.task.cancel();
+      }
+    },
+    state,
+  );
+  await assert.rejects(session.startGenesis("Test"), /cancel/i);
+  assert.equal(state.genesisComplete, false);
+  assert.deepEqual([...state.getFiles()], before);
+});
+
+for (const provider of ["openai", "anthropic"] as const) {
+  test(`${provider} cancellation inside orientation inspection prevents its next tool and event`, async () => {
+    let orientation = 0;
+    const session = new AgentSession(
+      {
+        provider,
+        model: provider === "openai" ? "gpt-6-sol" : "claude-opus-5-5",
+        apiKey: "offline",
+      },
+      (kind, message) => {
+        if (kind === "request" && message.startsWith("[Orientation]")) orientation++;
+      },
+    );
+    session.setOrientation({ game: "Test", profile: "2.936" });
+    session.setRuntime({
+      roomNotes: () => {
+        session.task.cancel();
+        return [];
+      },
+    });
+    await assert.rejects(session.runAsk("Inspect", 1), /cancel/i);
+    assert.equal(orientation, 0);
+  });
+}

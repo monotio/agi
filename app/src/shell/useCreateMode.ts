@@ -1,14 +1,5 @@
-/**
- * Create mode's wiring in the shell root: the real panels behind the dock
- * placeholders and the Resources tab, the inspector and the assistant following their tabs, Room
- * Studio closing whenever the live stage has to come back, and the `[` / `]`
- * dock keys. App.vue calls it once, beside the workspace it provides.
- */
-import { defineAsyncComponent, onScopeDispose, watch, type ComputedRef, type Ref } from "vue";
-import ActivityPanel from "./ActivityPanel.vue";
-import InspectPanel from "../inspector/InspectPanel.vue";
-import { registerCreatePanel } from "./createDocks.ts";
-import { prefetchAuthoringStack } from "../agent/authoringLoader.ts";
+/** Create mode follows the room the player is in and owns the dock keys. */
+import { watch, type ComputedRef, type Ref } from "vue";
 import type { CreateWorkspace } from "./useCreateWorkspace.ts";
 import type { EngineState } from "../engine/useEngineTypes.ts";
 import type { RoomMap } from "../world/useRoomMap.ts";
@@ -26,7 +17,7 @@ function isTextEntry(target: EventTarget | null, gameInput: Element | null | und
 export function useCreateMode(deps: {
   state: EngineState;
   workspace: CreateWorkspace;
-  roomMap: Pick<RoomMap, "followsPlayer">;
+  roomMap: () => Pick<RoomMap, "followsPlayer"> | null;
   /** A game is running in Create mode. */
   creating: ComputedRef<boolean>;
   /** The phone's portrait touch layout: one view-only sheet instead of docks. */
@@ -34,108 +25,12 @@ export function useCreateMode(deps: {
   debugOpen: Ref<boolean>;
   gameInput: () => Element | null | undefined;
 }) {
-  const { state, workspace, creating, phone, debugOpen } = deps;
+  const { state, workspace, creating, phone } = deps;
 
-  // Create's assistant and Studio Ask run on the authoring stack: warm it
-  // once Create opens, so the first request does not wait for the download.
-  watch(creating, (inCreate) => inCreate && prefetchAuthoringStack(), { immediate: true });
-  // Each entry to Create opens the World panel on the room the player is in.
+  // Each entry to Create follows the room the player is in.
   watch(creating, (inCreate) => {
-    if (inCreate) deps.roomMap.followsPlayer.value = true;
-  });
-
-  // The map's graph code never loads on boot. It is fetched once a game runs,
-  // while the browser is idle, and the World tab then holds the loaded panel
-  // itself: an async panel renders empty for a tick after Create opens, and a
-  // keyboard user's Tab would pass straight over the empty tabpanel.
-  const loadWorldPanel = () => import("../world/WorldPanel.vue");
-  const world = {
-    id: "world",
-    dock: "left",
-    title: "World",
-    icon: "map",
-    order: 0,
-    component: defineAsyncComponent(loadWorldPanel),
-  } as const;
-  let offWorld = registerCreatePanel(world);
-  const offs = [
-    registerCreatePanel({
-      id: "resources",
-      dock: "left",
-      title: "Resources",
-      icon: "image",
-      order: 1,
-      component: defineAsyncComponent(() => import("../world/ResourcesPanel.vue")),
-    }),
-    registerCreatePanel({
-      id: "inspect",
-      dock: "right",
-      title: "Inspect",
-      icon: "inspect",
-      order: 1,
-      component: InspectPanel,
-    }),
-    registerCreatePanel({
-      id: "activity",
-      dock: "right",
-      title: "Activity",
-      icon: "history",
-      order: 2,
-      component: ActivityPanel,
-    }),
-  ];
-  let disposed = false;
-  onScopeDispose(() => {
-    disposed = true;
-    offWorld();
-    offs.forEach((off) => off());
-  });
-
-  watch(
-    () => state.phase === "running",
-    () => {
-      const warm = () =>
-        void loadWorldPanel().then(
-          (panel) => {
-            // A showing panel keeps its (now resolved) async wrapper: swapping
-            // components under it would remount it.
-            if (disposed || creating.value) return;
-            offWorld = registerCreatePanel({ ...world, component: panel.default });
-          },
-          () => {},
-        );
-      if (typeof requestIdleCallback === "function") requestIdleCallback(warm, { timeout: 2000 });
-      else setTimeout(warm, 500);
-    },
-    { once: true },
-  );
-
-  /** The Inspect tab is showing: its controls are docked, not floating. */
-  const inspectShown = (): boolean =>
-    creating.value &&
-    (phone.value
-      ? workspace.active.sheet === "inspect"
-      : workspace.active.right === "inspect" && !workspace.collapsed.right);
-
-  // In Create the inspector is on exactly while its tab shows; entering
-  // Create with it on opens the tab, leaving Create turns it off.
-  watch(
-    () => [creating.value, inspectShown()] as const,
-    ([inCreate, shown], previous) => {
-      if (inCreate && !previous?.[0] && debugOpen.value && !shown) {
-        workspace.showPanel("inspect");
-        return;
-      }
-      if (inCreate) debugOpen.value = shown;
-      else if (previous?.[0]) debugOpen.value = false;
-    },
-  );
-
-  // Switching the inspector on or off elsewhere (Settings → Inspector)
-  // moves to or away from its tab in Create.
-  watch(debugOpen, (on) => {
-    if (!creating.value || on === inspectShown()) return;
-    workspace.showPanel(on ? "inspect" : "assistant");
+    const map = deps.roomMap();
+    if (inCreate && map) map.followsPlayer.value = true;
   });
 
   // An assistant turn that opens in Create shows its tab.
@@ -143,19 +38,6 @@ export function useCreateMode(deps: {
     () => state.powerUp.open,
     (open) => {
       if (open && creating.value) workspace.showPanel("assistant");
-    },
-  );
-
-  // The live stage comes back whenever Create is left, the game stops, or
-  // the window turns too small for Studio (a rotated phone) while it holds
-  // nothing unkept. With unkept changes Studio stays mounted under its
-  // small-screen notice until the layout fits again or they are settled.
-  watch(
-    () =>
-      [creating.value, state.phase, state.walkthrough.active, workspace.studioFits.value] as const,
-    ([inCreate, phase, watching, fits]) => {
-      if (!inCreate || phase !== "running" || watching) workspace.closeStudio();
-      else if (!fits && !workspace.studioUnkept()) workspace.closeStudio();
     },
   );
 

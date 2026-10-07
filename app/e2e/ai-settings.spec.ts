@@ -1,6 +1,6 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./test.ts";
 import { providerReply } from "../../test/provider-stream.ts";
-import { isolateStorage, openAiSettings, textHook, enterCreateMode } from "./engineProbe.ts";
+import { isolateStorage, openAiSettings, enterPlayMode, textHook } from "./engineProbe.ts";
 
 test("one shared AI setup preserves the brief and keeps provider keys separate", async ({
   page,
@@ -15,8 +15,10 @@ test("one shared AI setup preserves the brief and keeps provider keys separate",
   const create = page.getByTestId("create-adventure-disclosure");
   await expect(create.getByTestId("api-key-input")).toHaveCount(0);
   await page.getByTestId("shelf-template-custom").click();
-  await expect(page.getByTestId("template-custom")).toHaveAttribute("aria-pressed", "true");
-  await page.getByLabel("Adventure name").fill("The Quiet Observatory");
+  await page.getByTestId("local-create-kind-ai").click();
+  await page.getByTestId("template-custom").click();
+  await expect(page.getByTestId("template-custom")).toHaveAttribute("aria-selected", "true");
+  await page.getByTestId("local-create-title").fill("The Quiet Observatory");
   await page.getByTestId("custom-adventure-input").fill("Find the missing moon chart.");
   await page.getByTestId("connect-create-ai").click();
   const dialog = page.getByTestId("ai-settings-dialog");
@@ -30,7 +32,7 @@ test("one shared AI setup preserves the brief and keeps provider keys separate",
   await dialog.getByTestId("task-budget").fill("1.23");
   await dialog.getByTestId("ai-settings-save").click();
   await expect(dialog).toBeHidden();
-  await expect(page.getByLabel("Adventure name")).toHaveValue("The Quiet Observatory");
+  await expect(page.getByTestId("local-create-title")).toHaveValue("The Quiet Observatory");
   await expect(page.getByTestId("custom-adventure-input")).toHaveValue(
     "Find the missing moon chart.",
   );
@@ -44,6 +46,7 @@ test("one shared AI setup preserves the brief and keeps provider keys separate",
   await dialog.getByTestId("ai-settings-save").click();
   await expect(dialog).toBeHidden();
   await page.reload();
+  await page.getByTestId("create-adventure-close").click();
   await openAiSettings(page);
   await expect(dialog.getByTestId("provider-select")).toHaveValue("anthropic");
   await expect(dialog.getByTestId("api-key-input")).toHaveValue("test-anthropic-key");
@@ -96,8 +99,9 @@ test("AI settings pause only their own game interaction and preserve the assista
   expect((await textHook(page)).egoX).toBe(before.egoX);
   await expect(page.getByTestId("settings-menu")).toBeFocused();
 
-  await enterCreateMode(page);
-  await page.getByTestId("power-up").click();
+  await enterPlayMode(page);
+  await page.getByTestId("menu-assistant").click();
+  await expect(page.getByTestId("connect-assistant-ai")).toBeEnabled();
   await openAiSettings(page);
   await dialog.getByTestId("provider-select").selectOption("openai");
   await dialog.getByTestId("api-key-input").fill("test-openai-key");
@@ -105,18 +109,16 @@ test("AI settings pause only their own game interaction and preserve the assista
   await dialog.getByTestId("ai-settings-save").click();
   await expect(dialog).toBeHidden();
   await expect(page.getByTestId("agent-bubble-input")).toBeEnabled();
-  await page.getByTestId("agent-mode-ask").click();
   await page.getByTestId("agent-bubble-input").fill("Where should I look next?");
   await openAiSettings(page);
   await page.keyboard.press("Escape");
   await expect(dialog).toBeHidden();
   await expect(page.getByTestId("agent-bubble")).toBeVisible();
-  await expect(page.getByTestId("agent-mode-ask")).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByTestId("agent-bubble-input")).toHaveValue("Where should I look next?");
   await expect(page.getByTestId("settings-menu")).toBeFocused();
   expect((await textHook(page)).paused).toBe(true);
   expect(providerCalls).toBe(0);
-  await page.getByRole("button", { name: "Back to game", exact: true }).click();
+  await page.getByTestId("agent-bubble-close").click();
   await expect.poll(async () => (await textHook(page)).paused).toBe(false);
 });
 
@@ -140,7 +142,7 @@ test("changing the shared provider affects the next Ask without losing the conve
       }),
     );
   });
-  await page.route("**/api/anthropic/v1/messages", async (route) => {
+  await page.route("**/api/anthropic/v1/messages*", async (route) => {
     requests.push({ provider: "anthropic", body: route.request().postData()! });
     await route.fulfill(
       providerReply("anthropic", {
@@ -155,8 +157,8 @@ test("changing the shared provider affects the next Ask without losing the conve
   await page.goto("/");
   await page.getByTestId("catalog-play-adventure-department").click();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
-  await enterCreateMode(page);
-  await page.getByTestId("power-up").click();
+  await enterPlayMode(page);
+  await page.getByTestId("menu-assistant").click();
   await openAiSettings(page);
   const dialog = page.getByTestId("ai-settings-dialog");
   await dialog.getByTestId("provider-select").selectOption("openai");
@@ -164,7 +166,6 @@ test("changing the shared provider affects the next Ask without losing the conve
   await dialog.getByTestId("effort-select").selectOption("low");
   await dialog.getByTestId("ai-settings-save").click();
   await expect(dialog).toBeHidden();
-  await page.getByTestId("agent-mode-ask").click();
   await page.getByTestId("agent-bubble-input").fill("What is wrong with the mural?");
   await page.getByTestId("agent-bubble-send").click();
   await expect(page.getByTestId("agent-conversation")).toContainText("The mural is unfinished.");

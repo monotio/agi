@@ -5,6 +5,48 @@
  * Game pixels are not chrome: the AGI palette below exists for UI that shows
  * game colours (swatches, priority legends), never for app surfaces.
  */
+/* UI fonts are self-hosted OFL subsets; see public/fonts/NOTICE.txt.
+   The UI face also carries the symbols used by keyboard hints and controls. */
+@font-face {
+  font-family: "AGI Geist";
+  src: url("/fonts/agi-geist-latin-3df578a8.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Geist Mono";
+  src: url("/fonts/geist-mono-latin-0e7a2cdf.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+}
+
+/* Match average Latin advances and Geist's 1005/-295/0 vertical metrics.
+   Overrides are divided by size-adjust, which scales them too. */
+@font-face {
+  font-family: "AGI Sans Fallback";
+  src: local("Arial"), local("Liberation Sans");
+  font-weight: 100 900;
+  size-adjust: 100.0882%;
+  ascent-override: 100.4115%;
+  descent-override: 29.474%;
+  line-gap-override: 0%;
+}
+
+@font-face {
+  font-family: "AGI Mono Fallback";
+  src: local("Courier New"), local("Liberation Mono");
+  font-weight: 100 900;
+  size-adjust: 99.9822%;
+  ascent-override: 100.5179%;
+  descent-override: 29.5053%;
+  line-gap-override: 0%;
+  /* Missing keyboard symbols come from the bundled UI face. */
+  unicode-range: U+0020-00FF, U+2000-206F;
+}
+
 :root {
   color-scheme: dark;
 
@@ -71,8 +113,8 @@
   --backdrop-light-alt: #c9c9c9;
 
   /* Type. Sans for UI, mono for numbers, coordinates, code and the wordmark. */
-  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Mono", Menlo, monospace;
+  --font-sans: "AGI Geist", "AGI Sans Fallback", sans-serif;
+  --font-mono: "Geist Mono", "AGI Mono Fallback", "AGI Geist", monospace;
   --text-2xs: 0.6875rem; /* 11px: badges, kbd, meta */
   --text-xs: 0.75rem; /* 12px: secondary labels */
   --text-sm: 0.8125rem; /* 13px: dense UI (panels, inspectors) */

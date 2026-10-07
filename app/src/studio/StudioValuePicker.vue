@@ -15,25 +15,30 @@ const {
   value,
   label,
   disabled = false,
+  minimum = 0,
   allowed = () => true,
 } = defineProps<{
   plane: PicturePlane;
   value: number | null | undefined;
   label: string;
   disabled?: boolean;
+  minimum?: number;
   /** Values that may be picked now; the rest are disabled. */
   allowed?: (value: number) => boolean;
 }>();
 const emit = defineEmits<{ pick: [value: number | null] }>();
 
 const options = computed(() =>
-  Array.from({ length: 16 }, (_, v) => ({
-    value: v,
-    name:
-      plane === "visual"
-        ? `Colour ${v}, ${EGA_COLOUR_NAMES[v]}`
-        : `Depth ${v}, ${priorityMeaning(v)}${v < 4 ? " walk line" : ""}`,
-  })),
+  Array.from({ length: 16 - minimum }, (_, index) => {
+    const v = minimum + index;
+    return {
+      value: v,
+      name:
+        plane === "visual"
+          ? `Colour ${v}, ${EGA_COLOUR_NAMES[v]}`
+          : `Depth ${v}, ${priorityMeaning(v)}${v < 4 ? " walk line" : ""}`,
+    };
+  }),
 );
 
 function pick(next: number | null): void {
@@ -71,7 +76,7 @@ function pick(next: number | null): void {
       role="radio"
       class="value-picker__cell value-picker__off"
       :aria-checked="value === null"
-      :aria-label="`${plane === 'visual' ? 'Art' : 'Depth'} off: draw no ${plane === 'visual' ? 'art' : 'depth'}`"
+      :aria-label="`${plane === 'visual' ? 'Visual' : 'Priority'} off: draw no ${plane === 'visual' ? 'visual' : 'priority'}`"
       :title="`Off: draw no ${plane === 'visual' ? 'art' : 'depth'}`"
       :disabled="disabled"
       data-value="off"

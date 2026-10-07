@@ -1,0 +1,253 @@
+.agent-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  color: var(--ink);
+  font-family: var(--font-sans);
+  background: var(--surface-1);
+}
+.agent-panel__header,
+.agent-panel__mode {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border-bottom: 1px solid var(--hairline);
+  background: var(--surface-1);
+}
+.agent-panel__header {
+  flex: none;
+  position: relative;
+  z-index: 1;
+}
+.agent-panel__chat-title {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.agent-panel button {
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+.agent-panel__chat-title,
+.agent-panel__model,
+.agent-panel__context button,
+.agent-panel__chats button {
+  border: 0;
+  background: transparent;
+}
+.agent-panel__mode {
+  font-size: var(--text-xs);
+  gap: var(--space-2);
+}
+.agent-panel__mode .ui-seg {
+  flex: none;
+  white-space: nowrap;
+}
+.agent-panel__model {
+  margin-left: auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+}
+.agent-panel__feed {
+  overflow-anchor: none;
+  flex: 1;
+  overflow: auto;
+  min-height: 0;
+  padding: var(--space-4);
+}
+.agent-panel__intro {
+  color: var(--muted);
+  line-height: 1.6;
+}
+.agent-panel__setup {
+  padding: var(--space-3) var(--space-4);
+}
+.agent-panel__message {
+  padding: var(--space-3);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.agent-panel__message p {
+  white-space: pre-wrap;
+  margin: var(--space-2) 0;
+}
+.agent-panel__message--user {
+  margin-left: var(--space-6);
+  background: var(--surface-3);
+  border-radius: var(--radius-lg) var(--radius-lg) var(--radius-sm) var(--radius-lg);
+}
+.agent-panel__message > strong {
+  font-size: var(--text-xs);
+  color: var(--muted);
+}
+.agent-panel__progress {
+  font-size: var(--text-xs);
+  color: var(--muted);
+  margin: var(--space-4) 0;
+}
+.agent-panel__review {
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.agent-panel__review > header,
+.agent-panel__review-actions {
+  display: flex;
+  gap: var(--space-3);
+  align-items: center;
+  padding: var(--space-3);
+}
+.agent-panel__review-actions {
+  flex: none;
+  border-bottom: 1px solid var(--hairline);
+}
+.agent-panel__review h3 {
+  font-size: var(--text-sm);
+  margin: 0;
+  flex: 1;
+}
+.agent-panel__resource {
+  padding: var(--space-3);
+  border-top: 1px solid var(--hairline);
+}
+.agent-panel__resource > label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-xs);
+  margin-bottom: var(--space-3);
+}
+.agent-panel__composer {
+  padding: var(--space-4);
+  border-top: 1px solid var(--hairline);
+}
+.agent-panel__composer textarea {
+  resize: vertical;
+  box-sizing: border-box;
+  width: 100%;
+  background: var(--surface-0);
+  color: var(--ink);
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius);
+  padding: var(--space-3);
+  font: inherit;
+}
+.agent-panel__composer > div:last-child {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--muted);
+}
+.agent-panel__context {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  font-size: var(--text-xs);
+  margin-bottom: var(--space-3);
+}
+.agent-panel__context > span,
+.agent-panel__context button {
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-pill);
+  background: var(--surface-2);
+}
+.agent-panel__error {
+  color: var(--danger);
+  font-size: var(--text-xs);
+  padding: var(--space-3);
+}
+.agent-panel__chats {
+  max-height: 240px;
+  overflow: auto;
+  border-bottom: 1px solid var(--hairline);
+}
+.agent-panel__chats > div {
+  display: flex;
+  padding: var(--space-2);
+}
+.agent-panel__chats button:first-child {
+  flex: 1;
+  text-align: left;
+}
+.agent-panel__checkpoints {
+  display: flex;
+  flex-wrap: wrap;
+}
+
+/* The drawer overlays the workspace from the right; the editor keeps its
+   width in both arrangements. On the blank stage there is no game bar. */
+.agent-drawer {
+  position: fixed;
+  top: var(--shell-bar-h);
+  right: 0;
+  bottom: 0;
+  width: min(420px, 100vw);
+  z-index: var(--z-dock);
+  display: flex;
+  flex-direction: column;
+  background: var(--surface-1);
+  border-left: 1px solid var(--hairline);
+  box-shadow: var(--shadow-pop);
+}
+.agent-drawer--stage {
+  top: 0;
+}
+@media (max-width: 600px) {
+  .agent-drawer {
+    top: 0;
+    left: 0;
+    width: 100vw;
+    border-left: 0;
+  }
+}
+.agent-panel__context-selection {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+.agent-panel__context-selection button {
+  display: inline-flex;
+}
+
+.agent-panel__markdown strong {
+  color: inherit;
+}
+.agent-panel__markdown ul,
+.agent-panel__markdown ol {
+  padding-left: var(--space-6);
+}
+.agent-panel__markdown pre,
+.agent-panel__task-context pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  padding: var(--space-3);
+  background: var(--surface-0);
+  border-radius: var(--radius);
+  font-size: var(--text-xs);
+}
+.agent-panel__task-context {
+  color: var(--muted);
+  font-size: var(--text-xs);
+}
+.agent-panel__task-context summary {
+  cursor: pointer;
+}
+
+.agent-panel__review-loading,
+.agent-panel__preview-missing {
+  color: var(--muted);
+  font-size: var(--text-sm);
+  padding: var(--space-3);
+}

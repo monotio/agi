@@ -15,6 +15,7 @@ import {
   watchEffect,
   type MaybeRefOrGetter,
 } from "vue";
+import { layoutDragging } from "../play/layoutDrag.ts";
 import { fitZoom, type Viewport } from "../../../src/studio/viewport.ts";
 
 const MAX_ZOOM = 12;
@@ -54,6 +55,8 @@ export function useStudioViewport(
   panes: MaybeRefOrGetter<number>,
   /** One pane of other content than the picture (Sprite Studio's cel), and its largest zoom. */
   content?: { readonly size: MaybeRefOrGetter<PaneContent>; readonly max: number },
+  /** Embedded pictures also fit narrow editor panels at fractional zoom. */
+  fluidPicture?: MaybeRefOrGetter<boolean>,
 ) {
   const maxZoom = content?.max ?? MAX_ZOOM;
   const size = ref({ width: 0, height: 0 });
@@ -66,13 +69,24 @@ export function useStudioViewport(
     (element) => {
       if (!element) return;
       const measure = (): void => {
+        if (layoutDragging.value) return;
         size.value = { width: element.clientWidth, height: element.clientHeight };
         dpr.value = globalThis.devicePixelRatio || 1;
       };
+      const stop = watch(
+        layoutDragging,
+        (dragging) => {
+          if (!dragging) measure();
+        },
+        { flush: "post" },
+      );
       measure();
       const observer = new ResizeObserver(measure);
       observer.observe(element);
-      onWatcherCleanup(() => observer.disconnect());
+      onWatcherCleanup(() => {
+        observer.disconnect();
+        stop();
+      });
     },
     { immediate: true },
   );
@@ -89,9 +103,19 @@ export function useStudioViewport(
   });
 
   const fit = computed(() =>
-    content
-      ? contentFitZoom(size.value.width, size.value.height, toValue(content.size), maxZoom)
-      : paneFitZoom(size.value.width, size.value.height, toValue(panes)),
+    toValue(fluidPicture)
+      ? Math.max(
+          0.1,
+          Math.min(
+            maxZoom,
+            (size.value.width - 2 * STAGE_INSET - PANE_GAP * (toValue(panes) - 1)) /
+              (320 * toValue(panes)),
+            (size.value.height - 2 * STAGE_INSET) / 168,
+          ),
+        )
+      : content
+        ? contentFitZoom(size.value.width, size.value.height, toValue(content.size), maxZoom)
+        : paneFitZoom(size.value.width, size.value.height, toValue(panes)),
   );
   const zoom = computed(() => override.value ?? fit.value);
   const viewport = computed<Viewport>(() => ({
@@ -102,7 +126,8 @@ export function useStudioViewport(
   }));
 
   function zoomBy(step: 1 | -1): void {
-    override.value = Math.min(maxZoom, Math.max(1, zoom.value + step));
+    const current = step === 1 ? Math.floor(zoom.value) : Math.ceil(zoom.value);
+    override.value = Math.min(maxZoom, Math.max(1, current + step));
   }
   function zoomToFit(): void {
     override.value = undefined;

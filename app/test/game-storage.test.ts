@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { stampBoot } from "../../src/agent/history.ts";
 import { test } from "node:test";
 import { testProjectId } from "./identity.ts";
-import { requireResourceRevision } from "../../src/gameIdentity.ts";
+import { requireResourceRevision, type ProjectId } from "../../src/gameIdentity.ts";
 import * as storage from "../src/project/gameStorage.ts";
 import { gameRevision } from "../src/project/gameMetadata.ts";
 import { readGameSaves, writeGameSave } from "../src/saves/gameSaves.ts";
@@ -21,7 +21,22 @@ import {
   loadProjectHistory,
   stageRetainedOriginal,
 } from "../src/history/historyStorage.ts";
+import {
+  projectProgressTarget,
+  type ProjectProgressTarget,
+} from "../src/project/progressTarget.ts";
 import { testRevision } from "./identity.ts";
+
+/** The saved project's progress target, bound to the epoch its body was saved under. */
+async function savedTarget(projectId: ProjectId): Promise<ProjectProgressTarget> {
+  const target = projectProgressTarget(
+    projectId,
+    testRevision("tape"),
+    await storage.readHistoryLifetime(projectId),
+  );
+  assert.ok(target !== null);
+  return target;
+}
 
 const indexedDbRecords = installIndexedDbFixture();
 
@@ -114,7 +129,7 @@ test("future project bodies and indexes are rejected without being overwritten",
   const key = storage.getStorageKey(testProjectId("future-index"));
   const futureIndex = JSON.stringify({
     format: "monotio.agi.project-index",
-    version: 2,
+    version: 999,
     storage: "indexeddb",
   });
   values.set(key, futureIndex);
@@ -130,7 +145,7 @@ test("future project bodies and indexes are rejected without being overwritten",
     words: [],
   });
   const body = indexedDbRecords.get("future-body") as Record<string, unknown>;
-  body["version"] = 2;
+  body["version"] = 999;
   indexedDbRecords.set("future-body", body);
   const before = structuredClone(body);
   await assert.rejects(storage.loadAuthoredGame(testProjectId("future-body")), /version/);
@@ -163,7 +178,7 @@ test("reconciliation and conversation writes preserve future-version records", a
   const indexKey = storage.getStorageKey(testProjectId("future-reconcile"));
   const futureIndex = JSON.stringify({
     format: "monotio.agi.project-index",
-    version: 2,
+    version: 999,
     storage: "indexeddb",
     privateFutureField: true,
   });
@@ -621,17 +636,11 @@ test("a database open that finishes after being blocked closes its abandoned con
       },
     },
   });
-  const modulePath = "../src/project/gameStorage.ts?blocked-open";
+  const modulePath = "../src/project/gameBodyStorage.ts?blocked-open";
   const fresh = await import(modulePath);
-  assert.equal(
-    await fresh.saveAuthoredGame("blocked", {
-      title: "Blocked",
-      provider: "stub",
-      model: "offline-stub",
-      files: { "VOL.0": Uint8Array.of(1) },
-      words: [],
-    }),
-    false,
+  await assert.rejects(
+    fresh.bodyTransaction("readonly", (store: IDBObjectStore) => store.getAllKeys()),
+    /open in another tab/,
   );
   request.onsuccess?.();
   assert.equal(closed, 1);
@@ -661,7 +670,7 @@ test("a database a newer app upgraded asks for a reload instead of a raw Version
       },
     },
   });
-  const modulePath = "../src/project/gameStorage.ts?newer-database";
+  const modulePath = "../src/project/gameBodyStorage.ts?newer-database";
   const fresh = await import(modulePath);
   await assert.rejects(
     fresh.bodyTransaction("readonly", (store: IDBObjectStore) => store.getAllKeys()),
@@ -972,17 +981,16 @@ test("removing a library game deletes its history records and blobs too", async 
     resourceSet: "rev-1",
     requestSerial: 0,
   });
-  const identity = { project: projectId, revision: testRevision("tape") };
+  const target = await savedTarget(projectId);
   assert.equal(
     await appendHistoryBatch(
-      projectId,
+      target,
       { segment: "s1", batch: 1, seqStart: 0, seqEnd: 0, events: [], marks: [], sync: [], boot },
       "2.936",
-      identity,
     ),
     true,
   );
-  await stageRetainedOriginal(projectId, {
+  await stageRetainedOriginal(target, {
     id: "staged-1",
     boot: stampBoot({ ...boot, files: { "VOL.0": "Ag==" } }),
     from: { segment: "s1", seq: 0, tick: 0 },
@@ -990,28 +998,27 @@ test("removing a library game deletes its history records and blobs too", async 
   });
   const historyKeys = () =>
     [...indexedDbRecords.keys()].filter(
-      (key) => typeof key === "string" && key.startsWith(`history/${projectId}`),
+      (key) => typeof key === "string" && key.startsWith(`history/${target.locator}`),
     );
   assert.ok(historyKeys().length > 2, "manifest, batch and blob records exist");
-  const history = (await loadProjectHistory(projectId))!;
+  const history = (await loadProjectHistory(target.locator))!;
 
   await removeLibraryGame(projectId);
   assert.deepEqual(historyKeys(), [], "every history record left with the project");
   assert.equal(await storage.loadAuthoredGame(projectId), null);
   assert.equal(
     await appendHistoryBatch(
-      projectId,
+      target,
       { segment: "s2", batch: 1, seqStart: 0, seqEnd: 0, events: [], marks: [], sync: [], boot },
       "2.936",
-      identity,
     ),
     false,
     "a late writer cannot open a new segment after deletion",
   );
   assert.deepEqual(historyKeys(), [], "late batches cannot resurrect any history records");
-  assert.equal(await importGameHistory(projectId, history, identity), false);
+  assert.equal(await importGameHistory(target, history), false);
   await assert.rejects(
-    stageRetainedOriginal(projectId, {
+    stageRetainedOriginal(target, {
       id: "late-stage",
       boot,
       from: { segment: "s1", seq: 0, tick: 0 },
@@ -1029,19 +1036,19 @@ test("removing a library game deletes its history records and blobs too", async 
     files: { "VOL.0": Uint8Array.of(2) },
     words: [],
   });
+  const neighborTarget = await savedTarget(neighbor);
   assert.equal(
     await appendHistoryBatch(
-      neighbor,
+      neighborTarget,
       { segment: "s1", batch: 1, seqStart: 0, seqEnd: 0, events: [], marks: [], sync: [], boot },
       "2.936",
-      identity,
     ),
     true,
   );
   await removeLibraryGame(projectId);
   assert.ok(
     [...indexedDbRecords.keys()].some(
-      (key) => typeof key === "string" && key.startsWith(`history/${neighbor}`),
+      (key) => typeof key === "string" && key.startsWith(`history/${neighborTarget.locator}`),
     ),
     "the neighbor project's tape survives",
   );
@@ -1079,13 +1086,12 @@ test("reconciling the index with history records present reads only project bodi
     resourceSet: "rev-1",
     requestSerial: 0,
   });
-  const identity = { project: projectId, revision: testRevision("tape") };
+  const target = await savedTarget(projectId);
   assert.equal(
     await appendHistoryBatch(
-      projectId,
+      target,
       { segment: "s1", batch: 1, seqStart: 0, seqEnd: 0, events: [], marks: [], sync: [], boot },
       "2.936",
-      identity,
     ),
     true,
   );
@@ -1099,11 +1105,11 @@ test("reconciling the index with history records present reads only project bodi
   assert.equal(storage.getCachedGameMeta(projectId)?.projectId, projectId, "index rebuilt");
   assert.ok(
     [...indexedDbRecords.keys()].some(
-      (key) => typeof key === "string" && key.startsWith(`history/${projectId}/`),
+      (key) => typeof key === "string" && key.startsWith(`history/${target.locator}/`),
     ),
     "the tape survived the reconcile",
   );
-  assert.ok(await loadProjectHistory(projectId), "the tape still reads back");
+  assert.ok(await loadProjectHistory(target.locator), "the tape still reads back");
 });
 
 test("an autosave judges a record whose stamp drifted from its files by the files", async (t) => {

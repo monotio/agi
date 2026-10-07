@@ -1,12 +1,6 @@
 <script setup lang="ts">
-/**
- * The "Try this" card a Studio shows when a Help guide lesson opened it:
- * the lesson's steps and challenge, docked at the top of the Studio's side
- * column (Room Studio's inspector, Sprite Studio's side panel) so it never
- * covers the stage, with the last Keep's verdict. Hiding it folds it to a small tab, and the
- * fold is remembered per lesson in this browser (lessonStorage.ts). Its footer's
- * "30-second tour" starts the Studio's tour, which stays silent while the card is open.
- */
+import UiIcon from "../ui/UiIcon.vue";
+/** Lesson steps and outcome dock beside the editor; folded cards are remembered. */
 import { computed, ref, watch } from "vue";
 import UiIconButton from "../ui/UiIconButton.vue";
 import type { LessonOutcome, LessonSession } from "./lessonCheck.ts";
@@ -16,7 +10,6 @@ const { session, outcome } = defineProps<{
   session: LessonSession;
   outcome: LessonOutcome | null;
 }>();
-const emit = defineEmits<{ tour: [] }>();
 
 const lesson = computed(() => session.lesson);
 const completed = useLessonBadges().completed;
@@ -43,7 +36,7 @@ function fold(next: boolean): void {
     :aria-label="`Show Try this: ${lesson.title}`"
     @click="fold(false)"
   >
-    Try this<span v-if="done" class="lesson-tab__done"> ✓</span>
+    Try this<span v-if="done" class="lesson-tab__done"> <UiIcon name="check" :size="16" /></span>
   </button>
   <aside
     v-else
@@ -56,7 +49,7 @@ function fold(next: boolean): void {
       <UiIconButton
         icon="x"
         size="sm"
-        label="Hide Try this"
+        label="Close"
         data-testid="lesson-card-hide"
         @click="fold(true)"
       />
@@ -83,16 +76,6 @@ function fold(next: boolean): void {
     >
       ✓ Done
     </p>
-    <footer class="lesson-card__foot">
-      <button
-        type="button"
-        class="lesson-card__tour"
-        data-testid="lesson-card-tour"
-        @click="emit('tour')"
-      >
-        30-second tour
-      </button>
-    </footer>
   </aside>
 </template>
 
@@ -154,24 +137,6 @@ function fold(next: boolean): void {
 }
 .lesson-card__verdict.is-warn {
   color: var(--warn);
-}
-.lesson-card__foot {
-  margin-top: var(--space-3);
-}
-.lesson-card__tour {
-  padding: 0;
-  border: 0;
-  color: var(--action);
-  background: none;
-  font: inherit;
-  cursor: pointer;
-}
-.lesson-card__tour:hover {
-  text-decoration: underline;
-}
-.lesson-card__tour:focus-visible {
-  outline: 2px solid var(--focus);
-  outline-offset: 2px;
 }
 .lesson-tab {
   align-self: start;

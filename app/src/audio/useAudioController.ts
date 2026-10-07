@@ -1,4 +1,5 @@
 import type { AgiAudio, AudioMode } from "./AgiAudio.ts";
+import type { SoundTick } from "./soundTiming.ts";
 import type { WorkerInbound } from "../worker/workerProtocol.ts";
 import { PROFILES, type ProfileId } from "../../../src/runtime/profile.ts";
 
@@ -72,4 +73,9 @@ export function useAudioController(
     setAudioMode,
     resumeAudio,
   };
+}
+
+/** Deliver a worker heartbeat intact so every voice uses the same context time. */
+export function deliverSoundTick(audio: AgiAudio, tick: SoundTick): void {
+  audio.outputTick(tick);
 }

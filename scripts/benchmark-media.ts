@@ -13,7 +13,7 @@
 import { readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { crc32, deflateSync } from "node:zlib";
-import { decodePng } from "./sheet-to-view.ts";
+import { decodePng } from "./png.ts";
 import { encodePngPaletteRgb, EGA_RGB } from "../src/picture/png.ts";
 import { openContainer } from "../src/container/container.ts";
 import { parseView, type ViewCel } from "../src/view/view.ts";

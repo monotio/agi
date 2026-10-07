@@ -7,6 +7,10 @@
  * session byte-identical: the scratch never touches it.
  */
 import { test } from "node:test";
+import { Engine } from "../../src/runtime/engine.ts";
+import { createHistoryView } from "../src/worker/historyView.ts";
+import { openHistoryDrive } from "../src/worker/historyDrive.ts";
+import { installProjectRestart } from "../src/worker/projectRestart.ts";
 import assert from "node:assert/strict";
 import type { GameContainer } from "../../src/types.ts";
 import {
@@ -22,6 +26,12 @@ import {
 import { gameContainer } from "./worker-ctx.ts";
 import { openContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
+import { compileProjectDocuments } from "../../src/authoring/projectDocuments.ts";
+import { createContainer } from "../../src/container/container.ts";
+import { projectDocumentId } from "../../src/authoring/projectContent.ts";
+import { writeProjectWorkspace } from "../../src/authoring/projectWorkspace.ts";
+import { sha256Hex } from "../../src/crypto.ts";
+import { decodeTextRows } from "../src/project/gameTypes.ts";
 import { buildView } from "../../src/view/view.ts";
 import {
   decodeHostImage,
@@ -172,6 +182,7 @@ function viewHarness(
       presentation.push(message);
     },
     now: () => now,
+    seedWord: () => 0xbeef,
   } satisfies WorkerPorts);
   ctx.host = createEngineHost(ctx);
   // The host commits each batch and acks it; resent duplicates get acked
@@ -254,6 +265,121 @@ function asRecording(segments: HistorySegment[]): HistoryRecording {
   };
 }
 
+test("Create take and restore grant the adopted engine admission and journal the next edit", async () => {
+  const source =
+    'if (v40 == 0) { load.pic(0); draw.pic(0); show.pic(); accept.input(); assignn(v40, 1); } if (said("look")) { print("Old room"); } return;';
+  const documents = {
+    "logic:0": source,
+    "picture:0": "vis 1\nfill 1,1\nend\n",
+    words: '[["look",10]]',
+  };
+  const compiled = compileProjectDocuments({
+    files: Object.fromEntries(createContainer().files),
+    documents,
+    profileId: "2.936",
+  });
+  const h = viewHarness(openContainer(compiled.files()), {
+    projectMode: "create",
+    projectDocuments: writeProjectWorkspace(documents),
+    words: [["look", 10]],
+  });
+  await h.ctx.projectLoader.loading;
+  h.ctx.fns.stopTimers();
+  const { ctx, send, tick } = h;
+  tick(12);
+  send({ type: "pause", paused: true });
+  send({ type: "historyRetain", id: 1 });
+  const retained = h.control.find((m) => m.type === "historyRetained");
+  assert.ok(retained?.type === "historyRetained" && retained.boot);
+  const recording = asRecording(collectSegments(h.control));
+  send({ type: "historyViewStart", id: 2, recording, segment: 0, tick: 6 });
+  const opened = finalView(h.control, 2);
+  assert.equal(opened.error, null);
+  assert.equal(opened.canResume, true);
+  const departedEngine = ctx.run.engine;
+  const departedToken = ctx.run.projectAdmission!.runToken;
+  send({
+    type: "historyViewTake",
+    id: 3,
+    generation: opened.generation,
+    segment: 0,
+    tick: opened.tick,
+    seq: opened.seq,
+  });
+  const taken = h.control.find((m) => m.type === "historyTaken");
+  assert.ok(taken?.type === "historyTaken" && taken.ok);
+  assert.notEqual(ctx.run.engine, departedEngine);
+
+  for (const [index, label] of ["Taken room", "Restored room"].entries()) {
+    if (index === 1)
+      send({ type: "historyViewRestore", id: 10, boot: retained.boot, from: retained.from });
+    send({ type: "projectCreate", id: 11 + index });
+    const created = h.control.at(-1);
+    assert.ok(created?.type === "projectCreated" && created.grant);
+    assert.ok(created.grant.identity, "the replacement grants a live identity");
+    assert.notEqual(
+      created.grant.runToken,
+      departedToken,
+      "a replacement ends the old physical run",
+    );
+    const nextDocuments = { ...documents, "logic:0": source.replace("Old room", label) };
+    const next = compileProjectDocuments({
+      files: Object.fromEntries(compiled.files()),
+      documents: nextDocuments,
+      profileId: "2.936",
+    });
+    const candidate = {
+      files: Object.fromEntries(next.files()),
+      sources: { "0": nextDocuments["logic:0"] },
+      sourceBindings: {},
+      profile: "2.936" as const,
+      buildId: next.build.identity.buildId,
+      revision: next.build.identity.revision,
+      origins: [],
+      documents: writeProjectWorkspace(nextDocuments),
+      documentId: projectDocumentId(nextDocuments, sha256Hex),
+    };
+    send({
+      type: "previewUpdate",
+      id: 20 + index,
+      runToken: departedToken,
+      expected: created.grant.identity,
+      candidate,
+    });
+    const stale = h.control.at(-1);
+    assert.ok(stale?.type === "previewUpdateResult");
+    assert.equal(stale.status, "refused", "the departed run cannot edit the adopted engine");
+    send({
+      type: "previewUpdate",
+      id: 30 + index,
+      runToken: created.grant.runToken,
+      expected: created.grant.identity,
+      candidate,
+    });
+    const result = h.control.at(-1);
+    assert.ok(result?.type === "previewUpdateResult");
+    assert.equal(result.status, "committed", result.reason ?? "the replacement admits the edit");
+    send({ type: "pause", paused: false });
+    send({ type: "input", text: "look" });
+    tick(12);
+    assert.ok(
+      decodeTextRows(ctx.run.engine!.getPresentation().text).some((row) => row.includes(label)),
+    );
+    send({ type: "dismissPrint" });
+    tick(6);
+    send({ type: "pause", paused: true });
+    const segment = collectSegments(h.control).at(-1)!;
+    assert.ok(
+      segment.events.some(
+        (event) =>
+          event.cause.kind === "projectImage" && event.cause.documentId === candidate.documentId,
+      ),
+      "the edit belongs to the adopted recording segment",
+    );
+  }
+  ctx.fns.stopTimers();
+});
+
 /** The terminal report for a request id (progress posts share it). */
 function finalView(control: WorkerControl[], id: number) {
   const reports = control.filter(
@@ -295,13 +421,126 @@ function playedSession(): { h: ViewHarness; recording: HistoryRecording; lastTic
   return { h, recording: asRecording(segments), lastTick };
 }
 
+for (const delay of [0, 3]) {
+  test(`zero seek presents the first game frame after ${delay} cycles while preserving the boot replay state`, () => {
+    const h = viewHarness(
+      gameContainer(
+        [
+          `increment(v100); if (v100 > ${delay} && !isset(f200)) { set(f200); load.pic(v0); draw.pic(v0); show.pic(); } return;`,
+        ],
+        (c) => c.putResource("picture", 0, PICTURE_1),
+      ),
+      { rngSeed: 9 },
+    );
+    h.tick(30);
+    const firstFrame = h.presentation.find(
+      (m) => m.type === "frame" && m.visual.some((pixel) => pixel !== 15),
+    );
+    assert.ok(firstFrame?.type === "frame");
+    h.send({ type: "pause", paused: true });
+    const recording = asRecording(collectSegments(h.control));
+    h.send({ type: "historyViewStart", id: 1, recording, segment: 0, tick: 0 });
+    const report = finalView(h.control, 1);
+    assert.equal(report.tick, 0);
+    assert.equal(report.canResume, false);
+    const state = h.ctx.view.drive!.ctx.run.engine!.getPresentation();
+    assert.ok(state.visual.every((pixel) => pixel === 15));
+    const shown = h.presentation.at(-1);
+    assert.ok(shown?.type === "frame");
+    assert.equal(Buffer.compare(shown.visual, firstFrame.visual), 0);
+    assert.deepEqual(h.ctx.view.drive!.ctx.run.engine!.getPresentation(), state);
+    assert.equal(h.ctx.view.drive!.ctx.run.cycle.cycleCount, 0);
+  });
+}
+
+for (const deferred of [false, true]) {
+  test(`a throwing first-frame drive settles and closes the view (${deferred ? "next chunk" : "first chunk"})`, (t) => {
+    const { h, recording } = playedSession();
+    const live = h.ctx.run.engine;
+    const state = live!.captureReplayState();
+    t.after(() => h.ctx.fns.stopTimers());
+    t.mock.timers.enable({ apis: ["setTimeout"] });
+    let now = 0;
+    t.mock.method(h.ctx.ports, "now", () => (now += 13));
+    let drives = 0;
+    let previewContext: WorkerContext | null = null;
+    const view = createHistoryView(h.ctx, createWorkerContext, (...args) => {
+      const drive = openHistoryDrive(...args);
+      if (++drives === 2) {
+        previewContext = drive.ctx;
+        const step = drive.step.bind(drive);
+        let steps = 0;
+        t.mock.method(drive, "step", () => {
+          if (deferred && steps++ === 0) return step();
+          throw new Error("Injected first-frame failure");
+        });
+      }
+      return drive;
+    });
+    assert.doesNotThrow(() =>
+      view.onHistoryViewStart({
+        type: "historyViewStart",
+        id: 500,
+        recording,
+        segment: 0,
+        tick: 0,
+      }),
+    );
+    if (deferred) {
+      assert.equal(h.ctx.view.request, 500);
+      assert.doesNotThrow(() => t.mock.timers.tick(0));
+    }
+    const report = finalView(h.control, 500);
+    assert.match(report.error ?? "", /Injected first-frame failure/);
+    assert.equal(report.canResume, false);
+    assert.equal(
+      h.control.filter((m) => m.type === "historyView" && m.id === 500 && m.final).length,
+      1,
+    );
+    assert.equal(h.ctx.view.request, null);
+    assert.equal(h.ctx.view.timer, null);
+    assert.equal(h.ctx.view.drive, null);
+    assert.equal(h.ctx.view.recording, null);
+    assert.equal(h.ctx.replay.isSeeking, false);
+    assert.ok(previewContext);
+    assert.equal((previewContext as WorkerContext).replay.isSeeking, false);
+    assert.equal(h.ctx.run.engine, live);
+    assert.deepEqual(live!.captureReplayState(), state);
+  });
+}
+
+test("an existing anchor shows its exact moving-object frame", () => {
+  const h = viewHarness(
+    gameContainer(
+      [
+        `if (!isset(f230)) { set(f230); assignn(v10, 0); set(f218); } ${VIEW_LOGICS[0]}`,
+        ...VIEW_LOGICS.slice(1),
+      ],
+      populateViewResources,
+    ),
+    { rngSeed: 9 },
+  );
+  h.tick(6);
+  h.send({ type: "pause", paused: true });
+  const recording = asRecording(collectSegments(h.control));
+  const anchor = recording.segments[0]!.anchors[0]!;
+  assert.ok(anchor);
+  h.send({ type: "historyViewStart", id: 1, recording, segment: 0, tick: anchor.tick });
+  const shown = h.presentation.at(-1);
+  assert.ok(shown?.type === "frame");
+  assert.equal(
+    Buffer.compare(shown.visual, h.ctx.view.drive!.ctx.run.engine!.getPresentation().visual),
+    0,
+  );
+});
+
 test("viewing the tape replays it in a scratch session the live engine never feels", () => {
   const { h, recording, lastTick } = playedSession();
   const { ctx, send, tick } = h;
 
-  const liveDigest = historySyncDigest(ctx.engine!);
-  const liveTicks = ctx.cycle.tickCount;
-  const liveCycles = ctx.cycle.cycleCount;
+  const liveDigest = historySyncDigest(ctx.run.engine!);
+  const liveTicks = ctx.run.cycle.tickCount;
+  const liveCycles = ctx.run.cycle.cycleCount;
 
   send({ type: "historyViewStart", id: 1, recording, segment: 0, tick: lastTick });
   const opened = finalView(h.control, 1);
@@ -325,19 +564,19 @@ test("viewing the tape replays it in a scratch session the live engine never fee
 
   // Player input while viewing is transport traffic, never engine input:
   // neither the scratch's stream nor the parked engine's queues move.
-  const queueDepth = ctx.input.keyQueue.length;
+  const queueDepth = ctx.run.input.keyQueue.length;
   send({ type: "key", code: 65 });
   send({ type: "click", x: 161, y: 108 });
   send({ type: "input", text: "jump" });
   send({ type: "direction", dir: 8 });
-  assert.equal(ctx.input.keyQueue.length, queueDepth, "the parked engine heard nothing");
-  assert.equal(ctx.input.clickQueue.length, 0, "the parked engine took no click");
+  assert.equal(ctx.run.input.keyQueue.length, queueDepth, "the parked engine heard nothing");
+  assert.equal(ctx.run.input.clickQueue.length, 0, "the parked engine took no click");
 
   // The live engine sat through the whole session untouched.
-  assert.equal(historySyncDigest(ctx.engine!), liveDigest, "the parked engine never moved");
-  assert.equal(ctx.cycle.tickCount, liveTicks, "the live tick axis is the wall clock's");
-  assert.equal(ctx.cycle.cycleCount, liveCycles);
-  assert.equal(ctx.cycle.paused, true, "the live session stays parked");
+  assert.equal(historySyncDigest(ctx.run.engine!), liveDigest, "the parked engine never moved");
+  assert.equal(ctx.run.cycle.tickCount, liveTicks, "the live tick axis is the wall clock's");
+  assert.equal(ctx.run.cycle.cycleCount, liveCycles);
+  assert.equal(ctx.run.cycle.paused, true, "the live session stays parked");
 
   send({ type: "historyViewEnd" });
   assert.equal(ctx.view.recording, null);
@@ -346,7 +585,7 @@ test("viewing the tape replays it in a scratch session the live engine never fee
   // Back to live: the parked session resumes and ticks again.
   send({ type: "pause", paused: false });
   tick(3);
-  assert.ok(ctx.cycle.cycleCount > liveCycles, "the live session resumed");
+  assert.ok(ctx.run.cycle.cycleCount > liveCycles, "the live session resumed");
 });
 
 test("a click while viewing is transport traffic, never parked-engine input", () => {
@@ -354,7 +593,7 @@ test("a click while viewing is transport traffic, never parked-engine input", ()
   // profile gate in onClick — is what keeps the parked engine's queue empty.
   const h = viewHarness(viewGame(), { rngSeed: 0xbeef, profile: "amiga-2.316" });
   const { ctx, send, tick } = h;
-  assert.equal(ctx.engine!.profile.clickMove, "amiga-2.31x");
+  assert.equal(ctx.run.engine!.profile.clickMove, "amiga-2.31x");
   tick(4);
   send({ type: "pause", paused: true });
   const recording = asRecording(collectSegments(h.control));
@@ -366,9 +605,9 @@ test("a click while viewing is transport traffic, never parked-engine input", ()
   send({ type: "historyViewStart", id: 1, recording, segment: 0, tick: lastTick });
   assert.equal(finalView(h.control, 1).error, null);
 
-  const queued = ctx.input.clickQueue.length;
+  const queued = ctx.run.input.clickQueue.length;
   send({ type: "click", x: 161, y: 108 });
-  assert.equal(ctx.input.clickQueue.length, queued, "the parked engine heard nothing");
+  assert.equal(ctx.run.input.clickQueue.length, queued, "the parked engine heard nothing");
   assert.equal(
     ctx.history.open.events.filter((e) => e.cause.kind === "click").length,
     0,
@@ -381,7 +620,7 @@ test("Resume here adopts the viewed moment; Back to before restores the original
   const { h, recording, lastTick } = playedSession();
   const { ctx, send, tick } = h;
 
-  const liveDigest = historySyncDigest(ctx.engine!);
+  const liveDigest = historySyncDigest(ctx.run.engine!);
   const liveSegment = ctx.history.segment!;
 
   // View the moment just before the LCG roll — a resumable boundary in a
@@ -425,10 +664,10 @@ test("Resume here adopts the viewed moment; Back to before restores the original
       m.type === "historyTaken" && m.id === 3,
   );
   assert.ok(taken && taken.ok, "the take succeeded");
-  assert.equal(ctx.cycle.paused, true, "the adopted session waits for the host's release");
+  assert.equal(ctx.run.cycle.paused, true, "the adopted session waits for the host's release");
 
   // The adopted engine is the viewed one: pre-roll state, same room.
-  const adopted = h.ctx.engine!;
+  const adopted = h.ctx.run.engine!;
   assert.equal(adopted.vars[0], 2);
   const rolledLive = playedRoll(ctx);
   void rolledLive;
@@ -446,7 +685,7 @@ test("Resume here adopts the viewed moment; Back to before restores the original
   // The adopted session actually runs once the host releases the pause.
   send({ type: "pause", paused: false });
   tick(3);
-  assert.ok(ctx.cycle.cycleCount > 0, "the adopted session ticks");
+  assert.ok(ctx.run.cycle.cycleCount > 0, "the adopted session ticks");
 
   // Back to before: the retained original swaps back in, parked again.
   send({ type: "historyViewRestore", id: 4, boot: retained.boot, from: retained.from });
@@ -456,22 +695,22 @@ test("Resume here adopts the viewed moment; Back to before restores the original
   );
   assert.ok(restored && restored.ok, "the restore succeeded");
   assert.equal(
-    historySyncDigest(ctx.engine!),
+    historySyncDigest(ctx.run.engine!),
     liveDigest,
     "the original session is back byte-identical",
   );
   send({ type: "pause", paused: false });
   tick(3);
-  assert.equal(historySyncDigest(ctx.engine!), liveDigest);
+  assert.equal(historySyncDigest(ctx.run.engine!), liveDigest);
 });
 
 test("the adopted session resumes the recorded PRNG and cycle clock", () => {
   const { h, recording } = playedSession();
   const { ctx, send, tick } = h;
 
-  const recordedRoll = ctx.engine!.vars[60]!;
+  const recordedRoll = ctx.run.engine!.vars[60]!;
   assert.ok(recordedRoll >= 1 && recordedRoll <= 250);
-  const abandonedRng = ctx.history.rng; // the live session's post-roll state
+  const abandonedRng = ctx.run.rng.word; // the live session's post-roll state
 
   // View the moment just before the recorded roll.
   const rollEvent = recording.segments[0]!.events.find(
@@ -492,7 +731,7 @@ test("the adopted session resumes the recorded PRNG and cycle clock", () => {
 
   // The scratch's clock at the viewed position — the take must carry it,
   // not the abandoned session's stale live clock.
-  const viewedClock = ctx.view.drive!.ctx.clocks.cycle.snapshot();
+  const viewedClock = ctx.view.drive!.ctx.run.clocks.cycle.snapshot();
 
   send({
     type: "historyViewTake",
@@ -510,30 +749,30 @@ test("the adopted session resumes the recorded PRNG and cycle clock", () => {
 
   const branch = collectSegments(h.control).at(-1)!;
   // The live PRNG is the viewed position's — not the abandoned future's.
-  assert.equal(ctx.history.rng, branch.boot.rng);
-  assert.notEqual(ctx.history.rng, abandonedRng);
+  assert.equal(ctx.run.rng.word, branch.boot.rng);
+  assert.notEqual(ctx.run.rng.word, abandonedRng);
   // The branch segment's boot records the adopted clock — the abandoned
   // session's live clock was still ticking when it was stamped.
   assert.deepEqual(branch.boot.clock, viewedClock);
 
   // The recorded clock waits out the parked interval: restoring it at adopt
   // time would have the first parked poll discard its accumulators.
-  assert.deepEqual(ctx.cycle.pendingClock, viewedClock);
+  assert.deepEqual(ctx.run.cycle.pendingClock, viewedClock);
   tick(2);
-  assert.ok(ctx.cycle.pendingClock !== null, "parked polls never touched it");
+  assert.ok(ctx.run.cycle.pendingClock !== null, "parked polls never touched it");
 
   send({ type: "pause", paused: false });
-  const clock = ctx.clocks.cycle.snapshot();
+  const clock = ctx.run.clocks.cycle.snapshot();
   assert.equal(clock.remainder, viewedClock.remainder);
   assert.equal(clock.increments, viewedClock.increments);
   assert.equal(clock.paused, false);
-  assert.equal(ctx.cycle.pendingClock, null);
+  assert.equal(ctx.run.cycle.pendingClock, null);
 
   // The LCG continues from the recorded state — the same boundary rolls the
   // value the tape recorded, not whatever the abandoned future held.
   send({ type: "debugWrite", id: 9, flags: [[202, 1]] });
   tick(3);
-  assert.equal(ctx.engine!.vars[60], recordedRoll, "the roll resumes the recorded rng");
+  assert.equal(ctx.run.engine!.vars[60], recordedRoll, "the roll resumes the recorded rng");
 
   // Back to before with a recorded clock: the same deferral lands it on the
   // release — the parked polls in between must not consume it first.
@@ -551,13 +790,13 @@ test("the adopted session resumes the recorded PRNG and cycle clock", () => {
       m.type === "historyViewRestored" && m.id === 4,
   );
   assert.ok(restored && restored.ok);
-  assert.deepEqual(ctx.cycle.pendingClock, patched.clock);
-  assert.equal(ctx.history.rng, retained.boot.rng, "the parked session's rng is back");
+  assert.deepEqual(ctx.run.cycle.pendingClock, patched.clock);
+  assert.equal(ctx.run.rng.word, retained.boot.rng, "the parked session's rng is back");
   tick(2);
-  assert.deepEqual(ctx.cycle.pendingClock, patched.clock, "still pending through parked polls");
+  assert.deepEqual(ctx.run.cycle.pendingClock, patched.clock, "still pending through parked polls");
   send({ type: "pause", paused: false });
-  assert.equal(ctx.clocks.cycle.snapshot().increments, 4);
-  assert.equal(ctx.clocks.cycle.snapshot().remainder, 30);
+  assert.equal(ctx.run.clocks.cycle.snapshot().increments, 4);
+  assert.equal(ctx.run.clocks.cycle.snapshot().remainder, 30);
 });
 
 test("a take mid-motion adopts the shared parameter bank, not separate fields", () => {
@@ -602,14 +841,14 @@ test("a take mid-motion adopts the shared parameter bank, not separate fields", 
 
   // The adopted engine carries the bank the scratch replayed — flag byte on
   // the destination, saved step and completion flag in the trailing bytes.
-  const o = ctx.engine!.screenObjects[1]!;
+  const o = ctx.run.engine!.screenObjects[1]!;
   assert.deepEqual(o.paramBank, [61, 80, 4, 62]);
 
   send({ type: "pause", paused: false });
   tick(80);
   assert.equal(o.x, 60, "the adopted session drove to the flag byte's target");
-  assert.equal(ctx.engine!.flags[61], 1, "the loop's flag latched");
-  assert.equal(ctx.engine!.flags[62], 1, "the motion's flag latched");
+  assert.equal(ctx.run.engine!.flags[61], 1, "the loop's flag latched");
+  assert.equal(ctx.run.engine!.flags[62], 1, "the motion's flag latched");
   assert.equal(o.motionMode, 0);
   assert.equal(o.stepSize, 4, "the saved step size came back");
 });
@@ -622,7 +861,7 @@ test("a take mid-envelope adopts the v3 table and crosses its hold", () => {
   const container = viewGameV3((c) => c.putResource("sound", 1, SOUND_LONG));
   const h = viewHarness(container, { rngSeed: 0xbeef });
   const { ctx, send, tick } = h;
-  assert.equal(ctx.engine!.profile.id, "3.002.149");
+  assert.equal(ctx.run.engine!.profile.id, "3.002.149");
   tick(4);
   send({ type: "debugWrite", id: 0, flags: [[200, 1]] });
   tick(5); // room 2 drawn — resumable
@@ -630,7 +869,7 @@ test("a take mid-envelope adopts the v3 table and crosses its hold", () => {
   send({ type: "debugWrite", id: 2, flags: [[221, 1]] });
   tick(71); // the envelope index lands in the v3-only range
 
-  const liveIndex = ctx.engine!.captureReplayState().sound?.playback.channels[0]!.envelopeIndex;
+  const liveIndex = ctx.run.engine!.captureReplayState().sound?.playback.channels[0]!.envelopeIndex;
   assert.ok(
     liveIndex !== undefined && liveIndex >= 68 && liveIndex <= 77,
     `envelope index ${liveIndex} sits in the v3-only range`,
@@ -662,7 +901,7 @@ test("a take mid-envelope adopts the v3 table and crosses its hold", () => {
       m.type === "historyTaken" && m.id === 4,
   );
   assert.ok(taken && taken.ok, "the take adopted the mid-envelope position");
-  const adopted = ctx.engine!.captureReplayState().sound?.playback.channels[0];
+  const adopted = ctx.run.engine!.captureReplayState().sound?.playback.channels[0];
   assert.ok(adopted, "the adopted engine carries the sound's playback state");
   assert.equal(adopted.envelopeIndex, liveIndex);
 
@@ -673,10 +912,8 @@ test("a take mid-envelope adopts the v3 table and crosses its hold", () => {
   send({ type: "pause", paused: false });
   tick(12);
   const attenuations = h.presentation
-    .filter(
-      (m): m is Extract<WorkerPresentation, { type: "soundOutput" }> => m.type === "soundOutput",
-    )
-    .map((m) => m.output)
+    .filter((m): m is Extract<WorkerPresentation, { type: "soundTick" }> => m.type === "soundTick")
+    .flatMap((m) => m.outputs)
     .filter((o): o is { kind: "psg"; bytes: number[] } => o.kind === "psg")
     .map((o) => o.bytes.at(-1)!)
     .filter((b) => (b & 0xf0) === 0x90);
@@ -727,9 +964,9 @@ test("a take adopts the unknown-word slot said() still matches", () => {
 
   // The scratch replayed the said checks against the zero slot — and the
   // anchor carried the slot itself into the adopted engine.
-  assert.equal(ctx.engine!.vars[100], 1, "the replayed said(1) matched");
-  assert.equal(ctx.engine!.vars[101], 1, "the replayed said(0) matched");
-  const parser = ctx.engine!.captureReplayState();
+  assert.equal(ctx.run.engine!.vars[100], 1, "the replayed said(1) matched");
+  assert.equal(ctx.run.engine!.vars[101], 1, "the replayed said(0) matched");
+  const parser = ctx.run.engine!.captureReplayState();
   assert.deepEqual(parser.parsedWords, [0], "the adopted parser slot holds group zero");
   assert.equal(parser.parserCount, 1);
   assert.equal(parser.inputReady, 0, "f2 is per-cycle — cleared past the parse's own cycle");
@@ -739,7 +976,18 @@ test("a take adopts the unknown-word slot said() still matches", () => {
   send({ type: "pause", paused: false });
   send({ type: "debugWrite", id: 4, flags: [[223, 1]] });
   tick(3);
-  assert.equal(ctx.engine!.vars[102], 1, "said(1) matches in the adopted session");
+  assert.equal(ctx.run.engine!.vars[102], 1, "said(1) matches in the adopted session");
+});
+
+test("worker history fixtures reseed independently of platform entropy", (t) => {
+  const h = viewHarness(viewGame(), { rngSeed: 0 });
+  t.mock.method(crypto, "getRandomValues", () => {
+    throw new Error("Fixture used live entropy");
+  });
+  h.tick(4);
+  h.send({ type: "debugWrite", id: 0, flags: [[202, 1]] });
+  h.tick(3);
+  assert.equal(h.ctx.run.rng.word, (0xbeef * 31821 + 1) & 0xffff);
 });
 
 test("restart at RNG zero consumes no clock read; the next draw records one", () => {
@@ -752,11 +1000,11 @@ test("restart at RNG zero consumes no clock read; the next draw records one", ()
   tick(4);
   send({ type: "debugWrite", id: 0, flags: [[219, 1]] }); // accepted restart
   tick(4); // the restart aborts, then f6 re-enters room 1
-  assert.equal(ctx.history.rng, 0, "restart preserved the zero-state stream");
+  assert.equal(ctx.run.rng.word, 0, "restart preserved the zero-state stream");
 
   send({ type: "debugWrite", id: 1, flags: [[202, 1]] }); // random(1,250,v60)
   tick(3);
-  assert.notEqual(ctx.history.rng, 0, "the draw reseeded and advanced");
+  assert.notEqual(ctx.run.rng.word, 0, "the draw reseeded and advanced");
 
   send({ type: "pause", paused: true });
   const recording = asRecording(collectSegments(h.control));
@@ -780,7 +1028,7 @@ test("restart at RNG zero consumes no clock read; the next draw records one", ()
 
 /** Read v60 — the LCG roll's landing spot. */
 function playedRoll(ctx: WorkerContext): number {
-  return ctx.engine!.vars[60]!;
+  return ctx.run.engine!.vars[60]!;
 }
 
 test("a seek republishes the landing frame a dropped mid-seek frame matched", () => {
@@ -929,13 +1177,13 @@ test("a failed start leaves no half-open session behind", () => {
   assert.equal(ctx.replay.isSeeking, false, "the frame gate released");
 
   // The live engine still owns the surface: its commands still run.
-  const liveTicks = ctx.cycle.tickCount;
+  const liveTicks = ctx.run.cycle.tickCount;
   send({ type: "historyViewSeek", id: 2, segment: 0, tick: 1 });
   const orphan = finalView(h.control, 2);
   assert.match(orphan.error ?? "", /no history view session/);
   send({ type: "pause", paused: false });
   h.tick(2);
-  assert.ok(ctx.cycle.tickCount > liveTicks, "the live engine resumed normally");
+  assert.ok(ctx.run.cycle.tickCount > liveTicks, "the live engine resumed normally");
 });
 
 test("a start whose anchor mismatches the folded stream reports the error and cleans up", () => {
@@ -1184,7 +1432,7 @@ test("a take adopts a parked key wait and the pack; a suspended prompt is not re
   // f200 edges to room 2, whose entry is the anchor the seeks start from.
   send({ type: "debugWrite", id: 0, flags: [[200, 1]] });
   tick(5);
-  assert.equal(ctx.engine!.vars[0], 2, "room 2 entered");
+  assert.equal(ctx.run.engine!.vars[0], 2, "room 2 entered");
 
   // The key lands in the pack before the recorded waits.
   send({ type: "debugWrite", id: 1, flags: [[225, 1]] });
@@ -1194,19 +1442,19 @@ test("a take adopts a parked key wait and the pack; a suspended prompt is not re
   // the continuation record can describe.
   send({ type: "debugWrite", id: 2, flags: [[227, 1]] });
   tick(4);
-  assert.equal(ctx.engine!.awaitingKey, true, "the recorded wait parked on a key");
+  assert.equal(ctx.run.engine!.awaitingKey, true, "the recorded wait parked on a key");
   send({ type: "key", code: 65 });
   tick(3);
-  assert.equal(ctx.engine!.vars[62], 1, "the recorded key resumed the pass");
+  assert.equal(ctx.run.engine!.vars[62], 1, "the recorded key resumed the pass");
 
   // A get.num prompt suspends on a host request the continuation cannot
   // describe; the parked polls give the suspended span recorded ticks.
   send({ type: "debugWrite", id: 3, flags: [[224, 1]] });
   const prompt = awaitOp("getnum");
   tick(3);
-  send({ type: "hostAnswer", id: prompt.id, response: "7" });
+  send({ type: "hostAnswer", generation: ctx.run.generation, id: prompt.id, response: "7" });
   tick(3);
-  assert.equal(ctx.engine!.vars[64], 7, "the answered prompt's pass resumed");
+  assert.equal(ctx.run.engine!.vars[64], 7, "the answered prompt's pass resumed");
 
   send({ type: "pause", paused: true });
   const recording = asRecording(collectSegments(h.control));
@@ -1235,11 +1483,11 @@ test("a take adopts a parked key wait and the pack; a suspended prompt is not re
       m.type === "historyTaken" && m.id === 11,
   );
   assert.ok(taken && taken.ok);
-  assert.equal(ctx.engine!.awaitingKey, true, "the adopted pass still waits on its key");
+  assert.equal(ctx.run.engine!.awaitingKey, true, "the adopted pass still waits on its key");
   send({ type: "pause", paused: false });
   send({ type: "key", code: 66 });
   tick(3);
-  assert.equal(ctx.engine!.vars[62], 1, "the arrived key resumed the adopted pass");
+  assert.equal(ctx.run.engine!.vars[62], 1, "the arrived key resumed the adopted pass");
 
   // Same recording, second view: the get.num-suspended tick refuses —
   // a live host request is not a resumable boundary.
@@ -1273,11 +1521,96 @@ test("a take adopts a parked key wait and the pack; a suspended prompt is not re
       m.type === "historyTaken" && m.id === 14,
   );
   assert.ok(takenAgain && takenAgain.ok);
-  assert.equal(ctx.engine!.vars[64], 7, "the resumed prompt's writes adopted");
+  assert.equal(ctx.run.engine!.vars[64], 7, "the resumed prompt's writes adopted");
 
   // The pack crossed both takes: the picked-up key rides the adopted image.
   send({ type: "pause", paused: false });
   send({ type: "debugWrite", id: 15, flags: [[226, 1]] });
   tick(3);
-  assert.equal(ctx.engine!.vars[65], 1, "the carried key survived the take");
+  assert.equal(ctx.run.engine!.vars[65], 1, "the carried key survived the take");
+});
+
+for (const replacement of [
+  "boot",
+  "resetReplay",
+  "replayRestore",
+  "projectRestart",
+  "historyTake",
+  "historyRestore",
+] as const) {
+  test(`live engine replacement ends its recording (${replacement})`, () => {
+    const { h, recording } = playedSession();
+    const { ctx, send } = h;
+    send({ type: "historyRetain", id: 301 });
+    const retained = h.control.find((m) => m.type === "historyRetained" && m.id === 301);
+    assert.ok(retained?.type === "historyRetained" && retained.boot);
+    if (replacement === "replayRestore") {
+      ctx.replay.replay = { tick: 0, revision: 0 };
+      ctx.run.rng.word = 1;
+    }
+    send({ type: "startRecording", id: 302 });
+    assert.ok(ctx.run.recording.recording, "recording started on the live engine");
+    const departing = ctx.run.engine;
+    if (replacement === "boot")
+      send({ type: "boot", files: Object.fromEntries(ctx.run.engine!.containerFiles), words: [] });
+    else if (replacement === "resetReplay") send({ type: "resetReplay", seed: 1 });
+    else if (replacement === "replayRestore") send({ type: "replayRestore", id: 305, tick: 0 });
+    else if (replacement === "projectRestart")
+      installProjectRestart(
+        ctx,
+        new Engine(openContainer(ctx.run.engine!.containerFiles), ctx.host!, new Map()),
+      );
+    else if (replacement === "historyRestore")
+      send({ type: "historyViewRestore", id: 303, boot: retained.boot, from: retained.from });
+    else {
+      const roll = recording.segments[0]!.events.find(
+        (event) =>
+          event.cause.kind === "debugWrite" &&
+          event.cause.flags?.some(([number]) => number === 202),
+      )!;
+      send({
+        type: "historyViewStart",
+        id: 303,
+        recording,
+        segment: 0,
+        tick: Math.max(0, roll.tick - 1),
+      });
+      const opened = finalView(h.control, 303);
+      assert.equal(opened.canResume, true);
+      send({
+        type: "historyViewTake",
+        id: 304,
+        segment: 0,
+        tick: opened.tick,
+        seq: opened.seq,
+        generation: opened.generation,
+      });
+    }
+    ctx.fns.stopTimers();
+    assert.notEqual(ctx.run.engine, departing);
+    assert.equal(ctx.run.recording.recording, null);
+    assert.equal(h.control.filter((m) => m.type === "recordingReset").length, 1);
+  });
+}
+
+test("PAL boot fingerprints replay and reject a region switch", () => {
+  const h = viewHarness(viewGame(), {
+    rngSeed: 0xbeef,
+    profile: "amiga-2.316",
+    amigaRegion: "pal",
+  });
+  h.tick(4);
+  h.send({ type: "pause", paused: true });
+  const recording = asRecording(collectSegments(h.control));
+  assert.equal(recording.segments[0]!.boot.amigaRegion, "pal");
+  h.send({ type: "historyViewStart", id: 1, recording, segment: 0, tick: 0 });
+  assert.equal(finalView(h.control, 1).error, null);
+  assert.equal(h.ctx.view.drive!.ctx.run.engine!.amigaRegion, "pal");
+  h.send({ type: "historyViewSeek", id: 2, segment: 0, tick: 4 });
+  assert.equal(finalView(h.control, 2).error, null);
+  h.send({ type: "historyViewEnd" });
+  const switched = structuredClone(recording);
+  switched.segments[0]!.boot.amigaRegion = "ntsc";
+  h.send({ type: "historyViewStart", id: 3, recording: switched, segment: 0, tick: 0 });
+  assert.match(finalView(h.control, 3).error!, /fingerprint/);
 });

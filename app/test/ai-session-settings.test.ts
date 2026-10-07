@@ -1,3 +1,4 @@
+import { waitUntil } from "./async.ts";
 import { providerSse } from "../../test/provider-stream.ts";
 import assert from "node:assert/strict";
 import { test } from "node:test";
@@ -31,7 +32,7 @@ test("reconfiguration preserves authored state and chat while the next request u
   const state = createAgentSessionState();
   state.sources.logics.set(7, "return;");
   const session = new AgentSession(
-    { provider: "openai", apiKey: "old-private-key", model: "old-model" },
+    { provider: "openai", apiKey: "old-private-key", model: "gpt-6-sol" },
     (kind, detail, data) => events.push({ kind, detail, data }),
     state,
   );
@@ -40,7 +41,7 @@ test("reconfiguration preserves authored state and chat while the next request u
   const replacement = session.reconfigure({
     provider: "openai",
     apiKey: "new-private-key",
-    model: "new-model",
+    model: "gpt-6.1-sol",
     effort: "high",
   });
   assert.equal(replacement.state, state);
@@ -49,7 +50,7 @@ test("reconfiguration preserves authored state and chat while the next request u
   await replacement.runAsk("Second question?", 7);
 
   assert.equal(requests[1]?.authorization, "Bearer new-private-key");
-  assert.equal(requests[1]?.body["model"], "new-model");
+  assert.equal(requests[1]?.body["model"], "gpt-6.1-sol");
   assert.equal(
     (requests[1]?.body["reasoning"] as Record<string, unknown> | undefined)?.["effort"],
     "high",
@@ -157,8 +158,7 @@ test("a running or paused session cannot be reconfigured", async () => {
     /finish.*AI settings/i,
   );
   reachCheckpoint!();
-  for (let attempt = 0; attempt < 20 && session.task.snapshot().status !== "paused"; attempt++)
-    await new Promise((resolve) => setImmediate(resolve));
+  await waitUntil(() => session.task.snapshot().status === "paused", "the agent did not pause");
   assert.equal(session.task.snapshot().status, "paused");
   assert.throws(
     () => session.reconfigure({ provider: "stub", apiKey: "", model: "other" }),

@@ -63,6 +63,7 @@ export async function seedTutorial10(page: Page, remix?: string): Promise<void> 
   expect(autosave?.game.identity.project, "the 1.0 download carries its autosave").toBe(
     TUTORIAL_1_0,
   );
+  await removeModernLifetime(page, TUTORIAL_1_0);
   await page.evaluate(
     async ({ id, revision, progress }) => {
       const path = "/src/saves/gameProgress.ts";
@@ -71,4 +72,78 @@ export async function seedTutorial10(page: Page, remix?: string): Promise<void> 
     },
     { id: TUTORIAL_1_0, revision, progress: { saves: {}, autosave } },
   );
+}
+
+/** Where Play stored the 1.1.0 tutorial. */
+export const TUTORIAL_1_1 = "catalog-adventure-department-1.1.0";
+
+/** Released bodies predate lifetime receipts; the current writer mints one. */
+async function removeModernLifetime(page: Page, id: string): Promise<void> {
+  await page.evaluate(async (project) => {
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open("monotio-agi-projects");
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const transaction = db.transaction("projects", "readwrite");
+        transaction.objectStore("projects").delete(`lifetime/${project}`);
+        transaction.oncomplete = () => resolve();
+        transaction.onerror = () => reject(transaction.error);
+      });
+    } finally {
+      db.close();
+    }
+  }, id);
+}
+
+/**
+ * A browser that played the released 1.1.0 tutorial: the library copy Play
+ * stored, from the released 1.1.0 Game download (app/test/formats/
+ * tutorial-1.1.zip, never regenerated), and an autosave at the unscoped
+ * address 1.1.0 wrote it to. Seeded through the production storage boundary;
+ * the caller reloads. Returns the stored autosave string.
+ */
+export async function seedTutorial11(page: Page): Promise<string> {
+  const game = await readGameZip(
+    new Uint8Array(await readFile(new URL("../test/formats/tutorial-1.1.zip", import.meta.url))),
+  );
+  const revision = await gameRevision(game.files);
+  expect(revision, "the fixture is the released 1.1.0 tutorial").toBe(
+    getKnownGameByAlias("adventure-department-1.1")?.targetRevision,
+  );
+  await cacheGame(page, {
+    title: "Adventure Department",
+    provider: "stub",
+    model: "offline-tutorial",
+    imported: true,
+    roomGeneration: false,
+    files: game.files,
+    words: game.words,
+    projectId: TUTORIAL_1_1 as never,
+    library: {
+      ...game.metadata,
+      version: 1 as const,
+      revision,
+      validation: { status: "ready" as const, message: "Checked.", profile: "2.936" },
+      source: "catalog",
+      catalog: { id: "adventure-department", version: "1.1.0" },
+    },
+  });
+  const autosave = JSON.stringify({
+    format: "monotio.agi.autosave",
+    version: 1,
+    image: "AA==",
+    room: 2,
+    cycle: 480,
+    savedAt: 1_759_000_000_000,
+    game: { installed: false, identity: { project: TUTORIAL_1_1, revision } },
+  });
+  await removeModernLifetime(page, TUTORIAL_1_1);
+  await page.evaluate(
+    ([key, value]) => localStorage.setItem(key!, value!),
+    [`monotio_agi.autosave.${TUTORIAL_1_1}`, autosave],
+  );
+  return autosave;
 }

@@ -305,7 +305,7 @@ describe("transactional packing", () => {
     assert.equal(files.get("OBJECT")![0], 1);
   });
 
-  it("preserves damaged indexed resources as dangling entries while packing healthy ones", () => {
+  it("preserves exact damaged entries and indexed bytes while packing healthy ones", () => {
     for (const volume of [
       undefined,
       Uint8Array.of(99, 0, 0, 0, 0),
@@ -317,12 +317,15 @@ describe("transactional packing", () => {
       const before = new Map([...c.files].map(([name, bytes]) => [name, bytes.slice()]));
       const clean = compactContainer(c.files);
       assert.deepEqual(c.files, before);
-      assert.deepEqual(clean.get("LOGDIR"), Uint8Array.of(0x0f, 0xff, 0xff));
-      assert.throws(() => openContainer(clean).getResource("logic", 0), /out of bounds/);
+      assert.deepEqual(clean.get("LOGDIR"), before.get("LOGDIR"));
+      assert.deepEqual(clean.get("VOL.0"), before.get("VOL.0"));
+      assert.throws(() => openContainer(clean).getResource("logic", 0), /corrupt/);
       c.putResource("view", 0, Uint8Array.of(1));
       assert.deepEqual(c.getResource("view", 0), Uint8Array.of(1));
-      assert.throws(() => c.getResource("logic", 0), /out of bounds/);
-      assert.equal(c.files.get("VOL.0")!.length, 6);
+      assert.throws(() => c.getResource("logic", 0), /corrupt/);
+      assert.deepEqual(c.files.get("LOGDIR"), before.get("LOGDIR"));
+      assert.deepEqual(c.files.get("VOL.0"), before.get("VOL.0"));
+      assert.equal(c.files.get("VOL.1")!.length, 6);
       c.putResource("logic", 0, Uint8Array.of(7));
       assert.deepEqual(c.getResource("logic", 0), Uint8Array.of(7));
     }

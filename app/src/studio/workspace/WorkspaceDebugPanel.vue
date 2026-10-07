@@ -1,0 +1,347 @@
+<script setup lang="ts">
+import UiIcon from "../../ui/UiIcon.vue";
+import { computed, ref } from "vue";
+import { VOCABULARY } from "../../../../src/vocabulary.ts";
+import type { WorkspaceDebug } from "./workspaceDebug.ts";
+import type { ProjectEditDiagnostic } from "../../../../src/authoring/projectEdit.ts";
+import UiButton from "../../ui/UiButton.vue";
+import {
+  numberedLabel,
+  numberedSlot,
+  documentLabel,
+  numberedExpressionLabel,
+} from "../../../../src/logic/numberedLabels.ts";
+import { useProjectLabels } from "../../shell/useProjectLabels.ts";
+import { systemName } from "../../../../src/logic/systemNames.ts";
+/** One debug view inside the frame: the workspace tab names which one. */
+const props = defineProps<{
+  debug?: WorkspaceDebug | undefined;
+  problems: readonly ProjectEditDiagnostic[];
+  view: "problems" | "variables" | "watch" | "stack" | "breakpoints";
+}>();
+const emit = defineEmits<{
+  reveal: [logic: number, line: number];
+  problem: [problem: ProjectEditDiagnostic];
+}>();
+const labels = useProjectLabels();
+const expression = ref("");
+const filter = ref("");
+const slots = computed(() => {
+  const debug = props.debug;
+  const names: Record<string, string[]> = {};
+  if (!debug) return [];
+  for (const [name, binding] of Object.entries(debug.bindings.value)) {
+    const key = `${binding.kind}:${binding.num}`;
+    (names[key] ??= []).push(name);
+  }
+  return (["variable", "flag"] as const).flatMap((kind) =>
+    Array.from({ length: 256 }, (_, slot) => {
+      const used = debug.usedValues.value.find((row) => row.kind === kind && row.slot === slot);
+      const reserved = systemName(kind, slot);
+      const bindingNames = used?.names || (names[`${kind}:${slot}`] ?? []).join(", ");
+      const label = numberedSlot(kind, slot);
+      return {
+        kind,
+        slot,
+        label,
+        names: bindingNames,
+        title: numberedLabel(kind, slot, {
+          bindings: debug.bindings.value,
+          name: used?.names ?? "",
+        }),
+        reserved,
+        used: used !== undefined,
+        value: debug.stopped.value?.state[kind === "variable" ? "vars" : "flags"][slot] ?? 0,
+      };
+    }),
+  );
+});
+const groups = computed(() => {
+  if (filter.value.trim()) {
+    const query = filter.value.trim().toLowerCase();
+    return [
+      {
+        title: "Search results",
+        rows: slots.value.filter((row) =>
+          `${row.label} ${row.slot} ${row.names} ${row.reserved ?? ""}`
+            .toLowerCase()
+            .includes(query),
+        ),
+      },
+    ];
+  }
+  return [
+    { title: "Used here", rows: slots.value.filter((row) => row.used) },
+    {
+      title: "Game",
+      rows: slots.value.filter((row) => row.reserved !== undefined && !row.used),
+    },
+  ];
+});
+const allGroups = computed(() =>
+  (["variable", "flag"] as const).map((kind) => ({
+    title: kind === "variable" ? "All variables" : "All flags",
+    rows: slots.value.filter((row) => row.kind === kind),
+  })),
+);
+function editValue(kind: "variable" | "flag", slot: number, event: Event): void {
+  const element = event.target as HTMLInputElement;
+  const value = kind === "flag" ? Number(element.checked) : Number(element.value);
+  void props.debug?.run(() => props.debug!.setValue(kind, slot, value));
+}
+</script>
+<template>
+  <div
+    class="workspace-debug-panel"
+    :data-testid="view === 'problems' ? 'workspace-problems' : 'workspace-debug-panel'"
+  >
+    <p v-if="debug?.state.error" role="alert">{{ debug.state.error }}</p>
+    <div :aria-label="view" class="workspace-debug-content">
+      <template v-if="view === 'problems'">
+        <p v-if="problems.length === 0">Everything builds.</p>
+        <button
+          v-for="(problem, index) in problems"
+          :key="index"
+          class="workspace-debug-frame"
+          @click="emit('problem', problem)"
+        >
+          <strong v-if="problem.document">{{ documentLabel(problem.document, labels) }}: </strong
+          >{{ problem.message }}
+        </button>
+      </template>
+      <template v-else-if="view === 'variables' && debug">
+        <label class="workspace-debug-filter"
+          >Find a value <input v-model="filter" aria-label="Find a value"
+        /></label>
+        <p v-if="!debug.stopped.value">
+          Click left of a line number to stop there, then inspect and edit values.
+        </p>
+        <component
+          :is="group.expand ? 'details' : 'section'"
+          v-for="group in [
+            ...groups.map((group) => ({ ...group, expand: false })),
+            ...(filter.trim() ? [] : allGroups.map((group) => ({ ...group, expand: true }))),
+          ]"
+          :key="group.title"
+          class="workspace-debug-group"
+          :aria-label="group.title"
+        >
+          <summary v-if="group.expand">{{ group.title }}</summary>
+          <h3 v-else>{{ group.title }}</h3>
+          <p v-if="!group.rows.length">
+            {{ debug.stopped.value ? "No values referenced." : "Pause to inspect this LOGIC." }}
+          </p>
+          <div class="workspace-debug-values">
+            <label v-for="row in group.rows" :key="`${row.kind}:${row.slot}`">
+              <span
+                >{{ row.title }} <small v-if="row.title !== row.label">{{ row.label }}</small></span
+              >
+              <input
+                v-if="row.kind === 'flag'"
+                type="checkbox"
+                :aria-label="
+                  numberedLabel(
+                    row.kind,
+                    row.slot,
+                    { bindings: debug.bindings.value, name: row.names },
+                    'option',
+                  )
+                "
+                :checked="!!row.value"
+                :disabled="!debug.stopped.value || debug.state.busy"
+                @change="editValue(row.kind, row.slot, $event)"
+              />
+              <input
+                v-else
+                type="number"
+                min="0"
+                max="255"
+                :aria-label="
+                  numberedLabel(
+                    row.kind,
+                    row.slot,
+                    { bindings: debug.bindings.value, name: row.names },
+                    'option',
+                  )
+                "
+                :value="row.value"
+                :disabled="!debug.stopped.value || row.slot === 0 || debug.state.busy"
+                @change="editValue(row.kind, row.slot, $event)"
+              />
+            </label>
+          </div>
+        </component>
+      </template>
+      <template v-else-if="view === 'watch' && debug">
+        <form
+          @submit.prevent="
+            () => {
+              const panel = debug;
+              panel?.run(async () => {
+                await panel.addWatch(expression);
+                expression = '';
+              });
+            }
+          "
+        >
+          <input
+            v-model="expression"
+            aria-label="Watch expression"
+            placeholder="v40 or a binding name"
+          /><UiButton size="sm" type="submit" :disabled="debug.state.busy">Add watch</UiButton>
+        </form>
+        <p>{{ VOCABULARY.watch.help }}</p>
+        <p v-if="!debug.stopped.value">Pause to refresh values.</p>
+        <div v-for="watch in debug.state.watches" :key="watch.id" class="workspace-debug-row">
+          <span>{{
+            numberedExpressionLabel(watch.expression, { bindings: debug.bindings.value })
+          }}</span
+          ><output>{{ watch.value }}</output
+          ><UiButton
+            size="sm"
+            variant="ghost"
+            :aria-label="`Remove watch ${watch.expression}`"
+            @click="debug.removeWatch(watch.id)"
+            ><UiIcon name="x" :size="16"
+          /></UiButton>
+        </div>
+      </template>
+      <template v-else-if="view === 'stack' && debug">
+        <p v-if="!debug.stopped.value">
+          Click left of a line number to stop there and see the calls.
+        </p>
+        <button
+          v-for="frame in [...(debug.stopped.value?.location?.frames ?? [])].reverse()"
+          :key="frame.invocationId"
+          class="workspace-debug-frame"
+          @click="emit('reveal', frame.logic, debug.framePosition(frame)?.line ?? 1)"
+        >
+          {{ numberedLabel("logic", frame.logic, { bindings: debug.bindings.value }, "row")
+          }}<span v-if="debug.framePosition(frame)"
+            >, line {{ debug.framePosition(frame)?.line }}</span
+          ><span v-else>, byte {{ frame.pc }}</span>
+        </button>
+      </template>
+      <template v-else-if="view === 'breakpoints' && debug">
+        <label class="workspace-debug-filter">
+          <input
+            type="checkbox"
+            role="switch"
+            aria-label="Disable breakpoints"
+            :checked="debug.state.breakpointsDisabled"
+            :disabled="debug.state.busy"
+            @change="
+              debug.run(() => debug!.setDisabled(($event.target as HTMLInputElement).checked))
+            "
+          />
+          Disable breakpoints
+        </label>
+        <p v-if="debug.state.breakpoints.length">{{ VOCABULARY.breakpoint.help }}</p>
+        <p v-else>Click left of a line number to stop there, or press F9.</p>
+        <div v-for="point in debug.state.breakpoints" :key="point.id" class="workspace-debug-row">
+          <button @click="emit('reveal', point.logic, point.line)">
+            {{ numberedLabel("logic", point.logic, { bindings: debug.bindings.value }, "row") }},
+            line {{ point.line }}
+          </button>
+          <span>{{
+            debug.state.statuses.find((row) => row.id === point.id)?.binding.bound === false
+              ? "Choose an executable line."
+              : debug.state.epoch
+                ? "Bound"
+                : "Ready"
+          }}</span>
+          <UiButton
+            size="sm"
+            variant="ghost"
+            :aria-label="`Remove breakpoint ${point.id}`"
+            @click="
+              () => {
+                const panel = debug;
+                panel?.run(() => panel.toggle(point.logic, point.line));
+              }
+            "
+            ><UiIcon name="x" :size="16"
+          /></UiButton>
+        </div>
+      </template>
+    </div>
+  </div>
+</template>
+<style scoped>
+.workspace-debug-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+button {
+  color: var(--ink-3);
+  background: transparent;
+  border: 0;
+  padding: var(--space-2);
+  cursor: pointer;
+  font: inherit;
+}
+.workspace-debug-content {
+  overflow: auto;
+  flex: 1;
+  min-height: 0;
+}
+.workspace-debug-filter,
+.workspace-debug-content form {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin: var(--space-2) 0;
+}
+input {
+  background: var(--surface-0);
+  color: var(--ink);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  padding: var(--space-1);
+}
+.workspace-debug-values {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--space-2) var(--space-5);
+}
+.workspace-debug-values label {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-2);
+}
+.workspace-debug-values input[type="number"] {
+  width: 64px;
+}
+small {
+  font-family: var(--font-mono);
+  margin-left: var(--space-2);
+  color: var(--ink-3);
+}
+.workspace-debug-group {
+  margin-bottom: var(--space-3);
+}
+h3,
+summary {
+  font-size: var(--text-sm);
+  margin: var(--space-2) 0;
+}
+summary {
+  cursor: pointer;
+  color: var(--ink-3);
+}
+.workspace-debug-row {
+  display: flex;
+  gap: var(--space-4);
+  align-items: center;
+}
+.workspace-debug-frame {
+  display: block;
+}
+</style>

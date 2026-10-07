@@ -1,13 +1,13 @@
-import { expect, test } from "./test.ts";
 import type { Page } from "@playwright/test";
 import {
   enterCreateMode,
   isolateStorage,
   openGameOptions,
+  openInspector,
   textHook,
   waitForCycles,
-  openWorldRoom,
 } from "./engineProbe.ts";
+import { expect, test } from "./test.ts";
 
 /**
  * The shell's design system, checked where a player meets it: one motion
@@ -21,6 +21,7 @@ async function playTutorial(page: Page): Promise<void> {
   await isolateStorage(page);
   await page.goto("/");
   await page.getByTestId("catalog-play-adventure-department").click();
+  await expect(page.getByTestId("input-line")).toBeEnabled();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
   await waitForCycles(page, 2);
 }
@@ -71,7 +72,8 @@ test("Help, Game controls and the map close with the standard × button", async 
   const help = page.getByTestId("help-guide");
   await expect(help).toBeVisible();
   const helpClose = help.getByTestId("help-guide-close");
-  await expect(helpClose).toHaveAccessibleName("Close Help");
+  await expect(helpClose).toBeVisible();
+  await expect(helpClose).toHaveAccessibleName("Close");
   await expect(helpClose).toHaveText("");
   await helpClose.click();
   await expect(help).toBeHidden();
@@ -100,6 +102,7 @@ test("settings draw switches, and Developer activity is off every page", async (
   await expect(page.getByText("Copy debug bundle")).toBeHidden();
 
   await page.getByTestId("catalog-play-adventure-department").click();
+  await expect(page.getByTestId("input-line")).toBeEnabled();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
   await openGameOptions(page, "settings-menu");
   for (const id of ["toggle-mute", "toggle-original-aspect", "toggle-touch-controls"]) {
@@ -197,50 +200,17 @@ test("the library notes the verified games in one line and Help holds the full l
   await expect(help).toContainText("Apple IIgs: Space Quest II");
 });
 
-test("the World inspector leads with one primary action and folds its evidence away", async ({
-  page,
-}) => {
-  await playTutorial(page);
-  await enterCreateMode(page);
-  const panel = page.getByTestId("world-panel");
-  await openWorldRoom(panel, 2);
-  const detail = panel.getByTestId("map-detail");
-  await expect(detail.getByRole("heading", { level: 3 })).toHaveText("Room 2");
-  await expect(detail.locator(".ui-btn--primary")).toHaveCount(1);
-  await expect(detail.locator(".ui-btn--primary")).toHaveText("Open in Studio");
-  // No bare glyph buttons: every control has a name, none reads "×" or "⏮".
-  for (const button of await detail.getByRole("button").all()) {
-    await expect(button).not.toHaveText(/^[×⏮]$/);
-  }
-  // Reference art is a quiet action, not the largest control in the card.
-  const attach = detail.getByTestId("map-attach-reference");
-  if (await attach.count()) await expect(attach).toHaveClass(/ui-btn--ghost/);
-  // The evidence is under Details, closed until asked for.
-  const facts = detail.getByTestId("map-facts");
-  await expect(facts).not.toHaveAttribute("open");
-  await expect(facts.locator("li").first()).toBeHidden();
-  await facts.locator("summary").click();
-  await expect(facts.locator("li").first()).toBeVisible();
-  // Nothing in the card spills past its edge.
-  const card = (await detail.boundingBox())!;
-  for (const box of await detail
-    .locator("button, input, textarea")
-    .evaluateAll((all) => all.map((el) => el.getBoundingClientRect().toJSON()))) {
-    if (box.width === 0) continue;
-    expect(box.x + box.width).toBeLessThanOrEqual(card.x + card.width + 0.5);
-  }
-});
-
 test("graph exit words read at the same size at any zoom", async ({ page }) => {
   await playTutorial(page);
-  await enterCreateMode(page);
-  const graph = page.getByTestId("world-panel").getByTestId("map-graph");
+  await page.getByTestId("btn-world-map").click();
+  await page.getByTestId("btn-world-plan").click();
+  const graph = page.getByTestId("world-map").getByTestId("map-graph");
   const label = graph.locator(".edge-label").first();
   await expect(label).toBeVisible();
   const onScreen = () =>
     label.evaluate((element) => (element as SVGTextElement).getBoundingClientRect().height);
   const at75 = await onScreen();
-  await page.getByTestId("world-panel").getByTestId("map-zoom-in").click();
+  await page.getByTestId("world-map").getByTestId("map-zoom-in").click();
   const zoomedIn = await onScreen();
   expect(at75).toBeGreaterThanOrEqual(11);
   expect(Math.abs(zoomedIn - at75)).toBeLessThan(1.5);
@@ -251,7 +221,7 @@ test("the Inspect tab groups its views as one segmented control with a caption",
 }) => {
   await playTutorial(page);
   await enterCreateMode(page);
-  await page.getByTestId("dock-tab-inspect").click();
+  await openInspector(page);
   const views = page.getByRole("radiogroup", { name: "Inspector view" });
   await expect(views.getByRole("radio")).toHaveCount(5);
   await expect(views.getByRole("radio", { name: "Game" })).toHaveAttribute("aria-checked", "true");
@@ -268,7 +238,7 @@ test("the Inspect tab groups its views as one segmented control with a caption",
 test.describe("phone", () => {
   test.use({ viewport: { width: 390, height: 844 }, hasTouch: true });
 
-  test("Play keeps its hint on one line, Ask in the strip and Keys a compact control", async ({
+  test("Play keeps its key status on one line, Ask in the strip and Keys a compact control", async ({
     page,
   }) => {
     await isolateStorage(page);
@@ -277,7 +247,10 @@ test.describe("phone", () => {
     await page.getByTestId("catalog-play-adventure-department").tap();
     await expect.poll(async () => (await textHook(page)).room).toBe(1);
     await waitForCycles(page, 2);
-    const help = page.locator("#game-input-help");
+    const status = page.getByTestId("game-keys");
+    await expect(status).toBeVisible();
+    const help = status.locator(".keys-led-label");
+    await expect(help).toBeVisible();
     const lineHeight = await help.evaluate((element) =>
       parseFloat(getComputedStyle(element).lineHeight),
     );

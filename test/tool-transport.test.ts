@@ -25,7 +25,7 @@ import { buildView } from "../src/view/view.ts";
 import { openContainer } from "../src/container/container.ts";
 import { Engine } from "../src/runtime/engine.ts";
 import { assertNoImageData } from "./modelText.ts";
-import { createStudioAssist, STUDIO_ASSIST_TOOLS } from "../src/agent/studioAssistTools.ts";
+import { createSelectionEdit, SELECTION_TOOLS } from "../src/agent/selectionTools.ts";
 import { draftRevision, pictureAssistScope } from "../src/studio/assistScope.ts";
 import { compileEditDocument } from "../src/studio/editValidation.ts";
 import { parsePictureDocument } from "../src/studio/pictureDocument.ts";
@@ -162,7 +162,7 @@ function bootedSession() {
   session.container.putResource(
     "logic",
     2,
-    assembleLogic("return;", { dictionary: session.sources.words }).payload,
+    assembleLogic("set(f32);", { dictionary: session.sources.words }).payload,
   );
   return session;
 }
@@ -233,11 +233,11 @@ test("every catalog tool produces bounded binary-free transport on real success 
   assert.equal(roomRead.success, true);
 
   const cases: Record<string, TransportCase | Record<string, unknown>> = {
-    reserve_binding: {
+    reserve_name: {
       good: { name: "gate_open", kind: "flag", id: null },
       bad: { name: "Not valid", kind: "flag", id: null },
     },
-    write_inventory_objects: {
+    write_objects: {
       good: {
         mode: "merge",
         objects: null,
@@ -249,7 +249,7 @@ test("every catalog tool produces bounded binary-free transport on real success 
         item: { id: -1, name: "Bad", location: "room", room: 1 },
       },
     },
-    edit_resource_source: {
+    edit_source: {
       // The revision covers text plus compilation context; earlier cases may
       // have moved the dictionary or bindings, so read it fresh at call time.
       good: () => ({
@@ -260,16 +260,16 @@ test("every catalog tool produces bounded binary-free transport on real success 
           offset: null,
           limit: null,
         }).details?.["revision"],
-        edits: [{ find: "return;", replace: "set(f10); return;" }],
+        edits: [{ find: "set(f32);", replace: "set(f33);" }],
       }),
       bad: {
         kind: "logic",
         num: 2,
         expectedRevision: "stale",
-        edits: [{ find: "return;", replace: "set(f10); return;" }],
+        edits: [{ find: "set(f32);", replace: "set(f33);" }],
       },
     },
-    update_world: {
+    update_plan: {
       good: {
         rooms: [{ num: 1, title: "Start", description: "A start room.", exits: [] }],
         facts: [],
@@ -277,7 +277,7 @@ test("every catalog tool produces bounded binary-free transport on real success 
       },
       bad: { rooms: null, facts: [], quests: [] },
     },
-    patch_view_cels: {
+    edit_cels: {
       good: {
         num: 0,
         expectedRevision: celRead.details?.["revision"],
@@ -313,15 +313,61 @@ test("every catalog tool produces bounded binary-free transport on real success 
       good: { num: 6, channel: null, offset: null, limit: null },
       bad: { num: 255, channel: null, offset: null, limit: null },
     },
-    preview_sound: {
+    play_sound: {
       good: { num: 6, startSeconds: null, durationSeconds: null, device: null },
       bad: { num: 255, startSeconds: null, durationSeconds: null, device: null },
     },
-    write_scene: {
+    configure_launch: {
+      good: {
+        room: 5,
+        action: "create",
+        id: null,
+        name: "Vacuum death",
+        note: null,
+        cameFrom: null,
+        flags: null,
+        variables: null,
+        items: null,
+        hero: null,
+        seed: null,
+        selected: null,
+      },
+      bad: {
+        room: 5,
+        action: "remove",
+        id: "missing",
+        name: "Vacuum death",
+        note: null,
+        cameFrom: null,
+        flags: null,
+        variables: null,
+        items: null,
+        hero: null,
+        seed: null,
+        selected: null,
+      },
+    },
+    draw_picture_items: {
       good: { room: 5, backgroundColor: 1, shapes: [] },
       bad: { room: 5, backgroundColor: 16, shapes: [] },
     },
-    read_room_context: {
+    add_depth: {
+      good: () => {
+        const source =
+          '# @item tree "Tree" art\nvis 2\npri off\nrect 20,50 30,80\nfill 25,60\n# @end\nend';
+        assert.ok(executeAgentTool(session, "write_picture", { room: 7, source }).success);
+        const read = executeAgentTool(session, "read_picture", { num: 7 });
+        return {
+          num: 7,
+          itemId: "tree",
+          expectedRevision: read.details?.["revision"],
+          baseY: null,
+          priorityBase: null,
+        };
+      },
+      bad: { num: 7, itemId: "tree", expectedRevision: "stale", baseY: null, priorityBase: null },
+    },
+    read_room: {
       good: {
         room: 1,
         state: { variables: null, flags: null, compact: null },
@@ -334,7 +380,7 @@ test("every catalog tool produces bounded binary-free transport on real success 
       good: { num: 3, source: "view\ncel dot 1 1 0\n5\nendcel\nloop 0 dot\nendview" },
       bad: { num: 3, source: "view\ncel dot 2 1 0\n5\nendcel\nloop 0 dot\nendview" },
     },
-    write_logic_source: { room: 3, source: "return;" },
+    write_logic: { room: 3, source: "return;" },
     write_picture: { room: 4, source: "vis 1\nfill 0,0\nend" },
     write_sound: {
       num: 7,
@@ -344,7 +390,7 @@ test("every catalog tool produces bounded binary-free transport on real success 
     read_picture: { num: 1, offset: null, limit: null, include: null },
     read_view: { num: 0, cels: [{ loop: 0, cel: 0 }], rows: true },
     read_words: { prefix: null, exact: null, offset: null, limit: null },
-    inspect_world_bible: {
+    read_plan: {
       good: { filter: "slots", section: null, name: null, offset: null, kind: "logic" },
       bad: { filter: "invalid", section: null, name: null, offset: null, kind: null },
     },
@@ -397,7 +443,7 @@ test("every catalog tool produces bounded binary-free transport on real success 
       good: { id: "d0", fields: null, offset: null, limit: null },
       bad: { id: "d0", fields: null, offset: -1, limit: null },
     },
-    handover: { notes: "Booted synthetic room." },
+    finish: { notes: "Booted synthetic room." },
     write_room: {
       good: () => ({
         room: 1,
@@ -418,19 +464,19 @@ test("every catalog tool produces bounded binary-free transport on real success 
     },
   };
   // The Studio tools run against a creator's selection: the river-and-bridge
-  // fixture in the Walk lens, attached to the shared deps below.
+  // fixture in the Priority lens, attached to the shared deps below.
   const bridge = compileEditDocument(parsePictureDocument(BRIDGE_SOURCE).document, session.profile);
-  const studio = createStudioAssist({
+  const studio = createSelectionEdit({
     scope: pictureAssistScope({
       num: 1,
       compiled: bridge,
       targetIds: ["bridge"],
-      lens: "walk",
+      lens: "depth",
     }),
     draft: () => ({ kind: "picture", source: BRIDGE_SOURCE }),
-    lens: "walk",
+    lens: "depth",
   });
-  const proposeTool = STUDIO_ASSIST_TOOLS.find((tool) => tool.name === "propose_edit")!;
+  const proposeTool = SELECTION_TOOLS.find((tool) => tool.name === "edit_selection")!;
   const opFields = (
     proposeTool.parameters.properties["pictureOps"] as { items: { required: string[] } }
   ).items.required;
@@ -466,16 +512,16 @@ test("every catalog tool produces bounded binary-free transport on real success 
     spriteOps: null,
   });
   cases["read_edit_context"] = { good: { images: true }, bad: { images: "yes" } };
-  cases["view_reference"] = {
+  cases["read_reference_image"] = {
     good: { id: "art-0123456789", size: "small", region: null, grid: true },
     bad: { id: "art-0000000000", size: "small", region: null, grid: null },
   };
-  cases["propose_edit"] = {
+  cases["edit_selection"] = {
     good: proposal(draftRevision({ kind: "picture", source: BRIDGE_SOURCE })),
     bad: proposal("picture-1-00000000"),
   };
-  // After propose_edit's candidate: the first call withdraws it, the second finds none.
-  cases["withdraw_edit"] = {
+  // After edit_selection's candidate: the first call withdraws it, the second finds none.
+  cases["withdraw_selection"] = {
     good: { reason: "It cannot meet the request." },
     bad: { reason: "It cannot meet the request." },
   };
@@ -484,10 +530,10 @@ test("every catalog tool produces bounded binary-free transport on real success 
     if ("good" in value && "bad" in value) continue;
     const good = value;
     let bad: Record<string, unknown>;
-    if (name === "write_words" || name === "read_words" || name === "write_inventory_objects")
+    if (name === "write_words" || name === "read_words" || name === "write_objects")
       bad = { ...good, offset: -1 };
     else if (name === "write_view") bad = { ...good, num: -1 };
-    else if (name === "write_logic_source") bad = { room: 3, source: "not valid !!!" };
+    else if (name === "write_logic") bad = { room: 3, source: "not valid !!!" };
     else if (name === "write_picture") bad = { room: -1, source: "end" };
     else if (name === "write_sound") bad = { ...good, num: -1 };
     else if (name === "read_logic" || name === "read_picture" || name === "read_view")
@@ -498,7 +544,7 @@ test("every catalog tool produces bounded binary-free transport on real success 
   }
   const deps = {
     allowedTools: AGENT_TOOLS.map((tool) => tool.name),
-    studio,
+    selection: studio,
     references: {
       art: [
         {
@@ -542,13 +588,15 @@ test("every catalog tool produces bounded binary-free transport on real success 
     },
   };
   const expectedCatalog = [
-    "edit_resource_source",
-    "handover",
-    "inspect_world_bible",
-    "patch_view_cels",
+    "add_depth",
+    "configure_launch",
+    "edit_source",
+    "finish",
+    "read_plan",
+    "edit_cels",
     "playtest_room",
-    "preview_sound",
-    "propose_edit",
+    "play_sound",
+    "edit_selection",
     "read_authoring_guide",
     "read_command_reference",
     "read_diagnostic",
@@ -556,26 +604,26 @@ test("every catalog tool produces bounded binary-free transport on real success 
     "read_game_tests",
     "read_logic",
     "read_picture",
-    "read_room_context",
+    "read_room",
     "read_sound",
     "read_view",
     "read_words",
-    "reserve_binding",
+    "reserve_name",
     "run_game_tests",
-    "update_world",
-    "view_reference",
-    "withdraw_edit",
+    "update_plan",
+    "read_reference_image",
+    "withdraw_selection",
     "write_game_tests",
-    "write_inventory_objects",
-    "write_logic_source",
+    "write_objects",
+    "write_logic",
     "write_music",
     "write_picture",
     "write_room",
-    "write_scene",
+    "draw_picture_items",
     "write_sound",
     "write_view",
     "write_words",
-  ];
+  ].sort();
   assert.deepEqual(AGENT_TOOLS.map((tool) => tool.name).sort(), expectedCatalog);
   assert.deepEqual(Object.keys(directCases).sort(), expectedCatalog);
   for (const [name, value] of Object.entries(directCases)) {
@@ -585,7 +633,7 @@ test("every catalog tool produces bounded binary-free transport on real success 
     const good = await executeAgentToolAsync(session, name, goodArgs, deps);
     assert.equal(good.success, true, `${name}: ${good.error}`);
     assertTransport(name, "success", good);
-    const failureState = name === "handover" ? createAgentSessionState() : session;
+    const failureState = name === "finish" ? createAgentSessionState() : session;
     const failureDeps = deps;
     const badArgs = typeof paths.bad === "function" ? paths.bad() : paths.bad;
     const failure = await executeAgentToolAsync(failureState, name, badArgs, failureDeps);
@@ -602,8 +650,8 @@ test("model-facing projection evicts large fields into a retrievable diagnostic"
     details: {
       num: 1,
       revision: "34-48575beb",
-      source: 'print("' + "x".repeat(600) + '");',
-      history: Array.from({ length: 40 }, (_, i) => `step ${i} with detail`),
+      source: 'print("' + "x".repeat(9000) + '");',
+      history: Array.from({ length: 500 }, (_, i) => `step ${i} with detail`),
     },
   };
   const projected = projectToolResult(full, session.diagnostics, "d1");
@@ -643,7 +691,7 @@ test("model-facing projection evicts large fields into a retrievable diagnostic"
 });
 
 test("an oversized live field keeps its essential scalars and reports counts", () => {
-  // read_room_context packs room, ego position, modal state and the
+  // read_room packs room, ego position, modal state and the
   // observation identity into `live` beside unbounded inventory, controls and
   // object tables. Over the field budget those essentials must still reach the
   // model, with the evicted parts marked and counted.
@@ -654,7 +702,7 @@ test("an oversized live field keeps its essential scalars and reports counts", (
     egoY: 140,
     modalKind: "show.obj",
     checkpoint: 412,
-    inventory: Array.from({ length: 40 }, (_, i) => ({
+    inventory: Array.from({ length: 150 }, (_, i) => ({
       num: i,
       name: `inventory object number ${i} with a long descriptive name`,
     })),
@@ -668,7 +716,7 @@ test("an oversized live field keeps its essential scalars and reports counts", (
     message: "Room 7.",
     details: {
       live,
-      liveObjects: Array.from({ length: 60 }, (_, i) => ({ num: i, name: `obj ${i}` })),
+      liveObjects: Array.from({ length: 600 }, (_, i) => ({ num: i, name: `obj ${i}` })),
     },
   };
   const projected = projectToolResult(full, session.diagnostics, "live-1");
@@ -678,10 +726,10 @@ test("an oversized live field keeps its essential scalars and reports counts", (
   assert.equal(compact["egoY"], 140);
   assert.equal(compact["modalKind"], "show.obj");
   assert.equal(compact["checkpoint"], 412);
-  assert.deepEqual(compact["inventory"], { truncated: true, items: 40 });
+  assert.deepEqual(compact["inventory"], { truncated: true, items: 150 });
   assert.deepEqual(compact["controls"], { truncated: true, items: 9 });
   const objects = projected.details?.["liveObjects"] as Record<string, unknown>;
-  assert.deepEqual(objects, { truncated: true, items: 60 });
+  assert.deepEqual(objects, { truncated: true, items: 600 });
   assert.equal(projected.details?.["diagnosticId"], "live-1");
   assert.deepEqual(projected.details?.["truncatedFields"], ["live", "liveObjects"]);
   assert.ok(
@@ -689,7 +737,7 @@ test("an oversized live field keeps its essential scalars and reports counts", (
     `summary is ${JSON.stringify(compact).length} characters`,
   );
   const stored = session.diagnostics.get("live-1");
-  assert.equal((stored?.details?.["live"] as typeof live).inventory.length, 40);
+  assert.equal((stored?.details?.["live"] as typeof live).inventory.length, 150);
 
   // Both provider serializations carry the essentials, not the raw tables.
   for (const content of [splitToolResult(projected)]) {
@@ -699,7 +747,7 @@ test("an oversized live field keeps its essential scalars and reports counts", (
     ]) {
       assert.ok(text.includes('"room":7'));
       assert.ok(text.includes('"egoX":121'));
-      assert.ok(text.includes('"items":40'));
+      assert.ok(text.includes('"items":150'));
       assert.ok(!text.includes("inventory object number 39"));
     }
   }
@@ -709,7 +757,7 @@ test("tool results carry explicit evidence origins and a resource-set identity",
   const session = bootedSession();
   const origin = (r: AgentToolResult) => r.details?.["origin"] as Record<string, unknown>;
 
-  const staged = executeAgentTool(session, "inspect_world_bible", {
+  const staged = executeAgentTool(session, "read_plan", {
     filter: "slots",
     section: null,
     name: null,
@@ -725,7 +773,7 @@ test("tool results carry explicit evidence origins and a resource-set identity",
     executeAgentTool(session, "write_words", { words: ["lamp"], groups: null }).success,
     true,
   );
-  const staged2 = executeAgentTool(session, "inspect_world_bible", {
+  const staged2 = executeAgentTool(session, "read_plan", {
     filter: "slots",
     section: null,
     name: null,
@@ -748,7 +796,7 @@ test("tool results carry explicit evidence origins and a resource-set identity",
 
   const live = await executeAgentToolAsync(
     session,
-    "read_room_context",
+    "read_room",
     { room: 1, state: { variables: null, flags: null, compact: null }, frames: null },
     {
       allowedTools: AUTHORING_TOOL_NAMES,
@@ -800,7 +848,7 @@ test("fromLiveCheckpoint restores the captured live image into the staged candid
   const origin = candidate.details?.["origin"] as Record<string, unknown>;
   assert.equal(origin["kind"], "candidate");
   const stagedSet = (
-    executeAgentTool(session, "inspect_world_bible", {
+    executeAgentTool(session, "read_plan", {
       filter: "slots",
       section: null,
       name: null,
@@ -856,4 +904,24 @@ test("Anthropic error results with images are not flagged is_error", () => {
     content: [{ type: "text", text: JSON.stringify({ success: false, error: "bad" }) }],
   });
   assert.equal(anthropicToolResult("call-3", { success: true, message: "ok" }).is_error, false);
+});
+
+test("ordinary task details stay inline in the model projection", () => {
+  const session = createAgentSessionState();
+  const details = {
+    errors: Array.from({ length: 20 }, (_, i) => `Distinct error ${i}: ${"x".repeat(120)}`),
+  };
+  const result = projectToolResult({ success: false, details }, session.diagnostics, "ordinary");
+  assert.deepEqual(result.details, details);
+  assert.equal(session.diagnostics.has("ordinary"), false);
+});
+
+test("diagnostic reads return a complete ordinary diagnostic", () => {
+  const session = createAgentSessionState();
+  const detail = "diagnostic detail ".repeat(3500);
+  session.diagnostics.set("large", { success: false, details: { detail } });
+  const read = executeAgentTool(session, "read_diagnostic", { id: "large", fields: ["detail"] });
+  assert.equal(read.success, true, read.error ?? "");
+  assert.equal(read.details?.["nextOffset"], null);
+  assert.ok(read.message?.includes(detail));
 });

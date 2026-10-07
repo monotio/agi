@@ -1,0 +1,578 @@
+.shell-body--workspace {
+  --workspace-parts: 252px;
+  --workspace-game-min: 0px;
+  --workspace-edit-min: 0px;
+  --workspace-game: minmax(0, 1fr);
+  --workspace-edit: minmax(0, 1fr);
+  grid-template-columns: var(--workspace-parts) var(--workspace-game) 5px var(--workspace-edit) !important;
+  grid-template-rows: minmax(0, 1fr) auto;
+  position: relative;
+  overflow: hidden;
+  background: var(--surface-0) !important;
+}
+.in-game.touch-layout .shell:has(.shell-body--workspace) {
+  height: var(--layout-height, 100dvh);
+  min-height: 0;
+}
+:is(.in-game, .empty-project) .shell-body--workspace {
+  overflow: hidden;
+  padding-bottom: 0;
+}
+:is(.in-game, .empty-project) .shell-body--workspace .play-area {
+  position: relative;
+  min-height: 0;
+}
+.shell-body--workspace .parts-list {
+  grid-column: 1;
+  grid-row: 1 / -1;
+}
+/* Beats PlayArea's scoped strip whichever stylesheet loads first. */
+.shell-body--workspace > .play-area .play-strip {
+  display: none;
+}
+.shell-body--workspace > .play-area {
+  grid-column: 2;
+  grid-row: 1;
+  min-width: 0;
+  isolation: isolate;
+}
+.shell-body--workspace.shell-body--fold-left {
+  --workspace-parts: 0px;
+}
+.shell-body--workspace.shell-body--no-editor {
+  grid-template-columns: var(--workspace-parts) minmax(0, 1fr) !important;
+}
+.workspace-inspector {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 5;
+  width: min(360px, 100%);
+  padding: var(--space-5);
+  box-sizing: border-box;
+  overflow: auto;
+  background: var(--surface-1);
+  border-left: 1px solid var(--hairline);
+  box-shadow: var(--shadow-pop);
+}
+.workspace-inspector > header {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: var(--space-5);
+}
+.shell-body.is-resizing .play-area .game-surface {
+  max-width: 100%;
+}
+.shell-body--workspace.shell-body--stacked:not(.shell-body--no-editor):not(.shell-body--focus) {
+  --workspace-game-min: min(200px, 30%);
+  --workspace-edit-min: min(500px, 65%);
+  grid-template-columns: var(--workspace-parts) minmax(0, 1fr) !important;
+  grid-template-rows: var(--workspace-game) 5px var(--workspace-edit) auto;
+}
+.shell-body--stacked:not(.shell-body--focus) > .workspace-editor {
+  grid-column: 2;
+  grid-row: 3;
+  border-left: 0;
+  border-top: 1px solid var(--hairline);
+}
+.shell-body--stacked > .workspace-splitter {
+  grid-column: 2;
+  grid-row: 2;
+  cursor: row-resize;
+}
+/* The game sits at the top of its column in Side by side. */
+.shell-body--workspace:not(.shell-body--stacked):not(.shell-body--focus) > .play-area .stage {
+  align-items: start;
+}
+.shell-body--workspace.shell-body--focus {
+  grid-template-columns: minmax(0, 1fr) !important;
+}
+.shell-body--workspace.shell-body--focus > .workspace-editor {
+  grid-column: 1;
+  grid-row: 1;
+}
+.workspace-editor {
+  grid-column: 4;
+  grid-row: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  border-left: 1px solid var(--hairline);
+  background: var(--surface-1);
+  position: relative;
+}
+.workspace-editor__header {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 42px;
+  border-bottom: 1px solid var(--hairline);
+  padding-right: var(--space-3);
+}
+.workspace-editor__header:has(.image-reference--picture) {
+  flex-wrap: wrap;
+  flex-shrink: 0;
+}
+.workspace-editor__header .project-tabs {
+  flex: 1 1 120px;
+  min-width: 0;
+  scrollbar-width: none;
+}
+.workspace-editor__header .project-tabs::-webkit-scrollbar {
+  display: none;
+}
+.workspace-frame-controls {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 0 var(--space-2);
+}
+.workspace-context {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-1) var(--space-3);
+  border-bottom: 1px solid var(--hairline);
+  font-size: var(--text-xs);
+}
+.workspace-guided {
+  display: contents;
+}
+.workspace-context__note {
+  color: var(--ink-2);
+}
+.workspace-context__editor {
+  display: contents;
+}
+/* An open line or polygon takes the whole row at the row's height: the canvas stays put. */
+.workspace-context:has(.studio-path) > * {
+  visibility: hidden;
+}
+.workspace-context .studio-path {
+  visibility: visible;
+  position: absolute;
+  inset: 0;
+  padding: 0 var(--space-3);
+}
+.workspace-stage-note {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin: 0;
+  padding: var(--space-1) var(--space-3);
+  border-bottom: 1px solid var(--hairline);
+  color: var(--ink-2);
+  font-size: var(--text-xs);
+}
+.workspace-editor__surface {
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  z-index: 0;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+/* The code editor's menus are fixed to the window and must draw above the tabs and the
+   context row, so its surface opens no layer of its own. */
+.workspace-editor__surface:has(> .workspace-logic-surface) {
+  z-index: auto;
+}
+.workspace-editor__surface > .studio,
+.workspace-editor__surface > .sprite-studio {
+  flex: 1;
+  height: 0;
+  width: 100%;
+  min-height: 0;
+  box-sizing: border-box;
+}
+.workspace-editor__surface .studio {
+  --studio-scene-w: 160px;
+}
+.workspace-lenses {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-1);
+  padding: var(--space-2);
+}
+.workspace-error,
+.workspace-history .workspace-error {
+  margin: 0;
+  padding: var(--space-3) var(--space-4);
+  color: var(--warn);
+  background: var(--warn-soft);
+  font-size: var(--text-sm);
+}
+.workspace-build-error {
+  position: absolute;
+  right: var(--space-3);
+  bottom: calc(var(--space-3) + var(--space-7));
+  z-index: var(--z-popover);
+  max-width: min(560px, calc(100% - var(--space-6)));
+  box-sizing: border-box;
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-pop);
+}
+.workspace-game-chip {
+  position: absolute;
+  bottom: calc(var(--space-3) + var(--space-7));
+  right: var(--space-4);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius-pill);
+  background: var(--surface-overlay);
+  color: var(--ink-3);
+  font: var(--text-xs) / var(--leading) var(--font-sans);
+  cursor: pointer;
+  z-index: 2;
+}
+.workspace-splitter {
+  grid-column: 3;
+  grid-row: 1;
+  background: var(--hairline);
+  cursor: col-resize;
+  touch-action: none;
+}
+.workspace-splitter:hover {
+  background: var(--action);
+}
+/* Fixed notes ride above the shared status bar on phones. */
+.shell:has(.workspace-status) {
+  --workspace-status-h: 36px;
+}
+.workspace-status {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex: none;
+  min-height: 26px;
+  padding: 0 var(--space-3) 0 var(--space-4);
+  border-top: 1px solid var(--hairline);
+  background: var(--surface-0);
+  color: var(--ink-3);
+  font: var(--text-2xs) var(--font-mono);
+  white-space: nowrap;
+  overflow: hidden;
+}
+.workspace-status__left {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  /* A moved status can be wider than the bar: it scrolls, nothing is lost. */
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.workspace-status__left::-webkit-scrollbar {
+  display: none;
+}
+.workspace-status__problems {
+  flex: none;
+  border: 0;
+  background: transparent;
+  color: var(--warn);
+  font: inherit;
+  cursor: pointer;
+  padding: 0;
+}
+.workspace-status__right {
+  flex: none;
+}
+#workspace-status-left .studio__status,
+#workspace-status-left .sprite-studio__status {
+  grid-row: auto;
+  position: static;
+  border-top: 0;
+  padding: 0;
+  background: transparent;
+  /* Fill the bar so the moved spacer pins its controls to the right edge; a
+     wider status scrolls inside __left instead of being cut. */
+  flex: 0 0 auto;
+  width: max-content;
+  min-width: 100%;
+  overflow: visible;
+}
+/* The bar stays thin: a moved status' buttons take its small size. */
+.workspace-status .ui-icon-btn {
+  width: 24px;
+  height: 24px;
+}
+.workspace-status .ui-icon-btn svg {
+  width: 14px;
+  height: 14px;
+}
+.workspace-game-bar {
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex: none;
+  padding: var(--space-1) var(--space-3);
+  border-top: 1px solid var(--hairline);
+  background: var(--surface-0);
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+}
+.workspace-game-keys {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-left: auto;
+  border: 0;
+  background: transparent;
+  color: var(--ink-3);
+  font: inherit;
+  cursor: pointer;
+  padding: var(--space-1);
+}
+.workspace-game-keys .led {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-pill);
+  background: var(--hairline-strong);
+}
+.workspace-game-keys.on .led {
+  background: var(--ok);
+}
+
+.workspace-history header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.workspace-history h2 {
+  font: var(--weight-semibold) var(--text-md) / var(--leading) var(--font-sans);
+  margin: 0;
+}
+.workspace-history {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  z-index: 3;
+  width: 360px;
+  max-width: 100%;
+  overflow: auto;
+  padding: var(--space-5);
+  box-sizing: border-box;
+  border-left: 1px solid var(--hairline);
+  background: var(--surface-1);
+  box-shadow: var(--shadow-pop);
+}
+.workspace-history p {
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+}
+.workspace-history form {
+  display: flex;
+  gap: var(--space-2);
+}
+.workspace-history input {
+  width: 100%;
+  min-width: 0;
+  background: var(--surface-0);
+  border: 1px solid var(--hairline);
+  color: var(--ink);
+}
+.workspace-history__row {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-4) 0;
+  border-bottom: 1px solid var(--hairline);
+  font-size: var(--text-sm);
+}
+.workspace-history__labels {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.workspace-history__name {
+  display: block;
+  font-weight: var(--weight-semibold);
+}
+.workspace-history__label.is-secondary {
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+}
+.workspace-history__actions {
+  display: flex;
+  gap: var(--space-1);
+  margin: var(--space-1) 0;
+}
+.workspace-sound {
+  padding: var(--space-5);
+}
+.workspace-sound h2,
+.workspace-sound h3 {
+  font-size: var(--text-md);
+}
+
+.workspace-guided__form {
+  position: absolute;
+  top: 42px;
+  right: 0;
+  z-index: var(--z-drawer);
+  width: 280px;
+  padding: var(--space-5);
+  background: var(--surface-2);
+  border: 1px solid var(--hairline);
+  box-shadow: var(--shadow-pop);
+}
+.workspace-guided__form label {
+  display: block;
+  margin: var(--space-3) 0;
+  font-size: var(--text-sm);
+  color: var(--ink-2);
+}
+.workspace-guided__form input {
+  width: 100%;
+  box-sizing: border-box;
+  background: var(--surface-0);
+  color: var(--ink);
+  border: 1px solid var(--hairline);
+  padding: var(--space-2);
+}
+
+.setup-panel:has(.empty-project) {
+  width: 100%;
+  max-width: none;
+  padding: 0;
+  margin: 0;
+}
+.shell-body:has(.empty-project) {
+  padding: 0 !important;
+}
+
+.app-container:has(.empty-project) {
+  padding: 0;
+}
+.app-container:has(.empty-project) .shell > .header {
+  display: none;
+}
+
+/* Phones switch between editing and playtesting. */
+@media (max-width: 600px) {
+  :is(.in-game, .empty-project) .shell-body.shell-body--workspace.shell-body--create {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+  :is(.in-game, .empty-project) .shell-body--workspace > .play-area {
+    grid-column: 1;
+    overflow: auto;
+  }
+  .in-game .shell-body--workspace:not(.shell-body--no-editor),
+  .in-game
+    .shell-body--workspace.shell-body--stacked:not(.shell-body--no-editor):not(.shell-body--focus) {
+    grid-template-rows: auto minmax(0, 1fr) auto;
+  }
+  .in-game .shell-body--workspace > .workspace-phone-toggle {
+    grid-column: 1;
+    grid-row: 1;
+    display: flex;
+    justify-content: center;
+    border-bottom: 1px solid var(--hairline);
+  }
+  .in-game .shell-body--workspace:not(.shell-body--no-editor) > .play-area,
+  .in-game .shell-body--workspace > .workspace-editor,
+  .in-game .shell-body--workspace.shell-body--focus > .workspace-editor {
+    grid-column: 1;
+    grid-row: 2;
+  }
+  .in-game .shell-body--workspace > .workspace-splitter {
+    display: none;
+  }
+
+  .workspace-editor__header {
+    flex-wrap: wrap;
+  }
+  .workspace-editor__header .project-tabs {
+    flex-basis: 100%;
+  }
+
+  :is(.in-game, .empty-project) .shell-body--workspace > .parts-list {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: min(252px, 100%);
+    z-index: var(--z-dock);
+    background: var(--surface-1);
+  }
+  :is(.in-game, .empty-project) .shell-body--workspace > .parts-list:not(.parts-list--open),
+  .in-game .shell-body--workspace.shell-body--no-editor > .workspace-splitter {
+    display: none;
+  }
+}
+
+/* A desktop touch game fits beside its controls and above the game bar. */
+@media (min-width: 601px) {
+  .shell-body--workspace > .play-area.with-touch {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-rows: minmax(0, 1fr) auto;
+    align-items: stretch;
+    gap: var(--space-3);
+  }
+  .shell-body--workspace > .play-area.with-touch .stage {
+    grid-column: 1;
+    grid-row: 1;
+    --game-width: min(100cqw, calc(100cqh * var(--game-ratio)));
+    container-type: size;
+    flex: 1 1 0;
+    width: 100%;
+    min-height: 0;
+  }
+  .shell-body--workspace > .play-area.with-touch .touch-controls {
+    grid-column: 2;
+    grid-row: 1;
+    min-height: 0;
+    overflow-y: auto;
+  }
+  .shell-body--workspace > .play-area.with-touch .workspace-game-bar {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+}
+
+/* Compact parts leave room for the game beside an editor. */
+@media (min-width: 601px) and (max-width: 1280px) {
+  .shell-body--workspace:not(.shell-body--no-editor) {
+    --workspace-parts: 180px;
+  }
+  .shell-body--workspace.shell-body--fold-left {
+    --workspace-parts: 0px;
+  }
+}
+
+.workspace-teach {
+  position: absolute;
+  top: var(--space-2);
+  right: var(--space-2);
+  z-index: var(--z-drawer);
+  background: var(--surface-1);
+}
+.state-row .part small {
+  display: block;
+  font-size: var(--text-xs);
+  color: var(--ink-2);
+  font-weight: normal;
+}
+
+.workspace-placement-preview {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--text-xs);
+  border-top: 1px dashed var(--action);
+  color: var(--ink-2);
+}

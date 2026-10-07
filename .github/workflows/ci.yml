@@ -1,81 +1,100 @@
 name: CI
-
 on:
   push:
-    branches: [main]
+    branches: [main, "rc/**"]
   pull_request:
-
 permissions:
   contents: read
-
+  pull-requests: read
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
-
+  cancel-in-progress: true
 jobs:
-  check:
-    name: Typecheck, lint, unit tests, build
+  prepare:
+    uses: ./.github/workflows/prepare.yml
+    with:
+      base: ${{ github.event.pull_request.base.sha || github.event.before || '' }}
+      head: ${{ github.sha }}
+      # Burn in what this push changed; a PR's first run compares with its base.
+      burn_base: ${{ github.event.action == 'synchronize' && github.event.before || '' }}
+
+  quality:
+    name: Static checks and unit tests
+    needs: prepare
+    if: needs.prepare.outputs.duplicate != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: |
-            package-lock.json
-            app/package-lock.json
-      - run: npm ci
-      - run: npm --prefix app ci
+      - uses: ./scripts/ci/setup
       - run: npm run check
-      - run: npm --prefix app run build -- --base=/
-      # Play boot path size and Studio laziness (scripts/check-bundle-budget.ts).
-      - run: npm run check:bundle
-      - name: Package public files only
-        run: |
-          mkdir -p release
-          cp -R app/dist/. release/
-          cp app/staticwebapp.config.json release/
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: agi-site
-          path: release/
-          if-no-files-found: error
-          retention-days: 14
-      # The chunk graph (app/bundle-graph.config.ts) stays out of the site; the
-      # production-artifact laziness spec reads it beside the tested build.
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: agi-bundle-graph
-          path: app/node_modules/.agi/bundle-graph.json
-          if-no-files-found: error
-          retention-days: 14
 
-  production:
-    name: Production browser (${{ matrix.browser }})
-    needs: check
+  build:
+    needs: prepare
+    if: (needs.prepare.outputs.browsers == 'true' || github.ref == 'refs/heads/main') && needs.prepare.outputs.duplicate != 'true'
+    uses: ./.github/workflows/build.yml
+
+  check:
+    # Branch protection keeps this exact context; build and quality run in parallel.
+    name: Typecheck, lint, unit tests, build
+    if: always()
+    needs: [prepare, quality, build]
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 1
+    steps:
+      - name: Require checks and the applicable build
+        env:
+          PREPARE: ${{ needs.prepare.result }}
+          QUALITY: ${{ needs.quality.result }}
+          BUILD: ${{ needs.build.result }}
+          BUILD_REQUIRED: ${{ needs.prepare.outputs.browsers == 'true' || github.ref == 'refs/heads/main' }}
+          DUPLICATE: ${{ needs.prepare.outputs.duplicate }}
+        run: |
+          test "$PREPARE" = success
+          if [ "$DUPLICATE" = true ]; then exit 0; fi
+          test "$QUALITY" = success
+          if [ "$BUILD_REQUIRED" = true ]; then test "$BUILD" = success; else test "$BUILD" = skipped; fi
+
+  suites:
+    needs: [prepare, build]
+    if: needs.prepare.outputs.browsers == 'true' && needs.prepare.outputs.duplicate != 'true'
+    uses: ./.github/workflows/browser-suites.yml
+    with:
+      browser_image: ${{ needs.prepare.outputs.browser_image }}
+      production: true
+
+  burn:
+    name: PR burn-in (${{ matrix.browser }})
+    needs: [prepare, build]
+    if: github.event_name == 'pull_request' && needs.prepare.outputs.specs != '[]' && needs.prepare.outputs.browsers == 'true'
+    runs-on: ubuntu-24.04
+    container:
+      image: ${{ needs.prepare.outputs.browser_image }}
+      options: --init --ipc=host
+      # Match the runner dependency cache's compression without package installs.
+      volumes:
+        - /usr/bin/zstd:/usr/local/bin/zstd:ro
+        - /usr/bin/unzstd:/usr/local/bin/unzstd:ro
+    defaults:
+      run:
+        shell: bash
+    timeout-minutes: 30
     strategy:
       fail-fast: false
+      max-parallel: 1
       matrix:
         browser: [chromium, webkit]
+    env:
+      CI: "1"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: ./scripts/ci/setup
         with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: |
-            package-lock.json
-            app/package-lock.json
-      - run: npm ci
-      - run: npm --prefix app ci
+          browser: ${{ matrix.browser }}
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: agi-site
@@ -84,107 +103,42 @@ jobs:
         with:
           name: agi-bundle-graph
           path: app/node_modules/.agi
-      - run: npx playwright install --with-deps ${{ matrix.browser }}
-        working-directory: app
-      - run: npm --prefix app run e2e:production -- --browser=${{ matrix.browser }} --reporter=list
-      - if: failure()
+      - name: Repeat changed specs five times
+        env:
+          SPECS: ${{ needs.prepare.outputs.specs }}
+          BROWSER: ${{ matrix.browser }}
+        run: python3 scripts/ci/tools.py burn --specs "$SPECS" --browser "$BROWSER"
+      - if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: playwright-production-${{ matrix.browser }}
-          path: app/test-results/
-          retention-days: 7
-
-  e2e:
-    name: Playwright (${{ matrix.label }})
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - browser: chromium
-            shard: "1/4"
-            label: "chromium 1/4"
-            artifact: "chromium-1"
-          - browser: chromium
-            shard: "2/4"
-            label: "chromium 2/4"
-            artifact: "chromium-2"
-          - browser: chromium
-            shard: "3/4"
-            label: "chromium 3/4"
-            artifact: "chromium-3"
-          - browser: chromium
-            shard: "4/4"
-            label: "chromium 4/4"
-            artifact: "chromium-4"
-          - browser: webkit
-            shard: ""
-            label: "webkit"
-            artifact: "webkit"
-          # Desktop Studio in WebKit: the scenarios tagged @webkit-desktop
-          # (app/playwright.webkit.config.ts).
-          - browser: webkit
-            suite: desktop
-            shard: ""
-            label: "webkit desktop"
-            artifact: "webkit-desktop"
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: |
-            package-lock.json
-            app/package-lock.json
-      - run: npm ci
-      - run: npm --prefix app ci
-      - run: npx playwright install --with-deps ${{ matrix.browser }}
-        working-directory: app
-      - if: matrix.browser == 'chromium'
-        run: npm run e2e -- --shard=${{ matrix.shard }} --reporter=list
-        working-directory: app
-        env:
-          CI: "1"
-      # Timing budgets measure a quiet runner: after the shard, one worker.
-      - if: matrix.browser == 'chromium' && matrix.shard == '1/4'
-        run: npm run e2e:perf -- --reporter=list
-        working-directory: app
-        env:
-          CI: "1"
-      - if: matrix.browser == 'webkit' && matrix.suite != 'desktop'
-        run: npm --prefix app run e2e:phone -- --project=iphone-webkit --reporter=list
-        env:
-          CI: "1"
-      - if: matrix.suite == 'desktop'
-        run: npm --prefix app run e2e:webkit-desktop -- --reporter=list
-        env:
-          CI: "1"
-      - if: failure()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: playwright-e2e-${{ matrix.artifact }}
+          name: burn-${{ matrix.browser }}
           path: |
-            app/playwright-report/
+            app/test-results/ci-reports/
             app/test-results/
           retention-days: 7
 
   browsers:
-    # Preserve the required check name configured in branch protection.
     name: Playwright (play, remix and export)
     if: always()
-    needs: [production, e2e]
+    needs: [prepare, suites, burn]
     runs-on: ubuntu-latest
     timeout-minutes: 1
     steps:
-      - name: Require every browser job to pass
+      - name: Require every applicable browser job to pass
         env:
-          PRODUCTION_RESULT: ${{ needs.production.result }}
-          E2E_RESULT: ${{ needs.e2e.result }}
-        run: test "$PRODUCTION_RESULT" = success && test "$E2E_RESULT" = success
+          PREPARE: ${{ needs.prepare.result }}
+          SUITES: ${{ needs.suites.result }}
+          BURN: ${{ needs.burn.result }}
+          BROWSERS: ${{ needs.prepare.outputs.browsers }}
+          DUPLICATE: ${{ needs.prepare.outputs.duplicate }}
+        run: |
+          test "$PREPARE" = success
+          if [ "$DUPLICATE" = true ] || [ "$BROWSERS" = false ]; then
+            test "$SUITES" = skipped
+          else
+            test "$SUITES" = success
+          fi
+          test "$BURN" = success || test "$BURN" = skipped
 
   deploy:
     name: Deploy production
@@ -278,23 +232,28 @@ jobs:
 
   verify:
     name: Verify deployed browser app
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: deploy
-    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.prepare.outputs.browsers == 'true'
+    needs: [prepare, deploy]
+    runs-on: ubuntu-24.04
+    container:
+      image: ${{ needs.prepare.outputs.browser_image }}
+      options: --init --ipc=host
+      # Match the runner dependency cache's compression without package installs.
+      volumes:
+        - /usr/bin/zstd:/usr/local/bin/zstd:ro
+        - /usr/bin/unzstd:/usr/local/bin/unzstd:ro
+    defaults:
+      run:
+        shell: bash
     timeout-minutes: 10
     environment: production
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: ./scripts/ci/setup
         with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: app/package-lock.json
-      - run: npm --prefix app ci
-      - run: npx playwright install --with-deps chromium
-        working-directory: app
+          browser: chromium
       - run: npm --prefix app run e2e:production
         env:
           AGI_DEPLOY_URL: https://agi.monotio.com

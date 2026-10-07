@@ -17,7 +17,14 @@ import { stillPng, type ShareCaption } from "./shareFrame.ts";
  * included, and says so. The file is previewed before it is downloaded or,
  * where the browser can share files (phones), handed to the system share.
  */
-const { picture, timeline, profile, caption, fileBase } = defineProps<{
+const {
+  picture,
+  timeline,
+  profile,
+  caption,
+  fileBase,
+  bare = false,
+} = defineProps<{
   /** The draft's compiled picture: its bytes and command spans, and the finished visual plane. */
   picture: { bytes: Uint8Array; spans: readonly PictureSourceSpan[]; visual: Uint8Array };
   timeline: readonly TimelineEntry[];
@@ -25,6 +32,8 @@ const { picture, timeline, profile, caption, fileBase } = defineProps<{
   caption: ShareCaption;
   /** The file name without extension, e.g. "adventure-department-room-2". */
   fileBase: string;
+  /** Without its own menu: the workspace frame's ⋯ menu starts the shares. */
+  bare?: boolean;
 }>();
 
 type Share =
@@ -127,20 +136,36 @@ async function shareFile(): Promise<void> {
 }
 
 onBeforeUnmount(close);
+
+/** The frame's ⋯ menu calls the shares by name, exactly like the menu items. */
+function start(kind: "clip" | "still"): void {
+  if (kind === "clip") void clip();
+  else void still();
+}
+defineExpose({
+  start,
+  /** Whether this browser can record a clip: the menu shows its note when not. */
+  clipAvailable: () => type !== null,
+});
 </script>
 
 <template>
-  <ActionMenu label="Share picture" test-id="studio-share" icon-only icon="share" size="sm">
+  <ActionMenu
+    v-if="!bare"
+    label="Share picture"
+    test-id="studio-share"
+    icon-only
+    icon="share"
+    size="sm"
+  >
     <div role="group" :aria-labelledby="noteId">
-      <p :id="noteId" class="share-menu__note">
-        Shares this draft as you see it, unkept changes included.
-      </p>
+      <p :id="noteId" class="share-menu__note">Shares the current draft.</p>
       <button
         type="button"
         role="menuitem"
         data-testid="studio-share-clip"
         :disabled="!type"
-        :title="type ? undefined : 'This browser can\'t record video'"
+        :title="type ? undefined : 'Video recording is unavailable in this browser'"
         @click="clip"
       >
         <UiIcon name="film" :size="18" />
@@ -148,7 +173,7 @@ onBeforeUnmount(close);
           >Clip<small>{{
             type
               ? "The picture painting itself, in draw order, as video"
-              : "This browser can't record video. The still works."
+              : "Video recording is unavailable. Choose Still to share an image."
           }}</small></span
         >
       </button>
@@ -199,6 +224,7 @@ onBeforeUnmount(close);
           Cancel
         </UiButton>
         <template v-else-if="share?.step === 'ready'">
+          <UiButton variant="ghost" @click="close">Cancel</UiButton>
           <UiButton v-if="canShare" icon="share" @click="shareFile">Share…</UiButton>
           <UiButton
             variant="primary"
@@ -209,7 +235,6 @@ onBeforeUnmount(close);
             Download
           </UiButton>
         </template>
-        <UiButton v-else @click="close">Close</UiButton>
       </template>
     </UiDialog>
   </Teleport>

@@ -1,3 +1,4 @@
+import { numberedLabel } from "../../../../src/logic/numberedLabels.ts";
 /**
  * The shared picture's frame: the authentic 320×200 screen, the 160×168
  * picture with each cell two pixels wide above a 32-row strip that carries
@@ -91,7 +92,9 @@ export function shareRoomName(
   fallback: string,
 ): string {
   const title = titles.map((candidate) => candidate?.trim() ?? "").find(Boolean);
-  return title ?? (room !== null && room > 0 ? `Room ${room}` : fallback);
+  return room !== null && room > 0
+    ? numberedLabel("room", room, { name: title ?? "" })
+    : (title ?? fallback);
 }
 
 /**

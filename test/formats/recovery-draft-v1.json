@@ -1,0 +1,19 @@
+{
+  "format": "monotio.agi.recovery-draft",
+  "version": 1,
+  "base": {
+    "revision": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    "authoring": "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210",
+    "profileId": "2.936"
+  },
+  "documents": [
+    {
+      "key": "logic:0",
+      "version": 3,
+      "content": { "type": "text", "text": "print(\"unfinished" }
+    },
+    { "key": "view:1", "version": 1, "content": { "type": "deleted" } },
+    { "key": "words", "version": 2, "content": { "type": "bytes", "bytes": [0, 1, 255] } }
+  ],
+  "operations": [{ "keys": ["logic:0", "words"] }]
+}

@@ -1,5 +1,6 @@
 import {
   parseIigsInstrument,
+  iigsByteRate,
   readIigsBank,
   type IigsBank,
   type IigsInstrument,
@@ -44,6 +45,15 @@ export function levelAmplitude(level: number): number {
   return level <= 0 ? 0 : 2 ** ((level - 127) / 16);
 }
 
+/** Envelope and note volume as the DOC's 8-bit volume register. */
+export function docVolume(level: number, volume: number): number {
+  const index = Math.max(0, Math.min(127, Math.floor(level) + Math.floor(volume) - 127));
+  // Independently calculated exponential, with the five observed upward
+  // rounding entries. See "IIgs DOC pitch, volume and headroom".
+  const rounding = index >= 44 && index <= 108 && index % 16 === 12 ? 1 : 0;
+  return Math.max(1, Math.floor(255 * levelAmplitude(index)) + rounding);
+}
+
 /**
  * The envelope as (seconds, level) points from `from` at level `start`:
  * each segment ramps to its breakpoint at `increment / 256` levels per
@@ -68,14 +78,9 @@ export function envelopePoints(
   return { points, sustained: false };
 }
 
-/** The wave entry that plays a semitone: the first whose top key covers it. */
+/** The wave entry whose exclusive upper key covers the semitone. */
 function waveFor(waves: readonly IigsWave[], semitone: number): IigsWave | undefined {
-  return waves.find((wave) => semitone <= wave.topKey) ?? waves.at(-1);
-}
-
-/** Playback rate: the Note Synthesizer plays 256 bytes per cycle of the pitch. */
-function bytesPerSecond(semitone: number, relPitch: number): number {
-  return 256 * 440 * 2 ** ((semitone + relPitch / 256 - 69) / 12);
+  return waves.find((wave) => semitone < wave.topKey) ?? waves.at(-1);
 }
 
 interface Voice {
@@ -84,8 +89,10 @@ interface Voice {
   readonly volume: GainNode;
   readonly envelope: GainNode;
   readonly sources: AudioBufferSourceNode[];
-  readonly started: number;
-  readonly points: [number, number][];
+  started: number;
+  points: [number, number][];
+  volumeLevel: number;
+  readonly ended: Set<AudioBufferSourceNode>;
 }
 
 /** The rate the wave buffers are built at; playbackRate supplies the pitch. */
@@ -93,6 +100,8 @@ const BUFFER_RATE = 44100;
 
 export class IigsSynth {
   private readonly voices = new Map<number, Voice>();
+  private readonly retiring = new Set<Voice>();
+  private readonly sourceStops = new WeakMap<AudioBufferSourceNode, number>();
   private readonly buffers = new Map<number, { buffer: AudioBuffer; halts: boolean }>();
   private readonly ctx: BaseAudioContext;
   private readonly destination: AudioNode;
@@ -100,27 +109,37 @@ export class IigsSynth {
 
   constructor(ctx: BaseAudioContext, destination: AudioNode, sources: IigsSources) {
     this.ctx = ctx;
-    this.destination = destination;
+    // DOC multiplies each 8-bit wave by an 8-bit volume and multiplexes 32
+    // oscillators. Normalized samples/volumes leave a 32:1 sum bound.
+    // docs/fidelity.md, "IIgs DOC pitch, volume and headroom".
+    const mix = ctx.createGain();
+    mix.gain.setValueAtTime(1 / 32, ctx.currentTime);
+    mix.connect(destination);
+    this.destination = mix;
     this.sources = sources;
   }
 
-  output(event: IigsOutput): void {
+  output(event: IigsOutput, at = this.ctx.currentTime): void {
     switch (event.event) {
       case "note-on": {
         const instrument =
           event.program >= 0
             ? (this.sources.bank.programs[event.program] ?? this.sources.bank.defaultInstrument)
             : this.sources.bank.defaultInstrument;
-        this.noteOn(event.voice, event.channel, event.note, event.volume, instrument);
+        this.noteOn(event.voice, event.channel, event.note, event.volume, instrument, at);
         return;
       }
       case "note-off":
-        this.release(event.voice);
+        this.release(event.voice, at);
         return;
       case "volume":
-        for (const voice of this.voices.values())
-          if (voice.channel === event.channel)
-            voice.volume.gain.setValueAtTime(event.volume / 127, this.ctx.currentTime);
+        for (const voice of [...this.voices.values(), ...this.retiring])
+          if (voice.channel === event.channel) {
+            voice.volumeLevel = event.volume;
+            const points = remainingPoints(voice.points, at - voice.started);
+            voice.envelope.gain.cancelScheduledValues(at);
+            this.schedule(voice, at, points);
+          }
         return;
       case "sample": {
         // seg3+0x1460: the PCM goes to DOC RAM $C000 and the resource's own
@@ -129,7 +148,8 @@ export class IigsSynth {
         const u16 = (at: number): number => (data[at] ?? 0) | ((data[at + 1] ?? 0) << 8);
         const pcm = data.subarray(8 + u16(4), 8 + u16(4) + u16(6));
         this.sources.doc.set(pcm.subarray(0, 0x4000), 0xc000);
-        for (const key of this.buffers.keys()) if (key >> 16 >= 0xc0) this.buffers.delete(key);
+        for (const key of this.buffers.keys())
+          if ((key >> 16) + (key & 0xffff) / 256 > 0xc0) this.buffers.delete(key);
         // A resource too short for its instrument record plays nothing.
         let instrument: IigsInstrument;
         try {
@@ -137,17 +157,19 @@ export class IigsSynth {
         } catch {
           return;
         }
-        this.noteOn(event.voice, -1, u16(0), u16(2) & 0x7f, instrument);
+        this.noteOn(event.voice, -1, u16(0), u16(2) & 0x7f, instrument, at);
         return;
       }
       case "all-off":
-        this.stop();
+        this.stop(at);
         return;
     }
   }
 
-  stop(): void {
-    for (const voice of this.voices.values()) this.silence(voice);
+  stop(at = this.ctx.currentTime): void {
+    for (const voice of new Set([...this.voices.values(), ...this.retiring]))
+      this.silence(voice, at);
+    if (at <= this.ctx.currentTime) this.retiring.clear();
     this.voices.clear();
   }
 
@@ -157,18 +179,20 @@ export class IigsSynth {
     semitone: number,
     volume: number,
     instrument: IigsInstrument,
+    now: number,
   ): void {
     const previous = this.voices.get(id);
-    if (previous) this.silence(previous);
-    const now = this.ctx.currentTime;
+    if (previous) this.silence(previous, now);
     const volumeGain = this.ctx.createGain();
-    volumeGain.gain.setValueAtTime(volume / 127, now);
+    volumeGain.gain.setValueAtTime(1, now);
     const envelope = this.ctx.createGain();
     envelope.connect(volumeGain);
     volumeGain.connect(this.destination);
     const sources: AudioBufferSourceNode[] = [];
-    for (const list of [instrument.a, instrument.b]) {
-      const wave = waveFor(list, semitone);
+    const waves = [waveFor(instrument.a, semitone), waveFor(instrument.b, semitone)];
+    const a = waves[0];
+    const pitchCarry = a && semitone * 256 + (a.relPitch & 0xffff) > 0xffff ? 1 : 0;
+    for (const [half, wave] of waves.entries()) {
       // docMode bit 0 halts the oscillator: that half of the pair is silent.
       if (!wave || (wave.docMode & 1) !== 0) continue;
       const table = this.table(wave);
@@ -178,7 +202,7 @@ export class IigsSynth {
       // (swap's A/B hand-off is not modelled). A zero byte halts either.
       source.loop = !table.halts && ((wave.docMode >> 1) & 3) !== 1;
       source.playbackRate.setValueAtTime(
-        bytesPerSecond(semitone, wave.relPitch) / BUFFER_RATE,
+        iigsByteRate(semitone, wave, half === 0 ? 0 : pitchCarry) / BUFFER_RATE,
         now,
       );
       source.connect(envelope);
@@ -194,42 +218,72 @@ export class IigsSynth {
       sources,
       started: now,
       points,
+      volumeLevel: volume,
+      ended: new Set(),
     };
+    for (const source of sources)
+      source.onended = () => {
+        voice.ended.add(source);
+        if (voice.ended.size === voice.sources.length) {
+          voice.volume.disconnect();
+          this.retiring.delete(voice);
+          if (this.voices.get(id) === voice) this.voices.delete(id);
+        }
+      };
     this.schedule(voice, now, points);
     // An envelope without a sustain segment ends the note on its own.
     if (!sustained)
-      for (const source of sources) source.stop(now + (points.at(-1)?.[0] ?? 0) + 0.01);
+      for (const source of sources) this.stopSource(source, now + (points.at(-1)?.[0] ?? 0) + 0.01);
     this.voices.set(id, voice);
   }
 
   /** NoteOff: the envelope jumps to the release segment from its current level. */
-  private release(id: number): void {
+  private release(id: number, now: number): void {
     const voice = this.voices.get(id);
     if (!voice) return;
-    const now = this.ctx.currentTime;
     const level = levelAt(voice.points, now - voice.started);
     const { points } = envelopePoints(voice.instrument, voice.instrument.releaseSegment, level);
+    voice.started = now;
+    voice.points = points;
     voice.envelope.gain.cancelScheduledValues(now);
     this.schedule(voice, now, points);
     const end = now + (points.at(-1)?.[0] ?? 0);
-    for (const source of voice.sources) source.stop(end + 0.01);
+    for (const source of voice.sources) this.stopSource(source, end + 0.01);
+    this.retainUntilEnded(voice);
     this.voices.delete(id);
+  }
+
+  private retainUntilEnded(voice: Voice): void {
+    if (voice.sources.length === voice.ended.size) voice.volume.disconnect();
+    else this.retiring.add(voice);
+  }
+
+  private stopSource(source: AudioBufferSourceNode, at: number): void {
+    const previous = this.sourceStops.get(source);
+    if (previous !== undefined && previous <= at) return;
+    this.sourceStops.set(source, at);
+    source.stop(at);
   }
 
   private schedule(voice: Voice, at: number, points: readonly [number, number][]): void {
     const gain = voice.envelope.gain;
-    gain.setValueAtTime(levelAmplitude(points[0]?.[1] ?? 0) || 1e-4, at);
-    for (const [time, level] of points.slice(1))
-      gain.exponentialRampToValueAtTime(levelAmplitude(level) || 1e-4, at + time);
+    const end = points.at(-1)?.[0] ?? 0;
+    let previous = -1;
+    for (let tick = 0; tick <= Math.ceil(end * UPDATE_HZ); tick++) {
+      const time = Math.min(tick / UPDATE_HZ, end);
+      const volume = docVolume(levelAt(points, time), voice.volumeLevel) / 255;
+      if (volume !== previous) gain.setValueAtTime(volume, at + time);
+      previous = volume;
+    }
     if (points.at(-1)?.[1] === 0) gain.setValueAtTime(0, at + (points.at(-1)?.[0] ?? 0));
   }
 
-  private silence(voice: Voice): void {
-    const now = this.ctx.currentTime;
+  private silence(voice: Voice, now: number): void {
     voice.envelope.gain.cancelScheduledValues(now);
     voice.envelope.gain.setValueAtTime(0, now);
-    for (const source of voice.sources) source.stop(now);
-    voice.volume.disconnect();
+    for (const source of voice.sources) this.stopSource(source, now);
+    if (now <= this.ctx.currentTime) voice.volume.disconnect();
+    else this.retainUntilEnded(voice);
   }
 
   /**
@@ -239,8 +293,8 @@ export class IigsSynth {
    */
   private table(wave: IigsWave): { buffer: AudioBuffer; halts: boolean } {
     const size = 256 << ((wave.waveSize >> 3) & 7);
-    const address = (wave.waveAddr << 8) & 0xffff;
-    const key = (wave.waveAddr << 16) | size;
+    const address = (wave.waveAddr << 8) & ~(size - 1) & 0xffff;
+    const key = (address << 8) | size;
     const cached = this.buffers.get(key);
     if (cached) return cached;
     const bytes = this.sources.doc.subarray(address, Math.min(0x10000, address + size));
@@ -253,6 +307,16 @@ export class IigsSynth {
     this.buffers.set(key, table);
     return table;
   }
+}
+
+/** Preserve the envelope's remaining contour when its note volume changes. */
+function remainingPoints(points: readonly [number, number][], elapsed: number): [number, number][] {
+  return [
+    [0, levelAt(points, elapsed)],
+    ...points
+      .filter(([time]) => time > elapsed)
+      .map(([time, level]): [number, number] => [time - elapsed, level]),
+  ];
 }
 
 /** The envelope level `elapsed` seconds into its points, linear in level. */

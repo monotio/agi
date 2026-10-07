@@ -1,3 +1,8 @@
+import { captureDropHandles, type CapturedDrop } from "./gameDropCapture.ts";
+import { isDiskImageName } from "../../../src/container/disk/image.ts";
+
+export type { CapturedDrop } from "./gameDropCapture.ts";
+
 export type GameDrop = { kind: "zip"; file: File } | { kind: "folder"; files: Map<string, File> };
 
 const MAX_FOLDER_FILES = 1024;
@@ -94,48 +99,40 @@ function isZip(file: File): boolean {
   return /\.zip$/i.test(file.name);
 }
 
-async function resolveCapturedEntries(
-  entries: FileSystemEntry[],
-  fallbackFiles: File[],
-): Promise<GameDrop> {
-  if (entries.length > 1 || (entries.length > 0 && fallbackFiles.length > 0))
-    throw new Error(PICK_ONE_ERROR);
-  const entry = entries[0];
-  if (entry?.isDirectory)
-    return { kind: "folder", files: await readFolder(entry as FileSystemDirectoryEntry) };
-  if (entry?.isFile) {
-    const file = await fileFromEntry(entry as FileSystemFileEntry);
-    if (isZip(file)) return { kind: "zip", file };
-    throw new Error(FOLDER_FALLBACK_ERROR);
+/** Resolve drop handles captured while the event was live: traverse folders, apply the budgets. */
+export async function resolveGameDrop(captured: CapturedDrop): Promise<GameDrop> {
+  const { entries, fallbackFiles } = captured;
+  const directory = entries.find((entry) => entry.isDirectory);
+  if (directory) {
+    if (entries.length !== 1 || fallbackFiles.length) throw new Error(PICK_ONE_ERROR);
+    return { kind: "folder", files: await readFolder(directory as FileSystemDirectoryEntry) };
   }
-  if (fallbackFiles.length > 1)
-    throw new Error(fallbackFiles.every(isZip) ? PICK_ONE_ERROR : FOLDER_FALLBACK_ERROR);
-  const file = fallbackFiles[0];
-  if (file && isZip(file)) return { kind: "zip", file };
-  if (file) throw new Error(FOLDER_FALLBACK_ERROR);
-  throw new Error("Drop a game folder or ZIP to open it.");
+  const files = [...fallbackFiles];
+  for (const entry of entries) {
+    if (!entry.isFile) throw new Error(FOLDER_FALLBACK_ERROR);
+    files.push(await fileFromEntry(entry as FileSystemFileEntry));
+  }
+  if (files.length === 1 && isZip(files[0]!)) return { kind: "zip", file: files[0]! };
+  if (files.length && files.every((file) => isDiskImageName(file.name))) {
+    const selected = new Map<string, File>();
+    for (const file of files) {
+      if (selected.has(file.name))
+        throw new Error(
+          `Two disks are named ${file.name}. Give each disk a different name and add them together.`,
+        );
+      selected.set(file.name, file);
+    }
+    return { kind: "folder", files: selected };
+  }
+  if (files.length > 1 && files.some(isZip)) throw new Error(PICK_ONE_ERROR);
+  if (files.length) throw new Error(FOLDER_FALLBACK_ERROR);
+  throw new Error("Drop a game folder, a ZIP, or its disk images to open it.");
 }
 
-/** Capture browser-owned drop handles before the drop event becomes invalid. */
+/**
+ * The one-call form for callers that already have this module loaded:
+ * captures the handles synchronously, then resolves them asynchronously.
+ */
 export function captureGameDrop(dataTransfer: DataTransfer): Promise<GameDrop> {
-  const entries: FileSystemEntry[] = [];
-  const fallbackFiles: File[] = [];
-  for (let index = 0; index < dataTransfer.items.length; index++) {
-    const item = dataTransfer.items[index];
-    if (!item || item.kind !== "file") continue;
-    const getEntry = item.webkitGetAsEntry;
-    const entry = typeof getEntry === "function" ? getEntry.call(item) : null;
-    if (entry) entries.push(entry);
-    else {
-      const file = item.getAsFile();
-      if (file) fallbackFiles.push(file);
-    }
-  }
-  if (entries.length === 0 && fallbackFiles.length === 0) {
-    for (let index = 0; index < dataTransfer.files.length; index++) {
-      const file = dataTransfer.files[index];
-      if (file) fallbackFiles.push(file);
-    }
-  }
-  return resolveCapturedEntries(entries, fallbackFiles);
+  return resolveGameDrop(captureDropHandles(dataTransfer));
 }

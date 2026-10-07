@@ -11,7 +11,7 @@
  * followedItem).
  */
 
-import { computed, onScopeDispose, shallowRef, type Ref } from "vue";
+import { computed, onScopeDispose, shallowRef, watch, type Ref } from "vue";
 import { limitMove, type EditOperation } from "../../../src/studio/editOperations.ts";
 import {
   groupPart,
@@ -59,9 +59,12 @@ export function useStudioEditing(options: {
   readonly doors?: () => readonly { readonly item: string; readonly label: string }[];
   /** The lens, for what a move carried that it does not show. */
   readonly lens?: () => StudioLens;
+  /** The item's calm name in notices ("Green line · 7 points"); the source label when absent. */
+  readonly labelOf?: (itemId: string) => string | undefined;
 }) {
   const { draft, selectedId } = options;
   const { notice, say, dismiss } = useStudioNotice();
+  watch(draft.source, () => say(null), { flush: "sync" });
   const flash = shallowRef<Uint8Array | null>(null);
   let flashTimer: ReturnType<typeof setTimeout> | undefined;
   onScopeDispose(() => clearTimeout(flashTimer));
@@ -74,6 +77,8 @@ export function useStudioEditing(options: {
   const item = computed<PictureItem | undefined>(() =>
     draft.document.value.items.find((candidate) => candidate.id === selectedId.value),
   );
+  /** The item's calm name: its row's display, else its source label. */
+  const name = (target: PictureItem): string => options.labelOf?.(target.id) ?? target.label;
   /** The selected item, when the creator may edit it now. */
   const blocked = (): boolean => options.frozen() || (options.paused?.() ?? false);
   const editable = computed(() => (blocked() ? undefined : item.value));
@@ -99,7 +104,9 @@ export function useStudioEditing(options: {
       if (outcome.sideEffects) {
         spilled = {
           tone: "ok",
-          text: sideEffectNote(outcome.sideEffects, UNDO),
+          text: sideEffectNote(outcome.sideEffects, UNDO, (itemId) =>
+            itemId === null ? undefined : options.labelOf?.(itemId),
+          ),
           detail: sideEffectLine(outcome.sideEffects),
         };
         say(spilled);
@@ -165,7 +172,7 @@ export function useStudioEditing(options: {
     const lens = options.lens?.();
     if (!lens) return;
     const items = draft.document.value.items.filter((candidate) => ids.includes(candidate.id));
-    const what = items.length === 1 ? items[0]!.label : `${items.length} items`;
+    const what = items.length === 1 ? name(items[0]!) : `${items.length} items`;
     const text = movedWith(what, items.length > 1, carriedPlanes(draft.compiled.value, ids, lens));
     if (!text) return;
     // A move that also changed other items keeps saying so.
@@ -202,6 +209,13 @@ export function useStudioEditing(options: {
     return outcome.ok;
   }
 
+  function removePoint(line: number, pointIndex: number): boolean {
+    return run(
+      (target) => ({ type: "removePoint", itemId: target.id, line, pointIndex }),
+      "Delete point",
+    );
+  }
+
   function remove(): boolean {
     const done = several.value
       ? runAll((target) => ({ type: "deleteItem", itemId: target.id }), "Delete")
@@ -213,7 +227,7 @@ export function useStudioEditing(options: {
   /** Move the item back (-1, drawn earlier) or forward (+1, drawn later) in draw order. */
   function reorder(step: 1 | -1): boolean {
     if (several.value) {
-      say({ tone: "warn", text: "Draw order changes one item at a time: select just one." });
+      say({ tone: "warn", text: "Select one item to change its draw order." });
       return false;
     }
     return run(
@@ -224,8 +238,24 @@ export function useStudioEditing(options: {
           ? null
           : { type: "reorderItem", itemId: target.id, toIndex };
       },
-      step < 0 ? "Move back" : "Move forward",
+      step < 0 ? "Move earlier" : "Move later",
     );
+  }
+
+  /** Stand the item in the room: its distance from its base, and the wall line along it. */
+  function standInRoom(): boolean {
+    return run((target) => ({ type: "standInRoom", itemId: target.id }), "Stand in the room");
+  }
+
+  /** A drag in the list: put `itemId` at `toIndex` in the draw order. */
+  function moveTo(itemId: string, toIndex: number): boolean {
+    const items = draft.document.value.items;
+    const item = items.find((candidate) => candidate.id === itemId);
+    if (!item || toIndex < 0 || toIndex >= items.length || items.indexOf(item) === toIndex)
+      return false;
+    const outcome = draft.apply({ type: "reorderItem", itemId, toIndex }, `Move ${name(item)}`);
+    report(outcome);
+    return outcome.ok;
   }
 
   const setColour = (plane: PicturePlane, value: number | null): boolean =>
@@ -304,7 +334,7 @@ export function useStudioEditing(options: {
       if (!art || followedItem(document, door.item)) continue;
       say({
         tone: "warn",
-        text: `${door.label} stays put now: Ungroup split ${art.label} into drawing elements.`,
+        text: `${door.label} stays put now: Ungroup split ${options.labelOf?.(door.item) ?? art.label} into items.`,
       });
       break;
     }
@@ -332,6 +362,7 @@ export function useStudioEditing(options: {
 
   return {
     item,
+    name,
     editable,
     targets,
     several,
@@ -345,8 +376,11 @@ export function useStudioEditing(options: {
     report,
     nudge,
     duplicate,
+    removePoint,
     remove,
     reorder,
+    standInRoom,
+    moveTo,
     setColour,
     combine,
     grouped,

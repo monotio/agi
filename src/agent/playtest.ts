@@ -6,7 +6,6 @@ import {
 /** Bounded, detached execution of authored resources using the real interpreter. */
 import { openContainer } from "../container/container.ts";
 import { parseWordsTok } from "../logic/words.ts";
-import { TIMER_INCREMENT_MS } from "../runtime/cycleClock.ts";
 import { Engine, type EngineHost } from "../runtime/engine.ts";
 import { AGI_KEY } from "../runtime/keys.ts";
 import { parseView } from "../view/view.ts";
@@ -152,14 +151,17 @@ export class Simulation {
     state: AgentSessionState,
     cycleBudget = DEFAULT_CYCLES,
     instructionBudget = 50000,
-    options: { pressKeys?: boolean } = {},
+    options: { pressKeys?: boolean; rngVersion?: 1 | 2 } = {},
   ) {
     this.cycleBudget = cycleBudget;
     this.resourceSet = resourceSetHint(state);
-    const container = openContainer(state.getFiles(), { kind: state.profile.container });
+    const container = openContainer(state.getFiles(), {
+      kind: state.profile.container,
+      profile: state.profile,
+    });
     const words = container.files.get("WORDS.TOK");
     const dictionary = new Map(words ? parseWordsTok(words).map(({ word, id }) => [word, id]) : []);
-    const randomByte = randomSource(123456789);
+    const randomByte = randomSource(123456789, options.rngVersion ?? 2);
     const unsupported = (name: string): never => {
       throw new SimulationStop(
         `Simulation requires host service ${name}; no external action was performed.`,
@@ -254,10 +256,11 @@ export class Simulation {
   }
   private advanceRecordedClock(ticks: number): void {
     for (let i = 0; i < ticks; i++) {
-      this.engine.advanceClock(1000 / 60);
+      this.engine.advanceClock(1000 / this.engine.timing.soundHz);
       this.engine.soundTick();
     }
-    if (this.estimatedGameTimeMs !== null) this.estimatedGameTimeMs += (ticks * 1000) / 60;
+    if (this.estimatedGameTimeMs !== null)
+      this.estimatedGameTimeMs += (ticks * 1000) / this.engine.timing.soundHz;
   }
   replay(recording: RecordedReplay): void {
     this.engine.restoreReplayState(recording.state);
@@ -308,14 +311,14 @@ export class Simulation {
       throw new Error(
         `Simulation cycle limit (${this.cycleBudget}) exceeded. Increase cycleBudget for a longer sequence.`,
       );
-    // Each requested tick is a logic cycle. Positive v10 waits that many 50 ms
+    // Each requested tick is a logic cycle. Positive v10 waits that many profile
     // timer increments; zero is host-rate-dependent, so it has no wall-time claim.
     const delay = this.engine.vars[10]!;
     if (delay === 0) this.estimatedGameTimeMs = null;
     else if (this.estimatedGameTimeMs !== null)
-      this.estimatedGameTimeMs += delay * TIMER_INCREMENT_MS;
+      this.estimatedGameTimeMs += delay * this.engine.timing.timerIncrementMs;
     for (let i = 0; i < 3 * Math.max(1, delay); i++) {
-      this.engine.advanceClock(1000 / 60);
+      this.engine.advanceClock(1000 / this.engine.timing.soundHz);
       this.engine.soundTick();
     }
     this.engine.tick();
@@ -436,8 +439,7 @@ export class Simulation {
         origin: { kind: this.originKind, resourceSet: this.resourceSet },
         cycles: this.cycles,
         estimatedGameTimeMs: this.estimatedGameTimeMs,
-        timing:
-          "Ticks are logic cycles. Timing begins at boot; playtest_room restarts the estimate at the action sequence after room setup. Positive v10 uses 50 ms increments; v10=0 is host-rate-dependent and has no elapsed-time claim.",
+        timing: `Ticks are logic cycles. Timing begins at boot; playtest_room restarts the estimate at the action sequence after room setup. Positive v10 uses ${this.engine.timing.timerIncrementMs} ms increments; v10=0 is host-rate-dependent and has no elapsed-time claim.`,
         missingRooms: this.missingRooms,
         steps: this.steps,
         ...(navigation === undefined
@@ -604,6 +606,7 @@ export function playtestRoom(
   state: AgentSessionState,
   args: Record<string, unknown>,
   options: {
+    rngVersion?: 1 | 2;
     setupImage?: Uint8Array;
     replay?: RecordedReplay;
     /**
@@ -705,6 +708,7 @@ export function playtestRoom(
       args["instructionBudget"] == null
         ? 50000
         : integer(args["instructionBudget"], "instructionBudget", 1, 1000000),
+      { rngVersion: options.rngVersion ?? 2 },
     );
     if (recording) simulation.originKind = "recorded";
     else if (setupImage) simulation.originKind = "candidate";
@@ -907,7 +911,7 @@ export function playtestRoom(
         cycleDelay: engine.vars[10],
         millisecondsPerCel:
           engine.vars[10]! > 0
-            ? TIMER_INCREMENT_MS * engine.vars[10]! * Math.max(1, object.cycleTime)
+            ? engine.timing.timerIncrementMs * engine.vars[10]! * Math.max(1, object.cycleTime)
             : null,
         celBefore: object.cel,
         celAfter: object.cel,
@@ -1091,7 +1095,7 @@ export function playtestRoom(
           }
           failures.push(`Expected room ${wanted}; observed room ${engine.vars[0]}.`);
           nextSteps.push(
-            "Use read_room_context to inspect the exit logic and priority/control plane. For edge exits, check ego boundary variable v2, horizon, footprint and blocking pixels; for portals, check the position condition that should call new.room. Replay the actual movement after repair.",
+            "Use read_room to inspect the exit logic and priority/control plane. For edge exits, check ego boundary variable v2, horizon, footprint and blocking pixels; for portals, check the position condition that should call new.room. Replay the actual movement after repair.",
           );
         }
       }
@@ -1104,7 +1108,7 @@ export function playtestRoom(
           const item = inventory.find((item) => item.num === id);
           if (item?.room !== 255) {
             nextSteps.push(
-              `Inspect item ${id} with read_room_context and its interaction logic: get places it in carried inventory (room 255); has tests possession. Check said vocabulary, item location and puzzle preconditions before changing the outcome.`,
+              `Inspect item ${id} with read_room and its interaction logic: get places it in carried inventory (room 255); has tests possession. Check said vocabulary, item location and puzzle preconditions before changing the outcome.`,
             );
             failures.push(
               `Expected item ${id} carried; observed ${item ? `room ${item.room}` : "missing item"}.`,
@@ -1125,7 +1129,7 @@ export function playtestRoom(
           if (actual !== value.value) {
             failures.push(`Expected flag ${id}=${value.value}; observed ${actual}.`);
             nextSteps.push(
-              `Inspect the set/reset paths for f${id}, their input and inventory preconditions, and whether room-entry code resets it each cycle. Use inspect_world_bible to check the binding's purpose and read_command_reference for condition semantics. Replay the triggering action instead of forcing the expected flag.`,
+              `Inspect the set/reset paths for f${id}, their input and inventory preconditions, and whether room-entry code resets it each cycle. Use read_plan to check the binding's purpose and read_command_reference for condition semantics. Replay the triggering action instead of forcing the expected flag.`,
             );
           }
         }
@@ -1213,7 +1217,7 @@ export function playtestRoom(
         if (misses.length) {
           failures.push(`Expected object ${spec.num} ${misses.join(", ")}.`);
           nextSteps.push(
-            `Inspect object ${spec.num} with read_room_context and the logic that draws, positions or moves it; check the view is loaded and the motion reaches the asserted box on this path.`,
+            `Inspect object ${spec.num} with read_room and the logic that draws, positions or moves it; check the view is loaded and the motion reaches the asserted box on this path.`,
           );
         }
       }
@@ -1261,7 +1265,7 @@ export function playtestRoom(
             `Expected (${reachX},${reachY}) reachable on foot; ego stopped at (${walker.x},${walker.y}).`,
           );
           nextSteps.push(
-            "Walk the route in the composed frame: read the priority and control lines between ego and the target with read_room_context and check the walkTo observation for where progress stopped.",
+            "Walk the route in the composed frame: read the priority and control lines between ego and the target with read_room and check the walkTo observation for where progress stopped.",
           );
         }
       }

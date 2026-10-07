@@ -13,6 +13,8 @@ import type { BootedGame } from "../src/project/gameTypes.ts";
 import type { HistoryBatch, HistoryBoot } from "../../src/agent/history.ts";
 import { installIndexedDbFixture } from "./indexedDbFixture.ts";
 import { testProjectId, testRevision } from "./identity.ts";
+import { bindProgressTarget, resolveProgressTarget } from "../src/project/progressBinding.ts";
+import { installedProgressTarget, type ProgressTarget } from "../src/project/progressTarget.ts";
 import {
   clearCachedGame,
   readHistoryLifetime,
@@ -29,6 +31,10 @@ import {
 } from "../src/history/historyStorage.ts";
 
 const records = installIndexedDbFixture();
+Object.defineProperty(globalThis, "localStorage", {
+  configurable: true,
+  value: { getItem: () => null, setItem: () => {}, removeItem: () => {} },
+});
 
 const BOOT: HistoryBoot = stampBoot({
   files: { "VOL.0": "eA==" },
@@ -51,6 +57,31 @@ function game(id: string): BootedGame {
   };
 }
 
+/** The bound target the boot evidence proves — what a real booted game carries. */
+function targetOf(game: BootedGame): ProgressTarget {
+  const target = resolveProgressTarget(game);
+  assert.ok(target !== null);
+  return target;
+}
+
+/** A saved project body plus the boot evidence: the captured epoch and the bound target. */
+async function savedGame(id: string): Promise<BootedGame> {
+  const projectId = testProjectId(id);
+  assert.equal(
+    await saveAuthoredGame(projectId, {
+      title: id,
+      provider: "stub",
+      model: "stub",
+      files: { "VOL.0": Uint8Array.of(1) },
+      words: [],
+    }),
+    true,
+  );
+  const booted = { ...game(id), historyLifetime: await readHistoryLifetime(projectId) };
+  bindProgressTarget(booted);
+  return booted;
+}
+
 test("a refused commit stays unsaved until a resend commits it", async () => {
   const state = {
     historyPending: 0,
@@ -58,7 +89,7 @@ test("a refused commit stays unsaved until a resend commits it", async () => {
   };
   // Read through a function — assert.* narrows the property permanently.
   const unsaved = () => state.historyUnsaved;
-  let booted = game("hc-a");
+  let booted = await savedGame("hc-a");
   const controller = useHistoryController({
     state,
     getBootedGame: () => booted,
@@ -108,7 +139,7 @@ test("a refused commit stays unsaved until a resend commits it", async () => {
     false,
   );
   assert.equal(unsaved()?.batches, 2);
-  booted = game("hc-b");
+  booted = await savedGame("hc-b");
   assert.equal(
     await controller.handleHistoryBatch({ epoch: 0, batch: { ...orphan, segment: "sY.1" } }),
     false,
@@ -125,7 +156,7 @@ test("a mid-session storage-key change migrates the tape instead of orphaning it
     historyPending: 0,
     historyUnsaved: null as { batches: number; since: number } | null,
   };
-  let booted = game("hc-catalog");
+  let booted = await savedGame("hc-catalog");
   const controller = useHistoryController({
     state,
     getBootedGame: () => booted,
@@ -154,20 +185,20 @@ test("a mid-session storage-key change migrates the tape instead of orphaning it
   // `booted` swaps mid-session while the same worker keeps posting the
   // same segment's batches. The record must move — without the migration
   // every later commit refuses against a key that never saw the boot.
-  booted = game("hc-remix");
+  booted = await savedGame("hc-remix");
   assert.equal(await controller.handleHistoryBatch({ epoch: 0, batch: b(3) }), true);
   assert.equal(await controller.handleHistoryBatch({ epoch: 0, batch: b(4) }), true);
   assert.equal(state.historyUnsaved, null, "no batch is stranded by the key change");
 
   // The moved record holds the whole stream; a resend dedups under it.
   const { loadGameHistory } = await import("../src/history/historyStorage.ts");
-  const moved = await loadGameHistory("hc-remix");
+  const moved = await loadGameHistory(targetOf(booted).locator);
   assert.equal(moved?.segments.length, 1);
   assert.equal(await controller.handleHistoryBatch({ epoch: 0, batch: b(4) }), true);
 
   // A different session's batch under yet another key is a real switch —
   // the migration path does not follow it.
-  booted = game("hc-other");
+  booted = await savedGame("hc-other");
   assert.equal(
     await controller.handleHistoryBatch({
       epoch: 0,
@@ -175,13 +206,13 @@ test("a mid-session storage-key change migrates the tape instead of orphaning it
     }),
     true,
   );
-  assert.equal((await loadGameHistory("hc-other"))?.segments.length, 1);
+  assert.equal((await loadGameHistory(targetOf(booted).locator))?.segments.length, 1);
 });
 
 test("a paused writer renews its lease and stops renewing when the segment ends", async (t) => {
   let now = 1000;
   t.mock.method(Date, "now", () => now);
-  const booted = game("hc-lease");
+  const booted = await savedGame("hc-lease");
   const scheduled: { callback: () => void; cancelled: boolean }[] = [];
   const state = {
     historyPending: 0,
@@ -239,7 +270,7 @@ test("a paused writer renews its lease and stops renewing when the segment ends"
 });
 
 test("an old boot resend cannot steal renewal from the current paused segment", async () => {
-  const booted = game("hc-stale-boot");
+  const booted = await savedGame("hc-stale-boot");
   const state = {
     historyPending: 0,
     historyUnsaved: null as { batches: number; since: number } | null,
@@ -314,6 +345,7 @@ test("a delayed first batch from a deleted game cannot join a recreated project"
   assert.equal(loaded.lifetime, committedLifetime);
   assert.equal(loaded.data.title, "Original");
   const booted = { ...game(id), historyLifetime: loaded.lifetime };
+  bindProgressTarget(booted);
   const state = {
     historyPending: 0,
     historyUnsaved: null as { batches: number; since: number } | null,
@@ -342,11 +374,12 @@ test("a delayed first batch from a deleted game cannot join a recreated project"
     },
   };
   assert.equal(await controller.handleHistoryBatch(first), false);
-  assert.equal(records.has(`history/${id}`), false);
+  assert.equal(records.has(`history/${targetOf(booted).locator}`), false);
   assert.equal(state.historyUnsaved?.batches, 1);
   // A newly booted copy of the recreated game can record, while rollover
   // segments from the original worker remain refused.
   const recreated = { ...game(id), historyLifetime: await readHistoryLifetime(id) };
+  bindProgressTarget(recreated);
   const fresh = useHistoryController({
     state: { historyPending: 0, historyUnsaved: null },
     getBootedGame: () => recreated,
@@ -362,32 +395,43 @@ test("a delayed first batch from a deleted game cannot join a recreated project"
     await controller.handleHistoryBatch({ ...first, batch: { ...first.batch, segment: "old.s2" } }),
     false,
   );
-  const tape = records.get(`history/${id}`) as { segments: { id: string }[] };
+  const tape = records.get(`history/${targetOf(recreated).locator}`) as {
+    segments: { id: string }[];
+  };
   assert.deepEqual(
     tape.segments.map((segment) => segment.id),
     ["new.s1"],
   );
   const before = structuredClone([...records.entries()]);
-  const stale = booted.historyLifetime;
+  const stale = targetOf(booted);
   await assert.rejects(
     stageRetainedOriginal(
-      id,
+      stale,
       {
         id: "late-branch",
         boot: BOOT,
         from: { segment: "old.s1", seq: 0, tick: 0 },
         retainedAt: 1,
       },
-      stale,
+      booted.historyLifetime,
     ),
     /removed game/,
   );
-  await assert.rejects(commitStagedOriginal(id, "late-branch", undefined, stale), /removed game/);
-  await assert.rejects(clearStagedOriginal(id, "late-branch", stale), /removed game/);
-  await assert.rejects(resolveStagedSwap(id, null, "old.s1", stale), /removed game/);
+  await assert.rejects(
+    commitStagedOriginal(stale, "late-branch", undefined, booted.historyLifetime),
+    /removed game/,
+  );
+  await assert.rejects(
+    clearStagedOriginal(stale, "late-branch", booted.historyLifetime),
+    /removed game/,
+  );
+  await assert.rejects(
+    resolveStagedSwap(stale, null, "old.s1", booted.historyLifetime),
+    /removed game/,
+  );
   await assert.rejects(
     saveHistoryBookmark(
-      id,
+      stale,
       {
         label: "Old session",
         segment: "old.s1",
@@ -395,7 +439,7 @@ test("a delayed first batch from a deleted game cannot join a recreated project"
         tick: 0,
         at: 1,
       },
-      stale,
+      booted.historyLifetime,
     ),
     /removed game/,
   );
@@ -430,6 +474,7 @@ test("a removed game's timeline is not owed: nothing is retried or listed unsave
     words: [],
   });
   const booted: BootedGame = { ...game(id), historyLifetime: lifetime };
+  bindProgressTarget(booted);
   const state = {
     historyPending: 0,
     historyUnsaved: null as { batches: number; since: number } | null,
@@ -462,11 +507,13 @@ test("a removed game's timeline is not owed: nothing is retried or listed unsave
   booted.removed = true;
   assert.equal(await controller.handleHistoryBatch({ epoch: 0, batch: batch(3) }), false);
   assert.equal(state.historyUnsaved, null);
-  assert.equal(records.has(`history/${id}`), false);
+  assert.equal(records.has(`history/${targetOf(booted).locator}`), false);
 });
 
 test("an installed game records without a saved project body", async () => {
   const id = "installed-no-body";
+  const target = installedProgressTarget({ folder: id }, testRevision(id));
+  assert.ok(target !== null);
   const booted: BootedGame = {
     installed: true,
     folder: id,
@@ -474,8 +521,10 @@ test("an installed game records without a saved project body", async () => {
     revision: testRevision(id),
     files: {},
     words: [],
-    historyLifetime: await readHistoryLifetime(id),
+    // The installed lifetime is the boot's capture of the locator's receipt.
+    historyLifetime: await readHistoryLifetime(target.locator),
   };
+  bindProgressTarget(booted);
   assert.equal(records.has(id), false);
   const controller = useHistoryController({
     state: { historyPending: 0, historyUnsaved: null },
@@ -499,6 +548,64 @@ test("an installed game records without a saved project body", async () => {
     }),
     true,
   );
-  assert.equal(records.has(`history/${id}`), true);
+  assert.equal(records.has(`history/${target.locator}`), true);
   assert.equal(records.has(id), false);
+});
+
+test("an installed folder and a saved project sharing one bare id keep separate tapes through the controller", async () => {
+  // The released key spelled both the same way — the bare folder/id — so a
+  // same-named installed instance and saved project would have shared one
+  // tape. The bound targets resolve to different locators and each stream
+  // commits only to its own.
+  const saved = await savedGame("shared-caller");
+  const installedTarget = installedProgressTarget(
+    { folder: "shared-caller" },
+    testRevision("game"),
+  );
+  assert.ok(installedTarget !== null);
+  const installed: BootedGame = {
+    installed: true,
+    folder: "shared-caller",
+    title: "Installed shared-caller",
+    revision: testRevision("game"),
+    files: {},
+    words: [],
+    historyLifetime: await readHistoryLifetime(installedTarget.locator),
+  };
+  bindProgressTarget(installed);
+  assert.notEqual(targetOf(installed).locator, targetOf(saved).locator);
+
+  let booted = saved;
+  const state = { historyPending: 0, historyUnsaved: null };
+  const controller = useHistoryController({
+    state,
+    getBootedGame: () => booted,
+    getProfile: () => "2.936",
+    logAgent: () => {},
+  });
+  const batch = (segment: string): HistoryBatch => ({
+    segment,
+    batch: 1,
+    seqStart: 0,
+    seqEnd: 0,
+    events: [],
+    marks: [],
+    sync: [],
+    boot: BOOT,
+  });
+  assert.equal(await controller.handleHistoryBatch({ epoch: 0, batch: batch("saved.s1") }), true);
+  // A different session nonce — not a mid-session relocation: the second
+  // tape is a switch, and the installed stream lands under its own locator.
+  booted = installed;
+  assert.equal(await controller.handleHistoryBatch({ epoch: 0, batch: batch("inst.s1") }), true);
+
+  const { loadGameHistory } = await import("../src/history/historyStorage.ts");
+  assert.deepEqual(
+    (await loadGameHistory(targetOf(saved).locator))?.segments.map((s) => s.id),
+    ["saved.s1"],
+  );
+  assert.deepEqual(
+    (await loadGameHistory(targetOf(installed).locator))?.segments.map((s) => s.id),
+    ["inst.s1"],
+  );
 });

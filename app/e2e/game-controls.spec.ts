@@ -4,6 +4,7 @@ import { assembleLogic } from "../../src/logic/assembler.ts";
 import { buildWordsTok } from "../../src/logic/words.ts";
 import { buildZip } from "../src/archive/zip.ts";
 import {
+  gameHint,
   isolateStorage,
   openGameControls,
   savedGameCard,
@@ -74,7 +75,7 @@ test("game controls discover bindings and menu labels, track disabled items, and
   await controls.getByRole("button", { name: "F4", exact: true }).click();
   await openGameControls(page);
   await expect(controls.getByRole("button", { name: "Inspect F3", exact: true })).toBeEnabled();
-  await page.screenshot({ path: "test-results/game-controls-desktop.png" });
+  await page.screenshot({ path: test.info().outputPath("game-controls-desktop.png") });
   await page.keyboard.press("Escape");
   await expect(controls).toBeHidden();
   await openGameControls(page);
@@ -82,7 +83,7 @@ test("game controls discover bindings and menu labels, track disabled items, and
   await expect(controls.getByRole("button", { name: "Inspect F3", exact: true })).toBeFocused();
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(controls.getByRole("button", { name: "Inspect F3", exact: true })).toBeInViewport();
-  await page.screenshot({ path: "test-results/game-controls-mobile.png" });
+  await page.screenshot({ path: test.info().outputPath("game-controls-mobile.png") });
   await controls.getByRole("button", { name: "Repeat command F10", exact: true }).click();
   await expect(page.getByTestId("input-line")).toHaveValue("look");
   await page.getByTestId("input-line").press("Enter");
@@ -97,7 +98,7 @@ test("game controls discover bindings and menu labels, track disabled items, and
   await expect(controls).toContainText("Shortcuts appear here");
   await page.keyboard.press("Escape");
   await page.getByTestId("input-line").focus();
-  await page.keyboard.press("Tab");
+  await page.keyboard.press("Shift+Tab");
   await expect(page.getByTestId("input-line")).not.toBeFocused();
 });
 
@@ -144,7 +145,8 @@ test("browser reload restores shortcut labels and live menu enable state", async
   await page.keyboard.press("Escape");
   await waitForAutosaveAfter(page, (await textHook(page)).cycle);
   await page.reload();
-  await expect(page.getByTestId("resume-caption")).toBeVisible();
+  await expect(await gameHint(page, "resume-caption")).toBeVisible();
+  await page.mouse.move(0, 0);
   await openGameControls(page);
   await expect(controls.getByRole("button", { name: "Inspect F3", exact: true })).toBeDisabled();
   await expect(
@@ -154,4 +156,33 @@ test("browser reload restores shortcut labels and live menu enable state", async
   await openGameControls(page);
   await expect(controls.getByRole("button", { name: "Inspect F3", exact: true })).toBeEnabled();
   await page.screenshot({ path: test.info().outputPath("restored-game-controls.png") });
+});
+
+test("Help keeps its items while the game surface finishes loading", async ({ page }) => {
+  await isolateStorage(page);
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route("**/src/play/PlayArea.vue", async (route) => {
+    await gate;
+    await route.continue();
+  });
+  await page.goto("/");
+  await page.getByTestId("game-zip-input").setInputFiles({
+    name: "courtyard.zip",
+    mimeType: "application/zip",
+    buffer: makeGameZip(true),
+  });
+  await savedGameCard(page, "courtyard").getByTestId("btn-resume-cached").click();
+  await page.getByTestId("help-menu").click();
+  const item = page.getByTestId("btn-game-controls");
+  await expect(item).toBeVisible();
+  const original = await item.elementHandle();
+  release();
+  await expect(page.getByTestId("input-line")).toBeVisible();
+  await expect(item).toBeVisible();
+  expect(await original!.evaluate((element) => element.isConnected)).toBe(true);
+  await item.click();
+  await expect(page.getByTestId("game-controls")).toBeVisible();
 });

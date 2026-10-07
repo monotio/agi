@@ -11,13 +11,13 @@ import {
   AUTHORING_TOOL_NAMES,
   executeAgentTool,
   executeAgentToolAsync,
-  STUDIO_ASSIST_TASK_TOOLS,
+  SELECTION_TASK_TOOLS,
 } from "../src/agent/tools.ts";
 import {
-  createStudioAssist,
-  STUDIO_ASSIST_TOOLS,
-  type StudioAssist,
-} from "../src/agent/studioAssistTools.ts";
+  createSelectionEdit,
+  SELECTION_TOOLS,
+  type SelectionEdit,
+} from "../src/agent/selectionTools.ts";
 import {
   draftRevision,
   pictureAssistScope,
@@ -57,15 +57,15 @@ function bridgeAssist(
     parsePictureDocument(BRIDGE_SOURCE).document,
     DEFAULT_V2_PROFILE,
   );
-  return createStudioAssist({
+  return createSelectionEdit({
     scope: pictureAssistScope({
       num: 1,
       compiled,
       targetIds: ["bridge"],
-      lens: "walk",
+      lens: "depth",
     }),
     draft,
-    lens: "walk",
+    lens: "depth",
   });
 }
 
@@ -76,14 +76,14 @@ const loop1 = [
 
 function robotAssist() {
   const document = openSprite(ROBOT_VIEW, DEFAULT_V2_PROFILE);
-  return createStudioAssist({
+  return createSelectionEdit({
     scope: viewAssistScope({ num: 2, document, targetCels: loop1 }),
     draft: () => ({ kind: "view", payload: ROBOT_VIEW }),
   });
 }
 
 const fields = (list: "pictureOps" | "spriteOps") => {
-  const propose = STUDIO_ASSIST_TOOLS.find((tool) => tool.name === "propose_edit")!;
+  const propose = SELECTION_TOOLS.find((tool) => tool.name === "edit_selection")!;
   return (propose.parameters.properties[list] as { items: { required: string[] } }).items.required;
 };
 const op = (list: "pictureOps" | "spriteOps", given: Record<string, unknown>) =>
@@ -110,24 +110,24 @@ const crossing = op("pictureOps", {
 
 function run(
   state: AgentSessionState,
-  assist: StudioAssist,
+  assist: SelectionEdit,
   name: string,
   args: Record<string, unknown>,
 ) {
   return executeAgentToolAsync(state, name, args, {
-    allowedTools: STUDIO_ASSIST_TASK_TOOLS,
-    studio: assist,
+    allowedTools: SELECTION_TASK_TOOLS,
+    selection: assist,
   });
 }
 
 function propose(
   state: AgentSessionState,
-  assist: StudioAssist,
+  assist: SelectionEdit,
   ops: Record<string, unknown>[],
   base = draftRevision(assist.focus.draft()),
 ): Promise<AgentToolResult> {
   const picture = assist.focus.scope.kind === "picture";
-  return run(state, assist, "propose_edit", {
+  return run(state, assist, "edit_selection", {
     baseRevision: base,
     summary: "A test change.",
     pictureOps: picture ? ops : null,
@@ -136,13 +136,13 @@ function propose(
 }
 
 test("the Studio tools are catalogued with strict schemas", () => {
-  for (const name of ["read_edit_context", "propose_edit", "withdraw_edit"]) {
+  for (const name of ["read_edit_context", "edit_selection", "withdraw_selection"]) {
     const tool = AGENT_TOOLS.find((candidate) => candidate.name === name)!;
     assert.ok(tool, name);
     assert.deepEqual(tool.parameters.required, Object.keys(tool.parameters.properties));
   }
   for (const list of ["pictureOps", "spriteOps"] as const) {
-    const propose = AGENT_TOOLS.find((tool) => tool.name === "propose_edit")!;
+    const propose = AGENT_TOOLS.find((tool) => tool.name === "edit_selection")!;
     const items = (
       propose.parameters.properties[list] as {
         items: { properties: object; required: string[]; additionalProperties: boolean };
@@ -156,35 +156,35 @@ test("the Studio tools are catalogued with strict schemas", () => {
 test("outside a Studio assist task the Studio tools are denied", async () => {
   const state = session();
   const args = { images: null };
-  const refused = /only available in a Studio assist task/;
+  const refused = /requires an editor selection/;
   assert.match(executeAgentTool(state, "read_edit_context", args).error ?? "", refused);
   assert.match(
     (
       await executeAgentToolAsync(state, "read_edit_context", args, {
-        allowedTools: STUDIO_ASSIST_TASK_TOOLS,
+        allowedTools: SELECTION_TASK_TOOLS,
       })
     ).error ?? "",
     refused,
   );
   // Genesis, room authoring and Remix: not in the phase's availability.
-  assert.ok(!AUTHORING_TOOL_NAMES.includes("propose_edit"));
+  assert.ok(!AUTHORING_TOOL_NAMES.includes("edit_selection"));
   const phase = await executeAgentToolAsync(
     state,
-    "propose_edit",
+    "edit_selection",
     {},
     {
       allowedTools: AUTHORING_TOOL_NAMES,
-      studio: bridgeAssist(),
+      selection: bridgeAssist(),
     },
   );
   assert.match(phase.error ?? "", /not available in this phase/);
   // Ask: read-only, and the Studio tools are not among its reads.
-  assert.ok(!ASK_TOOLS.includes("read_edit_context"));
+  assert.ok(ASK_TOOLS.includes("read_edit_context"));
   const ask = await executeAgentToolAsync(state, "read_edit_context", args, {
     readOnly: true,
     allowedTools: ASK_TOOLS,
   });
-  assert.match(ask.error ?? "", /Ask mode is read-only/);
+  assert.match(ask.error ?? "", /requires an editor selection/);
   // Inside the task, writers stay denied.
   const writer = await run(state, bridgeAssist(), "write_words", { words: ["x"], groups: null });
   assert.match(writer.error ?? "", /not available in this phase/);
@@ -208,7 +208,6 @@ test("read_edit_context is bounded to the selection and its neighbours", async (
   // on rows 121..138 (2 x 18); the water inside is walkable. Under the
   // bridge that leaves 960 - 80 bank cells.
   assert.deepEqual(details["walkable"], { inSelection: 880, overall: 131 * 160 - 356 });
-  assert.deepEqual(details["depthValuesLocked"], true);
   assert.deepEqual(details["controls"], [
     { value: 0, cells: 80, bbox: { x0: 60, y0: 120, x1: 99, y1: 139 } },
     { value: 3, cells: 720, bbox: { x0: 60, y0: 121, x1: 99, y1: 138 } },
@@ -228,7 +227,7 @@ test("read_edit_context is bounded to the selection and its neighbours", async (
   );
 });
 
-test("propose_edit works on a detached copy and returns a before | after | diff candidate", async () => {
+test("edit_selection works on a detached copy and returns a before | after | diff candidate", async () => {
   const state = session();
   const files = [...state.getFiles()].map(([name, bytes]) => [name, [...bytes]]);
   let reads = 0;
@@ -264,8 +263,8 @@ test("propose_edit works on a detached copy and returns a before | after | diff 
   assert.deepEqual(candidate.kind === "picture" && candidate.walkable, { before: 880, after: 960 });
 });
 
-test("propose_edit takes insertPoint: a new vertex on the selected item's line", async () => {
-  const propose_ = STUDIO_ASSIST_TOOLS.find((tool) => tool.name === "propose_edit")!;
+test("edit_selection takes insertPoint: a new vertex on the selected item's line", async () => {
+  const propose_ = SELECTION_TOOLS.find((tool) => tool.name === "edit_selection")!;
   const types = (
     propose_.parameters.properties["pictureOps"] as {
       items: { properties: { type: { enum: string[] } } };
@@ -279,7 +278,7 @@ test("propose_edit takes insertPoint: a new vertex on the selected item's line",
     parsePictureDocument(BRIDGE_SOURCE).document,
     DEFAULT_V2_PROFILE,
   );
-  const assist = createStudioAssist({
+  const assist = createSelectionEdit({
     scope: pictureAssistScope({ num: 1, compiled, targetIds: ["bridge"], lens: "art" }),
     draft: () => ({ kind: "picture", source: BRIDGE_SOURCE }),
     lens: "art",
@@ -332,7 +331,7 @@ test("a move that re-pours another item's fill is a candidate, the side effect i
     parsePictureDocument(ISLAND_SOURCE).document,
     DEFAULT_V2_PROFILE,
   );
-  const assist = createStudioAssist({
+  const assist = createSelectionEdit({
     scope: pictureAssistScope({ num: 1, compiled, targetIds: ["island"], lens: "art" }),
     draft: () => ({ kind: "picture", source: ISLAND_SOURCE }),
     lens: "art",
@@ -383,7 +382,7 @@ test("art under the lock is refused in plain words, and a retry replaces nothing
   assert.equal(refused.success, false);
   assert.match(
     refused.error ?? "",
-    /^Refused; nothing was proposed: the art \(visual plane\) is locked, but 960 cells at 60,118\.\.99,141 would change\. Leave the locked plane exactly as it is\. There is no candidate yet\. 3 proposals left/,
+    /^Refused; nothing was proposed: the art \(visual plane\) is locked, but 960 cells at 60,118\.\.99,141 would change\. Leave the locked plane exactly as it is\. There is no candidate yet\.$/,
   );
   assert.equal(assist.candidate, null);
   const retry = await propose(state, assist, [crossing]);
@@ -392,17 +391,15 @@ test("art under the lock is refused in plain words, and a retry replaces nothing
   assert.deepEqual([assist.proposals, assist.refusals], [2, 1]);
 });
 
-test("depth painted in the Walk lens is refused at proposal time, so the model can retry", async () => {
+test("depth painted under the selection in the Priority lens is proposed", async () => {
+  // The Priority lens paints distance and control lines alike: floor (4)
+  // over the river under the bridge passes where only control lines once did.
   const state = session();
   const assist = bridgeAssist();
   const floor = { ...crossing, shape: { ...(crossing["shape"] as object), priority: 4 } };
-  const refused = await propose(state, assist, [floor]);
-  assert.match(
-    refused.error ?? "",
-    /^Refused; nothing was proposed: depth values 4–15 are locked in the Walk lens, but 800 cells at 60,120\.\.99,139 would change\. In the Walk lens paint only control values 0–3/,
-  );
-  assert.equal(assist.candidate, null);
-  assert.equal((await propose(state, assist, [crossing])).success, true);
+  const proposed = await propose(state, assist, [floor]);
+  assert.equal(proposed.success, true, proposed.error ?? "");
+  assert.notEqual(assist.candidate, null);
 });
 
 test("an operation on an unselected item is refused before it runs", async () => {
@@ -429,7 +426,7 @@ test("a stale base is refused: an old revision, or a draft changed mid-request",
 
 test("proposals stop at the request's ceiling", async () => {
   const state = session();
-  const assist = createStudioAssist(bridgeAssist().focus, { maxProposals: 1 });
+  const assist = createSelectionEdit(bridgeAssist().focus, { maxProposals: 1 });
   assert.equal((await propose(state, assist, [crossing])).success, true);
   const over = await propose(state, assist, [crossing]);
   assert.match(over.error ?? "", /allows 1 proposals and all were used/);
@@ -486,12 +483,12 @@ test("a propagated recolor reaching the unselected mirror is refused", async () 
  * A rect over cells that already hold its value, or under art that covers it,
  * draws the same planes: the candidate would add bytes and show no diff.
  */
-const sameRender = (atLine: number, shape: Record<string, unknown>, lens: "walk" | "art") => {
+const sameRender = (atLine: number, shape: Record<string, unknown>, lens: "depth" | "art") => {
   const compiled = compileEditDocument(
     parsePictureDocument(BRIDGE_SOURCE).document,
     DEFAULT_V2_PROFILE,
   );
-  const assist = createStudioAssist({
+  const assist = createSelectionEdit({
     scope: pictureAssistScope({ num: 1, compiled, targetIds: ["bridge"], lens }),
     draft: () => ({ kind: "picture", source: BRIDGE_SOURCE }),
     lens,
@@ -511,12 +508,16 @@ test("a candidate that draws the same pixels is refused, and an earlier candidat
   const state = session();
   // Open floor (4) over the sky rows 118..119 under the bridge, which are 4
   // already: the plate-horizon pattern, a walk rect that changes no cell.
-  const equal = sameRender(AFTER_BRIDGE, { priority: 4, x1: 60, y1: 118, x2: 99, y2: 119 }, "walk");
+  const equal = sameRender(
+    AFTER_BRIDGE,
+    { priority: 4, x1: 60, y1: 118, x2: 99, y2: 119 },
+    "depth",
+  );
   const refused = await propose(state, equal.assist, [equal.insert]);
   assert.equal(refused.success, false);
   assert.match(
     refused.error ?? "",
-    /^Refused; nothing was proposed: the operations draw the same pixels as the draft \(visual and priority planes unchanged, \+\d+ bytes\)\. Propose a change that alters the requested plane within the selection, or reply with one sentence explaining why none can work within the selection and locks\. There is no candidate yet\. 3 proposals left in this request\.$/,
+    /^Refused; nothing was proposed: the operations draw the same pixels as the draft \(visual and priority planes unchanged, \+\d+ bytes\)\. Propose a change that alters the requested plane within the selection, or reply with one sentence explaining why none can work within the selection and locks\. There is no candidate yet\.$/,
   );
   assert.deepEqual(
     (refused.details!["violations"] as { constraint: string }[]).map((v) => v.constraint),
@@ -540,7 +541,7 @@ test("a candidate that draws the same pixels is refused, and an earlier candidat
 
 test("a label or kind change is a candidate though it draws the same pixels", async () => {
   const state = session();
-  const { assist } = sameRender(AFTER_BRIDGE, {}, "walk");
+  const { assist } = sameRender(AFTER_BRIDGE, {}, "depth");
   const meta = op("pictureOps", { type: "setItemMeta", itemId: "bridge", label: "Old bridge" });
   const renamed = await propose(state, assist, [meta]);
   assert.equal(renamed.success, true, renamed.error ?? "");
@@ -552,7 +553,7 @@ test("a label or kind change is a candidate though it draws the same pixels", as
   const { insert } = sameRender(
     AFTER_BRIDGE,
     { priority: 4, x1: 60, y1: 118, x2: 99, y2: 119 },
-    "walk",
+    "depth",
   );
   const mixed = await propose(state, assist, [
     op("pictureOps", { type: "setItemMeta", itemId: "bridge", label: "New bridge" }),
@@ -593,10 +594,10 @@ test("a sprite edit that changes no pixel is refused; a mirror split or transpar
   assert.deepEqual([assist.proposals, assist.refusals], [4, 2]);
 });
 
-test("withdraw_edit clears the candidate, and a later proposal can still be made", async () => {
+test("withdraw_selection clears the candidate, and a later proposal can still be made", async () => {
   const state = session();
   const assist = bridgeAssist();
-  const withdraw = (reason: string) => run(state, assist, "withdraw_edit", { reason });
+  const withdraw = (reason: string) => run(state, assist, "withdraw_selection", { reason });
   const empty = await withdraw("Nothing proposed yet.");
   assert.equal(empty.success, false);
   assert.match(empty.error ?? "", /^There is no candidate to withdraw\./);
@@ -607,7 +608,7 @@ test("withdraw_edit clears the candidate, and a later proposal can still be made
   assert.equal(withdrawn.success, true, withdrawn.error ?? "");
   assert.equal(
     withdrawn.message,
-    "Withdrew candidate c1: the creator sees no proposal, only your reply. Call propose_edit to propose something else (3 left), or reply with one sentence saying what blocks the change.",
+    "Withdrew candidate c1: the creator sees no proposal, only your reply. Call edit_selection to propose something else, or explain what blocks the change.",
   );
   assert.deepEqual(withdrawn.details, {
     ok: true,
@@ -621,4 +622,62 @@ test("withdraw_edit clears the candidate, and a later proposal can still be made
   const again = await propose(state, assist, [crossing]);
   assert.equal(again.details?.["candidateId"], "c2");
   assert.equal(assist.candidate?.candidateId, "c2");
+});
+
+test("default Studio proposals continue beyond four and carry no countdown", async () => {
+  const state = session();
+  const assist = bridgeAssist();
+  for (let i = 0; i < 6; i++) {
+    const result = await executeAgentToolAsync(
+      state,
+      "edit_selection",
+      {
+        baseRevision: draftRevision(assist.focus.draft()),
+        summary: "Make a crossing",
+        pictureOps: [crossing],
+        spriteOps: null,
+      },
+      { selection: assist, allowedTools: SELECTION_TASK_TOOLS },
+    );
+    assert.equal(result.success, true, result.error ?? "");
+    assert.doesNotMatch(JSON.stringify(result), /proposalsLeft|\d+ proposals? left|\d+ left/);
+  }
+});
+
+test("Studio validates coordinated operation batches larger than thirty-two", async () => {
+  const state = session();
+  const assist = bridgeAssist();
+  const result = await propose(
+    state,
+    assist,
+    Array.from({ length: 33 }, (_, i) =>
+      op("pictureOps", {
+        type: "setItemMeta",
+        itemId: "bridge",
+        label: `Bridge ${i}`,
+      }),
+    ),
+  );
+  assert.equal(result.success, true, result.error ?? "");
+});
+
+test("selected source includes ordinary long items and offers character paging", async () => {
+  const state = session();
+  const source = BRIDGE_SOURCE.replace(
+    "pri off\n",
+    "pri off\n" + Array.from({ length: 200 }, (_, i) => `# source note ${i}\n`).join(""),
+  );
+  const assist = bridgeAssist(() => ({ kind: "picture", source }));
+  const result = await run(state, assist, "read_edit_context", { images: false });
+  assert.equal(result.success, true, result.error ?? "");
+  assert.match(result.message ?? "", /# source note 150/);
+  assert.equal(result.details?.["nextSourceOffset"], null);
+});
+
+test("sprite pixel edits permit a complete largest cel", () => {
+  const propose = SELECTION_TOOLS.find((tool) => tool.name === "edit_selection")!;
+  const sprite = propose.parameters.properties["spriteOps"] as {
+    items: { properties: { changes: { maxItems: number } } };
+  };
+  assert.equal(sprite.items.properties.changes.maxItems, 65025);
 });

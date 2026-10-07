@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import StaleTabNote from "../play/StaleTabNote.vue";
 /**
  * The top chrome. At the menu screen: the brand, Help, GitHub and Settings.
  * While a game runs: the PlayBar, then the notices that belong above the
@@ -7,19 +8,22 @@
  * those controls open: the settings sheet, the Help guide, Game controls and
  * the recorded-test save dialog. The engine API is injected, never passed.
  */
+import ProjectJournalRecovery from "../home/ProjectJournalRecovery.vue";
 import HelpGuide from "./HelpGuide.vue";
 import BrandMark from "../ui/BrandMark.vue";
+import { useWorkspaceEditor } from "./workspaceEditor.ts";
 import PlayBar from "./PlayBar.vue";
 import SettingsSheet from "./SettingsSheet.vue";
 import UiButton from "../ui/UiButton.vue";
 import UiDialog from "../ui/UiDialog.vue";
+import UiToast from "../ui/UiToast.vue";
+import { useProjectLabels } from "./useProjectLabels.ts";
 import type { HelpActionKind, HelpRequest } from "./helpContent.ts";
-import { computed, ref, shallowRef, useTemplateRef, watch } from "vue";
+import { computed, onWatcherCleanup, ref, shallowRef, useTemplateRef, watch } from "vue";
 import { useEngineApi } from "../engine/engineContext.ts";
 import { useAiSettings } from "../settings/useAiSettings.ts";
 import { useShellBridge } from "./shellBridge.ts";
 import { useShell } from "./useShell.ts";
-import { useCreateWorkspace } from "./useCreateWorkspace.ts";
 import { useStudioLauncher } from "./useStudioLauncher.ts";
 import { useGameLibrary } from "../library/useGameLibrary.ts";
 import { getCachedGameMeta } from "../project/gameStorage.ts";
@@ -36,7 +40,7 @@ import {
 
 const {
   touchControls,
-  crtEnabled,
+  crtAmount,
   originalAspect,
   gpuBackend,
   debugOpen,
@@ -44,7 +48,7 @@ const {
   exportRefusal,
 } = defineProps<{
   touchControls: boolean;
-  crtEnabled: boolean;
+  crtAmount: number;
   originalAspect: boolean;
   gpuBackend: string | undefined;
   debugOpen: boolean;
@@ -54,7 +58,7 @@ const {
 
 const emit = defineEmits<{
   "update:touchControls": [value: boolean];
-  "update:crtEnabled": [value: boolean];
+  "update:crtAmount": [value: number];
   "update:originalAspect": [value: boolean];
   "update:debugOpen": [value: boolean];
   "trigger-key": [code: number];
@@ -63,6 +67,7 @@ const emit = defineEmits<{
   "developer-activity": [];
 }>();
 
+const engine = useEngineApi();
 const {
   state,
   resumeAudio,
@@ -71,17 +76,33 @@ const {
   stopTestRecording,
   cancelTestRecording,
   saveRecordedTest,
-  roomMap,
   retryHistorySave,
   startNewTimeline,
   readOldTimeline,
   currentGame,
-} = useEngineApi();
+} = engine;
 const { aiSettingsUnavailable, openAiSettings, llmConfig } = useAiSettings();
 const bridge = useShellBridge();
 const shell = useShell();
-const workspace = useCreateWorkspace();
+const workspaceEditor = useWorkspaceEditor();
 const { onStartOver: startGameOver } = useGameLibrary();
+
+watch(
+  () => [state.phase, state.patchTick, state.copyCreated] as const,
+  () => {
+    if (!state.copyCreated) return;
+    if (state.phase !== "running" || currentGame()?.projectId !== state.copyCreated.projectId) {
+      state.copyCreated = null;
+      return;
+    }
+    function dismissOnEscape(event: KeyboardEvent): void {
+      if (event.key !== "Escape") return;
+      state.copyCreated = null;
+    }
+    window.addEventListener("keydown", dismissOnEscape, true);
+    onWatcherCleanup(() => window.removeEventListener("keydown", dismissOnEscape, true));
+  },
+);
 
 const controlsOpen = ref(false);
 const helpGuide = useTemplateRef("helpGuide");
@@ -91,6 +112,7 @@ const settingsOpen = computed(() => settingsSheet.value?.open ?? false);
 function toggleSettings(trigger: HTMLElement): void {
   settingsSheet.value?.toggle(trigger);
 }
+bridge.openSettings = toggleSettings;
 
 /** The Help guide's "Show me" actions this screen can perform right now. */
 const studios = useStudioLauncher();
@@ -103,7 +125,7 @@ const helpActions = computed<HelpActionKind[]>(() => {
   if (!state.powerUp.busy && !state.historyView.active) actions.push("hint");
   if (!state.powerUp.busy && shell.createAvailable.value) actions.push("remix");
   if (!aiSettingsUnavailable.value) actions.push("ai-settings");
-  if (studios.available.value) actions.push("openRoomStudio", "openSpriteStudio");
+  if (studios.available.value) actions.push("lessons");
   return actions;
 });
 
@@ -142,18 +164,11 @@ function onHelpLesson(lesson: StudioLesson): void {
 
 function onHelpAction(request: HelpRequest): void {
   switch (request.kind) {
-    case "openRoomStudio":
-      void studios.open({ studio: "room", picture: request.picture });
-      return;
-    case "openSpriteStudio":
-      void studios.open({ studio: "sprite", view: request.view });
-      return;
     case "controls":
       controlsOpen.value = true;
       return;
     case "map":
-      if (shell.mode.value === "create") workspace.showPanel("world");
-      else roomMap.openMap({ experience: "play" });
+      engine.roomMap?.openMap({ experience: shell.mode.value });
       return;
     case "hint":
       if (!state.powerUp.open) bridge.togglePowerUp("ask");
@@ -214,18 +229,23 @@ function onExportAgiZip(project: boolean): void {
   emit("export-zip", project);
 }
 
+const ejectBusy = ref(false);
 async function onEjectGame(
   leave: "save" | "abandonUnsaved" | "abandonHistory" = "save",
+  retry = false,
 ): Promise<void> {
-  ejectRefusal.value = "";
+  if (ejectBusy.value) return;
+  ejectBusy.value = true;
+  if (!retry) ejectRefusal.value = "";
   historyExit.value = false;
   closeNavMenus();
-  // Room Studio's unkept changes are kept or thrown away before the game is left.
-  if (!(await workspace.confirmStudioLeave())) return;
   try {
+    if (retry) await workspaceEditor.retry.value?.();
+    if (leave === "abandonUnsaved") await workspaceEditor.discard.value?.();
+    else await workspaceEditor.flush.value?.();
     await ejectGame(
       leave === "abandonUnsaved"
-        ? { abandonUnsaved: true }
+        ? { abandonUnsaved: true, abandonProject: true, abandonHistory: true }
         : leave === "abandonHistory"
           ? { abandonHistory: true }
           : undefined,
@@ -234,9 +254,14 @@ async function onEjectGame(
     // Only the timeline is still owed: its own question, not a refusal.
     if (error instanceof HistoryUnsavedError) historyExit.value = true;
     else ejectRefusal.value = String(error).replace(/^Error: /, "");
+  } finally {
+    ejectBusy.value = false;
   }
 }
 const ejectRefusal = ref<string>("");
+watch(ejectRefusal, (message) => {
+  workspaceEditor.exitRefusal.value = message.length > 0;
+});
 /** Exit waits on this session's timeline: leave without it, or stay. */
 const historyExit = ref(false);
 
@@ -247,8 +272,7 @@ const historyExit = ref(false);
  */
 async function onStartOver(anyway = false): Promise<void> {
   historyStartOver.value = false;
-  // Room Studio's unkept changes are kept or thrown away before the game restarts.
-  if (!(await workspace.confirmStudioLeave())) return;
+  if (!touchControls) bridge.focusGameInput();
   try {
     await startGameOver(anyway ? { abandonHistory: true } : undefined);
   } catch (error) {
@@ -260,7 +284,10 @@ const historyStartOver = ref(false);
 watch(
   () => state.phase,
   (phase) => {
-    if (phase !== "running") historyStartOver.value = false;
+    if (phase !== "running") {
+      historyStartOver.value = false;
+      ejectRefusal.value = "";
+    }
   },
 );
 
@@ -297,6 +324,7 @@ watch(
 /** Game-test recording: the worker captures; this dialog names and saves. */
 const recordDialog = useTemplateRef("recordDialog");
 const recordSnapshot = ref<RecordingSnapshot>();
+const labels = useProjectLabels();
 const recordSuggestions = ref<AssertionSuggestion[]>([]);
 const recordName = ref("");
 const recordError = ref("");
@@ -313,9 +341,15 @@ bridge.startPlaytest = () => void onRecordStart();
 async function onRecordStop(): Promise<void> {
   const snapshot = await stopTestRecording();
   if (!snapshot) return;
+  if ("endedBy" in snapshot) {
+    state.recording.error = "";
+    recordResult.value =
+      "Recording ended because the game run changed. Start Playtest to record the current run.";
+    return;
+  }
   if (snapshot.tainted) {
     recordResult.value = "";
-    state.recording.error = `Recording discarded: ${snapshot.tainted}.`;
+    state.recording.error = `Recording discarded. ${snapshot.tainted}`;
     return;
   }
   recordSnapshot.value = snapshot;
@@ -323,6 +357,7 @@ async function onRecordStop(): Promise<void> {
     snapshot.start.state,
     snapshot.endState,
     snapshot.printed,
+    labels.value,
   );
   recordName.value = "";
   recordError.value = "";
@@ -417,25 +452,59 @@ async function onRecordSave(): Promise<void> {
     @exit="onEjectGame()"
     @settings="toggleSettings"
     @help-guide="openHelp()"
+    @keyboard-shortcuts="openHelp('shortcuts')"
     @controls="controlsOpen = true"
     @trigger-key="triggerKey"
     @start-walkthrough="onStartWalkthrough"
   />
+  <div v-if="state.copyCreated" class="copy-created-anchor">
+    <UiToast
+      dismissible
+      class="copy-created-note"
+      data-testid="copy-created-note"
+      @dismiss="state.copyCreated = null"
+    >
+      Saved as your own copy of {{ state.copyCreated.originalTitle }}. The original stays unchanged.
+    </UiToast>
+  </div>
   <div class="shell-notices">
+    <StaleTabNote />
+    <div
+      v-if="
+        state.phase === 'running' &&
+        !workspaceEditor.readOnly.value &&
+        workspaceEditor.save.value === 'Could not save. Retry'
+      "
+      class="notice-actions"
+    >
+      <UiButton
+        size="sm"
+        data-testid="download-unsaved-edits"
+        :disabled="state.leaving || ejectBusy"
+        @click="workspaceEditor.downloadUnsavedEdits"
+      >
+        Download unsaved edits
+      </UiButton>
+    </div>
+    <ProjectJournalRecovery
+      v-if="state.phase === 'running'"
+      :project-id="currentGame()?.projectId"
+    />
     <div v-if="exportRefusal" class="export-refusal" data-testid="export-refusal" role="alert">
       <p>{{ exportRefusal }}</p>
     </div>
     <div v-if="ejectRefusal" class="export-refusal" data-testid="eject-refusal" role="alert">
       <p>{{ ejectRefusal }}</p>
+      <p>Discard and exit removes pending edits and unsaved play progress.</p>
       <div class="notice-actions">
         <UiButton
           variant="primary"
           size="sm"
           data-testid="eject-retry"
-          :disabled="state.leaving"
-          @click="onEjectGame()"
+          :disabled="state.leaving || ejectBusy"
+          @click="onEjectGame('save', true)"
         >
-          Try again
+          {{ ejectBusy ? "Saving…" : "Retry" }}
         </UiButton>
         <UiButton
           size="sm"
@@ -443,18 +512,23 @@ async function onRecordSave(): Promise<void> {
           :disabled="exportBusy"
           @click="onExportAgiZip(true)"
         >
-          Download project
+          Download game
         </UiButton>
         <UiButton
           size="sm"
           data-testid="eject-leave-anyway"
-          :disabled="state.leaving"
+          :disabled="state.leaving || ejectBusy"
           @click="onEjectGame('abandonUnsaved')"
         >
-          Leave anyway
+          Discard and exit
         </UiButton>
-        <UiButton size="sm" data-testid="eject-dismiss" @click="ejectRefusal = ''">
-          Back to game
+        <UiButton
+          size="sm"
+          data-testid="eject-dismiss"
+          :disabled="state.leaving || ejectBusy"
+          @click="ejectRefusal = ''"
+        >
+          Cancel
         </UiButton>
       </div>
     </div>
@@ -464,13 +538,13 @@ async function onRecordSave(): Promise<void> {
         <UiButton
           size="sm"
           data-testid="eject-leave-without-timeline"
-          :disabled="state.leaving"
+          :disabled="state.leaving || ejectBusy"
           @click="onEjectGame('abandonHistory')"
         >
           Leave anyway
         </UiButton>
         <UiButton variant="primary" size="sm" data-testid="eject-stay" @click="historyExit = false">
-          Stay
+          Cancel
         </UiButton>
         <UiButton
           variant="ghost"
@@ -479,7 +553,7 @@ async function onRecordSave(): Promise<void> {
           :disabled="exportBusy"
           @click="onExportAgiZip(true)"
         >
-          Keep a backup first
+          Download a backup
         </UiButton>
       </div>
     </div>
@@ -494,9 +568,7 @@ async function onRecordSave(): Promise<void> {
         left it.
       </p>
       <div class="notice-actions">
-        <UiButton size="sm" data-testid="start-over-retry" @click="onStartOver()">
-          Try again
-        </UiButton>
+        <UiButton size="sm" data-testid="start-over-retry" @click="onStartOver()"> Retry </UiButton>
         <UiButton size="sm" data-testid="start-over-anyway" @click="onStartOver(true)">
           Start over anyway
         </UiButton>
@@ -506,7 +578,7 @@ async function onRecordSave(): Promise<void> {
           data-testid="start-over-stay"
           @click="historyStartOver = false"
         >
-          Stay
+          Cancel
         </UiButton>
       </div>
     </div>
@@ -553,7 +625,7 @@ async function onRecordSave(): Promise<void> {
         :title="`Not saved since ${new Date(state.historyUnsaved.since).toLocaleTimeString()}`"
         @click="retryHistorySave()"
       >
-        Try now
+        Retry
       </UiButton>
     </div>
     <div
@@ -582,13 +654,13 @@ async function onRecordSave(): Promise<void> {
   <SettingsSheet
     ref="settingsSheet"
     :touch-controls="touchControls"
-    :crt-enabled="crtEnabled"
+    :crt-amount="crtAmount"
     :original-aspect="originalAspect"
     :gpu-backend="gpuBackend"
     :debug-open="debugOpen"
     :export-busy="exportBusy"
     @update:touch-controls="emit('update:touchControls', $event)"
-    @update:crt-enabled="emit('update:crtEnabled', $event)"
+    @update:crt-amount="emit('update:crtAmount', $event)"
     @update:original-aspect="emit('update:originalAspect', $event)"
     @update:debug-open="emit('update:debugOpen', $event)"
     @export-zip="onExportAgiZip"
@@ -618,9 +690,7 @@ async function onRecordSave(): Promise<void> {
       Shortcuts appear here when the game registers them.
     </p>
     <template v-else>
-      <p class="controls-hint">
-        Shortcuts from this game. Actions can depend on the current scene.
-      </p>
+      <p class="controls-hint">Some shortcuts work only in certain scenes.</p>
       <p v-if="shortcutsBlocked" class="controls-hint">Return to the game to use shortcuts.</p>
       <div class="shortcut-list">
         <button
@@ -780,14 +850,58 @@ a.publisher:hover > span {
 
 /* Notices sit between the bar and the stage; the stage re-fits around them. */
 .shell-notices {
+  position: relative;
+  z-index: var(--z-toast);
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: var(--space-2);
   flex: none;
+  /* The band spans the window; only the notices themselves take clicks. */
+  pointer-events: none;
+}
+.shell-notices > * {
+  pointer-events: auto;
 }
 .shell-notices:not(:empty) {
   padding: var(--space-2) var(--space-4);
+}
+.copy-created-anchor {
+  position: relative;
+  z-index: calc(var(--z-dock) + 1);
+  flex: none;
+  height: 0;
+  pointer-events: none;
+}
+/* Desktop notices fit over Parts to leave the editor controls clear. */
+.copy-created-note {
+  position: absolute;
+  top: var(--space-2);
+  left: var(--space-2);
+  width: 236px;
+  max-width: calc(100% - var(--space-4));
+  box-sizing: border-box;
+  margin: 0;
+  align-items: flex-start;
+  background: var(--surface-2);
+  pointer-events: auto;
+}
+@media (max-width: 1280px) {
+  .copy-created-note {
+    width: 164px;
+  }
+}
+/* Phones keep the toolbar and Edit/Game toggle clear: the note sits at the bottom. */
+@media (max-width: 600px) {
+  .copy-created-note {
+    position: fixed;
+    top: auto;
+    /* The workspace's thin status bar owns the bottom edge in Create. */
+    bottom: calc(
+      var(--workspace-status-h, 0px) + var(--space-3) + env(safe-area-inset-bottom, 0px)
+    );
+    width: calc(100% - var(--space-4));
+  }
 }
 .notice-actions {
   display: flex;

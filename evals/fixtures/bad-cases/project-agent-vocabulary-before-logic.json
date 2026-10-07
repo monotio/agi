@@ -1,0 +1,38 @@
+{
+  "name": "project-agent-vocabulary-before-logic",
+  "description": "A task registered WORDS through native tools before proposing LOGIC that used them. Validating the LOGIC against the captured dictionary refused the coordinated edit. Validate document proposals over all staged resources together.",
+  "projectAgent": {
+    "documents": { "logic:0": "return;", "words": "[]" },
+    "request": "Make sign a parser command",
+    "turns": [
+      {
+        "toolCalls": [
+          {
+            "id": "words",
+            "name": "write_words",
+            "input": { "words": [], "groups": [["sign"]], "ignored": null }
+          }
+        ]
+      },
+      {
+        "toolCalls": [
+          {
+            "id": "logic",
+            "name": "propose_changes",
+            "input": {
+              "label": "Sign command",
+              "changes": [
+                {
+                  "key": "logic:0",
+                  "content": "if (said(\"sign\")) { print(\"Welcome\"); } return;"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      { "text": "Added sign.", "toolCalls": [] }
+    ],
+    "expectedKeys": ["logic:0", "words"]
+  }
+}

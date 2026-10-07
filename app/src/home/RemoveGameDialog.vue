@@ -26,7 +26,7 @@ const open = defineModel<boolean>("open", { required: true });
       <strong>{{ title }}</strong> will be removed from this browser with its saves, history, notes
       and any changes you made. This cannot be undone.
     </p>
-    <p class="remove-game__copy">Games you downloaded as files are not affected.</p>
+    <p class="remove-game__copy">Your downloaded files stay as they are.</p>
     <template #footer>
       <UiButton autofocus data-testid="remove-game-cancel" @click="open = false">Cancel</UiButton>
       <UiButton

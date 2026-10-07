@@ -1,12 +1,18 @@
-import { expect, seeStudioTours, test } from "./test.ts";
 import type { Locator, Page } from "@playwright/test";
-import { testProjectId } from "../test/identity.ts";
 import { createContainer, openContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
-import { compilePictureSource } from "../../src/picture/source.ts";
 import { renderPicture } from "../../src/picture/renderer.ts";
+import { compilePictureSource } from "../../src/picture/source.ts";
 import { createPictureSurface } from "../../src/types.ts";
-import { cacheGame, textHook, waitForCycles } from "./engineProbe.ts";
+import { testProjectId } from "../test/identity.ts";
+import {
+  cacheGame,
+  closeWorkspaceEditor,
+  textHook,
+  waitForCycles,
+  workspaceUpdated,
+} from "./engineProbe.ts";
+import { expect, test } from "./test.ts";
 
 /**
  * Room Studio without a pointer and on screens that change under it: the
@@ -94,7 +100,7 @@ async function bootGame(page: Page): Promise<void> {
     .poll(async () => (await resume.isVisible()) || (await textHook(page)).room === 1)
     .toBe(true);
   if (await resume.isVisible()) await resume.press("Enter");
-  await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  await expect.poll(async () => (await textHook(page)).room, { timeout: 30_000 }).toBe(1);
   await waitForCycles(page, 2);
 }
 
@@ -106,23 +112,12 @@ async function openStudio(page: Page): Promise<Locator> {
     await page.keyboard.press("Space");
   }
   await expect(page).toHaveURL(/#create\//);
-  const panel = page.getByTestId("world-panel");
-  // Entering Create shows the player's room; All rooms and back, by keyboard.
-  await expect(panel.getByTestId("map-detail")).toHaveAttribute("data-room", "1");
-  await panel.getByRole("button", { name: "All rooms" }).press("Enter");
-  await expect(panel.getByTestId("map-room-1").getByRole("button")).toBeFocused();
+  await page.getByTestId("part-room:1:picture:5").focus();
   await page.keyboard.press("Enter");
-  await expect(panel.getByTestId("map-detail").getByRole("heading", { level: 3 })).toBeFocused();
-  const open = panel.getByTestId("world-open-studio");
-  await expect(open).toBeEnabled();
-  await open.press("Enter");
   const studio = page.getByTestId("room-studio");
   await expect(studio).toBeVisible();
   return studio;
 }
-
-const draftBytes = async (page: Page): Promise<Uint8Array> =>
-  Uint8Array.from(await page.evaluate(() => [...window.__AGI_STUDIO__!.bytes()]));
 
 function planes(bytes: Uint8Array) {
   const surface = createPictureSurface();
@@ -151,16 +146,7 @@ async function repeat(page: Page, key: string, times: number): Promise<void> {
   for (let k = 0; k < times; k++) await page.keyboard.press(key);
 }
 
-/** A one-step Depth edit with the Select tool: the occluder one row down. */
-async function nudgeOccluder(page: Page, studio: Locator): Promise<void> {
-  await page.keyboard.press("2");
-  await studio.locator('[data-row="occluder"]').click();
-  await studio.getByRole("group", { name: /^Canvas/ }).focus();
-  await page.keyboard.press("ArrowDown");
-  await expect(studio.getByTestId("studio-draft-status")).toHaveText("1 change");
-}
-
-test("keyboard only: a rect in the Art lens and a barrier line in the Walk lens, then Keep @webkit-desktop", async ({
+test("keyboard only: an Art rectangle and a Priority wall line autosave @webkit-desktop", async ({
   page,
 }) => {
   await bootGame(page);
@@ -171,7 +157,6 @@ test("keyboard only: a rect in the Art lens and a barrier line in the Walk lens,
       window.addEventListener(type, () => counts.pointer++, { capture: true });
   });
   const studio = await openStudio(page);
-  const status = studio.getByTestId("studio-draft-status");
   const canvas = studio.getByRole("group", { name: /^Canvas/ });
   const crosshair = studio.locator('[data-role="key-cursor"]').last();
   const announce = studio.locator('[data-role="announce"]');
@@ -182,7 +167,7 @@ test("keyboard only: a rect in the Art lens and a barrier line in the Walk lens,
   await expect(studio.getByTestId("studio-tool-filled")).toBeChecked();
   await canvas.focus();
   await page.keyboard.press("?");
-  const sheet = page.getByRole("dialog", { name: "Room Studio keys" });
+  const sheet = page.getByRole("dialog", { name: "PICTURE keys" });
   await expect(sheet).toContainText("Click at the cursor: starts; arrows size it; again finishes");
   await page.keyboard.press("Escape");
   await expect(sheet).toBeHidden();
@@ -202,17 +187,36 @@ test("keyboard only: a rect in the Art lens and a barrier line in the Walk lens,
   await repeat(page, "Shift+ArrowDown", 2);
   await repeat(page, "ArrowDown", 4);
   await expect(announce).toHaveText("x 40 y 140");
-  await expect(studio.locator('[data-role="tool-overlay"] rect.tool-overlay__line')).toHaveCount(
-    await page.locator(".studio-pane").count(),
-  );
+  // The sized rect previews as the picture's own pixels: black over the grey floor at 30,130.
+  const art = studio.locator('[data-layer="art"] canvas');
+  await expect
+    .poll(() =>
+      art.evaluate((element) => {
+        const canvas = element as HTMLCanvasElement;
+        const x = Math.floor((canvas.width * 30.5) / 160);
+        const y = Math.floor((canvas.height * 130.5) / 168);
+        return [...canvas.getContext("2d")!.getImageData(x, y, 1, 1).data.slice(0, 3)];
+      }),
+    )
+    .toEqual([0, 0, 0]);
   await page.keyboard.press("Space");
-  await expect(status).toHaveText("1 change");
+  await workspaceUpdated(page, true);
   await expect(studio.locator('[data-row="rect-1"]')).toHaveAttribute("aria-selected", "true");
 
-  // Walk lens, the line tool: a barrier from 20,150 to 100,150.
-  await page.keyboard.press("3");
+  // Priority lens, the line tool and the Wall pen: a wall from 20,150 to 100,150.
+  await canvas.focus();
+  await page.keyboard.press("2");
   await page.keyboard.press("l");
+  const palette = studio.getByRole("radiogroup", { name: "Priority", exact: true });
+  await palette
+    .getByRole("radio", { name: /^Depth/ })
+    .first()
+    .focus();
+  // Arrow keys walk the palette: left from band 4 lands on Water, then Trigger, Gate and Wall.
+  await repeat(page, "ArrowLeft", 4);
+  await expect(palette.getByRole("radio", { name: /^Wall:/ })).toBeFocused();
   await expect(studio.getByTestId("studio-value-priority")).toHaveAttribute("data-value", "0");
+  await canvas.focus();
   await expect(canvas).toBeFocused();
   // From 40,140 to 20,150, then 80 to the right: Enter there adds the
   // second point, Enter again on it finishes.
@@ -223,14 +227,12 @@ test("keyboard only: a rect in the Art lens and a barrier line in the Walk lens,
   await repeat(page, "Shift+ArrowRight", 10);
   await expect(announce).toHaveText("x 100 y 150");
   await page.keyboard.press("Enter");
-  await expect(studio.getByTestId("studio-hint")).toContainText("Backspace");
-  await expect(status).toHaveText("1 change");
+  await expect(page.getByTestId("studio-hint")).toContainText("Backspace");
   await page.keyboard.press("Enter");
-  await expect(status).toHaveText("2 changes");
-  await expect(studio.locator('[data-row="barrier-line-1"]')).toContainText("Barrier line 1");
+  await workspaceUpdated(page, true);
+  await expect(studio.locator('[data-row="wall-line-1"]')).toContainText("Wall line · 2 points");
 
-  await studio.getByTestId("studio-keep").press("Enter");
-  await expect(status).toHaveText("Kept");
+  await workspaceUpdated(page, true);
   const kept = planes(await storedPicture(page));
   const before = planes(PIC_5);
   for (let y = 120; y <= 140; y++)
@@ -246,86 +248,7 @@ test("keyboard only: a rect in the Art lens and a barrier line in the Walk lens,
   ).toBe(0);
 });
 
-test("a phone-width window covers Studio with a notice and keeps the draft; Keep there leaves", async ({
-  page,
-}) => {
-  await bootGame(page);
-  let studio = await openStudio(page);
-  const notice = page.getByTestId("studio-small-screen");
-  // Nothing unkept: a phone-width window simply returns to the game.
-  await page.setViewportSize({ width: 390, height: 844 });
-  await expect(studio).toHaveCount(0);
-  await expect(notice).toHaveCount(0);
-  await page.setViewportSize({ width: 1440, height: 900 });
-  studio = await openStudio(page);
-
-  await nudgeOccluder(page, studio);
-  const edited = await draftBytes(page);
-  await page.setViewportSize({ width: 390, height: 844 });
-  await expect(notice).toBeVisible();
-  await expect(notice).toContainText("Room Studio needs more room");
-  await expect(notice).toContainText("Your changes are safe. Widen the window or rotate back.");
-  await expect(notice).toContainText("1 unkept change");
-  await expect(studio).toHaveCount(1);
-  // Esc dismisses nothing and closes nothing.
-  await page.keyboard.press("Escape");
-  await expect(notice).toBeVisible();
-  await expect(page.getByTestId("studio-dialog-keep")).toBeHidden();
-
-  await page.setViewportSize({ width: 1440, height: 900 });
-  await expect(notice).toBeHidden();
-  await expect(studio.getByTestId("studio-draft-status")).toHaveText("1 change");
-  expect(await draftBytes(page)).toEqual(edited);
-  // The history came through too: undo and redo the nudge.
-  await page.keyboard.press("ControlOrMeta+z");
-  await expect(studio.getByTestId("studio-draft-status")).toHaveText("No changes");
-  await page.keyboard.press("ControlOrMeta+Shift+z");
-  await expect(studio.getByTestId("studio-draft-status")).toHaveText("1 change");
-
-  await page.setViewportSize({ width: 390, height: 844 });
-  await notice.getByTestId("studio-small-keep").click();
-  await expect(studio).toHaveCount(0);
-  await expect(notice).toHaveCount(0);
-  expect(await storedPicture(page)).toEqual(edited);
-});
-
-test("rotating a touch screen to its short landscape or portrait layout keeps the draft; Discard there leaves", async ({
-  browser,
-}) => {
-  const context = await browser.newContext({
-    hasTouch: true,
-    viewport: { width: 1180, height: 820 },
-  });
-  const page = await context.newPage();
-  await seeStudioTours(page);
-  await page.addInitScript(() => localStorage.setItem("monotio_agi.touchControls", "on"));
-  await bootGame(page);
-  const studio = await openStudio(page);
-  const notice = page.getByTestId("studio-small-screen");
-  await nudgeOccluder(page, studio);
-  const edited = await draftBytes(page);
-
-  for (const [width, height] of [
-    [820, 1180],
-    [844, 390],
-  ] as const) {
-    await page.setViewportSize({ width, height });
-    await expect(notice).toBeVisible();
-    await expect(studio).toHaveCount(1);
-    await page.setViewportSize({ width: 1180, height: 820 });
-    await expect(notice).toBeHidden();
-    await expect(studio.getByTestId("studio-draft-status")).toHaveText("1 change");
-    expect(await draftBytes(page)).toEqual(edited);
-  }
-
-  await page.setViewportSize({ width: 844, height: 390 });
-  await notice.getByTestId("studio-small-discard").click();
-  await expect(studio).toHaveCount(0);
-  expect(await storedPicture(page)).toEqual(PIC_5);
-  await context.close();
-});
-
-test("while Studio is open the page holds still and Tab stays in Studio and the bar above it", async ({
+test("while Studio is open the page holds still and Tab stays in its workspace", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1280, height: 720 });
@@ -350,17 +273,19 @@ test("while Studio is open the page holds still and Tab stays in Studio and the 
     const where = await page.evaluate(() => {
       const focused = document.activeElement;
       if (!focused || focused === document.body) return "body";
-      if (focused.closest('[data-testid="room-studio"], .play-bar')) return null;
+      if (
+        focused.closest(
+          '[data-testid="room-studio"], .play-bar, [data-testid="parts-list"], [data-testid="workspace-editor"], .workspace-splitter, .play-area',
+        )
+      )
+        return null;
       return focused.outerHTML.slice(0, 80);
     });
     if (where !== null && where !== "body") outside.push(where);
   }
   expect(outside).toEqual([]);
   // Tab only moves focus: passing the canvas never hides the side panels.
-  await expect(studio.getByRole("button", { name: "Focus mode" })).toHaveAttribute(
-    "aria-pressed",
-    "false",
-  );
+  await expect(page.getByTestId("workspace-focus")).toHaveAttribute("aria-pressed", "false");
 
   // The full label is the row's tooltip; the filter shows a focus ring.
   await expect(studio.locator('[data-row="occluder"] .scene-list__label')).toHaveAttribute(
@@ -372,7 +297,7 @@ test("while Studio is open the page holds still and Tab stays in Studio and the 
   await expect(studio.locator(".scene-list__filter")).toHaveCSS("outline-style", "solid");
   await expect(studio.locator(".scene-list__filter")).toHaveCSS("outline-width", "3px");
 
-  await studio.getByTestId("studio-close").click();
-  await expect(studio).toHaveCount(0);
+  await closeWorkspaceEditor(page);
+  await expect(studio).toBeHidden();
   await expect(activity).toHaveCount(0);
 });

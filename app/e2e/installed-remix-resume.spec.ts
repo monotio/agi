@@ -1,12 +1,20 @@
-import { providerReply } from "../../test/provider-stream.ts";
-import { configureAi, openGameOptions, savedGameCard, enterCreateMode } from "./engineProbe.ts";
-import { test, expect } from "@playwright/test";
+import { expect, test } from "./test.ts";
+import { readFile } from "node:fs/promises";
 import { createContainer, openContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import { buildView } from "../../src/view/view.ts";
+import { providerReply } from "../../test/provider-stream.ts";
 import { readGameZip } from "../src/archive/gameZip.ts";
-import { readFile } from "node:fs/promises";
-import { textHook, isolateStorage } from "./engineProbe.ts";
+import { gameRevision } from "../src/project/gameMetadata.ts";
+import {
+  configureAi,
+  enterCreateMode,
+  downloadFromSettings,
+  isolateStorage,
+  openWorkspaceAgent,
+  savedGameCard,
+  textHook,
+} from "./engineProbe.ts";
 
 test("an installed-game remix survives immediate Menu, Resume, reload and project export", async ({
   page,
@@ -24,10 +32,11 @@ test("an installed-game remix survives immediate Menu, Resume, reload and projec
   game.putResource("logic", 1, assembleLogic(original, { dictionary: new Map() }).payload);
   game.putResource("picture", 1, new Uint8Array([0xf0, 1, 0xf8, 0, 0, 0xff]));
   game.putFile("WORDS.TOK", new Uint8Array(52));
+  const revision = await gameRevision(Object.fromEntries(game.files));
   let fixtureReads = 0;
   await page.route("**/fixtures/**", async (route) => {
     const path = new URL(route.request().url()).pathname;
-    if (path === "/fixtures/") return route.fulfill({ json: ["sample"] });
+    if (path === "/fixtures/") return route.fulfill({ json: [{ folder: "sample", revision }] });
     if (path === "/fixtures/sample/") return route.fulfill({ json: [...game.files.keys()] });
     fixtureReads++;
     const bytes = game.files.get(path.split("/").at(-1)!);
@@ -48,7 +57,7 @@ test("an installed-game remix survives immediate Menu, Resume, reload and projec
     requests++;
     const calls = [
       ["write_view", { num: 11, source: sprite }],
-      ["write_logic_source", { room: 1, source: remixed }],
+      ["write_logic", { room: 1, source: remixed }],
     ];
     await route.fulfill(
       providerReply("openai", {
@@ -75,29 +84,42 @@ test("an installed-game remix survives immediate Menu, Resume, reload and projec
   await page.getByTestId("boot-sample").click();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
   await enterCreateMode(page);
-  await page.getByTestId("power-up").click();
-  await expect(page.getByTestId("agent-bubble-input")).toBeEnabled();
-  await page.getByTestId("agent-bubble-input").fill("Add an alligator");
-  await page.getByTestId("agent-bubble-send").click();
-  await expect(page.getByTestId("agent-bubble")).toBeHidden();
+  await openWorkspaceAgent(page);
+  // Installed editions use the workspace's reviewed agent flow in Create.
+  const message = page.getByTestId("agent-message");
+  await expect(message).toBeVisible();
+  await expect(message).toBeEnabled();
+  await message.fill("Add an alligator");
+  await page.getByRole("button", { name: "Send", exact: true }).click();
+  await expect(page.getByTestId("agent-review")).toBeVisible();
+  await page.getByTestId("agent-approve").click();
+  await expect(page.getByTestId("agent-review")).toBeHidden();
   await expect.poll(async () => (await textHook(page)).rows.join(" ")).toContain("ALLIGATOR REMIX");
   // Delay actual IndexedDB completion callbacks: Menu must await storage, not just the worker reply.
   await page.evaluate(() => {
+    const gate = Promise.withResolvers<void>();
+    Reflect.set(window, "releaseCompletions", gate.resolve);
+    Reflect.set(window, "completionPending", false);
     const descriptor = Object.getOwnPropertyDescriptor(IDBTransaction.prototype, "oncomplete")!;
     Object.defineProperty(IDBTransaction.prototype, "oncomplete", {
       ...descriptor,
       set(this: IDBTransaction, handler: (event: Event) => void) {
         descriptor.set!.call(this, function (this: IDBTransaction, event: Event) {
-          setTimeout(() => handler.call(this, event), 250);
+          Reflect.set(window, "completionPending", true);
+          void gate.promise.then(() => handler.call(this, event));
         });
       },
     });
   });
+  await page.getByRole("radio", { name: "Play", exact: true }).click();
   await page.getByTestId("btn-exit").click();
+  await page.waitForFunction(() => Reflect.get(window, "completionPending") === true);
+  await expect(page.getByTestId("btn-exit")).toBeVisible();
+  await page.evaluate(() => (Reflect.get(window, "releaseCompletions") as () => void)());
   const card = savedGameCard(page, "SAMPLE Remix");
   await expect(card.getByRole("button", { name: "Resume", exact: true })).toBeVisible();
   const record = await page.evaluate(() => {
-    const key = localStorage.getItem("monotio_agi.lastGame")!;
+    const key = localStorage.getItem("monotio_agi.resumeTarget")!;
     return JSON.parse(localStorage.getItem("monotio_agi.autosave." + key)!);
   });
   expect(record.game.installed).toBe(false);
@@ -107,9 +129,9 @@ test("an installed-game remix survives immediate Menu, Resume, reload and projec
   await card.getByRole("button", { name: "Resume", exact: true }).click();
   await expect.poll(async () => (await textHook(page)).rows.join(" ")).toContain("ALLIGATOR REMIX");
   expect(fixtureReads).toBe(reads);
-  expect(await page.evaluate(() => localStorage.getItem("monotio_agi.lastGame"))).toBe(
-    record.game.identity.project,
-  );
+  expect(
+    await page.evaluate(() => localStorage.getItem("monotio_agi.resumeTarget")?.split(":")[1]),
+  ).toBe(record.game.identity.project);
   expect(new URL(page.url()).hash, "a running game must be named in the URL").toBe(
     `#play/${record.game.identity.project}`,
   );
@@ -120,15 +142,15 @@ test("an installed-game remix survives immediate Menu, Resume, reload and projec
   await expect.poll(async () => (await textHook(page)).rows.join(" ")).toContain("ALLIGATOR REMIX");
   expect(fixtureReads).toBe(reads);
   const pending = page.waitForEvent("download");
-  await openGameOptions(page, "settings-menu");
-  await page.getByTestId("btn-download-game").click();
+  await downloadFromSettings(page, true);
   const download = await pending;
   const archive = await readGameZip(new Uint8Array(await readFile((await download.path())!)));
   expect(openContainer(new Map(Object.entries(archive.files))).getResource("view", 11)).toEqual(
     // The same 3x2 cel written as pixels, independent of the source compiler.
     buildView({ loops: [{ cels: [{ width: 3, height: 2, pixels: [4, 4, 4, 4, 0, 4] }] }] }),
   );
-  expect(JSON.stringify(archive.project?.transcript)).toContain("Add an alligator");
+  // The workspace stores each reviewed task in its exported chats.
+  expect(JSON.stringify(archive.project?.chats)).toContain("Add an alligator");
   expect(archive.roomGeneration).toBe(false);
   expect(requests).toBe(2);
 });

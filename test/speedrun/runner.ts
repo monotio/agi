@@ -13,7 +13,7 @@ import {
 } from "../../src/games/knownGames.ts";
 import { loadGame, type GameFixture } from "../game-fixture.ts";
 import { openContainer } from "../../src/container/container.ts";
-import { rngDraw } from "../../src/runtime/rng.ts";
+import { rngDraw, takeSequenceWord, type RngPolicy } from "../../src/runtime/rng.ts";
 import {
   NavigationTraversal,
   type TraversalRequest,
@@ -107,6 +107,7 @@ export class Speedrun {
   private navigationHeading: number | null = null;
   private clockPollTick = 0;
   private rngState: number;
+  private rngPolicy: RngPolicy;
   private readonly fixture: GameFixture;
 
   constructor(
@@ -117,6 +118,7 @@ export class Speedrun {
       checkVolumes?: boolean | "shipped";
       maxTicks?: number;
       dwellModals?: boolean;
+      rngVersion?: 1 | 2;
       /** Explicit assembled fixture, also used for independent retained branches. */
       fixture?: GameFixture;
       profile?: Engine["profile"];
@@ -124,6 +126,10 @@ export class Speedrun {
   ) {
     this.seed = seed;
     this.rngState = seed & 0xffff;
+    this.rngPolicy =
+      load.rngVersion === 2
+        ? { kind: "sequence", next: seed & 0xffff, cursor: 0 }
+        : { kind: "external" };
     const resolved = resolveGameHash(game);
     const known = resolved ? getKnownGameByHash(resolved) : getKnownGameByAlias(game);
     this.hash = resolved ?? (known ? known.wordsSha256 : game);
@@ -173,7 +179,11 @@ export class Speedrun {
         return answer!;
       },
       randomByte: () => {
-        const draw = rngDraw(this.rngState, () => this.seed & 0xffff);
+        const draw = rngDraw(this.rngState, () =>
+          this.rngPolicy.kind === "sequence"
+            ? takeSequenceWord(this.rngPolicy)
+            : this.seed & 0xffff,
+        );
         this.rngState = draw.state;
         return draw.byte;
       },
@@ -223,6 +233,7 @@ export class Speedrun {
       "Fork replay state differs from its boundary",
     );
     branch.rngState = this.rngState;
+    branch.rngPolicy = { ...this.rngPolicy };
     branch.ticks = this.ticks;
     branch.cycles = this.cycles;
     branch.clockPollTick = this.clockPollTick;

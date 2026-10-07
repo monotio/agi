@@ -1,3 +1,4 @@
+import { numberedLabel } from "../../../src/logic/numberedLabels.ts";
 /**
  * The host half of the always-visible transport. While the game runs the
  * bar shows the live session pinned at the timeline's LIVE endpoint; the
@@ -33,7 +34,9 @@ import {
   startsFresh,
   type HistoryBookmark,
 } from "./historyStorage.ts";
-import { gameStorageKey, type BootedGame } from "../project/gameTypes.ts";
+import type { BootedGame } from "../project/gameTypes.ts";
+import { resolveProgressTarget } from "../project/progressBinding.ts";
+import type { ProgressTarget } from "../project/progressTarget.ts";
 import type {
   HistoryBatch,
   HistoryBoot,
@@ -43,7 +46,7 @@ import type {
 } from "../../../src/agent/history.ts";
 import type { AgentSession } from "../agent/agentSession.ts";
 import type { WorkerControl, WorkerInbound, WorkerQueryFn } from "../worker/workerProtocol.ts";
-import type { EngineState, HistoryViewUiState } from "../engine/useEngineTypes.ts";
+import type { EngineState } from "../engine/useEngineTypes.ts";
 import type { LogAgentFn } from "../play/useInputController.ts";
 import {
   useTransport,
@@ -64,32 +67,8 @@ export interface HistoryViewMark {
 
 export type HistoryViewReport = Extract<WorkerControl, { type: "historyView" }>;
 
-export function freshHistoryView(): HistoryViewUiState {
-  return {
-    active: false,
-    loading: false,
-    parked: false,
-    seeking: false,
-    playing: false,
-    watching: false,
-    scrubbing: false,
-    speed: 1,
-    segment: 0,
-    generation: 0,
-    segmentCount: 0,
-    tick: 0,
-    seq: 0,
-    room: 0,
-    score: 0,
-    marks: [],
-    canResume: false,
-    branches: 0,
-    pendingSwaps: 0,
-    dropped: 0,
-    diverged: null,
-    error: "",
-  };
-}
+export { freshHistoryView } from "../engine/useEngineTypes.ts";
+import { freshHistoryView } from "../engine/useEngineTypes.ts";
 
 export interface HistoryViewDeps {
   readonly state: EngineState;
@@ -147,7 +126,7 @@ function roomMarkLabel(room: number, via: string, edge?: string): string {
   const lead = VIA_LABELS[via] ?? "arrived";
   const how =
     via === "edge" && edge ? `through the ${edge} edge` : via === "logic" ? "by the game" : "";
-  return `Room ${room}: ${lead}${how ? ` ${how}` : ""}`;
+  return `${numberedLabel("room", room)}: ${lead}${how ? ` ${how}` : ""}`;
 }
 
 function roomMark(m: HistoryRoomMark, segment: number): HistoryViewMark {
@@ -285,8 +264,32 @@ function markStartOvers(lanes: FlatSeg[], startedOver: ReadonlySet<string>): voi
   });
 }
 
+/**
+ * The session one operation belongs to: the game and worker that asked and
+ * the session generation at capture. It is rechecked across the
+ * operation's awaits — a replacement, even a reboot at the same tape
+ * locator, never inherits the operation's retained data, its adoption or
+ * its holds.
+ */
+interface SessionOwner {
+  readonly game: BootedGame | null;
+  readonly worker: Worker | null;
+  readonly session: number;
+}
+
+/**
+ * A swap's owner: the session that asked plus the physical tape its staged
+ * writes live under.
+ */
+interface SwapOwner extends SessionOwner {
+  readonly game: BootedGame;
+  readonly target: ProgressTarget;
+}
+
 export function useHistoryView(deps: HistoryViewDeps) {
   let recording: HistoryRecording | null = null;
+  /** The physical tape the loaded `recording` belongs to — its staged writes and marks answer to it. */
+  let tapeLocator: string | null = null;
   let bookmarks: HistoryBookmark[] = [];
   let watchTimer: ReturnType<typeof setTimeout> | null = null;
   /** Bumped by every stop: a Watch step still awaiting its reply ends there. */
@@ -308,12 +311,20 @@ export function useHistoryView(deps: HistoryViewDeps) {
    */
   let openSerial = 0;
   /**
+   * The session generation: bumped only by a full reset — what a booted-game
+   * or worker replacement leaves. Unlike openSerial it does not move when
+   * the view merely opens or closes, so an in-flight swap or metadata read
+   * keeps its owner across those but is fenced the moment the session
+   * itself is replaced — even by a reboot at the same tape address.
+   */
+  let sessionSerial = 0;
+  /**
    * The live timeline's segment lanes, built from the manifest outline and
    * the batch stream — the flattened axis the bar reads before the tape is
    * ever loaded. Reactive: every commit moves the LIVE endpoint.
    */
   const outline = reactive<FlatSeg[]>([]);
-  /** The storage key the outline was last loaded for — a game switch refills. */
+  /** The tape locator the outline was last loaded for — a game switch refills. */
   let outlineKey = "";
   /**
    * The axis snapshot a scrub gesture maps against. Frozen while the
@@ -331,6 +342,20 @@ export function useHistoryView(deps: HistoryViewDeps) {
   const view = () => deps.state.historyView;
 
   /**
+   * Whether the captured session still owns the surface: no reset ran since
+   * (the generation is unchanged) and the game and worker objects are still
+   * the ones that asked — a reboot at the same tape locator is a new owner
+   * even though the address is identical. Every awaited boundary of a
+   * session-bound operation rechecks this before it publishes an error,
+   * mutates an intent hold, closes a view or reports success; a stale
+   * continuation leaves the replacement's surface alone.
+   */
+  const stillOwned = (owner: SessionOwner): boolean =>
+    owner.session === sessionSerial &&
+    deps.getBootedGame() === owner.game &&
+    deps.getWorker() === owner.worker;
+
+  /**
    * Start over is about to boot the game afresh (true), or booted nothing
    * after all (false).
    */
@@ -343,6 +368,7 @@ export function useHistoryView(deps: HistoryViewDeps) {
     stopWatch();
     transport.dispose();
     recording = null;
+    tapeLocator = null;
     bookmarks = [];
     outline.length = 0;
     outlineKey = "";
@@ -351,6 +377,7 @@ export function useHistoryView(deps: HistoryViewDeps) {
     playAfterSeek = null;
     openSerial++;
     seekSerial++;
+    sessionSerial++;
     Object.assign(view(), freshHistoryView());
   }
 
@@ -452,11 +479,24 @@ export function useHistoryView(deps: HistoryViewDeps) {
   }
 
   /** Branch/pending counts plus the stored outline — one manifest read. */
-  async function refreshMeta(key: string): Promise<void> {
+  async function refreshMeta(locator: string): Promise<void> {
+    // The read answers for the session that asked: its game and the view's
+    // generation at call time. A reset or a replacement while it is
+    // outstanding — a new game object even at the same tape address — owns
+    // the surface now, so the result is dropped rather than republished.
+    const session = sessionSerial;
+    const game = deps.getBootedGame();
     try {
-      const meta = await loadTapeOutline(key);
+      const meta = await loadTapeOutline(locator);
+      if (
+        meta === null ||
+        session !== sessionSerial ||
+        game === null ||
+        deps.getBootedGame() !== game ||
+        resolveProgressTarget(game)?.locator !== locator
+      )
+        return;
       const v = view();
-      if (meta === null) return;
       v.branches = meta.branches;
       v.pendingSwaps = meta.pending;
       v.dropped = meta.dropped;
@@ -507,11 +547,11 @@ export function useHistoryView(deps: HistoryViewDeps) {
    */
   function observeBatch(batch: HistoryBatch): void {
     const game = deps.getBootedGame();
-    const key = game ? gameStorageKey(game) : "";
-    if (key !== outlineKey) {
-      outlineKey = key;
+    const locator = game === null ? "" : (resolveProgressTarget(game)?.locator ?? "");
+    if (locator !== outlineKey) {
+      outlineKey = locator;
       outline.length = 0;
-      if (key !== "") void refreshMeta(key);
+      if (locator !== "") void refreshMeta(locator);
     }
     let lane = outline.find((s) => s.id === batch.segment);
     if (lane === undefined) {
@@ -624,18 +664,34 @@ export function useHistoryView(deps: HistoryViewDeps) {
       await deps.drainHistoryCommits();
       const game = deps.getBootedGame();
       if (!game) throw new Error("no game is running");
-      const key = gameStorageKey(game);
-      const loaded = await loadGameHistory(key);
-      if (mine !== openSerial) return;
+      const worker = deps.getWorker();
+      const target = resolveProgressTarget(game);
+      const loaded = target === null ? null : await loadGameHistory(target.locator);
+      if (mine !== openSerial || deps.getBootedGame() !== game) return;
       recording = loaded;
+      tapeLocator = target?.locator ?? null;
       // Swaps interrupted last time — a promotion write failed or an
       // acknowledgement was lost — settle from the tape's evidence without
       // asking; only an unprovable one stays pending, preserved and quiet.
       // The batch stream's newest segment is the worker's live tail, which
       // settles candidates the tape alone cannot judge.
-      await resolveStagedSwap(key, recording, outline.at(-1)?.id ?? null, game.historyLifetime);
-      await refreshMeta(key);
-      bookmarks = await loadHistoryBookmarks(key);
+      if (target !== null) {
+        await resolveStagedSwap(
+          target,
+          recording,
+          outline.at(-1)?.id ?? null,
+          game.historyLifetime,
+        );
+        await refreshMeta(target.locator);
+        const kept = await loadHistoryBookmarks(target.locator);
+        // The open's results publish only while the session that asked
+        // still owns the surface — a reset or a replacement meanwhile keeps
+        // its own tape's state, and this read's results are dropped.
+        if (mine !== openSerial || deps.getBootedGame() !== game) return;
+        bookmarks = kept;
+      } else {
+        bookmarks = [];
+      }
       if (mine !== openSerial) return;
       if (recording === null || recording.segments.length === 0) {
         v.error = "Nothing is recorded yet. Play a little first.";
@@ -654,16 +710,18 @@ export function useHistoryView(deps: HistoryViewDeps) {
       );
       const seg = recording.segments[segIdx]!;
       const totalTicks = segmentExtent(seg);
-      const target = Math.min(Math.max(at?.tick ?? totalTicks, 0), totalTicks);
+      const startTick = Math.min(Math.max(at?.tick ?? totalTicks, 0), totalTicks);
       const reply = await deps.query(
         "historyViewStart",
-        { recording, segment: segIdx, tick: target },
+        { recording, segment: segIdx, tick: startTick },
         120_000,
       );
       if (mine !== openSerial) {
         // The view was closed or reset while the worker opened it — tear
-        // down the scratch session this reply just confirmed.
-        deps.getWorker()?.postMessage({ type: "historyViewEnd" } satisfies WorkerInbound);
+        // down the scratch session this reply just confirmed, but only on
+        // the worker that answered; a replacement owns its own sessions.
+        if (deps.getWorker() === worker)
+          worker?.postMessage({ type: "historyViewEnd" } satisfies WorkerInbound);
         return;
       }
       if (reply.error !== null) {
@@ -959,6 +1017,8 @@ export function useHistoryView(deps: HistoryViewDeps) {
    *   not keep posing as a live view. The owed candidate stays durable.
    */
   async function swapSessions(
+    /** The session the swap was issued for — captured by the caller before its own reads. */
+    owner: SwapOwner,
     adoptQuery: () => Promise<{
       ok: boolean;
       message?: string | null;
@@ -975,16 +1035,25 @@ export function useHistoryView(deps: HistoryViewDeps) {
      * lands. It is staged either way, so an uncertain swap keeps its copy.
      */
     keepDeparting = true,
+    reservationOwned = false,
   ): Promise<boolean> {
-    if (deps.state.powerUp.busy)
+    if (deps.state.powerUp.busy && !reservationOwned)
       throw new Error("Wait for the current authoring operation before changing sessions.");
+    const { game, target } = owner;
+    // The swap answers only to the session that asked: its captured game,
+    // worker and session generation. A replacement mid-flight — even a
+    // reboot at the same tape address — fences the operation before each
+    // worker query, staging write and authoring install, and keeps the
+    // stale continuation's cleanup off the surface the replacement owns.
+    if (!stillOwned(owner)) return false;
     const powerUp = deps.state.powerUp;
     powerUp.busy = true;
     try {
       const v = view();
-      const game = deps.getBootedGame();
-      if (!game) return false;
-      const key = gameStorageKey(game);
+      // An unbound game owns no tape. From an open view the departing session
+      // stages under the loaded recording's own address only — a live game
+      // that no longer resolves there cannot take its place on this tape.
+      if (v.active && target.locator !== tapeLocator) return false;
       // A user close mid-swap invalidates the swap's UI writes — the staged
       // candidate stays durable and the next open's settle pass resurfaces it.
       const mine = openSerial;
@@ -1005,6 +1074,12 @@ export function useHistoryView(deps: HistoryViewDeps) {
         session?.releaseAdoption();
         throw error;
       }
+      // The retain answered for the captured worker — a session replaced
+      // meanwhile owns nothing here: no staged copy, no adoption question.
+      if (!stillOwned(owner)) {
+        session?.releaseAdoption();
+        return false;
+      }
       if (departing.boot === null) {
         session?.releaseAdoption();
         v.error = "The paused session can't be kept while a game prompt is open.";
@@ -1020,10 +1095,17 @@ export function useHistoryView(deps: HistoryViewDeps) {
         ...(session ? { session: session.snapshotAuthoring() } : {}),
       };
       try {
-        await stageRetainedOriginal(key, candidate, game.historyLifetime);
+        await stageRetainedOriginal(target, candidate, game.historyLifetime);
       } catch (error) {
         session?.releaseAdoption();
         throw error;
+      }
+      // The staged copy stays durable on its own tape — a later open's
+      // settle pass resurfaces it — but the adoption question is the
+      // captured worker's; a replaced session is never asked it.
+      if (!stillOwned(owner)) {
+        session?.releaseAdoption();
+        return false;
       }
       let reply: {
         ok: boolean;
@@ -1036,21 +1118,25 @@ export function useHistoryView(deps: HistoryViewDeps) {
       } catch (error) {
         // The outcome is uncertain: whichever session is live must be released
         // even when the user already closed the transport. The authoring hold
-        // stays — a retry installs the adopted state and releases it.
-        closeHistory();
-        pauseAtLive();
-        await refreshMeta(key);
-        view().error = `${verb}'s outcome is uncertain (${String(error)}). The kept session is held for recovery.`;
+        // stays — a retry installs the adopted state and releases it. Only a
+        // surface this operation still owns is touched: a session replaced
+        // meanwhile keeps its own holds and its own notices.
+        if (stillOwned(owner)) {
+          closeHistory();
+          pauseAtLive();
+          view().error = `${verb}'s outcome is uncertain (${String(error)}). The kept session is held for recovery.`;
+        }
+        await refreshMeta(target.locator);
         return false;
       }
       if (!reply.ok) {
         session?.releaseAdoption();
         try {
-          await clearStagedOriginal(key, candidate.id, game.historyLifetime);
+          await clearStagedOriginal(target, candidate.id, game.historyLifetime);
         } catch {
-          await refreshMeta(key);
+          await refreshMeta(target.locator);
         }
-        view().error = reply.message ?? `${verb} failed.`;
+        if (stillOwned(owner)) view().error = reply.message ?? `${verb} failed.`;
         return false;
       }
       // The session leg of the transaction: the AgentSession installs the
@@ -1059,47 +1145,65 @@ export function useHistoryView(deps: HistoryViewDeps) {
       // names no adopted boot — keeps the adoption hold: recovery is a
       // retrying swap, not a silent turn against a different revision.
       if (reply.boot === undefined) {
-        closeHistory();
-        pauseAtLive();
-        await refreshMeta(key);
-        view().error = `${verb}'s reply carried no adopted state. Authoring is held until the next adoption.`;
+        if (stillOwned(owner)) {
+          closeHistory();
+          pauseAtLive();
+          view().error = `${verb}'s reply carried no adopted state. Authoring is held until the next adoption.`;
+        }
+        await refreshMeta(target.locator);
         return true;
+      }
+      // The worker adopted on the captured session; a replacement since
+      // then never gets the install that belonged to it. The staged copy
+      // already landed keeps the departing session recoverable.
+      if (!stillOwned(owner)) {
+        session?.releaseAdoption();
+        return false;
       }
       try {
         await deps.adoptSession(game, reply.boot, reply.session);
       } catch (error) {
-        closeHistory();
-        pauseAtLive();
-        await refreshMeta(key);
-        view().error = `${verb} adopted the session, but its authoring state could not be installed (${String(error)}). Authoring is held until the next adoption.`;
+        if (stillOwned(owner)) {
+          closeHistory();
+          pauseAtLive();
+          view().error = `${verb} adopted the session, but its authoring state could not be installed (${String(error)}). Authoring is held until the next adoption.`;
+        }
+        await refreshMeta(target.locator);
         return true;
       }
       try {
         if (keepDeparting)
-          await commitStagedOriginal(key, candidate.id, dropBranch, game.historyLifetime);
-        else await clearStagedOriginal(key, candidate.id, game.historyLifetime);
+          await commitStagedOriginal(target, candidate.id, dropBranch, game.historyLifetime);
+        else await clearStagedOriginal(target, candidate.id, game.historyLifetime);
       } catch (error) {
-        closeHistory();
-        pauseAtLive();
-        await refreshMeta(key);
-        view().error = `The session was kept but its record could not be saved (${String(error)}). The copy stays queued for recovery.`;
-        deps.logAgent("log", `history: ${verb} adopted; the kept session's promotion is pending`);
+        if (stillOwned(owner)) {
+          closeHistory();
+          pauseAtLive();
+          view().error = `The session was kept but its record could not be saved (${String(error)}). The copy stays queued for recovery.`;
+          deps.logAgent("log", `history: ${verb} adopted; the kept session's promotion is pending`);
+        }
+        await refreshMeta(target.locator);
         return true;
       }
-      stopWatch();
-      if (stillMine()) {
-        v.active = false;
-        v.watching = false;
-        v.error = "";
+      if (stillOwned(owner)) {
+        stopWatch();
+        if (stillMine()) {
+          v.active = false;
+          v.watching = false;
+          v.error = "";
+        }
+        v.parked = false;
+        recordingAxis = [];
+        deps.resumeEngine("history");
+        deps.resumeEngine("transport");
       }
-      v.parked = false;
-      recordingAxis = [];
-      deps.resumeEngine("history");
-      deps.resumeEngine("transport");
-      await refreshMeta(key);
+      await refreshMeta(target.locator);
       return true;
     } finally {
-      powerUp.busy = false;
+      // The reservation releases only while the operation still owns the
+      // surface: a session replacement already cleared it in resetScreenState,
+      // and clearing it again could undo a hold the replacement took since.
+      if (stillOwned(owner) && !reservationOwned) powerUp.busy = false;
     }
   }
 
@@ -1113,10 +1217,22 @@ export function useHistoryView(deps: HistoryViewDeps) {
     if (!v.active || !v.canResume || v.diverged !== null) return;
     const game = deps.getBootedGame();
     if (!game || recording === null) return;
+    const target = resolveProgressTarget(game);
     v.error = "";
     stopWatch();
+    if (target === null) return;
+    // The owner is captured before the swap's first await and gates every
+    // later publication: a replacement meanwhile owns the surface, and the
+    // stale continuation's error or success report never lands on it.
+    const owner: SwapOwner = {
+      game,
+      target,
+      worker: deps.getWorker(),
+      session: sessionSerial,
+    };
     try {
       const done = await swapSessions(
+        owner,
         async () => {
           const reply = await deps.query(
             "historyViewTake",
@@ -1135,9 +1251,13 @@ export function useHistoryView(deps: HistoryViewDeps) {
         undefined,
         keepDeparting,
       );
-      if (done) deps.logAgent("log", `history: resumed from ${v.segment}:${v.tick}`);
+      if (done && stillOwned(owner))
+        deps.logAgent("log", `history: resumed from ${v.segment}:${v.tick}`);
     } catch (error) {
-      view().error = error instanceof Error ? error.message : String(error);
+      // The rejection belongs to the session that asked — a replaced one
+      // (the captured worker was drained when the new worker spawned) keeps
+      // its own notice, hold and busy reservation.
+      if (stillOwned(owner)) view().error = error instanceof Error ? error.message : String(error);
     }
   }
 
@@ -1151,18 +1271,32 @@ export function useHistoryView(deps: HistoryViewDeps) {
     const v = view();
     const game = deps.getBootedGame();
     if (!game) return;
-    const key = gameStorageKey(game);
-    const branches = await loadRetainedBranches(key);
-    const branch = branches[branches.length - 1];
-    if (branch === undefined) {
+    const target = resolveProgressTarget(game);
+    if (target === null) {
       v.error = "No earlier session is kept.";
       return;
     }
-    v.error = "";
-    stopWatch();
-    if (!v.active) pauseAtLive();
+    // The read's owner is captured before it: the session generation, the
+    // game object and its worker. A replacement while the branches load —
+    // another project, or a reboot at the same tape address — must not have
+    // the branch it reads restored, adopted or staged under itself.
+    const owner: SwapOwner = { game, target, worker: deps.getWorker(), session: sessionSerial };
+    if (deps.state.powerUp.busy) return;
+    const powerUp = deps.state.powerUp;
+    powerUp.busy = true;
     try {
+      const branches = await loadRetainedBranches(target.locator);
+      if (!stillOwned(owner)) return;
+      const branch = branches[branches.length - 1];
+      if (branch === undefined) {
+        v.error = "No earlier session is kept.";
+        return;
+      }
+      v.error = "";
+      stopWatch();
+      if (!v.active) pauseAtLive();
       const done = await swapSessions(
+        owner,
         async () => {
           const reply = await deps.query(
             "historyViewRestore",
@@ -1187,10 +1321,16 @@ export function useHistoryView(deps: HistoryViewDeps) {
         },
         "Undo rewind",
         branch.id,
+        true,
+        true,
       );
-      if (done) deps.logAgent("log", "history: rewound to the kept session");
+      if (done && stillOwned(owner)) deps.logAgent("log", "history: rewound to the kept session");
     } catch (error) {
-      view().error = error instanceof Error ? error.message : String(error);
+      // Same gate as Resume from here: a stale swap's failure never lands
+      // on the replacement's surface.
+      if (stillOwned(owner)) view().error = error instanceof Error ? error.message : String(error);
+    } finally {
+      if (stillOwned(owner)) powerUp.busy = false;
     }
   }
 
@@ -1206,6 +1346,17 @@ export function useHistoryView(deps: HistoryViewDeps) {
   async function undoStartOver(): Promise<boolean> {
     const v = view();
     if (v.loading) return false;
+    // The operation's owner is captured before its first pause, close or
+    // await — the game object, its worker and the session generation. A
+    // replacement anywhere in flight (even a reboot at the same tape
+    // locator) owns the surface now: the stale continuation rechecks the
+    // owner after every awaited boundary and stops without reading the new
+    // surface, refusing on it or touching its holds.
+    const owner: SessionOwner = {
+      game: deps.getBootedGame(),
+      worker: deps.getWorker(),
+      session: sessionSerial,
+    };
     // From an open tape, the live game it parked is the one to replace.
     if (v.active) closeHistory();
     const play = !v.parked;
@@ -1220,6 +1371,7 @@ export function useHistoryView(deps: HistoryViewDeps) {
     };
     pauseAtLive();
     await openHistory();
+    if (!stillOwned(owner)) return false;
     if (!v.active || recording === null) {
       if (v.error !== "") v.error = explain(v.error);
       if (play) resumeLive();
@@ -1233,12 +1385,17 @@ export function useHistoryView(deps: HistoryViewDeps) {
       return refuse("the earlier session was dropped from the timeline to save space.");
     const previous = fresh - 1;
     await seekTo(previous, segmentExtent(segments[previous]!));
+    if (!stillOwned(owner)) return false;
     if (!v.active) return false;
     if (v.error !== "") return refuse(v.error);
     if (v.diverged !== null)
       return refuse("the earlier session's recording can't be replayed to its end.");
     if (!v.canResume) return refuse("the earlier session ended at a moment that can't be resumed.");
     await resumeFromHere("Undo start over", false);
+    // A canceled inner swap already stopped at its own owner fence — the
+    // surface it left belongs to the replacement, so there is no refusal,
+    // close or success for this operation to publish.
+    if (!stillOwned(owner)) return false;
     // A refused take leaves the view open with its reason; an uncertain one
     // already closed it and says so.
     if (v.active) return refuse(v.error || "the earlier session could not be resumed.");
@@ -1253,6 +1410,10 @@ export function useHistoryView(deps: HistoryViewDeps) {
     const game = deps.getBootedGame();
     const seg = recording?.segments[v.segment];
     if (!v.active || !game || !seg) return;
+    const target = resolveProgressTarget(game);
+    // The mark names the loaded tape's segment: it persists only while the
+    // live game still owns that recording's physical address.
+    if (target === null || target.locator !== tapeLocator) return;
     const bookmark: HistoryBookmark = {
       segment: seg.id,
       seq: v.seq,
@@ -1263,7 +1424,7 @@ export function useHistoryView(deps: HistoryViewDeps) {
     bookmarks = [...bookmarks, bookmark];
     v.marks = buildMarks(recording!, bookmarks, startedOver);
     recordingAxis = [];
-    await saveHistoryBookmark(gameStorageKey(game), bookmark, game.historyLifetime);
+    await saveHistoryBookmark(target, bookmark, game.historyLifetime);
   }
 
   /**
@@ -1446,7 +1607,7 @@ export function useHistoryView(deps: HistoryViewDeps) {
       if (v.active) {
         const total = flatTotal();
         const pct = total > 0 ? Math.round((flatPosition() / total) * 100) : 0;
-        return `Room ${v.room} · ${pct}%${v.seeking ? " · replaying…" : ""}`;
+        return `${numberedLabel("room", v.room)} · ${pct}%`;
       }
       // Live or paused at LIVE: the LIVE and Resume buttons already say so.
       return undefined;
@@ -1488,6 +1649,7 @@ export function useHistoryView(deps: HistoryViewDeps) {
           title: "Restore the session the last rewind kept; the current one is kept in its place",
           label: "Undo rewind",
           variant: "secondary",
+          disabled: deps.state.powerUp.busy,
           run: () => void undoRewind(),
         });
       return buttons;

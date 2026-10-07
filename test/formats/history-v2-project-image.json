@@ -1,0 +1,53 @@
+{
+  "version": 2,
+  "identity": {
+    "project": "format-history",
+    "revision": "1111111111111111111111111111111111111111111111111111111111111111"
+  },
+  "profile": "2.936",
+  "resourceSet": "rev-1",
+  "startedAt": 42,
+  "segments": [
+    {
+      "id": "s1",
+      "boot": {
+        "files": {
+          "VOL.0": "eA=="
+        },
+        "dictionary": [],
+        "authorRooms": false,
+        "rng": 7,
+        "soundDevice": 1,
+        "resourceSet": "rev-1",
+        "requestSerial": 0,
+        "fingerprint": {
+          "v": 1,
+          "hash": "b0a444137a6d189d"
+        }
+      },
+      "anchors": [],
+      "events": [
+        {
+          "seq": 0,
+          "tick": 1,
+          "cycle": 1,
+          "cause": {
+            "kind": "projectImage",
+            "files": {
+              "VOL.0": "eA=="
+            },
+            "documents": {
+              "format": "monotio.agi.project-workspace",
+              "version": 1,
+              "documents": []
+            },
+            "documentId": "bc5ec143757aa7f8e1474e3f01a4e1fde9b524028b63882ae45baa78b02f38bf",
+            "nativeChanged": true
+          }
+        }
+      ],
+      "marks": [],
+      "sync": []
+    }
+  ]
+}

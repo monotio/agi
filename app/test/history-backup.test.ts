@@ -21,8 +21,8 @@ test("failed history reads preserve worker recovery bytes and declare the missin
   assert.equal(result.history, null);
   assert.equal(result.report.complete, false);
   assert.deepEqual(result.report.recoveryBatches, [batch]);
-  assert.match(result.report.notes.join(" "), /not automatically restored/);
-  assert.match(result.report.notes.join(" "), /could not be read/);
+  assert.match(result.report.notes.join(" "), /Reopening the game will not restore that history/);
+  assert.match(result.report.notes.join(" "), /could not be read: storage denied/);
 });
 
 test("empty readable history is complete; worker failure is explicitly partial", async () => {
@@ -34,5 +34,5 @@ test("empty readable history is complete; worker failure is explicitly partial",
     },
   );
   assert.equal(result.report.complete, false);
-  assert.match(result.report.notes.join(" "), /could not be captured/);
+  assert.match(result.report.notes.join(" "), /could not be downloaded/);
 });

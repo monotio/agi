@@ -1,0 +1,88 @@
+name: Prepare CI
+on:
+  workflow_call:
+    inputs:
+      base:
+        type: string
+        default: ""
+      head:
+        type: string
+        default: HEAD
+      burn_base:
+        type: string
+        default: ""
+    outputs:
+      browser_image:
+        value: ${{ jobs.prepare.outputs.browser_image }}
+      browsers:
+        value: ${{ jobs.prepare.outputs.browsers }}
+      specs:
+        value: ${{ jobs.prepare.outputs.specs }}
+      duplicate:
+        value: ${{ jobs.prepare.outputs.duplicate }}
+permissions:
+  contents: read
+  pull-requests: read
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      browser_image: ${{ steps.image.outputs.image }}
+      browsers: ${{ steps.changes.outputs.browsers }}
+      specs: ${{ steps.changes.outputs.specs }}
+      duplicate: ${{ steps.duplicate.outputs.duplicate }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Prefer the PR run for branches with open PRs
+        id: duplicate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          duplicate=false
+          if [ "$EVENT" = push ] && [ "$BRANCH" != main ]; then
+            count=$(gh api --method GET "repos/$GITHUB_REPOSITORY/pulls" -f state=open -f "head=$GITHUB_REPOSITORY_OWNER:$BRANCH" --jq length)
+            if [ "$count" -gt 0 ]; then duplicate=true; fi
+          fi
+          echo "duplicate=$duplicate" >> "$GITHUB_OUTPUT"
+          echo "PR run supplies the verdict: $duplicate"
+      - name: Classify changed files
+        id: changes
+        env:
+          BASE: ${{ inputs.base }}
+          HEAD: ${{ inputs.head }}
+          BURN_BASE: ${{ inputs.burn_base }}
+        run: python3 scripts/ci/tools.py changes --base "$BASE" --head "$HEAD" --burn-base "$BURN_BASE"
+      - name: Pinned browser image
+        id: image
+        run: |
+          image=$(python3 scripts/ci/browser_image.py --print)
+          echo "image=$image" >> "$GITHUB_OUTPUT"
+      - name: CI helper tests
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: python3 -m unittest discover -s scripts/ci -p 'test_*.py'
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        if: steps.duplicate.outputs.duplicate != 'true'
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
+        if: steps.duplicate.outputs.duplicate != 'true'
+        id: deps
+        env:
+          SEGMENT_DOWNLOAD_TIMEOUT_MINS: "1"
+        with:
+          path: |
+            node_modules
+            app/node_modules
+          key: deps-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }}-v2
+      - name: Install workspaces once
+        if: steps.duplicate.outputs.duplicate != 'true' && steps.deps.outputs.cache-hit != 'true'
+        run: npm ci

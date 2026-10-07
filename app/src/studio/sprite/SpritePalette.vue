@@ -7,10 +7,10 @@ import { explain } from "../studioTerms.ts";
 import { swatchInk } from "./spriteView.ts";
 
 /**
- * The fixed AGI palette with the edited cel's transparent colour marked ∅,
+ * The fixed AGI palette with the edited cel's transparent colour marked T,
  * in two short rows of eight so the previews below stay in view. A radio
  * group: arrows move between colours. Choosing the transparent colour turns
- * the eraser on, which paints it. The heading's "∅ transparent ⓘ" says what
+ * the eraser on, which paints it. The heading's "Transparent colour ⓘ" says what
  * it is and offers "Choose another…" (`choose`), which opens the cel's
  * Details at its transparent colour. It is the view's data (what the game
  * leaves see-through); the drawing backdrop is the options bar's, and stays
@@ -55,7 +55,7 @@ function onKey(event: KeyboardEvent, value: number): void {
     <header class="sprite-palette__head">
       <h3 id="sprite-palette-title">Palette</h3>
       <span class="sprite-palette__transparent" data-testid="sprite-transparent"
-        >∅ transparent
+        >Transparent colour
         <UiExplain v-bind="explain('transparent')">
           <template #action="{ close }">
             <UiButton
@@ -91,7 +91,7 @@ function onKey(event: KeyboardEvent, value: number): void {
         @click="choose(value)"
         @keydown="onKey($event, value)"
       >
-        <span :style="{ color: swatchInk(value) }">{{ value === transparent ? "∅" : value }}</span>
+        <span :style="{ color: swatchInk(value) }">{{ value === transparent ? "T" : value }}</span>
       </button>
     </div>
   </section>

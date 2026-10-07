@@ -73,7 +73,7 @@ export function roomDrawsPicture(
 ): boolean {
   const logics = new Map<number, Uint8Array>();
   try {
-    const container = openContainer(files);
+    const container = openContainer(files, profile ? { profile } : {});
     for (let num = 0; num < 256; num++) {
       const payload = container.getResource("logic", num);
       if (payload) logics.set(num, payload);

@@ -1,0 +1,98 @@
+import { CycleClock } from "../../../src/runtime/cycleClock.ts";
+import { SoundClock } from "./soundClock.ts";
+import { FrameRing } from "./frameRing.ts";
+import { newDebuggerState } from "./debuggerState.ts";
+import type { RunSession } from "./context.ts";
+
+/** Fresh state for every engine-owned service; replacement carries only declared fields. */
+export function newRunSession(now: number): RunSession {
+  return {
+    generation: 0,
+    owner: { active: true, generation: 0, epoch: 0, answers: [] },
+    progress: { mode: "play" },
+    rng: { word: 1, policy: { kind: "external" } },
+    scratchSlots: {},
+    engine: null,
+    clocks: { sound: new SoundClock(now), cycle: new CycleClock(now) },
+    input: {
+      observeSentences: false,
+      sentence: null,
+      keyQueue: [],
+      deferredMovement: [],
+      inputBuffer: [],
+      clickQueue: [],
+      keyWaiting: false,
+    },
+    hostRequests: {
+      scratchTimer: null,
+      hostRequestSerial: 0,
+      hostRequestOutstanding: null,
+      pendingReenter: false,
+    },
+    cycle: {
+      timer: null,
+      soundTimer: null,
+      tickCount: 0,
+      cycleCount: 0,
+      lastCycleReportAt: 0,
+      lastHistoryAt: 0,
+      initialLogicStarted: false,
+      lastInputReady: false,
+      paused: false,
+      pendingClock: null,
+    },
+    autosave: {
+      autosaveIntervalMs: 5_000,
+      autosaveFiles: false,
+      lastAutosaveAt: 0,
+      lastAutosaveCycle: -1,
+      lastPatchGeneration: 0,
+    },
+    presentation: {
+      recentRing: new FrameRing(100),
+      historyRing: new FrameRing(60),
+      lastVisual: null,
+      lastPriority: null,
+      lastText: null,
+      lastOwnership: null,
+      lastPreview: null,
+      lastPicture: null,
+      lastPicturePriority: null,
+      lastObjectsJson: "",
+      lastPicRow: -1,
+      lastTextMode: false,
+      lastInputEnabled: false,
+      lastReleaseGate: 0,
+      lastModal: null,
+      lastPatchGen: -1,
+      lastControls: "",
+      lastInputEdit: "",
+      lastSoundEnabled: null,
+    },
+    debug: {
+      channels: { ownership: false, objects: false, trace: false, picture: false },
+      debugEvents: [],
+      debugEventSeq: 0,
+      prevVars: null,
+      prevFlags: null,
+      traceRing: [],
+      traceSeq: 0,
+      pendingTrace: [],
+      traceEpoch: 0,
+      traceBatch: 0,
+      traceInFlight: 0,
+      traceDropped: 0,
+    },
+    journal: {
+      seq: 0,
+      lastRoom: null,
+      lastScore: 0,
+      lastCarried: [],
+      pendingCause: null,
+      pending: [],
+    },
+    recording: { recording: null },
+    projectAdmission: null,
+    debugger: newDebuggerState(),
+  };
+}

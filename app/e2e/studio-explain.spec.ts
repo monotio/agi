@@ -1,7 +1,14 @@
-import { expect, test, reviewShot } from "./test.ts";
 import type { Locator, Page } from "@playwright/test";
-import { enterCreateMode, isolateStorage, textHook, openWorldRoom } from "./engineProbe.ts";
+import { VOCABULARY } from "../../src/vocabulary.ts";
 import { STUDIO_TERMS, type StudioTerm } from "../src/studio/studioTerms.ts";
+import {
+  enterCreateMode,
+  isolateStorage,
+  openWorkspacePicture,
+  openWorkspaceView,
+  textHook,
+} from "./engineProbe.ts";
+import { expect, test } from "./test.ts";
 
 /**
  * Every ⓘ in the Studios explains itself: in each lens of Room Studio and in
@@ -24,9 +31,7 @@ async function playTutorial(page: Page): Promise<void> {
 }
 
 async function openRoomOne(page: Page): Promise<Locator> {
-  const panel = page.getByTestId("world-panel");
-  await openWorldRoom(panel, 1);
-  await panel.getByTestId("world-open-studio").click();
+  await openWorkspacePicture(page, 1);
   const studio = page.getByTestId("room-studio");
   await expect(studio).toBeVisible();
   return studio;
@@ -48,15 +53,26 @@ async function everyExplainer(
   const seen: string[] = [];
   for (let i = 0; i < count; i++) {
     const trigger = triggers.nth(i);
-    const term = (await trigger.getAttribute("data-term")) as StudioTerm;
-    expect(Object.keys(STUDIO_TERMS), `${term} is a registry term`).toContain(term);
-    await expect(trigger).toHaveAccessibleName(`What is ${STUDIO_TERMS[term].name}?`);
+    const term = (await trigger.getAttribute("data-term")) as StudioTerm | "drawing-depth";
+    const entry =
+      term === "drawing-depth"
+        ? {
+            name: VOCABULARY.drawingDepth.label,
+            says: VOCABULARY.drawingDepth.help,
+            help: undefined,
+          }
+        : STUDIO_TERMS[term];
+    expect(entry, `${term} is a registry term`).toBeDefined();
+    // A heading that explains itself is named by its own text; an icon asks the question.
+    const labelled = await trigger.evaluate((el) => el.classList.contains("ui-explain--label"));
+    await expect(trigger).toHaveAccessibleName(labelled ? entry.name : `What is ${entry.name}?`);
     await trigger.click();
     const pop = page.getByTestId("explain-pop");
     await expect(pop).toHaveAttribute("data-term", term);
-    await expect(pop.getByRole("heading")).toHaveText(STUDIO_TERMS[term].name);
-    await expect(pop.getByTestId("explain-says")).toHaveText(STUDIO_TERMS[term].says);
-    await expect(pop.getByTestId("explain-more")).toBeVisible();
+    await expect(pop.getByRole("heading")).toHaveText(entry.name);
+    await expect(pop.getByTestId("explain-says")).toHaveText(entry.says);
+    if (entry.help) await expect(pop.getByTestId("explain-more")).toBeVisible();
+    else await expect(pop.getByTestId("explain-more")).toHaveCount(0);
     await page.keyboard.press("Escape");
     await expect(pop).toHaveCount(0);
     await expect(trigger).toBeFocused();
@@ -82,7 +98,7 @@ test("Room Studio: every explainer in every lens says its sentence and gives Esc
   await expect(rect).toHaveAttribute("aria-pressed", "true");
   const still = async () => {
     await expect(rect).toHaveAttribute("aria-pressed", "true");
-    await expect(studio.getByTestId("inspector-title")).toContainText("2 items");
+    await expect(studio.locator('[role="treeitem"][aria-selected="true"]')).toHaveCount(2);
   };
   const seen = new Set<string>();
   for (const key of ["1", "2", "3"]) {
@@ -90,16 +106,17 @@ test("Room Studio: every explainer in every lens says its sentence and gives Esc
     await page.keyboard.press(key);
     for (const term of await everyExplainer(page, studio, still)) seen.add(term);
   }
-  for (const term of ["lens-lock-depth", "lens-lock-art", "lens-lock-walk", "order", "step"])
-    expect([...seen], `the ${term} explainer shows`).toContain(term);
+  for (const term of ["order"]) expect([...seen], `the ${term} explainer shows`).toContain(term);
 
   // A mouse resting on an ⓘ opens it with focus left on the canvas; Esc then
   // closes the explainer, and only the explainer.
   const canvas = studio.getByRole("group", { name: /^Canvas/ });
+  await studio.getByRole("radio", { name: "Items", exact: true }).click();
   await canvas.focus();
-  await studio.getByTestId("scrubber-step").getByTestId("explain-step").hover();
+  await expect(studio.getByTestId("explain-order")).toBeVisible();
+  await studio.getByTestId("explain-order").hover();
   const pop = page.getByTestId("explain-pop");
-  await expect(pop).toHaveAttribute("data-term", "step");
+  await expect(pop).toHaveAttribute("data-term", "order");
   await expect(canvas).toBeFocused();
   await page.keyboard.press("Escape");
   await expect(pop).toHaveCount(0);
@@ -107,36 +124,10 @@ test("Room Studio: every explainer in every lens says its sentence and gives Esc
   await expect(canvas).toBeFocused();
   // Moving away closes a resting explainer by itself.
   await page.mouse.move(10, 10);
-  await studio.getByTestId("scrubber-step").getByTestId("explain-step").hover();
+  await studio.getByTestId("explain-order").hover();
   await expect(pop).toBeVisible();
   await page.mouse.move(10, 10);
   await expect(pop).toHaveCount(0);
-});
-
-test("Room Studio: the lock chip's Learn more opens Help at Locks @webkit-desktop", async ({
-  page,
-}) => {
-  await playTutorial(page);
-  const studio = await openRoomOne(page);
-  const trigger = studio
-    .locator(".top-bar__lens")
-    .getByTestId("studio-lock-chip")
-    .getByTestId("explain-lens-lock-depth");
-  await trigger.click();
-  const pop = page.getByTestId("explain-pop");
-  await expect(pop.getByTestId("studio-unlock")).toHaveText("Unlock for now");
-  await reviewShot(page, "room-lock-explainer");
-  await pop.getByTestId("explain-more").click();
-  const guide = page.getByTestId("help-guide");
-  await expect(guide).toBeVisible();
-  await expect(guide.getByTestId("help-section-creating")).toHaveAttribute("aria-current", "true");
-  const heading = guide.locator("#help-topic-studio-locks");
-  await expect(heading).toHaveText("Locks");
-  await expect(heading).toBeFocused();
-  await expect(heading).toBeInViewport();
-  await page.keyboard.press("Escape");
-  await expect(guide).toBeHidden();
-  await expect(studio).toBeVisible();
 });
 
 test("Room Studio's chrome says depth, walk lines and steps", async ({ page }) => {
@@ -149,13 +140,13 @@ test("Room Studio's chrome says depth, walk lines and steps", async ({ page }) =
   const pane = studio.locator(".studio-pane").last();
   const box = (await pane.boundingBox())!;
   await page.mouse.move(box.x + box.width * 0.3, box.y + box.height * 0.4);
-  await expect(studio.getByTestId("studio-status")).toContainText("depth");
-  for (const key of ["1", "2", "3"]) {
+  await expect(page.getByTestId("studio-status")).toContainText(/^x \d+ · y \d+$/);
+  for (const key of ["1", "2"]) {
     await studio.getByRole("group", { name: /^Canvas/ }).focus();
     await page.keyboard.press(key);
     const text = await studio.innerText();
     expect(
-      text.match(/\b(priorit(y|ies)|control lines?|commands?|playhead|planes?|visual)\b/gi),
+      text.match(/\b(control lines?|commands?|playhead|planes?)\b/gi),
       `lens ${key}: retired words in the chrome`,
     ).toBeNull();
   }
@@ -163,9 +154,7 @@ test("Room Studio's chrome says depth, walk lines and steps", async ({ page }) =
 
 test("Sprite Studio: every explainer says its sentence and gives Esc back", async ({ page }) => {
   await playTutorial(page);
-  const panel = page.getByTestId("world-panel");
-  await openWorldRoom(panel, 1);
-  await panel.getByTestId("world-open-sprite-0").click();
+  await openWorkspaceView(page, 0);
   const studio = page.getByTestId("sprite-studio");
   await expect(studio).toBeVisible();
   await studio.getByTestId("sprite-stage").focus();
@@ -176,6 +165,6 @@ test("Sprite Studio: every explainer says its sentence and gives Esc back", asyn
     await expect(studio).toBeVisible();
     await expect(eraser).toHaveAttribute("aria-pressed", "true");
   });
-  for (const term of ["transparent", "loops", "shared-view"])
+  for (const term of ["transparent", "loops", "mirror"])
     expect(seen, `the ${term} explainer shows`).toContain(term);
 });

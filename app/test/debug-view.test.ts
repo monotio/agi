@@ -1,3 +1,4 @@
+import { systemName } from "../../src/logic/systemNames.ts";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
@@ -71,25 +72,25 @@ test("cropFrameRgba extracts a clamped square around the point", () => {
 
 test("describeDebugEvent names well-known vars and flags", () => {
   const roomChange: DebugEvent = { seq: 1, cycle: 7, kind: "var", index: 0, from: 3, to: 5 };
-  assert.equal(describeDebugEvent(roomChange), "v0 room 3 → 5");
+  assert.equal(describeDebugEvent(roomChange), `${systemName("variable", 0)} (Variable 0) 3 → 5`);
   const flag: DebugEvent = { seq: 2, cycle: 8, kind: "flag", index: 4, from: 0, to: 1 };
-  assert.equal(describeDebugEvent(flag), "f4 said ready set");
+  assert.equal(describeDebugEvent(flag), `${systemName("flag", 4)} (Flag 4) set`);
   const flagOff: DebugEvent = { seq: 3, cycle: 9, kind: "flag", index: 4, from: 1, to: 0 };
-  assert.equal(describeDebugEvent(flagOff), "f4 said ready reset");
+  assert.equal(describeDebugEvent(flagOff), `${systemName("flag", 4)} (Flag 4) reset`);
   const anon: DebugEvent = { seq: 4, cycle: 1, kind: "var", index: 200, from: 1, to: 9 };
-  assert.equal(describeDebugEvent(anon), "v200 1 → 9");
+  assert.equal(describeDebugEvent(anon), "Variable 200 1 → 9");
 });
 
 test("formatTraceRecord prints names, operands, and test results", () => {
   assert.equal(
     formatTraceRecord({ logic: 3, pc: 41, op: 0x03, args: [4, 2], name: "assignn" }),
-    "L3 pc41 assignn(4,2)",
+    "LOGIC 3 pc41 assignn(4,2)",
   );
   assert.equal(
     formatTraceRecord({ logic: 0, pc: 7, op: 0x85, args: [3, 1], name: "equaln", result: false }),
-    "L0 pc7 equaln(3,1) → false",
+    "LOGIC 0 pc7 equaln(3,1) → false",
   );
-  assert.equal(formatTraceRecord({ logic: 1, pc: 2, op: 0x0b, args: [] }), "L1 pc2 0x0b()");
+  assert.equal(formatTraceRecord({ logic: 1, pc: 2, op: 0x0b, args: [] }), "LOGIC 1 pc2 0x0b()");
 });
 
 test("overlayBoxes converts object records to logical-pixel boxes", () => {
@@ -121,7 +122,8 @@ test("overlayBoxes converts object records to logical-pixel boxes", () => {
     w: 12,
     h: 20,
     baseline: 100,
-    label: "o2",
+    num: 2,
+    label: "Object 2",
     priority: 9,
     direction: 3,
     stepSize: 1,
@@ -164,7 +166,7 @@ test("latchPickAt freezes the object snapshot and frame identity at click time",
   const latch = latchPickAt(frame, PICK)!;
   assert.equal(latch.cycle, 42);
   assert.equal(latch.patchGeneration, 7); // the frame's own revision, not a poll
-  assert.equal(describeObject(latch.object!), "o2 · view 10 loop 0 cel 1 · pri 11 · normal");
+  assert.equal(describeObject(latch.object!), "Object 2 · VIEW 10 loop 0 cel 1 · pri 11 · normal");
 
   // The object moves, changes, then disappears in later observations; newer
   // frames arrive out of order. The latched card keeps its original fields.
@@ -173,7 +175,7 @@ test("latchPickAt freezes the object snapshot and frame identity at click time",
   frame.objects.length = 0;
   const stale = { ...frame, cycle: 41, objects: [objectFixture({ num: 2, x: 5 })] };
   const newer = { ...frame, cycle: 55, patchGeneration: 8, objects: [] };
-  assert.equal(describeObject(latch.object!), "o2 · view 10 loop 0 cel 1 · pri 11 · normal");
+  assert.equal(describeObject(latch.object!), "Object 2 · VIEW 10 loop 0 cel 1 · pri 11 · normal");
   assert.equal(latch.cycle, 42);
   assert.equal(latch.patchGeneration, 7);
   assert.ok(latchIsStale(latch, stale)); // restore/seek/new game regresses cycle
@@ -226,4 +228,23 @@ test("latchPickAt returns null off the picture band and drops the latch on regre
   const latch = latchPickAt(frame, PICK)!;
   // cycle went backwards without a defined cycle on the latch → not stale
   assert.ok(!latchIsStale({ ...latch, cycle: null }, frame));
+});
+
+test("inspector picks follow CRT glass at every amount", () => {
+  const rect = { left: 0, top: 0, width: 640, height: 400 };
+  for (const amount of [0, 0.5]) {
+    assert.deepEqual(pickFromClient(480, 320, rect, 1, amount)?.displayed, { x: 240, y: 160 });
+  }
+  assert.deepEqual(pickFromClient(480, 320, rect, 1, 1)?.displayed, { x: 250, y: 168 });
+  assert.equal(pickFromClient(0, 0, rect, 1, 1), null);
+});
+
+test("Inspector events use creator bindings before built-in names", () => {
+  assert.equal(
+    describeDebugEvent(
+      { seq: 1, cycle: 1, kind: "flag", index: 9, from: 0, to: 1 },
+      { bindings: { quiet: { kind: "flag", num: 9 } } },
+    ),
+    "quiet (Flag 9) set",
+  );
 });

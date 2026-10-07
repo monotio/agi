@@ -135,7 +135,7 @@ test("authoring over a plain v3 stub keeps the decoded object-record capacity", 
     ),
   );
   assert.equal(state.profile.id, "3.002.102");
-  const result = executeAgentTool(state, "write_inventory_objects", {
+  const result = executeAgentTool(state, "write_objects", {
     objects: [
       { name: "?", startingRoom: 0 },
       { name: "lamp", startingRoom: 3 },

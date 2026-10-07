@@ -40,8 +40,10 @@ import {
   type PictureItem,
   type PictureItemKind,
 } from "./pictureDocument.ts";
-import type { PicturePlane } from "./pictureQuery.ts";
+import { itemVisualFootprint, type PicturePlane } from "./pictureQuery.ts";
+import { clearItemDepth, addDepth, standInRoom } from "./pictureDepth.ts";
 import { shapeSource, validateSimplePolygon, type Point, type SceneShape } from "./shapes.ts";
+import { linePoints } from "./editPoints.ts";
 import { commandHead, registerLine, registersRead } from "./editState.ts";
 import {
   commandTokens,
@@ -78,6 +80,24 @@ import {
 } from "./editSegments.ts";
 
 export type EditOperation =
+  | {
+      /** Derive priority from the item's visual pixels and chosen baseline. */
+      readonly type: "addDepth";
+      readonly itemId: string;
+      /** Defaults to the lowest drawn visual row. */
+      readonly baseY?: number;
+    }
+  | {
+      /**
+       * Stand in the room: the item's derived depth takes the band of its
+       * base row and a control-0 wall line runs along that base, both inside
+       * the item's depth block so they travel and regenerate with it.
+       */
+      readonly type: "standInRoom";
+      readonly itemId: string;
+      /** Defaults to the lowest drawn visual row. */
+      readonly baseY?: number;
+    }
   | { readonly type: "moveItem"; readonly itemId: string; readonly dx: number; readonly dy: number }
   | {
       readonly type: "setPoint";
@@ -99,10 +119,28 @@ export type EditOperation =
       readonly y: number;
     }
   | {
+      readonly type: "removePoint";
+      readonly itemId: string;
+      readonly line: number;
+      readonly pointIndex: number;
+    }
+  | {
       readonly type: "setItemColor";
       readonly itemId: string;
       readonly plane: PicturePlane;
       /** 0..15, or null to turn the plane off for the item. */
+      readonly value: number | null;
+    }
+  | {
+      /**
+       * Recolour the one drawing step on `line` (1-based): a register line
+       * goes before it and the state it saw is restored after, so everything
+       * that step painted takes the new colour and nothing else changes.
+       */
+      readonly type: "setStepColor";
+      readonly line: number;
+      readonly plane: PicturePlane;
+      /** 0..15, or null to stop the step painting the plane. */
       readonly value: number | null;
     }
   | { readonly type: "deleteItem"; readonly itemId: string }
@@ -182,11 +220,13 @@ export type EditResult = EditSuccess | { readonly error: string };
 export interface EditOptions {
   /** Command vocabulary for compiling; defaults to AGI 2.936. */
   readonly profile?: AgiProfile;
+  /** The room's known set.pri.base; profiles with a stub use 48. */
+  readonly priorityBase?: number;
 }
 
 type Move = Extract<EditOperation, { type: "moveItem" }>;
 
-/** Move each item by its own offset in one pass: moves rewrite lines in place, never add any. */
+/** Translate each item in one pass, before regenerating derived depth. */
 function moveItems(ctx: Context, moves: readonly Move[]): EditResult {
   const offsets = new Map<PictureItem, Move>();
   for (const move of moves) {
@@ -295,6 +335,44 @@ function insertPoint(
   return finish(slots, ctx);
 }
 
+function removePoint(
+  ctx: Context,
+  op: Extract<EditOperation, { type: "removePoint" }>,
+): EditResult {
+  requireIntegers({ line: op.line, pointIndex: op.pointIndex });
+  const item = editableItem(ctx, op.itemId);
+  if (!inItem(item, op.line)) throw new EditRefusal(`line ${op.line} is not in item '${item.id}'`);
+  refuseCopiesOf(ctx, item, "removing a point from");
+  const text = ctx.lines[op.line - 1]!;
+  const head = commandHead(text);
+  if (!["line", "polyline", "polygon", "rel", "xcorner", "ycorner"].includes(head))
+    throw new EditRefusal(`line ${op.line} has no removable vertices`);
+  const points = linePoints(text);
+  if (op.pointIndex < 0 || op.pointIndex >= points.length)
+    throw new EditRefusal(`line ${op.line} has no point ${op.pointIndex}`);
+  if (points.length <= (head === "polygon" ? 3 : 2)) {
+    const otherLines = ctx.lines
+      .slice(item.openLine, item.closeLine - 1)
+      .filter((line) =>
+        ["line", "polyline", "polygon", "rel", "xcorner", "ycorner"].includes(commandHead(line)),
+      );
+    if (otherLines.length === 1) return deleteItem(ctx, item.id);
+    return finish(
+      inputLines(ctx, 1, ctx.lines.length).filter((entry) => entry.from !== op.line),
+      ctx,
+    );
+  }
+  points.splice(op.pointIndex, 1);
+  // Removing a corner may create a diagonal. Absolute lines preserve the remaining vertices.
+  const replacement = `${/^\s*/.exec(text)![0]}${head === "polygon" ? "polygon" : "line"} ${points.map(({ x, y }) => `${x},${y}`).join(" ")}${/\s*#.*$/.exec(text)?.[0] ?? ""}`;
+  return finish(
+    inputLines(ctx, 1, ctx.lines.length).map((entry) =>
+      entry.from === op.line ? { ...entry, text: replacement } : entry,
+    ),
+    ctx,
+  );
+}
+
 const PLANE_HEADS: Record<PicturePlane, readonly string[]> = {
   visual: ["vis", "visual"],
   priority: ["pri", "priority"],
@@ -303,6 +381,54 @@ const PLANE_COMMANDS: Record<PicturePlane, readonly number[]> = {
   visual: [0xf0, 0xf1],
   priority: [0xf2, 0xf3],
 };
+
+/** Command words that paint where the registers point: a step `setStepColor` can recolour. */
+const STEP_HEADS = [
+  "line",
+  "polyline",
+  "polygon",
+  "rect",
+  "rel",
+  "xcorner",
+  "ycorner",
+  "fill",
+  "plot",
+];
+
+function setStepColor(
+  ctx: Context,
+  op: Extract<EditOperation, { type: "setStepColor" }>,
+): EditResult {
+  requireIntegers({ line: op.line });
+  requireValue(op.plane, op.value);
+  if (op.line < 1 || op.line > ctx.lines.length) throw new EditRefusal(`no line ${op.line}`);
+  if (!STEP_HEADS.includes(commandHead(ctx.lines[op.line - 1]!))) {
+    throw new EditRefusal(`line ${op.line} is not a drawing step`);
+  }
+  const item = pictureItemAtLine(ctx.document, op.line);
+  if (item?.locked) {
+    throw new EditRefusal(`line ${op.line} belongs to locked item '${item.id}'`);
+  }
+  if (item?.depth && op.line > item.depth.openLine && op.line < item.depth.closeLine) {
+    throw new EditRefusal(`line ${op.line} is derived depth; recolour the item's art instead`);
+  }
+  if (item) refuseCopiesOf(ctx, item, "recolouring a step of");
+  const state = stateBefore(ctx, op.line);
+  if (state[op.plane] === null) {
+    throw new EditRefusal(`line ${op.line} paints no ${op.plane}`);
+  }
+  if (state[op.plane] === op.value) return { document: ctx.document, changedLines: [] };
+  return finish(
+    [
+      ...inputLines(ctx, 1, op.line - 1),
+      newLine(ctx, registerLine(op.plane, { ...state, [op.plane]: op.value }, ctx.profile)),
+      inputLines(ctx, op.line, op.line)[0]!,
+      { expected: state, scope: "document" },
+      ...inputLines(ctx, op.line + 1, ctx.lines.length),
+    ],
+    ctx,
+  );
+}
 
 function setItemColor(
   ctx: Context,
@@ -315,6 +441,13 @@ function setItemColor(
   refuseCopiesOf(ctx, item, "recolouring");
   const heads = PLANE_HEADS[plane];
   const body = bodyOf(ctx, item).map((line) => {
+    if (
+      plane === "visual" &&
+      item.depth &&
+      line.from! >= item.depth.openLine &&
+      line.from! <= item.depth.closeLine
+    )
+      return line;
     if (rawIncludes(line.text, PLANE_COMMANDS[plane])) {
       throw new EditRefusal(
         `line ${line.from} sets the ${plane} state in raw bytes, which cannot be rewritten`,
@@ -571,11 +704,13 @@ function combineItems(
     [
       ...inputLines(ctx, 1, first.openLine - 1),
       newLine(ctx, directive(op.id, op.label, kind, false)),
-      ...inputLines(ctx, first.openLine, last.closeLine).map((line) => {
-        const member = opens.get(line.from!);
-        if (member) return newLine(ctx, partLine(member.id, member.label, member.kind));
-        return closes.has(line.from!) ? newLine(ctx, PART_END_LINE) : line;
-      }),
+      ...inputLines(ctx, first.openLine, last.closeLine)
+        .filter((line) => !/^#\s*@depth(?=\s|$)/.test(line.text.trim()))
+        .map((line) => {
+          const member = opens.get(line.from!);
+          if (member) return newLine(ctx, partLine(member.id, member.label, member.kind));
+          return closes.has(line.from!) ? newLine(ctx, PART_END_LINE) : line;
+        }),
       newLine(ctx, "# @end"),
       ...inputLines(ctx, last.closeLine + 1, ctx.lines.length),
     ],
@@ -625,7 +760,9 @@ function elementParts(ctx: Context, item: PictureItem): Line[] {
     joinContinuations: true,
   });
   const taken = new Set(ctx.document.items.filter((other) => other !== item).map((o) => o.id));
-  const body = bodyOf(ctx, item).filter((line) => groupPart(line.text) === undefined);
+  const body = bodyOf(ctx, item).filter(
+    (line) => groupPart(line.text) === undefined && !/^#\s*@depth(?=\s|$)/.test(line.text.trim()),
+  );
   const out: Line[] = [];
   let runs = 0;
   for (let k = 0; k < body.length;) {
@@ -687,16 +824,34 @@ function setItemMeta(
   return finish(slots, ctx);
 }
 
-function dispatch(ctx: Context, op: EditOperation): EditResult {
+function dispatch(ctx: Context, op: EditOperation, options?: EditOptions): EditResult {
   switch (op.type) {
+    case "addDepth":
+      return addDepth(
+        ctx,
+        op.itemId,
+        op.baseY,
+        options?.priorityBase ?? findItem(ctx, op.itemId).depth?.priorityBase,
+      );
+    case "standInRoom":
+      return standInRoom(
+        ctx,
+        op.itemId,
+        op.baseY,
+        options?.priorityBase ?? findItem(ctx, op.itemId).depth?.priorityBase,
+      );
     case "moveItem":
       return moveItems(ctx, [op]);
     case "setPoint":
       return setPoint(ctx, op.line, op.pointIndex, op.x, op.y);
     case "insertPoint":
       return insertPoint(ctx, op);
+    case "removePoint":
+      return removePoint(ctx, op);
     case "setItemColor":
       return setItemColor(ctx, op.itemId, op.plane, op.value);
+    case "setStepColor":
+      return setStepColor(ctx, op);
     case "deleteItem":
       return deleteItem(ctx, op.itemId);
     case "duplicateItem":
@@ -718,6 +873,75 @@ function dispatch(ctx: Context, op: EditOperation): EditResult {
   }
 }
 
+/** Regeneration and manual-depth conversion belong to the same atomic edit. */
+function maintainDepth(
+  ctx: Context,
+  ops: readonly EditOperation[],
+  initial: EditResult,
+  options?: EditOptions,
+): EditResult {
+  if ("error" in initial) return initial;
+  let result = initial;
+  for (const op of ops) {
+    const oldItem =
+      op.type === "setPoint" || op.type === "setStepColor"
+        ? pictureItemAtLine(ctx.document, op.line)
+        : "itemId" in op
+          ? ctx.document.items.find((item) => item.id === op.itemId)
+          : undefined;
+    if (
+      !oldItem?.depth ||
+      !result.document.items.some(
+        (item) => item.id === oldItem.id || (op.type === "duplicateItem" && item.id === op.newId),
+      )
+    )
+      continue;
+    const depth = oldItem.depth;
+    const point = op.type === "setPoint" || op.type === "insertPoint" || op.type === "removePoint";
+    const manual =
+      ((op.type === "setItemColor" || op.type === "setStepColor") && op.plane === "priority") ||
+      (point &&
+        ((op.line > depth.openLine && op.line < depth.closeLine) ||
+          (stateBefore(ctx, op.line).visual === null &&
+            stateBefore(ctx, op.line).priority !== null)));
+    const target = op.type === "duplicateItem" ? op.newId : oldItem.id;
+    if (manual) {
+      const cleared = withContext(result.document, options, (next) =>
+        clearItemDepth(next, findItem(next, target)),
+      );
+      if ("error" in cleared) return cleared;
+      result = cleared;
+    } else if (
+      op.type === "moveItem" ||
+      op.type === "duplicateItem" ||
+      point ||
+      (op.type === "setItemColor" && op.plane === "visual") ||
+      (op.type === "setStepColor" && op.plane === "visual" && op.value === null)
+    ) {
+      const oldBottom = itemVisualFootprint(ctx.document, oldItem.id, ctx.profile).bottom;
+      const newBottom = itemVisualFootprint(result.document, target, ctx.profile).bottom;
+      const delta =
+        oldBottom !== null && newBottom !== null
+          ? newBottom - oldBottom
+          : op.type === "moveItem" || op.type === "duplicateItem"
+            ? op.dy
+            : 0;
+      const regenerated = withContext(result.document, options, (next) =>
+        addDepth(next, target, depth.baseY + delta, options?.priorityBase ?? depth.priorityBase),
+      );
+      if ("error" in regenerated) return regenerated;
+      result = regenerated;
+    }
+  }
+  if (result === initial) return result;
+  return {
+    document: result.document,
+    changedLines: result.document.lines.flatMap((text, i) =>
+      text === ctx.lines[i] ? [] : [i + 1],
+    ),
+  };
+}
+
 /**
  * Apply one edit. The input is never mutated; the result is a freshly parsed
  * document, or `{ error }` when the edit is refused or its source would not
@@ -728,7 +952,9 @@ export function applyEdit(
   op: EditOperation,
   options?: EditOptions,
 ): EditResult {
-  return withContext(document, options, (ctx) => dispatch(ctx, op));
+  return withContext(document, options, (ctx) =>
+    maintainDepth(ctx, [op], dispatch(ctx, op, options), options),
+  );
 }
 
 /**
@@ -744,7 +970,9 @@ export function applyEdits(
 ): EditResult {
   if (ops.length === 0) return { document, changedLines: [] };
   if (ops.every((op): op is Move => op.type === "moveItem"))
-    return withContext(document, options, (ctx) => moveItems(ctx, ops));
+    return withContext(document, options, (ctx) =>
+      maintainDepth(ctx, ops, moveItems(ctx, ops), options),
+    );
   let result: EditResult = { document, changedLines: [] };
   for (const op of ops) {
     result = applyEdit(result.document, op, options);

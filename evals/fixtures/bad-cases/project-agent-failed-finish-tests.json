@@ -1,0 +1,70 @@
+{
+  "name": "project-agent-failed-finish-tests",
+  "description": "A rejected finish must never admit staged changes when a provider ends with text.",
+  "projectAgent": {
+    "documents": {
+      "logic:0": "return;",
+      "logic:1": "return;",
+      "picture:1": "vis 1\nfill 0,0\nend\n",
+      "words": "[]"
+    },
+    "request": "Make the requested change",
+    "turns": [
+      {
+        "toolCalls": [
+          {
+            "id": "edit",
+            "name": "write_game_tests",
+            "input": {
+              "mode": "merge",
+              "names": null,
+              "tests": [
+                {
+                  "name": "Impossible score",
+                  "room": 1,
+                  "spawnX": null,
+                  "spawnY": null,
+                  "steps": [
+                    {
+                      "action": "wait",
+                      "ticks": 1
+                    }
+                  ],
+                  "expect": {
+                    "score": 99
+                  },
+                  "cycleBudget": 100
+                }
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "toolCalls": [
+          {
+            "id": "finish",
+            "name": "finish",
+            "input": {
+              "notes": null
+            }
+          }
+        ]
+      },
+      {
+        "text": "Done",
+        "toolCalls": []
+      }
+    ],
+    "expectedKeys": [],
+    "expectedOutcomes": {
+      "finish": false
+    },
+    "expectedError": "Handover rejected",
+    "autoApprove": true,
+    "expectedDocuments": {
+      "world": null,
+      "tests": null
+    }
+  }
+}

@@ -30,7 +30,7 @@ test("a priority-only change publishes a frame while diagnostics are off", () =>
   assert.ok(first > 0, "the initial frame posts");
 
   // Same visual and text bytes; only the composed priority surface differs.
-  ctx.engine!.flags[201] = 1;
+  ctx.run.engine!.flags[201] = 1;
   ctx.fns.tickEngine();
   ctx.fns.postFrame();
   assert.equal(
@@ -56,7 +56,7 @@ test("a resource patch republishes the frame carrying its own revision", () => {
   // A sound patch changes no visual, text, priority, or object byte — only
   // the container revision. The frame still ships so the inspector's latched
   // observations can pin the revision they describe.
-  ctx.engine!.patchResources([{ kind: "sound", num: 4, payload: new Uint8Array([1, 2, 3]) }]);
+  ctx.run.engine!.patchResources([{ kind: "sound", num: 4, payload: new Uint8Array([1, 2, 3]) }]);
   ctx.fns.postFrame();
   const frames = presentation.filter((m) => m.type === "frame");
   assert.ok(frames.length >= 2, "a patch alone publishes a frame");
@@ -82,7 +82,7 @@ test("show.obj publishes the preview mask and dismissal clears it", () => {
     "the cel wrote marked pixels",
   );
 
-  ctx.engine!.ackPrint();
+  ctx.run.engine!.ackPrint();
   ctx.fns.postFrame();
   const closed = presentation.filter((m) => m.type === "frame").at(-1)!;
   assert.ok(closed.type === "frame");
@@ -90,7 +90,7 @@ test("show.obj publishes the preview mask and dismissal clears it", () => {
 
   // The opcode parked mid-logic; the next tick resumes it to `return`, and
   // the tick after that runs logic 0 fresh — reopening republishes the mask.
-  ctx.engine!.flags[200] = 0;
+  ctx.run.engine!.flags[200] = 0;
   ctx.fns.tickEngine();
   ctx.fns.tickEngine();
   ctx.fns.postFrame();
@@ -118,8 +118,8 @@ test("frame buffers post as transfers while the worker keeps its own copies", ()
   }
   // The sameness copies the worker keeps for the next comparison are its own:
   // they must not alias the buffers that were just transferred away.
-  assert.notEqual(ctx.presentation.lastVisual!.buffer, frame.visual.buffer);
-  assert.notEqual(ctx.presentation.lastText!.buffer, frame.text.buffer);
+  assert.notEqual(ctx.run.presentation.lastVisual!.buffer, frame.visual.buffer);
+  assert.notEqual(ctx.run.presentation.lastText!.buffer, frame.text.buffer);
 });
 
 test("arming then disarming a channel ships a frame for each transition", () => {

@@ -24,7 +24,7 @@ for (const game of KNOWN_GAMES) {
 }
 
 export interface WalkthroughArtifact {
-  schema: "monotio.agi.walkthrough.v1";
+  schema: "monotio.agi.walkthrough.v1" | "monotio.agi.walkthrough.v2";
   /**
    * Which entry and which playable bytes the tape was recorded on: the
    * catalog id as `project`, the full bundle revision (sorted-name SHA-256)
@@ -96,7 +96,10 @@ export function validateWalkthroughArtifact(data: unknown): WalkthroughArtifact 
     throw new Error("Walkthrough artifact must be an object.");
   }
   const obj = data as Record<string, unknown>;
-  if (obj["schema"] !== "monotio.agi.walkthrough.v1") {
+  if (
+    obj["schema"] !== "monotio.agi.walkthrough.v1" &&
+    obj["schema"] !== "monotio.agi.walkthrough.v2"
+  ) {
     throw new Error(`Unsupported walkthrough schema: ${String(obj["schema"])}`);
   }
   const rawIdentity = obj["identity"];
@@ -246,7 +249,7 @@ export function validateWalkthroughArtifact(data: unknown): WalkthroughArtifact 
   }
 
   return {
-    schema: "monotio.agi.walkthrough.v1",
+    schema: obj["schema"],
     identity,
     ...(supportedRevisions !== undefined ? { supportedRevisions } : {}),
     coverage,

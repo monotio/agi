@@ -18,7 +18,7 @@ import { keyLabel } from "./keyLabel.ts";
 import { ICONS, type IconName } from "./icons.ts";
 
 /** Dev and test only (ui-gallery.html is not a build input): every primitive in every state. */
-const lens = ref<"art" | "depth" | "walk">("depth");
+const lens = ref<"art" | "depth">("depth");
 const dialogOpen = ref(false);
 const title = ref("The Clearing");
 const pressed = ref(true);
@@ -74,9 +74,8 @@ const inks = ["ink", "ink-2", "ink-3", "ink-disabled", "action", "ok", "warn", "
           v-model="lens"
           label="Lens"
           :options="[
-            { value: 'art', label: 'Art', shortcut: '1' },
-            { value: 'depth', label: 'Depth', shortcut: '2' },
-            { value: 'walk', label: 'Walk', shortcut: '3' },
+            { value: 'art', label: 'Visual', shortcut: '1' },
+            { value: 'depth', label: 'Priority', shortcut: '2' },
           ]"
         />
         <UiSegmented
@@ -84,9 +83,8 @@ const inks = ["ink", "ink-2", "ink-3", "ink-disabled", "action", "ok", "warn", "
           label="Lens (small)"
           size="sm"
           :options="[
-            { value: 'art', label: 'Art' },
-            { value: 'depth', label: 'Depth' },
-            { value: 'walk', label: 'Walk', disabled: true },
+            { value: 'art', label: 'Visual' },
+            { value: 'depth', label: 'Priority', disabled: true },
           ]"
         />
       </div>

@@ -1,6 +1,6 @@
 /** Pure, bounded score/timeline feedback for compiled AGI sound resources. */
 import { encodePngPaletteRgb } from "../picture/png.ts";
-import { parseSound, PIT_BASE_FREQ } from "../sound/sound.ts";
+import { parseSound, PSG_BASE_FREQ } from "../sound/sound.ts";
 
 const WIDTH = 800;
 const HEIGHT = 400;
@@ -387,7 +387,7 @@ export function soundFeedback(payload: Uint8Array, options: SoundFeedbackOptions
   const channel =
     options.channel === null ? null : checkedInteger(options.channel, "Channel", 0, 3);
   const offset = checkedInteger(options.offset, "Offset", 0, 65_535);
-  const limit = checkedInteger(options.limit, "Limit", 1, 64);
+  const limit = checkedInteger(options.limit, "Limit", 1, 65535);
   const representation = options.representation ?? "sound";
   if (representation !== "music" && representation !== "sound")
     throw new RangeError("Sound representation must be 'music' or 'sound'.");
@@ -411,7 +411,7 @@ export function soundFeedback(payload: Uint8Array, options: SoundFeedbackOptions
           ? null
           : note.freqDivisor === 0
             ? 0
-            : PIT_BASE_FREQ / note.freqDivisor;
+            : PSG_BASE_FREQ / note.freqDivisor;
       const event: SoundFeedbackEvent = {
         channel: item.channelIndex,
         index,

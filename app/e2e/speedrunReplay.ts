@@ -3,7 +3,7 @@ import { expect, type Page } from "@playwright/test";
 import { AGI_KEY, NAV_KEYS } from "../../src/runtime/keys.ts";
 import type { Action } from "../../test/speedrun/runner.ts";
 import type { ReplayObservation, ReplayBatchResult } from "../src/walkthrough/replay.ts";
-import { isolateStorage, revealFoldedBoot } from "./engineProbe.ts";
+import { gameHint, isolateStorage, revealFoldedBoot } from "./engineProbe.ts";
 
 const KEYS: Record<number, string> = {
   [AGI_KEY.BACKSPACE]: "Backspace",
@@ -49,11 +49,12 @@ export class BrowserReplay {
     await this.page.goto(`/?replaySeed=${seed}`);
     // A catalog alias names one edition; a hash can also match a project
     // export of the same game, so the alias is tried first.
-    const alias = getKnownGameByHash(target)?.alias ?? target;
+    const known = getKnownGameByHash(target);
+    const alias = known?.alias ?? target;
     await revealFoldedBoot(this.page, alias);
     const byAlias = this.page.locator(`[data-alias="${alias}"]`);
     const boot = (
-      (await byAlias.count()) > 0
+      known || (await byAlias.count()) > 0
         ? byAlias
         : this.page.locator(
             `[data-hash="${target}"], [data-project-id="${target}"], [data-alias="${target}"], [data-testid="boot-${target}"]`,
@@ -143,7 +144,8 @@ export class BrowserReplay {
   async text(text: string): Promise<void> {
     const before = await this.read();
     if (before.blocked && before.blocked !== "waitkey")
-      await expect(this.page.getByTestId("prompt-hint")).toBeVisible();
+      await expect(await gameHint(this.page, "prompt-hint")).toBeVisible();
+    await this.page.mouse.move(0, 0);
     const input = this.page.getByTestId("input-line");
     await input.fill(text);
     if (this.phone)

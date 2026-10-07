@@ -1,4 +1,5 @@
-import { expect, test, type Page } from "@playwright/test";
+import type { Page } from "@playwright/test";
+import { expect, test } from "./test.ts";
 import { fixtureSkip, KNOWN_GAME_HASH } from "../../test/fixtures.ts";
 import { getKnownGameByAlias } from "../../src/games/knownGames.ts";
 import {
@@ -6,6 +7,10 @@ import {
   isolateStorage,
   openCardMenu,
   openDeveloperActivity,
+  openGameOptions,
+  waitForCycles,
+  waitForFrames,
+  waitForRoom,
 } from "./engineProbe.ts";
 
 const missing = fixtureSkip(KNOWN_GAME_HASH.KQ1, ["AGIDATA.OVL"]);
@@ -46,16 +51,17 @@ test.describe("Walkthrough UI", () => {
     page,
   }) => {
     test.skip(Boolean(missing), missing || "");
+    await page.clock.install();
     await isolateStorage(page);
     await page.goto("/");
 
     // Open ActionMenu next to Play for KQ1
     await openCardMenu(page, "game-actions-kq1");
 
-    // Verify "Run walkthrough" item is visible
+    // Verify the walkthrough item is visible
     const runBtn = page.getByTestId("run-walkthrough");
     await expect(runBtn).toBeVisible();
-    await expect(runBtn).toContainText("Run walkthrough");
+    await expect(runBtn).toContainText("Watch walkthrough");
     await runBtn.click();
 
     // Verify walkthrough HUD bar and bottom transport bar appear
@@ -185,9 +191,16 @@ test.describe("Walkthrough UI", () => {
     await expect(pauseBtn).toHaveAttribute("aria-label", "Play");
 
     // While paused, verify virtual ticks do not advance
-    await page.waitForTimeout(100);
+    await expect
+      .poll(() =>
+        page.evaluate(() => {
+          const walkthrough = window.__AGI_STATE__?.walkthrough;
+          return [walkthrough?.status, walkthrough?.pausePending];
+        }),
+      )
+      .toEqual(["paused", false]);
     const tickPaused = await page.evaluate(() => window.__AGI_REPLAY__?.latest?.tick ?? 0);
-    await page.waitForTimeout(500);
+    await page.clock.runFor(500);
     const tickStillPaused = await page.evaluate(() => window.__AGI_REPLAY__?.latest?.tick ?? 0);
     expect(tickStillPaused).toBe(tickPaused);
 
@@ -657,7 +670,9 @@ test.describe("Walkthrough UI", () => {
 
     // Forward seek lands in the Sewers (room 128); let the frame settle.
     await engineRoomIs(page, 128, 30_000);
-    await page.waitForTimeout(1000);
+    await expect
+      .poll(() => page.evaluate(() => window.__AGI_STATE__?.walkthrough.seeking))
+      .toBe(false);
 
     // Backward seek cleanly resets and reaches the Maze (room 126).
     await clickAt(mazePct);
@@ -707,10 +722,16 @@ test.describe("Walkthrough UI", () => {
       .locator('.walkthrough-marker[title*="Maze challenge completed"]')
       .boundingBox())!;
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-    await page.mouse.down();
-    await page.waitForTimeout(400);
-    await page.mouse.up();
     const back = await tickOf("Maze challenge completed");
+    await page.mouse.down();
+    await expect
+      .poll(
+        async () =>
+          (await page.evaluate(() => window.__AGI_STATE__?.walkthrough.seeking)) === false &&
+          (await replayTick()) === back,
+      )
+      .toBe(true);
+    await page.mouse.up();
     await expect.poll(replayTick, { timeout: 15_000 }).toBeGreaterThan(back + 300);
     await expect(page.getByTestId("walkthrough-label")).toContainText("Maze challenge completed");
   });
@@ -765,6 +786,7 @@ test.describe("Walkthrough UI", () => {
   }) => {
     // No fixture needed: the tutorial is code-assembled (builtin) and its tape
     // is generated from the same source the catalog entry builds.
+    await page.clock.install();
     await isolateStorage(page);
     await page.goto("/");
 
@@ -800,7 +822,7 @@ test.describe("Walkthrough UI", () => {
     await expect.poll(async () => (await walk()).seeking, { timeout: 45_000 }).toBe(false);
     await expect.poll(async () => (await walk()).status).toBe("paused");
     const landed = (await walk()).tick;
-    await page.waitForTimeout(600);
+    await page.clock.runFor(600);
     expect((await walk()).tick, "the walkthrough holds at the landing").toBe(landed);
     const button = page.getByTestId("btn-walkthrough-pause");
     await expect(button).toHaveAttribute("aria-label", "Play");
@@ -833,6 +855,7 @@ test.describe("Walkthrough UI", () => {
     await expect(resume).toBeVisible();
     await expect.poll(() => page.evaluate(() => window.__AGI_STATE__?.paused)).toBe(true);
     const held = await page.evaluate(() => window.__AGI_TEXT__?.cycle ?? 0);
+    // wall-clock: the handed-over game is timed by a real worker outside page.clock's realm.
     await page.waitForTimeout(600);
     expect(await page.evaluate(() => window.__AGI_TEXT__?.cycle ?? 0)).toBe(held);
 
@@ -843,6 +866,7 @@ test.describe("Walkthrough UI", () => {
   });
 
   test("a seek keeps a playing walkthrough playing and a paused one paused", async ({ page }) => {
+    await page.clock.install();
     await isolateStorage(page);
     await page.goto("/");
     await openCardMenu(page, "game-actions-adventure-department");
@@ -869,7 +893,7 @@ test.describe("Walkthrough UI", () => {
     };
     const holds = async (): Promise<void> => {
       const from = await landed();
-      await page.waitForTimeout(600);
+      await page.clock.runFor(600);
       const after = await walk();
       expect(after.tick, "the walkthrough holds at the landing").toBe(from);
       expect(after.status).toBe("paused");
@@ -989,6 +1013,114 @@ test.describe("Walkthrough UI", () => {
     // The untouched edition still gets the offer under its own menu.
     await openCardMenu(page, "game-actions-synthetic-copy");
     await expect(page.getByTestId("run-walkthrough")).toBeVisible();
+  });
+
+  test("refuses a walkthrough when the running interpreter differs from the tape's profile", async ({
+    page,
+  }) => {
+    // The same bundle revision the tape was recorded on, served under a
+    // declared different interpreter: the edition check passes and the
+    // profile check must stop the tape before its first action.
+    const synthetic = getKnownGameByAlias("synthetic")!;
+    await page.route("**/fixtures/", (route) =>
+      route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify([
+          {
+            folder: "synthetic",
+            hash: synthetic.wordsSha256,
+            alias: "synthetic",
+            title: "SYNTHETIC",
+            wordsSha256: synthetic.wordsSha256,
+            objectSha256: synthetic.objectSha256,
+            revision: synthetic.targetRevision,
+            profile: "2.917",
+          },
+        ]),
+      }),
+    );
+    await isolateStorage(page);
+    await page.goto("/");
+
+    await openCardMenu(page, "game-actions-synthetic");
+    await page.getByTestId("run-walkthrough").click();
+
+    // The refusal names the tape's interpreter and the running one, and the
+    // replay never advances past the boot's tick 0.
+    const refusal = page.getByTestId("walkthrough-error");
+    await expect(refusal).toBeVisible({ timeout: 30_000 });
+    await expect(refusal).toContainText("2.936");
+    await expect(refusal).toContainText("2.917");
+    await expect
+      .poll(() => page.evaluate(() => window.__AGI_STATE__?.walkthrough.status ?? ""))
+      .toBe("error");
+    const tick = await page.evaluate(() => window.__AGI_REPLAY__?.latest?.tick ?? -1);
+    expect(tick).toBe(0);
+  });
+
+  test("a refused walkthrough on a mismatched running game leaves it playable", async ({
+    page,
+  }) => {
+    // The declared-2.917 copy of the tape's own bundle: the edition check
+    // passes and the running game's own report decides. Booting it twice
+    // puts the worker on a nonzero replay session — the state a refused
+    // preflight must not strand by moving the session underneath it.
+    const synthetic = getKnownGameByAlias("synthetic")!;
+    await page.route("**/fixtures/", (route) =>
+      route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify([
+          {
+            folder: "synthetic",
+            hash: synthetic.wordsSha256,
+            alias: "synthetic",
+            title: "SYNTHETIC",
+            wordsSha256: synthetic.wordsSha256,
+            objectSha256: synthetic.objectSha256,
+            revision: synthetic.targetRevision,
+            profile: "2.917",
+          },
+        ]),
+      }),
+    );
+    await isolateStorage(page);
+    await page.goto("/");
+
+    await page.getByTestId("boot-synthetic").click();
+    await expect(page.getByTestId("input-line")).toBeVisible({ timeout: 30_000 });
+    await waitForRoom(page, 1, { coldBoot: true });
+    await page.getByTestId("btn-exit").click();
+    await expect(page.getByTestId("boot-synthetic")).toBeVisible({ timeout: 30_000 });
+    await page.getByTestId("boot-synthetic").click();
+    await expect(page.getByTestId("input-line")).toBeVisible({ timeout: 30_000 });
+    await waitForRoom(page, 1, { coldBoot: true });
+
+    // The refusal names the tape's interpreter and the running one; the
+    // rejected start stays an inactive error, not a run.
+    await openGameOptions(page, "help-menu");
+    await page.getByTestId("btn-run-walkthrough").click();
+    const refusal = page.getByTestId("walkthrough-error");
+    await expect(refusal).toBeVisible();
+    await expect(refusal).toContainText("2.936");
+    await expect(refusal).toContainText("2.917");
+    await expect
+      .poll(() => page.evaluate(() => window.__AGI_STATE__?.walkthrough.status ?? ""))
+      .toBe("error");
+    await expect
+      .poll(() => page.evaluate(() => window.__AGI_STATE__?.walkthrough.active ?? true))
+      .toBe(false);
+
+    // The same bytes keep running their declared interpreter: no tape
+    // action ever landed, the profile override is still the descriptor's,
+    // cycles and frames keep arriving on the session the refusal kept,
+    // and a typed command still moves ego to the next room.
+    expect(await page.evaluate(() => window.__AGI_REPLAY__?.latest ?? null)).toBeNull();
+    expect(await page.evaluate(() => window.__AGI_STATE__?.profile)).toBe("2.917");
+    await waitForCycles(page, 3);
+    await waitForFrames(page, 1);
+    await page.getByTestId("input-line").fill("east");
+    await page.getByTestId("input-line").press("Enter");
+    await waitForRoom(page, 2);
   });
 
   test("scrubbing back and forth in kq1 during dialogue does not throw bridge cancellation error", async ({

@@ -1,4 +1,7 @@
 <script setup lang="ts">
+import { useProjectLabels } from "../shell/useProjectLabels.ts";
+import { numberedLabel } from "../../../src/logic/numberedLabels.ts";
+import UiIcon from "../ui/UiIcon.vue";
 /**
  * The room list: a listbox over the graph's nodes; ArrowUp/ArrowDown move
  * between rows and Enter or a click picks one, which opens its details in
@@ -16,6 +19,7 @@ import type { RoomGraphNode } from "../../../src/agent/roomMap.ts";
 const { compact = false } = defineProps<{ compact?: boolean }>();
 const emit = defineEmits<{ pick: [room: number] }>();
 
+const labels = useProjectLabels();
 const map = useEngineApi().roomMap;
 const { selected } = map;
 const nodes = computed(() => map.graph.value.nodes);
@@ -60,6 +64,7 @@ const rows = computed(() => {
             pictures: scan.picture,
           }),
           node.planned,
+          labels.value,
         )
       : null;
     return { node, meta: compact ? status(node, exits) : badges(node), pictures };
@@ -102,12 +107,8 @@ function onListKeydown(ev: KeyboardEvent): void {
     >
       <button type="button" class="map-list-button" @click="emit('pick', node.room)">
         <span class="map-room-name">
-          <template v-if="currentRoom === node.room">▶ </template>
-          <template v-if="compact && node.title">{{ node.room }} · {{ node.title }}</template>
-          <template v-else
-            >Room {{ node.room
-            }}<template v-if="node.title"> — {{ node.title }}</template></template
-          >
+          <template v-if="currentRoom === node.room"><UiIcon name="play" :size="16" /> </template>
+          {{ numberedLabel("room", node.room, { ...labels, name: node.title ?? "" }, "row") }}
         </span>
         <span class="map-room-badges">{{ meta }}</span>
         <UiChip

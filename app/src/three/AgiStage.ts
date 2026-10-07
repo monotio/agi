@@ -6,23 +6,41 @@
  * neither initialises (the caller keeps the plain 2D canvas visible).
  *
  * The CRT pass lives in that node graph so it affects text exactly like
- * graphics: curved glass, scanline bands, phosphor triads and highlight glow.
- * `crt` toggles it at runtime without rebuilding the material.
+ * graphics. It models the tube in linear light: each scanline is a beam
+ * reconstructed from its neighbouring pixels (the analogue signal's soft
+ * edges), drawn as a Gaussian whose width grows with brightness so bright
+ * areas bloom together and dark ones show their lines; a slot mask of RGB
+ * phosphors on device pixels; halation scattered in the glass (crtGlow.ts);
+ * and gently curved glass with antialiased rounded corners. Play uses it;
+ * editing always shows the crisp frame through the flat material.
  *
- * The canvas renders at its real device-pixel size and the scanline/triad
- * masks are computed in screen space with integer periods, so neither the
- * warp nor CSS scaling can beat against them into moiré.
+ * The canvas renders at its real device-pixel size. The phosphor mask uses
+ * integer device-pixel periods in screen space, so neither the warp nor CSS
+ * scaling can beat against it into moiré, and beams merge into a flat field
+ * when a scanline gets too few device pixels to resolve.
  */
+import { watch } from "vue";
+import { layoutDragging } from "../play/layoutDrag.ts";
 import * as THREE from "three";
-import { MeshBasicNodeMaterial, WebGPURenderer } from "three/webgpu";
+import { MeshBasicNodeMaterial, WebGPURenderer, type Node } from "three/webgpu";
 import {
   Discard,
   Fn,
+  abs,
+  clamp,
+  dot,
+  exp,
   float,
+  floor,
+  length,
+  max,
+  min,
   mix,
   mod,
   screenCoordinate,
   select,
+  smoothstep,
+  sqrt,
   step,
   texture,
   uniform,
@@ -31,6 +49,8 @@ import {
   vec3,
 } from "three/tsl";
 import { FRAME_HEIGHT, FRAME_WIDTH } from "../render/composite.ts";
+import { CRT_GLASS, CRT_STAGES } from "./crtAmount.ts";
+import { CRT_GLOW_HEIGHT, CRT_GLOW_WIDTH, crtGlow } from "./crtGlow.ts";
 import { pickThroughLayers, type StagePick } from "../inspector/explodedPick.ts";
 
 /** Logical picture geometry the exploded view separates into depth layers. */
@@ -54,6 +74,47 @@ const CAM_Y = 0.42;
 const LAYER_SPREAD = 0.4;
 export type { StagePick };
 
+/** The CRT tube's character. Sigmas are in frame pixels. */
+const CRT = {
+  ...CRT_GLASS,
+  /** Signal softness along a scanline. */
+  signalSigma: 0.35,
+  /** Beam height for black and for full white. */
+  darkSigma: 0.27,
+  brightSigma: 0.41,
+  /** Beam height once lines are too small to resolve. */
+  mergedSigma: 0.61,
+  /** Phosphor mask depth on high-density and on standard screens. */
+  maskStrength: 0.3,
+  maskStrengthLow: 0.12,
+  /** Darkening of the gap row between slots. */
+  slotGap: 0.12,
+  /** Glass scatter of all light, and extra glow above the threshold. */
+  halation: 0.06,
+  glowThreshold: 0.35,
+  glow: 0.23,
+  /** Edge darkening at the corners. */
+  vignette: 0.06,
+};
+
+/**
+ * Keyboard attention: while the game has the keyboard, a light traces the
+ * inside of the glass; in Play the picture dims like a monitor in standby
+ * when the keyboard is elsewhere. Lengths are CSS pixels.
+ */
+const ATTENTION = {
+  /** The accent colour (--action, #79e5e6) in linear light. */
+  rim: [0.191, 0.784, 0.791] as const,
+  /** A crisp line on the edge, and a soft glow falling off inside it. */
+  line: 1.5,
+  lineStrength: 0.55,
+  glow: 7,
+  glowStrength: 0.45,
+  standby: 0.72,
+  /** Fade time in milliseconds. */
+  fade: 160,
+};
+
 /** Control-line colours (priority 0-3) on the rearmost exploded layer. */
 const CONTROL_TINTS: [number, number, number][] = [
   [1.0, 0.25, 0.25],
@@ -68,9 +129,20 @@ export class AgiStage {
   private readonly camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
   private readonly texture: THREE.DataTexture;
   private readonly rgba = new Uint8Array(FRAME_WIDTH * FRAME_HEIGHT * 4);
-  private readonly crtUniform = uniform(1);
-  /** Device-pixel rows per frame row (>= 2 enables scanlines). */
-  private readonly scanPeriod = uniform(2);
+  private frameUploaded = false;
+  private readonly glowRgba = new Uint8Array(CRT_GLOW_WIDTH * CRT_GLOW_HEIGHT * 4);
+  private readonly glowTexture: THREE.DataTexture;
+  private readonly amount = uniform(1).setName("crtAmount");
+  /** Canvas size in device pixels. */
+  private readonly outSize = uniform(new THREE.Vector2(FRAME_WIDTH * 2, FRAME_HEIGHT * 2));
+  /** Device pixels per CSS pixel, capped at 2. */
+  private readonly dpr = uniform(1);
+  /** 1 while the game has the keyboard, faded in and out. */
+  private readonly focusLevel = uniform(0);
+  /** Picture brightness: 1 awake, lower in standby. */
+  private readonly wakeLevel = uniform(1);
+  private attention = { focus: 0, wake: 1 };
+  private attentionRaf: number | null = null;
   private readonly isWebGpu: boolean;
   private readonly observer: ResizeObserver | null;
   private readonly quad: THREE.Mesh;
@@ -106,6 +178,8 @@ export class AgiStage {
   private readonly vec2Tmp = new THREE.Vector2();
   private parallaxRaf: number | null = null;
 
+  private readonly stopLayoutWatch: () => void;
+
   private constructor(renderer: WebGPURenderer, isWebGpu: boolean, canvas: HTMLCanvasElement) {
     this.renderer = renderer;
     this.isWebGpu = isWebGpu;
@@ -113,6 +187,13 @@ export class AgiStage {
     this.observer =
       typeof ResizeObserver === "undefined" ? null : new ResizeObserver(() => this.fit(canvas));
     this.observer?.observe(canvas);
+    this.stopLayoutWatch = watch(
+      layoutDragging,
+      (dragging) => {
+        if (!dragging) this.fit(canvas);
+      },
+      { flush: "post" },
+    );
     this.texture = new THREE.DataTexture(this.rgba, FRAME_WIDTH, FRAME_HEIGHT);
     this.texture.magFilter = THREE.NearestFilter;
     this.texture.minFilter = THREE.NearestFilter;
@@ -121,59 +202,166 @@ export class AgiStage {
     // Otherwise WebGPU can retain the black placeholder until a later draw.
     this.texture.needsUpdate = true;
 
+    this.glowTexture = new THREE.DataTexture(this.glowRgba, CRT_GLOW_WIDTH, CRT_GLOW_HEIGHT);
+    this.glowTexture.magFilter = THREE.LinearFilter;
+    this.glowTexture.minFilter = THREE.LinearFilter;
+    this.glowTexture.needsUpdate = true;
+
     const frame = this.texture;
-    const crt = this.crtUniform;
-    const scanPeriod = this.scanPeriod;
+    const glow = this.glowTexture;
+    const outSize = this.outSize;
+    const dpr = this.dpr;
 
     this.geometry = new THREE.PlaneGeometry(2, 2);
 
-    // Cheap flat material for CRT-off mode: one direct texture fetch, zero warp/scanlines/triads/halo
+    const focusLevel = this.focusLevel;
+    const wakeLevel = this.wakeLevel;
+    /** Distance in device pixels outside a rounded rectangle (negative inside). */
+    const edgeDistance = (point: Node<"vec2">, cornerRadius: number | Node<"float">) => {
+      const px = point.mul(outSize);
+      const half = outSize.mul(0.5);
+      const radius = min(outSize.x, outSize.y).mul(cornerRadius);
+      const corner = abs(px.sub(half)).sub(half).add(radius);
+      return length(max(corner, 0.0))
+        .add(min(max(corner.x, corner.y), 0.0))
+        .sub(radius);
+    };
+    /** The keyboard light along the inside of an edge; `spread` scales its glow. */
+    const rimLight = (distance: Node<"float">, spread: Node<"float">) => {
+      const inside = max(distance.negate(), 0.0).div(dpr);
+      const line = float(1.0)
+        .sub(smoothstep(0.0, ATTENTION.line, inside))
+        .mul(ATTENTION.lineStrength);
+      const glow = exp(inside.div(spread.mul(-ATTENTION.glow))).mul(
+        spread.mul(ATTENTION.glowStrength),
+      );
+      return vec3(...ATTENTION.rim)
+        .mul(line.add(glow))
+        .mul(focusLevel);
+    };
+
+    // Editing and CRT-off: one direct texture fetch, the crisp frame.
     this.flatMaterial = new MeshBasicNodeMaterial();
     this.flatMaterial.colorNode = Fn(() => {
       const p = uv();
       const sampleUv = vec2(p.x, float(1.0).sub(p.y));
-      return texture(frame, sampleUv);
+      const picture = texture(frame, sampleUv).rgb.mul(wakeLevel);
+      // The crisp frame has no border, so its glow stays close to the edge.
+      return picture.add(rimLight(edgeDistance(p, 0.0), float(0.5)));
     })();
 
-    // Full CRT material with curvature, scanlines, triads, vignette, and halo
+    const crtAmount = this.amount;
     this.crtMaterial = new MeshBasicNodeMaterial();
     this.crtMaterial.colorNode = Fn(() => {
-      // Quad UV, origin bottom-left. The frame is stored top-down, so flip v.
-      const p = uv();
-      // Barrel warp around the centre (strength scaled by the crt toggle).
-      const centred = p.sub(0.5).mul(2.0);
-      const r2 = centred.dot(centred);
-      const warped = centred.mul(float(1.0).add(r2.mul(0.03).mul(crt)));
+      const phosphorAmount = smoothstep(...CRT_STAGES.phosphor, crtAmount);
+      const lightAmount = smoothstep(...CRT_STAGES.light, crtAmount);
+      const glassAmount = smoothstep(...CRT_STAGES.glass, crtAmount);
+      const overscan = glassAmount.mul(CRT.overscan);
+      // Curved glass: each axis bows with the other's distance from the
+      // centre, as a tube's face does. Quad UV has its origin bottom-left.
+      const c = uv().sub(0.5).mul(2.0);
+      const warped = vec2(
+        c.x.mul(float(1.0).add(c.y.mul(c.y).mul(glassAmount.mul(CRT.curveX)))),
+        c.y.mul(float(1.0).add(c.x.mul(c.x).mul(glassAmount.mul(CRT.curveY)))),
+      ).mul(overscan.add(1));
       const q = warped.mul(0.5).add(0.5);
-      const inside = step(0.0, q.x).mul(step(q.x, 1.0)).mul(step(0.0, q.y)).mul(step(q.y, 1.0));
-      const sampleUv = vec2(q.x, float(1.0).sub(q.y));
-      const color = texture(frame, sampleUv).rgb;
 
-      // Scale the dark band with each scanline, so it remains visible on
-      // Retina displays rather than shrinking to one faint device-pixel row.
-      const scanPhase = mod(screenCoordinate.y, scanPeriod).div(scanPeriod);
-      const scanHit = step(scanPhase, 0.28).mul(step(2.0, scanPeriod));
-      const scan = float(1.0).sub(scanHit.mul(0.42));
-      // Phosphor triad on device pixels.
-      const triad = mod(screenCoordinate.x, 3.0);
-      const mask = vec3(
-        select(triad.lessThan(1.0), 1.0, 0.8),
-        select(triad.greaterThanEqual(1.0).and(triad.lessThan(2.0)), 1.0, 0.8),
-        select(triad.greaterThanEqual(2.0), 1.0, 0.8),
+      // Rounded-rectangle edge of the visible tube face, antialiased over
+      // one device pixel.
+      const edge = edgeDistance(q, glassAmount.mul(CRT.cornerRadius));
+      const face = clamp(float(0.5).sub(edge), 0.0, 1.0);
+
+      // Keep the complete rectangular frame inside the rounded glass. The
+      // overscan belongs to this black border, including the bowed corners.
+      const frameUv = q.sub(0.5).mul(overscan.mul(2).add(1)).add(0.5);
+      const frameFace = clamp(float(0.5).sub(edgeDistance(frameUv, 0.0)), 0.0, 1.0);
+      // Source position in frame pixels, rows counted from the top.
+      const sx = frameUv.x.mul(FRAME_WIDTH);
+      const sy = float(1.0).sub(frameUv.y).mul(FRAME_HEIGHT);
+      const baseX = floor(sx.sub(0.5));
+      const baseY = floor(sy.sub(0.5));
+
+      // A scanline needs a few device pixels to show its beam profile;
+      // below that the beams widen until they merge into a flat field.
+      const linePixels = outSize.y.div(FRAME_HEIGHT);
+      const resolved = smoothstep(2.5, 4.5, linePixels);
+
+      const lines = [-1, 0, 1, 2].map((row) => {
+        const line = baseY.add(row);
+        const v = line.add(0.5).div(FRAME_HEIGHT);
+        // The beam along this line: neighbouring pixels blended by a
+        // Gaussian, as the signal's limited bandwidth softened every edge.
+        const taps = [-1, 0, 1, 2].map((tap) => {
+          const column = baseX.add(tap);
+          const dx = column.add(0.5).sub(sx);
+          const weight = exp(dx.mul(dx).mul(-0.5 / (CRT.signalSigma * CRT.signalSigma)));
+          const pixel = texture(frame, vec2(column.add(0.5).div(FRAME_WIDTH), v)).rgb;
+          return { colour: pixel.mul(weight), weight };
+        });
+        const signal = taps
+          .map((t) => t.colour)
+          .reduce((a, b) => a.add(b))
+          .div(taps.map((t) => t.weight).reduce((a, b) => a.add(b)));
+        // Brighter beams are wider. Each beam keeps its energy, so the
+        // picture's average brightness matches the frame.
+        const luma = dot(signal, vec3(0.2126, 0.7152, 0.0722));
+        const sigma = mix(
+          float(CRT.mergedSigma),
+          mix(float(CRT.darkSigma), float(CRT.brightSigma), sqrt(luma)),
+          resolved.mul(phosphorAmount),
+        );
+        const dy = line.add(0.5).sub(sy);
+        const profile = exp(dy.mul(dy).div(sigma.mul(sigma).mul(-2.0))).div(sigma.mul(2.5066));
+        return signal.mul(profile);
+      });
+      const beams = lines.reduce((a, b) => a.add(b));
+
+      // Slot-mask phosphors on device pixels: R, G, B columns, with every
+      // other triad's slots offset by half a slot. Retina screens show the
+      // slots; at one device pixel per CSS pixel only a faint grille remains.
+      const device = floor(screenCoordinate.xy);
+      const sub = mod(device.x, 3.0);
+      const triad = floor(device.x.div(3.0));
+      const fine = step(1.5, dpr);
+      const strength = mix(float(CRT.maskStrengthLow), float(CRT.maskStrength), fine).mul(
+        phosphorAmount,
       );
-      // Vignette.
-      const vignette = float(1.0).sub(r2.mul(0.11));
-      // A small phosphor halo around bright pixels. Keep the source sample
-      // sharp: only neighbouring highlights contribute, never a whole-frame blur.
-      const neighbours = texture(frame, sampleUv.add(vec2(1 / FRAME_WIDTH, 0)))
-        .rgb.add(texture(frame, sampleUv.sub(vec2(1 / FRAME_WIDTH, 0))).rgb)
-        .add(texture(frame, sampleUv.add(vec2(0, 1 / FRAME_HEIGHT))).rgb)
-        .add(texture(frame, sampleUv.sub(vec2(0, 1 / FRAME_HEIGHT))).rgb)
-        .mul(0.25);
-      const halo = neighbours.sub(0.55).max(0).mul(0.24);
-      const treated = color.mul(scan).mul(mask).mul(vignette).mul(1.16).add(halo);
-      const shaded = mix(color, treated, crt);
-      return shaded.mul(inside);
+      const lit = float(1.0);
+      const dim = float(1.0).sub(strength);
+      const phosphor = vec3(
+        select(sub.lessThan(1.0), lit, dim),
+        select(sub.greaterThanEqual(1.0).and(sub.lessThan(2.0)), lit, dim),
+        select(sub.greaterThanEqual(2.0), lit, dim),
+      );
+      const slotRow = mod(device.y.add(mod(triad, 2.0).mul(2.0)), 4.0);
+      const slotGap = step(2.5, slotRow).mul(fine).mul(phosphorAmount).mul(CRT.slotGap);
+      const mask = phosphor.mul(float(1.0).sub(slotGap));
+      // Lift the average back to the frame's brightness.
+      const maskMean = float(1.0)
+        .add(dim.mul(2.0))
+        .div(3.0)
+        .mul(float(1.0).sub(fine.mul(phosphorAmount).mul(CRT.slotGap / 4)));
+
+      // Halation: the glass scatters every phosphor's light a little and
+      // the brightest ones more.
+      const scattered = texture(glow, vec2(frameUv.x, float(1.0).sub(frameUv.y))).rgb;
+      const halation = scattered
+        .mul(CRT.halation)
+        .add(scattered.sub(CRT.glowThreshold).max(0.0).mul(CRT.glow))
+        .mul(lightAmount);
+
+      const vignette = float(1.0).sub(dot(c, c).mul(lightAmount).mul(CRT.vignette));
+      const crisp = texture(frame, vec2(frameUv.x, float(1.0).sub(frameUv.y))).rgb;
+      const signal = select(
+        phosphorAmount.greaterThanEqual(1),
+        beams,
+        mix(crisp, beams, phosphorAmount),
+      );
+      const tube = signal.mul(mask).div(maskMean).add(halation).mul(vignette).mul(wakeLevel);
+      return tube
+        .mul(frameFace)
+        .add(rimLight(edge, mix(0.5, 1, glassAmount)))
+        .mul(face);
     })();
 
     this.quad = new THREE.Mesh(this.geometry, this.crtMaterial);
@@ -530,11 +718,45 @@ export class AgiStage {
     }
   }
 
-  /** Enable or disable the CRT pass. */
-  set crt(on: boolean) {
+  /**
+   * Show whether the game has the keyboard: `focused` lights the glass edge,
+   * `standby` dims the picture. Both fade unless reduced motion is preferred.
+   */
+  setAttention(focused: boolean, standby: boolean): void {
     if (this.disposed) return;
-    this.crtUniform.value = on ? 1 : 0;
-    this.quad.material = on ? this.crtMaterial : this.flatMaterial;
+    const target = { focus: focused ? 1 : 0, wake: standby ? ATTENTION.standby : 1 };
+    const instant =
+      typeof requestAnimationFrame === "undefined" ||
+      (typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches);
+    if (this.attentionRaf !== null) cancelAnimationFrame(this.attentionRaf);
+    this.attentionRaf = null;
+    const from = { ...this.attention };
+    const start = performance.now();
+    const step = (now: number) => {
+      const t = instant ? 1 : Math.min(1, (now - start) / ATTENTION.fade);
+      const eased = 1 - (1 - t) ** 3;
+      this.attention = {
+        focus: from.focus + (target.focus - from.focus) * eased,
+        wake: from.wake + (target.wake - from.wake) * eased,
+      };
+      this.focusLevel.value = this.attention.focus;
+      this.wakeLevel.value = this.attention.wake;
+      this.renderPass();
+      this.attentionRaf = t < 1 && !this.disposed ? requestAnimationFrame(step) : null;
+    };
+    step(start);
+  }
+
+  /** The material reads this single amount uniform; Off uses the flat pass. */
+  get crtAmount(): number {
+    return this.amount.value;
+  }
+
+  set crtAmount(amount: number) {
+    if (this.disposed) return;
+    this.amount.value = Number.isFinite(amount) ? Math.min(1, Math.max(0, amount)) : 0;
+    this.quad.material = this.amount.value > 0 ? this.crtMaterial : this.flatMaterial;
+    if (this.amount.value > CRT_STAGES.light[0]) this.updateGlow();
     // Static rooms and paused games may not emit another frame. Apply the
     // display setting immediately using the texture already on the GPU.
     this.renderPass();
@@ -570,23 +792,44 @@ export class AgiStage {
 
   /** Match the backing store to the displayed size in device pixels with a max DPR cap. */
   private fit(canvas: HTMLCanvasElement): void {
-    if (this.disposed) return;
+    if (this.disposed || layoutDragging.value) return;
     const rawDpr = typeof devicePixelRatio === "number" ? devicePixelRatio : 1;
     const dpr = Math.min(Math.max(1, rawDpr), 2);
     const width = Math.max(1, Math.round((canvas.clientWidth || FRAME_WIDTH * 2) * dpr));
     const height = Math.max(1, Math.round((canvas.clientHeight || FRAME_HEIGHT * 2) * dpr));
+    if (
+      this.outSize.value.x === width &&
+      this.outSize.value.y === height &&
+      this.dpr.value === dpr &&
+      canvas.width === width &&
+      canvas.height === height
+    )
+      return;
     this.renderer.setSize(width, height, false);
-    this.scanPeriod.value = Math.max(1, Math.round(height / FRAME_HEIGHT));
+    this.outSize.value.set(width, height);
+    this.dpr.value = dpr;
     // Resizing clears the canvas even while a remix has paused new frames.
     if (this.scene.children.length) this.renderPass();
   }
 
-  static async create(canvas: HTMLCanvasElement): Promise<AgiStage | null> {
-    const attempts: { forceWebGL: boolean }[] = [{ forceWebGL: false }, { forceWebGL: true }];
+  static async create(
+    canvas: HTMLCanvasElement,
+    context?: WebGL2RenderingContext,
+  ): Promise<AgiStage | null> {
+    // The stage moves between Play and picture tools. Keep a stationary
+    // WebGL frame readable after that move, including WebKit's compositor.
+    context ??=
+      typeof navigator !== "undefined" && !navigator.gpu
+        ? (canvas.getContext("webgl2", { antialias: false, preserveDrawingBuffer: true }) ??
+          undefined)
+        : undefined;
+    const attempts: { forceWebGL: boolean }[] = context
+      ? [{ forceWebGL: true }]
+      : [{ forceWebGL: false }, { forceWebGL: true }];
     for (const { forceWebGL } of attempts) {
       let renderer: WebGPURenderer | null = null;
       try {
-        renderer = new WebGPURenderer({ canvas, antialias: false, forceWebGL });
+        renderer = new WebGPURenderer({ canvas, antialias: false, forceWebGL, context });
         await renderer.init();
         const gpu =
           !forceWebGL &&
@@ -594,7 +837,13 @@ export class AgiStage {
         return new AgiStage(renderer, gpu, canvas);
       } catch {
         try {
-          renderer?.dispose();
+          // dispose() restarts initialization through setAnimationLoop on a
+          // failed renderer, leaving a rejected promise outside its return value.
+          if (renderer?.initialized) await renderer.dispose();
+          else {
+            const backend = renderer?.backend as { dispose?: () => Promise<void> } | undefined;
+            await backend?.dispose?.();
+          }
         } catch {
           // fall through to next backend
         }
@@ -606,8 +855,25 @@ export class AgiStage {
   /** Upload a composed 320x200 RGBA frame and draw it. */
   render(frame: Uint8Array | Uint8ClampedArray, immediate = false): void {
     if (this.disposed) return;
+    // A stationary game still posts cycle frames. Its flat view can keep the
+    // texture already presented; exploded masks may change independently.
+    if (this.frameUploaded && !this.exploded && frame.length === this.rgba.length) {
+      let changed = false;
+      for (let i = 0; i < frame.length; i++) {
+        if (frame[i] !== this.rgba[i]) {
+          changed = true;
+          break;
+        }
+      }
+      if (!changed) {
+        if (immediate && this.pendingRaf !== null) this.flush();
+        return;
+      }
+    }
     this.rgba.set(frame);
+    this.frameUploaded = true;
     this.texture.needsUpdate = true;
+    if (this.amount.value > CRT_STAGES.light[0]) this.updateGlow();
     if (immediate || typeof requestAnimationFrame === "undefined") {
       if (this.pendingRaf !== null && typeof cancelAnimationFrame !== "undefined") {
         cancelAnimationFrame(this.pendingRaf);
@@ -626,6 +892,11 @@ export class AgiStage {
     }
   }
 
+  private updateGlow(): void {
+    crtGlow(this.rgba, this.glowRgba);
+    this.glowTexture.needsUpdate = true;
+  }
+
   flush(): void {
     if (this.disposed) return;
     if (this.pendingRaf !== null && typeof cancelAnimationFrame !== "undefined") {
@@ -639,11 +910,13 @@ export class AgiStage {
     if (this.disposed) return;
     this.disposed = true;
     this.stopParallax();
+    if (this.attentionRaf !== null) cancelAnimationFrame(this.attentionRaf);
     if (this.pendingRaf !== null && typeof cancelAnimationFrame !== "undefined") {
       cancelAnimationFrame(this.pendingRaf);
       this.pendingRaf = null;
     }
     this.observer?.disconnect();
+    this.stopLayoutWatch();
     this.scene.remove(this.quad);
     if (this.explodedGroup) this.scene.remove(this.explodedGroup);
     this.explodedGeometry?.dispose();
@@ -657,8 +930,11 @@ export class AgiStage {
     this.flatMaterial.dispose();
     this.crtMaterial.dispose();
     this.texture.dispose();
+    this.glowTexture.dispose();
     try {
-      this.renderer.dispose();
+      void this.renderer.dispose().catch(() => {
+        // A failed backend can also reject asynchronous teardown.
+      });
     } catch {
       // safe teardown
     }

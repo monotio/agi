@@ -1,6 +1,6 @@
 import { providerReply } from "../../test/provider-stream.ts";
 import type { EngineStateReport } from "../../src/runtime/engine.ts";
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./test.ts";
 import { fileURLToPath } from "node:url";
 
 /** The worker replies this test reads (engine.worker.ts, "Messages out"). */
@@ -23,7 +23,7 @@ test("power-up vocabulary and inventory reach the live worker and exported game"
     const calls = [
       ["write_words", { words: ["sparkle"] }],
       [
-        "write_inventory_objects",
+        "write_objects",
         {
           objects: [
             { name: "Old key", startingRoom: 2 },
@@ -32,7 +32,7 @@ test("power-up vocabulary and inventory reach the live worker and exported game"
         },
       ],
       [
-        "write_logic_source",
+        "write_logic",
         {
           room: 0,
           source: `
@@ -80,8 +80,8 @@ test("power-up vocabulary and inventory reach the live worker and exported game"
       const state = agentState.createAgentSessionState();
       const initial = [
         ["write_words", { words: ["look"] }],
-        ["write_inventory_objects", { objects: [{ name: "Old key", startingRoom: 1 }] }],
-        ["write_logic_source", { room: 0, source: "accept.input(); get(0); return;" }],
+        ["write_objects", { objects: [{ name: "Old key", startingRoom: 1 }] }],
+        ["write_logic", { room: 0, source: "accept.input(); get(0); return;" }],
       ] as const;
       for (const [name, args] of initial) {
         const res = tools.executeAgentTool(state, name, args);
@@ -92,7 +92,7 @@ test("power-up vocabulary and inventory reach the live worker and exported game"
       );
       const words = [...state.sources.words];
       const session = new AgentSession(
-        { provider: "openai", apiKey: "test-placeholder", model: "test" },
+        { provider: "openai", apiKey: "test-placeholder", model: "gpt-6.1-sol" },
         () => {},
         state,
       );
@@ -107,6 +107,7 @@ test("power-up vocabulary and inventory reach the live worker and exported game"
       const wait = <T extends WorkerReply>(
         predicate: (message: WorkerReply) => message is T,
       ): Promise<T> =>
+        // wall-clock: bounds a missing worker reply; success resolves on the reply event.
         new Promise((resolve, reject) => {
           const timeout = setTimeout(() => {
             waiters.delete(check);

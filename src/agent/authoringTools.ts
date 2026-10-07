@@ -5,10 +5,32 @@ import {
   type AgentToolResult,
 } from "./agentState.ts";
 import { sourceRevision, validateAuthoringState, type BindingKind } from "./authoringState.ts";
+import { allocateProjectIds } from "../authoring/resourceAllocation.ts";
+import {
+  addLaunch,
+  newLaunchId,
+  removeLaunch,
+  selectLaunch,
+  updateLaunch,
+  type LaunchFields,
+  type LaunchPatch,
+} from "../authoring/launches.ts";
 import { disassembleLogic } from "../logic/disassembler.ts";
 import { readPictureSource } from "../picture/source.ts";
 
-/** The exact text read_logic/read_picture show and edit_resource_source patches. */
+function launchMap<T extends boolean | number>(value: unknown): Record<string, T> {
+  if (!Array.isArray(value)) throw new Error("Launch maps must be arrays of {id,value} records.");
+  const out: Record<string, T> = {};
+  for (const entry of value as { id: number; value: T }[]) {
+    if (!Number.isInteger(entry.id) || entry.id < 0 || entry.id > 255)
+      throw new Error("Launch map ids must be integers 0..255.");
+    if (Object.hasOwn(out, entry.id)) throw new Error(`Duplicate Launch map id ${entry.id}.`);
+    out[String(entry.id)] = entry.value;
+  }
+  return out;
+}
+
+/** The exact text read_logic/read_picture show and edit_source patches. */
 export function editableSource(
   state: AgentSessionState,
   kind: "logic" | "picture",
@@ -63,48 +85,9 @@ export function sourceContextRevision(
   });
 }
 
-/** Discover static operands; refuse automatic allocation where runtime indirection obscures usage. */
-function occupiedIds(state: AgentSessionState, kind: BindingKind): Set<number> {
-  const used = new Set(
-    Object.values(state.authoring.bindings)
-      .filter((binding) => binding.kind === kind)
-      .map((binding) => binding.num),
-  );
-  if (kind !== "flag" && kind !== "variable") {
-    for (let num = 0; num < 256; num++) {
-      try {
-        if (state.container.getResource(kind, num)) used.add(num);
-      } catch {
-        used.add(num);
-      }
-    }
-    return used;
-  }
-  for (let num = 0; num < 256; num++) {
-    const payload = state.container.getResource("logic", num);
-    if (!payload) continue;
-    const source = disassembleLogic(payload, {
-      profile: state.profile,
-      dictionary: state.sources.words,
-    });
-    if (
-      source.includes("// !!") ||
-      /\b(?:lindirectv|rindirect|lindirectn|set\.v|reset\.v|toggle\.v|isset\.v)\s*\(/.test(source)
-    )
-      throw new Error(
-        `Logic ${num} has indirect or undecodable state access. Read its logic and bind an explicit ID; automatic allocation cannot establish a free ${kind}.`,
-      );
-    // Remove literals/comments: a message saying 'f32' is not an operand.
-    const code = source.replace(/\/\/[^\n]*|"(?:\\[^\n]|[^"\\\n])*"/g, "");
-    for (const match of code.matchAll(kind === "flag" ? /\bf(\d+)\b/g : /\bv(\d+)\b/g))
-      used.add(Number(match[1]));
-  }
-  return used;
-}
-
 /**
- * Runs reserve_binding and update_world, which change only authoring state.
- * edit_resource_source is not here: resolveSourceEdit patches the text, and
+ * Runs reserve_name and update_plan, which change only authoring state.
+ * edit_source is not here: resolveSourceEdit patches the text, and
  * the dispatcher writes it through the ordinary logic or picture writer.
  */
 export function executeAuthoringTool(
@@ -112,9 +95,11 @@ export function executeAuthoringTool(
   name: string,
   args: Record<string, unknown>,
 ): AgentToolResult | undefined {
-  if (name !== "reserve_binding" && name !== "update_world") return undefined;
+  if (name !== "reserve_name" && name !== "update_plan" && name !== "configure_launch") {
+    return undefined;
+  }
   try {
-    if (name === "reserve_binding") {
+    if (name === "reserve_name") {
       let items: { name: unknown; kind: unknown; id: unknown }[];
       if (Array.isArray(args["bindings"])) {
         items = args["bindings"] as { name: unknown; kind: unknown; id: unknown }[];
@@ -127,10 +112,11 @@ export function executeAuthoringTool(
 
       const reservedList: { name: string; kind: BindingKind; num: number; define: string }[] = [];
       const messages: string[] = [];
+      const allocationWarnings = new Set<string>();
 
       for (const item of items) {
         const symbol = item.name;
-        const kind = item.kind as BindingKind;
+        const kind = item.kind as Exclude<BindingKind, "object" | "inventory" | "message">;
         if (
           typeof symbol !== "string" ||
           !/^[a-z][a-z0-9_]{0,63}$/.test(symbol) ||
@@ -150,19 +136,22 @@ export function executeAuthoringTool(
             );
           num = existing.num;
         } else if (num == null) {
-          const used = occupiedIds(state, kind);
-          for (const b of reservedList) {
-            if (b.kind === kind) used.add(b.num);
-          }
-          const start = kind === "flag" || kind === "variable" ? 32 : 1;
-          num = Array.from({ length: 256 - start }, (_, index) => start + index).find(
-            (id) => !used.has(id),
+          // Earlier batch items are already bound, so the live record covers them.
+          const allocation = allocateProjectIds(
+            {
+              container: state.container,
+              profile: state.profile,
+              dictionary: state.sources.words,
+              bindings: state.authoring.bindings,
+            },
+            kind,
           );
-          if (num === undefined) throw new Error(`No free ${kind} IDs remain.`);
+          num = allocation.ids[0]!;
+          for (const warning of allocation.warnings) allocationWarnings.add(warning);
         }
         if (typeof num !== "number" || !Number.isInteger(num) || num < 0 || num > 255)
           throw new Error("id must be null or an integer in 0..255.");
-        state.authoring.bindings[symbol] = { kind, num };
+        state.authoring.bindings[symbol] = existing ?? { kind, num };
         reservedList.push({
           name: symbol,
           kind,
@@ -182,6 +171,7 @@ export function executeAuthoringTool(
             kind: first.kind,
             num: first.num,
             define: first.define,
+            ...(allocationWarnings.size ? { warnings: [...allocationWarnings] } : {}),
             authoringChanged: true,
           },
         };
@@ -193,10 +183,108 @@ export function executeAuthoringTool(
         details: {
           bindings: reservedList,
           defines: reservedList.map((r) => r.define).join("\n"),
+          ...(allocationWarnings.size ? { warnings: [...allocationWarnings] } : {}),
           authoringChanged: true,
         },
       };
     }
+    if (name === "configure_launch") {
+      const room = args["room"] as number;
+      if (!Number.isInteger(room) || room < 1 || room > 255) {
+        throw new Error("Select a room number 1..255.");
+      }
+      const action = args["action"] as "create" | "update" | "remove";
+      let nextWorld = state.authoring.world;
+      let resultMessage = "";
+      if (action !== "update" && Array.isArray(args["clear"]) && args["clear"].length)
+        throw new Error("The clear list is only used when updating a Launch.");
+
+      if (action === "remove") {
+        const id = args["id"] as string | null;
+        if (!id) throw new Error("A launch id is required to remove a launch.");
+        nextWorld = removeLaunch(nextWorld, room, id);
+        resultMessage = `Launch '${id}' removed from room ${room}.`;
+      } else if (action === "create") {
+        const launchName = (args["name"] as string | null)?.trim() || "Launch";
+        const fields: LaunchFields = { name: launchName };
+        if (args["id"]) fields.id = args["id"] as string;
+        if (args["note"]) fields.note = (args["note"] as string).trim();
+        if (args["cameFrom"] && typeof args["cameFrom"] === "object") {
+          const cf = args["cameFrom"] as { room: number; edge?: 1 | 2 | 3 | 4 };
+          fields.cameFrom = { room: cf.room, ...(cf.edge ? { edge: cf.edge } : {}) };
+        }
+        if (args["flags"] && typeof args["flags"] === "object") {
+          fields.flags = launchMap<boolean>(args["flags"]);
+        }
+        if (args["variables"] && typeof args["variables"] === "object") {
+          fields.variables = launchMap<number>(args["variables"]);
+        }
+        if (args["items"] && typeof args["items"] === "object") {
+          fields.items = launchMap<number>(args["items"]);
+        }
+        if (args["hero"] && typeof args["hero"] === "object") {
+          const h = args["hero"] as { x: number; y: number };
+          fields.hero = { x: h.x, y: h.y };
+        }
+        if (typeof args["seed"] === "number") fields.seed = args["seed"];
+
+        const currentLaunches = nextWorld.launches?.[String(room)];
+        const launchId = fields.id ?? newLaunchId(currentLaunches);
+        nextWorld = addLaunch(nextWorld, room, { ...fields, id: launchId });
+        if (args["selected"] === true) {
+          nextWorld = selectLaunch(nextWorld, room, launchId);
+        }
+        resultMessage = `Launch '${launchName}' (${launchId}) created for room ${room}.`;
+      } else if (action === "update") {
+        const id = args["id"] as string | null;
+        if (!id) throw new Error("A launch id is required to update a launch.");
+        const patch: LaunchPatch = {};
+        if (args["name"] !== undefined && args["name"] !== null) {
+          patch.name = (args["name"] as string).trim();
+        }
+        if (args["note"] != null) patch.note = (args["note"] as string).trim();
+        if (args["cameFrom"] != null) {
+          const cf = args["cameFrom"] as { room: number; edge?: 1 | 2 | 3 | 4 | null };
+          patch.cameFrom = { room: cf.room, ...(cf.edge ? { edge: cf.edge } : {}) };
+        }
+        if (args["flags"] != null) patch.flags = launchMap<boolean>(args["flags"]);
+        if (args["variables"] != null) patch.variables = launchMap<number>(args["variables"]);
+        if (args["items"] != null) patch.items = launchMap<number>(args["items"]);
+        if (args["hero"] != null) patch.hero = args["hero"] as { x: number; y: number };
+        if (args["seed"] != null) patch.seed = args["seed"] as number;
+        for (const field of (args["clear"] ?? []) as (
+          "note" | "cameFrom" | "flags" | "variables" | "items" | "hero" | "seed"
+        )[]) {
+          if (args[field] != null)
+            throw new Error(`Launch field '${field}' cannot be set and cleared together.`);
+          patch[field] = undefined;
+        }
+
+        nextWorld = updateLaunch(nextWorld, room, id, patch);
+        if (args["selected"] === true) {
+          nextWorld = selectLaunch(nextWorld, room, id);
+        } else if (
+          args["selected"] === false &&
+          nextWorld.launches?.[String(room)]?.selected === id
+        ) {
+          nextWorld = selectLaunch(nextWorld, room, "carry");
+        }
+        resultMessage = `Launch '${id}' updated for room ${room}.`;
+      } else {
+        throw new Error(`Unknown action: '${action}'. Use 'create', 'update' or 'remove'.`);
+      }
+
+      state.authoring = validateAuthoringState({ ...state.authoring, world: nextWorld });
+      return {
+        success: true,
+        message: resultMessage,
+        details: {
+          room,
+          authoringChanged: true,
+        },
+      };
+    }
+
     const next = validateAuthoringState(state.authoring);
     for (const category of ["rooms", "facts", "quests"] as const) {
       const entries = args[category];
@@ -264,7 +352,7 @@ function unchanged(tool: string, error: unknown): AgentToolResult {
   };
 }
 
-/** The text an edit_resource_source call leaves, for the writer to compile. */
+/** The text an edit_source call leaves, for the writer to compile. */
 export interface SourceEdit {
   readonly kind: "logic" | "picture";
   readonly num: number;
@@ -272,7 +360,7 @@ export interface SourceEdit {
 }
 
 /**
- * Resolves edit_resource_source against the revision the agent read: every
+ * Resolves edit_source against the revision the agent read: every
  * find must match exactly one section of the same snapshot. Returns the
  * patched text, or a failure that changed nothing.
  */
@@ -280,7 +368,7 @@ export function resolveSourceEdit(
   state: AgentSessionState,
   args: Record<string, unknown>,
 ): SourceEdit | AgentToolResult {
-  const tool = "edit_resource_source";
+  const tool = "edit_source";
   try {
     const kind = args["kind"];
     const num = args["num"];
@@ -303,8 +391,8 @@ export function resolveSourceEdit(
         "Source revision changed. Read the current source before editing; its text, dictionary, profile, or named bindings may have drifted.",
       );
     const edits = args["edits"];
-    if (!Array.isArray(edits) || !edits.length || edits.length > 64)
-      throw new Error("edits must name 1..64 find/replace pairs.");
+    if (!Array.isArray(edits) || !edits.length || edits.length > 65535)
+      throw new Error("edits must name 1..65535 find/replace pairs.");
     const fail = (message: string, editIndex: number, excerpt: string): AgentToolResult => ({
       success: false,
       error: message,

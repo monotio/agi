@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { numberedLabel } from "../../../../src/logic/numberedLabels.ts";
+
 import { computed, shallowRef, useTemplateRef, watch, watchEffect } from "vue";
 import { openContainer } from "../../../../src/container/container.ts";
 import { renderPicture } from "../../../../src/picture/renderer.ts";
@@ -12,7 +14,7 @@ import UiButton from "../../ui/UiButton.vue";
 import UiExplain from "../../ui/UiExplain.vue";
 import { explain } from "../studioTerms.ts";
 import { useShortWindow } from "./useShortWindow.ts";
-import type { SpriteRoom } from "../../shell/useCreateWorkspace.ts";
+import type { SpriteRoom } from "../../world/studioSource.ts";
 
 /**
  * The edited cel standing in one of the rooms that use the view: the room's
@@ -57,7 +59,7 @@ const picture = computed(() => {
   const number = entry.value?.picture;
   if (number === undefined) return null;
   try {
-    const bytes = openContainer(new Map(files)).getResource("picture", number);
+    const bytes = openContainer(new Map(files), { profile }).getResource("picture", number);
     if (!bytes) return null;
     const surface = createPictureSurface();
     renderPicture(bytes, surface, { profile });
@@ -95,7 +97,7 @@ const result = computed(() => {
   });
 });
 
-const CONTROL_WORDS = ["a barrier", "a conditional barrier", "a signal line", "water"];
+const CONTROL_WORDS = ["Wall", "Gate", "Trigger", "Water"];
 const verdict = computed(() => {
   const r = result.value;
   if (!r) return null;
@@ -195,10 +197,10 @@ function onKey(event: KeyboardEvent): void {
       <h3 id="room-preview-title">In room</h3>
       <select v-if="rooms.length > 1" v-model.number="room" aria-label="Room">
         <option v-for="option in rooms" :key="option.room" :value="option.room">
-          Room {{ option.room }}{{ option.title ? ` · ${option.title}` : "" }}
+          {{ numberedLabel("room", option.room, { rooms }, "option") }}
         </option>
       </select>
-      <span v-else-if="entry">Room {{ entry.room }}</span>
+      <span v-else-if="entry">{{ numberedLabel("room", entry.room, { rooms }) }}</span>
       <UiButton
         v-if="short && picture"
         variant="ghost"

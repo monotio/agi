@@ -174,375 +174,375 @@
         ],
         "modalKind": "show.obj",
         "controls": [
-          "control 0: very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description ",
-          "control 1: very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description ",
-          "control 2: very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description ",
-          "control 3: very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description ",
-          "control 4: very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description ",
-          "control 5: very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description ",
-          "control 6: very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description ",
-          "control 7: very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description ",
-          "control 8: very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description "
+          "control 0: very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description ",
+          "control 1: very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description ",
+          "control 2: very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description ",
+          "control 3: very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description ",
+          "control 4: very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description ",
+          "control 5: very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description ",
+          "control 6: very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description ",
+          "control 7: very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description ",
+          "control 8: very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description "
         ]
       },
       "liveObjects": [
         {
           "num": 0,
-          "name": "obj 0",
+          "name": "obj 0 large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail ",
           "x": 0,
           "y": 100
         },
         {
           "num": 1,
-          "name": "obj 1",
+          "name": "obj 1 large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail ",
           "x": 2,
           "y": 101
         },
         {
           "num": 2,
-          "name": "obj 2",
+          "name": "obj 2 large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail ",
           "x": 4,
           "y": 102
         },
         {
           "num": 3,
-          "name": "obj 3",
+          "name": "obj 3 large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail ",
           "x": 6,
           "y": 103
         },
         {
           "num": 4,
-          "name": "obj 4",
+          "name": "obj 4 large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail ",
           "x": 8,
           "y": 104
         },
         {
           "num": 5,
-          "name": "obj 5",
+          "name": "obj 5 large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail ",
           "x": 10,
           "y": 105
         },
         {
           "num": 6,
-          "name": "obj 6",
+          "name": "obj 6 large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail ",
           "x": 12,
           "y": 106
         },
         {
           "num": 7,
-          "name": "obj 7",
+          "name": "obj 7 large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail ",
           "x": 14,
           "y": 107
         },
         {
           "num": 8,
-          "name": "obj 8",
+          "name": "obj 8 large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail ",
           "x": 16,
           "y": 108
         },
         {
           "num": 9,
-          "name": "obj 9",
+          "name": "obj 9 large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail ",
           "x": 18,
           "y": 109
         },
         {
           "num": 10,
-          "name": "obj 10",
+          "name": "obj 10 large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail ",
           "x": 20,
           "y": 110
         },
         {
           "num": 11,
-          "name": "obj 11",
+          "name": "obj 11 large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail ",
           "x": 22,
           "y": 111
         },
         {
           "num": 12,
-          "name": "obj 12",
+          "name": "obj 12 large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail ",
           "x": 24,
           "y": 112
         },
         {
           "num": 13,
-          "name": "obj 13",
+          "name": "obj 13 large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail ",
           "x": 26,
           "y": 113
         },
         {
           "num": 14,
-          "name": "obj 14",
+          "name": "obj 14 large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail ",
           "x": 28,
           "y": 114
         },
         {
           "num": 15,
-          "name": "obj 15",
+          "name": "obj 15 large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail ",
           "x": 30,
           "y": 115
         },
         {
           "num": 16,
-          "name": "obj 16",
+          "name": "obj 16 large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail ",
           "x": 32,
           "y": 116
         },
         {
           "num": 17,
-          "name": "obj 17",
+          "name": "obj 17 large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail ",
           "x": 34,
           "y": 117
         },
         {
           "num": 18,
-          "name": "obj 18",
+          "name": "obj 18 large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail ",
           "x": 36,
           "y": 118
         },
         {
           "num": 19,
-          "name": "obj 19",
+          "name": "obj 19 large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail ",
           "x": 38,
           "y": 119
         },
         {
           "num": 20,
-          "name": "obj 20",
+          "name": "obj 20 large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail ",
           "x": 40,
           "y": 120
         },
         {
           "num": 21,
-          "name": "obj 21",
+          "name": "obj 21 large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail ",
           "x": 42,
           "y": 121
         },
         {
           "num": 22,
-          "name": "obj 22",
+          "name": "obj 22 large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail ",
           "x": 44,
           "y": 122
         },
         {
           "num": 23,
-          "name": "obj 23",
+          "name": "obj 23 large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail ",
           "x": 46,
           "y": 123
         },
         {
           "num": 24,
-          "name": "obj 24",
+          "name": "obj 24 large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail ",
           "x": 48,
           "y": 124
         },
         {
           "num": 25,
-          "name": "obj 25",
+          "name": "obj 25 large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail ",
           "x": 50,
           "y": 125
         },
         {
           "num": 26,
-          "name": "obj 26",
+          "name": "obj 26 large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail ",
           "x": 52,
           "y": 126
         },
         {
           "num": 27,
-          "name": "obj 27",
+          "name": "obj 27 large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail ",
           "x": 54,
           "y": 127
         },
         {
           "num": 28,
-          "name": "obj 28",
+          "name": "obj 28 large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail ",
           "x": 56,
           "y": 128
         },
         {
           "num": 29,
-          "name": "obj 29",
+          "name": "obj 29 large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail ",
           "x": 58,
           "y": 129
         },
         {
           "num": 30,
-          "name": "obj 30",
+          "name": "obj 30 large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail ",
           "x": 60,
           "y": 130
         },
         {
           "num": 31,
-          "name": "obj 31",
+          "name": "obj 31 large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail ",
           "x": 62,
           "y": 131
         },
         {
           "num": 32,
-          "name": "obj 32",
+          "name": "obj 32 large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail ",
           "x": 64,
           "y": 132
         },
         {
           "num": 33,
-          "name": "obj 33",
+          "name": "obj 33 large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail ",
           "x": 66,
           "y": 133
         },
         {
           "num": 34,
-          "name": "obj 34",
+          "name": "obj 34 large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail ",
           "x": 68,
           "y": 134
         },
         {
           "num": 35,
-          "name": "obj 35",
+          "name": "obj 35 large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail ",
           "x": 70,
           "y": 135
         },
         {
           "num": 36,
-          "name": "obj 36",
+          "name": "obj 36 large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail ",
           "x": 72,
           "y": 136
         },
         {
           "num": 37,
-          "name": "obj 37",
+          "name": "obj 37 large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail ",
           "x": 74,
           "y": 137
         },
         {
           "num": 38,
-          "name": "obj 38",
+          "name": "obj 38 large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail ",
           "x": 76,
           "y": 138
         },
         {
           "num": 39,
-          "name": "obj 39",
+          "name": "obj 39 large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail ",
           "x": 78,
           "y": 139
         },
         {
           "num": 40,
-          "name": "obj 40",
+          "name": "obj 40 large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail ",
           "x": 80,
           "y": 140
         },
         {
           "num": 41,
-          "name": "obj 41",
+          "name": "obj 41 large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail ",
           "x": 82,
           "y": 141
         },
         {
           "num": 42,
-          "name": "obj 42",
+          "name": "obj 42 large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail ",
           "x": 84,
           "y": 142
         },
         {
           "num": 43,
-          "name": "obj 43",
+          "name": "obj 43 large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail ",
           "x": 86,
           "y": 143
         },
         {
           "num": 44,
-          "name": "obj 44",
+          "name": "obj 44 large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail ",
           "x": 88,
           "y": 144
         },
         {
           "num": 45,
-          "name": "obj 45",
+          "name": "obj 45 large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail ",
           "x": 90,
           "y": 145
         },
         {
           "num": 46,
-          "name": "obj 46",
+          "name": "obj 46 large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail ",
           "x": 92,
           "y": 146
         },
         {
           "num": 47,
-          "name": "obj 47",
+          "name": "obj 47 large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail ",
           "x": 94,
           "y": 147
         },
         {
           "num": 48,
-          "name": "obj 48",
+          "name": "obj 48 large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail ",
           "x": 96,
           "y": 148
         },
         {
           "num": 49,
-          "name": "obj 49",
+          "name": "obj 49 large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail ",
           "x": 98,
           "y": 149
         },
         {
           "num": 50,
-          "name": "obj 50",
+          "name": "obj 50 large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail ",
           "x": 100,
           "y": 150
         },
         {
           "num": 51,
-          "name": "obj 51",
+          "name": "obj 51 large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail ",
           "x": 102,
           "y": 151
         },
         {
           "num": 52,
-          "name": "obj 52",
+          "name": "obj 52 large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail ",
           "x": 104,
           "y": 152
         },
         {
           "num": 53,
-          "name": "obj 53",
+          "name": "obj 53 large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail ",
           "x": 106,
           "y": 153
         },
         {
           "num": 54,
-          "name": "obj 54",
+          "name": "obj 54 large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail ",
           "x": 108,
           "y": 154
         },
         {
           "num": 55,
-          "name": "obj 55",
+          "name": "obj 55 large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail ",
           "x": 110,
           "y": 155
         },
         {
           "num": 56,
-          "name": "obj 56",
+          "name": "obj 56 large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail ",
           "x": 112,
           "y": 156
         },
         {
           "num": 57,
-          "name": "obj 57",
+          "name": "obj 57 large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail ",
           "x": 114,
           "y": 157
         },
         {
           "num": 58,
-          "name": "obj 58",
+          "name": "obj 58 large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail ",
           "x": 116,
           "y": 158
         },
         {
           "num": 59,
-          "name": "obj 59",
+          "name": "obj 59 large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail large object detail ",
           "x": 118,
           "y": 159
         }

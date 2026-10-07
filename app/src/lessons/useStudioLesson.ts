@@ -1,23 +1,25 @@
 /**
- * A Studio's side of a lesson: the session its request carries (when the Help
- * guide opened it from a lesson), the check each successful Keep runs
- * (lessonCheck.ts), and the Keep notice that reports the verdict. Studio's
- * harness has no Create centre, and so no lesson.
+ * A Studio's side of a lesson: the session its tab request carries (when
+ * the Help guide opened it from a lesson), the check each finished edit
+ * runs (lessonCheck.ts), and the save notice that reports the verdict.
  */
 import { computed, shallowRef } from "vue";
-import { useOptionalCreateCenter } from "../shell/useCreateWorkspace.ts";
 import type { StudioNotice } from "../studio/useStudioNotice.ts";
-import { checkLessonKeep, type LessonKeep, type LessonOutcome } from "./lessonCheck.ts";
+import {
+  checkLessonKeep,
+  type LessonSession,
+  type LessonKeep,
+  type LessonOutcome,
+} from "./lessonCheck.ts";
 import { useLessonBadges } from "./lessonStorage.ts";
 
-export function useStudioLesson() {
-  const center = useOptionalCreateCenter();
+export function useStudioLesson(request: () => LessonSession | null | undefined) {
   const badges = useLessonBadges();
-  const session = computed(() => center?.studio.value?.lesson ?? null);
-  /** The last successful Keep's verdict; null when it had none. */
+  const session = computed(() => request() ?? null);
+  /** The last checked edit's verdict; null when it had none. */
   const outcome = shallowRef<LessonOutcome | null>(null);
 
-  /** Run after every successful Keep, with what it kept. */
+  /** Check the current draft after an edit or when a lesson opens, with what it kept. */
   function check(keep: LessonKeep): void {
     const current = session.value;
     outcome.value = current ? checkLessonKeep(current, keep, badges.award) : null;

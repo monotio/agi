@@ -15,7 +15,12 @@ import {
   type GameContainer,
   type ResourceKind,
 } from "../types.ts";
-import { detectProfile } from "../runtime/profile.ts";
+import {
+  detectProfile,
+  type AgiProfile,
+  type DirectoryAbsence,
+  type ProfileId,
+} from "../runtime/profile.ts";
 import { toggleMessageEncryption } from "../logic/resource.ts";
 
 /** Directory file per family (v2 split profile). */
@@ -43,6 +48,13 @@ const RECORD_MAGIC_0 = 0x12;
 const RECORD_MAGIC_1 = 0x34;
 
 export interface ContainerOptions {
+  /**
+   * Explicit interpreter edition choice (the same override the engine
+   * accepts): pins the directory absence policy and the volume number a
+   * pack may still write. Detection over the incoming files supplies it
+   * when the override is omitted.
+   */
+  readonly profile?: ProfileId | AgiProfile;
   /** Auto-detected from directory/volume filenames when omitted. */
   readonly kind?: "v2-split" | "v3-combined";
   /** Game prefix for v3 DIR and VOL.N files; empty is valid. */
@@ -68,6 +80,35 @@ export function detectContainerFormat(files: ReadonlyMap<string, Uint8Array>): {
   if (prefixes.size > 1) throw new Error("Multiple AGI volume prefixes; select a game prefix.");
   if (prefixes.size === 1) return { kind: "v3-combined", prefix: [...prefixes][0]! };
   return { kind: detectProfile(files).container, prefix: "" };
+}
+
+/** The original directory entry and encoded record bytes, including an unreadable header. */
+export function indexedResourceBytes(
+  files: ReadonlyMap<string, Uint8Array>,
+  kind: ResourceKind,
+  num: number,
+): { readonly entry: Uint8Array; readonly record: Uint8Array | null } {
+  const layout = detectContainerFormat(files);
+  const combined = layout.kind === "v3-combined" ? files.get(`${layout.prefix}DIR`) : undefined;
+  let directory = files.get(DIRECTORY_FILES[kind])!;
+  if (combined !== undefined) {
+    const section = RESOURCE_KINDS.indexOf(kind);
+    const start = combined[section * 2]! | (combined[section * 2 + 1]! << 8);
+    const end =
+      section === 3
+        ? combined.length
+        : combined[(section + 1) * 2]! | (combined[(section + 1) * 2 + 1]! << 8);
+    directory = combined.subarray(start, end);
+  }
+  const entry = directory.slice(num * ENTRY_BYTES, (num + 1) * ENTRY_BYTES);
+  const volume = files.get(`${layout.prefix}VOL.${entry[0]! >> 4}`);
+  if (volume === undefined) return { entry, record: null };
+  const offset = ((entry[0]! & 15) << 16) | (entry[1]! << 8) | entry[2]!;
+  const headerBytes = layout.kind === "v3-combined" ? 7 : RECORD_HEADER_BYTES;
+  if (offset + headerBytes > volume.length) return { entry, record: volume.slice(offset) };
+  const sizeOffset = offset + (layout.kind === "v3-combined" ? 5 : 3);
+  const length = volume[sizeOffset]! | (volume[sizeOffset + 1]! << 8);
+  return { entry, record: volume.slice(offset, offset + headerBytes + length) };
 }
 
 function volumeFileName(n: number, prefix = ""): string {
@@ -160,6 +201,7 @@ class ResourceContainer implements GameContainer {
   readonly #prefix: string;
   readonly #combinedName: string | null;
   readonly #headerBytes: number;
+  readonly #directoryAbsence: DirectoryAbsence;
   readonly #maxVolume: number;
 
   /** Takes ownership of `files` (already private copies). */
@@ -175,13 +217,20 @@ class ResourceContainer implements GameContainer {
       owned.set(canonical, bytes);
     }
     this.#files = owned;
+    // The directory absence policy is chosen once, here, through the same
+    // detection pipeline the engine uses; the frozen scalar below cannot be
+    // reinterpreted by a later edit of the caller's profile object.
+    const profile = detectProfile(owned, options.profile);
+    this.#directoryAbsence = profile.directoryAbsence;
     const inferred =
       options.kind && options.prefix !== undefined ? options : detectContainerFormat(owned);
     this.#v3 = (options.kind ?? inferred.kind) === "v3-combined";
     this.#prefix = this.#v3 ? (options.prefix ?? inferred.prefix ?? "") : "";
     this.#combinedName = this.#v3 && owned.has(`${this.#prefix}DIR`) ? `${this.#prefix}DIR` : null;
     this.#headerBytes = this.#v3 ? 7 : RECORD_HEADER_BYTES;
-    this.#maxVolume = this.#v3 ? 15 : VOLUME_MAX_NUMBER;
+    // An entry spelling that can name VOL.15 (exact-fff) may pack there;
+    // every nibble-f-absent interpreter tops out at volume 14.
+    this.#maxVolume = this.#directoryAbsence === "exact-fff" ? 15 : VOLUME_MAX_NUMBER;
     if (this.#combinedName) this.#sections();
     // Normalize: every family has a directory; at least VOL.0 exists.
     for (const kind of RESOURCE_KINDS) {
@@ -236,7 +285,11 @@ class ResourceContainer implements GameContainer {
     if (p + ENTRY_BYTES > dir.length) return null;
     const b0 = dir[p]!;
     const volume = b0 >> 4;
-    if (this.#v3 ? b0 === 255 && dir[p + 1] === 255 && dir[p + 2] === 255 : volume === 15)
+    if (
+      this.#directoryAbsence === "exact-fff"
+        ? b0 === 255 && dir[p + 1] === 255 && dir[p + 2] === 255
+        : volume === 15
+    )
       return null;
     const offset = ((b0 & 0x0f) << 16) | (dir[p + 1]! << 8) | dir[p + 2]!;
     return { volume, offset };
@@ -291,59 +344,117 @@ class ResourceContainer implements GameContainer {
   }
 
   putResources(
-    resources: readonly { kind: ResourceKind; num: number; payload: Uint8Array }[],
+    resources: readonly { kind: ResourceKind; num: number; payload: Uint8Array | null }[],
   ): void {
-    const byKey = new Map<string, { kind: ResourceKind; num: number; payload: Uint8Array }>();
+    const byKey = new Map<
+      string,
+      { kind: ResourceKind; num: number; payload: Uint8Array | null }
+    >();
     for (const resource of resources) {
-      const { num, payload } = resource;
+      const { kind, num, payload } = resource;
+      if (!RESOURCE_KINDS.includes(kind)) {
+        throw new RangeError(`unknown resource kind: ${kind}`);
+      }
       checkResourceNum(num);
       if (num >= INITIAL_DIRECTORY_ENTRIES) throw new RangeError("resource number must be 0..255");
-      if (payload.length > PAYLOAD_MAX_BYTES) {
+      if (payload !== null && !(payload instanceof Uint8Array)) {
+        throw new TypeError("resource payload must be a Uint8Array or null");
+      }
+      if (payload !== null && payload.length > PAYLOAD_MAX_BYTES) {
         throw new RangeError(
           `payload of ${payload.length} bytes exceeds the u16le record length limit of ${PAYLOAD_MAX_BYTES}`,
         );
       }
       // A later entry for the same resource wins, as a later put would.
-      byKey.set(`${resource.kind} ${num}`, resource);
+      byKey.set(`${kind} ${num}`, resource);
     }
-    this.pack([...byKey.values()]);
+    const replacements = [...byKey.values()].filter(
+      ({ kind, num, payload }) => payload !== null || this.#readEntry(kind, num) !== null,
+    );
+    // An absent-only removal must not incidentally compact imported files.
+    if (byKey.size > 0 && replacements.length === 0) return;
+    this.pack(replacements);
   }
 
   /**
-   * Repack every indexed record with `replacements` in place. All replacement
-   * bytes are built first; validation failure leaves the live map untouched.
+   * Repack every indexed record with `replacements` applied; a null payload
+   * removes the entry. All record bytes are built first; validation failure
+   * leaves the live map untouched.
    */
   pack(
-    replacements: readonly { kind: ResourceKind; num: number; payload: Uint8Array }[] = [],
+    replacements: readonly { kind: ResourceKind; num: number; payload: Uint8Array | null }[] = [],
   ): void {
     const directories = RESOURCE_KINDS.map((kind) => {
       const original = this.#directory(kind);
       const required = Math.max(
         0,
-        ...replacements.filter((r) => r.kind === kind).map((r) => (r.num + 1) * ENTRY_BYTES),
+        ...replacements
+          .filter((r) => r.kind === kind && r.payload !== null)
+          .map((r) => (r.num + 1) * ENTRY_BYTES),
       );
       const bytes = new Uint8Array(Math.max(original.length, required)).fill(0xff);
       bytes.set(original);
       return bytes;
     });
-    const volumes: Uint8Array[][] = [[]];
-    const lengths = [0];
+    // Unreadable slots keep their exact entry and indexed bytes. Reserve their
+    // volume numbers so packing cannot turn a missing or truncated record into
+    // a readable one. Unindexed bytes in those volumes are cleared.
+    const reserved = new Map<number, Uint8Array | null>();
+    const damaged = new Set<string>();
+    for (const kind of RESOURCE_KINDS) {
+      const directory = this.#directory(kind);
+      for (let num = 0; num < Math.min(256, Math.floor(directory.length / ENTRY_BYTES)); num++) {
+        if (replacements.some((r) => r.kind === kind && r.num === num)) continue;
+        const entry = this.#readEntry(kind, num);
+        if (entry === null) continue;
+        try {
+          this.getResource(kind, num);
+        } catch {
+          damaged.add(`${kind}:${num}`);
+          const source = this.#files.get(volumeFileName(entry.volume, this.#prefix));
+          if (source === undefined) {
+            reserved.set(entry.volume, null);
+            continue;
+          }
+          let bytes = reserved.get(entry.volume);
+          if (bytes == null) {
+            bytes = new Uint8Array(source.length);
+            reserved.set(entry.volume, bytes);
+          }
+          const record = indexedResourceBytes(this.#files, kind, num).record!;
+          if (record.length > 0) bytes.set(record, entry.offset);
+        }
+      }
+    }
+    const volumes: Uint8Array[][] = [];
+    const lengths: number[] = [];
     const aliases = new Map<string, { volume: number; offset: number }>();
     let volume = 0;
+    while (reserved.has(volume)) volume++;
+    if (volume <= this.#maxVolume) {
+      volumes[volume] = [];
+      lengths[volume] = 0;
+    }
     for (let k = 0; k < RESOURCE_KINDS.length; k++) {
       const kind = RESOURCE_KINDS[k]!;
       const directory = directories[k]!;
       for (let num = 0; num < Math.min(256, Math.floor(directory.length / ENTRY_BYTES)); num++) {
         const replacement = replacements.find((r) => r.kind === kind && r.num === num);
-        const replacing = replacement !== undefined;
+        const patch = replacement === undefined ? undefined : replacement.payload;
+        if (patch === null) {
+          // Deletion writes the canonical absent entry and packs no record;
+          // a shared record survives through its remaining entries.
+          directory.fill(0xff, num * ENTRY_BYTES, num * ENTRY_BYTES + ENTRY_BYTES);
+          continue;
+        }
         const entry = this.#readEntry(kind, num);
-        if (!replacing && !entry) continue;
-        const key = entry && !replacing ? `${entry.volume}:${entry.offset}` : null;
+        if (patch === undefined && (!entry || damaged.has(`${kind}:${num}`))) continue;
+        const key = entry && patch === undefined ? `${entry.volume}:${entry.offset}` : null;
         let destination = key ? aliases.get(key) : undefined;
         if (!destination) {
           let record: Uint8Array;
-          if (replacing) {
-            const payload = replacement!.payload;
+          if (patch !== undefined) {
+            const payload = patch;
             record = new Uint8Array(this.#headerBytes + payload.length);
             record.set([
               RECORD_MAGIC_0,
@@ -355,29 +466,21 @@ class ResourceContainer implements GameContainer {
             if (this.#v3) record.set([payload.length & 255, payload.length >>> 8], 5);
             record.set(payload, this.#headerBytes);
           } else {
-            try {
-              // Validate headers, lengths and compressed expansion without re-encoding it.
-              this.getResource(kind, num);
-            } catch {
-              // Keep a damaged resource present-but-unloadable. This offset cannot
-              // hold a header in any packed volume. Dropping it would turn a corrupt
-              // indexed resource into a missing one; copying its bytes would retain
-              // arbitrary historical data and could accidentally repair its pointer.
-              directory.set([0x0f, 0xff, 0xff], num * ENTRY_BYTES);
-              continue;
-            }
             const source = this.#files.get(volumeFileName(entry!.volume, this.#prefix))!;
             const at = entry!.offset;
             const sizeOffset = at + (this.#v3 ? 5 : 3);
             const storedLength = source[sizeOffset]! | (source[sizeOffset + 1]! << 8);
             record = source.slice(at, at + this.#headerBytes + storedLength);
           }
+          if (volume > this.#maxVolume)
+            throw new Error(`container is full: volume number would exceed ${this.#maxVolume}`);
           if (lengths[volume]! + record.length > VOLUME_MAX_BYTES) {
             volume++;
+            while (reserved.has(volume)) volume++;
             if (volume > this.#maxVolume)
               throw new Error(`container is full: volume number would exceed ${this.#maxVolume}`);
-            volumes.push([]);
-            lengths.push(0);
+            volumes[volume] = [];
+            lengths[volume] = 0;
           }
           destination = { volume, offset: lengths[volume]! };
           // Preserve picture-compression metadata, changing only the volume nibble.
@@ -409,7 +512,11 @@ class ResourceContainer implements GameContainer {
     } else {
       RESOURCE_KINDS.forEach((kind, i) => updated.set(DIRECTORY_FILES[kind], directories[i]!));
     }
+    for (const [number, bytes] of reserved) {
+      if (bytes !== null) updated.set(volumeFileName(number, this.#prefix), bytes);
+    }
     for (let i = 0; i < volumes.length; i++) {
+      if (volumes[i] === undefined) continue;
       const bytes = new Uint8Array(lengths[i]!);
       let cursor = 0;
       for (const record of volumes[i]!) {
@@ -471,8 +578,8 @@ export function containerFromResources(
 
 /**
  * Return an independent packed image of the currently indexed resources.
- * Valid records retain their encoding; damaged records remain indexed with a
- * deliberately dangling pointer, so loading them still reports corruption.
+ * Valid records retain their encoding; damaged records keep their directory
+ * entries and indexed bytes, so loading them still reports the same corruption.
  * Auxiliary files are copied unchanged. No reachability-based pruning is applied.
  */
 export function compactContainer(

@@ -1,0 +1,11 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Questions and ideas
+    url: https://github.com/monotio/agi/discussions
+    about: Ask how to do something, share a game you made, or suggest an idea.
+  - name: Security report
+    url: https://github.com/monotio/agi/security/policy
+    about: Read the policy and use private vulnerability reporting.
+  - name: Support
+    url: https://github.com/monotio/agi/blob/main/SUPPORT.md
+    about: Find guides and help with using the app.

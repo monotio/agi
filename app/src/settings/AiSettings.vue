@@ -117,7 +117,6 @@ defineExpose({ show, close });
           v-model="draft.profiles[draft.provider].apiKey"
           type="password"
           autocomplete="off"
-          placeholder="Paste your provider API key"
           data-testid="api-key-input"
         />
         <p class="privacy-note" data-testid="api-key-note">
@@ -135,7 +134,7 @@ defineExpose({ show, close });
         required
         data-testid="task-budget"
       />
-      <p class="budget-note">Maximum estimated spend for each creation or remix.</p>
+      <p class="budget-note">One budget covers agent requests and image generation.</p>
       <p v-if="error" class="dialog-error" role="alert">{{ error }}</p>
       <footer>
         <UiButton data-testid="ai-settings-cancel" :disabled="saving" @click="close">

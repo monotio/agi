@@ -1,19 +1,20 @@
 import { expect, test, type Page } from "@playwright/test";
-import { testProjectId } from "../test/identity.ts";
 import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import { fixtureSkip, KNOWN_GAME_HASH } from "../../test/fixtures.ts";
+import { testProjectId } from "../test/identity.ts";
 import {
   cacheGame,
+  enterCreateMode,
   observe,
   openCardMenu,
+  openInspector,
+  openWorldRoom,
   textHook,
   waitForCycles,
-  enterCreateMode,
-  openWorldRoom,
 } from "./engineProbe.ts";
 
-test.use({ headless: process.platform !== "darwin" });
+test.use({ headless: true });
 
 /**
  * The world map reads three sources: the journal (observed), the authoring
@@ -90,6 +91,8 @@ async function bootMapGame(page: Page): Promise<void> {
   });
   await page.reload();
   await page.getByTestId("btn-resume-cached").click();
+  await expect(page.getByRole("heading", { name: MAP_GAME.title, level: 1 })).toBeVisible();
+  await expect(page.getByTestId("input-line")).toBeEnabled();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
 }
 
@@ -137,7 +140,7 @@ test("world map lists observed, planned and logic-named rooms; closing preserves
   await expect(detail).toContainText("Attic");
   await expect(detail).toContainText("Not visited");
   await expect(detail).toContainText("planned");
-  await page.screenshot({ path: "test-results/world-map-desktop.png" });
+  await page.screenshot({ path: test.info().outputPath("world-map-desktop.png") });
 
   // Escape leaves the details, then closes only the map; the game resumes
   // where it was.
@@ -171,7 +174,7 @@ test("phone layout puts the room list first and the graph one tap away", async (
   await expect(page.getByTestId("map-graph")).toBeVisible();
   await openWorldRoom(page.getByTestId("world-map"), 4);
   await expect(page.getByTestId("map-detail")).toContainText("Attic");
-  await page.screenshot({ path: "test-results/world-map-phone.png" });
+  await page.screenshot({ path: test.info().outputPath("world-map-phone.png") });
   test.info().annotations.push({ type: "world-map open (ms)", description: String(openMs) });
 });
 
@@ -188,20 +191,21 @@ test("the map records a live transition and matches it against plan and logic", 
   // Visit room 2 through the inspector's flag write: logic 1's literal
   // new.room(2) fires, so the journal edge joins the planned and static ones.
   await enterCreateMode(page);
-  await page.getByTestId("dock-tab-inspect").click();
+  await openInspector(page);
   await page.getByTestId("dbg-tab-state").click();
   await page.getByTestId("dbg-flags").locator("button").nth(6).click();
   await expect.poll(async () => (await textHook(page)).room).toBe(2);
 
-  // Create docks the plan view as its World panel; the map button shows it.
+  // The map combines the plan and live room evidence.
   await page.getByTestId("btn-world-map").click();
-  await expect(page.getByTestId("world-panel")).toBeVisible();
-  await expect(page.getByTestId("world-map")).toHaveCount(0);
+  await expect(page.getByTestId("world-map")).toBeVisible();
+  await page.getByTestId("btn-world-plan").click();
   await expect(page.getByTestId("map-room-2")).toContainText("visited");
   await expect(page.getByTestId("map-room-2")).toHaveClass(/current/);
   await expect(page.getByTestId("map-node-2")).toBeInViewport();
-  await page.screenshot({ path: "test-results/world-map-transition.png" });
-  // The panel follows the player: room 2's card shows without a pick.
+  await page.screenshot({ path: test.info().outputPath("world-map-transition.png") });
+  // Select the visited room to inspect its three sources of evidence.
+  await page.getByTestId("map-node-2").click();
   const detail = page.getByTestId("map-detail");
   await expect(detail).toHaveAttribute("data-room", "2");
   await expect(detail).toContainText("Visited 1×");
@@ -268,7 +272,7 @@ test("an imported game shows its static graph before any visit", async ({ page }
     .locator(".edge-label")
     .evaluateAll((els) => els.map((e) => `${e.getAttribute("x")},${e.getAttribute("y")}`));
   expect(new Set(labelPos).size).toBe(labelPos.length);
-  await page.screenshot({ path: "test-results/world-map-imported.png" });
+  await page.screenshot({ path: test.info().outputPath("world-map-imported.png") });
 });
 
 test("opening the map during a walkthrough stops the replay ticks", async ({ page }) => {
@@ -463,7 +467,7 @@ test("long labels and a dense planned graph stay navigable", async ({ page }) =>
   await expect(page.getByTestId("map-room-4")).toContainText("northern gallery");
   await openWorldRoom(page.getByTestId("world-map"), 4);
   await expect(page.getByTestId("map-detail")).toContainText("northern gallery");
-  await page.screenshot({ path: "test-results/world-map-dense.png" });
+  await page.screenshot({ path: test.info().outputPath("world-map-dense.png") });
 });
 
 test("an unexplored game lists only the observed room", async ({ page }) => {
@@ -495,7 +499,7 @@ test("an unexplored game lists only the observed room", async ({ page }) => {
   const items = page.locator(".map-list-item");
   await expect(items).toHaveCount(1);
   await expect(items.first()).toContainText("visited");
-  await page.screenshot({ path: "test-results/world-map-empty.png" });
+  await page.screenshot({ path: test.info().outputPath("world-map-empty.png") });
 });
 
 test("reduced motion renders the same map without animation", async ({ page }) => {
@@ -513,7 +517,7 @@ test("reduced motion renders the same map without animation", async ({ page }) =
       ),
     );
   expect(animating).toBe(false);
-  await page.screenshot({ path: "test-results/world-map-reduced-motion.png" });
+  await page.screenshot({ path: test.info().outputPath("world-map-reduced-motion.png") });
 });
 
 test("the graph pans in both axes, zooms, and the detail pane dismisses", async ({ page }) => {
@@ -613,8 +617,11 @@ test("the graph pans in both axes, zooms, and the detail pane dismisses", async 
   const sidecarLayout = () =>
     page.evaluate(
       () =>
-        (JSON.parse(localStorage.getItem("monotio_agi.map.world-map-dense") ?? "{}").layout ??
-          {}) as Record<string, unknown>,
+        (JSON.parse(
+          localStorage.getItem(
+            `monotio_agi.map.${localStorage.getItem("monotio_agi.resumeTarget")}`,
+          ) ?? "{}",
+        ).layout ?? {}) as Record<string, unknown>,
     );
   const node = page.getByTestId("map-node-4");
   const nb = (await node.boundingBox())!;
@@ -716,7 +723,7 @@ test("cold open, warm open and select stay fast on the largest synthetic map", a
   // is a smoke ceiling so the run reports the measured value, not a guess.
   expect(warmMs).toBeLessThan(2000);
   expect(selectMs).toBeLessThan(1000);
-  await page.screenshot({ path: "test-results/world-map-dense-256.png" });
+  await page.screenshot({ path: test.info().outputPath("world-map-dense-256.png") });
 });
 
 test("a pictured map past the old static cache stays responsive", async ({ page }) => {
@@ -797,5 +804,5 @@ test("a pictured map past the old static cache stays responsive", async ({ page 
   }
   expect(warmMs).toBeLessThan(2000);
   expect(selectMs).toBeLessThan(1000);
-  await page.screenshot({ path: "test-results/world-map-pictured-140.png" });
+  await page.screenshot({ path: test.info().outputPath("world-map-pictured-140.png") });
 });

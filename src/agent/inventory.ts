@@ -1,25 +1,8 @@
 import type { AgiProfile } from "../runtime/profile.ts";
-import { decodeInventoryFile, inventoryTableFits } from "../runtime/inventoryFile.ts";
+import { decodeInventoryFile } from "../runtime/inventoryFile.ts";
 
-/** Decode the OBJECT table for authoring validation and context. */
-export function readInventoryObjects(payload: Uint8Array | undefined, profile: AgiProfile) {
-  if (!payload) return [];
-  const data = decodeInventoryFile(payload, profile);
-  if (data.length < profile.inventoryHeaderBytes) throw new Error("Invalid inventory header");
-  const size = data[0]! | (data[1]! << 8);
-  if (!inventoryTableFits(data, profile)) throw new Error("Invalid inventory table");
-  const header = profile.inventoryHeaderBytes;
-  const stride = profile.inventoryEntryBytes;
-  return Array.from({ length: size / stride }, (_, i) => {
-    const entry = header + i * stride;
-    let at = header + (data[entry]! | (data[entry + 1]! << 8));
-    if (at < size + header || at >= data.length) throw new Error("Invalid inventory name offset");
-    let name = "";
-    while (at < data.length && data[at] !== 0) name += String.fromCharCode(data[at++]!);
-    if (at === data.length) throw new Error("Unterminated inventory name");
-    return { name, startingRoom: data[entry + 2]! };
-  });
-}
+import { readInventoryObjects } from "../authoring/inventory.ts";
+export { readInventoryObjects } from "../authoring/inventory.ts";
 
 /** New rooms can append items; existing item numbers and initial metadata stay stable. */
 export function validateRoomInventory(

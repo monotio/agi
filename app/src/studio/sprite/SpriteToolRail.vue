@@ -37,7 +37,7 @@ const PICK: readonly RailTool[] = [
   { id: "pipette", icon: "pipette", label: "Pipette", key: "I" },
 ];
 /** Why the drawing tools are off, on their tooltips. */
-const PAUSED = "Drawing waits while the view is view only or an AI proposal is open";
+const PAUSED = "Drawing pauses while the actor is read-only or an AI change is open";
 </script>
 
 <template>

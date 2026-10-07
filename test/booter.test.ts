@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { decodeBooter } from "../src/container/booter.ts";
+import { readDiskImage } from "../src/container/disk/image.ts";
 import { createContainer, openContainer } from "../src/container/container.ts";
 import { Engine, type EngineHost } from "../src/runtime/engine.ts";
 import { detectProfile } from "../src/runtime/profile.ts";
@@ -53,6 +54,20 @@ function disk(): Uint8Array {
   );
   return image;
 }
+
+test("booter import reserves bytes before copying any file", () => {
+  const image = disk();
+  let copies = 0;
+  const slice = image.slice.bind(image);
+  image.slice = (start, end) => {
+    copies++;
+    return slice(start, end);
+  };
+  const budget = { bytes: 0, files: 0, maxBytes: 1, maxFiles: 1024 };
+  assert.throws(() => readDiskImage("disk.img", image, budget), /disks expand beyond/);
+  assert.equal(copies, 0);
+  assert.equal(budget.bytes, 0);
+});
 
 test("extracts raw booter resources and preserves interpreter evidence separately", () => {
   const image = disk();

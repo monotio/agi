@@ -31,7 +31,7 @@ export type CelEdit =
  * The edited cel: "Cel 0 · Loop 0" and its size, the mirror chip in the
  * default slot, then one Details disclosure (closed at first, remembered per
  * viewer) with the expert parts as flat rows: resizing with an anchor picker
- * (bottom-centre keeps the feet on the baseline) and a warning before a
+ * (bottom-centre keeps the feet aligned) and a warning before a
  * resize moves the feet; shifting the pixels, which wraps around the edges;
  * the transparent colour; the mirror bit; and where the feet stand. Esc in a
  * size field puts back the cel's size (spriteKeys.ts then leaves the field,
@@ -69,7 +69,7 @@ watch(
 const feet = computed(() => {
   const at = feetOf(cel);
   if (!at) return "no opaque pixels";
-  return at.lift === 0 ? "on the baseline" : `${at.lift} px above the baseline`;
+  return at.lift === 0 ? "bottom row" : `${at.lift} px above the bottom row`;
 });
 const validSize = computed(
   () =>
@@ -91,7 +91,7 @@ const resizeWarning = computed(() => {
   }
 });
 /** Why the cel's edits are off, on their tooltips. */
-const PAUSED = "Editing waits while the view is view only or an AI proposal is open";
+const PAUSED = "Editing pauses while the actor is read-only or an AI change is open";
 const resizeBlocked = computed(() => {
   if (frozen) return PAUSED;
   if (!validSize.value)
@@ -119,11 +119,12 @@ const ANCHOR_LABELS: Record<ResizeAnchor, string> = {
   "middle-center": "Centre",
   "middle-right": "Middle right",
   "bottom-left": "Bottom left",
-  "bottom-center": "Bottom centre (keeps the feet on the baseline)",
+  "bottom-center": "Bottom centre (keeps the feet aligned)",
   "bottom-right": "Bottom right",
 };
 
 function resize(): void {
+  if (frozen) return;
   if (validSize.value && resized.value)
     emit("edit", {
       type: "resizeCel",
@@ -133,6 +134,7 @@ function resize(): void {
     });
 }
 function applyTransparent(): void {
+  if (frozen) return;
   if (transparent.value === cel.transparent) return;
   if (clash.value && remap.value === undefined) return;
   emit("edit", {
@@ -156,6 +158,7 @@ function chooseTransparent(): void {
 }
 
 function onAnchorKey(event: KeyboardEvent, current: ResizeAnchor): void {
+  if (frozen) return;
   const step: Record<string, number> = { ArrowRight: 1, ArrowLeft: -1, ArrowDown: 3, ArrowUp: -3 };
   if (!(event.key in step)) return;
   event.preventDefault();
@@ -197,6 +200,8 @@ defineExpose({ chooseTransparent });
               W
               <input
                 v-model.number="width"
+                :disabled="frozen"
+                :title="frozen ? PAUSED : undefined"
                 type="number"
                 min="1"
                 :max="MAX_CEL_WIDTH"
@@ -209,6 +214,8 @@ defineExpose({ chooseTransparent });
               H
               <input
                 v-model.number="height"
+                :disabled="frozen"
+                :title="frozen ? PAUSED : undefined"
                 type="number"
                 min="1"
                 :max="MAX_CEL_HEIGHT"
@@ -224,10 +231,11 @@ defineExpose({ chooseTransparent });
                 role="radio"
                 :aria-checked="anchor === entry"
                 :aria-label="ANCHOR_LABELS[entry]"
-                :title="ANCHOR_LABELS[entry]"
+                :disabled="frozen"
+                :title="frozen ? PAUSED : ANCHOR_LABELS[entry]"
                 :tabindex="anchor === entry ? 0 : -1"
                 :data-anchor="entry"
-                @click="anchor = entry"
+                @click="!frozen && (anchor = entry)"
                 @keydown="onAnchorKey($event, entry)"
               ></button>
             </div>
@@ -290,7 +298,12 @@ defineExpose({ chooseTransparent });
           <div class="cel-panel__form">
             <label>
               Colour
-              <select v-model.number="transparent" data-testid="sprite-transparent-colour">
+              <select
+                v-model.number="transparent"
+                :disabled="frozen"
+                :title="frozen ? PAUSED : undefined"
+                data-testid="sprite-transparent-colour"
+              >
                 <option v-for="(name, value) in EGA_COLOUR_NAMES" :key="value" :value="value">
                   {{ value }} · {{ name }}
                 </option>
@@ -298,7 +311,11 @@ defineExpose({ chooseTransparent });
             </label>
             <label v-if="clash">
               Pixels using it become
-              <select v-model.number="remap">
+              <select
+                v-model.number="remap"
+                :disabled="frozen"
+                :title="frozen ? PAUSED : undefined"
+              >
                 <option
                   v-for="(name, value) in EGA_COLOUR_NAMES"
                   :key="value"
@@ -321,7 +338,7 @@ defineExpose({ chooseTransparent });
         </section>
 
         <dl class="cel-panel__facts">
-          <dt>Mirror bit <UiExplain v-bind="explain('mirror-bit')" /></dt>
+          <dt>Mirror loop <UiExplain v-bind="explain('mirror-bit')" /></dt>
           <dd>{{ cel.mirrorBit ? "on" : "off" }}{{ cel.mirrored ? " · shown flipped" : "" }}</dd>
           <dt>Feet <UiExplain v-bind="explain('feet')" /></dt>
           <dd data-testid="sprite-feet">{{ feet }}</dd>

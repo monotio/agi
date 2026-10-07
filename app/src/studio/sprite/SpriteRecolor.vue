@@ -56,7 +56,8 @@ const summary = computed(() => {
   const counted = count.value;
   if (from.value === null || !counted)
     return "Pick the colour to change: click a pixel on the canvas or a From swatch.";
-  if (counted.pixels === 0) return `No pixels of ${name(from.value)} in ${WHERE[scope.value]}.`;
+  if (counted.pixels === 0)
+    return `${name(from.value)} is unused in ${WHERE[scope.value]}. Choose a colour used here.`;
   if (to.value === undefined || to.value === from.value)
     return `${plural(counted.pixels, "pixel")} of ${name(from.value)} in ${WHERE[scope.value]}. Pick the new colour.`;
   return `${plural(counted.pixels, "pixel")} in ${plural(counted.cels, "cel")} will change to ${name(to.value)}.`;
@@ -84,7 +85,7 @@ const ready = computed(
 /** Why Recolour is off: an open proposal or a view-only view, else what the count says. */
 const blocked = computed(() =>
   frozen
-    ? "Editing waits while the view is view only or an AI proposal is open"
+    ? "Editing pauses while the actor is read-only or an AI change is open"
     : (clash.value ?? summary.value),
 );
 
@@ -97,7 +98,7 @@ function apply(): void {
   // stays in the popover, on the From colour, rather than dropping out of Studio.
   void nextTick(() =>
     root.value
-      ?.querySelector<HTMLElement>('[data-testid="sprite-recolor-from"] [tabindex="0"]')
+      ?.querySelector<HTMLElement>('[aria-labelledby="sprite-recolor-from"] [tabindex="0"]')
       ?.focus(),
   );
 }
@@ -132,7 +133,7 @@ const tabStop = (chosen: number | null | undefined): number =>
   >
     <header class="recolor__head">
       <h3 id="sprite-recolor-title">Recolour</h3>
-      <UiIconButton icon="x" label="Close recolour (Esc)" size="sm" @click="emit('close')" />
+      <UiIconButton icon="x" label="Close" size="sm" @click="emit('close')" />
     </header>
     <div v-for="row in ['from', 'to'] as const" :key="row" class="recolor__row">
       <span :id="`sprite-recolor-${row}`" class="recolor__label">{{
@@ -167,13 +168,13 @@ const tabStop = (chosen: number | null | undefined): number =>
           @keydown="onSwatchKey($event, row, value)"
         >
           <span :style="{ color: swatchInk(value) }">{{
-            value === transparent ? "∅" : value
+            value === transparent ? "T" : value
           }}</span>
         </button>
       </div>
     </div>
     <p class="recolor__hint">
-      ∅ {{ transparent }} is transparent: the eraser (E) makes pixels transparent.
+      Colour {{ transparent }} is transparent: the eraser (E) makes pixels transparent.
     </p>
     <UiSegmented v-model="scope" label="Recolour where" size="sm" :options="SCOPES" />
     <p class="recolor__count" aria-live="polite" data-testid="sprite-recolor-count">

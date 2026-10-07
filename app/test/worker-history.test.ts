@@ -13,6 +13,14 @@ import {
   type HistoryBatch,
   type HistorySegment,
 } from "../../src/agent/history.ts";
+import { traceImageChanges } from "../../src/creative/imageOperations.ts";
+import { encodePngRgba } from "../../src/creative/composite.ts";
+import {
+  readProjectWorkspace,
+  writeProjectWorkspace,
+} from "../../src/authoring/projectWorkspace.ts";
+import { projectDocumentId } from "../../src/authoring/projectContent.ts";
+import { sha256Hex } from "../../src/crypto.ts";
 import { resourceSetHint } from "../../src/agent/authoringState.ts";
 import { rngDraw } from "../../src/runtime/rng.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
@@ -20,10 +28,18 @@ import { createAgentSessionState } from "../../src/agent/agentState.ts";
 import { installBaseTemplate } from "../../src/agent/baseTemplate.ts";
 import { gameContainer, replayHistorySegment } from "./worker-ctx.ts";
 import { installIndexedDbFixture } from "./indexedDbFixture.ts";
-import { testProjectId, testRevision } from "./identity.ts";
+import { testRevision } from "./identity.ts";
 import { appendHistoryBatch, loadGameHistory } from "../src/history/historyStorage.ts";
+import { installedProgressTarget } from "../src/project/progressTarget.ts";
 
-const IDENTITY = { project: testProjectId("worker-history"), revision: testRevision("tape") };
+/** The installed instance these ephemeral sessions persist under, bound at boot. */
+const TAPE_TARGET = installedProgressTarget(
+  { folder: "tape-session-identity" },
+  testRevision("tape"),
+);
+assert.ok(TAPE_TARGET !== null);
+/** The installed lifetime its boot captured before any receipt existed. */
+const TAPE_LIFETIME = "initial";
 
 installIndexedDbFixture();
 import {
@@ -252,12 +268,12 @@ test("a recorded live session replays from its boot to the same observed state",
   // An edge exit to room 2 — journal marks it, history anchors it.
   send({ type: "debugWrite", id: 1, flags: [[200, 1]] });
   tick(4);
-  assert.equal(ctx.engine!.vars[0], 2);
+  assert.equal(ctx.run.engine!.vars[0], 2);
 
   // The LCG roll — replay must reproduce v60 exactly.
   send({ type: "debugWrite", id: 2, flags: [[202, 1]] });
   tick(3);
-  const rolled = ctx.engine!.vars[60];
+  const rolled = ctx.run.engine!.vars[60];
   assert.ok(rolled! >= 1 && rolled! <= 250);
 
   // A suspended prompt and its host answer; the resumed pass rooms to 3.
@@ -265,18 +281,18 @@ test("a recorded live session replays from its boot to the same observed state",
   tick(3);
   const request = h.control.find((m) => m.type === "hostRequest" && m.op === "getnum");
   assert.ok(request && request.type === "hostRequest");
-  send({ type: "hostAnswer", id: request.id, response: "7" });
+  send({ type: "hostAnswer", generation: ctx.run.generation, id: request.id, response: "7" });
   tick(4);
-  assert.equal(ctx.engine!.vars[0], 3);
-  assert.equal(ctx.engine!.vars[3], 12, "5 + the answered 7");
+  assert.equal(ctx.run.engine!.vars[0], 3);
+  assert.equal(ctx.run.engine!.vars[3], 12, "5 + the answered 7");
 
   // A pause still polls — the recorded tick (one per host poll) advances,
   // which is how the pause's duration stays in the stream — but no cycle
   // or sound tick runs.
   send({ type: "pause", paused: true });
-  const frozenCycle = ctx.cycle.cycleCount;
+  const frozenCycle = ctx.run.cycle.cycleCount;
   tick(3);
-  assert.equal(ctx.cycle.cycleCount, frozenCycle, "paused host polls run no cycle");
+  assert.equal(ctx.run.cycle.cycleCount, frozenCycle, "paused host polls run no cycle");
   send({ type: "pause", paused: false });
   tick(3);
 
@@ -284,7 +300,7 @@ test("a recorded live session replays from its boot to the same observed state",
   // ends the segment.
   send({ type: "debugWrite", id: 4, flags: [[203, 1]] });
   tick(8);
-  assert.equal(ctx.engine!.awaitingKey, true, "the quit confirmation parked");
+  assert.equal(ctx.run.engine!.awaitingKey, true, "the quit confirmation parked");
   send({ type: "key", code: 13 });
   tick(2);
   assert.ok(
@@ -322,15 +338,15 @@ test("a recorded live session replays from its boot to the same observed state",
     );
   assert.equal(segment.boot.resourceSet, resourceSetHint({ getFiles: () => bootFiles }));
 
-  const liveDigest = historySyncDigest(ctx.engine!);
+  const liveDigest = historySyncDigest(ctx.run.engine!);
   const replayed = replayHistorySegment(segment);
   assert.equal(replayed.error, null);
   assert.equal(replayed.diverged, null, "every recorded sync mark holds");
   assert.equal(replayed.applied, segment.events.length);
-  assert.equal(historySyncDigest(replayed.ctx.engine!), liveDigest);
+  assert.equal(historySyncDigest(replayed.ctx.run.engine!), liveDigest);
   assert.equal(
-    replayed.ctx.replay.replay!.random,
-    ctx.history.rng,
+    replayed.ctx.run.rng.word,
+    ctx.run.rng.word,
     "the LCG state matches live's at the same boundary",
   );
 });
@@ -347,10 +363,10 @@ test("replay from a later anchor reaches the same observed state", () => {
   tick(3);
   const request = h.control.find((m) => m.type === "hostRequest" && m.op === "getnum");
   assert.ok(request && request.type === "hostRequest");
-  send({ type: "hostAnswer", id: request.id, response: "7" });
+  send({ type: "hostAnswer", generation: ctx.run.generation, id: request.id, response: "7" });
   tick(4);
   send({ type: "flush", id: 9 });
-  const liveDigest = historySyncDigest(ctx.engine!);
+  const liveDigest = historySyncDigest(ctx.run.engine!);
 
   const segment = collectSegments(h.control)[0]!;
   const anchorIndex = segment.anchors.length - 1;
@@ -358,7 +374,7 @@ test("replay from a later anchor reaches the same observed state", () => {
   const replayed = replayHistorySegment(segment, { anchor: anchorIndex });
   assert.equal(replayed.error, null);
   assert.equal(replayed.diverged, null);
-  assert.equal(historySyncDigest(replayed.ctx.engine!), liveDigest);
+  assert.equal(historySyncDigest(replayed.ctx.run.engine!), liveDigest);
 });
 
 /**
@@ -387,7 +403,7 @@ test("the full boundary matrix replays to the same observed state", () => {
     return assert.fail(`host request ${op} never posted`);
   };
   const answer = (op: string, response: string) => {
-    send({ type: "hostAnswer", id: awaitOp(op).id, response });
+    send({ type: "hostAnswer", generation: ctx.run.generation, id: awaitOp(op).id, response });
   };
 
   // Same-tick ordering: with the parser's input line open, the keys queued
@@ -398,15 +414,15 @@ test("the full boundary matrix replays to the same observed state", () => {
   send({ type: "key", code: 97 });
   send({ type: "key", code: 98 });
   tick(3);
-  assert.equal(ctx.engine!.inputEdit, "ab", "same-tick keys kept queue order");
+  assert.equal(ctx.run.engine!.inputEdit, "ab", "same-tick keys kept queue order");
 
   // get.string suspends on a host request; the accepted reply echoes onto
   // the text surface the sync digest hashes.
   send({ type: "debugWrite", id: 1, flags: [[206, 1]] });
   answer("getstring", "KING");
   tick(3);
-  assert.equal(ctx.engine!.strings[1], "KING");
-  assert.equal(ctx.engine!.vars[64], 1, "the resumed pass ran past get.string");
+  assert.equal(ctx.run.engine!.strings[1], "KING");
+  assert.equal(ctx.run.engine!.vars[64], 1, "the resumed pass ran past get.string");
 
   // A pause while the prompt is suspended: paused polls still advance the
   // recorded tick, the answer applies at its recorded position, and play
@@ -414,13 +430,13 @@ test("the full boundary matrix replays to the same observed state", () => {
   send({ type: "debugWrite", id: 2, flags: [[215, 1]] });
   const numReq = awaitOp("getnum");
   send({ type: "pause", paused: true });
-  const frozenCycle = ctx.cycle.cycleCount;
+  const frozenCycle = ctx.run.cycle.cycleCount;
   tick(3);
-  assert.equal(ctx.cycle.cycleCount, frozenCycle, "paused host polls run no cycle");
-  send({ type: "hostAnswer", id: numReq.id, response: "42" });
+  assert.equal(ctx.run.cycle.cycleCount, frozenCycle, "paused host polls run no cycle");
+  send({ type: "hostAnswer", generation: ctx.run.generation, id: numReq.id, response: "42" });
   send({ type: "pause", paused: false });
   tick(3);
-  assert.equal(ctx.engine!.vars[12], 42, "the suspended answer landed through the pause");
+  assert.equal(ctx.run.engine!.vars[12], 42, "the suspended answer landed through the pause");
 
   // The selector's write-failure path: list, select an empty slot,
   // describe, confirm, the write fails, ESC dismisses.
@@ -432,8 +448,8 @@ test("the full boundary matrix replays to the same observed state", () => {
   answer("saveWrite", "false");
   send({ type: "key", code: 27 });
   tick(3);
-  assert.equal(ctx.engine!.modalKind, null, "the failed save dismissed");
-  assert.equal(ctx.engine!.vars[66], 1, "the failed write still resumed the pass");
+  assert.equal(ctx.run.engine!.modalKind, null, "the failed save dismissed");
+  assert.equal(ctx.run.engine!.vars[66], 1, "the failed write still resumed the pass");
 
   // A successful write: the image the selector handed the host is the file
   // restore.game consumes.
@@ -444,32 +460,32 @@ test("the full boundary matrix replays to the same observed state", () => {
   send({ type: "key", code: 13 });
   const write = awaitOp("saveWrite");
   const savedImage = String(write.context["image"]);
-  send({ type: "hostAnswer", id: write.id, response: "true" });
+  send({ type: "hostAnswer", generation: ctx.run.generation, id: write.id, response: "true" });
   tick(3);
-  assert.equal(ctx.engine!.vars[67], 1, "the written save resumed its pass");
+  assert.equal(ctx.run.engine!.vars[67], 1, "the written save resumed its pass");
 
   // The selector's cancel path: ESC abandons the list without a write.
   send({ type: "debugWrite", id: 5, flags: [[207, 1]] });
   answer("saveList", "[]");
   send({ type: "key", code: 27 });
   tick(3);
-  assert.equal(ctx.engine!.modalKind, null);
-  assert.equal(ctx.engine!.vars[65], 1);
+  assert.equal(ctx.run.engine!.modalKind, null);
+  assert.equal(ctx.run.engine!.vars[65], 1);
 
   // Move to room 2 and mark a var the save predates, then restore the
   // room-0 image — a recorded answer carrying bytes rewinds the whole
   // interpreter.
   send({ type: "debugWrite", id: 6, flags: [[200, 1]] });
   tick(4);
-  assert.equal(ctx.engine!.vars[0], 2);
+  assert.equal(ctx.run.engine!.vars[0], 2);
   send({ type: "debugWrite", id: 7, vars: [[70, 77]] });
   send({ type: "debugWrite", id: 8, flags: [[210, 1]] });
   answer("saveList", JSON.stringify([{ slot: 1, image: savedImage }]));
   send({ type: "key", code: 13 });
   answer("restore", savedImage);
   tick(4);
-  assert.equal(ctx.engine!.vars[0], 0, "the saved image restored its room");
-  assert.equal(ctx.engine!.vars[70], 0, "state written after the save rewound with it");
+  assert.equal(ctx.run.engine!.vars[0], 0, "the saved image restored its room");
+  assert.equal(ctx.run.engine!.vars[70], 0, "state written after the save rewound with it");
 
   // A live logic patch, a metadata patch and a re-enter — each a recorded
   // boundary that moves patchGeneration onto the marks.
@@ -485,7 +501,7 @@ test("the full boundary matrix replays to the same observed state", () => {
   });
   send({ type: "debugWrite", id: 9, flags: [[214, 1]] });
   tick(3);
-  assert.equal(ctx.engine!.vars[63], 42, "the patched logic ran");
+  assert.equal(ctx.run.engine!.vars[63], 42, "the patched logic ran");
   send({ type: "patchMetadata", files: { "TESTS.JSON": new Uint8Array([123, 125]) } });
   send({ type: "reenter" });
   tick(3);
@@ -495,13 +511,13 @@ test("the full boundary matrix replays to the same observed state", () => {
   send({ type: "debugWrite", id: 10, flags: [[212, 1]] });
   answer("room", "not a patch");
   tick(3);
-  assert.equal(ctx.engine!.vars[0], 0, "a declined room never lands");
+  assert.equal(ctx.run.engine!.vars[0], 0, "a declined room never lands");
   // The decline prints a refusal — the open message window pauses the
   // cycle until a click dismisses it.
-  assert.equal(ctx.engine!.modalKind, "print");
+  assert.equal(ctx.run.engine!.modalKind, "print");
   send({ type: "dismissPrint" });
   tick(2);
-  assert.equal(ctx.engine!.modalKind, null);
+  assert.equal(ctx.run.engine!.modalKind, null);
   const room9 = JSON.stringify({
     room: 9,
     resources: [
@@ -521,7 +537,7 @@ test("the full boundary matrix replays to the same observed state", () => {
   send({ type: "debugWrite", id: 11, flags: [[213, 1]] });
   answer("room", room9);
   tick(4);
-  assert.equal(ctx.engine!.vars[0], 9, "the authored room landed");
+  assert.equal(ctx.run.engine!.vars[0], 9, "the authored room landed");
 
   // Restart: the confirmation parks on a key; Enter restarts and the
   // fresh boot pass rooms back to 1.
@@ -529,7 +545,7 @@ test("the full boundary matrix replays to the same observed state", () => {
   tick(4);
   send({ type: "key", code: 13 });
   tick(4);
-  assert.equal(ctx.engine!.vars[0], 1, "restart re-entered through f6");
+  assert.equal(ctx.run.engine!.vars[0], 1, "restart re-entered through f6");
 
   send({ type: "flush", id: 99 });
   const segments = collectSegments(h.control);
@@ -549,18 +565,18 @@ test("the full boundary matrix replays to the same observed state", () => {
   ])
     assert.ok(kinds.has(kind as never), `stream carries ${kind}`);
 
-  const liveDigest = historySyncDigest(ctx.engine!);
+  const liveDigest = historySyncDigest(ctx.run.engine!);
   const replayed = replayHistorySegment(segment);
   assert.equal(replayed.error, null);
   assert.equal(replayed.diverged, null, "every recorded sync mark holds");
-  assert.equal(historySyncDigest(replayed.ctx.engine!), liveDigest);
+  assert.equal(historySyncDigest(replayed.ctx.run.engine!), liveDigest);
 
   // The fold path: replaying from the last anchor replays the recorded
   // patches onto the boot files before the anchor's image restores.
   const last = replayHistorySegment(segment, { anchor: segment.anchors.length - 1 });
   assert.equal(last.error, null);
   assert.equal(last.diverged, null);
-  assert.equal(historySyncDigest(last.ctx.engine!), liveDigest);
+  assert.equal(historySyncDigest(last.ctx.run.engine!), liveDigest);
 });
 
 test("a tampered stream reports its divergence at the broken mark", () => {
@@ -573,7 +589,7 @@ test("a tampered stream reports its divergence at the broken mark", () => {
   tick(3);
   const request = h.control.find((m) => m.type === "hostRequest" && m.op === "getnum");
   assert.ok(request && request.type === "hostRequest");
-  send({ type: "hostAnswer", id: request.id, response: "7" });
+  send({ type: "hostAnswer", generation: h.ctx.run.generation, id: request.id, response: "7" });
   tick(4);
 
   const segment = JSON.parse(JSON.stringify(collectSegments(h.control)[0])) as HistorySegment;
@@ -709,7 +725,7 @@ test("a jittered wall clock replays to the same observed state", () => {
   send({ type: "key", code: 65 });
   tick(10);
   send({ type: "flush", id: 9 });
-  const liveDigest = historySyncDigest(ctx.engine!);
+  const liveDigest = historySyncDigest(ctx.run.engine!);
 
   const segment = collectSegments(h.control)[0]!;
   // The tape carried the observation: the stutter shows up as bursts that
@@ -723,7 +739,7 @@ test("a jittered wall clock replays to the same observed state", () => {
   const replayed = replayHistorySegment(segment);
   assert.equal(replayed.error, null);
   assert.equal(replayed.diverged, null, "a jittered tape must not diverge");
-  assert.equal(historySyncDigest(replayed.ctx.engine!), liveDigest);
+  assert.equal(historySyncDigest(replayed.ctx.run.engine!), liveDigest);
 
   // The lane is load-bearing: replaying the same tape with it stripped —
   // the pre-lane virtual derivation — diverges at a sync mark.
@@ -753,13 +769,13 @@ test("a suspended-tab gap in the host polls replays to the same observed state",
   send({ type: "key", code: 65 });
   tick(9);
   send({ type: "flush", id: 9 });
-  const liveDigest = historySyncDigest(ctx.engine!);
+  const liveDigest = historySyncDigest(ctx.run.engine!);
 
   const segment = collectSegments(h.control)[0]!;
   const replayed = replayHistorySegment(segment);
   assert.equal(replayed.error, null);
   assert.equal(replayed.diverged, null, "a gapped tape must not diverge");
-  assert.equal(historySyncDigest(replayed.ctx.engine!), liveDigest);
+  assert.equal(historySyncDigest(replayed.ctx.run.engine!), liveDigest);
 });
 
 test("a between-poll sound discharge lands on the tape before the pause it preceded", () => {
@@ -768,7 +784,7 @@ test("a between-poll sound discharge lands on the tape before the pause it prece
   tick(4);
   send({ type: "debugWrite", id: 0, flags: [[220, 1]] });
   tick(3);
-  assert.equal(ctx.engine!.flags[60], 0, "the sound is playing");
+  assert.equal(ctx.run.engine!.flags[60], 0, "the sound is playing");
 
   // The sound timer's own interval discharges the remaining ticks between
   // polls — completing the sound live (f60 sets). The pause lands after
@@ -776,7 +792,7 @@ test("a between-poll sound discharge lands on the tape before the pause it prece
   // into the next poll's observation would replay the completion AFTER
   // the pause boundary that already sealed its anchor.
   soundStep(40);
-  assert.equal(ctx.engine!.flags[60], 1, "the between-poll discharge completed the sound");
+  assert.equal(ctx.run.engine!.flags[60], 1, "the between-poll discharge completed the sound");
   send({ type: "pause", paused: true });
   tick(3);
   send({ type: "pause", paused: false });
@@ -797,8 +813,8 @@ test("a between-poll sound discharge lands on the tape before the pause it prece
   const replayed = replayHistorySegment(segment);
   assert.equal(replayed.error, null);
   assert.equal(replayed.diverged, null, "the pause boundary verifies post-discharge state");
-  assert.equal(replayed.ctx.engine!.flags[60], 1, "the completion replays before the pause");
-  assert.equal(historySyncDigest(replayed.ctx.engine!), historySyncDigest(ctx.engine!));
+  assert.equal(replayed.ctx.run.engine!.flags[60], 1, "the completion replays before the pause");
+  assert.equal(historySyncDigest(replayed.ctx.run.engine!), historySyncDigest(ctx.run.engine!));
 });
 
 test("a between-poll sound discharge lands on the tape before the input it preceded", () => {
@@ -808,7 +824,7 @@ test("a between-poll sound discharge lands on the tape before the input it prece
   send({ type: "debugWrite", id: 0, flags: [[220, 1]] });
   tick(3);
   soundStep(40);
-  assert.equal(ctx.engine!.flags[60], 1);
+  assert.equal(ctx.run.engine!.flags[60], 1);
   send({ type: "key", code: 65 });
   tick(6);
   send({ type: "flush", id: 9 });
@@ -819,7 +835,7 @@ test("a between-poll sound discharge lands on the tape before the input it prece
   const replayed = replayHistorySegment(segment);
   assert.equal(replayed.error, null);
   assert.equal(replayed.diverged, null);
-  assert.equal(historySyncDigest(replayed.ctx.engine!), historySyncDigest(ctx.engine!));
+  assert.equal(historySyncDigest(replayed.ctx.run.engine!), historySyncDigest(ctx.run.engine!));
 });
 
 test("a fresh worker never reuses another session's persisted identity", async () => {
@@ -851,25 +867,36 @@ test("a fresh worker never reuses another session's persisted identity", async (
   assert.ok(idsA.size > 0 && idsB.size > 0);
   for (const id of idsB) assert.ok(!idsA.has(id), `${id} must be unique per session`);
 
-  // Both sessions persist under one storage key and replay separately.
-  const key = "tape-session-identity";
+  // Both sessions persist under one storage target and replay separately.
   for (const message of first.control)
     if (message.type === "historyBatch")
-      assert.equal(await appendHistoryBatch(key, message.batch, "2.936", IDENTITY), true);
+      assert.equal(
+        await appendHistoryBatch(TAPE_TARGET, message.batch, "2.936", TAPE_LIFETIME),
+        true,
+      );
   for (const message of second.control)
     if (message.type === "historyBatch")
-      assert.equal(await appendHistoryBatch(key, message.batch, "2.936", IDENTITY), true);
+      assert.equal(
+        await appendHistoryBatch(TAPE_TARGET, message.batch, "2.936", TAPE_LIFETIME),
+        true,
+      );
 
-  const stored = await loadGameHistory(key);
+  const stored = await loadGameHistory(TAPE_TARGET.locator);
   assert.ok(stored !== null);
   assert.equal(stored.segments.length, segmentsA.length + segmentsB.length);
 
   const replayA = replayHistorySegment(stored.segments.find((s) => idsA.has(s.id))!);
   assert.equal(replayA.diverged, null);
-  assert.equal(historySyncDigest(replayA.ctx.engine!), historySyncDigest(first.ctx.engine!));
+  assert.equal(
+    historySyncDigest(replayA.ctx.run.engine!),
+    historySyncDigest(first.ctx.run.engine!),
+  );
   const replayB = replayHistorySegment(stored.segments.find((s) => idsB.has(s.id))!);
   assert.equal(replayB.diverged, null);
-  assert.equal(historySyncDigest(replayB.ctx.engine!), historySyncDigest(second.ctx.engine!));
+  assert.equal(
+    historySyncDigest(replayB.ctx.run.engine!),
+    historySyncDigest(second.ctx.run.engine!),
+  );
 });
 
 test("session ids stay distinct when the platform has no crypto", () => {
@@ -939,12 +966,12 @@ test("a zero-state draw records its clock word; replay drains the lane back", ()
   tick(4);
   send({ type: "debugWrite", id: 0, flags: [[202, 1]] });
   tick(3);
-  const rolled = ctx.engine!.vars[60]!;
+  const rolled = ctx.run.engine!.vars[60]!;
   assert.equal(rolled, 1 + (rngDraw(0xbeef, () => 0).byte % 250), "v60 is the seeded draw");
   // A room entry anchors past the draw so a sync mark covers it.
   send({ type: "debugWrite", id: 1, flags: [[200, 1]] });
   tick(4);
-  assert.equal(ctx.engine!.vars[0], 2);
+  assert.equal(ctx.run.engine!.vars[0], 2);
 
   const segment = collectSegments(h.control)[0]!;
   const reseeds = segment.events.filter((e) => e.cause.kind === "reseed");
@@ -956,14 +983,14 @@ test("a zero-state draw records its clock word; replay drains the lane back", ()
   );
   // rngDraw(0xbeef) → state, byte — the live draw consumed the seeded lane.
   const expected = rngDraw(0xbeef, () => 0);
-  assert.equal(ctx.history.rng, expected.state);
+  assert.equal(ctx.run.rng.word, expected.state);
 
   const replayed = replayHistorySegment(segment);
   assert.equal(replayed.error, null);
   assert.equal(replayed.diverged, null, "every recorded sync mark holds");
-  assert.equal(replayed.ctx.engine!.vars[60], rolled, "the replayed draw matches live");
+  assert.equal(replayed.ctx.run.engine!.vars[60], rolled, "the replayed draw matches live");
   assert.equal(replayed.ctx.replay.reseedCursor, 1, "the replay consumed the recorded word");
-  assert.equal(replayed.ctx.replay.replay!.random, ctx.history.rng);
+  assert.equal(replayed.ctx.run.rng.word, ctx.run.rng.word);
 
   // From the anchor the reseed's draw has already run — its word must not
   // re-enter the lane: the FIFO holds only reseeds at-or-after the start.
@@ -971,7 +998,7 @@ test("a zero-state draw records its clock word; replay drains the lane back", ()
   assert.equal(anchored.error, null);
   assert.equal(anchored.diverged, null);
   assert.equal(anchored.ctx.replay.reseedCursor, 0, "the pre-anchor reseed stays consumed");
-  assert.equal(anchored.ctx.engine!.vars[60], rolled, "the anchored replay lands identically");
+  assert.equal(anchored.ctx.run.engine!.vars[60], rolled, "the anchored replay lands identically");
 
   // A tampered reseed word feeds a different clock read: the stream must
   // not pass as verified.
@@ -987,7 +1014,7 @@ test("a zero-state draw records its clock word; replay drains the lane back", ()
   assert.ok(
     replayedTorn.error !== null ||
       replayedTorn.diverged !== null ||
-      historySyncDigest(replayedTorn.ctx.engine!) !== historySyncDigest(ctx.engine!),
+      historySyncDigest(replayedTorn.ctx.run.engine!) !== historySyncDigest(ctx.run.engine!),
     "a forged clock word cannot replay to the recorded state",
   );
 
@@ -1001,7 +1028,7 @@ test("a zero-state draw records its clock word; replay drains the lane back", ()
   assert.ok(
     replayedStripped.error !== null ||
       replayedStripped.diverged !== null ||
-      historySyncDigest(replayedStripped.ctx.engine!) !== historySyncDigest(ctx.engine!),
+      historySyncDigest(replayedStripped.ctx.run.engine!) !== historySyncDigest(ctx.run.engine!),
     "a missing clock word cannot replay to the recorded state",
   );
 });
@@ -1024,7 +1051,7 @@ test("a room answer's cross-room patch commits atomically or not at all", () => 
     return assert.fail(`host request ${op} never posted`);
   };
   const answer = (op: string, response: string) => {
-    send({ type: "hostAnswer", id: awaitOp(op).id, response });
+    send({ type: "hostAnswer", generation: ctx.run.generation, id: awaitOp(op).id, response });
   };
   const type = (text: string) => {
     send({ type: "input", text });
@@ -1076,28 +1103,28 @@ test("a room answer's cross-room patch commits atomically or not at all", () => 
     }),
   );
   tick(4);
-  assert.equal(ctx.engine!.vars[0], 8, "the authored room landed through the cross-room patch");
+  assert.equal(ctx.run.engine!.vars[0], 8, "the authored room landed through the cross-room patch");
 
   // The conditional door: locked until f30, then ordinary input crosses it.
   type("east");
   tick(4);
-  assert.equal(ctx.engine!.vars[63], 1, "the locked door answered east");
-  assert.equal(ctx.engine!.vars[0], 8, "a locked door does not move the player");
+  assert.equal(ctx.run.engine!.vars[63], 1, "the locked door answered east");
+  assert.equal(ctx.run.engine!.vars[0], 8, "a locked door does not move the player");
   send({ type: "debugWrite", id: 2, flags: [[30, 1]] });
   type("east");
   tick(4);
-  assert.equal(ctx.engine!.vars[0], 9, "the unlocked door delivered the promised room");
+  assert.equal(ctx.run.engine!.vars[0], 9, "the unlocked door delivered the promised room");
 
   // One-way: room 9's logic has no return — west is dead air.
   type("west");
   tick(4);
-  assert.equal(ctx.engine!.vars[0], 9, "the one-way route has no return");
+  assert.equal(ctx.run.engine!.vars[0], 9, "the one-way route has no return");
 
   // Back in room 1 the rewritten logic runs on entry — the clue is real.
   send({ type: "debugWrite", id: 3, flags: [[6, 1]] });
   tick(4);
-  assert.equal(ctx.engine!.vars[0], 1);
-  assert.equal(ctx.engine!.vars[61], 77, "the rewritten room-1 logic ran");
+  assert.equal(ctx.run.engine!.vars[0], 1);
+  assert.equal(ctx.run.engine!.vars[61], 77, "the rewritten room-1 logic ran");
 
   // A patch whose bundle carries an invalid member refuses the whole commit:
   // no transition, and room 1's second rewrite never lands.
@@ -1115,14 +1142,14 @@ test("a room answer's cross-room patch commits atomically or not at all", () => 
     }),
   );
   tick(4);
-  assert.equal(ctx.engine!.vars[0], 1, "a refused patch leaves the room");
-  assert.equal(ctx.engine!.modalKind, "print");
+  assert.equal(ctx.run.engine!.vars[0], 1, "a refused patch leaves the room");
+  assert.equal(ctx.run.engine!.modalKind, "print");
   send({ type: "dismissPrint" });
   tick(2);
   // Re-entering room 1 runs its logic again — the refused v62 write is absent.
   send({ type: "debugWrite", id: 5, flags: [[6, 1]] });
   tick(4);
-  assert.equal(ctx.engine!.vars[62], 0, "the refused rewrite never landed");
+  assert.equal(ctx.run.engine!.vars[62], 0, "the refused rewrite never landed");
 
   // The named edge case: the source room itself parked in new.room. Room 9's
   // own logic suspends on east→10; the answer rewrites that very logic while
@@ -1130,14 +1157,15 @@ test("a room answer's cross-room patch commits atomically or not at all", () => 
   // completes, and the rewrite is live on the next entry.
   send({ type: "debugWrite", id: 6, flags: [[212, 1]] });
   tick(4);
-  assert.equal(ctx.engine!.vars[0], 8, "room 8 re-entered, still authored");
+  assert.equal(ctx.run.engine!.vars[0], 8, "room 8 re-entered, still authored");
   type("east");
   tick(4);
-  assert.equal(ctx.engine!.vars[0], 9);
+  assert.equal(ctx.run.engine!.vars[0], 9);
   type("east");
   const parked = awaitOp("room");
   send({
     type: "hostAnswer",
+    generation: ctx.run.generation,
     id: parked.id,
     response: JSON.stringify({
       room: 10,
@@ -1150,7 +1178,7 @@ test("a room answer's cross-room patch commits atomically or not at all", () => 
   });
   tick(4);
   assert.equal(
-    ctx.engine!.vars[0],
+    ctx.run.engine!.vars[0],
     10,
     "the parked source room's rewrite did not lose the transition",
   );
@@ -1161,21 +1189,21 @@ test("a room answer's cross-room patch commits atomically or not at all", () => 
   tick(4);
   type("east");
   tick(4);
-  assert.equal(ctx.engine!.vars[0], 9);
-  assert.equal(ctx.engine!.vars[64], 88, "the parked-room rewrite is live");
+  assert.equal(ctx.run.engine!.vars[0], 9);
+  assert.equal(ctx.run.engine!.vars[64], 88, "the parked-room rewrite is live");
 
   // The committed patch is what the tape carries: replay applies the recorded
   // bytes verbatim — from the boot and from the last anchor alike.
   send({ type: "flush", id: 99 });
   const segment = collectSegments(h.control).at(-1)!;
-  const liveDigest = historySyncDigest(ctx.engine!);
+  const liveDigest = historySyncDigest(ctx.run.engine!);
   for (const replayed of [
     replayHistorySegment(segment),
     replayHistorySegment(segment, { anchor: segment.anchors.length - 1 }),
   ]) {
     assert.equal(replayed.error, null);
     assert.equal(replayed.diverged, null);
-    assert.equal(historySyncDigest(replayed.ctx.engine!), liveDigest);
+    assert.equal(historySyncDigest(replayed.ctx.run.engine!), liveDigest);
   }
 });
 
@@ -1209,8 +1237,8 @@ test("a template session — menu save, death box, death restore — replays to 
   );
   const { ctx, send, tick } = h;
   tick(4);
-  assert.equal(ctx.engine!.vars[0], 1, "the template booted into room 1");
-  assert.match(ctx.engine!.textRow(0), /Score/, "the template status line is up");
+  assert.equal(ctx.run.engine!.vars[0], 1, "the template booted into room 1");
+  assert.match(ctx.run.engine!.textRow(0), /Score/, "the template status line is up");
 
   const seen = new Set<number>();
   const awaitOp = (op: string) => {
@@ -1225,14 +1253,14 @@ test("a template session — menu save, death box, death restore — replays to 
     return assert.fail(`host request ${op} never posted`);
   };
   const answer = (op: string, response: string) => {
-    send({ type: "hostAnswer", id: awaitOp(op).id, response });
+    send({ type: "hostAnswer", generation: ctx.run.generation, id: awaitOp(op).id, response });
   };
 
   // File > Save through the real menu: ESC opens it with Save Game already
   // highlighted, ENTER runs save.game() through controller 201.
   send({ type: "key", code: 27 });
   tick(2);
-  assert.equal(ctx.engine!.modalKind, "menu");
+  assert.equal(ctx.run.engine!.modalKind, "menu");
   send({ type: "key", code: 13 });
   tick(2);
   answer("saveList", "[]");
@@ -1241,49 +1269,49 @@ test("a template session — menu save, death box, death restore — replays to 
   send({ type: "key", code: 13 });
   const write = awaitOp("saveWrite");
   const savedImage = String(write.context["image"]);
-  send({ type: "hostAnswer", id: write.id, response: "true" });
+  send({ type: "hostAnswer", generation: ctx.run.generation, id: write.id, response: "true" });
   tick(3);
-  assert.equal(ctx.engine!.modalKind, null, "the selector dismissed");
+  assert.equal(ctx.run.engine!.modalKind, null, "the selector dismissed");
 
   // "die" reaches logic 255: the box draws on the text surface and f202
   // parks the player dead. SPACE steps the choice; ENTER accepts Restart,
   // which f16 runs without a confirmation.
   send({ type: "input", text: "die" });
   tick(3);
-  assert.equal(ctx.engine!.flags[202], 1, "the death ritual armed");
-  assert.match(ctx.engine!.textRow(10), /You have died/);
+  assert.equal(ctx.run.engine!.flags[202], 1, "the death ritual armed");
+  assert.match(ctx.run.engine!.textRow(10), /You have died/);
   send({ type: "key", code: 32 });
   tick(2);
-  assert.match(ctx.engine!.textRow(13), />/, "SPACE stepped onto Restart");
+  assert.match(ctx.run.engine!.textRow(13), />/, "SPACE stepped onto Restart");
   send({ type: "key", code: 13 });
   tick(4);
-  assert.equal(ctx.engine!.flags[202], 0, "restart left the death loop");
-  assert.equal(ctx.engine!.vars[0], 1, "restart re-entered room 1");
+  assert.equal(ctx.run.engine!.flags[202], 0, "restart left the death loop");
+  assert.equal(ctx.run.engine!.vars[0], 1, "restart re-entered room 1");
 
   // Die again; this time ENTER on Restore consumes the menu save image and
   // the player stands back in room 1, alive.
   send({ type: "input", text: "die" });
   tick(3);
-  assert.equal(ctx.engine!.flags[202], 1);
+  assert.equal(ctx.run.engine!.flags[202], 1);
   send({ type: "key", code: 13 });
   tick(2);
   answer("saveList", JSON.stringify([{ slot: 1, image: savedImage }]));
   send({ type: "key", code: 13 });
   answer("restore", savedImage);
   tick(4);
-  assert.equal(ctx.engine!.flags[202], 0, "the restore left the death loop");
-  assert.equal(ctx.engine!.vars[0], 1);
+  assert.equal(ctx.run.engine!.flags[202], 0, "the restore left the death loop");
+  assert.equal(ctx.run.engine!.vars[0], 1);
 
   send({ type: "flush", id: 99 });
   const segment = collectSegments(h.control).at(-1)!;
-  const liveDigest = historySyncDigest(ctx.engine!);
+  const liveDigest = historySyncDigest(ctx.run.engine!);
   for (const replayed of [
     replayHistorySegment(segment),
     replayHistorySegment(segment, { anchor: segment.anchors.length - 1 }),
   ]) {
     assert.equal(replayed.error, null);
     assert.equal(replayed.diverged, null, "every recorded sync mark holds");
-    assert.equal(historySyncDigest(replayed.ctx.engine!), liveDigest);
+    assert.equal(historySyncDigest(replayed.ctx.run.engine!), liveDigest);
   }
 });
 
@@ -1338,4 +1366,99 @@ test("a refused Exit can resume recording while preserving the unacknowledged ta
       (batch) => batch.segment !== original && batch.events.some((e) => e.cause.kind === "key"),
     ),
   );
+});
+
+test("recording boots retain executable source and omit authoring documents after a large image", () => {
+  const h = historyHarness(historyGame());
+  h.ctx.boot.project = {
+    documents: {
+      format: "monotio.agi.project-workspace",
+      version: 1,
+      documents: [
+        { key: "logic:1", content: { type: "text", text: "return; // Keep authored source" } },
+        { key: "notes", content: { type: "text", text: "x".repeat(12 * 1024 * 1024) } },
+      ],
+    },
+    documentId: "a".repeat(64),
+  };
+  h.ctx.fns.historyBoot({
+    type: "boot",
+    files: Object.fromEntries(h.ctx.run.engine!.containerFiles),
+    words: [],
+  });
+  h.tick(1800);
+  h.ctx.fns.historyFlush();
+  const segments = collectSegments(h.control);
+  assert.equal(segments.length, 2);
+  assert.equal(segments[0]!.boot.project, undefined);
+  const recorded = segments[1]!.boot.project;
+  assert.ok(recorded);
+  assert.deepEqual(readProjectWorkspace(recorded.documents), {
+    "logic:1": "return; // Keep authored source",
+  });
+  for (const message of h.control) {
+    if (message.type === "historyBatch")
+      assert.ok(JSON.stringify(message.batch).length < 256 * 1024);
+  }
+});
+
+test("an oversized boot is posted once and pauses recording across later boundaries", () => {
+  const game = historyGame();
+  const h = historyHarness(game, {
+    files: { ...Object.fromEntries(game.files), LARGE: new Uint8Array(7 * 1024 * 1024) },
+  });
+  h.tick(1800);
+  h.ctx.fns.historyResume();
+  h.tick(20);
+  assert.equal(collectSegments(h.control).length, 1);
+  assert.equal(h.ctx.history.segment, null);
+  assert.equal(h.ctx.history.resumePending, false);
+  assert.ok(h.presentation.some((m) => m.type === "status" && m.text.includes("Recording paused")));
+});
+
+test("tracing a 1024-square attachment never copies its pixels into recording batches", () => {
+  const rgba = new Uint8Array(1024 * 1024 * 4).fill(255);
+  const image = {
+    title: "Large trace",
+    mime: "image/png",
+    encoded: encodePngRgba(1024, 1024, rgba),
+    rgba,
+    width: 1024,
+    height: 1024,
+  };
+  const documents = {
+    ...Object.fromEntries(
+      traceImageChanges({}, "picture:1", image).map((c) => [c.key, c.content!]),
+    ),
+    words: "[]",
+    inventory: '[{"name":"key","startingRoom":1}]',
+    bindings: "{}",
+    notes: "Authoring notes",
+  };
+  const h = historyHarness(historyGame());
+  h.ctx.fns.historyRecord({
+    kind: "projectImage",
+    documents: writeProjectWorkspace(documents),
+    documentId: projectDocumentId(documents, sha256Hex),
+    files: Object.fromEntries(
+      [...h.ctx.run.engine!.containerFiles].map(([key, bytes]) => [
+        key,
+        Buffer.from(bytes).toString("base64"),
+      ]),
+    ),
+    nativeChanged: false,
+  });
+  h.tick(1800);
+  h.ctx.fns.historyFlush();
+  assert.equal(collectSegments(h.control).length, 1);
+  for (const message of h.control)
+    if (message.type === "historyBatch") {
+      assert.ok(JSON.stringify(message.batch).length < 256 * 1024);
+      for (const event of message.batch.events)
+        if (event.cause.kind === "projectImage")
+          assert.deepEqual(
+            event.cause.documents.documents.map((document) => document.key),
+            ["bindings", "inventory", "words"],
+          );
+    }
 });

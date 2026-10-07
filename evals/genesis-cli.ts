@@ -10,26 +10,33 @@
  *   node --experimental-strip-types evals/genesis-cli.ts --template knights-trial --provider stub
  *   node --experimental-strip-types evals/genesis-cli.ts --template knights-trial --provider openai --model gpt-6-sol --live --budget-usd 5
  *
+ * --effort overrides the production model default.
  * --max-turns N (default 100) guards a paid run against a loop that never
  * finishes; --trace and --out choose where the trace and game files go.
  */
 
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import { resolve, join } from "node:path";
-import Anthropic from "@anthropic-ai/sdk";
-import OpenAI from "openai";
+import { fileURLToPath } from "node:url";
+import {
+  createAnthropicConversation,
+  createOpenAiConversation,
+  LlmResponseError,
+  type LlmTurnResult,
+  type LlmUsage,
+} from "../app/src/agent/llmClient.ts";
 import { createAgentSessionState, type AgentToolResult } from "../src/agent/agentState.ts";
 import { executeAgentTool, AGENT_TOOLS } from "../src/agent/tools.ts";
-import {
-  splitToolResult,
-  openAiToolContent,
-  anthropicToolDefinitions,
-  anthropicToolResult,
-  serializeAgentLog,
-} from "../src/agent/toolTransport.ts";
+import { serializeAgentLog } from "../src/agent/toolTransport.ts";
 import { validateGenesis } from "../src/agent/playtest.ts";
-import { createGenesisPrompt, AGI_SYSTEM_PROMPT } from "../src/agent/prompt.ts";
-import { DEFAULT_MODELS, MODEL_CAPABILITIES } from "../src/agent/modelEffort.ts";
+import { createGenesisPrompt } from "../src/agent/prompt.ts";
+import { installBoilerplateSeed } from "../src/agent/baseTemplate.ts";
+import {
+  DEFAULT_MODELS,
+  MODEL_CAPABILITIES,
+  resolveModelEffort,
+  type ModelEffort,
+} from "../src/agent/modelEffort.ts";
 import { assertLiveRun } from "./lib/live-guard.ts";
 import { requestCost } from "./lib/usage.ts";
 
@@ -50,12 +57,7 @@ interface TraceEntry {
   durationMs?: number;
 }
 
-function metrics(
-  provider: CliArgs["provider"],
-  trace: TraceEntry[],
-  elapsedMs: number,
-  playtest: AgentToolResult,
-) {
+function metrics(trace: TraceEntry[], elapsedMs: number, playtest: AgentToolResult) {
   const usage = { input: 0, output: 0, cachedInput: 0, cacheWriteInput: 0 };
   const failedTurns = new Set<number>();
   let modelTurns = 0,
@@ -68,29 +70,11 @@ function metrics(
       modelTurns++;
       if (failedTurns.has(entry.turn - 1)) repairTurns++;
       modelLatencyMs += entry.durationMs ?? 0;
-      const data = (
-        entry.payload as {
-          usage?: {
-            input_tokens?: number;
-            output_tokens?: number;
-            cache_read_input_tokens?: number;
-            cache_creation_input_tokens?: number;
-            input_tokens_details?: { cached_tokens?: number; cache_write_tokens?: number };
-          };
-        }
-      ).usage;
-      const cached =
-        provider === "anthropic"
-          ? (data?.cache_read_input_tokens ?? 0)
-          : (data?.input_tokens_details?.cached_tokens ?? 0);
-      const written =
-        provider === "anthropic"
-          ? (data?.cache_creation_input_tokens ?? 0)
-          : (data?.input_tokens_details?.cache_write_tokens ?? 0);
-      usage.input += (data?.input_tokens ?? 0) + (provider === "anthropic" ? cached + written : 0);
-      usage.output += data?.output_tokens ?? 0;
-      usage.cachedInput += cached;
-      usage.cacheWriteInput += written;
+      const data = (entry.payload as LlmTurnResult).usage;
+      usage.input += data?.input ?? 0;
+      usage.output += data?.output ?? 0;
+      usage.cachedInput += data?.cachedInput ?? 0;
+      usage.cacheWriteInput += data?.cacheWriteInput ?? 0;
     } else if (entry.type === "tool_execution") {
       toolLatencyMs += entry.durationMs ?? 0;
       if (!(entry.payload as { result: AgentToolResult }).result.success) {
@@ -118,7 +102,7 @@ function metrics(
 }
 
 // Genesis has no live game; the full catalog stays advertised anyway since
-// read_room_context's live sections degrade cleanly without an attached game.
+// read_room's live sections degrade cleanly without an attached game.
 const GENESIS_TOOLS = AGENT_TOOLS;
 
 interface CliArgs {
@@ -126,6 +110,7 @@ interface CliArgs {
   provider: "openai" | "anthropic" | "stub";
   model: string;
   apiKey: string;
+  effort?: ModelEffort;
   outDir?: string;
   tracePath: string;
   /** A runaway guard for a paid run, not a target: recorded Genesis runs took 15 to 37 turns. */
@@ -189,6 +174,11 @@ function parseCliArgs(): CliArgs {
     provider,
     model,
     apiKey,
+    ...(options["effort"] === undefined
+      ? {}
+      : {
+          effort: resolveModelEffort(model, options["effort"] as ModelEffort, provider),
+        }),
     ...(outDir === undefined ? {} : { outDir }),
     tracePath,
     maxTurns,
@@ -197,7 +187,7 @@ function parseCliArgs(): CliArgs {
 }
 
 /** Stop a paid run once its requests have cost the cap. */
-function chargeBudget(args: CliArgs, spent: number, usage: Parameters<typeof requestCost>[1]) {
+function chargeBudget(args: CliArgs, spent: number, usage: LlmUsage) {
   const total = spent + (requestCost(args.model, usage) ?? 0);
   if (args.budgetUsd !== undefined && total >= args.budgetUsd)
     throw new Error(`Budget reached: $${total.toFixed(4)} of $${args.budgetUsd} spent.`);
@@ -264,7 +254,7 @@ async function runCliGenesis(): Promise<void> {
       source: "vis 1\nline 0,0 159,167\nend\n",
     });
     // Write logic 0
-    executeAgentTool(session, "write_logic_source", {
+    executeAgentTool(session, "write_logic", {
       room: 0,
       source: `
       if (!isset(f200)) {
@@ -277,7 +267,7 @@ async function runCliGenesis(): Promise<void> {
       `,
     });
     // Write logic 1
-    executeAgentTool(session, "write_logic_source", {
+    executeAgentTool(session, "write_logic", {
       room: 1,
       source: `
       #message 1 "Starting room."
@@ -291,7 +281,7 @@ async function runCliGenesis(): Promise<void> {
       return;
       `,
     });
-    const finish = executeAgentTool(session, "handover", {
+    const finish = executeAgentTool(session, "finish", {
       notes: "Stub world genesis complete.",
     });
     if (!finish.success) {
@@ -303,9 +293,13 @@ async function runCliGenesis(): Promise<void> {
   if (args.provider !== "stub") {
     try {
       if (!args.apiKey) throw new Error(`Missing API key for ${args.provider}.`);
-      const genesisPrompt = createGenesisPrompt(templateText);
-      if (args.provider === "openai") await runOpenAiGenesis(args, genesisPrompt, session, trace);
-      else await runAnthropicGenesis(args, genesisPrompt, session, trace);
+      // Install the same complete Boilerplate the app seeds before Genesis, then
+      // describe THAT seed in the prompt — the offered tools must see what
+      // the prompt claims, not a lookalike or a blank session. The offline
+      // stub above keeps its own intentional direct-authoring fixture.
+      const seed = installBoilerplateSeed(session);
+      const genesisPrompt = createGenesisPrompt(templateText, seed);
+      await runProviderGenesis(args, genesisPrompt, session, trace);
     } catch (error) {
       runError = error instanceof Error ? error.message : String(error);
       trace.push({ turn: 0, type: "run_error", payload: { error: runError } });
@@ -313,7 +307,7 @@ async function runCliGenesis(): Promise<void> {
     }
   }
   const playtest = validateGenesis(session);
-  const summary = metrics(args.provider, trace, performance.now() - started, playtest);
+  const summary = metrics(trace, performance.now() - started, playtest);
 
   // Save trace
   try {
@@ -362,113 +356,88 @@ async function runCliGenesis(): Promise<void> {
   }
 }
 
-async function runOpenAiGenesis(
+/** Run the CLI's authoring loop through the same conversation transport as the app. */
+export async function runProviderGenesis(
   args: CliArgs,
   prompt: string,
   session: ReturnType<typeof createAgentSessionState>,
   trace: TraceEntry[],
 ): Promise<void> {
-  const client = new OpenAI({
+  const config = {
+    provider: args.provider,
     apiKey: args.apiKey,
-  });
-
-  const tools: OpenAI.Responses.Tool[] = GENESIS_TOOLS.map((t) => ({
-    type: "function",
-    name: t.name,
-    description: t.description,
-    parameters: t.parameters,
-    strict: true,
-  }));
-
-  const input: OpenAI.Responses.ResponseInputItem[] = [{ role: "user", content: prompt }];
-  const sessionId = crypto.randomUUID();
-
+    model: args.model,
+    ...(args.effort === undefined ? {} : { effort: args.effort }),
+  };
+  const conversation =
+    args.provider === "anthropic"
+      ? createAnthropicConversation(config)
+      : createOpenAiConversation(config);
+  let message: string | undefined = prompt;
   let spent = 0;
   let turn = 0;
   while (turn < args.maxTurns && !session.genesisComplete) {
     turn++;
-    console.log(`\n${ANSI.bold}--- Turn ${turn} (OpenAI: ${args.model}) ---${ANSI.reset}`);
-
+    console.log(
+      `\n${ANSI.bold}--- Turn ${turn} (${args.provider}: ${args.model}) ---${ANSI.reset}`,
+    );
     const requestedAt = performance.now();
-    const response = await client.responses.create({
-      model: args.model,
-      instructions: AGI_SYSTEM_PROMPT,
-      prompt_cache_key: `monotio_agi.eval.${sessionId}`,
-      prompt_cache_options: {
-        mode: "implicit",
-        ttl: "30m",
+    const before = conversation.getTranscript().length;
+    let response: LlmTurnResult;
+    try {
+      response =
+        message === undefined
+          ? await conversation.complete()
+          : await conversation.sendUserMessage(message);
+    } catch (error) {
+      if (error instanceof LlmResponseError) {
+        trace.push({
+          turn,
+          type: "model_output",
+          payload: {
+            usage: error.usage,
+            telemetry: error.telemetry,
+            error: error.message,
+            transcript: conversation.getTranscript().slice(before),
+          },
+          durationMs: performance.now() - requestedAt,
+        });
+        chargeBudget(args, spent, error.usage);
+      }
+      throw error;
+    }
+    message = undefined;
+    trace.push({
+      turn,
+      type: "model_output",
+      payload: { ...response, transcript: conversation.getTranscript().slice(before) },
+      durationMs: performance.now() - requestedAt,
+    });
+    spent = chargeBudget(
+      args,
+      spent,
+      response.usage ?? {
+        input: 0,
+        output: 0,
+        cachedInput: 0,
+        cacheWriteInput: 0,
       },
-      tools,
-      input,
-      include: ["reasoning.encrypted_content"],
-      store: false,
-    });
-
-    trace.push({
-      turn,
-      type: "model_output",
-      payload: response,
-      durationMs: performance.now() - requestedAt,
-    });
-    spent = chargeBudget(args, spent, {
-      input: response.usage?.input_tokens ?? 0,
-      output: response.usage?.output_tokens ?? 0,
-      cachedInput: response.usage?.input_tokens_details?.cached_tokens ?? 0,
-      cacheWriteInput: response.usage?.input_tokens_details?.cache_write_tokens ?? 0,
-    });
-    if (response.status && response.status !== "completed")
-      throw new Error(
-        response.incomplete_details?.reason === "max_output_tokens"
-          ? "The model reached its output limit. Ask for a smaller change or fewer resources per turn."
-          : `The model stopped before completing the turn (${response.incomplete_details?.reason ?? response.status}).`,
-      );
-
-    const toolCalls: Array<{ id: string; name: string; args: Record<string, unknown> }> = [];
-    for (const item of response.output) {
-      input.push(item as OpenAI.Responses.ResponseInputItem);
-
-      if (item.type === "message" && item.role === "assistant") {
-        for (const content of item.content) {
-          if (content.type === "output_text") {
-            console.log(`${ANSI.gray}${content.text}${ANSI.reset}`);
-          }
-        }
-      } else if (item.type === "function_call") {
-        let parsedInput: Record<string, unknown>;
-        try {
-          parsedInput = JSON.parse(item.arguments);
-          if (!parsedInput || typeof parsedInput !== "object" || Array.isArray(parsedInput))
-            throw new Error("expected an object");
-        } catch {
-          throw new Error(
-            `The model returned invalid JSON arguments for ${item.name}. No tools from this response were executed.`,
-          );
-        }
-        toolCalls.push({
-          id: item.call_id,
-          name: item.name,
-          args: parsedInput,
-        });
-      }
-    }
-
-    if (toolCalls.length === 0) {
+    );
+    if (response.text) console.log(`${ANSI.gray}${response.text}${ANSI.reset}`);
+    if (response.toolCalls.length === 0) {
       console.log(`${ANSI.yellow}Model provided text without tool calls. Nudging...${ANSI.reset}`);
-      input.push({
-        role: "user",
-        content:
-          "Genesis is not yet complete. Please call write_words, write_view, write_picture, write_logic_source, and handover.",
-      });
+      message =
+        "Genesis is not yet complete. Please call write_words, write_view, write_picture, write_logic, and finish.";
       continue;
     }
-
-    for (const tc of toolCalls) {
+    const results = [];
+    for (const tc of response.toolCalls) {
       console.log(`${ANSI.cyan}▶ [Tool Call] ${ANSI.bold}${tc.name}${ANSI.reset}`);
       const toolStarted = performance.now();
       const toolRes: AgentToolResult = session.genesisComplete
         ? { success: false, error: "Not executed: genesis was completed earlier in this response." }
         : GENESIS_TOOLS.some((tool) => tool.name === tc.name)
-          ? executeAgentTool(session, tc.name, tc.args)
+          ? executeAgentTool(session, tc.name, tc.input)
           : { success: false, error: `Tool ${tc.name} is unavailable during genesis.` };
       if (toolRes.success) {
         console.log(
@@ -476,142 +445,24 @@ async function runOpenAiGenesis(
         );
       } else {
         console.log(`  ${ANSI.red}✖ ${tc.name} failed: ${toolRes.error}${ANSI.reset}`);
-        console.log(`  ${ANSI.gray}Args: ${JSON.stringify(tc.args, null, 2)}${ANSI.reset}`);
+        console.log(`  ${ANSI.gray}Args: ${JSON.stringify(tc.input, null, 2)}${ANSI.reset}`);
       }
       trace.push({
         turn,
         type: "tool_execution",
         durationMs: performance.now() - toolStarted,
-        payload: JSON.parse(serializeAgentLog({ tool: tc.name, args: tc.args, result: toolRes })),
+        payload: JSON.parse(serializeAgentLog({ tool: tc.name, args: tc.input, result: toolRes })),
       });
-
-      input.push({
-        type: "function_call_output",
-        call_id: tc.id,
-        output: openAiToolContent(splitToolResult(toolRes)),
-      });
+      results.push({ toolCallId: tc.id, result: toolRes });
     }
+    conversation.appendToolResults(results);
   }
 }
 
-async function runAnthropicGenesis(
-  args: CliArgs,
-  prompt: string,
-  session: ReturnType<typeof createAgentSessionState>,
-  trace: TraceEntry[],
-): Promise<void> {
-  // Claude Opus and Fable think by default and max_tokens caps thinking plus
-  // tool arguments together; an explicit timeout keeps the non-streaming path.
-  const client = new Anthropic({
-    apiKey: args.apiKey,
-    timeout: 600000,
+const isMain = process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+if (isMain) {
+  runCliGenesis().catch((e) => {
+    console.error("Fatal Genesis error:", e);
+    process.exit(1);
   });
-
-  const tools: Anthropic.Tool[] = anthropicToolDefinitions(GENESIS_TOOLS).map((tool, idx) => ({
-    ...(tool as unknown as Anthropic.Tool),
-    ...(idx === GENESIS_TOOLS.length - 1 ? { cache_control: { type: "ephemeral" } } : {}),
-  }));
-
-  const messages: Anthropic.MessageParam[] = [{ role: "user", content: prompt }];
-
-  let spent = 0;
-  let turn = 0;
-  while (turn < args.maxTurns && !session.genesisComplete) {
-    turn++;
-    console.log(`\n${ANSI.bold}--- Turn ${turn} (Anthropic: ${args.model}) ---${ANSI.reset}`);
-
-    const requestedAt = performance.now();
-    const response = await client.messages.create({
-      model: args.model,
-      max_tokens: 128000,
-      system: [{ type: "text", text: AGI_SYSTEM_PROMPT, cache_control: { type: "ephemeral" } }],
-      messages,
-      tools,
-    });
-
-    trace.push({
-      turn,
-      type: "model_output",
-      payload: response,
-      durationMs: performance.now() - requestedAt,
-    });
-    spent = chargeBudget(args, spent, {
-      input:
-        response.usage.input_tokens +
-        (response.usage.cache_read_input_tokens ?? 0) +
-        (response.usage.cache_creation_input_tokens ?? 0),
-      output: response.usage.output_tokens,
-      cachedInput: response.usage.cache_read_input_tokens ?? 0,
-      cacheWriteInput: response.usage.cache_creation_input_tokens ?? 0,
-    });
-    if (
-      response.stop_reason &&
-      !["end_turn", "tool_use", "stop_sequence"].includes(response.stop_reason)
-    )
-      throw new Error(
-        response.stop_reason === "max_tokens"
-          ? "The model reached its output limit. Ask for a smaller change or fewer resources per turn."
-          : `The model stopped before completing the turn (${response.stop_reason}).`,
-      );
-    messages.push({ role: "assistant", content: response.content });
-
-    const toolCalls: Array<{ id: string; name: string; args: Record<string, unknown> }> = [];
-    for (const c of response.content) {
-      if (c.type === "tool_use") {
-        if (!c.input || typeof c.input !== "object" || Array.isArray(c.input))
-          throw new Error(`Invalid tool arguments for ${c.name}; expected an object.`);
-        toolCalls.push({
-          id: c.id,
-          name: c.name,
-          args: (c.input as Record<string, unknown>) || {},
-        });
-      } else if (c.type === "text") {
-        console.log(`${ANSI.gray}${c.text}${ANSI.reset}`);
-      }
-    }
-
-    if (toolCalls.length === 0) {
-      console.log(`${ANSI.yellow}Model provided text without tool calls. Nudging...${ANSI.reset}`);
-      messages.push({
-        role: "user",
-        content:
-          "Genesis is not yet complete. Please call write_words, write_view, write_picture, write_logic_source, and handover.",
-      });
-      continue;
-    }
-
-    const toolResultsContent: Anthropic.ToolResultBlockParam[] = [];
-    for (const tc of toolCalls) {
-      console.log(`${ANSI.cyan}▶ [Tool Call] ${ANSI.bold}${tc.name}${ANSI.reset}`);
-      const toolStarted = performance.now();
-      const toolRes: AgentToolResult = session.genesisComplete
-        ? { success: false, error: "Not executed: genesis was completed earlier in this response." }
-        : GENESIS_TOOLS.some((tool) => tool.name === tc.name)
-          ? executeAgentTool(session, tc.name, tc.args)
-          : { success: false, error: `Tool ${tc.name} is unavailable during genesis.` };
-      if (toolRes.success) {
-        console.log(
-          `  ${ANSI.green}✔ ${tc.name} succeeded${ANSI.reset} ${ANSI.gray}${JSON.stringify(toolRes.details || {})}${ANSI.reset}`,
-        );
-      } else {
-        console.log(`  ${ANSI.red}✖ ${tc.name} failed: ${toolRes.error}${ANSI.reset}`);
-        console.log(`  ${ANSI.gray}Args: ${JSON.stringify(tc.args, null, 2)}${ANSI.reset}`);
-      }
-      trace.push({
-        turn,
-        type: "tool_execution",
-        durationMs: performance.now() - toolStarted,
-        payload: JSON.parse(serializeAgentLog({ tool: tc.name, args: tc.args, result: toolRes })),
-      });
-
-      toolResultsContent.push(anthropicToolResult(tc.id, toolRes));
-    }
-
-    messages.push({ role: "user", content: toolResultsContent });
-  }
 }
-
-runCliGenesis().catch((e) => {
-  console.error("Fatal Genesis error:", e);
-  process.exit(1);
-});

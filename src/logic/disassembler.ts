@@ -133,6 +133,12 @@ export function quoteLogicString(text: string): string {
   return `"${out}"`;
 }
 
+interface DecodedPredicate {
+  readonly at: number;
+  readonly name: string;
+  readonly args: readonly number[];
+}
+
 class Disassembler {
   readonly code: Uint8Array;
   readonly profile: AgiProfile;
@@ -142,6 +148,7 @@ class Disassembler {
   /** Instruction start offset -> decoded instruction. */
   readonly insns = new Map<number, Insn>();
   readonly warnings: string[] = [];
+  readonly predicates: DecodedPredicate[] = [];
   /** `if` offsets whose `else` the current attempt wants to give up on. */
   private readonly elseRetry = new Set<number>();
 
@@ -291,13 +298,18 @@ class Disassembler {
     if (spec.name === "said") {
       const count = this.byte(at + 1);
       const args: string[] = [];
+      const words: number[] = [];
       for (let i = 0; i < count; i++) {
         const id = this.byte(at + 2 + i * 2) | (this.byte(at + 3 + i * 2) << 8);
         args.push(this.saidWord(id, at));
+        words.push(id);
       }
+      this.predicates.push({ at, name: spec.name, args: words });
       return { text: `said(${args.join(", ")})`, end: at + 2 + count * 2 };
     }
-    const args = spec.operands.map((kind, i) => operandText(kind, this.byte(at + 1 + i)));
+    const raw = spec.operands.map((_, i) => this.byte(at + 1 + i));
+    this.predicates.push({ at, name: spec.name, args: raw });
+    const args = spec.operands.map((kind, i) => operandText(kind, raw[i]!));
     return { text: `${spec.name}(${args.join(", ")})`, end: at + 1 + spec.operands.length };
   }
 
@@ -490,13 +502,25 @@ class Disassembler {
 
     const emit = (list: readonly Node[], depth: number): void => {
       const pad = this.indent.repeat(depth);
-      for (const node of list) {
+      for (const [index, node] of list.entries()) {
         if (labels.has(node.insn.at)) lines.push(`${pad}L${node.insn.at}:`);
         if (node.kind === "goto") {
           lines.push(`${pad}goto L${node.insn.target};`);
           continue;
         }
         if (node.kind === "simple") {
+          if (depth === 0 && node.insn.kind === "return" && node.insn.end === this.code.length) {
+            // Keep a terminal site when the preceding statement is itself a
+            // return: otherwise the assembler would reuse that earlier exit.
+            const previous = list[index - 1];
+            if (
+              previous?.kind === "simple" &&
+              previous.insn.kind === "return" &&
+              !labels.has(node.insn.at)
+            )
+              lines.push(`${pad}L${node.insn.at}:`);
+            continue;
+          }
           lines.push(`${pad}${node.insn.text}`);
           continue;
         }
@@ -569,4 +593,29 @@ export function decodeLogicInsns(
 ): readonly DecodedInsn[] {
   const d = new Disassembler(payload, opts);
   return [...d.insns.values()];
+}
+
+/**
+ * Inspect actual bytecode operands, including predicates, without searching
+ * rendered source. Warnings describe incomplete decoding or reconstruction;
+ * callers must retain that uncertainty rather than treat a partial list as proof.
+ * All returned arrays belong to this inspection and share nothing with the input.
+ */
+export function inspectLogicResource(
+  payload: Uint8Array,
+  opts: DisassembleOptions = {},
+): {
+  readonly instructions: readonly DecodedInsn[];
+  readonly predicates: readonly DecodedPredicate[];
+  readonly messages: readonly (string | null)[];
+  readonly warnings: readonly string[];
+} {
+  const decoded = new Disassembler(payload, opts);
+  decoded.build();
+  return {
+    instructions: [...decoded.insns.values()],
+    predicates: decoded.predicates,
+    messages: decoded.messages,
+    warnings: decoded.warnings,
+  };
 }

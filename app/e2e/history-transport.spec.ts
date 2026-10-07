@@ -1,9 +1,11 @@
-import { expect, test, type Page } from "@playwright/test";
+import type { Page } from "@playwright/test";
+import { expect, test } from "./test.ts";
 import { testProjectId } from "../test/identity.ts";
 import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import {
   cacheGame,
+  canvasPicHash,
   isolateStorage,
   openWorldMap,
   textHook,
@@ -13,7 +15,7 @@ import {
   openWorldRoom,
 } from "./engineProbe.ts";
 
-test.use({ headless: process.platform !== "darwin" });
+test.use({ headless: true });
 
 /**
  * The history transport's proof fixture: an authored two-room game that
@@ -130,6 +132,109 @@ async function scrubToTape(page: Page, fraction: number): Promise<void> {
   expect(selected.width, "seeking directly from LIVE keeps the timeline width").toBe(box.width);
 }
 
+for (const viewport of [
+  { width: 1063, height: 815 },
+  { width: 1440, height: 900 },
+  { width: 390, height: 844 },
+]) {
+  test(`zero scrub shows the first presented picture at ${viewport.width}×${viewport.height}`, async ({
+    page,
+  }) => {
+    await page.setViewportSize(viewport);
+    await isolateStorage(page);
+    await bootTapeGame(page);
+    await waitForCycles(page, 6);
+    // PICTURE 1 draws colour 1 at (20, 10): doubled x, display row 1.
+    await expect
+      .poll(() =>
+        page
+          .getByTestId("game-canvas")
+          .evaluate((canvas) => [
+            ...(canvas as HTMLCanvasElement).getContext("2d")!.getImageData(40, 18, 1, 1).data,
+          ]),
+      )
+      .toEqual([0, 0, 170, 255]);
+    const firstPicture = await canvasPicHash(page);
+    await pauseLive(page);
+    const timeline = page.getByTestId("history-timeline");
+    await expect(timeline).toBeVisible();
+    await expect(timeline).toHaveAttribute("aria-valuenow", "100");
+    const box = (await timeline.boundingBox())!;
+    await page.mouse.move(box.x, box.y + box.height / 2);
+    await page.mouse.down();
+    await expect.poll(async () => (await viewState(page))?.active).toBe(true);
+    await expect.poll(async () => (await viewState(page))?.seeking).toBe(false);
+    await page.screenshot({ path: test.info().outputPath(`zero-${viewport.width}.png`) });
+    expect(await canvasPicHash(page)).toBe(firstPicture);
+    expect((await viewState(page))?.tick).toBe(0);
+    await page.mouse.up();
+  });
+
+  test(`speed selection stays visible under the pointer and changes watch pacing at ${viewport.width}×${viewport.height}`, async ({
+    page,
+  }) => {
+    await page.setViewportSize(viewport);
+    await isolateStorage(page);
+    await page.addInitScript(() => {
+      const rates = [] as number[];
+      (window as Window & { transportRates?: number[] }).transportRates = rates;
+      const post = Worker.prototype.postMessage;
+      Worker.prototype.postMessage = function (message, transfer) {
+        if (message.type === "historyViewAdvance") rates.push(message.ticks);
+        post.call(this, message, Array.isArray(transfer) ? { transfer } : transfer);
+      };
+    });
+    await bootTapeGame(page);
+    // Enough tape for the largest step (48 ticks) plus the initial 2× step (12).
+    await waitForCycles(page, 6 * (8 + 2));
+    await pauseLive(page);
+    await scrubToTape(page, 0);
+    for (const speed of [2, 4, 8, 1]) {
+      const box = (await page.getByTestId("history-timeline").boundingBox())!;
+      await page.getByTestId("history-timeline").click({ position: { x: 0, y: box.height / 2 } });
+      await expect.poll(async () => (await viewState(page))?.seeking).toBe(false);
+      // Begin with a short step so the preceding 8× choice cannot finish
+      // the fixture before the next button receives its click.
+      if (speed !== 2) await page.getByTestId(`history-speed-${speed === 1 ? 2 : 1}`).click();
+      await page.getByTestId("btn-history-watch").click();
+      const button = page.getByTestId(`history-speed-${speed}`);
+      await expect(button).toBeVisible();
+      await button.click();
+      await expect(button).toHaveClass(/transport-speed-btn--active/);
+      if (speed === 2)
+        await page.screenshot({
+          path: test.info().outputPath(`speed-click-${viewport.width}.png`),
+        });
+      await expect
+        .poll(() => button.evaluate((el) => getComputedStyle(el).backgroundColor))
+        .toBe(
+          await button.evaluate((el) => {
+            const sample = document.createElement("span");
+            sample.style.color = "var(--action)";
+            el.append(sample);
+            const color = getComputedStyle(sample).color;
+            sample.remove();
+            return color;
+          }),
+        );
+      expect(await button.evaluate((el) => el.matches(":hover"))).toBe(true);
+      expect(await page.evaluate(() => window.__AGI_STATE__?.historyView.speed)).toBe(speed);
+      await expect
+        .poll(() =>
+          page.evaluate(() =>
+            (window as Window & { transportRates?: number[] }).transportRates?.at(-1),
+          ),
+        )
+        .toBe(6 * speed);
+      if (speed === 2) {
+        await expect.poll(async () => (await viewState(page))?.room).toBe(1);
+        await page.screenshot({ path: test.info().outputPath(`speed-${viewport.width}.png`) });
+      }
+      await page.getByTestId("btn-history-watch").click();
+    }
+  });
+}
+
 test("the transport rides live play from boot; the timeline enters the tape and LIVE returns paused", async ({
   page,
 }) => {
@@ -164,6 +269,26 @@ test("the transport rides live play from boot; the timeline enters the tape and 
   await scrubToTape(page, 0.05);
   await expect.poll(async () => (await textHook(page)).paused).toBe(true);
   await expect(page.getByTestId("history-pos")).toContainText("Room");
+  // Scrubbing never resizes the readout or flashes extra words while the tape
+  // catches up: only the numbers change, inside a reserved width.
+  const readout = page.locator(".transport-readout");
+  await expect(readout).toBeVisible();
+  const widths = new Set<number>();
+  const texts: string[] = [];
+  const sample = async () => {
+    widths.add(Math.round((await readout.boundingBox())!.width));
+    texts.push((await readout.textContent()) ?? "");
+  };
+  await sample();
+  const timelineBox = (await page.getByTestId("history-timeline").boundingBox())!;
+  for (const at of [0.5, 0.9, 0.2, 0.05]) {
+    await page.getByTestId("history-timeline").click({
+      position: { x: timelineBox.width * at, y: timelineBox.height / 2 },
+    });
+    for (let i = 0; i < 8; i++) await sample();
+  }
+  expect([...widths], "one readout width while scrubbing").toHaveLength(1);
+  for (const text of texts) expect(text).toMatch(/^Room \d+ · \d+%$/);
   await expect(page.locator(".history-marker").first()).toBeVisible();
   await expect
     .poll(async () => (await viewState(page))!.room, { timeout: 20_000 })
@@ -223,7 +348,7 @@ async function tapePlaysOn(page: Page): Promise<void> {
 /** The tape holds where the seek landed. */
 async function tapeHolds(page: Page): Promise<void> {
   const from = await landedTick(page);
-  await page.waitForTimeout(600);
+  await page.clock.runFor(600);
   expect((await viewState(page))!.tick, "the tape holds at the landing").toBe(from);
   await expect(page.getByTestId("btn-history-watch")).not.toHaveText(/Pause timeline/);
 }
@@ -246,6 +371,7 @@ async function seekThreeWays(page: Page, then: (page: Page) => Promise<void>): P
 }
 
 test("a seek keeps a playing surface playing and a paused one paused", async ({ page }) => {
+  await page.clock.install();
   await isolateStorage(page);
   await bootTapeGame(page);
   await writeFlag(page, 6);
@@ -281,6 +407,7 @@ test("a seek keeps a playing surface playing and a paused one paused", async ({ 
   await expect.poll(async () => (await viewState(page))?.active).toBe(false);
   await expect(page.getByTestId("btn-transport-resume")).toBeVisible();
   const held = (await textHook(page)).cycle;
+  // wall-clock: the live game's cycle scheduler runs in a worker which page.clock cannot advance.
   await page.waitForTimeout(600);
   expect((await textHook(page)).cycle, "the game stays paused").toBe(held);
   // LIVE again on the parked game changes nothing.
@@ -329,6 +456,20 @@ test("Resume from here continues from the viewed moment; Undo rewind restores th
 test("a diverged tape labels the position unrestorable and keeps Resume from here off", async ({
   page,
 }) => {
+  await page.addInitScript(() => {
+    const post = Worker.prototype.postMessage;
+    Worker.prototype.postMessage = function (message, transfer) {
+      if (message.type === "boot") {
+        this.addEventListener("message", ({ data }) => {
+          if (data.type === "historyBatch" && data.batch.anchor?.reason === "pause")
+            Reflect.set(window, "tapePauseFlushed", true);
+        });
+      }
+      if (message.type === "pause" && message.paused === true)
+        Reflect.set(window, "tapePauseFlushed", false);
+      post.call(this, message, Array.isArray(transfer) ? { transfer } : transfer);
+    };
+  });
   await isolateStorage(page);
   await bootTapeGame(page);
   await writeFlag(page, 6);
@@ -350,7 +491,7 @@ test("a diverged tape labels the position unrestorable and keeps Resume from her
   // `history/<key>/s/<segment>/<batch>`.
   const corrupted = await page.evaluate(async () => {
     const db = await new Promise<IDBDatabase>((resolve, reject) => {
-      const req = indexedDB.open("monotio-agi-projects", 1);
+      const req = indexedDB.open("monotio-agi-projects");
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => reject(req.error);
     });
@@ -361,7 +502,7 @@ test("a diverged tape labels the position unrestorable and keeps Resume from her
       const req = db
         .transaction("projects", "readonly")
         .objectStore("projects")
-        .get("history/history-transport-fixture");
+        .get(`history/${localStorage.getItem("monotio_agi.resumeTarget")}`);
       req.onsuccess = () => resolve(req.result as { segments: { id: string }[] });
       req.onerror = () => reject(req.error);
     });
@@ -374,7 +515,9 @@ test("a diverged tape labels the position unrestorable and keeps Resume from her
     const targets = keys.filter(
       (key) =>
         typeof key === "string" &&
-        key.startsWith(`history/history-transport-fixture/s/${firstSegment}/`),
+        key.startsWith(
+          `history/${localStorage.getItem("monotio_agi.resumeTarget")}/s/${firstSegment}/`,
+        ),
     );
     let flipped = 0;
     const tx = db.transaction("projects", "readwrite");
@@ -406,6 +549,7 @@ test("a diverged tape labels the position unrestorable and keeps Resume from her
   await expect.poll(async () => (await textHook(page)).room).toBeGreaterThanOrEqual(1);
   await page.getByTestId("btn-transport-pause").click();
   await expect.poll(async () => (await textHook(page)).paused).toBe(true);
+  await expect.poll(() => page.evaluate(() => Reflect.get(window, "tapePauseFlushed"))).toBe(true);
   await expect.poll(() => page.evaluate(() => window.__AGI_STATE__?.historyPending)).toBe(0);
 
   // Choose the click from the stored tape's own anatomy — read after the
@@ -420,7 +564,7 @@ test("a diverged tape labels the position unrestorable and keeps Resume from her
   // notches come from the manifest's segment lanes.
   const aimed = await page.evaluate(async () => {
     const db = await new Promise<IDBDatabase>((resolve, reject) => {
-      const req = indexedDB.open("monotio-agi-projects", 1);
+      const req = indexedDB.open("monotio-agi-projects");
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => reject(req.error);
     });
@@ -436,22 +580,13 @@ test("a diverged tape labels the position unrestorable and keeps Resume from her
         const req = db
           .transaction("projects", "readonly")
           .objectStore("projects")
-          .get("history/history-transport-fixture");
+          .get(`history/${localStorage.getItem("monotio_agi.resumeTarget")}`);
         req.onsuccess = () => resolve(req.result as Manifest);
         req.onerror = () => reject(req.error);
       });
-    // The click maps against the committed axis, and a batch still queued
-    // in the worker (the in-flight credit is bounded) lands after the
-    // pending drain — moving the landing under the pointer. Read until the
-    // manifest's shape holds still instead of trusting a single snapshot.
-    let manifest = await readManifest();
-    for (let i = 0; i < 40; i++) {
-      const shape = manifest.segments.map((seg) => seg.extent ?? 0).join(",");
-      await new Promise((r) => setTimeout(r, 150));
-      const again = await readManifest();
-      if (again.segments.map((seg) => seg.extent ?? 0).join(",") === shape) break;
-      manifest = again;
-    }
+    // The posted pause anchor fences the worker's queued tail; historyPending
+    // then fences its storage commit. The committed axis is safe to read once.
+    const manifest = await readManifest();
     const firstSegment = manifest.segments[0]!.id;
     const keys = (await new Promise<IDBValidKey[]>((resolve, reject) => {
       const req = db.transaction("projects", "readonly").objectStore("projects").getAllKeys();
@@ -461,7 +596,9 @@ test("a diverged tape labels the position unrestorable and keeps Resume from her
     const targets = keys.filter(
       (key) =>
         typeof key === "string" &&
-        key.startsWith(`history/history-transport-fixture/s/${firstSegment}/`),
+        key.startsWith(
+          `history/${localStorage.getItem("monotio_agi.resumeTarget")}/s/${firstSegment}/`,
+        ),
     );
     const batches = await new Promise<StoredBatch[]>((resolve, reject) => {
       const tx = db.transaction("projects", "readonly");
@@ -566,7 +703,7 @@ test("a tape the app cannot read reports the failure and resumes the verified li
   // A record version this app does not know must be refused, not replayed.
   await page.evaluate(async () => {
     const db = await new Promise<IDBDatabase>((resolve, reject) => {
-      const req = indexedDB.open("monotio-agi-projects", 1);
+      const req = indexedDB.open("monotio-agi-projects");
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => reject(req.error);
     });
@@ -574,7 +711,7 @@ test("a tape the app cannot read reports the failure and resumes the verified li
       const req = db
         .transaction("projects", "readonly")
         .objectStore("projects")
-        .get("history/history-transport-fixture");
+        .get(`history/${localStorage.getItem("monotio_agi.resumeTarget")}`);
       req.onsuccess = () => resolve(req.result as Record<string, unknown>);
       req.onerror = () => reject(req.error);
     });
