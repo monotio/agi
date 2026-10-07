@@ -130,13 +130,13 @@ test("a long task and a long request run on without a wall-clock stop", async (t
   assert.equal(answer, "streamed");
 });
 
-test("task spend excludes image charges and pending reservations", async () => {
-  const { reserveImageBudget } = await import("../src/agent/providerBudget.ts");
+test("task spend excludes image charges and pending requests", async () => {
+  const { trackImageSpend } = await import("../src/agent/providerBudget.ts");
   const run = new AgentRun("gpt-6-sol", () => {});
   await run.run(async () => {
     run.recordUsage({ input: 10000, cachedInput: 0, cacheWriteInput: 0, output: 5000 });
-    reserveImageBudget(1)(0.5);
-    const settle = reserveImageBudget(1);
+    trackImageSpend()(0.5);
+    const settle = trackImageSpend();
     try {
       // 10,000 × $2/M + 5,000 × $10/M = $0.07 for this task.
       assert.equal(run.snapshot().reportedSpent, 0.07);
@@ -164,4 +164,58 @@ test("cancelled and interrupted requests keep only completed usage as spent", as
     assert.equal(run.snapshot().usageIncomplete, true);
     assert.equal(run.snapshot().reportedSpent, 0.07);
   }
+});
+
+test("reported usage below budget never pauses, even after an expensive input", async () => {
+  let pauses = 0;
+  const run = new AgentRun(
+    "gpt-6-sol",
+    (state) => {
+      if (state.status === "paused") {
+        pauses++;
+        run.resume();
+      }
+    },
+    5,
+  );
+  await run.run(async () => {
+    await run.request(async () => {
+      run.recordUsage({ input: 100_000, cachedInput: 0, cacheWriteInput: 0, output: 7_000 });
+    });
+    await run.request(async () => "done");
+  });
+  assert.equal(pauses, 0);
+  assert.equal(run.snapshot().spent, 0.27);
+});
+
+test("streamed cumulative usage updates live and crossing pauses only after the request", async () => {
+  const states: { spent: number; status: string }[] = [];
+  const run = new AgentRun("gpt-6-sol", (state) => states.push(state), 1);
+  let finish!: () => void;
+  const streamEnd = new Promise<void>((resolve) => {
+    finish = resolve;
+  });
+  let sent = 0;
+  const pending = run.run(() =>
+    run.request(async (signal) => {
+      sent++;
+      run.recordStreamUsage({ input: 0, cachedInput: 0, cacheWriteInput: 0, output: 47_000 });
+      assert.equal(run.snapshot().spent, 0.47);
+      run.recordStreamUsage({ input: 0, cachedInput: 0, cacheWriteInput: 0, output: 112_000 });
+      assert.equal(run.snapshot().spent, 1.12);
+      assert.equal(run.snapshot().status, "running");
+      assert.equal(signal.aborted, false);
+      await streamEnd;
+      return "kept";
+    }),
+  );
+  await new Promise((resolve) => setImmediate(resolve));
+  finish();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(run.snapshot().status, "paused");
+  assert.equal(states.filter((state) => state.status === "paused").length, 1);
+  run.resume();
+  assert.equal(await pending, "kept");
+  assert.equal(sent, 1);
+  assert.equal(run.snapshot().budget, 2);
 });

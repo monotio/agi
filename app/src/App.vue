@@ -43,6 +43,9 @@ import { createInspector, provideInspector } from "./inspector/useInspector.ts";
 import { referenceUpload } from "./references/referenceUploadState.ts";
 
 const AgentLogPanel = defineAsyncComponent(() => import("./authoring/AgentLogPanel.vue"));
+const RoomGenerationOverlay = defineAsyncComponent(
+  () => import("./authoring/RoomGenerationOverlay.vue"),
+);
 const AgentBubble = defineAsyncComponent(() => import("./authoring/AgentBubble.vue"));
 const AiSettingsDialog = defineAsyncComponent(() => import("./settings/AiSettings.vue"));
 const SoundPreview = defineAsyncComponent(() => import("./authoring/SoundPreview.vue"));
@@ -768,6 +771,9 @@ watch(
           :original-aspect="originalAspect"
           :inspector-docked="creating"
         >
+          <template #room-generation>
+            <RoomGenerationOverlay v-if="state.roomGeneration" />
+          </template>
           <template #stage-actions>
             <UiChip
               v-if="creating"

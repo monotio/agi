@@ -172,8 +172,7 @@ function anthropicUsage(usage: Partial<BetaUsage> | undefined): LlmUsage {
   return total;
 }
 
-function recordUsage(usage: LlmUsage, total: LlmUsage, run?: AgentRun): void {
-  run?.recordUsage(usage);
+function recordUsage(usage: LlmUsage, total: LlmUsage): void {
   for (const key of Object.keys(usage) as (keyof LlmUsage)[]) {
     const value = usage[key];
     if (typeof value !== "number") continue;
@@ -182,23 +181,26 @@ function recordUsage(usage: LlmUsage, total: LlmUsage, run?: AgentRun): void {
   }
 }
 
-function recordAnthropicUsage(
-  usage: BetaUsage | undefined,
-  total: LlmUsage,
+function recordAnthropicStreamUsage(
+  usage: BetaUsage,
   run: AgentRun | undefined,
   model: string,
 ): void {
-  const fallback = usage?.iterations?.some((iteration) => iteration.type === "fallback_message");
-  if (!usage) run?.markUsageIncomplete();
-  recordUsage(anthropicUsage(usage), total, fallback ? undefined : run);
-  // Fallback iterations identify the serving model, whose price can differ.
-  // Each iteration's tokens are billed once; compaction is also a separate iteration.
-  if (fallback)
-    for (const iteration of usage?.iterations ?? [])
-      run?.recordUsage(
-        anthropicUsage(iteration),
-        "model" in iteration ? (iteration.model ?? model) : model,
-      );
+  if (!run) return;
+  if (usage.iterations?.length) {
+    const totals: Record<string, LlmUsage> = {};
+    for (const iteration of usage.iterations) {
+      const serving = "model" in iteration ? (iteration.model ?? model) : model;
+      const total = (totals[serving] ??= {
+        input: 0,
+        output: 0,
+        cachedInput: 0,
+        cacheWriteInput: 0,
+      });
+      recordUsage(anthropicUsage(iteration), total);
+    }
+    for (const [serving, total] of Object.entries(totals)) run.recordStreamUsage(total, serving);
+  } else run.recordStreamUsage(anthropicUsage(usage), model);
 }
 
 function openAiUsage(usage: OpenAI.Responses.ResponseUsage | null | undefined): LlmUsage {
@@ -334,6 +336,7 @@ export function createAnthropicConversation(
   initialSessionId?: string,
 ): UnifiedConversation {
   let client: Promise<Anthropic> | undefined;
+  let requestSignal: AbortSignal | undefined;
   const getClient = () =>
     (client ??= import("@anthropic-ai/sdk").then(
       ({ default: Anthropic }) =>
@@ -345,6 +348,20 @@ export function createAnthropicConversation(
           // transient 429, 5xx or overload before the turn and its staged work fail.
           maxRetries: 2,
           timeout: 600000,
+          // Keep Stop attached to the response body for the whole stream.
+          fetch: async (url, init) => {
+            const signal =
+              requestSignal && init?.signal
+                ? AbortSignal.any([requestSignal, init.signal])
+                : (requestSignal ?? init?.signal);
+            const response = await fetch(url, { ...init, signal: signal ?? null });
+            if (!response.body || !signal) return response;
+            return new Response(response.body.pipeThrough(new TransformStream(), { signal }), {
+              status: response.status,
+              statusText: response.statusText,
+              headers: response.headers,
+            });
+          },
         }),
     ));
 
@@ -406,6 +423,7 @@ export function createAnthropicConversation(
       maxTokens = modelCapability(config.model, config.provider).maxOutputTokens,
     ) => {
       const startedAt = performance.now();
+      requestSignal = signal;
       // Official SDK accumulation preserves thinking signatures and complete tool inputs.
       // https://platform.claude.com/docs/en/build-with-claude/streaming
       const stream = (await getClient()).beta.messages.stream(
@@ -467,6 +485,8 @@ export function createAnthropicConversation(
           run?.updateProgress();
           if (event.type === "message_start") usage = { ...event.message.usage };
           if (event.type === "message_delta") usage = { ...usage, ...event.usage } as BetaUsage;
+          if ((event.type === "message_start" || event.type === "message_delta") && usage)
+            recordAnthropicStreamUsage(usage, run, config.model || DEFAULT_MODELS.anthropic);
           if (event.type === "content_block_start") {
             if (event.content_block.type === "tool_use")
               run?.updateProgress("tool", "", event.content_block.name);
@@ -479,40 +499,21 @@ export function createAnthropicConversation(
         }
         const response = await stream.finalMessage();
         responseMs = performance.now() - startedAt;
-        recordAnthropicUsage(
-          response.usage,
-          totalUsage,
-          run,
-          config.model || DEFAULT_MODELS.anthropic,
-        );
+        recordUsage(anthropicUsage(response.usage), totalUsage);
         return response;
       } catch (error) {
         usageIncomplete = true;
         responseMs = performance.now() - startedAt;
         if (usage) {
-          recordAnthropicUsage(
-            usage,
-            totalUsage,
-            undefined,
-            config.model || DEFAULT_MODELS.anthropic,
-          );
+          recordUsage(anthropicUsage(usage), totalUsage);
         }
         run?.markUsageIncomplete();
         throw error;
+      } finally {
+        requestSignal = undefined;
       }
     };
-    const response = await (run
-      ? run.request(
-          send,
-          Math.ceil(
-            JSON.stringify([
-              config.systemPrompt ?? AGI_SYSTEM_PROMPT,
-              tools,
-              messages.slice(contextStart),
-            ]).length / 3,
-          ),
-        )
-      : send());
+    const response = await (run ? run.request(send) : send());
 
     const usage = anthropicUsage(response.usage);
     const hitShare = cacheHitShare(usage);
@@ -792,6 +793,13 @@ export function createOpenAiConversation(
         for await (const event of stream) {
           if (firstEventMs === undefined) firstEventMs = performance.now() - startedAt;
           run?.updateProgress();
+          if (
+            "response" in event &&
+            event.response &&
+            "usage" in event.response &&
+            event.response.usage
+          )
+            run?.recordStreamUsage(openAiUsage(event.response.usage));
           if (event.type === "response.output_text.delta") run?.updateProgress("text", event.delta);
           if (event.type === "response.output_item.added") {
             if (event.item.type === "function_call")
@@ -805,7 +813,7 @@ export function createOpenAiConversation(
           ) {
             responseMs = performance.now() - startedAt;
             if (!event.response.usage) run?.markUsageIncomplete();
-            recordUsage(openAiUsage(event.response.usage), totalUsage, run);
+            recordUsage(openAiUsage(event.response.usage), totalUsage);
             return event.response;
           }
           if (event.type === "error") throw new Error(event.message);
@@ -820,18 +828,7 @@ export function createOpenAiConversation(
         throw error;
       }
     };
-    const response = await (run
-      ? run.request(
-          send,
-          Math.ceil(
-            JSON.stringify([
-              config.systemPrompt ?? AGI_SYSTEM_PROMPT,
-              tools,
-              input.slice(contextStart),
-            ]).length / 3,
-          ),
-        )
-      : send());
+    const response = await (run ? run.request(send) : send());
 
     const usage = openAiUsage(response.usage);
     const hitShare = cacheHitShare(usage);

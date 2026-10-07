@@ -59,7 +59,14 @@ const {
 const presentation = usePresentation();
 const { gpuBackend, debugOpen, debugViewMode, splitAt } = presentation;
 const bridge = useShellBridge();
-const agentBlocksGame = computed(() => state.powerUp.open && !props.inspectorDocked);
+const agentBlocksGame = computed(
+  () =>
+    (state.roomGeneration !== null &&
+      (state.roomGeneration.busy ||
+        !!state.roomGeneration.error ||
+        engine.roomMap.currentRoom.value !== state.roomGeneration.room)) ||
+    (state.powerUp.open && !props.inspectorDocked),
+);
 const inputDisabled = computed(
   () =>
     agentBlocksGame.value ||
@@ -762,6 +769,7 @@ defineExpose({
 
         <!-- Notes about the game in play sit just above the engine's bottom
              text rows, where the command line is drawn, at every size. -->
+        <slot name="room-generation" />
         <div
           v-if="state.phase === 'running' && $slots['screen-notes']"
           class="screen-notes"

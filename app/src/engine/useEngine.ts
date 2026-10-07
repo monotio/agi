@@ -121,6 +121,7 @@ export function useEngine(
 
   const state = reactive<EngineState>({
     agentTask: null,
+    roomGeneration: null,
     loading: null,
     leaving: false,
     controls: [],
@@ -1246,6 +1247,8 @@ export function useEngine(
         author: edit.author,
       });
     },
+    stopRoomGeneration: () => authoringController?.stopRoomGeneration(),
+    retryRoomGeneration: () => authoringController?.retryRoomGeneration(),
     stopAgent: () => authoringController?.getSession()?.task.stop(),
     continueAgent: (requestLimit?: number) =>
       authoringController?.getSession()?.task.resume(requestLimit),

@@ -6,7 +6,6 @@ import type { AgentRunState } from "../agent/agentRun.ts";
 const { task, showText = true } = defineProps<{ task: AgentRunState | null; showText?: boolean }>();
 defineEmits<{ stop: []; resume: [requestLimit?: number]; discard: [] }>();
 const now = ref(Date.now());
-const requestLimit = ref(5);
 let clock: ReturnType<typeof setInterval>;
 onMounted(() => {
   clock = setInterval(() => {
@@ -64,14 +63,10 @@ const quiet = computed(() =>
         {{ task.progress.text }}
       </p>
     </div>
-    <p
-      v-if="task.status !== 'running' && task.requests > 0"
-      class="task-spent"
-      data-testid="agent-spent"
-    >
+    <p v-if="task.requests > 0" class="task-spent" data-testid="agent-spent">
       {{
         formatSpent({
-          amount: task.reportedSpent,
+          amount: task.spent,
           priceKnown: task.priceKnown,
           incomplete: task.usageIncomplete,
           budget: task.budget,
@@ -90,23 +85,14 @@ const quiet = computed(() =>
         v-else-if="task.status === 'paused'"
         variant="primary"
         data-testid="agent-continue"
-        @click="$emit('resume', task.priceKnown ? undefined : requestLimit)"
+        @click="$emit('resume')"
       >
         Continue
       </UiButton>
     </div>
     <template v-if="task.status === 'paused'">
-      <label v-if="!task.priceKnown">
-        Requests
-        <input
-          v-model.number="requestLimit"
-          type="number"
-          min="1"
-          step="1"
-          data-testid="agent-request-limit"
-        />
-      </label>
       <p role="status" data-testid="agent-pause-reason">{{ task.reason }}</p>
+      <UiButton data-testid="agent-paused-stop" @click="$emit('stop')">Stop</UiButton>
       <UiButton variant="danger" data-testid="agent-discard" @click="$emit('discard')">
         Discard this attempt
       </UiButton>

@@ -72,6 +72,13 @@ import type { HistoryBoot } from "../../../src/agent/history.ts";
 import { base64ToBytes } from "../project/bytes.ts";
 import { pendingReferences, removePendingReference } from "../references/referenceUploadState.ts";
 
+export interface RoomGenerationUiState {
+  room: number;
+  busy: boolean;
+  error: string;
+  feedStartSeq?: number;
+}
+
 /** Remix bubble state; the transcript slice is the live tool-call feed. */
 export interface PowerUpUiState {
   mode: "ask" | "remix" | "room";
@@ -135,6 +142,7 @@ export interface AuthoringControllerOptions {
     phase: "idle" | "loading" | "running" | "error";
     powerUp: PowerUpUiState;
     agentTask: AgentRunState | null;
+    roomGeneration?: RoomGenerationUiState | null;
     readonly agentLog: readonly AgentLogEntry[];
     readonly profile: string | null;
     /** Bumped on each committed world change so plan surfaces re-derive. */
@@ -200,6 +208,8 @@ export interface AuthoringController {
   isRemixNeedsSave(): boolean;
   setRemixNeedsSave(value: boolean): void;
   resetSession(): void;
+  stopRoomGeneration(): void;
+  retryRoomGeneration(): void;
   handleRoomAuthoring(
     req: LlmRequest,
     agent: AgentHandler,
@@ -307,6 +317,9 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
 
   const projectTurnBases = new WeakMap<BootedGame, ProjectSnapshot>();
   let session: AgentSession | null = null;
+  let roomActive = false;
+  let roomStopped = false;
+  let recoverRoom: ((retry: boolean) => void) | null = null;
   let planSaveTail: Promise<void> = Promise.resolve();
   let remixNeedsSave = false;
   /** The room request whose saved room waits for the link to post its answer. */
@@ -531,6 +544,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
   }
 
   function resetSession(): void {
+    stopRoomGeneration();
     session?.task.cancel();
     session = null;
     // A room answer the link will never post for this game: its install is
@@ -1005,7 +1019,65 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
     }
   }
 
+  function stopRoomGeneration(): void {
+    roomStopped = true;
+    session?.task.cancel();
+    recoverRoom?.(false);
+    recoverRoom = null;
+    state.roomGeneration = null;
+  }
+
+  function retryRoomGeneration(): void {
+    recoverRoom?.(true);
+    recoverRoom = null;
+  }
+
   async function handleRoomAuthoring(
+    req: LlmRequest,
+    agent: AgentHandler,
+    sendDirection: (dir: number) => void,
+  ): Promise<string> {
+    if (roomActive || state.powerUp.busy)
+      throw new Error("Wait for the current agent task to finish.");
+    roomActive = true;
+    roomStopped = false;
+    state.roomGeneration = {
+      room: Number(req.context["room"]),
+      busy: true,
+      error: "",
+      feedStartSeq: (state.agentLog.at(-1)?.seq ?? 0) + 1,
+    };
+    const progress = state.roomGeneration;
+    try {
+      for (;;) {
+        progress.busy = true;
+        progress.error = "";
+        try {
+          const result = await attemptRoomAuthoring(req, agent, sendDirection);
+          if (roomStopped) return "";
+          progress.busy = false;
+          return result;
+        } catch (error) {
+          if (roomStopped) return "";
+          progress.busy = false;
+          progress.error = (error instanceof Error ? error.message : String(error)).replace(
+            /^\d{3}\s+/,
+            "",
+          );
+          const retry = await new Promise<boolean>((resolve) => {
+            recoverRoom = resolve;
+          });
+          if (!retry || roomStopped) return "";
+        }
+      }
+    } finally {
+      roomActive = false;
+      recoverRoom = null;
+      if (roomStopped) state.roomGeneration = null;
+    }
+  }
+
+  async function attemptRoomAuthoring(
     req: LlmRequest,
     agent: AgentHandler,
     sendDirection: (dir: number) => void,
@@ -1028,21 +1100,8 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
       state.powerUp.needsConfig = true;
       throw new Error("The next room could not be created. Connect your model and try again.");
     }
-    const previousPowerUp = state.powerUp;
     const projectRoom = options.getProjectSession?.();
-    state.powerUp = {
-      mode: "room",
-      messages: author?.getMessages() ?? [],
-      open: projectRoom ? previousPowerUp.open : true,
-      needsConfig: false,
-      busy: true,
-      feedStart: state.agentLog.length,
-      feedStartSeq: (state.agentLog.at(-1)?.seq ?? 0) + 1,
-      reply: "",
-      room: Number(req.context["room"]),
-      error: "",
-    };
-    const progress = state.powerUp;
+    const progress = state.roomGeneration!;
     sendDirection(0);
     // Map-pinned intent travels with the request: the room prompt carries it
     // and the request log shows what the player asked for.
@@ -1058,21 +1117,21 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
     try {
       if (!author) {
         author = await createGameSession(game!, sessionConfig!);
+        if (roomStopped) return "";
         attachSessionRuntime(author, game!);
         setSession(author);
-        progress.messages = author.getMessages();
       }
       // The stored-project gate remix and map-build turns commit through:
       // refuse before the turn spends, and again before its staged room
-      // lands in the session. A refusal rejects this request, so the worker
-      // declines the room: the player stays put and play resumes.
+      // lands in the session. A refusal keeps the player in the departure
+      // room while the overlay offers Retry or Stop.
       const turnBase = turnBaseGuard(game, author ? await refreshProjectTask(author) : undefined);
       await turnBase();
+      if (roomStopped) return "";
       const result = await agent.handle(req, turnBase);
       if (!result)
         throw new Error("The next room could not be created. Connect your model and try again.");
-      if (state.powerUp === progress) {
-        state.powerUp.open = false;
+      if (state.roomGeneration === progress) {
         if (game && getBootedGame() === game && author && game.projectId) {
           if (projectRoom) {
             const { validateAgentState } = await import("../agent/projectTurn.ts");
@@ -1129,18 +1188,17 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
       }
       return result;
     } catch (error) {
-      if (state.powerUp === progress) {
+      if (state.roomGeneration === progress) {
         if (error instanceof ResourceCommitError && error.code === "stale") {
           // The sentence and recovery a refused remix turn offers.
-          state.powerUp.error = error.message;
+          progress.error = error.message;
           state.powerUp.offerReload = true;
-        } else state.powerUp.error = String(error);
+        } else progress.error = String(error);
       }
       throw error;
     } finally {
-      if (state.powerUp === progress) {
-        state.powerUp.busy = false;
-        if (projectRoom) state.powerUp = previousPowerUp;
+      if (state.roomGeneration === progress) {
+        progress.busy = false;
       }
     }
   }
@@ -1632,6 +1690,8 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
     setRemixNeedsSave,
     resetSession,
     handleRoomAuthoring,
+    stopRoomGeneration,
+    retryRoomGeneration,
     roomAnswered,
     buildRoomFromMap,
     persistSessionState,

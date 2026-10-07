@@ -19,7 +19,6 @@ import {
 } from "../src/studio/creative/openaiImageProvider.ts";
 import {
   createCreativeGeneration,
-  GenerationRefusal,
   savedOpenAiCredential,
   type CreativeGenerationContext,
   type CreativeGenerationController,
@@ -1011,27 +1010,36 @@ test("dispose aborts the flight and refuses later work", async () => {
   controller.dispose();
 });
 
-test("a budget pause keeps the request and approval sends it once", async () => {
+test("image budget pauses after the returned offer and Continue keeps the image", async () => {
   const { host } = makeHost({});
   const { provider, sent, answer } = makeProvider();
-  const settled: (OpenAiImageOffer | null)[] = [];
-  host.reserveRequest = (_summary, approved) => {
-    if (!approved)
-      throw new GenerationRefusal("budget", "This request may pass your budget. Continue?");
-    return (result) => {
-      settled.push(result);
-    };
-  };
+  host.startRequest = () => () => ({
+    amount: 5.12,
+    priceKnown: true,
+    incomplete: false,
+    budget: 5,
+  });
+  host.continueBudget = () => 10;
   const controller = createCreativeGeneration({ provider, host });
   await reviewed(controller);
   answer(async (prepared) => offer(prepared));
   await controller.submit();
-  assert.equal(sent.length, 0);
-  assert.equal(controller.failure!.reason, "budget");
-  assert.equal(controller.phase, "review");
-  await controller.submit(true);
   assert.equal(sent.length, 1);
-  assert.equal(settled[0], controller.offer);
+  assert.equal(controller.phase, "offer");
+  assert.equal(controller.budgetPaused, true);
+  const image = controller.offer;
+  controller.stopBudget();
+  assert.equal(controller.budgetPaused, false);
+  assert.equal(controller.offer, image);
+  assert.equal(controller.spend?.budget, 5);
+  controller.continueBudget();
+  assert.equal(controller.budgetPaused, false);
+  assert.equal(controller.offer, image);
+  assert.equal(controller.spend?.budget, 10);
+  assert.equal(sent.length, 1);
+  controller.stopBudget();
+  assert.equal(controller.offer, image);
+  assert.equal(sent.length, 1);
   controller.dispose();
 });
 

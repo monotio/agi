@@ -32,7 +32,7 @@ const png = Buffer.from(
   encodePngRgb(1024, 1024, new Uint8Array(1024 * 1024 * 3).fill(170)),
 ).toString("base64");
 test(
-  "partial images show progress and Cancel closes the stub stream",
+  "partial images show actual spend and Stop closes the stub stream",
   { tag: "@webkit-desktop" },
   async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
@@ -81,6 +81,12 @@ test(
       await expect(page.getByTestId("generate-flight")).toBeVisible();
       await expect(page.getByTestId("generate-flight")).toContainText("Drawing your picture…");
       await expect(page.getByTestId("generate-partial")).toBeVisible();
+      await expect(page.getByTestId("generate-cancel")).toBeVisible();
+      await expect(page.getByTestId("generate-cancel")).toHaveText("Stop");
+      await expect(page.getByTestId("generate-spent")).toBeVisible();
+      await expect(page.getByTestId("generate-spent")).toHaveText(
+        "Spent $0.00 of your $5.00 budget",
+      );
       await expect(page.getByTestId("generate-elapsed")).toBeVisible();
       await expect(page.getByTestId("generate-elapsed")).toHaveText(/[1-9]\d*s/);
       await page.screenshot({

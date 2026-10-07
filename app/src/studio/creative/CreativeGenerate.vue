@@ -46,6 +46,7 @@ interface Snapshot {
   readonly offer: OpenAiImageOffer | null;
   readonly partialImage: Uint8Array | null;
   readonly spend: ReportedSpend | null;
+  readonly budgetPaused: boolean;
   readonly offerStale: boolean;
   readonly credentialReady: boolean;
   readonly composite: boolean;
@@ -61,6 +62,7 @@ function readController(): Snapshot {
     offer: controller.offer,
     partialImage: controller.partialImage,
     spend: controller.spend,
+    budgetPaused: controller.budgetPaused,
     offerStale: controller.offerStale,
     credentialReady: controller.credentialReady(),
     composite: controller.editComposite() !== null,
@@ -595,14 +597,15 @@ const noKey = computed(() => !credentialReady.value || failure.value?.reason ===
     </form>
 
     <section
-      v-if="phase === 'review' && failure?.reason === 'budget'"
+      v-if="state.budgetPaused || failure?.reason === 'budget'"
       class="generate__actions"
       data-testid="generate-budget"
     >
-      <UiButton variant="primary" data-testid="generate-allow" @click="void controller.submit(true)"
+      <p>Budget reached. Continue adds another task budget.</p>
+      <UiButton variant="primary" data-testid="generate-allow" @click="controller.continueBudget()"
         >Continue</UiButton
       >
-      <UiButton variant="ghost" @click="controller.discardReview()">Change the words</UiButton>
+      <UiButton variant="ghost" @click="controller.stopBudget()">Stop</UiButton>
     </section>
 
     <p
@@ -626,8 +629,11 @@ const noKey = computed(() => !credentialReady.value || failure.value?.reason ===
         <p role="status">Drawing your picture…</p>
         <span data-testid="generate-elapsed">{{ elapsed }}s</span>
       </div>
+      <p v-if="state.spend" class="generate__spent" data-testid="generate-spent">
+        {{ formatSpent(state.spend) }}
+      </p>
       <UiButton variant="secondary" data-testid="generate-cancel" @click="controller.cancel()"
-        >Cancel</UiButton
+        >Stop</UiButton
       >
     </section>
 
