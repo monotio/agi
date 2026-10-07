@@ -188,10 +188,16 @@ export async function replaceWorkspaceDocument(
         await name.press("Tab");
         await workspaceSaved(page);
       }
-      const value = table.locator("tbody tr").nth(index).getByRole("spinbutton");
+      const entry = table.locator("tbody tr").nth(index);
+      const value = entry.getByRole("combobox");
       if ((await value.inputValue()) !== String(row[1])) {
-        await value.fill(String(row[1]));
-        await value.press("Tab");
+        const known = await value.locator(`option[value="${row[1]}"]`).count();
+        await value.selectOption(known ? String(row[1]) : "other");
+        if (!known) {
+          const number = entry.getByRole("spinbutton");
+          await number.fill(String(row[1]));
+          await number.press("Tab");
+        }
         await workspaceSaved(page);
       }
     }

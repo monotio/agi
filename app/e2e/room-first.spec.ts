@@ -411,9 +411,7 @@ for (const [width, height] of [
     const rows = builtIn.locator("tr");
     await expect(rows).toHaveCount(43);
     for (const row of await rows.all()) await expect(row).toBeVisible();
-    expect(await rows.locator("td:first-child > span:first-child").allTextContents()).toEqual(
-      expectedNames,
-    );
+    expect(await rows.locator("td:first-child > button").allTextContents()).toEqual(expectedNames);
     await expect(reserved).toContainText("The room the player is in.");
     await expect(reserved).toContainText("Used: boot_logic · LOGIC");
     await expect(rows.first()).toContainText("The hero is in water.");

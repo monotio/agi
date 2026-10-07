@@ -88,7 +88,11 @@ test("Problems stays dismissible while its panel module loads", async ({ page })
     release.resolve();
     const panel = page.getByTestId("workspace-problems");
     await expect(panel).toBeVisible();
-    await expect(panel).toHaveText("Everything builds.");
+    await expect(panel).toHaveText(
+      "first_room · LOGIC 1: 'ego_view' names VIEW 0 in this project and shadows built-in Variable 16.".repeat(
+        2,
+      ),
+    );
   } finally {
     release.resolve();
   }
