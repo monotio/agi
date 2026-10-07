@@ -24,12 +24,13 @@ docs/hosting.md hosting and releases, and docs/fidelity.md interpreter behavior.
 
 ## Commands
 
-Node 22.22+. Two package roots: the repo root (engine, tests, scripts) and `app/`
-(Vue shell). `evals/` holds the evaluation runners and stored bad cases; its own
-package adds only promptfoo for live comparisons.
+Node 22.22+. The root package (engine, tests, scripts) and `app/` workspace
+(Vue shell) share one install and lockfile. `evals/` holds the evaluation runners
+and stored bad cases; its separate optional install adds promptfoo for live
+comparisons and keeps its larger native dependency tree out of the app install.
 
 ```bash
-npm ci && npm --prefix app ci                 # install both roots
+npm ci                                        # install root and app workspace
 npm run dev                                   # Vite dev server on http://localhost:5199
 npm run check                                 # the gate: dep check, typecheck (root + app), lint, ast-grep, knip, dep-cruiser, token ratchet, prettier, engine + app tests, eval replay
 npm test && npm run test:app                  # node:test under --experimental-strip-types

@@ -292,14 +292,14 @@ The suite matrix runs at most 15 jobs at once; PR burn-in runs one browser job
 at a time. Together with quality and the two production browsers, this uses
 at most 19 concurrent jobs, leaving one of the 20 public-runner slots free.
 
-CI installs the two package roots once and restores the resulting dependency
-cache in test and build jobs. The production build and chunk graph are shared
+CI runs one root `npm ci` for the root package and app workspace, then restores
+the dependency cache in test and build jobs. The production build and chunk graph are shared
 with both production browser jobs. Chromium shards, WebKit desktop and phone,
 production browsers, timing, storage, PR burn-in and deployed-site verification
 run in the official Playwright Noble image from `scripts/ci/playwright-image.txt`.
 The tag carries the Playwright version and the digest fixes the image contents.
 The image supplies browser binaries, fonts and system packages. Setup checks the
-installed `app/node_modules/playwright-core` version and the image metadata before
+installed `node_modules/playwright-core` version and the image metadata before
 testing; a mismatch fails with the file to update. Read-only mounts expose the
 Ubuntu 24.04 runner's `zstd` and `unzstd` tools so the container reads the same
 dependency cache as Node jobs. Browser hosts stay on Ubuntu 24.04 to match the
@@ -375,7 +375,7 @@ image (`npm ci` inside the container replaces any copied `node_modules`):
 
 ```bash
 docker run --rm --init --ipc=host -v "$PWD:/src:ro" "$(cat scripts/ci/playwright-image.txt)" \
-  bash -lc 'cp -r /src /w && cd /w && npm ci && npm --prefix app ci &&
+  bash -lc 'cp -r /src /w && cd /w && npm ci &&
     CI=1 xvfb-run -a npm --prefix app run e2e:webkit-desktop -- e2e/<file>.spec.ts'
 ```
 

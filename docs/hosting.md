@@ -6,7 +6,7 @@ copy.
 
 ## Building and serving
 
-Run `npm run build` and serve `app/dist` over HTTPS. Copy the security and cache
+Run `npm ci` at the root, then `npm run build`, and serve `app/dist` over HTTPS. Copy the security and cache
 headers from [app/staticwebapp.config.json](../app/staticwebapp.config.json):
 CSP, HSTS, `X-Content-Type-Options`, `Referrer-Policy`, `Permissions-Policy` and
 `Cache-Control`. Keep `https://api.openai.com` and `https://api.anthropic.com` in

@@ -16,7 +16,7 @@ const DEFERRED_MODULES: Record<string, RegExp> = {
   "tool registry": /^src\/agent\/tools\.ts$/,
   playtest: /^src\/agent\/playtest\.ts$/,
   "authoring stack": /^app\/src\/agent\/authoringStack\.ts$/,
-  "provider SDK": /^app\/node_modules\/(openai|@anthropic-ai\/sdk)\//,
+  "provider SDK": /^(?:app\/)?node_modules\/(openai|@anthropic-ai\/sdk)\//,
   Studio: /^(app\/)?src\/studio\//,
 };
 
@@ -98,11 +98,11 @@ test("Play boots a catalog game without the AI authoring stack, and opening Ask 
     .poll(() => modules, { timeout: 10_000 })
     .toContain("app/src/agent/authoringStack.ts");
   await expect
-    .poll(() => modules.some((module) => /^app\/node_modules\/openai\//.test(module)))
+    .poll(() => modules.some((module) => /^(?:app\/)?node_modules\/openai\//.test(module)))
     .toBe(true);
-  expect(modules.some((module) => /^app\/node_modules\/@anthropic-ai\/sdk\//.test(module))).toBe(
-    false,
-  );
+  expect(
+    modules.some((module) => /^(?:app\/)?node_modules\/@anthropic-ai\/sdk\//.test(module)),
+  ).toBe(false);
   expect(offOrigin, "provider or cross-origin requests").toEqual([]);
 });
 

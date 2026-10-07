@@ -28,8 +28,8 @@ scripts/agent-lanes/new-lane.sh parser-fix
 scripts/agent-lanes/new-lane.sh editor-fix <base-ref>
 ```
 
-`new-lane.sh <name> [base]` creates branch `lane/<name>` and installs both
-package roots with `npm ci` and `npm --prefix app ci`. It prints the absolute
+`new-lane.sh <name> [base]` creates branch `lane/<name>` and installs the root
+package and app workspace with one `npm ci`. It prints the absolute
 worktree path after the installs succeed. The default base is the current
 branch; with a detached HEAD, supply a base explicitly. If installation fails,
 the worktree and branch remain available for inspection and completing the

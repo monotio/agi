@@ -337,7 +337,7 @@ function main(): void {
       for (const module of new Set(chunk.modules))
         if (
           AUTHORING_MODULES.some((pattern) => pattern.test(module)) ||
-          /\/node_modules\/monaco-editor\//.test(module) ||
+          /(?:^|\/)node_modules\/monaco-editor\//.test(module) ||
           /^app\/src\/studio\/(RoomStudio|sprite\/SpriteStudio|workspace\/(LogicEditor|WordsEditor|TableEditor|SoundPanel))\.vue/.test(
             module,
           )

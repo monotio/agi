@@ -37,7 +37,18 @@ export default {
       name: "src-no-platform-modules",
       severity: "error",
       from: { path: "^src/" },
-      to: { dependencyTypes: ["core", "npm"] },
+      to: {
+        dependencyTypes: [
+          "core",
+          "npm",
+          "npm-dev",
+          "npm-optional",
+          "npm-peer",
+          "npm-bundled",
+          "npm-no-pkg",
+          "npm-unknown",
+        ],
+      },
     },
     {
       // AGENTS.md, Architecture rules: Studio code (app/src/studio, src/studio)
