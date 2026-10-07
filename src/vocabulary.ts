@@ -344,10 +344,15 @@ export const VOCABULARY = {
   walk: {
     id: "walk",
     label: "Walk",
-    help: "Where characters can go.",
+    help: "Walls, gates, triggers and water: what happens where characters walk.",
     technical: "AGI calls this control.",
   },
-  wall: { id: "wall", label: "Wall", help: "Characters stop here.", technical: "Control 0." },
+  wall: {
+    id: "wall",
+    label: "Wall",
+    help: "Characters can't cross a wall.",
+    technical: "Control 0.",
+  },
   gate: {
     id: "gate",
     label: "Gate",
