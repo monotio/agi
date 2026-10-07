@@ -45,13 +45,17 @@ export function createWorkspaceDebug(input: {
   reveal(position: { logic: number; line: number }): void;
   stopped(): void;
   current?(): boolean;
+  breakpoints?: readonly DebugBreakpointSpec[];
+  disabled?: boolean;
+  remember?(breakpoints: readonly DebugBreakpointSpec[], disabled: boolean): void;
 }) {
   const state = reactive({
     epoch: 0,
     busy: false,
     stepping: false,
     error: "",
-    breakpoints: [] as DebugBreakpointSpec[],
+    breakpoints: [...(input.breakpoints ?? [])] as DebugBreakpointSpec[],
+    breakpointsDisabled: input.disabled ?? false,
     statuses: [] as DebugBreakpointStatus[],
     watches: [] as { id: number; expression: string; value: string }[],
   });
@@ -122,16 +126,16 @@ export function createWorkspaceDebug(input: {
     const reply = await input.link.query("debugConfigure", {
       epoch: state.epoch,
       revision: ++revision,
-      breakpoints: state.breakpoints.map((point) => ({ ...point })),
+      breakpoints: state.breakpoints.map((point) => ({
+        ...point,
+        enabled: point.enabled && !state.breakpointsDisabled,
+      })),
     });
     state.statuses = [...reply.breakpoints];
   }
   async function start(): Promise<void> {
     if (input.current?.() === false) return;
-    if (state.epoch) {
-      if (input.link.stopped.value) await resume("continue");
-      return;
-    }
+    if (state.epoch) return;
     capture();
     const values = Object.fromEntries(
       Object.entries(bindings.value).filter(([, binding]) =>
@@ -184,6 +188,7 @@ export function createWorkspaceDebug(input: {
         ];
     try {
       await configure();
+      input.remember?.(state.breakpoints, state.breakpointsDisabled);
     } catch (error) {
       state.breakpoints = previous;
       throw error;
@@ -269,6 +274,17 @@ export function createWorkspaceDebug(input: {
     resume,
     stop,
     toggle,
+    async setDisabled(disabled: boolean): Promise<void> {
+      const previous = state.breakpointsDisabled;
+      state.breakpointsDisabled = disabled;
+      try {
+        await configure();
+        input.remember?.(state.breakpoints, disabled);
+      } catch (error) {
+        state.breakpointsDisabled = previous;
+        throw error;
+      }
+    },
     run,
     framePosition(frame: ExecutionBoundary["frames"][number]) {
       return runningPosition(build.value, frame.logic, frame.pc);

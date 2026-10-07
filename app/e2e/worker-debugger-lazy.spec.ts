@@ -3,7 +3,7 @@ import { join, relative } from "node:path";
 import { BUNDLE_GRAPH_PATH } from "../bundle-graph.config.ts";
 import type { Route } from "@playwright/test";
 import { expect, test } from "./test.ts";
-import { isolateStorage, waitForRoom } from "./engineProbe.ts";
+import { isolateStorage, waitForRoom, textHook } from "./engineProbe.ts";
 import { createContainer } from "../../src/container/container.ts";
 import { compileProjectLogic } from "../../src/authoring/projectLogic.ts";
 import { PROFILES, type ProfileId } from "../../src/runtime/profile.ts";
@@ -24,12 +24,12 @@ const PROFILE: ProfileId = "2.411";
 
 /** Modules only the execution controller reaches — off the Play boot path. */
 const DEBUGGER_MODULES = [
-  /^app\/src\/worker\/(debugController|previewAdmission|projectAdmission)\.ts$/,
+  /^app\/src\/worker\/(debugController|previewAdmission)\.ts$/,
   /^src\/runtime\/(debugExpression|debugBreakpoints|debugStep|debugWatchpoints)\.ts$/,
 ];
 /** Request paths carrying controller code — dev modules or the built chunk. */
 const DEBUGGER_REQUEST =
-  /debugController|debugExpression|debugBreakpoints|debugStep|debugWatchpoints|\/src\/worker\/(?:previewAdmission|projectAdmission)\.ts/;
+  /debugController|debugExpression|debugBreakpoints|debugStep|debugWatchpoints|\/src\/worker\/previewAdmission\.ts/;
 
 const repository = join(import.meta.dirname, "..", "..");
 const app = join(repository, "app");
@@ -382,4 +382,26 @@ test("the execution debugger loads on first use: Play never fetches it, an attac
   expect(recovery.order).toContain("debugAttached");
 
   expect(offOrigin, "provider or cross-origin requests").toEqual([]);
+});
+
+test("Create top actions without breakpoints never fetch the debugger @webkit-desktop", async ({
+  page,
+}) => {
+  const requests: string[] = [];
+  page.on("request", (request) => requests.push(request.url()));
+  await isolateStorage(page);
+  await page.goto("/#create-adventure");
+  await page.getByTestId("local-create-kind-starter").click();
+  await page.getByRole("button", { name: "Start building", exact: true }).click();
+  await waitForRoom(page, 1);
+  await page.getByTestId("part-room:1:logic").click();
+  await expect(page.getByTestId("workspace-logic-editor")).toBeVisible();
+  await page.getByTestId("workspace-update").click();
+  await page.getByTestId("workspace-update-menu").click();
+  await page.getByRole("menuitem", { name: "From the beginning", exact: true }).click();
+  await page.getByTestId("workspace-update").click();
+  const cycle = (await textHook(page)).cycle;
+  await expect.poll(async () => (await textHook(page)).cycle).toBeGreaterThan(cycle);
+  expect(requests.filter((url) => DEBUGGER_REQUEST.test(url))).toEqual([]);
+  expect(requests.filter((url) => /workspaceDebug\.ts/.test(url))).toEqual([]);
 });

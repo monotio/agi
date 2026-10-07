@@ -1,9 +1,7 @@
 /**
- * What the top bar's action button says: the room it runs and the selected
- * Launch, after an icon for the action: update while changes wait, restart
- * for the room the game is in, play for another. Carry over is the default and keeps
- * the game as it is, so the button names only the room for it; the ▾ menu
- * marks the choice.
+ * The top action's icon and accessible name: update while changes wait,
+ * restart for the current room, play for another. The name includes the room
+ * and selected Launch; the ▾ menu marks the choice.
  */
 export interface LaunchActionInput {
   /** Changes wait to go into the game. */

@@ -104,7 +104,7 @@ export function prepareRoomLaunch(
           ? { word: 0, policy: { kind: "external" } }
           : structuredClone(ctx.run.rng),
     debug: request.debug === true,
-    ...(request.debug
+    ...(ctx.run.debugger.epoch
       ? { debugSession: ctx.fns.prepareDebugReplacement(replacement, authority) }
       : {}),
   };

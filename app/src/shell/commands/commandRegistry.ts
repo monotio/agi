@@ -8,6 +8,8 @@ export interface CommandContext {
   readonly textInputFocus: boolean;
   readonly dialogOpen: boolean;
   readonly debugging: boolean;
+  readonly debugPaused?: boolean;
+  readonly runLabel?: string;
 }
 
 export interface KeyBinding {

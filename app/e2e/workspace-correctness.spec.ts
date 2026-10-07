@@ -349,13 +349,18 @@ test("bad saved Launches offer repair while keeping other world edits @webkit-de
   await expect(page.getByTestId("launch-recovery-error")).toBeVisible();
 });
 
-test("Debug from a cold Create hides Back when its return point has no room @webkit-desktop", async ({
+test("A breakpoint run from a cold Create hides Back when its return point has no room @webkit-desktop", async ({
   page,
 }) => {
   await starter(page);
   await page.getByTestId("part-room:1:logic").click();
   await expect(page.getByTestId("workspace-logic-editor")).toBeVisible();
   await page.getByTestId("workspace-logic-editor").locator("textarea.inputarea").focus();
+  await page.keyboard.press("ControlOrMeta+f");
+  await page.getByRole("textbox", { name: "Find", exact: true }).fill("assignn(v50, clearing_pic)");
+  await page.keyboard.press("Escape");
+  await page.keyboard.press("F9");
+  await expect(page.locator(".workspace-breakpoint")).toHaveCount(1);
   await page.keyboard.press("F5");
   await expect(page.getByTestId("debug-stop")).toBeVisible();
   await shot(page, "debug-back");

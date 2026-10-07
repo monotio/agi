@@ -1,6 +1,26 @@
 import { test, expect, reviewShot } from "./test.ts";
 import { isolateStorage, textHook } from "./engineProbe.ts";
 import type { Page, Locator } from "@playwright/test";
+async function runWithF5(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const host = window as unknown as {
+      __AGI_PROJECT__: { getWorker(): Worker };
+      launchDone: boolean;
+    };
+    host.launchDone = false;
+    const worker = host.__AGI_PROJECT__.getWorker();
+    const done = (event: MessageEvent) => {
+      if (event.data.type !== "playedHere") return;
+      worker.removeEventListener("message", done);
+      host.launchDone = event.data.ok === true;
+    };
+    worker.addEventListener("message", done);
+  });
+  await page.keyboard.press("F5");
+  await expect
+    .poll(() => page.evaluate(() => (window as unknown as { launchDone: boolean }).launchDone))
+    .toBe(true);
+}
 async function tabTo(page: Page, target: Locator): Promise<void> {
   for (let i = 0; i < 100; i++) {
     if (await target.evaluateAll((rows) => rows.some((row) => row === document.activeElement)))
@@ -56,10 +76,7 @@ for (const size of [
     await page.keyboard.press("Escape");
     await page.keyboard.press("F9");
     await expect(editor.locator(".workspace-breakpoint")).toHaveCount(1);
-    await page.keyboard.press("F5");
-    await expect(page.locator(".workspace-context").getByTestId("debug-stop")).toBeEnabled();
-    await expect(page.getByTestId("workspace-debug-status")).toBeVisible();
-    await page.getByRole("button", { name: "Continue", exact: true }).first().click();
+    await runWithF5(page);
     await page.keyboard.press("Control+`");
     await page.keyboard.type("look");
     await page.keyboard.press("Enter");
@@ -106,6 +123,7 @@ for (const size of [
     await expect
       .poll(async () => (await textHook(page)).rows.join("\n"))
       .toContain("sunny clearing");
+    await page.keyboard.press("Control+`");
     await page.keyboard.press("Enter");
     await expect(page.getByTestId("workspace-debug-status")).toContainText("Paused");
     await page.keyboard.press("ControlOrMeta+j");
@@ -116,6 +134,7 @@ for (const size of [
     await reviewShot(page, `debugger-${size.width}-step`);
     await page.keyboard.press("Shift+F5");
     await expect(page.getByTestId("workspace-debug-status")).toHaveCount(0);
+    await page.keyboard.press("Control+`");
     await page.keyboard.press("Enter");
     const resumed = (await textHook(page)).cycle;
     await expect.poll(async () => (await textHook(page)).cycle).toBeGreaterThan(resumed);
@@ -159,10 +178,7 @@ test("stopped edits keep the running source, value edits and watches inspect MAI
   await expect(editor.locator(".workspace-breakpoint")).toHaveCount(0);
   await page.keyboard.press("F9");
   await expect(editor.locator(".workspace-breakpoint")).toHaveCount(1);
-  await page.keyboard.press("F5");
-  await expect(page.locator(".workspace-context").getByTestId("debug-stop")).toBeEnabled();
-  await expect(page.getByTestId("workspace-debug-status")).toBeVisible();
-  await page.getByRole("button", { name: "Continue", exact: true }).first().click();
+  await runWithF5(page);
   await page.keyboard.press("Control+`");
   await page.keyboard.type("look");
   await page.keyboard.press("Enter");

@@ -204,7 +204,7 @@ test("switching chats opens the latest messages", async ({ page }) => {
   }
 });
 
-test("Create game owns F5 and F6 while the editor owns debugger F5", async ({ page }) => {
+test("Create game owns F5 and F6 while the editor owns the run action", async ({ page }) => {
   await start(page);
   await openWorkspaceLogic(page);
   const input = page.getByTestId("input-line");
@@ -215,7 +215,9 @@ test("Create game owns F5 and F6 while the editor owns debugger F5", async ({ pa
   await expect.poll(async () => (await textHook(page)).modal).toBe("save");
   await expect(page.getByTestId("debug-stop")).toHaveCount(0);
   await page.keyboard.press("Escape");
-  await focusWorkspaceLogic(page);
+  await findWord(page, "assignn(v50, clearing_pic)");
+  await page.keyboard.press("F9");
+  await expect(page.locator(".workspace-breakpoint")).toHaveCount(1);
   await page.keyboard.press("F5");
   await expect(page.locator(".workspace-context").getByTestId("debug-stop")).toBeVisible();
   await expect(page.locator(".workspace-context").getByTestId("debug-stop")).toBeEnabled();
@@ -340,6 +342,9 @@ test("Home offers one Your own game card and neutral entries clear an AI pick", 
 test("F5 runs from the parts list, header, agent and page without reloading", async ({ page }) => {
   await start(page);
   await openWorkspaceLogic(page);
+  await findWord(page, "assignn(v50, clearing_pic)");
+  await page.keyboard.press("F9");
+  await expect(page.locator(".workspace-breakpoint")).toHaveCount(1);
   let navigations = 0;
   page.on("framenavigated", (frame) => {
     if (frame === page.mainFrame()) navigations++;

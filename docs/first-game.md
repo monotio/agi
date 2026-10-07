@@ -7,8 +7,7 @@ in the Meadow, with the game running beside the parts list.
 1. Open **Meadow → PICTURE** in the parts list. Select the first item (the sun),
    give the canvas keyboard focus, and press the down arrow to move it.
    **Draft saved** confirms browser storage; the game keeps its last update. Click the top-bar room action:
-   it shows an update icon and **Meadow**, with the tooltip **Update and restart
-   Meadow**. The game now shows your edit. **Undo** reverses it; update again to
+   it shows a filled update icon, with the tooltip **Update and restart Meadow**. The game now shows your edit. **Undo** reverses it; update again to
    apply the reversal.
 2. Open **Meadow → LOGIC**. Find the reply beginning “You stand in a sunny
    clearing” and replace that message with “Welcome to my first game.” Click

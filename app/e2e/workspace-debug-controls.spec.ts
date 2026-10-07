@@ -30,8 +30,13 @@ test("debug controls follow LOGIC and a paused session @webkit-desktop", async (
   await expect(page.getByTestId("workspace-update")).toBeVisible();
   await page.getByTestId("workspace-logic-editor").locator("textarea.inputarea").focus();
   await page.keyboard.press("ControlOrMeta+Shift+p");
-  await expect(page.getByRole("option", { name: /^Debug F5$/ })).toBeVisible();
+  await expect(page.getByRole("option", { name: /^Restart Meadow F5$/ })).toBeVisible();
   await page.keyboard.press("Escape");
+  await page.keyboard.press("ControlOrMeta+Home");
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("F9");
+  await expect(page.locator(".workspace-breakpoint")).toHaveCount(1);
   await page.keyboard.press("F5");
   await expect(header.getByRole("button", { name: "Continue", exact: true })).toBeVisible();
   await page.keyboard.press("ControlOrMeta+Shift+p");
@@ -49,10 +54,10 @@ test("debug controls follow LOGIC and a paused session @webkit-desktop", async (
   await expect(header.getByRole("group", { name: "Debug controls" })).toHaveCount(0);
   await page.keyboard.press("ControlOrMeta+j");
   await expect(page.getByTestId("workspace-problems")).toBeVisible();
-  // Pause stays in the context row; the running session shows it on LOGIC.
+  // The running session keeps controls hidden until a breakpoint stops it.
   await page.getByTestId("project-tab-logic:1").click();
-  await expect(header.getByRole("button", { name: "Pause", exact: true })).toBeVisible();
-  await header.getByRole("button", { name: "Pause", exact: true }).click();
+  await expect(header.getByRole("group", { name: "Debug controls" })).toHaveCount(0);
+  await page.getByTestId("workspace-update").click();
   await expect(page.getByTestId("workspace-debug-status")).toBeVisible();
   await expect(page.getByTestId("workspace-debug-status")).toContainText("Paused");
   // While the session is stopped the controls stay on every tab's context row.
@@ -70,24 +75,27 @@ for (const [width, height] of [
   [1440, 900],
   [390, 844],
 ] as const) {
-  test(`picture debugger layout at ${width} @webkit-desktop`, async ({ page, browserName }) => {
+  test(`picture debugger layout at ${width} @webkit-desktop`, async ({ page }) => {
     await page.setViewportSize({ width, height });
     await starter(page);
     await parts(page);
     await page.getByTestId("part-room:1:logic").click();
     await expect(page.getByTestId("workspace-logic-editor")).toBeVisible();
     await page.getByTestId("workspace-logic-editor").locator("textarea.inputarea").focus();
+    await page.keyboard.press("ControlOrMeta+Home");
+    await page.keyboard.press("ArrowDown");
+    await page.keyboard.press("ArrowDown");
+    await page.keyboard.press("F9");
+    await expect(page.locator(".workspace-breakpoint")).toHaveCount(1);
     await page.keyboard.press("F5");
     const context = page.getByTestId("workspace-context");
     await expect(context.getByTestId("debug-stop")).toBeVisible();
     await expect(page.locator(".workspace-stopped-line").first()).toBeVisible();
-    const shot = await page.screenshot({
+    await page.screenshot({
       path: test.info().outputPath(`debug-${width}.png`),
       animations: "disabled",
       scale: "css",
     });
-    if (process.env["CI"] && browserName === "webkit" && width === 390)
-      console.log(`FRAME_SHOT:debug-${width}:${shot.toString("base64")}`);
     const status = context.getByTestId("workspace-debug-status");
     await expect(status).toBeVisible();
     await expect(status).toContainText("Paused at boot_logic · LOGIC");
