@@ -28,6 +28,10 @@ import UiButton from "../../ui/UiButton.vue";
 import UiSegmented from "../../ui/UiSegmented.vue";
 import type { WorkspacePartGroup } from "../host/workspaceParts.ts";
 import { readBindingsDocument } from "../../../../src/authoring/projectDocuments.ts";
+import {
+  sameProjectContent,
+  type ProjectContent,
+} from "../../../../src/authoring/projectContent.ts";
 const props = defineProps<{
   active?: boolean;
   readOnly?: boolean;
@@ -256,15 +260,36 @@ watch(
   () => [engine.state.phase, engine.state.patchTick],
   () => {
     const session = engine.getProjectSession();
+    let previousInputs: Record<string, ProjectContent | undefined> | undefined;
+    let previousProfile: string | undefined;
     function refresh(): void {
       try {
-        acceptedNames.value = session
-          ? workspaceBindingInfos(session.workingSnapshot(), props.profile?.id ?? "2.936")
-          : [];
-        builtinNames.value = session
-          ? workspaceGameStateInfos(session.workingSnapshot(), props.profile?.id ?? "2.936").builtin
-          : [];
+        const snapshot = session?.workingSnapshot();
+        const profile = props.profile?.id ?? "2.936";
+        const inputs = Object.fromEntries(
+          (snapshot?.keys ?? [])
+            .filter((key) => key === "bindings" || key === "words" || key.startsWith("logic:"))
+            .map((key) => [key, snapshot?.read(key)?.content]),
+        );
+        // Save notifications and art edits keep the same name inputs. Avoid
+        // rebuilding the whole LOGIC operand index for those notifications.
+        const previous = previousInputs;
+        if (
+          previous !== undefined &&
+          previousProfile === profile &&
+          Object.keys(previous).length === Object.keys(inputs).length &&
+          Object.entries(inputs).every(
+            ([key, content]) =>
+              Object.hasOwn(previous, key) && sameProjectContent(previous[key], content),
+          )
+        )
+          return;
+        acceptedNames.value = snapshot ? workspaceBindingInfos(snapshot, profile) : [];
+        builtinNames.value = snapshot ? workspaceGameStateInfos(snapshot, profile).builtin : [];
+        previousInputs = inputs;
+        previousProfile = profile;
       } catch {
+        previousInputs = undefined;
         acceptedNames.value = [];
         builtinNames.value = [];
       }

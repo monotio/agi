@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { TUTORIAL_LOGIC_SOURCES } from "../../games/adventure-department/game.ts";
 import { providerReply } from "../../test/provider-stream.ts";
 import { readGameZip } from "../src/archive/gameZip.ts";
+import type { ProjectSession } from "../src/project/projectSession.ts";
 import {
   configureAi,
   enterCreateMode,
@@ -125,18 +126,33 @@ test("record a playthrough, break and repair it, and rerun it in a fresh browser
   // game into its writable remix project, exactly like a remix does.
   await expect(page.getByTestId("record-result")).toContainText("8 game tests stored");
 
-  // Patch the game so the recorded observation no longer holds: the write
-  // tool reruns every room-1 test and leads with the failure verdict.
+  // The agent cannot hand over a patch that breaks the recorded observation.
   await configureAi(page, { provider: "openai", key: "test-placeholder" });
   await enterCreateMode(page);
   await openWorkspaceAgent(page);
   await expect(page.getByTestId("agent-message")).toBeEnabled();
   await page.getByTestId("agent-message").fill("Change the mural lesson text");
   await page.getByRole("button", { name: "Send", exact: true }).click();
-  await expect(page.getByTestId("agent-review")).toBeVisible();
-  await page.getByTestId("agent-approve").click();
+  await expect(page.getByTestId("workspace-agent-panel")).toContainText(
+    "Handover rejected: 6 game tests pass, 2 fail",
+  );
+  await expect(page.getByTestId("agent-message")).toBeEnabled();
   await expect(page.getByTestId("agent-review")).toHaveCount(0);
-  await expect.poll(() => agentFeed(page)).toContain("Game tests: 6 game tests pass, 2 fail");
+  // A creator can deliberately break the game. Keep the recorder's repair
+  // contract while proving the rejected agent patch never reached the project.
+  await page.evaluate(
+    async ({ original, broken }) => {
+      const session = (
+        window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }
+      ).__AGI_PROJECT__.getSession();
+      if (session.model.capture().read("logic:1")?.content !== original)
+        throw new Error("Rejected agent patch changed the project");
+      const result = await session.update([{ key: "logic:1", content: broken }], false);
+      if (result.status !== "committed") throw new Error(result.status);
+      await session.flush();
+    },
+    { original: ROOM_ONE, broken: BROKEN_ROOM_ONE },
+  );
 
   // Repair: the same rerun reports the whole selection green again.
   await enterCreateMode(page);

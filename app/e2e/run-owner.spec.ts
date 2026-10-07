@@ -172,10 +172,18 @@ test.describe("Play continuation", () => {
       );
       if (result.status !== "committed") throw new Error(result.status);
     });
-    await enterPlayMode(page);
-    const resume = page.getByTestId("btn-transport-resume");
-    await expect(resume).toBeVisible();
-    await resume.click();
+    await page.getByRole("radio", { name: "Play", exact: true }).click();
+    const notice = page.getByTestId("return-notice");
+    await expect(notice).toContainText("LOGIC 1 changed");
+    await expect(page.getByRole("radio", { name: "Create", exact: true })).toHaveAttribute(
+      "aria-checked",
+      "true",
+    );
+    await notice.getByRole("button", { name: "Restart", exact: true }).click();
+    await expect(page.getByRole("radio", { name: "Play", exact: true })).toHaveAttribute(
+      "aria-checked",
+      "true",
+    );
     await expect
       .poll(async () => {
         return page.evaluate(

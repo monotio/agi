@@ -593,7 +593,7 @@ test("returning to the menu preserves the installed game autosave", async ({ pag
   await expect(page.locator(".screen")).toBeVisible();
 });
 
-test("a corrupt autosave refuses recovery and preserves the stored checkpoint", async ({
+test("a corrupt autosave refuses recovery and preserves the stored checkpoint @webkit-desktop", async ({
   page,
 }) => {
   await page.goto("/");

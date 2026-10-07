@@ -5,7 +5,14 @@ import { assembleLogic } from "../../src/logic/assembler.ts";
 import { buildZip } from "../src/archive/zip.ts";
 import { configureAi, textHook, enterPlayMode } from "./engineProbe.ts";
 
-test("Ask stays paused and remembers the conversation after reload", async ({ page }) => {
+test("Ask stays paused and remembers the conversation after reload @webkit-desktop", async ({
+  page,
+}) => {
+  const discovery = Promise.withResolvers<void>();
+  await page.route("**/fixtures/", async (route) => {
+    await discovery.promise;
+    await route.fulfill({ json: [] });
+  });
   const game = createContainer();
   game.putResource(
     "logic",
@@ -69,6 +76,8 @@ test("Ask stays paused and remembers the conversation after reload", async ({ pa
   await expect(page.getByTestId("agent-bubble-input")).toBeEnabled();
   expect(requests.length).toBe(0);
   await page.getByTestId("agent-bubble-input").fill("Could I have a small hint?");
+  // A late startup discovery must not reopen the game the player already opened.
+  discovery.resolve();
   await page.getByTestId("agent-bubble-send").click();
   const conversation = page.getByTestId("agent-conversation");
   await expect(conversation).toContainText("Look around the room for a clue.");

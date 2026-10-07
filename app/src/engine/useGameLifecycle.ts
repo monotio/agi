@@ -347,12 +347,13 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
     const bootEpoch = lifecycleEpoch;
     let slotGame = booted;
     let slotWorker = link.getWorker?.();
-    const isCurrent = () =>
+    const ownsSlot = () =>
       bootEpoch === lifecycleEpoch &&
       booted === slotGame &&
       link.getWorker?.() === slotWorker &&
-      (opening === undefined || opening.isCurrent()) &&
-      (resumeCarrier === undefined || resumeCarrier.isCurrent());
+      (opening === undefined || opening.isCurrent());
+    const isCurrent = () =>
+      ownsSlot() && (resumeCarrier === undefined || resumeCarrier.isCurrent());
     try {
       const { game, profile } = await prepareInstalledGame(query);
       // Superseded while the fixture served and hashed: the newer flow owns
@@ -380,12 +381,16 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
         },
         resumeCarrier,
       );
-      if (!isCurrent()) return;
       if (resumeAdmission.status === "aborted") {
-        state.phase = "error";
-        state.error = resumeAdmission.message ?? "The saved checkpoint could not be resumed.";
+        // Validation settles its carrier before returning the refusal. Its
+        // message still belongs to this slot unless another opening took it.
+        if (ownsSlot() && resumeAdmission.message !== undefined) {
+          state.phase = "error";
+          state.error = resumeAdmission.message;
+        }
         return;
       }
+      if (!isCurrent()) return;
 
       await options.prepareRun?.();
       if (!isCurrent()) return;
@@ -406,13 +411,13 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
       // A successful remix is saved as its own local game before playback resumes.
       const activeReplaySeed = options.getActiveReplaySeed();
       if (!isCurrent()) return;
-      const w = link.spawnWorker();
+      await options.acquirePlayOwnership?.(game);
+      if (!isCurrent()) return;
+      const w = link.spawnWorker(true);
       slotWorker = link.getWorker?.();
       options.authoring?.resetSession();
       booted = game;
       slotGame = game;
-      await options.acquirePlayOwnership?.(game);
-      if (!isCurrent()) return;
       options.audio?.useGameFiles(game.files);
       w.postMessage({
         type: "boot",
@@ -968,12 +973,13 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
     const bootEpoch = lifecycleEpoch;
     let slotGame = booted;
     let slotWorker = link.getWorker?.();
-    const isCurrent = () =>
+    const ownsSlot = () =>
       bootEpoch === lifecycleEpoch &&
       booted === slotGame &&
       link.getWorker?.() === slotWorker &&
-      (opening === undefined || opening.isCurrent()) &&
-      (resumeCarrier === undefined || resumeCarrier.isCurrent());
+      (opening === undefined || opening.isCurrent());
+    const isCurrent = () =>
+      ownsSlot() && (resumeCarrier === undefined || resumeCarrier.isCurrent());
     let genesisRun: {
       recovery: GenesisStarterRecovery;
       run: number;
@@ -1060,12 +1066,14 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
             },
             resumeCarrier,
           );
-          if (!isCurrent()) return;
           if (resumeAdmission.status === "aborted") {
-            state.phase = "error";
-            state.error = resumeAdmission.message ?? "The saved checkpoint could not be resumed.";
+            if (ownsSlot() && resumeAdmission.message !== undefined) {
+              state.phase = "error";
+              state.error = resumeAdmission.message;
+            }
             return;
           }
+          if (!isCurrent()) return;
           await options.prepareRun?.();
           if (!isCurrent()) return;
           const openingAdmission = await admitQualifiedOpening(
@@ -1088,14 +1096,14 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
           }
           options.authoring?.setSession(cachedSession);
           if (!isCurrent()) return;
-          const w = link.spawnWorker();
+          await options.acquirePlayOwnership?.(game);
+          if (!isCurrent()) return;
+          const w = link.spawnWorker(true);
           slotWorker = link.getWorker?.();
           // The authoring content this boot read is the tab's base for it.
           hydrateAuthoring(game, cached.authoringState);
           booted = game;
           slotGame = game;
-          await options.acquirePlayOwnership?.(game);
-          if (!isCurrent()) return;
           if (cachedSession) {
             options.authoring!.attachSessionRuntime(cachedSession, game);
           }

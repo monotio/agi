@@ -506,6 +506,7 @@ if (import.meta.hot) {
 // Resolve a game link before Home starts previews of unrelated library cards.
 const initialRoutePending = ref(parseGameHash(location.hash) !== null);
 async function mountApplication(): Promise<void> {
+  const initialHash = location.hash;
   // An unreadable game route can never resume: drop it before anything waits.
   if (isGameRoute(location.hash) && !parseGameHash(location.hash)) clearPlayHash();
   window.addEventListener("blur", releaseMovement);
@@ -527,6 +528,8 @@ async function mountApplication(): Promise<void> {
   lib.mountCatalog();
   onMenuHashChange();
   await discoverGames();
+  // Startup may finish after the player has opened a game from Home.
+  if (state.phase !== "idle" || location.hash !== initialHash) return;
   // Nobody loses progress to a reload: while a game runs the URL names it
   // (`#play/<aliasOrProjectId>`), and only a reload carrying that hash boots straight back
   // into the autosave. A reload from the picker lands on the picker, which
