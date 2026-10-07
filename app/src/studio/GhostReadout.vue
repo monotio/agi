@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { numberedLabel } from "../../../src/logic/numberedLabels.ts";
+import { useProjectLabels } from "../shell/useProjectLabels.ts";
 import { computed } from "vue";
 import { SCREEN_WIDTH } from "../../../src/types.ts";
 import UiExplain from "../ui/UiExplain.vue";
@@ -19,6 +21,7 @@ const { probe, describeCell = undefined } = defineProps<{
   /** The priority-plane item owning a cell, for the verdict. */
   describeCell?: ((x: number, y: number) => string | undefined) | undefined;
 }>();
+const labels = useProjectLabels();
 
 // The probe object is fixed for the component's life; its refs are the state.
 const {
@@ -101,7 +104,7 @@ const footprintText = computed(() => {
 
 const PRIORITIES = [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15] as const;
 const viewLabel = (number: number, description: string | undefined): string =>
-  description ? `VIEW ${number} · ${description}` : `VIEW ${number}`;
+  `${numberedLabel("view", number, labels.value, "row")}${description ? ` · ${description}` : ""}`;
 </script>
 
 <template>

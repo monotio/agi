@@ -218,19 +218,19 @@ test("the game bar names the running room; Play visits and Back returns @webkit-
   await page.getByTestId("part-room:2:picture:2").click();
   await expect(page.getByTestId("room-studio")).toBeVisible();
   expect((await textHook(page)).room).toBe(1);
-  await expect(bar.getByTestId("workspace-room")).toHaveText("Room 1 · Meadow");
-  await expect(bar.getByRole("button", { name: "Back to Room 1", exact: true })).toHaveCount(0);
+  await expect(bar.getByTestId("workspace-room")).toHaveText("Meadow · Room 1");
+  await expect(bar.getByRole("button", { name: "Back to Meadow", exact: true })).toHaveCount(0);
   const action = page.getByTestId("workspace-update");
   await expect(action).toBeVisible();
   await expect(action).toHaveAccessibleName("Play Garden");
   await action.click();
   await expect.poll(async () => (await textHook(page)).room).toBe(2);
-  await expect(bar.getByTestId("workspace-room")).toHaveText("Room 2 · Garden");
-  const back = bar.getByRole("button", { name: "Back to Room 1", exact: true });
+  await expect(bar.getByTestId("workspace-room")).toHaveText("Garden · Room 2");
+  const back = bar.getByRole("button", { name: "Back to Meadow", exact: true });
   await expect(back).toBeVisible();
   await back.click();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
-  await expect(bar.getByTestId("workspace-room")).toHaveText("Room 1 · Meadow");
+  await expect(bar.getByTestId("workspace-room")).toHaveText("Meadow · Room 1");
   await expect(back).toHaveCount(0);
 });
 

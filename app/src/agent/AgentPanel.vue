@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { documentLabel, numberedLabel } from "../../../src/logic/numberedLabels.ts";
+import { useProjectLabels } from "../shell/useProjectLabels.ts";
 import UiIcon from "../ui/UiIcon.vue";
 import {
   computed,
@@ -43,6 +45,7 @@ const props = defineProps<{
   profileId?: ProfileId | undefined;
 }>();
 const emit = defineEmits<{ close: [] }>();
+const labels = useProjectLabels();
 const engine = useEngineApi();
 const editor = useWorkspaceEditor();
 const settings = useAiSettings();
@@ -251,11 +254,7 @@ const approvalModes = computed(() => [
 const roomName = computed(() => {
   if (engine.state.phase !== "running") return null;
   const room = engine.roomMap.currentRoom.value ?? 0;
-  return (
-    engine.roomMap.graph.value.nodes.find((node) => node.room === room)?.title ||
-    editor.parts.value.find((part) => part.id === `logic:${room}`)?.title.split(" · ROOM ")[0] ||
-    `ROOM ${room}`
-  );
+  return numberedLabel("room", room, labels.value);
 });
 /** The selection the agent is looking at; × dismisses it until it changes. */
 const dismissedChip = ref<string>();
@@ -264,9 +263,7 @@ const chip = computed(() => {
   return context && context.label !== dismissedChip.value ? context : null;
 });
 function contextName(key: string): string {
-  const name = editor.parts.value.find((part) => part.id === key)?.title;
-  if (name && !name.includes(" · ROOM ") && !name.startsWith("ROOM ")) return name;
-  return key === "inventory" ? "OBJECT" : key.replace(":", " ").toUpperCase();
+  return documentLabel(key, labels.value);
 }
 const profile = computed(
   () =>
@@ -580,7 +577,7 @@ onBeforeUnmount(() => {
           >
             <label
               ><input type="checkbox" :value="change.key" v-model="selected" />{{
-                change.key === "inventory" ? "OBJECT" : change.key.replace(":", " ").toUpperCase()
+                documentLabel(change.key, labels)
               }}</label
             >
             <Suspense v-if="images">

@@ -1,3 +1,4 @@
+import { numberedLabel } from "../../../src/logic/numberedLabels.ts";
 /**
  * The world map's view model: merges the durable room journal (observed
  * facts), the authoring world's planned exits (intent) and the static scan
@@ -1208,7 +1209,7 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
       return;
     const entry = plannedEntry(room);
     if (!entry) {
-      planError.value = `Room ${room} is not in the plan.`;
+      planError.value = `${numberedLabel("room", room)} is not in the plan.`;
       return;
     }
     let from: number | null = null;
@@ -1338,12 +1339,12 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
     return planOp(() => {
       const scan = scanResources();
       if (scan.logic.has(room) || scan.picture.has(room))
-        return `Room ${room} is already built. Change it with the agent.`;
+        return `${numberedLabel("room", room)} is already built. Change it with the agent.`;
       if (
         discovered.rooms.has(room) ||
         journal.some((entry) => entry.to === room || entry.from === room)
       )
-        return `Room ${room} is on the record: the map keeps visited rooms.`;
+        return `${numberedLabel("room", room)} is on the record: the map keeps visited rooms.`;
       return editWorld((draft) => draftRemoveRoom(draft, room));
     });
   }
@@ -1416,7 +1417,8 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
     expect: string,
   ): string | null {
     const current = planFieldValue(edit.room, field);
-    if (current === null) return planOp(() => `Room ${edit.room} was removed from the plan.`);
+    if (current === null)
+      return planOp(() => `${numberedLabel("room", edit.room)} was removed from the plan.`);
     if (current !== expect) {
       edit[field].conflict = current;
       return "conflict";

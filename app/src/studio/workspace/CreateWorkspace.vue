@@ -1,4 +1,10 @@
 <script setup lang="ts">
+import {
+  numberedLabel,
+  documentLabel,
+  numberedSlot,
+} from "../../../../src/logic/numberedLabels.ts";
+import { projectLabelContext, pictureRoomTitle } from "../../shell/projectLabelContext.ts";
 import UiIcon from "../../ui/UiIcon.vue";
 import {
   addLaunch,
@@ -286,9 +292,9 @@ const currentRoomLabel = computed(() => {
   if (room === null) return "";
   const label = groups.value
     .flatMap((group) => group.entries)
-    .find((entry) => entry.room === room && !entry.child)?.label;
-  const title = label?.includes("·") ? label.split("·")[0]!.trim() : "";
-  return `Room ${room}${title ? ` · ${title}` : ""}`;
+    .find((entry) => entry.room === room && !entry.child)?.title;
+  const title = label ?? "";
+  return numberedLabel("room", room, { name: title ?? "" }, "row");
 });
 /** The keys dot in the game bar: on while the game has focus. */
 const gameFocused = ref(false);
@@ -611,7 +617,7 @@ const groups = computed(() => {
           : art instanceof Uint8Array
             ? new TextDecoder().decode(art)
             : undefined;
-      const heading = artText ? /^#\s*([^:\n—]+)(?::|—)/.exec(artText)?.[1]?.trim() : undefined;
+      const heading = pictureRoomTitle(artText);
       const title = plan[String(room)]?.title || heading || node?.title;
       return { room, ...(title ? { title } : {}), pictures };
     });
@@ -619,15 +625,11 @@ const groups = computed(() => {
   const bound = groupMetadata.value.bindings ?? snapshot.value?.read("bindings")?.content;
   if (typeof bound === "string") {
     try {
-      for (const [name, binding] of Object.entries(readBindingsDocument(bound)))
-        names[`${binding.kind}:${binding.num}`] =
-          name === "ego_view"
-            ? "Hero"
-            : name === "boot_logic"
-              ? "Start-up and menus"
-              : name === "death_logic"
-                ? "Game over"
-                : name.replaceAll("_", " ");
+      const bindings = readBindingsDocument(bound);
+      for (const binding of Object.values(bindings))
+        names[`${binding.kind}:${binding.num}`] = numberedLabel(binding.kind, binding.num, {
+          bindings,
+        });
     } catch {
       /* Resource ids remain reachable. */
     }
@@ -694,13 +696,18 @@ function repairSavedLaunches(): void {
 function roomName(room: number): string {
   return (
     parsedWorld.value.rooms?.[room]?.title ||
-    groups.value
-      .flatMap((group) => group.entries)
-      .find((entry) => entry.id === `room:${room}`)
-      ?.label.split(" · ROOM ")[0] ||
-    `Room ${room}`
+    groups.value.flatMap((group) => group.entries).find((entry) => entry.id === `room:${room}`)
+      ?.title ||
+    numberedLabel("room", room)
   );
 }
+const labels = computed(() => {
+  void revision.value;
+  return projectLabelContext(
+    snapshot.value?.documents() ?? {},
+    engine.roomMap.resources.value.profile ?? undefined,
+  );
+});
 const DATA_LABELS: Record<string, string> = {
   state: "Game state",
   problems: "Problems",
@@ -722,7 +729,7 @@ const tabRows = computed(() =>
             ? "OBJECTS"
             : key === "notes"
               ? "Notes"
-              : key.replace(":", " ").toUpperCase())),
+              : documentLabel(key, labels.value))),
     dirty:
       draftMembership.value.includes(key) ||
       (key.startsWith("launches:") && draftMembership.value.includes("world")),
@@ -853,9 +860,8 @@ watch(
         : world.rooms?.[room]?.title ||
           groups.value
             .flatMap((group) => group.entries)
-            .find((entry) => entry.id === `room:${room}`)
-            ?.label.split(" · ROOM ")[0] ||
-          `Room ${room}`;
+            .find((entry) => entry.id === `room:${room}`)?.title ||
+          numberedLabel("room", room);
     const launches = launchRecovery.value.launches;
     const choices = room === undefined ? undefined : launches[room];
     editor.launchChoices.value = choices?.entries ?? [];
@@ -1114,7 +1120,7 @@ const visiblePlacementPreviews = computed(() =>
         ? [
             [
               key,
-              `LOGIC ${preview.logic} · ${preview.command}(o${preview.object}, ${preview.startX}, ${preview.startY}) → (${preview.x}, ${preview.y})`,
+              `${numberedLabel("logic", preview.logic, labels.value, "row")} · ${preview.command}(o${preview.object}, ${preview.startX}, ${preview.startY}) → (${preview.x}, ${preview.y})`,
             ],
           ]
         : [];
@@ -1594,7 +1600,7 @@ function roomPictureBytes(room: number): Uint8Array | undefined {
 const allRooms = computed<readonly { room: number; title: string }[]>(() => {
   const map = new Map<number, string>();
   for (const node of engine.roomMap.graph.value.nodes) {
-    map.set(node.room, node.title ?? `Room ${node.room}`);
+    map.set(node.room, node.title ?? "");
   }
   if (parsedWorld.value.rooms) {
     for (const [key, r] of Object.entries(parsedWorld.value.rooms)) {
@@ -1606,8 +1612,8 @@ const allRooms = computed<readonly { room: number; title: string }[]>(() => {
   }
   for (const group of groups.value) {
     for (const entry of group.entries) {
-      if (entry.room !== undefined && !map.has(entry.room)) {
-        map.set(entry.room, entry.label.split(" · ROOM ")[0] || `Room ${entry.room}`);
+      if (entry.room !== undefined && !map.get(entry.room)) {
+        map.set(entry.room, entry.title ?? "");
       }
     }
   }
@@ -2244,7 +2250,7 @@ onBeforeUnmount(() => {
         :disabled="visitBusy"
         :title="visitBusy ? 'Entering the room' : ''"
         @click="backToGame()"
-        >Back to Room {{ returnRoom }}</UiButton
+        >Back to {{ numberedLabel("room", returnRoom, { rooms: allRooms }) }}</UiButton
       >
       <button
         type="button"
@@ -2353,7 +2359,9 @@ onBeforeUnmount(() => {
     />
     <div v-if="contextRow" class="workspace-context" data-testid="workspace-context">
       <template v-if="numberedPart">
-        <span data-testid="part-number">{{ numberedPart.replace(":", " ").toUpperCase() }}</span>
+        <span data-testid="part-number">{{
+          numberedSlot(numberedPart.split(":")[0]!, Number(numberedPart.split(":")[1]))
+        }}</span>
         <UiButton
           size="sm"
           variant="ghost"
@@ -2520,14 +2528,14 @@ onBeforeUnmount(() => {
       class="workspace-stage-note"
       data-testid="workspace-visit"
     >
-      <span>Visiting Room {{ visitingRoom }}</span>
+      <span>Visiting {{ numberedLabel("room", visitingRoom, { rooms: allRooms }) }}</span>
       <UiButton
         size="sm"
         variant="ghost"
         :disabled="visitBusy"
         :title="visitBusy ? 'Entering the room' : ''"
         @click="backToGame()"
-        >Back to Room {{ returnRoom }}</UiButton
+        >Back to {{ numberedLabel("room", returnRoom, { rooms: allRooms }) }}</UiButton
       >
     </div>
     <p
@@ -2759,7 +2767,7 @@ onBeforeUnmount(() => {
       data-testid="workspace-show-game"
       @click="editor.toggleFocus"
     >
-      Game · Room {{ engine.roomMap.currentRoom.value }} · Show
+      Game · {{ numberedSlot("room", engine.roomMap.currentRoom.value ?? 0) }} · Show
     </button>
     <footer class="workspace-status" data-testid="workspace-status" aria-label="Status bar">
       <div id="workspace-status-left" class="workspace-status__left"></div>

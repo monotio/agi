@@ -350,14 +350,14 @@ for (const [width, height] of [
     });
     const gameRow = tab.locator(":scope > table tr").filter({ hasText: "chime_done" });
     await expect(gameRow).toBeVisible();
-    await expect(gameRow).toContainText("f204");
+    await expect(gameRow).toContainText("Flag 204");
     const builtIn = tab.getByTestId("state-builtin");
     await expect(builtIn).toBeVisible();
     await expect(builtIn).not.toHaveAttribute("open");
     await builtIn.locator(":scope > summary").click();
     const reserved = builtIn.locator("tr").filter({ hasText: "current_room" });
     await expect(reserved).toBeVisible();
-    await expect(reserved).toContainText("v0");
+    await expect(reserved).toContainText("Variable 0");
     await page.screenshot({
       path: test.info().outputPath(`state-tab-open-${width}.png`),
       animations: "disabled",
@@ -415,7 +415,7 @@ for (const [width, height] of [
       expectedNames,
     );
     await expect(reserved).toContainText("The room the player is in.");
-    await expect(reserved).toContainText("Used: LOGIC");
+    await expect(reserved).toContainText("Used: boot_logic · LOGIC");
     await expect(rows.first()).toContainText("The hero is in water.");
     await expect(rows.last()).toContainText("The kind of screen; 3 means EGA.");
     await expect(builtIn.getByRole("button", { name: /^Add/ })).toHaveCount(0);
@@ -446,7 +446,9 @@ for (const [width, height] of [
     await expect(partRows.filter({ hasText: "current_room" })).toContainText(
       "The room the player is in.",
     );
-    await expect(partRows.filter({ hasText: "current_room" })).toContainText("Used: LOGIC");
+    await expect(partRows.filter({ hasText: "current_room" })).toContainText(
+      "Used: boot_logic · LOGIC",
+    );
     await expect(partRows.filter({ hasText: "system_var_11" })).toContainText(
       "Seconds on the game clock.",
     );

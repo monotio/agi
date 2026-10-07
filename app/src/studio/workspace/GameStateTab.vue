@@ -4,6 +4,7 @@ import ActionMenu from "../../ui/ActionMenu.vue";
 import BindingDetails from "../../shell/BindingDetails.vue";
 import type { BindingInfo } from "../../../../src/logic/projectNames.ts";
 import type { ProjectSnapshot } from "../../../../src/authoring/projectModel.ts";
+import { numberedLabel, numberedSlot } from "../../../../src/logic/numberedLabels.ts";
 import { workspaceGameStateInfos } from "../../shell/workspaceNames.ts";
 import type { AgiProfile } from "../../../../src/runtime/profile.ts";
 import type { EngineStateReport } from "../../../../src/runtime/engine.ts";
@@ -47,12 +48,9 @@ function value(row: { kind: string; num: number }): string {
       </thead>
       <tbody>
         <tr v-for="row in creatorRows" :key="row.name">
-          <td>{{ row.name }}</td>
+          <td>{{ numberedLabel(row.kind, row.num, { name: row.name }) }}</td>
           <td>
-            <span class="workspace-state__kind">{{
-              row.kind === "flag" ? "Flag" : "Variable"
-            }}</span>
-            {{ row.kind === "flag" ? "f" : "v" }}{{ row.num }}
+            {{ numberedSlot(row.kind, row.num) }}
           </td>
           <td class="workspace-state__value">{{ value(row) }}</td>
           <td>
@@ -69,15 +67,12 @@ function value(row: { kind: string; num: number }): string {
         <tbody>
           <tr v-for="row in builtinRows" :key="row.name">
             <td>
-              <span>{{ row.name }}</span>
+              <span>{{ numberedLabel(row.kind, row.num, { name: row.name }) }}</span>
               <small class="workspace-state__meaning">{{ row.meaning }}</small>
               <small v-if="row.usage" class="workspace-state__usage">Used: {{ row.usage }}</small>
             </td>
             <td>
-              <span class="workspace-state__kind">{{
-                row.kind === "flag" ? "Flag" : "Variable"
-              }}</span>
-              {{ row.kind === "flag" ? "f" : "v" }}{{ row.num }}
+              {{ numberedSlot(row.kind, row.num) }}
             </td>
             <td class="workspace-state__value">{{ value(row) }}</td>
             <td>

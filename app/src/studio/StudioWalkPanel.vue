@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { numberedLabel, numberedOptions } from "../../../src/logic/numberedLabels.ts";
+import { useProjectLabels } from "../shell/useProjectLabels.ts";
 import { computed, ref, watch } from "vue";
 import UiButton from "../ui/UiButton.vue";
 import UiChip from "../ui/UiChip.vue";
@@ -36,8 +38,8 @@ import {
 const { walk, tool, flags, items } = defineProps<{
   walk: StudioWalk;
   tool: StudioTool;
-  /** The game's named flag bindings, for a door's condition. */
-  flags: readonly string[];
+  /** Named bindings include flags reserved by the current edit. */
+  flags: readonly { name: string; num: number }[];
   /** Picture items a door box can follow. */
   items: readonly { id: string; label: string }[];
 }>();
@@ -48,6 +50,7 @@ const emit = defineEmits<{
   text: [line: number | null];
 }>();
 const tint = defineModel<boolean>("tint", { default: true });
+const labels = useProjectLabels();
 /** Why the door fields are off, on each of them. */
 const DOORS_OFF =
   "Door editing pauses while the room is read-only, a change is open, or its script needs repair.";
@@ -55,7 +58,9 @@ const doorsOff = computed(() => (walk.canEditDoors.value ? undefined : DOORS_OFF
 
 const result = computed(() => walk.result.value);
 const place = computed(() =>
-  result.value ? resultPlace(result.value.from, result.value.result, walk.room.value) : null,
+  result.value
+    ? resultPlace(result.value.from, result.value.result, walk.room.value, labels.value)
+    : null,
 );
 const selected = computed(() => walk.selectedDoor.value);
 const status = computed(() =>
@@ -81,6 +86,18 @@ function describe(door: WalkDoor): string {
 /** A new flag name typed for the condition. */
 const newFlag = ref("");
 watch(selected, () => (newFlag.value = ""));
+const flagOptions = computed(() => {
+  const bindings = { ...labels.value.bindings };
+  for (const { name, num } of flags) bindings[name] = { kind: "flag", num };
+  return numberedOptions(
+    "flag",
+    Array.from({ length: 256 }, (_, num) => num),
+    { bindings },
+  ).map((option) => ({
+    ...option,
+    value: flags.find((flag) => flag.num === option.num)?.name ?? String(option.num),
+  }));
+});
 const flagValue = computed(() => {
   const flag = selected.value?.requiresFlag ?? null;
   return flag === null ? "" : String(flag);
@@ -336,7 +353,9 @@ const roomChoices = computed(() => {
               @change="onDestination"
             >
               <option v-for="choice in roomChoices" :key="choice.room" :value="choice.room">
-                Room {{ choice.room }}{{ choice.title ? ` · ${choice.title}` : "" }}
+                {{
+                  numberedLabel("room", choice.room, { ...labels, name: choice.title }, "option")
+                }}
               </option>
             </select>
           </label>
@@ -350,9 +369,19 @@ const roomChoices = computed(() => {
               @change="onFlag"
             >
               <option value="">Always open</option>
-              <option v-for="flag in flags" :key="flag" :value="flag">{{ flag }} is set</option>
-              <option v-if="flagValue !== '' && !flags.includes(flagValue)" :value="flagValue">
-                {{ flagValue }} is set
+              <option v-for="flag in flagOptions" :key="flag.num" :value="flag.value">
+                {{ flag.label }} is set
+              </option>
+              <option
+                v-if="flagValue !== '' && !flagOptions.some((flag) => flag.value === flagValue)"
+                :value="flagValue"
+              >
+                {{
+                  /^\d+$/.test(flagValue)
+                    ? numberedLabel("flag", Number(flagValue), labels, "option")
+                    : flagValue
+                }}
+                is set
               </option>
             </select>
           </label>

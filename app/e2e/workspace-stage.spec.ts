@@ -61,7 +61,7 @@ test("opening pictures leaves play in place; Play enters and Back restores the p
   await expect(page.getByTestId("room-studio").filter({ visible: true })).not.toHaveClass(
     /is-live-game/,
   );
-  await page.getByRole("button", { name: "Back to Room 1", exact: true }).click();
+  await page.getByRole("button", { name: "Back to Home", exact: true }).click();
   await expect
     .poll(async () => {
       const state = await textHook(page);
@@ -453,12 +453,10 @@ for (const size of [
     await expect.poll(async () => (await textHook(page)).room).toBe(8);
     const visitBar = page.getByTestId(size.width <= 600 ? "workspace-visit" : "workspace-game-bar");
     await expect(visitBar).toBeVisible();
-    await expect(visitBar).toContainText("Room 8");
-    await expect(
-      visitBar.getByRole("button", { name: "Back to Room 1", exact: true }),
-    ).toBeVisible();
+    await expect(visitBar).toContainText("Garden");
+    await expect(visitBar.getByRole("button", { name: "Back to Home", exact: true })).toBeVisible();
     await shot(page, "visiting");
-    await page.getByRole("button", { name: "Back to Room 1", exact: true }).click();
+    await page.getByRole("button", { name: "Back to Home", exact: true }).click();
     await expect.poll(async () => (await textHook(page)).room).toBe(1);
     await shot(page, "back");
     await open(page, "part-room:8:picture:8");
@@ -474,7 +472,7 @@ for (const size of [
     await expect.poll(async () => (await textHook(page)).room).toBe(2);
     await shot(page, "make-room", [170, 0, 170]);
     if (size.width <= 600) await page.getByRole("button", { name: "Edit", exact: true }).click();
-    await page.getByRole("button", { name: "Back to Room 1", exact: true }).click();
+    await page.getByRole("button", { name: "Back to Home", exact: true }).click();
     await expect.poll(async () => (await textHook(page)).room).toBe(1);
     await open(page, "part-view:8");
     await expect(page.getByTestId("sprite-studio").filter({ visible: true })).toBeVisible();

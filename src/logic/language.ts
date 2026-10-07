@@ -9,8 +9,9 @@ import { commandReference } from "./commandReference.ts";
 import { quoteLogicString } from "./disassembler.ts";
 import { analyzeLogicSyntax, scanLogicTokens, type Token } from "./syntax.ts";
 import { collectLogicResourceUses } from "./resourceUses.ts";
-import { collectLogicOperands, OPERAND_NAMES } from "./languageOperands.ts";
+import { collectLogicOperands } from "./languageOperands.ts";
 import type { AgiProfile } from "../runtime/profile.ts";
+import { numberedLabel, numberedSlot, type NumberedLabelContext } from "./numberedLabels.ts";
 import { SYSTEM_FLAGS, SYSTEM_VARIABLES } from "./systemNames.ts";
 
 interface TextEdit {
@@ -24,6 +25,7 @@ export function createLogicLanguageSnapshot(input: {
   readonly profile: AgiProfile;
   readonly dictionary: ReadonlyMap<string, number>;
   readonly objects?: readonly string[];
+  readonly bindings?: NumberedLabelContext["bindings"];
 }) {
   const source = input.source;
   const profile = { ...input.profile };
@@ -138,7 +140,7 @@ export function createLogicLanguageSnapshot(input: {
         .sort()
         .map((word) => ({
           label: word,
-          detail: `Word group ${dictionary.get(word)}`,
+          detail: numberedSlot("word", dictionary.get(word)!),
           start,
           end,
           text: quoteLogicString(word),
@@ -156,17 +158,32 @@ export function createLogicLanguageSnapshot(input: {
         byName.get(context.call.name)?.operands[context.call.parameter] === "item"
           ? (input.objects ?? []).flatMap((name, index) =>
               name.toLowerCase().startsWith(prefix.toLowerCase()) || `o${index}`.startsWith(prefix)
-                ? [{ label: name, detail: `OBJECT ${index}`, start, end, text: `o${index}` }]
+                ? [
+                    {
+                      label: numberedLabel("inventory", index, {
+                        bindings: input.bindings ?? {},
+                        inventory: input.objects ?? [],
+                      }),
+                      detail: numberedSlot("inventory", index),
+                      start,
+                      end,
+                      text: `o${index}`,
+                    },
+                  ]
                 : [],
             )
           : [];
       return [
         ...inventory,
         ...Object.entries(system)
-          .filter(([, name]) => name.startsWith(prefix))
-          .map(([num, name]) => ({
-            label: name,
-            detail: `${operandKind === "flag" ? "Flag" : "Variable"} ${num} · system`,
+          .filter(
+            ([num, name]) =>
+              name.startsWith(prefix) &&
+              numberedLabel(operandKind!, Number(num), { bindings: input.bindings ?? {} }) === name,
+          )
+          .map(([num]) => ({
+            label: numberedLabel(operandKind!, Number(num)),
+            detail: `${numberedSlot(operandKind!, Number(num))} · system`,
             start,
             end,
             text: `${operandKind === "flag" ? "f" : "v"}${num}`,
@@ -178,7 +195,9 @@ export function createLogicLanguageSnapshot(input: {
           )
           .map((entry) => ({
             label: entry.name,
-            detail: "Local definition",
+            detail: input.bindings?.[entry.name]?.kind
+              ? numberedSlot(input.bindings[entry.name]!.kind!, input.bindings[entry.name]!.num)
+              : "Local definition",
             start,
             end,
             text: entry.name,
@@ -243,7 +262,7 @@ export function createLogicLanguageSnapshot(input: {
       return {
         start: operand.start,
         end: operand.end,
-        text: `${OPERAND_NAMES[operand.kind]} ${operand.num}${names.length ? ` (${names.join(", ")})` : ""}\n\n${count} ${count === 1 ? "use" : "uses"} in this LOGIC.`,
+        text: `${numberedLabel(operand.kind, operand.num, { bindings: input.bindings ?? {}, name: names[0] ?? "", inventory: input.objects ?? [], words: [...dictionary] }, "row")}\n\n${count} ${count === 1 ? "use" : "uses"} in this LOGIC.`,
       };
     }
     if (token?.type !== "ident") return null;

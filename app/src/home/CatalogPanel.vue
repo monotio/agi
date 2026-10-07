@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { numberedLabel } from "../../../src/logic/numberedLabels.ts";
 /**
  * The installed-fixture and hosted-catalog cards on the Home shelf: installed
  * games with their autosave state, and catalog entries whose openings load
@@ -54,7 +55,7 @@ const shelfLocalGames = computed(() =>
 function localMeta(game: InstalledGameDescriptor): string {
   const autosave = localAutosave(game);
   if (autosave)
-    return `Room ${autosave.room} · played ${formatRelativeTime(autosave.savedAt, now.value)}`;
+    return `${numberedLabel("room", autosave.room)} · played ${formatRelativeTime(autosave.savedAt, now.value)}`;
   return game.folder && game.folder !== game.alias ? game.folder : "Installed game";
 }
 

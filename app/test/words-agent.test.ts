@@ -48,7 +48,7 @@ test("word task replies summarize usable suggestions and keep the exact raw repl
   );
   assert.equal(
     wordsTaskReply('{"commands":["look tree","climb tree"]}', { kind: "predict", room: 7 }).text,
-    "Predicted 2 commands players will try in ROOM 7",
+    "Predicted 2 commands players will try in Room 7",
   );
 });
 

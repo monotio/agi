@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { useProjectLabels } from "../shell/useProjectLabels.ts";
+import { numberedLabel, numberedSlot } from "../../../src/logic/numberedLabels.ts";
 /**
  * The world graph: rooms as thumbnail nodes over their exits, in plain SVG.
  * No graph library: compared with the candidates (d3-force, Cytoscape.js,
@@ -32,6 +34,7 @@ import { useNodeDrag } from "./useNodeDrag.ts";
 const { compact = false } = defineProps<{ compact?: boolean }>();
 
 const emit = defineEmits<{ pick: [room: number] }>();
+const labels = useProjectLabels();
 const map = useEngineApi().roomMap;
 const { selected } = map;
 const graph = computed(() => map.graph.value);
@@ -413,7 +416,9 @@ defineExpose({ selectRoom });
           :transform="`translate(${posOf(node.room).x} ${posOf(node.room).y})`"
           tabindex="0"
           role="button"
-          :aria-label="`Room ${node.room}${node.title ? `, ${node.title}` : ''}`"
+          :aria-label="
+            numberedLabel('room', node.room, { ...labels, name: node.title ?? '' }, 'option')
+          "
           :data-testid="`map-node-${node.room}`"
           @click="selectRoom(node.room)"
           @pointerenter="hovered = node.room"
@@ -438,7 +443,7 @@ defineExpose({ selectRoom });
             clip-path="url(#map-node-clip)"
           />
           <text v-else class="node-empty-label" :x="NODE_W / 2" :y="IMG_H / 2">
-            Room {{ node.room }}
+            {{ numberedSlot("room", node.room) }}
           </text>
           <rect
             class="node-caption"
@@ -447,7 +452,7 @@ defineExpose({ selectRoom });
             :height="CAP_H"
             clip-path="url(#map-node-clip)"
           />
-          <text class="node-label" x="8" :y="IMG_H + 15">{{ nodeLabel(node) }}</text>
+          <text class="node-label" x="8" :y="IMG_H + 15">{{ nodeLabel(node, labels) }}</text>
         </g>
       </svg>
     </div>

@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { numberedLabel } from "../../../src/logic/numberedLabels.ts";
+import { useProjectLabels } from "../shell/useProjectLabels.ts";
 import ActionMenu from "../ui/ActionMenu.vue";
 import UiButton from "../ui/UiButton.vue";
 import UiPanel from "../ui/UiPanel.vue";
@@ -33,6 +35,7 @@ const emit = defineEmits<{
   copy: [figure: RoomPlacement, x: number, y: number];
   reveal: [line: PlacementLine];
 }>();
+const labels = useProjectLabels();
 
 /** A fixed figure's line holds plain numbers: dragging it edits that line. */
 const fixed = (figure: RoomPlacement): boolean =>
@@ -72,7 +75,12 @@ function pick(figure: RoomPlacement, key: string): void {
     <ul class="views-panel__list">
       <li v-for="figure in figures" :key="figure.object" class="views-panel__row">
         <header class="views-panel__head">
-          <b class="views-panel__name">o{{ figure.object }} · VIEW {{ figure.view ?? "?" }}</b>
+          <b class="views-panel__name"
+            >{{ numberedLabel("object", figure.object, labels, "option") }} ·
+            {{
+              figure.view === null ? "VIEW ?" : numberedLabel("view", figure.view, labels, "option")
+            }}</b
+          >
           <span
             class="views-panel__spot"
             :data-previewed="previews[figure.object] ? '' : undefined"
@@ -87,7 +95,7 @@ function pick(figure: RoomPlacement, key: string): void {
             :model-value="spotValue(figure)"
             size="sm"
             :disabled="readOnly"
-            :aria-label="`Spot for o${figure.object}`"
+            :aria-label="`Spot for ${numberedLabel('object', figure.object, labels, 'option')}`"
             data-testid="view-spot"
             @update:model-value="pick(figure, String($event))"
           >
@@ -125,7 +133,7 @@ function pick(figure: RoomPlacement, key: string): void {
             data-testid="view-set-in"
             :title="figure.lines[0]!.text"
             @click="emit('reveal', figure.lines[0]!)"
-            >Set in LOGIC {{ figure.lines[0]!.logic }}</UiButton
+            >Set in {{ numberedLabel("logic", figure.lines[0]!.logic, labels, "row") }}</UiButton
           >
           <ActionMenu
             v-else-if="figure.lines.length > 1"
@@ -142,7 +150,7 @@ function pick(figure: RoomPlacement, key: string): void {
               data-testid="view-set-in-line"
               @click="emit('reveal', line)"
             >
-              LOGIC {{ line.logic }} · {{ line.text }}
+              {{ numberedLabel("logic", line.logic, labels, "row") }} · {{ line.text }}
             </button>
           </ActionMenu>
         </div>

@@ -4,6 +4,7 @@
  * any — "Open in Studio" can open. Honest by construction: a room number is
  * never offered as its picture number.
  */
+import { numberedLabel, type NumberedLabelContext } from "../../../src/logic/numberedLabels.ts";
 import type { RoomPictureUse } from "../../../src/agent/roomPictures.ts";
 
 export interface RoomPictureLabels {
@@ -23,12 +24,16 @@ export interface RoomPictureLabels {
 
 const RUNTIME_PICTURE = "picture chosen at runtime";
 
-function roomList(rooms: readonly number[]): string {
-  if (rooms.length === 1) return `room ${rooms[0]}`;
-  return `rooms ${rooms.slice(0, -1).join(", ")} and ${rooms.at(-1)}`;
+function roomList(rooms: readonly number[], context: NumberedLabelContext): string {
+  const names = rooms.map((num) => numberedLabel("room", num, context, "option"));
+  return names.length === 1 ? names[0]! : `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;
 }
 
-export function roomPictureLabels(use: RoomPictureUse, planned: boolean): RoomPictureLabels {
+export function roomPictureLabels(
+  use: RoomPictureUse,
+  planned: boolean,
+  context: NumberedLabelContext = {},
+): RoomPictureLabels {
   if (!use.built)
     return {
       chip: planned ? "plan" : "no logic",
@@ -40,21 +45,22 @@ export function roomPictureLabels(use: RoomPictureUse, planned: boolean): RoomPi
   if (use.pictures.length > 0) {
     const shared = use.pictures.some((p) => p.sharedWith.length > 0);
     const parts = use.pictures.map((p) => {
-      if (!p.exists) return `PIC ${p.picture} · not in this game's resources`;
+      if (!p.exists)
+        return `${numberedLabel("picture", p.picture, context, "option")} · not in this game's resources`;
       return p.sharedWith.length
-        ? `PIC ${p.picture} · shared with ${roomList(p.sharedWith)}`
-        : `PIC ${p.picture}`;
+        ? `${numberedLabel("picture", p.picture, context, "option")} · shared with ${roomList(p.sharedWith, context)}`
+        : `${numberedLabel("picture", p.picture, context, "option")}`;
     });
     if (use.runtime) parts.push(`plus a ${RUNTIME_PICTURE}`);
     const studio = use.pictures.filter((p) => p.exists).map((p) => p.picture);
     return {
-      chip: `${use.pictures.map((p) => `PIC ${p.picture}`).join(", ")}${shared ? " · shared" : ""}`,
+      chip: `${use.pictures.map((p) => `${numberedLabel("picture", p.picture, context, "option")}`).join(", ")}${shared ? " · shared" : ""}`,
       tone: "neutral",
       detail: parts.join(", "),
       studioPictures: studio,
       studioBlocked:
         studio.length === 0
-          ? `PIC ${use.pictures[0]!.picture} is not in this game's resources.`
+          ? `${numberedLabel("picture", use.pictures[0]!.picture, context, "option")} is not in this game's resources.`
           : undefined,
     };
   }

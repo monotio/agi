@@ -16,6 +16,7 @@ export function createProjectLogicLanguageSnapshot(
     source: expansion.prelude + source,
     profile: input.profile,
     dictionary: input.dictionary,
+    bindings: input.bindings,
     ...(input.objects ? { objects: input.objects } : {}),
   });
   const diagnostics = language.diagnostics

@@ -47,7 +47,7 @@ test("names open resources, peek game state and rename all authored uses @webkit
   await parts.getByRole("button", { name: "chime_done Flag 204", exact: true }).click();
   const details = page.getByTestId("binding-details");
   await expect(details).toBeVisible();
-  await expect(details).toContainText("Set · LOGIC 1");
+  await expect(details).toContainText("Set · first_room · LOGIC 1");
   await details.getByRole("button", { name: "Rename", exact: true }).click();
   await details.getByLabel("Name", { exact: true }).fill("birdsong_done");
   await details.getByRole("button", { name: "Save name", exact: true }).click();
@@ -241,7 +241,7 @@ test("name hover opens resources and message actions keep readable text @webkit-
   await editor.locator(".view-lines").getByText("chime_sound", { exact: true }).hover();
   const hover = page.locator(".monaco-hover:not(.hidden)");
   await expect(hover).toBeVisible();
-  await expect(hover).toContainText("SOUND 1 · chime_sound");
+  await expect(hover).toContainText("chime_sound · SOUND 1");
   await expect(hover.getByRole("link", { name: "Rename", exact: true })).toBeVisible();
   await hover.getByRole("link", { name: "Rename", exact: true }).click();
   const details = page.getByTestId("binding-details");
@@ -256,7 +256,7 @@ test("name hover opens resources and message actions keep readable text @webkit-
   await details.getByRole("button", { name: "Close", exact: true }).click();
   await editor.locator(".view-lines").getByText("birdsong", { exact: true }).hover();
   await expect(hover).toBeVisible();
-  await expect(hover).toContainText("SOUND 1 · birdsong");
+  await expect(hover).toContainText("birdsong · SOUND 1");
   await hover.getByRole("link", { name: "Open", exact: true }).click();
   await expect(page.getByTestId("workspace-sound")).toBeVisible();
   await openWorkspaceLogic(page);

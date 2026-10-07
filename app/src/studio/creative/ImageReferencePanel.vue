@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { numberedLabel } from "../../../../src/logic/numberedLabels.ts";
 import UiIcon from "../../ui/UiIcon.vue";
 import {
   computed,
@@ -123,7 +124,7 @@ const name = computed(() => {
     const entry = Object.entries(readBindingsDocument(bindings)).find(
       ([, binding]) => `${binding.kind}:${binding.num}` === props.target,
     );
-    if (entry) return entry[0] === "ego_view" ? "Hero" : entry[0].replaceAll("_", " ");
+    if (entry) return numberedLabel("view", Number(props.target.slice(5)), { name: entry[0] });
   }
   return "Character";
 });
@@ -440,7 +441,9 @@ onBeforeUnmount(() => {
   >
     <header>
       <strong>{{
-        isPicture ? "Trace an image" : `${name} VIEW ${target.slice(5)} · Cels from an image`
+        isPicture
+          ? "Trace an image"
+          : `${numberedLabel("view", Number(target.slice(5)), { name }, "row")} · Cels from an image`
       }}</strong>
       <UiButton size="sm" variant="ghost" @click="emit('close')">Done</UiButton>
     </header>

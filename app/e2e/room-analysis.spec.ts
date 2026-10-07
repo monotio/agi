@@ -79,7 +79,7 @@ test("the full map and ROOMS include shared and picture-free rooms @webkit-deskt
   for (const room of [1, 2, 3, 4]) {
     const row = page.getByTestId(`part-room:${room}`);
     await expect(row).toBeVisible();
-    await expect(row).toContainText(`ROOM ${room}`);
+    await expect(row).toContainText(`Room ${room}`);
   }
   await expect(page.getByTestId("part-logic:9")).toBeVisible();
 });
@@ -109,7 +109,7 @@ test("an incoming exit identifies ROOM 255 in the parts list", async ({ page }) 
   await enterCreateMode(page);
   const room = page.getByTestId("part-room:255");
   await expect(room).toBeVisible();
-  await expect(room).toContainText("ROOM 255");
+  await expect(room).toContainText("Room 255");
 });
 
 test("a staged room answer preserves the selected room and graph viewport", async ({ page }) => {

@@ -82,7 +82,7 @@ test("unnamed flag hover and definitions share grouped project evidence", () => 
   const hover = request("textDocument/hover", "f36") as { contents: { value: string } };
   assert.equal(
     hover.contents.value,
-    "```agi\nFlag 36 · unnamed\n```\n\n4 uses across the game.\n\nSet (1): LOGIC 1 line 1\n\nReset (1): LOGIC 1 line 2\n\nChecked (2): LOGIC 1 line 3; LOGIC 2 line 1\n\nName it… F2",
+    "```agi\nFlag 36\n```\n\n4 uses across the game.\n\nSet (1): LOGIC 1 line 1\n\nReset (1): LOGIC 1 line 2\n\nChecked (2): LOGIC 1 line 3; LOGIC 2 line 1\n\nName it… F2",
   );
   assert.deepEqual(request("textDocument/definition", "f36"), [
     { uri, range: { start: { line: 0, character: 4 }, end: { line: 0, character: 7 } } },
@@ -115,13 +115,13 @@ for (const [text, kind, num, name] of [
       flag: "Flag",
       variable: "Variable",
       object: "Object",
-      inventory: "Inventory item",
+      inventory: "Item",
       message: "Message",
       view: "VIEW",
       logic: "LOGIC",
       sound: "SOUND",
     }[kind];
-    assert.match(hover, new RegExp(`${heading} ${num} · unnamed`));
+    assert.match(hover, new RegExp(`${heading} ${num}`));
     if (kind === "message") assert.match(hover, /A brass key/);
     if (kind === "inventory") {
       assert.match(hover, /brass key/);
@@ -259,7 +259,7 @@ test("PICTURE names retain their resource identity in numeric assignment operand
   });
   const params = { textDocument: { uri }, position: { line: 0, character: 14 } };
   const hover = server.handle({ jsonrpc: "2.0", id: 1, method: "textDocument/hover", params });
-  assert.match(JSON.stringify(hover?.result), /PICTURE 12 · room_art/);
+  assert.match(JSON.stringify(hover?.result), /room_art · PICTURE 12/);
   const target = server.handle({
     jsonrpc: "2.0",
     id: 2,

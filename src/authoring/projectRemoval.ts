@@ -1,3 +1,4 @@
+import { numberedLabel, type NumberedLabelContext } from "../logic/numberedLabels.ts";
 /**
  * Removal admission review for a compiled project candidate: the inventory of
  * definite and potential uses that must be empty before a reviewed resource
@@ -623,6 +624,7 @@ function inspectBytecodeDraft(
 export function launchRemovalMessages(
   launches: WorldLaunches | undefined,
   removedKeys: ReadonlySet<string>,
+  labels: NumberedLabelContext = {},
 ): string[] {
   const pruned = pruneWorldLaunches(launches, removedKeys);
   const messages: string[] = [];
@@ -638,7 +640,9 @@ export function launchRemovalMessages(
         messages.push(`“${entry.name}” starts without Came from.`);
       for (const item of Object.keys(entry.items ?? {}))
         if (next.items?.[item] === undefined)
-          messages.push(`Item ${item} in “${entry.name}” carries over.`);
+          messages.push(
+            `${numberedLabel("inventory", Number(item), labels, "option")} in “${entry.name}” carries over.`,
+          );
     }
   }
   return messages;

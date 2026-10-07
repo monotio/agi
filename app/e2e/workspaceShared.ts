@@ -159,21 +159,19 @@ export async function replaceWorkspaceDocument(
         : (JSON.parse(text) as { name: string; startingRoom: number }[]).map(
             (row) => [row.name, row.startingRoom] as const,
           );
-    const first = VOCABULARY.objectColumn.label;
-    const second = key === "words" ? "Group" : "Room";
     // Table edits retain existing entries and append the requested vocabulary/objects.
     for (const [index, row] of rows.entries()) {
       if ((await table.locator("tbody tr").count()) <= index) {
         await table.getByRole("button", { name: "+ Add", exact: true }).click();
         await workspaceSaved(page);
       }
-      const name = table.getByLabel(`${first} ${index}`, { exact: true });
+      const name = table.locator("tbody tr").nth(index).getByRole("textbox");
       if ((await name.inputValue()) !== row[0]) {
         await name.fill(row[0]);
         await name.press("Tab");
         await workspaceSaved(page);
       }
-      const value = table.getByLabel(`${second} ${index}`, { exact: true });
+      const value = table.locator("tbody tr").nth(index).getByRole("spinbutton");
       if ((await value.inputValue()) !== String(row[1])) {
         await value.fill(String(row[1]));
         await value.press("Tab");

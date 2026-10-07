@@ -83,7 +83,7 @@ for (const [width, height] of [
     });
     await fresh.click();
     // The new room is the destination, and the Door form stays open on Room 1.
-    const picked = destinations.getByRole("button", { name: /ROOM 2/ });
+    const picked = destinations.getByRole("button", { name: /Room 2/ });
     await expect(picked).toBeVisible();
     await expect(picked).toHaveAttribute("aria-pressed", "true");
     await expect(form).toBeVisible();

@@ -62,7 +62,7 @@ for (const width of [1440, 1280])
     await teaching.getByRole("button", { name: "Add", exact: true }).click();
     await expect(page.getByTestId("player-sentence")).toHaveCount(0);
     await sentence.fill("inspect");
-    await expect(page.getByTestId("sentence-parse")).toContainText("· 100");
+    await expect(page.getByTestId("sentence-parse")).toContainText("Word group 100");
     await expect(page.getByTestId("sentence-outcome")).toContainText("LOGIC 1");
     await expect(page.getByTestId("workspace-saved")).toBeVisible();
     await expect(page.getByTestId("workspace-saved")).toHaveText(/^(?:Saved|Draft saved)$/);
@@ -151,7 +151,7 @@ test("WORDS row actions, agent drawer prompts and tester choices", async ({ page
 
   const sentence = words.getByRole("textbox", { name: "A sentence a player might type" });
   await sentence.fill("look");
-  await expect(page.getByTestId("sentence-parse")).toContainText("· 100");
+  await expect(page.getByTestId("sentence-parse")).toContainText("Word group 100");
   await words.getByRole("button", { name: "Suggest sentences", exact: true }).click();
   await expect(panel).toBeVisible();
   await expect(composer).toHaveValue("Predict what players will try in Meadow");

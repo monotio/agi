@@ -1,3 +1,4 @@
+import { numberedLabel, type NumberedLabelContext } from "../../../../src/logic/numberedLabels.ts";
 import { DEFAULT_V2_PROFILE, type AgiProfile } from "../../../../src/runtime/profile.ts";
 import { expandProjectLogic } from "../../../../src/authoring/projectLogic.ts";
 import { readBindingsDocument } from "../../../../src/authoring/projectDocuments.ts";
@@ -16,7 +17,7 @@ interface Use {
   line: number;
 }
 /** Keep each LOGIC label once, with independently navigable source lines. */
-export function formatMeaningUses(uses: readonly Use[]) {
+export function formatMeaningUses(uses: readonly Use[], context: NumberedLabelContext = {}) {
   const locations: { logic: number; label: string; lines: number[] }[] = [];
   for (const use of uses) {
     let location = locations.find((entry) => entry.logic === use.logic);
@@ -28,7 +29,7 @@ export function formatMeaningUses(uses: readonly Use[]) {
   }
   for (const location of locations) {
     location.lines.sort((a, b) => a - b);
-    location.label = `LOGIC ${location.logic} ${location.lines.length === 1 ? "line" : "lines"}`;
+    location.label = `${numberedLabel("logic", location.logic, context, "row")} ${location.lines.length === 1 ? "line" : "lines"}`;
   }
   return { count: `${uses.length} ${uses.length === 1 ? "use" : "uses"}`, locations };
 }

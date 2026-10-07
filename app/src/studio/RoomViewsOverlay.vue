@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { numberedLabel } from "../../../src/logic/numberedLabels.ts";
+import { useProjectLabels } from "../shell/useProjectLabels.ts";
 import { computed, ref, useTemplateRef } from "vue";
 import type { RoomPlacement } from "../../../src/authoring/roomPlacements.ts";
 import type { GhostView } from "./useGhostProbe.ts";
@@ -42,6 +44,7 @@ const emit = defineEmits<{
   place: [figure: RoomPlacement, x: number, y: number];
   preview: [figure: RoomPlacement, x: number, y: number];
 }>();
+const labels = useProjectLabels();
 const root = useTemplateRef("root");
 const dragging = ref<{
   figure: RoomPlacement;
@@ -90,7 +93,7 @@ const drawn = computed(() =>
     forEachPaintedPixel(picture, cel, x, y, result.drawPriority, (at, colour) => {
       (masks[colour] ??= new Uint8Array(160 * 168))[at] = 1;
     });
-    const label = `o${figure.object} · VIEW ${figure.view} · ${figure.reason ?? `(${x}, ${y})`}`;
+    const label = `${numberedLabel("object", figure.object, labels.value, "option")} · ${numberedLabel("view", figure.view!, labels.value, "option")} · ${figure.reason ?? `(${x}, ${y})`}`;
     return [
       {
         figure,

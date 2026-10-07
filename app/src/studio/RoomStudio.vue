@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { numberedLabel } from "../../../src/logic/numberedLabels.ts";
 import UiIcon from "../ui/UiIcon.vue";
 import { VOCABULARY } from "../../../src/vocabulary.ts";
 import {
@@ -300,7 +301,7 @@ const shareCaption = computed(() => ({
 /** The picture's technical facts, for Inspector → Details only. */
 const pictureMeta = computed(
   () =>
-    `PICTURE ${pictureNumber} · ${pictureSize(draft.compiled.value.bytes.length, total.value).full} · AGI ${profile.id}`,
+    `${numberedLabel("picture", pictureNumber, { bindings: walk?.authoring.bindings ?? {} }, "row")} · ${pictureSize(draft.compiled.value.bytes.length, total.value).full} · AGI ${profile.id}`,
 );
 const shareFile = computed(() => shareFileBase(shareGame.value, shareRoom.value));
 /** A Help guide lesson Studio opened from: every successful edit runs its challenge. */
@@ -398,7 +399,7 @@ watch(
       "agent-context",
       ids.length
         ? {
-            label: `PICTURE ${pictureNumber} · ${ids.map(itemLabel).join(", ")}`,
+            label: `${numberedLabel("picture", pictureNumber, { bindings: walk?.authoring.bindings ?? {} }, "row")} · ${ids.map(itemLabel).join(", ")}`,
             text: `Selected item ids: ${ids.join(", ")}. Lens: ${currentLens}. Unlocks: ${JSON.stringify(currentUnlocks)}.`,
           }
         : null,
@@ -958,8 +959,8 @@ function toolKey(key: string): boolean {
 const flagNames = computed(() =>
   Object.entries({ ...walk?.authoring.bindings, ...logic.reserved.value })
     .filter(([, binding]) => binding.kind === "flag")
-    .map(([name]) => name)
-    .sort(),
+    .sort(([, a], [, b]) => a.num - b.num)
+    .map(([name, { num }]) => ({ name, num })),
 );
 const pictureItems = computed(() => {
   const document = draft.document.value;

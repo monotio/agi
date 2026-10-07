@@ -32,7 +32,7 @@ for (const [width, height] of [
       if (width === 390) await page.getByRole("button", { name: "Game", exact: true }).click();
       const back = page
         .getByTestId("workspace-game-bar")
-        .getByRole("button", { name: "Back to Room 1", exact: true });
+        .getByRole("button", { name: "Back to Home", exact: true });
       await expect(back).toBeVisible();
       await screenshot(page, `back-${width}`, browserName);
       expect(

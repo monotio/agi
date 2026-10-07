@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { numberedLabel, numberedSlot, documentLabel } from "../../../src/logic/numberedLabels.ts";
+import { useProjectLabels } from "./useProjectLabels.ts";
 import { ref, watch } from "vue";
 import type { BindingInfo } from "../../../src/logic/projectNames.ts";
 import { useEngineApi } from "../engine/engineContext.ts";
@@ -8,6 +10,7 @@ import UiButton from "../ui/UiButton.vue";
 import UiIconButton from "../ui/UiIconButton.vue";
 const { info, rename = false } = defineProps<{ info: BindingInfo; rename?: boolean }>();
 const emit = defineEmits<{ close: []; renamed: [info: BindingInfo] }>();
+const labels = useProjectLabels();
 const engine = useEngineApi();
 const workspace = useWorkspaceEditor();
 const editing = ref(rename);
@@ -65,17 +68,8 @@ function openUse(use: BindingInfo["uses"][number]): void {
   >
     <header>
       <div>
-        <strong>{{ info.name }}</strong>
-        <small
-          >{{
-            info.kind === "flag"
-              ? "Flag"
-              : info.kind === "variable"
-                ? "Variable"
-                : info.kind.toUpperCase()
-          }}
-          {{ info.num }}</small
-        >
+        <strong>{{ numberedLabel(info.kind, info.num, { name: info.name }) }}</strong>
+        <small>{{ numberedSlot(info.kind, info.num) }}</small>
       </div>
       <UiIconButton icon="x" label="Close" size="sm" @click="emit('close')" />
     </header>
@@ -111,7 +105,7 @@ function openUse(use: BindingInfo["uses"][number]): void {
             ...new Set(
               info.uses
                 .filter((use) => use.role === role)
-                .map((use) => use.key.replace(":", " ").toUpperCase()),
+                .map((use) => documentLabel(use.key, labels)),
             ),
           ].join(", ") || "nowhere yet"
         }}
@@ -123,8 +117,8 @@ function openUse(use: BindingInfo["uses"][number]): void {
         :key="`${use.key}:${use.range.start.line}:${use.range.start.character}`"
       >
         <button @click="openUse(use)">
-          {{ use.role }} · {{ use.key.replace(":", " ").toUpperCase() }} · line
-          {{ use.range.start.line + 1 }}<small>{{ use.text }}</small>
+          {{ use.role }} · {{ documentLabel(use.key, labels) }} · line {{ use.range.start.line + 1
+          }}<small>{{ use.text }}</small>
         </button>
       </li>
     </ul>

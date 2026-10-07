@@ -1,3 +1,5 @@
+import { projectLabelContext } from "../../shell/projectLabelContext.ts";
+import { documentLabel, numberedLabel } from "../../../../src/logic/numberedLabels.ts";
 /**
  * Monaco adapter for AGI logic source in Logic Studio. Loads lazily with the
  * Studio bundle; nothing here runs on the Play boot path. Language answers come
@@ -163,11 +165,14 @@ monaco.editor.onDidCreateEditor((editor) => {
 });
 
 function locationUri(registration: ModelRegistration, uri: string): monaco.Uri {
+  const labels = projectLabelContext({
+    bindings: registration.client.documentSource("agi-project:///bindings.json") ?? "{}",
+  });
   if (uri === registration.model.uri.toString()) return registration.model.uri;
   const resource = /^agi-resource:\/\/\/(logic|picture|view|sound)\/(\d+)$/.exec(uri);
   const source =
     registration.client.documentSource(uri) ??
-    (resource ? `${resource[1]!.toUpperCase()} ${resource[2]}` : undefined);
+    (resource ? numberedLabel(resource[1]!, Number(resource[2]), labels, "row") : undefined);
   if (source === undefined) return monaco.Uri.parse(uri);
   let preview = registration.previews.get(uri);
   if (!preview) {
@@ -433,12 +438,16 @@ monaco.languages.registerDefinitionProvider(LOGIC_LANGUAGE_ID, {
           path: `/${info.name}`,
         });
         let preview = session.registration.previews.get(uri.toString());
+        const labels = projectLabelContext({
+          bindings:
+            session.registration.client.documentSource("agi-project:///bindings.json") ?? "{}",
+        });
         const text =
-          `${info.name} · ${info.kind.toUpperCase()} ${info.num}\n` +
+          `${numberedLabel(info.kind, info.num, { name: info.name }, "row")}\n` +
           info.uses
             .map(
               (use) =>
-                `${use.role} · ${use.key.replace(":", " ").toUpperCase()} · line ${use.range.start.line + 1}\n${use.text}`,
+                `${use.role} · ${documentLabel(use.key, labels)} · line ${use.range.start.line + 1}\n${use.text}`,
             )
             .join("\n");
         if (!preview) {

@@ -1,3 +1,4 @@
+import { numberedLabel } from "../../../../src/logic/numberedLabels.ts";
 import type { ProjectContent } from "../../../../src/authoring/projectContent.ts";
 import { WORDS_REPLY_COPY } from "../../../../src/vocabulary.ts";
 import type { ReplyFormatter } from "../../agent/workspaceAgent.ts";
@@ -23,7 +24,7 @@ export function wordsTaskPrompt(
         `${key.startsWith("picture:") ? "PICTURE" : key === "inventory" ? "OBJECT" : key} ${key}\n${typeof content === "string" ? content : "Native resource; read its description using the resource tools."}`,
     )
     .join("\n\n");
-  return `Predict commands players will likely try in ROOM ${task.room}. Read its PICTURE description, objects, messages and LOGIC, including LOGIC 0. Resolve the room’s draw.pic bindings if its PICTURE is selected at runtime. Return a JSON object {"commands":["look tree"]} in your closing reply. Propose commands only; the creator chooses which gaps to answer.\n\n${context}`;
+  return `Predict commands players will likely try in ${numberedLabel("room", task.room)}. Read its PICTURE description, objects, messages and LOGIC, including LOGIC 0. Resolve the room’s draw.pic bindings if its PICTURE is selected at runtime. Return a JSON object {"commands":["look tree"]} in your closing reply. Propose commands only; the creator chooses which gaps to answer.\n\n${context}`;
 }
 export function wordsTaskRequest(
   task: WordsTask,
@@ -32,7 +33,7 @@ export function wordsTaskRequest(
   const text =
     task.kind === "suggest"
       ? `Suggest words for ${task.words[0] ?? `meaning ${task.group}`}`
-      : `Predict what players will try in ${task.roomName ?? `ROOM ${task.room}`}`;
+      : `Predict what players will try in ${task.roomName ?? `${numberedLabel("room", task.room)}`}`;
   return { text, context: wordsTaskPrompt(task, documents) };
 }
 function parseWordSuggestions(reply: string, kind: WordsTask["kind"]): string[] | null {
@@ -75,7 +76,7 @@ export function wordsTaskReply(reply: string, task: WordsTask): ReturnType<Reply
     text = copy.predicted
       .replace("{count}", String(values.length))
       .replace("{commands}", values.length === 1 ? copy.command : copy.commands)
-      .replace("{room}", () => task.roomName ?? `ROOM ${task.room}`);
+      .replace("{room}", () => task.roomName ?? `${numberedLabel("room", task.room)}`);
   }
   return { text, context: reply };
 }

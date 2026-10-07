@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { numberedLabel } from "../../../src/logic/numberedLabels.ts";
+import { useProjectLabels } from "./useProjectLabels.ts";
 import { VOCABULARY } from "../../../src/vocabulary.ts";
 /**
  * The in-game top bar: back to Home, the game and its current room, the
@@ -37,6 +39,7 @@ const emit = defineEmits<{
   "trigger-key": [code: number];
   "start-walkthrough": [alias: string];
 }>();
+const labels = useProjectLabels();
 
 const { state, currentGame, getBootedGame, roomMap, closePowerUp } = useEngineApi();
 const { identityTitle } = useGameLibrary();
@@ -63,7 +66,7 @@ const roomLabel = computed(() => {
   // A blank game has no running engine, so no room map yet.
   if (blank !== undefined) return "";
   const room = roomMap.currentRoom.value;
-  return room !== null && room > 0 ? `Room ${room}` : "";
+  return room !== null && room > 0 ? numberedLabel("room", room, labels.value, "row") : "";
 });
 const originLabel = computed(() => {
   void state.patchTick;

@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { numberedLabel } from "../../../../src/logic/numberedLabels.ts";
+import { useProjectLabels } from "../../shell/useProjectLabels.ts";
 import { VOCABULARY } from "../../../../src/vocabulary.ts";
 import { computed, nextTick, onBeforeUnmount, ref, useId, useTemplateRef, watch } from "vue";
 import ActionMenu from "../../ui/ActionMenu.vue";
@@ -34,6 +36,7 @@ const depth = defineModel<number>("depth", { required: true });
 const grid = defineModel<boolean>("grid", { required: true });
 const baseline = defineModel<boolean>("baseline", { required: true });
 const backdrop = defineModel<SpriteBackdrop>("backdrop", { required: true });
+const labels = useProjectLabels();
 const backdropValue = computed({
   get: () => backdropKey(backdrop.value),
   set: (value: string) => (backdrop.value = parseBackdrop(value)),
@@ -94,7 +97,9 @@ onBeforeUnmount(() => window.removeEventListener("pointerdown", onOutside, true)
       <select id="sprite-backdrop-select" v-model="backdropValue" data-testid="sprite-backdrop">
         <option value="checker-dark">Dark checker</option>
         <option value="checker-light">Light checker</option>
-        <option v-if="roomBackdrop !== null" value="room">Room {{ roomBackdrop }}</option>
+        <option v-if="roomBackdrop !== null" value="room">
+          {{ numberedLabel("room", roomBackdrop!, labels, "option") }}
+        </option>
         <optgroup label="Solid colour">
           <option
             v-for="(name, colour) in EGA_COLOUR_NAMES"
@@ -215,7 +220,9 @@ onBeforeUnmount(() => window.removeEventListener("pointerdown", onOutside, true)
             :aria-checked="backdropValue === 'room'"
             @click="backdropValue = 'room'"
           >
-            <UiIcon name="check" :size="16" class="sprite-more__check" />Room {{ roomBackdrop }}
+            <UiIcon name="check" :size="16" class="sprite-more__check" />{{
+              numberedLabel("room", roomBackdrop!, labels, "option")
+            }}
           </button>
           <div class="sprite-more__swatches">
             <button

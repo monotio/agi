@@ -97,8 +97,8 @@ test("palette and quick open work from the keyboard @webkit-desktop", async ({ p
   await page.keyboard.press(`${modifier}+P`);
   const quick = page.getByRole("combobox", { name: "Quick open" });
   await expect(quick).toBeFocused();
-  await expect(page.getByRole("option", { name: /Meadow.*ROOM 1.*LOGIC 1/ })).toBeVisible();
-  await expect(page.getByRole("option", { name: /Missing art.*ROOM 2/ })).not.toHaveAttribute(
+  await expect(page.getByRole("option", { name: /Meadow.*Room 1.*LOGIC 1/ })).toBeVisible();
+  await expect(page.getByRole("option", { name: /Missing art.*Room 2/ })).not.toHaveAttribute(
     "aria-disabled",
     "true",
   );

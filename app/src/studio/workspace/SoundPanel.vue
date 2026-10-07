@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { numberedLabel } from "../../../../src/logic/numberedLabels.ts";
+import { useProjectLabels } from "../../shell/useProjectLabels.ts";
 import UiIcon from "../../ui/UiIcon.vue";
 import { computed, onBeforeUnmount, ref, shallowRef, useTemplateRef, watch } from "vue";
 import { VOCABULARY } from "../../../../src/vocabulary.ts";
@@ -44,6 +46,7 @@ const emit = defineEmits<{
   imported: [];
   open: [sound: number];
 }>();
+const labels = useProjectLabels();
 const mode = ref("grid");
 const voice = ref(0);
 const division = ref(16);
@@ -256,7 +259,9 @@ onBeforeUnmount(() => {
             term="sound-editor"
             :name="VOCABULARY.sound.label"
             :says="VOCABULARY.sound.help"
-            >SOUND {{ documentKey.split(":")[1] }}</UiExplain
+            >{{
+              numberedLabel("sound", Number(documentKey.split(":")[1]), labels, "row")
+            }}</UiExplain
           >
         </h2>
       </div>
@@ -340,7 +345,7 @@ onBeforeUnmount(() => {
       :read-only="readOnly"
       :file="musicFile"
       :profile-id="profileId"
-      :replace-name="`SOUND ${documentKey.split(':')[1]}`"
+      :replace-name="numberedLabel('sound', Number(documentKey.split(':')[1]), labels, 'option')"
       @apply="applyImport"
       @cancel="
         musicFile = undefined;

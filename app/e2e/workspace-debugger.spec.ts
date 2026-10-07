@@ -64,7 +64,7 @@ for (const size of [
     await page.keyboard.type("look");
     await page.keyboard.press("Enter");
     await expect(page.getByTestId("workspace-debug-status")).toHaveText(
-      `Paused at LOGIC 1, line ${line}`,
+      `Paused at first_room · LOGIC 1, line ${line}`,
     );
     // Monaco repeats this decoration for wrapped line fragments; one visible fragment proves the stop.
     await expect(editor.locator(".workspace-stopped-line").first()).toBeVisible();
@@ -75,9 +75,13 @@ for (const size of [
     const panel = page.locator('[data-testid="workspace-debug-panel"]:visible');
     await expect(panel.getByRole("heading", { name: "Used here", exact: true })).toBeVisible();
     await expect(panel.getByRole("heading", { name: "Game", exact: true })).toBeVisible();
-    await expect(panel.getByRole("spinbutton", { name: "v255", exact: true })).toHaveCount(0);
+    await expect(panel.getByRole("spinbutton", { name: "Variable 255", exact: true })).toHaveCount(
+      0,
+    );
     await panel.getByText("All variables", { exact: true }).click();
-    await expect(panel.getByRole("spinbutton", { name: "v255", exact: true })).toBeVisible();
+    await expect(
+      panel.getByRole("spinbutton", { name: "Variable 255", exact: true }),
+    ).toBeVisible();
     await panel.getByText("All variables", { exact: true }).click();
     const toolbar = page
       .locator(".workspace-context")
@@ -162,14 +166,18 @@ test("stopped edits keep the running source, value edits and watches inspect MAI
   await page.keyboard.press("Control+`");
   await page.keyboard.type("look");
   await page.keyboard.press("Enter");
-  await expect(page.getByTestId("workspace-debug-status")).toContainText("Paused at LOGIC 1");
+  await expect(page.getByTestId("workspace-debug-status")).toContainText(
+    "Paused at first_room · LOGIC 1",
+  );
   await page.getByTestId("part-debug:variables").click();
-  await page.getByLabel("Find a value", { exact: true }).fill("v40");
-  await page.getByRole("spinbutton", { name: "v40", exact: true }).fill("77");
-  await page.getByRole("spinbutton", { name: "v40", exact: true }).press("Tab");
-  await expect(page.getByRole("spinbutton", { name: "v40", exact: true })).toHaveValue("77");
+  await page.getByLabel("Find a value", { exact: true }).fill("Variable 40");
+  await page.getByRole("spinbutton", { name: "Variable 40", exact: true }).fill("77");
+  await page.getByRole("spinbutton", { name: "Variable 40", exact: true }).press("Tab");
+  await expect(page.getByRole("spinbutton", { name: "Variable 40", exact: true })).toHaveValue(
+    "77",
+  );
   await page.getByLabel("Find a value", { exact: true }).fill("chime_done");
-  const namedFlag = page.getByRole("checkbox", { name: /^f\d+ chime_done$/ });
+  const namedFlag = page.getByRole("checkbox", { name: /^chime_done \(Flag \d+\)$/ });
   await namedFlag.check();
   await expect(namedFlag).toBeChecked();
   await page.getByTestId("part-debug:watch").click();
@@ -227,7 +235,9 @@ test("stopped edits keep the running source, value edits and watches inspect MAI
   await page.keyboard.press("Control+`");
   await page.keyboard.type("look");
   await page.keyboard.press("Enter");
-  await expect(page.getByTestId("workspace-debug-status")).toContainText("Paused at LOGIC 1");
+  await expect(page.getByTestId("workspace-debug-status")).toContainText(
+    "Paused at first_room · LOGIC 1",
+  );
   await page.keyboard.press("F10");
   await expect.poll(async () => (await textHook(page)).rows.join("\n")).toContain("blue flower");
   await page.keyboard.press("Shift+F5");
