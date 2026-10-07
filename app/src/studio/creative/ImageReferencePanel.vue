@@ -570,7 +570,7 @@ onBeforeUnmount(() => {
             :title="prepared ? '' : 'Adjust the frames first'"
             data-testid="image-preview-hero"
             @click="preview"
-            >{{ previewing ? "Stop preview" : "Try on Hero in the game" }}</UiButton
+            >{{ previewing ? "Stop preview" : "Preview on hero" }}</UiButton
           >
         </template>
         <template #commit>

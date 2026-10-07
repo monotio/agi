@@ -667,7 +667,7 @@ const noKey = computed(() => !credentialReady.value || failure.value?.reason ===
         This result belongs to an earlier version of your work. Dismiss it and start a new request.
       </p>
       <p v-else-if="compositeNote" class="generate__hint" data-testid="generate-composite">
-        Use this places the result inside your selection. The rest stays as it was.
+        The image fills your selection.
       </p>
       <div class="generate__actions">
         <UiButton
@@ -678,13 +678,13 @@ const noKey = computed(() => !credentialReady.value || failure.value?.reason ===
           "
           data-testid="generate-use"
           @click="void controller.useImage()"
-          >Use this</UiButton
+          >Use image</UiButton
         >
         <UiButton variant="secondary" data-testid="generate-again" @click="void tryAgain()"
-          >Try again</UiButton
+          >Generate again</UiButton
         >
         <UiButton variant="ghost" data-testid="generate-dismiss" @click="controller.dismissOffer()"
-          >Change the words</UiButton
+          >Edit prompt</UiButton
         >
       </div>
     </section>

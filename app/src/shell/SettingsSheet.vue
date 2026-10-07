@@ -21,7 +21,6 @@ import { useEngineApi } from "../engine/engineContext.ts";
 import { useAiSettings } from "../settings/useAiSettings.ts";
 import { useShellBridge } from "./shellBridge.ts";
 import { nextAudioMode, soundChipLabel, soundFamily } from "../audio/useAudioController.ts";
-import { useShell } from "./useShell.ts";
 
 const { touchControls, crtAmount, originalAspect, gpuBackend, debugOpen, exportBusy } =
   defineProps<{
@@ -47,7 +46,6 @@ const emit = defineEmits<{
 const { state, resumeAudio, toggleMute, setAudioMode, currentGame } = useEngineApi();
 const { aiModelLabel, aiSettingsUnavailable, openAiSettings } = useAiSettings();
 const bridge = useShellBridge();
-const shell = useShell();
 
 const sheet = useTemplateRef("sheet");
 const crtId = useId();
@@ -269,15 +267,6 @@ defineExpose({ toggle, close, open });
         aria-labelledby="settings-game"
       >
         <h3 id="settings-game">This game</h3>
-        <button
-          type="button"
-          class="settings-row"
-          data-testid="btn-edit-game"
-          :disabled="state.powerUp.busy || !shell.createAvailable.value"
-          @click="act(shell.openRemix)"
-        >
-          <span>Edit game…</span>
-        </button>
         <button
           type="button"
           class="settings-row"

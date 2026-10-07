@@ -327,7 +327,9 @@ test("make a four-cel walk loop and preview it on the running hero", async ({ pa
     .toBe(commits + 1);
   await imageShot(page, "walk-cels");
 });
-test("Generate sends one styled request and Use this opens tracing", async ({ page }) => {
+test("Generate sends one styled request and Use image opens tracing @webkit-desktop", async ({
+  page,
+}) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await start(page);
   await page.evaluate(() =>
@@ -372,6 +374,9 @@ test("Generate sends one styled request and Use this opens tracing", async ({ pa
   await page.getByTestId("generate-review").click();
   await expect(page.getByTestId("generate-review-sheet")).toHaveCount(0);
   await expect(page.getByTestId("generate-offer")).toBeVisible();
+  await expect(page.getByTestId("generate-use")).toHaveText("Use image");
+  await expect(page.getByTestId("generate-again")).toHaveText("Generate again");
+  await expect(page.getByTestId("generate-dismiss")).toHaveText("Edit prompt");
   // Use decodes and hashes the offered image before staging it. Await the
   // staging receipt so these assertions follow that work even on a busy browser.
   await page.evaluate(() => {
@@ -473,7 +478,7 @@ for (const viewport of [
     await upload(page);
     await expect(page.getByTestId("image-frame")).toHaveCount(4);
     const preview = page.getByTestId("image-preview-hero");
-    await expect(preview).toBeVisible();
+    await expect(preview).toHaveText("Preview on hero");
     await preview.scrollIntoViewIfNeeded();
     const shot = await page.screenshot({
       path: test.info().outputPath(`image-cels-${viewport.width}.png`),
