@@ -14,6 +14,7 @@ export default defineConfig({
     "workspace-debug-controls.spec.ts",
     "workspace-launch.spec.ts",
     "workspace-frame.spec.ts",
+    "room-first.spec.ts",
     "workspace-images.spec.ts",
     "logic-names.spec.ts",
     "words-phone.spec.ts",
@@ -41,7 +42,7 @@ export default defineConfig({
     "disk-import.spec.ts",
   ],
   projects: [
-    { name: "android-chromium", use: { browserName: "chromium" } },
-    { name: "iphone-webkit", use: { browserName: "webkit" } },
+    { name: "android-chromium", use: { browserName: "chromium", hasTouch: true } },
+    { name: "iphone-webkit", use: { browserName: "webkit", hasTouch: true } },
   ],
 });

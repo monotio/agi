@@ -157,13 +157,20 @@ function commitRoomRename(room: number): void {
   if (title) emit("rename", room, title);
   else emit("renameCancel");
 }
+function enterRoomRename(event: KeyboardEvent, room: number): void {
+  if (event.isComposing) return;
+  event.preventDefault();
+  event.stopPropagation();
+  commitRoomRename(room);
+}
 function cancelRoomRename(): void {
   editingRoomLocal.value = undefined;
   emit("renameCancel");
 }
-/** An add-armed naming survives the editors settling; a double-click edit ends on blur. */
+/** Keep a fresh default open while the editor settles; save typed names when focus leaves. */
 function blurRename(room: number): void {
-  if (editingRoomLocal.value !== undefined) commitRoomRename(room);
+  if (editingRoomLocal.value !== undefined || roomTitle.value.trim() !== roomLabel(room))
+    commitRoomRename(room);
 }
 watch(
   () => [engine.state.phase, engine.state.patchTick],
@@ -324,6 +331,7 @@ function onKey(event: KeyboardEvent): void {
             aria-label="Room name"
             maxlength="160"
             @focus="($event.target as HTMLInputElement).select()"
+            @keydown.enter="enterRoomRename($event, row.room!)"
             @keydown.esc.stop="cancelRoomRename"
             @blur="blurRename(row.room!)"
           />

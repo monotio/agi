@@ -1,6 +1,6 @@
 import type { Page } from "@playwright/test";
 import { test, expect } from "./test.ts";
-import { isolateStorage, textHook, workspaceUpdated } from "./engineProbe.ts";
+import { isolateStorage, textHook, workspaceSaved, workspaceUpdated } from "./engineProbe.ts";
 import { workspaceDocument } from "./workspaceShared.ts";
 
 /** The room-first journey: a blank game grows rooms, names and a door with no forms. */
@@ -33,9 +33,83 @@ async function firstRoom(page: Page, name: string): Promise<void> {
     .toEqual([0, 6]);
   await rename.fill(name);
   await rename.press("Enter");
+  await expect(page.getByTestId("part-room:1")).toBeVisible();
   await expect(page.getByTestId("part-room:1")).toContainText(name);
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
 }
+
+test.describe("touch room naming", () => {
+  test.use({ hasTouch: true });
+
+  for (const [width, height] of [
+    [1063, 815],
+    [1440, 900],
+    [390, 844],
+  ] as const) {
+    test(`leaving a fresh room name commits it before the next edit at ${width} @webkit-desktop`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height });
+      await blankGame(page, "Room names");
+      await firstRoom(page, "Meadow");
+      await workspaceUpdated(page);
+      await page.getByRole("button", { name: "Add a room", exact: true }).click();
+      const rename = page.getByTestId("room-rename-input");
+      await expect(rename).toBeVisible();
+      // Opening the editor can move focus before any typing.
+      await rename.evaluate((input) => (input as HTMLInputElement).blur());
+      await expect(rename).toBeVisible();
+      await expect(rename).toHaveValue("Room 2");
+      await rename.fill("Garden");
+      // Tapping another part closes the keyboard and keeps the name just typed.
+      const picture = page.getByTestId("part-room:1:picture:1");
+      await expect(picture).toBeVisible();
+      await picture.tap();
+      const parts = page.getByTestId("parts-list");
+      if (width <= 600 && !(await parts.isVisible()))
+        await page.getByTestId("workspace-parts").click();
+      await expect(parts).toBeVisible();
+      await workspaceSaved(page);
+      await test.info().attach(`room-name-${width}`, {
+        body: await page.screenshot({
+          path: test.info().outputPath(`room-name-${width}.png`),
+          animations: "disabled",
+          scale: "css",
+        }),
+        contentType: "image/png",
+      });
+      const world = JSON.parse(await workspaceDocument(page, "world")) as {
+        rooms: Record<string, { title: string }>;
+      };
+      expect(world.rooms["2"]?.title).toBe("Garden");
+      const room = page.getByTestId("part-room:2");
+      await expect(room).toBeVisible();
+      await expect(room).toContainText("Garden");
+      await page.getByRole("button", { name: "Add a room", exact: true }).click();
+      await expect(rename).toBeVisible();
+      await expect(rename).toHaveValue("Room 3");
+      await rename.fill("Forest");
+      // Finishing an IME word keeps naming open; Enter itself then commits the name.
+      await rename.dispatchEvent("keydown", { key: "Enter", isComposing: true });
+      await expect(rename).toBeVisible();
+      await expect(rename).toHaveValue("Forest");
+      await rename.dispatchEvent("keydown", { key: "Enter" });
+      const third = page.getByTestId("part-room:3");
+      await expect(third).toBeVisible();
+      await expect(third).toContainText("Forest");
+      await expect(room).toBeVisible();
+      await expect(room).toContainText("Garden");
+      await workspaceUpdated(page);
+      await page.reload();
+      if (width <= 600 && !(await parts.isVisible()))
+        await page.getByTestId("workspace-parts").click();
+      await expect(room).toBeVisible();
+      await expect(room).toContainText("Garden");
+      await expect(third).toBeVisible();
+      await expect(third).toContainText("Forest");
+    });
+  }
+});
 
 test("blank game to Meadow, Room 2, a door drawn on the game and Play Room 2 @webkit-desktop", async ({
   page,
