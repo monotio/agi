@@ -91,7 +91,7 @@ for (const [width, height] of [
       await open(page, "part-room:8:logic");
       expect((await textHook(page)).room).toBe(1);
       await expect(page.getByTestId("workspace-update")).toBeVisible();
-      await expect(page.getByTestId("workspace-update")).toHaveText("Play Garden");
+      await expect(page.getByTestId("workspace-update")).toHaveAccessibleName("Play Garden");
       await page.getByTestId("workspace-update").click();
       await expect.poll(async () => (await textHook(page)).room).toBe(8);
       await expect.poll(() => screenText(page)).toContain("Preview death");

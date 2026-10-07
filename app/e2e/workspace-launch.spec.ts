@@ -34,14 +34,16 @@ for (const [width, height] of [
       await focusWorkspaceLogic(page);
       const action = page.getByTestId("workspace-update");
       await expect(action).toBeVisible();
-      await expect(action).toHaveText("Restart Home");
+      await expect(action).toHaveAccessibleName("Restart Home");
       await launchShot(page, `restart-${width}`, browserName);
       await open(page, "part-room:8:logic");
       await expect(
         page.getByTestId("workspace-logic-editor").filter({ visible: true }),
       ).toBeVisible();
       expect((await textHook(page)).room).toBe(1);
-      await expect(action).toHaveText("Play Garden");
+      await expect(action).toHaveAccessibleName("Play Garden");
+      await expect(action).toHaveAttribute("title", "Play Garden (⌘↵ / Ctrl+Enter)");
+      const cleanWidth = (await action.boundingBox())!.width;
       await launchShot(page, `play-${width}`, browserName);
       const source = await runningWorkspaceDocument(page, "logic:8");
       await focusWorkspaceLogic(page);
@@ -51,7 +53,12 @@ for (const [width, height] of [
       );
       await page.keyboard.press("Escape");
       await workspaceSaved(page);
-      await expect(action).toHaveText("Update and restart Garden");
+      await expect(action).toHaveAccessibleName("Update and restart Garden");
+      // Update takes the room space the button already kept: no shift.
+      await expect(action.locator(".workspace-action__label").first()).toHaveText(
+        /^Update\s*Garden$/,
+      );
+      expect((await action.boundingBox())!.width).toBeCloseTo(cleanWidth, 0);
       const modes = page.getByRole("radiogroup", { name: "Mode", exact: true });
       await expect(modes).toBeVisible();
       const bounds = await modes.boundingBox();
@@ -75,12 +82,21 @@ for (const [width, height] of [
       await launchShot(page, `menu-${width}`, browserName);
       await page.getByRole("menuitem", { name: "From the beginning", exact: false }).click();
       await expect(page.getByRole("menu")).toBeHidden();
-      await expect(action).toHaveText("Play from beginning");
+      // The button shows the selected launch beside its room.
+      await expect(action).toHaveAccessibleName(
+        "Restart Garden with the launch From the beginning",
+      );
+      await expect(action.locator(".workspace-action__label").first()).toHaveText(
+        "Garden · From the beginning",
+      );
+      await launchShot(page, `launch-${width}`, browserName);
       expect((await textHook(page)).room).toBe(8);
       await open(page, "part-room:1:logic");
-      await expect(action).toHaveText("Play Home");
+      await expect(action).toHaveAccessibleName("Play Home");
       await open(page, "part-room:8:logic");
-      await expect(action).toHaveText("Play from beginning");
+      await expect(action).toHaveAccessibleName(
+        "Restart Garden with the launch From the beginning",
+      );
     });
   });
 }
@@ -144,7 +160,7 @@ test("Update result names the launched room after another editor opens", async (
   await expect(result).toBeVisible();
   await expect(result).toContainText("Updated · Home restarted");
   expect((await textHook(page)).room).toBe(1);
-  await expect(action).toHaveText("Play Garden");
+  await expect(action).toHaveAccessibleName("Play Garden");
 });
 
 test("Update keeps the room chosen before drafts flush @webkit-desktop", async ({ page }) => {
@@ -181,7 +197,7 @@ test("Update keeps the room chosen before drafts flush @webkit-desktop", async (
   });
   const action = page.getByTestId("workspace-update");
   await expect(action).toBeVisible();
-  await expect(action).toHaveText("Update and restart Home");
+  await expect(action).toHaveAccessibleName("Update and restart Home");
   await action.click();
   await expect.poll(() => page.evaluate(() => Reflect.get(window, "draftFlushHeld"))).toBe(true);
   await open(page, "part-room:8:logic");
@@ -190,7 +206,7 @@ test("Update keeps the room chosen before drafts flush @webkit-desktop", async (
   await expect(result).toBeVisible();
   await expect(result).toContainText("Updated · Home restarted");
   expect((await textHook(page)).room).toBe(1);
-  await expect(action).toHaveText("Play Garden");
+  await expect(action).toHaveAccessibleName("Play Garden");
 });
 
 test("F5 in room LOGIC debugs the selected Launch before its first instruction @webkit-desktop", async ({
@@ -323,7 +339,7 @@ test("create a Launch for Room 2 with a flag and Came from, select it, Restart R
   await open(page, "part-room:2:logic");
   const action = page.getByTestId("workspace-update");
   await expect(action).toBeVisible();
-  await expect(action).toHaveText("Play Meadow");
+  await expect(action).toHaveAccessibleName("Play Meadow");
 
   // 2. Open the ▾ dropdown menu and click "New launch…"
   await page.getByTestId("workspace-update-menu").click();
@@ -408,7 +424,8 @@ test("create a Launch for Room 2 with a flag and Came from, select it, Restart R
   });
   await page.keyboard.press("Escape");
 
-  // 7. Click "Play Meadow" to start Room 2 with the launch configuration
+  // 7. The button names the selected launch; click it to start Room 2 with it.
+  await expect(action).toHaveAccessibleName(/ Meadow with the launch Launch 1$/);
   await action.click();
   await expect.poll(() => screenText(page)).toContain("Flag 70 is active");
   await page.screenshot({
@@ -422,7 +439,7 @@ test("create a Launch for Room 2 with a flag and Came from, select it, Restart R
   await expect.poll(async () => (await textHook(page)).room).toBe(2);
 
   // 8. Restart Meadow again! Screen text shows the flag's effect twice in a row!
-  await expect(action).toHaveText("Restart Meadow");
+  await expect(action).toHaveAccessibleName("Restart Meadow with the launch Launch 1");
   await action.click();
   await expect.poll(() => screenText(page)).toContain("Flag 70 is active");
   await page.screenshot({

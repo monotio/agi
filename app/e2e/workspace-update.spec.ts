@@ -87,10 +87,14 @@ test("invalid drafts report a problem and discard restores the editor @webkit-de
   const before = await runningWorkspaceDocument(page, "logic:1");
   await draft(page, "if (");
   await expect(page.getByTestId("workspace-update")).toBeVisible();
-  await expect(page.getByTestId("workspace-update")).toHaveText("Update and restart Meadow");
+  await expect(page.getByTestId("workspace-update")).toHaveAccessibleName(
+    "Update and restart Meadow",
+  );
   await page.keyboard.press("ControlOrMeta+Enter");
   await expect(page.getByTestId("workspace-update")).toBeVisible();
-  await expect(page.getByTestId("workspace-update")).toHaveText("Update and restart Meadow");
+  await expect(page.getByTestId("workspace-update")).toHaveAccessibleName(
+    "Update and restart Meadow",
+  );
   expect(await runningWorkspaceDocument(page, "logic:1")).toBe(before);
   await page.getByTestId("workspace-update").click();
   // The Problems tab opens; it closes with its own ×.

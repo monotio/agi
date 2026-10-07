@@ -148,7 +148,7 @@ test.describe("Play continuation", () => {
     const fromGame = page.getByRole("menuitem", { name: "From my game", exact: true });
     await expect(fromGame).toBeVisible();
     await fromGame.click();
-    await expect(action).toHaveText("Play from my game");
+    await expect(action).toHaveAccessibleName("Play from my game");
     await action.click();
     await expect.poll(() => screenText(page)).toContain("Your moment");
     expect(await checkpoint(page)).toEqual(original);

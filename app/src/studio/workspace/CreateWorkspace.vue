@@ -67,6 +67,7 @@ import { derivedLogicSource } from "../logic/logicWorkspace.ts";
 import { roomPictureNumber } from "../logic/guided/guidedPreview.ts";
 import { createWorkspacePending } from "./workspacePending.ts";
 import type { WorkspaceAction } from "./workspaceGuided.ts";
+import { launchAction, launchName } from "../../shell/launchAction.ts";
 import { useWorkspaceDebug, type LogicEditorHandle } from "./useWorkspaceDebug.ts";
 const props = defineProps<{ creating: boolean }>();
 const NotesEditor = defineAsyncComponent(() => import("./NotesEditor.vue"));
@@ -2183,7 +2184,13 @@ onBeforeUnmount(() => {
           :title="
             writeConflict
               ? 'Editing is paused. Download your unsaved edits, then reload.'
-              : 'Play the selected launch'
+              : launchAction({
+                  pending: editor.changeCount.value > 0,
+                  launch: editor.selectedLaunch.value,
+                  launchName: launchName(editor.selectedLaunch.value, editor.launchChoices.value),
+                  room: editor.actionRoomName.value,
+                  here: engine.roomMap.currentRoom.value === editor.actionRoom.value,
+                }).label
           "
           @click="updateGame()"
           >▶ Play {{ editor.actionRoomName.value }}</UiButton

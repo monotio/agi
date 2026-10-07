@@ -222,7 +222,7 @@ test("the game bar names the running room; Play visits and Back returns @webkit-
   await expect(bar.getByRole("button", { name: "Back to Room 1", exact: true })).toHaveCount(0);
   const action = page.getByTestId("workspace-update");
   await expect(action).toBeVisible();
-  await expect(action).toHaveText("Play Garden");
+  await expect(action).toHaveAccessibleName("Play Garden");
   await action.click();
   await expect.poll(async () => (await textHook(page)).room).toBe(2);
   await expect(bar.getByTestId("workspace-room")).toHaveText("Room 2 · Garden");

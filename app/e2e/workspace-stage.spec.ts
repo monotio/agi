@@ -16,7 +16,7 @@ async function updateKeepPlaying(page: Page): Promise<void> {
   const pending = page.getByTestId("workspace-pending");
   if (!(await pending.isVisible())) return;
   await workspaceSaved(page);
-  await expect(page.getByTestId("workspace-update")).toHaveText(/^Update and restart /);
+  await expect(page.getByTestId("workspace-update")).toHaveAccessibleName(/^Update and restart /);
   await expect(page.getByTestId("workspace-update-menu")).toBeEnabled();
   await page.getByTestId("workspace-update-menu").click();
   const action = page.getByRole("menuitem", { name: "Update and keep playing", exact: true });
@@ -399,7 +399,7 @@ for (const size of [
     const selectedTab = page.getByRole("tab", { selected: true });
     await expect(selectedTab).toBeVisible();
     await expect(selectedTab).toHaveText("LOGIC 8");
-    await expect(page.getByTestId("workspace-update")).toHaveText("Play Garden");
+    await expect(page.getByTestId("workspace-update")).toHaveAccessibleName("Play Garden");
     await expect.poll(async () => (await textHook(page)).paused).toBe(false);
     await page.screenshot({
       path: test.info().outputPath(`redirect-${size.width}.png`),
@@ -495,8 +495,7 @@ for (const size of [
       page.getByTestId("workspace-logic-editor").filter({ visible: true }),
     ).toBeVisible();
     await playRoom(page);
-    if (size.width <= 600)
-      await page.getByRole("button", { name: "Game", exact: true }).click();
+    if (size.width <= 600) await page.getByRole("button", { name: "Game", exact: true }).click();
     const surface = page.locator(".game-surface:visible");
     await expect(surface).toBeVisible();
     const ratio = await surface.evaluate(

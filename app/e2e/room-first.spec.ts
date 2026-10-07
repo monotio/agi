@@ -236,11 +236,11 @@ test("blank game to Meadow, Room 2, a door drawn on the game and Play Room 2 @we
   }
   // Update publishes the work; then the action button offers Play Room 2.
   const action = page.getByTestId("workspace-update");
-  await expect(action).toHaveText("Update and restart Meadow");
+  await expect(action).toHaveAccessibleName("Update and restart Meadow");
   await action.click();
   await workspaceUpdated(page);
   await page.getByTestId("part-room:2:picture:2").click();
-  await expect(action).toHaveText("Play Room 2");
+  await expect(action).toHaveAccessibleName("Play Room 2");
   await page.screenshot({
     path: test.info().outputPath("1440-play-room-2.png"),
     animations: "disabled",
