@@ -378,3 +378,125 @@ test("Ask holds its chat while persistence waits, and retains the answer after a
     session.dispose();
   }
 });
+
+test("one conversation captures each turn's authority and keeps stable request identities across navigation and reload", async () => {
+  const session = inspectionFixture();
+  const options = {
+    session,
+    profileId: "2.936" as const,
+    config: () => ({ provider: "stub" as const, model: "stub", apiKey: "" }),
+  };
+  const results: { toolCallId: string; result: AgentToolResult }[] = [];
+  const agent = borrowWorkspaceAgent({
+    ...options,
+    conversation: () =>
+      scriptedConversation(
+        [
+          {
+            toolCalls: [
+              {
+                id: "edit",
+                name: "propose_changes",
+                input: {
+                  label: "Comment",
+                  changes: [{ key: "logic:1", content: "// approved scope\nreturn;" }],
+                },
+              },
+            ],
+          },
+          { text: "A reply.", toolCalls: [] },
+        ],
+        results,
+      ),
+  });
+  try {
+    await agent.submit({ instruction: "Change the game", mode: "play", context: "Current room 1" });
+    await agent.submit({
+      instruction: "Suggest commands",
+      mode: "create",
+      readOnly: true,
+      context: "Words",
+    });
+    await agent.submit({ instruction: "Add a comment", mode: "create", context: "Words" });
+    assert.deepEqual(
+      results.map(({ result }) => result.success),
+      [false, false, true],
+    );
+    assert.equal(borrowWorkspaceAgent(options), agent);
+    const chat = agent.current();
+    const requests = chat.messages.filter((message) => message.request);
+    assert.deepEqual(
+      requests.map((message) => message.request!.capability),
+      ["inspect", "inspect", "edit"],
+    );
+    assert.equal(new Set(requests.map((message) => message.request!.id)).size, 3);
+    for (const message of chat.messages.filter((message) => message.role === "assistant"))
+      assert.ok(requests.some((request) => request.request!.id === message.taskId));
+    const pending = agent.pending()!;
+    await agent.reject();
+    assert.equal(agent.reviewFor(pending.messageId)!.label, "Comment");
+    assert.equal(agent.current().messages.at(-1)!.result!.kind, "changes");
+    const reloaded = createWorkspaceAgent(options);
+    assert.deepEqual(reloaded.current().messages, agent.current().messages);
+    assert.deepEqual(reloaded.reviewFor(pending.messageId), agent.reviewFor(pending.messageId));
+  } finally {
+    session.dispose();
+  }
+});
+
+test("queued followups retain Play authority and reach the provider once at the next boundary", async () => {
+  const session = inspectionFixture();
+  const released = Promise.withResolvers<void>();
+  const entered = Promise.withResolvers<void>();
+  const prompts: string[] = [];
+  const results: { toolCallId: string; result: AgentToolResult }[] = [];
+  const agent = createWorkspaceAgent({
+    session,
+    profileId: "2.936",
+    config: () => ({ provider: "stub", model: "stub", apiKey: "" }),
+    conversation: () => ({
+      ...scriptedConversation([], results),
+      async sendUserMessage(text) {
+        prompts.push(text);
+        if (prompts.length === 1) {
+          entered.resolve();
+          await released.promise;
+          return { text: "Initial answer", toolCalls: [] };
+        }
+        return {
+          toolCalls: [
+            {
+              id: "edit",
+              name: "propose_changes",
+              input: { label: "Forbidden", changes: [{ key: "logic:1", content: "return;" }] },
+            },
+          ],
+        };
+      },
+      async complete() {
+        return { text: "Still read-only", toolCalls: [] };
+      },
+    }),
+  });
+  try {
+    const running = agent.submit({ instruction: "Explain", mode: "play" });
+    await entered.promise;
+    agent.steer("Change it now");
+    const queued = agent.current().messages.at(-1)!;
+    assert.equal(queued.delivery, "queued");
+    assert.equal(queued.taskId, agent.activeRequest!.id);
+    released.resolve();
+    assert.equal(await running, "Still read-only");
+    assert.equal(prompts.length, 2);
+    assert.match(prompts[1]!, /Change it now/);
+    assert.equal(
+      agent.current().messages.find((message) => message.id === queued.id)!.delivery,
+      "received",
+    );
+    assert.equal(results[0]!.result.success, false);
+    assert.equal(agent.pending(), null);
+  } finally {
+    released.resolve();
+    session.dispose();
+  }
+});

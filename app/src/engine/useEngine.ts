@@ -1239,6 +1239,9 @@ export function useEngine(
         });
     },
     takePlayBack: () => progressOwnership.takeBack(),
+    async getConversationAgent() {
+      return (await loadAuthoringController()).getConversationAgent();
+    },
     getProjectSession: () => projectSession,
     async setRoomGeneration(
       projectId: ProjectId,

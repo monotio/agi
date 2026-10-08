@@ -43,6 +43,7 @@ import { DEFAULT_TASK_BUDGET_USD } from "../settings/aiSettings.ts";
 
 export class AgentRun {
   private state: AgentRunState;
+  private readonly observers = new Set<() => void>();
   private account: ProviderBudget | null = null;
   private readonly model: string;
   private readonly changed: (state: AgentRunState) => void;
@@ -98,8 +99,13 @@ export class AgentRun {
       progress: this.state.progress ? { ...this.state.progress } : null,
     };
   }
+  subscribe(observer: () => void): () => void {
+    this.observers.add(observer);
+    return () => this.observers.delete(observer);
+  }
   private publish(): void {
     this.changed(this.snapshot());
+    for (const observer of this.observers) observer();
   }
   updateProgress(phase?: AgentProgress["phase"], text = "", tool?: string): void {
     const progress = this.state.progress;

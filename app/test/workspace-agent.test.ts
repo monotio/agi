@@ -960,6 +960,7 @@ test("Ask continues the current task chat with read-only tools and game notes", 
   assert.equal(agent.current().id, first);
   assert.deepEqual(agent.current().messages[0], {
     id: agent.current().messages[0]!.id,
+    request: agent.current().messages[0]!.request,
     role: "user",
     text: "Where next?",
     context: "Room 1\nReturn concise hints.",
@@ -1006,6 +1007,7 @@ test("Ask stores a formatted reply with raw context and keeps ordinary follow-up
   const message = agent.current().messages.at(-1)!;
   assert.deepEqual(message, {
     id: message.id,
+    taskId: agent.current().messages[0]!.request!.id,
     role: "assistant",
     text: "Suggested inspect",
     context: raw,

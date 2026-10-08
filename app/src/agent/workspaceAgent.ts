@@ -23,7 +23,11 @@ import { createProjectInspection } from "../../../src/agent/projectInspection.ts
 import { computeResourceRevision } from "../../../src/authoring/resourceRevision.ts";
 import { compileProjectDocuments } from "../../../src/authoring/projectDocuments.ts";
 import { ProjectModel } from "../../../src/authoring/projectModel.ts";
-import { diffProjectDocuments, sameProjectContent } from "../../../src/authoring/projectContent.ts";
+import {
+  diffProjectDocuments,
+  projectDocumentId,
+  sameProjectContent,
+} from "../../../src/authoring/projectContent.ts";
 import {
   readProjectWorkspace,
   writeProjectWorkspace,
@@ -40,7 +44,14 @@ import { disassemblePicture } from "../../../src/picture/source.ts";
 import type { ProjectProposal } from "../../../src/authoring/projectModel.ts";
 import type { ProjectSession } from "../project/projectSession.ts";
 import type { ProfileId } from "../../../src/runtime/profile.ts";
-import { readAgentChats, chatTitle, type AgentChat } from "../../../src/agent/chats.ts";
+import {
+  readAgentChats,
+  chatTitle,
+  type AgentChat,
+  type AgentRequest,
+  type AgentResult,
+  type PendingAgentReview,
+} from "../../../src/agent/chats.ts";
 import type { AgentToolResult } from "../../../src/agent/agentState.ts";
 import { VOCABULARY_ACTIONS } from "../../../src/vocabulary.ts";
 import { WORKSPACE_AGENT_TOOLS } from "./workspaceAgentTools.ts";
@@ -60,8 +71,20 @@ export interface AgentReview {
   changes(): ReturnType<ProjectProposal["changes"]>;
   stale(): boolean;
 }
-export type ReplyFormatter = (reply: string) => { text: string; context?: string };
+export type ReplyFormatter = (reply: string) => {
+  text: string;
+  context?: string;
+  result?: AgentResult;
+};
+export interface AgentSubmission extends AgentTurnContext {
+  readonly instruction: string;
+  readonly context?: string;
+  readonly mode: "play" | "create";
+  readonly readOnly?: boolean;
+  readonly formatReply?: ReplyFormatter;
+}
 export interface AgentTurnContext {
+  readonly mode?: "play" | "create";
   readonly profileId?: ProfileId;
   readonly runtime?: () => AgentRuntimeDeps;
 }
@@ -329,6 +352,9 @@ export function createWorkspaceAgent(options: Options) {
   }
   review = store.active === null ? null : (reviews.get(store.active) ?? null);
   let activeRun: AgentRun | null = null;
+  let activeRequest: AgentRequest | null = null;
+  let nextSteps: { id: string; text: string }[] = [];
+  let acceptingSteps = false;
   const completedRuns = new Map<string, AgentRunState>();
   let autoApprove = false;
   const reviewOutcomes = new Map<string, string>();
@@ -466,7 +492,19 @@ export function createWorkspaceAgent(options: Options) {
       const commit = session.history.capture().cursor!;
       const chat = store.chats.find((chat) => chat.id === approving.chatId)!;
       chat.messages = chat.messages.map((message) =>
-        message.id === approving.messageId ? { ...message, beforeCommit: before, commit } : message,
+        message.id === approving.messageId
+          ? {
+              ...message,
+              beforeCommit: before,
+              commit,
+              result: {
+                kind: "changes",
+                documentId: session.model.capture().documentId,
+                resources: changes.map((change) => change.key),
+                status: "applied",
+              },
+            }
+          : message,
       );
       reviewOutcomes.set(approving.messageId, automatic ? "Applied automatically" : "Approved");
       action(chat, "approve", {
@@ -611,8 +649,21 @@ export function createWorkspaceAgent(options: Options) {
     const run = new AgentRun(config.model, () => notify(), config.budgetUsd);
     activeRun = run;
     const userId = id();
+    const request: AgentRequest = {
+      id: userId,
+      mode: turnContext.mode ?? "create",
+      capability: readOnly ? "inspect" : "edit",
+      profileId,
+      documentId: base.documentId,
+      revision: base.revision,
+      context,
+    };
+    activeRequest = request;
+    nextSteps = [];
+    acceptingSteps = true;
     chat.messages.push({
       id: userId,
+      request,
       role: "user",
       text: instruction,
       ...(context ? { context } : {}),
@@ -630,6 +681,21 @@ export function createWorkspaceAgent(options: Options) {
     function flushActions() {
       for (const text of actionQueue ?? []) provider?.recordInterruption?.(text);
       actionQueue = [];
+    }
+    async function receiveNextSteps() {
+      if (!nextSteps.length) return undefined;
+      assertLive();
+      const receiving = nextSteps;
+      nextSteps = [];
+      chat.messages = chat.messages.map((message) =>
+        receiving.some((step) => step.id === message.id)
+          ? { ...message, delivery: "received" }
+          : message,
+      );
+      notify();
+      return provider!.sendUserMessage(
+        `Follow-up for the current task. Keep this turn's original capabilities and context. Reconsider pending changes before handover.\n${receiving.map((step) => step.text).join("\n\n")}`,
+      );
     }
     let handedOver = false;
     let failedSave: { cause: unknown } | undefined;
@@ -663,6 +729,13 @@ export function createWorkspaceAgent(options: Options) {
       chat.messages.push({
         id: messageId,
         role: "assistant",
+        taskId: request.id,
+        result: {
+          kind: "changes",
+          documentId: base.documentId,
+          resources: changes.map((change) => change.key),
+          status: "pending",
+        },
         text: [text || proposal.label, selectionReview].filter(Boolean).join("\n\n"),
       });
       const capturedDocumentId = base.documentId;
@@ -777,7 +850,7 @@ export function createWorkspaceAgent(options: Options) {
           review?.chatId === chat.id
             ? `\nPrevious changes for revision:\n${JSON.stringify(review.changes())}`
             : "";
-        const prompt = `${readOnly ? "Answer questions about this game using read-only tools and concise hints." : "You are the game's agent. Edit any resource through one coordinated change set. Read exact documents, retain existing ids and references, and use propose_changes for the final complete set. Whole-game tools stage edits. Call finish when the task is complete; repair a rejected handover before finishing. A successful finish ends the tool batch and hands the validated changes to the creator. Include concise progress notes with your next tool call while work remains."} Write concise progress notes between tools. Game notes:\n${typeof currentNotes === "string" ? currentNotes : ""}\nAttached context:\n${context}\n${sendReference ? reference.text : ""}${revised}\nRequest:\n${instruction}`;
+        const prompt = `${readOnly ? "Answer questions about this game using read-only tools and concise hints." : "You are the game's agent. Answer questions directly; edit when the user requests a change. Attached context identifies the current focus and does not restrict the resources you may inspect or change. Edit any resource through one coordinated change set. Read exact documents, retain existing ids and references, and use propose_changes for the final complete set. Whole-game tools stage edits. Call finish when the task is complete; repair a rejected handover before finishing. A successful finish ends the tool batch and hands the validated changes to the creator. Include concise progress notes with your next tool call while work remains."} Write concise progress notes between tools. Game notes:\n${typeof currentNotes === "string" ? currentNotes : ""}\nAttached context:\n${context}\n${sendReference ? reference.text : ""}${revised}\nRequest:\n${instruction}`;
         let turn = await provider.sendUserMessage(
           prompt,
           sendReference ? [reference.image] : undefined,
@@ -793,7 +866,16 @@ export function createWorkspaceAgent(options: Options) {
             );
             notify();
           }
-          if (turn.toolCalls.length === 0) break;
+          if (turn.toolCalls.length === 0) {
+            const followup = await receiveNextSteps();
+            if (!followup) {
+              if (nextSteps.length) continue;
+              acceptingSteps = false;
+              break;
+            }
+            turn = followup;
+            continue;
+          }
           const results = unreported;
           for (const call of turn.toolCalls) {
             progress.push(
@@ -1029,9 +1111,17 @@ export function createWorkspaceAgent(options: Options) {
                 call.name === "propose_changes" &&
                 result.success &&
                 !forceReview &&
+                nextSteps.length === 0 &&
                 (autoApprove || automatic)
               ) {
-                await offer(String(call.input["label"]));
+                acceptingSteps = false;
+                notify();
+                try {
+                  await offer(String(call.input["label"]));
+                } finally {
+                  acceptingSteps = true;
+                  notify();
+                }
                 result = {
                   ...result,
                   message: review?.stale()
@@ -1056,7 +1146,17 @@ export function createWorkspaceAgent(options: Options) {
           provider.appendToolResults(results);
           unreported = [];
           flushActions();
-          if (handedOver) break;
+          const followup = await receiveNextSteps();
+          if (followup) {
+            handedOver = false;
+            turn = followup;
+            continue;
+          }
+          if (handedOver) {
+            if (nextSteps.length) continue;
+            acceptingSteps = false;
+            break;
+          }
           try {
             turn = await provider.complete();
           } catch (cause) {
@@ -1073,6 +1173,7 @@ export function createWorkspaceAgent(options: Options) {
           chat.messages.push({
             id: id(),
             role: "assistant",
+            taskId: request.id,
             ...(formatReply ? formatReply(turn.text ?? "") : { text: turn.text ?? "Finished." }),
           });
       });
@@ -1125,21 +1226,27 @@ export function createWorkspaceAgent(options: Options) {
       actionChat = null;
       appliedDuringRun = null;
       if (provider) chat.transcript = provider.getTranscript();
-      if (!readOnly) busy = false;
       completedRuns.set(chat.id, run.snapshot());
       activeRun = null;
+      activeRequest = null;
+      acceptingSteps = false;
+      const undelivered = nextSteps;
+      nextSteps = [];
+      chat.messages = chat.messages.map((message) =>
+        undelivered.some((step) => step.id === message.id)
+          ? { ...message, delivery: "cancelled" }
+          : message,
+      );
       try {
         await save();
-        if (readOnly) await session.flush();
+        await session.flush();
         chatSaveError = "";
       } catch (cause) {
         if (!readOnly) failedSave = { cause };
-        else {
-          chatSaveError = "Saving the conversation failed. Retry save.";
-          progress.push(cause instanceof Error ? cause.message : String(cause));
-        }
+        chatSaveError = "Saving the conversation failed. Retry save.";
+        progress.push(cause instanceof Error ? cause.message : String(cause));
       } finally {
-        if (readOnly) busy = false;
+        busy = false;
         notify();
       }
     }
@@ -1190,6 +1297,72 @@ export function createWorkspaceAgent(options: Options) {
   }
   return {
     current,
+    get activeRequest() {
+      return activeRequest ? { ...activeRequest } : null;
+    },
+    get canSteer() {
+      return acceptingSteps && activeRequest !== null && activeRun !== null;
+    },
+    steer(instruction: string) {
+      if (!acceptingSteps || !activeRequest || !activeRun || !actionChat)
+        throw new Error("The task has finished. Send a new message.");
+      const text = instruction.trim();
+      if (!text) return;
+      const messageId = id();
+      const chat = store.chats.find((entry) => entry.id === actionChat)!;
+      chat.messages.push({
+        id: messageId,
+        role: "user",
+        text,
+        taskId: activeRequest.id,
+        delivery: "queued",
+      });
+      nextSteps.push({ id: messageId, text });
+      notify();
+    },
+    reviewFor(messageId: string): PendingAgentReview | undefined {
+      const chat = store.chats.find((entry) =>
+        entry.messages.some((message) => message.id === messageId),
+      );
+      const message = chat?.messages.find((entry) => entry.id === messageId);
+      if (chat?.pendingReview?.messageId === messageId) return structuredClone(chat.pendingReview);
+      if (message?.review) return structuredClone(message.review);
+      if (!message?.commit || !message.beforeCommit) return undefined;
+      const history = session.history.capture();
+      const before = history.commits.find((entry) => entry.id === message.beforeCommit);
+      const after = history.commits.find((entry) => entry.id === message.commit);
+      if (!before || !after) return undefined;
+      const documents = (commit: typeof before) =>
+        Object.fromEntries(
+          Object.entries(commit.documents).flatMap(([key, hash]) =>
+            hash ? [[key, history.blobs[hash]!]] : [],
+          ),
+        );
+      return {
+        label: after.label,
+        messageId,
+        baseRevision:
+          chat?.messages.find((entry) => entry.request?.id === message.taskId)?.request?.revision ??
+          0,
+        baseDocumentId: projectDocumentId(documents(before), sha256Hex),
+        baseCommit: before.id,
+        base: writeProjectWorkspace(documents(before)),
+        candidate: writeProjectWorkspace(documents(after)),
+      };
+    },
+    async submit(request: AgentSubmission) {
+      const chat = store.chats.find((chat) => chat.id === store.active)!;
+      await drive(
+        chat,
+        request.instruction,
+        request.context ?? "",
+        request.mode === "play" || request.readOnly === true,
+        false,
+        request.formatReply,
+        request,
+      );
+      return chat.messages.at(-1)?.text ?? "";
+    },
     reviewOutcome(messageId: string): string | undefined {
       return (
         reviewOutcomes.get(messageId) ??
@@ -1309,6 +1482,20 @@ export function createWorkspaceAgent(options: Options) {
       if (review) {
         const chat = store.chats.find((chat) => chat.id === review!.chatId)!;
         reviewOutcomes.set(review.messageId, "Rejected");
+        chat.messages = chat.messages.map((message) =>
+          message.id === review!.messageId
+            ? {
+                ...message,
+                ...(chat.pendingReview ? { review: structuredClone(chat.pendingReview) } : {}),
+                result: {
+                  kind: "changes",
+                  documentId: chat.pendingReview!.baseDocumentId,
+                  resources: review!.changes().map((change) => change.key),
+                  status: "rejected",
+                },
+              }
+            : message,
+        );
         action(chat, "reject", {
           resources: review.changes().map((change) => change.key),
           outcome: "discarded",

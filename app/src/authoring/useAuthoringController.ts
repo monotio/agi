@@ -67,6 +67,7 @@ import { projectProgressTarget } from "../project/progressTarget.ts";
 import { requireProjectId, type ProjectId } from "../../../src/gameIdentity.ts";
 import type { LogAgentFn } from "../play/useInputController.ts";
 import type { WorkerInbound, WorkerQueryFn } from "../worker/workerProtocol.ts";
+import type { ConversationAgent } from "../agent/installedConversation.ts";
 import type { borrowWorkspaceAgent } from "../agent/workspaceAgent.ts";
 import type { AwaitPatchedFn } from "../engine/workerQueries.ts";
 import type { HistoryBoot } from "../../../src/agent/history.ts";
@@ -181,6 +182,7 @@ export interface AuthoringControllerOptions {
 }
 
 export interface AuthoringController {
+  getConversationAgent(): Promise<ConversationAgent | null>;
   openPowerUp(config: LlmConfig): Promise<void>;
   closePowerUp(): void;
   submitPowerUp(instruction: string, referenceIds?: readonly string[]): Promise<void>;
@@ -324,6 +326,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
   const projectTurnBases = new WeakMap<BootedGame, ProjectSnapshot>();
   let session: AgentSession | null = null;
   let activeAskAgent: ReturnType<typeof borrowWorkspaceAgent> | null = null;
+  const installedConversations = new WeakMap<AgentSession, ConversationAgent>();
   let retryConversationSave: (() => Promise<void>) | null = null;
   let requestGeneration = 0;
   let roomActive = false;
@@ -627,6 +630,39 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
    * Enter remix mode: pause the interpreter, freeze ego in place, and open
    * the assistant bubble for the current room.
    */
+  async function getConversationAgent(): Promise<ConversationAgent | null> {
+    const booted = getBootedGame();
+    const config = getLlmConfig?.();
+    if (!booted || !config) return null;
+    const project = options.getProjectSession?.();
+    if (project) {
+      const { borrowWorkspaceAgent } = await import("../agent/workspaceAgent.ts");
+      if (getBootedGame() !== booted || options.getProjectSession?.() !== project) return null;
+      const agent = borrowWorkspaceAgent({
+        session: project,
+        profileId: project.model.capture().lastAdmissibleBuild!.identity.profileId,
+        config: getLlmConfig!,
+        runtime: getAgentRuntime,
+      });
+      return agent;
+    }
+    const author = await getOrCreateSession(booted, config);
+    const existing = installedConversations.get(author);
+    if (existing) return existing;
+    const { createInstalledConversation } = await import("../agent/installedConversation.ts");
+    const locator = installedConversationLocator(booted);
+    const agent = createInstalledConversation({
+      id: `installed-${JSON.stringify(locator ?? booted.revision)}`,
+      title: booted.title,
+      author,
+      room: () => state.powerUp.room,
+      save: () => saveConversation(booted, author),
+      current: () => getBootedGame() === booted && session === author,
+    });
+    installedConversations.set(author, agent);
+    return agent;
+  }
+
   async function openPowerUp(config: LlmConfig): Promise<void> {
     if (state.powerUp.busy) return;
     if (state.powerUp.open && state.powerUp.mode === "room") return;
@@ -661,7 +697,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
         session = await createGameSession(booted, config);
       }
       if (!session) throw new Error("no game is running");
-      state.powerUp.messages = session.getMessages();
+      if (!options.getProjectSession?.()) state.powerUp.messages = session.getMessages();
       if (!session.isConfigured()) {
         state.powerUp.needsConfig = true;
         return;
@@ -712,7 +748,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
 
     session = replacement;
     state.agentTask = replacement.task.snapshot();
-    state.powerUp.messages = replacement.getMessages();
+    if (!options.getProjectSession?.()) state.powerUp.messages = replacement.getMessages();
     state.powerUp.needsConfig = !replacement.isConfigured();
     state.powerUp.error = "";
 
@@ -992,7 +1028,8 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
     state.powerUp.busy = true;
     state.powerUp.error = "";
     state.powerUp.offerReload = false;
-    state.powerUp.messages.push({ role: "user", text: instruction });
+    if (!options.getProjectSession?.())
+      state.powerUp.messages.push({ role: "user", text: instruction });
     try {
       const room = state.powerUp.room;
       const booted = getBootedGame();
@@ -1046,7 +1083,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
         } else text = await session.runAsk(instruction, room, attachments);
         if (!current()) return;
         state.powerUp.reply = text;
-        state.powerUp.messages.push({ role: "assistant", text });
+        if (!project) state.powerUp.messages.push({ role: "assistant", text });
         if (booted && !project) {
           const author = session;
           retryConversationSave = () => saveConversation(booted, author);
@@ -1810,6 +1847,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
   }
 
   return {
+    getConversationAgent,
     openPowerUp,
     closePowerUp,
     submitPowerUp,
