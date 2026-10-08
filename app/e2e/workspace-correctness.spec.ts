@@ -295,10 +295,12 @@ test("a second page pauses edits until Take back and keeps each page's tabs @web
   await other.getByTestId("part-room:1:picture:1").click();
   await expect(other.getByTestId("project-tab-picture:1")).toBeVisible();
   await page.reload();
+  await waitForRoom(page, 1, { coldBoot: true });
   await parts(page);
   await expect(page.getByTestId("project-tab-notes")).toBeVisible();
   await expect(page.getByTestId("project-tab-picture:1")).toHaveCount(0);
   await other.reload();
+  await waitForRoom(other, 1, { coldBoot: true });
   await parts(other);
   await expect(other.getByTestId("project-tab-picture:1")).toBeVisible();
   await expect(other.getByTestId("project-tab-notes")).toHaveCount(0);
