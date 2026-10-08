@@ -1,141 +1,119 @@
-import type { AgentSession } from "./agentSession.ts";
-import type { createWorkspaceAgent, AgentSubmission } from "./workspaceAgent.ts";
-import type { AgentChat } from "../../../src/agent/chats.ts";
+import { createWorkspaceAgent, type ConversationSession } from "./workspaceAgent.ts";
+import type { LlmConfig } from "./llmClient.ts";
+import type { AgentRuntimeDeps } from "../../../src/agent/tools.ts";
+import { migrateAgentChats, readAgentChats } from "../../../src/agent/chats.ts";
+import { ProjectModel } from "../../../src/authoring/projectModel.ts";
+import { ProjectHistory } from "../../../src/authoring/projectHistory.ts";
+import { sha256Hex } from "../../../src/crypto.ts";
+import { requireProjectId } from "../../../src/gameIdentity.ts";
+import { inspectEditableProject } from "../project/projectWorkspaceSource.ts";
+import { compileWorkingProjectImage } from "../project/projectWorkingImage.ts";
+import { loadGameConversation, saveGameConversationUpdate } from "../project/gameStorage.ts";
+import type { BootedGame } from "../project/gameTypes.ts";
 
 export type ConversationAgent = ReturnType<typeof createWorkspaceAgent>;
 
-/** Installed editions keep their existing storage adapter and inspection service. */
-export function createInstalledConversation(options: {
-  readonly id: string;
-  readonly title: string;
-  readonly author: AgentSession;
-  readonly room: () => number;
-  readonly save: () => Promise<void>;
-  readonly current: () => boolean;
-}): ConversationAgent {
-  const { author } = options;
-  let busy = false;
-  let error = "";
-  let chatSaveError = "";
+/** An installed edition stores only conversations. Its detached model has no admission or resource writer. */
+export async function createInstalledConversation(options: {
+  readonly game: BootedGame;
+  readonly locator: string | null;
+  readonly config: () => LlmConfig;
+  readonly runtime: () => AgentRuntimeDeps;
+  readonly conversation?: Parameters<typeof createWorkspaceAgent>[0]["conversation"];
+}) {
+  const stored = options.locator === null ? undefined : await loadGameConversation(options.locator);
+  let chats = migrateAgentChats(stored ?? {});
+  let expectedChats = stored?.chats ?? null;
+  const inspection = inspectEditableProject({
+    projectId: requireProjectId(`inspection-${options.game.revision}`),
+    title: options.game.title,
+    authoredAt: "",
+    files: options.game.files,
+    words: options.game.words,
+  });
+  const history = new ProjectHistory(sha256Hex);
+  const model = new ProjectModel({
+    documents: inspection.documents,
+    digest: sha256Hex,
+    build: compileWorkingProjectImage({
+      files: options.game.files,
+      documents: inspection.documents,
+      fallback: inspection.documents,
+      history: history.capture(),
+      profileId: inspection.profileId,
+    }),
+  });
+  history.record(inspection.documents, {
+    label: "Opened",
+    origin: "template",
+    author: "creator",
+    time: 0,
+  });
+  let closed = false;
+  let tail = Promise.resolve();
   const observers = new Set<() => void>();
-  function notify() {
-    for (const observer of observers) observer();
-  }
-  function current(): AgentChat {
-    return {
-      id: options.id,
-      title: options.title,
-      ...author.getProviderContext(),
-      transcript: author.getTranscript(),
-      messages: author.getMessages().map((message, index) => ({
-        ...message,
-        id: `${options.id}-${index}`,
-      })),
-    };
-  }
-  async function retryChatSave() {
-    try {
-      await options.save();
-      chatSaveError = "";
-    } catch (cause) {
-      chatSaveError = "Saving the conversation failed. Retry save.";
-      throw cause;
-    } finally {
-      notify();
-    }
-  }
-  async function submit(request: AgentSubmission) {
-    if (busy) throw new Error("Wait for the current task to finish.");
-    if (!options.current()) throw new Error("The game changed. Open its conversation again.");
-    if (request.mode !== "play") throw new Error("Open a project in Create to edit it.");
-    busy = true;
-    error = "";
-    const off = author.task.subscribe(notify);
-    notify();
-    try {
-      const text = await author.runAsk(request.instruction, options.room());
-      try {
-        await retryChatSave();
-      } catch {
-        // Keep the reply available and let Retry save persist without another request.
-      }
-      return text;
-    } catch (cause) {
-      error = cause instanceof Error ? cause.message : String(cause);
-      throw cause;
-    } finally {
-      off();
-      busy = false;
-      notify();
-    }
-  }
   function unavailable(): never {
     throw new Error("Open a project in Create to edit it.");
   }
-  return {
-    current,
-    chats: () => [current()],
-    get canSteer() {
-      return false;
+  const session: ConversationSession = {
+    model,
+    history,
+    allowMissingRooms: false,
+    get closed() {
+      return closed;
     },
-    steer: unavailable,
-    get activeRequest() {
-      return null;
-    },
-    reviewFor: () => undefined,
-    reviewOutcome: () => undefined,
-    pending: () => null,
-    get autoApprove() {
-      return false;
-    },
-    set autoApprove(_value: boolean) {},
-    get busy() {
-      return busy;
-    },
-    get error() {
-      return error;
-    },
-    get chatSaveError() {
-      return chatSaveError;
-    },
-    get progress() {
-      return [];
-    },
-    get task() {
-      return author.task.snapshot();
-    },
+    workingSnapshot: () => model.capture(),
+    chats: () => readAgentChats(chats),
     subscribe(observer) {
       observers.add(observer);
       return () => observers.delete(observer);
     },
-    submit,
-    ask(instruction, context = "", formatReply, turnContext = {}) {
-      return submit({
-        instruction,
-        context,
-        ...turnContext,
-        mode: "play",
-        ...(formatReply ? { formatReply } : {}),
-      });
+    saveChats(value) {
+      const next = readAgentChats(value);
+      chats = next;
+      const save = tail
+        .catch(() => {})
+        .then(async () => {
+          if (options.locator === null)
+            throw new Error(
+              "This installed edition has no conversation storage. Download the conversation before leaving.",
+            );
+          const active = next.chats.find((chat) => chat.id === next.active);
+          await saveGameConversationUpdate(
+            options.locator,
+            {
+              chats: next,
+              provider: active?.provider ?? "stub",
+              model: active?.model ?? "stub",
+              transcript: active?.transcript ?? [],
+              ...(active?.sessionId ? { sessionId: active.sessionId } : {}),
+              chat: active?.messages ?? [],
+            },
+            expectedChats,
+          );
+          expectedChats = next;
+        });
+      tail = save;
+      return save;
     },
-    send: unavailable,
-    newChat: unavailable,
-    resume: unavailable,
-    deleteChat: unavailable,
-    background: unavailable,
-    approve: unavailable,
-    reject: unavailable,
-    undoMessage: unavailable,
-    restoreBefore: unavailable,
-    retryChatSave,
-    stop() {
-      author.task.stop();
-    },
-    continue(requests) {
-      author.task.resume(requests);
-    },
-    cancel() {
-      author.task.cancel();
+    flush: () => tail,
+    submit: unavailable,
+    undo: unavailable,
+    restore: unavailable,
+  };
+  const agent = createWorkspaceAgent({
+    session,
+    profileId: inspection.profileId,
+    config: options.config,
+    runtime: options.runtime,
+    readOnly: true,
+    ...(options.conversation ? { conversation: options.conversation } : {}),
+  });
+  return {
+    agent,
+    dispose() {
+      closed = true;
+      for (const observer of observers) observer();
     },
   };
 }

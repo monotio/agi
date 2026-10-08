@@ -2145,3 +2145,64 @@ for (const action of ["retry", "stop"] as const) {
     await clearCachedGame(projectId);
   });
 }
+
+test("installed Play transfer waits for the active read-only turn and carries its exact conversation into Create", async () => {
+  const files = Object.fromEntries(createContainer().files);
+  const booted: BootedGame = {
+    installed: true,
+    title: "Installed",
+    files,
+    words: [],
+    revision: computeResourceRevision(files),
+  };
+  const waiting = Promise.withResolvers<Record<string, Uint8Array>>();
+  const inspected = Promise.withResolvers<void>();
+  const worker = {} as Worker;
+  const ui = {
+    phase: "running" as const,
+    powerUp: createMockPowerUp(),
+    agentTask: null,
+    agentLog: [],
+    profile: "2.936",
+    worldTick: 0,
+    planDurableRev: "",
+  };
+  const controller = useAuthoringController({
+    state: ui,
+    getWorker: () => worker,
+    query: async <T>() => {
+      inspected.resolve();
+      return (await waiting.promise) as T;
+    },
+    logAgent: () => {},
+    readFrames: async () => [],
+    pauseEngine: () => {},
+    resumeEngine: () => {},
+    getBootedGame: () => booted,
+    setBootedGame: () => {},
+    flushAutosave: async () => {},
+    getAutosaveWrite: async () => true,
+    clearAutosave: () => {},
+    awaitPatched: ackPatch,
+    getLlmConfig: () => mockConfig,
+    getConversationMode: () => "play",
+  });
+  const agent = (await controller.getConversationAgent())!;
+  const running = agent.submit({ instruction: "Explain the game", mode: "play" });
+  await inspected.promise;
+  let transferred = false;
+  const transfer = controller.prepareConversationTransfer().then((chats) => {
+    transferred = true;
+    return chats;
+  });
+  await Promise.resolve();
+  assert.equal(transferred, false);
+  waiting.resolve(files);
+  await running;
+  const chats = (await transfer)!;
+  assert.equal(chats.active, agent.current().id);
+  assert.deepEqual(chats.chats[0]!.messages, agent.current().messages);
+  assert.equal(chats.chats[0]!.messages[0]!.request!.capability, "inspect");
+  assert.deepEqual(ui.powerUp.messages, []);
+  controller.resetSession();
+});

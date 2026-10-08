@@ -1,3 +1,5 @@
+import { inspectedResourceKeys } from "./agentResults.ts";
+import type { ProjectContent } from "../../../src/authoring/projectContent.ts";
 import { beginProviderTask } from "./providerBudget.ts";
 /** One task-chat adapter; ProjectSession remains the sole project writer. */
 import { DEFAULT_TASK_BUDGET_USD, AgentRun, type AgentRunState } from "./agentRun.ts";
@@ -88,8 +90,24 @@ export interface AgentTurnContext {
   readonly profileId?: ProfileId;
   readonly runtime?: () => AgentRuntimeDeps;
 }
+export type ConversationSession = Pick<
+  ProjectSession,
+  | "allowMissingRooms"
+  | "chats"
+  | "closed"
+  | "flush"
+  | "history"
+  | "model"
+  | "restore"
+  | "saveChats"
+  | "submit"
+  | "subscribe"
+  | "undo"
+  | "workingSnapshot"
+>;
 interface Options {
-  readonly session: ProjectSession;
+  readonly session: ConversationSession;
+  readonly readOnly?: boolean;
   readonly profileId: ProfileId;
   readonly config: () => LlmConfig;
   readonly conversation?: (
@@ -287,7 +305,7 @@ function stubConversation(initial: unknown[]): UnifiedConversation {
 }
 let sequence = 0;
 const owned = new WeakMap<
-  ProjectSession,
+  ConversationSession,
   { agent: ReturnType<typeof createWorkspaceAgent>; options: Options }
 >();
 export function borrowWorkspaceAgent(options: Options) {
@@ -506,7 +524,7 @@ export function createWorkspaceAgent(options: Options) {
             }
           : message,
       );
-      reviewOutcomes.set(approving.messageId, automatic ? "Applied automatically" : "Approved");
+      reviewOutcomes.set(approving.messageId, automatic ? "Applied automatically" : "Applied");
       action(chat, "approve", {
         resources: changes.map((change) => change.key),
         outcome: result.status,
@@ -539,6 +557,7 @@ export function createWorkspaceAgent(options: Options) {
   ) {
     if (session.closed) throw new Error("The project session was closed.");
     if (busy || applying) throw new Error("Wait for the current task to finish.");
+    readOnly ||= options.readOnly === true;
     const profileId = turnContext.profileId ?? options.profileId;
     if (!PROFILES[profileId]) throw new Error(`Unknown AGI profile: ${profileId}`);
     busy = true;
@@ -678,6 +697,8 @@ export function createWorkspaceAgent(options: Options) {
       [];
     appliedDuringRun = persisted;
     const touched = new Set<string>();
+    const inspectedDocuments: Record<string, ProjectContent> = {};
+    const inspectedDependencies: Record<string, ProjectContent> = {};
     function flushActions() {
       for (const text of actionQueue ?? []) provider?.recordInterruption?.(text);
       actionQueue = [];
@@ -1140,20 +1161,34 @@ export function createWorkspaceAgent(options: Options) {
               progress.push(result.message);
               notify();
             }
+            const resourceKeys = inspectedResourceKeys(call.name, call.input, result);
+            if (call.name === "read_document") {
+              for (const key of resourceKeys) {
+                const content = base.read(key)?.content;
+                if (content !== undefined) inspectedDocuments[key] = content;
+              }
+              for (const key of ["words", "inventory", "bindings", "world", "images", "music"]) {
+                const content = base.read(key)?.content;
+                if (content !== undefined) inspectedDependencies[key] = content;
+              }
+            } else if (readOnly && resourceKeys.length) {
+              Object.assign(inspectedDocuments, inspection!.documents(resourceKeys));
+              Object.assign(inspectedDependencies, inspection!.documents(["words", "inventory"]));
+            }
             run.recordTool(call.name, call.input, result, base.revision);
             results.push({ toolCallId: call.id, result });
           }
           provider.appendToolResults(results);
           unreported = [];
           flushActions();
-          const followup = await receiveNextSteps();
+          let followup = await receiveNextSteps();
+          while (!followup && nextSteps.length) followup = await receiveNextSteps();
           if (followup) {
             handedOver = false;
             turn = followup;
             continue;
           }
           if (handedOver) {
-            if (nextSteps.length) continue;
             acceptingSteps = false;
             break;
           }
@@ -1174,6 +1209,23 @@ export function createWorkspaceAgent(options: Options) {
             id: id(),
             role: "assistant",
             taskId: request.id,
+            ...(Object.keys(inspectedDocuments).length
+              ? {
+                  result: {
+                    kind: "resources" as const,
+                    documentId: projectDocumentId(
+                      { ...inspectedDependencies, ...inspectedDocuments },
+                      sha256Hex,
+                    ),
+                    resources: Object.keys(inspectedDocuments),
+                    snapshot: writeProjectWorkspace({
+                      ...inspectedDependencies,
+                      ...inspectedDocuments,
+                    }),
+                    profileId,
+                  },
+                }
+              : {}),
             ...(formatReply ? formatReply(turn.text ?? "") : { text: turn.text ?? "Finished." }),
           });
       });
@@ -1226,7 +1278,25 @@ export function createWorkspaceAgent(options: Options) {
       actionChat = null;
       appliedDuringRun = null;
       if (provider) chat.transcript = provider.getTranscript();
-      completedRuns.set(chat.id, run.snapshot());
+      const completed = run.snapshot();
+      completedRuns.set(chat.id, completed);
+      const finalMessage = chat.messages.findLast(
+        (message) => message.role === "assistant" && message.taskId === request.id,
+      );
+      if (finalMessage)
+        chat.messages = chat.messages.map((message) =>
+          message === finalMessage
+            ? {
+                ...message,
+                spend: {
+                  amount: completed.reportedSpent,
+                  budget: completed.budget,
+                  priceKnown: completed.priceKnown,
+                  incomplete: completed.usageIncomplete,
+                },
+              }
+            : message,
+        );
       activeRun = null;
       activeRequest = null;
       acceptingSteps = false;
@@ -1367,9 +1437,19 @@ export function createWorkspaceAgent(options: Options) {
       return (
         reviewOutcomes.get(messageId) ??
         (store.chats.some((chat) =>
+          chat.messages.some(
+            (message) =>
+              message.id === messageId &&
+              message.result?.kind === "changes" &&
+              message.result.status === "rejected",
+          ),
+        )
+          ? "Rejected"
+          : undefined) ??
+        (store.chats.some((chat) =>
           chat.messages.some((message) => message.id === messageId && message.commit),
         )
-          ? "Approved"
+          ? "Applied"
           : undefined)
       );
     },

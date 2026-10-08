@@ -10,6 +10,9 @@ import type { AgentToolResult } from "../../src/agent/agentState.ts";
 import type { UnifiedConversation, LlmTurnResult } from "../src/agent/llmClient.ts";
 import type { CachedGameData } from "../src/project/gameTypes.ts";
 import { createProjectInspection } from "../../src/agent/projectInspection.ts";
+import { projectDocumentId } from "../../src/authoring/projectContent.ts";
+import { readProjectWorkspace } from "../../src/authoring/projectWorkspace.ts";
+import { sha256Hex } from "../../src/crypto.ts";
 import { GAME_TESTS_FORMAT } from "../../src/agent/gameTestFormat.ts";
 
 for (const encoding of ["text", "bytes"] as const) {
@@ -495,6 +498,161 @@ test("queued followups retain Play authority and reach the provider once at the 
     );
     assert.equal(results[0]!.result.success, false);
     assert.equal(agent.pending(), null);
+  } finally {
+    released.resolve();
+    session.dispose();
+  }
+});
+
+test("native inspection results retain the inspected bytes after a later document change", async () => {
+  const session = inspectionFixture();
+  const agent = createWorkspaceAgent({
+    session,
+    profileId: "2.936",
+    config: () => ({ provider: "stub", model: "stub", apiKey: "" }),
+    conversation: () =>
+      scriptedConversation(
+        [
+          {
+            toolCalls: [
+              {
+                id: "picture",
+                name: "read_picture",
+                input: { num: 1, offset: null, limit: null, include: "source" },
+              },
+            ],
+          },
+          { text: "The picture is shown.", toolCalls: [] },
+        ],
+        [],
+      ),
+  });
+  try {
+    await agent.submit({ instruction: "Show picture 1", mode: "play" });
+    const result = agent.current().messages.at(-1)!.result;
+    assert.equal(result?.kind, "resources");
+    if (result?.kind !== "resources") assert.fail("Missing native resource result");
+    assert.ok(result.snapshot);
+    assert.equal(
+      result.documentId,
+      projectDocumentId(readProjectWorkspace(result.snapshot), sha256Hex),
+    );
+    assert.notEqual(result.documentId, agent.current().messages[0]!.request!.documentId);
+    const before = structuredClone(result.snapshot);
+    assert.deepEqual(result.resources, ["picture:1"]);
+    await session.stage([{ key: "picture:1", content: "vis 4\nfill 0,0\nend" }]);
+    assert.deepEqual(agent.current().messages.at(-1)!.result, result);
+    assert.deepEqual(result.snapshot, before);
+  } finally {
+    session.dispose();
+  }
+});
+
+test("a followup arriving during a tool runs after its result without replaying the tool", async () => {
+  const session = inspectionFixture();
+  const entered = Promise.withResolvers<void>();
+  const released = Promise.withResolvers<void>();
+  const requests: string[] = [];
+  let tools = 0;
+  const agent = createWorkspaceAgent({
+    session,
+    profileId: "2.936",
+    config: () => ({ provider: "stub", model: "stub", apiKey: "" }),
+    runtime: () => ({
+      engine: {
+        async state() {
+          tools++;
+          entered.resolve();
+          await released.promise;
+          return { room: 1 };
+        },
+        objects: async () => [],
+      },
+    }),
+    conversation: () => ({
+      setAvailableTools() {},
+      async sendUserMessage(text) {
+        requests.push(text);
+        return requests.length === 1
+          ? {
+              toolCalls: [
+                {
+                  id: "read",
+                  name: "read_room",
+                  input: {
+                    room: 1,
+                    state: { compact: true, variables: null, flags: null },
+                    frames: null,
+                  },
+                },
+              ],
+            }
+          : { text: "Updated answer", toolCalls: [] };
+      },
+      appendToolResults() {},
+      async complete() {
+        assert.fail("Queued followup should be sent before completion");
+      },
+      getTranscript() {
+        return [];
+      },
+    }),
+  });
+  try {
+    const running = agent.submit({ instruction: "Inspect", mode: "play" });
+    await entered.promise;
+    agent.steer("Explain what that means");
+    released.resolve();
+    await running;
+    assert.equal(tools, 1);
+    assert.equal(requests.length, 2);
+    assert.equal(
+      agent.current().messages.find((message) => message.delivery)?.delivery,
+      "received",
+    );
+  } finally {
+    released.resolve();
+    session.dispose();
+  }
+});
+
+test("cancellation records an undelivered followup and save retry never resends it", async () => {
+  const session = inspectionFixture();
+  const entered = Promise.withResolvers<void>();
+  const released = Promise.withResolvers<void>();
+  let requests = 0;
+  const agent = createWorkspaceAgent({
+    session,
+    profileId: "2.936",
+    config: () => ({ provider: "stub", model: "stub", apiKey: "" }),
+    conversation: () => ({
+      setAvailableTools() {},
+      async sendUserMessage() {
+        requests++;
+        entered.resolve();
+        await released.promise;
+        return { text: "Late answer", toolCalls: [] };
+      },
+      appendToolResults() {},
+      async complete() {
+        return { toolCalls: [] };
+      },
+      getTranscript() {
+        return [];
+      },
+    }),
+  });
+  try {
+    const running = agent.submit({ instruction: "Inspect", mode: "play" });
+    await entered.promise;
+    agent.steer("Next step");
+    agent.cancel();
+    released.resolve();
+    await assert.rejects(running, /cancelled/);
+    assert.equal(agent.current().messages.at(-1)!.delivery, "cancelled");
+    await agent.retryChatSave();
+    assert.equal(requests, 1);
+    assert.equal(session.chats().chats[0]!.messages.at(-1)!.delivery, "cancelled");
   } finally {
     released.resolve();
     session.dispose();

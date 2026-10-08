@@ -1,4 +1,5 @@
 /** Detached native inspection; this surface issues no edit or admission authority. */
+import type { ResourceKind } from "../types.ts";
 import { createAgentSessionState } from "./agentState.ts";
 import { ASK_TOOLS, executeAgentToolAsync, type AgentToolDeps } from "./tools.ts";
 import { openContainer } from "../container/container.ts";
@@ -57,6 +58,24 @@ export function createProjectInspection(input: {
   }
   return {
     diagnostics,
+    documents(keys: readonly string[]): Readonly<Record<string, ProjectContent>> {
+      const documents: Record<string, ProjectContent> = {};
+      for (const key of keys) {
+        const resource = /^(logic|picture|view|sound):(\d+)$/.exec(key);
+        const content = resource
+          ? container.getResource(resource[1] as ResourceKind, Number(resource[2]))
+          : key === "words"
+            ? dictionary
+            : key === "inventory"
+              ? container.files.get("OBJECT")
+              : key === "tests"
+                ? state.testsPayload
+                : undefined;
+        if (content !== undefined && content !== null)
+          documents[key] = typeof content === "string" ? content : content.slice();
+      }
+      return documents;
+    },
     async execute(name: string, args: Record<string, unknown>, deps: AgentToolDeps) {
       if (!ASK_TOOLS.includes(name))
         return { success: false, error: "This tool is unavailable during inspection." };

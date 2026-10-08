@@ -26,6 +26,8 @@ export type AgentResult =
       readonly kind: "resources";
       readonly documentId: string;
       readonly resources: readonly string[];
+      readonly snapshot?: PortableProjectWorkspace;
+      readonly profileId?: ProfileId;
     }
   | { readonly kind: "commands"; readonly commands: readonly string[] }
   | {
@@ -46,6 +48,12 @@ export interface AgentChatMessage {
   readonly taskId?: string;
   readonly delivery?: "queued" | "received" | "cancelled";
   readonly result?: AgentResult;
+  readonly spend?: {
+    readonly amount: number;
+    readonly budget?: number;
+    readonly priceKnown: boolean;
+    readonly incomplete: boolean;
+  };
   readonly review?: PendingAgentReview;
   readonly beforeCommit?: string;
   readonly commit?: string;
@@ -158,7 +166,7 @@ function validateResult(value: AgentResult): void {
             value,
             value.kind === "changes"
               ? ["kind", "documentId", "resources", "status"]
-              : ["kind", "documentId", "resources"],
+              : ["kind", "documentId", "resources", "snapshot", "profileId"],
           ) &&
           (value.kind !== "changes" || ["pending", "applied", "rejected"].includes(value.status));
         break;
@@ -187,6 +195,11 @@ function validateResult(value: AgentResult): void {
     }
   }
   if (!valid) throw new Error("Invalid agent result.");
+  if (value.kind === "resources") {
+    if (value.snapshot !== undefined) readProjectWorkspace(value.snapshot);
+    if (value.profileId !== undefined && !Object.hasOwn(PROFILES, value.profileId))
+      throw new Error("Invalid result profile.");
+  }
 }
 function validateReview(pending: PendingAgentReview, messageIds: Set<string>): void {
   if (
@@ -260,6 +273,7 @@ export function readAgentChats(value: unknown): AgentChats {
               "taskId",
               "delivery",
               "result",
+              "spend",
               "review",
             ].includes(key),
         ) ||
@@ -278,6 +292,19 @@ export function readAgentChats(value: unknown): AgentChats {
       if (message.taskId !== undefined && typeof message.taskId !== "string")
         throw new Error("Invalid task identity.");
       if (message.result !== undefined) validateResult(message.result);
+      if (message.spend !== undefined) {
+        const spend = message.spend;
+        if (
+          !spend ||
+          !Number.isFinite(spend.amount) ||
+          spend.amount < 0 ||
+          typeof spend.priceKnown !== "boolean" ||
+          typeof spend.incomplete !== "boolean" ||
+          (spend.budget !== undefined && (!Number.isFinite(spend.budget) || spend.budget <= 0)) ||
+          !onlyKeys(spend, ["amount", "budget", "priceKnown", "incomplete"])
+        )
+          throw new Error("Invalid message spend.");
+      }
       if (message.review !== undefined) validateReview(message.review, new Set([message.id]));
       messageIds.add(message.id);
     }
