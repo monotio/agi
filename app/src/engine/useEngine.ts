@@ -115,6 +115,8 @@ export function useEngine(
   let projectSessionOpening: string | undefined;
   let projectSessionOpeningTask: Promise<void> | undefined;
   let projectSessionOpeningError: unknown;
+  let conversationProjectOpening:
+    { game: BootedGame; worker: Worker | null; task: Promise<ProjectSession | null> } | undefined;
   const pendingProjectRestart = shallowRef<PendingProjectRestart | null>(null);
   let projectOpenEpoch = 0;
   let audio: AgiAudio | null = null;
@@ -633,10 +635,25 @@ export function useEngine(
     const game = lifecycle.getBootedGame();
     const worker = link.getWorker();
     if (!game || game.installed) return null;
+    if (conversationProjectOpening?.game === game && conversationProjectOpening.worker === worker)
+      return conversationProjectOpening.task;
     if (projectSession) {
       await projectSession.ready;
       return projectSession;
     }
+    const opening = { game, worker, task: acquireConversationProject(game, worker) };
+    conversationProjectOpening = opening;
+    try {
+      return await opening.task;
+    } finally {
+      if (conversationProjectOpening === opening) conversationProjectOpening = undefined;
+    }
+  }
+
+  async function acquireConversationProject(
+    game: BootedGame,
+    worker: Worker | null,
+  ): Promise<ProjectSession | null> {
     const data = game.authoredGame;
     if (!data) throw new Error("The project is unavailable. Reopen the game to continue.");
     const reply = await link.query("projectCreate", {
@@ -1243,6 +1260,19 @@ export function useEngine(
         lifecycle.setBootedGame(game);
       }
       if (mode !== "create" || !game?.authoredGame || state.phase !== "running") return true;
+      const acquisition = conversationProjectOpening;
+      if (acquisition?.game === game && acquisition.worker === worker) {
+        const acquired = await acquisition.task.catch(() => null);
+        if (
+          !acquired ||
+          projectSession !== acquired ||
+          projectMode !== mode ||
+          lifecycle.getBootedGame() !== game ||
+          link.getWorker() !== worker ||
+          state.phase !== "running"
+        )
+          return false;
+      }
       if (projectSessionOpening !== undefined) {
         const openingRun = projectSessionOpening;
         const openingEpoch = projectOpenEpoch;

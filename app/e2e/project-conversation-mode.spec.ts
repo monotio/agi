@@ -1,50 +1,79 @@
+import type { WorkerQueryFn } from "../src/worker/workerProtocol.ts";
 import { expect, test } from "./test.ts";
 import { isolateStorage, waitForRoom } from "./engineProbe.ts";
 
-test("Create waits for a Play conversation owner and still transitions the worker @webkit-desktop", async ({
-  page,
-}) => {
-  await isolateStorage(page);
-  await page.addInitScript(() => {
-    const modes: string[] = [];
-    Object.assign(window, { conversationProjectModes: modes });
-    const post = Worker.prototype.postMessage;
-    Worker.prototype.postMessage = function (message, transfer) {
-      if (message.type === "projectCreate") modes.push(message.progressMode);
-      post.call(this, message, Array.isArray(transfer) ? { transfer } : transfer);
-    };
-  });
-  const opening = Promise.withResolvers<void>();
-  const release = Promise.withResolvers<void>();
-  await page.route("**/src/engine/mainProjectAdmission.ts", async (route) => {
-    opening.resolve();
-    await release.promise;
-    await route.continue();
-  });
-  await page.goto("/");
-  await page.getByTestId("catalog-play-adventure-department").click();
-  await waitForRoom(page, 1, { coldBoot: true });
-  await page.getByTestId("menu-assistant").click();
-  await opening.promise;
-  const modes = () =>
-    page.evaluate(
-      () => (window as unknown as { conversationProjectModes: string[] }).conversationProjectModes,
+for (const boundary of ["request", "session"] as const)
+  test(`Create waits for the Play conversation ${boundary} and transitions the worker @webkit-desktop`, async ({
+    page,
+  }) => {
+    await isolateStorage(page);
+    await page.addInitScript((holdRequest) => {
+      const modes: string[] = [];
+      Object.assign(window, { conversationProjectModes: modes });
+      const post = Worker.prototype.postMessage;
+      let pending: (() => void) | undefined;
+      Object.assign(window, {
+        releaseConversationAdmission() {
+          pending?.();
+          pending = undefined;
+        },
+      });
+      Worker.prototype.postMessage = function (message, transfer) {
+        if (message.type === "projectCreate") modes.push(message.progressMode);
+        const send = () =>
+          post.call(this, message, Array.isArray(transfer) ? { transfer } : transfer);
+        if (holdRequest && message.type === "projectCreate" && message.progressMode === "play")
+          pending = send;
+        else send();
+      };
+    }, boundary === "request");
+    const opening = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    await page.route("**/src/engine/mainProjectAdmission.ts", async (route) => {
+      opening.resolve();
+      if (boundary === "session") await release.promise;
+      await route.continue();
+    });
+    await page.goto("/");
+    await page.getByTestId("catalog-play-adventure-department").click();
+    await waitForRoom(page, 1, { coldBoot: true });
+    await page.getByTestId("menu-assistant").click();
+    const modes = () =>
+      page.evaluate(
+        () =>
+          (window as unknown as { conversationProjectModes: string[] }).conversationProjectModes,
+      );
+    await expect.poll(modes).toEqual(["play"]);
+    if (boundary === "session") await opening.promise;
+    await page.evaluate(() => {
+      location.hash = location.hash.replace("#play/", "#create/");
+    });
+    await expect(page.getByRole("radio", { name: "Create", exact: true })).toHaveAttribute(
+      "aria-checked",
+      "true",
     );
-  expect(await modes()).toEqual(["play"]);
-  await page.evaluate(() => {
-    location.hash = location.hash.replace("#play/", "#create/");
+    expect(await modes()).toEqual(["play"]);
+    if (boundary === "request")
+      await page.evaluate(() =>
+        (
+          window as unknown as { releaseConversationAdmission(): void }
+        ).releaseConversationAdmission(),
+      );
+    release.resolve();
+    await expect.poll(modes).toEqual(["play", "create"]);
+    const returned = await page.evaluate(() =>
+      (
+        window as unknown as {
+          __AGI_PROJECT__: { query: WorkerQueryFn };
+        }
+      ).__AGI_PROJECT__.query("playHere", { room: 1, x: 0, y: 0, visit: "back" }),
+    );
+    expect(returned.ok, "the worker must hold a Create return point").toBe(true);
+    await expect(page.getByRole("radio", { name: "Create", exact: true })).toHaveAttribute(
+      "aria-checked",
+      "true",
+    );
   });
-  await expect(page.getByRole("radio", { name: "Create", exact: true })).toHaveAttribute(
-    "aria-checked",
-    "true",
-  );
-  release.resolve();
-  await expect.poll(modes).toEqual(["play", "create"]);
-  await expect(page.getByRole("radio", { name: "Create", exact: true })).toHaveAttribute(
-    "aria-checked",
-    "true",
-  );
-});
 
 test("lazy conversation acquisition reports a stale stored project @webkit-desktop", async ({
   page,
