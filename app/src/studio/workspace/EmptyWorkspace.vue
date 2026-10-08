@@ -6,8 +6,12 @@
  * the screen.
  */
 import "./workspace.css";
-import { onBeforeUnmount, ref } from "vue";
-import { emptyStageSession, openPlayableProject } from "../../home/emptyStageSession.ts";
+import { computed, onBeforeUnmount, ref } from "vue";
+import {
+  emptyStageBootFailure,
+  emptyStageSession,
+  openPlayableProject,
+} from "../../home/emptyStageSession.ts";
 import { useOpenAgent } from "../../agent/openAgent.ts";
 import { emptyWorkspaceChanges } from "./emptyWorkspace.ts";
 import { useGameLibrary } from "../../library/useGameLibrary.ts";
@@ -21,11 +25,13 @@ import { workspaceParts } from "../host/workspaceParts.ts";
 import UiButton from "../../ui/UiButton.vue";
 import { emptyProject } from "../../home/emptyProjectRoute.ts";
 import type { CachedGameData } from "../../project/gameTypes.ts";
+import { gameHash } from "../../shell/shellRoute.ts";
 const { project } = defineProps<{ project: CachedGameData }>();
 const engine = useEngineApi();
 const shell = useShell();
 const bridge = useShellBridge();
 const library = useGameLibrary();
+const bootFailed = computed(() => emptyStageBootFailure.value === project);
 const editor = useWorkspaceEditor();
 const groups = workspaceParts({ keys: [], rooms: [], currentRoom: null });
 const busy = ref(false);
@@ -94,6 +100,10 @@ function goHome(): void {
   emptyProject.value = null;
   history.pushState(null, "", location.pathname + location.search);
 }
+function reloadProject(): void {
+  history.replaceState(null, "", gameHash("create", project.projectId));
+  location.reload();
+}
 /** The splitter moves the shared split, so the first room opens at the same size. */
 function resize(event: PointerEvent): void {
   const target = event.currentTarget as HTMLElement;
@@ -148,8 +158,8 @@ function resize(event: PointerEvent): void {
         <div class="stage">
           <div class="screen">
             <div class="empty-start">
-              <p role="status">Nothing to play yet.</p>
-              <div class="empty-actions">
+              <p role="status">{{ bootFailed ? "Game saved" : "Nothing to play yet." }}</p>
+              <div v-if="!bootFailed" class="empty-actions">
                 <UiButton
                   variant="primary"
                   :disabled="busy"
@@ -164,6 +174,10 @@ function resize(event: PointerEvent): void {
                 >
               </div>
               <p v-if="error" role="alert">{{ error }}</p>
+              <p v-else-if="bootFailed" role="alert">
+                Reload to open it.
+                <UiButton size="sm" @click="reloadProject">Reload</UiButton>
+              </p>
             </div>
           </div>
         </div>

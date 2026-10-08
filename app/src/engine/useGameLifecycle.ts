@@ -770,6 +770,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
     },
     epoch?: number,
     intent?: () => boolean,
+    onAccepted?: () => void,
   ): Promise<void> {
     const bootEpoch = epoch ?? lifecycleEpoch;
     let slotGame = booted;
@@ -914,6 +915,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
     // ran before the segment existed. A rewind to before the first commit
     // restores exactly this state.
     authoring.postSessionSnapshot(session);
+    onAccepted?.();
   }
 
   /**
@@ -931,6 +933,8 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
       overwrite?: boolean;
       resumeCarrier?: ResumeBootCarrier;
       opening?: QualifiedGameOpening;
+      /** The owned boot and its initial baseline have been posted to the worker. */
+      onAccepted?: () => void;
     },
   ): Promise<void> {
     const requestedOpening = bootOptions?.opening;
@@ -1153,6 +1157,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
           } satisfies WorkerInbound);
           // Same baseline as a fresh boot — posted after the segment opens.
           if (cachedSession) options.authoring!.postSessionSnapshot(cachedSession);
+          bootOptions?.onAccepted?.();
           return;
         }
         throw new Error(
@@ -1214,6 +1219,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
         () =>
           (opening === undefined || opening.isCurrent()) &&
           (resumeCarrier === undefined || resumeCarrier.isCurrent()),
+        bootOptions?.onAccepted,
       );
     } catch (e) {
       // A delayed failure from a run another action superseded belongs to no

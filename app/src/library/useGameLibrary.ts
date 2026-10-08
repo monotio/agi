@@ -782,24 +782,36 @@ export function createGameLibrary(
     return currentCreationProjectId.value;
   }
 
-  async function onBootSelectedTemplate(): Promise<void> {
-    if (!selectedTemplateId.value || !adventureDraft.value.brief.trim()) return;
+  async function onBootSelectedTemplate(isCurrent?: () => boolean): Promise<boolean> {
+    if (!selectedTemplateId.value || !adventureDraft.value.brief.trim()) return false;
     if (!aiConfigured.value) {
       openAiSettings(null, "create");
-      return;
+      return false;
     }
     await resumeAudio();
+    if (isCurrent !== undefined && !isCurrent()) return false;
     const allocatedId = getOrCreateCreationProjectId(activeTemplate.value.id);
+    let acceptedProjectId: ProjectId | undefined;
     await bootAuthoredGame(activeTemplate.value.rawMarkdown, llmConfig(), {
       projectId: allocatedId,
       templateId: activeTemplate.value.id,
       title: activeTemplate.value.title,
       useCached: false,
+      ...(isCurrent !== undefined ? { opening: { isCurrent } } : {}),
+      onAccepted: () => {
+        acceptedProjectId = currentGame()?.projectId;
+      },
     });
+    if (isCurrent !== undefined && !isCurrent()) return false;
     currentCreationProjectId.value = undefined;
     const game = currentGame();
     if (game && !game.installed && game.projectId) selectedProjectId.value = game.projectId;
     cachedMeta.value = selectedProjectId.value ? getCachedGameMeta(selectedProjectId.value) : null;
+    return (
+      acceptedProjectId !== undefined &&
+      game?.projectId === acceptedProjectId &&
+      (state.phase === "loading" || state.phase === "running")
+    );
   }
 
   async function onBootSavedGame(
@@ -807,40 +819,53 @@ export function createGameLibrary(
     context?: number,
     expected?: ProgressTarget,
     isCurrent?: () => boolean,
-  ): Promise<void> {
-    if (libraryActionBusy.value && !alreadyBusy) return;
+  ): Promise<boolean> {
+    if (libraryActionBusy.value && !alreadyBusy) return false;
     const id = selectedProjectId.value;
-    if (!id) return;
+    if (!id) return false;
     const openingContext = selectionContext;
     if (!alreadyBusy) libraryActionBusy.value = true;
     libraryActionError.value = "";
+    let accepted = false;
     try {
       await resumeAudio();
       // A caller passing its captured context is booting for the intent it
       // parked: the audio wait is an await, and a selection that moved in
       // it — even back to the same id — ends that intent.
-      if (context !== undefined && selectionContext !== context) return;
-      if (isCurrent !== undefined && !isCurrent()) return;
+      if (context !== undefined && selectionContext !== context) return false;
+      if (isCurrent !== undefined && !isCurrent()) return false;
       // A qualified opening re-binds the body after the audio wait: the id
       // resolving a body recreated under another epoch means the caller's
       // proven target is dead, and this call must not boot the replacement.
       if (expected !== undefined) {
         const live = await bindSaved(id).catch(() => null);
-        if (context !== undefined && selectionContext !== context) return;
-        if (isCurrent !== undefined && !isCurrent()) return;
-        if (!bindsTarget(live, expected)) return;
+        if (context !== undefined && selectionContext !== context) return false;
+        if (isCurrent !== undefined && !isCurrent()) return false;
+        if (!bindsTarget(live, expected)) return false;
       }
       await bootAuthoredGame(activeTemplate.value.rawMarkdown, llmConfig(), {
         projectId: id,
         title: cachedMeta.value?.title ?? id,
         useCached: true,
+        onAccepted: () => {
+          accepted = true;
+        },
         opening: {
           ...(expected !== undefined ? { target: expected } : {}),
           isCurrent: () => selectionContext === openingContext && (isCurrent?.() ?? true),
         },
       });
+      return (
+        accepted &&
+        selectionContext === openingContext &&
+        (isCurrent?.() ?? true) &&
+        currentGame()?.projectId === id &&
+        (state.phase === "loading" || state.phase === "running")
+      );
     } catch (error) {
-      libraryActionError.value = String(error).replace(/^Error: /, "");
+      if (selectionContext === openingContext && (isCurrent?.() ?? true))
+        libraryActionError.value = String(error).replace(/^Error: /, "");
+      return false;
     } finally {
       if (!alreadyBusy) libraryActionBusy.value = false;
     }
