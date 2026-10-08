@@ -1254,6 +1254,23 @@ export function useEngine(
       game = current;
       return true;
     }
+    function refuseOpening(cause: unknown): false {
+      if (
+        change === projectModeChange &&
+        lifecycle.getBootedGame() === game &&
+        link.getWorker() === worker
+      ) {
+        state.status = String(cause);
+        state.entryProblem =
+          cause instanceof ResourceCommitError && cause.behindStorage
+            ? cause.removed
+              ? PROJECT_REMOVED_MESSAGE
+              : STALE_SAVE_MESSAGE
+            : "Could not open Create. Reload and try again.";
+        projectMode = prior;
+      }
+      return false;
+    }
     if (mode === "create" && game?.installed && !game.authoredGame && game.historyLifetime) {
       const original = game;
       state.status = "Finishing the current conversation before opening Create…";
@@ -1294,10 +1311,12 @@ export function useEngine(
     if (mode !== "create" || !game?.authoredGame || state.phase !== "running") return true;
     const acquisition = conversationProjectOpening;
     if (acquisition?.game === game && acquisition.worker === worker) {
-      const acquired = await acquisition.task.catch(() => null);
+      let openingFailure: unknown;
+      const acquired = await acquisition.task.catch((cause: unknown) => {
+        openingFailure = cause;
+        return null;
+      });
       if (
-        !acquired ||
-        projectSession !== acquired ||
         change !== projectModeChange ||
         projectMode !== mode ||
         !retainGameOwner(acquired, projectOpenEpoch) ||
@@ -1305,6 +1324,8 @@ export function useEngine(
         state.phase !== "running"
       )
         return false;
+      if (openingFailure !== undefined) return refuseOpening(openingFailure);
+      if (!acquired || projectSession !== acquired) return false;
     }
     if (projectSessionOpening !== undefined) {
       const openingRun = projectSessionOpening;
@@ -1315,10 +1336,12 @@ export function useEngine(
         projectMode !== mode ||
         !retainGameOwner(projectSession, openingEpoch) ||
         link.getWorker() !== worker ||
-        projectOpenEpoch !== openingEpoch ||
-        projectSession?.runToken !== openingRun
+        projectOpenEpoch !== openingEpoch
       )
         return false;
+      if (projectSessionOpeningError !== undefined)
+        return refuseOpening(projectSessionOpeningError);
+      if (projectSession?.runToken !== openingRun) return false;
     }
     // A Play conversation can open the admission lane without entering Create.
     // Complete the requested worker transition even when that lane already exists.
@@ -1361,19 +1384,23 @@ export function useEngine(
           game.authoredGame = saved;
         }
         await openSession(reply.grant);
-        return change === projectModeChange && projectMode === mode && link.getWorker() === worker;
-      })
-      .catch((cause) => {
         if (
-          change === projectModeChange &&
-          lifecycle.getBootedGame() === game &&
-          link.getWorker() === worker
-        ) {
-          state.status = String(cause);
-          projectMode = prior;
-        }
-        return false;
-      });
+          change !== projectModeChange ||
+          projectMode !== mode ||
+          link.getWorker() !== worker ||
+          !retainGameOwner(projectSession, projectOpenEpoch)
+        )
+          return false;
+        if (projectSessionOpeningError !== undefined) throw projectSessionOpeningError;
+        if (
+          !projectSession ||
+          projectSession.closed ||
+          projectSession.runToken !== reply.grant.runToken
+        )
+          throw new Error("The project session could not open.");
+        return true;
+      })
+      .catch(refuseOpening);
   }
 
   function retireConversationTransition(): void {
