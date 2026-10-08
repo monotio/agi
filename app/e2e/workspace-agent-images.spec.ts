@@ -98,14 +98,20 @@ test("agent image tools review PICTURE and VIEW previews before one saved commit
   const review = page.getByTestId("agent-review");
   await expect(review).toBeVisible();
   const art = review.getByTestId("agent-art-review");
-  await expect(art).toHaveCount(2, { timeout: 3000 });
+  await expect(art).toHaveCount(1, { timeout: 3000 });
+  await expect(review.getByTestId("agent-view-review")).toHaveCount(1);
   const pictureBefore = review.getByAltText("images clearing_pic · PICTURE 1 Before");
   const pictureAfter = review.getByAltText("images clearing_pic · PICTURE 1 After");
-  const viewBefore = review.getByAltText("view:0 hero_view · VIEW 0 Before");
-  const viewAfter = review.getByAltText("view:0 hero_view · VIEW 0 After");
+  const viewBefore = review.getByAltText("hero_view · VIEW 0 Before, loop 0, cel 0");
+  const viewAfter = review.getByAltText("hero_view · VIEW 0 After, loop 0, cel 4");
   for (const preview of [pictureBefore, pictureAfter, viewBefore, viewAfter])
     await expect(preview).toBeVisible();
   expect(await pictureAfter.getAttribute("src")).not.toBe(await pictureBefore.getAttribute("src"));
+  await expect(review.getByText("Loop 0 · 4 cels", { exact: true })).toBeVisible();
+  await expect(review.getByText("Loop 0 · 5 cels", { exact: true })).toBeVisible();
+  expect(
+    await review.getByAltText("hero_view · VIEW 0 After, loop 0, cel 0").getAttribute("src"),
+  ).toBe(await viewBefore.getAttribute("src"));
   expect(await viewAfter.getAttribute("src")).not.toBe(await viewBefore.getAttribute("src"));
   await page.screenshot({
     path: test.info().outputPath("agent-image-review.png"),

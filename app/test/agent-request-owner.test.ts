@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { approveCapturedReview, type ReviewOwner } from "../src/agent/agentRequestOwner.ts";
+import {
+  approveCapturedReview,
+  captureReviewOwner,
+  type ReviewOwner,
+} from "../src/agent/agentRequestOwner.ts";
 
 for (const changed of ["owner", "session", "game", "review", "writable"] as const) {
   test(`Apply cannot cross a changed ${changed} while editor writes finish`, async () => {
@@ -56,4 +60,32 @@ test("Apply admits the captured review only after editor writes finish", async (
     },
   );
   assert.deepEqual(events, ["flush", "apply"]);
+});
+
+test("the panel capture adapter refuses a replacement proposal from the same controller", async () => {
+  let pending = { messageId: "first-proposal" };
+  let applied: string | undefined;
+  const owner = {
+    pending: () => pending,
+    approve: async () => {
+      applied = pending.messageId;
+    },
+  };
+  const session = {};
+  const game = {};
+  const captured = captureReviewOwner(owner, session, game, true);
+  let release!: () => void;
+  const writes = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const applying = approveCapturedReview(
+    captured,
+    () => captureReviewOwner(owner, session, game, true),
+    () => writes,
+  );
+  pending = { messageId: "replacement-proposal" };
+  release();
+  await assert.rejects(applying, /review changed/);
+  assert.equal(applied, undefined);
+  assert.equal(captureReviewOwner(owner, session, game, true).review, pending);
 });

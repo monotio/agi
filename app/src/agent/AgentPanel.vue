@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { documentLabel, numberedLabel } from "../../../src/logic/numberedLabels.ts";
+import { STALE_SAVE_MESSAGE, PROJECT_REMOVED_MESSAGE } from "../project/projectTransaction.ts";
 import { useProjectLabels } from "../shell/useProjectLabels.ts";
 import UiIcon from "../ui/UiIcon.vue";
 import {
@@ -34,9 +35,14 @@ import { openContainer } from "../../../src/container/container.ts";
 import { readProjectWorkspace } from "../../../src/authoring/projectWorkspace.ts";
 import { diffProjectDocuments } from "../../../src/authoring/projectContent.ts";
 import { sameProjectContent } from "../../../src/authoring/projectContent.ts";
+import { compileCapturedResource } from "./agentResultPreview.ts";
 import { formatSpent } from "./reportedSpend.ts";
 import { resolveAgentTarget } from "./agentNavigation.ts";
-import { approveCapturedReview, type ReviewOwner } from "./agentRequestOwner.ts";
+import {
+  approveCapturedReview,
+  captureReviewOwner,
+  type ReviewOwner,
+} from "./agentRequestOwner.ts";
 import type { AgentChat } from "../../../src/agent/chats.ts";
 import UiChip from "../ui/UiChip.vue";
 import UiButton from "../ui/UiButton.vue";
@@ -147,6 +153,35 @@ function openResult(message: AgentChat["messages"][number], resource?: string): 
   resultMessageId.value = message.id;
   resultResource.value = resource;
 }
+const resultDocuments = computed(() => {
+  const stored = resultReview.value;
+  const inspected = inspection.value;
+  return {
+    before: stored ? readProjectWorkspace(stored.base) : {},
+    after: stored
+      ? readProjectWorkspace(stored.candidate)
+      : inspected?.snapshot
+        ? readProjectWorkspace(inspected.snapshot)
+        : {},
+  };
+});
+const isolatedResultImages = computed(() => {
+  const { before, after } = resultDocuments.value;
+  const images: Record<
+    string,
+    {
+      before: ReturnType<typeof compileCapturedResource>;
+      after: ReturnType<typeof compileCapturedResource>;
+    }
+  > = {};
+  if (!resultImages.value)
+    for (const key of Object.keys(after))
+      images[key] = {
+        before: compileCapturedResource(before, key, resultProfile.value),
+        after: compileCapturedResource(after, key, resultProfile.value),
+      };
+  return images;
+});
 const resultImages = computed(() => {
   const stored = resultReview.value;
   const inspected = inspection.value;
@@ -202,7 +237,7 @@ const resultEarlier = computed(() => {
   void tick.value;
   void engine.state.patchTick;
   const message = resultMessage.value;
-  if (inspection.value?.snapshot && resultImages.value) {
+  if (inspection.value?.snapshot) {
     const session = props.session ?? engine.getProjectSession();
     const currentDocuments = session?.capture().snapshot.documents() ?? {};
     const files =
@@ -214,16 +249,32 @@ const resultEarlier = computed(() => {
         if (typeof content === "string" && currentDocuments[key] !== undefined)
           return !sameProjectContent(content, currentDocuments[key]);
         const [kind, number] = key.split(":");
-        if (kind === "logic" || kind === "picture" || kind === "view" || kind === "sound")
-          return !sameProjectContent(
-            resultImages.value!.after.getResource(kind, Number(number)),
-            currentImage.getResource(kind, Number(number)),
+        if (kind === "logic" || kind === "picture" || kind === "view" || kind === "sound") {
+          const captured =
+            content instanceof Uint8Array
+              ? content
+              : (resultImages.value?.after ?? isolatedResultImages.value[key]?.after)?.getResource(
+                  kind,
+                  Number(number),
+                );
+          return (
+            captured !== undefined &&
+            !sameProjectContent(captured, currentImage.getResource(kind, Number(number)))
           );
+        }
         if (key === "words" || key === "inventory")
           return !sameProjectContent(
-            resultImages.value!.after.files.get(key === "words" ? "WORDS.TOK" : "OBJECT"),
+            content instanceof Uint8Array
+              ? content
+              : resultImages.value?.after.files.get(key === "words" ? "WORDS.TOK" : "OBJECT"),
             currentImage.files.get(key === "words" ? "WORDS.TOK" : "OBJECT"),
           );
+        if (
+          key === "tests" &&
+          content instanceof Uint8Array &&
+          typeof currentDocuments[key] === "string"
+        )
+          return !sameProjectContent(content, new TextEncoder().encode(currentDocuments[key]));
         return (
           currentDocuments[key] !== undefined && !sameProjectContent(content, currentDocuments[key])
         );
@@ -294,6 +345,8 @@ let previousChat: string | undefined;
 async function attach() {
   if (props.session === undefined && engine.state.phase !== "running") return;
   const session = props.session ?? engine.getProjectSession();
+  const openedGame = engine.getBootedGame();
+  const attachingDraft = input.value;
   if (retired || attaching || agent.value || (props.session === null && !session)) return;
   attaching = true;
   off?.();
@@ -308,15 +361,27 @@ async function attach() {
           },
         })
       : await engine.getConversationAgent();
-    await session?.flush();
-    if (!attached || retired || (props.session ?? engine.getProjectSession()) !== session) return;
+    const acquiredSession = props.session ?? engine.getProjectSession();
+    const acquiredGame = engine.getBootedGame();
+    await acquiredSession?.flush();
+    if (
+      !attached ||
+      retired ||
+      (props.session ?? engine.getProjectSession()) !== acquiredSession ||
+      engine.getBootedGame() !== acquiredGame
+    )
+      return;
     agent.value = attached;
-    if (previousChat !== undefined && attached.current()?.id !== previousChat) {
+    if (
+      previousChat !== undefined &&
+      attached.current()?.id !== previousChat &&
+      input.value === attachingDraft
+    ) {
       input.value = "";
       contexts.value = [];
       resultMessageId.value = undefined;
     }
-    attachedSession = session;
+    attachedSession = acquiredSession;
     attachedGame = engine.getBootedGame();
     off = attached.subscribe(() => {
       tick.value++;
@@ -326,6 +391,13 @@ async function attach() {
     if (!retired) error.value = cause instanceof Error ? cause.message : String(cause);
   } finally {
     attaching = false;
+    if (
+      !retired &&
+      !agent.value &&
+      ((props.session ?? engine.getProjectSession()) !== session ||
+        engine.getBootedGame() !== openedGame)
+    )
+      void attach();
   }
 }
 watch(
@@ -392,6 +464,13 @@ const busy = computed(() => {
   void tick.value;
   return agent.value?.busy ?? false;
 });
+const recoveryError = computed(() =>
+  engine.state.projectRemoved
+    ? PROJECT_REMOVED_MESSAGE
+    : engine.state.staleTab
+      ? STALE_SAVE_MESSAGE
+      : engine.state.powerUp.error,
+);
 const canSend = computed(() => {
   void tick.value;
   return (
@@ -554,13 +633,12 @@ async function send() {
 function currentReviewOwner(): ReviewOwner | undefined {
   const owner = agent.value;
   if (!owner || retired) return undefined;
-  return {
+  return captureReviewOwner(
     owner,
-    session: props.session ?? engine.getProjectSession(),
-    game: engine.getBootedGame(),
-    review: owner.pending,
-    writable: creating.value && !editor.readOnly.value,
-  };
+    props.session ?? engine.getProjectSession(),
+    engine.getBootedGame(),
+    creating.value && !editor.readOnly.value,
+  );
 }
 async function approve() {
   const captured = currentReviewOwner();
@@ -662,7 +740,15 @@ onBeforeUnmount(() => {
     @keydown="keys"
   >
     <header class="agent-panel__header">
-      <h2 :title="VOCABULARY.agent.help">Agent</h2>
+      <h2
+        :title="
+          creating
+            ? 'Ask questions or describe changes to your game.'
+            : 'Ask questions or get hints about this game.'
+        "
+      >
+        Agent
+      </h2>
       <button class="agent-panel__chat-title" @click="chatList = !chatList" aria-label="Chats">
         <UiIcon name="history" :size="16" /></button
       ><UiIconButton
@@ -695,6 +781,19 @@ onBeforeUnmount(() => {
       >
         {{ settings.aiModelLabel.value }}
       </button>
+      <UiButton
+        v-if="creating && engine.state.phase === 'running'"
+        size="sm"
+        variant="ghost"
+        data-testid="btn-record-test"
+        :disabled="busy || engine.state.recording.active || engine.state.recording.starting"
+        title="Record a playtest"
+        @click="
+          close();
+          bridge.startPlaytest();
+        "
+        >Playtest</UiButton
+      >
       <a
         :href="
           task?.usageUrl ??
@@ -826,15 +925,15 @@ onBeforeUnmount(() => {
       >
     </p>
     <p
-      v-if="error || agent?.error"
+      v-if="error || agent?.error || recoveryError"
       class="agent-panel__error"
       data-testid="agent-error"
       role="alert"
     >
-      {{ error || agent?.error }}
+      {{ recoveryError || error || agent?.error }}
     </p>
     <UiButton
-      v-if="engine.state.powerUp.offerReload"
+      v-if="engine.state.staleTab || engine.state.powerUp.offerReload"
       data-testid="agent-reload"
       @click="engine.reloadFromStorage()"
       >Reload game</UiButton
@@ -973,15 +1072,15 @@ onBeforeUnmount(() => {
                 >Open current resource</UiButton
               >
             </header>
-            <Suspense v-if="resultImages">
+            <Suspense>
               <AgentResourceReview
                 :document-key="change.key"
-                :before="resultImages.beforeDocuments[change.key]"
-                :before-documents="resultImages.beforeDocuments"
-                :after-documents="resultImages.afterDocuments"
+                :before="resultDocuments.before[change.key]"
+                :before-documents="resultDocuments.before"
+                :after-documents="resultDocuments.after"
                 :after="change.content"
-                :before-image="resultImages.before"
-                :after-image="resultImages.after"
+                :before-image="resultImages?.before ?? isolatedResultImages[change.key]?.before"
+                :after-image="resultImages?.after ?? isolatedResultImages[change.key]?.after"
                 :profile="resultProfile"
                 :inspection="!!inspection"
                 :navigation="!!(props.session || engine.getProjectSession())"
@@ -993,9 +1092,6 @@ onBeforeUnmount(() => {
                 </p></template
               >
             </Suspense>
-            <p v-else class="agent-panel__preview-missing" data-testid="agent-preview-missing">
-              Preview unavailable for this resource.
-            </p>
           </article>
         </div>
         <p v-else>Preview unavailable for this result.</p>

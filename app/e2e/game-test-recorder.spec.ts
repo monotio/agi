@@ -55,12 +55,20 @@ function remixResponses(
 }
 
 async function agentFeed(page: Page): Promise<string> {
-  return page.evaluate(() =>
-    [
-      (window.__AGI_TRACE__ ?? []).map((entry) => String(entry.detail)).join("\n"),
-      document.querySelector("[data-testid=workspace-agent-panel]")?.textContent ?? "",
-    ].join("\n"),
-  );
+  return page.evaluate(async () => {
+    const session = (
+      window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }
+    ).__AGI_PROJECT__.getSession();
+    const { borrowWorkspaceAgent } = await import("/src/agent/workspaceAgent.ts");
+    const owner = borrowWorkspaceAgent({
+      session,
+      profileId: "2.936",
+      config: () => {
+        throw new Error("Reuse the current conversation owner");
+      },
+    });
+    return owner.progress.join("\n");
+  });
 }
 
 test("record a playthrough, break and repair it, and rerun it in a fresh browser", async ({
@@ -95,8 +103,13 @@ test("record a playthrough, break and repair it, and rerun it in a fresh browser
   // Playtest recording lives in the editing tools — the remix bubble.
   await enterCreateMode(page);
   await openWorkspaceAgent(page);
+  if (!(await page.getByTestId("btn-record-test").isVisible()))
+    await page
+      .getByTestId("workspace-agent-panel")
+      .getByRole("button", { name: "Agent settings", exact: true })
+      .click();
   await page.getByTestId("btn-record-test").click();
-  await expect(page.getByTestId("workspace-agent-panel")).toHaveCount(0);
+  await expect(page.getByTestId("workspace-agent-panel")).toBeHidden();
   await expect(page.getByTestId("recording-bar")).toBeVisible();
   await page.getByTestId("input-line").focus();
   await page.keyboard.down("ArrowRight");

@@ -197,9 +197,8 @@ test("a stale tab's Download game, Ask and Exit leave another tab's saved edit i
 
   await page.getByTestId("menu-assistant").click();
   await expect(page.getByTestId("workspace-agent-panel")).toBeVisible();
-  await expect(page.getByTestId("agent-message")).toBeEnabled();
-  await page.getByTestId("agent-message").fill("What is in this room?");
-  await page.getByTestId("agent-send").click();
+  // Opening the conversation discovers the refused storage base before another turn can start.
+  await expect(page.getByTestId("agent-message")).toBeDisabled();
   await expect(page.getByTestId("agent-error")).toContainText(
     "Changed in another tab. Editing is paused.",
   );

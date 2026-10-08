@@ -97,7 +97,7 @@ test("Play boots a catalog game without the AI authoring stack, and opening Ask 
   await expect(page.getByTestId("agent-send")).toBeDisabled();
   await expect
     .poll(() => modules, { timeout: 10_000 })
-    .toContain("app/src/agent/installedConversation.ts");
+    .toContain("app/src/agent/workspaceAgent.ts");
   await expect
     .poll(() => modules.some((module) => /^(?:app\/)?node_modules\/openai\//.test(module)))
     .toBe(true);

@@ -216,3 +216,155 @@ test("coordinated tests proposal has a native test review @webkit-desktop", asyn
   await expect(tests.getByRole("row", { name: "Starting score 1 1", exact: true })).toBeVisible();
   await expect(page.getByTestId("agent-approve")).toBeEnabled();
 });
+
+test("unfinished captured LOGIC stays readable beside a valid captured view @webkit-desktop", async ({
+  page,
+}) => {
+  await starter(page);
+  const unfinished = '// Unfinished captured draft\nif (isset(new_room)) {\n  print("Still writing';
+  await replaceWorkspaceDocument(page, "logic:1", unfinished, false);
+  await configureAi(page, { provider: "openai", key: "test-placeholder" });
+  await page.getByRole("radio", { name: "Play", exact: true }).click();
+  let requests = 0;
+  await page.route("**/api/openai/v1/responses", async (route) => {
+    requests++;
+    await route.fulfill(
+      providerReply("openai", {
+        id: `unfinished-${requests}`,
+        output:
+          requests === 1
+            ? [
+                {
+                  type: "function_call",
+                  call_id: "draft",
+                  name: "read_document",
+                  arguments: JSON.stringify({ key: "logic:1", offset: null, limit: null }),
+                },
+                {
+                  type: "function_call",
+                  call_id: "view",
+                  name: "read_document",
+                  arguments: JSON.stringify({ key: "view:0", offset: null, limit: null }),
+                },
+              ]
+            : [
+                {
+                  type: "message",
+                  role: "assistant",
+                  content: [
+                    { type: "output_text", text: "The unfinished draft and hero are captured." },
+                  ],
+                },
+              ],
+      }),
+    );
+  });
+  await page.getByTestId("agent-message").fill("Inspect my draft and the hero");
+  await page.getByTestId("agent-send").click();
+  await expect(page.getByTestId("agent-conversation")).toContainText(
+    "The unfinished draft and hero are captured.",
+  );
+  const buttons = page.getByTestId("agent-result").getByRole("button");
+  await buttons.nth(0).click();
+  const result = page.getByTestId("agent-result-preview");
+  await expect(result.locator(".agent-source-preview")).toHaveText(unfinished);
+  await expect(result.getByTestId("agent-preview-missing")).toHaveCount(0);
+  await result.getByRole("button", { name: "Back to chat", exact: true }).click();
+  await buttons.nth(1).click();
+  await expect(result.getByTestId("agent-view-review").locator("details")).toHaveCount(4);
+  await expect(result.getByTestId("agent-view-review").getByRole("img").first()).toHaveAttribute(
+    "src",
+    /^data:image\/png;base64,/,
+  );
+});
+
+test("native inspected LOGIC and test bytes render captured source and named tests @webkit-desktop", async ({
+  page,
+}) => {
+  await starter(page);
+  await configureAi(page, { provider: "openai", key: "test-placeholder" });
+  let stage = "write";
+  let requests = 0;
+  await page.route("**/api/openai/v1/responses", async (route) => {
+    requests++;
+    const output =
+      stage === "write"
+        ? [
+            {
+              type: "function_call",
+              call_id: "write-tests",
+              name: "write_game_tests",
+              arguments: JSON.stringify({
+                mode: "merge",
+                names: null,
+                tests: [
+                  {
+                    name: "Starting score",
+                    room: 1,
+                    spawnX: null,
+                    spawnY: null,
+                    steps: [{ action: "wait", ticks: 1 }],
+                    expect: { score: 0 },
+                    cycleBudget: 100,
+                  },
+                ],
+              }),
+            },
+            {
+              type: "function_call",
+              call_id: "finish",
+              name: "finish",
+              arguments: '{"notes":null}',
+            },
+          ]
+        : requests === 1
+          ? [
+              {
+                type: "function_call",
+                call_id: "logic",
+                name: "read_logic",
+                arguments: JSON.stringify({ num: 1, offset: null, limit: null }),
+              },
+              {
+                type: "function_call",
+                call_id: "tests",
+                name: "read_game_tests",
+                arguments: '{"names":null,"offset":null}',
+              },
+            ]
+          : [
+              {
+                type: "message",
+                role: "assistant",
+                content: [
+                  { type: "output_text", text: "The admitted logic and test are captured." },
+                ],
+              },
+            ];
+    await route.fulfill(providerReply("openai", { id: `bytes-${stage}-${requests}`, output }));
+  });
+  await page.getByTestId("agent-message").fill("Add a starting score test");
+  await page.getByTestId("agent-send").click();
+  await page.getByTestId("agent-approve").click();
+  stage = "read";
+  requests = 0;
+  await page.getByRole("radio", { name: "Play", exact: true }).click();
+  await page.getByTestId("agent-message").fill("Inspect admitted logic and tests");
+  await page.getByTestId("agent-send").click();
+  await expect(page.getByTestId("agent-conversation")).toContainText(
+    "The admitted logic and test are captured.",
+  );
+  const buttons = page.getByTestId("agent-result").last().getByRole("button");
+  await buttons.nth(0).click();
+  const result = page.getByTestId("agent-result-preview");
+  await expect(result.locator(".agent-source-preview")).toContainText(
+    "You stand in a sunny clearing.",
+  );
+  await result.getByRole("button", { name: "Back to chat", exact: true }).click();
+  await buttons.nth(1).click();
+  await expect(
+    result
+      .getByTestId("agent-tests-review")
+      .getByRole("row", { name: "Starting score 1 1", exact: true }),
+  ).toBeVisible();
+});

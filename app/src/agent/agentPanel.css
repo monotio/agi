@@ -210,6 +210,7 @@
   background: var(--surface-1);
   border-left: 1px solid var(--hairline);
   box-shadow: var(--shadow-pop);
+  animation: ui-sheet-in-left var(--duration) var(--ease-out);
 }
 .agent-drawer[style*="display: none"] {
   pointer-events: none;
@@ -339,5 +340,11 @@
   .agent-drawer--play .agent-panel__result {
     right: 0;
     width: 100vw;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-drawer {
+    animation: none;
   }
 }

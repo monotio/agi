@@ -82,8 +82,7 @@ test("Anthropic Ask recovers from invalid runtime arguments and accepts omitted 
   expect(rejected.is_error).toBe(true);
   expect(JSON.parse(rejected.content[0]!.text)).toMatchObject({
     success: false,
-    error:
-      "Invalid arguments for read_room; nothing was changed. frames.count must be integer or null, got string.",
+    error: "frames.count must be integer or null, got string.",
   });
   const accepted = requests[2]!.messages.at(-1)!.content[0]!;
   expect(accepted.tool_use_id).toBe("inspect-2");

@@ -2,6 +2,7 @@ import { gameHint, openGameOptions, enterCreateMode } from "./engineProbe.ts";
 import type { ProjectSession } from "../src/project/projectSession.ts";
 import { fixtureSkip, KNOWN_GAME_HASH } from "../../test/fixtures.ts";
 import { readFile } from "node:fs/promises";
+import { providerReply } from "../../test/provider-stream.ts";
 import { readGameZip } from "../src/archive/gameZip.ts";
 import { openContainer } from "../../src/container/container.ts";
 import { disassembleLogic } from "../../src/logic/disassembler.ts";
@@ -666,7 +667,43 @@ test("game frame follows boot and exit while New game preserves its draft", asyn
 /** The first submitted Ask gets real fixture context without changing the game. */
 test("KQ1 orientation accompanies the first question, Escape resumes", async ({ page }) => {
   await page.goto("/");
-  await configureAi(page, { provider: "stub" });
+  await configureAi(page, { provider: "openai", key: "test-placeholder" });
+  let requests = 0;
+  await page.route("**/api/openai/v1/responses", async (route) => {
+    requests++;
+    await route.fulfill(
+      providerReply("openai", {
+        id: `orientation-${requests}`,
+        output:
+          requests === 1
+            ? [
+                {
+                  type: "function_call",
+                  call_id: "room",
+                  name: "read_room",
+                  arguments: JSON.stringify({
+                    room: 1,
+                    state: { compact: true, variables: [0], flags: null },
+                    frames: null,
+                  }),
+                },
+                {
+                  type: "function_call",
+                  call_id: "logic",
+                  name: "read_logic",
+                  arguments: JSON.stringify({ num: 1, offset: null, limit: null }),
+                },
+              ]
+            : [
+                {
+                  type: "message",
+                  role: "assistant",
+                  content: [{ type: "output_text", text: "You are in the courtyard." }],
+                },
+              ],
+      }),
+    );
+  });
   await bootKq1(page);
   await advanceToCourtyard(page);
   await expect.poll(async () => (await textHook(page)).cycle).toBeGreaterThan(0);
@@ -676,27 +713,40 @@ test("KQ1 orientation accompanies the first question, Escape resumes", async ({ 
   await expect.poll(async () => (await textHook(page)).paused).toBe(true);
 
   await expect(page.getByTestId("agent-message")).toBeEnabled();
-  await expect.poll(() => agentActivity(page)).not.toContain("[Orientation]");
+  expect(requests).toBe(0);
   await page.getByTestId("agent-message").fill("Where am I?");
   await page.getByTestId("agent-send").click();
   await expect(page.getByTestId("agent-message")).toBeEnabled();
-  // The submitted context names the game and the profile the engine detected.
-  await expect.poll(() => agentActivity(page), { timeout: 20_000 }).toContain("[Orientation] kq1");
   await expect(page.getByTestId("agent-current-room")).toContainText(/room 1/i);
-  await page.screenshot({ path: test.info().outputPath("kq1-power-up-bubble.png") });
-  await expect.poll(() => agentActivity(page)).toContain("profile 2.917");
-
-  // ...and its prompt really is the live container read back as source.
-  const prompt = await page.evaluate(() => {
-    const entry = (window.__AGI_TRACE__ ?? []).find((e) => e.detail.startsWith("[Orientation]"));
-    const data = entry?.data;
-    return typeof data === "object" && data !== null && "prompt" in data ? String(data.prompt) : "";
+  await expect(page.getByTestId("agent-conversation")).toContainText("You are in the courtyard.");
+  await expect(page.getByTestId("agent-task-controls")).toBeHidden();
+  const submitted = await page.evaluate(async () => {
+    const { loadGameConversation } = await import("/src/project/gameStorage.ts");
+    const { lastGameKey } = await import("/src/saves/useAutosaveController.ts");
+    const locator = lastGameKey();
+    if (!locator) throw new Error("Missing installed conversation locator");
+    const stored = await loadGameConversation(locator);
+    const owner = {
+      current: () => stored?.chats?.chats.find((chat) => chat.id === stored.chats?.active),
+    };
+    const turn = owner.current()?.messages.find((message) => message.request);
+    const inspected = owner
+      .current()
+      ?.messages.find((message) => message.result?.kind === "resources")?.result;
+    return { request: turn?.request, inspected };
   });
-  expect(prompt).toContain("ORIENTATION: You have joined a game already in progress");
-  expect(prompt).toContain("Game: kq1");
-  expect(prompt).toContain("Staged set");
-  expect(prompt).toMatch(/logic \[0-/);
-  expect(prompt).toMatch(/dictionary \d+ words/);
+  expect(submitted.request).toMatchObject({
+    mode: "play",
+    capability: "inspect",
+    profileId: "2.917",
+  });
+  expect(submitted.request?.context.trim()).toBe("Current room 1");
+  expect(submitted.inspected?.kind).toBe("resources");
+  if (submitted.inspected?.kind !== "resources")
+    throw new Error("Missing inspected native game context");
+  expect(submitted.inspected.resources).toContain("logic:1");
+  expect(submitted.inspected.profileId).toBe("2.917");
+  await page.screenshot({ path: test.info().outputPath("kq1-agent.png") });
 
   // The world really is frozen: the interpreter's cycle counter stops dead
   // and KQ1's animating courtyard stops changing with it.
@@ -764,15 +814,15 @@ test("a locally loaded patched game can be downloaded and imported", async ({ pa
         throw new Error("The panel must own the agent.");
       },
     });
-    const send = agent.send.bind(agent);
+    const send = agent.submit.bind(agent);
     let release!: () => void;
     const gate = new Promise<void>((resolve) => {
       release = resolve;
     });
     const completed = new Promise<void>((resolve, reject) => {
-      agent.send = (...args: Parameters<typeof send>) => {
+      agent.submit = (...args: Parameters<typeof send>) => {
         const task = gate.then(() => send(...args));
-        void task.then(resolve, reject);
+        void task.then(() => resolve(), reject);
         return task;
       };
     });

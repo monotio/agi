@@ -265,6 +265,8 @@ for (const size of sizes) {
           await page.getByTestId("workspace-agent").click();
           await expect(page.getByTestId("workspace-agent-panel")).toBeVisible();
           await shot(page, `${removed ? "removed" : "stale"}-agent-${size.width}`);
+          await page.getByTestId("agent-panel-close").click();
+          await expect(page.getByTestId("workspace-agent-panel")).toBeHidden();
           for (const name of ["Download unsaved edits", "Download game", "Reload", "Exit"])
             await inside(page, note.getByRole("button", { name, exact: true }));
         }

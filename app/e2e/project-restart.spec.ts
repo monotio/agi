@@ -212,6 +212,11 @@ test("Create saves OBJECT removal and restarts MAIN with the changed image", asy
   );
   await expect(page.getByTestId("project-restart-notice")).toContainText("OBJECT");
   await openWorkspaceAgent(page);
+  if (!(await page.getByTestId("btn-record-test").isVisible()))
+    await page
+      .getByTestId("workspace-agent-panel")
+      .getByRole("button", { name: "Agent settings", exact: true })
+      .click();
   await page.getByTestId("btn-record-test").click();
   await expect(page.getByTestId("recording-bar")).toBeVisible();
   // Hold Stop and name on the wire while the real worker replaces the run.
@@ -258,6 +263,11 @@ test("Create saves OBJECT removal and restarts MAIN with the changed image", asy
   await expect(page.getByTestId("record-error")).toHaveCount(0);
   await page.screenshot({ path: test.info().outputPath("recording-ended-by-restart.png") });
   await openWorkspaceAgent(page);
+  if (!(await page.getByTestId("btn-record-test").isVisible()))
+    await page
+      .getByTestId("workspace-agent-panel")
+      .getByRole("button", { name: "Agent settings", exact: true })
+      .click();
   await page.getByTestId("btn-record-test").click();
   await expect(page.getByTestId("recording-bar")).toBeVisible();
   await page.getByTestId("record-stop").click();

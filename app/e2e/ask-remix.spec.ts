@@ -81,6 +81,7 @@ test("Ask stays paused and remembers the conversation after reload @webkit-deskt
   await page.getByTestId("agent-send").click();
   const conversation = page.getByTestId("agent-conversation");
   await expect(conversation).toContainText("Look around the room for a clue.");
+  await expect(page.getByTestId("agent-task-controls")).toBeHidden();
   await expect(page.getByTestId("agent-message")).toBeEnabled();
   expect((await textHook(page)).paused).toBe(true);
   expect(requests.length).toBe(21); // Productive investigation passes the old 16-round stop.

@@ -6,6 +6,14 @@ export interface ReviewOwner {
   review: unknown;
   writable: boolean;
 }
+export function captureReviewOwner(
+  owner: ReviewOwner["owner"] & { pending(): unknown },
+  session: unknown,
+  game: unknown,
+  writable: boolean,
+): ReviewOwner {
+  return { owner, session, game, review: owner.pending(), writable };
+}
 export async function approveCapturedReview(
   captured: ReviewOwner,
   current: () => ReviewOwner | undefined,

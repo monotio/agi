@@ -169,7 +169,7 @@ test("changing the shared provider affects the next Ask without losing the conve
   await page.getByTestId("agent-message").fill("What is wrong with the mural?");
   await page.getByTestId("agent-send").click();
   await expect(page.getByTestId("agent-conversation")).toContainText("The mural is unfinished.");
-  await expect(page.getByTestId("agent-message")).toBeEnabled();
+  await expect(page.getByTestId("agent-task-controls")).toBeHidden();
   await openAiSettings(page);
   await dialog.getByTestId("provider-select").selectOption("anthropic");
   await expect(dialog.getByTestId("api-key-input")).toHaveValue("");
@@ -182,10 +182,14 @@ test("changing the shared provider affects the next Ask without losing the conve
   await page.getByTestId("agent-message").fill("What should I try next?");
   await page.getByTestId("agent-send").click();
   await expect(page.getByTestId("agent-conversation")).toContainText("Try examining its frame.");
-  expect(requests.map((request) => request.provider)).toEqual(["openai", "anthropic"]);
+  expect(requests.map((request) => request.provider)).toEqual(["openai", "anthropic", "anthropic"]);
   expect(requests[1]!.body).toContain("What is wrong with the mural?");
   expect(requests[1]!.body).toContain("The mural is unfinished.");
   expect(requests[1]!.body).toContain("What should I try next?");
+  expect(JSON.parse(requests[1]!.body).tools).toEqual([]);
+  expect(requests[2]!.body).toContain("Try examining its frame.");
+  expect(requests[2]!.body).toContain("What should I try next?");
+  expect(JSON.parse(requests[2]!.body).output_config.effort).toBe("medium");
   expect(JSON.parse(requests[0]!.body).reasoning.effort).toBe("low");
   expect(JSON.parse(requests[1]!.body).output_config.effort).toBe("medium");
 });

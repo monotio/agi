@@ -14,6 +14,7 @@ import { imageReviewTargets, pictureReviewPixels } from "./workspaceImageReview.
 import { parseView, selectViewCel } from "../../../src/view/view.ts";
 import { EGA_RGB } from "../../../src/picture/png.ts";
 import { renderSoundPreview } from "../../../src/sound/preview.ts";
+import { disassembleLogic } from "../../../src/logic/disassembler.ts";
 import { parseGameTests } from "../../../src/agent/gameTestFormat.ts";
 import { readInventoryObjects } from "../../../src/authoring/inventory.ts";
 import { parseWordsTok } from "../../../src/logic/words.ts";
@@ -24,8 +25,8 @@ const props = defineProps<{
   beforeDocuments: Readonly<Record<string, ProjectContent>>;
   afterDocuments: Readonly<Record<string, ProjectContent>>;
   after: ProjectContent | null;
-  beforeImage: GameContainer;
-  afterImage: GameContainer;
+  beforeImage: GameContainer | undefined;
+  afterImage: GameContainer | undefined;
   profile: AgiProfile;
   navigation?: boolean;
   inspection?: boolean;
@@ -65,22 +66,28 @@ const images = computed(() => {
   return targets.flatMap((target) => {
     const [kind, num] = target.split(":");
     if (kind !== "picture") return [];
-    return sides.value.map(({ image, index }) => {
-      const label = `${documentLabel(target, projectLabelContext(index ? props.afterDocuments : props.beforeDocuments, props.profile))} ${index ? "After" : "Before"}`;
-      const bytes = image.getResource(kind, Number(num));
-      const surface = createPictureSurface();
-      if (bytes) renderPicture(bytes, surface, { profile: props.profile });
-      const png = encodePngRgba(
-        320,
-        168,
-        pictureReviewPixels(
-          surface.visual,
-          index ? props.afterDocuments : props.beforeDocuments,
-          target,
-        ),
-      );
-      return { label, url: dataUrl(png, "image/png") };
-    });
+    return sides.value
+      .filter(({ image }) => image !== undefined)
+      .map(({ image, index }) => {
+        const label = `${documentLabel(target, projectLabelContext(index ? props.afterDocuments : props.beforeDocuments, props.profile))} ${index ? "After" : "Before"}`;
+        const bytes = image?.getResource(kind, Number(num));
+        const surface = createPictureSurface();
+        if (bytes) renderPicture(bytes, surface, { profile: props.profile });
+        const png = encodePngRgba(
+          320,
+          168,
+          pictureReviewPixels(
+            surface.visual,
+            index ? props.afterDocuments : props.beforeDocuments,
+            target,
+          ),
+        );
+        return {
+          label,
+          caption: props.inspection ? "Preview" : index ? "After" : "Before",
+          url: dataUrl(png, "image/png"),
+        };
+      });
   });
 });
 const views = computed(() => {
@@ -91,45 +98,72 @@ const views = computed(() => {
   return targets
     .filter((target) => target.startsWith("view:"))
     .flatMap((target) =>
-      sides.value.map(({ image, index }) => {
-        const bytes = image.getResource("view", Number(target.split(":")[1]));
-        const label = `${documentLabel(target, projectLabelContext(index ? props.afterDocuments : props.beforeDocuments, props.profile))} ${index ? "After" : "Before"}`;
-        if (!bytes) return { label, resource: target, after: index === 1, loops: [] };
-        const view = parseView(bytes, props.profile);
-        return {
-          label,
-          resource: target,
-          after: index === 1,
-          loops: view.loops.map((loop, loopIndex) => ({
-            index: loopIndex,
-            cels: loop.cels.map((_cel, celIndex) => {
-              const cel = selectViewCel(view, loopIndex, celIndex)!;
-              const rgba = new Uint8Array(cel.width * 2 * cel.height * 4);
-              for (let y = 0; y < cel.height; y++)
-                for (let x = 0; x < cel.width * 2; x++) {
-                  const color = cel.pixels[y * cel.width + Math.floor(x / 2)]!;
-                  const offset = (y * cel.width * 2 + x) * 4;
-                  rgba.set(EGA_RGB[color]!, offset);
-                  rgba[offset + 3] = color === cel.transparentColor ? 0 : 255;
-                }
-              return {
-                index: celIndex,
-                url: dataUrl(encodePngRgba(cel.width * 2, cel.height, rgba), "image/png"),
-              };
-            }),
-          })),
-        };
-      }),
+      sides.value
+        .filter(({ image }) => image !== undefined)
+        .map(({ image, index }) => {
+          const bytes = image?.getResource("view", Number(target.split(":")[1]));
+          const label = `${documentLabel(target, projectLabelContext(index ? props.afterDocuments : props.beforeDocuments, props.profile))} ${index ? "After" : "Before"}`;
+          if (!bytes) return { label, resource: target, after: index === 1, loops: [] };
+          const view = parseView(bytes, props.profile);
+          return {
+            label,
+            resource: target,
+            after: index === 1,
+            loops: view.loops.map((loop, loopIndex) => ({
+              index: loopIndex,
+              cels: loop.cels.map((_cel, celIndex) => {
+                const cel = selectViewCel(view, loopIndex, celIndex)!;
+                const rgba = new Uint8Array(cel.width * 2 * cel.height * 4);
+                for (let y = 0; y < cel.height; y++)
+                  for (let x = 0; x < cel.width * 2; x++) {
+                    const color = cel.pixels[y * cel.width + Math.floor(x / 2)]!;
+                    const offset = (y * cel.width * 2 + x) * 4;
+                    rgba.set(EGA_RGB[color]!, offset);
+                    rgba[offset + 3] = color === cel.transparentColor ? 0 : 255;
+                  }
+                return {
+                  index: celIndex,
+                  url: dataUrl(encodePngRgba(cel.width * 2, cel.height, rgba), "image/png"),
+                };
+              }),
+            })),
+          };
+        }),
     );
 });
 const sounds = computed(() => {
   if (!props.documentKey.startsWith("sound:")) return [];
-  return sides.value.map(({ image, index }) => {
-    const bytes = image.getResource("sound", Number(props.documentKey.split(":")[1]));
-    return {
-      caption: `${documentLabel(props.documentKey, projectLabelContext(index ? props.afterDocuments : props.beforeDocuments, props.profile))}${props.inspection ? "" : index ? " After" : " Before"}`,
-      url: bytes ? dataUrl(renderSoundPreview(bytes, props.profile).wav, "audio/wav") : "",
-    };
+  return sides.value
+    .filter(({ image }) => image !== undefined)
+    .map(({ image, index }) => {
+      const bytes = image?.getResource("sound", Number(props.documentKey.split(":")[1]));
+      return {
+        caption: `${documentLabel(props.documentKey, projectLabelContext(index ? props.afterDocuments : props.beforeDocuments, props.profile))}${props.inspection ? "" : index ? " After" : " Before"}`,
+        url: bytes ? dataUrl(renderSoundPreview(bytes, props.profile).wav, "audio/wav") : "",
+      };
+    });
+});
+const source = computed(() => {
+  if (!props.inspection) return undefined;
+  if (typeof props.after === "string") return props.after;
+  if (!(props.after instanceof Uint8Array) || !props.documentKey.startsWith("logic:"))
+    return undefined;
+  const words = props.afterDocuments["words"];
+  let dictionary: Map<string, number> | undefined;
+  try {
+    dictionary = new Map(
+      typeof words === "string"
+        ? (JSON.parse(words) as [string, number][])
+        : words
+          ? parseWordsTok(words).map(({ word, id }) => [word, id])
+          : [],
+    );
+  } catch {
+    /* Numeric word identities remain available. */
+  }
+  return disassembleLogic(props.after, {
+    profile: props.profile,
+    ...(dictionary ? { dictionary } : {}),
   });
 });
 const tests = computed(() => {
@@ -138,10 +172,10 @@ const tests = computed(() => {
     const content = index ? props.after : props.before;
     return {
       label: props.inspection ? "Tests" : index ? "After" : "Before",
-      tests:
-        typeof content === "string"
-          ? parseGameTests(new TextEncoder().encode(content), props.profile).tests
-          : [],
+      tests: parseGameTests(
+        typeof content === "string" ? new TextEncoder().encode(content) : (content ?? undefined),
+        props.profile,
+      ).tests,
     };
   });
 });
@@ -178,7 +212,7 @@ const removed = computed(() =>
   <template v-if="images.length || views.length">
     <div v-if="images.length" class="agent-art-review" data-testid="agent-art-review">
       <figure v-for="image in images" :key="image.label">
-        <figcaption>{{ image.label }}</figcaption>
+        <figcaption>{{ image.caption }}</figcaption>
         <img v-if="image.url" :src="image.url" :alt="`${documentKey} ${image.label}`" /><span v-else
           >Empty</span
         >
@@ -245,9 +279,7 @@ const removed = computed(() =>
     <pre v-for="entry in added" :key="`added-${entry}`" class="agent-entry-review__added">
 + {{ entry }}</pre>
   </div>
-  <pre v-else-if="inspection && typeof after === 'string'" class="agent-source-preview">{{
-    after
-  }}</pre>
+  <pre v-else-if="source !== undefined" class="agent-source-preview">{{ source }}</pre>
   <CodeDiff
     v-else-if="typeof before === 'string' || typeof after === 'string'"
     :before="typeof before === 'string' ? before : ''"
