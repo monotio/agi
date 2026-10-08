@@ -20,7 +20,7 @@ Released notes are also available on [GitHub Releases](https://github.com/monoti
 - Ask inspects native resources without preparing or validating an edit candidate.
 - An unreadable unused resource or dictionary does not stop other inspection tools.
 - Each request captures its current interpreter profile, runtime and attached references.
-- Switching to Create while a conversation opens keeps editing and playtesting available.
+- Switching to Create waits for the conversation transfer and preserves unfinished drafts.
 - Interrupted questions preserve pending edit reviews. Conversation save failures keep
   completed answers visible and offer Retry save without another provider request.
 - Accepted resource changes keep saved source claims consistent with playable
