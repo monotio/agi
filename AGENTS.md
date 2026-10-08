@@ -82,6 +82,11 @@ passes and the owner accepts it. After the final candidate's release QA, bump bo
 versions to `X.Y.0` and open `release/X.Y` into `main`, which deploys. Tag and publish
 the release only after deployment verification (docs/hosting.md, "Release branches").
 
+Patch hotfixes branch from the latest `main`, with both package versions set to
+`X.Y.Z`. Their pull requests target `main`; merge an accepted hotfix into any open
+`release/X.Y` afterward. The same checks and deployment verification precede the
+release tag and publication.
+
 Local release plans stay uncommitted and must not be referenced by committed
 code, comments or documentation.
 

@@ -15,6 +15,6 @@
     "test": "npm run eval:replay"
   },
   "devDependencies": {
-    "promptfoo": "0.123.1"
+    "promptfoo": "^0.124.0"
   }
 }

@@ -3,6 +3,19 @@
 Changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Released notes are also available on [GitHub Releases](https://github.com/monotio/agi/releases).
 
+## [1.2.1] - Unreleased
+
+### Fixed
+
+- Ask inspects native resources without preparing or validating an edit candidate.
+- An unreadable unused resource or dictionary does not stop other inspection tools.
+- Each request captures its current interpreter profile, runtime and attached references.
+- Interrupted questions preserve pending edit reviews. Conversation save failures keep
+  completed answers visible and offer Retry save without another provider request.
+- Updated vulnerable shell-quote, source-map-js and DOMPurify dependencies, and the
+  optional eval dependency tree. The app dependency audit is clear; the optional
+  eval tree still reports high advisories in basic-ftp and node-forge.
+
 ## [1.2.0] - 2026-10-07
 
 ### Added
@@ -99,5 +112,6 @@ See the [1.1.0 release notes](https://github.com/monotio/agi/releases/tag/v1.1.0
 See the [1.0.0 release notes](https://github.com/monotio/agi/releases/tag/v1.0.0).
 
 [1.2.0]: https://github.com/monotio/agi/releases/tag/v1.2.0
+[1.2.1]: https://github.com/monotio/agi/compare/v1.2.0...HEAD
 [1.1.0]: https://github.com/monotio/agi/releases/tag/v1.1.0
 [1.0.0]: https://github.com/monotio/agi/releases/tag/v1.0.0
