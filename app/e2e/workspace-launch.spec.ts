@@ -433,10 +433,13 @@ test("create a Launch for Room 2 with a flag and Came from, select it, Restart R
   await page.getByRole("menuitem", { name: "Flag" }).click();
   await expect(page.getByTestId("launch-row-flag")).toBeVisible();
 
-  // Set flag to 70 and toggle it ON
-  await page.getByTestId("launch-flag-select").selectOption("70");
+  // Renumbering publishes a new keyed row; wait for its rendered value before toggling.
+  const flagSelect = page.getByTestId("launch-flag-select");
+  await flagSelect.selectOption("70");
+  await expect(flagSelect).toHaveAttribute("value", "70");
   const flagToggle = page.getByTestId("launch-flag-toggle");
-  await flagToggle.click();
+  if ((await flagToggle.getAttribute("aria-checked")) === "false") await flagToggle.click();
+  await expect(flagToggle).toHaveAttribute("aria-checked", "true");
 
   // 6. Select the launch for run
   const selectRunBtn = page.getByTestId("launch-select-for-run");
