@@ -21,6 +21,9 @@ Released notes are also available on [GitHub Releases](https://github.com/monoti
 - An unreadable unused resource or dictionary does not stop other inspection tools.
 - Each request captures its current interpreter profile, runtime and attached references.
 - Switching to Create waits for the conversation transfer and preserves unfinished drafts.
+- Opening Agent focuses its composer on every visit and preserves a newer control's focus.
+- Failed game opening retains the saved project and offers Reload. Closing setup
+  retires its pending opening; a blank agent's first room follows its current stage.
 - The first conversation save preserves Create admission when it opens an editable copy.
 - AI settings wait for conversation startup and retain the previous settings if
   browser storage rejects the update.
