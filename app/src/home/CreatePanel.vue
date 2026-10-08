@@ -41,14 +41,14 @@ const {
 const shell = useShell();
 const engine = useEngineApi();
 const bridge = useShellBridge();
-const loadFailure = ref<{ projectId: ProjectId | null } | null>(null);
+const loadFailure = ref<{ projectId: ProjectId | null }>();
 let opening = 0;
 watch(
   open,
   (value) => {
     if (!value) {
       opening++;
-      loadFailure.value = null;
+      loadFailure.value = undefined;
     }
   },
   { flush: "sync" },
@@ -58,7 +58,7 @@ watch(
 async function onLocalCreated(projectId: ProjectId, kind: StarterKind): Promise<void> {
   if (libraryActionBusy.value) return;
   const intent = ++opening;
-  loadFailure.value = null;
+  loadFailure.value = undefined;
   engine.setProjectMode("create");
   refreshLibrary(projectId);
   if (kind === "blank") {
@@ -81,7 +81,7 @@ function reloadCreation(): void {
 
 function onChoice(value: NewGameChoice): void {
   opening++;
-  loadFailure.value = null;
+  loadFailure.value = undefined;
   if (value === "ai") chooseAi();
 }
 
@@ -171,7 +171,7 @@ async function toggleOutline(): Promise<void> {
 
 async function onAiCreated(title: string): Promise<void> {
   const intent = ++opening;
-  loadFailure.value = null;
+  loadFailure.value = undefined;
   try {
     adventureDraft.value.title = title;
     const { completeAdventureOutline } = await import("../library/gameTemplates.ts");
