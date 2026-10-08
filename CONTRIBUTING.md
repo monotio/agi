@@ -143,15 +143,15 @@ the owner or integrator pushes the fully gated integration head. CI runs on
 leaves the full run to that pull request. New pushes cancel older runs for the
 same ref.
 
-| CI job                       | Coverage                                                                                                                                                                                              |
-| ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Prepare CI                   | Changed-file classification, CI helper tests and one installation of both package roots, cached by lockfiles                                                                                          |
-| Static checks and unit tests | Full `npm run check`, including offline eval replay                                                                                                                                                   |
-| Build production artifact    | One production build, bundle boundaries and budgets, site and chunk-graph artifacts                                                                                                                   |
-| Playwright                   | Ten Chromium shards and three tagged WebKit desktop shards balanced by measured spec durations, two WebKit phone shards, and separate jobs for timing budgets and the storage benchmark on one worker |
-| Production browser           | Chromium and WebKit against the shared production artifact                                                                                                                                            |
-| PR burn-in                   | Up to 12 specs added or changed by the PR or its latest push, repeated five times in Chromium; tagged desktop tests also in WebKit; changed production specs in both engines                          |
-| Nightly browser burn-in      | Every browser suite repeated three times; one issue records tests with both passing and failing attempts                                                                                              |
+| CI job                       | Coverage                                                                                                                                                                                               |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Prepare CI                   | Changed-file classification, CI helper tests and one installation of both package roots, cached by lockfiles                                                                                           |
+| Static checks and unit tests | Full `npm run check`, including offline eval replay                                                                                                                                                    |
+| Build production artifact    | One production build, bundle boundaries and budgets, site and chunk-graph artifacts                                                                                                                    |
+| Playwright                   | Ten Chromium shards and four tagged WebKit desktop shards balanced by measured spec durations, three WebKit phone shards, and separate jobs for timing budgets and the storage benchmark on one worker |
+| Production browser           | Chromium and WebKit against the shared production artifact                                                                                                                                             |
+| PR burn-in                   | Up to 12 specs added or changed by the PR or its latest push, repeated five times in Chromium; tagged desktop tests also in WebKit; changed production specs in both engines                           |
+| Nightly browser burn-in      | Every browser suite repeated three times; one issue records tests with both passing and failing attempts                                                                                               |
 
 The required contexts stay `Typecheck, lint, unit tests, build`,
 `Playwright (play, remix and export)` and the repository-managed `CodeQL`.
@@ -378,6 +378,10 @@ flowchart LR
 3. `WorkspaceAgent.submit` captures request authority and identities before calling the provider. Play and prepared inspection requests use `ASK_TOOLS`; ordinary Create requests can read or propose changes with `WORKSPACE_AGENT_TOOLS`.
 4. Native reads retain captured result payloads. Complete change sets go through `ProjectSession` admission and History; the conversation never writes resources through a second owner.
 5. Conversation storage failures retain the answer and expose Retry save. `agentNavigation.ts` checks identities when a result opens its native editor; older results retain their own preview.
+
+AI settings wait for conversation startup. The controller rechecks the current
+owner and running task before accepting a change; a synchronous commit saves
+settings before publishing the runtime configuration.
 
 **Room generation answers the interpreter**
 

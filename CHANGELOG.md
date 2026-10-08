@@ -21,6 +21,9 @@ Released notes are also available on [GitHub Releases](https://github.com/monoti
 - An unreadable unused resource or dictionary does not stop other inspection tools.
 - Each request captures its current interpreter profile, runtime and attached references.
 - Switching to Create waits for the conversation transfer and preserves unfinished drafts.
+- The first conversation save preserves Create admission when it opens an editable copy.
+- AI settings wait for conversation startup and retain the previous settings if
+  browser storage rejects the update.
 - Interrupted questions preserve pending edit reviews. Conversation save failures keep
   completed answers visible and offer Retry save without another provider request.
 - Accepted resource changes keep saved source claims consistent with playable
