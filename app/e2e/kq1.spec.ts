@@ -447,7 +447,9 @@ test("an autosave resumes the courtyard across a browser reload", async ({ page 
   await expectModal(page, null);
 });
 
-test("Start over discards the autosave and boots the game from the top", async ({ page }) => {
+test("Start over discards the autosave and boots the game from the top @webkit-desktop", async ({
+  page,
+}) => {
   await page.goto("/");
   await bootKq1(page);
   await advanceToCourtyard(page);
@@ -460,14 +462,70 @@ test("Start over discards the autosave and boots the game from the top", async (
   await expect(await gameHint(page, "resume-caption")).toBeVisible({ timeout: 20_000 });
   await page.mouse.move(0, 0);
 
-  // Start over throws the snapshot away and boots KQ1 from its title screen.
+  // Observe the clear at its storage boundary: a fresh title-screen autosave
+  // may legitimately exist by the time the UI assertions finish.
+  const autosaveKey = `monotio_agi.autosave.${await progressStorageKey(page, "kq1")}`;
+  interface ProgressChange {
+    action: "remove" | "write";
+    before: number | null;
+    after: number | null;
+  }
+  await page.evaluate((key) => {
+    const changes: ProgressChange[] = [];
+    Object.assign(window, { __restartProgressChanges: changes });
+    function room(raw: string | null): number | null {
+      return raw === null ? null : Number(JSON.parse(raw).room);
+    }
+    const remove = Storage.prototype.removeItem;
+    Storage.prototype.removeItem = function (name) {
+      const before = name === key ? room(this.getItem(name)) : null;
+      remove.call(this, name);
+      if (this === localStorage && name === key)
+        changes.push({ action: "remove", before, after: room(this.getItem(name)) });
+    };
+    const set = Storage.prototype.setItem;
+    Storage.prototype.setItem = function (name, value) {
+      const before = name === key ? room(this.getItem(name)) : null;
+      set.call(this, name, value);
+      if (this === localStorage && name === key)
+        changes.push({ action: "write", before, after: room(this.getItem(name)) });
+    };
+  }, autosaveKey);
+
+  // Start over throws the courtyard snapshot away and boots KQ1 from its title screen.
   await openGameOptions(page, "settings-menu");
   await page.getByTestId("btn-start-over").click();
   await expect(await gameHint(page, "title-prompt-hint")).toBeVisible({ timeout: 20_000 });
   await page.mouse.move(0, 0);
   await expect(await gameHint(page, "resume-caption")).toBeHidden();
   await page.mouse.move(0, 0);
-  expect(await storedAutosave(page, "kq1")).toBeNull();
+  const cleared = await page.evaluate(
+    () =>
+      (window as unknown as { __restartProgressChanges: ProgressChange[] })
+        .__restartProgressChanges,
+  );
+  expect(cleared.filter((change) => change.action === "remove")).toEqual([
+    { action: "remove", before: 1, after: null },
+  ]);
+
+  // Let the fresh boot take its own checkpoint, then prove a reload returns
+  // to the title rather than resurrecting the discarded courtyard position.
+  await waitForAutosaveAfter(page, 0);
+  const changes = await page.evaluate(
+    () =>
+      (window as unknown as { __restartProgressChanges: ProgressChange[] })
+        .__restartProgressChanges,
+  );
+  const removed = changes.findIndex((change) => change.action === "remove");
+  const freshWrites = changes.slice(removed + 1);
+  expect(freshWrites.length).toBeGreaterThan(0);
+  for (const change of freshWrites) expect(change).toMatchObject({ action: "write", after: 83 });
+  await page.reload();
+  await waitForRoom(page, 83, { coldBoot: true });
+  await expect(await gameHint(page, "title-prompt-hint")).toBeVisible({ timeout: 20_000 });
+  await page.mouse.move(0, 0);
+  await expect(await gameHint(page, "resume-caption")).toBeVisible({ timeout: 20_000 });
+  await page.mouse.move(0, 0);
 });
 
 interface KeyEditPosting {
