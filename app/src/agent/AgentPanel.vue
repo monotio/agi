@@ -1018,7 +1018,7 @@ onBeforeUnmount(() => {
         :placeholder="creating ? 'Ask or describe a change…' : 'Ask about this game…'"
         data-testid="agent-message"
         :rows="review ? 1 : 3"
-        :disabled="!agent"
+        :disabled="!agent && !engine.state.conversationTransitioning"
       ></textarea>
       <div>
         <UiButton
