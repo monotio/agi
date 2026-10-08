@@ -220,6 +220,17 @@ function createSession(
     ...(input.workingDocumentId === undefined ? {} : { documentId: input.workingDocumentId }),
   });
   const model = new ProjectModel({ documents, build, digest: sha256Hex });
+  let sourceClaimsNeedCapture =
+    storage.fingerprint(data.authoringState, data.workspace) !==
+    storage.fingerprint(
+      updateAcceptedSourceClaims(
+        data.authoringState,
+        sourceClaimBase,
+        model.capture().lastAdmissibleBuild!.documents(),
+        inspection.profileId,
+      ),
+      data.workspace,
+    );
   if (history.capture().cursor === null) {
     const genesis = data.chats.chats.find((chat) => chat.title === `Created ${data.title}`);
     const result = genesis?.messages.findLast((message) => message.role === "assistant");
@@ -501,6 +512,7 @@ function createSession(
       data.authoringState,
       sourceClaimBase,
       image.documents(),
+      inspection.profileId,
     );
     const next = {
       ...data,
@@ -535,6 +547,7 @@ function createSession(
       next.words = parseWordsTok(next.files["WORDS.TOK"]).map(({ word, id }) => [word, id]);
     input.publish?.(snapshot, next, outcome, nativeInstalled);
     if (!save) return;
+    sourceClaimsNeedCapture = false;
     autosave.enqueue({
       snapshot,
       data: next,
@@ -1108,6 +1121,12 @@ function createSession(
     async flush() {
       if (!current() || writeBlock !== undefined)
         throw new Error(session.saveStatus().message || "Project session was closed.");
+      if (sourceClaimsNeedCapture)
+        await schedule(async () => {
+          if (!sourceClaimsNeedCapture) return;
+          recordOperation({ kind: "capture" });
+          captureSave(model.capture());
+        });
       let scheduled: Promise<unknown>;
       do {
         scheduled = documentTail;
