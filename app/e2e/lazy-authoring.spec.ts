@@ -119,3 +119,37 @@ test("the first agent drawer focuses its input and Escape returns to Play", asyn
   await expect(page.getByTestId("workspace-agent-panel")).toBeHidden();
   await expect(page.locator("#game-command")).toBeFocused();
 });
+
+test("a late first agent drawer preserves a newer control focus @webkit-desktop", async ({
+  page,
+}) => {
+  await isolateStorage(page);
+  let waiting = false;
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route(
+    /\/(?:src\/agent\/AgentPanel\.vue|assets\/AgentPanel-[^/]+\.js)(?:\?.*)?$/,
+    async (route) => {
+      waiting = true;
+      await held;
+      await route.continue();
+    },
+  );
+  await page.goto("/");
+  await page.getByTestId("catalog-play-adventure-department").click();
+  await waitForRoom(page, 1, { coldBoot: true });
+  try {
+    await page.getByTestId("menu-assistant").click();
+    await expect.poll(() => waiting).toBe(true);
+    const chosen = page.getByTestId("settings-menu");
+    await chosen.focus();
+    await expect(chosen).toBeFocused();
+    release();
+    await expect(page.getByTestId("agent-message")).toBeEnabled();
+    await expect(chosen).toBeFocused();
+  } finally {
+    release();
+  }
+});

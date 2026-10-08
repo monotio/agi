@@ -44,6 +44,7 @@ test("agent drawer overlays the workspace without narrowing the editor in both a
     const before = await editorBox(page);
     await openWorkspaceAgent(page);
     await expect(panel).toBeVisible();
+    await expect(panel.getByTestId("agent-message")).toBeFocused();
     const after = await editorBox(page);
     expect(after.width).toBe(before.width);
     expect(after.height).toBe(before.height);
@@ -106,6 +107,7 @@ test("a blank project has a working agent drawer @webkit-desktop", async ({ page
   await toggle.click();
   const panel = page.getByTestId("workspace-agent-panel");
   await expect(panel).toBeVisible();
+  await expect(panel.getByTestId("agent-message")).toBeFocused();
 
   // Without a key the drawer says how to connect one, on the existing settings path.
   await expect(panel).toContainText("Connect your AI provider in Settings to start a task.");

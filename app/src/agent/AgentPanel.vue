@@ -57,6 +57,7 @@ import type { ProfileId } from "../../../src/runtime/profile.ts";
  * session; the blank stage passes its own (home/emptyStageSession.ts).
  */
 const props = defineProps<{
+  openingFocus: Element | null;
   session?: ProjectSession | null | undefined;
   profileId?: ProfileId | undefined;
 }>();
@@ -95,14 +96,25 @@ const readOnly = ref(false);
 const taskContext = ref("");
 const formatReply = shallowRef<ReplyFormatter>();
 const composer = useTemplateRef("composer");
-const openingFocus = document.activeElement;
+let openingFocusPending = true;
 watch(
   [agent, composer],
   ([ready, element]) => {
+    if (!openingFocusPending || !ready || !element) return;
+    openingFocusPending = false;
+    const origin = props.openingFocus;
+    const focused = document.activeElement;
+    // Hiding or disabling the opener can return browser focus to the body.
+    const openerUnavailable =
+      origin &&
+      (!origin.isConnected ||
+        origin.matches(":disabled") ||
+        !origin.getClientRects().length ||
+        getComputedStyle(origin).visibility !== "visible");
     if (
-      ready &&
-      element &&
-      document.activeElement === openingFocus &&
+      !element.disabled &&
+      element.getClientRects().length &&
+      (focused === origin || (focused === document.body && openerUnavailable)) &&
       !document.querySelector("dialog[open]")
     )
       element.focus();
