@@ -405,7 +405,13 @@ async function attach() {
   }
 }
 watch(
-  () => [engine.state.phase, engine.state.patchTick, props.session, settings.aiConfigured.value],
+  () => [
+    engine.state.phase,
+    engine.state.patchTick,
+    engine.state.conversationTransitioning,
+    props.session,
+    settings.aiConfigured.value,
+  ],
   () => {
     const session = props.session ?? engine.getProjectSession();
     if (agent.value && (session !== attachedSession || engine.getBootedGame() !== attachedGame)) {
