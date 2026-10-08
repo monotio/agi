@@ -2,6 +2,7 @@ import { expect, test } from "./test.ts";
 import { configureAi, isolateStorage, openWorkspaceAgent } from "./engineProbe.ts";
 import { providerReply } from "../../test/provider-stream.ts";
 import { encodePngRgba } from "../../src/creative/composite.ts";
+import type { ProjectSession } from "../src/project/projectSession.ts";
 import type { Page } from "@playwright/test";
 
 async function start(page: Page) {
@@ -210,4 +211,145 @@ test("a failed task keeps its already reported spend visible @webkit-desktop", a
   await expect(page.getByTestId("agent-error")).toContainText("Injected provider failure");
   await expect(page.getByTestId("agent-stop")).toHaveCount(0);
   await expect(page.getByTestId("agent-spent")).toHaveText("$0.07+ / $5 spent");
+});
+
+test("final conversation save keeps a single spend while task controls are visible @webkit-desktop", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await start(page);
+  await openWorkspaceAgent(page);
+  await page.evaluate(() => {
+    const session = (
+      window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }
+    ).__AGI_PROJECT__.getSession();
+    const original = session.flush.bind(session);
+    const gate = Promise.withResolvers<void>();
+    Reflect.set(window, "releaseFinalSave", gate.resolve);
+    session.flush = async () => {
+      if (session.chats().chats.some((chat) => chat.messages.some((message) => message.spend))) {
+        Reflect.set(window, "finalSaveHeld", true);
+        await gate.promise;
+      }
+      await original();
+    };
+  });
+  await page.route("**/api/openai/v1/responses", async (route) => {
+    await route.fulfill(
+      providerReply("openai", {
+        id: "saved-spend",
+        usage: { input_tokens: 10000, output_tokens: 5000 },
+        output: [
+          {
+            type: "message",
+            role: "assistant",
+            content: [{ type: "output_text", text: "The room is ready." }],
+          },
+        ],
+      }),
+    );
+  });
+  await page.getByTestId("agent-message").fill("Describe this room.");
+  await page.getByTestId("agent-send").click();
+  await expect.poll(() => page.evaluate(() => Reflect.get(window, "finalSaveHeld"))).toBe(true);
+  await expect(page.getByTestId("agent-conversation")).toContainText("The room is ready.");
+  await expect(page.getByTestId("agent-task-controls")).toBeVisible();
+  await expect(page.getByTestId("agent-spent")).toHaveCount(1);
+  await expect(page.getByTestId("agent-spent")).toHaveText("$0.07 / $5 spent");
+  await page.evaluate(() => (Reflect.get(window, "releaseFinalSave") as () => void)());
+  await expect(page.getByTestId("agent-task-controls")).toBeHidden();
+  await expect(page.getByTestId("agent-spent")).toHaveCount(1);
+  await expect(page.getByTestId("agent-conversation").getByTestId("agent-spent")).toHaveText(
+    "$0.07 / $5 spent",
+  );
+});
+
+test("a background task retains foreground reply spend @webkit-desktop", async ({ page }) => {
+  await start(page);
+  await openWorkspaceAgent(page);
+  let release!: () => void;
+  let requests = 0;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route("**/api/openai/v1/responses", async (route) => {
+    requests++;
+    if (requests > 1) await gate;
+    await route.fulfill(
+      providerReply("openai", {
+        id: `background-${requests}`,
+        usage: { input_tokens: 10000, output_tokens: 5000 },
+        output: [
+          {
+            type: "message",
+            role: "assistant",
+            content: [
+              {
+                type: "output_text",
+                text: requests === 1 ? "Earlier paid reply." : "Background ready.",
+              },
+            ],
+          },
+        ],
+      }),
+    );
+  });
+  await page.getByTestId("agent-message").fill("Describe this room.");
+  await page.getByTestId("agent-send").click();
+  const priorSpend = page.getByTestId("agent-conversation").getByTestId("agent-spent");
+  await expect(priorSpend).toHaveText("$0.07 / $5 spent");
+  await page.evaluate(async () => {
+    const session = (
+      window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }
+    ).__AGI_PROJECT__.getSession();
+    const original = session.flush.bind(session);
+    const finalGate = Promise.withResolvers<void>();
+    Reflect.set(window, "releaseBackgroundSave", finalGate.resolve);
+    session.flush = async () => {
+      if (
+        session
+          .chats()
+          .chats.some((chat) =>
+            chat.messages.some((message) => message.text === "Background ready." && message.spend),
+          )
+      ) {
+        Reflect.set(window, "backgroundSaveHeld", true);
+        await finalGate.promise;
+      }
+      await original();
+    };
+    const path = "/src/agent/workspaceAgent.ts";
+    const { borrowWorkspaceAgent } = await import(path);
+    const agent = borrowWorkspaceAgent({
+      session,
+      profileId: "2.936",
+      config: () => {
+        throw new Error("The existing conversation owner must be borrowed");
+      },
+    });
+    Reflect.set(window, "backgroundWork", agent.background("Next room", "Inspect the next room"));
+  });
+  try {
+    await expect(page.getByTestId("agent-task-controls")).toBeVisible();
+    await expect(priorSpend).toBeVisible();
+    await expect(priorSpend).toHaveText("$0.07 / $5 spent");
+    release();
+    await expect
+      .poll(() => page.evaluate(() => Reflect.get(window, "backgroundSaveHeld")))
+      .toBe(true);
+    await expect(priorSpend).toBeVisible();
+    expect(requests).toBe(2);
+    // Background room work shares the budget: two $0.07 replies, one in each task.
+    await expect(page.getByTestId("agent-task-controls").getByTestId("agent-spent")).toHaveText(
+      "$0.14 / $5 spent",
+    );
+    await expect(page.getByTestId("agent-spent")).toHaveCount(2);
+    await page.evaluate(() => (Reflect.get(window, "releaseBackgroundSave") as () => void)());
+    await page.evaluate(() => Reflect.get(window, "backgroundWork"));
+    await expect(page.getByTestId("agent-task-controls")).toBeHidden();
+    await expect(priorSpend).toHaveText("$0.07 / $5 spent");
+  } finally {
+    release();
+    await page.evaluate(() => (Reflect.get(window, "releaseBackgroundSave") as () => void)());
+  }
 });

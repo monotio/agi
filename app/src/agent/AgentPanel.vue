@@ -499,6 +499,18 @@ const task = computed(() => {
   void tick.value;
   return agent.value?.task ?? null;
 });
+const taskControlsVisible = computed(
+  () =>
+    !!task.value &&
+    (busy.value || task.value.status === "paused" || !!error.value || !!agent.value?.error),
+);
+const taskRequestId = computed(() => {
+  void tick.value;
+  return (
+    agent.value?.activeRequest?.id ??
+    current.value?.messages.findLast((message) => message.request)?.request?.id
+  );
+});
 const autoApprove = computed({
   get() {
     void tick.value;
@@ -872,9 +884,15 @@ onBeforeUnmount(() => {
           <strong>{{ message.role === "user" ? "You" : "Agent" }}</strong>
           <p v-if="message.role === 'user'">{{ message.text }}</p>
           <AgentReply v-else :text="message.text" />
-          <span v-if="message.spend" class="agent-panel__spend" data-testid="agent-spent">{{
-            formatSpent(message.spend, "compact")
-          }}</span>
+          <span
+            v-if="
+              message.spend &&
+              (!taskControlsVisible || !message.taskId || message.taskId !== taskRequestId)
+            "
+            class="agent-panel__spend"
+            data-testid="agent-spent"
+            >{{ formatSpent(message.spend, "compact") }}</span
+          >
           <p v-if="message.delivery" class="agent-panel__receipt" data-testid="agent-delivery">
             {{
               message.delivery === "queued"
@@ -966,7 +984,7 @@ onBeforeUnmount(() => {
       >
     </div>
     <AgentTaskControls
-      v-if="task && (busy || task.status === 'paused' || error || agent?.error)"
+      v-if="task && taskControlsVisible"
       :task="task"
       :notes="progress"
       @stop="agent?.stop()"
