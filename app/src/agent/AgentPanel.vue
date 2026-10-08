@@ -363,7 +363,11 @@ async function attach() {
       : await engine.getConversationAgent();
     const acquiredSession = props.session ?? engine.getProjectSession();
     const acquiredGame = engine.getBootedGame();
-    await acquiredSession?.flush();
+    try {
+      await acquiredSession?.flush();
+    } catch {
+      // The owner retains the failed conversation save and its retry action.
+    }
     if (
       !attached ||
       retired ||

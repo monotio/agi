@@ -1,5 +1,11 @@
 import { test, expect } from "./test.ts";
-import { isolateStorage, configureAi, textHook, openWorkspaceAgent } from "./engineProbe.ts";
+import {
+  isolateStorage,
+  configureAi,
+  textHook,
+  openWorkspaceAgent,
+  workspaceSaved,
+} from "./engineProbe.ts";
 import {
   openWorkspaceLogic,
   replaceWorkspaceDocument,
@@ -367,4 +373,59 @@ test("native inspected LOGIC and test bytes render captured source and named tes
       .getByTestId("agent-tests-review")
       .getByRole("row", { name: "Starting score 1 1", exact: true }),
   ).toBeVisible();
+});
+
+test("first Agent save failure keeps its owner, draft and retry available @webkit-desktop", async ({
+  page,
+}) => {
+  await isolateStorage(page);
+  await page.goto("/");
+  await configureAi(page, { provider: "stub" });
+  await page.goto("/#create-adventure");
+  await page.getByTestId("local-create-kind-starter").click();
+  await page.getByRole("button", { name: "Start building", exact: true }).click();
+  await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  await workspaceSaved(page);
+  await page.evaluate(() => {
+    const put = IDBObjectStore.prototype.put;
+    IDBObjectStore.prototype.put = function (...args) {
+      if (this.name === "projects" && (args[0] as { chats?: unknown }).chats)
+        throw new DOMException("Injected first conversation quota failure", "QuotaExceededError");
+      return put.apply(this, args);
+    };
+    Object.assign(window, {
+      allowConversationWrites: () => {
+        IDBObjectStore.prototype.put = put;
+      },
+    });
+  });
+  await openWorkspaceAgent(page);
+  const panel = page.getByTestId("workspace-agent-panel");
+  const retry = panel.getByTestId("agent-retry-save");
+  const composer = panel.getByTestId("agent-message");
+  await expect(retry).toBeVisible();
+  await expect(composer).toBeEnabled();
+  await composer.fill("Keep this unsent question after the storage failure");
+  const details = panel
+    .locator("details")
+    .filter({ has: page.getByText("Details", { exact: true }) });
+  await details.locator("summary").click();
+  await expect(details).toContainText("Could not save. Retry");
+  await panel.getByTestId("agent-panel-close").click();
+  await openWorkspaceAgent(page);
+  await expect(retry).toBeVisible();
+  await expect(composer).toHaveValue("Keep this unsent question after the storage failure");
+  await page.evaluate(() =>
+    (window as unknown as { allowConversationWrites(): void }).allowConversationWrites(),
+  );
+  await retry.click();
+  await expect(retry).toHaveCount(0);
+  await expect(composer).toHaveValue("Keep this unsent question after the storage failure");
+  await workspaceSaved(page);
+  await page.reload();
+  await openWorkspaceAgent(page);
+  await expect(page.getByTestId("agent-message")).toBeEnabled();
+  await expect(page.getByTestId("agent-retry-save")).toHaveCount(0);
+  await page.getByRole("button", { name: "Chats", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Untitled chat", exact: true })).toHaveCount(1);
 });

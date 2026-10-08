@@ -444,10 +444,13 @@ export function createWorkspaceAgent(options: Options) {
       store.active = chat.id;
       review = null;
     }
-    void save().catch((cause) => {
-      error = String(cause);
-      notify();
-    });
+    void save()
+      .then(() => session.flush())
+      .catch((cause) => {
+        chatSaveError = "Saving the conversation failed. Retry save.";
+        progress.push(cause instanceof Error ? cause.message : String(cause));
+        notify();
+      });
     return chat;
   }
   session.subscribe(() => {
