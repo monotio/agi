@@ -2,41 +2,63 @@ import type { WorkerQueryFn } from "../src/worker/workerProtocol.ts";
 import { expect, test } from "./test.ts";
 import { isolateStorage, waitForRoom } from "./engineProbe.ts";
 
-for (const boundary of ["request", "session"] as const)
+for (const boundary of ["request", "session", "fork"] as const)
   test(`Create waits for the Play conversation ${boundary} and transitions the worker @webkit-desktop`, async ({
     page,
   }) => {
     await isolateStorage(page);
-    await page.addInitScript((holdRequest) => {
-      const modes: string[] = [];
-      Object.assign(window, { conversationProjectModes: modes });
-      const post = Worker.prototype.postMessage;
-      let pending: (() => void) | undefined;
-      Object.assign(window, {
-        releaseConversationAdmission() {
-          pending?.();
-          pending = undefined;
-        },
-      });
-      Worker.prototype.postMessage = function (message, transfer) {
-        if (message.type === "projectCreate") {
-          modes.push(message.progressMode);
-          if (message.progressMode === "create") {
-            const received = (event: MessageEvent) => {
-              if (event.data.type !== "projectCreated" || event.data.id !== message.id) return;
-              Object.assign(window, { conversationCreateReply: event.data });
-              this.removeEventListener("message", received);
-            };
-            this.addEventListener("message", received);
+    await page.addInitScript(
+      ({ holdRequest, holdReply }) => {
+        const modes: string[] = [];
+        Object.assign(window, { conversationProjectModes: modes });
+        const post = Worker.prototype.postMessage;
+        const creates = new Set<number>();
+        let pendingReply: (() => void) | undefined;
+        const receive = Object.getOwnPropertyDescriptor(Worker.prototype, "onmessage")!;
+        Object.defineProperty(Worker.prototype, "onmessage", {
+          ...receive,
+          set(this: Worker, handler: Worker["onmessage"]) {
+            receive.set!.call(this, (event: MessageEvent) => {
+              const deliver = () => handler?.call(this, event);
+              if (holdReply && event.data.type === "projectCreated" && creates.has(event.data.id))
+                pendingReply = deliver;
+              else deliver();
+            });
+          },
+        });
+        let pending: (() => void) | undefined;
+        Object.assign(window, {
+          releaseCreateReply() {
+            pendingReply?.();
+            pendingReply = undefined;
+          },
+          releaseConversationAdmission() {
+            pending?.();
+            pending = undefined;
+          },
+        });
+        Worker.prototype.postMessage = function (message, transfer) {
+          if (message.type === "projectCreate") {
+            modes.push(message.progressMode);
+            if (message.progressMode === "create") {
+              creates.add(message.id);
+              const received = (event: MessageEvent) => {
+                if (event.data.type !== "projectCreated" || event.data.id !== message.id) return;
+                Object.assign(window, { conversationCreateReply: event.data });
+                this.removeEventListener("message", received);
+              };
+              this.addEventListener("message", received);
+            }
           }
-        }
-        const send = () =>
-          post.call(this, message, Array.isArray(transfer) ? { transfer } : transfer);
-        if (holdRequest && message.type === "projectCreate" && message.progressMode === "play")
-          pending = send;
-        else send();
-      };
-    }, boundary === "request");
+          const send = () =>
+            post.call(this, message, Array.isArray(transfer) ? { transfer } : transfer);
+          if (holdRequest && message.type === "projectCreate" && message.progressMode === "play")
+            pending = send;
+          else send();
+        };
+      },
+      { holdRequest: boundary !== "session", holdReply: boundary === "fork" },
+    );
     const opening = Promise.withResolvers<void>();
     const release = Promise.withResolvers<void>();
     await page.route("**/src/engine/mainProjectAdmission.ts", async (route) => {
@@ -63,7 +85,7 @@ for (const boundary of ["request", "session"] as const)
       "true",
     );
     expect(await modes()).toEqual(["play"]);
-    if (boundary === "request")
+    if (boundary !== "session")
       await page.evaluate(() =>
         (
           window as unknown as { releaseConversationAdmission(): void }
@@ -76,6 +98,14 @@ for (const boundary of ["request", "session"] as const)
         page.evaluate(() => Reflect.get(window, "conversationCreateReply")?.grant !== undefined),
       )
       .toBe(true);
+    if (boundary === "fork") {
+      await expect(
+        page.getByRole("heading", { name: "Adventure Department Remix", exact: true }),
+      ).toBeVisible();
+      await page.evaluate(() =>
+        (window as unknown as { releaseCreateReply(): void }).releaseCreateReply(),
+      );
+    }
     // Attachment includes the first chat save and any catalog ownership transfer.
     await expect(page.getByTestId("agent-message")).toBeEnabled();
     const returned = await page.evaluate(() =>
@@ -85,7 +115,10 @@ for (const boundary of ["request", "session"] as const)
         }
       ).__AGI_PROJECT__.query("playHere", { room: 1, x: 0, y: 0, visit: "back" }),
     );
-    expect(returned, "the worker must hold a Create return point").toMatchObject({ ok: true });
+    expect(
+      returned,
+      `the worker must hold a Create return point: ${JSON.stringify(returned)}`,
+    ).toMatchObject({ ok: true });
     await expect(page.getByRole("radio", { name: "Create", exact: true })).toHaveAttribute(
       "aria-checked",
       "true",

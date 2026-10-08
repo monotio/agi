@@ -1233,6 +1233,23 @@ export function useEngine(
     } satisfies WorkerInbound);
     let game = lifecycle.getBootedGame();
     const worker = link.getWorker();
+    function retainGameOwner(owner: ProjectSession | null, epoch: number): boolean {
+      const current = lifecycle.getBootedGame();
+      if (current === game) return true;
+      // A first chat save can fork a catalog game while Create awaits its reply.
+      // The same live session advances its own current-game guard only for that fork.
+      if (
+        !current ||
+        !owner ||
+        owner !== projectSession ||
+        owner.closed ||
+        epoch !== projectOpenEpoch ||
+        link.getWorker() !== worker
+      )
+        return false;
+      game = current;
+      return true;
+    }
     if (mode === "create" && game?.installed && !game.authoredGame && game.historyLifetime) {
       const original = game;
       state.status = "Finishing the current conversation before opening Create…";
@@ -1279,7 +1296,7 @@ export function useEngine(
         projectSession !== acquired ||
         change !== projectModeChange ||
         projectMode !== mode ||
-        lifecycle.getBootedGame() !== game ||
+        !retainGameOwner(acquired, projectOpenEpoch) ||
         link.getWorker() !== worker ||
         state.phase !== "running"
       )
@@ -1292,7 +1309,7 @@ export function useEngine(
       if (
         change !== projectModeChange ||
         projectMode !== mode ||
-        lifecycle.getBootedGame() !== game ||
+        !retainGameOwner(projectSession, openingEpoch) ||
         link.getWorker() !== worker ||
         projectOpenEpoch !== openingEpoch ||
         projectSession?.runToken !== openingRun
@@ -1302,6 +1319,8 @@ export function useEngine(
     // A Play conversation can open the admission lane without entering Create.
     // Complete the requested worker transition even when that lane already exists.
     const data = game.authoredGame;
+    const owner = projectSession;
+    const ownerEpoch = projectOpenEpoch;
     return link
       .query("projectCreate", {
         progressMode: projectMode,
@@ -1312,7 +1331,8 @@ export function useEngine(
         if (
           change !== projectModeChange ||
           projectMode !== "create" ||
-          lifecycle.getBootedGame() !== game ||
+          !retainGameOwner(owner, ownerEpoch) ||
+          !game ||
           link.getWorker() !== worker
         )
           return false;
