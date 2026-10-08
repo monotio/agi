@@ -111,10 +111,13 @@ export function useEngine(
   },
 ) {
   let projectMode: "create" | "play" = "play";
+  let projectModeChange = 0;
   let projectSession: ProjectSession | null = null;
   let projectSessionOpening: string | undefined;
   let projectSessionOpeningTask: Promise<void> | undefined;
   let projectSessionOpeningError: unknown;
+  let conversationTransition:
+    { game: BootedGame; worker: Worker | null; task: Promise<boolean>; retire(): void } | undefined;
   let conversationProjectOpening:
     { game: BootedGame; worker: Worker | null; task: Promise<ProjectSession | null> } | undefined;
   const pendingProjectRestart = shallowRef<PendingProjectRestart | null>(null);
@@ -171,6 +174,7 @@ export function useEngine(
     otherTab: false,
     returnProblem: "",
     entryProblem: "",
+    conversationTransitioning: false,
     staleTab: false,
     projectRemoved: false,
     recording: { active: false, starting: false, error: "" },
@@ -445,6 +449,8 @@ export function useEngine(
   });
 
   link.deps.projectClosed = (preservePlayOwnership) => {
+    projectModeChange++;
+    retireConversationTransition();
     if (!preservePlayOwnership) progressOwnership.close();
     executionDebug?.reset();
     projectOpenEpoch++;
@@ -1011,7 +1017,12 @@ export function useEngine(
   }
   const submitPowerUp: ReturnType<typeof useAuthoringController>["submitPowerUp"] = async (
     ...args
-  ) => (await loadAuthoringController()).submitPowerUp(...args);
+  ) => {
+    const controller = await loadAuthoringController();
+    if (!(await conversationTransitionReady()))
+      throw new Error("The game changed. Send the request again.");
+    return controller.submitPowerUp(...args);
+  };
 
   const startOver = createStartOver({
     state,
@@ -1198,6 +1209,173 @@ export function useEngine(
     return mapLoading;
   }
 
+  async function transitionProjectMode(
+    mode: "create" | "play",
+    restart: boolean,
+    change: number,
+  ): Promise<boolean> {
+    const prior = projectMode;
+    if (mode === "create") state.entryProblem = "";
+    if (mode === "play" && state.phase === "running") {
+      const reply = await link.query("projectPlay", restart ? { restart: true } : {});
+      if (change !== projectModeChange) return false;
+      if (!reply.ok) {
+        state.returnProblem = reply.reason ?? "Your game needs a restart.";
+        return false;
+      }
+    }
+    if (mode === "play") state.returnProblem = "";
+    projectMode = mode;
+    loadTried();
+    link.getWorker()?.postMessage({
+      type: "observeSentences",
+      enabled: mode === "create",
+    } satisfies WorkerInbound);
+    let game = lifecycle.getBootedGame();
+    const worker = link.getWorker();
+    if (mode === "create" && game?.installed && !game.authoredGame && game.historyLifetime) {
+      const original = game;
+      state.status = "Finishing the current conversation before opening Create…";
+      const chats = await (await loadAuthoringController()).prepareConversationTransfer();
+      if (
+        lifecycle.getBootedGame() !== original ||
+        link.getWorker() !== worker ||
+        change !== projectModeChange ||
+        projectMode !== mode
+      )
+        return false;
+      const id = requireProjectId(`edition-${crypto.randomUUID()}`);
+      game = {
+        ...game,
+        projectId: id,
+        authoredGame: {
+          projectId: id,
+          title: game.title,
+          authoredAt: new Date().toISOString(),
+          files: game.files,
+          words: game.words,
+          imported: true,
+          roomGeneration: false,
+          ...(chats ? { chats } : {}),
+          library: {
+            version: 1,
+            revision: game.revision,
+            source: "folder",
+            profile: roomMap.value?.resources.value.profile?.id ?? "2.936",
+            validation: { status: "ready", message: "Ready to edit" },
+          },
+        },
+      };
+      lifecycle.setBootedGame(game);
+      if (conversationTransition?.game === original && conversationTransition.worker === worker)
+        conversationTransition.game = game;
+    }
+    if (mode !== "create" || !game?.authoredGame || state.phase !== "running") return true;
+    const acquisition = conversationProjectOpening;
+    if (acquisition?.game === game && acquisition.worker === worker) {
+      const acquired = await acquisition.task.catch(() => null);
+      if (
+        !acquired ||
+        projectSession !== acquired ||
+        change !== projectModeChange ||
+        projectMode !== mode ||
+        lifecycle.getBootedGame() !== game ||
+        link.getWorker() !== worker ||
+        state.phase !== "running"
+      )
+        return false;
+    }
+    if (projectSessionOpening !== undefined) {
+      const openingRun = projectSessionOpening;
+      const openingEpoch = projectOpenEpoch;
+      await projectSessionOpeningTask;
+      if (
+        change !== projectModeChange ||
+        projectMode !== mode ||
+        lifecycle.getBootedGame() !== game ||
+        link.getWorker() !== worker ||
+        projectOpenEpoch !== openingEpoch ||
+        projectSession?.runToken !== openingRun
+      )
+        return false;
+    }
+    // A Play conversation can open the admission lane without entering Create.
+    // Complete the requested worker transition even when that lane already exists.
+    const data = game.authoredGame;
+    return link
+      .query("projectCreate", {
+        progressMode: projectMode,
+        ...(data.workspace ? { documents: data.workspace } : {}),
+        ...(data.projectHistory ? { history: data.projectHistory } : {}),
+      })
+      .then(async (reply) => {
+        if (
+          change !== projectModeChange ||
+          projectMode !== "create" ||
+          lifecycle.getBootedGame() !== game ||
+          link.getWorker() !== worker
+        )
+          return false;
+        if (!reply.grant) {
+          projectMode = prior;
+          state.entryProblem = reply.reason ?? "Open this game in Create to edit it.";
+          state.status = state.entryProblem;
+          return false;
+        }
+        if (projectSession && projectSession.runToken !== reply.grant.runToken) {
+          await projectSession.flush();
+          const { loadAuthoredGame } = await import("../project/gameStorage.ts");
+          const saved = await loadAuthoredGame(data.projectId);
+          if (
+            change !== projectModeChange ||
+            projectMode !== "create" ||
+            lifecycle.getBootedGame() !== game ||
+            link.getWorker() !== worker
+          )
+            return false;
+          if (saved === null) throw new Error("The saved project is missing. Reopen the game.");
+          game.authoredGame = saved;
+        }
+        await openSession(reply.grant);
+        return change === projectModeChange && projectMode === mode && link.getWorker() === worker;
+      })
+      .catch((cause) => {
+        if (
+          change === projectModeChange &&
+          lifecycle.getBootedGame() === game &&
+          link.getWorker() === worker
+        ) {
+          state.status = String(cause);
+          projectMode = prior;
+        }
+        return false;
+      });
+  }
+
+  function retireConversationTransition(): void {
+    const moving = conversationTransition;
+    conversationTransition = undefined;
+    state.conversationTransitioning = false;
+    moving?.retire();
+  }
+
+  async function conversationTransitionReady(): Promise<boolean> {
+    const moving = conversationTransition;
+    if (!moving) return true;
+    if (moving.game !== lifecycle.getBootedGame() || moving.worker !== link.getWorker()) {
+      retireConversationTransition();
+      return true;
+    }
+    const mode = projectMode;
+    const completed = await moving.task;
+    return (
+      completed &&
+      projectMode === mode &&
+      link.getWorker() === moving.worker &&
+      lifecycle.getBootedGame() === moving.game
+    );
+  }
+
   return {
     playerSentences,
     loadPlayerSentences,
@@ -1207,132 +1385,49 @@ export function useEngine(
       if (triedProject) sentenceTools.savePlayerSentences(triedProject, playerSentences.value);
     },
     async setProjectMode(mode: "create" | "play", restart = false): Promise<boolean> {
-      const prior = projectMode;
-      if (mode === "create") state.entryProblem = "";
-      if (mode === "play" && state.phase === "running") {
-        const reply = await link.query("projectPlay", restart ? { restart: true } : {});
-        if (!reply.ok) {
-          state.returnProblem = reply.reason ?? "Your game needs a restart.";
-          return false;
+      const game = lifecycle.getBootedGame();
+      const worker = link.getWorker();
+      if (
+        mode === "create" &&
+        projectMode === mode &&
+        conversationTransition?.game === game &&
+        conversationTransition.worker === worker
+      )
+        return conversationTransition.task;
+      const change = ++projectModeChange;
+      retireConversationTransition();
+      if (mode !== "create" || !game?.installed || projectSession)
+        return transitionProjectMode(mode, restart, change);
+      const retired = Promise.withResolvers<boolean>();
+      const moving = {
+        game,
+        worker,
+        task: Promise.race([transitionProjectMode(mode, restart, change), retired.promise]),
+        retire: () => retired.resolve(false),
+      };
+      conversationTransition = moving;
+      state.conversationTransitioning = true;
+      try {
+        return await moving.task;
+      } finally {
+        if (conversationTransition === moving) {
+          conversationTransition = undefined;
+          state.conversationTransitioning = false;
         }
       }
-      if (mode === "play") state.returnProblem = "";
-      projectMode = mode;
-      loadTried();
-      link.getWorker()?.postMessage({
-        type: "observeSentences",
-        enabled: mode === "create",
-      } satisfies WorkerInbound);
-      let game = lifecycle.getBootedGame();
-      const worker = link.getWorker();
-      if (mode === "create" && game?.installed && !game.authoredGame && game.historyLifetime) {
-        const original = game;
-        state.status = "Finishing the current conversation before opening Create…";
-        const chats = await (await loadAuthoringController()).prepareConversationTransfer();
-        if (
-          lifecycle.getBootedGame() !== original ||
-          link.getWorker() !== worker ||
-          projectMode !== mode
-        )
-          return false;
-        const id = requireProjectId(`edition-${crypto.randomUUID()}`);
-        game = {
-          ...game,
-          projectId: id,
-          authoredGame: {
-            projectId: id,
-            title: game.title,
-            authoredAt: new Date().toISOString(),
-            files: game.files,
-            words: game.words,
-            imported: true,
-            roomGeneration: false,
-            ...(chats ? { chats } : {}),
-            library: {
-              version: 1,
-              revision: game.revision,
-              source: "folder",
-              profile: roomMap.value?.resources.value.profile?.id ?? "2.936",
-              validation: { status: "ready", message: "Ready to edit" },
-            },
-          },
-        };
-        lifecycle.setBootedGame(game);
-      }
-      if (mode !== "create" || !game?.authoredGame || state.phase !== "running") return true;
-      const acquisition = conversationProjectOpening;
-      if (acquisition?.game === game && acquisition.worker === worker) {
-        const acquired = await acquisition.task.catch(() => null);
-        if (
-          !acquired ||
-          projectSession !== acquired ||
-          projectMode !== mode ||
-          lifecycle.getBootedGame() !== game ||
-          link.getWorker() !== worker ||
-          state.phase !== "running"
-        )
-          return false;
-      }
-      if (projectSessionOpening !== undefined) {
-        const openingRun = projectSessionOpening;
-        const openingEpoch = projectOpenEpoch;
-        await projectSessionOpeningTask;
-        if (
-          projectMode !== mode ||
-          lifecycle.getBootedGame() !== game ||
-          link.getWorker() !== worker ||
-          projectOpenEpoch !== openingEpoch ||
-          projectSession?.runToken !== openingRun
-        )
-          return false;
-      }
-      // A Play conversation can open the admission lane without entering Create.
-      // Complete the requested worker transition even when that lane already exists.
-      const data = game.authoredGame;
-      return link
-        .query("projectCreate", {
-          progressMode: projectMode,
-          ...(data.workspace ? { documents: data.workspace } : {}),
-          ...(data.projectHistory ? { history: data.projectHistory } : {}),
-        })
-        .then(async (reply) => {
-          if (
-            projectMode !== "create" ||
-            lifecycle.getBootedGame() !== game ||
-            link.getWorker() !== worker
-          )
-            return false;
-          if (!reply.grant) {
-            projectMode = prior;
-            state.entryProblem = reply.reason ?? "Open this game in Create to edit it.";
-            state.status = state.entryProblem;
-            return false;
-          }
-          if (projectSession && projectSession.runToken !== reply.grant.runToken) {
-            await projectSession.flush();
-            const { loadAuthoredGame } = await import("../project/gameStorage.ts");
-            const saved = await loadAuthoredGame(data.projectId);
-            if (
-              projectMode !== "create" ||
-              lifecycle.getBootedGame() !== game ||
-              link.getWorker() !== worker
-            )
-              return false;
-            if (saved === null) throw new Error("The saved project is missing. Reopen the game.");
-            game.authoredGame = saved;
-          }
-          await openSession(reply.grant);
-          return true;
-        })
-        .catch((cause) => {
-          if (lifecycle.getBootedGame() === game) state.status = String(cause);
-          projectMode = prior;
-          return false;
-        });
     },
     takePlayBack: () => progressOwnership.takeBack(),
     async getConversationAgent() {
-      return (await loadAuthoringController()).getConversationAgent();
+      const controller = await loadAuthoringController();
+      for (;;) {
+        if (!(await conversationTransitionReady())) return null;
+        const game = lifecycle.getBootedGame();
+        const worker = link.getWorker();
+        const agent = await controller.getConversationAgent();
+        if (conversationTransition) continue;
+        if (lifecycle.getBootedGame() !== game || link.getWorker() !== worker) return null;
+        return agent;
+      }
     },
     getProjectSession: () => projectSession,
     async setRoomGeneration(

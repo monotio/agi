@@ -16,141 +16,215 @@ import {
   textHook,
 } from "./engineProbe.ts";
 
-test("an installed-game remix survives immediate Menu, Resume, reload and project export", async ({
-  page,
-}) => {
-  const game = createContainer();
-  game.putResource(
-    "logic",
-    0,
-    assembleLogic("assignn(v10,1);if(equaln(v0,0)){new.room(1);}call(1);return;", {
-      dictionary: new Map(),
-    }).payload,
-  );
-  const original =
-    "if(isset(f5)){assignn(v60,1);load.pic(v60);draw.pic(v60);show.pic();accept.input();}return;";
-  game.putResource("logic", 1, assembleLogic(original, { dictionary: new Map() }).payload);
-  game.putResource("picture", 1, new Uint8Array([0xf0, 1, 0xf8, 0, 0, 0xff]));
-  game.putFile("WORDS.TOK", new Uint8Array(52));
-  const revision = await gameRevision(Object.fromEntries(game.files));
-  let fixtureReads = 0;
-  await page.route("**/fixtures/**", async (route) => {
-    const path = new URL(route.request().url()).pathname;
-    if (path === "/fixtures/") return route.fulfill({ json: [{ folder: "sample", revision }] });
-    if (path === "/fixtures/sample/") return route.fulfill({ json: [...game.files.keys()] });
-    fixtureReads++;
-    const bytes = game.files.get(path.split("/").at(-1)!);
-    return route.fulfill(
-      bytes
-        ? { body: Buffer.from(bytes), contentType: "application/octet-stream" }
-        : { status: 404 },
+for (const handoff of ["new", "attached", "reversed", "replaced", "cancelled"] as const)
+  test(`an installed-game conversation survives ${handoff} owner handoff @webkit-desktop`, async ({
+    page,
+  }) => {
+    const attachedInPlay = handoff === "attached";
+    const game = createContainer();
+    game.putResource(
+      "logic",
+      0,
+      assembleLogic("assignn(v10,1);if(equaln(v0,0)){new.room(1);}call(1);return;", {
+        dictionary: new Map(),
+      }).payload,
     );
-  });
-  await isolateStorage(page);
-  await page.goto("/");
-  await configureAi(page, { provider: "openai", key: "test-placeholder" });
-  let requests = 0;
-  const sprite = "view\ncel s 3 2 0\n444\n4.4\nendcel\nloop 0 s\nendview";
-  const remixed =
-    'if(isset(f5)){assignn(v60,1);load.pic(v60);draw.pic(v60);show.pic();load.view(11);animate.obj(13);set.view(13,11);position(13,30,130);draw(13);accept.input();}display(4,2,"ALLIGATOR REMIX");return;';
-  await page.route("**/api/openai/v1/responses", async (route) => {
-    requests++;
-    const calls = [
-      ["write_view", { num: 11, source: sprite }],
-      ["write_logic", { room: 1, source: remixed }],
-    ];
-    await route.fulfill(
-      providerReply("openai", {
-        id: `response-${requests}`,
-        output:
-          requests === 1
-            ? calls.map(([name, args], i) => ({
-                type: "function_call",
-                id: `item-${i}`,
-                call_id: `call-${i}`,
-                name,
-                arguments: JSON.stringify(args),
-              }))
-            : [
-                {
-                  type: "message",
-                  role: "assistant",
-                  content: [{ type: "output_text", text: "Ready." }],
-                },
-              ],
-      }),
-    );
-  });
-  await page.getByTestId("boot-sample").click();
-  await expect.poll(async () => (await textHook(page)).room).toBe(1);
-  await enterCreateMode(page);
-  await openWorkspaceAgent(page);
-  // Installed editions use the workspace's reviewed agent flow in Create.
-  const message = page.getByTestId("agent-message");
-  await expect(message).toBeVisible();
-  await expect(message).toBeEnabled();
-  await message.fill("Add an alligator");
-  await page.getByRole("button", { name: "Send", exact: true }).click();
-  await expect(page.getByTestId("agent-review")).toBeVisible();
-  await page.getByTestId("agent-approve").click();
-  await expect(page.getByTestId("agent-review")).toBeHidden();
-  await expect.poll(async () => (await textHook(page)).rows.join(" ")).toContain("ALLIGATOR REMIX");
-  // Delay actual IndexedDB completion callbacks: Menu must await storage, not just the worker reply.
-  await page.evaluate(() => {
-    const gate = Promise.withResolvers<void>();
-    Reflect.set(window, "releaseCompletions", gate.resolve);
-    Reflect.set(window, "completionPending", false);
-    const descriptor = Object.getOwnPropertyDescriptor(IDBTransaction.prototype, "oncomplete")!;
-    Object.defineProperty(IDBTransaction.prototype, "oncomplete", {
-      ...descriptor,
-      set(this: IDBTransaction, handler: (event: Event) => void) {
-        descriptor.set!.call(this, function (this: IDBTransaction, event: Event) {
-          Reflect.set(window, "completionPending", true);
-          void gate.promise.then(() => handler.call(this, event));
-        });
-      },
+    const original =
+      "if(isset(f5)){assignn(v60,1);load.pic(v60);draw.pic(v60);show.pic();accept.input();}return;";
+    game.putResource("logic", 1, assembleLogic(original, { dictionary: new Map() }).payload);
+    game.putResource("picture", 1, new Uint8Array([0xf0, 1, 0xf8, 0, 0, 0xff]));
+    game.putFile("WORDS.TOK", new Uint8Array(52));
+    const revision = await gameRevision(Object.fromEntries(game.files));
+    let fixtureReads = 0;
+    await page.route("**/fixtures/**", async (route) => {
+      const path = new URL(route.request().url()).pathname;
+      if (path === "/fixtures/") return route.fulfill({ json: [{ folder: "sample", revision }] });
+      if (path === "/fixtures/sample/") return route.fulfill({ json: [...game.files.keys()] });
+      fixtureReads++;
+      const bytes = game.files.get(path.split("/").at(-1)!);
+      return route.fulfill(
+        bytes
+          ? { body: Buffer.from(bytes), contentType: "application/octet-stream" }
+          : { status: 404 },
+      );
     });
+    await isolateStorage(page);
+    await page.goto("/");
+    await configureAi(page, { provider: "openai", key: "test-placeholder" });
+    let requests = 0;
+    const sprite = "view\ncel s 3 2 0\n444\n4.4\nendcel\nloop 0 s\nendview";
+    const remixed =
+      'if(isset(f5)){assignn(v60,1);load.pic(v60);draw.pic(v60);show.pic();load.view(11);animate.obj(13);set.view(13,11);position(13,30,130);draw(13);accept.input();}display(4,2,"ALLIGATOR REMIX");return;';
+    await page.route("**/api/openai/v1/responses", async (route) => {
+      requests++;
+      const calls = [
+        ["write_view", { num: 11, source: sprite }],
+        ["write_logic", { room: 1, source: remixed }],
+      ];
+      await route.fulfill(
+        providerReply("openai", {
+          id: `response-${requests}`,
+          output:
+            requests === 1
+              ? calls.map(([name, args], i) => ({
+                  type: "function_call",
+                  id: `item-${i}`,
+                  call_id: `call-${i}`,
+                  name,
+                  arguments: JSON.stringify(args),
+                }))
+              : [
+                  {
+                    type: "message",
+                    role: "assistant",
+                    content: [{ type: "output_text", text: "Ready." }],
+                  },
+                ],
+        }),
+      );
+    });
+    await page.getByTestId("boot-sample").click();
+    await expect.poll(async () => (await textHook(page)).room).toBe(1);
+    if (attachedInPlay) {
+      await page.getByTestId("menu-assistant").click();
+      const draft = page.getByTestId("agent-message");
+      await expect(draft).toBeEnabled();
+      await draft.fill("Sketch an alligator");
+      await expect(page.getByRole("button", { name: "Send", exact: true })).toBeEnabled();
+    }
+    const opening = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    await page.route(
+      handoff === "cancelled"
+        ? "**/src/agent/installedConversation.ts"
+        : "**/src/engine/mainProjectAdmission.ts",
+      async (route) => {
+        opening.resolve();
+        await release.promise;
+        await route.continue();
+      },
+    );
+    await enterCreateMode(page);
+    await opening.promise;
+    await openWorkspaceAgent(page);
+    // Installed editions use the workspace's reviewed agent flow in Create.
+    const message = page.getByTestId("agent-message");
+    await expect(message).toBeVisible();
+    await expect(message).toBeEnabled();
+    if (attachedInPlay) await expect(message).toHaveValue("Sketch an alligator");
+    // The transfer snapshot predates this edit to the still-usable draft.
+    await message.fill("Add an alligator");
+    const send = page.getByRole("button", { name: "Send", exact: true });
+    await expect(send).toBeDisabled();
+    expect(requests).toBe(0);
+    if (handoff === "replaced") {
+      await page.getByTestId("btn-exit").click();
+      await page.getByTestId("boot-sample").click();
+      await expect.poll(async () => (await textHook(page)).room).toBe(1);
+      await page.getByTestId("menu-assistant").click();
+      await expect(message).toBeEnabled();
+      await message.fill("The new game owns this draft");
+      await expect(send).toBeEnabled();
+      expect(requests).toBe(0);
+      release.resolve();
+      await expect(page.getByRole("radio", { name: "Play", exact: true })).toHaveAttribute(
+        "aria-checked",
+        "true",
+      );
+      await expect(message).toHaveValue("The new game owns this draft");
+      return;
+    }
+    if (handoff === "reversed" || handoff === "cancelled") {
+      await page.getByRole("radio", { name: "Play", exact: true }).click();
+      await expect
+        .poll(() => page.evaluate(() => window.__AGI_STATE__?.conversationTransitioning))
+        .toBe(false);
+      if (handoff === "cancelled") {
+        release.resolve();
+        await expect(send).toBeEnabled();
+        await expect(message).toHaveValue("Add an alligator");
+        expect(requests).toBe(0);
+        return;
+      }
+      await enterCreateMode(page);
+      await expect
+        .poll(() => page.evaluate(() => window.__AGI_STATE__?.conversationTransitioning))
+        .toBe(true);
+      await expect(send).toBeDisabled();
+    }
+    release.resolve();
+    await expect(send).toBeEnabled();
+    await expect(message).toHaveValue("Add an alligator");
+    await send.click();
+    await expect(page.getByTestId("agent-conversation")).toContainText("Add an alligator");
+    await expect(page.getByTestId("agent-review")).toBeVisible();
+    await page.getByTestId("agent-approve").click();
+    await expect(page.getByTestId("agent-review")).toBeHidden();
+    // The drawer opened in Play holds that game's pause until it is closed.
+    if (attachedInPlay) await page.getByTestId("agent-panel-close").click();
+    await expect
+      .poll(async () => (await textHook(page)).rows.join(" "))
+      .toContain("ALLIGATOR REMIX");
+    // Delay actual IndexedDB completion callbacks: Menu must await storage, not just the worker reply.
+    await page.evaluate(() => {
+      const gate = Promise.withResolvers<void>();
+      Reflect.set(window, "releaseCompletions", gate.resolve);
+      Reflect.set(window, "completionPending", false);
+      const descriptor = Object.getOwnPropertyDescriptor(IDBTransaction.prototype, "oncomplete")!;
+      Object.defineProperty(IDBTransaction.prototype, "oncomplete", {
+        ...descriptor,
+        set(this: IDBTransaction, handler: (event: Event) => void) {
+          descriptor.set!.call(this, function (this: IDBTransaction, event: Event) {
+            Reflect.set(window, "completionPending", true);
+            void gate.promise.then(() => handler.call(this, event));
+          });
+        },
+      });
+    });
+    await page.getByRole("radio", { name: "Play", exact: true }).click();
+    await page.getByTestId("btn-exit").click();
+    await page.waitForFunction(() => Reflect.get(window, "completionPending") === true);
+    await expect(page.getByTestId("btn-exit")).toBeVisible();
+    await page.evaluate(() => (Reflect.get(window, "releaseCompletions") as () => void)());
+    const card = savedGameCard(page, "SAMPLE Remix");
+    await expect(card.getByRole("button", { name: "Resume", exact: true })).toBeVisible();
+    const record = await page.evaluate(() => {
+      const key = localStorage.getItem("monotio_agi.resumeTarget")!;
+      return JSON.parse(localStorage.getItem("monotio_agi.autosave." + key)!);
+    });
+    expect(record.game.installed).toBe(false);
+    expect(record.game.identity.project).not.toBe("sample");
+    expect(new URL(page.url()).hash, "the menu must not name a game in the URL").toBe("");
+    const reads = fixtureReads;
+    await card.getByRole("button", { name: "Resume", exact: true }).click();
+    await expect
+      .poll(async () => (await textHook(page)).rows.join(" "))
+      .toContain("ALLIGATOR REMIX");
+    expect(fixtureReads).toBe(reads);
+    expect(
+      await page.evaluate(() => localStorage.getItem("monotio_agi.resumeTarget")?.split(":")[1]),
+    ).toBe(record.game.identity.project);
+    expect(new URL(page.url()).hash, "a running game must be named in the URL").toBe(
+      `#play/${record.game.identity.project}`,
+    );
+    await page.reload();
+    expect(new URL(page.url()).hash, "a running game must be named in the URL").toBe(
+      `#play/${record.game.identity.project}`,
+    );
+    await expect
+      .poll(async () => (await textHook(page)).rows.join(" "))
+      .toContain("ALLIGATOR REMIX");
+    expect(fixtureReads).toBe(reads);
+    const pending = page.waitForEvent("download");
+    await downloadFromSettings(page, true);
+    const download = await pending;
+    const archive = await readGameZip(new Uint8Array(await readFile((await download.path())!)));
+    expect(openContainer(new Map(Object.entries(archive.files))).getResource("view", 11)).toEqual(
+      // The same 3x2 cel written as pixels, independent of the source compiler.
+      buildView({ loops: [{ cels: [{ width: 3, height: 2, pixels: [4, 4, 4, 4, 0, 4] }] }] }),
+    );
+    // The workspace stores each reviewed task in its exported chats.
+    expect(JSON.stringify(archive.project?.chats)).toContain("Add an alligator");
+    expect(archive.roomGeneration).toBe(false);
+    expect(requests).toBe(2);
   });
-  await page.getByRole("radio", { name: "Play", exact: true }).click();
-  await page.getByTestId("btn-exit").click();
-  await page.waitForFunction(() => Reflect.get(window, "completionPending") === true);
-  await expect(page.getByTestId("btn-exit")).toBeVisible();
-  await page.evaluate(() => (Reflect.get(window, "releaseCompletions") as () => void)());
-  const card = savedGameCard(page, "SAMPLE Remix");
-  await expect(card.getByRole("button", { name: "Resume", exact: true })).toBeVisible();
-  const record = await page.evaluate(() => {
-    const key = localStorage.getItem("monotio_agi.resumeTarget")!;
-    return JSON.parse(localStorage.getItem("monotio_agi.autosave." + key)!);
-  });
-  expect(record.game.installed).toBe(false);
-  expect(record.game.identity.project).not.toBe("sample");
-  expect(new URL(page.url()).hash, "the menu must not name a game in the URL").toBe("");
-  const reads = fixtureReads;
-  await card.getByRole("button", { name: "Resume", exact: true }).click();
-  await expect.poll(async () => (await textHook(page)).rows.join(" ")).toContain("ALLIGATOR REMIX");
-  expect(fixtureReads).toBe(reads);
-  expect(
-    await page.evaluate(() => localStorage.getItem("monotio_agi.resumeTarget")?.split(":")[1]),
-  ).toBe(record.game.identity.project);
-  expect(new URL(page.url()).hash, "a running game must be named in the URL").toBe(
-    `#play/${record.game.identity.project}`,
-  );
-  await page.reload();
-  expect(new URL(page.url()).hash, "a running game must be named in the URL").toBe(
-    `#play/${record.game.identity.project}`,
-  );
-  await expect.poll(async () => (await textHook(page)).rows.join(" ")).toContain("ALLIGATOR REMIX");
-  expect(fixtureReads).toBe(reads);
-  const pending = page.waitForEvent("download");
-  await downloadFromSettings(page, true);
-  const download = await pending;
-  const archive = await readGameZip(new Uint8Array(await readFile((await download.path())!)));
-  expect(openContainer(new Map(Object.entries(archive.files))).getResource("view", 11)).toEqual(
-    // The same 3x2 cel written as pixels, independent of the source compiler.
-    buildView({ loops: [{ cels: [{ width: 3, height: 2, pixels: [4, 4, 4, 4, 0, 4] }] }] }),
-  );
-  // The workspace stores each reviewed task in its exported chats.
-  expect(JSON.stringify(archive.project?.chats)).toContain("Add an alligator");
-  expect(archive.roomGeneration).toBe(false);
-  expect(requests).toBe(2);
-});

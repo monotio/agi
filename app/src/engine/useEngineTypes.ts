@@ -218,6 +218,8 @@ export interface EngineState {
   otherTab: boolean;
   returnProblem: string;
   entryProblem: string;
+  /** Installed conversation ownership is moving into its editable project. */
+  conversationTransitioning: boolean;
   staleTab: boolean;
   /**
    * The running game's project was removed in another tab: nothing is stored

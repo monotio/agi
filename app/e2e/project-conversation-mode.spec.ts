@@ -19,7 +19,17 @@ for (const boundary of ["request", "session"] as const)
         },
       });
       Worker.prototype.postMessage = function (message, transfer) {
-        if (message.type === "projectCreate") modes.push(message.progressMode);
+        if (message.type === "projectCreate") {
+          modes.push(message.progressMode);
+          if (message.progressMode === "create") {
+            const received = (event: MessageEvent) => {
+              if (event.data.type !== "projectCreated" || event.data.id !== message.id) return;
+              Object.assign(window, { conversationCreateReply: event.data });
+              this.removeEventListener("message", received);
+            };
+            this.addEventListener("message", received);
+          }
+        }
         const send = () =>
           post.call(this, message, Array.isArray(transfer) ? { transfer } : transfer);
         if (holdRequest && message.type === "projectCreate" && message.progressMode === "play")
@@ -61,6 +71,13 @@ for (const boundary of ["request", "session"] as const)
       );
     release.resolve();
     await expect.poll(modes).toEqual(["play", "create"]);
+    await expect
+      .poll(() =>
+        page.evaluate(() => Reflect.get(window, "conversationCreateReply")?.grant !== undefined),
+      )
+      .toBe(true);
+    // Attachment includes the first chat save and any catalog ownership transfer.
+    await expect(page.getByTestId("agent-message")).toBeEnabled();
     const returned = await page.evaluate(() =>
       (
         window as unknown as {
@@ -68,7 +85,7 @@ for (const boundary of ["request", "session"] as const)
         }
       ).__AGI_PROJECT__.query("playHere", { room: 1, x: 0, y: 0, visit: "back" }),
     );
-    expect(returned.ok, "the worker must hold a Create return point").toBe(true);
+    expect(returned, "the worker must hold a Create return point").toMatchObject({ ok: true });
     await expect(page.getByRole("radio", { name: "Create", exact: true })).toHaveAttribute(
       "aria-checked",
       "true",
