@@ -62,7 +62,11 @@ async function onLocalCreated(projectId: ProjectId, kind: StarterKind): Promise<
   engine.setProjectMode("create");
   refreshLibrary(projectId);
   if (kind === "blank") {
-    await openEmptyProject(projectId);
+    await openEmptyProject(
+      projectId,
+      HASH,
+      () => intent === opening && open.value && selectedProjectId.value === projectId,
+    );
     return;
   }
   const accepted = await onBootSavedGame(false, undefined, undefined, () => intent === opening);

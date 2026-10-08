@@ -17,6 +17,7 @@ import { useEngineApi } from "../engine/engineContext.ts";
 import { useShell } from "../shell/useShell.ts";
 import { useGameLibrary } from "../library/useGameLibrary.ts";
 import type { ProjectSession } from "../project/projectSession.ts";
+import type { CachedGameData } from "../project/gameTypes.ts";
 import type { ProfileId } from "../../../src/runtime/profile.ts";
 
 // The conversation loads on demand in either mode; its resource previews stay lazy.
@@ -53,32 +54,46 @@ watch(
 const blankSession = shallowRef<ProjectSession | null>(null);
 const blankProfile = computed<ProfileId>(() => emptyProject.value?.library?.profile ?? "2.936");
 let offSession: (() => void) | undefined;
-let booting = false;
+let blankOwner: CachedGameData | null = null;
+let loadingSession: CachedGameData | null = null;
+let bootingSession: ProjectSession | null = null;
 
 watch(
-  [onBlankStage, blankAgentOpen],
-  async ([stage, open]) => {
-    offSession?.();
-    offSession = undefined;
-    if (!stage) {
+  [emptyProject, blankAgentOpen],
+  async ([project, open]) => {
+    if (project !== blankOwner) {
+      offSession?.();
+      offSession = undefined;
       blankSession.value = null;
       closeEmptyStageSession();
-      return;
+      blankOwner = project;
     }
-    if (!open || blankSession.value) return;
-    const project = emptyProject.value;
-    if (!project) return;
-    const session = await emptyStageSession(project);
-    if (!session || emptyProject.value !== project || !blankAgentOpen.value) return;
+    if (!project || !open || blankSession.value || loadingSession === project) return;
+    loadingSession = project;
+    const session = await emptyStageSession(project).finally(() => {
+      if (loadingSession === project) loadingSession = null;
+    });
+    if (!session || emptyProject.value !== project) return;
     blankSession.value = session;
     // The agent's commit can add the boot LOGIC: the project then opens in
     // the real Create workspace, like the stage's own Add a room does.
     offSession = session.subscribe(() => {
-      if (booting || session.model.capture().documents()["logic:0"] === undefined) return;
-      booting = true;
+      const isCurrent = () => emptyProject.value === project && blankSession.value === session;
+      if (
+        !isCurrent() ||
+        bootingSession === session ||
+        session.model.capture().documents()["logic:0"] === undefined
+      )
+        return;
+      bootingSession = session;
       void (async () => {
-        await session.flush();
-        if (session.saveStatus().state === "saved")
+        try {
+          await session.flush();
+        } catch {
+          // The retained session exposes its storage failure and retry action.
+          return;
+        }
+        if (isCurrent() && session.saveStatus().state === "saved")
           await openPlayableProject({
             engine,
             library,
@@ -86,7 +101,7 @@ watch(
             projectId: project.projectId,
           });
       })().finally(() => {
-        booting = false;
+        if (bootingSession === session) bootingSession = null;
       });
     });
   },

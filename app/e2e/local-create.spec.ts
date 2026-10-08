@@ -1,11 +1,83 @@
 import {
   configureAi,
   isolateStorage,
+  observe,
   storedAutosave,
   textHook,
   workspaceSaved,
 } from "./engineProbe.ts";
 import { expect, reviewShot, test } from "./test.ts";
+
+for (const close of [false, true]) {
+  test(`a pending blank creation ${close ? "retires on Close" : "opens its current stage"} @webkit-desktop`, async ({
+    page,
+  }) => {
+    await isolateStorage(page);
+    await page.goto("/#create-adventure");
+    await page.getByTestId("local-create-kind-blank").click();
+    await page.evaluate(() => {
+      const descriptor = Object.getOwnPropertyDescriptor(IDBTransaction.prototype, "oncomplete")!;
+      const get = IDBObjectStore.prototype.get;
+      const reads = new WeakSet<IDBTransaction>();
+      const pending: (() => void)[] = [];
+      const audit = {
+        held: false,
+        release() {
+          IDBObjectStore.prototype.get = get;
+          Object.defineProperty(IDBTransaction.prototype, "oncomplete", descriptor);
+          for (const acknowledge of pending) acknowledge();
+        },
+      };
+      IDBObjectStore.prototype.get = function (key: IDBValidKey | IDBKeyRange) {
+        if (
+          this.name === "projects" &&
+          this.transaction.mode === "readonly" &&
+          typeof key === "string" &&
+          key.startsWith("local-")
+        )
+          reads.add(this.transaction);
+        return get.call(this, key);
+      };
+      Object.defineProperty(IDBTransaction.prototype, "oncomplete", {
+        ...descriptor,
+        set(this: IDBTransaction, callback: (this: IDBTransaction, event: Event) => void) {
+          descriptor.set!.call(this, (event: Event) => {
+            if (reads.has(this)) {
+              pending.push(() => callback.call(this, event));
+              audit.held = true;
+            } else callback.call(this, event);
+          });
+        },
+      });
+      Reflect.set(window, "blankCreationRead", audit);
+    });
+    await page.getByRole("button", { name: "Start building", exact: true }).click();
+    try {
+      await expect
+        .poll(() => page.evaluate(() => Reflect.get(window, "blankCreationRead").held))
+        .toBe(true);
+      if (close) await page.getByTestId("create-adventure-close").click();
+    } finally {
+      await page.evaluate(() => Reflect.get(window, "blankCreationRead").release());
+    }
+    await observe(page, 3);
+    const stage = page.getByTestId("empty-project-stage");
+    if (close) {
+      await expect(stage).toBeHidden();
+      await expect(page).toHaveURL(/\/$/);
+    } else {
+      await expect(stage).toBeVisible();
+      await expect(page).toHaveURL(/#create\/local-/);
+    }
+    expect(
+      await page.evaluate(async () => {
+        const storage = await import("/src/project/gameStorage.ts");
+        return (await storage.listStoredProjects()).length;
+      }),
+    ).toBe(1);
+    expect((await textHook(page)).profile).toBeNull();
+  });
+}
 
 test("closing new-game setup retires its pending Create intent @webkit-desktop", async ({
   page,

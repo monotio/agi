@@ -141,6 +141,95 @@ test("a blank project has a working agent drawer @webkit-desktop", async ({ page
   await expect(panel).toBeHidden();
 });
 
+for (const boundary of ["reopened", "closed", "departed"] as const) {
+  test(`a blank agent's first room follows its ${boundary} stage owner @webkit-desktop`, async ({
+    page,
+  }) => {
+    await isolateStorage(page);
+    await page.goto("/");
+    await configureAi(page, { provider: "stub" });
+    await page.goto("/#create-adventure");
+    await page.getByTestId("local-create-kind-blank").click();
+    await page.getByRole("button", { name: "Start building", exact: true }).click();
+    const stage = page.getByTestId("empty-project-stage");
+    await expect(stage).toBeVisible();
+    const hash = new URL(page.url()).hash;
+    const toggle = page.getByRole("button", { name: "Agent", exact: true });
+    await toggle.click();
+    const composer = page.getByTestId("agent-message");
+    await expect(composer).toBeEnabled();
+    await composer.fill("Keep this first-room draft");
+    if (boundary === "reopened") {
+      await composer.press("Escape");
+      await expect(page.getByTestId("workspace-agent-panel")).toBeHidden();
+      await toggle.click();
+      await expect(composer).toBeFocused();
+      await expect(composer).toHaveValue("Keep this first-room draft");
+    }
+    await page.evaluate(async (hold) => {
+      const { emptyProject } = await import("/src/home/emptyProjectRoute.ts");
+      const { emptyStageSession } = await import("/src/home/emptyStageSession.ts");
+      const { emptyWorkspaceChanges } = await import("/src/studio/workspace/emptyWorkspace.ts");
+      const session = await emptyStageSession(emptyProject.value!);
+      if (!session) throw new Error("Blank agent session missing");
+      const gate = Promise.withResolvers<void>();
+      const audit = { held: false, release: () => gate.resolve() };
+      Reflect.set(window, "blankAgentCommit", audit);
+      if (hold) {
+        const flush = session.flush.bind(session);
+        session.flush = async () => {
+          await flush();
+          audit.held = true;
+          await gate.promise;
+        };
+      }
+      const result = await session.submit({
+        proposal: session.model.propose(
+          session.model.capture(),
+          "First room",
+          emptyWorkspaceChanges("room"),
+        ),
+        label: "First room",
+        origin: "agent",
+        author: "agent",
+      });
+      if (result.status !== "committed") throw new Error(`First room refused: ${result.status}`);
+    }, boundary !== "reopened");
+    if (boundary !== "reopened") {
+      await expect
+        .poll(() => page.evaluate(() => Reflect.get(window, "blankAgentCommit").held))
+        .toBe(true);
+      await composer.press("Escape");
+      await expect(page.getByTestId("workspace-agent-panel")).toBeHidden();
+      if (boundary === "departed") {
+        await stage.getByTestId("btn-exit").click();
+        await expect(stage).toBeHidden();
+      }
+      await page.evaluate(() => Reflect.get(window, "blankAgentCommit").release());
+    }
+    if (boundary === "departed") {
+      // The complete saved edit remains available without reopening a departed stage.
+      await expect(page).toHaveURL(/\/$/);
+      expect((await textHook(page)).profile).toBeNull();
+    } else {
+      await expect.poll(async () => (await textHook(page)).room).toBe(1);
+      await expect(stage).toBeHidden();
+      await expect(page).toHaveURL(new RegExp(`${hash}$`));
+    }
+    expect(
+      await page.evaluate(
+        async (id) => {
+          const storage = await import("/src/project/gameStorage.ts");
+          return (await storage.loadAuthoredGame(id as never))?.workspace?.documents.map(
+            (document) => document.key,
+          );
+        },
+        decodeURIComponent(hash.slice("#create/".length)),
+      ),
+    ).toEqual(expect.arrayContaining(["logic:0", "logic:1"]));
+  });
+}
+
 test("drawer initialization preserves a new editor focus @webkit-desktop", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await startStarter(page);
