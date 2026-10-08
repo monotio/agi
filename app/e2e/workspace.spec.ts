@@ -876,16 +876,17 @@ test("adding a room leaves play in place until Update and restart enters it @web
   await expect(action).toHaveAccessibleName("Update and restart Garden");
   await action.click();
   await expect(page.getByTestId("room-studio").locator(".studio-pane")).toBeVisible();
+  // Restart creates a new run with its own cycle counter.
+  await expect.poll(async () => (await textHook(page)).room).toBe(2);
+  await expect(action).toHaveAccessibleName("Restart Garden");
   const cycle = (await textHook(page)).cycle;
   await expect.poll(async () => (await textHook(page)).cycle).toBeGreaterThan(cycle);
   await expect(page.getByTestId("room-studio")).not.toHaveClass(/is-live-game/);
   await expect(page.getByTestId("room-studio").locator(".play-area")).toHaveCount(0);
   await expect(page.locator(".play-area")).toBeVisible();
-  await expect.poll(async () => (await textHook(page)).room).toBe(2);
   const bar = page.getByTestId("workspace-game-bar");
   await expect(bar).toBeVisible();
   await expect(bar.getByTestId("workspace-room")).toContainText("Garden");
-  await expect(action).toHaveAccessibleName("Restart Garden");
   await workspaceUpdated(page);
 });
 
