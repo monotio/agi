@@ -39,7 +39,7 @@ export type AgentResult =
       readonly kind: "diagnostics";
       readonly items: readonly { readonly message: string; readonly resource?: string }[];
     };
-export interface AgentChatMessage {
+interface AgentChatMessage {
   readonly id: string;
   readonly role: "user" | "assistant";
   readonly text: string;
