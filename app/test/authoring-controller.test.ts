@@ -2206,3 +2206,118 @@ test("installed Play transfer waits for the active read-only turn and carries it
   assert.deepEqual(ui.powerUp.messages, []);
   controller.resetSession();
 });
+
+for (const source of ["catalog", "zip"] as const) {
+  test(`first Play conversation in a ${source} project acquires its project owner and survives reload`, async (t) => {
+    installLocalStorageMock(t);
+    const projectId = testProjectId(`play-conversation-${source}`);
+    const files = createTestFiles();
+    await saveAuthoredGame(projectId, {
+      title: "Play project",
+      files,
+      words: [],
+      imported: true,
+      library: {
+        version: 1,
+        source,
+        revision: computeResourceRevision(files),
+        validation: { status: "ready", message: "Ready" },
+      },
+    });
+    let project: ReturnType<typeof openProjectSession> | null = null;
+    const owners: ReturnType<typeof openProjectSession>[] = [];
+    let acquisitions = 0;
+    let admissions = 0;
+    let booted: BootedGame = {
+      installed: false,
+      title: "Play project",
+      projectId,
+      files,
+      words: [],
+      revision: computeResourceRevision(files),
+      historyLifetime: await readHistoryLifetime(projectId),
+    };
+    const controller = useAuthoringController({
+      state: {
+        phase: "running",
+        powerUp: createMockPowerUp(),
+        agentTask: null,
+        agentLog: [],
+        profile: "2.936",
+        worldTick: 0,
+        planDurableRev: "",
+      },
+      getWorker: () => null,
+      query: async <T>() => null as T,
+      logAgent: () => {},
+      readFrames: async () => [],
+      pauseEngine: () => {},
+      resumeEngine: () => {},
+      getBootedGame: () => booted,
+      setBootedGame: () => {},
+      flushAutosave: async () => {},
+      getAutosaveWrite: async () => true,
+      clearAutosave: () => {},
+      awaitPatched: ackPatch,
+      getLlmConfig: () => mockConfig,
+      getConversationMode: () => "play",
+      getProjectSession: () => project,
+      async ensureProjectSession() {
+        acquisitions++;
+        project = openProjectSession({
+          data: (await loadAuthoredGame(booted.projectId!))!,
+          lifetime: booted.historyLifetime!,
+          forked(data, lifetime) {
+            booted = {
+              ...booted,
+              projectId: data.projectId,
+              authoredGame: data,
+              historyLifetime: lifetime,
+            };
+          },
+          admission: {
+            runToken: `play-${acquisitions}`,
+            async admit() {
+              admissions++;
+              assert.fail("Play conversation attempted resource admission");
+            },
+          },
+        });
+        owners.push(project);
+        await project.ready;
+        return project;
+      },
+    });
+    try {
+      const first = (await controller.getConversationAgent())!;
+      assert.equal(
+        acquisitions,
+        1,
+        "stored Play must acquire the project owner, not an installed adapter",
+      );
+      await first.retryChatSave();
+      assert.equal(first.error, "");
+      await first.submit({ instruction: "Could I have a hint?", mode: "play" });
+      const messages = first.current().messages;
+      const id = first.current().id;
+      assert.equal(first.chatSaveError, "");
+      controller.resetSession();
+      project!.dispose();
+      project = null;
+      const reopened = (await controller.getConversationAgent())!;
+      assert.equal(acquisitions, 2);
+      assert.equal(reopened.current().id, id);
+      assert.deepEqual(reopened.current().messages, messages);
+      assert.equal(admissions, 0);
+      if (source === "catalog") assert.notEqual(booted.projectId, projectId);
+      else assert.equal(booted.projectId, projectId);
+      assert.deepEqual((await loadAuthoredGame(projectId))!.files, files);
+      assert.deepEqual((await loadAuthoredGame(booted.projectId!))!.files, files);
+    } finally {
+      controller.resetSession();
+      for (const owner of owners) owner.dispose();
+      await clearCachedGame(projectId);
+      if (booted.projectId !== projectId) await clearCachedGame(booted.projectId!);
+    }
+  });
+}

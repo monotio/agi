@@ -163,6 +163,7 @@ export interface AuthoringControllerOptions {
   readonly pauseEngine: (owner: string) => void;
   readonly resumeEngine: (owner: string) => void;
   readonly getProjectSession?: () => ProjectSession | null;
+  readonly ensureProjectSession?: () => Promise<ProjectSession | null>;
   readonly getConversationMode?: () => "play" | "create";
   readonly getBootedGame: () => BootedGame | null;
   readonly setBootedGame: (game: BootedGame | null) => void;
@@ -647,7 +648,12 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
     const booted = getBootedGame();
     const config = getLlmConfig?.();
     if (!booted || !config) return null;
-    const project = options.getProjectSession?.();
+    const project =
+      options.getProjectSession?.() ??
+      (!booted.installed ? await options.ensureProjectSession?.() : null);
+    if (getBootedGame() !== booted) return null;
+    if (!booted.installed && !project)
+      throw new Error("The project conversation could not open. Reopen the game and try again.");
     if (project) {
       const { borrowWorkspaceAgent } = await import("../agent/workspaceAgent.ts");
       if (getBootedGame() !== booted || options.getProjectSession?.() !== project) return null;

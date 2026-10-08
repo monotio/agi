@@ -325,3 +325,43 @@ test("Update and restart closes a waiting message and installs all parts with on
   session.dispose();
   ctx.fns.stopTimers();
 });
+
+test("acquiring project admission for a Play conversation preserves the interpreter and play state", async () => {
+  const messages: WorkerControl[] = [];
+  const compiled = compileProjectDocuments({
+    files: Object.fromEntries(createContainer().files),
+    documents: { "logic:0": "assignn(v40, 17); return;", words: "[]" },
+    profileId: "2.936",
+  });
+  const ctx = createWorkerContext({
+    control: (message) => messages.push(message),
+    presentation: () => {},
+    now: () => 0,
+    seedWord: () => 1,
+  });
+  ctx.host = createEngineHost(ctx);
+  onWorkerMessage(ctx, {
+    type: "boot",
+    files: Object.fromEntries(compiled.files()),
+    words: [],
+    profile: "2.936",
+    progressMode: "play",
+  });
+  await ctx.projectLoader.loading;
+  ctx.fns.stopTimers();
+  const engine = ctx.run.engine!;
+  const before = engine.serialize();
+  const recordingSession = ctx.history.session;
+  const progress = ctx.run.progress;
+  assert.equal(progress.mode, "play");
+  onWorkerMessage(ctx, { type: "projectCreate", id: 91, progressMode: "play" });
+  await ctx.projectLoader.loading;
+  const reply = messages.find((message) => message.type === "projectCreated" && message.id === 91);
+  assert.ok(reply?.type === "projectCreated" && reply.grant);
+  assert.equal(ctx.run.engine, engine);
+  assert.deepEqual(engine.serialize(), before);
+  assert.equal(ctx.history.session, recordingSession);
+  assert.equal(ctx.run.progress, progress);
+  assert.equal(ctx.run.progress.mode, "play");
+  ctx.fns.stopTimers();
+});

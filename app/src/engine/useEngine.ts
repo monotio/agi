@@ -112,6 +112,7 @@ export function useEngine(
   let projectMode: "create" | "play" = "play";
   let projectSession: ProjectSession | null = null;
   let projectSessionOpening: string | undefined;
+  let projectSessionOpeningTask: Promise<void> | undefined;
   const pendingProjectRestart = shallowRef<PendingProjectRestart | null>(null);
   let projectOpenEpoch = 0;
   let audio: AgiAudio | null = null;
@@ -464,12 +465,11 @@ export function useEngine(
   ): Promise<void> {
     const openedGame = lifecycle.getBootedGame();
     const worker = link.getWorker();
-    if (
-      grant === undefined ||
-      projectSession?.runToken === grant.runToken ||
-      projectSessionOpening === grant.runToken
-    )
+    if (grant !== undefined && projectSessionOpening === grant.runToken) {
+      await projectSessionOpeningTask;
       return;
+    }
+    if (grant === undefined || projectSession?.runToken === grant.runToken) return;
     const epoch = ++projectOpenEpoch;
     if (
       grant === undefined ||
@@ -486,7 +486,10 @@ export function useEngine(
       !game.removed &&
       !game.behindStorage;
     projectSessionOpening = grant.runToken;
-    await Promise.all([import("../project/projectSession.ts"), import("./mainProjectAdmission.ts")])
+    const opening = Promise.all([
+      import("../project/projectSession.ts"),
+      import("./mainProjectAdmission.ts"),
+    ])
       .then(async ([{ openProjectSession }, { createMainProjectAdmission }]) => {
         if (!current()) return;
         // A room can finish while these modules load. Open the confirmed
@@ -609,6 +612,30 @@ export function useEngine(
       .finally(() => {
         if (projectSessionOpening === grant.runToken) projectSessionOpening = undefined;
       });
+    projectSessionOpeningTask = opening;
+    await opening;
+  }
+
+  async function ensureConversationProject(): Promise<ProjectSession | null> {
+    const game = lifecycle.getBootedGame();
+    const worker = link.getWorker();
+    if (!game || game.installed) return null;
+    if (projectSession) {
+      await projectSession.ready;
+      return projectSession;
+    }
+    const data = game.authoredGame;
+    if (!data) throw new Error("The project is unavailable. Reopen the game to continue.");
+    const reply = await link.query("projectCreate", {
+      progressMode: "play",
+      ...(data.workspace ? { documents: data.workspace } : {}),
+      ...(data.projectHistory ? { history: data.projectHistory } : {}),
+    });
+    if (lifecycle.getBootedGame() !== game || link.getWorker() !== worker) return null;
+    if (!reply.grant) throw new Error(reply.reason ?? "The project conversation could not open.");
+    await openSession(reply.grant);
+    if (lifecycle.getBootedGame() !== game || link.getWorker() !== worker) return null;
+    return projectSession;
   }
   async function adoptHistorySession(game: BootedGame, boot: HistoryBoot, snapshot: unknown) {
     const worker = link.getWorker();
@@ -740,6 +767,7 @@ export function useEngine(
         authoringController = useAuthoringController({
           state,
           getProjectSession: () => projectSession,
+          ensureProjectSession: ensureConversationProject,
           getConversationMode: () => projectMode,
           getWorker: link.getWorker,
           query: link.query,
