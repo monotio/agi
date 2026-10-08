@@ -271,7 +271,9 @@ test("drawing, LOGIC and VIEW edit MAIN, Undo spans editors, reload keeps edits 
         session && { token: session.runToken, commits: session.capture().history.commits.length }
       );
     });
-  const original = await probe();
+  // The room and Parts can appear before the async project session opens.
+  await expect.poll(probe).not.toBeNull();
+  const original = (await probe())!;
   await page.getByTestId("part-room:1:picture:1").click();
   const studio = page.getByTestId("room-studio");
   await studio.locator('[data-tool="rect"]').click();
@@ -377,8 +379,8 @@ test("drawing, LOGIC and VIEW edit MAIN, Undo spans editors, reload keeps edits 
   await expect
     .poll(() => page.evaluate((index) => window.__AGI_FRAME__?.()?.visual[index], pixel))
     .toBe(4);
-  await expect.poll(async () => (await probe())?.commits).toBe((original?.commits ?? 0) + 4);
-  expect((await probe())?.token).toBe(original?.token);
+  await expect.poll(async () => (await probe())?.commits).toBe(original.commits + 4);
+  expect((await probe())?.token).toBe(original.token);
   await reviewShot(page, "workspace-view");
   await page.getByTestId("workspace-undo").click();
   await expect
