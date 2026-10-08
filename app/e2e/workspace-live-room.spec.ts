@@ -68,7 +68,29 @@ test("Update and agent approval work after walking into a live-built room @webki
         },
       });
     });
+  const playProgress = await page.evaluate(() =>
+    Object.fromEntries(
+      Object.keys(localStorage)
+        .filter((key) => key.startsWith("monotio_agi.autosave."))
+        .map((key) => [key, localStorage.getItem(key)]),
+    ),
+  );
+  expect(Object.keys(playProgress).length).toBeGreaterThan(0);
   await page.reload();
+  // Create's new rooms leave the original Play position at its earlier revision.
+  // Reload preserves it until the creator explicitly opens the latest resources.
+  const latest = page.getByTestId("start-latest-version");
+  await expect(latest).toBeVisible();
+  expect(
+    await page.evaluate(() =>
+      Object.fromEntries(
+        Object.keys(localStorage)
+          .filter((key) => key.startsWith("monotio_agi.autosave."))
+          .map((key) => [key, localStorage.getItem(key)]),
+      ),
+    ),
+  ).toEqual(playProgress);
+  await latest.click();
   await workspaceSaved(page);
   await page.evaluate(async () => {
     const probe = window as unknown as {
