@@ -135,6 +135,7 @@ test("a blank project has a working agent drawer @webkit-desktop", async ({ page
   await expect(panel).toBeHidden();
   await toggle.click();
   await expect(panel).toBeVisible();
+  await expect(composer).toBeFocused();
   await expect(panel).toContainText("Build a meadow room");
   await panel.getByTestId("agent-panel-close").click();
   await expect(panel).toBeHidden();

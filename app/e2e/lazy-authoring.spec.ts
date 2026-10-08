@@ -107,12 +107,19 @@ test("Play boots a catalog game without the AI authoring stack, and opening Ask 
   expect(offOrigin, "provider or cross-origin requests").toEqual([]);
 });
 
-test("the first agent drawer focuses its input and Escape returns to Play", async ({ page }) => {
+test("the agent drawer focuses its input on each opening and Escape returns to Play", async ({
+  page,
+}) => {
   await isolateStorage(page);
   await page.goto("/");
   await configureAi(page, { provider: "openai", key: "test-placeholder" });
   await page.getByTestId("catalog-play-adventure-department").click();
   await waitForRoom(page, 1, { coldBoot: true });
+  await page.getByTestId("menu-assistant").click();
+  await expect(page.getByTestId("agent-message")).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(page.getByTestId("workspace-agent-panel")).toBeHidden();
+  await expect(page.locator("#game-command")).toBeFocused();
   await page.getByTestId("menu-assistant").click();
   await expect(page.getByTestId("agent-message")).toBeFocused();
   await page.keyboard.press("Escape");

@@ -57,7 +57,7 @@ import type { ProfileId } from "../../../src/runtime/profile.ts";
  * session; the blank stage passes its own (home/emptyStageSession.ts).
  */
 const props = defineProps<{
-  openingFocus: Element | null;
+  focusRequest: { readonly origin: Element | null } | undefined;
   session?: ProjectSession | null | undefined;
   profileId?: ProfileId | undefined;
 }>();
@@ -96,13 +96,16 @@ const readOnly = ref(false);
 const taskContext = ref("");
 const formatReply = shallowRef<ReplyFormatter>();
 const composer = useTemplateRef("composer");
-let openingFocusPending = true;
+let consumedFocusRequest: typeof props.focusRequest;
 watch(
-  [agent, composer],
-  ([ready, element]) => {
-    if (!openingFocusPending || !ready || !element) return;
-    openingFocusPending = false;
-    const origin = props.openingFocus;
+  [() => props.focusRequest, agent, composer],
+  async ([request, ready, element]) => {
+    if (!request || request === consumedFocusRequest || !ready || !element) return;
+    consumedFocusRequest = request;
+    // The parent drawer's v-show update finishes after this child's post watcher.
+    await nextTick();
+    if (request !== props.focusRequest) return;
+    const origin = request.origin;
     const focused = document.activeElement;
     // Hiding or disabling the opener can return browser focus to the body.
     const openerUnavailable =
