@@ -114,11 +114,9 @@ const contexts = ref<string[]>([]);
 const selected = ref<string[]>([]);
 let off: (() => void) | undefined;
 let retired = false;
-let sentReferenceIds: readonly string[] = [];
 async function attach() {
   const session = props.session ?? engine.getProjectSession();
   if (!session) return;
-  const runtime = await engine.getAgentRuntime();
   if (retired || (props.session ?? engine.getProjectSession()) !== session || agent.value) return;
   off?.();
   const attached = borrowWorkspaceAgent({
@@ -128,10 +126,6 @@ async function attach() {
       (engine.state.phase === "running" ? engine.roomMap.resources.value.profile?.id : undefined) ??
       "2.936",
     config: settings.llmConfig,
-    runtime: () => ({
-      ...runtime,
-      referenceArt: async () => runtime.referenceArt?.(sentReferenceIds),
-    }),
     beforeApprove: async () => {
       await editor.flush.value?.();
     },
@@ -311,7 +305,7 @@ async function action(work: () => unknown) {
 async function send() {
   if (!input.value.trim() || busy.value || editor.readOnly.value) return;
   const request = input.value;
-  sentReferenceIds = pendingReferences
+  const sentReferenceIds = pendingReferences
     .filter((reference) => reference.project === engine.getBootedGame()?.projectId)
     .map((reference) => reference.id);
   const inspect = readOnly.value;
@@ -323,6 +317,22 @@ async function send() {
   input.value = "";
   await action(async () => {
     await editor.flush.value?.();
+    const session = props.session ?? engine.getProjectSession();
+    const runtime = await engine.getAgentRuntime();
+    if ((props.session ?? engine.getProjectSession()) !== session || retired)
+      throw new Error("The project changed. Send the request again.");
+    const turnContext = {
+      profileId:
+        props.profileId ??
+        (engine.state.phase === "running"
+          ? engine.roomMap.resources.value.profile?.id
+          : undefined) ??
+        "2.936",
+      runtime: () => ({
+        ...runtime,
+        referenceArt: async () => runtime.referenceArt?.(sentReferenceIds),
+      }),
+    };
     const context = [
       scoped,
       ...(engine.state.phase === "running"
@@ -337,8 +347,8 @@ async function send() {
             .diagnostics.map((entry) => `${entry.document ?? "Project"}: ${entry.message}`) ?? [])
         : []),
     ].join("\n");
-    if (inspect) await agent.value?.ask(request, context, replyFormatter);
-    else await agent.value?.send(request, context);
+    if (inspect) await agent.value?.ask(request, context, replyFormatter, turnContext);
+    else await agent.value?.send(request, context, turnContext);
     for (const id of sentReferenceIds) removePendingReference(id);
   });
 }
@@ -630,6 +640,16 @@ onBeforeUnmount(() => {
       >
     </p>
     <p v-if="error" class="agent-panel__error" role="alert">{{ error }}</p>
+    <div v-if="agent?.chatSaveError" class="agent-panel__error" role="status">
+      <p>{{ agent.chatSaveError }}</p>
+      <UiButton
+        size="sm"
+        :disabled="busy"
+        data-testid="agent-retry-save"
+        @click="action(() => agent?.retryChatSave())"
+        >Retry save</UiButton
+      >
+    </div>
     <AgentTaskControls
       v-if="task"
       :task="task"

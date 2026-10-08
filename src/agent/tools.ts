@@ -1406,6 +1406,8 @@ function executeLegacyTool(
  * its list in AgentToolDeps.
  */
 export interface AgentRuntimeDeps {
+  /** Native resources currently installed in the attached interpreter. */
+  readonly nativeFiles?: (() => Promise<Readonly<Record<string, Uint8Array>> | null>) | undefined;
   /**
    * Ask mode: read-only tools only, and authored plan intent stays out of
    * every result — read_plan's intent filter is refused and
@@ -1513,6 +1515,8 @@ export const SELECTION_TASK_TOOLS: readonly string[] = [
 
 /** Explicit capabilities for a discussion turn; new tools require deliberate approval here. */
 export const ASK_TOOLS: readonly string[] = [
+  "read_project_context",
+  "read_document",
   "read_edit_context",
   "read_room",
   "read_reference_image",

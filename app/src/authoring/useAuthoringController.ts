@@ -67,6 +67,7 @@ import { projectProgressTarget } from "../project/progressTarget.ts";
 import { requireProjectId, type ProjectId } from "../../../src/gameIdentity.ts";
 import type { LogAgentFn } from "../play/useInputController.ts";
 import type { WorkerInbound, WorkerQueryFn } from "../worker/workerProtocol.ts";
+import type { borrowWorkspaceAgent } from "../agent/workspaceAgent.ts";
 import type { AwaitPatchedFn } from "../engine/workerQueries.ts";
 import type { HistoryBoot } from "../../../src/agent/history.ts";
 import { base64ToBytes } from "../project/bytes.ts";
@@ -96,6 +97,7 @@ export interface PowerUpUiState {
   /** Room the world froze in. */
   room: number;
   error: string;
+  chatSaveError?: string;
   /** Storage moved past the running game: the panel offers a reload from storage. */
   offerReload?: boolean;
 }
@@ -182,6 +184,10 @@ export interface AuthoringController {
   openPowerUp(config: LlmConfig): Promise<void>;
   closePowerUp(): void;
   submitPowerUp(instruction: string, referenceIds?: readonly string[]): Promise<void>;
+  retryAskSave(): Promise<void>;
+  stopAgent(): void;
+  continueAgent(requestLimit?: number): void;
+  discardAgent(): void;
   updateAiConfig(config: LlmConfig): Promise<void>;
   /**
    * Persist files the running game already holds (Exit) with the session
@@ -317,6 +323,9 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
 
   const projectTurnBases = new WeakMap<BootedGame, ProjectSnapshot>();
   let session: AgentSession | null = null;
+  let activeAskAgent: ReturnType<typeof borrowWorkspaceAgent> | null = null;
+  let retryConversationSave: (() => Promise<void>) | null = null;
+  let requestGeneration = 0;
   let roomActive = false;
   let roomStopped = false;
   let recoverRoom: ((retry: boolean) => void) | null = null;
@@ -486,12 +495,66 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
   }
 
   function getAgentRuntime(): AgentRuntimeDeps {
+    const game = getBootedGame();
+    const revision = game?.revision;
+    const worker = getWorker();
+    const project = options.getProjectSession?.();
+    function assertCurrent() {
+      if (
+        getBootedGame() !== game ||
+        game?.revision !== revision ||
+        getWorker() !== worker ||
+        options.getProjectSession?.() !== project
+      )
+        throw new Error("The running game changed. Send the request again.");
+    }
     return {
-      frames: { read: readFrames },
-      engine: engineSource,
-      checkpoint: checkpointSource,
-      roomNotes: (room) => getRoomNotes?.(room) ?? [],
-      referenceArt: projectReferenceArt,
+      nativeFiles: async () => {
+        assertCurrent();
+        if (!worker) return null;
+        const files = await query("exportFiles");
+        assertCurrent();
+        if (!files) throw new Error("The running game is unavailable. Send the request again.");
+        return files;
+      },
+      frames: {
+        read: async (...args) => {
+          assertCurrent();
+          const frames = await readFrames(...args);
+          assertCurrent();
+          return frames;
+        },
+      },
+      engine: {
+        state: async () => {
+          assertCurrent();
+          const value = await query("state");
+          assertCurrent();
+          return value;
+        },
+        objects: async () => {
+          assertCurrent();
+          const value = await query("objects");
+          assertCurrent();
+          return value;
+        },
+      },
+      checkpoint: async () => {
+        assertCurrent();
+        const value = await query("checkpoint");
+        assertCurrent();
+        return value;
+      },
+      roomNotes: (room) => {
+        assertCurrent();
+        return getRoomNotes?.(room) ?? [];
+      },
+      referenceArt: async (ids) => {
+        assertCurrent();
+        const value = await projectReferenceArt(ids);
+        assertCurrent();
+        return value;
+      },
     };
   }
 
@@ -544,6 +607,11 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
   }
 
   function resetSession(): void {
+    requestGeneration++;
+    activeAskAgent?.cancel();
+    activeAskAgent = null;
+    retryConversationSave = null;
+    state.powerUp.chatSaveError = "";
     stopRoomGeneration();
     session?.task.cancel();
     session = null;
@@ -918,6 +986,9 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
       state.powerUp.needsConfig = true;
       return;
     }
+    const generation = ++requestGeneration;
+    const author = session;
+    const current = () => generation === requestGeneration && session === author;
     state.powerUp.busy = true;
     state.powerUp.error = "";
     state.powerUp.offerReload = false;
@@ -944,13 +1015,55 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
             session: project,
             profileId: session.state.profile.id,
             config: getLlmConfig,
-            runtime: getAgentRuntime,
           });
-          text = await agent.ask(instruction, `Current room ${room}`);
+          activeAskAgent = agent;
+          let activity = 0;
+          const updateTask = () => {
+            if (!current()) return;
+            state.agentTask = agent.task;
+            const progress = agent.progress;
+            for (const note of progress.slice(activity)) logAgent("log", note);
+            activity = progress.length;
+          };
+          const off = agent.subscribe(updateTask);
+          const runtime = getAgentRuntime();
+          try {
+            text = await agent.ask(instruction, `Current room ${room}`, undefined, {
+              profileId: session.state.profile.id,
+              runtime: () => ({
+                ...runtime,
+                referenceArt: async () => runtime.referenceArt?.(selectedIds),
+              }),
+            });
+          } finally {
+            off();
+            if (current()) {
+              activeAskAgent = null;
+              state.powerUp.chatSaveError = agent.chatSaveError;
+              retryConversationSave = () => agent.retryChatSave();
+            }
+          }
         } else text = await session.runAsk(instruction, room, attachments);
+        if (!current()) return;
         state.powerUp.reply = text;
         state.powerUp.messages.push({ role: "assistant", text });
-        if (booted && !project) await saveConversation(booted, session);
+        if (booted && !project) {
+          const author = session;
+          retryConversationSave = () => saveConversation(booted, author);
+          try {
+            await retryConversationSave();
+            if (!current()) return;
+            state.powerUp.chatSaveError = "";
+          } catch (cause) {
+            if (!current()) return;
+            state.powerUp.chatSaveError = "Saving the conversation failed. Retry save.";
+            if (cause instanceof ResourceCommitError && cause.code === "stale") {
+              state.powerUp.error = cause.message;
+              state.powerUp.offerReload = true;
+            }
+            logAgent("error", String(cause));
+          }
+        }
         return;
       }
       if (!booted) throw new Error("No game is running.");
@@ -1006,16 +1119,39 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
       state.powerUp.open = false;
       resumeEngine("powerUp");
     } catch (e) {
+      if (!current()) return;
       if (e instanceof ResourceCommitError && (e.code === "stale" || e.code === "install")) {
         // A plain sentence for the panel, and the recovery it names: the
         // game reloads from the project storage holds.
         state.powerUp.error = e.message;
         state.powerUp.offerReload = true;
       } else {
-        state.powerUp.error = String(e);
+        logAgent("error", String(e));
+        state.powerUp.error =
+          state.powerUp.mode === "ask"
+            ? "The answer was interrupted. Open Activity for details, then send a follow-up."
+            : String(e);
       }
     } finally {
-      state.powerUp.busy = false;
+      if (current()) state.powerUp.busy = false;
+    }
+  }
+
+  async function retryAskSave(): Promise<void> {
+    if (state.powerUp.busy || !retryConversationSave) return;
+    const generation = requestGeneration;
+    const retry = retryConversationSave;
+    state.powerUp.busy = true;
+    try {
+      await retry();
+      if (generation === requestGeneration) state.powerUp.chatSaveError = "";
+    } catch (cause) {
+      if (generation === requestGeneration) {
+        state.powerUp.chatSaveError = "Saving the conversation failed. Retry save.";
+        logAgent("error", String(cause));
+      }
+    } finally {
+      if (generation === requestGeneration) state.powerUp.busy = false;
     }
   }
 
@@ -1677,6 +1813,19 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
     openPowerUp,
     closePowerUp,
     submitPowerUp,
+    retryAskSave,
+    stopAgent() {
+      if (activeAskAgent) activeAskAgent.stop();
+      else session?.task.stop();
+    },
+    continueAgent(requestLimit) {
+      if (activeAskAgent) activeAskAgent.continue(requestLimit);
+      else session?.task.resume(requestLimit);
+    },
+    discardAgent() {
+      if (activeAskAgent) activeAskAgent.cancel();
+      else session?.task.cancel();
+    },
     updateAiConfig,
     persistRemix,
     commitTestsFile,

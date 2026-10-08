@@ -19,6 +19,8 @@ import {
 } from "../../../src/agent/tools.ts";
 import { referenceManifest } from "../../../src/agent/referenceTools.ts";
 import { captureAgentWorkspace } from "../../../src/authoring/projectAgentCandidate.ts";
+import { createProjectInspection } from "../../../src/agent/projectInspection.ts";
+import { computeResourceRevision } from "../../../src/authoring/resourceRevision.ts";
 import { compileProjectDocuments } from "../../../src/authoring/projectDocuments.ts";
 import { ProjectModel } from "../../../src/authoring/projectModel.ts";
 import { diffProjectDocuments, sameProjectContent } from "../../../src/authoring/projectContent.ts";
@@ -59,6 +61,10 @@ export interface AgentReview {
   stale(): boolean;
 }
 export type ReplyFormatter = (reply: string) => { text: string; context?: string };
+export interface AgentTurnContext {
+  readonly profileId?: ProfileId;
+  readonly runtime?: () => AgentRuntimeDeps;
+}
 interface Options {
   readonly session: ProjectSession;
   readonly profileId: ProfileId;
@@ -327,6 +333,7 @@ export function createWorkspaceAgent(options: Options) {
   let autoApprove = false;
   const reviewOutcomes = new Map<string, string>();
   let error = "";
+  let chatSaveError = "";
   let busy = false;
   let applying = false;
   let actionQueue: string[] | null = null;
@@ -490,31 +497,47 @@ export function createWorkspaceAgent(options: Options) {
     readOnly = false,
     automatic = false,
     formatReply?: ReplyFormatter,
+    turnContext: AgentTurnContext = {},
   ) {
     if (session.closed) throw new Error("The project session was closed.");
     if (busy || applying) throw new Error("Wait for the current task to finish.");
+    const profileId = turnContext.profileId ?? options.profileId;
+    if (!PROFILES[profileId]) throw new Error(`Unknown AGI profile: ${profileId}`);
     busy = true;
     error = "";
     progress.length = 0;
-    let base = session.model.capture();
-    let workspace = captureAgentWorkspace({
-      draft: new ProjectDraft(base.documents()),
-      files: Object.fromEntries(base.lastAdmissibleBuild!.files()),
-      profileId: options.profileId,
-      allowMissingRooms: session.allowMissingRooms,
-    });
-    let staged: ReturnType<typeof workspace.openToolState> | undefined;
+    let base = readOnly ? session.workingSnapshot() : session.model.capture();
+    let workspace = readOnly
+      ? undefined
+      : captureAgentWorkspace({
+          draft: new ProjectDraft(base.documents()),
+          files: Object.fromEntries(base.lastAdmissibleBuild!.files()),
+          profileId,
+          allowMissingRooms: session.allowMissingRooms,
+        });
+    let staged: ReturnType<ReturnType<typeof captureAgentWorkspace>["openToolState"]> | undefined;
+    let inspection: ReturnType<typeof createProjectInspection> | undefined;
+    function editWorkspace() {
+      if (!workspace) throw new Error("Editing is unavailable during inspection.");
+      return workspace;
+    }
     let notes: string | undefined;
     const prepared = new Map<string, ProjectChange>();
     let scene: Awaited<ReturnType<typeof selectionScene>> = {};
-    let selection = workspaceSelection(
-      context,
-      base.documents(),
-      PROFILES[options.profileId]!,
-      scene,
-    );
+    let selection = readOnly
+      ? undefined
+      : workspaceSelection(context, base.documents(), PROFILES[profileId]!, scene);
     function projectDriver() {
-      const captured = workspace;
+      if (readOnly)
+        return createProjectAssistDriver({
+          base,
+          profileId,
+          get diagnostics() {
+            return inspection?.diagnostics ?? [];
+          },
+          documents: () => base.documents(),
+        });
+      const captured = editWorkspace();
       return createProjectAssistDriver({
         ...captured,
         propose(label, changes) {
@@ -540,7 +563,7 @@ export function createWorkspaceAgent(options: Options) {
     function stagedDocuments() {
       const offered = driver.pending();
       const native = staged?.finish(chatTitle(instruction), offered?.changes() ?? []);
-      const documents = { ...workspace.documents() };
+      const documents = { ...editWorkspace().documents() };
       for (const change of [
         ...prepared.values(),
         ...(native?.changes() ?? []),
@@ -563,17 +586,17 @@ export function createWorkspaceAgent(options: Options) {
         ].map((change) => [change.key, change]),
       );
       const checked = session.model.propose(base, label, [...combined.values()]);
-      workspace.propose(label, checked.changes());
+      editWorkspace().propose(label, checked.changes());
       const next = captureAgentWorkspace({
         draft: new ProjectDraft(checked.documents()),
         files: Object.fromEntries(base.lastAdmissibleBuild!.files()),
-        profileId: options.profileId,
+        profileId,
         allowMissingRooms: session.allowMissingRooms,
       });
       const nextSelection = workspaceSelection(
         context,
         checked.documents(),
-        PROFILES[options.profileId]!,
+        PROFILES[profileId]!,
         scene,
       );
       prepared.clear();
@@ -609,6 +632,7 @@ export function createWorkspaceAgent(options: Options) {
       actionQueue = [];
     }
     let handedOver = false;
+    let failedSave: { cause: unknown } | undefined;
     async function offer(text: string) {
       assertLive();
       const offered = driver.pending();
@@ -624,12 +648,12 @@ export function createWorkspaceAgent(options: Options) {
       const candidate = captureAgentWorkspace({
         draft: new ProjectDraft(stagedDocuments()),
         files: Object.fromEntries(base.lastAdmissibleBuild!.files()),
-        profileId: options.profileId,
+        profileId,
         allowMissingRooms: session.allowMissingRooms,
       }).openToolState();
       const verdict = validateAgentHandover(candidate.state);
       if (!verdict.success) throw new Error(verdict.error ?? "Handover rejected.");
-      workspace.propose(chatTitle(instruction), changes);
+      editWorkspace().propose(chatTitle(instruction), changes);
       const proposal = session.model.propose(
         base,
         offered?.label ?? chatTitle(instruction),
@@ -675,16 +699,11 @@ export function createWorkspaceAgent(options: Options) {
         }
         touched.clear();
         base = session.model.capture();
-        selection = workspaceSelection(
-          context,
-          base.documents(),
-          PROFILES[options.profileId]!,
-          scene,
-        );
+        selection = workspaceSelection(context, base.documents(), PROFILES[profileId]!, scene);
         workspace = captureAgentWorkspace({
           draft: new ProjectDraft(base.documents()),
           files: Object.fromEntries(base.lastAdmissibleBuild!.files()),
-          profileId: options.profileId,
+          profileId,
           allowMissingRooms: session.allowMissingRooms,
         });
         driver = projectDriver();
@@ -721,15 +740,24 @@ export function createWorkspaceAgent(options: Options) {
         }
         chat.sessionId ??= crypto.randomUUID();
         provider = make(config, initial, run, WORKSPACE_AGENT_TOOLS, chat.sessionId);
-        const runtime = options.runtime?.() ?? {};
+        const runtime = (turnContext.runtime ?? options.runtime)?.() ?? {};
+        if (readOnly) {
+          const nativeFiles = await runtime.nativeFiles?.();
+          assertLive();
+          inspection = createProjectInspection({
+            files: nativeFiles ?? Object.fromEntries(base.lastAdmissibleBuild!.files()),
+            documents:
+              !nativeFiles ||
+              computeResourceRevision(nativeFiles) === base.lastAdmissibleBuild!.identity.revision
+                ? base.lastAdmissibleBuild!.documents()
+                : {},
+            profileId,
+            origin: nativeFiles ? "live" : "admitted",
+          });
+        }
         if (selection) {
           scene = await selectionScene(runtime.engine, selection.focus.room ?? 0);
-          selection = workspaceSelection(
-            context,
-            base.documents(),
-            PROFILES[options.profileId]!,
-            scene,
-          );
+          selection = workspaceSelection(context, base.documents(), PROFILES[profileId]!, scene);
         }
         const references = (await runtime.referenceArt?.([])) ?? runtime.references;
         const reference = references?.art.length ? await referenceManifest(references) : undefined;
@@ -783,10 +811,64 @@ export function createWorkspaceAgent(options: Options) {
                 throw new Error("This tool is unavailable.");
               const problems = validateToolArguments(definition.parameters, call.input);
               if (problems.length) throw new Error(problems.join(" "));
-              if (call.name === "propose_names") {
+              if (readOnly && PROJECT_ASSIST_TOOLS.some((tool) => tool.name === call.name)) {
+                if (call.name === "read_document" && call.input["key"] === "world")
+                  throw new Error(
+                    "Creator intent is unavailable in Ask. Inspect game resources instead.",
+                  );
+                result = driver.execute(call.name, call.input);
+                if (call.name === "read_document" || call.name === "read_project_context")
+                  result = {
+                    ...result,
+                    details: {
+                      ...result.details,
+                      origin: {
+                        kind: "draft",
+                        documentId: base.documentId,
+                        profileId,
+                      },
+                    },
+                  };
+              } else if (readOnly) {
+                if (call.name === "read_edit_context") {
+                  selection = workspaceSelection(
+                    context,
+                    base.documents(),
+                    PROFILES[profileId]!,
+                    scene,
+                  );
+                  if (selection) {
+                    scene = await selectionScene(runtime.engine, selection.focus.room ?? 0);
+                    selection = workspaceSelection(
+                      context,
+                      base.documents(),
+                      PROFILES[profileId]!,
+                      scene,
+                    );
+                  }
+                }
+                result = await inspection!.execute(call.name, call.input, {
+                  ...runtime,
+                  references,
+                  allowedTools,
+                  ...(selection ? { selection } : {}),
+                });
+                if (call.name === "read_edit_context")
+                  result = {
+                    ...result,
+                    details: {
+                      ...result.details,
+                      origin: {
+                        kind: "draft",
+                        documentId: base.documentId,
+                        profileId,
+                      },
+                    },
+                  };
+              } else if (call.name === "propose_names") {
                 const changes = proposeNames({
                   documents: stagedDocuments(),
-                  profile: PROFILES[options.profileId]!,
+                  profile: PROFILES[profileId]!,
                   names: call.input["names"] as Parameters<typeof proposeNames>[0]["names"],
                 });
                 stageChanges("Name game parts", changes);
@@ -800,10 +882,10 @@ export function createWorkspaceAgent(options: Options) {
                 selection = workspaceSelection(
                   context,
                   stagedDocuments(),
-                  PROFILES[options.profileId]!,
+                  PROFILES[profileId]!,
                   scene,
                 );
-                staged ??= workspace.openToolState();
+                staged ??= editWorkspace().openToolState();
                 result = await executeAgentToolAsync(staged.state, call.name, call.input, {
                   ...runtime,
                   references,
@@ -880,7 +962,7 @@ export function createWorkspaceAgent(options: Options) {
                         call.input["frames"] === null
                           ? operations.suggestImageFrames(image)
                           : (call.input["frames"] as ImageFrame[]),
-                        PROFILES[options.profileId]!,
+                        PROFILES[profileId]!,
                       );
                 for (const change of changes) combined.set(change.key, change);
                 // Validate before publishing any staged state. Later tools read
@@ -888,11 +970,11 @@ export function createWorkspaceAgent(options: Options) {
                 const checked = session.model.propose(base, chatTitle(instruction), [
                   ...combined.values(),
                 ]);
-                workspace.propose(checked.label, checked.changes());
+                editWorkspace().propose(checked.label, checked.changes());
                 const next = captureAgentWorkspace({
                   draft: new ProjectDraft(checked.documents()),
                   files: Object.fromEntries(base.lastAdmissibleBuild!.files()),
-                  profileId: options.profileId,
+                  profileId,
                   allowMissingRooms: session.allowMissingRooms,
                 });
                 prepared.clear();
@@ -908,7 +990,7 @@ export function createWorkspaceAgent(options: Options) {
                   for (const change of call.input["changes"] as ProjectChange[])
                     touched.add(change.key);
               } else {
-                staged ??= workspace.openToolState();
+                staged ??= editWorkspace().openToolState();
                 result = await executeAgentToolAsync(staged.state, call.name, call.input, {
                   ...runtime,
                   references,
@@ -933,7 +1015,7 @@ export function createWorkspaceAgent(options: Options) {
                 workspace = captureAgentWorkspace({
                   draft: new ProjectDraft(base.documents()),
                   files: Object.fromEntries(base.lastAdmissibleBuild!.files()),
-                  profileId: options.profileId,
+                  profileId,
                   allowMissingRooms: session.allowMissingRooms,
                 });
                 driver = projectDriver();
@@ -987,7 +1069,7 @@ export function createWorkspaceAgent(options: Options) {
             } else throw cause;
           }
         }
-        if (!(await offer(turn.text ?? "")))
+        if (readOnly || !(await offer(turn.text ?? "")))
           chat.messages.push({
             id: id(),
             role: "assistant",
@@ -1029,10 +1111,12 @@ export function createWorkspaceAgent(options: Options) {
         discarded,
         persisted,
       });
-      delete chat.pendingReview;
+      if (!readOnly) delete chat.pendingReview;
       flushActions();
-      reviews.delete(chat.id);
-      if (review?.chatId === chat.id) review = null;
+      if (!readOnly) {
+        reviews.delete(chat.id);
+        if (review?.chatId === chat.id) review = null;
+      }
       error = cause instanceof Error ? cause.message : String(cause);
       throw cause;
     } finally {
@@ -1041,11 +1125,25 @@ export function createWorkspaceAgent(options: Options) {
       actionChat = null;
       appliedDuringRun = null;
       if (provider) chat.transcript = provider.getTranscript();
-      busy = false;
+      if (!readOnly) busy = false;
       completedRuns.set(chat.id, run.snapshot());
       activeRun = null;
-      await save();
+      try {
+        await save();
+        if (readOnly) await session.flush();
+        chatSaveError = "";
+      } catch (cause) {
+        if (!readOnly) failedSave = { cause };
+        else {
+          chatSaveError = "Saving the conversation failed. Retry save.";
+          progress.push(cause instanceof Error ? cause.message : String(cause));
+        }
+      } finally {
+        if (readOnly) busy = false;
+        notify();
+      }
     }
+    if (failedSave) throw failedSave.cause;
   }
   async function checkpoint(messageId: string, mode: "undo" | "restore") {
     const message = store.chats
@@ -1118,6 +1216,26 @@ export function createWorkspaceAgent(options: Options) {
     get error() {
       return error;
     },
+    get chatSaveError() {
+      return chatSaveError;
+    },
+    async retryChatSave() {
+      if (busy || applying) throw new Error("Wait for the current task to finish.");
+      applying = true;
+      notify();
+      try {
+        await save();
+        await session.flush();
+        chatSaveError = "";
+      } catch (cause) {
+        chatSaveError = "Saving the conversation failed. Retry save.";
+        progress.push(String(cause));
+        throw new Error(chatSaveError, { cause });
+      } finally {
+        applying = false;
+        notify();
+      }
+    },
     get progress() {
       return [...progress];
     },
@@ -1154,23 +1272,26 @@ export function createWorkspaceAgent(options: Options) {
         notify();
       });
     },
-    send(instruction: string, context = "") {
+    send(instruction: string, context = "", turnContext: AgentTurnContext = {}) {
       return drive(
         store.chats.find((chat) => chat.id === store.active)!,
         instruction,
         context,
+        false,
+        false,
+        undefined,
+        turnContext,
       );
     },
-    async ask(instruction: string, context = "", formatReply?: ReplyFormatter) {
-      await drive(
-        store.chats.find((chat) => chat.id === store.active)!,
-        instruction,
-        context,
-        true,
-        false,
-        formatReply,
-      );
-      return current().messages.at(-1)?.text ?? "";
+    async ask(
+      instruction: string,
+      context = "",
+      formatReply?: ReplyFormatter,
+      turnContext: AgentTurnContext = {},
+    ) {
+      const chat = store.chats.find((chat) => chat.id === store.active)!;
+      await drive(chat, instruction, context, true, false, formatReply, turnContext);
+      return chat.messages.at(-1)?.text ?? "";
     },
     async background(title: string, instruction: string) {
       const chat = newChat(title, true);

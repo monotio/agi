@@ -1287,10 +1287,9 @@ export function useEngine(
     },
     stopRoomGeneration: () => authoringController?.stopRoomGeneration(),
     retryRoomGeneration: () => authoringController?.retryRoomGeneration(),
-    stopAgent: () => authoringController?.getSession()?.task.stop(),
-    continueAgent: (requestLimit?: number) =>
-      authoringController?.getSession()?.task.resume(requestLimit),
-    discardAgent: () => authoringController?.getSession()?.task.cancel(),
+    stopAgent: () => authoringController?.stopAgent(),
+    continueAgent: (requestLimit?: number) => authoringController?.continueAgent(requestLimit),
+    discardAgent: () => authoringController?.discardAgent(),
     state,
     get audio() {
       return audio!;
@@ -1391,6 +1390,7 @@ export function useEngine(
     },
     closePowerUp,
     submitPowerUp,
+    retryAskSave: async () => (await loadAuthoringController()).retryAskSave(),
     listReferences: async (
       ...args: Parameters<ReturnType<typeof useAuthoringController>["listReferences"]>
     ) => (await loadAuthoringController()).listReferences(...args),

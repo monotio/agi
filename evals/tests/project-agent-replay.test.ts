@@ -21,6 +21,8 @@ interface Case {
     autoApprove?: boolean;
     expectedCommits?: number;
     expectedDocuments?: Record<string, string | null>;
+    readOnly?: boolean;
+    unreadableSound?: number;
   };
 }
 const directory = new URL("../fixtures/bad-cases/", import.meta.url);
@@ -40,12 +42,19 @@ for (const file of readdirSync(directory).filter((file) => file.endsWith(".json"
       documents,
       profileId: "2.936",
     });
+    const files = Object.fromEntries(compiled.files());
+    if (content.unreadableSound !== undefined) {
+      const directory = new Uint8Array((content.unreadableSound + 1) * 3).fill(255);
+      directory.set(files["SNDDIR"]!);
+      directory.set([1, 255, 255], content.unreadableSound * 3);
+      files["SNDDIR"] = directory;
+    }
     const session = openProjectSession({
       data: {
         projectId: requireProjectId(stored.name),
         title: "Replay",
         authoredAt: "",
-        files: Object.fromEntries(compiled.files()),
+        files,
         words: [],
         workspace: writeProjectWorkspace(documents),
       },
@@ -106,7 +115,15 @@ for (const file of readdirSync(directory).filter((file) => file.endsWith(".json"
     try {
       if (content.expectedError)
         await assert.rejects(agent.send(content.request), new RegExp(content.expectedError));
-      else await agent.send(content.request);
+      else if (content.readOnly) {
+        const before = session.model.capture();
+        await agent.ask(content.request);
+        assert.equal(session.model.capture().documentId, before.documentId);
+        assert.deepEqual(
+          Object.fromEntries(session.model.capture().lastAdmissibleBuild!.files()),
+          files,
+        );
+      } else await agent.send(content.request);
       assert.deepEqual(
         agent
           .pending()

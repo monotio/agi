@@ -106,6 +106,154 @@ test("closePowerUp closes the bubble and resumes the engine", () => {
   assert.equal(resumed, true);
 });
 
+test("a request runtime refuses an engine replaced during its query", async () => {
+  const pending = Promise.withResolvers<unknown>();
+  let worker = {} as Worker;
+  const controller = useAuthoringController({
+    state: {
+      phase: "running",
+      powerUp: createMockPowerUp(),
+      agentTask: null,
+      agentLog: [],
+      profile: "2.936",
+      worldTick: 0,
+      planDurableRev: "",
+    },
+    getWorker: () => worker,
+    query: async <T>() => (await pending.promise) as T,
+    logAgent: () => {},
+    readFrames: async () => [],
+    pauseEngine: () => {},
+    resumeEngine: () => {},
+    getBootedGame: () => null,
+    setBootedGame: () => {},
+    flushAutosave: async () => {},
+    getAutosaveWrite: async () => true,
+    clearAutosave: () => {},
+    awaitPatched: ackPatch,
+  });
+  const runtime = controller.getAgentRuntime();
+  const result = runtime.engine!.state();
+  worker = {} as Worker;
+  pending.resolve({ room: 2 });
+  await assert.rejects(Promise.resolve(result), /running game changed/);
+  await assert.rejects(runtime.nativeFiles!(), /running game changed/);
+});
+
+test("an old Ask result cannot publish into a new session after reset", async () => {
+  const pending = Promise.withResolvers<string>();
+  const ui = {
+    phase: "running" as const,
+    powerUp: createMockPowerUp(),
+    agentTask: null,
+    agentLog: [],
+    profile: "2.936",
+    worldTick: 0,
+    planDurableRev: "",
+  };
+  ui.powerUp.mode = "ask";
+  const controller = useAuthoringController({
+    state: ui,
+    getWorker: () => null,
+    query: async <T>() => null as T,
+    logAgent: () => {},
+    readFrames: async () => [],
+    pauseEngine: () => {},
+    resumeEngine: () => {},
+    getBootedGame: () => null,
+    setBootedGame: () => {},
+    flushAutosave: async () => {},
+    getAutosaveWrite: async () => true,
+    clearAutosave: () => {},
+    awaitPatched: ackPatch,
+  });
+  const author = AgentSession.fromAuthoredData(
+    mockConfig,
+    () => {},
+    Object.fromEntries(createContainer().files),
+    [],
+  );
+  author.runAsk = () => pending.promise;
+  controller.setSession(author);
+  const result = controller.submitPowerUp("Where next?");
+  controller.resetSession();
+  ui.powerUp.messages = [];
+  ui.powerUp.busy = true;
+  pending.resolve("An answer from the old game.");
+  await result;
+  assert.deepEqual(ui.powerUp.messages, []);
+  assert.equal(ui.powerUp.busy, true);
+  assert.equal(ui.powerUp.chatSaveError, "");
+});
+
+for (const outcome of ["saved", "rejected"] as const) {
+  test(`a retired Play Ask save cannot overwrite the next game's UI when ${outcome}`, async (t) => {
+    installLocalStorageMock(t);
+    const projectId = testProjectId(`ask-retired-save-${outcome}`);
+    const files = createTestFiles();
+    await saveAuthoredGame(projectId, { title: "Old game", files, words: [] });
+    const game: BootedGame = {
+      installed: false,
+      projectId,
+      title: "Old game",
+      files,
+      words: [],
+      revision: await gameRevision(files),
+    };
+    const ui = {
+      phase: "running" as const,
+      powerUp: createMockPowerUp(),
+      agentTask: null,
+      agentLog: [],
+      profile: "2.936",
+      worldTick: 0,
+      planDurableRev: "",
+    };
+    ui.powerUp.mode = "ask";
+    const controller = useAuthoringController({
+      state: ui,
+      getWorker: () => null,
+      query: async <T>() => null as T,
+      logAgent: () => {},
+      readFrames: async () => [],
+      pauseEngine: () => {},
+      resumeEngine: () => {},
+      getBootedGame: () => game,
+      setBootedGame: () => {},
+      flushAutosave: async () => {},
+      getAutosaveWrite: async () => true,
+      clearAutosave: () => {},
+      awaitPatched: ackPatch,
+    });
+    const author = AgentSession.fromAuthoredData(mockConfig, () => {}, files, []);
+    author.runAsk = async () => "Read the sign.";
+    controller.setSession(author);
+    let retired = false;
+    const set = records.set.bind(records);
+    const write = t.mock.method(records, "set", (key: IDBValidKey, value: unknown) => {
+      assert.equal(ui.powerUp.reply, "Read the sign.");
+      controller.resetSession();
+      retired = true;
+      ui.powerUp.chatSaveError = "The next conversation needs saving.";
+      ui.powerUp.error = "The next game's notice.";
+      ui.powerUp.busy = true;
+      if (outcome === "rejected") throw new ResourceCommitError("stale", "Old game changed.");
+      return set(key, value);
+    });
+    try {
+      await controller.submitPowerUp("Where next?");
+      assert.equal(retired, true);
+      assert.equal(ui.powerUp.chatSaveError, "The next conversation needs saving.");
+      assert.equal(ui.powerUp.error, "The next game's notice.");
+      assert.equal(ui.powerUp.offerReload, false);
+      assert.equal(ui.powerUp.busy, true);
+    } finally {
+      write.mock.restore();
+      await clearCachedGame(projectId);
+    }
+  });
+}
+
 test("openPowerUp enters remix mode, pauses engine, and queries room", async () => {
   const powerUp = createMockPowerUp();
   let paused = false;

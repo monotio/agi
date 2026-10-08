@@ -1,0 +1,47 @@
+{
+  "name": "project-agent-ask-native-defect",
+  "description": "Ask reads a native room despite an unused corrupt sound and never offers or applies a candidate after native tool reads.",
+  "projectAgent": {
+    "documents": { "logic:0": "return;", "logic:1": "return;", "words": "[]" },
+    "readOnly": true,
+    "unreadableSound": 255,
+    "request": "Give me a small hint",
+    "turns": [
+      {
+        "toolCalls": [
+          {
+            "id": "room",
+            "name": "read_room",
+            "input": { "room": 1, "state": null, "frames": null }
+          },
+          { "id": "broken", "name": "read_sound", "input": { "num": 255 } }
+        ]
+      },
+      {
+        "toolCalls": [
+          {
+            "id": "logic",
+            "name": "read_logic",
+            "input": { "num": 0, "offset": null, "limit": null }
+          },
+          { "id": "write", "name": "write_logic", "input": { "room": 0, "source": "return;" } },
+          {
+            "id": "proposal",
+            "name": "propose_changes",
+            "input": { "label": "Change", "changes": [{ "key": "logic:0", "content": "return;" }] }
+          }
+        ]
+      },
+      { "text": "Look for a clue.", "toolCalls": [] }
+    ],
+    "expectedOutcomes": {
+      "room": true,
+      "broken": false,
+      "logic": true,
+      "write": false,
+      "proposal": false
+    },
+    "expectedKeys": [],
+    "expectedCommits": 1
+  }
+}

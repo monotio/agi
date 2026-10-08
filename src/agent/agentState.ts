@@ -100,6 +100,7 @@ export interface AgentSessionState {
 export function createAgentSessionState(
   existingContainer?: GameContainer,
   profile?: ProfileId | AgiProfile,
+  dictionaryWords?: ReadonlyMap<string, number>,
 ): AgentSessionState {
   const container = existingContainer ?? createContainer();
   if (!existingContainer) container.putFile("OBJECT", buildObjectFile([]));
@@ -112,7 +113,9 @@ export function createAgentSessionState(
       logics: new Map(),
       pictures: new Map(),
       views: new Map(),
-      words: new Map(dictionary ? parseWordsTok(dictionary).map(({ word, id }) => [word, id]) : []),
+      words: dictionaryWords
+        ? new Map(dictionaryWords)
+        : new Map(dictionary ? parseWordsTok(dictionary).map(({ word, id }) => [word, id]) : []),
       sounds: new Map(),
     },
     container,

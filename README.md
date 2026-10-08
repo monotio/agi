@@ -176,6 +176,9 @@ drawbridge:
 
 ![A castle gate as the player sees it, beside the walkable ground, barriers and horizon the agent painted into it](docs/media/genesis-depth.png)
 
+Ask saves conversation history alongside the project. If that save fails, the
+answer stays visible and **Retry save** retries storage without another AI request.
+
 The agent checks its own work with rendered previews, compiler messages and
 playtests of its own. It can still get art, puzzles or writing wrong, so play
 it, and ask for revisions when something is off.

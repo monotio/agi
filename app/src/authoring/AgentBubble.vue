@@ -444,6 +444,15 @@ async function onBubbleReload(): Promise<void> {
     <p v-if="state.powerUp.error" class="agent-bubble-error" data-testid="agent-bubble-error">
       {{ state.powerUp.error }}
     </p>
+    <div v-if="state.powerUp.chatSaveError" class="agent-bubble-error" role="status">
+      <p>{{ state.powerUp.chatSaveError }}</p>
+      <UiButton
+        :disabled="state.powerUp.busy"
+        data-testid="agent-bubble-retry-save"
+        @click="engine.retryAskSave()"
+        >Retry save</UiButton
+      >
+    </div>
     <UiButton
       v-if="state.powerUp.offerReload"
       class="agent-bubble-reload"
