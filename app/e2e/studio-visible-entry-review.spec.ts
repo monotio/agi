@@ -32,7 +32,9 @@ test("leaving during cold creation saves the project without Play progress when 
   const editor = new Promise<void>((resolve) => {
     releaseEditor = resolve;
   });
-  await page.route("**/src/project/projectSession.ts", async (route) => {
+  let editorRequested = false;
+  await page.route("**/src/studio/workspace/CreateWorkspace.vue", async (route) => {
+    editorRequested = true;
     await editor;
     await route.continue();
   });
@@ -43,8 +45,9 @@ test("leaving during cold creation saves the project without Play progress when 
   await page.getByTestId("local-create-submit").click();
   const exit = page.getByTestId("btn-exit");
   await expect(exit).toBeVisible();
+  await expect.poll(() => editorRequested).toBe(true);
   await exit.click();
-  const loaded = page.waitForResponse("**/src/project/projectSession.ts");
+  const loaded = page.waitForResponse("**/src/studio/workspace/CreateWorkspace.vue");
   releaseEditor();
   await loaded;
   const card = savedGameCard(page, title);
