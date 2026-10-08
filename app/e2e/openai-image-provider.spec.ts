@@ -628,8 +628,9 @@ test("no-key, preparation and plain file intake never touch the provider @webkit
 
 test("cancel, timeout and late answers stay contained @webkit-desktop", async ({ page }) => {
   const requests: RecordedRequest[] = [];
-  await page.clock.install();
-  await page.clock.pauseAt(new Date());
+  // A fixed future pause target avoids racing the page clock against the host clock.
+  await page.clock.install({ time: new Date(0) });
+  await page.clock.pauseAt(new Date(86_400_000));
   const onWire = Promise.withResolvers<void>();
   const timeoutOnWire = Promise.withResolvers<void>();
   const cancelledAnswer = Promise.withResolvers<void>();
