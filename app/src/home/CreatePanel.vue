@@ -18,6 +18,8 @@ import { useGameLibrary } from "../library/useGameLibrary.ts";
 import { useShellBridge } from "../shell/shellBridge.ts";
 import { useEngineApi } from "../engine/engineContext.ts";
 import { useShell } from "../shell/useShell.ts";
+import { gameHash } from "../shell/shellRoute.ts";
+import type { NewGameChoice } from "./newGameChoice.ts";
 import type { StarterKind } from "../../../src/authoring/starterProject.ts";
 import { openEmptyProject } from "./emptyProjectRoute.ts";
 import type { ProjectId } from "../../../src/gameIdentity.ts";
@@ -32,21 +34,55 @@ const {
   onBootSelectedTemplate,
   refreshLibrary,
   onBootSavedGame,
+  libraryActionError,
+  libraryActionBusy,
+  selectedProjectId,
 } = useGameLibrary();
 const shell = useShell();
 const engine = useEngineApi();
 const bridge = useShellBridge();
+const loadFailure = ref<{ projectId: ProjectId | null } | null>(null);
+let opening = 0;
+watch(
+  open,
+  (value) => {
+    if (!value) {
+      opening++;
+      loadFailure.value = null;
+    }
+  },
+  { flush: "sync" },
+);
 // The boot resolves while the game is still loading; the shell holds the
 // Create switch until this project is the running one.
 async function onLocalCreated(projectId: ProjectId, kind: StarterKind): Promise<void> {
+  if (libraryActionBusy.value) return;
+  const intent = ++opening;
+  loadFailure.value = null;
   engine.setProjectMode("create");
   refreshLibrary(projectId);
   if (kind === "blank") {
     await openEmptyProject(projectId);
     return;
   }
-  await onBootSavedGame();
-  shell.expectCreate(projectId);
+  const accepted = await onBootSavedGame(false, undefined, undefined, () => intent === opening);
+  if (intent !== opening || selectedProjectId.value !== projectId) return;
+  if (accepted) shell.expectCreate(projectId);
+  else if (libraryActionError.value || engine.state.error) loadFailure.value = { projectId };
+}
+
+function reloadCreation(): void {
+  const failure = loadFailure.value;
+  if (!failure) return;
+  if (failure.projectId !== null)
+    history.replaceState(null, "", gameHash("create", failure.projectId));
+  location.reload();
+}
+
+function onChoice(value: NewGameChoice): void {
+  opening++;
+  loadFailure.value = null;
+  if (value === "ai") chooseAi();
 }
 
 const panel = useTemplateRef("panel");
@@ -121,6 +157,7 @@ watch(
 );
 const editingOutline = ref(false);
 watch(selectedTemplateId, () => {
+  opening++;
   editingOutline.value = false;
 });
 const outlineInput = useTemplateRef("outlineInput");
@@ -133,14 +170,22 @@ async function toggleOutline(): Promise<void> {
 }
 
 async function onAiCreated(title: string): Promise<void> {
-  adventureDraft.value.title = title;
-  const { completeAdventureOutline } = await import("../library/gameTemplates.ts");
-  adventureDraft.value.brief = completeAdventureOutline(adventureDraft.value.brief, title).trim();
-  adventureDraft.value.frontmatter = "";
-  await onBootSelectedTemplate();
-  const { currentGame } = engine;
-  const projectId = currentGame()?.projectId;
-  if (projectId) shell.expectCreate(projectId);
+  const intent = ++opening;
+  loadFailure.value = null;
+  try {
+    adventureDraft.value.title = title;
+    const { completeAdventureOutline } = await import("../library/gameTemplates.ts");
+    if (intent !== opening) return;
+    adventureDraft.value.brief = completeAdventureOutline(adventureDraft.value.brief, title).trim();
+    adventureDraft.value.frontmatter = "";
+    const accepted = await onBootSelectedTemplate(() => intent === opening);
+    if (intent !== opening) return;
+    const { currentGame } = engine;
+    const projectId = currentGame()?.projectId;
+    if (accepted && projectId) shell.expectCreate(projectId);
+  } catch {
+    if (intent === opening) loadFailure.value = { projectId: null };
+  }
 }
 </script>
 <template>
@@ -172,7 +217,7 @@ async function onAiCreated(title: string): Promise<void> {
       :ai-valid="Boolean(adventureDraft.brief.trim())"
       @created="onLocalCreated"
       @ai="onAiCreated"
-      @choice="$event === 'ai' && chooseAi()"
+      @choice="onChoice"
       @connect="openAiSettings($event, 'create')"
     >
       <template #ai>
@@ -223,6 +268,14 @@ async function onAiCreated(title: string): Promise<void> {
         </div>
       </template>
     </LocalProjectForm>
+    <p v-if="loadFailure" class="create-error" role="alert" data-testid="local-create-open-error">
+      {{
+        loadFailure.projectId
+          ? "Game saved. Reload to open it."
+          : "Game loading failed. Reload to try again."
+      }}
+      <UiButton size="sm" @click="reloadCreation">Reload</UiButton>
+    </p>
   </dialog>
 </template>
 
@@ -250,6 +303,10 @@ async function onAiCreated(title: string): Promise<void> {
   font-size: var(--text-2xl);
   line-height: var(--leading-tight);
   text-wrap: balance;
+}
+.create-error {
+  color: var(--danger);
+  font-size: var(--text-sm);
 }
 .ai-pick {
   display: grid;

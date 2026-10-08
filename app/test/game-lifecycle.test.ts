@@ -558,7 +558,15 @@ test("a saved-world boot binds its physical progress target before the worker bo
   const epoch = await readHistoryLifetime(id);
   const revision = await gameRevision({ "WORDS.TOK": Uint8Array.of(7) });
   const { lifecycle, workers } = bootHarness();
-  await lifecycle.bootAuthoredGame("", STUB_CONFIG, { projectId: id, useCached: true });
+  let accepted = 0;
+  await lifecycle.bootAuthoredGame("", STUB_CONFIG, {
+    projectId: id,
+    useCached: true,
+    onAccepted: () => {
+      accepted++;
+    },
+  });
+  assert.equal(accepted, 1, "the owned worker boot acknowledges its handoff");
   const game = lifecycle.getBootedGame();
   assert.equal(game?.projectId, id);
   assert.equal(game?.historyLifetime, epoch, "the boot carries the atomic snapshot's epoch");
@@ -583,6 +591,7 @@ test("an opening retired while run modules load never spawns a worker", async (t
   t.after(() => clearCachedGame(id));
   await saveBody(id, 3);
   let current = true;
+  let accepted = 0;
   let release: (() => void) | undefined;
   let entered: (() => void) | undefined;
   const ready = new Promise<void>((resolve) => {
@@ -599,6 +608,9 @@ test("an opening retired while run modules load never spawns a worker", async (t
     projectId: id,
     useCached: true,
     opening: { isCurrent: () => current },
+    onAccepted: () => {
+      accepted++;
+    },
   });
   await ready;
   current = false;
@@ -606,6 +618,7 @@ test("an opening retired while run modules load never spawns a worker", async (t
   await boot;
   assert.equal(workers.length, 0);
   assert.equal(lifecycle.getBootedGame(), null);
+  assert.equal(accepted, 0);
 });
 
 test("a cached boot superseded while storage answered never takes the slot", async (t) => {
@@ -618,15 +631,18 @@ test("a cached boot superseded while storage answered never takes the slot", asy
   await saveBody(idA, 1);
   await saveBody(idB, 2);
   const { lifecycle, workers, sessions } = bootHarness();
+  const accepted: string[] = [];
   // The first boot parks on the atomic body read; the second retires it
   // before storage answers.
   const first = lifecycle.bootAuthoredGame("", STUB_CONFIG, {
     projectId: idA,
     useCached: true,
+    onAccepted: () => accepted.push(idA),
   });
   const second = lifecycle.bootAuthoredGame("", STUB_CONFIG, {
     projectId: idB,
     useCached: true,
+    onAccepted: () => accepted.push(idB),
   });
   await Promise.all([first, second]);
   const game = lifecycle.getBootedGame();
@@ -641,6 +657,7 @@ test("a cached boot superseded while storage answered never takes the slot", asy
     "only the newer game's bytes reach a worker",
   );
   assert.equal(sessions.length, 1, "the retired boot never touched the session");
+  assert.deepEqual(accepted, [idB]);
 });
 
 test("a superseded creation's finish saves and boots nothing", async (t) => {
@@ -651,18 +668,30 @@ test("a superseded creation's finish saves and boots nothing", async (t) => {
   const session = { getAuthoringState: () => ({}), getMessages: () => [] };
   const resources = { files, words: [] as [string, number][], transcript: [], sessionId: "s1" };
   const boot = { projectId: id, title: "Late world", config: STUB_CONFIG };
+  let accepted = 0;
+  const onAccepted = () => {
+    accepted++;
+  };
   // Epoch 0 was this run's when it armed; a newer action has taken the slot
   // since (shutdownEngine moves the clock), so the finish belongs to a
   // retired run.
   lifecycle.shutdownEngine();
-  await lifecycle.finishAuthoredBoot(session as never, resources, boot, 0);
+  await lifecycle.finishAuthoredBoot(session as never, resources, boot, 0, undefined, onAccepted);
   assert.equal(await loadAuthoredGame(id), null, "the retired run's first save never lands");
   assert.equal(lifecycle.getBootedGame(), null);
   assert.equal(workers.length, 0);
+  assert.equal(accepted, 0);
 
   // Positive control: the same finish with the live epoch runs the full
   // save-and-boot, bound to the epoch its own save returned.
-  await lifecycle.finishAuthoredBoot(session as never, resources, boot);
+  await lifecycle.finishAuthoredBoot(
+    session as never,
+    resources,
+    boot,
+    undefined,
+    undefined,
+    onAccepted,
+  );
   const game = lifecycle.getBootedGame();
   assert.equal(game?.projectId, id);
   const epoch = await readHistoryLifetime(id);
@@ -678,6 +707,7 @@ test("a superseded creation's finish saves and boots nothing", async (t) => {
     "the first editable session carries the generation its own save committed",
   );
   assert.equal(workers.length, 1);
+  assert.equal(accepted, 1);
 });
 
 for (const replacement of ["installed", "authored"] as const) {
