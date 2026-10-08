@@ -1,4 +1,4 @@
-import { gameHint, openGameOptions, enterCreateMode } from "./engineProbe.ts";
+import { gameHint, openGameOptions, enterCreateMode, waitForRoom } from "./engineProbe.ts";
 import type { ProjectSession } from "../src/project/projectSession.ts";
 import { fixtureSkip, KNOWN_GAME_HASH } from "../../test/fixtures.ts";
 import { readFile } from "node:fs/promises";
@@ -456,6 +456,7 @@ test("Start over discards the autosave and boots the game from the top", async (
   const walked = await textHook(page);
   await waitForAutosaveAfter(page, walked.cycle);
   await page.reload();
+  await waitForRoom(page, walked.room, { coldBoot: true });
   await expect(await gameHint(page, "resume-caption")).toBeVisible({ timeout: 20_000 });
   await page.mouse.move(0, 0);
 
