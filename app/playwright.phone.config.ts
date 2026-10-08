@@ -11,6 +11,7 @@ export default defineConfig({
   ...base,
   testMatch: [
     "agent-drawer.spec.ts",
+    "agent-conversation.spec.ts",
     "workspace-debug-controls.spec.ts",
     "workspace-actionrow.spec.ts",
     "workspace-launch.spec.ts",

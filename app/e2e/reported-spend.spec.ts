@@ -59,7 +59,7 @@ for (const size of [
       await page.getByRole("button", { name: "Send", exact: true }).click();
       await expect(page.getByTestId("agent-stop")).toBeVisible();
       await expect(page.getByTestId("agent-spent")).toBeVisible();
-      await expect(page.getByTestId("agent-spent")).toHaveText("$0.00 of $5 spent");
+      await expect(page.getByTestId("agent-spent")).toHaveText("$5 budget · usage pending");
       release();
       await expect(page.getByTestId("agent-message")).toBeEnabled();
       await page.screenshot({
@@ -67,8 +67,9 @@ for (const size of [
         animations: "disabled",
       });
       await expect(page.getByTestId("agent-spent")).toBeVisible();
-      await expect(page.getByTestId("agent-spent")).toHaveText("$0.07 of $5 spent");
-      await expect(panel.getByRole("link", { name: "See your usage", exact: true })).toBeVisible();
+      await expect(page.getByTestId("agent-spent")).toHaveText("$0.07 / $5 spent");
+      await panel.getByRole("button", { name: "Agent settings", exact: true }).click();
+      await expect(panel.getByRole("link", { name: "Provider usage", exact: true })).toBeVisible();
     } finally {
       release();
     }
@@ -175,3 +176,38 @@ for (const action of ["Continue", "Stop"] as const) {
     expect(requests).toBe(1);
   });
 }
+
+test("a failed task keeps its already reported spend visible @webkit-desktop", async ({ page }) => {
+  await start(page);
+  await openWorkspaceAgent(page);
+  let requests = 0;
+  await page.route("**/api/openai/v1/responses", async (route) => {
+    requests++;
+    if (requests > 1) {
+      await route.fulfill({
+        status: 400,
+        json: { error: { message: "Injected provider failure" } },
+      });
+      return;
+    }
+    await route.fulfill(
+      providerReply("openai", {
+        id: "paid-inspection",
+        usage: { input_tokens: 10000, output_tokens: 5000 },
+        output: [
+          {
+            type: "function_call",
+            call_id: "read",
+            name: "read_document",
+            arguments: JSON.stringify({ key: "logic:1", offset: null, limit: null }),
+          },
+        ],
+      }),
+    );
+  });
+  await page.getByTestId("agent-message").fill("Inspect the room");
+  await page.getByTestId("agent-send").click();
+  await expect(page.getByTestId("agent-error")).toContainText("Injected provider failure");
+  await expect(page.getByTestId("agent-stop")).toHaveCount(0);
+  await expect(page.getByTestId("agent-spent")).toHaveText("$0.07+ / $5 spent");
+});

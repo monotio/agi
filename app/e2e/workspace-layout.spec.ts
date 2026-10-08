@@ -147,13 +147,14 @@ for (const size of sizes) {
       await expect(page.getByTestId("agent-review")).toBeVisible();
       await page.getByTestId("agent-approve").click();
       await expect(page.getByTestId("agent-review")).toHaveCount(0);
-      await expect(page.getByTestId("agent-review-outcome").last()).toHaveText("Approved");
+      await expect(page.getByTestId("agent-review-outcome").last()).toHaveText("Applied");
       await page.getByTestId("agent-review-outcome").last().scrollIntoViewIfNeeded();
       await shot(page, `approved-${size.width}`);
       expect
         .soft(await page.getByTestId("agent-review-outcome").allTextContents())
-        .toContain("Approved");
+        .toContain("Applied");
       await page.getByRole("button", { name: "Undo this", exact: true }).click();
+      await page.getByRole("button", { name: "Agent settings", exact: true }).click();
       await page.getByTestId("agent-auto-approve").click();
       await page.getByTestId("agent-message").fill("Add a welcome sign that answers look at sign");
       await page.getByRole("button", { name: "Send", exact: true }).click();

@@ -2,10 +2,10 @@
 /**
  * The agent drawer: one right-side overlay over the workspace in both Create
  * arrangements, over the blank stage, and full width on phones. It never
- * takes a grid column, so the editor keeps its width. Play keeps its own
- * drawer (the aside in App.vue).
+ * takes a grid column, so the editor keeps its width. Its one panel remains
+ * mounted across mode changes and closing to preserve the conversation draft.
  */
-import { computed, defineAsyncComponent, onBeforeUnmount, shallowRef, watch } from "vue";
+import { computed, defineAsyncComponent, onBeforeUnmount, ref, shallowRef, watch } from "vue";
 import { blankAgentOpen } from "./openAgent.ts";
 import { emptyProject } from "../home/emptyProjectRoute.ts";
 import {
@@ -19,17 +19,31 @@ import { useGameLibrary } from "../library/useGameLibrary.ts";
 import type { ProjectSession } from "../project/projectSession.ts";
 import type { ProfileId } from "../../../src/runtime/profile.ts";
 
-// The panel carries the AI authoring stack; Home and Play never load it.
+// The conversation loads on demand in either mode; its resource previews stay lazy.
 const AgentPanel = defineAsyncComponent(() => import("./AgentPanel.vue"));
 const engine = useEngineApi();
 const shell = useShell();
 const library = useGameLibrary();
 
-const creating = computed(() => engine.state.phase === "running" && shell.mode.value === "create");
 const onBlankStage = computed(() => emptyProject.value !== null);
 const visible = computed(
   () =>
-    (creating.value && engine.state.powerUp.open) || (onBlankStage.value && blankAgentOpen.value),
+    (engine.state.phase === "running" && engine.state.powerUp.open) ||
+    (onBlankStage.value && blankAgentOpen.value),
+);
+const mounted = ref(false);
+watch(
+  visible,
+  (open) => {
+    if (open) mounted.value = true;
+  },
+  { immediate: true },
+);
+watch(
+  () => engine.state.phase,
+  (phase) => {
+    if (phase === "idle" && !onBlankStage.value) mounted.value = false;
+  },
 );
 
 const blankSession = shallowRef<ProjectSession | null>(null);
@@ -82,9 +96,14 @@ onBeforeUnmount(() => {
 
 <template>
   <aside
-    v-if="visible"
+    v-if="mounted"
+    v-show="visible"
     class="agent-drawer"
-    :class="{ 'agent-drawer--stage': onBlankStage }"
+    :class="{
+      'agent-drawer--stage': onBlankStage,
+      'agent-drawer--play': !onBlankStage && shell.mode.value === 'play',
+      'shell-side': !onBlankStage && shell.mode.value === 'play',
+    }"
     aria-label="Agent"
     data-shell-keys
     data-testid="agent-drawer"

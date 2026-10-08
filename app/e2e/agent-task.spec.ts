@@ -194,7 +194,7 @@ test("unknown spend sends without guessing a price in the real assistant", async
   await page.getByRole("button", { name: "Send", exact: true }).click();
   await expect(page.getByTestId("agent-message")).toBeEnabled();
   await expect(page.getByTestId("agent-spent")).toBeVisible();
-  await expect(page.getByTestId("agent-spent")).toHaveText("Spent: see your usage");
+  await expect(page.getByTestId("agent-spent")).toHaveText("Usage unavailable");
   await expect(page.getByTestId("agent-continue")).toBeHidden();
   await expect(page.getByTestId("agent-message")).toBeEnabled();
   expect(requests).toBe(1);

@@ -5,7 +5,7 @@ import { assembleLogic } from "../../src/logic/assembler.ts";
 import { buildSound } from "../../src/agent/tools.ts";
 import { providerReply } from "../../test/provider-stream.ts";
 import { buildZip } from "../src/archive/zip.ts";
-import { configureAi, enterPlayMode, openDeveloperActivity, textHook } from "./engineProbe.ts";
+import { configureAi, enterPlayMode, textHook } from "./engineProbe.ts";
 
 type ProviderItem = {
   type?: string;
@@ -134,13 +134,13 @@ test("Ask presents a local WAV while the model receives only sound data and a ti
   await enterPlayMode(page);
   await page.getByTestId("menu-assistant").click();
   await configureAi(page, { provider: "openai", key: "test-placeholder" });
-  await page.getByTestId("agent-bubble-input").fill("Inspect sound 5 and let me hear it.");
-  await page.getByTestId("agent-bubble-send").click();
+  await page.getByTestId("agent-message").fill("Inspect sound 5 and let me hear it.");
+  await page.getByTestId("agent-send").click();
 
   await expect(page.getByTestId("agent-conversation")).toContainText(
     "The one-second Tandy preview is ready to play.",
   );
-  await expect(page.getByTestId("agent-bubble-input")).toBeEnabled();
+  await expect(page.getByTestId("agent-message")).toBeEnabled();
   expect(requests).toHaveLength(4);
 
   const readBlocks = toolOutput(requests[1]!, "inspect-sound")!;
@@ -166,9 +166,13 @@ test("Ask presents a local WAV while the model receives only sound data and a ti
   expect(JSON.parse(previewText).wav).toBeUndefined();
   expect(previewText).not.toMatch(/data:audio|"wav"\s*:|UklGR/i);
 
-  const preview = page.getByTestId("agent-bubble-sound-preview");
+  await page
+    .getByTestId("agent-result")
+    .getByRole("button", { name: /Sound 5/i })
+    .click();
+  const preview = page.getByTestId("agent-result-preview");
   await expect(preview).not.toContainText("The agent receives");
-  await expect(preview).toContainText("Sound 5");
+  await expect(preview).toContainText("SOUND 5");
   const audio = preview.getByTestId("sound-preview-audio");
   await expect(audio).toHaveAttribute("controls", "");
   await expect(audio).not.toHaveAttribute("autoplay", "");
@@ -225,25 +229,25 @@ test("Ask presents a local WAV while the model receives only sound data and a ti
   await expect(download).toBeInViewport();
   await page.screenshot({ path: test.info().outputPath("sound-feedback-phone.png") });
 
-  await page.getByTestId("agent-bubble-close").first().click();
-  await expect(page.getByTestId("latest-sound-preview")).toBeVisible();
-  await openDeveloperActivity(page);
-  await expect(page.getByTestId("agent-panel").getByTestId("sound-preview-audio")).toBeVisible();
-
-  const blobUrl = await page
-    .getByTestId("latest-sound-preview")
-    .getByTestId("sound-preview-download")
-    .getAttribute("href");
-  await page.getByTestId("btn-clear-trace").click();
-  await expect(page.getByTestId("latest-sound-preview")).toBeHidden();
+  await preview.getByRole("button", { name: "Back to chat", exact: true }).click();
+  await page.getByTestId("agent-panel-close").first().click();
+  await page.getByTestId("menu-assistant").click();
+  await page
+    .getByTestId("agent-result")
+    .getByRole("button", { name: /Sound 5/i })
+    .click();
+  await expect(preview.getByTestId("sound-preview-audio")).toBeVisible();
+  await expect(preview.getByTestId("sound-preview-audio")).not.toHaveAttribute("autoplay", "");
+  await expect
+    .poll(() =>
+      preview
+        .getByTestId("sound-preview-audio")
+        .evaluate((node: HTMLAudioElement) => node.readyState),
+    )
+    .toBeGreaterThanOrEqual(1);
   expect(
-    await page.evaluate(async (url) => {
-      try {
-        await fetch(url!);
-        return false;
-      } catch {
-        return true;
-      }
-    }, blobUrl),
+    await preview
+      .getByTestId("sound-preview-audio")
+      .evaluate((node: HTMLAudioElement) => node.paused),
   ).toBe(true);
 });

@@ -196,18 +196,18 @@ test("a stale tab's Download game, Ask and Exit leave another tab's saved edit i
   expect(await stored(page)).toEqual(kept);
 
   await page.getByTestId("menu-assistant").click();
-  await expect(page.getByTestId("agent-bubble")).toBeVisible();
-  await expect(page.getByTestId("agent-bubble-input")).toBeEnabled();
-  await page.getByTestId("agent-bubble-input").fill("What is in this room?");
-  await page.getByTestId("agent-bubble-send").click();
-  await expect(page.getByTestId("agent-bubble-error")).toContainText(
+  await expect(page.getByTestId("workspace-agent-panel")).toBeVisible();
+  await expect(page.getByTestId("agent-message")).toBeEnabled();
+  await page.getByTestId("agent-message").fill("What is in this room?");
+  await page.getByTestId("agent-send").click();
+  await expect(page.getByTestId("agent-error")).toContainText(
     "Changed in another tab. Editing is paused.",
   );
-  await expect(page.getByTestId("agent-bubble-reload")).toBeVisible();
+  await expect(page.getByTestId("agent-reload")).toBeVisible();
   expect(await stored(page)).toEqual(kept);
 
   // Leaving saves nothing over the edit, and is not refused for it.
-  await page.getByTestId("agent-bubble-close").click();
+  await page.getByTestId("agent-panel-close").click();
   await page.getByTestId("btn-exit").click();
   await expect(page.getByTestId("saved-game-gallery")).toBeVisible();
   expect(await stored(page)).toEqual(kept);
@@ -229,7 +229,7 @@ test("a tab running an older revision hears of another tab's saved edit at once 
     /Changed in another tab\. Editing is paused\. Download your unsaved edits, then reload\./,
   );
   await expect(note).toHaveAttribute("role", "status");
-  await expect(page.getByTestId("agent-bubble")).toHaveCount(0);
+  await expect(page.getByTestId("workspace-agent-panel")).toBeHidden();
   await expect(page.locator("dialog[open]")).toHaveCount(0);
   await expect(page.getByTestId("other-tab-notice")).toBeVisible();
   await expect.poll(async () => (await textHook(page)).paused).toBe(true);
@@ -244,10 +244,10 @@ test("a tab running an older revision hears of another tab's saved edit at once 
 
   // The Assistant still offers the same reload, which loads the edit.
   await page.getByTestId("menu-assistant").click();
-  await expect(page.getByTestId("agent-bubble-error")).toContainText(
+  await expect(page.getByTestId("agent-error")).toContainText(
     "Changed in another tab. Editing is paused.",
   );
-  await page.getByTestId("agent-bubble-reload").click();
+  await page.getByTestId("agent-reload").click();
   // The old room and cycle remain visible until the replacement worker boots.
   await expect(page.getByTestId("input-line")).toBeEnabled();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
@@ -280,11 +280,11 @@ test("a label saved in another tab is heard at once, and nothing this tab saves 
     /Changed in another tab\. Editing is paused\. Download your unsaved edits, then reload\./,
   );
   await page.getByTestId("menu-assistant").click();
-  await expect(page.getByTestId("agent-bubble-error")).toContainText(
+  await expect(page.getByTestId("agent-error")).toContainText(
     "Changed in another tab. Editing is paused.",
   );
-  await expect(page.getByTestId("agent-bubble-reload")).toBeVisible();
-  await page.getByTestId("agent-bubble-close").click();
+  await expect(page.getByTestId("agent-reload")).toBeVisible();
+  await page.getByTestId("agent-panel-close").click();
 
   // Leaving writes this tab's older notes over nothing, and is not refused.
   await page.getByTestId("btn-exit").click();

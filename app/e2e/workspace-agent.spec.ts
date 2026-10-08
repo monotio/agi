@@ -39,6 +39,7 @@ async function start(page: Page, provider: "stub" | "openai" = "stub", openLogic
     await openWorkspaceAgent(page);
   }
   await expect(page.getByTestId("workspace-agent-panel")).toBeVisible();
+  await page.getByRole("button", { name: "Agent settings", exact: true }).click();
 }
 async function documents(page: Page) {
   return page.evaluate(() => {
@@ -224,7 +225,7 @@ for (const size of [
     });
     await page.getByTestId("agent-message").focus();
     await page.keyboard.press("ControlOrMeta+n");
-    await expect(page.getByRole("button", { name: "Chats", exact: true })).toHaveText("Chats");
+    await expect(page.getByRole("button", { name: "Chats", exact: true })).toBeVisible();
     await page.getByRole("button", { name: "Chats", exact: true }).click();
     await page.getByRole("button", { name: "Add a welcome sign", exact: true }).click();
     await expect(page.getByRole("button", { name: "Undo this", exact: true })).toBeVisible();
@@ -266,7 +267,7 @@ for (const size of [
   { width: 1063, height: 815 },
   { width: 390, height: 844 },
 ]) {
-  test(`agent panel opaque header, single New chat, Close button and Escape ${size.width}`, async ({
+  test(`agent panel opaque header, one Agent title, secondary chat history and Escape ${size.width}`, async ({
     page,
   }) => {
     await page.setViewportSize(size);
@@ -297,37 +298,16 @@ for (const size of [
     expect(bg).not.toBe("rgba(0, 0, 0, 0)");
     expect(bg).not.toBe("transparent");
 
-    await expect(header.getByRole("button", { name: "New chat", exact: true })).toHaveCount(1);
-    await expect(header.getByText("New chat", { exact: true })).toHaveCount(1);
+    await expect(header.getByRole("heading", { name: "Agent", exact: true })).toHaveCount(1);
+    await expect(header.getByRole("button", { name: "New chat", exact: true })).toHaveCount(0);
+    await header.getByRole("button", { name: "Chats", exact: true }).click();
+    await expect(panel.getByRole("button", { name: "New chat", exact: true })).toHaveCount(1);
+    await header.getByRole("button", { name: "Chats", exact: true }).click();
 
     const closeBtn = panel.getByRole("button", { name: "Close", exact: true });
     await expect(closeBtn).toBeVisible();
 
     await page.screenshot({ path: test.info().outputPath(`agent-panel-${size.width}-after.png`) });
-
-    // Recreate before bug state (transparent header and panel, duplicate New chat title, no close button)
-    await page.evaluate(() => {
-      const h = document.querySelector(".agent-panel__header") as HTMLElement | null;
-      const p = document.querySelector(".agent-panel") as HTMLElement | null;
-      const c = document.querySelector("[data-testid=agent-panel-close]") as HTMLElement | null;
-      const t = document.querySelector(".agent-panel__chat-title") as HTMLElement | null;
-      if (h) h.style.background = "transparent";
-      if (p) p.style.background = "transparent";
-      if (c) c.style.display = "none";
-      if (t && t.childNodes[0]) t.childNodes[0].nodeValue = "New chat ";
-    });
-    await page.screenshot({ path: test.info().outputPath(`agent-panel-${size.width}-before.png`) });
-
-    await page.evaluate(() => {
-      const h = document.querySelector(".agent-panel__header") as HTMLElement | null;
-      const p = document.querySelector(".agent-panel") as HTMLElement | null;
-      const c = document.querySelector("[data-testid=agent-panel-close]") as HTMLElement | null;
-      const t = document.querySelector(".agent-panel__chat-title") as HTMLElement | null;
-      if (h) h.style.background = "";
-      if (p) p.style.background = "";
-      if (c) c.style.display = "";
-      if (t && t.childNodes[0]) t.childNodes[0].nodeValue = "Chats ";
-    });
 
     await closeBtn.click();
     await expect(panel).toBeHidden();
@@ -522,7 +502,7 @@ test("a slow preview keeps Approve working through preview loading", async ({ pa
   await expect(page.getByTestId("agent-approve")).toBeEnabled();
   await expect(page.getByTestId("agent-reject")).toBeVisible();
   // Read the proposal, then press Approve while its previews are still loading.
-  await page.getByTestId("agent-review").getByRole("heading").scrollIntoViewIfNeeded();
+  await page.getByTestId("agent-review").getByRole("heading").first().scrollIntoViewIfNeeded();
   const approve = page.getByTestId("agent-approve");
   await approve.scrollIntoViewIfNeeded();
   await expect(approve).toBeInViewport({ ratio: 1 });

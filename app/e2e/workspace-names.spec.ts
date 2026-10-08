@@ -138,6 +138,7 @@ test("switching chats opens the latest messages", async ({ page }) => {
     await page.getByTestId("agent-reject").click();
     await expect(page.getByTestId("agent-review")).toBeHidden();
   }
+  await panel.getByRole("button", { name: "Chats", exact: true }).click();
   await panel.getByRole("button", { name: "New chat", exact: true }).click();
   const secondTitle = "Tell me about this room";
   for (let index = 0; index < 3; index++) {

@@ -11,7 +11,20 @@ export function formatDollars(amount: number): string {
   return Number.isInteger(amount) ? `$${amount}` : `$${amount.toFixed(2)}`;
 }
 
-export function formatSpent(spend: ReportedSpend): string {
+export function formatSpent(
+  spend: ReportedSpend,
+  presentation: "descriptive" | "compact" = "descriptive",
+): string {
+  if (presentation === "compact") {
+    const budget = spend.budget === undefined ? "" : ` / ${formatDollars(spend.budget)}`;
+    if (!spend.priceKnown) return "Usage unavailable";
+    if (spend.incomplete && spend.amount === 0) return "Usage pending";
+    const amount = spend.incomplete
+      ? Math.floor((spend.amount + Number.EPSILON) * 100) / 100
+      : spend.amount;
+    const reported = spend.amount > 0 && spend.amount < 0.01 ? "<$0.01" : formatDollars(amount);
+    return `${reported}${spend.incomplete ? "+" : ""}${budget} spent`;
+  }
   if (!spend.priceKnown) return "Spent: see your usage";
   const amount =
     spend.amount > 0 && spend.amount < 0.01 ? "less than $0.01" : `$${spend.amount.toFixed(2)}`;

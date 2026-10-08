@@ -17,17 +17,27 @@ import {
 import PendingReferences from "../references/PendingReferences.vue";
 import { pendingReferences, removePendingReference } from "../references/referenceUploadState.ts";
 import AgentReply from "./AgentReply.ts";
+import AgentResult from "./AgentResult.vue";
+import AgentReviewActions from "./AgentReviewActions.vue";
 import { borrowWorkspaceAgent, type ReplyFormatter } from "./workspaceAgent.ts";
 import { useReadingPosition } from "../shell/useReadingPosition.ts";
 import { useEngineApi } from "../engine/engineContext.ts";
 import { useWorkspaceEditor } from "../shell/workspaceEditor.ts";
 import { useShellBridge } from "../shell/shellBridge.ts";
+import { useShell } from "../shell/useShell.ts";
 import { useAiSettings } from "../settings/useAiSettings.ts";
 import { useOptionalCommands } from "../shell/commands/commandContext.ts";
 import { VOCABULARY } from "../../../src/vocabulary.ts";
 import { PROFILES } from "../../../src/runtime/profile.ts";
 import { compileProjectDocuments } from "../../../src/authoring/projectDocuments.ts";
 import { openContainer } from "../../../src/container/container.ts";
+import { readProjectWorkspace } from "../../../src/authoring/projectWorkspace.ts";
+import { diffProjectDocuments } from "../../../src/authoring/projectContent.ts";
+import { sameProjectContent } from "../../../src/authoring/projectContent.ts";
+import { formatSpent } from "./reportedSpend.ts";
+import { resolveAgentTarget } from "./agentNavigation.ts";
+import { approveCapturedReview, type ReviewOwner } from "./agentRequestOwner.ts";
+import type { AgentChat } from "../../../src/agent/chats.ts";
 import UiChip from "../ui/UiChip.vue";
 import UiButton from "../ui/UiButton.vue";
 import UiIconButton from "../ui/UiIconButton.vue";
@@ -50,17 +60,17 @@ const engine = useEngineApi();
 const editor = useWorkspaceEditor();
 const settings = useAiSettings();
 const bridge = useShellBridge();
-// Load the review previews while the panel opens, so a proposal shows at once. A chunk
-// that cannot load (offline, or a deploy mid-session) still leaves Approve and Reject.
+const shell = useShell();
+const creating = computed(() => props.session !== undefined || shell.mode.value === "create");
+// Review rendering stays lazy so Studio never joins the Play boot graph.
 const loadResourceReview = () => import("./AgentResourceReview.vue");
-void loadResourceReview().catch(() => {});
 const AgentResourceReview = defineAsyncComponent({
   loader: loadResourceReview,
   errorComponent: () =>
     h(
       "p",
       { class: "agent-panel__preview-missing", "data-testid": "agent-preview-missing" },
-      "The preview could not load. You can still approve or reject this change.",
+      "Preview unavailable. Reopen the result to try again.",
     ),
   onError: (_error, retry, fail, attempts) => (attempts <= 2 ? retry() : fail()),
 });
@@ -109,44 +119,224 @@ watch(
 );
 const error = ref("");
 const chatList = ref(false);
+const settingsOpen = ref(false);
 const addContext = ref(false);
 const contexts = ref<string[]>([]);
 const selected = ref<string[]>([]);
-let off: (() => void) | undefined;
-let retired = false;
-async function attach() {
+const resultMessageId = ref<string>();
+const resultResource = ref<string>();
+const resultMessage = computed(() =>
+  current.value?.messages.find((message) => message.id === resultMessageId.value),
+);
+const resultProfile = computed(() => {
+  const message = resultMessage.value;
+  const captured = message?.result?.kind === "resources" ? message.result.profileId : undefined;
+  const request = current.value?.messages.find(
+    (entry) => entry.request?.id === message?.taskId,
+  )?.request;
+  return PROFILES[captured ?? request?.profileId ?? profile.value.id]!;
+});
+const inspection = computed(() =>
+  resultMessage.value?.result?.kind === "resources" ? resultMessage.value.result : undefined,
+);
+const resultReview = computed(() => {
+  void tick.value;
+  return resultMessageId.value ? agent.value?.reviewFor(resultMessageId.value) : undefined;
+});
+function openResult(message: AgentChat["messages"][number], resource?: string): void {
+  resultMessageId.value = message.id;
+  resultResource.value = resource;
+}
+const resultImages = computed(() => {
+  const stored = resultReview.value;
+  const inspected = inspection.value;
+  if (!stored && !inspected?.snapshot) return null;
   const session = props.session ?? engine.getProjectSession();
-  if (!session) return;
-  if (retired || (props.session ?? engine.getProjectSession()) !== session || agent.value) return;
-  off?.();
-  const attached = borrowWorkspaceAgent({
-    session,
-    profileId:
-      props.profileId ??
-      (engine.state.phase === "running" ? engine.roomMap.resources.value.profile?.id : undefined) ??
-      "2.936",
-    config: settings.llmConfig,
-    beforeApprove: async () => {
-      await editor.flush.value?.();
-    },
-  });
-  // The first chat can create the editable copy. Settle it before accepting input.
+  const image = session?.capture().snapshot.lastAdmissibleBuild;
+  const files = image ? Object.fromEntries(image.files()) : engine.getBootedGame()?.files;
+  if (!files) return null;
+  const beforeDocuments = stored ? readProjectWorkspace(stored.base) : {};
+  const afterDocuments = readProjectWorkspace(stored ? stored.candidate : inspected!.snapshot!);
   try {
-    await session.flush();
-  } catch (cause) {
-    if (!retired) error.value = cause instanceof Error ? cause.message : String(cause);
+    const beforeImageDocuments = stored
+      ? readProjectWorkspace(stored.baseImage ?? stored.base)
+      : afterDocuments;
+    const selectedProfile = resultProfile.value;
+    return {
+      beforeDocuments,
+      afterDocuments,
+      before: openContainer(
+        compileProjectDocuments({
+          files,
+          profileId: selectedProfile.id,
+          documents: beforeImageDocuments,
+        }).files(),
+        { profile: selectedProfile },
+      ),
+      after: openContainer(
+        compileProjectDocuments({
+          files,
+          profileId: selectedProfile.id,
+          documents: afterDocuments,
+        }).files(),
+        { profile: selectedProfile },
+      ),
+    };
+  } catch {
+    return null;
+  }
+});
+const resultChanges = computed(() => {
+  const stored = resultReview.value;
+  if (stored)
+    return diffProjectDocuments(
+      readProjectWorkspace(stored.base),
+      readProjectWorkspace(stored.candidate),
+    );
+  const inspected = inspection.value;
+  if (!inspected?.snapshot) return [];
+  const documents = readProjectWorkspace(inspected.snapshot);
+  return inspected.resources.map((key) => ({ key, content: documents[key] ?? null }));
+});
+const resultEarlier = computed(() => {
+  void tick.value;
+  void engine.state.patchTick;
+  const message = resultMessage.value;
+  if (inspection.value?.snapshot && resultImages.value) {
+    const session = props.session ?? engine.getProjectSession();
+    const currentDocuments = session?.capture().snapshot.documents() ?? {};
+    const files =
+      session?.capture().snapshot.lastAdmissibleBuild?.files() ??
+      new Map(Object.entries(engine.getBootedGame()?.files ?? {}));
+    const currentImage = openContainer(files, { profile: resultProfile.value });
+    return Object.entries(readProjectWorkspace(inspection.value.snapshot)).some(
+      ([key, content]) => {
+        if (typeof content === "string" && currentDocuments[key] !== undefined)
+          return !sameProjectContent(content, currentDocuments[key]);
+        const [kind, number] = key.split(":");
+        if (kind === "logic" || kind === "picture" || kind === "view" || kind === "sound")
+          return !sameProjectContent(
+            resultImages.value!.after.getResource(kind, Number(number)),
+            currentImage.getResource(kind, Number(number)),
+          );
+        if (key === "words" || key === "inventory")
+          return !sameProjectContent(
+            resultImages.value!.after.files.get(key === "words" ? "WORDS.TOK" : "OBJECT"),
+            currentImage.files.get(key === "words" ? "WORDS.TOK" : "OBJECT"),
+          );
+        return (
+          currentDocuments[key] !== undefined && !sameProjectContent(content, currentDocuments[key])
+        );
+      },
+    );
+  }
+  const documentId =
+    message?.result?.kind === "changes" && message.result.status === "pending"
+      ? resultReview.value?.baseDocumentId
+      : message?.result && "documentId" in message.result
+        ? message.result.documentId
+        : undefined;
+  return (
+    documentId !== undefined &&
+    documentId !== (props.session ?? engine.getProjectSession())?.capture().snapshot.documentId
+  );
+});
+async function openResource(
+  message: AgentChat["messages"][number],
+  resource: string,
+  currentVersion = false,
+  location?: { loop: number; cel: number },
+): Promise<void> {
+  const session = props.session ?? engine.getProjectSession();
+  const projectId = engine.getBootedGame()?.projectId;
+  if (!session || !projectId) return;
+  const documentId =
+    !currentVersion && message.result && "documentId" in message.result
+      ? message.result.documentId
+      : session.capture().snapshot.documentId;
+  const target = {
+    projectId,
+    documentId,
+    messageId: message.id,
+    ...(message.taskId ? { taskId: message.taskId } : {}),
+    resource,
+    ...location,
+  };
+  const resolved = resolveAgentTarget(target, {
+    projectId,
+    documentId: session.capture().snapshot.documentId,
+  });
+  if (resolved.kind === "earlier") {
+    openResult(message, resource);
     return;
   }
-  if (retired || (props.session ?? engine.getProjectSession()) !== session || agent.value) return;
-  agent.value = attached;
-  off = agent.value.subscribe(() => {
-    tick.value++;
+  const owner = agent.value;
+  const openedResult = resultMessageId.value;
+  await action(async () => {
+    await editor.openAgentTarget(target);
+    if (
+      retired ||
+      agent.value !== owner ||
+      (props.session ?? engine.getProjectSession()) !== session
+    )
+      throw new Error("The game changed. Reopen the result to navigate.");
+    shell.setMode("create");
+    if (resultMessageId.value === openedResult) resultMessageId.value = undefined;
+    if (window.matchMedia("(max-width: 600px)").matches) close();
   });
-  tick.value++;
+}
+let off: (() => void) | undefined;
+let retired = false;
+let attaching = false;
+let attachedSession: ProjectSession | null | undefined;
+let attachedGame: ReturnType<typeof engine.getBootedGame>;
+let previousChat: string | undefined;
+async function attach() {
+  if (props.session === undefined && engine.state.phase !== "running") return;
+  const session = props.session ?? engine.getProjectSession();
+  if (retired || attaching || agent.value || (props.session === null && !session)) return;
+  attaching = true;
+  off?.();
+  try {
+    const attached = props.session
+      ? borrowWorkspaceAgent({
+          session: props.session,
+          profileId: props.profileId ?? "2.936",
+          config: settings.llmConfig,
+          beforeApprove: async () => {
+            await editor.flush.value?.();
+          },
+        })
+      : await engine.getConversationAgent();
+    await session?.flush();
+    if (!attached || retired || (props.session ?? engine.getProjectSession()) !== session) return;
+    agent.value = attached;
+    if (previousChat !== undefined && attached.current()?.id !== previousChat) {
+      input.value = "";
+      contexts.value = [];
+      resultMessageId.value = undefined;
+    }
+    attachedSession = session;
+    attachedGame = engine.getBootedGame();
+    off = attached.subscribe(() => {
+      tick.value++;
+    });
+    tick.value++;
+  } catch (cause) {
+    if (!retired) error.value = cause instanceof Error ? cause.message : String(cause);
+  } finally {
+    attaching = false;
+  }
 }
 watch(
-  () => [engine.state.phase, engine.state.patchTick, props.session],
+  () => [engine.state.phase, engine.state.patchTick, props.session, settings.aiConfigured.value],
   () => {
+    const session = props.session ?? engine.getProjectSession();
+    if (agent.value && (session !== attachedSession || engine.getBootedGame() !== attachedGame)) {
+      previousChat = agent.value.current()?.id;
+      off?.();
+      agent.value = undefined;
+    }
     if (!agent.value) attach();
   },
   { immediate: true },
@@ -164,18 +354,15 @@ const review = computed(() => {
 });
 watch(review, (value) => {
   selected.value = value?.changes().map((change) => change.key) ?? [];
+  if (value) {
+    resultMessageId.value = value.messageId;
+    resultResource.value = undefined;
+  }
 });
 const current = computed(() => {
   void tick.value;
   return agent.value?.current();
 });
-watch(
-  current,
-  (chat) => {
-    editor.agentMessages.value = chat?.messages.slice() ?? [];
-  },
-  { immediate: true, deep: true },
-);
 const visibleMessages = computed(() => current.value?.messages);
 const feed = useTemplateRef("feed");
 const { following, readPosition, jumpToLatest, followLatest } = useReadingPosition(feed);
@@ -204,6 +391,13 @@ const chats = computed(() => {
 const busy = computed(() => {
   void tick.value;
   return agent.value?.busy ?? false;
+});
+const canSend = computed(() => {
+  void tick.value;
+  return (
+    !!agent.value &&
+    (!busy.value || (agent.value.canSteer && !readOnly.value && !formatReply.value))
+  );
 });
 const progress = computed(() => {
   void tick.value;
@@ -268,32 +462,7 @@ const profile = computed(
         "2.936"
     ]!,
 );
-const images = computed(() => {
-  const proposal = review.value?.proposal;
-  if (!proposal) return null;
-  const files = Object.fromEntries(proposal.base.lastAdmissibleBuild!.files());
-  const beforeDocuments = proposal.base.documents();
-  const afterDocuments = proposal.documents();
-  try {
-    return {
-      beforeDocuments,
-      afterDocuments,
-      before: openContainer(new Map(Object.entries(files)), { profile: profile.value }),
-      after: openContainer(
-        compileProjectDocuments({
-          files,
-          profileId: profile.value.id,
-          documents: afterDocuments,
-        }).files(),
-        { profile: profile.value },
-      ),
-    };
-  } catch {
-    return null;
-  }
-});
 async function action(work: () => unknown) {
-  if (editor.readOnly.value) return;
   error.value = "";
   try {
     await work();
@@ -303,65 +472,123 @@ async function action(work: () => unknown) {
   }
 }
 async function send() {
-  if (!input.value.trim() || busy.value || editor.readOnly.value) return;
+  if (!input.value.trim() || !canSend.value || !agent.value) return;
   const request = input.value;
+  const owner = agent.value;
+  const session = props.session ?? engine.getProjectSession();
+  const game = engine.getBootedGame();
+  if (busy.value) {
+    try {
+      await owner.steer(request);
+      if (input.value === request) input.value = "";
+    } catch (cause) {
+      error.value = cause instanceof Error ? cause.message : String(cause);
+    }
+    return;
+  }
+  const mode = creating.value ? "create" : "play";
   const sentReferenceIds = pendingReferences
     .filter((reference) => reference.project === engine.getBootedGame()?.projectId)
     .map((reference) => reference.id);
   const inspect = readOnly.value;
   const scoped = taskContext.value;
   const replyFormatter = formatReply.value;
-  formatReply.value = undefined;
-  taskContext.value = "";
-  readOnly.value = false;
-  input.value = "";
+  const submittedProfile =
+    props.profileId ??
+    (engine.state.phase === "running" ? engine.roomMap.resources.value.profile?.id : undefined) ??
+    "2.936";
+  const context = [
+    scoped,
+    ...(engine.state.phase === "running"
+      ? [`Current room ${engine.roomMap.currentRoom.value ?? 0}`]
+      : []),
+    ...contexts.value,
+    ...(chip.value ? [`Selection: ${chip.value.label}\n${chip.value.text}`] : []),
+    ...(contexts.value.includes("Current problems")
+      ? (session
+          ?.capture()
+          .diagnostics.map((entry) => `${entry.document ?? "Project"}: ${entry.message}`) ?? [])
+      : []),
+  ].join("\n");
   await action(async () => {
     await editor.flush.value?.();
-    const session = props.session ?? engine.getProjectSession();
+    if (
+      retired ||
+      agent.value !== owner ||
+      (props.session ?? engine.getProjectSession()) !== session ||
+      engine.getBootedGame() !== game
+    )
+      throw new Error("The game changed. Send the request again.");
     const runtime = await engine.getAgentRuntime();
-    if ((props.session ?? engine.getProjectSession()) !== session || retired)
-      throw new Error("The project changed. Send the request again.");
+    if (
+      retired ||
+      agent.value !== owner ||
+      (props.session ?? engine.getProjectSession()) !== session ||
+      engine.getBootedGame() !== game
+    )
+      throw new Error("The game changed. Send the request again.");
     const turnContext = {
-      profileId:
-        props.profileId ??
-        (engine.state.phase === "running"
-          ? engine.roomMap.resources.value.profile?.id
-          : undefined) ??
-        "2.936",
+      profileId: submittedProfile,
       runtime: () => ({
         ...runtime,
         referenceArt: async () => runtime.referenceArt?.(sentReferenceIds),
       }),
     };
-    const context = [
-      scoped,
-      ...(engine.state.phase === "running"
-        ? [`Current room ${engine.roomMap.currentRoom.value ?? 0}`]
-        : []),
-      ...contexts.value,
-      ...(chip.value ? [`Selection: ${chip.value.label}\n${chip.value.text}`] : []),
-      ...(contexts.value.includes("Current problems")
-        ? (engine
-            .getProjectSession()
-            ?.capture()
-            .diagnostics.map((entry) => `${entry.document ?? "Project"}: ${entry.message}`) ?? [])
-        : []),
-    ].join("\n");
-    if (inspect) await agent.value?.ask(request, context, replyFormatter, turnContext);
-    else await agent.value?.send(request, context, turnContext);
+    if (input.value === request) {
+      input.value = "";
+      if (formatReply.value === replyFormatter) formatReply.value = undefined;
+      if (taskContext.value === scoped) taskContext.value = "";
+      if (readOnly.value === inspect) readOnly.value = false;
+    }
+    await owner.submit({
+      instruction: request,
+      context,
+      mode,
+      readOnly: inspect,
+      ...(replyFormatter ? { formatReply: replyFormatter } : {}),
+      ...turnContext,
+    });
     for (const id of sentReferenceIds) removePendingReference(id);
   });
 }
+function currentReviewOwner(): ReviewOwner | undefined {
+  const owner = agent.value;
+  if (!owner || retired) return undefined;
+  return {
+    owner,
+    session: props.session ?? engine.getProjectSession(),
+    game: engine.getBootedGame(),
+    review: owner.pending,
+    writable: creating.value && !editor.readOnly.value,
+  };
+}
 async function approve() {
-  if (editor.readOnly.value) return;
-  await action(() => agent.value?.approve(selected.value));
+  const captured = currentReviewOwner();
+  if (!captured?.writable || !captured.review) return;
+  await action(async () => {
+    await approveCapturedReview(captured, currentReviewOwner, async () => {
+      await editor.flush.value?.();
+    });
+    if (agent.value === captured.owner) resultMessageId.value = undefined;
+  });
+}
+function reject(): void {
+  if (!creating.value || editor.readOnly.value) return;
+  agent.value?.reject();
+  resultMessageId.value = undefined;
+  tick.value++;
 }
 function close() {
   engine.closePowerUp();
   emit("close");
   void nextTick().then(() => {
     editor.returnFromAgent.value?.();
+    if (!creating.value) bridge.focusGameInput();
   });
+}
+function useCommand(command: string): void {
+  close();
+  bridge.fillGameInput(command);
 }
 function newChat() {
   void action(() => agent.value?.newChat());
@@ -373,6 +600,10 @@ function onEscapeKey(event: KeyboardEvent) {
   if (document.querySelector("dialog[open]")) return;
   event.preventDefault();
   event.stopPropagation();
+  if (resultMessageId.value) {
+    resultMessageId.value = undefined;
+    return;
+  }
   if (chatList.value) {
     chatList.value = false;
     return;
@@ -397,10 +628,7 @@ function keys(event: KeyboardEvent) {
     newChat();
   }
 }
-const chatTitle = computed(() => {
-  const title = current.value?.title;
-  return title && title !== "New chat" ? title : "Chats";
-});
+bridge.assistantInputEl = () => composer.value;
 const commands = useOptionalCommands();
 const offApprove = commands?.register({
   id: "agent.approve",
@@ -434,28 +662,16 @@ onBeforeUnmount(() => {
     @keydown="keys"
   >
     <header class="agent-panel__header">
+      <h2 :title="VOCABULARY.agent.help">Agent</h2>
       <button class="agent-panel__chat-title" @click="chatList = !chatList" aria-label="Chats">
-        {{ chatTitle }} <UiIcon name="chevron-down" :size="16" /></button
-      ><UiButton
-        size="sm"
-        variant="ghost"
-        :disabled="busy || editor.readOnly.value"
-        @click="newChat"
-        title="New chat (⌘N)"
-        >New chat</UiButton
-      ><UiButton
-        v-if="engine.state.phase === 'running'"
-        size="sm"
-        variant="ghost"
-        data-testid="btn-record-test"
-        :disabled="busy || engine.state.recording.active || engine.state.recording.starting"
-        @click="
-          engine.closePowerUp();
-          bridge.focusGameInput();
-          bridge.startPlaytest();
-        "
-        >Playtest</UiButton
+        <UiIcon name="history" :size="16" /></button
       ><UiIconButton
+        icon="settings"
+        label="Agent settings"
+        size="sm"
+        @click="settingsOpen = !settingsOpen"
+      />
+      <UiIconButton
         icon="x"
         label="Close"
         shortcut="Esc"
@@ -464,8 +680,9 @@ onBeforeUnmount(() => {
         @click="close"
       />
     </header>
-    <div class="agent-panel__mode">
+    <div v-if="settingsOpen" class="agent-panel__mode">
       <UiSegmented
+        v-if="creating"
         v-model="approvalMode"
         size="sm"
         label="Agent changes"
@@ -478,55 +695,61 @@ onBeforeUnmount(() => {
       >
         {{ settings.aiModelLabel.value }}
       </button>
+      <a
+        :href="
+          task?.usageUrl ??
+          (current?.provider === 'anthropic'
+            ? 'https://console.anthropic.com/settings/usage'
+            : 'https://platform.openai.com/usage')
+        "
+        target="_blank"
+        rel="noopener"
+        >Provider usage</a
+      >
     </div>
     <nav v-if="chatList" class="agent-panel__chats" aria-label="Chats">
+      <UiButton size="sm" variant="ghost" :disabled="busy" @click="newChat" title="New chat (⌘N)"
+        >New chat</UiButton
+      >
       <div v-for="chat in chats" :key="chat.id">
         <button
-          :disabled="busy || editor.readOnly.value"
+          :disabled="busy"
           @click="
             action(() => agent?.resume(chat.id));
             chatList = false;
           "
         >
-          {{ chat.title }}<span v-if="chat.background"> · Background</span
+          {{ chat.title === "New chat" ? "Untitled chat" : chat.title
+          }}<span v-if="chat.background"> · Background</span
           ><span v-if="chat.archived"> · Archived</span></button
         ><UiButton
           size="sm"
           variant="ghost"
-          :disabled="busy || editor.readOnly.value"
+          :disabled="busy"
           :aria-label="`Delete ${chat.title}`"
           @click="action(() => agent?.deleteChat(chat.id))"
           ><UiIcon name="x" :size="16"
         /></UiButton>
       </div>
     </nav>
+    <AgentReviewActions
+      v-if="review && !resultMessageId"
+      :creating
+      :disabled="editor.readOnly.value || busy || !selected.length"
+      :stale="review.stale()"
+      @apply="approve"
+      @reject="reject"
+      @create="shell.setMode('create')"
+    />
     <div
-      v-if="review"
-      :key="review.messageId"
-      class="agent-panel__review-actions"
-      role="group"
-      aria-label="Review changes"
+      ref="feed"
+      class="agent-panel__feed"
+      data-testid="agent-conversation"
+      role="log"
+      aria-label="Conversation"
+      aria-live="polite"
+      @scroll.passive="readPosition"
     >
-      <UiButton
-        size="sm"
-        :disabled="editor.readOnly.value || busy || review.stale() || !selected.length"
-        variant="primary"
-        data-testid="agent-approve"
-        @click="approve"
-        >Approve <kbd>⌘↵</kbd></UiButton
-      ><UiButton
-        size="sm"
-        variant="ghost"
-        :disabled="busy || editor.readOnly.value"
-        data-testid="agent-reject"
-        @click="
-          agent?.reject();
-          tick++;
-        "
-        >Reject</UiButton
-      >
-    </div>
-    <div ref="feed" class="agent-panel__feed" aria-live="polite" @scroll.passive="readPosition">
       <div ref="feedContent">
         <article
           v-for="message in visibleMessages"
@@ -537,8 +760,27 @@ onBeforeUnmount(() => {
           <strong>{{ message.role === "user" ? "You" : "Agent" }}</strong>
           <p v-if="message.role === 'user'">{{ message.text }}</p>
           <AgentReply v-else :text="message.text" />
+          <span v-if="message.spend" class="agent-panel__spend" data-testid="agent-spent">{{
+            formatSpent(message.spend, "compact")
+          }}</span>
+          <p v-if="message.delivery" class="agent-panel__receipt" data-testid="agent-delivery">
+            {{
+              message.delivery === "queued"
+                ? "Waiting for the current step"
+                : message.delivery === "received"
+                  ? "Received"
+                  : "Not sent"
+            }}
+          </p>
+          <AgentResult
+            v-if="message.result"
+            :result="message.result"
+            @command="useCommand"
+            @resource="openResult(message, $event)"
+            @review="openResult(message)"
+          />
           <details v-if="message.context" class="agent-panel__task-context">
-            <summary>Context</summary>
+            <summary>Request details</summary>
             <pre>{{ message.context }}</pre>
           </details>
           <UiChip
@@ -551,74 +793,18 @@ onBeforeUnmount(() => {
             <UiButton
               size="sm"
               variant="ghost"
-              :disabled="busy || editor.readOnly.value"
+              :disabled="!creating || busy || editor.readOnly.value"
               @click="action(() => agent?.undoMessage(message.id))"
               >Undo this</UiButton
             ><UiButton
               size="sm"
               variant="ghost"
-              :disabled="busy || editor.readOnly.value"
+              :disabled="!creating || busy || editor.readOnly.value"
               @click="action(() => agent?.restoreBefore(message.id))"
               >Restore to before this</UiButton
             >
           </div>
         </article>
-        <details v-if="progress.length && !review" class="agent-panel__progress" :open="busy">
-          <summary>{{ busy ? "Working…" : "Steps" }}</summary>
-          <p v-for="(note, index) in progress" :key="index">{{ note }}</p>
-        </details>
-        <section
-          v-if="review"
-          :key="review.messageId"
-          class="agent-panel__review"
-          data-testid="agent-review"
-        >
-          <header>
-            <h3>{{ review.proposal.label }}</h3>
-          </header>
-          <p v-if="review.stale()" role="alert" data-testid="agent-conflict">
-            The project changed while the agent worked. Send a follow-up to revise these changes.
-          </p>
-          <article
-            v-for="change in review.changes()"
-            :key="change.key"
-            class="agent-panel__resource"
-          >
-            <label
-              ><input type="checkbox" :value="change.key" v-model="selected" />{{
-                documentLabel(change.key, labels)
-              }}</label
-            >
-            <Suspense v-if="images">
-              <AgentResourceReview
-                :document-key="change.key"
-                :before="review.proposal.base.read(change.key)?.content"
-                :before-documents="images.beforeDocuments"
-                :after-documents="images.afterDocuments"
-                :after="change.content"
-                :before-image="images.before"
-                :after-image="images.after"
-                :profile="profile"
-              />
-              <template #fallback>
-                <p
-                  class="agent-panel__review-loading"
-                  role="status"
-                  data-testid="agent-review-loading"
-                >
-                  Preparing the preview…
-                </p>
-              </template>
-            </Suspense>
-            <p v-else class="agent-panel__preview-missing" data-testid="agent-preview-missing">
-              The preview could not load. You can still approve or reject this change.
-            </p>
-          </article>
-        </section>
-        <details v-if="review && progress.length" class="agent-panel__progress">
-          <summary>Steps</summary>
-          <p v-for="(note, index) in progress" :key="index">{{ note }}</p>
-        </details>
       </div>
     </div>
     <UiButton
@@ -636,12 +822,29 @@ onBeforeUnmount(() => {
         variant="ghost"
         data-testid="agent-open-ai-settings"
         @click="settings.openAiSettings($event, 'assistant')"
-        >Open AI settings</UiButton
+        >Connect AI</UiButton
       >
     </p>
-    <p v-if="error" class="agent-panel__error" role="alert">{{ error }}</p>
+    <p
+      v-if="error || agent?.error"
+      class="agent-panel__error"
+      data-testid="agent-error"
+      role="alert"
+    >
+      {{ error || agent?.error }}
+    </p>
+    <UiButton
+      v-if="engine.state.powerUp.offerReload"
+      data-testid="agent-reload"
+      @click="engine.reloadFromStorage()"
+      >Reload game</UiButton
+    >
     <div v-if="agent?.chatSaveError" class="agent-panel__error" role="status">
       <p>{{ agent.chatSaveError }}</p>
+      <details v-if="progress.at(-1)">
+        <summary>Details</summary>
+        <p>{{ progress.at(-1) }}</p>
+      </details>
       <UiButton
         size="sm"
         :disabled="busy"
@@ -651,8 +854,9 @@ onBeforeUnmount(() => {
       >
     </div>
     <AgentTaskControls
-      v-if="task"
+      v-if="task && (busy || task.status === 'paused' || error || agent?.error)"
       :task="task"
+      :notes="progress"
       @stop="agent?.stop()"
       @resume="agent?.continue($event)"
       @discard="agent?.cancel()"
@@ -661,16 +865,17 @@ onBeforeUnmount(() => {
       <PendingReferences
         :busy
         :room="engine.state.phase === 'running' ? (engine.roomMap.currentRoom.value ?? 0) : 0"
-        :allow-attach="!readOnly"
+        :allow-attach="creating && !readOnly"
       />
       <div class="agent-panel__context">
-        <span v-if="roomName">{{ roomName }}</span
+        <span v-if="!creating || readOnly" data-testid="agent-read-only">Read only</span>
+        <span v-if="roomName" data-testid="agent-current-room">{{ roomName }}</span
         ><span v-if="chip" class="agent-panel__context-selection" data-testid="agent-context-chip"
           >{{ chip.label
           }}<button
             type="button"
-            aria-label="Ask about the whole game"
-            title="Ask about the whole game"
+            aria-label="Remove context"
+            title="Remove context"
             @click="dismissedChip = chip.label"
           >
             <UiIcon name="x" :size="16" /></button></span
@@ -700,22 +905,101 @@ onBeforeUnmount(() => {
         ref="composer"
         v-model="input"
         aria-label="Agent message"
-        placeholder="Describe a change…"
+        :placeholder="creating ? 'Ask or describe a change…' : 'Ask about this game…'"
         data-testid="agent-message"
         :rows="review ? 1 : 3"
-        :disabled="!agent || busy || editor.readOnly.value"
+        :disabled="!agent"
       ></textarea>
       <div>
         <UiButton
           type="submit"
           size="sm"
           variant="primary"
-          :disabled="
-            editor.readOnly.value || busy || !input.trim() || !agent || !settings.aiConfigured.value
-          "
-          >Send</UiButton
+          :disabled="!canSend || !input.trim() || !settings.aiConfigured.value"
+          data-testid="agent-send"
+          >{{ busy ? "Send next step" : "Send" }}</UiButton
         ><span>⌘↵</span>
       </div>
     </form>
+    <section
+      v-if="resultMessage"
+      class="agent-panel__result"
+      data-testid="agent-result-preview"
+      aria-label="Agent result"
+    >
+      <header>
+        <UiButton size="sm" variant="ghost" @click="resultMessageId = undefined"
+          >Back to chat</UiButton
+        >
+        <UiChip v-if="resultEarlier" data-testid="agent-earlier-version">Earlier version</UiChip>
+      </header>
+      <AgentReviewActions
+        v-if="review?.messageId === resultMessage.id"
+        :creating
+        :disabled="editor.readOnly.value || busy || !selected.length"
+        :stale="review.stale()"
+        @apply="approve"
+        @reject="reject"
+        @create="shell.setMode('create')"
+      />
+      <div class="agent-panel__result-content">
+        <h3>{{ resultReview?.label ?? "Result" }}</h3>
+        <p
+          v-if="review?.messageId === resultMessage.id && review.stale()"
+          role="alert"
+          data-testid="agent-conflict"
+        >
+          The game changed. Send a follow-up to revise these changes.
+        </p>
+        <div
+          v-if="resultReview || inspection?.snapshot"
+          class="agent-panel__review"
+          :data-testid="resultReview ? 'agent-review' : 'agent-resource-preview'"
+        >
+          <article
+            v-for="change in resultChanges.filter(
+              (change) => !resultResource || change.key === resultResource,
+            )"
+            :key="change.key"
+            class="agent-panel__resource"
+          >
+            <header>
+              <h4>{{ documentLabel(change.key, labels) }}</h4>
+              <UiButton
+                v-if="change.content !== null && (props.session || engine.getProjectSession())"
+                size="sm"
+                variant="ghost"
+                @click="openResource(resultMessage, change.key, true)"
+                >Open current resource</UiButton
+              >
+            </header>
+            <Suspense v-if="resultImages">
+              <AgentResourceReview
+                :document-key="change.key"
+                :before="resultImages.beforeDocuments[change.key]"
+                :before-documents="resultImages.beforeDocuments"
+                :after-documents="resultImages.afterDocuments"
+                :after="change.content"
+                :before-image="resultImages.before"
+                :after-image="resultImages.after"
+                :profile="resultProfile"
+                :inspection="!!inspection"
+                :navigation="!!(props.session || engine.getProjectSession())"
+                @open="openResource(resultMessage, $event.resource, true, $event)"
+              />
+              <template #fallback
+                ><p role="status" data-testid="agent-review-loading">
+                  Preparing the preview…
+                </p></template
+              >
+            </Suspense>
+            <p v-else class="agent-panel__preview-missing" data-testid="agent-preview-missing">
+              Preview unavailable for this resource.
+            </p>
+          </article>
+        </div>
+        <p v-else>Preview unavailable for this result.</p>
+      </div>
+    </section>
   </section>
 </template>

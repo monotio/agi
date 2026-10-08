@@ -215,7 +215,6 @@ const stacked = computed(() => phoneWidth.value || editor.stackedLayout.value);
 const roomHint = shallowRef<{ key: string; room: number }>();
 function openPart(key: string, room?: number): void {
   roomHint.value = room === undefined ? undefined : { key, room };
-  if (window.innerWidth <= 1280 && engine.state.powerUp.open) engine.closePowerUp();
   if ((key === "words" || key === "inventory") && text(key) === undefined) edit(key, "[]\n");
   editor.open(key);
   if (window.innerWidth <= 600) {
@@ -2798,6 +2797,9 @@ onBeforeUnmount(() => {
         @edit="edit(key, $event)"
       />
       <SpriteStudio
+        :location="
+          editor.agentTarget.value?.resource === key ? editor.agentTarget.value : undefined
+        "
         :read-only="editingPaused || actionBusy"
         v-else-if="key.startsWith('view:') && (native(key) || stagedRequest(key)) && profile"
         v-show="imagePanel !== key"

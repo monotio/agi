@@ -84,8 +84,8 @@ for (const provider of ["openai", "anthropic"] as const) {
       await enterPlayMode(page);
       await page.getByTestId("menu-assistant").click();
       await configureAi(page, { provider, key: "test-placeholder" });
-      await page.getByTestId("agent-bubble-input").fill("Where am I?");
-      await page.getByTestId("agent-bubble-send").click();
+      await page.getByTestId("agent-message").fill("Where am I?");
+      await page.getByTestId("agent-send").click();
       await expect.poll(() => responses.length).toBe(1);
       expect(requests[0]!["stream"]).toBe(true);
       responses[0]!.write(
@@ -212,8 +212,9 @@ for (const provider of ["openai", "anthropic"] as const) {
               },
         ),
       );
+      await page.getByTestId("agent-stream-progress").locator("summary").click();
       await expect(page.getByTestId("agent-stream-text")).toHaveText("I can see the café");
-      await expect(page.getByTestId("agent-bubble-send")).toBeDisabled();
+      await expect(page.getByTestId("agent-send")).toBeDisabled();
       await page.screenshot({
         path: test.info().outputPath(`${provider}-stream-desktop.png`),
         animations: "disabled",
@@ -306,7 +307,7 @@ for (const provider of ["openai", "anthropic"] as const) {
             .join(""),
         );
       await expect(page.getByTestId("agent-conversation")).toContainText("You are in room one.");
-      await expect(page.getByTestId("agent-bubble-input")).toBeEnabled();
+      await expect(page.getByTestId("agent-message")).toBeEnabled();
       await expect(page.getByTestId("agent-stream-progress")).toBeHidden();
       expect((await textHook(page)).paused).toBe(true);
     } finally {

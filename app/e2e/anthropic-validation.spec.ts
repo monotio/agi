@@ -67,13 +67,13 @@ test("Anthropic Ask recovers from invalid runtime arguments and accepts omitted 
   await page.getByTestId("btn-resume-cached").click();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
   await page.getByTestId("menu-assistant").click();
-  await expect(page.getByTestId("agent-bubble")).toBeVisible();
+  await expect(page.getByTestId("workspace-agent-panel")).toBeVisible();
   await configureAi(page, { provider: "anthropic", key: "test-placeholder" });
-  await expect(page.getByTestId("agent-bubble-input")).toBeEnabled();
-  await page.getByTestId("agent-bubble-input").fill("Where am I?");
-  await page.getByTestId("agent-bubble-send").click();
+  await expect(page.getByTestId("agent-message")).toBeEnabled();
+  await page.getByTestId("agent-message").fill("Where am I?");
+  await page.getByTestId("agent-send").click();
   await expect(page.getByTestId("agent-conversation")).toContainText("You are in room 1.");
-  await expect(page.getByTestId("agent-bubble-input")).toBeEnabled();
+  await expect(page.getByTestId("agent-message")).toBeEnabled();
 
   expect(requests).toHaveLength(3);
   expect(requests[0]!.tools.every((tool) => tool.strict !== true)).toBe(true);

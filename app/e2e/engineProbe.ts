@@ -687,7 +687,7 @@ export async function enterCreateMode(page: Page): Promise<void> {
 /** Open the Create assistant through its registered workspace command. */
 export async function openWorkspaceAgent(page: Page): Promise<void> {
   await enterCreateMode(page);
-  const panel = page.getByTestId("workspace-agent-panel").or(page.getByTestId("agent-bubble"));
+  const panel = page.getByTestId("workspace-agent-panel");
   if (await panel.isVisible()) return;
   await page.getByTestId("workspace-agent").click();
   await expect(panel).toBeVisible();

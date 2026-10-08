@@ -46,7 +46,6 @@ const AgentLogPanel = defineAsyncComponent(() => import("./authoring/AgentLogPan
 const RoomGenerationOverlay = defineAsyncComponent(
   () => import("./authoring/RoomGenerationOverlay.vue"),
 );
-const AgentBubble = defineAsyncComponent(() => import("./authoring/AgentBubble.vue"));
 const AiSettingsDialog = defineAsyncComponent(() => import("./settings/AiSettings.vue"));
 const SoundPreview = defineAsyncComponent(() => import("./authoring/SoundPreview.vue"));
 const PlayArea = defineAsyncComponent(() => import("./play/PlayArea.vue"));
@@ -138,12 +137,7 @@ const {
 const shellBridge = createShellBridge();
 provideShellBridge(shellBridge);
 shellBridge.togglePowerUp = (mode) => {
-  if (state.powerUp.busy) return;
   if (state.powerUp.open) {
-    if (mode !== undefined && state.powerUp.mode !== mode && state.powerUp.mode !== "room") {
-      state.powerUp.mode = mode;
-      return;
-    }
     engine.closePowerUp();
     shellBridge.focusGameInput();
     return;
@@ -309,13 +303,6 @@ watch(
   () => state.walkthrough.active,
   (active) => {
     if (active) shell.reset();
-  },
-);
-// Remix lives in Create: an idle remix surface in Play steps back to Ask.
-watch(
-  () => [shell.mode.value, state.powerUp.open, state.powerUp.mode, state.powerUp.busy] as const,
-  ([mode, open, surface, busy]) => {
-    if (mode === "play" && open && surface === "remix" && !busy) state.powerUp.mode = "ask";
   },
 );
 
@@ -830,21 +817,9 @@ watch(
             </UiButton>
           </template>
         </PlayArea>
-        <aside
-          v-show="!creating && state.powerUp.open"
-          class="shell-side"
-          aria-label="Agent"
-          data-shell-keys
-        >
-          <div class="assistant-host">
-            <AgentBubble v-if="!creating && state.powerUp.open" surface="drawer" />
-          </div>
-        </aside>
+        <AgentDrawer />
       </div>
     </div>
-
-    <!-- The agent drawer overlays the workspace; it never takes a column. -->
-    <AgentDrawer />
 
     <AiSettingsDialog
       v-if="ai.dialogRequested.value"

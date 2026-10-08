@@ -52,10 +52,10 @@ test("dialogs, sheets, menus and the Ask drawer share one entrance, and reduced 
   await page.keyboard.press("Escape");
   // The Ask drawer slides in from its edge.
   await page.getByTestId("menu-assistant").click();
-  const drawer = page.getByTestId("agent-bubble");
+  const drawer = page.getByTestId("workspace-agent-panel");
   await expect(drawer).toBeVisible();
   expect(await animation(drawer)).toBe("ui-sheet-in-left");
-  await drawer.getByTestId("agent-bubble-close").click();
+  await drawer.getByTestId("agent-panel-close").click();
 
   await page.emulateMedia({ reducedMotion: "reduce" });
   await openGameOptions(page, "settings-menu");
@@ -126,10 +126,10 @@ test("Ask docks in the play strip, clear of the stage, and steps away while its 
   expect(box.y + box.height).toBeLessThanOrEqual(strip.y + strip.height);
   expect(box.y).toBeGreaterThanOrEqual(screen.y + screen.height);
   await ask.click();
-  await expect(page.getByTestId("agent-bubble")).toBeVisible();
+  await expect(page.getByTestId("workspace-agent-panel")).toBeVisible();
   await expect(ask).toBeHidden();
   await expect(ask).toHaveAttribute("aria-expanded", "true");
-  await page.getByTestId("agent-bubble-close").click();
+  await page.getByTestId("agent-panel-close").click();
   await expect(ask).toBeVisible();
 });
 

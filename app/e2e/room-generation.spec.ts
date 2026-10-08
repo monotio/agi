@@ -47,7 +47,7 @@ async function openGame(page: Page, mode: "Play" | "Create") {
     }
   }
   await expect(page.getByTestId("workspace-agent-panel")).toBeHidden();
-  await expect(page.getByTestId("agent-bubble")).toBeHidden();
+  await expect(page.getByTestId("workspace-agent-panel")).toBeHidden();
 }
 
 const room = `if (isset(f5)) {
@@ -135,7 +135,7 @@ for (const size of [
         await page.screenshot({ path: test.info().outputPath(`room-${mode}-${size.width}.png`) });
         const before = await textHook(page);
         expect(before.room).toBe(1);
-        await expect(page.getByTestId("agent-bubble")).toBeHidden();
+        await expect(page.getByTestId("workspace-agent-panel")).toBeHidden();
         await expect(page.getByTestId("workspace-agent-panel")).toBeHidden();
         release();
         await expect.poll(async () => (await textHook(page)).room).toBe(2);

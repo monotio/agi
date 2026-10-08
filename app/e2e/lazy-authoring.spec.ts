@@ -91,12 +91,13 @@ test("Play boots a catalog game without the AI authoring stack, and opening Ask 
   // No model is connected (the stored default is OpenAI without a key), so
   // Ask opens on its connect prompt: the stack warms on the intent alone.
   await page.getByTestId("menu-assistant").click();
-  const bubble = page.getByTestId("agent-bubble");
-  await expect(bubble).toContainText("Connect your AI provider to ask about this game.");
-  await expect(page.getByTestId("agent-bubble-input")).toBeHidden();
+  const bubble = page.getByTestId("workspace-agent-panel");
+  await expect(bubble).toContainText("Connect your AI provider in Settings to start a task.");
+  await expect(page.getByTestId("agent-message")).toBeEnabled();
+  await expect(page.getByTestId("agent-send")).toBeDisabled();
   await expect
     .poll(() => modules, { timeout: 10_000 })
-    .toContain("app/src/agent/authoringStack.ts");
+    .toContain("app/src/agent/installedConversation.ts");
   await expect
     .poll(() => modules.some((module) => /^(?:app\/)?node_modules\/openai\//.test(module)))
     .toBe(true);
@@ -113,8 +114,8 @@ test("the first agent drawer focuses its input and Escape returns to Play", asyn
   await page.getByTestId("catalog-play-adventure-department").click();
   await waitForRoom(page, 1, { coldBoot: true });
   await page.getByTestId("menu-assistant").click();
-  await expect(page.getByTestId("agent-bubble-input")).toBeFocused();
+  await expect(page.getByTestId("agent-message")).toBeFocused();
   await page.keyboard.press("Escape");
-  await expect(page.getByTestId("agent-bubble")).toHaveCount(0);
+  await expect(page.getByTestId("workspace-agent-panel")).toBeHidden();
   await expect(page.locator("#game-command")).toBeFocused();
 });

@@ -672,17 +672,17 @@ test("KQ1 orientation accompanies the first question, Escape resumes", async ({ 
   await expect.poll(async () => (await textHook(page)).cycle).toBeGreaterThan(0);
 
   await page.getByTestId("menu-assistant").click();
-  await expect(page.getByTestId("agent-bubble")).toBeVisible();
+  await expect(page.getByTestId("workspace-agent-panel")).toBeVisible();
   await expect.poll(async () => (await textHook(page)).paused).toBe(true);
 
-  await expect(page.getByTestId("agent-bubble-input")).toBeEnabled();
+  await expect(page.getByTestId("agent-message")).toBeEnabled();
   await expect.poll(() => agentActivity(page)).not.toContain("[Orientation]");
-  await page.getByTestId("agent-bubble-input").fill("Where am I?");
-  await page.getByTestId("agent-bubble-send").click();
-  await expect(page.getByTestId("agent-bubble-input")).toBeEnabled();
+  await page.getByTestId("agent-message").fill("Where am I?");
+  await page.getByTestId("agent-send").click();
+  await expect(page.getByTestId("agent-message")).toBeEnabled();
   // The submitted context names the game and the profile the engine detected.
   await expect.poll(() => agentActivity(page), { timeout: 20_000 }).toContain("[Orientation] kq1");
-  await expect(page.getByTestId("agent-bubble-room")).toContainText("room 1");
+  await expect(page.getByTestId("agent-current-room")).toContainText(/room 1/i);
   await page.screenshot({ path: test.info().outputPath("kq1-power-up-bubble.png") });
   await expect.poll(() => agentActivity(page)).toContain("profile 2.917");
 
@@ -709,7 +709,7 @@ test("KQ1 orientation accompanies the first question, Escape resumes", async ({ 
 
   // Escape closes the bubble without patching anything and the world runs on.
   await page.keyboard.press("Escape");
-  await expect(page.getByTestId("agent-bubble")).toBeHidden();
+  await expect(page.getByTestId("workspace-agent-panel")).toBeHidden();
   await expect.poll(async () => (await textHook(page)).paused).toBe(false);
   await expect
     .poll(async () => (await textHook(page)).cycle, { timeout: 15_000 })

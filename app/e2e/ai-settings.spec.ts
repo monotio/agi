@@ -101,24 +101,24 @@ test("AI settings pause only their own game interaction and preserve the assista
 
   await enterPlayMode(page);
   await page.getByTestId("menu-assistant").click();
-  await expect(page.getByTestId("connect-assistant-ai")).toBeEnabled();
+  await expect(page.getByTestId("agent-open-ai-settings")).toBeEnabled();
   await openAiSettings(page);
   await dialog.getByTestId("provider-select").selectOption("openai");
   await dialog.getByTestId("api-key-input").fill("test-openai-key");
   await dialog.getByTestId("effort-select").selectOption("low");
   await dialog.getByTestId("ai-settings-save").click();
   await expect(dialog).toBeHidden();
-  await expect(page.getByTestId("agent-bubble-input")).toBeEnabled();
-  await page.getByTestId("agent-bubble-input").fill("Where should I look next?");
+  await expect(page.getByTestId("agent-message")).toBeEnabled();
+  await page.getByTestId("agent-message").fill("Where should I look next?");
   await openAiSettings(page);
   await page.keyboard.press("Escape");
   await expect(dialog).toBeHidden();
-  await expect(page.getByTestId("agent-bubble")).toBeVisible();
-  await expect(page.getByTestId("agent-bubble-input")).toHaveValue("Where should I look next?");
+  await expect(page.getByTestId("workspace-agent-panel")).toBeVisible();
+  await expect(page.getByTestId("agent-message")).toHaveValue("Where should I look next?");
   await expect(page.getByTestId("settings-menu")).toBeFocused();
   expect((await textHook(page)).paused).toBe(true);
   expect(providerCalls).toBe(0);
-  await page.getByTestId("agent-bubble-close").click();
+  await page.getByTestId("agent-panel-close").click();
   await expect.poll(async () => (await textHook(page)).paused).toBe(false);
 });
 
@@ -166,10 +166,10 @@ test("changing the shared provider affects the next Ask without losing the conve
   await dialog.getByTestId("effort-select").selectOption("low");
   await dialog.getByTestId("ai-settings-save").click();
   await expect(dialog).toBeHidden();
-  await page.getByTestId("agent-bubble-input").fill("What is wrong with the mural?");
-  await page.getByTestId("agent-bubble-send").click();
+  await page.getByTestId("agent-message").fill("What is wrong with the mural?");
+  await page.getByTestId("agent-send").click();
   await expect(page.getByTestId("agent-conversation")).toContainText("The mural is unfinished.");
-  await expect(page.getByTestId("agent-bubble-input")).toBeEnabled();
+  await expect(page.getByTestId("agent-message")).toBeEnabled();
   await openAiSettings(page);
   await dialog.getByTestId("provider-select").selectOption("anthropic");
   await expect(dialog.getByTestId("api-key-input")).toHaveValue("");
@@ -179,8 +179,8 @@ test("changing the shared provider affects the next Ask without losing the conve
   await expect(dialog).toBeHidden();
   expect(requests).toHaveLength(1);
   await expect(page.getByTestId("agent-conversation")).toContainText("The mural is unfinished.");
-  await page.getByTestId("agent-bubble-input").fill("What should I try next?");
-  await page.getByTestId("agent-bubble-send").click();
+  await page.getByTestId("agent-message").fill("What should I try next?");
+  await page.getByTestId("agent-send").click();
   await expect(page.getByTestId("agent-conversation")).toContainText("Try examining its frame.");
   expect(requests.map((request) => request.provider)).toEqual(["openai", "anthropic"]);
   expect(requests[1]!.body).toContain("What is wrong with the mural?");

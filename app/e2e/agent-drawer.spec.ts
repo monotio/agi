@@ -174,9 +174,7 @@ test("drawer initialization preserves a new editor focus @webkit-desktop", async
   }
 });
 
-test("the context chip follows the selection and its × asks about the whole game @webkit-desktop", async ({
-  page,
-}) => {
+test("the context chip follows selection and can be removed @webkit-desktop", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await isolateStorage(page);
   await page.goto("/");
@@ -217,7 +215,7 @@ test("the context chip follows the selection and its × asks about the whole gam
   // Dismissed: the next ask is about the whole game; a new selection brings the chip back.
   const messages = page.getByTestId("workspace-agent-panel").locator(".agent-panel__message");
   const composer = page.getByTestId("agent-message");
-  await chip.getByRole("button", { name: "Ask about the whole game", exact: true }).click();
+  await chip.getByRole("button", { name: "Remove context", exact: true }).click();
   await expect(chip).toHaveCount(0);
   let sent = prompts.length;
   await composer.fill("What is here?");

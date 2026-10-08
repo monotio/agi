@@ -21,6 +21,7 @@ import type { ComputedRoomRemovalReview } from "../project/projectSessionCore.ts
 import type { IconName } from "../ui/icons.ts";
 import type { BindingInfo } from "../../../src/logic/projectNames.ts";
 import type { Launch } from "../../../src/authoring/launches.ts";
+import type { AgentTarget } from "../agent/agentNavigation.ts";
 
 /** The dock a Create panel sits in. */
 export type DockSide = "left" | "right";
@@ -203,8 +204,29 @@ export function createWorkspaceEditor(engine: EngineApi) {
     formatReply?: ReplyFormatter;
   } | null>(null);
   const returnFromAgent = shallowRef<() => void>();
-  const agentMessages = shallowRef<readonly { role: string; text: string; context?: string }[]>([]);
   const agentContext = shallowRef<{ label: string; text: string } | null>(null);
+  const agentTarget = shallowRef<AgentTarget>();
+  async function openAgentTarget(target: AgentTarget): Promise<void> {
+    const session = engine.getProjectSession();
+    const game = engine.getBootedGame();
+    const { resolveAgentTarget } = await import("../agent/agentNavigation.ts");
+    if (engine.getProjectSession() !== session || engine.getBootedGame() !== game)
+      throw new Error("The game changed. Reopen the result to navigate.");
+    const projectId = game?.projectId;
+    if (!session || !projectId) throw new Error("Open the game before opening this result.");
+    const resolved = resolveAgentTarget(target, {
+      projectId,
+      documentId: session.capture().snapshot.documentId,
+    });
+    if (resolved.kind === "earlier")
+      throw new Error(
+        "This result shows an earlier version. Choose Open current resource to edit the current game.",
+      );
+    agentTarget.value = target;
+    open(target.resource);
+    if (target.line !== undefined)
+      nameLocation.value = { key: target.resource, line: target.line, serial: ++revealSerial };
+  }
   const agentContexts: Record<string, { label: string; text: string } | null> = {};
   function setAgentContext(key: string, context: { label: string; text: string } | null): void {
     agentContexts[key] = context;
@@ -384,8 +406,8 @@ export function createWorkspaceEditor(engine: EngineApi) {
     removalReview.value = undefined;
     phonePlaytest.value = false;
     agentContext.value = null;
+    agentTarget.value = undefined;
     agentPrefill.value = null;
-    agentMessages.value = [];
     for (const key of Object.keys(agentContexts)) delete agentContexts[key];
     tabs.value = [];
     pendingAdmission.value = false;
@@ -434,9 +456,10 @@ export function createWorkspaceEditor(engine: EngineApi) {
     findReferences,
     revealUse,
     agentContext,
+    agentTarget,
+    openAgentTarget,
     agentPrefill,
     returnFromAgent,
-    agentMessages,
     setAgentContext,
     tabs,
     pendingAdmission,
