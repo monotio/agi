@@ -5,6 +5,16 @@ Released notes are also available on [GitHub Releases](https://github.com/monoti
 
 ## [1.2.1] - Unreleased
 
+### Changed
+
+- Play and Create share one agent conversation, composer and task controls.
+  Chats continue between modes and into editable copies of installed games.
+- Native result previews remain available after Apply and reload, with older
+  versions identified before opening the current resource. Phone previews return
+  to the conversation with Back to chat.
+- Agent settings and activity details are collapsed, with compact spending and
+  shorter replies. Follow-up instructions join at the next completed tool batch.
+
 ### Fixed
 
 - Ask inspects native resources without preparing or validating an edit candidate.
@@ -12,6 +22,9 @@ Released notes are also available on [GitHub Releases](https://github.com/monoti
 - Each request captures its current interpreter profile, runtime and attached references.
 - Interrupted questions preserve pending edit reviews. Conversation save failures keep
   completed answers visible and offer Retry save without another provider request.
+- Accepted resource changes keep saved source claims consistent with playable
+  bytes. Opening and saving an affected sound project repairs verified stale
+  claims so its Project download can succeed.
 - Updated vulnerable shell-quote, source-map-js and DOMPurify dependencies, and the
   optional eval dependency tree. The app dependency audit is clear; the optional
   eval tree still reports high advisories in basic-ftp and node-forge.

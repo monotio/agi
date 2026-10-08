@@ -428,8 +428,15 @@ Update and keep playing at a message or completed cycle boundary. Every editor s
 
 **Where authority lives.** Each of these is a check in code:
 
+- `agent/AgentPanel.vue` renders the conversation in both Play and Create.
+  `agent/workspaceAgent.ts` owns its chats, requests, results and recovery.
+  Each request captures its mode, authority, profile, runtime and resource identity;
+  Play inspects, while Create answers questions or proposes requested edits.
+  Prepared inspection actions apply read-only authority to their own request.
+  Installed editions use the same controller over detached documents with a
+  conversation-only storage adapter. Opening an editable copy carries its chats.
 - `WORKSPACE_AGENT_TOOLS` in `app/src/agent/workspaceAgentTools.ts` combines project changes, Notes and image tools for Create. Tool help comes from `VOCABULARY_ACTIONS` through `toolDescription`.
-- `AUTHORING_TOOL_NAMES`, `ASK_TOOLS` and `SELECTION_TASK_TOOLS` in `src/agent/tools.ts` are allowlists for room authoring, Play questions and offline selection checks: a tool outside the selected list is refused before dispatch. Create dispatches only `WORKSPACE_AGENT_TOOLS`.
+- `AUTHORING_TOOL_NAMES`, `ASK_TOOLS` and `SELECTION_TASK_TOOLS` in `src/agent/tools.ts` are allowlists for room authoring, inspection and offline selection checks: a tool outside the selected list is refused before dispatch. Create edit requests dispatch only `WORKSPACE_AGENT_TOOLS`.
 - `prepareRoomPatch` accepts a room only if it is whole: it parses every payload under the game's profile, lets the vocabulary only grow, and stages the result on a copy.
 - `editValidation.ts` checks Studio gestures by their decoded pixels. Workspace agent changes use `src/authoring/projectAgentCandidate.ts` to validate complete coordinated documents and native resources; `assistScope.ts` remains in detached Studio compatibility services.
 - `src/agent/projectInspection.ts` reads a detached native image for Ask, with resource-local failures and no candidate or admission capability. Exact document reads carry draft identity; native reads retain resource evidence origins and add the selected profile and resource revision. Admitted metadata accompanies live bytes only when their resource identities match. Ask withholds authored world intent, retains pending reviews on interruption, and saves conversations through the ordinary ownership and storage checks.
@@ -455,6 +462,11 @@ state. Workspace and project History are version 1. Missing optional fields read
 as their original absence; unknown versions refuse without rewriting data.
 Chats contain transcripts and messages, with model handoffs summarized into a
 continuing conversation. Public game exports contain playable resources.
+Optional message fields retain captured request authority, task identity, spend
+and typed results. Resource inspection results retain their exact source or native
+payload under the selected profile; applied changes reconstruct their previews
+from History. Navigation checks project and document identity before opening an
+editor. Later resources are opened explicitly from earlier result previews.
 Private backups preserve the stored playable files byte for byte; public Game
 exports still synthesize an empty `OBJECT` when a game lacks one.
 

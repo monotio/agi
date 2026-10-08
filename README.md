@@ -152,8 +152,10 @@ for Create with AI and off for imported games and local templates. Change it in
 - open **World map** to rename rooms, edit their
   briefs and pin notes the agent reads when it builds that part of the world;
 - use **Agent** in Play for hints and questions that leave the game untouched,
-  or open **Agent** (⌘I) over any Create editor to change resources together;
-- review each changed resource and approve a coordinated change as one History
+  or open **Agent** (⌘I) over any Create editor to ask questions or change resources
+  together; the same conversation follows you between modes;
+- preview pictures, animation frames, sounds and source beside the conversation,
+  then apply a coordinated change as one History
   commit, or turn on Auto-approve for the current game session;
 - start task chats, resume earlier chats, and edit the game's Notes to give every
   chat its style and rules; private project backups keep the chats;
@@ -176,8 +178,10 @@ drawbridge:
 
 ![A castle gate as the player sees it, beside the walkable ground, barriers and horizon the agent painted into it](docs/media/genesis-depth.png)
 
-Ask saves conversation history alongside the project. If that save fails, the
-answer stays visible and **Retry save** retries storage without another AI request.
+Play questions save conversation history alongside the game. Saving a conversation
+does not edit game resources. If that save fails, the answer stays visible and
+**Retry save** retries storage without another AI request. Result previews stay
+available in earlier messages; older results show their captured version.
 
 The agent checks its own work with rendered previews, compiler messages and
 playtests of its own. It can still get art, puzzles or writing wrong, so play
@@ -188,7 +192,7 @@ from the browser. Your key is saved in browser storage and sent only to the
 provider you choose, along with the game content each request needs. Requests
 are billed to your account; each task starts with a $5 budget that
 you can change. The app shows actual spending as your provider reports usage, for example
-**$0.14 of $5 spent**. One budget covers agent requests and generated images.
+**$0.14 / $5 spent**. One budget covers agent requests and generated images.
 The in-flight request finishes before the agent pauses after crossing the budget,
 so spending can exceed it. **Continue** adds another task budget; **Stop** ends
 the task and keeps your work in this tab.
