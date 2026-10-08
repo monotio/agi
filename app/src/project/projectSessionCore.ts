@@ -35,7 +35,7 @@ import {
 import { sha256Hex } from "../../../src/crypto.ts";
 import { computeResourceRevision } from "../../../src/authoring/resourceRevision.ts";
 import { requireProjectId, type GameIdentity } from "../../../src/gameIdentity.ts";
-import { inspectEditableProject } from "./projectWorkspaceSource.ts";
+import { inspectEditableProject, updateAcceptedSourceClaims } from "./projectWorkspaceSource.ts";
 import type {
   authoringFingerprint,
   commitProject,
@@ -198,6 +198,7 @@ function createSession(
   const openedAt = input.openedAt ?? Date.now();
   data.chats = migrateAgentChats(data);
   const inspection = inspectEditableProject(data);
+  let sourceClaimBase = inspection.documents;
   const history = new ProjectHistory(
     sha256Hex,
     data.projectHistory === undefined
@@ -435,6 +436,7 @@ function createSession(
           projectId: receipt.saved.projectId,
           generation: receipt.saved.generation,
         });
+        sourceClaimBase = capture.snapshot.lastAdmissibleBuild!.documents();
         owners.set(data.projectId, session);
         previousKey = journalKey;
         releasePrevious = releaseJournal.release;
@@ -495,8 +497,14 @@ function createSession(
     save = true,
   ) {
     const image = snapshot.lastAdmissibleBuild!;
+    const authoringState = updateAcceptedSourceClaims(
+      data.authoringState,
+      sourceClaimBase,
+      image.documents(),
+    );
     const next = {
       ...data,
+      ...(authoringState === undefined ? {} : { authoringState }),
       files: Object.fromEntries(image.files()),
       library: projectCommitLibrary(data.library, {
         revision: image.identity.revision,
@@ -507,7 +515,7 @@ function createSession(
       ...(typeof image.documents()["world"] === "string"
         ? {
             authoringState: {
-              ...data.authoringState,
+              ...authoringState,
               authoring: {
                 ...(data.authoringState?.["authoring"] as Record<string, unknown> | undefined),
                 version: 1,

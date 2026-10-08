@@ -1,0 +1,38 @@
+{
+  "name": "project-agent-sound-save-export",
+  "description": "An approved starter sound edit updated workspace and native SOUND bytes but left the previous tagged sound source in saved metadata. Project Download then refused its own inconsistent source claim. Accepted claims must follow their exact native resource through save and export.",
+  "projectAgent": {
+    "starterProject": true,
+    "documents": {},
+    "request": "Replace sound 1 with C5, E5 and G5, six ticks each",
+    "turns": [
+      {
+        "toolCalls": [
+          {
+            "id": "chime",
+            "name": "write_sound",
+            "input": {
+              "num": 1,
+              "tracks": [
+                {
+                  "notes": [
+                    { "note": "C5", "duration": 6, "freqDivisor": null, "attenuation": 4 },
+                    { "note": "E5", "duration": 6, "freqDivisor": null, "attenuation": 4 },
+                    { "note": "G5", "duration": 6, "freqDivisor": null, "attenuation": 4 }
+                  ]
+                }
+              ]
+            }
+          }
+        ]
+      },
+      { "text": "Updated the chime.", "toolCalls": [] }
+    ],
+    "expectedKeys": ["sound:1"],
+    "approveAndExportSound": 1,
+    "expectedSoundPayload": [
+      8, 0, 25, 0, 27, 0, 29, 0, 6, 0, 13, 134, 148, 6, 0, 10, 138, 148, 6, 0, 8, 143, 148, 255,
+      255, 255, 255, 255, 255, 255, 255
+    ]
+  }
+}
