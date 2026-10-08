@@ -22,6 +22,7 @@ interface Case {
     expectedCommits?: number;
     expectedDocuments?: Record<string, string | null>;
     readOnly?: boolean;
+    submission?: { mode: "play" | "create"; readOnly?: boolean; context?: string };
     unreadableSound?: number;
   };
 }
@@ -117,7 +118,9 @@ for (const file of readdirSync(directory).filter((file) => file.endsWith(".json"
         await assert.rejects(agent.send(content.request), new RegExp(content.expectedError));
       else if (content.readOnly) {
         const before = session.model.capture();
-        await agent.ask(content.request);
+        if (content.submission)
+          await agent.submit({ instruction: content.request, ...content.submission });
+        else await agent.ask(content.request);
         assert.equal(session.model.capture().documentId, before.documentId);
         assert.deepEqual(
           Object.fromEntries(session.model.capture().lastAdmissibleBuild!.files()),

@@ -1,4 +1,5 @@
 import { createWorkspaceAgent, type ConversationSession } from "./workspaceAgent.ts";
+import type { ProfileId } from "../../../src/runtime/profile.ts";
 import type { LlmConfig } from "./llmClient.ts";
 import type { AgentRuntimeDeps } from "../../../src/agent/tools.ts";
 import { migrateAgentChats, readAgentChats } from "../../../src/agent/chats.ts";
@@ -17,6 +18,7 @@ export type ConversationAgent = ReturnType<typeof createWorkspaceAgent>;
 export async function createInstalledConversation(options: {
   readonly game: BootedGame;
   readonly locator: string | null;
+  readonly profileId?: ProfileId;
   readonly config: () => LlmConfig;
   readonly runtime: () => AgentRuntimeDeps;
   readonly conversation?: Parameters<typeof createWorkspaceAgent>[0]["conversation"];
@@ -30,6 +32,17 @@ export async function createInstalledConversation(options: {
     authoredAt: "",
     files: options.game.files,
     words: options.game.words,
+    ...(options.profileId
+      ? {
+          library: {
+            version: 1 as const,
+            revision: options.game.revision,
+            source: "folder" as const,
+            profile: options.profileId,
+            validation: { status: "ready" as const, message: "Running game" },
+          },
+        }
+      : {}),
   });
   const history = new ProjectHistory(sha256Hex);
   const model = new ProjectModel({

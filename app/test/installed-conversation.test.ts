@@ -177,3 +177,14 @@ test("disposing an installed surface while its completed reply commits preserves
     owner.dispose();
   }
 });
+
+test("installed inspection keeps the running explicit interpreter profile", async () => {
+  const options = fixture("installed-profile");
+  const owner = await createInstalledConversation({ ...options, profileId: "2.001" });
+  try {
+    await owner.agent.submit({ instruction: "Explain the game", mode: "play" });
+    assert.equal(owner.agent.current().messages[0]!.request!.profileId, "2.001");
+  } finally {
+    owner.dispose();
+  }
+});

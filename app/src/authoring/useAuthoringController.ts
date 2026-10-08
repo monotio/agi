@@ -1,3 +1,4 @@
+import { PROFILES, type ProfileId } from "../../../src/runtime/profile.ts";
 import type { AgentRuntimeDeps } from "../../../src/agent/tools.ts";
 import type { ProjectSession } from "../project/projectSession.ts";
 import type { ProjectSnapshot } from "../../../src/authoring/projectModel.ts";
@@ -664,6 +665,9 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
         createInstalledConversation({
           game: booted,
           locator: installedConversationLocator(booted),
+          ...(state.profile && Object.hasOwn(PROFILES, state.profile)
+            ? { profileId: state.profile as ProfileId }
+            : {}),
           config: getLlmConfig!,
           runtime: getAgentRuntime,
         }),
@@ -1062,6 +1066,10 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
   ): Promise<void> {
     if (options.getConversationMode) {
       const mode = options.getConversationMode();
+      const profileId =
+        state.profile && Object.hasOwn(PROFILES, state.profile)
+          ? (state.profile as ProfileId)
+          : undefined;
       const booted = getBootedGame();
       const agent = await getConversationAgent();
       if (!agent || getBootedGame() !== booted) return;
@@ -1083,6 +1091,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
         await agent.submit({
           instruction,
           mode,
+          ...(profileId ? { profileId } : {}),
           context: `Current room ${state.powerUp.room}`,
           runtime: () => ({
             ...runtime,
