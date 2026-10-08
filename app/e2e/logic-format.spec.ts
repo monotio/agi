@@ -87,6 +87,7 @@ test("format on leaving is opt-in and closing a tab keeps the formatted draft @w
   await expect.poll(() => workspaceDocument(page, "logic:1")).toBe(FORMATTED);
   await workspaceSaved(page);
   await page.reload();
+  await waitForRoom(page, 1, { coldBoot: true });
   await expect(page.getByTestId("workspace-logic-editor")).toBeVisible();
   await expect.poll(() => workspaceDocument(page, "logic:1")).toBe(FORMATTED);
 });

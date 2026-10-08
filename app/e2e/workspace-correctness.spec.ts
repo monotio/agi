@@ -432,6 +432,7 @@ for (const [width, height] of [
       await session.drafts().flush();
     });
     await page.reload();
+    await waitForRoom(page, 1, { coldBoot: true });
     const error = page.getByTestId("launch-recovery-error");
     await expect(error).toBeVisible();
     await shot(page, `recovery-${width}`);
