@@ -371,7 +371,15 @@ flowchart LR
 5. `worker/presentation.ts` posts the screen as a `frame` message, transferring its buffers.
 6. `engine/useWorkerLink.ts` receives it, and `play/usePresentation.ts` composites it (`render/composite.ts`) onto the GPU stage (`three/AgiStage.ts`).
 
-**The agent writes a room**
+**A conversation becomes an answer or edit**
+
+1. `agent/AgentDrawer.vue` places one `AgentPanel.vue` in Play, Create or the blank stage. Closing it or changing modes retains its draft and read position.
+2. `useAuthoringController.getConversationAgent` supplies the game’s shared `WorkspaceAgent`. Saved projects use their `ProjectSession`; installed editions use a detached conversation adapter.
+3. `WorkspaceAgent.submit` captures request authority and identities before calling the provider. Play and prepared inspection requests use `ASK_TOOLS`; ordinary Create requests can read or propose changes with `WORKSPACE_AGENT_TOOLS`.
+4. Native reads retain captured result payloads. Complete change sets go through `ProjectSession` admission and History; the conversation never writes resources through a second owner.
+5. Conversation storage failures retain the answer and expose Retry save. `agentNavigation.ts` checks identities when a result opens its native editor; older results retain their own preview.
+
+**Room generation answers the interpreter**
 
 1. When the project's room-generation setting is on, `new.room` calls the `prepareRoom` host hook (`Engine.newRoom`); `worker/host.ts` asks for a room only when the room has no logic yet. Create with AI turns the setting on by default. Other games start with it off. The creator can switch it in Home or Create game Details.
 2. `worker/hostRequests.ts` posts a `hostRequest` and parks the interpreter; the worker keeps serving other messages.
