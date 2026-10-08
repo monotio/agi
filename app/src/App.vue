@@ -805,7 +805,7 @@ watch(
               :class="{ 'ask-button--away': state.powerUp.open }"
               data-testid="menu-assistant"
               :aria-expanded="state.powerUp.open"
-              :title="VOCABULARY.agent.help"
+              title="Ask questions or get hints about this game."
               :disabled="
                 (state.powerUp.mode === 'room' && state.powerUp.open) ||
                 state.recording.active ||

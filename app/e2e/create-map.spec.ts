@@ -46,11 +46,14 @@ test("Play uses the shared Agent name and retains hint mode", async ({ page }) =
   await page.getByRole("radio", { name: "Play", exact: true }).click();
   const button = page.getByTestId("menu-assistant");
   await expect(button).toHaveText(VOCABULARY.agent.label);
-  await expect(button).toHaveAttribute("title", VOCABULARY.agent.help);
+  await expect(button).toHaveAttribute("title", "Ask questions or get hints about this game.");
   await button.click();
   const drawer = page.getByTestId("workspace-agent-panel");
   await expect(drawer.getByRole("heading", { name: "Agent", exact: true })).toBeVisible();
-  await expect(drawer.getByRole("heading")).toHaveAttribute("title", VOCABULARY.agent.help);
+  await expect(drawer.getByRole("heading")).toHaveAttribute(
+    "title",
+    "Ask questions or get hints about this game.",
+  );
   await expect(drawer.getByTestId("agent-read-only")).toHaveText("Read only");
   await drawer.getByTestId("agent-message").fill("Give me a hint");
   await drawer.getByTestId("agent-send").click();

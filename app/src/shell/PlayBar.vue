@@ -228,7 +228,7 @@ const shortcutsBlocked = computed(
             aria-label="Agent"
             :aria-pressed="state.powerUp.open"
             data-testid="workspace-agent"
-            :title="`${VOCABULARY.agent.help} (⌘I)`"
+            title="Ask questions or describe changes to your game. (⌘I)"
             :disabled="
               blank === undefined &&
               !commands?.commands.value.some((command) => command.id === 'agent.focus')

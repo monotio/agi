@@ -49,6 +49,12 @@ test("agent drawer overlays the workspace without narrowing the editor in both a
     expect(after.height).toBe(before.height);
     // The drawer hugs the right edge over the workspace, opaque.
     const drawer = page.locator(".agent-drawer");
+    await expect
+      .poll(async () => {
+        const bounds = await drawer.boundingBox();
+        return bounds ? bounds.x + bounds.width : null;
+      })
+      .toBe(1440);
     const box = (await drawer.boundingBox())!;
     expect(box.x + box.width).toBe(1440);
     expect(box.width).toBeGreaterThanOrEqual(400);
@@ -80,6 +86,7 @@ test("the drawer is full width on a phone @webkit-desktop", async ({ page }) => 
   await openWorkspaceAgent(page);
   const drawer = page.locator(".agent-drawer");
   await expect(page.getByTestId("workspace-agent-panel")).toBeVisible();
+  await expect.poll(async () => (await drawer.boundingBox())?.x).toBe(0);
   const box = (await drawer.boundingBox())!;
   expect(box.x).toBe(0);
   expect(box.width).toBe(390);

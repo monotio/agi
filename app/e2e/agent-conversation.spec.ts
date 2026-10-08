@@ -46,6 +46,10 @@ test("one Agent keeps the draft across Play, Create, resource selection and clos
   await expect(panel).toBeVisible();
   await expect(composer).toHaveValue("Keep this question while I inspect the game");
   await page.getByRole("radio", { name: "Play", exact: true }).click();
+  await expect(page.getByTestId("menu-assistant")).toHaveAttribute(
+    "title",
+    "Ask questions or get hints about this game.",
+  );
   await expect(panel).toBeVisible();
   await expect(composer).toHaveAttribute("placeholder", "Ask about this game…");
   await expect(composer).toHaveValue("Keep this question while I inspect the game");
@@ -55,6 +59,10 @@ test("one Agent keeps the draft across Play, Create, resource selection and clos
   await expect(panel).toBeVisible();
   await expect(composer).toHaveValue("Keep this question while I inspect the game");
   await page.getByRole("radio", { name: "Create", exact: true }).click();
+  await expect(page.getByTestId("workspace-agent")).toHaveAttribute(
+    "title",
+    "Ask questions or describe changes to your game. (⌘I)",
+  );
   await expect(panel).toBeVisible();
   await expect(composer).toHaveValue("Keep this question while I inspect the game");
   await expect(panel.getByRole("heading", { name: "Agent", exact: true })).toBeVisible();
