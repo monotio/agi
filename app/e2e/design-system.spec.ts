@@ -54,12 +54,14 @@ test("dialogs, sheets, menus and the Ask drawer share one entrance, and reduced 
   await page.getByTestId("menu-assistant").click();
   const drawer = page.getByTestId("agent-drawer");
   await expect(drawer).toBeVisible();
+  await expect(drawer.getByTestId("workspace-agent-panel")).toBeVisible();
   expect(await animation(drawer)).toBe("ui-sheet-in-left");
   await drawer.getByTestId("agent-panel-close").click();
 
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.getByTestId("menu-assistant").click();
   await expect(drawer).toBeVisible();
+  await expect(drawer.getByTestId("workspace-agent-panel")).toBeVisible();
   expect(await animation(drawer)).toBe("none");
   await drawer.getByTestId("agent-panel-close").click();
   await openGameOptions(page, "settings-menu");
