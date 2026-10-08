@@ -82,6 +82,27 @@ for (const width of [1440, 390]) {
     await expect(result).toBeHidden();
     await expect(composer).toHaveValue("My next question stays here");
     await expect(page.getByTestId("agent-view-result")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Undo this", exact: true })).toBeEnabled();
+    await expect(
+      page.getByRole("button", { name: "Restore to before this", exact: true }),
+    ).toBeEnabled();
+    if (width === 390) await page.getByTestId("agent-panel-close").click();
+    await page.getByRole("radio", { name: "Play", exact: true }).click();
+    if (width === 390) await page.getByRole("button", { name: "Agent", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Undo this", exact: true })).toHaveCount(0);
+    await expect(
+      page.getByRole("button", { name: "Restore to before this", exact: true }),
+    ).toHaveCount(0);
+    await page.getByTestId("agent-view-result").click();
+    await expect(result.getByTestId("agent-code-diff")).toBeVisible();
+    await result.getByRole("button", { name: "Back to chat", exact: true }).click();
+    if (width === 390) await page.getByTestId("agent-panel-close").click();
+    await page.getByRole("radio", { name: "Create", exact: true }).click();
+    if (width === 390) await openWorkspaceAgent(page);
+    await expect(page.getByRole("button", { name: "Undo this", exact: true })).toBeEnabled();
+    await expect(
+      page.getByRole("button", { name: "Restore to before this", exact: true }),
+    ).toBeEnabled();
     const boot = await workspaceDocument(page, "logic:0");
     if (width === 390) {
       await page.getByTestId("agent-panel-close").click();
