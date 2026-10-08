@@ -479,6 +479,7 @@ const canSend = computed(() => {
   void tick.value;
   return (
     !!agent.value &&
+    !engine.state.conversationTransitioning &&
     (!busy.value || (agent.value.canSteer && !readOnly.value && !formatReply.value))
   );
 });
