@@ -31,6 +31,8 @@ import {
 import { readProjectWorkspace } from "../../../src/authoring/projectWorkspace.ts";
 import { detectProfile, type ProfileId } from "../../../src/runtime/profile.ts";
 import type { CachedGameData } from "./gameTypes.ts";
+import { sameProjectContent } from "../../../src/authoring/projectContent.ts";
+import { readSoundDocumentEnvelope } from "../../../src/sound/document.ts";
 
 /** One kept or refused document: authored text or retained native bytes. */
 type EditableDocumentContent = string | Uint8Array;
@@ -74,6 +76,79 @@ const LEGACY_SOURCE_FIELDS = [
   ["views", "view", "builder"],
   ["sounds", "sound", "builder"],
 ] as const;
+
+/** Refresh only resource claims replaced by an accepted, compiled document image. */
+export function updateAcceptedSourceClaims(
+  state: Record<string, unknown> | undefined,
+  before: Readonly<Record<string, EditableDocumentContent>>,
+  accepted: Readonly<Record<string, EditableDocumentContent>>,
+  profileId: ProfileId,
+): Record<string, unknown> | undefined {
+  const stored = state?.["sources"];
+  if (!isRecord(stored)) return state;
+  const sources = { ...stored };
+  for (const [field, kind, form] of LEGACY_SOURCE_FIELDS) {
+    const entries = sources[field];
+    // Unreadable compatibility fields remain preserved for review.
+    if (!Array.isArray(entries)) continue;
+    const changed = Object.keys({ ...before, ...accepted }).filter(
+      (key) =>
+        RESOURCE_KEY.exec(key)?.[1] === kind && !sameProjectContent(before[key], accepted[key]),
+    );
+    if (kind === "sound") {
+      for (const entry of entries) {
+        if (!Array.isArray(entry) || entry.length !== 2 || !Number.isInteger(entry[0])) continue;
+        const key = `sound:${entry[0]}`;
+        const content = accepted[key];
+        if (typeof content !== "string" || changed.includes(key)) continue;
+        // A saved workspace may already carry the newer verified source. Only
+        // a unique, well-formed tagged claim under this profile can be repaired;
+        // malformed or ambiguous compatibility claims retain their refusals.
+        if (entries.filter((other) => Array.isArray(other) && other[0] === entry[0]).length !== 1)
+          continue;
+        try {
+          const old = readSoundDocumentEnvelope(entry[1]);
+          const body: unknown = JSON.parse(content);
+          const next = Array.isArray(body) ? body : readSoundDocumentEnvelope(body).serialize();
+          if (
+            old.profileId === profileId &&
+            JSON.stringify(old.serialize()) !== JSON.stringify(next)
+          )
+            changed.push(key);
+        } catch {
+          // Retain the invalid source for review and strict archive validation.
+        }
+      }
+    }
+    if (!changed.length) continue;
+    const replacements: Record<string, unknown> = Object.create(null);
+    for (const key of changed) {
+      const content = accepted[key];
+      // Byte-only edits and removals have no authored source claim.
+      if (typeof content === "string")
+        replacements[key] = form === "text" ? content : JSON.parse(content);
+    }
+    const remaining = new Set(changed);
+    sources[field] = entries.flatMap((entry: unknown) => {
+      if (
+        !Array.isArray(entry) ||
+        entry.length !== 2 ||
+        !Number.isInteger(entry[0]) ||
+        entry[0] < 0 ||
+        entry[0] > 255
+      )
+        return [entry];
+      const key = `${kind}:${entry[0]}`;
+      if (!changed.includes(key)) return [entry];
+      if (!remaining.delete(key) || !Object.hasOwn(replacements, key)) return [];
+      return [[entry[0], replacements[key]]];
+    });
+    for (const key of remaining)
+      if (Object.hasOwn(replacements, key))
+        (sources[field] as unknown[]).push([Number(key.slice(kind.length + 1)), replacements[key]]);
+  }
+  return { ...state, sources };
+}
 
 function describeKey(key: string): string {
   const resource = RESOURCE_KEY.exec(key);

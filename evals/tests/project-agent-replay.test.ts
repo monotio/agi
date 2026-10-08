@@ -9,6 +9,12 @@ import { compileProjectDocuments } from "../../src/authoring/projectDocuments.ts
 import { writeProjectWorkspace } from "../../src/authoring/projectWorkspace.ts";
 import { createContainer } from "../../src/container/container.ts";
 import { requireProjectId } from "../../src/gameIdentity.ts";
+import { prepareLocalProject } from "../../app/src/project/localProject.ts";
+import { inspectEditableProject } from "../../app/src/project/projectWorkspaceSource.ts";
+import { buildProjectZip } from "../../app/src/archive/projectArchive.ts";
+import { readGameZip } from "../../app/src/archive/gameZip.ts";
+import type { CachedGameData } from "../../app/src/project/gameTypes.ts";
+import { openContainer } from "../../src/container/container.ts";
 interface Case {
   name: string;
   projectAgent?: {
@@ -23,6 +29,9 @@ interface Case {
     expectedDocuments?: Record<string, string | null>;
     readOnly?: boolean;
     unreadableSound?: number;
+    starterProject?: boolean;
+    approveAndExportSound?: number;
+    expectedSoundPayload?: number[];
   };
 }
 const directory = new URL("../fixtures/bad-cases/", import.meta.url);
@@ -31,6 +40,9 @@ for (const file of readdirSync(directory).filter((file) => file.endsWith(".json"
   const content = stored.projectAgent;
   if (!content) continue;
   test(`replays project agent bad case: ${stored.name}`, async () => {
+    const starter = content.starterProject
+      ? prepareLocalProject({ title: "Replay", kind: "starter" }).data()
+      : undefined;
     const documents = Object.fromEntries(
       Object.entries(content.documents).map(([key, value]) => [
         key,
@@ -38,8 +50,17 @@ for (const file of readdirSync(directory).filter((file) => file.endsWith(".json"
       ]),
     );
     const compiled = compileProjectDocuments({
-      files: Object.fromEntries(createContainer().files),
-      documents,
+      files: starter?.files ?? Object.fromEntries(createContainer().files),
+      documents: {
+        ...(starter === undefined
+          ? {}
+          : inspectEditableProject({
+              ...starter,
+              projectId: requireProjectId(stored.name),
+              authoredAt: "",
+            }).documents),
+        ...documents,
+      },
       profileId: "2.936",
     });
     const files = Object.fromEntries(compiled.files());
@@ -49,14 +70,17 @@ for (const file of readdirSync(directory).filter((file) => file.endsWith(".json"
       directory.set([1, 255, 255], content.unreadableSound * 3);
       files["SNDDIR"] = directory;
     }
+    let published: CachedGameData | undefined;
+    let saved: CachedGameData | undefined;
     const session = openProjectSession({
       data: {
+        ...starter,
         projectId: requireProjectId(stored.name),
         title: "Replay",
         authoredAt: "",
         files,
         words: [],
-        workspace: writeProjectWorkspace(documents),
+        workspace: writeProjectWorkspace(compiled.documents()),
       },
       lifetime: "replay",
       admission: {
@@ -65,7 +89,11 @@ for (const file of readdirSync(directory).filter((file) => file.endsWith(".json"
           return { status: "committed", expected: null, current: null, patchGeneration: 1 };
         },
       },
+      publish(_snapshot, data) {
+        published = { ...data, projectId: requireProjectId(stored.name), authoredAt: "" };
+      },
       async write(request) {
+        saved = { ...request.data, projectId: requireProjectId(stored.name), authoredAt: "" };
         return {
           commitId: request.commitId,
           workspaceId: request.workspaceId,
@@ -132,6 +160,40 @@ for (const file of readdirSync(directory).filter((file) => file.endsWith(".json"
         content.expectedKeys,
       );
       assert.equal(session.history.capture().commits.length, content.expectedCommits ?? 1);
+      if (content.approveAndExportSound !== undefined) {
+        assert.ok(content.expectedSoundPayload);
+        const key = `sound:${content.approveAndExportSound}`;
+        const source = agent
+          .pending()!
+          .changes()
+          .find((change) => change.key === key)!.content;
+        await agent.approve();
+        assert.ok(published);
+        const immediate = await readGameZip(await buildProjectZip(published));
+        await session.flush();
+        assert.ok(saved);
+        const reopened = await readGameZip(await buildProjectZip(saved));
+        for (const archive of [immediate, reopened]) {
+          assert.deepEqual(
+            archive.files,
+            Object.fromEntries(session.model.capture().lastAdmissibleBuild!.files()),
+          );
+          const claims = archive.project!.authoringState!["sources"] as {
+            sounds: [number, unknown][];
+          };
+          assert.deepEqual(
+            claims.sounds.find(([num]) => num === content.approveAndExportSound)![1],
+            JSON.parse(String(source)),
+          );
+          assert.deepEqual(
+            openContainer(new Map(Object.entries(archive.files))).getResource(
+              "sound",
+              content.approveAndExportSound,
+            ),
+            Uint8Array.from(content.expectedSoundPayload!),
+          );
+        }
+      }
       for (const [key, value] of Object.entries(content.expectedDocuments ?? {}))
         assert.equal(session.model.capture().read(key)?.content ?? null, value);
     } finally {
