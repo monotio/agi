@@ -45,6 +45,7 @@ import { clearCachedGame } from "../project/gameStorage.ts";
 import { bindProgressTarget, resolveProgressTarget } from "../project/progressBinding.ts";
 import {
   advanceAuthoring,
+  ResourceCommitError,
   requireSaved,
   STALE_SAVE_MESSAGE,
   PROJECT_REMOVED_MESSAGE,
@@ -113,6 +114,7 @@ export function useEngine(
   let projectSession: ProjectSession | null = null;
   let projectSessionOpening: string | undefined;
   let projectSessionOpeningTask: Promise<void> | undefined;
+  let projectSessionOpeningError: unknown;
   const pendingProjectRestart = shallowRef<PendingProjectRestart | null>(null);
   let projectOpenEpoch = 0;
   let audio: AgiAudio | null = null;
@@ -486,6 +488,7 @@ export function useEngine(
       !game.removed &&
       !game.behindStorage;
     projectSessionOpening = grant.runToken;
+    projectSessionOpeningError = undefined;
     const opening = Promise.all([
       import("../project/projectSession.ts"),
       import("./mainProjectAdmission.ts"),
@@ -607,7 +610,17 @@ export function useEngine(
         if ((await projectSession.ready) && current()) void autosaveController.flushAutosave();
       })
       .catch((error: unknown) => {
-        if (current()) state.status = String(error instanceof Error ? error.message : error);
+        if (
+          projectOpenEpoch !== epoch ||
+          lifecycle.getBootedGame() !== game ||
+          link.getWorker() !== worker
+        )
+          return;
+        projectSessionOpeningError = error;
+        if (error instanceof ResourceCommitError && error.behindStorage) {
+          if (error.removed) tellRemoved();
+          else tellBehindStorage();
+        } else state.status = String(error instanceof Error ? error.message : error);
       })
       .finally(() => {
         if (projectSessionOpening === grant.runToken) projectSessionOpening = undefined;
@@ -635,6 +648,7 @@ export function useEngine(
     if (!reply.grant) throw new Error(reply.reason ?? "The project conversation could not open.");
     await openSession(reply.grant);
     if (lifecycle.getBootedGame() !== game || link.getWorker() !== worker) return null;
+    if (projectSessionOpeningError !== undefined) throw projectSessionOpeningError;
     return projectSession;
   }
   async function adoptHistorySession(game: BootedGame, boot: HistoryBoot, snapshot: unknown) {
@@ -1228,13 +1242,22 @@ export function useEngine(
         };
         lifecycle.setBootedGame(game);
       }
-      if (
-        mode !== "create" ||
-        projectSessionOpening ||
-        !game?.authoredGame ||
-        state.phase !== "running"
-      )
-        return true;
+      if (mode !== "create" || !game?.authoredGame || state.phase !== "running") return true;
+      if (projectSessionOpening !== undefined) {
+        const openingRun = projectSessionOpening;
+        const openingEpoch = projectOpenEpoch;
+        await projectSessionOpeningTask;
+        if (
+          projectMode !== mode ||
+          lifecycle.getBootedGame() !== game ||
+          link.getWorker() !== worker ||
+          projectOpenEpoch !== openingEpoch ||
+          projectSession?.runToken !== openingRun
+        )
+          return false;
+      }
+      // A Play conversation can open the admission lane without entering Create.
+      // Complete the requested worker transition even when that lane already exists.
       const data = game.authoredGame;
       return link
         .query("projectCreate", {

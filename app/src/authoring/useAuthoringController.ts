@@ -761,7 +761,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
         String(engineState?.profile ?? state.profile ?? "unknown"),
       );
     } catch (e) {
-      state.powerUp.error = String(e);
+      state.powerUp.error = e instanceof Error ? e.message : String(e);
     } finally {
       state.powerUp.busy = false;
     }
