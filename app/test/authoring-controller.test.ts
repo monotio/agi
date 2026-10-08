@@ -296,6 +296,119 @@ test("openPowerUp enters remix mode, pauses engine, and queries room", async () 
   assert.equal(powerUp.busy, false);
 });
 
+for (const outcome of [
+  "ready",
+  "reset",
+  "failed-reset",
+  "closed",
+  "mode",
+  "replaced",
+  "installed-replaced",
+  "commit-refused",
+  "no-game",
+] as const) {
+  test(`AI settings held by Assistant opening ${outcome === "ready" ? "apply after attachment" : `reject ${outcome} ownership`}`, async () => {
+    const pending = Promise.withResolvers<void>();
+    const powerUp = createMockPowerUp();
+    let mode: "play" | "create" = "play";
+    let game: BootedGame | null =
+      outcome === "installed-replaced"
+        ? {
+            installed: true,
+            title: "Installed",
+            files: createTestFiles(),
+            words: [],
+            revision: computeResourceRevision(createTestFiles()),
+          }
+        : null;
+    const controller = useAuthoringController({
+      state: {
+        phase: "running",
+        powerUp,
+        agentTask: null,
+        agentLog: [],
+        profile: "2.936",
+        worldTick: 0,
+        planDurableRev: "",
+      },
+      getConversationMode: () => mode,
+      getWorker: () => null,
+      query: async <T>() => {
+        await pending.promise;
+        return { room: 1 } as T;
+      },
+      logAgent: () => {},
+      readFrames: async () => [],
+      pauseEngine: () => {},
+      resumeEngine: () => {},
+      getBootedGame: () => game,
+      setBootedGame: () => {},
+      flushAutosave: async () => {},
+      getAutosaveWrite: async () => true,
+      clearAutosave: () => {},
+      awaitPatched: ackPatch,
+    });
+    const author = AgentSession.fromAuthoredData(mockConfig, () => {}, createTestFiles(), []);
+    if (outcome !== "no-game") controller.setSession(author);
+    const opening = controller.openPowerUp(mockConfig);
+    let settled = false;
+    let commits = 0;
+    const applying = controller.updateAiConfig({ ...mockConfig, model: "next-model" }, () => {
+      commits++;
+      if (outcome === "commit-refused") throw new Error("Settings storage refused the write.");
+    });
+    const observed = applying.then(
+      () => {
+        settled = true;
+        return null;
+      },
+      (error: unknown) => {
+        settled = true;
+        return error;
+      },
+    );
+    await Promise.resolve();
+    assert.equal(settled, false, "settings wait for the held attachment");
+    if (outcome === "reset" || outcome === "failed-reset") {
+      controller.resetSession();
+      controller.setSession(author);
+      powerUp.error = "Replacement notice.";
+      powerUp.busy = true;
+    }
+    if (outcome === "closed") powerUp.open = false;
+    if (outcome === "mode") mode = "create";
+    if (outcome === "replaced" || outcome === "installed-replaced")
+      game = {
+        installed: outcome === "installed-replaced",
+        title: "Replacement",
+        files: createTestFiles(),
+        words: [],
+        revision: computeResourceRevision(createTestFiles()),
+      };
+    if (outcome === "failed-reset") pending.reject(new Error("Retired opening failure."));
+    else pending.resolve();
+    await opening;
+    if (outcome === "reset" || outcome === "failed-reset") {
+      assert.equal(powerUp.error, "Replacement notice.");
+      assert.equal(powerUp.busy, true);
+    }
+    const error = await observed;
+    if (outcome === "ready" || outcome === "no-game") {
+      assert.equal(error, null);
+      assert.equal(commits, 1);
+      assert.equal(
+        controller.getSession()?.getProviderContext().model,
+        outcome === "no-game" ? undefined : "next-model",
+      );
+    } else {
+      assert.match(String(error), /game changed|current agent task|Settings storage refused/);
+      assert.equal(commits, outcome === "commit-refused" ? 1 : 0);
+      assert.equal(controller.getSession(), author);
+      assert.equal(author.getProviderContext().model, mockConfig.model);
+    }
+  });
+}
+
 test("remixNeedsSave flag transitions cleanly and resetSession cancels active task", () => {
   const powerUp = createMockPowerUp();
   const controller = useAuthoringController({
@@ -1890,94 +2003,104 @@ test("the plan's boolean save contract reports a refused project flush and Retry
   );
 });
 
-test("AI settings wait for the Assistant chat's catalog fork before loading its session", async (t) => {
-  installLocalStorageMock(t);
-  const projectId = testProjectId("settings-catalog-fork");
-  const files = createTestFiles();
-  const revision = computeResourceRevision(files);
-  await saveAuthoredGame(projectId, {
-    title: "Catalog",
-    files,
-    words: [],
-    library: {
-      version: 1,
-      source: "catalog",
+for (const outcome of ["ready", "disposed", "retired"] as const) {
+  test(`AI settings wait for the Assistant chat's catalog fork before loading its session (${outcome})`, async (t) => {
+    installLocalStorageMock(t);
+    const projectId = testProjectId("settings-catalog-fork");
+    const files = createTestFiles();
+    const revision = computeResourceRevision(files);
+    await saveAuthoredGame(projectId, {
+      title: "Catalog",
+      files,
+      words: [],
+      library: {
+        version: 1,
+        source: "catalog",
+        revision,
+        catalog: { id: "settings", version: "1" },
+        validation: { status: "ready", message: "Ready" },
+      },
+    });
+    const data = (await loadAuthoredGame(projectId))!;
+    let game: BootedGame = {
+      installed: false,
+      projectId,
+      title: data.title,
       revision,
-      catalog: { id: "settings", version: "1" },
-      validation: { status: "ready", message: "Ready" },
-    },
+      files,
+      words: [],
+      authoredGame: data,
+      historyLifetime: await readHistoryLifetime(projectId),
+    };
+    const project = openProjectSession({
+      data,
+      lifetime: game.historyLifetime!,
+      admission: {
+        runToken: "settings-catalog-run",
+        admit: async () => assert.fail("a chat never admits resource changes"),
+      },
+      forked(saved, lifetime) {
+        game = {
+          ...game,
+          projectId: saved.projectId,
+          authoredGame: saved,
+          historyLifetime: lifetime,
+        };
+      },
+    });
+    t.after(() => project.dispose());
+    let activeProject: typeof project | null = project;
+    let release!: () => void;
+    const loading = new Promise<void>((resolve) => (release = resolve));
+    const controller = useAuthoringController({
+      state: {
+        phase: "running",
+        powerUp: createMockPowerUp(),
+        agentTask: null,
+        agentLog: [],
+        profile: "2.936",
+        worldTick: 0,
+        planDurableRev: "",
+      },
+      getProjectSession: () => activeProject,
+      getWorker: () => null,
+      query: async <T>() => null as T,
+      logAgent: () => {},
+      readFrames: async () => [],
+      pauseEngine: () => {},
+      resumeEngine: () => {},
+      getBootedGame: () => game,
+      setBootedGame: (next) => {
+        game = next!;
+      },
+      flushAutosave: async () => {},
+      getAutosaveWrite: async () => true,
+      clearAutosave: () => {},
+      awaitPatched: ackPatch,
+      loadAuthoring: async () => {
+        await loading;
+        return authoringStack;
+      },
+    });
+    await project.saveChats(project.chats());
+    const applying = controller.updateAiConfig(mockConfig);
+    await project.flush();
+    assert.notEqual(game.projectId, projectId);
+    if (outcome === "disposed") project.dispose();
+    if (outcome === "retired") activeProject = null;
+    release();
+    if (outcome === "ready") {
+      await applying;
+      assert.equal(controller.getSession()!.getProviderContext().model, mockConfig.model);
+      assert.equal(project.saveStatus().state, "saved");
+    } else {
+      await assert.rejects(applying, /game changed/);
+      assert.equal(controller.getSession(), null);
+    }
+    await clearCachedGame(projectId);
+    await clearCachedGame(game.projectId!);
   });
-  const data = (await loadAuthoredGame(projectId))!;
-  let game: BootedGame = {
-    installed: false,
-    projectId,
-    title: data.title,
-    revision,
-    files,
-    words: [],
-    authoredGame: data,
-    historyLifetime: await readHistoryLifetime(projectId),
-  };
-  const project = openProjectSession({
-    data,
-    lifetime: game.historyLifetime!,
-    admission: {
-      runToken: "settings-catalog-run",
-      admit: async () => assert.fail("a chat never admits resource changes"),
-    },
-    forked(saved, lifetime) {
-      game = {
-        ...game,
-        projectId: saved.projectId,
-        authoredGame: saved,
-        historyLifetime: lifetime,
-      };
-    },
-  });
-  t.after(() => project.dispose());
-  let release!: () => void;
-  const loading = new Promise<void>((resolve) => (release = resolve));
-  const controller = useAuthoringController({
-    state: {
-      phase: "running",
-      powerUp: createMockPowerUp(),
-      agentTask: null,
-      agentLog: [],
-      profile: "2.936",
-      worldTick: 0,
-      planDurableRev: "",
-    },
-    getProjectSession: () => project,
-    getWorker: () => null,
-    query: async <T>() => null as T,
-    logAgent: () => {},
-    readFrames: async () => [],
-    pauseEngine: () => {},
-    resumeEngine: () => {},
-    getBootedGame: () => game,
-    setBootedGame: (next) => {
-      game = next!;
-    },
-    flushAutosave: async () => {},
-    getAutosaveWrite: async () => true,
-    clearAutosave: () => {},
-    awaitPatched: ackPatch,
-    loadAuthoring: async () => {
-      await loading;
-      return authoringStack;
-    },
-  });
-  await project.saveChats(project.chats());
-  const applying = controller.updateAiConfig(mockConfig);
-  await project.flush();
-  assert.notEqual(game.projectId, projectId);
-  release();
-  await applying;
-  assert.equal(controller.getSession()!.getProviderContext().model, mockConfig.model);
-  assert.equal(project.saveStatus().state, "saved");
-  await clearCachedGame(projectId);
-  await clearCachedGame(game.projectId!);
-});
+}
 
 test("a stale tab's AI settings change says the game changed elsewhere and never saves over the newer project", async (t) => {
   const { ui, controller, untouched } = await staleTab(t, "two-tab-ai-config");

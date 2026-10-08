@@ -9,7 +9,13 @@ import type { InjectionKey, Ref } from "vue";
 import type { EngineApi } from "../engine/engineContext.ts";
 import type { LlmConfig, ProviderType } from "../agent/llmClient.ts";
 import { DEFAULT_MODELS, MODEL_OPTIONS } from "../../../src/agent/modelEffort.ts";
-import { copyAiSettings, loadAiSettings, saveAiSettings, type AiSettings } from "./aiSettings.ts";
+import {
+  copyAiSettings,
+  loadAiSettings,
+  saveAiSettings,
+  validateAiSettings,
+  type AiSettings,
+} from "./aiSettings.ts";
 import { DEFAULT_TASK_BUDGET_USD } from "./aiSettings.ts";
 
 export type AiSettingsContext = "header" | "create" | "assistant";
@@ -103,14 +109,24 @@ export function createAiSettings(engine: EngineApi, deps: AiSettingsDeps) {
     aiSettingsSaving.value = true;
     aiSettingsError.value = "";
     try {
-      saveAiSettings(localStorage, settings);
-      aiSettings.value = copyAiSettings(settings);
-      taskBudget.value = budgetUsd;
-      provider.value = settings.provider;
-      model.value = settings.profiles[settings.provider].model;
-      apiKey.value = settings.profiles[settings.provider].apiKey;
-      effort.value = settings.profiles[settings.provider].effort;
-      await updateAiConfig(llmConfig());
+      validateAiSettings(localStorage, settings);
+      const profile = settings.profiles[settings.provider];
+      const config: LlmConfig = {
+        provider: settings.provider,
+        apiKey: profile.apiKey.trim(),
+        model: profile.model.trim(),
+        effort: profile.effort,
+        budgetUsd,
+      };
+      await updateAiConfig(config, () => {
+        saveAiSettings(localStorage, settings);
+        aiSettings.value = copyAiSettings(settings);
+        taskBudget.value = budgetUsd;
+        provider.value = settings.provider;
+        model.value = settings.profiles[settings.provider].model;
+        apiKey.value = settings.profiles[settings.provider].apiKey;
+        effort.value = settings.profiles[settings.provider].effort;
+      });
       if (state.powerUp.open) await openPowerUp(llmConfig());
       aiSettingsDialog.value?.close();
     } catch (error) {

@@ -194,7 +194,7 @@ export interface AuthoringController {
   stopAgent(): void;
   continueAgent(requestLimit?: number): void;
   discardAgent(): void;
-  updateAiConfig(config: LlmConfig): Promise<void>;
+  updateAiConfig(config: LlmConfig, commit?: () => void): Promise<void>;
   /**
    * Persist files the running game already holds (Exit) with the session
    * describing them; the booted game follows. Rejects as stale when storage
@@ -330,6 +330,11 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
   const projectTurnBases = new WeakMap<BootedGame, ProjectSnapshot>();
   let session: AgentSession | null = null;
   let activeAskAgent: ReturnType<typeof borrowWorkspaceAgent> | null = null;
+  let conversationAgent: ConversationAgent | null = null;
+  let powerUpOpening: {
+    promise: Promise<void>;
+    owner: { project: ProjectSession | null | undefined };
+  } | null = null;
   let installedConversation: {
     game: BootedGame;
     opening: Promise<{ agent: ConversationAgent; dispose(): void }>;
@@ -618,6 +623,8 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
 
   function resetSession(): void {
     requestGeneration++;
+    conversationAgent = null;
+    powerUpOpening = null;
     const installed = installedConversation;
     installedConversation = null;
     if (installed)
@@ -663,6 +670,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
         config: getLlmConfig!,
         runtime: getAgentRuntime,
       });
+      conversationAgent = agent;
       return agent;
     }
     if (installedConversation?.game === booted) return (await installedConversation.opening).agent;
@@ -684,6 +692,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
       owner.dispose();
       return null;
     }
+    conversationAgent = owner.agent;
     return owner.agent;
   }
 
@@ -712,8 +721,24 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
   }
 
   async function openPowerUp(config: LlmConfig): Promise<void> {
+    if (powerUpOpening) return powerUpOpening.promise;
+    const owner = { project: options.getProjectSession?.() };
+    const opening = { promise: preparePowerUp(config, owner), owner };
+    powerUpOpening = opening;
+    try {
+      await opening.promise;
+    } finally {
+      if (powerUpOpening === opening) powerUpOpening = null;
+    }
+  }
+
+  async function preparePowerUp(
+    config: LlmConfig,
+    owner: { project: ProjectSession | null | undefined },
+  ): Promise<void> {
     if (state.powerUp.busy) return;
     if (state.powerUp.open && state.powerUp.mode === "room") return;
+    const generation = requestGeneration;
     if (state.powerUp.mode === "room") state.powerUp.mode = "remix";
     pauseEngine("powerUp");
     state.powerUp.open = true;
@@ -733,9 +758,12 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
     state.powerUp.feedStartSeq = (state.agentLog.at(-1)?.seq ?? 0) + 1;
     try {
       const engineState = await query("state");
+      if (generation !== requestGeneration) return;
       state.powerUp.room = Number(engineState?.room ?? 0);
       if (options.getConversationMode) {
         await getConversationAgent();
+        if (generation !== requestGeneration) return;
+        owner.project = options.getProjectSession?.();
         state.powerUp.needsConfig = config.provider !== "stub" && !config.apiKey.trim();
         return;
       }
@@ -761,16 +789,37 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
         String(engineState?.profile ?? state.profile ?? "unknown"),
       );
     } catch (e) {
-      state.powerUp.error = e instanceof Error ? e.message : String(e);
+      if (generation === requestGeneration)
+        state.powerUp.error = e instanceof Error ? e.message : String(e);
     } finally {
-      state.powerUp.busy = false;
+      if (generation === requestGeneration) state.powerUp.busy = false;
     }
   }
 
   /** Apply shared AI settings to the next turn without replacing authored game state. */
-  async function updateAiConfig(config: LlmConfig): Promise<void> {
-    if (state.powerUp.busy)
-      throw new Error("Wait for the current agent task to finish before changing AI settings.");
+  async function updateAiConfig(config: LlmConfig, commit?: () => void): Promise<void> {
+    const generation = requestGeneration;
+    const game = getBootedGame();
+    const currentSession = session;
+    const mode = options.getConversationMode?.();
+    const opening = powerUpOpening;
+    const openedProject = options.getProjectSession?.();
+    if (opening) await opening.promise;
+    const ownerProject = openedProject ?? opening?.owner.project;
+    function requireConfigOwner(): void {
+      if (
+        generation !== requestGeneration ||
+        session !== currentSession ||
+        options.getConversationMode?.() !== mode ||
+        (opening && !state.powerUp.open) ||
+        (ownerProject && (ownerProject.closed || options.getProjectSession?.() !== ownerProject)) ||
+        (getBootedGame() !== game && !ownerProject)
+      )
+        throw new Error("The game changed while applying AI settings. Try again.");
+      if (state.powerUp.busy || conversationAgent?.busy)
+        throw new Error("Wait for the current agent task to finish before changing AI settings.");
+    }
+    requireConfigOwner();
 
     // Opening the Assistant can still be saving its first catalog chat.
     // Settle that owned fork before capturing the game a new session loads.
@@ -780,6 +829,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
       if (options.getProjectSession?.() !== project || project.closed)
         throw new Error("The game changed while applying AI settings. Try again.");
     }
+    requireConfigOwner();
     const current = session;
     let replacement: AgentSession;
     if (current) {
@@ -792,23 +842,30 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
       });
     } else {
       const game = getBootedGame();
-      if (!game) return;
+      if (!game) {
+        commit?.();
+        return;
+      }
       replacement = await createGameSession(game, config);
+      requireConfigOwner();
       if (getBootedGame() !== game || session)
         throw new Error("The game changed while applying AI settings. Try again.");
-      attachSessionRuntime(replacement, game);
     }
 
+    // Storage and shared configuration commit synchronously after acceptance.
+    // A refused write leaves the current runtime and session in place.
+    commit?.();
+    if (!current) attachSessionRuntime(replacement, getBootedGame()!);
     session = replacement;
     state.agentTask = replacement.task.snapshot();
     if (!options.getProjectSession?.()) state.powerUp.messages = replacement.getMessages();
     state.powerUp.needsConfig = !replacement.isConfigured();
     state.powerUp.error = "";
 
-    const game = getBootedGame();
-    if (!game) return;
+    const savedGame = getBootedGame();
+    if (!savedGame) return;
     try {
-      if (!(await saveConversationRecord(game, replacement)))
+      if (!(await saveConversationRecord(savedGame, replacement)))
         logAgent("error", "Browser storage could not save the updated AI session.");
     } catch (error) {
       if (error instanceof ResourceCommitError && error.code === "stale") {

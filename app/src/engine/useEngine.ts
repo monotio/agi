@@ -1058,9 +1058,13 @@ export function useEngine(
     return historyView!.undoStartOver();
   }
 
-  async function updateAiConfig(config: LlmConfig): Promise<void> {
-    activeLlmConfig = config;
-    if (authoringController) await authoringController.updateAiConfig(config);
+  async function updateAiConfig(config: LlmConfig, commit?: () => void): Promise<void> {
+    const publish = () => {
+      commit?.();
+      activeLlmConfig = config;
+    };
+    if (authoringController) await authoringController.updateAiConfig(config, publish);
+    else publish();
   }
 
   const { startTestRecording, stopTestRecording, cancelTestRecording, saveRecordedTest } =

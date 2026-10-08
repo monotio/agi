@@ -105,7 +105,7 @@ export function loadAiSettings(
   return settings;
 }
 
-export function saveAiSettings(storage: SettingsStorage, settings: AiSettings): void {
+export function validateAiSettings(storage: SettingsStorage, settings: AiSettings): void {
   const stored = storedRecord(storage);
   if (stored && stored["version"] !== 1)
     throw new Error(
@@ -119,6 +119,10 @@ export function saveAiSettings(storage: SettingsStorage, settings: AiSettings): 
     if (!modelEffortOptions(settings.profiles[name].model).includes(settings.profiles[name].effort))
       throw new Error(`Choose a supported reasoning effort for ${name}.`);
   }
+}
+
+export function saveAiSettings(storage: SettingsStorage, settings: AiSettings): void {
+  validateAiSettings(storage, settings);
   storage.setItem(AI_SETTINGS_KEY, JSON.stringify(settings));
 }
 
