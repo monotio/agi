@@ -413,7 +413,7 @@ test("one coordinated review selects resources, records a chat checkpoint and un
   );
   const messageId = agent.pending()!.messageId;
   await agent.approve(["logic:0", "picture:1"]);
-  assert.equal(agent.reviewOutcome(messageId), "Approved");
+  assert.equal(agent.reviewOutcome(messageId), "Applied");
   const commit = session.history.capture().commits.at(-1)!;
   assert.equal(commit.author, "agent");
   assert.equal(commit.label, "AI: Welcome sign");
@@ -441,7 +441,7 @@ test("a committed approval closes review while its chat save is still pending", 
   };
   let reviewClosed = false;
   const off = agent.subscribe(() => {
-    if (agent.pending() === null && agent.reviewOutcome(messageId) === "Approved")
+    if (agent.pending() === null && agent.reviewOutcome(messageId) === "Applied")
       reviewClosed = true;
   });
   const approval = agent.approve();
@@ -960,6 +960,7 @@ test("Ask continues the current task chat with read-only tools and game notes", 
   assert.equal(agent.current().id, first);
   assert.deepEqual(agent.current().messages[0], {
     id: agent.current().messages[0]!.id,
+    request: agent.current().messages[0]!.request,
     role: "user",
     text: "Where next?",
     context: "Room 1\nReturn concise hints.",
@@ -1006,6 +1007,8 @@ test("Ask stores a formatted reply with raw context and keeps ordinary follow-up
   const message = agent.current().messages.at(-1)!;
   assert.deepEqual(message, {
     id: message.id,
+    taskId: agent.current().messages[0]!.request!.id,
+    spend: { amount: 0, budget: 5, priceKnown: false, incomplete: false },
     role: "assistant",
     text: "Suggested inspect",
     context: raw,
@@ -2320,4 +2323,41 @@ test("the agent creates a Launch from a request, proposed for review with one Un
   assert.equal(undoneWorld?.launches?.["8"], undefined, "one Undo removes the launched state");
 
   session.dispose();
+});
+
+test("applied review resolves exact historical resources and spend after reload and export", async () => {
+  const { session, agent, saved } = fixture();
+  await agent.send("Add a welcome sign");
+  const pending = agent.current().pendingReview!;
+  await agent.approve();
+  await session.flush();
+  const result = agent.reviewFor(pending.messageId)!;
+  assert.equal(result.baseDocumentId, pending.baseDocumentId);
+  assert.equal(result.baseRevision, pending.baseRevision);
+  assert.deepEqual(result.base, pending.base);
+  assert.deepEqual(result.candidate, pending.candidate);
+  const { session: reopenedSession, agent: reopened } = fixture(
+    undefined,
+    true,
+    undefined,
+    saved(),
+  );
+  try {
+    assert.deepEqual(reopened.reviewFor(pending.messageId), result);
+    const message = reopened
+      .current()
+      .messages.find((message) => message.id === pending.messageId)!;
+    assert.deepEqual(message.spend, { amount: 0, budget: 5, priceKnown: false, incomplete: false });
+    assert.equal(
+      message.review,
+      undefined,
+      "applied resources project history without copied workspaces",
+    );
+    const zip = await buildProjectZip(saved());
+    const exported = await readGameZip(zip);
+    assert.deepEqual(exported.project?.chats, saved().chats);
+  } finally {
+    session.dispose();
+    reopenedSession.dispose();
+  }
 });

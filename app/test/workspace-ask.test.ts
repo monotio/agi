@@ -10,6 +10,9 @@ import type { AgentToolResult } from "../../src/agent/agentState.ts";
 import type { UnifiedConversation, LlmTurnResult } from "../src/agent/llmClient.ts";
 import type { CachedGameData } from "../src/project/gameTypes.ts";
 import { createProjectInspection } from "../../src/agent/projectInspection.ts";
+import { projectDocumentId } from "../../src/authoring/projectContent.ts";
+import { readProjectWorkspace } from "../../src/authoring/projectWorkspace.ts";
+import { sha256Hex } from "../../src/crypto.ts";
 import { GAME_TESTS_FORMAT } from "../../src/agent/gameTestFormat.ts";
 
 for (const encoding of ["text", "bytes"] as const) {
@@ -375,6 +378,283 @@ test("Ask holds its chat while persistence waits, and retains the answer after a
     assert.equal(lastSaved!.chats!.chats.at(-1)!.messages.at(-1)!.text, "Read the sign.");
   } finally {
     waiting.resolve();
+    session.dispose();
+  }
+});
+
+test("one conversation captures each turn's authority and keeps stable request identities across navigation and reload", async () => {
+  const session = inspectionFixture();
+  const options = {
+    session,
+    profileId: "2.936" as const,
+    config: () => ({ provider: "stub" as const, model: "stub", apiKey: "" }),
+  };
+  const results: { toolCallId: string; result: AgentToolResult }[] = [];
+  const agent = borrowWorkspaceAgent({
+    ...options,
+    conversation: () =>
+      scriptedConversation(
+        [
+          {
+            toolCalls: [
+              {
+                id: "edit",
+                name: "propose_changes",
+                input: {
+                  label: "Comment",
+                  changes: [{ key: "logic:1", content: "// approved scope\nreturn;" }],
+                },
+              },
+            ],
+          },
+          { text: "A reply.", toolCalls: [] },
+        ],
+        results,
+      ),
+  });
+  try {
+    await agent.submit({ instruction: "Change the game", mode: "play", context: "Current room 1" });
+    await agent.submit({
+      instruction: "Suggest commands",
+      mode: "create",
+      readOnly: true,
+      context: "Words",
+    });
+    await agent.submit({ instruction: "Add a comment", mode: "create", context: "Words" });
+    assert.deepEqual(
+      results.map(({ result }) => result.success),
+      [false, false, true],
+    );
+    assert.equal(borrowWorkspaceAgent(options), agent);
+    const chat = agent.current();
+    const requests = chat.messages.filter((message) => message.request);
+    assert.deepEqual(
+      requests.map((message) => message.request!.capability),
+      ["inspect", "inspect", "edit"],
+    );
+    assert.equal(new Set(requests.map((message) => message.request!.id)).size, 3);
+    for (const message of chat.messages.filter((message) => message.role === "assistant"))
+      assert.ok(requests.some((request) => request.request!.id === message.taskId));
+    const pending = agent.pending()!;
+    await agent.reject();
+    assert.equal(agent.reviewFor(pending.messageId)!.label, "Comment");
+    assert.equal(agent.current().messages.at(-1)!.result!.kind, "changes");
+    const reloaded = createWorkspaceAgent(options);
+    assert.deepEqual(reloaded.current().messages, agent.current().messages);
+    assert.deepEqual(reloaded.reviewFor(pending.messageId), agent.reviewFor(pending.messageId));
+  } finally {
+    session.dispose();
+  }
+});
+
+test("queued followups retain Play authority and reach the provider once at the next boundary", async () => {
+  const session = inspectionFixture();
+  const released = Promise.withResolvers<void>();
+  const entered = Promise.withResolvers<void>();
+  const prompts: string[] = [];
+  const results: { toolCallId: string; result: AgentToolResult }[] = [];
+  const agent = createWorkspaceAgent({
+    session,
+    profileId: "2.936",
+    config: () => ({ provider: "stub", model: "stub", apiKey: "" }),
+    conversation: () => ({
+      ...scriptedConversation([], results),
+      async sendUserMessage(text) {
+        prompts.push(text);
+        if (prompts.length === 1) {
+          entered.resolve();
+          await released.promise;
+          return { text: "Initial answer", toolCalls: [] };
+        }
+        return {
+          toolCalls: [
+            {
+              id: "edit",
+              name: "propose_changes",
+              input: { label: "Forbidden", changes: [{ key: "logic:1", content: "return;" }] },
+            },
+          ],
+        };
+      },
+      async complete() {
+        return { text: "Still read-only", toolCalls: [] };
+      },
+    }),
+  });
+  try {
+    const running = agent.submit({ instruction: "Explain", mode: "play" });
+    await entered.promise;
+    agent.steer("Change it now");
+    const queued = agent.current().messages.at(-1)!;
+    assert.equal(queued.delivery, "queued");
+    assert.equal(queued.taskId, agent.activeRequest!.id);
+    released.resolve();
+    assert.equal(await running, "Still read-only");
+    assert.equal(prompts.length, 2);
+    assert.match(prompts[1]!, /Change it now/);
+    assert.equal(
+      agent.current().messages.find((message) => message.id === queued.id)!.delivery,
+      "received",
+    );
+    assert.equal(results[0]!.result.success, false);
+    assert.equal(agent.pending(), null);
+  } finally {
+    released.resolve();
+    session.dispose();
+  }
+});
+
+test("native inspection results retain the inspected bytes after a later document change", async () => {
+  const session = inspectionFixture();
+  const agent = createWorkspaceAgent({
+    session,
+    profileId: "2.936",
+    config: () => ({ provider: "stub", model: "stub", apiKey: "" }),
+    conversation: () =>
+      scriptedConversation(
+        [
+          {
+            toolCalls: [
+              {
+                id: "picture",
+                name: "read_picture",
+                input: { num: 1, offset: null, limit: null, include: "source" },
+              },
+            ],
+          },
+          { text: "The picture is shown.", toolCalls: [] },
+        ],
+        [],
+      ),
+  });
+  try {
+    await agent.submit({ instruction: "Show picture 1", mode: "play" });
+    const result = agent.current().messages.at(-1)!.result;
+    assert.equal(result?.kind, "resources");
+    if (result?.kind !== "resources") assert.fail("Missing native resource result");
+    assert.ok(result.snapshot);
+    assert.equal(
+      result.documentId,
+      projectDocumentId(readProjectWorkspace(result.snapshot), sha256Hex),
+    );
+    assert.notEqual(result.documentId, agent.current().messages[0]!.request!.documentId);
+    const before = structuredClone(result.snapshot);
+    assert.deepEqual(result.resources, ["picture:1"]);
+    await session.stage([{ key: "picture:1", content: "vis 4\nfill 0,0\nend" }]);
+    assert.deepEqual(agent.current().messages.at(-1)!.result, result);
+    assert.deepEqual(result.snapshot, before);
+  } finally {
+    session.dispose();
+  }
+});
+
+test("a followup arriving during a tool runs after its result without replaying the tool", async () => {
+  const session = inspectionFixture();
+  const entered = Promise.withResolvers<void>();
+  const released = Promise.withResolvers<void>();
+  const requests: string[] = [];
+  let tools = 0;
+  const agent = createWorkspaceAgent({
+    session,
+    profileId: "2.936",
+    config: () => ({ provider: "stub", model: "stub", apiKey: "" }),
+    runtime: () => ({
+      engine: {
+        async state() {
+          tools++;
+          entered.resolve();
+          await released.promise;
+          return { room: 1 };
+        },
+        objects: async () => [],
+      },
+    }),
+    conversation: () => ({
+      setAvailableTools() {},
+      async sendUserMessage(text) {
+        requests.push(text);
+        return requests.length === 1
+          ? {
+              toolCalls: [
+                {
+                  id: "read",
+                  name: "read_room",
+                  input: {
+                    room: 1,
+                    state: { compact: true, variables: null, flags: null },
+                    frames: null,
+                  },
+                },
+              ],
+            }
+          : { text: "Updated answer", toolCalls: [] };
+      },
+      appendToolResults() {},
+      async complete() {
+        assert.fail("Queued followup should be sent before completion");
+      },
+      getTranscript() {
+        return [];
+      },
+    }),
+  });
+  try {
+    const running = agent.submit({ instruction: "Inspect", mode: "play" });
+    await entered.promise;
+    agent.steer("Explain what that means");
+    released.resolve();
+    await running;
+    assert.equal(tools, 1);
+    assert.equal(requests.length, 2);
+    assert.equal(
+      agent.current().messages.find((message) => message.delivery)?.delivery,
+      "received",
+    );
+  } finally {
+    released.resolve();
+    session.dispose();
+  }
+});
+
+test("cancellation records an undelivered followup and save retry never resends it", async () => {
+  const session = inspectionFixture();
+  const entered = Promise.withResolvers<void>();
+  const released = Promise.withResolvers<void>();
+  let requests = 0;
+  const agent = createWorkspaceAgent({
+    session,
+    profileId: "2.936",
+    config: () => ({ provider: "stub", model: "stub", apiKey: "" }),
+    conversation: () => ({
+      setAvailableTools() {},
+      async sendUserMessage() {
+        requests++;
+        entered.resolve();
+        await released.promise;
+        return { text: "Late answer", toolCalls: [] };
+      },
+      appendToolResults() {},
+      async complete() {
+        return { toolCalls: [] };
+      },
+      getTranscript() {
+        return [];
+      },
+    }),
+  });
+  try {
+    const running = agent.submit({ instruction: "Inspect", mode: "play" });
+    await entered.promise;
+    agent.steer("Next step");
+    agent.cancel();
+    released.resolve();
+    await assert.rejects(running, /cancelled/);
+    assert.equal(agent.current().messages.at(-1)!.delivery, "cancelled");
+    await agent.retryChatSave();
+    assert.equal(requests, 1);
+    assert.equal(session.chats().chats[0]!.messages.at(-1)!.delivery, "cancelled");
+  } finally {
+    released.resolve();
     session.dispose();
   }
 });

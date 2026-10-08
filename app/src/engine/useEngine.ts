@@ -740,6 +740,7 @@ export function useEngine(
         authoringController = useAuthoringController({
           state,
           getProjectSession: () => projectSession,
+          getConversationMode: () => projectMode,
           getWorker: link.getWorker,
           query: link.query,
           awaitPatched: link.awaitPatched,
@@ -1166,6 +1167,15 @@ export function useEngine(
       let game = lifecycle.getBootedGame();
       const worker = link.getWorker();
       if (mode === "create" && game?.installed && !game.authoredGame && game.historyLifetime) {
+        const original = game;
+        state.status = "Finishing the current conversation before opening Create…";
+        const chats = await (await loadAuthoringController()).prepareConversationTransfer();
+        if (
+          lifecycle.getBootedGame() !== original ||
+          link.getWorker() !== worker ||
+          projectMode !== mode
+        )
+          return false;
         const id = requireProjectId(`edition-${crypto.randomUUID()}`);
         game = {
           ...game,
@@ -1178,6 +1188,7 @@ export function useEngine(
             words: game.words,
             imported: true,
             roomGeneration: false,
+            ...(chats ? { chats } : {}),
             library: {
               version: 1,
               revision: game.revision,
@@ -1239,6 +1250,9 @@ export function useEngine(
         });
     },
     takePlayBack: () => progressOwnership.takeBack(),
+    async getConversationAgent() {
+      return (await loadAuthoringController()).getConversationAgent();
+    },
     getProjectSession: () => projectSession,
     async setRoomGeneration(
       projectId: ProjectId,

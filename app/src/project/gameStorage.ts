@@ -21,7 +21,12 @@ export {
   historyLifetimeGuard,
   type HistoryLifetime,
 } from "./gameBodyStorage.ts";
-import { readAgentChats, appendAgentTasks, type AgentChat } from "../../../src/agent/chats.ts";
+import {
+  readAgentChats,
+  appendAgentTasks,
+  type AgentChat,
+  type AgentChats,
+} from "../../../src/agent/chats.ts";
 import { encodeJournalValue, type ProjectJournalCapture } from "./projectJournalCapture.ts";
 import { clearProjectSaveJournals, resumeProjectSaveJournals } from "./projectSaveJournal.ts";
 import { historyBlobKeys, type StoredProjectHistory } from "./projectHistoryStorageHeader.ts";
@@ -104,6 +109,7 @@ const LIBRARY_FIELDS: Record<keyof LibraryMetadata, true> = {
 };
 
 export interface GameConversation {
+  chats?: AgentChats;
   provider: string;
   model: string;
   transcript: unknown[];
@@ -117,6 +123,7 @@ export interface GameConversation {
  * content: the stored plan, bindings and sources stay as they are.
  */
 export interface ConversationUpdate {
+  chats?: AgentChats;
   provider: string;
   model: string;
   transcript: unknown[];
@@ -154,14 +161,27 @@ export async function saveGameConversation(
 export async function saveGameConversationUpdate(
   storageKey: string,
   update: ConversationUpdate,
+  expectedChats?: AgentChats | null,
 ): Promise<void> {
   const key = `conversation/${storageKey}`;
   const { chat, ...conversation } = update;
-  await putVersionedRecord(key, CONVERSATION_RECORD, (stored: GameConversation | undefined) => ({
-    ...conversation,
-    authoringState: { ...stored?.authoringState, chat },
-    projectId: key,
-  }));
+  await putVersionedRecord(key, CONVERSATION_RECORD, (stored: GameConversation | undefined) => {
+    if (
+      expectedChats !== undefined &&
+      JSON.stringify(stored?.chats ?? null) !== JSON.stringify(expectedChats)
+    )
+      throw new Error("This conversation changed in another tab. Reopen the game to continue.");
+    return {
+      ...conversation,
+      ...(update.chats
+        ? { chats: readAgentChats(update.chats) }
+        : stored?.chats
+          ? { chats: stored.chats }
+          : {}),
+      authoringState: { ...stored?.authoringState, chat },
+      projectId: key,
+    };
+  });
 }
 
 /** A write refused because the stored authoring content is not the one it was made from. */
@@ -186,6 +206,7 @@ export async function loadGameConversation(
   )
     throw new Error(CONVERSATION_RECORD.versionError);
   const { format: _format, version: _version, projectId: _projectId, ...context } = stored;
+  if (context["chats"] !== undefined) readAgentChats(context["chats"]);
   return context as unknown as GameConversation;
 }
 

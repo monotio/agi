@@ -1,0 +1,35 @@
+{
+  "name": "project-agent-prepared-turn-readonly",
+  "projectAgent": {
+    "documents": {
+      "logic:0": "return;",
+      "words": "[[\"look\",1]]"
+    },
+    "request": "Suggest words for look. This prepared Words request asks for suggestions only; keep the dictionary unchanged.",
+    "readOnly": true,
+    "submission": { "mode": "create", "readOnly": true, "context": "Words" },
+    "turns": [
+      {
+        "toolCalls": [
+          {
+            "id": "dictionary",
+            "name": "read_document",
+            "input": { "key": "words", "offset": null, "limit": null }
+          },
+          {
+            "id": "unrequested-change",
+            "name": "propose_changes",
+            "input": {
+              "label": "Add synonyms",
+              "changes": [{ "key": "words", "content": "[[\"look\",1],[\"inspect\",1]]" }]
+            }
+          }
+        ]
+      },
+      { "text": "Try inspect or examine.", "toolCalls": [] }
+    ],
+    "expectedKeys": [],
+    "expectedOutcomes": { "dictionary": true, "unrequested-change": false },
+    "expectedDocuments": { "words": "[[\"look\",1]]" }
+  }
+}
