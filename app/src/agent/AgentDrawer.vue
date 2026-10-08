@@ -32,12 +32,12 @@ const visible = computed(
     (onBlankStage.value && blankAgentOpen.value),
 );
 const mounted = ref(false);
-const openingFocus = shallowRef<Element | null>(null);
+const focusRequest = shallowRef<{ readonly origin: Element | null }>();
 watch(
   visible,
   (open) => {
-    if (open && !mounted.value) {
-      openingFocus.value = document.activeElement;
+    if (open) {
+      focusRequest.value = { origin: document.activeElement };
       mounted.value = true;
     }
   },
@@ -115,7 +115,7 @@ onBeforeUnmount(() => {
     <div class="assistant-host">
       <!-- Mounted through the turn, so it sees the drawer open and close. -->
       <AgentPanel
-        :opening-focus
+        :focus-request
         :session="onBlankStage ? blankSession : undefined"
         :profile-id="onBlankStage ? blankProfile : undefined"
         @close="blankAgentOpen = false"
