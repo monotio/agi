@@ -1955,6 +1955,104 @@ test("completed spend stays with its chat when another chat is opened", async ()
   session.dispose();
 });
 
+for (const failed of [false, true])
+  test(`background task keeps its identity and spend until final save ${failed ? "fails" : "finishes"}`, async () => {
+    const { session } = fixture();
+    let requests = 0;
+    const agent = createWorkspaceAgent({
+      session,
+      profileId: "2.936",
+      config: () => ({ provider: "openai", model: "gpt-6-sol", apiKey: "placeholder" }),
+      conversation(_config, transcript, run) {
+        return {
+          setAvailableTools() {},
+          appendToolResults() {},
+          getTranscript: () => transcript,
+          async sendUserMessage() {
+            return run.request(async () => {
+              requests++;
+              run.recordUsage({
+                input: requests * 10000,
+                cachedInput: 0,
+                cacheWriteInput: 0,
+                output: requests * 5000,
+              });
+              return {
+                text: requests === 1 ? "Foreground ready." : "Background ready.",
+                toolCalls: [],
+              };
+            });
+          },
+          async complete() {
+            return { text: "Ready.", toolCalls: [] };
+          },
+        };
+      },
+    });
+    await agent.send("Describe this room.");
+    const foreground = agent.current().id;
+    const flush = session.flush;
+    const saving = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    session.flush = async () => {
+      if (
+        agent
+          .chats()
+          .some((chat) => chat.background && chat.messages.some((message) => message.spend))
+      ) {
+        saving.resolve();
+        await release.promise;
+        if (failed) throw new Error("Conversation storage rejected the write.");
+      }
+      await flush();
+    };
+    const finished = agent.background("Next room", "Describe the next room.").then(
+      () => null,
+      (cause: unknown) => cause,
+    );
+    try {
+      await saving.promise;
+      const background = agent.chats().find((chat) => chat.background)!;
+      const reply = background.messages.find((message) => message.role === "assistant")!;
+      assert.equal(
+        agent.current().id,
+        foreground,
+        "background work leaves the visible conversation selected",
+      );
+      assert.equal(agent.busy, true);
+      assert.equal(
+        agent.task?.reportedSpent,
+        0.14,
+        "busy controls keep the background request's reported spend",
+      );
+      assert.equal(
+        agent.activeRequest?.id,
+        reply.taskId,
+        "busy controls retain the background request identity",
+      );
+      assert.equal(
+        agent.canSteer,
+        false,
+        "a task saving its final reply no longer accepts corrections",
+      );
+      assert.equal(reply.spend?.amount, 0.14);
+    } finally {
+      release.resolve();
+      const outcome = await finished;
+      assert.equal(outcome instanceof Error, failed);
+      session.flush = flush;
+      session.dispose();
+    }
+    assert.equal(agent.busy, false);
+    assert.equal(agent.activeRequest, null);
+    assert.equal(
+      agent.task?.reportedSpent,
+      0.07,
+      "completed background work restores the foreground task projection",
+    );
+    assert.equal(Boolean(agent.chatSaveError), failed);
+  });
+
 test("background work retains image spend and a new person request starts a fresh allowance", async () => {
   const { beginProviderTask, trackImageSpend } = await import("../src/agent/providerBudget.ts");
   const { session } = fixture();

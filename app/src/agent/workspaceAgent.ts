@@ -1300,8 +1300,6 @@ export function createWorkspaceAgent(options: Options) {
               }
             : message,
         );
-      activeRun = null;
-      activeRequest = null;
       acceptingSteps = false;
       const undelivered = nextSteps;
       nextSteps = [];
@@ -1319,6 +1317,8 @@ export function createWorkspaceAgent(options: Options) {
         chatSaveError = "Saving the conversation failed. Retry save.";
         progress.push(cause instanceof Error ? cause.message : String(cause));
       } finally {
+        activeRun = null;
+        activeRequest = null;
         busy = false;
         notify();
       }
