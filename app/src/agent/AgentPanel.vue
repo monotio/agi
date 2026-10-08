@@ -346,6 +346,7 @@ async function attach() {
   if (props.session === undefined && engine.state.phase !== "running") return;
   const session = props.session ?? engine.getProjectSession();
   const openedGame = engine.getBootedGame();
+  const openedTransition = engine.state.conversationTransitioning;
   const attachingDraft = input.value;
   if (retired || attaching || agent.value || (props.session === null && !session)) return;
   attaching = true;
@@ -399,7 +400,8 @@ async function attach() {
       !retired &&
       !agent.value &&
       ((props.session ?? engine.getProjectSession()) !== session ||
-        engine.getBootedGame() !== openedGame)
+        engine.getBootedGame() !== openedGame ||
+        engine.state.conversationTransitioning !== openedTransition)
     )
       void attach();
   }
