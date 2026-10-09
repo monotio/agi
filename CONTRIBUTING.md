@@ -135,8 +135,10 @@ reason in the commit.
 
 ### CI verification
 
-Before pushing application, engine, dependency or test changes, run `npm run check`
-and the affected browser specs. Documentation needs formatting and consistency
+Before pushing application, engine, dependency or unit-test changes, run `npm run check`
+and the affected browser specs. Browser-test-only edits need the affected browser
+runs, app typecheck, lint and formatting; unchanged unit suites retain their prior
+green result. Documentation needs formatting and consistency
 checks. CI-only follow-ups after a green integration gate need helper tests,
 workflow validation and formatting; unchanged game suites keep their prior result.
 Open a pull request for CI's Linux verdict; local browser results establish

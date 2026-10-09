@@ -224,10 +224,12 @@ code, comments or documentation.
   before showing a mockup or asking for a scope decision. Limits on agents (rounds,
   reads, tokens) follow evidence about the task, never round numbers.
 - Run affected tests and `npm run check` before integrating application, engine,
-  dependency or test changes; also build and check bundle boundaries when runtime
+  dependency or unit-test changes; also build and check bundle boundaries when runtime
   imports move. Documentation-only changes need formatting and consistency checks.
   For CI-only follow-ups after a green integration gate, run the CI helper tests,
   workflow validation and formatting instead of repeating unchanged game suites.
+  Browser-test-only edits need the affected browser runs, app typecheck, lint and
+  formatting; retain prior green results for unchanged engine and app unit suites.
   PR browser suites run once with zero retries; repeat only to investigate a
   specific failure, with an explicit diagnostic run. Debug on
   your own machine, never through CI: CI runs cost money. Reproduce Linux WebKit and

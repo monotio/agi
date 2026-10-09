@@ -60,6 +60,9 @@ test("1.1 progress opens automatically once @webkit-desktop", async ({ page, con
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
   await expect(page.getByTestId("btn-exit")).toBeVisible();
   await page.getByTestId("btn-exit").click();
+  // Exit flushes progress and seals history before returning Home.
+  await expect(page.getByTestId("btn-resume-cached")).toBeVisible();
+  await expect(page).toHaveURL(/\/$/);
   const history = await page.evaluate(async (locator) => {
     const path = "/src/history/historyStorage.ts";
     const { loadGameHistory } = await import(/* @vite-ignore */ path);
