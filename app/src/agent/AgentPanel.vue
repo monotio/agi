@@ -36,6 +36,7 @@ import { readProjectWorkspace } from "../../../src/authoring/projectWorkspace.ts
 import { diffProjectDocuments } from "../../../src/authoring/projectContent.ts";
 import { sameProjectContent } from "../../../src/authoring/projectContent.ts";
 import { compileCapturedResource, capturedResourceDocuments } from "./agentResultPreview.ts";
+import { resourceRenderingDependencies } from "./agentResults.ts";
 import { formatSpent } from "./reportedSpend.ts";
 import { resolveAgentTarget } from "./agentNavigation.ts";
 import {
@@ -275,8 +276,18 @@ const resultEarlier = computed(() => {
       new Map(Object.entries(engine.getBootedGame()?.files ?? {}));
     const currentImage = openContainer(files, { profile: resultProfile.value });
     const result = inspection.value;
-    return result.resources.some((resource) =>
-      Object.entries(capturedResourceDocuments(result, resource)).some(([key, content]) => {
+    return result.resources.some((resource) => {
+      const capturedDocuments = capturedResourceDocuments(result, resource);
+      return Object.entries(capturedDocuments).some(([key, content]) => {
+        if (key === "images")
+          return (
+            (resource === "images" || resource.startsWith("picture:")) &&
+            !sameProjectContent(
+              resourceRenderingDependencies(capturedDocuments, resource)["images"] ?? content,
+              resourceRenderingDependencies(currentDocuments, resource)["images"] ??
+                currentDocuments["images"],
+            )
+          );
         if (typeof content === "string" && currentDocuments[key] !== undefined)
           return !sameProjectContent(content, currentDocuments[key]);
         const [kind, number] = key.split(":");
@@ -309,8 +320,8 @@ const resultEarlier = computed(() => {
         return (
           currentDocuments[key] !== undefined && !sameProjectContent(content, currentDocuments[key])
         );
-      }),
-    );
+      });
+    });
   }
   const documentId =
     message?.result?.kind === "changes" && message.result.status === "pending"

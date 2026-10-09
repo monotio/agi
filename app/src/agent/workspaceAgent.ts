@@ -1,4 +1,5 @@
 import { inspectedResourceKeys, resourceRenderingDependencies } from "./agentResults.ts";
+import { agentHandoffContext } from "./agentHandoff.ts";
 import type { ProjectContent } from "../../../src/authoring/projectContent.ts";
 import { beginProviderTask } from "./providerBudget.ts";
 /** One task-chat adapter; ProjectSession remains the sole project writer. */
@@ -839,9 +840,7 @@ export function createWorkspaceAgent(options: Options) {
         ) {
           const old = make(config, [], run, []);
           old.setAvailableTools([]);
-          const handoff = await old.sendUserMessage(
-            `${HANDOFF}\nTask messages:\n${JSON.stringify(chat.messages)}\nTool record:\n${JSON.stringify(chat.transcript, (key, value) => (["encrypted_content", "signature", "thinking"].includes(key) || (value && typeof value === "object" && ["reasoning", "thinking", "redacted_thinking"].includes(value.type)) ? undefined : value))}\nPrevious summary:\n${chat.summary ?? ""}`,
-          );
+          const handoff = await old.sendUserMessage(`${HANDOFF}\n${agentHandoffContext(chat)}`);
           if (handoff.toolCalls.length || !handoff.text?.trim())
             throw new Error("The model handoff needs a summary. Retry the switch.");
           const archived = {
@@ -1192,7 +1191,7 @@ export function createWorkspaceAgent(options: Options) {
               if (call.name === "read_document") {
                 // The driver reads its captured workspace, including previously staged edits.
                 documents = readOnly ? base.documents() : editWorkspace().documents();
-                dependencies = resourceRenderingDependencies(documents);
+                dependencies = resourceRenderingDependencies(documents, resourceKeys[0]!);
               } else {
                 // Create tools inspect the task's native state, which can contain
                 // unadmitted edits. Capture that same state before another tool runs.
@@ -1258,10 +1257,6 @@ export function createWorkspaceAgent(options: Options) {
                     ),
                     resources: Object.keys(inspectedDocuments),
                     resourceSnapshots,
-                    snapshot: writeProjectWorkspace({
-                      ...inspectedDependencies,
-                      ...inspectedDocuments,
-                    }),
                     profileId,
                   },
                 }

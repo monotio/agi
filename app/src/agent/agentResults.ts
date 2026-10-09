@@ -29,19 +29,35 @@ export function inspectedResourceKeys(
 /** Draft previews retain metadata and any referenced image targets and attachments. */
 export function resourceRenderingDependencies(
   documents: Readonly<Record<string, ProjectContent>>,
+  resource: string,
 ): Readonly<Record<string, ProjectContent>> {
-  const keys = new Set(["words", "inventory", "bindings", "world", "images", "music"]);
+  const keys = new Set(["words", "inventory", "bindings", "world", "music"]);
+  let imageDocument: string | undefined;
   try {
-    const images = readImageReferences(documents);
-    for (const target of Object.keys(images.traces)) keys.add(target);
-    for (const image of Object.values(images.images)) {
-      keys.add(`attachment:${image.encoded}`);
-      keys.add(`attachment:${image.raster}`);
+    if (resource === "images" || resource.startsWith("picture:")) {
+      const references = readImageReferences(documents);
+      const trace = references.traces[resource];
+      const images =
+        resource === "images"
+          ? references.images
+          : trace
+            ? { [trace.image]: references.images[trace.image]! }
+            : {};
+      const traces = resource === "images" ? references.traces : trace ? { [resource]: trace } : {};
+      imageDocument = JSON.stringify({ ...references, images, traces });
+      for (const target of Object.keys(traces)) keys.add(target);
+      for (const image of Object.values(images)) {
+        keys.add(`attachment:${image.encoded}`);
+        keys.add(`attachment:${image.raster}`);
+      }
     }
   } catch {
     // A malformed image document remains readable as text.
   }
-  return Object.fromEntries(
-    [...keys].filter((key) => documents[key] !== undefined).map((key) => [key, documents[key]!]),
-  );
+  return {
+    ...Object.fromEntries(
+      [...keys].filter((key) => documents[key] !== undefined).map((key) => [key, documents[key]!]),
+    ),
+    ...(imageDocument === undefined ? {} : { images: imageDocument }),
+  };
 }
