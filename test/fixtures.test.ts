@@ -1,6 +1,14 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { loadGame } from "./game-fixture.ts";
 import { createHash } from "node:crypto";
@@ -16,6 +24,33 @@ import {
   KNOWN_GAME_HASH,
 } from "./fixtures.ts";
 import { buildSyntheticGame } from "../src/games/syntheticGame.ts";
+import { readGameZip } from "../app/src/archive/gameZip.ts";
+import { gameRevision } from "../app/src/project/gameMetadata.ts";
+import { walkthroughServedRevisions } from "./speedrun/artifact.ts";
+
+test("a released tutorial alias loads its original bytes despite sharing current vocabulary", async (t) => {
+  const alias = "adventure-department-1.1";
+  const dir = fixtureDir(alias);
+  const existed = existsSync(dir);
+  const released = await readGameZip(
+    new Uint8Array(readFileSync(new URL("../app/test/formats/tutorial-1.1.zip", import.meta.url))),
+  );
+  if (!existed) {
+    mkdirSync(dir);
+    for (const [name, bytes] of Object.entries(released.files))
+      writeFileSync(join(dir, name), bytes);
+  }
+  clearFixtureCache();
+  t.after(() => {
+    if (!existed) rmSync(dir, { recursive: true, force: true });
+    clearFixtureCache();
+  });
+  assert.deepEqual(loadGame(alias).files.get("VOL.0"), released.files["VOL.0"]);
+  const resources = Object.fromEntries(
+    Object.entries(released.files).filter(([name]) => name !== "GAME.JSON"),
+  );
+  assert.deepEqual(await walkthroughServedRevisions(alias), [await gameRevision(resources)]);
+});
 
 test("missing fixtures report the installation folder instead of passing silently", () => {
   const target = "missing-fixture-test";

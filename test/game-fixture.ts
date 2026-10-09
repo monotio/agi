@@ -11,7 +11,6 @@ import {
 } from "./fixtures.ts";
 import { buildSyntheticGame } from "../src/games/syntheticGame.ts";
 import { buildTutorial } from "../games/adventure-department/game.ts";
-import { resolveGameHash } from "../src/games/knownGames.ts";
 
 /**
  * Shared loader for optional AGI game fixtures under games/.
@@ -51,9 +50,7 @@ export const BUILTIN_GAME_BUILDERS: Record<
 export function loadGame(query: GameHash, options: LoadGameOptions = {}): GameFixture {
   const missing = fixtureSkip(query, [], options);
   if (missing) throw new Error(missing);
-  const builtin =
-    BUILTIN_GAME_BUILDERS[query.toLowerCase()] ??
-    BUILTIN_GAME_BUILDERS[resolveGameHash(query.toLowerCase()) ?? ""];
+  const builtin = BUILTIN_GAME_BUILDERS[query.toLowerCase()];
   if (builtin) {
     const game = builtin();
     const files = new Map(Object.entries(game.files));

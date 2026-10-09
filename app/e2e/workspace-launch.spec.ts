@@ -268,8 +268,7 @@ test("Update keeps the room chosen before drafts flush @webkit-desktop", async (
   await expect(action).toHaveAccessibleName("Play Garden");
 });
 
-// Intermittent in CI WebKit (Launch menu timing); tracked for 1.2.1.
-test.fixme("F5 in room LOGIC runs the selected Launch with its breakpoint armed @webkit-desktop", async ({
+test("F5 in room LOGIC runs the selected Launch with its breakpoint armed @webkit-desktop", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });

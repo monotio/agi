@@ -37,6 +37,17 @@ clone's passing synthetic tests do not establish fixture compatibility. See
 [test/fixtures.ts](../test/fixtures.ts) for the shared checks and
 [test/game-fixture.ts](../test/game-fixture.ts) for loading resources.
 
+The released Adventure Department fixtures are already preserved in
+`app/test/formats/`. Install their original bytes for local compatibility checks:
+
+```bash
+unzip -n app/test/formats/game-v1.zip -d games/adventure-department-1.0
+unzip -n app/test/formats/tutorial-1.1.zip -d games/adventure-department-1.1
+```
+
+Keep the versioned folder names: 1.1 shares its vocabulary with the current game,
+while its resource bytes differ. The loader preserves that explicit edition.
+
 Commercial game data belongs in local fixtures. AGI resource
 filenames and original resources are welcome; provenance determines what can be
 included.
@@ -387,10 +398,15 @@ the installed `playwright-core` package. Use the CI pin to reproduce its exact
 image (`npm ci` inside the container replaces any copied `node_modules`):
 
 ```bash
-docker run --rm --init --ipc=host -v "$PWD:/src:ro" "$(cat scripts/ci/playwright-image.txt)" \
-  bash -lc 'cp -r /src /w && cd /w && npm ci &&
+tar -ch --exclude=node_modules --exclude=.git --exclude=.local . |
+  docker run --rm -i --init --ipc=host "$(cat scripts/ci/playwright-image.txt)" \
+  bash -lc 'mkdir /w && tar -x -C /w && cd /w && npm ci &&
     CI=1 xvfb-run -a npm --prefix app run e2e:webkit-desktop -- e2e/<file>.spec.ts'
 ```
+
+The archive includes ignored local game fixtures and dereferences worktree
+symlinks on the host. A Git archive contains only tracked files and omits those
+fixtures. Check the test summary for skips when validating fixture compatibility.
 
 `--init` lets `xvfb-run` receive its ready signal; without it the run hangs.
 
