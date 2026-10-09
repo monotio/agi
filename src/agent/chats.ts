@@ -27,6 +27,8 @@ export type AgentResult =
       readonly documentId: string;
       readonly resources: readonly string[];
       readonly snapshot?: PortableProjectWorkspace;
+      /** Each resource retains the exact dependencies from its own successful read. */
+      readonly resourceSnapshots?: Readonly<Record<string, PortableProjectWorkspace>>;
       readonly profileId?: ProfileId;
     }
   | { readonly kind: "commands"; readonly commands: readonly string[] }
@@ -166,7 +168,7 @@ function validateResult(value: AgentResult): void {
             value,
             value.kind === "changes"
               ? ["kind", "documentId", "resources", "status"]
-              : ["kind", "documentId", "resources", "snapshot", "profileId"],
+              : ["kind", "documentId", "resources", "snapshot", "resourceSnapshots", "profileId"],
           ) &&
           (value.kind !== "changes" || ["pending", "applied", "rejected"].includes(value.status));
         break;
@@ -197,6 +199,23 @@ function validateResult(value: AgentResult): void {
   if (!valid) throw new Error("Invalid agent result.");
   if (value.kind === "resources") {
     if (value.snapshot !== undefined) readProjectWorkspace(value.snapshot);
+    if (value.resourceSnapshots !== undefined) {
+      if (
+        !value.resourceSnapshots ||
+        typeof value.resourceSnapshots !== "object" ||
+        Array.isArray(value.resourceSnapshots)
+      )
+        throw new Error("Invalid captured resources.");
+      if (
+        !value.snapshot &&
+        value.resources.some((key) => !Object.hasOwn(value.resourceSnapshots!, key))
+      )
+        throw new Error("Missing captured resource snapshot.");
+      for (const [key, snapshot] of Object.entries(value.resourceSnapshots)) {
+        if (!value.resources.includes(key) || !Object.hasOwn(readProjectWorkspace(snapshot), key))
+          throw new Error("Invalid captured resource snapshot.");
+      }
+    }
     if (value.profileId !== undefined && !Object.hasOwn(PROFILES, value.profileId))
       throw new Error("Invalid result profile.");
   }

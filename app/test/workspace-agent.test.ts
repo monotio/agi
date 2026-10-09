@@ -11,7 +11,7 @@ import { AgentSession } from "../src/agent/agentSession.ts";
 import { buildProjectZip } from "../src/archive/projectArchive.ts";
 import { readGameZip } from "../src/archive/gameZip.ts";
 import type { CachedGameData, BootedGame } from "../src/project/gameTypes.ts";
-import { migrateAgentChats, type AgentChats } from "../../src/agent/chats.ts";
+import { migrateAgentChats, readAgentChats, type AgentChats } from "../../src/agent/chats.ts";
 import { openProjectSession } from "../src/project/projectSession.ts";
 import { compileProjectDocuments } from "../../src/authoring/projectDocuments.ts";
 import {
@@ -23,6 +23,8 @@ import { assembleLogic } from "../../src/logic/assembler.ts";
 import { buildWordsTok } from "../../src/logic/words.ts";
 import { requireProjectId } from "../../src/gameIdentity.ts";
 import type { UnifiedConversation, LlmTurnResult } from "../src/agent/llmClient.ts";
+import { capturedResourceDocuments } from "../src/agent/agentResultPreview.ts";
+import { computeResourceRevision } from "../../src/authoring/resourceRevision.ts";
 import { wordsTaskReply } from "../src/studio/workspace/wordsPrompts.ts";
 
 let seq = 0;
@@ -2457,5 +2459,138 @@ test("applied review resolves exact historical resources and spend after reload 
   } finally {
     session.dispose();
     reopenedSession.dispose();
+  }
+});
+
+for (const admission of ["withdraw", "auto"] as const) {
+  test(`Create captures the native version read before ${admission === "auto" ? "an auto-approved edit and after it" : "withdrawing staged edits"}`, async () => {
+    const { session } = fixture();
+    const before = session.model.capture().documentId;
+    const nativeBefore = computeResourceRevision(
+      Object.fromEntries(session.model.capture().lastAdmissibleBuild!.files()),
+    );
+    const advances: [string, string][] = [];
+    const source = 'print("Native read"); return;';
+    const agent = createWorkspaceAgent({
+      session,
+      profileId: "2.936",
+      config: () => ({ provider: "stub", model: "stub", apiKey: "" }),
+      runtime: () => ({ advanceRevision: (before, after) => advances.push([before, after]) }),
+      conversation: () => ({
+        setAvailableTools() {},
+        getTranscript: () => [],
+        async sendUserMessage() {
+          return {
+            toolCalls: [
+              {
+                id: "before",
+                name: "read_picture",
+                input: { num: 1, offset: null, limit: null, include: "source" },
+              },
+              admission === "auto"
+                ? {
+                    id: "edit",
+                    name: "propose_changes",
+                    input: { label: "Change boot", changes: [{ key: "logic:0", content: source }] },
+                  }
+                : { id: "edit", name: "write_logic", input: { room: 0, source } },
+              { id: "after", name: "read_logic", input: { num: 0, offset: null, limit: null } },
+              ...(admission === "withdraw"
+                ? [{ id: "withdraw", name: "withdraw_changes", input: { reason: null } }]
+                : []),
+            ],
+          };
+        },
+        appendToolResults(results) {
+          assert.ok(
+            results.every(({ result }) => result.success),
+            JSON.stringify(results),
+          );
+        },
+        async complete() {
+          return { text: "Captured", toolCalls: [] };
+        },
+      }),
+    });
+    agent.autoApprove = admission === "auto";
+    try {
+      await agent.send("Inspect boot changes");
+      const result = agent.current().messages.at(-1)!.result;
+      if (result?.kind !== "resources") assert.fail("Missing Create native captures");
+      assert.deepEqual(result.resources, ["picture:1", "logic:0"]);
+      assert.deepEqual(
+        capturedResourceDocuments(result, "logic:0")["logic:0"],
+        assembleLogic(source, { dictionary: new Map() }).payload,
+      );
+      if (admission === "withdraw") {
+        assert.equal(session.model.capture().documentId, before);
+        assert.deepEqual(advances, []);
+      } else {
+        assert.deepEqual(advances, [
+          [nativeBefore, session.model.capture().lastAdmissibleBuild!.identity.revision],
+        ]);
+      }
+    } finally {
+      session.dispose();
+    }
+  });
+}
+
+test("Create captures native game-test definitions through serialization and reload", async () => {
+  const { GAME_TESTS_FORMAT } = await import("../../src/agent/gameTestFormat.ts");
+  const { session } = fixture();
+  const tests = JSON.stringify({
+    format: GAME_TESTS_FORMAT,
+    tests: [{ name: "Stored wait", room: 1, steps: [{ action: "wait", ticks: 1 }] }],
+  });
+  await session.submit({
+    proposal: session.model.propose(session.model.capture(), "Stored tests", [
+      { key: "tests", content: tests },
+      { key: "logic:1", content: "return;" },
+    ]),
+    label: "Stored tests",
+    origin: "agent",
+    author: "creator",
+  });
+  const agent = createWorkspaceAgent({
+    session,
+    profileId: "2.936",
+    config: () => ({ provider: "stub", model: "stub", apiKey: "" }),
+    conversation: () => ({
+      setAvailableTools() {},
+      getTranscript: () => [],
+      async sendUserMessage() {
+        return {
+          toolCalls: [
+            { id: "tests", name: "read_game_tests", input: { names: null, offset: null } },
+          ],
+        };
+      },
+      appendToolResults(results) {
+        assert.equal(results[0]!.result.success, true, JSON.stringify(results));
+        assert.match(JSON.stringify(results[0]!.result), /Stored wait/);
+      },
+      async complete() {
+        return { text: "Stored definitions", toolCalls: [] };
+      },
+    }),
+  });
+  try {
+    await agent.send("Inspect stored tests");
+    const chat = agent.current();
+    const loaded = readAgentChats(
+      JSON.parse(
+        JSON.stringify({ format: "monotio.agi.chats", version: 1, active: chat.id, chats: [chat] }),
+      ),
+    );
+    const result = loaded.chats[0]!.messages.at(-1)!.result;
+    if (result?.kind !== "resources") assert.fail("Missing native test definitions capture");
+    assert.deepEqual(result.resources, ["tests"]);
+    assert.deepEqual(
+      capturedResourceDocuments(result, "tests")["tests"],
+      new TextEncoder().encode(tests),
+    );
+  } finally {
+    session.dispose();
   }
 });

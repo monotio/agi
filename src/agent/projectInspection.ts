@@ -69,7 +69,7 @@ export function createProjectInspection(input: {
             : key === "inventory"
               ? container.files.get("OBJECT")
               : key === "tests"
-                ? state.testsPayload
+                ? (state.testsPayload ?? container.files.get("TESTS.JSON"))
                 : undefined;
         if (content !== undefined && content !== null)
           documents[key] = typeof content === "string" ? content : content.slice();
