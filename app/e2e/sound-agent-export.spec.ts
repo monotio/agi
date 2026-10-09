@@ -8,6 +8,7 @@ import {
   isolateStorage,
   openWorkspaceAgent,
   workspaceSaved,
+  waitForRoom,
 } from "./engineProbe.ts";
 import { readGameZip } from "../src/archive/gameZip.ts";
 import { openContainer } from "../../src/container/container.ts";
@@ -64,6 +65,7 @@ test("approved starter sound downloads a coherent project before and after reloa
     .fill("Sound export");
   await page.getByTestId("local-create-kind-starter").click();
   await page.getByRole("button", { name: "Start building", exact: true }).click();
+  await waitForRoom(page, 1, { coldBoot: true });
   await expect(page.getByTestId("parts-list")).toBeVisible();
   await workspaceSaved(page);
   await openWorkspaceAgent(page);
@@ -94,6 +96,7 @@ test("approved starter sound downloads a coherent project before and after reloa
     if (index === 0) {
       await workspaceSaved(page);
       await page.reload();
+      await waitForRoom(page, 1, { coldBoot: true });
       await expect(page.getByTestId("parts-list")).toBeVisible();
       await workspaceSaved(page);
     }
