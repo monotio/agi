@@ -51,6 +51,63 @@ function parse(value: unknown): unknown {
   }
 }
 
+function revisionSummary(value: unknown): Record<string, unknown> {
+  const item = record(value);
+  const summary: Record<string, unknown> = {};
+  for (const key of ["documentId", "commit"])
+    if (typeof item?.[key] === "string") summary[key] = text(item[key]);
+  if (item?.["commit"] === null) summary["commit"] = null;
+  return summary;
+}
+
+function resourceNames(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string").map(text)
+    : [];
+}
+
+function userAction(value: unknown): Record<string, unknown> | undefined {
+  const item = record(parse(value));
+  if (
+    item?.["format"] !== "monotio.agi.user-action" ||
+    item["version"] !== 1 ||
+    typeof item["decision"] !== "string" ||
+    !["approve", "reject", "undo", "restore", "interruption"].includes(item["decision"])
+  )
+    return undefined;
+  const summary: Record<string, unknown> = { decision: item["decision"] };
+  for (const key of ["outcome", "messageId", "checkpoint", "error", "explanation"])
+    if (typeof item[key] === "string") summary[key] = text(item[key]);
+  for (const key of ["resources", "discarded"])
+    if (Array.isArray(item[key])) summary[key] = resourceNames(item[key]);
+  if (Array.isArray(item["persisted"]))
+    summary["persisted"] = item["persisted"].flatMap((value) => {
+      const effect = record(value);
+      return effect
+        ? [
+            {
+              ...revisionSummary(effect),
+              ...(Array.isArray(effect["resources"])
+                ? { resources: resourceNames(effect["resources"]) }
+                : {}),
+            },
+          ]
+        : [];
+    });
+  const revision = record(item["resultingRevision"]);
+  if (revision) {
+    const projected = revisionSummary(revision);
+    if (
+      typeof revision["revision"] === "number" &&
+      Number.isSafeInteger(revision["revision"]) &&
+      revision["revision"] >= 0
+    )
+      projected["revision"] = revision["revision"];
+    summary["resultingRevision"] = projected;
+  }
+  return summary;
+}
+
 /** Only semantic tool outcomes cross providers; tool payloads remain in the saved transcript. */
 function outcome(value: unknown): unknown {
   const parsed = parse(value);
@@ -94,14 +151,16 @@ function toolText(content: unknown): unknown[] {
   });
 }
 
-function assistantText(value: string): string {
+function messageText(value: string): string {
   const wrapped = record(parse(value));
+  if (wrapped?.["format"] === "monotio.agi.user-action")
+    return JSON.stringify(userAction(wrapped) ?? {});
   if (typeof wrapped?.["toolCallId"] === "string" && record(wrapped["result"]))
     return JSON.stringify(outcome(wrapped["result"]) ?? {});
   return text(value);
 }
 
-function toolRecords(transcript: readonly unknown[]): unknown[] {
+function transcriptRecords(transcript: readonly unknown[]): unknown[] {
   const calls = new Map<string, { tool: string; resources: unknown[] }>();
   const outcomes: unknown[] = [];
   function call(item: Record<string, unknown>, id: unknown, input: unknown): void {
@@ -120,7 +179,10 @@ function toolRecords(transcript: readonly unknown[]): unknown[] {
   for (const value of transcript) {
     const item = record(value);
     if (!item) continue;
-    if (item["type"] === "function_call") call(item, item["call_id"], item["arguments"]);
+    const action =
+      item["role"] === "user" ? userAction(item["text"] ?? item["content"]) : undefined;
+    if (action) outcomes.push(action);
+    else if (item["type"] === "function_call") call(item, item["call_id"], item["arguments"]);
     else if (item["type"] === "function_call_output") output(item["call_id"], item["output"]);
     else if (Array.isArray(item["content"])) {
       for (const value of item["content"]) {
@@ -139,8 +201,9 @@ function toolRecords(transcript: readonly unknown[]): unknown[] {
 /** Handoff input is conversational text and outcomes, never UI or persistence records. */
 export function agentHandoffContext(chat: AgentChat): string {
   const messages = chat.messages.map((message) => ({
+    id: message.id,
     role: message.role,
-    text: message.role === "assistant" ? assistantText(message.text) : text(message.text),
+    text: messageText(message.text),
     ...(message.context === undefined ? {} : { context: text(message.context) }),
     ...(message.request === undefined
       ? {}
@@ -156,5 +219,5 @@ export function agentHandoffContext(chat: AgentChat): string {
     ...(message.result === undefined ? {} : { result: resultSummary(message.result) }),
     ...(message.review === undefined ? {} : { review: { label: text(message.review.label) } }),
   }));
-  return `Task messages:\n${JSON.stringify(messages)}\nTool outcomes:\n${JSON.stringify(toolRecords(chat.transcript))}\nPrevious summary:\n${text(chat.summary ?? "")}`;
+  return `Task messages:\n${JSON.stringify(messages)}\nTool outcomes and user actions:\n${JSON.stringify(transcriptRecords(chat.transcript))}\nPrevious summary:\n${text(chat.summary ?? "")}`;
 }
