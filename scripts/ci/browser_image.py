@@ -8,6 +8,23 @@ import sys
 PIN = Path('scripts/ci/playwright-image.txt')
 
 
+def check_webkit_libraries(root):
+    # Playwright #42803: libsoup 3.6.5 can finish an async queue item twice,
+    # freeing session features still used by WebKit's network process.
+    libraries = sorted(root.glob('webkit-*/minibrowser-*/sys/lib/libsoup-3.0.so.0'))
+    if not libraries:
+        raise ValueError('WebKit libsoup libraries are missing from the browser image.')
+    for library in libraries:
+        versions = set(re.findall(rb'\x00libsoup/(\d+\.\d+\.\d+)\x00', library.read_bytes()))
+        if len(versions) != 1:
+            raise ValueError(f'Cannot identify libsoup in {library}. Inspect the browser image.')
+        version = versions.pop().decode('ascii')
+        if tuple(map(int, version.split('.'))) < (3, 6, 6):
+            raise ValueError(f'WebKit bundles libsoup {version}, below the 3.6.6 network-process crash fix. '
+                             'Update Playwright and scripts/ci/playwright-image.txt.')
+        print(f'WebKit network library: {library}: libsoup {version}')
+
+
 def image_ref(ref):
     match = re.fullmatch(r'mcr\.microsoft\.com/playwright:v(\d+\.\d+\.\d+)-noble@sha256:[0-9a-f]{64}', ref)
     if not match:
@@ -40,6 +57,7 @@ def main():
         else:
             check_version(ref, Path('node_modules/playwright-core/package.json'),
                           Path('/ms-playwright/.docker-info'))
+            check_webkit_libraries(Path('/ms-playwright'))
             print(f'Playwright package and container match: {ref}')
     except (ValueError, OSError, KeyError) as error:
         print(f'::error::{error}', file=sys.stderr)

@@ -300,7 +300,14 @@ run in the official Playwright Noble image from `scripts/ci/playwright-image.txt
 The tag carries the Playwright version and the digest fixes the image contents.
 The image supplies browser binaries, fonts and system packages. Setup checks the
 installed `node_modules/playwright-core` version and the image metadata before
-testing; a mismatch fails with the file to update. Read-only mounts expose the
+testing; a mismatch fails with the file to update. Setup also requires the bundled
+WebKit libsoup libraries to be at least 3.6.6. Playwright 1.63 bundled 3.6.5,
+whose async request cleanup can free session features twice and crash the network
+process ([upstream fix](https://github.com/WebKit/WebKit/pull/74619), shipped in
+Playwright 1.64). PR 75's trace recorded that process crashing, followed by Vite
+reloading the page and an agent-review assertion timing out. Its native crash stack
+was not captured; the vulnerable dependency and matching symptoms support this
+diagnosis without proving the exact crash site. Read-only mounts expose the
 Ubuntu 24.04 runner's `zstd` and `unzstd` tools so the container reads the same
 dependency cache as Node jobs. Browser hosts stay on Ubuntu 24.04 to match the
 Noble image's system libraries. Node jobs keep the runner setup.
