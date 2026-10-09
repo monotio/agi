@@ -1009,9 +1009,35 @@ export function useEngine(
     }
   }
 
-  const openPowerUp: ReturnType<typeof useAuthoringController>["openPowerUp"] = async (...args) =>
-    (await loadAuthoringController()).openPowerUp(...args);
+  let powerUpVisibilityGeneration = 0;
+  const openPowerUp: ReturnType<typeof useAuthoringController>["openPowerUp"] = async (...args) => {
+    const generation = ++powerUpVisibilityGeneration;
+    const game = lifecycle.getBootedGame();
+    const worker = link.getWorker();
+    const mode = projectMode;
+    state.powerUp.open = true;
+    try {
+      const controller = await loadAuthoringController();
+      if (
+        generation !== powerUpVisibilityGeneration ||
+        lifecycle.getBootedGame() !== game ||
+        link.getWorker() !== worker ||
+        projectMode !== mode
+      )
+        return;
+      await controller.openPowerUp(...args);
+    } catch {
+      if (
+        generation === powerUpVisibilityGeneration &&
+        lifecycle.getBootedGame() === game &&
+        link.getWorker() === worker &&
+        projectMode === mode
+      )
+        state.powerUp.error = "Agent could not load. Reload the page and try again.";
+    }
+  };
   function closePowerUp(): void {
+    powerUpVisibilityGeneration++;
     state.powerUp.open = false;
     authoringController?.closePowerUp();
   }
@@ -1624,9 +1650,9 @@ export function useEngine(
     updateAiConfig,
     openPowerUp(config: LlmConfig) {
       if (projectMode !== "create") return openPowerUp(config);
+      closePowerUp();
       state.powerUp.open = true;
       state.powerUp.mode = "remix";
-      state.powerUp.busy = false;
       return Promise.resolve();
     },
     closePowerUp,
