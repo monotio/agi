@@ -43,6 +43,30 @@ function project(source = "set(door); return;", revision = 1): LogicAnalysisProj
   };
 }
 
+test("typing supersession is distinguishable from a failed worker", async () => {
+  const worker = new FakeWorker();
+  const client = new LogicAnalysisClient(() => worker);
+  client.setProject(project("s"));
+  const completion = client.request("logic:1", "textDocument/completion", {
+    position: { line: 0, character: 1 },
+  });
+  const superseded = assert.rejects(completion, (error: Error) => {
+    assert.equal(error.name, "LogicAnalysisSupersededError");
+    return true;
+  });
+  client.changeDocument("logic:1", 2, "set");
+  await superseded;
+  const current = client.request("logic:1", "textDocument/completion");
+  const failed = assert.rejects(current, (error: Error) => {
+    assert.notEqual(error.name, "LogicAnalysisSupersededError");
+    assert.match(error.message, /worker failed/);
+    return true;
+  });
+  worker.onerror!({} as ErrorEvent);
+  await failed;
+  client.dispose();
+});
+
 test("prepared diagnostics refresh markers without cancelling a matching completion", async () => {
   const queued: (() => void)[] = [];
   const worker = new FakeWorker((run) => queued.push(run));
