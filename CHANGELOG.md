@@ -22,6 +22,11 @@ Released notes are also available on [GitHub Releases](https://github.com/monoti
 - Each request captures its current interpreter profile, runtime and attached references.
 - Switching to Create waits for the conversation transfer and preserves unfinished drafts.
 - Opening Agent focuses its composer on every visit and preserves a newer control's focus.
+- Closing Agent during startup resumes the game; delayed opening cannot reopen it.
+- Live inspection continues after the task's own accepted edits.
+- Captured native and draft resources retain their own vocabulary and rendering
+  dependencies. Native inspections in Create use the shared result widgets.
+- Help keeps the conversation and unfinished draft open when switching to Create.
 - Failed game opening retains the saved project and offers Reload. Closing setup
   retires its pending opening; a blank agent's first room follows its current stage.
 - The first conversation save preserves Create admission when it opens an editable copy.
