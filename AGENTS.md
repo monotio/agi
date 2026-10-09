@@ -223,8 +223,13 @@ code, comments or documentation.
 - Explain a proposal in plain words (problem, who it serves, origin, cost and benefit)
   before showing a mockup or asking for a scope decision. Limits on agents (rounds,
   reads, tokens) follow evidence about the task, never round numbers.
-- Run the affected tests and `npm run check` before integration, plus
-  `npm --prefix app run build && npm run check:bundle` when imports move. Debug on
+- Run affected tests and `npm run check` before integrating application, engine,
+  dependency or test changes; also build and check bundle boundaries when runtime
+  imports move. Documentation-only changes need formatting and consistency checks.
+  For CI-only follow-ups after a green integration gate, run the CI helper tests,
+  workflow validation and formatting instead of repeating unchanged game suites.
+  PR browser suites run once with zero retries; repeat only to investigate a
+  specific failure, with an explicit diagnostic run. Debug on
   your own machine, never through CI: CI runs cost money. Reproduce Linux WebKit and
   fonts with the container in docs/testing.md. Push only a fully gated integration
   head; CI on that push is the final Linux verdict, read with

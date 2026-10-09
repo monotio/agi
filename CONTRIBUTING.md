@@ -135,7 +135,10 @@ reason in the commit.
 
 ### CI verification
 
-Before pushing a code change, run `npm run check` and the affected browser specs.
+Before pushing application, engine, dependency or test changes, run `npm run check`
+and the affected browser specs. Documentation needs formatting and consistency
+checks. CI-only follow-ups after a green integration gate need helper tests,
+workflow validation and formatting; unchanged game suites keep their prior result.
 Open a pull request for CI's Linux verdict; local browser results establish
 behavior on your local platform. Release lanes commit locally without pushing;
 the owner or integrator pushes the fully gated integration head. CI runs on
@@ -146,20 +149,21 @@ same ref.
 | CI job                       | Coverage                                                                                                                                                                                               |
 | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Prepare CI                   | Changed-file classification, CI helper tests and one installation of both package roots, cached by lockfiles                                                                                           |
-| Static checks and unit tests | Full `npm run check`, including offline eval replay                                                                                                                                                    |
+| Static checks and unit tests | Full `npm run check` for code; formatting for docs and covered CI helpers (helper tests run in Prepare)                                                                                                |
 | Build production artifact    | One production build, bundle boundaries and budgets, site and chunk-graph artifacts                                                                                                                    |
 | Playwright                   | Ten Chromium shards and four tagged WebKit desktop shards balanced by measured spec durations, three WebKit phone shards, and separate jobs for timing budgets and the storage benchmark on one worker |
 | Production browser           | Chromium and WebKit against the shared production artifact                                                                                                                                             |
-| PR burn-in                   | Up to 12 specs added or changed by the PR or its latest push, repeated five times in Chromium; tagged desktop tests also in WebKit; changed production specs in both engines                           |
-| Nightly browser burn-in      | Every browser suite repeated three times; one issue records tests with both passing and failing attempts                                                                                               |
+| Browser diagnostics          | Manual full browser run, one pass by default; repetitions are selected explicitly when investigating a failure                                                                                         |
 
 The required contexts stay `Typecheck, lint, unit tests, build`,
 `Playwright (play, remix and export)` and the repository-managed `CodeQL`.
 The first two aggregate their jobs and fail if an applicable job fails. Changes
-confined to Markdown or documentation assets skip browser jobs and development
-branch builds; required CI contexts still report success after the standard
-gate. Main builds and publishes each checked commit. Capture code
-under `docs/` still runs the browsers. CodeQL keeps its repository-managed policy.
+confined to root Markdown files or `docs/` prose and images/PDFs use formatting and consistency
+checks. Covered CI Python helpers and duration weights use helper tests and
+formatting. Both skip browsers and development branch builds. Workflows, browser
+images, dependencies, tests, capture code and unknown paths retain full coverage.
+PR suites run once with zero retries; manual diagnostics provide explicit
+repetitions. Main builds and publishes each checked commit. CodeQL keeps its repository-managed policy.
 Browser jobs use the official Playwright Noble container pinned by digest in
 `scripts/ci/playwright-image.txt`. Setup checks its version against the restored
 `node_modules/playwright-core` package and the container metadata. When

@@ -13,16 +13,18 @@ import tempfile
 BENCHMARK = "history-bench.spec.ts"
 
 
-def classify(files, exists=Path.is_file):
-    # Capture programs affect browser behavior even when kept beside documentation.
-    code = {'.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.py', '.sh', '.html', '.vue'}
-    docs_only = bool(files) and all(
-        path.endswith('.md') or (path.startswith('docs/') and Path(path).suffix not in code)
-        for path in files)
-    specs = sorted(path for path in files
-                   if path.startswith(('app/e2e/', 'app/production/'))
-                   and path.endswith('.spec.ts') and exists(Path(path)))
-    return {'browsers': not docs_only, 'specs': specs}
+def classify(files):
+    # Unknown paths, runtime inputs and workflow changes keep the full gate.
+    doc_assets = {'.md', '.png', '.jpg', '.jpeg', '.webp', '.svg', '.gif', '.pdf'}
+    helpers = {'scripts/ci/tools.py', 'scripts/ci/test_tools.py',
+               'scripts/ci/browser_image.py', 'scripts/ci/test_browser_image.py',
+               'scripts/ci/durations.json', 'scripts/ci/webkit-durations.json'}
+    code = [path for path in files if not (
+        ('/' not in path and path.endswith('.md')) or
+        (path.startswith('docs/') and Path(path).suffix in doc_assets))]
+    quality = ('docs' if files and not code else
+               'ci' if code and all(path in helpers for path in code) else 'full')
+    return {'browsers': quality == 'full', 'quality': quality}
 
 
 def partition(files, weights, count):
@@ -67,24 +69,13 @@ def intermittent(reports):
 
 def changed_files(base, head):
     return subprocess.check_output(
-        ['git', 'diff', '--name-only', '-z', base, head]).decode().strip('\0').split('\0')
-
-
-def burn_selection(specs, limit):
-    # A release-sized change already runs every suite; nightly repeats catch its flakes.
-    return specs if len(specs) <= limit else []
+        ['git', 'diff', '--no-renames', '--name-only', '-z', base, head]).decode().strip('\0').split('\0')
 
 
 def changes(args):
-    def diff(base):
-        files = changed_files(base, args.head) if base and set(base) != {'0'} else []
-        return classify([file for file in files if file])
-    result = diff(args.base)
-    specs = diff(args.burn_base)['specs'] if args.burn_base else result['specs']
-    burn = burn_selection(specs, args.burn_limit)
-    if specs and not burn:
-        print(f'Burn-in skipped: {len(specs)} changed specs exceed {args.burn_limit}', file=sys.stderr)
-    output = f"browsers={str(result['browsers']).lower()}\nspecs={json.dumps(burn)}\n"
+    files = changed_files(args.base, args.head) if args.base and set(args.base) != {'0'} else []
+    result = classify([file for file in files if file])
+    output = f"browsers={str(result['browsers']).lower()}\nquality={result['quality']}\n"
     print(output, end='')
     if os.environ.get('GITHUB_OUTPUT'):
         with open(os.environ['GITHUB_OUTPUT'], 'a') as file:
@@ -146,31 +137,6 @@ def shard(args):
                       [f'--repeat-each={args.repeat}'])
 
 
-def burn(args):
-    files = json.loads(args.specs)
-    e2e = [file_filter(path.removeprefix('app/')) for path in files
-           if path.startswith('app/e2e/')]
-    production = [file_filter(path.removeprefix('app/')) for path in files
-                  if path.startswith('app/production/')]
-    result = 0
-    repeat = ['--repeat-each=5']
-    if args.browser == 'chromium' and f'app/e2e/{BENCHMARK}' in files:
-        benchmark_filter = file_filter(f'e2e/{BENCHMARK}')
-        e2e = [pattern for pattern in e2e if pattern != benchmark_filter]
-        result |= playwright('e2e', 'app/test-results/ci-reports/burn-benchmark.json',
-                             [benchmark_filter, *repeat, '--workers=1'])
-    if e2e:
-        command = 'e2e' if args.browser == 'chromium' else 'e2e:webkit-desktop'
-        result |= playwright(command, f'app/test-results/ci-reports/burn-{args.browser}.json',
-                             [*e2e, *repeat, '--pass-with-no-tests'])
-        if args.browser == 'chromium':
-            result |= playwright('e2e:perf', 'app/test-results/ci-reports/burn-perf.json',
-                                 [*e2e, *repeat, '--pass-with-no-tests'])
-    if production:
-        result |= playwright('e2e:production', f'app/test-results/ci-reports/burn-production-{args.browser}.json',
-                             [*production, *repeat, f'--browser={args.browser}'])
-    return result
-
 
 def issue(args):
     paths = sorted(Path(args.directory).rglob('*.json'))
@@ -180,7 +146,7 @@ def issue(args):
                for path in paths]
     flakes = intermittent(reports)
     marker = '<!-- browser-repeat-flakes -->'
-    body = [marker, 'Browser tests with both passing and failing attempts in the latest nightly run.',
+    body = [marker, 'Browser tests with both passing and failing attempts in the latest diagnostic run.',
             '', f'[Run and artifacts]({args.url})', f'Reports available: {len(paths)}.', '']
     body += [f"- `{item['test']}`: {item['passed']} passed, {item['failed']} failed."
              for item in flakes] or ['Every completed test had consistent results.']
@@ -189,7 +155,7 @@ def issue(args):
         return 0
     issues = json.loads(subprocess.check_output(
         ['gh', 'issue', 'list', '--repo', args.repo, '--state', 'all', '--search',
-         '"Nightly browser flakes" in:title', '--json', 'number,body,state', '--limit', '100']))
+         '"browser" in:title', '--json', 'number,body,state', '--limit', '100']))
     existing = next((item for item in issues if marker in item['body']), None)
     if existing:
         subprocess.run(['gh', 'issue', 'edit', str(existing['number']), '--repo', args.repo,
@@ -198,7 +164,7 @@ def issue(args):
             subprocess.run(['gh', 'issue', 'reopen', str(existing['number']), '--repo', args.repo], check=True)
     elif flakes:
         subprocess.run(['gh', 'issue', 'create', '--repo', args.repo,
-                        '--title', 'Nightly browser flakes', '--body-file', args.body], check=True)
+                        '--title', 'Browser diagnostic flakes', '--body-file', args.body], check=True)
     return 0
 
 
@@ -208,8 +174,6 @@ def main():
     change = commands.add_parser('changes')
     change.add_argument('--base', default='')
     change.add_argument('--head', default='HEAD')
-    change.add_argument('--burn-base', default='')
-    change.add_argument('--burn-limit', type=int, default=12)
     balance = commands.add_parser('shard')
     balance.add_argument('--index', type=int, required=True)
     balance.add_argument('--suite', choices=['chromium', 'webkit'], default='chromium')
@@ -219,9 +183,6 @@ def main():
     quiet = commands.add_parser('isolated')
     quiet.add_argument('--repeat', type=int, default=1)
     quiet.add_argument('--report', required=True)
-    burn_in = commands.add_parser('burn')
-    burn_in.add_argument('--specs', required=True)
-    burn_in.add_argument('--browser', choices=['chromium', 'webkit'], required=True)
     flake_issue = commands.add_parser('issue')
     flake_issue.add_argument('--directory', required=True)
     flake_issue.add_argument('--url', required=True)
@@ -232,7 +193,7 @@ def main():
     if args.command == 'changes':
         changes(args)
         return 0
-    return {'shard': shard, 'isolated': isolated, 'burn': burn, 'issue': issue}[args.command](args)
+    return {'shard': shard, 'isolated': isolated, 'issue': issue}[args.command](args)
 
 
 if __name__ == '__main__':

@@ -297,7 +297,7 @@ median measured weight. The longest specs are
 assigned first to the lightest group. JSON report artifacts retain per-test
 durations for rebalancing. Each spec runs in exactly one group with every test
 selected by the ordinary suite configuration. The benchmark remains part of
-the required browser gate and nightly repetitions. Timing budgets and
+the required browser gate and manual diagnostics. Timing budgets and
 storage each have their own job, with timing tests first after runner setup.
 Browser suite jobs allow 45 minutes, about three times the observed healthy
 desktop shard duration. The former 15-minute limit cancelled a shard after 118
@@ -305,14 +305,14 @@ tests passed and seven skipped, with its last test still running. This job allow
 includes setup and artifact upload;
 individual test deadlines and zero retries remain unchanged. Refresh the duration
 weights when new specs leave the groups uneven.
-The suite matrix runs at most 15 jobs at once; PR burn-in runs one browser job
-at a time. Together with quality and the two production browsers, this uses
-at most 19 concurrent jobs, leaving one of the 20 public-runner slots free.
+The suite matrix runs at most 15 jobs at once, starting the longest measured
+groups first. Together with quality and the two production browsers, this uses
+at most 18 concurrent jobs, leaving capacity for other repository work.
 
 CI runs one root `npm ci` for the root package and app workspace, then restores
 the dependency cache in test and build jobs. The production build and chunk graph are shared
 with both production browser jobs. Chromium shards, WebKit desktop and phone,
-production browsers, timing, storage, PR burn-in and deployed-site verification
+production browsers, timing, storage, diagnostics and deployed-site verification
 run in the official Playwright Noble image from `scripts/ci/playwright-image.txt`.
 The tag carries the Playwright version and the digest fixes the image contents.
 The image supplies browser binaries, fonts and system packages. Setup checks the
@@ -338,32 +338,26 @@ from successful tests as well as failed ones; JSON reports retain measured test
 durations. Keep screenshot expectations and timing budgets tied to the observed
 behavior.
 
-Pull requests repeat added or changed specs five times: on a PR's first run
-the specs it changes, and on each later push the specs that push changes. A
-change touching more than 12 specs, such as a release candidate, skips the
-burn-in, since every suite already runs and the nightly repeats find flakes.
-Chromium covers their
-ordinary tests and, in an isolated run, their timing tests. WebKit covers their
-`@webkit-desktop` tests. Changed production specs run in both engines. Reproduce
-with `npm --prefix app run e2e -- e2e/<file>.spec.ts --repeat-each=5` or
-`npm --prefix app run e2e:webkit-desktop -- e2e/<file>.spec.ts --repeat-each=5`.
+Pull requests run each applicable suite once, with zero retries. Repetition is an
+explicit diagnostic action: use **Browser diagnostics** in GitHub Actions and
+choose the run count (one by default), or repeat a specific local spec with
+`npm --prefix app run e2e -- e2e/<file>.spec.ts --repeat-each=3`.
+The diagnostic workflow has no schedule. It retains browser reports and updates
+a diagnostic flake issue when a test has both passing and failing attempts.
+Consistent failures remain failures. Only that report job has `issues: write`.
 
-Repeat the storage benchmark with
-`npm --prefix app run e2e -- e2e/history-bench.spec.ts --repeat-each=5 --workers=1`.
-Selection and reporting helpers have their own regression tests:
+Timing and storage diagnostics run alone on one worker. Selection and reporting
+helpers have their own regression tests:
 `PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s scripts/ci -p 'test_*.py'`.
 
-At 03:17 UTC each night, the full Chromium, WebKit phone, WebKit desktop,
-performance and production suites run with `--repeat-each=3`. The report job
-creates or updates the single **Nightly browser flakes** issue when a test has
-both passing and failing attempts, with counts and the run link. Consistent
-failures remain failures in the run. Only that report job has `issues: write`.
-
-Markdown and documentation asset changes skip browsers and development branch
-builds while the standard gate runs and the required CI contexts complete.
-Main builds and publishes each checked commit. Documentation capture
-code runs the full browser checks. The required browser context also includes
-the PR burn-in when changed specs exist. See the
+Root Markdown files and `docs/` prose and images/PDFs use formatting and consistency checks;
+they skip the full unit/eval gate, browsers and development branch builds.
+Changes confined to the explicitly covered CI Python helpers and duration weights
+use their helper tests and formatting. Mixed changes, workflows, browser images,
+dependencies, tests, documentation capture code and unknown paths use the full
+gate. Classification uses the whole PR diff, so a later documentation push cannot
+hide an earlier code change. Required CI contexts still verify every applicable
+job. Main builds and publishes each checked commit. See
 [CI job coverage](../CONTRIBUTING.md#ci-verification) for the complete gate.
 
 ### Input and phone checks

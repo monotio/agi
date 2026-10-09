@@ -8,16 +8,13 @@ on:
       head:
         type: string
         default: HEAD
-      burn_base:
-        type: string
-        default: ""
     outputs:
       browser_image:
         value: ${{ jobs.prepare.outputs.browser_image }}
       browsers:
         value: ${{ jobs.prepare.outputs.browsers }}
-      specs:
-        value: ${{ jobs.prepare.outputs.specs }}
+      quality:
+        value: ${{ jobs.prepare.outputs.quality }}
       duplicate:
         value: ${{ jobs.prepare.outputs.duplicate }}
 permissions:
@@ -30,7 +27,7 @@ jobs:
     outputs:
       browser_image: ${{ steps.image.outputs.image }}
       browsers: ${{ steps.changes.outputs.browsers }}
-      specs: ${{ steps.changes.outputs.specs }}
+      quality: ${{ steps.changes.outputs.quality }}
       duplicate: ${{ steps.duplicate.outputs.duplicate }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -56,8 +53,7 @@ jobs:
         env:
           BASE: ${{ inputs.base }}
           HEAD: ${{ inputs.head }}
-          BURN_BASE: ${{ inputs.burn_base }}
-        run: python3 scripts/ci/tools.py changes --base "$BASE" --head "$HEAD" --burn-base "$BURN_BASE"
+        run: python3 scripts/ci/tools.py changes --base "$BASE" --head "$HEAD"
       - name: Pinned browser image
         id: image
         run: |

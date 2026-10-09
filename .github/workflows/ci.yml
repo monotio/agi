@@ -15,8 +15,6 @@ jobs:
     with:
       base: ${{ github.event.pull_request.base.sha || github.event.before || '' }}
       head: ${{ github.sha }}
-      # Burn in what this push changed; a PR's first run compares with its base.
-      burn_base: ${{ github.event.action == 'synchronize' && github.event.before || '' }}
 
   quality:
     name: Static checks and unit tests
@@ -29,7 +27,15 @@ jobs:
         with:
           persist-credentials: false
       - uses: ./scripts/ci/setup
-      - run: npm run check
+      - name: Run the applicable quality gate
+        env:
+          QUALITY: ${{ needs.prepare.outputs.quality }}
+        run: |
+          case "$QUALITY" in
+            full) npm run check ;;
+            docs|ci) npm run format:check ;;
+            *) echo "Unknown quality gate: $QUALITY" >&2; exit 1 ;;
+          esac
 
   build:
     needs: prepare
@@ -65,62 +71,10 @@ jobs:
       browser_image: ${{ needs.prepare.outputs.browser_image }}
       production: true
 
-  burn:
-    name: PR burn-in (${{ matrix.browser }})
-    needs: [prepare, build]
-    if: github.event_name == 'pull_request' && needs.prepare.outputs.specs != '[]' && needs.prepare.outputs.browsers == 'true'
-    runs-on: ubuntu-24.04
-    container:
-      image: ${{ needs.prepare.outputs.browser_image }}
-      options: --init --ipc=host
-      # Match the runner dependency cache's compression without package installs.
-      volumes:
-        - /usr/bin/zstd:/usr/local/bin/zstd:ro
-        - /usr/bin/unzstd:/usr/local/bin/unzstd:ro
-    defaults:
-      run:
-        shell: bash
-    timeout-minutes: 30
-    strategy:
-      fail-fast: false
-      max-parallel: 1
-      matrix:
-        browser: [chromium, webkit]
-    env:
-      CI: "1"
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: ./scripts/ci/setup
-        with:
-          browser: ${{ matrix.browser }}
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: agi-site
-          path: app/dist
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: agi-bundle-graph
-          path: app/node_modules/.agi
-      - name: Repeat changed specs five times
-        env:
-          SPECS: ${{ needs.prepare.outputs.specs }}
-          BROWSER: ${{ matrix.browser }}
-        run: python3 scripts/ci/tools.py burn --specs "$SPECS" --browser "$BROWSER"
-      - if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: burn-${{ matrix.browser }}
-          path: |
-            app/test-results/ci-reports/
-            app/test-results/
-          retention-days: 7
-
   browsers:
     name: Playwright (play, remix and export)
     if: always()
-    needs: [prepare, suites, burn]
+    needs: [prepare, suites]
     runs-on: ubuntu-latest
     timeout-minutes: 1
     steps:
@@ -128,7 +82,6 @@ jobs:
         env:
           PREPARE: ${{ needs.prepare.result }}
           SUITES: ${{ needs.suites.result }}
-          BURN: ${{ needs.burn.result }}
           BROWSERS: ${{ needs.prepare.outputs.browsers }}
           DUPLICATE: ${{ needs.prepare.outputs.duplicate }}
         run: |
@@ -138,11 +91,10 @@ jobs:
           else
             test "$SUITES" = success
           fi
-          test "$BURN" = success || test "$BURN" = skipped
 
   deploy:
     name: Deploy production
-    # Explicit results: the PR-only burn-in job is skipped on pushes, and an
+    # Explicit results: optional jobs may be skipped on pushes, and an
     # implicit success() would skip every job downstream of it.
     if: >-
       !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/main' &&
