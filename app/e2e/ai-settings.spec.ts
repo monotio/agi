@@ -1,6 +1,12 @@
 import { expect, test } from "./test.ts";
 import { providerReply } from "../../test/provider-stream.ts";
-import { isolateStorage, openAiSettings, enterPlayMode, textHook } from "./engineProbe.ts";
+import {
+  isolateStorage,
+  openAiSettings,
+  enterPlayMode,
+  textHook,
+  waitForRoom,
+} from "./engineProbe.ts";
 
 test("one shared AI setup preserves the brief and keeps provider keys separate", async ({
   page,
@@ -334,7 +340,7 @@ test("changing the shared provider affects the next Ask without losing the conve
   });
   await page.goto("/");
   await page.getByTestId("catalog-play-adventure-department").click();
-  await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  await waitForRoom(page, 1, { coldBoot: true });
   await enterPlayMode(page);
   await page.getByTestId("menu-assistant").click();
   await openAiSettings(page);
