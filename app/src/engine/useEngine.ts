@@ -72,6 +72,7 @@ import { useGameLifecycle } from "./useGameLifecycle.ts";
 import { createPauseHolds } from "./pauseHolds.ts";
 import { createRuntimePauseLeaseAcquire } from "./runtimePauseLease.ts";
 import { createStartOver } from "./startOver.ts";
+import { createAiConfigUpdater } from "./aiConfigUpdate.ts";
 import type { useEngineDebug } from "./useEngineDebug.ts";
 import type { useRoomMap } from "../world/useRoomMap.ts";
 import type { WorkerInbound, WorkerQueryPayload, WorkerControl } from "../worker/workerProtocol.ts";
@@ -1084,14 +1085,22 @@ export function useEngine(
     return historyView!.undoStartOver();
   }
 
-  async function updateAiConfig(config: LlmConfig, commit?: () => void): Promise<void> {
-    const publish = () => {
+  const updateAiConfig = createAiConfigUpdater({
+    getController: () => authoringController,
+    getLoading: () => authoringLoading,
+    getOwner: () => ({
+      game: lifecycle.getBootedGame(),
+      worker: link.getWorker(),
+      mode: projectMode,
+      modeGeneration: projectModeChange,
+      project: projectSession,
+      sessionId: activeWalkthroughSession,
+    }),
+    publish(config, commit) {
       commit?.();
       activeLlmConfig = config;
-    };
-    if (authoringController) await authoringController.updateAiConfig(config, publish);
-    else publish();
-  }
+    },
+  });
 
   const { startTestRecording, stopTestRecording, cancelTestRecording, saveRecordedTest } =
     testRecorder;
