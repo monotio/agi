@@ -68,6 +68,34 @@ test("one Agent keeps the draft across Play, Create, resource selection and clos
   await expect(panel.getByRole("heading", { name: "Agent", exact: true })).toBeVisible();
 });
 
+for (const open of [true, false]) {
+  test(`Help enters Create with Agent ${open ? "already open" : "closed"} and retains its draft @webkit-desktop`, async ({
+    page,
+  }) => {
+    await starter(page);
+    const panel = page.getByTestId("workspace-agent-panel");
+    const composer = panel.getByTestId("agent-message");
+    await page.getByRole("radio", { name: "Play", exact: true }).click();
+    await panel.getByTestId("agent-panel-close").click();
+    await page.getByRole("button", { name: "Agent", exact: true }).click();
+    await expect(composer).toHaveAttribute("placeholder", "Ask about this game…");
+    await composer.fill("Keep this unfinished question through Help");
+    if (!open) await panel.getByTestId("agent-panel-close").click();
+    await page.getByTestId("help-menu").click();
+    await page.getByTestId("btn-help-guide").click();
+    const help = page.getByTestId("help-guide");
+    await expect(help).toBeVisible();
+    await help.getByTestId("help-section-creating").click();
+    await help.getByTestId("help-action-remix").first().click();
+    await expect(help).toBeHidden();
+    await expect(page.getByRole("radio", { name: "Create", exact: true })).toBeChecked();
+    await expect(panel).toBeVisible();
+    await expect(composer).toHaveAttribute("placeholder", "Ask or describe a change…");
+    await expect(composer).toHaveValue("Keep this unfinished question through Help");
+    await expect(page.getByTestId("agent-review")).toHaveCount(0);
+  });
+}
+
 for (const width of [1440, 390]) {
   test(`native review survives Apply and opens its earlier preview with the composer intact ${width} @webkit-desktop`, async ({
     page,
