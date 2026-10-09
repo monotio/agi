@@ -24,7 +24,6 @@ for (const width of [1440, 1063, 390]) {
       await page.goto("/#create-adventure");
       await page.getByTestId("local-create-kind-starter").click();
       await page.getByRole("button", { name: "Start building", exact: true }).click();
-      await expect.poll(async () => (await textHook(page)).room).toBe(1);
       await expect
         .poll(() =>
           page.evaluate(
@@ -35,12 +34,18 @@ for (const width of [1440, 1063, 390]) {
           ),
         )
         .toBe(true);
-      // Set up an unadmitted vocabulary through the production draft boundary.
       await page.evaluate(async () => {
         const session = (
           window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }
         ).__AGI_PROJECT__.getSession();
         if (!(await session.ready)) throw new Error("Project session could not acquire ownership.");
+      });
+      await expect.poll(async () => (await textHook(page)).room).toBe(1);
+      // Set up an unadmitted vocabulary through the production draft boundary.
+      await page.evaluate(async () => {
+        const session = (
+          window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }
+        ).__AGI_PROJECT__.getSession();
         const words = JSON.parse(String(session.workingSnapshot().read("words")!.content)) as [
           string,
           number,
