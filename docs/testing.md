@@ -280,7 +280,7 @@ worker. Retries stay at zero so every failure is visible.
 
 The Chromium suite is split into ten spec groups using measured durations in
 `scripts/ci/durations.json`; the storage benchmark runs separately on one worker.
-Tagged WebKit desktop tests use three groups and `scripts/ci/webkit-durations.json`.
+Tagged WebKit desktop tests use four groups and `scripts/ci/webkit-durations.json`.
 Every run discovers the current specs through Playwright; new specs receive the
 median measured weight. The longest specs are
 assigned first to the lightest group. JSON report artifacts retain per-test
@@ -288,6 +288,12 @@ durations for rebalancing. Each spec runs in exactly one group with every test
 selected by the ordinary suite configuration. The benchmark remains part of
 the required browser gate and nightly repetitions. Timing budgets and
 storage each have their own job, with timing tests first after runner setup.
+Browser suite jobs allow 45 minutes, about three times the observed healthy
+desktop shard duration. The former 15-minute limit cancelled a shard after 118
+tests passed and seven skipped, with its last test still running. This job allowance
+includes setup and artifact upload;
+individual test deadlines and zero retries remain unchanged. Refresh the duration
+weights when new specs leave the groups uneven.
 The suite matrix runs at most 15 jobs at once; PR burn-in runs one browser job
 at a time. Together with quality and the two production browsers, this uses
 at most 19 concurrent jobs, leaving one of the 20 public-runner slots free.
