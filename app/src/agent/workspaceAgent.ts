@@ -1,4 +1,4 @@
-import { inspectedResourceKeys } from "./agentResults.ts";
+import { inspectedResourceKeys, resourceRenderingDependencies } from "./agentResults.ts";
 import type { ProjectContent } from "../../../src/authoring/projectContent.ts";
 import { beginProviderTask } from "./providerBudget.ts";
 /** One task-chat adapter; ProjectSession remains the sole project writer. */
@@ -85,10 +85,14 @@ export interface AgentSubmission extends AgentTurnContext {
   readonly readOnly?: boolean;
   readonly formatReply?: ReplyFormatter;
 }
+export interface WorkspaceAgentRuntime extends AgentRuntimeDeps {
+  /** Authorize only the revision produced by this task's own admission. */
+  readonly advanceRevision?: (before: string, after: string, nativeAdmission: boolean) => void;
+}
 export interface AgentTurnContext {
   readonly mode?: "play" | "create";
   readonly profileId?: ProfileId;
-  readonly runtime?: () => AgentRuntimeDeps;
+  readonly runtime?: () => WorkspaceAgentRuntime;
 }
 export type ConversationSession = Pick<
   ProjectSession,
@@ -117,7 +121,7 @@ interface Options {
     catalog?: readonly ToolDefinition[],
     sessionId?: string,
   ) => UnifiedConversation;
-  readonly runtime?: () => AgentRuntimeDeps;
+  readonly runtime?: () => WorkspaceAgentRuntime;
   readonly changed?: () => void;
   readonly beforeApprove?: () => Promise<void>;
 }
@@ -466,7 +470,11 @@ export function createWorkspaceAgent(options: Options) {
     activeRun?.assertActive();
     if (session.closed) throw new Error("The project session was closed.");
   }
-  async function approve(keys?: readonly string[], automatic = false) {
+  async function approve(
+    keys?: readonly string[],
+    automatic = false,
+    taskRuntime?: WorkspaceAgentRuntime,
+  ) {
     const approving = review;
     if (approving === null || applying) return;
     applying = true;
@@ -495,9 +503,14 @@ export function createWorkspaceAgent(options: Options) {
         allowMissingRooms: session.allowMissingRooms,
       });
       ws.propose("Validate selection", []);
-      const verdict = validateAgentHandover(ws.openToolState().state);
+      const validatedState = ws.openToolState().state;
+      const verdict = validateAgentHandover(validatedState);
       if (!verdict.success) throw new Error(verdict.error ?? "Handover rejected.");
       const before = session.history.capture().cursor!;
+      const beforeRevision = proposal.base.lastAdmissibleBuild!.identity.revision;
+      const admittedRevision = computeResourceRevision(
+        Object.fromEntries(validatedState.getFiles()),
+      );
       assertLive();
       const result = await session.submit({
         proposal,
@@ -510,6 +523,11 @@ export function createWorkspaceAgent(options: Options) {
       });
       if (!["committed", "unchanged", "restartRequired"].includes(result.status))
         throw new Error("The changes could not be applied. Check Problems and revise them.");
+      taskRuntime?.advanceRevision?.(
+        beforeRevision,
+        admittedRevision,
+        result.status !== "restartRequired",
+      );
       const commit = session.history.capture().cursor!;
       const chat = store.chats.find((chat) => chat.id === approving.chatId)!;
       chat.messages = chat.messages.map((message) =>
@@ -702,6 +720,7 @@ export function createWorkspaceAgent(options: Options) {
     const touched = new Set<string>();
     const inspectedDocuments: Record<string, ProjectContent> = {};
     const inspectedDependencies: Record<string, ProjectContent> = {};
+    const resourceSnapshots: Record<string, ReturnType<typeof writeProjectWorkspace>> = {};
     function flushActions() {
       for (const text of actionQueue ?? []) provider?.recordInterruption?.(text);
       actionQueue = [];
@@ -722,6 +741,7 @@ export function createWorkspaceAgent(options: Options) {
       );
     }
     let handedOver = false;
+    let capturedRuntime: WorkspaceAgentRuntime = {};
     let failedSave: { cause: unknown } | undefined;
     async function offer(text: string) {
       assertLive();
@@ -788,7 +808,7 @@ export function createWorkspaceAgent(options: Options) {
       assertLive();
       if ((autoApprove || automatic) && !forceReview && !review.stale()) {
         try {
-          await approve(undefined, true);
+          await approve(undefined, true, capturedRuntime);
         } catch (cause) {
           error = cause instanceof Error ? cause.message : String(cause);
           notify();
@@ -838,6 +858,7 @@ export function createWorkspaceAgent(options: Options) {
         chat.sessionId ??= crypto.randomUUID();
         provider = make(config, initial, run, WORKSPACE_AGENT_TOOLS, chat.sessionId);
         const runtime = (turnContext.runtime ?? options.runtime)?.() ?? {};
+        capturedRuntime = runtime;
         if (readOnly) {
           const nativeFiles = await runtime.nativeFiles?.();
           assertLive();
@@ -1165,18 +1186,33 @@ export function createWorkspaceAgent(options: Options) {
               notify();
             }
             const resourceKeys = inspectedResourceKeys(call.name, call.input, result);
-            if (call.name === "read_document") {
+            if (resourceKeys.length) {
+              let documents: Readonly<Record<string, ProjectContent>>;
+              let dependencies: Readonly<Record<string, ProjectContent>>;
+              if (call.name === "read_document") {
+                // The driver reads its captured workspace, including previously staged edits.
+                documents = readOnly ? base.documents() : editWorkspace().documents();
+                dependencies = resourceRenderingDependencies(documents);
+              } else {
+                // Create tools inspect the task's native state, which can contain
+                // unadmitted edits. Capture that same state before another tool runs.
+                const native = readOnly
+                  ? inspection!
+                  : createProjectInspection({
+                      files: Object.fromEntries(staged!.state.getFiles()),
+                      documents: {},
+                      profileId,
+                    });
+                documents = native.documents(resourceKeys);
+                dependencies = native.documents(["words", "inventory"]);
+              }
               for (const key of resourceKeys) {
-                const content = base.read(key)?.content;
-                if (content !== undefined) inspectedDocuments[key] = content;
+                const content = documents[key];
+                if (content === undefined) continue;
+                inspectedDocuments[key] = content;
+                Object.assign(inspectedDependencies, dependencies);
+                resourceSnapshots[key] = writeProjectWorkspace({ ...dependencies, [key]: content });
               }
-              for (const key of ["words", "inventory", "bindings", "world", "images", "music"]) {
-                const content = base.read(key)?.content;
-                if (content !== undefined) inspectedDependencies[key] = content;
-              }
-            } else if (readOnly && resourceKeys.length) {
-              Object.assign(inspectedDocuments, inspection!.documents(resourceKeys));
-              Object.assign(inspectedDependencies, inspection!.documents(["words", "inventory"]));
             }
             run.recordTool(call.name, call.input, result, base.revision);
             results.push({ toolCallId: call.id, result });
@@ -1221,6 +1257,7 @@ export function createWorkspaceAgent(options: Options) {
                       sha256Hex,
                     ),
                     resources: Object.keys(inspectedDocuments),
+                    resourceSnapshots,
                     snapshot: writeProjectWorkspace({
                       ...inspectedDependencies,
                       ...inspectedDocuments,

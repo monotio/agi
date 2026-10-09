@@ -35,7 +35,7 @@ import { openContainer } from "../../../src/container/container.ts";
 import { readProjectWorkspace } from "../../../src/authoring/projectWorkspace.ts";
 import { diffProjectDocuments } from "../../../src/authoring/projectContent.ts";
 import { sameProjectContent } from "../../../src/authoring/projectContent.ts";
-import { compileCapturedResource } from "./agentResultPreview.ts";
+import { compileCapturedResource, capturedResourceDocuments } from "./agentResultPreview.ts";
 import { formatSpent } from "./reportedSpend.ts";
 import { resolveAgentTarget } from "./agentNavigation.ts";
 import {
@@ -177,7 +177,12 @@ const resultDocuments = computed(() => {
       ? readProjectWorkspace(stored.candidate)
       : inspected?.snapshot
         ? readProjectWorkspace(inspected.snapshot)
-        : {},
+        : Object.fromEntries(
+            inspected?.resources.map((key) => [
+              key,
+              capturedResourceDocuments(inspected, key)[key]!,
+            ]) ?? [],
+          ),
   };
 });
 const isolatedResultImages = computed(() => {
@@ -190,17 +195,25 @@ const isolatedResultImages = computed(() => {
     }
   > = {};
   if (!resultImages.value)
-    for (const key of Object.keys(after))
+    for (const key of inspection.value?.resources ?? Object.keys(after))
       images[key] = {
         before: compileCapturedResource(before, key, resultProfile.value),
-        after: compileCapturedResource(after, key, resultProfile.value),
+        after: compileCapturedResource(
+          inspection.value ? capturedResourceDocuments(inspection.value, key) : after,
+          key,
+          resultProfile.value,
+        ),
       };
   return images;
 });
 const resultImages = computed(() => {
   const stored = resultReview.value;
   const inspected = inspection.value;
-  if (!stored && !inspected?.snapshot) return null;
+  if (
+    (!stored && !inspected?.snapshot && !inspected?.resourceSnapshots) ||
+    inspected?.resourceSnapshots
+  )
+    return null;
   const session = props.session ?? engine.getProjectSession();
   const image = session?.capture().snapshot.lastAdmissibleBuild;
   const files = image ? Object.fromEntries(image.files()) : engine.getBootedGame()?.files;
@@ -244,23 +257,26 @@ const resultChanges = computed(() => {
       readProjectWorkspace(stored.candidate),
     );
   const inspected = inspection.value;
-  if (!inspected?.snapshot) return [];
-  const documents = readProjectWorkspace(inspected.snapshot);
-  return inspected.resources.map((key) => ({ key, content: documents[key] ?? null }));
+  if (!inspected) return [];
+  return inspected.resources.map((key) => ({
+    key,
+    content: capturedResourceDocuments(inspected, key)[key] ?? null,
+  }));
 });
 const resultEarlier = computed(() => {
   void tick.value;
   void engine.state.patchTick;
   const message = resultMessage.value;
-  if (inspection.value?.snapshot) {
+  if (inspection.value?.snapshot || inspection.value?.resourceSnapshots) {
     const session = props.session ?? engine.getProjectSession();
     const currentDocuments = session?.capture().snapshot.documents() ?? {};
     const files =
       session?.capture().snapshot.lastAdmissibleBuild?.files() ??
       new Map(Object.entries(engine.getBootedGame()?.files ?? {}));
     const currentImage = openContainer(files, { profile: resultProfile.value });
-    return Object.entries(readProjectWorkspace(inspection.value.snapshot)).some(
-      ([key, content]) => {
+    const result = inspection.value;
+    return result.resources.some((resource) =>
+      Object.entries(capturedResourceDocuments(result, resource)).some(([key, content]) => {
         if (typeof content === "string" && currentDocuments[key] !== undefined)
           return !sameProjectContent(content, currentDocuments[key]);
         const [kind, number] = key.split(":");
@@ -293,7 +309,7 @@ const resultEarlier = computed(() => {
         return (
           currentDocuments[key] !== undefined && !sameProjectContent(content, currentDocuments[key])
         );
-      },
+      }),
     );
   }
   const documentId =
@@ -316,6 +332,14 @@ async function openResource(
   const session = props.session ?? engine.getProjectSession();
   const projectId = engine.getBootedGame()?.projectId;
   if (!session || !projectId) return;
+  if (
+    !currentVersion &&
+    message.result?.kind === "resources" &&
+    (message.result.snapshot || message.result.resourceSnapshots)
+  ) {
+    openResult(message, resource);
+    return;
+  }
   const documentId =
     !currentVersion && message.result && "documentId" in message.result
       ? message.result.documentId
@@ -1097,7 +1121,7 @@ onBeforeUnmount(() => {
           The game changed. Send a follow-up to revise these changes.
         </p>
         <div
-          v-if="resultReview || inspection?.snapshot"
+          v-if="resultReview || inspection?.snapshot || inspection?.resourceSnapshots"
           class="agent-panel__review"
           :data-testid="resultReview ? 'agent-review' : 'agent-resource-preview'"
         >
@@ -1123,7 +1147,11 @@ onBeforeUnmount(() => {
                 :document-key="change.key"
                 :before="resultDocuments.before[change.key]"
                 :before-documents="resultDocuments.before"
-                :after-documents="resultDocuments.after"
+                :after-documents="
+                  inspection
+                    ? capturedResourceDocuments(inspection, change.key)
+                    : resultDocuments.after
+                "
                 :after="change.content"
                 :before-image="resultImages?.before ?? isolatedResultImages[change.key]?.before"
                 :after-image="resultImages?.after ?? isolatedResultImages[change.key]?.after"

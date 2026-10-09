@@ -13,6 +13,14 @@ import { createProjectInspection } from "../../src/agent/projectInspection.ts";
 import { projectDocumentId } from "../../src/authoring/projectContent.ts";
 import { readProjectWorkspace } from "../../src/authoring/projectWorkspace.ts";
 import { sha256Hex } from "../../src/crypto.ts";
+import { readAgentChats } from "../../src/agent/chats.ts";
+import {
+  compileCapturedResource,
+  capturedResourceDocuments,
+} from "../src/agent/agentResultPreview.ts";
+import { PROFILES } from "../../src/runtime/profile.ts";
+import { disassembleLogic } from "../../src/logic/disassembler.ts";
+import { parseWordsTok } from "../../src/logic/words.ts";
 import { GAME_TESTS_FORMAT } from "../../src/agent/gameTestFormat.ts";
 
 for (const encoding of ["text", "bytes"] as const) {
@@ -655,6 +663,139 @@ test("cancellation records an undelivered followup and save retry never resends 
     assert.equal(session.chats().chats[0]!.messages.at(-1)!.delivery, "cancelled");
   } finally {
     released.resolve();
+    session.dispose();
+  }
+});
+
+for (const order of ["native-first", "draft-first"] as const) {
+  test(`mixed native and draft LOGIC results preserve both dictionaries after reload (${order})`, async () => {
+    const session = inspectionFixture();
+    const words = [...createStarterProject("starter").sources.words].filter(
+      ([, group]) => group !== 100,
+    );
+    words.push(["banana", 100]);
+    await session.stage([
+      { key: "words", content: JSON.stringify(words) },
+      { key: "logic:0", content: 'if (said("banana")) { print("Draft"); } return;' },
+    ]);
+    const native = {
+      id: "native",
+      name: "read_logic",
+      input: { num: 1, offset: null, limit: null },
+    };
+    const draft = {
+      id: "draft",
+      name: "read_document",
+      input: { key: "logic:0", offset: null, limit: null },
+    };
+    const results: { toolCallId: string; result: AgentToolResult }[] = [];
+    const agent = createWorkspaceAgent({
+      session,
+      profileId: "2.936",
+      config: () => ({ provider: "stub", model: "stub", apiKey: "" }),
+      conversation: () =>
+        scriptedConversation(
+          [
+            { toolCalls: order === "native-first" ? [native, draft] : [draft, native] },
+            { text: "Both versions", toolCalls: [] },
+          ],
+          results,
+        ),
+    });
+    try {
+      await agent.submit({ instruction: "Show both logics", mode: "play" });
+      assert.ok(
+        results.every(({ result }) => result.success),
+        JSON.stringify(results),
+      );
+      assert.equal(
+        (
+          results.find(({ toolCallId }) => toolCallId === "native")!.result.details!["origin"] as {
+            kind: string;
+          }
+        ).kind,
+        "admitted",
+      );
+      assert.equal(
+        (
+          results.find(({ toolCallId }) => toolCallId === "draft")!.result.details!["origin"] as {
+            kind: string;
+          }
+        ).kind,
+        "draft",
+      );
+      assert.match(
+        String(
+          results.find(({ toolCallId }) => toolCallId === "native")!.result.details!["source"],
+        ),
+        /said\("examine"\)/,
+      );
+      const chat = agent.current();
+      const loaded = readAgentChats(
+        JSON.parse(
+          JSON.stringify({
+            format: "monotio.agi.chats",
+            version: 1,
+            active: chat.id,
+            chats: [chat],
+          }),
+        ),
+      );
+      const result = loaded.chats[0]!.messages.at(-1)!.result;
+      if (result?.kind !== "resources") assert.fail("Missing captured resource result");
+      for (const [key, word] of [
+        ["logic:1", "examine"],
+        ["logic:0", "banana"],
+      ]) {
+        const documents = capturedResourceDocuments(result, key!);
+        const image = compileCapturedResource(documents, key!, PROFILES["2.936"]);
+        assert.ok(image, `No preview for ${key}`);
+        const capturedWords = documents["words"]!;
+        const dictionary = new Map(
+          typeof capturedWords === "string"
+            ? (JSON.parse(capturedWords) as [string, number][])
+            : parseWordsTok(capturedWords).map(({ word, id }) => [word, id] as const),
+        );
+        const source = disassembleLogic(image.getResource("logic", Number(key!.split(":")[1]))!, {
+          dictionary,
+          profile: PROFILES["2.936"],
+        });
+        assert.match(source, new RegExp(`said\\("${word}"\\)`));
+      }
+    } finally {
+      session.dispose();
+    }
+  });
+}
+
+test("ordinary Create native inspection captures resource widgets", async () => {
+  const session = inspectionFixture();
+  const results: { toolCallId: string; result: AgentToolResult }[] = [];
+  const agent = createWorkspaceAgent({
+    session,
+    profileId: "2.936",
+    config: () => ({ provider: "stub", model: "stub", apiKey: "" }),
+    conversation: () =>
+      scriptedConversation(
+        [
+          {
+            toolCalls: [
+              { id: "native", name: "read_logic", input: { num: 0, offset: null, limit: null } },
+            ],
+          },
+          { text: "Boot logic", toolCalls: [] },
+        ],
+        results,
+      ),
+  });
+  try {
+    await agent.submit({ instruction: "Show boot logic", mode: "create" });
+    assert.equal(results[0]!.result.success, true);
+    const result = agent.current().messages.at(-1)!.result;
+    assert.equal(result?.kind, "resources");
+    if (result?.kind !== "resources") assert.fail("Missing Create native resource result");
+    assert.deepEqual(result.resources, ["logic:0"]);
+  } finally {
     session.dispose();
   }
 });
