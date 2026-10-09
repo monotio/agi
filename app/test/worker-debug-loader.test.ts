@@ -1,4 +1,3 @@
-import { scheduler as testScheduler } from "node:timers/promises";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
@@ -74,12 +73,12 @@ function plainBoot(): WorkerInbound {
 }
 
 /**
- * Every queued message has drained and the settled load's callbacks ran.
- * A boot drained inside that window arms real timers; stop them so the
- * test keeps driving polls explicitly (and the process can exit).
+ * Dispatch registers its queue drain before this await, so loader completion
+ * also completes the drain. Stop the boot's timers before yielding a macrotask:
+ * the test drives polls explicitly and checks the queued key before consumption.
  */
 async function flush(ctx: WorkerContext): Promise<void> {
-  await testScheduler.yield();
+  await ctx.debuggerLoader.loading;
   ctx.fns.stopTimers();
 }
 
