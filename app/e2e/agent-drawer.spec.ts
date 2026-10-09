@@ -10,6 +10,7 @@ import {
 import { openWorkspaceLogic } from "./workspaceShared.ts";
 import type { Page } from "@playwright/test";
 import type { ProjectSession } from "../src/project/projectSession.ts";
+import type { WorkerInbound } from "../src/worker/workerProtocol.ts";
 
 async function startStarter(page: Page) {
   await isolateStorage(page);
@@ -26,6 +27,178 @@ async function editorBox(page: Page) {
   await expect(editor).toBeVisible();
   return (await editor.boundingBox())!;
 }
+
+for (const reopened of [false, true]) {
+  test(`closing Agent during a held opening resumes Play${reopened ? " and preserves the replacement opening" : ""} @webkit-desktop`, async ({
+    page,
+  }) => {
+    await startStarter(page);
+    await page.getByRole("radio", { name: "Play", exact: true }).click();
+    await expect.poll(async () => (await textHook(page)).paused).toBe(false);
+    await page.evaluate(() => {
+      const probe = window as unknown as {
+        __AGI_PROJECT__: { getWorker(): Worker };
+        __AGI_E2E_RELEASE_OPENING__: () => void;
+        __AGI_E2E_OPENING_HELD__: boolean;
+      };
+      const worker = probe.__AGI_PROJECT__.getWorker();
+      const post = worker.postMessage;
+      let held: WorkerInbound | undefined;
+      worker.postMessage = function (message: WorkerInbound, transfer) {
+        if (message.type === "state" && held === undefined) {
+          held = message;
+          probe.__AGI_E2E_OPENING_HELD__ = true;
+          worker.postMessage = post;
+          return;
+        }
+        post.call(worker, message, Array.isArray(transfer) ? { transfer } : transfer);
+      };
+      probe.__AGI_E2E_RELEASE_OPENING__ = () => {
+        if (held !== undefined) post.call(worker, held);
+        held = undefined;
+      };
+    });
+    await page.getByRole("button", { name: "Agent", exact: true }).click();
+    const panel = page.getByTestId("workspace-agent-panel");
+    await expect(panel).toBeVisible();
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () =>
+            (window as unknown as { __AGI_E2E_OPENING_HELD__: boolean }).__AGI_E2E_OPENING_HELD__,
+        ),
+      )
+      .toBe(true);
+    await panel.getByTestId("agent-panel-close").click();
+    await expect(panel).toBeHidden();
+    await expect.poll(async () => (await textHook(page)).paused).toBe(false);
+    if (reopened) {
+      await page.getByRole("button", { name: "Agent", exact: true }).click();
+      await expect(panel).toBeVisible();
+      await expect(panel.getByTestId("agent-message")).toBeEnabled();
+    }
+    await page.evaluate(() =>
+      (
+        window as unknown as { __AGI_E2E_RELEASE_OPENING__: () => void }
+      ).__AGI_E2E_RELEASE_OPENING__(),
+    );
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () =>
+            (window as unknown as { __AGI_STATE__: { powerUp: { busy: boolean } } }).__AGI_STATE__
+              .powerUp.busy,
+        ),
+      )
+      .toBe(false);
+    if (reopened) {
+      await expect(panel).toBeVisible();
+      await expect.poll(async () => (await textHook(page)).paused).toBe(true);
+      await panel.getByTestId("agent-panel-close").click();
+    }
+    await expect(panel).toBeHidden();
+    await expect.poll(async () => (await textHook(page)).paused).toBe(false);
+    const cycle = (await textHook(page)).cycle;
+    await expect.poll(async () => (await textHook(page)).cycle).toBeGreaterThan(cycle);
+  });
+}
+
+for (const ending of ["closed", "reopened", "create-route"] as const) {
+  const reopened = ending === "reopened";
+  test(`${ending === "create-route" ? "a Create hash route during Agent module loading releases initialization" : `closing Agent before its module loads retires the opening${reopened ? " while a newer opening succeeds" : ""}`} @webkit-desktop`, async ({
+    page,
+  }) => {
+    await isolateStorage(page);
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let requested = false;
+    await page.route("**/src/authoring/useAuthoringController.ts*", async (route) => {
+      requested = true;
+      await held;
+      await route.continue();
+    });
+    await page.goto("/");
+    await configureAi(page, { provider: "stub" });
+    await page.getByTestId("catalog-play-adventure-department").click();
+    await expect.poll(async () => (await textHook(page)).room).toBe(1);
+    await page.getByRole("button", { name: "Agent", exact: true }).click();
+    await expect.poll(() => requested).toBe(true);
+    const panel = page.getByTestId("workspace-agent-panel");
+    await expect(panel).toBeVisible();
+    if (ending === "create-route") {
+      await page.evaluate(() => {
+        location.hash = location.hash.replace(/^#play\//, "#create/");
+      });
+      await expect(page.getByRole("radio", { name: "Create", exact: true })).toHaveAttribute(
+        "aria-checked",
+        "true",
+      );
+    } else {
+      await panel.getByTestId("agent-panel-close").click();
+      await expect(panel).toBeHidden();
+      if (reopened) {
+        await page.getByRole("button", { name: "Agent", exact: true }).click();
+        await expect(panel).toBeVisible();
+      }
+    }
+    release();
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () =>
+            (window as unknown as { __AGI_STATE__: { powerUp: { busy: boolean } } }).__AGI_STATE__
+              .powerUp.busy,
+        ),
+      )
+      .toBe(false);
+    if (reopened || ending === "create-route") {
+      await expect(panel).toBeVisible();
+      await expect(panel.getByTestId("agent-message")).toBeEnabled();
+      await panel.getByTestId("agent-panel-close").click();
+    }
+    await expect(panel).toBeHidden();
+    if (ending === "create-route")
+      await page.getByRole("radio", { name: "Play", exact: true }).click();
+    await expect.poll(async () => (await textHook(page)).paused).toBe(false);
+  });
+}
+
+test("failed Agent module loading releases initialization and shows recovery @webkit-desktop", async ({
+  page,
+}) => {
+  await isolateStorage(page);
+  const load = Promise.withResolvers<void>();
+  let requested = false;
+  await page.route("**/src/authoring/useAuthoringController.ts*", async (route) => {
+    requested = true;
+    await load.promise;
+    await route.abort();
+  });
+  await page.goto("/");
+  await configureAi(page, { provider: "stub" });
+  await page.getByTestId("catalog-play-adventure-department").click();
+  await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  await page.getByRole("button", { name: "Agent", exact: true }).click();
+  await expect.poll(() => requested).toBe(true);
+  const panel = page.getByTestId("workspace-agent-panel");
+  await expect(panel).toBeVisible();
+  load.resolve();
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          (window as unknown as { __AGI_STATE__: { powerUp: { busy: boolean } } }).__AGI_STATE__
+            .powerUp.busy,
+      ),
+    )
+    .toBe(false);
+  await expect(panel).toContainText("Agent could not load. Reload the page and try again.");
+  await panel.getByTestId("agent-panel-close").click();
+  await expect(panel).toBeHidden();
+  await expect.poll(async () => (await textHook(page)).paused).toBe(false);
+});
 
 test("agent drawer overlays the workspace without narrowing the editor in both arrangements @webkit-desktop", async ({
   page,

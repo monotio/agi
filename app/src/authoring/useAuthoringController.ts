@@ -1,5 +1,4 @@
 import { PROFILES, type ProfileId } from "../../../src/runtime/profile.ts";
-import type { AgentRuntimeDeps } from "../../../src/agent/tools.ts";
 import type { ProjectSession } from "../project/projectSession.ts";
 import type { ProjectSnapshot } from "../../../src/authoring/projectModel.ts";
 import { appendAgentTasks, type AgentChats } from "../../../src/agent/chats.ts";
@@ -69,7 +68,7 @@ import { requireProjectId, type ProjectId } from "../../../src/gameIdentity.ts";
 import type { LogAgentFn } from "../play/useInputController.ts";
 import type { WorkerInbound, WorkerQueryFn } from "../worker/workerProtocol.ts";
 import type { ConversationAgent } from "../agent/installedConversation.ts";
-import type { borrowWorkspaceAgent } from "../agent/workspaceAgent.ts";
+import type { borrowWorkspaceAgent, WorkspaceAgentRuntime } from "../agent/workspaceAgent.ts";
 import type { AwaitPatchedFn } from "../engine/workerQueries.ts";
 import type { HistoryBoot } from "../../../src/agent/history.ts";
 import { base64ToBytes } from "../project/bytes.ts";
@@ -216,7 +215,7 @@ export interface AuthoringController {
   getOrCreateSession(game: BootedGame, config: LlmConfig): Promise<AgentSession>;
   getSession(): AgentSession | null;
   setSession(s: AgentSession | null): void;
-  getAgentRuntime(): AgentRuntimeDeps;
+  getAgentRuntime(): WorkspaceAgentRuntime;
   isRemixNeedsSave(): boolean;
   setRemixNeedsSave(value: boolean): void;
   resetSession(): void;
@@ -333,7 +332,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
   let conversationAgent: ConversationAgent | null = null;
   let powerUpOpening: {
     promise: Promise<void>;
-    owner: { project: ProjectSession | null | undefined };
+    owner: { project: ProjectSession | null | undefined; opening: number };
   } | null = null;
   let installedConversation: {
     game: BootedGame;
@@ -341,6 +340,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
   } | null = null;
   let retryConversationSave: (() => Promise<void>) | null = null;
   let requestGeneration = 0;
+  let openingGeneration = 0;
   let roomActive = false;
   let roomStopped = false;
   let recoverRoom: ((retry: boolean) => void) | null = null;
@@ -509,21 +509,55 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
     );
   }
 
-  function getAgentRuntime(): AgentRuntimeDeps {
+  function getAgentRuntime(): WorkspaceAgentRuntime {
     const game = getBootedGame();
-    const revision = game?.revision;
+    let revision: string | undefined = game?.revision;
+    const admittedRevisions: string[] = [];
     const worker = getWorker();
     const project = options.getProjectSession?.();
-    function assertCurrent() {
+    let expectedAdmission: string | undefined =
+      project?.model.capture().lastAdmissibleBuild?.identity.revision;
+    function assertOwner() {
       if (
         getBootedGame() !== game ||
-        game?.revision !== revision ||
         getWorker() !== worker ||
-        options.getProjectSession?.() !== project
+        options.getProjectSession?.() !== project ||
+        project?.closed
       )
         throw new Error("The running game changed. Send the request again.");
     }
+    function assertCurrent() {
+      assertOwner();
+      const installed = admittedRevisions.indexOf(game?.revision ?? "");
+      if (installed >= 0) {
+        revision = admittedRevisions[installed];
+        admittedRevisions.splice(0, installed + 1);
+      }
+      if (game?.revision !== revision)
+        throw new Error("The running game changed. Send the request again.");
+    }
     return {
+      advanceRevision(before, after, nativeAdmission) {
+        assertOwner();
+        if (
+          expectedAdmission !== before ||
+          (game?.revision !== revision &&
+            (!nativeAdmission || game?.revision !== after) &&
+            !admittedRevisions.includes(game?.revision ?? "")) ||
+          project?.model.capture().lastAdmissibleBuild?.identity.revision !== after
+        )
+          throw new Error("The running game changed. Send the request again.");
+        // Deferred admission may install these exact bytes later. Only this
+        // task's accepted transition can advance its captured runtime.
+        expectedAdmission = after;
+        if (nativeAdmission) {
+          if (game?.revision === after) {
+            revision = after;
+            admittedRevisions.length = 0;
+          } else admittedRevisions.push(after);
+        }
+        assertCurrent();
+      },
       nativeFiles: async () => {
         assertCurrent();
         if (!worker) return null;
@@ -722,7 +756,12 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
 
   async function openPowerUp(config: LlmConfig): Promise<void> {
     if (powerUpOpening) return powerUpOpening.promise;
-    const owner = { project: options.getProjectSession?.() };
+    if (state.powerUp.busy) {
+      pauseEngine("powerUp");
+      state.powerUp.open = true;
+      return;
+    }
+    const owner = { project: options.getProjectSession?.(), opening: ++openingGeneration };
     const opening = { promise: preparePowerUp(config, owner), owner };
     powerUpOpening = opening;
     try {
@@ -734,11 +773,13 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
 
   async function preparePowerUp(
     config: LlmConfig,
-    owner: { project: ProjectSession | null | undefined },
+    owner: { project: ProjectSession | null | undefined; opening: number },
   ): Promise<void> {
     if (state.powerUp.busy) return;
     if (state.powerUp.open && state.powerUp.mode === "room") return;
     const generation = requestGeneration;
+    const currentOpening = () =>
+      generation === requestGeneration && owner.opening === openingGeneration;
     if (state.powerUp.mode === "room") state.powerUp.mode = "remix";
     pauseEngine("powerUp");
     state.powerUp.open = true;
@@ -758,11 +799,11 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
     state.powerUp.feedStartSeq = (state.agentLog.at(-1)?.seq ?? 0) + 1;
     try {
       const engineState = await query("state");
-      if (generation !== requestGeneration) return;
+      if (!currentOpening()) return;
       state.powerUp.room = Number(engineState?.room ?? 0);
       if (options.getConversationMode) {
         await getConversationAgent();
-        if (generation !== requestGeneration) return;
+        if (!currentOpening()) return;
         owner.project = options.getProjectSession?.();
         state.powerUp.needsConfig = config.provider !== "stub" && !config.apiKey.trim();
         return;
@@ -775,7 +816,9 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
           state.powerUp.needsConfig = true;
           return;
         }
-        session = await createGameSession(booted, config);
+        const created = await createGameSession(booted, config);
+        if (!currentOpening()) return;
+        session = created;
       }
       if (!session) throw new Error("no game is running");
       if (!options.getProjectSession?.()) state.powerUp.messages = session.getMessages();
@@ -789,10 +832,9 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
         String(engineState?.profile ?? state.profile ?? "unknown"),
       );
     } catch (e) {
-      if (generation === requestGeneration)
-        state.powerUp.error = e instanceof Error ? e.message : String(e);
+      if (currentOpening()) state.powerUp.error = e instanceof Error ? e.message : String(e);
     } finally {
-      if (generation === requestGeneration) state.powerUp.busy = false;
+      if (currentOpening()) state.powerUp.busy = false;
     }
   }
 
@@ -811,7 +853,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
         generation !== requestGeneration ||
         session !== currentSession ||
         options.getConversationMode?.() !== mode ||
-        (opening && !state.powerUp.open) ||
+        (opening && (!state.powerUp.open || opening.owner.opening !== openingGeneration)) ||
         (ownerProject && (ownerProject.closed || options.getProjectSession?.() !== ownerProject)) ||
         (getBootedGame() !== game && !ownerProject)
       )
@@ -878,9 +920,12 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
 
   /** Close the bubble without asking for anything; the world resumes untouched. */
   function closePowerUp(): void {
-    if (state.powerUp.busy) return;
     state.powerUp.open = false;
-    state.powerUp.busy = false;
+    if (powerUpOpening) {
+      openingGeneration++;
+      powerUpOpening = null;
+      state.powerUp.busy = false;
+    }
     resumeEngine("powerUp");
   }
 
