@@ -540,17 +540,15 @@ test("native inspection results retain the inspected bytes after a later documen
     const result = agent.current().messages.at(-1)!.result;
     assert.equal(result?.kind, "resources");
     if (result?.kind !== "resources") assert.fail("Missing native resource result");
-    assert.ok(result.snapshot);
-    assert.equal(
-      result.documentId,
-      projectDocumentId(readProjectWorkspace(result.snapshot), sha256Hex),
-    );
+    const snapshot = result.resourceSnapshots?.["picture:1"];
+    assert.ok(snapshot);
+    assert.equal(result.documentId, projectDocumentId(readProjectWorkspace(snapshot), sha256Hex));
     assert.notEqual(result.documentId, agent.current().messages[0]!.request!.documentId);
-    const before = structuredClone(result.snapshot);
+    const before = structuredClone(snapshot);
     assert.deepEqual(result.resources, ["picture:1"]);
     await session.stage([{ key: "picture:1", content: "vis 4\nfill 0,0\nend" }]);
     assert.deepEqual(agent.current().messages.at(-1)!.result, result);
-    assert.deepEqual(result.snapshot, before);
+    assert.deepEqual(result.resourceSnapshots?.["picture:1"], before);
   } finally {
     session.dispose();
   }

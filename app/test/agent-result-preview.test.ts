@@ -5,6 +5,7 @@ import {
   capturedResourceDocuments,
 } from "../src/agent/agentResultPreview.ts";
 import { PROFILES } from "../../src/runtime/profile.ts";
+import type { ProjectContent } from "../../src/authoring/projectContent.ts";
 
 test("a malformed captured dependency does not hide valid sibling native bytes", () => {
   const picture = Uint8Array.of(0xff);
@@ -35,12 +36,37 @@ test("captured image references retain their trace targets and immutable attachm
     ...base,
     ...Object.fromEntries(changes.map(({ key, content }) => [key, content!])),
   };
-  const captured = resourceRenderingDependencies(documents);
+  const captured = resourceRenderingDependencies(documents, "images");
   assert.equal(captured["picture:7"], "end");
   assert.equal(captured["logic:2"], undefined);
   assert.ok(Object.keys(captured).some((key) => key.startsWith("attachment:")));
   const preview = compileCapturedResource(captured, "images", PROFILES["2.936"]);
   assert.deepEqual(preview?.getResource("picture", 7), Uint8Array.of(0xff));
+  const other = {
+    ...image,
+    title: "Red",
+    rgba: Uint8Array.of(255, 0, 0, 255),
+    encoded: encodePngRgba(1, 1, Uint8Array.of(255, 0, 0, 255)),
+  };
+  const extended: Record<string, ProjectContent> = { ...documents, "picture:8": "end" };
+  for (const change of traceImageChanges(extended, "picture:8", other))
+    extended[change.key] = change.content!;
+  const scoped = resourceRenderingDependencies(extended, "picture:7");
+  assert.deepEqual(scoped, resourceRenderingDependencies(documents, "picture:7"));
+  assert.equal(scoped["picture:8"], undefined);
+  const { readImageReferences } = await import("../../src/creative/imageAttachments.ts");
+  const references = readImageReferences(scoped);
+  assert.deepEqual(Object.keys(references.traces), ["picture:7"]);
+  assert.equal(Object.keys(references.images).length, 1);
+  assert.equal(Object.values(scoped).filter((content) => content instanceof Uint8Array).length, 1);
+  assert.equal(resourceRenderingDependencies(extended, "view:3")["images"], undefined);
+  const untraced = resourceRenderingDependencies(extended, "picture:9");
+  assert.deepEqual(readImageReferences(untraced).images, {});
+  assert.deepEqual(readImageReferences(untraced).traces, {});
+  assert.equal(
+    Object.values(untraced).filter((content) => content instanceof Uint8Array).length,
+    0,
+  );
 });
 
 test("resource snapshots validate their own content and preserve legacy snapshot fallback", async () => {
