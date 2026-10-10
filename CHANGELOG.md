@@ -34,6 +34,10 @@ Released notes are also available on [GitHub Releases](https://github.com/monoti
   overtook says so in plain words, with Download edits and Discard edits.
 - A naming request that fails partway leaves every name unreserved, and a refused
   disk image gives back its share of the import limit.
+- The Agent reads a failed step before it can finish, so it repairs the change
+  instead of ending the task without it. A task that stops without a change or a
+  reply says so and suggests asking again, and a message whose usage the provider
+  never reported says Usage not reported.
 
 ## [1.2.1] - 2026-10-10
 

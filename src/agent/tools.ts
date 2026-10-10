@@ -1772,6 +1772,19 @@ export async function executeAgentToolAsync(
   );
 }
 
+/**
+ * The refusal for a finish that follows failed calls in its own batch. The
+ * model wrote the batch before it could read those failures, so a passing
+ * finish would end the turn on results the model never saw. The refusal is
+ * an ordinary paired result: the next request carries the failures and this
+ * refusal together, and a repeated finish in a later batch proceeds.
+ */
+export function finishAfterFailures(failed: readonly string[]): string | undefined {
+  if (!failed.length) return undefined;
+  const names = [...new Set(failed)];
+  return `Not finished: ${names.join(", ")} failed earlier in this batch. Read ${failed.length === 1 ? "that result" : "those results"}, repair the change or say why it can stay, then call finish again.`;
+}
+
 /** The shared host verdict for the exact candidate being handed over. */
 export function validateAgentHandover(
   session: AgentSessionState,

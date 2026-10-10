@@ -18,7 +18,7 @@ export function formatSpent(
   if (presentation === "compact") {
     const budget = spend.budget === undefined ? "" : ` / ${formatDollars(spend.budget)}`;
     if (!spend.priceKnown) return "Usage unavailable";
-    if (spend.incomplete && spend.amount === 0) return "Usage pending";
+    if (spend.incomplete && spend.amount === 0) return "Usage not reported";
     const amount = spend.incomplete
       ? Math.floor((spend.amount + Number.EPSILON) * 100) / 100
       : spend.amount;
