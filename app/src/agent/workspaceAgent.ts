@@ -12,6 +12,7 @@ import {
   type LlmConfig,
   type UnifiedConversation,
 } from "./llmClient.ts";
+import { providerFailureDetail } from "./providerFailure.ts";
 import { createProjectAssistDriver, PROJECT_ASSIST_TOOLS } from "./projectAssistTools.ts";
 import {
   ASK_TOOLS,
@@ -1325,7 +1326,7 @@ export function createWorkspaceAgent(options: Options) {
       );
       action(chat, "interruption", {
         outcome: cause instanceof LlmRefusalError ? "refused" : "interrupted",
-        error: String(cause),
+        error: providerFailureDetail(cause),
         discarded,
         persisted,
       });

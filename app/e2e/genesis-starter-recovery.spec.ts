@@ -87,7 +87,9 @@ test("a refused genesis offers Open starter and opens a real editable starter pr
 
   // The refusal surfaces with the recovery offer; nothing stored on its own.
   await expect(page.getByTestId("error-panel")).toBeVisible({ timeout: 15_000 });
-  await expect(page.getByTestId("error-panel")).toContainText("mocked refusal");
+  await expect(page.getByTestId("error-panel")).toContainText(
+    "OpenAI could not complete the request.",
+  );
   const openStarter = page.getByTestId("open-starter");
   await expect(openStarter).toBeVisible();
   expect(requests).toBe(1);
