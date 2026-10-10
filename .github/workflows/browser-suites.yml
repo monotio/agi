@@ -95,21 +95,21 @@ jobs:
           INDEX: ${{ matrix.shard }}
         run: python3 scripts/ci/tools.py shard --suite webkit --index "$INDEX" --count 4 --repeat "$REPEAT" --report "app/test-results/ci-reports/webkit-desktop-$INDEX.json"
       - if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: browser-report-${{ matrix.browser }}-${{ matrix.index }}
           path: app/test-results/ci-reports/*.json
           if-no-files-found: error
           retention-days: 14
       - if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: browser-screenshots-${{ matrix.browser }}-${{ matrix.index }}
           path: app/test-results/**/*.png
           if-no-files-found: ignore
           retention-days: 7
       - if: failure()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: browser-failure-${{ matrix.browser }}-${{ matrix.index }}
           path: app/test-results/
@@ -158,14 +158,14 @@ jobs:
           REPEAT: ${{ inputs.repeat }}
         run: npm --prefix app run e2e:production -- --browser="$BROWSER" --repeat-each="$REPEAT" --reporter=list,json
       - if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: browser-report-production-${{ matrix.browser }}
           path: app/test-results/ci-reports/*.json
           if-no-files-found: error
           retention-days: 14
       - if: failure()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: browser-failure-production-${{ matrix.browser }}
           path: app/test-results/
