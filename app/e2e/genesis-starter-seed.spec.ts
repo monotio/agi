@@ -60,6 +60,8 @@ test("genesis through the real create entry is offered the installed Boilerplate
                   exits: [],
                 },
               ],
+              facts: [],
+              quests: [],
             }),
           },
           { type: "function_call", call_id: "hand", name: "finish", arguments: "{}" },
