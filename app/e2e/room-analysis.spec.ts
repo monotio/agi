@@ -3,6 +3,8 @@ import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import { cacheGame, enterCreateMode, openWorldRoom } from "./engineProbe.ts";
 import { testProjectId } from "../test/identity.ts";
+import { start } from "./pictureWorkspaceShared.ts";
+import type { ProjectSession } from "../src/project/projectSession.ts";
 
 test.use({ headless: true });
 
@@ -188,4 +190,57 @@ test("a staged room answer preserves the selected room and graph viewport", asyn
       return after ? Math.abs(after.x - before!.x) + Math.abs(after.y - before!.y) : Infinity;
     })
     .toBeLessThan(2);
+});
+
+test("ROOMS keep a room's analysed picture while a commit's room analysis runs @webkit-desktop", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await start(page);
+  const parts = page.getByTestId("parts-list");
+  await expect(parts).toHaveAttribute("data-analysis", "resolved");
+  // LOGIC 8 picks its picture through a variable; only the analysis finds it.
+  const picture = page.getByTestId("part-room:8:picture:8");
+  await expect(picture).toBeVisible();
+  await page.evaluate(() => {
+    const held: (() => void)[] = [];
+    window.Worker = new Proxy(Worker, {
+      construct(Target, args: ConstructorParameters<typeof Worker>) {
+        const worker = new Target(...args);
+        if (!String(args[0]).includes("roomAnalysis.worker")) return worker;
+        Object.defineProperty(worker, "onmessage", {
+          set(listener: (event: MessageEvent) => void) {
+            worker.addEventListener("message", (event) => held.push(() => listener(event)));
+          },
+        });
+        return worker;
+      },
+    });
+    Reflect.set(window, "releaseRoomScans", () => {
+      for (const answer of held.splice(0)) answer();
+    });
+  });
+  await page.evaluate(async () => {
+    const session = (
+      window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }
+    ).__AGI_PROJECT__.getSession();
+    const capture = session.model.capture();
+    const world = JSON.parse(String(capture.read("world")!.content));
+    world.rooms["8"].title = "Herb garden";
+    const result = await session.submit({
+      proposal: session.model.propose(capture, "Rename the garden", [
+        { key: "world", content: JSON.stringify(world) },
+      ]),
+      label: "Rename the garden",
+      origin: "logic",
+      author: "creator",
+    });
+    if (result.status !== "committed") throw new Error(result.status);
+  });
+  await expect(page.getByTestId("part-room:8")).toContainText("Herb garden");
+  await expect(parts).toHaveAttribute("data-analysis", "pending");
+  await expect(picture).toBeVisible();
+  await page.evaluate(() => Reflect.get(window, "releaseRoomScans")());
+  await expect(parts).toHaveAttribute("data-analysis", "resolved");
+  await expect(picture).toBeVisible();
 });
