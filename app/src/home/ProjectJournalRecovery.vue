@@ -47,16 +47,19 @@ async function download(): Promise<void> {
     URL.revokeObjectURL(url);
   } catch (cause) {
     const message = (cause instanceof Error ? cause.message : String(cause)).replace(/[.]+$/, "");
-    error.value = `Could not download recovery data: ${message}. Try Download recovery data again.`;
+    error.value = `Could not download the edits: ${message}. Try Download edits again.`;
   }
 }
 </script>
 
 <template>
   <div v-if="recoveries.length" data-testid="pending-edit-recovery" role="status">
-    <p>Recovery data belongs to an earlier project version. Download it to keep a copy.</p>
+    <p>
+      Some edits were not saved because this game changed in another tab or window. Download them to
+      keep a copy, or discard them.
+    </p>
     <p v-if="error" role="alert">{{ error }}</p>
-    <UiButton size="sm" @click="download">Download recovery data</UiButton>
-    <UiButton size="sm" @click="discard">Discard pending edits</UiButton>
+    <UiButton size="sm" @click="download">Download edits</UiButton>
+    <UiButton size="sm" @click="discard">Discard edits</UiButton>
   </div>
 </template>

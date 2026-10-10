@@ -251,7 +251,7 @@ The journal carries accepted project captures whose storage acknowledgement coul
 be interrupted. Recovery validates lifetime and base, then rebuilds the accepted
 image and History with an idempotent commit identity. The v1/v2 readers also retain
 older captures. Journals behind a newer write retain their original bytes with
-Download recovery data and Discard pending edits. Stale and removed sessions are
+Download edits and Discard edits. Stale and removed sessions are
 read-only; their existing buffers remain visible for Download unsaved edits.
 Journal-producing callbacks stop before ownership is released. The IndexedDB
 lifetime/deletion fence prevents old writers from recreating removed data; a

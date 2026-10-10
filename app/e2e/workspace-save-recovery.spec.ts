@@ -737,9 +737,9 @@ test("recovery download reports browser failure and keeps the recovery data", as
   });
   const recovery = page.getByTestId("pending-edit-recovery");
   await expect(recovery).toBeVisible();
-  await recovery.getByRole("button", { name: "Download recovery data", exact: true }).click();
+  await recovery.getByRole("button", { name: "Download edits", exact: true }).click();
   await expect(recovery.getByRole("alert")).toHaveText(
-    "Could not download recovery data: Browser refused the download. Try Download recovery data again.",
+    "Could not download the edits: Browser refused the download. Try Download edits again.",
   );
   await page.screenshot({ path: test.info().outputPath("recovery-download-failure.png") });
   expect(errors).toEqual([]);

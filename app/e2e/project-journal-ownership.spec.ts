@@ -201,7 +201,9 @@ test("a stale journal in the live lifetime offers discard in Create and Home", a
   });
   await page.reload();
   const notice = page.getByTestId("pending-edit-recovery").filter({ visible: true });
-  await expect(notice).toContainText("Recovery data belongs to an earlier project version");
+  await expect(notice).toContainText(
+    "Some edits were not saved because this game changed in another tab or window.",
+  );
   await page.screenshot({ path: test.info().outputPath("pending-recovery.png") });
   await page.getByRole("button", { name: "Back to library", exact: true }).click();
   await expect(
@@ -209,7 +211,7 @@ test("a stale journal in the live lifetime offers discard in Create and Home", a
   ).toBeVisible();
   await page
     .getByTestId(`saved-game-card-${original.id}`)
-    .getByRole("button", { name: "Discard pending edits" })
+    .getByRole("button", { name: "Discard edits" })
     .click();
   await expect(page.getByTestId("pending-edit-recovery")).toBeHidden();
   expect(await page.evaluate((key) => localStorage.getItem(key), original.key)).toBeNull();

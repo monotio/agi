@@ -475,6 +475,49 @@ test("stored workspace reference art sends a handle and thumbnail to the shared 
   expect([png.readUInt32BE(16), png.readUInt32BE(20)]).toEqual([72, 72]);
 });
 
+test("an approved change after attaching reference art saves without pausing editing", async ({
+  page,
+}) => {
+  const { encodePngRgb } = await import("../../src/picture/png.ts");
+  await start(page, "stub", false);
+  const panel = page.getByTestId("workspace-agent-panel");
+  await panel.getByTestId("agent-attach-reference").click();
+  const upload = page.getByTestId("reference-upload");
+  await upload.getByTestId("reference-room-file").setInputFiles({
+    name: "bridge.png",
+    mimeType: "image/png",
+    buffer: Buffer.from(encodePngRgb(1, 1, new Uint8Array([0, 0, 170]))),
+  });
+  await upload.getByTestId("reference-attach").click();
+  await expect(upload.getByTestId("reference-staged")).toBeVisible();
+  await upload.getByRole("button", { name: "Close", exact: true }).click();
+  await panel.getByTestId("agent-message").fill("Add a welcome sign that answers look at sign");
+  await panel.getByRole("button", { name: "Send", exact: true }).click();
+  await expect(page.getByTestId("agent-review")).toBeVisible();
+  await page.getByTestId("agent-approve").click();
+  await expect(page.getByTestId("agent-review")).toHaveCount(0);
+  await expect
+    .poll(async () => (await documents(page))["logic:1"])
+    .toContain('said("look", "sign")');
+  await expect
+    .poll(() =>
+      page.evaluate(async () => {
+        const session = (
+          window as unknown as {
+            __AGI_PROJECT__: {
+              getSession(): { flush(): Promise<void>; saveStatus(): { state: string } };
+            };
+          }
+        ).__AGI_PROJECT__.getSession();
+        await session.flush().catch(() => {});
+        return session.saveStatus().state;
+      }),
+    )
+    .toBe("saved");
+  await expect(page.getByTestId("pending-edit-recovery")).toHaveCount(0);
+  await expect(panel.getByTestId("agent-message")).toBeEnabled();
+});
+
 test("the workspace composer offers reference art", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await start(page);

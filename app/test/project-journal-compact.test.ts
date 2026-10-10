@@ -23,6 +23,7 @@ import { writeProjectSaveJournal } from "../src/project/projectSaveJournal.ts";
 import type { CachedGameData } from "../src/project/gameTypes.ts";
 import type { ProjectCommitRequest } from "../src/project/gameStorage.ts";
 import { testProjectId } from "./identity.ts";
+import { roomReference } from "../src/references/referenceArt.ts";
 
 installIndexedDbFixture();
 installWebLocksFixture();
@@ -175,6 +176,31 @@ test("journal writes coalesce on a frame and omit unedited resources and documen
     "text",
   );
   assert.equal(reopened.projectHistory!.commits.length, 3);
+  assert.equal(journals().length, 0);
+});
+test("closing before a reference attachment commits recovers it from the journal", async () => {
+  const owner = await session("compact-reference");
+  const projectId = testProjectId("compact-reference");
+  const reference = roomReference(
+    "ref-harbour",
+    1,
+    "Harbour",
+    { project: projectId, revision: baseData.library!.revision },
+    {
+      width: 1,
+      height: 1,
+      rgba: Uint8Array.of(1, 2, 3, 255),
+      bytes: Uint8Array.of(1),
+      mime: "image/png",
+    },
+  );
+  await owner.saveReferences((current) => [...current, reference]);
+  paint();
+  assert.equal(journals().length, 1);
+  owner.dispose();
+  const reopened = (await loadAuthoredGame(projectId))!;
+  assert.deepEqual(reopened.references, [reference]);
+  assert.equal(reopened.generation, baseData.generation! + 1);
   assert.equal(journals().length, 0);
 });
 test("closing before a reviewed room removal commits recovers the accepted Undo", async () => {
