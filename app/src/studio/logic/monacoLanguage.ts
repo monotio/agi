@@ -427,10 +427,18 @@ monaco.languages.registerCompletionItemProvider(LOGIC_LANGUAGE_ID, {
       };
       // Monaco keeps one pending automatic query while the word grows. Start
       // a fresh invocation after typing settles so its cursor and edit ranges
-      // belong to the current text; the command cancels this obsolete query.
+      // belong to the current text; the new invocation cancels this obsolete
+      // query. The controller is called directly: the Trigger Suggest command
+      // does nothing while the previous list is still on screen, and this
+      // query's empty answer would then close that list.
       if (canResume()) {
         await session.registration.waitForAnalysis();
-        if (canResume()) editor.trigger("agi-logic", "editor.action.triggerSuggest", {});
+        if (canResume())
+          editor
+            .getContribution<monaco.editor.IEditorContribution & { triggerSuggest(): void }>(
+              "editor.contrib.suggestController",
+            )
+            ?.triggerSuggest();
       }
     }
     if (!items || !queryIsLive(session, model, token)) return { suggestions: [] };
