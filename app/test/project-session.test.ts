@@ -1552,7 +1552,8 @@ test("room generation switches validation immediately and persists through a rej
       session.capture().diagnostics.map((d) => d.message),
       ["LOGIC 3 is absent."],
     );
-    assert.equal(session.capture().diagnostics[0]?.severity, "error");
+    // The exit was already in the project, so it warns rather than blocking edits.
+    assert.equal(session.capture().diagnostics[0]?.severity, "warning");
     await assert.rejects(session.flush(), /Could not save/);
     assert.equal(stored.roomGeneration, true);
     rejectWrite = false;
