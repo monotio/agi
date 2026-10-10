@@ -169,7 +169,7 @@ test("completion prefers the identifier ending at the caret over a following del
     ["#define obj_id 1\nset.view(obj_id|)", "obj_id", "#define obj_id 1\nset.view(obj_id)"],
   ] as const) {
     const offset = marked.indexOf("|");
-    const source = marked.replace("|", "");
+    const source = marked.replaceAll("|", "");
     const language = createLogicLanguageSnapshot({ source, ...context });
     const suggestion = language.completeAt(offset).find((entry) => entry.label === label);
     assert.ok(suggestion, `${label} is offered at ${marked}`);
@@ -188,7 +188,7 @@ test("an empty argument offers a zero-width target without consuming the closing
     ["#define obj_id 1\nset.view(|)", "obj_id", "#define obj_id 1\nset.view(obj_id)"],
   ] as const) {
     const offset = marked.indexOf("|");
-    const source = marked.replace("|", "");
+    const source = marked.replaceAll("|", "");
     const language = createLogicLanguageSnapshot({ source, ...context });
     const suggestion = language.completeAt(offset).find((entry) => entry.label === label);
     assert.ok(suggestion, `${label} is offered at ${marked}`);
@@ -204,11 +204,11 @@ test("an empty argument offers a zero-width target without consuming the closing
 test("a finished quoted argument is not reopened as the next completion target", () => {
   for (const marked of ['if (said("open"|)) { return; }', 'if (said("open"|, 2)) { return; }']) {
     const offset = marked.indexOf("|");
-    const source = marked.replace("|", "");
+    const source = marked.replaceAll("|", "");
     assert.deepEqual(createLogicLanguageSnapshot({ source, ...context }).completeAt(offset), []);
   }
   const partial = "if (said(op|)) { return; }";
-  const source = partial.replace("|", "");
+  const source = partial.replaceAll("|", "");
   const suggestion = createLogicLanguageSnapshot({ source, ...context })
     .completeAt(partial.indexOf("|"))
     .find((entry) => entry.label === "open");
@@ -222,7 +222,7 @@ test("a finished quoted argument is not reopened as the next completion target",
 test("completion offsets stay in UTF-16 code units across CRLF and surrogate pairs", () => {
   const marked = "// \u{1f3ae}\r\nload.v|();";
   const offset = marked.indexOf("|");
-  const source = marked.replace("|", "");
+  const source = marked.replaceAll("|", "");
   const language = createLogicLanguageSnapshot({ source, ...context });
   const suggestion = language.completeAt(offset).find((entry) => entry.label === "load.view");
   assert.ok(suggestion, "load.view is offered after a CRLF line and a surrogate pair");

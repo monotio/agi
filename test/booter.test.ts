@@ -69,6 +69,14 @@ test("booter import reserves bytes before copying any file", () => {
   assert.equal(budget.bytes, 0);
 });
 
+test("a booter decode that fails leaves the import budget unchanged", () => {
+  const image = disk();
+  image[2048 + 5 + 12] = 50; // interpreter version no longer 2.001, found after files are reserved
+  const budget = { bytes: 7, files: 3, maxBytes: 1 << 20, maxFiles: 1024 };
+  assert.throws(() => readDiskImage("disk.img", image, budget), /interpreter version/i);
+  assert.deepEqual(budget, { bytes: 7, files: 3, maxBytes: 1 << 20, maxFiles: 1024 });
+});
+
 test("extracts raw booter resources and preserves interpreter evidence separately", () => {
   const image = disk();
   const before = image.slice();

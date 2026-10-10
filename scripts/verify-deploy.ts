@@ -43,6 +43,23 @@ interface Fetched {
   readonly bytes: Uint8Array;
 }
 
+/** The `globalHeaders` of the artifact's static web app configuration, or null. */
+const configuredHeaders = async (artifactRoot: string): Promise<Record<string, string> | null> => {
+  try {
+    const config: unknown = JSON.parse(
+      await readFile(resolve(artifactRoot, "staticwebapp.config.json"), "utf8"),
+    );
+    const headers = (config as { globalHeaders?: unknown } | null)?.globalHeaders;
+    if (headers === null || typeof headers !== "object" || Array.isArray(headers)) return null;
+    const entries = Object.entries(headers);
+    return entries.length > 0 && entries.every(([, value]) => typeof value === "string")
+      ? (headers as Record<string, string>)
+      : null;
+  } catch {
+    return null;
+  }
+};
+
 const FETCH_TIMEOUT_MS = 30_000;
 
 const sha256 = (bytes: Uint8Array): string => createHash("sha256").update(bytes).digest("hex");
@@ -147,9 +164,16 @@ const verifyOnce = async (
 
   if (!/<title>\s*AGI IS HERE/.test(html)) problems.push("index has no AGI IS HERE title");
   if (!/\bid\s*=\s*["']?app\b/.test(html)) problems.push('index has no id="app" mount');
-  const contentTypeOptions = index.headers.get("x-content-type-options") ?? "";
-  if (contentTypeOptions.toLowerCase() !== "nosniff")
-    problems.push(`index x-content-type-options is "${contentTypeOptions}", not nosniff`);
+  // The deployed configuration names the security headers the site must send.
+  const configured = await configuredHeaders(artifactRoot);
+  if (configured === null)
+    problems.push("artifact has no staticwebapp.config.json with globalHeaders");
+  else
+    for (const [name, expected] of Object.entries(configured)) {
+      const observed = index.headers.get(name) ?? "";
+      if (observed.trim() !== expected.trim())
+        problems.push(`index ${name.toLowerCase()} is "${observed}", not "${expected}"`);
+    }
 
   const observedAssets = entryAssets(html);
   report.push(
