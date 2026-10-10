@@ -43,7 +43,7 @@ for (const size of [
         await page.getByLabel("Music file", { exact: true }).setInputFiles({
           name: "pending.mid",
           mimeType: "audio/midi",
-          buffer: Buffer.from(exportMidi(music)),
+          buffer: Buffer.from(exportMidi(music).bytes),
         });
         await expect(
           page.getByRole("button", { name: "Replace chime_sound (SOUND 1)", exact: true }),

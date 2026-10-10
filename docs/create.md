@@ -146,8 +146,10 @@ SOUND opens beside the game.
 - **Choose preset** previews recipes and adds a new SOUND. Set tempo and snap, and press **Space**
   for a private audition.
 - Import MIDI type 0 or 1, or SN76489 VGM 1.50 or 1.51, after reviewing the conversion summary. Drop
-  music onto the editor or the game to import it. Exports are type 1 MIDI at the nearest musical
-  pitch.
+  music onto the editor or the game to import it. Exports are type 1 MIDI with one track per voice:
+  note names follow the tune's own tuning and a pitch bend per note plays each chip divisor's exact
+  frequency. Events that hold raw bytes instead of a note are written as silence, and the editor
+  says so after the download.
 - **Details** exposes native ticks, divisors and attenuation. Musical views keep exact native values
   until you edit them.
 

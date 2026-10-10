@@ -9,8 +9,24 @@ interface MidiNote {
   start: number;
   end: number;
   note: number;
+  /** The channel's pitch bend at note-on, in semitones. */
+  bend: number;
   velocity: number;
   id: number;
+}
+
+/** Pitch-bend sensitivity (RPN 0) in semitones; the General MIDI default. */
+const DEFAULT_BEND_RANGE = 2;
+const BEND_CENTER = 8192;
+
+/** The exact MIDI pitch of a PSG tone divisor, fractional semitones from A440. */
+function midiPitchOfDivisor(divisor: number): number {
+  return 69 + 12 * Math.log2(PSG_BASE_FREQ / divisor / 440);
+}
+
+/** The nearest PSG tone divisor for a MIDI pitch, clamped to the 10-bit range. */
+function divisorOfMidiPitch(pitch: number): number {
+  return Math.max(1, Math.min(1023, Math.round(PSG_BASE_FREQ / (440 * 2 ** ((pitch - 69) / 12)))));
 }
 interface MidiPart {
   track: number;
@@ -53,6 +69,13 @@ export function importMidi(bytes: Uint8Array, profileId?: ProfileId): SoundImpor
   reader.take(headerLength - 6);
   const parts: MidiPart[] = [],
     tempos: Tempo[] = [{ tick: 0, micros: 500000, order: -1 }];
+  // Pitch bend state per channel: the wheel position (-1..1), its range in
+  // semitones and the selected registered parameter (0x3fff = none).
+  const tunings = Array.from({ length: 16 }, () => ({
+    bend: 0,
+    range: DEFAULT_BEND_RANGE,
+    rpn: 0x3fff,
+  }));
   let count = 0,
     noteId = 0;
   for (let track = 0; track < trackCount; track++) {
@@ -112,13 +135,33 @@ export function importMidi(bytes: Uint8Array, profileId?: ProfileId): SoundImpor
       if (a > 127 || b > 127)
         throw new Error("MIDI event data exceeds 7 bits. Export a valid MIDI file.");
       const key = channel * 128 + a;
+      const tuning = tunings[channel]!;
+      if (kind === 14) {
+        tuning.bend = (((b << 7) | a) - BEND_CENTER) / BEND_CENTER;
+        continue;
+      }
+      if (kind === 11) {
+        // RPN 0 sets the bend range: data entry coarse in semitones, fine in cents.
+        if (a === 101) tuning.rpn = (b << 7) | (tuning.rpn & 127);
+        else if (a === 100) tuning.rpn = (tuning.rpn & (127 << 7)) | b;
+        else if (a === 6 && tuning.rpn === 0) tuning.range = b + (tuning.range % 1);
+        else if (a === 38 && tuning.rpn === 0) tuning.range = Math.floor(tuning.range) + b / 100;
+        continue;
+      }
       if (kind === 9 && b > 0) {
         let part = channels.get(channel);
         if (!part) {
           part = { track, channel, name, notes: [], end: 0 };
           channels.set(channel, part);
         }
-        const note = { start: tick, end: tick, note: a, velocity: b, id: noteId++ };
+        const note = {
+          start: tick,
+          end: tick,
+          note: a,
+          bend: tuning.bend * tuning.range,
+          velocity: b,
+          id: noteId++,
+        };
         part.notes.push(note);
         const held = active.get(key) ?? [];
         held.push(note);
@@ -261,7 +304,12 @@ export function importMidi(bytes: Uint8Array, profileId?: ProfileId): SoundImpor
           if (note < segment.note.note) down++;
           folded.set(segment.note.id, note);
         }
-        data = { kind: "tone", note, attenuation };
+        // A bent note sounds between semitones: store the divisor of the
+        // pitch it plays at, as the export wrote it.
+        data =
+          segment.note.bend === 0
+            ? { kind: "tone", note, attenuation }
+            : { kind: "tone", divisor: divisorOfMidiPitch(note + segment.note.bend), attenuation };
       }
       if (start > position)
         document = insertSoundSpan(
@@ -340,40 +388,103 @@ function chunk(name: string, data: number[]): number[] {
     );
 }
 
-/** 60 PPQ at 60 BPM makes one MIDI tick exactly one native SOUND tick. */
-export function exportMidi(document: SoundDocument): Uint8Array {
+export interface MidiExport {
+  readonly bytes: Uint8Array;
+  /**
+   * How far the sound's notes sit from A440, in cents (positive is sharp).
+   * Note numbers are chosen against this tuning so the written notes keep
+   * the tune's intervals; pitch bends then play each note at its exact
+   * divisor frequency.
+   */
+  readonly tuningCents: number;
+  /** Plain sentences about content the file cannot express; empty when exact. */
+  readonly warnings: readonly string[];
+}
+
+/**
+ * The tuning a set of tone pitches shares: the circular mean of each pitch's
+ * distance from its nearest A440 semitone, weighted by duration, in
+ * semitones (-0.5..0.5). Chip divisors land a tune anywhere between
+ * semitones; rounding each note on its own then scatters neighbours a
+ * semitone apart, which this common offset prevents.
+ */
+function tuningOffset(pitches: readonly { pitch: number; weight: number }[]): number {
+  let x = 0;
+  let y = 0;
+  for (const { pitch, weight } of pitches) {
+    const angle = 2 * Math.PI * (pitch - Math.round(pitch));
+    x += Math.cos(angle) * weight;
+    y += Math.sin(angle) * weight;
+  }
+  if (x === 0 && y === 0) return 0;
+  return Math.atan2(y, x) / (2 * Math.PI);
+}
+
+/**
+ * 60 PPQ at 60 BPM makes one MIDI tick exactly one native SOUND tick. Tone
+ * voices carry a ±2 semitone bend range (RPN 0) and a pitch bend before each
+ * note, so playback matches the divisor frequency, not the nearest semitone.
+ */
+export function exportMidi(document: SoundDocument): MidiExport {
   const tracks = document.tracks();
   if (!tracks)
     throw new Error(
-      "This SOUND uses an inspection format. Export an editable four-voice SOUND as MIDI.",
+      "This sound is stored in a format without voice tracks, so there are no notes to write as MIDI.",
     );
+  const pitches: { pitch: number; weight: number }[] = [];
+  for (let lane = 0; lane < 3; lane++)
+    for (const event of tracks[lane]!)
+      if (event.data.kind === "tone" && event.data.attenuation !== 15)
+        pitches.push({
+          pitch: midiPitchOfDivisor(event.data.divisor),
+          weight: event.durationTicks,
+        });
+  const tuning = tuningOffset(pitches);
+  let raw = 0;
   const chunks = [chunk("MTrk", [0, 255, 81, 3, 15, 66, 64, 0, 255, 47, 0])];
   for (let lane = 0; lane < 4; lane++) {
+    const channel = lane === 3 ? 9 : lane;
     const name = lane === 3 ? "Drums" : `Voice ${lane + 1}`,
       data = [0, 255, 3, name.length, ...[...name].map((c) => c.charCodeAt(0))];
+    if (lane < 3)
+      data.push(
+        ...[101, 0, 100, 0, 6, DEFAULT_BEND_RANGE, 38, 0].flatMap((byte, index) =>
+          index % 2 === 0 ? [0, 176 | channel, byte] : [byte],
+        ),
+      );
     let pending = 0;
+    let bend = BEND_CENTER;
     for (const event of tracks[lane]!) {
-      if (event.data.kind === "raw")
-        throw new Error(
-          "This SOUND contains raw events. Replace them with notes before exporting MIDI.",
-        );
-      if (event.data.kind === "rest" || event.data.attenuation === 15) {
+      if (event.data.kind === "raw") raw++;
+      if (
+        event.data.kind === "raw" ||
+        event.data.kind === "rest" ||
+        event.data.attenuation === 15
+      ) {
         pending += event.durationTicks;
         continue;
       }
-      const channel = lane === 3 ? 9 : lane;
       const voiceData = event.data;
-      const note =
-        voiceData.kind === "noise"
-          ? DRUM_SOUNDS.find((d) => d.control === voiceData.control)!.midi
-          : Math.max(
-              0,
-              Math.min(
-                127,
-                Math.round(69 + 12 * Math.log2(PSG_BASE_FREQ / voiceData.divisor / 440)),
-              ),
-            );
-      const velocity = Math.round(((15 - event.data.attenuation) * 127) / 15);
+      let note: number;
+      if (voiceData.kind === "noise") {
+        note = DRUM_SOUNDS.find((d) => d.control === voiceData.control)!.midi;
+      } else {
+        const pitch = midiPitchOfDivisor(voiceData.divisor);
+        note = Math.max(0, Math.min(127, Math.round(pitch - tuning)));
+        const wheel = Math.max(
+          0,
+          Math.min(
+            16383,
+            Math.round(BEND_CENTER + ((pitch - note) / DEFAULT_BEND_RANGE) * BEND_CENTER),
+          ),
+        );
+        if (wheel !== bend) {
+          data.push(...variable(pending), 224 | channel, wheel & 127, wheel >> 7);
+          pending = 0;
+          bend = wheel;
+        }
+      }
+      const velocity = Math.round(((15 - voiceData.attenuation) * 127) / 15);
       data.push(
         ...variable(pending),
         144 | channel,
@@ -389,5 +500,14 @@ export function exportMidi(document: SoundDocument): Uint8Array {
     data.push(...variable(pending), 255, 47, 0);
     chunks.push(chunk("MTrk", data));
   }
-  return Uint8Array.from([...chunk("MThd", [0, 1, 0, 5, 0, 60]), ...chunks.flat()]);
+  const warnings: string[] = [];
+  if (raw > 0)
+    warnings.push(
+      `${raw} ${raw === 1 ? "event holds" : "events hold"} raw bytes instead of a note, so ${raw === 1 ? "it is" : "they are"} silent in the MIDI file.`,
+    );
+  return {
+    bytes: Uint8Array.from([...chunk("MThd", [0, 1, 0, 5, 0, 60]), ...chunks.flat()]),
+    tuningCents: Math.round(tuning * 100),
+    warnings,
+  };
 }
