@@ -3,7 +3,43 @@
 Changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Released notes are also available on [GitHub Releases](https://github.com/monotio/agi/releases).
 
-## [1.2.1] - Unreleased
+## [1.2.2] - Unreleased
+
+### Added
+
+- Claude Haiku 5.5 is available in AI settings. Spent amounts use its higher
+  rate card for prompts over 100K tokens.
+
+### Changed
+
+- Development tools and CI actions are updated to their latest releases.
+- MIDI export keeps a sound's own tuning: note names share one offset from A440
+  and a pitch bend per note plays each divisor's exact frequency. Sounds with raw
+  events export with those events silent and a notice, instead of being refused.
+
+### Fixed
+
+- Edits to games whose directories index unreadable records or whose logics call
+  absent logics (King's Quest I and IV, Manhunter 1 and 2, Space Quest II and the
+  Amiga Space Quest I) apply when the edit itself is valid. The defects carry
+  forward unchanged, the Agent names them in plain words, and only damage an
+  edit introduces is refused. A room exit to a missing room that a game already
+  had no longer blocks unrelated changes.
+- Authoring refusals name the cause and the next step instead of internal terms.
+- Conversations in installed games keep their latest answer when the tab closes
+  before saving finishes. Answers from a closed tab join the conversation the next
+  time the game opens.
+- Attaching reference art saves through the open project, so editing and the
+  Agent stay available afterwards. The notice for edits another tab or window
+  overtook says so in plain words, with Download edits and Discard edits.
+- A naming request that fails partway leaves every name unreserved, and a refused
+  disk image gives back its share of the import limit.
+- The Agent reads a failed step before it can finish, so it repairs the change
+  instead of ending the task without it. A task that stops without a change or a
+  reply says so and suggests asking again, and a message whose usage the provider
+  never reported says Usage not reported.
+
+## [1.2.1] - 2026-10-10
 
 ### Changed
 
@@ -136,7 +172,8 @@ See the [1.1.0 release notes](https://github.com/monotio/agi/releases/tag/v1.1.0
 
 See the [1.0.0 release notes](https://github.com/monotio/agi/releases/tag/v1.0.0).
 
+[1.2.2]: https://github.com/monotio/agi/compare/v1.2.1...HEAD
+[1.2.1]: https://github.com/monotio/agi/releases/tag/v1.2.1
 [1.2.0]: https://github.com/monotio/agi/releases/tag/v1.2.0
-[1.2.1]: https://github.com/monotio/agi/compare/v1.2.0...HEAD
 [1.1.0]: https://github.com/monotio/agi/releases/tag/v1.1.0
 [1.0.0]: https://github.com/monotio/agi/releases/tag/v1.0.0

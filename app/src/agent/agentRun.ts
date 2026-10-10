@@ -9,7 +9,11 @@ import {
 import type { LlmUsage } from "./llmClient.ts";
 import type { AgentToolResult } from "../../../src/agent/agentState.ts";
 import { sha256Hex } from "../../../src/crypto.ts";
-import { MODEL_CAPABILITIES, modelCapability } from "../../../src/agent/modelEffort.ts";
+import {
+  MODEL_CAPABILITIES,
+  modelCapability,
+  requestRates,
+} from "../../../src/agent/modelEffort.ts";
 export interface AgentRunState {
   usageUrl?: string;
   progress: AgentProgress | null;
@@ -200,10 +204,7 @@ export class AgentRun {
       this.publish();
       return;
     }
-    const long = rate.longContext && usage.input > 272000;
-    const input = rate.input * (long ? 2 : 1);
-    const cacheRead = (rate.cacheRead ?? rate.input * 0.1) * (long ? 2 : 1);
-    const outputRate = rate.output * (long ? 1.5 : 1);
+    const { input, cacheRead, output: outputRate } = requestRates(rate, usage.input);
     const reads = Math.min(usage.input, usage.cachedInput);
     const writes = Math.min(usage.input - reads, usage.cacheWriteInput);
     // A cache write costs 1.25x the input rate for a 5-minute entry and 2x

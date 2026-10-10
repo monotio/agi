@@ -355,6 +355,53 @@ test("Approve admits a said response before Create game input", async ({ page })
   await page.screenshot({ path: test.info().outputPath("approved-sign-1440.png") });
 });
 
+test("a turn that stops without a change or a reply says so plainly", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const bodies: string[] = [];
+  await page.route("**/api/openai/v1/responses", async (route) => {
+    bodies.push(route.request().postData() ?? "");
+    await route.fulfill(
+      providerReply("openai", {
+        id: `stopped-${bodies.length}`,
+        output:
+          bodies.length === 1
+            ? [
+                {
+                  type: "function_call",
+                  call_id: "write",
+                  name: "write_logic",
+                  arguments: JSON.stringify({
+                    room: 1,
+                    source: 'if (said("sparkle")) { print("Sparkle"); } return;',
+                  }),
+                },
+                {
+                  type: "function_call",
+                  call_id: "finish",
+                  name: "finish",
+                  arguments: '{"notes":null}',
+                },
+              ]
+            : [],
+      }),
+    );
+  });
+  await start(page, "openai", false);
+  await page.getByTestId("agent-message").fill("Make LOOK sparkle");
+  await page.getByRole("button", { name: "Send", exact: true }).click();
+  const reply = page.getByTestId("agent-conversation").locator("article").last();
+  await expect(reply).toContainText(
+    "The agent stopped before changing anything. Ask again, or describe the change differently.",
+  );
+  // The failed write reached the model with the refused finish before the turn ended.
+  expect(bodies).toHaveLength(2);
+  expect(bodies[1]).toContain("Not finished: write_logic failed earlier in this batch");
+  await expect(reply.getByTestId("agent-spent")).toHaveText("Usage not reported");
+  await expect(page.getByTestId("agent-review")).toHaveCount(0);
+  await expect(page.getByTestId("agent-error")).toHaveCount(0);
+  await page.screenshot({ path: test.info().outputPath("stopped-turn-1440.png") });
+});
+
 test("Agent replies render safe Markdown", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.route("**/api/openai/v1/responses", async (route) => {
@@ -473,6 +520,49 @@ test("stored workspace reference art sends a handle and thumbnail to the shared 
   expect(images).toHaveLength(1);
   const png = Buffer.from(images[0]!.image_url!.split(",")[1]!, "base64");
   expect([png.readUInt32BE(16), png.readUInt32BE(20)]).toEqual([72, 72]);
+});
+
+test("an approved change after attaching reference art saves without pausing editing", async ({
+  page,
+}) => {
+  const { encodePngRgb } = await import("../../src/picture/png.ts");
+  await start(page, "stub", false);
+  const panel = page.getByTestId("workspace-agent-panel");
+  await panel.getByTestId("agent-attach-reference").click();
+  const upload = page.getByTestId("reference-upload");
+  await upload.getByTestId("reference-room-file").setInputFiles({
+    name: "bridge.png",
+    mimeType: "image/png",
+    buffer: Buffer.from(encodePngRgb(1, 1, new Uint8Array([0, 0, 170]))),
+  });
+  await upload.getByTestId("reference-attach").click();
+  await expect(upload.getByTestId("reference-staged")).toBeVisible();
+  await upload.getByRole("button", { name: "Close", exact: true }).click();
+  await panel.getByTestId("agent-message").fill("Add a welcome sign that answers look at sign");
+  await panel.getByRole("button", { name: "Send", exact: true }).click();
+  await expect(page.getByTestId("agent-review")).toBeVisible();
+  await page.getByTestId("agent-approve").click();
+  await expect(page.getByTestId("agent-review")).toHaveCount(0);
+  await expect
+    .poll(async () => (await documents(page))["logic:1"])
+    .toContain('said("look", "sign")');
+  await expect
+    .poll(() =>
+      page.evaluate(async () => {
+        const session = (
+          window as unknown as {
+            __AGI_PROJECT__: {
+              getSession(): { flush(): Promise<void>; saveStatus(): { state: string } };
+            };
+          }
+        ).__AGI_PROJECT__.getSession();
+        await session.flush().catch(() => {});
+        return session.saveStatus().state;
+      }),
+    )
+    .toBe("saved");
+  await expect(page.getByTestId("pending-edit-recovery")).toHaveCount(0);
+  await expect(panel.getByTestId("agent-message")).toBeEnabled();
 });
 
 test("the workspace composer offers reference art", async ({ page }) => {

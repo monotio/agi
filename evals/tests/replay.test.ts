@@ -283,6 +283,8 @@ describe("stored bad cases regression suite (evals/fixtures/bad-cases)", () => {
           );
         }
       }
+      if (content.expectedBindings)
+        assert.deepEqual(session.authoring.bindings, content.expectedBindings, `${file}: bindings`);
       if (content.expectedMessageSnippet) {
         assert.ok(
           res.message?.includes(content.expectedMessageSnippet),

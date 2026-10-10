@@ -313,6 +313,8 @@ test("F5 in room LOGIC runs the selected Launch with its breakpoint armed @webki
     if (result.status !== "committed") throw new Error(result.status);
   });
   await open(page, "part-room:8:logic");
+  // The Launch menu lists the selected room's Launches.
+  await expect(page.getByTestId("workspace-update")).toHaveAccessibleName("Play Garden");
   await page.getByTestId("workspace-update-menu").click();
   const choice = page.getByRole("menuitem", { name: "With the key", exact: true });
   await expect(choice).toBeVisible();

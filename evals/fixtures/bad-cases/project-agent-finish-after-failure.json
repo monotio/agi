@@ -1,0 +1,59 @@
+{
+  "name": "project-agent-finish-after-failure",
+  "description": "A finish in the same batch as a failed write must wait until the model has read the failure; the repaired write then reaches review.",
+  "projectAgent": {
+    "documents": {
+      "logic:0": "return;",
+      "logic:1": "return;",
+      "picture:1": "vis 1\nfill 0,0\nend\n",
+      "words": "[]"
+    },
+    "request": "Make the requested change",
+    "turns": [
+      {
+        "text": "",
+        "toolCalls": [
+          {
+            "id": "write",
+            "name": "write_logic",
+            "input": {
+              "room": 1,
+              "source": "if (said(\"sparkle\")) { print(\"Sparkle\"); } return;"
+            }
+          },
+          {
+            "id": "finish",
+            "name": "finish",
+            "input": {
+              "notes": null
+            }
+          }
+        ]
+      },
+      {
+        "toolCalls": [
+          {
+            "id": "repair",
+            "name": "write_logic",
+            "input": {
+              "room": 1,
+              "source": "assignn(v10, 1); return;"
+            }
+          },
+          {
+            "id": "finish2",
+            "name": "finish",
+            "input": {
+              "notes": null
+            }
+          }
+        ]
+      }
+    ],
+    "expectedKeys": ["logic:1"],
+    "expectedOutcomes": {
+      "write": false,
+      "finish": false
+    }
+  }
+}

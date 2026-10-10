@@ -11,6 +11,13 @@ import type {
   BetaToolResultBlockParam,
 } from "@anthropic-ai/sdk/resources/beta/messages/messages";
 import type OpenAI from "openai";
+import {
+  ProviderRequestError,
+  classifyProviderFailure,
+  toProviderError,
+  type ProviderName,
+  type SdkErrorClasses,
+} from "./providerFailure.ts";
 import type { AgentToolImage, AgentToolResult } from "../../../src/agent/agentState.ts";
 import { AGENT_TOOLS, type ToolDefinition } from "../../../src/agent/tools.ts";
 import {
@@ -98,6 +105,19 @@ export interface LlmRequestTelemetry {
   imageCount: number;
   imagePixels: number;
 }
+/** Run a provider request; an SDK failure leaves as a ProviderRequestError with a plain message. */
+async function withProviderErrors<T>(
+  provider: ProviderName,
+  loadSdk: () => Promise<SdkErrorClasses>,
+  work: () => Promise<T>,
+): Promise<T> {
+  try {
+    return await work();
+  } catch (error) {
+    throw toProviderError(error, provider, await loadSdk());
+  }
+}
+
 export class LlmResponseError extends Error {
   readonly usage: LlmUsage;
   readonly telemetry?: LlmRequestTelemetry | undefined;
@@ -424,6 +444,10 @@ export function createAnthropicConversation(
     ) => {
       const startedAt = performance.now();
       requestSignal = signal;
+      const anthropicCapability = modelCapability(
+        config.model || DEFAULT_MODELS.anthropic,
+        "anthropic",
+      );
       // Official SDK accumulation preserves thinking signatures and complete tool inputs.
       // https://platform.claude.com/docs/en/build-with-claude/streaming
       const stream = (await getClient()).beta.messages.stream(
@@ -441,29 +465,25 @@ export function createAnthropicConversation(
           },
           max_tokens: maxTokens,
           betas: [
-            "server-side-fallback-2026-07-01",
+            ...(anthropicCapability.serverFallback ? ["server-side-fallback-2026-07-01"] : []),
             "compact-2026-01-12",
             "thinking-display-updates-2026-08-18",
           ],
-          fallbacks: "default",
+          ...(anthropicCapability.serverFallback ? { fallbacks: "default" as const } : {}),
           context_management: {
             edits: [
               {
                 type: "compact_20260112",
                 trigger: {
                   type: "input_tokens",
-                  value: Math.floor(
-                    modelCapability(config.model || DEFAULT_MODELS.anthropic, "anthropic")
-                      .maxInputTokens * 0.75,
-                  ),
+                  value: Math.floor(anthropicCapability.maxInputTokens * 0.75),
                 },
               },
             ],
           },
           // The notes Opus 5.5 and Sonnet 5.5 write between tool calls arrive as thinking
           // blocks, empty without a display; the agent panel shows them.
-          ...(modelCapability(config.model || DEFAULT_MODELS.anthropic, "anthropic")
-            .summarizedThinking
+          ...(anthropicCapability.summarizedThinking
             ? { thinking: { type: "adaptive" as const, display: "updates" as const } }
             : {}),
           system: [
@@ -513,7 +533,11 @@ export function createAnthropicConversation(
         requestSignal = undefined;
       }
     };
-    const response = await (run ? run.request(send) : send());
+    const response = await withProviderErrors(
+      "anthropic",
+      () => import("@anthropic-ai/sdk"),
+      () => (run ? run.request(send) : send()),
+    );
 
     const usage = anthropicUsage(response.usage);
     const hitShare = cacheHitShare(usage);
@@ -816,7 +840,12 @@ export function createOpenAiConversation(
             recordUsage(openAiUsage(event.response.usage), totalUsage);
             return event.response;
           }
-          if (event.type === "error") throw new Error(event.message);
+          if (event.type === "error")
+            throw new ProviderRequestError(
+              classifyProviderFailure({ code: event.code }),
+              "openai",
+              event.message,
+            );
         }
         throw new Error(
           "The provider stream ended before completing the response. No partial tools were executed.",
@@ -828,7 +857,11 @@ export function createOpenAiConversation(
         throw error;
       }
     };
-    const response = await (run ? run.request(send) : send());
+    const response = await withProviderErrors(
+      "openai",
+      () => import("openai"),
+      () => (run ? run.request(send) : send()),
+    );
 
     const usage = openAiUsage(response.usage);
     const hitShare = cacheHitShare(usage);

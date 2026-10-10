@@ -85,6 +85,7 @@ import ProjectTabs from "../host/ProjectTabs.vue";
 import { workspaceParts, workspaceOpenParts } from "../host/workspaceParts.ts";
 import { roomPictureUse } from "../../../../src/agent/roomPictures.ts";
 import { useNodeThumbs } from "../../world/nodeThumbs.ts";
+import type { ScannedResources } from "../../world/useRoomMap.ts";
 import { parseWordsTok } from "../../../../src/logic/words.ts";
 import { readInventoryObjects } from "../../../../src/authoring/inventory.ts";
 import { derivedLogicSource } from "../logic/logicWorkspace.ts";
@@ -566,11 +567,31 @@ const container = computed(() => {
   );
 });
 const resourceUses = createWorkspaceResourceUses();
+/**
+ * Each commit starts a fresh room analysis that answers a moment later. Until
+ * its final answer, ROOMS keep the project's last final answer, so rows only
+ * the analysis finds (a picture chosen through a variable, a called LOGIC) do
+ * not vanish and return under the pointer.
+ */
+const roomScan = computed<{ scan: ScannedResources; final: boolean; owner: unknown }>(
+  (previous) => {
+    const scan = engine.roomMap.resources.value;
+    const status = engine.roomMap.analysisStatus.value;
+    const owner = engine.getProjectSession();
+    const final = status !== "pending" && status !== "literal";
+    if (final || !previous?.final || previous.owner !== owner) return { scan, final, owner };
+    return {
+      scan: { ...scan, scans: previous.scan.scans, shared: previous.scan.shared },
+      final: true,
+      owner,
+    };
+  },
+);
 const groups = computed(() => {
   const keys = [...new Set([...(snapshot.value?.keys ?? []), ...draftMembership.value])].filter(
     (key) => !deletedParts.value.includes(key),
   );
-  const scan = engine.roomMap.resources.value;
+  const scan = roomScan.value.scan;
   const admitted = snapshot.value?.lastAdmissibleBuild?.documents() ?? {};
   let plan: Record<string, { title?: string }> = {};
   try {

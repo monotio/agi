@@ -30,6 +30,6 @@ in the Meadow, with the game running beside the parts list.
    available chats, images and progress, or **Playable game** for AGI resources
    to share. Either ZIP opens again with **Add game**.
 
-Continue with the [editor tour](../README.md#edit-every-room-by-hand) or the
+Continue with the [Create workspace guide](create.md) or the
 [LOGIC language reference](logic-language.md). **Agent** can help when you connect
 a provider; **Review** lets you inspect and approve its proposed changes.

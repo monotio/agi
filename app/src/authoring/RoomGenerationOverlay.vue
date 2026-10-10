@@ -47,7 +47,7 @@ const spend = computed(() => {
     <div class="room-generation__card">
       <h2>Creating the next room</h2>
       <p v-if="generation?.error" role="alert" data-testid="room-generation-error">
-        {{ generation.error }} Try again.
+        {{ generation.error }}
       </p>
       <p v-else role="status" aria-live="polite" data-testid="room-generation-step">
         {{ state.agentTask?.status === "paused" ? state.agentTask.reason : activity }}

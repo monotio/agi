@@ -22,10 +22,19 @@ export function readDiskImage(
   budget: DiskExtractionBudget = createDiskExtractionBudget(),
 ): DiskFiles {
   if (isBooterImage(bytes)) {
-    const decoded = decodeBooter(bytes, (size) => {
-      reserveDiskFile(budget);
-      reserveDiskBytes(budget, size);
-    });
+    // A refused or failing decode gives back what it reserved.
+    const { bytes: reservedBytes, files: reservedFiles } = budget;
+    let decoded: ReturnType<typeof decodeBooter>;
+    try {
+      decoded = decodeBooter(bytes, (size) => {
+        reserveDiskFile(budget);
+        reserveDiskBytes(budget, size);
+      });
+    } catch (error) {
+      budget.bytes = reservedBytes;
+      budget.files = reservedFiles;
+      throw error;
+    }
     decoded.files.set("AGIDATA.OVL", decoded.evidence.interpreterData);
     return { files: decoded.files, unreadable: new Map() };
   }

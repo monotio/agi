@@ -1,4 +1,4 @@
-# Plain copy (AGENTS.md, Code conventions): UI text says what a thing is or
+# Plain copy (AGENTS.md, UI copy): UI text says what a thing is or
 # does. Two documents, one per parser: string literals in TypeScript (and the
 # <script setup> of a .vue), and template text and attribute values in a .vue.
 id: plain-copy-literal

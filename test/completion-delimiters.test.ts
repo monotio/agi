@@ -29,7 +29,7 @@ for (const [marked, label, expected] of [
 ] as const) {
   test(`completion applies the exact edit at ${marked}`, () => {
     const offset = marked.indexOf("|");
-    const source = marked.replace("|", "");
+    const source = marked.replaceAll("|", "");
     const language = createLogicLanguageSnapshot({ source, ...context });
     const suggestion = language.completeAt(offset).find((entry) => entry.label === label);
     assert.ok(suggestion, `${label} is offered`);

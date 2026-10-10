@@ -795,3 +795,43 @@ test("removing a room saved as invalid source prunes its Launches before the nex
   assert.equal(JSON.parse(String(removed.proposal.documents()["world"])).launches, undefined);
   assert.ok(malformed.diagnostics.some((d) => d.document === "world" && d.severity === "error"));
 });
+
+test("a room exit the base already had to a missing room warns; an unrelated change stays ready", () => {
+  const model = setup();
+  const sealed = prepareProjectEdit({
+    model,
+    proposal: model.propose(model.capture(), "Exit to nowhere", [
+      { key: "logic:0", content: "new.room(253); return;" },
+    ]),
+    profileId: "2.936",
+    policy: {},
+  });
+  assert.equal(sealed.status, "diagnostics");
+  // The base now carries that exit, as an imported original game would.
+  const next = new ProjectModel({
+    documents: sealed.proposal.documents(),
+    digest: sha256Hex,
+    build: compileProjectDocuments({
+      files: Object.fromEntries(createStarterProject("blank").files()),
+      documents: sealed.proposal.documents(),
+      profileId: "2.936",
+    }),
+  });
+  const unrelated = prepareProjectEdit({
+    model: next,
+    proposal: next.propose(next.capture(), "Paint", [
+      { key: "picture:1", content: "vis 4\nfill 1,1\nend\n" },
+    ]),
+    profileId: "2.936",
+    policy: {},
+  });
+  assert.equal(unrelated.status, "ready", JSON.stringify(unrelated.diagnostics));
+  assert.deepEqual(
+    unrelated.diagnostics.map(({ message, severity, preExisting }) => [
+      message,
+      severity,
+      preExisting,
+    ]),
+    [["LOGIC 253 is absent.", "warning", true]],
+  );
+});

@@ -122,15 +122,19 @@ The public site at [agi.monotio.com](https://agi.monotio.com/) deploys from
    browser suite pass, tag the `main` commit `vX.Y.0` and publish a
    GitHub Release on the tag, with the release pull request's description as
    its notes.
+4. Delete `release/X.Y` after its `vX.Y.0` tag. Tags are permanent; the branch
+   is temporary.
 
-A hotfix branches from the latest `main`, sets both package versions to `X.Y.Z`,
-and merges into `main` through its own fully checked pull request. Merge it into
-any open `release/X.Y` afterward. Verify deployment before tagging `vX.Y.Z` and
-publishing its release notes.
+A patch release is a hotfix. It branches from the latest `main`, sets both
+package versions to `X.Y.Z`, and merges into `main` through its own fully
+checked pull request. There is no back-merge into a release branch. Verify
+deployment before tagging `vX.Y.Z` and publishing its release notes. The next
+minor release, `release/X.(Y+1)`, is cut from `main` when it starts.
 
-To roll back, open a revert pull request and let it pass the same checks.
-Re-running CI rebuilds the same commit, so never re-run an older release job to
-roll back.
+To roll back, merge a fix or a revert into `main`; it deploys forward through
+the same checks. Never deploy code older than the browser data it will meet:
+version 1.1 cannot open the browser database that 1.2 created. Re-running CI
+rebuilds the same commit, so never re-run an older release job to roll back.
 
 Verify build identity and asset hashes against a downloaded CI artifact with:
 

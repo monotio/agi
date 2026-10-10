@@ -60,6 +60,8 @@ test("genesis through the real create entry is offered the installed Boilerplate
                   exits: [],
                 },
               ],
+              facts: [],
+              quests: [],
             }),
           },
           { type: "function_call", call_id: "hand", name: "finish", arguments: "{}" },
@@ -146,7 +148,9 @@ test("a refused first genesis request surfaces an error and stores no half proje
 
   // The failure surfaces on the menu and the request is not retried.
   await expect(page.getByTestId("error-panel")).toBeVisible({ timeout: 15_000 });
-  await expect(page.getByTestId("error-panel")).toContainText("mocked refusal");
+  await expect(page.getByTestId("error-panel")).toContainText(
+    "OpenAI could not complete the request.",
+  );
   expect(requests).toBe(1);
 
   // Nothing was persisted: no project record exists at all.

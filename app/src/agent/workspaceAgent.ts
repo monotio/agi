@@ -12,16 +12,21 @@ import {
   type LlmConfig,
   type UnifiedConversation,
 } from "./llmClient.ts";
+import { providerFailureDetail } from "./providerFailure.ts";
 import { createProjectAssistDriver, PROJECT_ASSIST_TOOLS } from "./projectAssistTools.ts";
 import {
   ASK_TOOLS,
+  finishAfterFailures,
   validateAgentHandover,
   withReferences,
   executeAgentToolAsync,
   type AgentRuntimeDeps,
 } from "../../../src/agent/tools.ts";
 import { referenceManifest } from "../../../src/agent/referenceTools.ts";
-import { captureAgentWorkspace } from "../../../src/authoring/projectAgentCandidate.ts";
+import {
+  captureAgentWorkspace,
+  describeWorkspaceDefects,
+} from "../../../src/authoring/projectAgentCandidate.ts";
 import { createProjectInspection } from "../../../src/agent/projectInspection.ts";
 import { computeResourceRevision } from "../../../src/authoring/resourceRevision.ts";
 import { compileProjectDocuments } from "../../../src/authoring/projectDocuments.ts";
@@ -65,6 +70,11 @@ import { createSelectionStub } from "./selectionStub.ts";
 import { SELECTION_TOOL_NAMES } from "../../../src/agent/selectionTools.ts";
 import { proposeNames } from "../../../src/agent/namingTools.ts";
 
+/** A turn that ends without a change and without a reply says so in place of an empty reply. */
+const STOPPED = {
+  edit: "The agent stopped before changing anything. Ask again, or describe the change differently.",
+  ask: "The agent stopped without answering. Ask again.",
+};
 const HANDOFF =
   "Summarize this task for a different model using the compaction summary pattern: objective, decisions, completed changes, unresolved work, resource identifiers, and next steps. Return only the summary. Preserve user constraints. Omit thinking blocks, credentials and protocol records.";
 export interface AgentReview {
@@ -382,6 +392,8 @@ export function createWorkspaceAgent(options: Options) {
   let autoApprove = false;
   const reviewOutcomes = new Map<string, string>();
   let error = "";
+  /** Plain sentences about parts of the game that cannot be read or are missing. */
+  let notice: readonly string[] = [];
   let chatSaveError = "";
   let busy = false;
   let applying = false;
@@ -594,6 +606,7 @@ export function createWorkspaceAgent(options: Options) {
           profileId,
           allowMissingRooms: session.allowMissingRooms,
         });
+    if (workspace) notice = describeWorkspaceDefects(workspace.defects);
     let staged: ReturnType<ReturnType<typeof captureAgentWorkspace>["openToolState"]> | undefined;
     let inspection: ReturnType<typeof createProjectInspection> | undefined;
     function editWorkspace() {
@@ -921,6 +934,7 @@ export function createWorkspaceAgent(options: Options) {
             continue;
           }
           const results = unreported;
+          const failed: string[] = [];
           for (const call of turn.toolCalls) {
             progress.push(
               VOCABULARY_ACTIONS[call.name as keyof typeof VOCABULARY_ACTIONS]?.label ?? call.name,
@@ -937,6 +951,8 @@ export function createWorkspaceAgent(options: Options) {
                 throw new Error("This tool is unavailable.");
               const problems = validateToolArguments(definition.parameters, call.input);
               if (problems.length) throw new Error(problems.join(" "));
+              const waiting = call.name === "finish" ? finishAfterFailures(failed) : undefined;
+              if (waiting) throw new Error(waiting);
               if (readOnly && PROJECT_ASSIST_TOOLS.some((tool) => tool.name === call.name)) {
                 if (call.name === "read_document" && call.input["key"] === "world")
                   throw new Error(
@@ -1180,6 +1196,11 @@ export function createWorkspaceAgent(options: Options) {
               };
             }
             if (call.name === "finish" && result.success) handedOver = true;
+            if (!result.success) {
+              failed.push(call.name);
+              progress.push(`${call.name} failed: ${result.error ?? "no details"}`);
+              notify();
+            }
             if (result.details?.["gameTests"] && result.message) {
               progress.push(result.message);
               notify();
@@ -1242,7 +1263,14 @@ export function createWorkspaceAgent(options: Options) {
             } else throw cause;
           }
         }
-        if (readOnly || !(await offer(turn.text ?? "")))
+        if (readOnly || !(await offer(turn.text ?? ""))) {
+          const stopped = !formatReply && !turn.text?.trim();
+          if (stopped) {
+            progress.push(
+              `The model ended the turn with an empty reply${turn.stopReason ? ` (stop reason ${turn.stopReason})` : ""}${handedOver ? " after a passing finish with no changes" : ""}.`,
+            );
+            notify();
+          }
           chat.messages.push({
             id: id(),
             role: "assistant",
@@ -1261,8 +1289,11 @@ export function createWorkspaceAgent(options: Options) {
                   },
                 }
               : {}),
-            ...(formatReply ? formatReply(turn.text ?? "") : { text: turn.text ?? "Finished." }),
+            ...(formatReply
+              ? formatReply(turn.text ?? "")
+              : { text: stopped ? STOPPED[readOnly ? "ask" : "edit"] : turn.text! }),
           });
+        }
       });
     } catch (cause) {
       const desired = new Map(
@@ -1295,7 +1326,7 @@ export function createWorkspaceAgent(options: Options) {
       );
       action(chat, "interruption", {
         outcome: cause instanceof LlmRefusalError ? "refused" : "interrupted",
-        error: String(cause),
+        error: providerFailureDetail(cause),
         discarded,
         persisted,
       });
@@ -1503,6 +1534,9 @@ export function createWorkspaceAgent(options: Options) {
     },
     get error() {
       return error;
+    },
+    get notice() {
+      return notice;
     },
     get chatSaveError() {
       return chatSaveError;

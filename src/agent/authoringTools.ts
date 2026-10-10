@@ -113,6 +113,8 @@ export function executeAuthoringTool(
       const reservedList: { name: string; kind: BindingKind; num: number; define: string }[] = [];
       const messages: string[] = [];
       const allocationWarnings = new Set<string>();
+      // Bind into a copy so a later item that throws leaves the live bindings untouched.
+      const draft = { ...state.authoring.bindings };
 
       for (const item of items) {
         const symbol = item.name;
@@ -127,7 +129,7 @@ export function executeAuthoringTool(
           );
         if (!["logic", "picture", "view", "sound", "flag", "variable"].includes(kind))
           throw new Error(`Invalid binding kind '${String(kind)}'.`);
-        const existing = state.authoring.bindings[symbol];
+        const existing = draft[symbol];
         let num = item.id;
         if (existing) {
           if (existing.kind !== kind || (num != null && existing.num !== num))
@@ -142,7 +144,7 @@ export function executeAuthoringTool(
               container: state.container,
               profile: state.profile,
               dictionary: state.sources.words,
-              bindings: state.authoring.bindings,
+              bindings: draft,
             },
             kind,
           );
@@ -151,7 +153,7 @@ export function executeAuthoringTool(
         }
         if (typeof num !== "number" || !Number.isInteger(num) || num < 0 || num > 255)
           throw new Error("id must be null or an integer in 0..255.");
-        state.authoring.bindings[symbol] = existing ?? { kind, num };
+        draft[symbol] = existing ?? { kind, num };
         reservedList.push({
           name: symbol,
           kind,
@@ -160,6 +162,7 @@ export function executeAuthoringTool(
         });
         messages.push(`${symbol} = ${kind} ${num}`);
       }
+      state.authoring.bindings = draft;
 
       if (reservedList.length === 1 && !Array.isArray(args["bindings"])) {
         const first = reservedList[0]!;

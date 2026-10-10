@@ -4,11 +4,15 @@ import { executeAgentTool } from "../src/agent/tools.ts";
 import {
   AgentCandidateError,
   captureAgentWorkspace,
+  describeWorkspaceDefects,
   type AgentWorkspace,
 } from "../src/authoring/projectAgentCandidate.ts";
 import { compileProjectLogic } from "../src/authoring/projectLogic.ts";
 import { ProjectDraft } from "../src/authoring/projectDraft.ts";
-import { readProjectDocuments } from "../src/authoring/projectDocuments.ts";
+import {
+  compileProjectDocuments,
+  readProjectDocuments,
+} from "../src/authoring/projectDocuments.ts";
 import { createStarterProject, type StarterProject } from "../src/authoring/starterProject.ts";
 import { containerFromResources, openContainer } from "../src/container/container.ts";
 import { buildWordsTok } from "../src/logic/words.ts";
@@ -750,5 +754,191 @@ describe("captureAgentWorkspace: proposal authority and staleness", () => {
     ]);
     draft.apply(proposal);
     assert.equal(draft.capture().read("logic:9")!.content, "return;\n");
+  });
+});
+
+describe("captureAgentWorkspace: defects the game already had carry forward", () => {
+  /**
+   * A starter image whose directories index three records no reader can
+   * load, the way original releases do (docs/testing.md, "Fixture notes"):
+   * two entries past the end of VOL.0 and one inside another record's header.
+   */
+  const DAMAGED: readonly [name: string, kind: "logic" | "picture" | "sound", num: number][] = [
+    ["LOGDIR", "logic", 200],
+    ["PICDIR", "picture", 200],
+    ["SNDDIR", "sound", 254],
+  ];
+  function damagedFiles(project: StarterProject): Record<string, Uint8Array> {
+    const files = filesRecord(project);
+    const index = (name: string, num: number, entry: readonly number[]): void => {
+      const dir = new Uint8Array(Math.max(files[name]!.length, (num + 1) * 3)).fill(0xff);
+      dir.set(files[name]!);
+      dir.set(entry, num * 3);
+      files[name] = dir;
+    };
+    index("LOGDIR", 200, [0x00, 0xff, 0xff]);
+    index("SNDDIR", 254, [0x01, 0xff, 0xff]);
+    index("PICDIR", 200, [0x00, 0x00, 0x02]);
+    return files;
+  }
+  function readFailure(
+    container: ReturnType<typeof openContainer>,
+    kind: "logic" | "picture" | "sound",
+    num: number,
+  ): string {
+    try {
+      container.getResource(kind, num);
+    } catch (error) {
+      return String(error);
+    }
+    assert.fail(`${kind} ${num} should be unreadable`);
+  }
+
+  test("unreadable directory entries carry forward byte for byte through an unrelated edit", () => {
+    const project = createStarterProject("starter");
+    const files = damagedFiles(project);
+    const read = readProjectDocuments({
+      files,
+      profileId: PROFILE_ID,
+      sources: claimedSources(project),
+      bindings: project.bindings,
+    });
+    assert.deepEqual(
+      read.diagnostics.map((d) => d.key),
+      ["logic:200", "picture:200", "sound:254"],
+    );
+    const draft = new ProjectDraft(read.documents);
+    const workspace = capture(project, draft, { files });
+    assert.equal(workspace.compilable, true);
+    assert.deepEqual(
+      workspace.defects.map((d) => [d.key, d.cause]),
+      [
+        ["logic:200", "unreadable"],
+        ["picture:200", "unreadable"],
+        ["sound:254", "unreadable"],
+      ],
+    );
+    assert.deepEqual(describeWorkspaceDefects(workspace.defects), [
+      "One LOGIC in this game (200) cannot be read, so it stays as it is.",
+      "One picture in this game (200) cannot be read, so it stays as it is.",
+      "One sound in this game (254) cannot be read, so it stays as it is.",
+    ]);
+    // Nothing changed: nothing to propose.
+    assert.deepEqual(workspace.openToolState().finish("nothing").changes(), []);
+    assert.deepEqual(workspace.propose("nothing", []).changes(), []);
+
+    const candidate = workspace.openToolState();
+    assert.equal(
+      executeAgentTool(candidate.state, "write_logic", {
+        room: 1,
+        source: `// Carried past the damage.\n${project.sources.logics.get(1)}`,
+      }).success,
+      true,
+    );
+    const proposal = candidate.finish("comment");
+    assert.deepEqual(
+      proposal.changes().map((c) => c.key),
+      ["logic:1"],
+    );
+    const documents = { ...workspace.documents() };
+    for (const { key, content } of proposal.changes())
+      if (content === null) delete documents[key];
+      else documents[key] = content;
+    const exported = compileProjectDocuments({ files, profileId: PROFILE_ID, documents }).files();
+    const before = openContainer(new Map(Object.entries(files)));
+    const after = openContainer(exported);
+    for (const [name, kind, num] of DAMAGED) {
+      assert.deepEqual(
+        [...exported.get(name)!.subarray(num * 3, num * 3 + 3)],
+        [...files[name]!.subarray(num * 3, num * 3 + 3)],
+        `${name}[${num}] keeps its entry`,
+      );
+      assert.equal(readFailure(after, kind, num), readFailure(before, kind, num));
+    }
+    assert.deepEqual([...after.getResource("logic", 1)!], [...before.getResource("logic", 1)!]);
+  });
+
+  test("a reference to an absent LOGIC carries forward; a new one refuses in plain words", () => {
+    const project = createStarterProject("starter");
+    const { draft } = authoredDraft(project);
+    editDraft(draft, "logic:9", "call(200);\nreturn;\n");
+    const workspace = capture(project, draft);
+    assert.equal(workspace.compilable, true);
+    assert.ok(workspace.diagnostics.some((d) => d.key === "logic:9" && d.severity === "error"));
+    assert.deepEqual(describeWorkspaceDefects(workspace.defects), [
+      "LOGIC 9 refers to LOGIC 200, which this game does not have. That stays as it is.",
+    ]);
+    assert.deepEqual(
+      workspace.propose("unrelated", [{ key: "logic:8", content: "return;\n" }]).changes(),
+      [{ key: "logic:8", content: "return;\n" }],
+    );
+    const candidate = workspace.openToolState();
+    assert.equal(
+      executeAgentTool(candidate.state, "write_logic", { room: 8, source: "return;" }).success,
+      true,
+    );
+    assert.deepEqual(
+      candidate
+        .finish("tool edit")
+        .changes()
+        .map((c) => c.key),
+      ["logic:8"],
+    );
+    // The dangling logic itself can change while it keeps its old reference.
+    assert.deepEqual(
+      workspace
+        .propose("touch", [
+          { key: "logic:9", content: "// Still dangling.\ncall(200);\nreturn;\n" },
+        ])
+        .changes()
+        .map((c) => c.key),
+      ["logic:9"],
+    );
+    const added = thrown(
+      () => workspace.propose("worse", [{ key: "logic:8", content: "call(201);\nreturn;\n" }]),
+      AgentCandidateError,
+    );
+    assert.equal(
+      added.message,
+      "The change refers to a part this game does not have. Add that part or remove the reference, then try again.",
+    );
+    assert.deepEqual(
+      added.diagnostics.map((d) => [d.key, d.message]),
+      [["logic:8", "LOGIC 200 is absent."]].map(([key]) => [key, "LOGIC 201 is absent."]),
+    );
+    // Another use of the same absent target elsewhere is new damage too.
+    thrown(
+      () => workspace.propose("spread", [{ key: "logic:8", content: "call(200);\nreturn;\n" }]),
+      AgentCandidateError,
+    );
+  });
+
+  test("an edit that corrupts a resource is refused with the part named", () => {
+    const project = createStarterProject("starter");
+    const { draft } = authoredDraft(project);
+    const workspace = capture(project, draft);
+    const bad = thrown(
+      () => workspace.propose("corrupt", [{ key: "view:5", content: Uint8Array.of(1, 2, 3) }]),
+      AgentCandidateError,
+    );
+    assert.equal(
+      bad.message,
+      "The change does not build. Fix the part named below, then try again.",
+    );
+    assert.deepEqual(
+      bad.diagnostics.map((d) => d.key),
+      ["view:5"],
+    );
+  });
+
+  test("a TESTS.JSON carried among the native files is not a staged change", () => {
+    const project = createStarterProject("starter");
+    const { draft } = authoredDraft(project);
+    const files = {
+      ...filesRecord(project),
+      "TESTS.JSON": new TextEncoder().encode('{"format":"agi.game-tests","version":1,"tests":[]}'),
+    };
+    const workspace = capture(project, draft, { files });
+    assert.deepEqual(workspace.openToolState().finish("nothing").changes(), []);
   });
 });

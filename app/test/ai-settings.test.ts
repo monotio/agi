@@ -130,7 +130,7 @@ test("the app offers the current models, each with its published price and effor
   // Provider model pages and list prices at the time of this release.
   assert.deepEqual(
     MODEL_OPTIONS.anthropic.map((option) => option.id),
-    ["claude-opus-5-5", "claude-sonnet-5-5", "claude-fable-5-1"],
+    ["claude-opus-5-5", "claude-sonnet-5-5", "claude-fable-5-1", "claude-haiku-5-5"],
   );
   assert.deepEqual(
     MODEL_OPTIONS.openai.map((option) => option.id),
@@ -141,31 +141,35 @@ test("the app offers the current models, each with its published price and effor
   assert.deepEqual(MODEL_CAPABILITIES["claude-opus-5-5"]?.price, {
     input: 4,
     output: 20,
-    longContext: false,
     cacheRead: 0.2,
   });
   // Sonnet 5.5 reads cache at the default 10% of input: $0.20.
   assert.deepEqual(MODEL_CAPABILITIES["claude-sonnet-5-5"]?.price, {
     input: 2,
     output: 10,
-    longContext: false,
+  });
+  // Haiku 5.5 has a second rate card for prompts over 100K tokens.
+  assert.deepEqual(MODEL_CAPABILITIES["claude-haiku-5-5"]?.price, {
+    input: 0.1,
+    output: 0.5,
+    longContext: { above: 100000, inputFactor: 5, outputFactor: 5 },
   });
   // GPT-6.1 Sol lists cache reads at 5% of input ($0.10/M), not the usual 10%.
   assert.deepEqual(MODEL_CAPABILITIES["gpt-6.1-sol"]?.price, {
     input: 2,
     output: 10,
-    longContext: true,
+    longContext: { above: 272000, inputFactor: 2, outputFactor: 1.5 },
     cacheRead: 0.1,
   });
   assert.deepEqual(MODEL_CAPABILITIES["gpt-6-sol"]?.price, {
     input: 2,
     output: 10,
-    longContext: true,
+    longContext: { above: 272000, inputFactor: 2, outputFactor: 1.5 },
   });
   assert.deepEqual(MODEL_CAPABILITIES["gpt-6-luna"]?.price, {
     input: 0.1,
     output: 0.5,
-    longContext: true,
+    longContext: { above: 272000, inputFactor: 2, outputFactor: 1.5 },
   });
   // GPT-6 Sol and Luna accept none through max and default to medium.
   for (const id of ["gpt-6-sol", "gpt-6-luna"]) {

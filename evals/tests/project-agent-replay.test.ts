@@ -24,6 +24,8 @@ interface Case {
     expectedKeys: string[];
     expectedOutcomes?: Record<string, boolean>;
     expectedError?: string;
+    /** The final assistant message, for turns that end without a change. */
+    expectedReply?: string;
     autoApprove?: boolean;
     expectedCommits?: number;
     expectedDocuments?: Record<string, string | null>;
@@ -199,6 +201,9 @@ for (const file of readdirSync(directory).filter((file) => file.endsWith(".json"
       }
       for (const [key, value] of Object.entries(content.expectedDocuments ?? {}))
         assert.equal(session.model.capture().read(key)?.content ?? null, value);
+      if (content.expectedReply !== undefined)
+        assert.equal(agent.current().messages.at(-1)?.text, content.expectedReply);
+      assert.equal(round, content.turns.length, "every scripted turn was requested");
     } finally {
       session.dispose();
     }

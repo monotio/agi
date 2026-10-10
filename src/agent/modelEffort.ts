@@ -20,6 +20,7 @@ export const MODEL_OPTIONS: Record<ModelProvider, { id: string; label: string }[
     { id: "claude-opus-5-5", label: "Claude Opus 5.5" },
     { id: "claude-sonnet-5-5", label: "Claude Sonnet 5.5" },
     { id: "claude-fable-5-1", label: "Claude Fable 5.1" },
+    { id: "claude-haiku-5-5", label: "Claude Haiku 5.5" },
   ],
   openai: [
     { id: "gpt-6.1-sol", label: "GPT-6.1 Sol" },
@@ -37,11 +38,29 @@ const OPTIONAL_REASONING_LEVELS: readonly ModelEffort[] = ["none", ...REASONING_
 interface ModelPrice {
   input: number;
   output: number;
-  /** True when input pricing doubles above the provider's long-context threshold. */
-  longContext: boolean;
+  /** The higher rate card for a request whose prompt exceeds `above` tokens. */
+  longContext?: { above: number; inputFactor: number; outputFactor: number };
   /** Cache-read price override; the default is 10% of input. */
   cacheRead?: number;
 }
+
+/** USD per million tokens for one request, on the rate card its prompt length selects. */
+export function requestRates(
+  price: ModelPrice,
+  promptTokens: number,
+): { input: number; cacheRead: number; output: number } {
+  const long =
+    price.longContext && promptTokens > price.longContext.above ? price.longContext : null;
+  const inputFactor = long?.inputFactor ?? 1;
+  return {
+    input: price.input * inputFactor,
+    cacheRead: (price.cacheRead ?? price.input * 0.1) * inputFactor,
+    output: price.output * (long?.outputFactor ?? 1),
+  };
+}
+
+/** OpenAI's long-context rates: double input and 1.5x output above 272K prompt tokens. */
+const OPENAI_LONG_CONTEXT = { above: 272000, inputFactor: 2, outputFactor: 1.5 };
 
 /** What the provider can honor for one model id — verified, not inferred. */
 export interface ModelCapability {
@@ -62,6 +81,11 @@ export interface ModelCapability {
    * https://platform.claude.com/docs/en/models/opus-5-5/migration-guide#text-between-tool-calls
    */
   summarizedThinking?: true;
+  /**
+   * Anthropic reruns a declined request on another model (`fallbacks: "default"`).
+   * Haiku 5.5 has no server-side fallback, so its requests leave the parameter out.
+   */
+  serverFallback?: true;
   price?: ModelPrice;
 }
 
@@ -76,6 +100,7 @@ export interface ModelCapability {
  * https://platform.claude.com/docs/en/about-claude/pricing
  * https://platform.claude.com/docs/en/models/opus-5-5/overview
  * https://platform.claude.com/docs/en/models/sonnet-5-5/overview
+ * https://platform.claude.com/docs/en/models/haiku-5-5/overview
  */
 export const MODEL_CAPABILITIES: Record<string, ModelCapability> = {
   // Anthropic's default, and in the 1.0.0 Genesis benchmark medium matched
@@ -89,7 +114,8 @@ export const MODEL_CAPABILITIES: Record<string, ModelCapability> = {
     caching: "breakpoint",
     strictSchema: false,
     summarizedThinking: true,
-    price: { input: 4, output: 20, longContext: false, cacheRead: 0.2 },
+    serverFallback: true,
+    price: { input: 4, output: 20, cacheRead: 0.2 },
   },
   // Anthropic guidance starts multistep tool work at medium.
   // It takes no forced tool_choice and binds thinking blocks to the
@@ -103,7 +129,8 @@ export const MODEL_CAPABILITIES: Record<string, ModelCapability> = {
     caching: "breakpoint",
     strictSchema: false,
     summarizedThinking: true,
-    price: { input: 2, output: 10, longContext: false },
+    serverFallback: true,
+    price: { input: 2, output: 10 },
   },
   "claude-fable-5-1": {
     provider: "anthropic",
@@ -114,7 +141,24 @@ export const MODEL_CAPABILITIES: Record<string, ModelCapability> = {
     caching: "breakpoint",
     strictSchema: false,
     summarizedThinking: true,
-    price: { input: 10, output: 50, longContext: false, cacheRead: 0.25 },
+    serverFallback: true,
+    price: { input: 10, output: 50, cacheRead: 0.25 },
+  },
+  // Haiku 5.5 bills prompts over 100K tokens at five times its base rates.
+  // Thinking text stays empty without a display, and the panel shows none.
+  "claude-haiku-5-5": {
+    provider: "anthropic",
+    maxOutputTokens: 128000,
+    maxInputTokens: 1000000,
+    effort: REASONING_LEVELS,
+    defaultEffort: "medium",
+    caching: "breakpoint",
+    strictSchema: false,
+    price: {
+      input: 0.1,
+      output: 0.5,
+      longContext: { above: 100000, inputFactor: 5, outputFactor: 5 },
+    },
   },
   // The app's OpenAI default. Unlike the original Sol it always reasons —
   // none is not offered — and its listed cache-read rate is $0.10/M, not 10%
@@ -127,7 +171,7 @@ export const MODEL_CAPABILITIES: Record<string, ModelCapability> = {
     defaultEffort: "medium",
     caching: "implicit",
     strictSchema: true,
-    price: { input: 2, output: 10, longContext: true, cacheRead: 0.1 },
+    price: { input: 2, output: 10, longContext: OPENAI_LONG_CONTEXT, cacheRead: 0.1 },
   },
   "gpt-6-astra": {
     provider: "openai",
@@ -137,7 +181,7 @@ export const MODEL_CAPABILITIES: Record<string, ModelCapability> = {
     defaultEffort: "medium",
     caching: "implicit",
     strictSchema: true,
-    price: { input: 10, output: 50, longContext: true },
+    price: { input: 10, output: 50, longContext: OPENAI_LONG_CONTEXT },
   },
   "gpt-6-sol": {
     provider: "openai",
@@ -147,7 +191,7 @@ export const MODEL_CAPABILITIES: Record<string, ModelCapability> = {
     defaultEffort: "medium",
     caching: "implicit",
     strictSchema: true,
-    price: { input: 2, output: 10, longContext: true },
+    price: { input: 2, output: 10, longContext: OPENAI_LONG_CONTEXT },
   },
   "gpt-6-luna": {
     provider: "openai",
@@ -157,7 +201,7 @@ export const MODEL_CAPABILITIES: Record<string, ModelCapability> = {
     defaultEffort: "medium",
     caching: "implicit",
     strictSchema: true,
-    price: { input: 0.1, output: 0.5, longContext: true },
+    price: { input: 0.1, output: 0.5, longContext: OPENAI_LONG_CONTEXT },
   },
   "offline-stub": {
     provider: "stub",
@@ -167,7 +211,7 @@ export const MODEL_CAPABILITIES: Record<string, ModelCapability> = {
     defaultEffort: "medium",
     caching: "none",
     strictSchema: false,
-    price: { input: 0, output: 0, longContext: false },
+    price: { input: 0, output: 0 },
   },
 };
 
@@ -187,6 +231,7 @@ export function modelCapability(model: string, provider?: ModelProvider): ModelC
     defaultEffort: provider === "anthropic" ? "high" : "medium",
     caching: provider === "anthropic" ? "breakpoint" : provider === "openai" ? "implicit" : "none",
     strictSchema: provider === "openai",
+    ...(provider === "anthropic" ? { serverFallback: true as const } : {}),
   };
 }
 

@@ -51,6 +51,7 @@ import UiIconButton from "../ui/UiIconButton.vue";
 import UiSegmented from "../ui/UiSegmented.vue";
 import AgentTaskControls from "../authoring/AgentTaskControls.vue";
 import "./agentPanel.css";
+import { ProviderRequestError, providerFailureDetail } from "./providerFailure.ts";
 import type { ProjectSession } from "../project/projectSession.ts";
 import type { ProfileId } from "../../../src/runtime/profile.ts";
 /**
@@ -443,7 +444,7 @@ async function attach() {
     });
     tick.value++;
   } catch (cause) {
-    if (!retired) error.value = cause instanceof Error ? cause.message : String(cause);
+    if (!retired) showFailure(cause);
   } finally {
     attaching = false;
     if (
@@ -616,13 +617,18 @@ const profile = computed(
         "2.936"
     ]!,
 );
+/** The player sees the plain sentence; the provider's own text goes to Activity. */
+function showFailure(cause: unknown) {
+  error.value = cause instanceof Error ? cause.message : String(cause);
+  if (cause instanceof ProviderRequestError) engine.logAgent("error", providerFailureDetail(cause));
+}
 async function action(work: () => unknown) {
   error.value = "";
   try {
     await work();
     tick.value++;
   } catch (cause) {
-    error.value = cause instanceof Error ? cause.message : String(cause);
+    showFailure(cause);
   }
 }
 async function send() {
@@ -636,7 +642,7 @@ async function send() {
       await owner.steer(request);
       if (input.value === request) input.value = "";
     } catch (cause) {
-      error.value = cause instanceof Error ? cause.message : String(cause);
+      showFailure(cause);
     }
     return;
   }
@@ -1012,6 +1018,14 @@ onBeforeUnmount(() => {
       role="alert"
     >
       {{ recoveryError || error || agent?.error }}
+    </p>
+    <p
+      v-if="agent?.notice.length"
+      class="agent-panel__notice"
+      data-testid="agent-notice"
+      role="status"
+    >
+      {{ agent.notice.join(" ") }}
     </p>
     <UiButton
       v-if="engine.state.staleTab || engine.state.powerUp.offerReload"

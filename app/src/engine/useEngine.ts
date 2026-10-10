@@ -1614,6 +1614,7 @@ export function useEngine(
     submitPrompt,
     ejectGame: lifecycle.ejectGame,
     clearAgentLog,
+    logAgent,
     releaseAgentAudioPreviews,
     pauseEngine,
     resumeEngine,

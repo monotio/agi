@@ -40,6 +40,17 @@ const older = build(OLDER, "A1");
 // What the server answers; each test replaces it.
 let served: Site = current;
 let nosniff = true;
+/** A configured header the server leaves out, or sends with another value. */
+let omitted: string | null = null;
+let altered: string | null = null;
+const GLOBAL_HEADERS: Record<string, string> = {
+  "X-Content-Type-Options": "nosniff",
+  "Referrer-Policy": "no-referrer",
+  "Permissions-Policy": "camera=(), geolocation=(), microphone=()",
+  "Content-Security-Policy": "default-src 'self'; object-src 'none'",
+  "Strict-Transport-Security": "max-age=31536000",
+  "Cache-Control": "no-store",
+};
 let server: Server;
 let url = "";
 let scratch = "";
@@ -50,6 +61,10 @@ const writeArtifact = (name: string, site: Site): string => {
     mkdirSync(dirname(join(root, path)), { recursive: true });
     writeFileSync(join(root, path), body);
   }
+  writeFileSync(
+    join(root, "staticwebapp.config.json"),
+    JSON.stringify({ globalHeaders: GLOBAL_HEADERS }),
+  );
   return root;
 };
 
@@ -57,7 +72,9 @@ before(async () => {
   scratch = mkdtempSync(join(tmpdir(), "agi-verify-deploy-"));
   server = createServer((req, res) => {
     const path = new URL(req.url ?? "/", "http://127.0.0.1").pathname.slice(1) || "index.html";
-    if (nosniff) res.setHeader("X-Content-Type-Options", "nosniff");
+    for (const [name, value] of Object.entries(GLOBAL_HEADERS))
+      if (name !== omitted && !(name === "X-Content-Type-Options" && !nosniff))
+        res.setHeader(name, name === altered ? "other" : value);
     const body = served[path];
     if (body === undefined) {
       res.writeHead(404);
@@ -150,6 +167,40 @@ test("a response without nosniff fails", async () => {
   const result = await verify(current);
   assert.equal(result.ok, false);
   assert.ok(result.problems.some((problem) => problem.includes("nosniff")));
+});
+
+for (const name of Object.keys(GLOBAL_HEADERS).filter((n) => n !== "X-Content-Type-Options")) {
+  test(`a missing or changed ${name} header fails`, async () => {
+    served = current;
+    nosniff = true;
+    for (const mode of ["omitted", "altered"] as const) {
+      omitted = mode === "omitted" ? name : null;
+      altered = mode === "altered" ? name : null;
+      const result = await verify(current);
+      omitted = altered = null;
+      assert.equal(result.ok, false, `${mode} ${name}`);
+      assert.ok(
+        result.problems.some((problem) => problem.toLowerCase().includes(name.toLowerCase())),
+      );
+    }
+  });
+}
+
+test("an artifact without a header configuration fails", async () => {
+  served = current;
+  nosniff = true;
+  const root = writeArtifact("artifact-no-config", current);
+  rmSync(join(root, "staticwebapp.config.json"));
+  const result = await verifyDeploy({
+    url,
+    commit: CURRENT,
+    artifact: root,
+    attempts: 1,
+    delayMs: 0,
+    log: () => {},
+  });
+  assert.equal(result.ok, false);
+  assert.ok(result.problems.some((problem) => problem.includes("staticwebapp.config.json")));
 });
 
 test("an index without the app mount fails", async () => {

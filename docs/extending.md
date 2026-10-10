@@ -53,4 +53,4 @@ resuming room entry. The browser enables this hook through the project's
 room-generation setting. Create with AI defaults on; imported, fixture and local
 template games default off. The creator can change it in game Details. Follow the profile's native
 room-entry behavior and test the host interaction with a real Engine and fake
-ports, as described in the [test method](../AGENTS.md#method).
+ports, as described in the [test method](../AGENTS.md#tests-and-evals).

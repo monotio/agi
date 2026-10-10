@@ -208,7 +208,9 @@ test("a failed task keeps its already reported spend visible @webkit-desktop", a
   });
   await page.getByTestId("agent-message").fill("Inspect the room");
   await page.getByTestId("agent-send").click();
-  await expect(page.getByTestId("agent-error")).toContainText("Injected provider failure");
+  await expect(page.getByTestId("agent-error")).toHaveText(
+    "OpenAI could not complete the request. Try again, and open Activity for details if it keeps failing.",
+  );
   await expect(page.getByTestId("agent-stop")).toHaveCount(0);
   await expect(page.getByTestId("agent-spent")).toHaveText("$0.07+ / $5 spent");
 });

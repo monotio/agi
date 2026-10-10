@@ -430,3 +430,126 @@ test("built-in names appear in code, completion, hover and coordinated rename @w
     animations: "disabled",
   });
 });
+// Monaco defers an automatic code-action refresh that arrives during an explicit
+// Quick Fix and later applies it (monacoCodeActions.ts). The deferred refresh must
+// not cancel a newer Quick Fix that is still waiting for its answer.
+test("a deferred automatic refresh keeps a newer Quick Fix and its message action @webkit-desktop", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page.evaluate(async () => {
+    const { monaco, LOGIC_LANGUAGE_ID, registerLogicModel } =
+      await import("/src/studio/logic/monacoLanguage.ts");
+    const { LogicAnalysisClient } = await import("/src/studio/logic/analysisClient.ts");
+    const dom = document.createElement("div");
+    dom.style.cssText = "position:fixed;inset:0;z-index:10000";
+    document.body.append(dom);
+    const source = 'print("Hello there"); return;';
+    const model = monaco.editor.createModel(source, LOGIC_LANGUAGE_ID);
+    const client = new LogicAnalysisClient();
+    client.setProject({
+      revision: 1,
+      profileId: "2.936",
+      words: [],
+      bindings: {},
+      documents: { "logic:1": { source, version: 1 } },
+    });
+    const state = {
+      hold: false,
+      waiting: false,
+      release: () => {},
+      deferred: [] as (() => void)[],
+    };
+    const request = client.request.bind(client);
+    client.request = async (...args) => {
+      const result = await request(...args);
+      if (args[1] === "textDocument/codeAction" && state.hold) {
+        state.hold = false;
+        state.waiting = true;
+        await new Promise<void>((resolve) => {
+          state.release = resolve;
+        });
+      }
+      return result;
+    };
+    const originalTimer = window.setTimeout;
+    // Hold Monaco's deferred state change so it fires while the next explicit
+    // request is pending, without relying on machine speed.
+    const holdTimer = (handler: TimerHandler, delay?: number, ...args: unknown[]): number => {
+      if (
+        delay === 500 &&
+        typeof handler === "function" &&
+        String(handler).includes(".setState(")
+      ) {
+        state.deferred.push(() => handler(...args));
+        return 0;
+      }
+      return originalTimer(handler, delay, ...args);
+    };
+    window.setTimeout = holdTimer as typeof window.setTimeout;
+    const handle = registerLogicModel(model, { client, documentKey: "logic:1" });
+    const editor = monaco.editor.create(dom, { model, minimap: { enabled: false } });
+    editor.setPosition({ lineNumber: 1, column: 9 });
+    editor.focus();
+    editor.trigger("test", "editor.action.quickFix", {});
+    (window as unknown as { messageActionRace: unknown }).messageActionRace = {
+      queued: () => state.deferred.length,
+      waiting: () => state.waiting,
+      move: () => editor.setPosition({ lineNumber: 1, column: 10 }),
+      invoke: () => {
+        state.hold = true;
+        editor.trigger("test", "editor.action.quickFix", {});
+      },
+      release: () => {
+        for (const callback of state.deferred.splice(0)) callback();
+        state.release();
+      },
+      dispose: () => {
+        window.setTimeout = originalTimer;
+        handle.dispose();
+        editor.dispose();
+        client.dispose();
+        model.dispose();
+        dom.remove();
+      },
+    };
+  });
+  try {
+    const action = page.getByText("Move text to #message", { exact: true });
+    await expect(action).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(action).toBeHidden();
+    await page.evaluate(() => {
+      (window as unknown as { messageActionRace: { move(): void } }).messageActionRace.move();
+    });
+    await expect
+      .poll(() =>
+        page.evaluate(() =>
+          (
+            window as unknown as { messageActionRace: { queued(): number } }
+          ).messageActionRace.queued(),
+        ),
+      )
+      .toBeGreaterThan(0);
+    await page.evaluate(() => {
+      (window as unknown as { messageActionRace: { invoke(): void } }).messageActionRace.invoke();
+    });
+    await expect
+      .poll(() =>
+        page.evaluate(() =>
+          (
+            window as unknown as { messageActionRace: { waiting(): boolean } }
+          ).messageActionRace.waiting(),
+        ),
+      )
+      .toBe(true);
+    await page.evaluate(() => {
+      (window as unknown as { messageActionRace: { release(): void } }).messageActionRace.release();
+    });
+    await expect(action).toBeVisible();
+  } finally {
+    await page.evaluate(() => {
+      (window as unknown as { messageActionRace: { dispose(): void } }).messageActionRace.dispose();
+    });
+  }
+});

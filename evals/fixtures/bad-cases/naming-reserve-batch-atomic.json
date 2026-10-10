@@ -1,0 +1,22 @@
+{
+  "name": "naming-reserve-batch-atomic",
+  "description": "A reserve_name batch whose later item conflicts with an existing binding is refused as a whole. The earlier item was bound before the later one threw, so the failed batch left a name the creator never saw reserved.",
+  "setup": [
+    {
+      "tool": "reserve_name",
+      "args": { "name": "gate_open", "kind": "flag", "id": 36 }
+    }
+  ],
+  "tool": "reserve_name",
+  "args": {
+    "bindings": [
+      { "name": "lamp_lit", "kind": "flag", "id": null },
+      { "name": "gate_open", "kind": "variable", "id": 36 }
+    ]
+  },
+  "expectedSuccess": false,
+  "expectedErrorSnippet": "already means flag 36",
+  "expectedBindings": {
+    "gate_open": { "kind": "flag", "num": 36 }
+  }
+}

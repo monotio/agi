@@ -663,8 +663,6 @@ export function createProjectAdmission(ctx: WorkerContext, options: ProjectAdmis
     }
     const violations = inspection.diagnostics.filter((finding) => {
       if (finding.severity !== "error") return false;
-      // A sealed project's existing room exits also require their LOGIC targets.
-      if (finding.command === "new.room") return true;
       const key = marker(finding);
       if ((existing[key] ?? 0) > 0) {
         existing[key]!--;
