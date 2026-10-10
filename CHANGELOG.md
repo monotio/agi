@@ -26,12 +26,14 @@ Released notes are also available on [GitHub Releases](https://github.com/monoti
   edit introduces is refused. A room exit to a missing room that a game already
   had no longer blocks unrelated changes.
 - Authoring refusals name the cause and the next step instead of internal terms.
-
-### Fixed
-
 - Conversations in installed games keep their latest answer when the tab closes
   before saving finishes. Answers from a closed tab join the conversation the next
   time the game opens.
+- Attaching reference art saves through the open project, so editing and the
+  Agent stay available afterwards. The notice for edits another tab or window
+  overtook says so in plain words, with Download edits and Discard edits.
+- A naming request that fails partway leaves every name unreserved, and a refused
+  disk image gives back its share of the import limit.
 
 ## [1.2.1] - 2026-10-10
 
