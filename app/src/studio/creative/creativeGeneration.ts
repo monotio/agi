@@ -48,6 +48,7 @@ import {
   CreativeSelectionError,
   type SelectionComposite,
 } from "./creativeSelectionComposite.ts";
+import { openAiImageFailureKind, providerFailureMessage } from "../../agent/providerFailure.ts";
 import {
   OpenAiImageError,
   type OpenAiImageBackground,
@@ -261,10 +262,22 @@ export type CreativeGenerationFailure =
   | "conflict"
   | "budget";
 
+/** The message for the player and, when it rewords the provider's text, the original. */
+function failureText(error: unknown): [message: string, detail?: string] {
+  const raw = error instanceof Error ? error.message : String(error);
+  if (error instanceof OpenAiImageError) {
+    const kind = openAiImageFailureKind(error.reason, error.status);
+    if (kind !== undefined) return [providerFailureMessage(kind, "openai"), raw];
+  }
+  return [raw];
+}
+
 /** @public Failure info. */
 export interface CreativeGenerationFailureInfo {
   readonly reason: CreativeGenerationFailure;
   readonly message: string;
+  /** The provider's own text, kept for debugging when `message` is a plain rewording. */
+  readonly detail?: string;
 }
 
 interface ConsultedMaterial {
@@ -467,8 +480,8 @@ class CreativeGenerationControllerImpl implements CreativeGenerationController {
     for (const listener of this.listeners) listener();
   }
 
-  private refuse(reason: CreativeGenerationFailure, message: string): void {
-    this.failureInfo = { reason, message };
+  private refuse(reason: CreativeGenerationFailure, message: string, detail?: string): void {
+    this.failureInfo = { reason, message, ...(detail === undefined ? {} : { detail }) };
     this.noticeText = message;
     this.changed();
   }
@@ -781,7 +794,7 @@ class CreativeGenerationControllerImpl implements CreativeGenerationController {
               ? "invalid-request"
               : "invalid-request";
       this.phaseState = "compose";
-      this.refuse(reason, error instanceof Error ? error.message : String(error));
+      this.refuse(reason, ...failureText(error));
     }
   }
 
@@ -916,7 +929,7 @@ class CreativeGenerationControllerImpl implements CreativeGenerationController {
         this.offerState = null;
         this.phaseState = "compose";
       }
-      this.refuse(reason, error instanceof Error ? error.message : String(error));
+      this.refuse(reason, ...failureText(error));
     } finally {
       const spend = settle?.(null);
       if (this.job === job) {
@@ -1096,7 +1109,7 @@ class CreativeGenerationControllerImpl implements CreativeGenerationController {
       } else {
         this.phaseState = "offer";
       }
-      this.refuse(reason, error instanceof Error ? error.message : String(error));
+      this.refuse(reason, ...failureText(error));
     } finally {
       if (this.job === job) this.job = null;
     }

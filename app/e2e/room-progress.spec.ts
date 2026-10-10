@@ -147,7 +147,7 @@ for (const fail of [false, true])
       if (fail) {
         const error = page.getByTestId("room-generation-error");
         await expect(error).toBeVisible();
-        await expect(error).toContainText("Room generation test failure");
+        await expect(error).toContainText("OpenAI could not complete the request.");
         await expect.poll(async () => (await textHook(page)).room).toBe(1);
         await expect(page.getByTestId("input-line")).toBeDisabled();
         await page.getByTestId("room-generation-stop").click();

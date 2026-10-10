@@ -11,6 +11,13 @@ import type {
   BetaToolResultBlockParam,
 } from "@anthropic-ai/sdk/resources/beta/messages/messages";
 import type OpenAI from "openai";
+import {
+  ProviderRequestError,
+  classifyProviderFailure,
+  toProviderError,
+  type ProviderName,
+  type SdkErrorClasses,
+} from "./providerFailure.ts";
 import type { AgentToolImage, AgentToolResult } from "../../../src/agent/agentState.ts";
 import { AGENT_TOOLS, type ToolDefinition } from "../../../src/agent/tools.ts";
 import {
@@ -98,6 +105,19 @@ export interface LlmRequestTelemetry {
   imageCount: number;
   imagePixels: number;
 }
+/** Run a provider request; an SDK failure leaves as a ProviderRequestError with a plain message. */
+async function withProviderErrors<T>(
+  provider: ProviderName,
+  loadSdk: () => Promise<SdkErrorClasses>,
+  work: () => Promise<T>,
+): Promise<T> {
+  try {
+    return await work();
+  } catch (error) {
+    throw toProviderError(error, provider, await loadSdk());
+  }
+}
+
 export class LlmResponseError extends Error {
   readonly usage: LlmUsage;
   readonly telemetry?: LlmRequestTelemetry | undefined;
@@ -513,7 +533,11 @@ export function createAnthropicConversation(
         requestSignal = undefined;
       }
     };
-    const response = await (run ? run.request(send) : send());
+    const response = await withProviderErrors(
+      "anthropic",
+      () => import("@anthropic-ai/sdk"),
+      () => (run ? run.request(send) : send()),
+    );
 
     const usage = anthropicUsage(response.usage);
     const hitShare = cacheHitShare(usage);
@@ -816,7 +840,12 @@ export function createOpenAiConversation(
             recordUsage(openAiUsage(event.response.usage), totalUsage);
             return event.response;
           }
-          if (event.type === "error") throw new Error(event.message);
+          if (event.type === "error")
+            throw new ProviderRequestError(
+              classifyProviderFailure({ code: event.code }),
+              "openai",
+              event.message,
+            );
         }
         throw new Error(
           "The provider stream ended before completing the response. No partial tools were executed.",
@@ -828,7 +857,11 @@ export function createOpenAiConversation(
         throw error;
       }
     };
-    const response = await (run ? run.request(send) : send());
+    const response = await withProviderErrors(
+      "openai",
+      () => import("openai"),
+      () => (run ? run.request(send) : send()),
+    );
 
     const usage = openAiUsage(response.usage);
     const hitShare = cacheHitShare(usage);

@@ -323,7 +323,13 @@ const noKey = computed(() => !credentialReady.value || failure.value?.reason ===
 <template>
   <UiPanel title="Generate" class="generate">
     <!-- Failure and status surface once, plainly. -->
-    <p v-if="failure !== null" class="generate__error" role="alert" data-testid="generate-error">
+    <p
+      v-if="failure !== null"
+      class="generate__error"
+      role="alert"
+      data-testid="generate-error"
+      :title="failure.detail"
+    >
       {{ failure.message }}
       <UiButton
         v-if="failure.reason === 'no-key'"

@@ -7,6 +7,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { borrowWorkspaceAgent, createWorkspaceAgent } from "../src/agent/workspaceAgent.ts";
 import { useAuthoringController } from "../src/authoring/useAuthoringController.ts";
+import { ProviderRequestError } from "../src/agent/providerFailure.ts";
 import { AgentSession } from "../src/agent/agentSession.ts";
 import { buildProjectZip } from "../src/archive/projectArchive.ts";
 import { readGameZip } from "../src/archive/gameZip.ts";
@@ -2742,3 +2743,35 @@ test("Create captures native game-test definitions through serialization and rel
     session.dispose();
   }
 });
+
+for (const provider of ["anthropic", "openai"] as const)
+  test(`${provider} rejected key shows a plain error and keeps the raw text on the thrown error`, async (t) => {
+    const { session } = fixture();
+    t.mock.method(
+      globalThis,
+      "fetch",
+      async () =>
+        new Response(
+          JSON.stringify(
+            provider === "openai"
+              ? { error: { message: "Incorrect API key provided", code: "invalid_api_key" } }
+              : { type: "error", error: { type: "authentication_error", message: "invalid key" } },
+          ),
+          { status: 401, headers: { "content-type": "application/json" } },
+        ),
+    );
+    const agent = createWorkspaceAgent({
+      session,
+      profileId: "2.936",
+      config: () => ({ provider, model: "test", apiKey: "bad" }),
+    });
+    await assert.rejects(agent.send("Write notes"), (cause: unknown) => {
+      assert.ok(cause instanceof ProviderRequestError);
+      assert.match(cause.raw, /401/);
+      assert.match(cause.raw, /Incorrect API key|invalid key/);
+      return true;
+    });
+    const name = provider === "openai" ? "OpenAI" : "Anthropic";
+    assert.equal(agent.error, `${name} did not accept your API key. Check it in AI settings.`);
+    session.dispose();
+  });

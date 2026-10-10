@@ -13,6 +13,7 @@ import type { AgentFrame, FrameRequest } from "../../../src/agent/frames.ts";
 import { continuationTranscript } from "../archive/projectConversation.ts";
 import { gameRevision, updateBootedResources } from "../project/gameMetadata.ts";
 import { buildWordsTok, parseWordsTok } from "../../../src/logic/words.ts";
+import { ProviderRequestError, providerFailureDetail } from "../agent/providerFailure.ts";
 import { openContainer } from "../../../src/container/container.ts";
 import {
   createResourceCommit,
@@ -1363,11 +1364,13 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
         state.powerUp.error = e.message;
         state.powerUp.offerReload = true;
       } else {
-        logAgent("error", String(e));
+        logAgent("error", providerFailureDetail(e));
         state.powerUp.error =
-          state.powerUp.mode === "ask"
-            ? "The answer was interrupted. Open Activity for details, then send a follow-up."
-            : String(e);
+          e instanceof ProviderRequestError
+            ? e.message
+            : state.powerUp.mode === "ask"
+              ? "The answer was interrupted. Open Activity for details, then send a follow-up."
+              : String(e);
       }
     } finally {
       if (current()) state.powerUp.busy = false;
