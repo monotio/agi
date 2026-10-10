@@ -543,7 +543,7 @@ for (const [marked, suggestion, expected] of [
     page,
   }) => {
     await mountEditor(page);
-    const source = marked.replace("|", "");
+    const source = marked.replaceAll("|", "");
     await replaceSource(page, 20, source);
     await page.evaluate((offset) => {
       const h = (window as unknown as { __monacoHost: MonacoHost }).__monacoHost;
