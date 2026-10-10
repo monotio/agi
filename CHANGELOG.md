@@ -13,6 +13,19 @@ Released notes are also available on [GitHub Releases](https://github.com/monoti
 ### Changed
 
 - Development tools and CI actions are updated to their latest releases.
+- MIDI export keeps a sound's own tuning: note names share one offset from A440
+  and a pitch bend per note plays each divisor's exact frequency. Sounds with raw
+  events export with those events silent and a notice, instead of being refused.
+
+### Fixed
+
+- Edits to games whose directories index unreadable records or whose logics call
+  absent logics (King's Quest I and IV, Manhunter 1 and 2, Space Quest II and the
+  Amiga Space Quest I) apply when the edit itself is valid. The defects carry
+  forward unchanged, the Agent names them in plain words, and only damage an
+  edit introduces is refused. A room exit to a missing room that a game already
+  had no longer blocks unrelated changes.
+- Authoring refusals name the cause and the next step instead of internal terms.
 
 ## [1.2.1] - 2026-10-10
 
