@@ -204,19 +204,24 @@ test("ROOMS keep a room's analysed picture while a commit's room analysis runs @
   await expect(picture).toBeVisible();
   await page.evaluate(() => {
     const held: (() => void)[] = [];
+    let holding = true;
     window.Worker = new Proxy(Worker, {
       construct(Target, args: ConstructorParameters<typeof Worker>) {
         const worker = new Target(...args);
         if (!String(args[0]).includes("roomAnalysis.worker")) return worker;
         Object.defineProperty(worker, "onmessage", {
           set(listener: (event: MessageEvent) => void) {
-            worker.addEventListener("message", (event) => held.push(() => listener(event)));
+            worker.addEventListener("message", (event) => {
+              if (holding) held.push(() => listener(event));
+              else listener(event);
+            });
           },
         });
         return worker;
       },
     });
     Reflect.set(window, "releaseRoomScans", () => {
+      holding = false;
       for (const answer of held.splice(0)) answer();
     });
   });
