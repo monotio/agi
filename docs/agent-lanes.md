@@ -135,8 +135,11 @@ and verification evidence determine whether the task succeeded.
   content. In browser tests, assert visibility before reading text. Name the
   replacement test or behavior whenever deleting or rewriting a test, and
   explain why the old assertion was dropped.
-- Keep timeouts, retries and skips unchanged. Avoid sleeps in browser tests;
-  wait for observable conditions. Read each failure, fix its cause with fail-first
+- Keep timeouts, retries and skips unchanged in a lane. The orchestrator may
+  revise a recurring aggregate timeout after reproducing it on unchanged code
+  and measuring successful complete runs. Budget about three times the worst
+  measured run; keep per-action waits and assertions intact. Avoid sleeps in
+  browser tests; wait for observable conditions. Read each failure, fix its cause with fail-first
   evidence, or report the failing test and first failing line. A failure on
   unchanged code is a finding.
 - Run selective gates only: the affected unit and browser tests, and typecheck,

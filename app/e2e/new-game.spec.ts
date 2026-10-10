@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { test, expect } from "./test.ts";
-import { isolateStorage, textHook, configureAi } from "./engineProbe.ts";
+import { isolateStorage, textHook, configureAi, waitForRoom } from "./engineProbe.ts";
 
 for (const kind of ["starter", "boilerplate", "blank"] as const) {
   test(`Start building opens ${kind} in Create`, async ({ page }) => {
@@ -96,6 +96,7 @@ test("AI choice reveals full editable sources and creates with the stub provider
     .fill("Lantern adventure");
   await configureAi(page, { provider: "stub" });
   await page.getByTestId("boot-game").click();
+  await waitForRoom(page, 1, { coldBoot: true });
   await expect(page.getByTestId("parts-list")).toBeVisible();
   await expect(page).toHaveURL(/#create\//);
   await expect.poll(async () => (await textHook(page)).room).toBe(1);

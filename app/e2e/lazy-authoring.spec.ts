@@ -91,12 +91,13 @@ test("Play boots a catalog game without the AI authoring stack, and opening Ask 
   // No model is connected (the stored default is OpenAI without a key), so
   // Ask opens on its connect prompt: the stack warms on the intent alone.
   await page.getByTestId("menu-assistant").click();
-  const bubble = page.getByTestId("agent-bubble");
-  await expect(bubble).toContainText("Connect your AI provider to ask about this game.");
-  await expect(page.getByTestId("agent-bubble-input")).toBeHidden();
+  const bubble = page.getByTestId("workspace-agent-panel");
+  await expect(bubble).toContainText("Connect your AI provider in Settings to start a task.");
+  await expect(page.getByTestId("agent-message")).toBeEnabled();
+  await expect(page.getByTestId("agent-send")).toBeDisabled();
   await expect
     .poll(() => modules, { timeout: 10_000 })
-    .toContain("app/src/agent/authoringStack.ts");
+    .toContain("app/src/agent/workspaceAgent.ts");
   await expect
     .poll(() => modules.some((module) => /^(?:app\/)?node_modules\/openai\//.test(module)))
     .toBe(true);
@@ -106,15 +107,56 @@ test("Play boots a catalog game without the AI authoring stack, and opening Ask 
   expect(offOrigin, "provider or cross-origin requests").toEqual([]);
 });
 
-test("the first agent drawer focuses its input and Escape returns to Play", async ({ page }) => {
+test("the agent drawer focuses its input on each opening and Escape returns to Play", async ({
+  page,
+}) => {
   await isolateStorage(page);
   await page.goto("/");
   await configureAi(page, { provider: "openai", key: "test-placeholder" });
   await page.getByTestId("catalog-play-adventure-department").click();
   await waitForRoom(page, 1, { coldBoot: true });
   await page.getByTestId("menu-assistant").click();
-  await expect(page.getByTestId("agent-bubble-input")).toBeFocused();
+  await expect(page.getByTestId("agent-message")).toBeFocused();
   await page.keyboard.press("Escape");
-  await expect(page.getByTestId("agent-bubble")).toHaveCount(0);
+  await expect(page.getByTestId("workspace-agent-panel")).toBeHidden();
   await expect(page.locator("#game-command")).toBeFocused();
+  await page.getByTestId("menu-assistant").click();
+  await expect(page.getByTestId("agent-message")).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(page.getByTestId("workspace-agent-panel")).toBeHidden();
+  await expect(page.locator("#game-command")).toBeFocused();
+});
+
+test("a late first agent drawer preserves a newer control focus @webkit-desktop", async ({
+  page,
+}) => {
+  await isolateStorage(page);
+  let waiting = false;
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route(
+    /\/(?:src\/agent\/AgentPanel\.vue|assets\/AgentPanel-[^/]+\.js)(?:\?.*)?$/,
+    async (route) => {
+      waiting = true;
+      await held;
+      await route.continue();
+    },
+  );
+  await page.goto("/");
+  await page.getByTestId("catalog-play-adventure-department").click();
+  await waitForRoom(page, 1, { coldBoot: true });
+  try {
+    await page.getByTestId("menu-assistant").click();
+    await expect.poll(() => waiting).toBe(true);
+    const chosen = page.getByTestId("settings-menu");
+    await chosen.focus();
+    await expect(chosen).toBeFocused();
+    release();
+    await expect(page.getByTestId("agent-message")).toBeEnabled();
+    await expect(chosen).toBeFocused();
+  } finally {
+    release();
+  }
 });

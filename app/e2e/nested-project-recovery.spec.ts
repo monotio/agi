@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { testProjectId } from "../test/identity.ts";
 import { decodeJournalValue } from "../src/project/projectJournalCapture.ts";
-import { isolateStorage, workspaceUpdated } from "./engineProbe.ts";
+import { isolateStorage, waitForRoom, workspaceUpdated } from "./engineProbe.ts";
 import { expect, test } from "./test.ts";
 
 for (const state of ["unsupported", "corrupt"] as const) {
@@ -95,6 +95,7 @@ for (const damage of ["hash", "content"] as const) {
       .fill("Damaged History");
     await page.getByTestId("local-create-kind-starter").click();
     await page.getByRole("button", { name: "Start building", exact: true }).click();
+    await waitForRoom(page, 1, { coldBoot: true });
     await expect(page.getByTestId("parts-list")).toBeVisible();
     await page.getByTestId("part-notes").click();
     await page.getByLabel("Game notes", { exact: true }).fill("History entry");

@@ -104,7 +104,7 @@ test("Settings keeps the AI budget and the agent drawer stays compact", async ({
   const composer = page.getByTestId("workspace-agent-panel");
   await expect(composer).toBeVisible();
   await expect(composer.getByTestId("agent-message")).toBeEnabled();
-  await expect(composer.getByTestId("connect-assistant-ai")).toHaveCount(0);
+  await expect(composer.getByTestId("agent-open-ai-settings")).toHaveCount(0);
   await expect(composer.locator("input[type=number]")).toHaveCount(0);
   await expect(composer).not.toContainText(/Change AI settings|Task budget|Not configured/);
   const close = composer.getByTestId("agent-panel-close");

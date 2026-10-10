@@ -5,7 +5,40 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from browser_image import image_ref, check_version
+from browser_image import image_ref, check_version, check_webkit_libraries
+
+
+class WebKitLibraries(unittest.TestCase):
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.root = Path(directory.name)
+        self.library = self.root / 'webkit-2359/minibrowser-wpe/sys/lib/libsoup-3.0.so.0'
+        self.library.parent.mkdir(parents=True)
+
+    def test_rejects_the_bundled_network_process_crash_dependency(self):
+        self.library.write_bytes(b'\x00libsoup/3.6.5\x00')
+        with self.assertRaisesRegex(ValueError, 'libsoup 3.6.5.*network-process crash'):
+            check_webkit_libraries(self.root)
+
+    def test_accepts_the_upstream_fixed_library(self):
+        self.library.write_bytes(b'\x00libsoup/3.6.6\x00')
+        check_webkit_libraries(self.root)
+
+    def test_checks_both_browser_ports(self):
+        self.library.write_bytes(b'\x00libsoup/3.6.6\x00')
+        gtk = self.root / 'webkit-2359/minibrowser-gtk/sys/lib/libsoup-3.0.so.0'
+        gtk.parent.mkdir(parents=True)
+        gtk.write_bytes(b'\x00libsoup/3.6.5\x00')
+        with self.assertRaisesRegex(ValueError, 'libsoup 3.6.5'):
+            check_webkit_libraries(self.root)
+
+    def test_requires_inspectable_library_versions(self):
+        with self.assertRaisesRegex(ValueError, 'WebKit libsoup libraries are missing'):
+            check_webkit_libraries(self.root)
+        self.library.write_bytes(b'unknown')
+        with self.assertRaisesRegex(ValueError, 'Cannot identify libsoup'):
+            check_webkit_libraries(self.root)
 
 
 class BrowserImage(unittest.TestCase):

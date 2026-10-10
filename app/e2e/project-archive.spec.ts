@@ -153,7 +153,9 @@ test("Download project resumes private history in a fresh browser; Download game
     expect(requests).toHaveLength(0);
     await other.getByTestId("agent-message").fill("Continue our garden.");
     await other.getByRole("button", { name: "Send", exact: true }).click();
-    await expect(other.getByTestId("agent-message")).toBeEnabled();
+    await expect(other.getByTestId("agent-conversation")).toContainText(
+      "Ready to continue the garden.",
+    );
     expect(requests).toHaveLength(2);
     expect(JSON.stringify(requests[0])).toContain("Private genesis idea");
     expect(JSON.stringify(requests[0])).toContain("Continue our garden.");
@@ -171,8 +173,14 @@ test("Download project resumes private history in a fresh browser; Download game
     const continuation = await readGameZip(
       new Uint8Array(await readFile((await continued.path())!)),
     );
-    expect(continuation.project?.provider).toBe("openai");
-    expect(continuation.project?.conversationHistory?.[0]?.transcript).toEqual(transcript);
+    // Legacy fields retain their original conversation provenance; canonical chats carry the resumed owner.
+    expect(continuation.project?.provider).toBe(context.provider);
+    expect(continuation.project?.transcript).toEqual(transcript);
+    const resumedChats = continuation.project?.chats;
+    expect(resumedChats?.chats.find((chat) => chat.id === resumedChats.active)?.provider).toBe(
+      "openai",
+    );
+    expect(resumedChats?.chats.find((chat) => chat.archived)?.transcript).toEqual(transcript);
     expect(JSON.stringify(continuation.project?.chats)).toContain("Continue our garden.");
     expect(
       new TextDecoder().decode(new Uint8Array(await readFile((await continued.path())!))),

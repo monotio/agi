@@ -268,8 +268,7 @@ test("Update keeps the room chosen before drafts flush @webkit-desktop", async (
   await expect(action).toHaveAccessibleName("Play Garden");
 });
 
-// Intermittent in CI WebKit (Launch menu timing); tracked for 1.2.1.
-test.fixme("F5 in room LOGIC runs the selected Launch with its breakpoint armed @webkit-desktop", async ({
+test("F5 in room LOGIC runs the selected Launch with its breakpoint armed @webkit-desktop", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -433,10 +432,13 @@ test("create a Launch for Room 2 with a flag and Came from, select it, Restart R
   await page.getByRole("menuitem", { name: "Flag" }).click();
   await expect(page.getByTestId("launch-row-flag")).toBeVisible();
 
-  // Set flag to 70 and toggle it ON
-  await page.getByTestId("launch-flag-select").selectOption("70");
+  // Renumbering publishes a new keyed row; wait for its rendered value before toggling.
+  const flagSelect = page.getByTestId("launch-flag-select");
+  await flagSelect.selectOption("70");
+  await expect(flagSelect).toHaveAttribute("value", "70");
   const flagToggle = page.getByTestId("launch-flag-toggle");
-  await flagToggle.click();
+  if ((await flagToggle.getAttribute("aria-checked")) === "false") await flagToggle.click();
+  await expect(flagToggle).toHaveAttribute("aria-checked", "true");
 
   // 6. Select the launch for run
   const selectRunBtn = page.getByTestId("launch-select-for-run");

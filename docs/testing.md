@@ -37,6 +37,17 @@ clone's passing synthetic tests do not establish fixture compatibility. See
 [test/fixtures.ts](../test/fixtures.ts) for the shared checks and
 [test/game-fixture.ts](../test/game-fixture.ts) for loading resources.
 
+The released Adventure Department fixtures are already preserved in
+`app/test/formats/`. Install their original bytes for local compatibility checks:
+
+```bash
+unzip -n app/test/formats/game-v1.zip -d games/adventure-department-1.0
+unzip -n app/test/formats/tutorial-1.1.zip -d games/adventure-department-1.1
+```
+
+Keep the versioned folder names: 1.1 shares its vocabulary with the current game,
+while its resource bytes differ. The loader preserves that explicit edition.
+
 Commercial game data belongs in local fixtures. AGI resource
 filenames and original resources are welcome; provenance determines what can be
 included.
@@ -280,27 +291,40 @@ worker. Retries stay at zero so every failure is visible.
 
 The Chromium suite is split into ten spec groups using measured durations in
 `scripts/ci/durations.json`; the storage benchmark runs separately on one worker.
-Tagged WebKit desktop tests use three groups and `scripts/ci/webkit-durations.json`.
+Tagged WebKit desktop tests use four groups and `scripts/ci/webkit-durations.json`.
 Every run discovers the current specs through Playwright; new specs receive the
 median measured weight. The longest specs are
 assigned first to the lightest group. JSON report artifacts retain per-test
 durations for rebalancing. Each spec runs in exactly one group with every test
 selected by the ordinary suite configuration. The benchmark remains part of
-the required browser gate and nightly repetitions. Timing budgets and
+the required browser gate and manual diagnostics. Timing budgets and
 storage each have their own job, with timing tests first after runner setup.
-The suite matrix runs at most 15 jobs at once; PR burn-in runs one browser job
-at a time. Together with quality and the two production browsers, this uses
-at most 19 concurrent jobs, leaving one of the 20 public-runner slots free.
+Browser suite jobs allow 45 minutes, about three times the observed healthy
+desktop shard duration. The former 15-minute limit cancelled a shard after 118
+tests passed and seven skipped, with its last test still running. This job allowance
+includes setup and artifact upload;
+individual test deadlines and zero retries remain unchanged. Refresh the duration
+weights when new specs leave the groups uneven.
+The suite matrix runs at most 15 jobs at once, starting the longest measured
+groups first. Together with quality and the two production browsers, this uses
+at most 18 concurrent jobs, leaving capacity for other repository work.
 
 CI runs one root `npm ci` for the root package and app workspace, then restores
 the dependency cache in test and build jobs. The production build and chunk graph are shared
 with both production browser jobs. Chromium shards, WebKit desktop and phone,
-production browsers, timing, storage, PR burn-in and deployed-site verification
+production browsers, timing, storage, diagnostics and deployed-site verification
 run in the official Playwright Noble image from `scripts/ci/playwright-image.txt`.
 The tag carries the Playwright version and the digest fixes the image contents.
 The image supplies browser binaries, fonts and system packages. Setup checks the
 installed `node_modules/playwright-core` version and the image metadata before
-testing; a mismatch fails with the file to update. Read-only mounts expose the
+testing; a mismatch fails with the file to update. Setup also requires the bundled
+WebKit libsoup libraries to be at least 3.6.6. Playwright 1.63 bundled 3.6.5,
+whose async request cleanup can free session features twice and crash the network
+process ([upstream fix](https://github.com/WebKit/WebKit/pull/74619), shipped in
+Playwright 1.64). PR 75's trace recorded that process crashing, followed by Vite
+reloading the page and an agent-review assertion timing out. Its native crash stack
+was not captured; the vulnerable dependency and matching symptoms support this
+diagnosis without proving the exact crash site. Read-only mounts expose the
 Ubuntu 24.04 runner's `zstd` and `unzstd` tools so the container reads the same
 dependency cache as Node jobs. Browser hosts stay on Ubuntu 24.04 to match the
 Noble image's system libraries. Node jobs keep the runner setup.
@@ -314,32 +338,26 @@ from successful tests as well as failed ones; JSON reports retain measured test
 durations. Keep screenshot expectations and timing budgets tied to the observed
 behavior.
 
-Pull requests repeat added or changed specs five times: on a PR's first run
-the specs it changes, and on each later push the specs that push changes. A
-change touching more than 12 specs, such as a release candidate, skips the
-burn-in, since every suite already runs and the nightly repeats find flakes.
-Chromium covers their
-ordinary tests and, in an isolated run, their timing tests. WebKit covers their
-`@webkit-desktop` tests. Changed production specs run in both engines. Reproduce
-with `npm --prefix app run e2e -- e2e/<file>.spec.ts --repeat-each=5` or
-`npm --prefix app run e2e:webkit-desktop -- e2e/<file>.spec.ts --repeat-each=5`.
+Pull requests run each applicable suite once, with zero retries. Repetition is an
+explicit diagnostic action: use **Browser diagnostics** in GitHub Actions and
+choose the run count (one by default), or repeat a specific local spec with
+`npm --prefix app run e2e -- e2e/<file>.spec.ts --repeat-each=3`.
+The diagnostic workflow has no schedule. It retains browser reports and updates
+a diagnostic flake issue when a test has both passing and failing attempts.
+Consistent failures remain failures. Only that report job has `issues: write`.
 
-Repeat the storage benchmark with
-`npm --prefix app run e2e -- e2e/history-bench.spec.ts --repeat-each=5 --workers=1`.
-Selection and reporting helpers have their own regression tests:
+Timing and storage diagnostics run alone on one worker. Selection and reporting
+helpers have their own regression tests:
 `PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s scripts/ci -p 'test_*.py'`.
 
-At 03:17 UTC each night, the full Chromium, WebKit phone, WebKit desktop,
-performance and production suites run with `--repeat-each=3`. The report job
-creates or updates the single **Nightly browser flakes** issue when a test has
-both passing and failing attempts, with counts and the run link. Consistent
-failures remain failures in the run. Only that report job has `issues: write`.
-
-Markdown and documentation asset changes skip browsers and development branch
-builds while the standard gate runs and the required CI contexts complete.
-Main builds and publishes each checked commit. Documentation capture
-code runs the full browser checks. The required browser context also includes
-the PR burn-in when changed specs exist. See the
+Root Markdown files and `docs/` prose and images/PDFs use formatting and consistency checks;
+they skip the full unit/eval gate, browsers and development branch builds.
+Changes confined to the explicitly covered CI Python helpers and duration weights
+use their helper tests and formatting. Mixed changes, workflows, browser images,
+dependencies, tests, documentation capture code and unknown paths use the full
+gate. Classification uses the whole PR diff, so a later documentation push cannot
+hide an earlier code change. Required CI contexts still verify every applicable
+job. Main builds and publishes each checked commit. See
 [CI job coverage](../CONTRIBUTING.md#ci-verification) for the complete gate.
 
 ### Input and phone checks
@@ -374,10 +392,15 @@ the installed `playwright-core` package. Use the CI pin to reproduce its exact
 image (`npm ci` inside the container replaces any copied `node_modules`):
 
 ```bash
-docker run --rm --init --ipc=host -v "$PWD:/src:ro" "$(cat scripts/ci/playwright-image.txt)" \
-  bash -lc 'cp -r /src /w && cd /w && npm ci &&
+tar -ch --exclude=node_modules --exclude=.git --exclude=.local . |
+  docker run --rm -i --init --ipc=host "$(cat scripts/ci/playwright-image.txt)" \
+  bash -lc 'mkdir /w && tar -x -C /w && cd /w && npm ci &&
     CI=1 xvfb-run -a npm --prefix app run e2e:webkit-desktop -- e2e/<file>.spec.ts'
 ```
+
+The archive includes ignored local game fixtures and dereferences worktree
+symlinks on the host. A Git archive contains only tracked files and omits those
+fixtures. Check the test summary for skips when validating fixture compatibility.
 
 `--init` lets `xvfb-run` receive its ready signal; without it the run hangs.
 

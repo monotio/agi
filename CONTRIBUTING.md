@@ -135,7 +135,12 @@ reason in the commit.
 
 ### CI verification
 
-Before pushing a code change, run `npm run check` and the affected browser specs.
+Before pushing application, engine, dependency or unit-test changes, run `npm run check`
+and the affected browser specs. Browser-test-only edits need the affected browser
+runs, app typecheck, lint and formatting; unchanged unit suites retain their prior
+green result. Documentation needs formatting and consistency
+checks. CI-only follow-ups after a green integration gate need helper tests,
+workflow validation and formatting; unchanged game suites keep their prior result.
 Open a pull request for CI's Linux verdict; local browser results establish
 behavior on your local platform. Release lanes commit locally without pushing;
 the owner or integrator pushes the fully gated integration head. CI runs on
@@ -143,23 +148,24 @@ the owner or integrator pushes the fully gated integration head. CI runs on
 leaves the full run to that pull request. New pushes cancel older runs for the
 same ref.
 
-| CI job                       | Coverage                                                                                                                                                                                              |
-| ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Prepare CI                   | Changed-file classification, CI helper tests and one installation of both package roots, cached by lockfiles                                                                                          |
-| Static checks and unit tests | Full `npm run check`, including offline eval replay                                                                                                                                                   |
-| Build production artifact    | One production build, bundle boundaries and budgets, site and chunk-graph artifacts                                                                                                                   |
-| Playwright                   | Ten Chromium shards and three tagged WebKit desktop shards balanced by measured spec durations, two WebKit phone shards, and separate jobs for timing budgets and the storage benchmark on one worker |
-| Production browser           | Chromium and WebKit against the shared production artifact                                                                                                                                            |
-| PR burn-in                   | Up to 12 specs added or changed by the PR or its latest push, repeated five times in Chromium; tagged desktop tests also in WebKit; changed production specs in both engines                          |
-| Nightly browser burn-in      | Every browser suite repeated three times; one issue records tests with both passing and failing attempts                                                                                              |
+| CI job                       | Coverage                                                                                                                                                                                               |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Prepare CI                   | Changed-file classification, CI helper tests and one installation of both package roots, cached by lockfiles                                                                                           |
+| Static checks and unit tests | Full `npm run check` for code; formatting for docs and covered CI helpers (helper tests run in Prepare)                                                                                                |
+| Build production artifact    | One production build, bundle boundaries and budgets, site and chunk-graph artifacts                                                                                                                    |
+| Playwright                   | Ten Chromium shards and four tagged WebKit desktop shards balanced by measured spec durations, three WebKit phone shards, and separate jobs for timing budgets and the storage benchmark on one worker |
+| Production browser           | Chromium and WebKit against the shared production artifact                                                                                                                                             |
+| Browser diagnostics          | Manual full browser run, one pass by default; repetitions are selected explicitly when investigating a failure                                                                                         |
 
 The required contexts stay `Typecheck, lint, unit tests, build`,
 `Playwright (play, remix and export)` and the repository-managed `CodeQL`.
 The first two aggregate their jobs and fail if an applicable job fails. Changes
-confined to Markdown or documentation assets skip browser jobs and development
-branch builds; required CI contexts still report success after the standard
-gate. Main builds and publishes each checked commit. Capture code
-under `docs/` still runs the browsers. CodeQL keeps its repository-managed policy.
+confined to root Markdown files or `docs/` prose and images/PDFs use formatting and consistency
+checks. Covered CI Python helpers and duration weights use helper tests and
+formatting. Both skip browsers and development branch builds. Workflows, browser
+images, dependencies, tests, capture code and unknown paths retain full coverage.
+PR suites run once with zero retries; manual diagnostics provide explicit
+repetitions. Main builds and publishes each checked commit. CodeQL keeps its repository-managed policy.
 Browser jobs use the official Playwright Noble container pinned by digest in
 `scripts/ci/playwright-image.txt`. Setup checks its version against the restored
 `node_modules/playwright-core` package and the container metadata. When
@@ -371,7 +377,19 @@ flowchart LR
 5. `worker/presentation.ts` posts the screen as a `frame` message, transferring its buffers.
 6. `engine/useWorkerLink.ts` receives it, and `play/usePresentation.ts` composites it (`render/composite.ts`) onto the GPU stage (`three/AgiStage.ts`).
 
-**The agent writes a room**
+**A conversation becomes an answer or edit**
+
+1. `agent/AgentDrawer.vue` places one `AgentPanel.vue` in Play, Create or the blank stage. Closing it or changing modes retains its draft and read position.
+2. `useAuthoringController.getConversationAgent` supplies the game’s shared `WorkspaceAgent`. Saved projects use their `ProjectSession`; installed editions use a detached conversation adapter.
+3. `WorkspaceAgent.submit` captures request authority and identities before calling the provider. Play and prepared inspection requests use `ASK_TOOLS`; ordinary Create requests can read or propose changes with `WORKSPACE_AGENT_TOOLS`.
+4. Native reads retain captured result payloads. Complete change sets go through `ProjectSession` admission and History; the conversation never writes resources through a second owner.
+5. Conversation storage failures retain the answer and expose Retry save. `agentNavigation.ts` checks identities when a result opens its native editor; older results retain their own preview.
+
+AI settings wait for conversation startup. The controller rechecks the current
+owner and running task before accepting a change; a synchronous commit saves
+settings before publishing the runtime configuration.
+
+**Room generation answers the interpreter**
 
 1. When the project's room-generation setting is on, `new.room` calls the `prepareRoom` host hook (`Engine.newRoom`); `worker/host.ts` asks for a room only when the room has no logic yet. Create with AI turns the setting on by default. Other games start with it off. The creator can switch it in Home or Create game Details.
 2. `worker/hostRequests.ts` posts a `hostRequest` and parks the interpreter; the worker keeps serving other messages.
@@ -428,10 +446,18 @@ Update and keep playing at a message or completed cycle boundary. Every editor s
 
 **Where authority lives.** Each of these is a check in code:
 
+- `agent/AgentPanel.vue` renders the conversation in both Play and Create.
+  `agent/workspaceAgent.ts` owns its chats, requests, results and recovery.
+  Each request captures its mode, authority, profile, runtime and resource identity;
+  Play inspects, while Create answers questions or proposes requested edits.
+  Prepared inspection actions apply read-only authority to their own request.
+  Installed editions use the same controller over detached documents with a
+  conversation-only storage adapter. Opening an editable copy carries its chats.
 - `WORKSPACE_AGENT_TOOLS` in `app/src/agent/workspaceAgentTools.ts` combines project changes, Notes and image tools for Create. Tool help comes from `VOCABULARY_ACTIONS` through `toolDescription`.
-- `AUTHORING_TOOL_NAMES`, `ASK_TOOLS` and `SELECTION_TASK_TOOLS` in `src/agent/tools.ts` are allowlists for room authoring, Play questions and offline selection checks: a tool outside the selected list is refused before dispatch. Create dispatches only `WORKSPACE_AGENT_TOOLS`.
+- `AUTHORING_TOOL_NAMES`, `ASK_TOOLS` and `SELECTION_TASK_TOOLS` in `src/agent/tools.ts` are allowlists for room authoring, inspection and offline selection checks: a tool outside the selected list is refused before dispatch. Create edit requests dispatch only `WORKSPACE_AGENT_TOOLS`.
 - `prepareRoomPatch` accepts a room only if it is whole: it parses every payload under the game's profile, lets the vocabulary only grow, and stages the result on a copy.
 - `editValidation.ts` checks Studio gestures by their decoded pixels. Workspace agent changes use `src/authoring/projectAgentCandidate.ts` to validate complete coordinated documents and native resources; `assistScope.ts` remains in detached Studio compatibility services.
+- `src/agent/projectInspection.ts` reads a detached native image for Ask, with resource-local failures and no candidate or admission capability. Exact document reads carry draft identity; native reads retain resource evidence origins and add the selected profile and resource revision. Admitted metadata accompanies live bytes only when their resource identities match. Ask withholds authored world intent, retains pending reviews on interruption, and saves conversations through the ordinary ownership and storage checks.
 - `project/projectTransaction.ts` owns saved, installed and current: the base an edit was made from, what storage holds, and what the running game confirmed it installed. Every project write (an editor change, an AI turn, a room written mid-play, an autosave) is refused as stale unless storage still holds its base, and only an acknowledged install moves the booted game forward.
 - `project/projectSession.ts` owns Create’s current documents, diagnostics, live admission, autosave and History. Workspace editors store per-part drafts. Update and restart submits their complete change set; approved agent changes submit through the same admission pipeline. Review selects a validated coordinated change set; Auto-approve records each valid proposal immediately. Chat checkpoints identify the change and its preceding History commit.
 - `project/resourceCommit.ts` and `project/editableProject.ts` retain the compatibility and detached authoring services exercised by their unit tests.
@@ -454,6 +480,11 @@ state. Workspace and project History are version 1. Missing optional fields read
 as their original absence; unknown versions refuse without rewriting data.
 Chats contain transcripts and messages, with model handoffs summarized into a
 continuing conversation. Public game exports contain playable resources.
+Optional message fields retain captured request authority, task identity, spend
+and typed results. Resource inspection results retain their exact source or native
+payload under the selected profile; applied changes reconstruct their previews
+from History. Navigation checks project and document identity before opening an
+editor. Later resources are opened explicitly from earlier result previews.
 Private backups preserve the stored playable files byte for byte; public Game
 exports still synthesize an empty `OBJECT` when a game lacks one.
 

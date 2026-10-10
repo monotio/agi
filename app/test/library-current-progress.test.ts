@@ -30,7 +30,11 @@ import {
   readResumePointer,
   writeResumePointer,
 } from "../src/saves/resumePointer.ts";
-import { removeProjectWithProgress, saveAuthoredGame } from "../src/project/gameStorage.ts";
+import {
+  loadAuthoredGame,
+  removeProjectWithProgress,
+  saveAuthoredGame,
+} from "../src/project/gameStorage.ts";
 import type { InstalledGameDescriptor } from "../src/project/gameTypes.ts";
 import type { EngineApi } from "../src/engine/engineContext.ts";
 import type { AiSettingsApi } from "../src/settings/useAiSettings.ts";
@@ -252,6 +256,153 @@ const ai = {
 function library(engine: EngineApi): ReturnType<typeof createGameLibrary> {
   return createGameLibrary(engine, ai, createShellBridge());
 }
+
+for (const outcome of [
+  "loading",
+  "running",
+  "audio-error",
+  "boot-error",
+  "foreign",
+  "stale",
+  "noop",
+]) {
+  test(`saved opening reports its own admission: ${outcome}`, async (t) => {
+    const cleanup = cleanupAfter(t);
+    installLocalStorage(t);
+    const engine = fakeEngine();
+    const id = testProjectId(`opening-outcome-${outcome}`);
+    assert.equal(await saveAuthoredGame(id, savedProjectBody({})), true);
+    const target = await bindSavedProgressTarget(id);
+    assert.ok(target !== null);
+    cleanup.later(() => removeProjectWithProgress(target, []));
+    let live: ReturnType<EngineApi["currentGame"]> = null;
+    if (outcome === "noop") {
+      live = {
+        installed: false,
+        title: "Already running",
+        workInProgress: false,
+        revision: target.identity.revision,
+        projectId: id,
+      };
+      engine.api.state.phase = "running";
+    }
+    engine.api.currentGame = () => live;
+    if (outcome === "audio-error")
+      engine.api.resumeAudio = () => Promise.reject(new Error("Audio files could not load"));
+    engine.api.bootAuthoredGame = async (_template, _config, options) => {
+      engine.calls.bootAuthoredGame++;
+      if (outcome === "noop") return;
+      if (outcome === "boot-error") {
+        engine.api.state.phase = "error";
+        engine.api.state.error = "Project files could not load";
+        return;
+      }
+      live = {
+        installed: false,
+        title: "Opening",
+        workInProgress: false,
+        revision: target.identity.revision,
+        projectId: outcome === "foreign" ? testProjectId("other-opening") : id,
+      };
+      engine.api.state.phase = outcome === "loading" ? "loading" : "running";
+      // Leaving and returning to the same id supersedes the original intent.
+      if (outcome === "stale") {
+        lib.selectedProjectId.value = "";
+        lib.selectedProjectId.value = id;
+      }
+      options?.onAccepted?.();
+    };
+    const lib = library(engine.api);
+    const game = lib.savedGames.value.find((entry) => entry.projectId === id);
+    assert.ok(game !== undefined);
+    lib.selectLibraryGame(game);
+    assert.equal(await lib.onBootSavedGame(), outcome === "loading" || outcome === "running");
+    assert.equal(engine.calls.bootAuthoredGame, outcome === "audio-error" ? 0 : 1);
+    if (outcome === "audio-error")
+      assert.equal(lib.libraryActionError.value, "Audio files could not load");
+  });
+}
+
+test("a retired saved opening does not publish its late audio failure", async (t) => {
+  const cleanup = cleanupAfter(t);
+  installLocalStorage(t);
+  const engine = fakeEngine();
+  const id = testProjectId("retired-opening-audio");
+  assert.equal(await saveAuthoredGame(id, savedProjectBody({})), true);
+  const target = await bindSavedProgressTarget(id);
+  assert.ok(target);
+  cleanup.later(() => removeProjectWithProgress(target, []));
+  const audio = Promise.withResolvers<void>();
+  engine.api.resumeAudio = () => audio.promise;
+  const lib = library(engine.api);
+  const game = lib.savedGames.value.find((entry) => entry.projectId === id);
+  assert.ok(game);
+  lib.selectLibraryGame(game);
+  let current = true;
+  const opening = lib.onBootSavedGame(false, undefined, undefined, () => current);
+  current = false;
+  audio.reject(new Error("Retired audio load failed"));
+  assert.equal(await opening, false);
+  assert.equal(engine.calls.bootAuthoredGame, 0);
+  assert.equal(lib.libraryActionError.value, "");
+  assert.equal(lib.libraryActionBusy.value, false);
+});
+
+test("a retired AI opening stops after held audio before allocating or booting", async (t) => {
+  cleanupAfter(t);
+  installLocalStorage(t);
+  const engine = fakeEngine();
+  const lib = library(engine.api);
+  lib.selectedTemplateId.value = "the-long-road-home";
+  lib.adventureDraft.value.brief = "An offline test adventure";
+  const release = engine.gateAudio();
+  let current = true;
+  const opening = lib.onBootSelectedTemplate(() => current);
+  current = false;
+  release();
+  assert.equal(await opening, false);
+  assert.equal(engine.calls.bootAuthoredGame, 0);
+});
+
+test("an AI opening reuses its requested ID and accepts the collision-safe game actually booted", async (t) => {
+  const cleanup = cleanupAfter(t);
+  installLocalStorage(t);
+  const engine = fakeEngine();
+  let live: ReturnType<EngineApi["currentGame"]> = null;
+  let requested: string | null = null;
+  let current = true;
+  engine.api.currentGame = () => live;
+  engine.api.bootAuthoredGame = async (_template, _config, options) => {
+    assert.ok(options?.projectId);
+    const collision = await loadAuthoredGame(options.projectId);
+    if (requested !== null) assert.equal(options.projectId, requested);
+    requested = options.projectId;
+    const actual = collision ? testProjectId(`${options.projectId}-safe`) : options.projectId;
+    assert.equal(await saveAuthoredGame(actual, savedProjectBody({})), true);
+    const target = await bindSavedProgressTarget(actual);
+    assert.ok(target);
+    cleanup.later(() => removeProjectWithProgress(target, []));
+    live = {
+      installed: false,
+      title: "Collision-safe game",
+      workInProgress: false,
+      revision: target.identity.revision,
+      projectId: actual,
+    };
+    engine.api.state.phase = "running";
+    options.onAccepted?.();
+    // This request was retired after saving; its requested ID remains for retry.
+    if (!collision) current = false;
+  };
+  const lib = library(engine.api);
+  lib.selectedTemplateId.value = "the-long-road-home";
+  lib.adventureDraft.value.brief = "An offline test adventure";
+  assert.equal(await lib.onBootSelectedTemplate(() => current), false);
+  current = true;
+  assert.equal(await lib.onBootSelectedTemplate(() => current), true);
+  assert.equal(lib.selectedProjectId.value, engine.api.currentGame()?.projectId);
+  assert.notEqual(lib.selectedProjectId.value, requested);
+});
 
 test("a strict project pointer publishes the proven pair and Resume hands off record+locator", async (t) => {
   const cleanup = cleanupAfter(t);

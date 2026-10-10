@@ -271,7 +271,9 @@ test("drawing, LOGIC and VIEW edit MAIN, Undo spans editors, reload keeps edits 
         session && { token: session.runToken, commits: session.capture().history.commits.length }
       );
     });
-  const original = await probe();
+  // The room and Parts can appear before the async project session opens.
+  await expect.poll(probe).not.toBeNull();
+  const original = (await probe())!;
   await page.getByTestId("part-room:1:picture:1").click();
   const studio = page.getByTestId("room-studio");
   await studio.locator('[data-tool="rect"]').click();
@@ -377,8 +379,8 @@ test("drawing, LOGIC and VIEW edit MAIN, Undo spans editors, reload keeps edits 
   await expect
     .poll(() => page.evaluate((index) => window.__AGI_FRAME__?.()?.visual[index], pixel))
     .toBe(4);
-  await expect.poll(async () => (await probe())?.commits).toBe((original?.commits ?? 0) + 4);
-  expect((await probe())?.token).toBe(original?.token);
+  await expect.poll(async () => (await probe())?.commits).toBe(original.commits + 4);
+  expect((await probe())?.token).toBe(original.token);
   await reviewShot(page, "workspace-view");
   await page.getByTestId("workspace-undo").click();
   await expect
@@ -605,6 +607,8 @@ test("typing in Notes and LOGIC groups until focus leaves the editor @webkit-des
 });
 
 async function tabTo(page: Page, target: Locator): Promise<void> {
+  // Async panels must finish rendering their control before the native walk.
+  await expect(target).toBeVisible();
   // Safari's Option+Tab visits buttons as well as text controls.
   const backwards = await target.evaluateAll((elements) => {
     const active = document.activeElement;
@@ -622,22 +626,25 @@ async function tabTo(page: Page, target: Locator): Promise<void> {
   ]
     .filter(Boolean)
     .join("+");
-  const visited = new Set<number>();
-  for (;;) {
-    if (
-      await target.evaluateAll((elements) =>
-        elements.some((element) => element === document.activeElement),
-      )
-    )
-      return;
-    const active = await page.evaluate(() =>
-      [...document.querySelectorAll("*")].indexOf(document.activeElement!),
-    );
-    if (visited.has(active)) break;
-    visited.add(active);
-    await page.keyboard.press(tab);
+  // Observe each native focus move once. Element identity stays stable when
+  // live editor updates insert or remove other nodes in the document.
+  const visited = await page.evaluateHandle(() => new Set<Element>());
+  try {
+    for (;;) {
+      const state = await target.evaluateAll((elements, visited) => {
+        const active = document.activeElement;
+        if (elements.some((element) => element === active)) return "reached";
+        if (!active || visited.has(active)) return "cycle";
+        visited.add(active);
+        return "continue";
+      }, visited);
+      if (state === "reached") return;
+      if (state === "cycle") throw new Error(`Keyboard cannot reach ${target}`);
+      await page.keyboard.press(tab);
+    }
+  } finally {
+    await visited.dispose();
   }
-  throw new Error(`Keyboard cannot reach ${target}`);
 }
 async function keyboardOpen(page: Page, query: string): Promise<void> {
   await page.keyboard.press("ControlOrMeta+p");
@@ -650,6 +657,9 @@ async function keyboardOpen(page: Page, query: string): Promise<void> {
 test("keyboard authors all three parts, undoes across them and reloads @webkit-desktop", async ({
   page,
 }) => {
+  // The complete journey measures about 100s with two Linux WebKit workers.
+  // Keep the whole-test budget at three times that baseline.
+  test.setTimeout(300_000);
   await page.setViewportSize({ width: 1440, height: 900 });
   await isolateStorage(page);
   await page.goto("/#create-adventure");
@@ -808,7 +818,17 @@ test("keyboard authors all three parts, undoes across them and reloads @webkit-d
     .poll(async () => (await textHook(page)).rows.join("\n"))
     .toContain("Keyboard flower.");
   await page.keyboard.press("Enter");
-  await tabTo(page, page.getByTestId("btn-exit"));
+  // Use the workspace's focus-zone shortcut before the header's native Tab walk.
+  await page.keyboard.press("Shift+F6");
+  await expect(page.getByTestId("workspace-editor")).toBeFocused();
+  await page.keyboard.press("Shift+F6");
+  const parts = page.getByTestId("parts-list");
+  await expect(parts).toBeFocused();
+  await expect(parts).toHaveAttribute("data-focus-zone-active", "");
+  await expect(page.locator(".focus-zone-announcement")).toHaveText("Parts focused");
+  const exit = page.getByTestId("btn-exit");
+  await tabTo(page, exit);
+  await expect(exit).toBeFocused();
   await page.keyboard.press("Enter");
   await expect.poll(() => page.evaluate(() => window.__AGI_STATE__?.phase)).toBe("idle");
 });
@@ -856,16 +876,17 @@ test("adding a room leaves play in place until Update and restart enters it @web
   await expect(action).toHaveAccessibleName("Update and restart Garden");
   await action.click();
   await expect(page.getByTestId("room-studio").locator(".studio-pane")).toBeVisible();
+  // Restart creates a new run with its own cycle counter.
+  await expect.poll(async () => (await textHook(page)).room).toBe(2);
+  await expect(action).toHaveAccessibleName("Restart Garden");
   const cycle = (await textHook(page)).cycle;
   await expect.poll(async () => (await textHook(page)).cycle).toBeGreaterThan(cycle);
   await expect(page.getByTestId("room-studio")).not.toHaveClass(/is-live-game/);
   await expect(page.getByTestId("room-studio").locator(".play-area")).toHaveCount(0);
   await expect(page.locator(".play-area")).toBeVisible();
-  await expect.poll(async () => (await textHook(page)).room).toBe(2);
   const bar = page.getByTestId("workspace-game-bar");
   await expect(bar).toBeVisible();
   await expect(bar.getByTestId("workspace-room")).toContainText("Garden");
-  await expect(action).toHaveAccessibleName("Restart Garden");
   await workspaceUpdated(page);
 });
 

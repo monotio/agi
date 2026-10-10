@@ -117,7 +117,10 @@ export function createShell(deps: {
   function openRemix(): void {
     setMode("create");
     if (mode.value !== "create") return;
-    if (state.powerUp.open && state.powerUp.mode === "remix") return;
+    if (state.powerUp.open) {
+      state.powerUp.mode = "remix";
+      return;
+    }
     deps.bridge.togglePowerUp("remix");
   }
 

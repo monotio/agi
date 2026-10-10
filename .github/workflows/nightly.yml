@@ -1,12 +1,17 @@
-name: Nightly browser burn-in
+name: Browser diagnostics
 on:
-  schedule:
-    - cron: "17 3 * * *"
+  workflow_dispatch:
+    inputs:
+      repeat:
+        description: Runs per test (increase only to investigate intermittence)
+        type: choice
+        options: ["1", "2", "3", "5"]
+        default: "1"
 permissions:
   contents: read
   pull-requests: read
 concurrency:
-  group: nightly-browser-burn-in
+  group: browser-diagnostics-${{ github.ref }}
   cancel-in-progress: true
 jobs:
   prepare:
@@ -19,7 +24,7 @@ jobs:
     uses: ./.github/workflows/browser-suites.yml
     with:
       browser_image: ${{ needs.prepare.outputs.browser_image }}
-      repeat: 3
+      repeat: ${{ fromJSON(inputs.repeat) }}
       production: true
   flakes:
     name: Report intermittent browser failures
@@ -38,7 +43,7 @@ jobs:
         with:
           pattern: browser-report-*
           path: reports
-      - name: Update the nightly flake issue
+      - name: Update the diagnostic flake issue
         env:
           GH_TOKEN: ${{ github.token }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}

@@ -52,7 +52,7 @@ import "monaco-editor/editor/standalone/browser/quickAccess/standaloneGotoSymbol
 import EditorWorker from "monaco-editor/editor/editor.worker?worker";
 
 import { createAnalysisSchedule } from "./analysisSchedule.ts";
-import type { LogicAnalysisClient } from "./analysisClient.ts";
+import { LogicAnalysisSupersededError, type LogicAnalysisClient } from "./analysisClient.ts";
 import type {
   LogicDebugState,
   LogicDebugValue,
@@ -287,6 +287,7 @@ async function queryWorker<K extends keyof LspOperations>(
   params: Record<string, unknown>,
   token: monaco.CancellationToken,
   onError?: (message: string) => void,
+  onSuperseded?: () => void,
 ): Promise<LspOperations[K] | undefined> {
   const controller = new AbortController();
   const cancellation = token.onCancellationRequested(() => controller.abort());
@@ -298,6 +299,7 @@ async function queryWorker<K extends keyof LspOperations>(
       controller.signal,
     );
   } catch (error) {
+    if (error instanceof LogicAnalysisSupersededError) onSuperseded?.();
     onError?.(error instanceof Error ? error.message : String(error));
     // Superseded snapshot, cancelled request or a restarting worker all mean
     // the same thing to an interactive provider: no authoritative answer.
@@ -382,12 +384,54 @@ monaco.languages.registerCompletionItemProvider(LOGIC_LANGUAGE_ID, {
   async provideCompletionItems(model, position, _context, token) {
     const session = openQuery(model, token);
     if (!session) return { suggestions: [] };
+    const editor = monaco.editor
+      .getEditors()
+      .find((editor) => editor.getModel() === model && editor.hasTextFocus());
+    const source = model.getValue();
+    const offset = model.getOffsetAt(position);
+    let superseded = false;
     const items = await queryWorker(
       session.registration,
       "textDocument/completion",
       { position: protocolPosition(position) },
       token,
+      undefined,
+      () => {
+        superseded = true;
+      },
     );
+    if (superseded && editor) {
+      const canResume = () => {
+        if (
+          !stillCurrent(session.registration) ||
+          token.isCancellationRequested ||
+          editor.getModel() !== model ||
+          !editor.hasTextFocus()
+        )
+          return false;
+        const current = editor.getPosition();
+        if (
+          !current ||
+          current.lineNumber !== position.lineNumber ||
+          current.column < position.column
+        )
+          return false;
+        const next = model.getValue();
+        const currentOffset = model.getOffsetAt(current);
+        return (
+          next.slice(0, offset) === source.slice(0, offset) &&
+          next.slice(currentOffset) === source.slice(offset) &&
+          /^[\w.]*$/.test(next.slice(offset, currentOffset))
+        );
+      };
+      // Monaco keeps one pending automatic query while the word grows. Start
+      // a fresh invocation after typing settles so its cursor and edit ranges
+      // belong to the current text; the command cancels this obsolete query.
+      if (canResume()) {
+        await session.registration.waitForAnalysis();
+        if (canResume()) editor.trigger("agi-logic", "editor.action.triggerSuggest", {});
+      }
+    }
     if (!items || !queryIsLive(session, model, token)) return { suggestions: [] };
     return {
       incomplete: true,

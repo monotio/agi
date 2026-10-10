@@ -467,7 +467,7 @@ async function onRecordSave(): Promise<void> {
       Saved as your own copy of {{ state.copyCreated.originalTitle }}. The original stays unchanged.
     </UiToast>
   </div>
-  <div class="shell-notices">
+  <div class="shell-notices" :class="{ 'shell-notices--asking': state.powerUp.open }">
     <StaleTabNote />
     <div
       v-if="
@@ -862,6 +862,11 @@ a.publisher:hover > span {
 }
 .shell-notices > * {
   pointer-events: auto;
+}
+@media (max-width: 600px) {
+  .shell-notices--asking {
+    z-index: calc(var(--z-dock) - 1);
+  }
 }
 .shell-notices:not(:empty) {
   padding: var(--space-2) var(--space-4);

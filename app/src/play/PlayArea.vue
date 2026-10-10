@@ -676,6 +676,11 @@ onMounted(() => {
   // Callers close whatever held the keyboard first (the assistant, a sheet);
   // the input re-enables on the next render, so focus lands after it.
   bridge.focusGameInput = () => void nextTick(focusInput);
+  bridge.fillGameInput = (command) => {
+    inputLine.value = command;
+    sendEdit(command);
+    void nextTick(focusInput);
+  };
 });
 
 /** Scroll the game screen to the top of the visible viewport (keyboard up). */

@@ -3,7 +3,6 @@ import { createHash } from "node:crypto";
 import { readdirSync, readFileSync } from "node:fs";
 import { fixtureDir, fixtureFiles } from "../fixtures.ts";
 import { BUILTIN_GAME_BUILDERS, loadGame } from "../game-fixture.ts";
-import { resolveGameHash } from "../../src/games/knownGames.ts";
 import type { GameIdentity, ResourceRevision } from "../../src/gameIdentity.ts";
 import { gameRevision } from "../../app/src/project/gameMetadata.ts";
 import type { Action } from "./runner.ts";
@@ -41,9 +40,7 @@ const SERVED_FILE_PATTERN =
  * full builder set.
  */
 export async function walkthroughServedRevisions(target: string): Promise<ResourceRevision[]> {
-  const builder =
-    BUILTIN_GAME_BUILDERS[target.toLowerCase()] ??
-    BUILTIN_GAME_BUILDERS[resolveGameHash(target.toLowerCase()) ?? ""];
+  const builder = BUILTIN_GAME_BUILDERS[target.toLowerCase()];
   const all = new Map<string, Uint8Array>();
   if (builder) {
     for (const [name, bytes] of Object.entries(builder().files)) all.set(name, bytes);

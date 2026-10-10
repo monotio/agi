@@ -51,15 +51,15 @@ test("Play fits the game at its selected aspect and the Ask drawer resizes it", 
   // Play offers no Remix.
   const ask = page.getByTestId("menu-assistant");
   await ask.click();
-  const drawer = page.getByTestId("agent-bubble");
+  const drawer = page.getByTestId("workspace-agent-panel");
   await expect(drawer).toBeVisible();
   await expect(ask).toHaveAttribute("aria-expanded", "true");
   await expect(drawer.getByTestId("agent-mode-remix")).toHaveCount(0);
   await expect(drawer.getByTestId("btn-record-test")).toHaveCount(0);
   // The strip's Ask button steps away while the drawer is open; the drawer
   // itself says how to get back.
-  await expect(drawer.getByTestId("agent-bubble-esc")).toHaveText("Esc");
-  await expect(drawer.getByTestId("agent-bubble-close")).toBeVisible();
+  await expect(drawer.getByTestId("agent-panel-close")).toHaveAttribute("title", "Close (Esc)");
+  await expect(drawer.getByTestId("agent-panel-close")).toBeVisible();
   await expect
     .poll(async () => {
       const stage = (await page.locator(".stage:visible").boundingBox())!;
@@ -69,7 +69,7 @@ test("Play fits the game at its selected aspect and the Ask drawer resizes it", 
   const game = await surfaceBox(page);
   const side = (await drawer.boundingBox())!;
   expect(game.x + game.width).toBeLessThanOrEqual(side.x);
-  await drawer.getByTestId("agent-bubble-close").click();
+  await drawer.getByTestId("agent-panel-close").click();
   await expect(drawer).toBeHidden();
   await expect(page.getByTestId("input-line")).toBeFocused();
   await expect.poll(() => surfaceBox(page)).toMatchObject(original);

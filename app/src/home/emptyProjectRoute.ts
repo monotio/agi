@@ -10,12 +10,15 @@ export const emptyProject = shallowRef<CachedGameData | null>(null);
 export async function openEmptyProject(
   projectId: ProjectId,
   expectedHash?: string,
+  isCurrent?: () => boolean,
 ): Promise<boolean> {
+  if (isCurrent && !isCurrent()) return false;
   const project = await loadAuthoredGame(projectId);
   if (!project) return false;
   const { isPlayableProject } = await import("../../../src/authoring/starterProject.ts");
   if (isPlayableProject(new Map(Object.entries(project.files)))) return false;
   if (expectedHash !== undefined && location.hash !== expectedHash) return false;
+  if (isCurrent && !isCurrent()) return false;
   emptyProject.value = project;
   const hash = `#create/${encodeURIComponent(projectId)}`;
   if (location.hash !== hash) history.pushState(null, "", hash);

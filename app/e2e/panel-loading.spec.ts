@@ -14,7 +14,7 @@ test("Problems opens its debugger when requested before the workspace loads", as
   await page.goto("/#create-adventure");
   await page.getByTestId("local-create-kind-starter").click();
   await page.getByTestId("local-create-submit").click();
-  await waitForRoom(page, 1);
+  await waitForRoom(page, 1, { coldBoot: true });
   await requested.promise;
   await expect(page.locator(".focus-zone-announcement")).toBeAttached();
   const modifier = await page.evaluate(async () => {
@@ -46,7 +46,7 @@ test("Problems stays dismissible while its panel module loads", async ({ page })
   await page.goto("/#create-adventure");
   await page.getByTestId("local-create-kind-starter").click();
   await page.getByTestId("local-create-submit").click();
-  await waitForRoom(page, 1);
+  await waitForRoom(page, 1, { coldBoot: true });
   await expect(page.getByTestId("workspace-saved")).toBeVisible();
   await expect(page.locator(".focus-zone-announcement")).toBeAttached();
   const modifier = await page.evaluate(async () => {

@@ -9,9 +9,8 @@ import type { ProjectId } from "../project/gameTypes.ts";
 
 export interface ShellBridge {
   /**
-   * Toggle the assistant bubble (registered by AgentBubble). `mode` selects
-   * the surface the bubble opens on — "ask" for read-only help, "remix" for
-   * the creator tools.
+   * Toggle the shared conversation. The shell's Play/Create mode controls
+   * the capability captured when a request is sent.
    */
   togglePowerUp(mode?: "ask" | "remix"): void;
   /** Start a playtest recording (registered by GameHeader). */
@@ -24,10 +23,12 @@ export interface ShellBridge {
   startWalkthrough(alias: string): void;
   /** The create pane's launch button (registered by CreatePanel). */
   createButtonEl(): HTMLElement | null | undefined;
-  /** The assistant bubble's input (registered by AgentBubble). */
+  /** The shared conversation's composer (registered by AgentPanel). */
   assistantInputEl(): HTMLElement | null | undefined;
   /** Focus the game input (registered by PlayArea). */
   focusGameInput(): void;
+  /** Fill the game command input without submitting it. */
+  fillGameInput(command: string): void;
   /**
    * Open the Help guide, optionally at a section id and a topic in it, which
    * it scrolls to and focuses (registered by GameHeader).
@@ -54,6 +55,7 @@ export function createShellBridge(): ShellBridge {
     createButtonEl: () => null,
     assistantInputEl: () => null,
     focusGameInput: () => {},
+    fillGameInput: () => {},
     openHelp: () => {},
     openSettings: () => {},
     openLogicProject: () => {},

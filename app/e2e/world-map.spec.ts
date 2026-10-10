@@ -357,12 +357,12 @@ test("closing the map restores only the pause it owns", async ({ page }) => {
   // Escape closes the topmost shell overlay — the map — not the bubble.
   await page.keyboard.press("Escape");
   await expect(page.getByTestId("world-map")).not.toBeVisible();
-  await expect(page.getByTestId("agent-bubble")).toBeVisible();
+  await expect(page.getByTestId("workspace-agent-panel")).toBeVisible();
   await observe(page, 30);
   expect((await textHook(page)).paused).toBe(true);
 
   // The bubble's own close is what resumes the game.
-  await page.getByTestId("agent-bubble-close").click();
+  await page.getByTestId("agent-panel-close").click();
   await expect.poll(async () => (await textHook(page)).paused).toBe(false);
 });
 

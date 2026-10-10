@@ -4,6 +4,7 @@ import { useProjectLabels } from "../../shell/useProjectLabels.ts";
 import { computed, nextTick, onBeforeUnmount, ref, shallowRef, useTemplateRef, watch } from "vue";
 import type { ResourceRevision } from "../../../../src/gameIdentity.ts";
 import type { AgiProfile } from "../../../../src/runtime/profile.ts";
+import type { AgentTarget } from "../../agent/agentNavigation.ts";
 import { EGA_COLOUR_NAMES } from "../../../../src/studio/sceneGroups.ts";
 import { openContainer } from "../../../../src/container/container.ts";
 import { renderPicture } from "../../../../src/picture/renderer.ts";
@@ -91,6 +92,7 @@ const {
   lessonSession = undefined,
   workspaceFocus = false,
   active = true,
+  location = undefined,
 } = defineProps<{
   readOnly?: boolean;
   lessonSession?: LessonSession | undefined;
@@ -99,6 +101,7 @@ const {
   workspaceFocus?: boolean;
   /** Whether this tab is showing: its status bar and keys join the frame's. */
   active?: boolean;
+  location?: AgentTarget | undefined;
   viewNumber: number;
   bytes: Uint8Array;
   profile: AgiProfile;
@@ -167,6 +170,18 @@ const startCel = Math.max(
 );
 const loop = ref(startLoop);
 const cel = ref(startCel);
+watch(
+  () => [location, active] as const,
+  ([target, showing]) => {
+    if (!showing || target?.resource !== `view:${viewNumber}`) return;
+    loop.value = Math.max(0, Math.min(target.loop ?? 0, draft.document.value.loops.length - 1));
+    cel.value = Math.max(
+      0,
+      Math.min(target.cel ?? 0, (draft.document.value.loops[loop.value]?.cels.length ?? 1) - 1),
+    );
+  },
+  { immediate: true },
+);
 /** The loop whose linked group is edited together (Edit both); null copies on write. */
 const linkedEdit = shallowRef<number | null>(null);
 const color = ref(11);

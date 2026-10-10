@@ -1,5 +1,244 @@
-import { isolateStorage, storedAutosave, textHook, workspaceSaved } from "./engineProbe.ts";
+import {
+  configureAi,
+  isolateStorage,
+  observe,
+  storedAutosave,
+  textHook,
+  workspaceSaved,
+} from "./engineProbe.ts";
 import { expect, reviewShot, test } from "./test.ts";
+
+for (const close of [false, true]) {
+  test(`a pending blank creation ${close ? "retires on Close" : "opens its current stage"} @webkit-desktop`, async ({
+    page,
+  }) => {
+    await isolateStorage(page);
+    await page.goto("/#create-adventure");
+    await page.getByTestId("local-create-kind-blank").click();
+    await page.evaluate(() => {
+      const descriptor = Object.getOwnPropertyDescriptor(IDBTransaction.prototype, "oncomplete")!;
+      const get = IDBObjectStore.prototype.get;
+      const reads = new WeakSet<IDBTransaction>();
+      const pending: (() => void)[] = [];
+      const audit = {
+        held: false,
+        release() {
+          IDBObjectStore.prototype.get = get;
+          Object.defineProperty(IDBTransaction.prototype, "oncomplete", descriptor);
+          for (const acknowledge of pending) acknowledge();
+        },
+      };
+      IDBObjectStore.prototype.get = function (key: IDBValidKey | IDBKeyRange) {
+        if (
+          this.name === "projects" &&
+          this.transaction.mode === "readonly" &&
+          typeof key === "string" &&
+          key.startsWith("local-")
+        )
+          reads.add(this.transaction);
+        return get.call(this, key);
+      };
+      Object.defineProperty(IDBTransaction.prototype, "oncomplete", {
+        ...descriptor,
+        set(this: IDBTransaction, callback: (this: IDBTransaction, event: Event) => void) {
+          descriptor.set!.call(this, (event: Event) => {
+            if (reads.has(this)) {
+              pending.push(() => callback.call(this, event));
+              audit.held = true;
+            } else callback.call(this, event);
+          });
+        },
+      });
+      Reflect.set(window, "blankCreationRead", audit);
+    });
+    await page.getByRole("button", { name: "Start building", exact: true }).click();
+    try {
+      await expect
+        .poll(() => page.evaluate(() => Reflect.get(window, "blankCreationRead").held))
+        .toBe(true);
+      if (close) await page.getByTestId("create-adventure-close").click();
+    } finally {
+      await page.evaluate(() => Reflect.get(window, "blankCreationRead").release());
+    }
+    await observe(page, 3);
+    const stage = page.getByTestId("empty-project-stage");
+    if (close) {
+      await expect(stage).toBeHidden();
+      await expect(page).toHaveURL(/\/$/);
+    } else {
+      await expect(stage).toBeVisible();
+      await expect(page).toHaveURL(/#create\/local-/);
+    }
+    expect(
+      await page.evaluate(async () => {
+        const storage = await import("/src/project/gameStorage.ts");
+        return (await storage.listStoredProjects()).length;
+      }),
+    ).toBe(1);
+    expect((await textHook(page)).profile).toBeNull();
+  });
+}
+
+test("closing new-game setup retires its pending Create intent @webkit-desktop", async ({
+  page,
+}) => {
+  await isolateStorage(page);
+  const requested = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  await page.route("**/sound/psgNoise.ts", async (route) => {
+    requested.resolve();
+    await release.promise;
+    await route.continue();
+  });
+  await page.goto("/#create-adventure");
+  await page.getByTestId("local-create-kind-starter").click();
+  await page.getByRole("button", { name: "Start building", exact: true }).click();
+  await requested.promise;
+  try {
+    await page.getByTestId("create-adventure-close").click();
+  } finally {
+    release.resolve();
+  }
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        Boolean((window as unknown as { __AGI_AUDIO__?: unknown }).__AGI_AUDIO__),
+      ),
+    )
+    .toBe(true);
+  expect((await textHook(page)).profile).toBeNull();
+  expect(await page.evaluate(() => window.__AGI_STATE__?.phase)).toBe("idle");
+  await expect(page.getByTestId("create-adventure-toggle")).toBeVisible();
+  await expect(page).toHaveURL(/\/$/);
+  expect(
+    await page.evaluate(async () => {
+      const storage = await import("/src/project/gameStorage.ts");
+      return (await storage.listStoredProjects()).length;
+    }),
+  ).toBe(1);
+});
+
+test("a failed game load keeps the saved Starter and shows recovery in Create @webkit-desktop", async ({
+  page,
+}) => {
+  await isolateStorage(page);
+  await page.route("**/sound/psgNoise.ts", (route) => route.abort("connectionreset"));
+  await page.goto("/#create-adventure");
+  await page.getByTestId("local-create-kind-starter").click();
+  await page.getByRole("button", { name: "Start building", exact: true }).click();
+  const failure = page.getByTestId("local-create-open-error");
+  await expect(failure).toBeVisible();
+  await expect(failure).toContainText("Game saved.");
+  await expect(failure).toContainText("Reload");
+  await expect(page).toHaveURL(/#create-adventure$/);
+  expect((await textHook(page)).profile).toBeNull();
+  await expect(page.getByTestId("parts-list")).toBeHidden();
+  const projects = await page.evaluate(async () => {
+    const storage = await import("/src/project/gameStorage.ts");
+    return (await storage.listStoredProjects()).map((entry) => entry.projectId);
+  });
+  expect(projects).toHaveLength(1);
+  const project = projects[0]!;
+  await page.getByRole("button", { name: "Start building", exact: true }).click();
+  await expect(failure).toBeVisible();
+  expect(
+    await page.evaluate(async () => {
+      const storage = await import("/src/project/gameStorage.ts");
+      return (await storage.listStoredProjects()).map((entry) => entry.projectId);
+    }),
+  ).toEqual([project]);
+  await reviewShot(page, "local-create-load-failure");
+  // The browser can cache a rejected module graph until the page reloads.
+  // Reopening the durable project starts a fresh graph and keeps its identity.
+  await page.unroute("**/sound/psgNoise.ts");
+  await failure.getByRole("button", { name: "Reload", exact: true }).click();
+  await expect(page).toHaveURL(new RegExp(`#create/${project}$`));
+  await expect(page.getByTestId("parts-list")).toBeVisible();
+  await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  expect(
+    await page.evaluate(async () => {
+      const storage = await import("/src/project/gameStorage.ts");
+      return (await storage.listStoredProjects()).map((entry) => entry.projectId);
+    }),
+  ).toEqual([project]);
+});
+
+test("Create with AI shows a load failure before any game is saved @webkit-desktop", async ({
+  page,
+}) => {
+  await isolateStorage(page);
+  await page.goto("/");
+  await configureAi(page, { provider: "stub" });
+  await page.route("**/sound/psgNoise.ts", (route) => route.abort("connectionreset"));
+  await page.goto("/#create-adventure");
+  await page.getByTestId("local-create-kind-ai").click();
+  await page.getByTestId("boot-game").click();
+  const failure = page.getByTestId("local-create-open-error");
+  await expect(failure).toContainText("Game loading failed. Reload to try again.");
+  await expect(failure).not.toContainText("saved");
+  expect((await textHook(page)).profile).toBeNull();
+  expect(
+    await page.evaluate(async () => {
+      const storage = await import("/src/project/gameStorage.ts");
+      return (await storage.listStoredProjects()).length;
+    }),
+  ).toBe(0);
+  await reviewShot(page, "ai-create-load-failure");
+  await page.unroute("**/sound/psgNoise.ts");
+  await failure.getByRole("button", { name: "Reload", exact: true }).click();
+  await expect(page.getByTestId("local-create-form")).toBeVisible();
+  await page.getByTestId("local-create-kind-ai").click();
+  await page.getByTestId("boot-game").click();
+  await expect(page.getByTestId("parts-list")).toBeVisible();
+});
+
+for (const fail of [false, true]) {
+  test(`the blank stage opens its saved first room after ${fail ? "reload recovery" : "admission"} @webkit-desktop`, async ({
+    page,
+  }) => {
+    await isolateStorage(page);
+    await page.goto("/#create-adventure");
+    await page.getByTestId("local-create-kind-blank").click();
+    await page.getByRole("button", { name: "Start building", exact: true }).click();
+    const stage = page.getByTestId("empty-project-stage");
+    await expect(stage).toBeVisible();
+    await expect(stage.getByRole("status")).toHaveText("Nothing to play yet.");
+    const hash = new URL(page.url()).hash;
+    if (fail) await page.route("**/sound/psgNoise.ts", (route) => route.abort("connectionreset"));
+    await page.getByTestId("empty-add-room").click();
+    if (fail) {
+      await expect(stage).toBeVisible();
+      const failure = stage.getByRole("alert");
+      await expect(failure).toContainText("Reload to open it.");
+      await expect(stage.getByRole("status")).toHaveText("Game saved");
+      await expect(stage.getByTestId("empty-add-room")).toBeHidden();
+      await expect(page).toHaveURL(new RegExp(`${hash}$`));
+      expect((await textHook(page)).profile).toBeNull();
+      const documents = await page.evaluate(
+        async (id) => {
+          const storage = await import("/src/project/gameStorage.ts");
+          const project = (await storage.listStoredProjects()).find(
+            (entry) => entry.projectId === id,
+          );
+          if (!project) throw new Error("Created project missing");
+          return (await storage.loadAuthoredGame(project.projectId))?.workspace?.documents.map(
+            (doc) => doc.key,
+          );
+        },
+        decodeURIComponent(hash.slice("#create/".length)),
+      );
+      expect(documents).toContain("logic:0");
+      expect(documents).toContain("logic:1");
+      await reviewShot(page, "blank-create-load-failure");
+      await page.unroute("**/sound/psgNoise.ts");
+      await failure.getByRole("button", { name: "Reload", exact: true }).click();
+    }
+    await expect(page.getByTestId("parts-list")).toBeVisible();
+    await expect(stage).toBeHidden();
+    await expect.poll(async () => (await textHook(page)).room).toBe(1);
+    await expect(page).toHaveURL(new RegExp(`${hash}$`));
+  });
+}
 
 for (const kind of ["starter", "boilerplate"] as const) {
   test(`create a ${kind} locally without an AI key, then reopen the saved game`, async ({

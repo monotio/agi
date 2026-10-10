@@ -82,6 +82,7 @@ test("the hero and Save settings share the one filled primary; card actions stay
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
   await enterCreateMode(page);
   await openWorkspaceAgent(page);
+  await page.getByRole("button", { name: "Agent settings", exact: true }).click();
   for (const action of await page
     .getByRole("radiogroup", { name: "Agent changes", exact: true })
     .getByRole("radio")

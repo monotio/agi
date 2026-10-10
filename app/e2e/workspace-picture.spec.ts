@@ -382,6 +382,8 @@ test("Make it a room Undo reviews computed jumps after restoring the latest draf
   await expect(page.getByTestId("workspace-update")).toBeVisible();
   await page.getByTestId("workspace-update").click();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  await workspaceSaved(page);
+  await expect(page.getByTestId("workspace-update")).toBeEnabled();
   await open(page, "part-picture:9");
   await expect(page.getByTestId("workspace-unused")).toBeVisible();
   expect(

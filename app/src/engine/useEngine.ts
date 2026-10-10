@@ -45,6 +45,7 @@ import { clearCachedGame } from "../project/gameStorage.ts";
 import { bindProgressTarget, resolveProgressTarget } from "../project/progressBinding.ts";
 import {
   advanceAuthoring,
+  ResourceCommitError,
   requireSaved,
   STALE_SAVE_MESSAGE,
   PROJECT_REMOVED_MESSAGE,
@@ -71,6 +72,7 @@ import { useGameLifecycle } from "./useGameLifecycle.ts";
 import { createPauseHolds } from "./pauseHolds.ts";
 import { createRuntimePauseLeaseAcquire } from "./runtimePauseLease.ts";
 import { createStartOver } from "./startOver.ts";
+import { createAiConfigUpdater } from "./aiConfigUpdate.ts";
 import type { useEngineDebug } from "./useEngineDebug.ts";
 import type { useRoomMap } from "../world/useRoomMap.ts";
 import type { WorkerInbound, WorkerQueryPayload, WorkerControl } from "../worker/workerProtocol.ts";
@@ -110,8 +112,15 @@ export function useEngine(
   },
 ) {
   let projectMode: "create" | "play" = "play";
+  let projectModeChange = 0;
   let projectSession: ProjectSession | null = null;
   let projectSessionOpening: string | undefined;
+  let projectSessionOpeningTask: Promise<void> | undefined;
+  let projectSessionOpeningError: unknown;
+  let conversationTransition:
+    { game: BootedGame; worker: Worker | null; task: Promise<boolean>; retire(): void } | undefined;
+  let conversationProjectOpening:
+    { game: BootedGame; worker: Worker | null; task: Promise<ProjectSession | null> } | undefined;
   const pendingProjectRestart = shallowRef<PendingProjectRestart | null>(null);
   let projectOpenEpoch = 0;
   let audio: AgiAudio | null = null;
@@ -166,6 +175,7 @@ export function useEngine(
     otherTab: false,
     returnProblem: "",
     entryProblem: "",
+    conversationTransitioning: false,
     staleTab: false,
     projectRemoved: false,
     recording: { active: false, starting: false, error: "" },
@@ -440,6 +450,8 @@ export function useEngine(
   });
 
   link.deps.projectClosed = (preservePlayOwnership) => {
+    projectModeChange++;
+    retireConversationTransition();
     if (!preservePlayOwnership) progressOwnership.close();
     executionDebug?.reset();
     projectOpenEpoch++;
@@ -464,12 +476,11 @@ export function useEngine(
   ): Promise<void> {
     const openedGame = lifecycle.getBootedGame();
     const worker = link.getWorker();
-    if (
-      grant === undefined ||
-      projectSession?.runToken === grant.runToken ||
-      projectSessionOpening === grant.runToken
-    )
+    if (grant !== undefined && projectSessionOpening === grant.runToken) {
+      await projectSessionOpeningTask;
       return;
+    }
+    if (grant === undefined || projectSession?.runToken === grant.runToken) return;
     const epoch = ++projectOpenEpoch;
     if (
       grant === undefined ||
@@ -486,7 +497,11 @@ export function useEngine(
       !game.removed &&
       !game.behindStorage;
     projectSessionOpening = grant.runToken;
-    await Promise.all([import("../project/projectSession.ts"), import("./mainProjectAdmission.ts")])
+    projectSessionOpeningError = undefined;
+    const opening = Promise.all([
+      import("../project/projectSession.ts"),
+      import("./mainProjectAdmission.ts"),
+    ])
       .then(async ([{ openProjectSession }, { createMainProjectAdmission }]) => {
         if (!current()) return;
         // A room can finish while these modules load. Open the confirmed
@@ -604,11 +619,61 @@ export function useEngine(
         if ((await projectSession.ready) && current()) void autosaveController.flushAutosave();
       })
       .catch((error: unknown) => {
-        if (current()) state.status = String(error instanceof Error ? error.message : error);
+        if (
+          projectOpenEpoch !== epoch ||
+          lifecycle.getBootedGame() !== game ||
+          link.getWorker() !== worker
+        )
+          return;
+        projectSessionOpeningError = error;
+        if (error instanceof ResourceCommitError && error.behindStorage) {
+          if (error.removed) tellRemoved();
+          else tellBehindStorage();
+        } else state.status = String(error instanceof Error ? error.message : error);
       })
       .finally(() => {
         if (projectSessionOpening === grant.runToken) projectSessionOpening = undefined;
       });
+    projectSessionOpeningTask = opening;
+    await opening;
+  }
+
+  async function ensureConversationProject(): Promise<ProjectSession | null> {
+    const game = lifecycle.getBootedGame();
+    const worker = link.getWorker();
+    if (!game || game.installed) return null;
+    if (conversationProjectOpening?.game === game && conversationProjectOpening.worker === worker)
+      return conversationProjectOpening.task;
+    if (projectSession) {
+      await projectSession.ready;
+      return projectSession;
+    }
+    const opening = { game, worker, task: acquireConversationProject(game, worker) };
+    conversationProjectOpening = opening;
+    try {
+      return await opening.task;
+    } finally {
+      if (conversationProjectOpening === opening) conversationProjectOpening = undefined;
+    }
+  }
+
+  async function acquireConversationProject(
+    game: BootedGame,
+    worker: Worker | null,
+  ): Promise<ProjectSession | null> {
+    const data = game.authoredGame;
+    if (!data) throw new Error("The project is unavailable. Reopen the game to continue.");
+    const reply = await link.query("projectCreate", {
+      progressMode: "play",
+      ...(data.workspace ? { documents: data.workspace } : {}),
+      ...(data.projectHistory ? { history: data.projectHistory } : {}),
+    });
+    if (lifecycle.getBootedGame() !== game || link.getWorker() !== worker) return null;
+    if (!reply.grant) throw new Error(reply.reason ?? "The project conversation could not open.");
+    await openSession(reply.grant);
+    if (lifecycle.getBootedGame() !== game || link.getWorker() !== worker) return null;
+    if (projectSessionOpeningError !== undefined) throw projectSessionOpeningError;
+    return projectSession;
   }
   async function adoptHistorySession(game: BootedGame, boot: HistoryBoot, snapshot: unknown) {
     const worker = link.getWorker();
@@ -740,6 +805,8 @@ export function useEngine(
         authoringController = useAuthoringController({
           state,
           getProjectSession: () => projectSession,
+          ensureProjectSession: ensureConversationProject,
+          getConversationMode: () => projectMode,
           getWorker: link.getWorker,
           query: link.query,
           awaitPatched: link.awaitPatched,
@@ -943,15 +1010,46 @@ export function useEngine(
     }
   }
 
-  const openPowerUp: ReturnType<typeof useAuthoringController>["openPowerUp"] = async (...args) =>
-    (await loadAuthoringController()).openPowerUp(...args);
+  let powerUpVisibilityGeneration = 0;
+  const openPowerUp: ReturnType<typeof useAuthoringController>["openPowerUp"] = async (...args) => {
+    const generation = ++powerUpVisibilityGeneration;
+    const game = lifecycle.getBootedGame();
+    const worker = link.getWorker();
+    const mode = projectMode;
+    state.powerUp.open = true;
+    try {
+      const controller = await loadAuthoringController();
+      if (
+        generation !== powerUpVisibilityGeneration ||
+        lifecycle.getBootedGame() !== game ||
+        link.getWorker() !== worker ||
+        projectMode !== mode
+      )
+        return;
+      await controller.openPowerUp(...args);
+    } catch {
+      if (
+        generation === powerUpVisibilityGeneration &&
+        lifecycle.getBootedGame() === game &&
+        link.getWorker() === worker &&
+        projectMode === mode
+      )
+        state.powerUp.error = "Agent could not load. Reload the page and try again.";
+    }
+  };
   function closePowerUp(): void {
+    powerUpVisibilityGeneration++;
     state.powerUp.open = false;
     authoringController?.closePowerUp();
   }
   const submitPowerUp: ReturnType<typeof useAuthoringController>["submitPowerUp"] = async (
     ...args
-  ) => (await loadAuthoringController()).submitPowerUp(...args);
+  ) => {
+    const controller = await loadAuthoringController();
+    if (!(await conversationTransitionReady()))
+      throw new Error("The game changed. Send the request again.");
+    return controller.submitPowerUp(...args);
+  };
 
   const startOver = createStartOver({
     state,
@@ -987,10 +1085,22 @@ export function useEngine(
     return historyView!.undoStartOver();
   }
 
-  async function updateAiConfig(config: LlmConfig): Promise<void> {
-    activeLlmConfig = config;
-    if (authoringController) await authoringController.updateAiConfig(config);
-  }
+  const updateAiConfig = createAiConfigUpdater({
+    getController: () => authoringController,
+    getLoading: () => authoringLoading,
+    getOwner: () => ({
+      game: lifecycle.getBootedGame(),
+      worker: link.getWorker(),
+      mode: projectMode,
+      modeGeneration: projectModeChange,
+      project: projectSession,
+      sessionId: activeWalkthroughSession,
+    }),
+    publish(config, commit) {
+      commit?.();
+      activeLlmConfig = config;
+    },
+  });
 
   const { startTestRecording, stopTestRecording, cancelTestRecording, saveRecordedTest } =
     testRecorder;
@@ -1138,6 +1248,220 @@ export function useEngine(
     return mapLoading;
   }
 
+  async function transitionProjectMode(
+    mode: "create" | "play",
+    restart: boolean,
+    change: number,
+  ): Promise<boolean> {
+    const prior = projectMode;
+    if (mode === "create") state.entryProblem = "";
+    if (mode === "play" && state.phase === "running") {
+      const reply = await link.query("projectPlay", restart ? { restart: true } : {});
+      if (change !== projectModeChange) return false;
+      if (!reply.ok) {
+        state.returnProblem = reply.reason ?? "Your game needs a restart.";
+        return false;
+      }
+    }
+    if (mode === "play") state.returnProblem = "";
+    projectMode = mode;
+    loadTried();
+    link.getWorker()?.postMessage({
+      type: "observeSentences",
+      enabled: mode === "create",
+    } satisfies WorkerInbound);
+    let game = lifecycle.getBootedGame();
+    const worker = link.getWorker();
+    function retainGameOwner(owner: ProjectSession | null, epoch: number): boolean {
+      const current = lifecycle.getBootedGame();
+      if (current === game) return true;
+      // A first chat save can fork a catalog game while Create awaits its reply.
+      // The same live session advances its own current-game guard only for that fork.
+      if (
+        !current ||
+        !owner ||
+        owner !== projectSession ||
+        owner.closed ||
+        epoch !== projectOpenEpoch ||
+        link.getWorker() !== worker
+      )
+        return false;
+      game = current;
+      return true;
+    }
+    function refuseOpening(cause: unknown): false {
+      if (
+        change === projectModeChange &&
+        lifecycle.getBootedGame() === game &&
+        link.getWorker() === worker
+      ) {
+        state.status = String(cause);
+        state.entryProblem =
+          cause instanceof ResourceCommitError && cause.behindStorage
+            ? cause.removed
+              ? PROJECT_REMOVED_MESSAGE
+              : STALE_SAVE_MESSAGE
+            : "Could not open Create. Reload and try again.";
+        projectMode = prior;
+      }
+      return false;
+    }
+    if (mode === "create" && game?.installed && !game.authoredGame && game.historyLifetime) {
+      const original = game;
+      state.status = "Finishing the current conversation before opening Create…";
+      const chats = await (await loadAuthoringController()).prepareConversationTransfer();
+      if (
+        lifecycle.getBootedGame() !== original ||
+        link.getWorker() !== worker ||
+        change !== projectModeChange ||
+        projectMode !== mode
+      )
+        return false;
+      const id = requireProjectId(`edition-${crypto.randomUUID()}`);
+      game = {
+        ...game,
+        projectId: id,
+        authoredGame: {
+          projectId: id,
+          title: game.title,
+          authoredAt: new Date().toISOString(),
+          files: game.files,
+          words: game.words,
+          imported: true,
+          roomGeneration: false,
+          ...(chats ? { chats } : {}),
+          library: {
+            version: 1,
+            revision: game.revision,
+            source: "folder",
+            profile: roomMap.value?.resources.value.profile?.id ?? "2.936",
+            validation: { status: "ready", message: "Ready to edit" },
+          },
+        },
+      };
+      lifecycle.setBootedGame(game);
+      if (conversationTransition?.game === original && conversationTransition.worker === worker)
+        conversationTransition.game = game;
+    }
+    if (mode !== "create" || !game?.authoredGame || state.phase !== "running") return true;
+    const acquisition = conversationProjectOpening;
+    if (acquisition?.game === game && acquisition.worker === worker) {
+      let openingFailure: unknown;
+      const acquired = await acquisition.task.catch((cause: unknown) => {
+        openingFailure = cause;
+        return null;
+      });
+      if (
+        change !== projectModeChange ||
+        projectMode !== mode ||
+        !retainGameOwner(acquired, projectOpenEpoch) ||
+        link.getWorker() !== worker ||
+        state.phase !== "running"
+      )
+        return false;
+      if (openingFailure !== undefined) return refuseOpening(openingFailure);
+      if (!acquired || projectSession !== acquired) return false;
+    }
+    if (projectSessionOpening !== undefined) {
+      const openingRun = projectSessionOpening;
+      const openingEpoch = projectOpenEpoch;
+      await projectSessionOpeningTask;
+      if (
+        change !== projectModeChange ||
+        projectMode !== mode ||
+        !retainGameOwner(projectSession, openingEpoch) ||
+        link.getWorker() !== worker ||
+        projectOpenEpoch !== openingEpoch
+      )
+        return false;
+      if (projectSessionOpeningError !== undefined)
+        return refuseOpening(projectSessionOpeningError);
+      if (projectSession?.runToken !== openingRun) return false;
+    }
+    // A Play conversation can open the admission lane without entering Create.
+    // Complete the requested worker transition even when that lane already exists.
+    const data = game.authoredGame;
+    const owner = projectSession;
+    const ownerEpoch = projectOpenEpoch;
+    return link
+      .query("projectCreate", {
+        progressMode: projectMode,
+        ...(data.workspace ? { documents: data.workspace } : {}),
+        ...(data.projectHistory ? { history: data.projectHistory } : {}),
+      })
+      .then(async (reply) => {
+        if (
+          change !== projectModeChange ||
+          projectMode !== "create" ||
+          !retainGameOwner(owner, ownerEpoch) ||
+          !game ||
+          link.getWorker() !== worker
+        )
+          return false;
+        if (!reply.grant) {
+          projectMode = prior;
+          state.entryProblem = reply.reason ?? "Open this game in Create to edit it.";
+          state.status = state.entryProblem;
+          return false;
+        }
+        if (projectSession && projectSession.runToken !== reply.grant.runToken) {
+          await projectSession.flush();
+          const { loadAuthoredGame } = await import("../project/gameStorage.ts");
+          const saved = await loadAuthoredGame(data.projectId);
+          if (
+            change !== projectModeChange ||
+            projectMode !== "create" ||
+            lifecycle.getBootedGame() !== game ||
+            link.getWorker() !== worker
+          )
+            return false;
+          if (saved === null) throw new Error("The saved project is missing. Reopen the game.");
+          game.authoredGame = saved;
+        }
+        await openSession(reply.grant);
+        if (
+          change !== projectModeChange ||
+          projectMode !== mode ||
+          link.getWorker() !== worker ||
+          !retainGameOwner(projectSession, projectOpenEpoch)
+        )
+          return false;
+        if (projectSessionOpeningError !== undefined) throw projectSessionOpeningError;
+        if (
+          !projectSession ||
+          projectSession.closed ||
+          projectSession.runToken !== reply.grant.runToken
+        )
+          throw new Error("The project session could not open.");
+        return true;
+      })
+      .catch(refuseOpening);
+  }
+
+  function retireConversationTransition(): void {
+    const moving = conversationTransition;
+    conversationTransition = undefined;
+    state.conversationTransitioning = false;
+    moving?.retire();
+  }
+
+  async function conversationTransitionReady(): Promise<boolean> {
+    const moving = conversationTransition;
+    if (!moving) return true;
+    if (moving.game !== lifecycle.getBootedGame() || moving.worker !== link.getWorker()) {
+      retireConversationTransition();
+      return true;
+    }
+    const mode = projectMode;
+    const completed = await moving.task;
+    return (
+      completed &&
+      projectMode === mode &&
+      link.getWorker() === moving.worker &&
+      lifecycle.getBootedGame() === moving.game
+    );
+  }
+
   return {
     playerSentences,
     loadPlayerSentences,
@@ -1147,98 +1471,50 @@ export function useEngine(
       if (triedProject) sentenceTools.savePlayerSentences(triedProject, playerSentences.value);
     },
     async setProjectMode(mode: "create" | "play", restart = false): Promise<boolean> {
-      const prior = projectMode;
-      if (mode === "create") state.entryProblem = "";
-      if (mode === "play" && state.phase === "running") {
-        const reply = await link.query("projectPlay", restart ? { restart: true } : {});
-        if (!reply.ok) {
-          state.returnProblem = reply.reason ?? "Your game needs a restart.";
-          return false;
+      const game = lifecycle.getBootedGame();
+      const worker = link.getWorker();
+      if (
+        mode === "create" &&
+        projectMode === mode &&
+        conversationTransition?.game === game &&
+        conversationTransition.worker === worker
+      )
+        return conversationTransition.task;
+      const change = ++projectModeChange;
+      retireConversationTransition();
+      if (mode !== "create" || !game?.installed || projectSession)
+        return transitionProjectMode(mode, restart, change);
+      const retired = Promise.withResolvers<boolean>();
+      const moving = {
+        game,
+        worker,
+        task: Promise.race([transitionProjectMode(mode, restart, change), retired.promise]),
+        retire: () => retired.resolve(false),
+      };
+      conversationTransition = moving;
+      state.conversationTransitioning = true;
+      try {
+        return await moving.task;
+      } finally {
+        if (conversationTransition === moving) {
+          conversationTransition = undefined;
+          state.conversationTransitioning = false;
         }
       }
-      if (mode === "play") state.returnProblem = "";
-      projectMode = mode;
-      loadTried();
-      link.getWorker()?.postMessage({
-        type: "observeSentences",
-        enabled: mode === "create",
-      } satisfies WorkerInbound);
-      let game = lifecycle.getBootedGame();
-      const worker = link.getWorker();
-      if (mode === "create" && game?.installed && !game.authoredGame && game.historyLifetime) {
-        const id = requireProjectId(`edition-${crypto.randomUUID()}`);
-        game = {
-          ...game,
-          projectId: id,
-          authoredGame: {
-            projectId: id,
-            title: game.title,
-            authoredAt: new Date().toISOString(),
-            files: game.files,
-            words: game.words,
-            imported: true,
-            roomGeneration: false,
-            library: {
-              version: 1,
-              revision: game.revision,
-              source: "folder",
-              profile: roomMap.value?.resources.value.profile?.id ?? "2.936",
-              validation: { status: "ready", message: "Ready to edit" },
-            },
-          },
-        };
-        lifecycle.setBootedGame(game);
-      }
-      if (
-        mode !== "create" ||
-        projectSessionOpening ||
-        !game?.authoredGame ||
-        state.phase !== "running"
-      )
-        return true;
-      const data = game.authoredGame;
-      return link
-        .query("projectCreate", {
-          progressMode: projectMode,
-          ...(data.workspace ? { documents: data.workspace } : {}),
-          ...(data.projectHistory ? { history: data.projectHistory } : {}),
-        })
-        .then(async (reply) => {
-          if (
-            projectMode !== "create" ||
-            lifecycle.getBootedGame() !== game ||
-            link.getWorker() !== worker
-          )
-            return false;
-          if (!reply.grant) {
-            projectMode = prior;
-            state.entryProblem = reply.reason ?? "Open this game in Create to edit it.";
-            state.status = state.entryProblem;
-            return false;
-          }
-          if (projectSession && projectSession.runToken !== reply.grant.runToken) {
-            await projectSession.flush();
-            const { loadAuthoredGame } = await import("../project/gameStorage.ts");
-            const saved = await loadAuthoredGame(data.projectId);
-            if (
-              projectMode !== "create" ||
-              lifecycle.getBootedGame() !== game ||
-              link.getWorker() !== worker
-            )
-              return false;
-            if (saved === null) throw new Error("The saved project is missing. Reopen the game.");
-            game.authoredGame = saved;
-          }
-          await openSession(reply.grant);
-          return true;
-        })
-        .catch((cause) => {
-          if (lifecycle.getBootedGame() === game) state.status = String(cause);
-          projectMode = prior;
-          return false;
-        });
     },
     takePlayBack: () => progressOwnership.takeBack(),
+    async getConversationAgent() {
+      const controller = await loadAuthoringController();
+      for (;;) {
+        if (!(await conversationTransitionReady())) return null;
+        const game = lifecycle.getBootedGame();
+        const worker = link.getWorker();
+        const agent = await controller.getConversationAgent();
+        if (conversationTransition) continue;
+        if (lifecycle.getBootedGame() !== game || link.getWorker() !== worker) return null;
+        return agent;
+      }
+    },
     getProjectSession: () => projectSession,
     async setRoomGeneration(
       projectId: ProjectId,
@@ -1287,10 +1563,9 @@ export function useEngine(
     },
     stopRoomGeneration: () => authoringController?.stopRoomGeneration(),
     retryRoomGeneration: () => authoringController?.retryRoomGeneration(),
-    stopAgent: () => authoringController?.getSession()?.task.stop(),
-    continueAgent: (requestLimit?: number) =>
-      authoringController?.getSession()?.task.resume(requestLimit),
-    discardAgent: () => authoringController?.getSession()?.task.cancel(),
+    stopAgent: () => authoringController?.stopAgent(),
+    continueAgent: (requestLimit?: number) => authoringController?.continueAgent(requestLimit),
+    discardAgent: () => authoringController?.discardAgent(),
     state,
     get audio() {
       return audio!;
@@ -1384,13 +1659,14 @@ export function useEngine(
     updateAiConfig,
     openPowerUp(config: LlmConfig) {
       if (projectMode !== "create") return openPowerUp(config);
+      closePowerUp();
       state.powerUp.open = true;
       state.powerUp.mode = "remix";
-      state.powerUp.busy = false;
       return Promise.resolve();
     },
     closePowerUp,
     submitPowerUp,
+    retryAskSave: async () => (await loadAuthoringController()).retryAskSave(),
     listReferences: async (
       ...args: Parameters<ReturnType<typeof useAuthoringController>["listReferences"]>
     ) => (await loadAuthoringController()).listReferences(...args),

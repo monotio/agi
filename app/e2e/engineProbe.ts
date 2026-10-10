@@ -1,5 +1,6 @@
 import { expect, type Locator, type Page } from "@playwright/test";
 import type { CachedGameData } from "../src/project/gameTypes.ts";
+import type { WorkerControl, WorkerInbound } from "../src/worker/workerProtocol.ts";
 
 /** Reject the draft's actual background transaction, leaving its recovery journal available. */
 export async function refuseDraftWrites(page: Page, message: string): Promise<void> {
@@ -672,9 +673,108 @@ export async function savePlayProgress(page: Page): Promise<void> {
   const play = page.getByRole("radio", { name: "Play", exact: true });
   await expect(create).toBeVisible();
   const creating = (await create.getAttribute("aria-checked")) === "true";
-  if (creating) await play.click();
-  await waitForAutosaveAfter(page, (await textHook(page)).cycle);
-  if (creating) await create.click();
+  const cycle = creating
+    ? await clickModeAndWait(page, "play", play)
+    : (await textHook(page)).cycle;
+  await waitForAutosaveAfter(page, cycle);
+  if (creating) await clickModeAndWait(page, "create", create);
+}
+
+async function clickModeAndWait(
+  page: Page,
+  mode: "play" | "create",
+  button: Locator,
+): Promise<number> {
+  await page.evaluate((mode) => {
+    type Reply = Extract<WorkerControl, { type: "projectPlayed" | "projectCreated" }>;
+    const probe = window as unknown as {
+      __AGI_PROJECT__: { getWorker(): Worker };
+      __AGI_E2E_MODE_ACK__: Promise<Reply>;
+      __AGI_E2E_MODE_CANCEL__: () => void;
+    };
+    const worker = probe.__AGI_PROJECT__.getWorker();
+    const post = worker.postMessage;
+    let id: number | undefined;
+    const pending = Promise.withResolvers<Reply>();
+    const receive = (event: MessageEvent<WorkerControl>) => {
+      const message = event.data;
+      if (
+        (message.type !== "projectPlayed" && message.type !== "projectCreated") ||
+        message.id !== id
+      )
+        return;
+      worker.removeEventListener("message", receive);
+      pending.resolve(message);
+    };
+    const send: Worker["postMessage"] = function (message: WorkerInbound, transfer) {
+      if (
+        "id" in message &&
+        typeof message.id === "number" &&
+        ((mode === "play" && message.type === "projectPlay") ||
+          (mode === "create" &&
+            message.type === "projectCreate" &&
+            message.progressMode === "create"))
+      ) {
+        id = message.id;
+        worker.postMessage = post;
+      }
+      post.call(worker, message, Array.isArray(transfer) ? { transfer } : transfer);
+    };
+    worker.postMessage = send;
+    worker.addEventListener("message", receive);
+    probe.__AGI_E2E_MODE_ACK__ = pending.promise;
+    probe.__AGI_E2E_MODE_CANCEL__ = () => {
+      if (worker.postMessage === send) worker.postMessage = post;
+      worker.removeEventListener("message", receive);
+    };
+  }, mode);
+  try {
+    await button.click();
+    const reply = await page.evaluate(
+      () =>
+        (
+          window as unknown as {
+            __AGI_E2E_MODE_ACK__: Promise<
+              Extract<WorkerControl, { type: "projectPlayed" | "projectCreated" }>
+            >;
+          }
+        ).__AGI_E2E_MODE_ACK__,
+    );
+    if (reply.type === "projectPlayed" && !reply.ok) throw new Error(reply.reason);
+    if (reply.type === "projectCreated") {
+      const grant = reply.grant;
+      if (!grant) throw new Error(reply.reason);
+      await expect
+        .poll(() =>
+          page.evaluate(async (token) => {
+            const session = (
+              window as unknown as {
+                __AGI_PROJECT__: {
+                  getSession(): {
+                    runToken: string;
+                    ready: Promise<boolean>;
+                    closed: boolean;
+                  } | null;
+                };
+              }
+            ).__AGI_PROJECT__.getSession();
+            return session?.runToken === token && !session.closed && (await session.ready);
+          }, grant.runToken),
+        )
+        .toBe(true);
+    }
+    // A restored frame precedes its acknowledgement; the text heartbeat can still be older.
+    return await page.evaluate(() => {
+      const frame = window.__AGI_FRAME__?.();
+      if (frame?.cycle === undefined)
+        throw new Error("The mode change did not publish its game frame.");
+      return frame.cycle;
+    });
+  } finally {
+    await page.evaluate(() =>
+      (window as unknown as { __AGI_E2E_MODE_CANCEL__(): void }).__AGI_E2E_MODE_CANCEL__(),
+    );
+  }
 }
 
 export async function enterCreateMode(page: Page): Promise<void> {
@@ -687,7 +787,7 @@ export async function enterCreateMode(page: Page): Promise<void> {
 /** Open the Create assistant through its registered workspace command. */
 export async function openWorkspaceAgent(page: Page): Promise<void> {
   await enterCreateMode(page);
-  const panel = page.getByTestId("workspace-agent-panel").or(page.getByTestId("agent-bubble"));
+  const panel = page.getByTestId("workspace-agent-panel");
   if (await panel.isVisible()) return;
   await page.getByTestId("workspace-agent").click();
   await expect(panel).toBeVisible();

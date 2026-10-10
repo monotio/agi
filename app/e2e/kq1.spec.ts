@@ -1,7 +1,8 @@
-import { gameHint, openGameOptions, enterCreateMode } from "./engineProbe.ts";
+import { gameHint, openGameOptions, enterCreateMode, waitForRoom } from "./engineProbe.ts";
 import type { ProjectSession } from "../src/project/projectSession.ts";
 import { fixtureSkip, KNOWN_GAME_HASH } from "../../test/fixtures.ts";
 import { readFile } from "node:fs/promises";
+import { providerReply } from "../../test/provider-stream.ts";
 import { readGameZip } from "../src/archive/gameZip.ts";
 import { openContainer } from "../../src/container/container.ts";
 import { disassembleLogic } from "../../src/logic/disassembler.ts";
@@ -446,7 +447,9 @@ test("an autosave resumes the courtyard across a browser reload", async ({ page 
   await expectModal(page, null);
 });
 
-test("Start over discards the autosave and boots the game from the top", async ({ page }) => {
+test("Start over discards the autosave and boots the game from the top @webkit-desktop", async ({
+  page,
+}) => {
   await page.goto("/");
   await bootKq1(page);
   await advanceToCourtyard(page);
@@ -455,17 +458,74 @@ test("Start over discards the autosave and boots the game from the top", async (
   const walked = await textHook(page);
   await waitForAutosaveAfter(page, walked.cycle);
   await page.reload();
+  await waitForRoom(page, walked.room, { coldBoot: true });
   await expect(await gameHint(page, "resume-caption")).toBeVisible({ timeout: 20_000 });
   await page.mouse.move(0, 0);
 
-  // Start over throws the snapshot away and boots KQ1 from its title screen.
+  // Observe the clear at its storage boundary: a fresh title-screen autosave
+  // may legitimately exist by the time the UI assertions finish.
+  const autosaveKey = `monotio_agi.autosave.${await progressStorageKey(page, "kq1")}`;
+  interface ProgressChange {
+    action: "remove" | "write";
+    before: number | null;
+    after: number | null;
+  }
+  await page.evaluate((key) => {
+    const changes: ProgressChange[] = [];
+    Object.assign(window, { __restartProgressChanges: changes });
+    function room(raw: string | null): number | null {
+      return raw === null ? null : Number(JSON.parse(raw).room);
+    }
+    const remove = Storage.prototype.removeItem;
+    Storage.prototype.removeItem = function (name) {
+      const before = name === key ? room(this.getItem(name)) : null;
+      remove.call(this, name);
+      if (this === localStorage && name === key)
+        changes.push({ action: "remove", before, after: room(this.getItem(name)) });
+    };
+    const set = Storage.prototype.setItem;
+    Storage.prototype.setItem = function (name, value) {
+      const before = name === key ? room(this.getItem(name)) : null;
+      set.call(this, name, value);
+      if (this === localStorage && name === key)
+        changes.push({ action: "write", before, after: room(this.getItem(name)) });
+    };
+  }, autosaveKey);
+
+  // Start over throws the courtyard snapshot away and boots KQ1 from its title screen.
   await openGameOptions(page, "settings-menu");
   await page.getByTestId("btn-start-over").click();
   await expect(await gameHint(page, "title-prompt-hint")).toBeVisible({ timeout: 20_000 });
   await page.mouse.move(0, 0);
   await expect(await gameHint(page, "resume-caption")).toBeHidden();
   await page.mouse.move(0, 0);
-  expect(await storedAutosave(page, "kq1")).toBeNull();
+  const cleared = await page.evaluate(
+    () =>
+      (window as unknown as { __restartProgressChanges: ProgressChange[] })
+        .__restartProgressChanges,
+  );
+  expect(cleared.filter((change) => change.action === "remove")).toEqual([
+    { action: "remove", before: 1, after: null },
+  ]);
+
+  // Let the fresh boot take its own checkpoint, then prove a reload returns
+  // to the title rather than resurrecting the discarded courtyard position.
+  await waitForAutosaveAfter(page, 0);
+  const changes = await page.evaluate(
+    () =>
+      (window as unknown as { __restartProgressChanges: ProgressChange[] })
+        .__restartProgressChanges,
+  );
+  const removed = changes.findIndex((change) => change.action === "remove");
+  const freshWrites = changes.slice(removed + 1);
+  expect(freshWrites.length).toBeGreaterThan(0);
+  for (const change of freshWrites) expect(change).toMatchObject({ action: "write", after: 83 });
+  await page.reload();
+  await waitForRoom(page, 83, { coldBoot: true });
+  await expect(await gameHint(page, "title-prompt-hint")).toBeVisible({ timeout: 20_000 });
+  await page.mouse.move(0, 0);
+  await expect(await gameHint(page, "resume-caption")).toBeVisible({ timeout: 20_000 });
+  await page.mouse.move(0, 0);
 });
 
 interface KeyEditPosting {
@@ -666,37 +726,86 @@ test("game frame follows boot and exit while New game preserves its draft", asyn
 /** The first submitted Ask gets real fixture context without changing the game. */
 test("KQ1 orientation accompanies the first question, Escape resumes", async ({ page }) => {
   await page.goto("/");
-  await configureAi(page, { provider: "stub" });
+  await configureAi(page, { provider: "openai", key: "test-placeholder" });
+  let requests = 0;
+  await page.route("**/api/openai/v1/responses", async (route) => {
+    requests++;
+    await route.fulfill(
+      providerReply("openai", {
+        id: `orientation-${requests}`,
+        output:
+          requests === 1
+            ? [
+                {
+                  type: "function_call",
+                  call_id: "room",
+                  name: "read_room",
+                  arguments: JSON.stringify({
+                    room: 1,
+                    state: { compact: true, variables: [0], flags: null },
+                    frames: null,
+                  }),
+                },
+                {
+                  type: "function_call",
+                  call_id: "logic",
+                  name: "read_logic",
+                  arguments: JSON.stringify({ num: 1, offset: null, limit: null }),
+                },
+              ]
+            : [
+                {
+                  type: "message",
+                  role: "assistant",
+                  content: [{ type: "output_text", text: "You are in the courtyard." }],
+                },
+              ],
+      }),
+    );
+  });
   await bootKq1(page);
   await advanceToCourtyard(page);
   await expect.poll(async () => (await textHook(page)).cycle).toBeGreaterThan(0);
 
   await page.getByTestId("menu-assistant").click();
-  await expect(page.getByTestId("agent-bubble")).toBeVisible();
+  await expect(page.getByTestId("workspace-agent-panel")).toBeVisible();
   await expect.poll(async () => (await textHook(page)).paused).toBe(true);
 
-  await expect(page.getByTestId("agent-bubble-input")).toBeEnabled();
-  await expect.poll(() => agentActivity(page)).not.toContain("[Orientation]");
-  await page.getByTestId("agent-bubble-input").fill("Where am I?");
-  await page.getByTestId("agent-bubble-send").click();
-  await expect(page.getByTestId("agent-bubble-input")).toBeEnabled();
-  // The submitted context names the game and the profile the engine detected.
-  await expect.poll(() => agentActivity(page), { timeout: 20_000 }).toContain("[Orientation] kq1");
-  await expect(page.getByTestId("agent-bubble-room")).toContainText("room 1");
-  await page.screenshot({ path: test.info().outputPath("kq1-power-up-bubble.png") });
-  await expect.poll(() => agentActivity(page)).toContain("profile 2.917");
-
-  // ...and its prompt really is the live container read back as source.
-  const prompt = await page.evaluate(() => {
-    const entry = (window.__AGI_TRACE__ ?? []).find((e) => e.detail.startsWith("[Orientation]"));
-    const data = entry?.data;
-    return typeof data === "object" && data !== null && "prompt" in data ? String(data.prompt) : "";
+  await expect(page.getByTestId("agent-message")).toBeEnabled();
+  expect(requests).toBe(0);
+  await page.getByTestId("agent-message").fill("Where am I?");
+  await page.getByTestId("agent-send").click();
+  await expect(page.getByTestId("agent-message")).toBeEnabled();
+  await expect(page.getByTestId("agent-current-room")).toContainText(/room 1/i);
+  await expect(page.getByTestId("agent-conversation")).toContainText("You are in the courtyard.");
+  await expect(page.getByTestId("agent-task-controls")).toBeHidden();
+  const submitted = await page.evaluate(async () => {
+    const { loadGameConversation } = await import("/src/project/gameStorage.ts");
+    const { lastGameKey } = await import("/src/saves/useAutosaveController.ts");
+    const locator = lastGameKey();
+    if (!locator) throw new Error("Missing installed conversation locator");
+    const stored = await loadGameConversation(locator);
+    const owner = {
+      current: () => stored?.chats?.chats.find((chat) => chat.id === stored.chats?.active),
+    };
+    const turn = owner.current()?.messages.find((message) => message.request);
+    const inspected = owner
+      .current()
+      ?.messages.find((message) => message.result?.kind === "resources")?.result;
+    return { request: turn?.request, inspected };
   });
-  expect(prompt).toContain("ORIENTATION: You have joined a game already in progress");
-  expect(prompt).toContain("Game: kq1");
-  expect(prompt).toContain("Staged set");
-  expect(prompt).toMatch(/logic \[0-/);
-  expect(prompt).toMatch(/dictionary \d+ words/);
+  expect(submitted.request).toMatchObject({
+    mode: "play",
+    capability: "inspect",
+    profileId: "2.917",
+  });
+  expect(submitted.request?.context.trim()).toBe("Current room 1");
+  expect(submitted.inspected?.kind).toBe("resources");
+  if (submitted.inspected?.kind !== "resources")
+    throw new Error("Missing inspected native game context");
+  expect(submitted.inspected.resources).toContain("logic:1");
+  expect(submitted.inspected.profileId).toBe("2.917");
+  await page.screenshot({ path: test.info().outputPath("kq1-agent.png") });
 
   // The world really is frozen: the interpreter's cycle counter stops dead
   // and KQ1's animating courtyard stops changing with it.
@@ -709,7 +818,7 @@ test("KQ1 orientation accompanies the first question, Escape resumes", async ({ 
 
   // Escape closes the bubble without patching anything and the world runs on.
   await page.keyboard.press("Escape");
-  await expect(page.getByTestId("agent-bubble")).toBeHidden();
+  await expect(page.getByTestId("workspace-agent-panel")).toBeHidden();
   await expect.poll(async () => (await textHook(page)).paused).toBe(false);
   await expect
     .poll(async () => (await textHook(page)).cycle, { timeout: 15_000 })
@@ -764,15 +873,15 @@ test("a locally loaded patched game can be downloaded and imported", async ({ pa
         throw new Error("The panel must own the agent.");
       },
     });
-    const send = agent.send.bind(agent);
+    const send = agent.submit.bind(agent);
     let release!: () => void;
     const gate = new Promise<void>((resolve) => {
       release = resolve;
     });
     const completed = new Promise<void>((resolve, reject) => {
-      agent.send = (...args: Parameters<typeof send>) => {
+      agent.submit = (...args: Parameters<typeof send>) => {
         const task = gate.then(() => send(...args));
-        void task.then(resolve, reject);
+        void task.then(() => resolve(), reject);
         return task;
       };
     });

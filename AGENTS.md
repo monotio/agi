@@ -82,6 +82,11 @@ passes and the owner accepts it. After the final candidate's release QA, bump bo
 versions to `X.Y.0` and open `release/X.Y` into `main`, which deploys. Tag and publish
 the release only after deployment verification (docs/hosting.md, "Release branches").
 
+Patch hotfixes branch from the latest `main`, with both package versions set to
+`X.Y.Z`. Their pull requests target `main`; merge an accepted hotfix into any open
+`release/X.Y` afterward. The same checks and deployment verification precede the
+release tag and publication.
+
 Local release plans stay uncommitted and must not be referenced by committed
 code, comments or documentation.
 
@@ -218,8 +223,15 @@ code, comments or documentation.
 - Explain a proposal in plain words (problem, who it serves, origin, cost and benefit)
   before showing a mockup or asking for a scope decision. Limits on agents (rounds,
   reads, tokens) follow evidence about the task, never round numbers.
-- Run the affected tests and `npm run check` before integration, plus
-  `npm --prefix app run build && npm run check:bundle` when imports move. Debug on
+- Run affected tests and `npm run check` before integrating application, engine,
+  dependency or unit-test changes; also build and check bundle boundaries when runtime
+  imports move. Documentation-only changes need formatting and consistency checks.
+  For CI-only follow-ups after a green integration gate, run the CI helper tests,
+  workflow validation and formatting instead of repeating unchanged game suites.
+  Browser-test-only edits need the affected browser runs, app typecheck, lint and
+  formatting; retain prior green results for unchanged engine and app unit suites.
+  PR browser suites run once with zero retries; repeat only to investigate a
+  specific failure, with an explicit diagnostic run. Debug on
   your own machine, never through CI: CI runs cost money. Reproduce Linux WebKit and
   fonts with the container in docs/testing.md. Push only a fully gated integration
   head; CI on that push is the final Linux verdict, read with

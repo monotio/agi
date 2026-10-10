@@ -21,8 +21,14 @@
   position: relative;
   z-index: 1;
 }
-.agent-panel__chat-title {
+.agent-panel__header h2 {
+  margin: 0;
   flex: 1;
+  font-size: var(--text-md);
+  font-weight: var(--weight-semibold);
+}
+.agent-panel__chat-title {
+  flex: none;
   min-width: 0;
   text-align: left;
   overflow: hidden;
@@ -80,6 +86,10 @@
 .agent-panel__message p {
   white-space: pre-wrap;
   margin: var(--space-2) 0;
+}
+.agent-panel__message:not(.agent-panel__message--user) {
+  padding-left: 0;
+  padding-right: 0;
 }
 .agent-panel__message--user {
   margin-left: var(--space-6);
@@ -200,12 +210,32 @@
   background: var(--surface-1);
   border-left: 1px solid var(--hairline);
   box-shadow: var(--shadow-pop);
+  animation: ui-sheet-in-left var(--duration) var(--ease-out);
+}
+.agent-drawer[style*="display: none"] {
+  pointer-events: none;
 }
 .agent-drawer--stage {
   top: 0;
 }
+@media (min-width: 901px) {
+  .agent-drawer--play {
+    position: relative;
+    top: auto;
+    right: auto;
+    bottom: auto;
+    width: 100%;
+    grid-column: 2;
+    box-shadow: none;
+  }
+}
+.agent-drawer--play .agent-panel__result {
+  right: min(var(--shell-drawer-w), 100vw);
+  width: min(520px, calc(100vw - var(--shell-drawer-w)));
+}
 @media (max-width: 600px) {
-  .agent-drawer {
+  .agent-drawer,
+  .in-game .shell-body.assistant-open .agent-drawer--play {
     top: 0;
     left: 0;
     width: 100vw;
@@ -250,4 +280,71 @@
   color: var(--muted);
   font-size: var(--text-sm);
   padding: var(--space-3);
+}
+.agent-panel__receipt {
+  color: var(--muted);
+  font-size: var(--text-xs);
+}
+.agent-panel__spend {
+  display: block;
+  color: var(--muted);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+  margin-top: var(--space-2);
+}
+.agent-panel__result {
+  position: fixed;
+  z-index: 2;
+  top: var(--shell-bar-h);
+  bottom: 0;
+  right: min(420px, 100vw);
+  width: min(520px, calc(100vw - 420px));
+  display: flex;
+  flex-direction: column;
+  background: var(--surface-1);
+  border-left: 1px solid var(--hairline);
+  border-right: 1px solid var(--hairline);
+  box-shadow: var(--shadow-pop);
+}
+.agent-panel__result > header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border-bottom: 1px solid var(--hairline);
+}
+.agent-panel__result-content {
+  overflow: auto;
+  flex: 1;
+  padding: var(--space-4);
+}
+.agent-panel__result h3,
+.agent-panel__result h4 {
+  font-size: var(--text-sm);
+  margin: var(--space-3) 0;
+}
+.agent-panel__resource > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+@media (max-width: 600px) {
+  .agent-panel__result {
+    top: 0;
+    right: 0;
+    left: 0;
+    width: 100vw;
+    border: 0;
+  }
+  .agent-drawer--play .agent-panel__result {
+    right: 0;
+    width: 100vw;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-drawer {
+    animation: none;
+  }
 }

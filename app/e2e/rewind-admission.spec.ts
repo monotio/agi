@@ -7,6 +7,7 @@ import {
   openGameOptions,
   textHook,
   waitForCycles,
+  waitForRoom,
   workspaceUpdated,
 } from "./engineProbe.ts";
 import type { ProjectSession } from "../src/project/projectSession.ts";
@@ -56,6 +57,7 @@ for (const action of ["Resume from here", "Undo rewind", "Undo start over"] as c
       .fill("Rewind proof");
     await page.getByTestId("local-create-kind-starter").click();
     await page.getByRole("button", { name: "Start building", exact: true }).click();
+    await waitForRoom(page, 1, { coldBoot: true });
     await expect(page.getByTestId("parts-list")).toBeVisible();
     await expect.poll(async () => (await textHook(page)).room).toBe(1);
     await waitForCycles(page, 4);

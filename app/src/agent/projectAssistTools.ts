@@ -161,7 +161,10 @@ function sameContent(a: DocumentContent | undefined, b: DocumentContent | null):
 }
 
 /** Create the per-request tool dispatcher over one captured workspace. */
-export function createProjectAssistDriver(workspace: AgentWorkspace): ProjectAssistDriver {
+export function createProjectAssistDriver(
+  workspace: Pick<AgentWorkspace, "base" | "profileId" | "diagnostics" | "documents"> &
+    Partial<Pick<AgentWorkspace, "compilable" | "propose">>,
+): ProjectAssistDriver {
   let pending: WorkspaceProposal | null = null;
   let proposals = 0;
   let refusals = 0;
@@ -185,7 +188,7 @@ export function createProjectAssistDriver(workspace: AgentWorkspace): ProjectAss
       success: true,
       message:
         `Profile ${workspace.profileId}; ${keys.length} documents; ` +
-        `${workspace.compilable ? "the captured set compiles" : "the captured set does not compile"}; ` +
+        `${workspace.compilable === undefined ? "inspection reads the captured draft" : workspace.compilable ? "the captured set compiles" : "the captured set does not compile"}; ` +
         `${workspace.diagnostics.length} diagnostic(s). ` +
         (pending
           ? `A proposal is pending: ${pending.label} (${pending
@@ -196,7 +199,7 @@ export function createProjectAssistDriver(workspace: AgentWorkspace): ProjectAss
       details: {
         profileId: workspace.profileId,
         baseRevision: workspace.base.revision,
-        compilable: workspace.compilable,
+        compilable: workspace.compilable ?? null,
         documentCount: keys.length,
         documents: listing,
         diagnostics,
@@ -272,6 +275,8 @@ export function createProjectAssistDriver(workspace: AgentWorkspace): ProjectAss
   }
 
   function propose(args: Record<string, unknown>): AgentToolResult {
+    if (!workspace.propose)
+      return { success: false, error: "This workspace supports inspection only." };
     const label = String(args["label"] ?? "");
     const raw = Array.isArray(args["changes"]) ? (args["changes"] as unknown[]) : [];
     const keyErrors: string[] = [];

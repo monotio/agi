@@ -271,6 +271,7 @@ test("a second page pauses edits until Take back and keeps each page's tabs @web
   await page.getByTestId("part-room:1:logic").click();
   const other = await context.newPage();
   await other.goto(page.url());
+  await waitForRoom(other, 1, { coldBoot: true });
   await parts(other);
   await expect(other.getByTestId("project-tab-logic:1")).toBeVisible();
   const notice = page.getByTestId("other-tab-notice");
@@ -295,10 +296,12 @@ test("a second page pauses edits until Take back and keeps each page's tabs @web
   await other.getByTestId("part-room:1:picture:1").click();
   await expect(other.getByTestId("project-tab-picture:1")).toBeVisible();
   await page.reload();
+  await waitForRoom(page, 1, { coldBoot: true });
   await parts(page);
   await expect(page.getByTestId("project-tab-notes")).toBeVisible();
   await expect(page.getByTestId("project-tab-picture:1")).toHaveCount(0);
   await other.reload();
+  await waitForRoom(other, 1, { coldBoot: true });
   await parts(other);
   await expect(other.getByTestId("project-tab-picture:1")).toBeVisible();
   await expect(other.getByTestId("project-tab-notes")).toHaveCount(0);
@@ -312,6 +315,7 @@ test("each page reloads its own tabs and a fresh page inherits the latest list @
   await page.getByTestId("part-room:1:logic").click();
   const other = await context.newPage();
   await other.goto(page.url());
+  await waitForRoom(other, 1, { coldBoot: true });
   await parts(other);
   await expect(other.getByTestId("project-tab-logic:1")).toBeVisible();
   await page.getByTestId("part-notes").click();
@@ -319,11 +323,13 @@ test("each page reloads its own tabs and a fresh page inherits the latest list @
   await other.getByTestId("part-room:1:picture:1").click();
   await expect(other.getByTestId("project-tab-picture:1")).toBeVisible();
   await page.reload();
+  await waitForRoom(page, 1, { coldBoot: true });
   await parts(page);
   await expect(page.getByTestId("project-tab-notes")).toBeVisible();
   await expect(page.getByTestId("project-tab-picture:1")).toHaveCount(0);
   const fresh = await context.newPage();
   await fresh.goto(page.url());
+  await waitForRoom(fresh, 1, { coldBoot: true });
   await parts(fresh);
   await expect(fresh.getByTestId("project-tab-picture:1")).toBeVisible();
   await expect(fresh.getByTestId("project-tab-notes")).toHaveCount(0);
@@ -432,6 +438,7 @@ for (const [width, height] of [
       await session.drafts().flush();
     });
     await page.reload();
+    await waitForRoom(page, 1, { coldBoot: true });
     const error = page.getByTestId("launch-recovery-error");
     await expect(error).toBeVisible();
     await shot(page, `recovery-${width}`);

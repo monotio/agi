@@ -2,8 +2,7 @@ import { readFile } from "node:fs/promises";
 import { expect, test } from "@playwright/test";
 import { textHook } from "./engineProbe.ts";
 
-// Intermittent on the CI runners (storage snapshot timing); tracked for 1.2.1.
-test.fixme("1.1 progress opens automatically once @webkit-desktop", async ({ page, context }) => {
+test("1.1 progress opens automatically once @webkit-desktop", async ({ page, context }) => {
   const fixture = JSON.parse(
     await readFile(new URL("../test/fixtures/progress-v1.1.json", import.meta.url), "utf8"),
   ) as {
@@ -61,6 +60,9 @@ test.fixme("1.1 progress opens automatically once @webkit-desktop", async ({ pag
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
   await expect(page.getByTestId("btn-exit")).toBeVisible();
   await page.getByTestId("btn-exit").click();
+  // Exit flushes progress and seals history before returning Home.
+  await expect(page.getByTestId("btn-resume-cached")).toBeVisible();
+  await expect(page).toHaveURL(/\/$/);
   const history = await page.evaluate(async (locator) => {
     const path = "/src/history/historyStorage.ts";
     const { loadGameHistory } = await import(/* @vite-ignore */ path);

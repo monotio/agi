@@ -11,7 +11,7 @@ import { AgentSession } from "../src/agent/agentSession.ts";
 import { buildProjectZip } from "../src/archive/projectArchive.ts";
 import { readGameZip } from "../src/archive/gameZip.ts";
 import type { CachedGameData, BootedGame } from "../src/project/gameTypes.ts";
-import { migrateAgentChats, type AgentChats } from "../../src/agent/chats.ts";
+import { migrateAgentChats, readAgentChats, type AgentChats } from "../../src/agent/chats.ts";
 import { openProjectSession } from "../src/project/projectSession.ts";
 import { compileProjectDocuments } from "../../src/authoring/projectDocuments.ts";
 import {
@@ -23,6 +23,8 @@ import { assembleLogic } from "../../src/logic/assembler.ts";
 import { buildWordsTok } from "../../src/logic/words.ts";
 import { requireProjectId } from "../../src/gameIdentity.ts";
 import type { UnifiedConversation, LlmTurnResult } from "../src/agent/llmClient.ts";
+import { capturedResourceDocuments } from "../src/agent/agentResultPreview.ts";
+import { computeResourceRevision } from "../../src/authoring/resourceRevision.ts";
 import { wordsTaskReply } from "../src/studio/workspace/wordsPrompts.ts";
 
 let seq = 0;
@@ -413,7 +415,7 @@ test("one coordinated review selects resources, records a chat checkpoint and un
   );
   const messageId = agent.pending()!.messageId;
   await agent.approve(["logic:0", "picture:1"]);
-  assert.equal(agent.reviewOutcome(messageId), "Approved");
+  assert.equal(agent.reviewOutcome(messageId), "Applied");
   const commit = session.history.capture().commits.at(-1)!;
   assert.equal(commit.author, "agent");
   assert.equal(commit.label, "AI: Welcome sign");
@@ -441,7 +443,7 @@ test("a committed approval closes review while its chat save is still pending", 
   };
   let reviewClosed = false;
   const off = agent.subscribe(() => {
-    if (agent.pending() === null && agent.reviewOutcome(messageId) === "Approved")
+    if (agent.pending() === null && agent.reviewOutcome(messageId) === "Applied")
       reviewClosed = true;
   });
   const approval = agent.approve();
@@ -960,6 +962,7 @@ test("Ask continues the current task chat with read-only tools and game notes", 
   assert.equal(agent.current().id, first);
   assert.deepEqual(agent.current().messages[0], {
     id: agent.current().messages[0]!.id,
+    request: agent.current().messages[0]!.request,
     role: "user",
     text: "Where next?",
     context: "Room 1\nReturn concise hints.",
@@ -1006,6 +1009,8 @@ test("Ask stores a formatted reply with raw context and keeps ordinary follow-up
   const message = agent.current().messages.at(-1)!;
   assert.deepEqual(message, {
     id: message.id,
+    taskId: agent.current().messages[0]!.request!.id,
+    spend: { amount: 0, budget: 5, priceKnown: false, incomplete: false },
     role: "assistant",
     text: "Suggested inspect",
     context: raw,
@@ -1952,6 +1957,104 @@ test("completed spend stays with its chat when another chat is opened", async ()
   session.dispose();
 });
 
+for (const failed of [false, true])
+  test(`background task keeps its identity and spend until final save ${failed ? "fails" : "finishes"}`, async () => {
+    const { session } = fixture();
+    let requests = 0;
+    const agent = createWorkspaceAgent({
+      session,
+      profileId: "2.936",
+      config: () => ({ provider: "openai", model: "gpt-6-sol", apiKey: "placeholder" }),
+      conversation(_config, transcript, run) {
+        return {
+          setAvailableTools() {},
+          appendToolResults() {},
+          getTranscript: () => transcript,
+          async sendUserMessage() {
+            return run.request(async () => {
+              requests++;
+              run.recordUsage({
+                input: requests * 10000,
+                cachedInput: 0,
+                cacheWriteInput: 0,
+                output: requests * 5000,
+              });
+              return {
+                text: requests === 1 ? "Foreground ready." : "Background ready.",
+                toolCalls: [],
+              };
+            });
+          },
+          async complete() {
+            return { text: "Ready.", toolCalls: [] };
+          },
+        };
+      },
+    });
+    await agent.send("Describe this room.");
+    const foreground = agent.current().id;
+    const flush = session.flush;
+    const saving = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    session.flush = async () => {
+      if (
+        agent
+          .chats()
+          .some((chat) => chat.background && chat.messages.some((message) => message.spend))
+      ) {
+        saving.resolve();
+        await release.promise;
+        if (failed) throw new Error("Conversation storage rejected the write.");
+      }
+      await flush();
+    };
+    const finished = agent.background("Next room", "Describe the next room.").then(
+      () => null,
+      (cause: unknown) => cause,
+    );
+    try {
+      await saving.promise;
+      const background = agent.chats().find((chat) => chat.background)!;
+      const reply = background.messages.find((message) => message.role === "assistant")!;
+      assert.equal(
+        agent.current().id,
+        foreground,
+        "background work leaves the visible conversation selected",
+      );
+      assert.equal(agent.busy, true);
+      assert.equal(
+        agent.task?.reportedSpent,
+        0.14,
+        "busy controls keep the background request's reported spend",
+      );
+      assert.equal(
+        agent.activeRequest?.id,
+        reply.taskId,
+        "busy controls retain the background request identity",
+      );
+      assert.equal(
+        agent.canSteer,
+        false,
+        "a task saving its final reply no longer accepts corrections",
+      );
+      assert.equal(reply.spend?.amount, 0.14);
+    } finally {
+      release.resolve();
+      const outcome = await finished;
+      assert.equal(outcome instanceof Error, failed);
+      session.flush = flush;
+      session.dispose();
+    }
+    assert.equal(agent.busy, false);
+    assert.equal(agent.activeRequest, null);
+    assert.equal(
+      agent.task?.reportedSpent,
+      0.07,
+      "completed background work restores the foreground task projection",
+    );
+    assert.equal(Boolean(agent.chatSaveError), failed);
+  });
+
 test("background work retains image spend and a new person request starts a fresh allowance", async () => {
   const { beginProviderTask, trackImageSpend } = await import("../src/agent/providerBudget.ts");
   const { session } = fixture();
@@ -2320,4 +2423,174 @@ test("the agent creates a Launch from a request, proposed for review with one Un
   assert.equal(undoneWorld?.launches?.["8"], undefined, "one Undo removes the launched state");
 
   session.dispose();
+});
+
+test("applied review resolves exact historical resources and spend after reload and export", async () => {
+  const { session, agent, saved } = fixture();
+  await agent.send("Add a welcome sign");
+  const pending = agent.current().pendingReview!;
+  await agent.approve();
+  await session.flush();
+  const result = agent.reviewFor(pending.messageId)!;
+  assert.equal(result.baseDocumentId, pending.baseDocumentId);
+  assert.equal(result.baseRevision, pending.baseRevision);
+  assert.deepEqual(result.base, pending.base);
+  assert.deepEqual(result.candidate, pending.candidate);
+  const { session: reopenedSession, agent: reopened } = fixture(
+    undefined,
+    true,
+    undefined,
+    saved(),
+  );
+  try {
+    assert.deepEqual(reopened.reviewFor(pending.messageId), result);
+    const message = reopened
+      .current()
+      .messages.find((message) => message.id === pending.messageId)!;
+    assert.deepEqual(message.spend, { amount: 0, budget: 5, priceKnown: false, incomplete: false });
+    assert.equal(
+      message.review,
+      undefined,
+      "applied resources project history without copied workspaces",
+    );
+    const zip = await buildProjectZip(saved());
+    const exported = await readGameZip(zip);
+    assert.deepEqual(exported.project?.chats, saved().chats);
+  } finally {
+    session.dispose();
+    reopenedSession.dispose();
+  }
+});
+
+for (const admission of ["withdraw", "auto"] as const) {
+  test(`Create captures the native version read before ${admission === "auto" ? "an auto-approved edit and after it" : "withdrawing staged edits"}`, async () => {
+    const { session } = fixture();
+    const before = session.model.capture().documentId;
+    const nativeBefore = computeResourceRevision(
+      Object.fromEntries(session.model.capture().lastAdmissibleBuild!.files()),
+    );
+    const advances: [string, string][] = [];
+    const source = 'print("Native read"); return;';
+    const agent = createWorkspaceAgent({
+      session,
+      profileId: "2.936",
+      config: () => ({ provider: "stub", model: "stub", apiKey: "" }),
+      runtime: () => ({ advanceRevision: (before, after) => advances.push([before, after]) }),
+      conversation: () => ({
+        setAvailableTools() {},
+        getTranscript: () => [],
+        async sendUserMessage() {
+          return {
+            toolCalls: [
+              {
+                id: "before",
+                name: "read_picture",
+                input: { num: 1, offset: null, limit: null, include: "source" },
+              },
+              admission === "auto"
+                ? {
+                    id: "edit",
+                    name: "propose_changes",
+                    input: { label: "Change boot", changes: [{ key: "logic:0", content: source }] },
+                  }
+                : { id: "edit", name: "write_logic", input: { room: 0, source } },
+              { id: "after", name: "read_logic", input: { num: 0, offset: null, limit: null } },
+              ...(admission === "withdraw"
+                ? [{ id: "withdraw", name: "withdraw_changes", input: { reason: null } }]
+                : []),
+            ],
+          };
+        },
+        appendToolResults(results) {
+          assert.ok(
+            results.every(({ result }) => result.success),
+            JSON.stringify(results),
+          );
+        },
+        async complete() {
+          return { text: "Captured", toolCalls: [] };
+        },
+      }),
+    });
+    agent.autoApprove = admission === "auto";
+    try {
+      await agent.send("Inspect boot changes");
+      const result = agent.current().messages.at(-1)!.result;
+      if (result?.kind !== "resources") assert.fail("Missing Create native captures");
+      assert.deepEqual(result.resources, ["picture:1", "logic:0"]);
+      assert.deepEqual(
+        capturedResourceDocuments(result, "logic:0")["logic:0"],
+        assembleLogic(source, { dictionary: new Map() }).payload,
+      );
+      if (admission === "withdraw") {
+        assert.equal(session.model.capture().documentId, before);
+        assert.deepEqual(advances, []);
+      } else {
+        assert.deepEqual(advances, [
+          [nativeBefore, session.model.capture().lastAdmissibleBuild!.identity.revision],
+        ]);
+      }
+    } finally {
+      session.dispose();
+    }
+  });
+}
+
+test("Create captures native game-test definitions through serialization and reload", async () => {
+  const { GAME_TESTS_FORMAT } = await import("../../src/agent/gameTestFormat.ts");
+  const { session } = fixture();
+  const tests = JSON.stringify({
+    format: GAME_TESTS_FORMAT,
+    tests: [{ name: "Stored wait", room: 1, steps: [{ action: "wait", ticks: 1 }] }],
+  });
+  await session.submit({
+    proposal: session.model.propose(session.model.capture(), "Stored tests", [
+      { key: "tests", content: tests },
+      { key: "logic:1", content: "return;" },
+    ]),
+    label: "Stored tests",
+    origin: "agent",
+    author: "creator",
+  });
+  const agent = createWorkspaceAgent({
+    session,
+    profileId: "2.936",
+    config: () => ({ provider: "stub", model: "stub", apiKey: "" }),
+    conversation: () => ({
+      setAvailableTools() {},
+      getTranscript: () => [],
+      async sendUserMessage() {
+        return {
+          toolCalls: [
+            { id: "tests", name: "read_game_tests", input: { names: null, offset: null } },
+          ],
+        };
+      },
+      appendToolResults(results) {
+        assert.equal(results[0]!.result.success, true, JSON.stringify(results));
+        assert.match(JSON.stringify(results[0]!.result), /Stored wait/);
+      },
+      async complete() {
+        return { text: "Stored definitions", toolCalls: [] };
+      },
+    }),
+  });
+  try {
+    await agent.send("Inspect stored tests");
+    const chat = agent.current();
+    const loaded = readAgentChats(
+      JSON.parse(
+        JSON.stringify({ format: "monotio.agi.chats", version: 1, active: chat.id, chats: [chat] }),
+      ),
+    );
+    const result = loaded.chats[0]!.messages.at(-1)!.result;
+    if (result?.kind !== "resources") assert.fail("Missing native test definitions capture");
+    assert.deepEqual(result.resources, ["tests"]);
+    assert.deepEqual(
+      capturedResourceDocuments(result, "tests")["tests"],
+      new TextEncoder().encode(tests),
+    );
+  } finally {
+    session.dispose();
+  }
 });

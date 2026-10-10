@@ -258,6 +258,7 @@ test("make a four-cel walk loop and preview it on the running hero", async ({ pa
   const before = (await textHook(page)).cycle;
   await expect.poll(async () => (await textHook(page)).cycle).toBeGreaterThan(before);
   const colours = new Set<number>();
+  let previewStarted = false;
   await expect
     .poll(
       async () => {
@@ -272,7 +273,10 @@ test("make a four-cel walk loop and preview it on the running hero", async ({ pa
           const hero = (await api.query("objects")).find((object) => object.num === 0)!;
           return window.__AGI_FRAME__?.()?.visual[(hero.y - 6) * 160 + hero.x + 2];
         });
-        if (colour !== undefined) colours.add(colour);
+        // The worker loads the preview after the button changes state. Begin
+        // collecting once its first cel is visible, then retain every colour.
+        if (!previewStarted) previewStarted = colour === 4 || colour === 6;
+        if (previewStarted && colour !== undefined) colours.add(colour);
         return [...colours].sort((a, b) => a - b);
       },
       { intervals: [80], timeout: 8000 },

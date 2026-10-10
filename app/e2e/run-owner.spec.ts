@@ -1,6 +1,6 @@
 import type { Page } from "@playwright/test";
 import type { ProjectSession } from "../src/project/projectSession.ts";
-import type { WorkerQueryFn } from "../src/worker/workerProtocol.ts";
+import type { WorkerInbound, WorkerOutbound, WorkerQueryFn } from "../src/worker/workerProtocol.ts";
 import { test, expect } from "./test.ts";
 
 test.use({ hasTouch: true });
@@ -22,6 +22,23 @@ async function checkpoint(page: Page): Promise<number[]> {
     const image = await project.query("checkpoint");
     if (!image) throw new Error("The game needs a checkpoint.");
     return [...image];
+  });
+}
+
+async function flushCheckpoint(page: Page): Promise<boolean> {
+  return page.evaluate(() => {
+    const worker = (
+      window as unknown as { __AGI_PROJECT__: { getWorker(): Worker } }
+    ).__AGI_PROJECT__.getWorker();
+    return new Promise<boolean>((resolve) => {
+      const receive = (event: MessageEvent<WorkerOutbound>): void => {
+        if (event.data.type !== "flushed" || event.data.id !== -1) return;
+        worker.removeEventListener("message", receive);
+        resolve(event.data.taken);
+      };
+      worker.addEventListener("message", receive);
+      worker.postMessage({ type: "flush", id: -1 });
+    });
   });
 }
 
@@ -335,9 +352,83 @@ test("newest tab takes Play, rejects the old writer, and Take back survives clos
   await expect(other).toContainText("This game is open in another tab.");
   await expect(notice).toBeHidden();
   await checkpoint(page);
-  const beforeClose = await page.evaluate((key) => localStorage.getItem(key), saved.key);
+  // Establish the paused cycle's cadence before changing its image.
+  expect(await flushCheckpoint(page)).toBe(true);
+  await page.evaluate(async () => {
+    const project = (window as unknown as { __AGI_PROJECT__: { query: WorkerQueryFn } })
+      .__AGI_PROJECT__;
+    await project.query("debugWrite", { vars: [[80, 73]] });
+  });
+  const activeImage = Buffer.from(await checkpoint(page)).toString("base64");
+  expect(await flushCheckpoint(page)).toBe(true);
+  // A worker checkpoint captures the image; publication finishes separately on the host.
+  await expect
+    .poll(() =>
+      page.evaluate(
+        ({ key, image }) => {
+          const record = JSON.parse(localStorage.getItem(key)!);
+          return { generation: record.writerGeneration, imageMatches: record.image === image };
+        },
+        { key: saved.key, image: activeImage },
+      ),
+    )
+    .toEqual({ generation: saved.generation + 2, imageMatches: true });
+  const beforeClose = await page.evaluate(
+    (key) => ({
+      progress: localStorage.getItem(key),
+      writer: localStorage.getItem(key.replace(".autosave.", ".writer.")),
+    }),
+    saved.key,
+  );
+  await expect(newest.getByRole("radio", { name: "Play", exact: true })).toHaveAttribute(
+    "aria-checked",
+    "true",
+  );
+  // Observe this stale tab's pagehide flush before native close can terminate its worker.
+  const staleFlush = await newest.evaluate(() => {
+    const worker = (
+      window as unknown as { __AGI_PROJECT__: { getWorker(): Worker } }
+    ).__AGI_PROJECT__.getWorker();
+    return new Promise((resolve) => {
+      let flushId: number | undefined;
+      const receive = (event: MessageEvent<WorkerOutbound>): void => {
+        const reply = event.data;
+        if (reply.type !== "flushed" || reply.id !== flushId) return;
+        worker.removeEventListener("message", receive);
+        resolve({ taken: reply.taken, temporary: reply.temporary });
+      };
+      worker.addEventListener("message", receive);
+      const post = worker.postMessage;
+      const send = post.bind(worker);
+      worker.postMessage = (
+        message: WorkerInbound,
+        options?: StructuredSerializeOptions | Transferable[],
+      ) => {
+        if (message.type === "flush") flushId = message.id;
+        if (Array.isArray(options)) send(message, options);
+        else send(message, options);
+      };
+      try {
+        window.dispatchEvent(new PageTransitionEvent("pagehide"));
+      } finally {
+        worker.postMessage = post;
+      }
+      if (flushId === undefined) {
+        worker.removeEventListener("message", receive);
+        throw new Error("Pagehide did not request a progress flush.");
+      }
+    });
+  });
+  expect(staleFlush).toEqual({ taken: false, temporary: true });
   await newest.close();
-  // The active page's query is also a worker boundary after the stale tab's pagehide.
-  await checkpoint(page);
-  expect(await page.evaluate((key) => localStorage.getItem(key), saved.key)).toBe(beforeClose);
+  expect(Buffer.from(await checkpoint(page)).toString("base64")).toBe(activeImage);
+  expect(
+    await page.evaluate(
+      (key) => ({
+        progress: localStorage.getItem(key),
+        writer: localStorage.getItem(key.replace(".autosave.", ".writer.")),
+      }),
+      saved.key,
+    ),
+  ).toEqual(beforeClose);
 });

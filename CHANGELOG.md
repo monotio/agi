@@ -3,6 +3,44 @@
 Changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Released notes are also available on [GitHub Releases](https://github.com/monotio/agi/releases).
 
+## [1.2.1] - Unreleased
+
+### Changed
+
+- Play and Create share one agent conversation, composer and task controls.
+  Chats continue between modes and into editable copies of installed games.
+- Native result previews remain available after Apply and reload, with older
+  versions identified before opening the current resource. Phone previews return
+  to the conversation with Back to chat.
+- Agent settings and activity details are collapsed, with compact spending and
+  shorter replies. Follow-up instructions join at the next completed tool batch.
+
+### Fixed
+
+- Ask inspects native resources without preparing or validating an edit candidate.
+- An unreadable unused resource or dictionary does not stop other inspection tools.
+- Each request captures its current interpreter profile, runtime and attached references.
+- Switching to Create waits for the conversation transfer and preserves unfinished drafts.
+- Opening Agent focuses its composer on every visit and preserves a newer control's focus.
+- Closing Agent during startup resumes the game; delayed opening cannot reopen it.
+- Live inspection continues after the task's own accepted edits.
+- Captured native and draft resources retain their own vocabulary and rendering
+  dependencies. Native inspections in Create use the shared result widgets.
+- Help keeps the conversation and unfinished draft open when switching to Create.
+- Failed game opening retains the saved project and offers Reload. Closing setup
+  retires its pending opening; a blank agent's first room follows its current stage.
+- The first conversation save preserves Create admission when it opens an editable copy.
+- AI settings wait for conversation startup and retain the previous settings if
+  browser storage rejects the update.
+- Interrupted questions preserve pending edit reviews. Conversation save failures keep
+  completed answers visible and offer Retry save without another provider request.
+- Accepted resource changes keep saved source claims consistent with playable
+  bytes. Opening and saving an affected sound project repairs verified stale
+  claims so its Project download can succeed.
+- Updated vulnerable shell-quote, source-map-js and DOMPurify dependencies, and the
+  optional eval dependency tree. The app dependency audit is clear; the optional
+  eval tree still reports high advisories in basic-ftp and node-forge.
+
 ## [1.2.0] - 2026-10-07
 
 ### Added
@@ -99,5 +137,6 @@ See the [1.1.0 release notes](https://github.com/monotio/agi/releases/tag/v1.1.0
 See the [1.0.0 release notes](https://github.com/monotio/agi/releases/tag/v1.0.0).
 
 [1.2.0]: https://github.com/monotio/agi/releases/tag/v1.2.0
+[1.2.1]: https://github.com/monotio/agi/compare/v1.2.0...HEAD
 [1.1.0]: https://github.com/monotio/agi/releases/tag/v1.1.0
 [1.0.0]: https://github.com/monotio/agi/releases/tag/v1.0.0

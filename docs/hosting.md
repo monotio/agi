@@ -123,8 +123,10 @@ The public site at [agi.monotio.com](https://agi.monotio.com/) deploys from
    GitHub Release on the tag, with the release pull request's description as
    its notes.
 
-A hotfix branches from `main`, merges into `main` through its own pull
-request, and is then merged into the open `release/X.Y`.
+A hotfix branches from the latest `main`, sets both package versions to `X.Y.Z`,
+and merges into `main` through its own fully checked pull request. Merge it into
+any open `release/X.Y` afterward. Verify deployment before tagging `vX.Y.Z` and
+publishing its release notes.
 
 To roll back, open a revert pull request and let it pass the same checks.
 Re-running CI rebuilds the same commit, so never re-run an older release job to

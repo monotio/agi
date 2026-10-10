@@ -266,7 +266,8 @@ test("WORDS prompts open the agent drawer, and the chat shows failures and retri
   await expect(panel).toBeVisible();
   await expect(panel.getByTestId("agent-message")).toHaveValue("Suggest words for look");
   await page.getByRole("button", { name: "Send", exact: true }).click();
-  await expect(panel.getByTestId("agent-message")).toBeDisabled();
+  await expect(panel.getByTestId("agent-message")).toBeEnabled();
+  await expect(panel.getByTestId("agent-task-controls")).toBeVisible();
   await page.screenshot({ path: test.info().outputPath("words-suggesting-1440.png") });
   release();
   await expect(panel).toContainText("The reply’s JSON could not be read.");

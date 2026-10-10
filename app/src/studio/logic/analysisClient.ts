@@ -30,6 +30,14 @@ interface Pending {
   readonly cleanup: () => void;
 }
 
+/** A newer snapshot can answer again; worker failures and cancellation cannot. */
+export class LogicAnalysisSupersededError extends Error {
+  constructor() {
+    super("Logic analysis was superseded by a newer workspace snapshot.");
+    this.name = "LogicAnalysisSupersededError";
+  }
+}
+
 /**
  * One Studio workspace lifetime. Saved context replaces the consulted snapshot;
  * typing updates its document. Old results lose authority immediately, including after undo.
@@ -193,7 +201,7 @@ export class LogicAnalysisClient {
         method: "$/cancelRequest",
         params: { id },
       } satisfies LspMessage);
-    this.rejectAll(new Error("Logic analysis was superseded by a newer workspace snapshot."));
+    this.rejectAll(new LogicAnalysisSupersededError());
   }
 
   private sendDocument(worker: AnalysisWorker, key: string): void {
@@ -344,10 +352,7 @@ export class LogicAnalysisClient {
         pending.revision !== this.project?.revision ||
         pending.version !== this.project?.documents[pending.key]?.version
       ) {
-        this.rejectOne(
-          data.id,
-          new Error("Logic analysis was superseded by a newer workspace snapshot."),
-        );
+        this.rejectOne(data.id, new LogicAnalysisSupersededError());
         return;
       }
       this.pending.delete(data.id);
