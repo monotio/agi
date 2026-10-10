@@ -251,8 +251,9 @@ test("room errors offer Retry and Stop with the drawer closed @webkit-desktop", 
   });
   await walkEast(page);
   await expect(page.getByTestId("room-generation-error")).toBeVisible();
-  await expect(page.getByTestId("room-generation-error")).toContainText(
-    "The model could not create this room.",
+  // A provider refusal reads in plain words; the raw provider text stays in Activity.
+  await expect(page.getByTestId("room-generation-error")).toHaveText(
+    "OpenAI could not complete the request. Try again, and open Activity for details if it keeps failing.",
   );
   await expect(page.getByTestId("room-generation-stop")).toBeVisible();
   await page.getByTestId("room-generation-retry").click();
