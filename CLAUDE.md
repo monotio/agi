@@ -16,6 +16,9 @@ to notes about working in Claude Code.
   is no `timeout`. Confirm each `git push` succeeded before deleting a ref.
 - Write prose files with the file tool or a quoted heredoc (`<<'EOF'`); an unquoted heredoc runs
   backticked commands.
+- Delegate exploration and mechanical work (searches, reading long logs or reports, sweeping
+  edits) to a subagent on the `haiku` model, Claude Haiku 5.5, which is fast and inexpensive. Keep
+  design, review and integration on the main model.
 - Post a short update when something changes: a gate result, a decision, a blocker. Define a term
   the first time it appears, and let a subagent read long reports and return a short verdict.
 - Evidence screenshots come from headless Playwright. Use the browser extension for interactive QA
