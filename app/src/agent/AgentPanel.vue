@@ -1013,6 +1013,14 @@ onBeforeUnmount(() => {
     >
       {{ recoveryError || error || agent?.error }}
     </p>
+    <p
+      v-if="agent?.notice.length"
+      class="agent-panel__notice"
+      data-testid="agent-notice"
+      role="status"
+    >
+      {{ agent.notice.join(" ") }}
+    </p>
     <UiButton
       v-if="engine.state.staleTab || engine.state.powerUp.offerReload"
       data-testid="agent-reload"

@@ -81,7 +81,15 @@ export function captureProjectBuild(input: ProjectBuildInput) {
   }
   const logics: CapturedLogic[] = [];
   for (let num = 0; num < 256; num++) {
-    const payload = container.getResource("logic", num);
+    // An indexed slot whose record cannot be read carries no logic: original
+    // releases ship such entries (docs/testing.md, "Fixture notes") and the
+    // interpreter reads a record only when a logic loads it.
+    let payload: Uint8Array | null;
+    try {
+      payload = container.getResource("logic", num);
+    } catch {
+      continue;
+    }
     if (!payload) continue;
     const payloadHash = sha256Hex(payload);
     const source = input.sources[String(num)];

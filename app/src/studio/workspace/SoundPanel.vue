@@ -218,13 +218,17 @@ function applyImport(bytes: Uint8Array, after: number, add: boolean): void {
 }
 function midiDownload(): void {
   try {
-    const bytes = exportMidi(document.value);
-    const url = URL.createObjectURL(new Blob([new Uint8Array(bytes)], { type: "audio/midi" }));
+    const exported = exportMidi(document.value);
+    const url = URL.createObjectURL(
+      new Blob([new Uint8Array(exported.bytes)], { type: "audio/midi" }),
+    );
     const link = window.document.createElement("a");
     link.href = url;
     link.download = `${props.documentKey.replace(":", "-")}.mid`;
     link.click();
     URL.revokeObjectURL(url);
+    // The file is saved either way; what it could not hold is said after.
+    notice.value = exported.warnings.join(" ");
   } catch (cause) {
     notice.value = cause instanceof Error ? cause.message : String(cause);
   }

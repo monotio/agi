@@ -178,6 +178,13 @@
   font-size: var(--text-xs);
   padding: var(--space-3);
 }
+.agent-panel__notice {
+  margin: 0;
+  color: var(--warn);
+  background: var(--warn-soft);
+  font-size: var(--text-xs);
+  padding: var(--space-3);
+}
 .agent-panel__chats {
   max-height: 240px;
   overflow: auto;

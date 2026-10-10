@@ -21,7 +21,10 @@ import {
   type AgentRuntimeDeps,
 } from "../../../src/agent/tools.ts";
 import { referenceManifest } from "../../../src/agent/referenceTools.ts";
-import { captureAgentWorkspace } from "../../../src/authoring/projectAgentCandidate.ts";
+import {
+  captureAgentWorkspace,
+  describeWorkspaceDefects,
+} from "../../../src/authoring/projectAgentCandidate.ts";
 import { createProjectInspection } from "../../../src/agent/projectInspection.ts";
 import { computeResourceRevision } from "../../../src/authoring/resourceRevision.ts";
 import { compileProjectDocuments } from "../../../src/authoring/projectDocuments.ts";
@@ -382,6 +385,8 @@ export function createWorkspaceAgent(options: Options) {
   let autoApprove = false;
   const reviewOutcomes = new Map<string, string>();
   let error = "";
+  /** Plain sentences about parts of the game that cannot be read or are missing. */
+  let notice: readonly string[] = [];
   let chatSaveError = "";
   let busy = false;
   let applying = false;
@@ -594,6 +599,7 @@ export function createWorkspaceAgent(options: Options) {
           profileId,
           allowMissingRooms: session.allowMissingRooms,
         });
+    if (workspace) notice = describeWorkspaceDefects(workspace.defects);
     let staged: ReturnType<ReturnType<typeof captureAgentWorkspace>["openToolState"]> | undefined;
     let inspection: ReturnType<typeof createProjectInspection> | undefined;
     function editWorkspace() {
@@ -1503,6 +1509,9 @@ export function createWorkspaceAgent(options: Options) {
     },
     get error() {
       return error;
+    },
+    get notice() {
+      return notice;
     },
     get chatSaveError() {
       return chatSaveError;

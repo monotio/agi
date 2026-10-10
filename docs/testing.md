@@ -180,6 +180,25 @@ when editions differ. Synthetic tests contain original byte patterns only.
   absence rule of the fixture's own detected profile, so the strict check
   passes the edition without a waiver, and an entry pointing at a genuinely
   missing volume still fails.
+- **Directory entries no reader can follow.** Several original releases index
+  records that cannot be read, and none of their logics loads those slots, so
+  the games play. KQ1 2.0F's `SNDDIR` entries 34–37 (`22 0e 2f`, `22 0e 8f`,
+  `22 0e ed`, `22 12 6b`) name VOL.2 offsets 134,703–135,787 in a VOL.2 of
+  90,891 bytes. Manhunter 1's combined directory indexes sound 136 at VOL.0
+  offset 114,229 and sound 138 at 111,620, inside the records of sounds 63
+  (113,901–114,431) and 116 (111,552–112,014), so neither offset holds a
+  record header. The SQ2 2.0F directories shared by the DOS, Amiga and IIgs
+  editions end in `LOGDIR[141]` = `01 ff ff` and `PICDIR[147]` = `02 ff ff`,
+  volume 0 offsets `0x1ffff` and `0x2ffff` past every volume's end. KQ4 LOGIC 99
+  loads LOGIC 105 inside its `trace.info` debug block and MH2 LOGIC 0 has
+  `new.room(145)`; neither game ships that logic. SQ1 Amiga's LOGIC 99 is the
+  debug logic (loaded after the debug key sets its flag) and was assembled
+  with a zero-operand `quit`, while the 2.082 driver consumes one operand
+  (docs/fidelity.md, "Amiga"); the decoder reports it as unreadable from its
+  `said("quit")` block onward. Authoring carries every such defect forward
+  unchanged (`test/games-authoring.test.ts`): an edit to another part applies,
+  the Agent names the unreadable parts, and only damage the edit introduces
+  refuses.
 - **3.002.149 handler comparison.** The handler comparison in
   `test/mh2-profile.test.ts` requires both 3.002.149 fixtures (`gr1` and `mh2`);
   its logic-reference test requires only `mh2`.

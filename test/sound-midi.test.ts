@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createSoundDocument } from "../src/sound/document.ts";
 import { importMidi, exportMidi } from "../src/sound/midi.ts";
+import { bentPitch, divisorPitch, exportedMidiNotes } from "./midiNotes.ts";
 
 function vlq(n: number): number[] {
   const bytes = [n & 127];
@@ -149,7 +150,7 @@ test("MIDI export is type 1 with four named voice tracks and round trips musical
     .insertEvent(0, 1, { ticks: 23, data: { kind: "tone", note: "A4", attenuation: 3 } })
     .insertEvent(2, 0, { ticks: 17, data: { kind: "tone", note: "C5", attenuation: 7 } })
     .insertEvent(3, 0, { ticks: 6, data: { kind: "noise", control: 2, attenuation: 5 } });
-  const bytes = exportMidi(doc);
+  const bytes = exportMidi(doc).bytes;
   assert.deepEqual([...bytes.slice(0, 14)], [77, 84, 104, 100, 0, 0, 0, 6, 0, 1, 0, 5, 0, 60]);
   assert.deepEqual(importMidi(bytes).document.encode(), doc.encode());
 });
@@ -183,5 +184,91 @@ test("export and reimport retain empty voices and trailing rests", () => {
     .insertEvent(0, 0, { ticks: 12, data: { kind: "rest" } })
     .insertEvent(2, 0, { ticks: 17, data: { kind: "tone", note: "A4", attenuation: 3 } })
     .insertEvent(2, 1, { ticks: 9, data: { kind: "rest" } });
-  assert.deepEqual(importMidi(exportMidi(doc)).document.encode(), doc.encode());
+  assert.deepEqual(importMidi(exportMidi(doc).bytes).document.encode(), doc.encode());
+});
+
+const BEND_RANGE_RPN = [0, 177, 101, 0, 0, 177, 100, 0, 0, 177, 6, 2, 0, 177, 38, 0];
+
+test("MIDI export keeps a tune's tuning: note names follow the shared offset and bends play the divisor pitch", () => {
+  // A tune about 45 cents sharp of A440, the way King's Quest I's theme is.
+  // Rounding each divisor on its own would scatter neighbours a semitone
+  // apart; the shared offset keeps B4 D5 A5 B5 D6, and bends keep the pitch.
+  // Divisor pitches: 71.425, 74.409, 81.429, 83.347 and 86.409 semitones from
+  // MIDI 0, so the shared offset is their mean distance above the nearest
+  // semitone, 0.404 = 40 cents.
+  const divisors = [221, 186, 124, 111, 93];
+  let doc = createSoundDocument();
+  divisors.forEach((divisor, index) => {
+    doc = doc.insertEvent(1, index, { ticks: 10, data: { kind: "tone", divisor, attenuation: 2 } });
+  });
+  const exported = exportMidi(doc);
+  assert.equal(exported.tuningCents, 40);
+  assert.deepEqual(exported.warnings, []);
+  const notes = exportedMidiNotes(exported.bytes);
+  assert.deepEqual(
+    notes.map((n) => [n.track, n.note]),
+    [71, 74, 81, 83, 86].map((note) => [2, note]),
+  );
+  // Voice 2 declares a two-semitone bend range right after its name.
+  const name = [0, 255, 3, 7, ...[..."Voice 2"].map((c) => c.charCodeAt(0))];
+  const at = [...exported.bytes].findIndex((_, i) =>
+    name.every((byte, j) => exported.bytes[i + j] === byte),
+  );
+  assert.ok(at > 0);
+  assert.deepEqual(
+    [...exported.bytes.subarray(at + name.length, at + name.length + 16)],
+    BEND_RANGE_RPN,
+  );
+  // Each wheel position restores the divisor frequency within a cent.
+  notes.forEach((n, index) => {
+    assert.ok(Math.abs(100 * (bentPitch(n) - divisorPitch(divisors[index]!))) < 1, `note ${index}`);
+  });
+  // Re-importing honours the bends: the same divisors come back.
+  assert.deepEqual(
+    importMidi(exported.bytes)
+      .document.tracks()![1]!
+      .map((e) => (e.data.kind === "tone" ? e.data.divisor : e.data.kind)),
+    divisors,
+  );
+});
+
+test("MIDI export writes near-A440 notes with small bends and raw events as silence with a warning", () => {
+  const doc = createSoundDocument()
+    .insertEvent(0, 0, { ticks: 23, data: { kind: "tone", note: "A4", attenuation: 3 } })
+    .insertEvent(0, 1, {
+      ticks: 7,
+      data: { kind: "raw", toneLow: 1, toneHigh: 0x9f, control: 0x9f },
+    })
+    .insertEvent(0, 2, { ticks: 11, data: { kind: "tone", note: "A5", attenuation: 3 } });
+  const exported = exportMidi(doc);
+  assert.ok(Math.abs(exported.tuningCents) <= 2);
+  assert.deepEqual(exported.warnings, [
+    "1 event holds raw bytes instead of a note, so it is silent in the MIDI file.",
+  ]);
+  const notes = exportedMidiNotes(exported.bytes);
+  assert.deepEqual(
+    notes.map((n) => [n.track, n.note]),
+    [
+      [1, 69],
+      [1, 81],
+    ],
+  );
+  for (const n of notes)
+    assert.ok(Math.abs(n.wheel - 8192) < 100, "the chip's A sits within 2 cents");
+  // The raw event's time is kept as silence: 23 ticks, 7 rest, 11 ticks.
+  assert.deepEqual(
+    importMidi(exported.bytes)
+      .document.tracks()![0]!
+      .map((e) => [e.data.kind, e.durationTicks]),
+    [
+      ["tone", 23],
+      ["rest", 7],
+      ["tone", 11],
+    ],
+  );
+});
+
+test("an opaque sound document refuses MIDI export in plain words", () => {
+  const opaque = { tracks: () => null } as unknown as Parameters<typeof exportMidi>[0];
+  assert.throws(() => exportMidi(opaque), /no notes to write as MIDI/);
 });

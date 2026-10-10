@@ -574,8 +574,12 @@ test("room generation can switch off and on on the same worker", async (t) => {
   assert.ok(control.some((msg) => msg.type === "hostRequest" && msg.op === "room"));
 });
 
-test("MAIN admission permits future room edits only while room generation is enabled", async (t) => {
-  for (const enabled of [true, false]) {
+test("MAIN admission carries an existing exit to a missing room and refuses only a new one while room generation is off", async (t) => {
+  for (const [enabled, source, expected] of [
+    [true, "assignn(v80,42); if (isset(f50)) { new.room(3); } return;", "committed"],
+    [false, "assignn(v80,42); if (isset(f50)) { new.room(3); } return;", "committed"],
+    [false, "if (isset(f50)) { new.room(3); } if (isset(f51)) { new.room(4); } return;", "refused"],
+  ] as const) {
     const control: WorkerControl[] = [];
     const ctx = createWorkerContext({
       control: (msg) => control.push(msg),
@@ -597,7 +601,7 @@ test("MAIN admission permits future room edits only while room generation is ena
     await ctx.projectLoader.loading;
     ctx.fns.stopTimers();
     const grant = ctx.run.projectAdmission!;
-    const edited = candidate("assignn(v80,42); if (isset(f50)) { new.room(3); } return;");
+    const edited = candidate(source);
     onWorkerMessage(ctx, {
       type: "previewUpdate",
       id: 10,
@@ -607,7 +611,7 @@ test("MAIN admission permits future room edits only while room generation is ena
     });
     const result = control.at(-1);
     assert.ok(result?.type === "previewUpdateResult");
-    assert.equal(result.status, enabled ? "committed" : "refused");
-    if (!enabled) assert.match(result.reason ?? "", /LOGIC 3 is absent/);
+    assert.equal(result.status, expected, source);
+    if (expected === "refused") assert.match(result.reason ?? "", /LOGIC 4 is absent/);
   }
 });
