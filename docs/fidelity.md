@@ -575,7 +575,7 @@ programmed volume.
 ## Apple IIgs edition
 
 The Apple IIgs port of Space Quest II carries the most unusual AGI interpreter
-in this collection: a 65816 program for GS/OS that hands menus, dialogs and
+in the fixtures examined: a 65816 program for GS/OS that hands menus, dialogs and
 sound to the IIgs toolbox. Its version banner reads 1.014, and it runs under the
 `iigs-1.014` profile.
 
