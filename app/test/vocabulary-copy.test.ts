@@ -60,7 +60,7 @@ function strings(source: string): string[] {
 function visibleCopy(file: string): string[] {
   const source = readFileSync(file, "utf8");
   if (!file.endsWith(".vue")) return strings(source);
-  const script = /<script[^>]*>([\s\S]*?)<\/script\b[^>]*>/.exec(source)?.[1] ?? "";
+  const script = /<script[^>]*>([\s\S]*?)<\/script\b[^>]*>/i.exec(source)?.[1] ?? "";
   const template = source.slice(
     source.indexOf("<template>") + "<template>".length,
     source.lastIndexOf("</template>"),
