@@ -159,6 +159,63 @@ test("a successful finish ends the turn with no provider request and rejects bun
   assert.equal(result.patched.length >= 0, true);
 });
 
+test("a remix finish waits until the model has read a failure from its own batch", async (t) => {
+  const room = (said: string) =>
+    `if (isset(f5)) { assignn(v10,1); load.pic(v10); draw.pic(v10); show.pic(); load.view(0); animate.obj(0); set.view(0,0); position(0,80,120); draw(0); accept.input(); } if (said("${said}")) { print("Sparkle"); } return;`;
+  const bodies: string[] = [];
+  t.mock.method(globalThis, "fetch", async (_url: unknown, init: RequestInit) => {
+    bodies.push(String(init.body));
+    const [write, finish] =
+      bodies.length === 1 ? ["write", "finish"] : bodies.length === 2 ? ["repair", "finish2"] : [];
+    const output = write
+      ? [
+          {
+            type: "function_call",
+            call_id: write,
+            name: "write_logic",
+            arguments: JSON.stringify({
+              room: 1,
+              source: room(write === "write" ? "sparkle" : "look"),
+            }),
+          },
+          { type: "function_call", call_id: finish, name: "finish", arguments: '{"notes":null}' },
+        ]
+      : [{ type: "message", role: "assistant", content: [{ type: "output_text", text: "Done." }] }];
+    return new Response(providerSse("openai", { id: `r${bodies.length}`, output }), {
+      headers: { "Content-Type": "text/event-stream" },
+    });
+  });
+  const state = createAgentSessionState();
+  state.wordsPayload = buildWordsTok([{ word: "look", id: 10 }]);
+  state.sources.words.set("look", 10);
+  state.container.putResource(
+    "view",
+    0,
+    buildView({ loops: [{ cels: [{ width: 1, height: 1, transparentColor: 0, pixels: [2] }] }] }),
+  );
+  state.container.putResource("picture", 1, compilePictureSource("vis 1\nfill 0,0\nend").bytes);
+  state.container.putResource(
+    "logic",
+    0,
+    assembleLogic("if (!isset(f200)) { set(f200); new.room(1); } call.v(v0); return;", {
+      dictionary: state.sources.words,
+    }).payload,
+  );
+  const original = assembleLogic(room("look").replace(/ if \(said[^}]*\}/, ""), {
+    dictionary: state.sources.words,
+  }).payload;
+  state.container.putResource("logic", 1, original);
+  const session = new AgentSession(
+    { provider: "openai", apiKey: "test-placeholder", model: "gpt-6-sol" },
+    () => {},
+    state,
+  );
+  await session.runPowerUp("make LOOK sparkle", 1);
+  assert.equal(bodies.length, 2, "the failure reached the model before the remix ended");
+  assert.match(bodies[1]!, /Not finished: write_logic failed earlier in this batch/);
+  assert.notDeepEqual(state.container.getResource("logic", 1), original);
+});
+
 test("a remix ending in text commits only after the host verdict passes", async (t) => {
   // Offline bad case: the provider staged a write that broke a declared
   // exit, finish rejected it, and the model answered "Done." anyway.
@@ -530,6 +587,42 @@ test("pinned map notes reach the room turn's request body", async (t) => {
   );
 });
 
+test("a room finish waits until the model has read a failure from its own batch", async (t) => {
+  const bodies: string[] = [];
+  const call = (call_id: string, name: string, input: unknown) => ({
+    type: "function_call",
+    call_id,
+    name,
+    arguments: JSON.stringify(input),
+  });
+  t.mock.method(globalThis, "fetch", async (_url: unknown, init: RequestInit) => {
+    bodies.push(String(init.body));
+    const output =
+      bodies.length === 1
+        ? [
+            call("room", "write_logic", { room: 2, source: "return;" }),
+            call("pic", "write_picture", { room: 2, source: "vis 1\nfill 0,0\nend" }),
+            call("words", "write_logic", {
+              room: 2,
+              source: 'if (said("sparkle")) { print("Sparkle"); } return;',
+            }),
+            call("done", "finish", { notes: null }),
+          ]
+        : [call("done2", "finish", { notes: null })];
+    return new Response(providerSse("openai", { id: String(bodies.length), output }), {
+      headers: { "Content-Type": "text/event-stream" },
+    });
+  });
+  const session = new AgentSession(
+    { provider: "openai", apiKey: "placeholder", model: "gpt-6-sol" },
+    () => {},
+    createAgentSessionState(),
+  );
+  await session.handle({ op: "room", context: { room: 2, from: 1 } });
+  assert.equal(bodies.length, 2, "the failure reached the model before the room was committed");
+  assert.match(bodies[1]!, /Not finished: write_logic failed earlier in this batch/);
+});
+
 test("a stalled remix pauses and can be discarded without claiming completion", async (t) => {
   let calls = 0;
   t.mock.method(
@@ -726,6 +819,38 @@ test("genesis is one turn: the world plan and resource writes share the tool sur
   assert.equal(session.state.authoring.world.rooms["2"]?.title, "Tide Room");
   assert.ok(session.state.sources.words.has("dock"));
   assert.equal(requests.length, 2, "one turn — the plan never takes a provider round of its own");
+});
+
+test("a genesis finish waits until the model has read a failure from its own batch", async (t) => {
+  const bodies: string[] = [];
+  t.mock.method(globalThis, "fetch", async (_url: unknown, init: RequestInit) => {
+    bodies.push(String(init.body));
+    // A 400 ends the bounded test; the SDK retries connection errors.
+    if (bodies.length > 1) return new Response("End this bounded genesis test.", { status: 400 });
+    const output = [
+      {
+        type: "function_call",
+        call_id: "write",
+        name: "write_logic",
+        arguments: JSON.stringify({
+          room: 1,
+          source: 'if (said("sparkle")) { print("Sparkle"); } return;',
+        }),
+      },
+      { type: "function_call", call_id: "finish", name: "finish", arguments: '{"notes":null}' },
+    ];
+    return new Response(providerSse("openai", { id: `g${bodies.length}`, output }), {
+      headers: { "Content-Type": "text/event-stream" },
+    });
+  });
+  const session = new AgentSession(
+    { provider: "openai", apiKey: "test-placeholder", model: "gpt-6-sol" },
+    () => {},
+  );
+  await assert.rejects(session.startGenesis("A dockside mystery."));
+  assert.equal(bodies.length, 2, "the failure reached the model before genesis ended");
+  assert.match(bodies[1]!, /Not finished: write_logic failed earlier in this batch/);
+  assert.equal(session.state.genesisComplete, false);
 });
 
 test("a map edit mid-turn is refused, and the turn's world survives a clean adopt", async (t) => {

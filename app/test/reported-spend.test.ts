@@ -78,3 +78,15 @@ test("cached image input is charged once at the cached rate", () => {
       { amount: 0.064, priceKnown: true, incomplete: false },
     );
 });
+
+test("a finished message without reported usage says so instead of waiting", () => {
+  // The compact label is written once, when the task ends; nothing updates it later.
+  assert.equal(
+    formatSpent({ amount: 0, priceKnown: true, incomplete: true }, "compact"),
+    "Usage not reported",
+  );
+  assert.equal(
+    formatSpent({ amount: 0.018, priceKnown: true, incomplete: true, budget: 5 }, "compact"),
+    "$0.01+ / $5 spent",
+  );
+});

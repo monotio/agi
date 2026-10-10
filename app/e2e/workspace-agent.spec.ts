@@ -355,6 +355,53 @@ test("Approve admits a said response before Create game input", async ({ page })
   await page.screenshot({ path: test.info().outputPath("approved-sign-1440.png") });
 });
 
+test("a turn that stops without a change or a reply says so plainly", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const bodies: string[] = [];
+  await page.route("**/api/openai/v1/responses", async (route) => {
+    bodies.push(route.request().postData() ?? "");
+    await route.fulfill(
+      providerReply("openai", {
+        id: `stopped-${bodies.length}`,
+        output:
+          bodies.length === 1
+            ? [
+                {
+                  type: "function_call",
+                  call_id: "write",
+                  name: "write_logic",
+                  arguments: JSON.stringify({
+                    room: 1,
+                    source: 'if (said("sparkle")) { print("Sparkle"); } return;',
+                  }),
+                },
+                {
+                  type: "function_call",
+                  call_id: "finish",
+                  name: "finish",
+                  arguments: '{"notes":null}',
+                },
+              ]
+            : [],
+      }),
+    );
+  });
+  await start(page, "openai", false);
+  await page.getByTestId("agent-message").fill("Make LOOK sparkle");
+  await page.getByRole("button", { name: "Send", exact: true }).click();
+  const reply = page.getByTestId("agent-conversation").locator("article").last();
+  await expect(reply).toContainText(
+    "The agent stopped before changing anything. Ask again, or describe the change differently.",
+  );
+  // The failed write reached the model with the refused finish before the turn ended.
+  expect(bodies).toHaveLength(2);
+  expect(bodies[1]).toContain("Not finished: write_logic failed earlier in this batch");
+  await expect(reply.getByTestId("agent-spent")).toHaveText("Usage not reported");
+  await expect(page.getByTestId("agent-review")).toHaveCount(0);
+  await expect(page.getByTestId("agent-error")).toHaveCount(0);
+  await page.screenshot({ path: test.info().outputPath("stopped-turn-1440.png") });
+});
+
 test("Agent replies render safe Markdown", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.route("**/api/openai/v1/responses", async (route) => {

@@ -186,6 +186,154 @@ test("successful workspace finish ends the tool batch and provider turn", async 
   }
 });
 
+for (const provider of ["openai", "anthropic"] as const) {
+  test(`${provider} finish waits until the model has read a failure from its own batch`, async (t) => {
+    // Bad case: a write failed (its word was not registered) and the same
+    // batch ended with finish. The finish passed on the unchanged project, the
+    // failure never reached the model, and the turn ended in an empty reply.
+    const { session } = fixture();
+    const unregistered = 'if (said("sparkle")) { print("Sparkle"); } return;';
+    const repaired = 'if (said("look")) { print("Sparkle"); } return;';
+    const batches = [
+      [
+        { id: "write", name: "write_logic", input: { room: 1, source: unregistered } },
+        { id: "finish", name: "finish", input: { notes: null } },
+      ],
+      [
+        { id: "repair", name: "write_logic", input: { room: 1, source: repaired } },
+        { id: "finish2", name: "finish", input: { notes: null } },
+      ],
+    ];
+    const bodies: string[] = [];
+    t.mock.method(globalThis, "fetch", async (_url: unknown, init: RequestInit) => {
+      bodies.push(String(init.body));
+      const calls = batches[bodies.length - 1] ?? [];
+      const body =
+        provider === "openai"
+          ? {
+              id: `r${bodies.length}`,
+              output: calls.length
+                ? calls.map((call) => ({
+                    type: "function_call",
+                    call_id: call.id,
+                    name: call.name,
+                    arguments: JSON.stringify(call.input),
+                  }))
+                : [
+                    {
+                      type: "message",
+                      role: "assistant",
+                      content: [{ type: "output_text", text: "Done." }],
+                    },
+                  ],
+              usage: { input_tokens: 1, output_tokens: 1 },
+            }
+          : {
+              id: `r${bodies.length}`,
+              type: "message",
+              role: "assistant",
+              stop_reason: calls.length ? "tool_use" : "end_turn",
+              content: calls.length
+                ? calls.map((call) => ({ type: "tool_use", ...call }))
+                : [{ type: "text", text: "Done." }],
+              usage: { input_tokens: 1, output_tokens: 1 },
+            };
+      return new Response(providerSse(provider, body), {
+        headers: { "content-type": "text/event-stream" },
+      });
+    });
+    const agent = createWorkspaceAgent({
+      session,
+      profileId: "2.936",
+      config: () => ({
+        provider,
+        model: provider === "openai" ? "gpt-6-sol" : "claude-opus-5-5",
+        apiKey: "offline",
+      }),
+    });
+    try {
+      await agent.send("Make the room answer LOOK with a sparkle");
+      assert.equal(bodies.length, 2, "the model received the failure before the turn ended");
+      const second = bodies[1]!;
+      assert.match(second, /sparkle/);
+      assert.match(second, /Not finished: write_logic failed earlier in this batch/);
+      // Every call keeps its paired result, the refused finish included.
+      for (const id of ["write", "finish"]) assert.match(second, new RegExp(`"${id}"`));
+      const logic = agent
+        .pending()
+        ?.changes()
+        .find((change) => change.key === "logic:1");
+      assert.ok(logic, "the repaired write reached review");
+      assert.ok(agent.progress.some((note) => /write_logic failed: .*sparkle/i.test(note)));
+    } finally {
+      session.dispose();
+    }
+  });
+}
+
+for (const readOnly of [false, true]) {
+  test(`${readOnly ? "Ask" : "an edit"} turn that ends with an empty reply says so plainly`, async () => {
+    const { session } = fixture();
+    const agent = createWorkspaceAgent({
+      session,
+      profileId: "2.936",
+      config: () => ({ provider: "stub", model: "stub", apiKey: "" }),
+      conversation: () => ({
+        setAvailableTools() {},
+        getTranscript: () => [],
+        async sendUserMessage() {
+          return { text: "", toolCalls: [], stopReason: "end_turn" };
+        },
+        appendToolResults() {},
+        async complete() {
+          return { text: "", toolCalls: [] };
+        },
+      }),
+    });
+    try {
+      const reply = readOnly ? await agent.ask("What is here?") : await agent.send("Add a tree");
+      const expected = readOnly
+        ? "The agent stopped without answering. Ask again."
+        : "The agent stopped before changing anything. Ask again, or describe the change differently.";
+      assert.equal(agent.current().messages.at(-1)?.text, expected);
+      if (readOnly) assert.equal(reply, expected);
+      assert.equal(agent.pending(), null);
+      assert.match(agent.progress.at(-1) ?? "", /empty reply.*end_turn/);
+    } finally {
+      session.dispose();
+    }
+  });
+}
+
+test("a passing finish with no change and no reply still says the agent stopped", async () => {
+  const { session } = fixture();
+  const agent = createWorkspaceAgent({
+    session,
+    profileId: "2.936",
+    config: () => ({ provider: "stub", model: "stub", apiKey: "" }),
+    conversation: () => ({
+      setAvailableTools() {},
+      getTranscript: () => [],
+      async sendUserMessage() {
+        return { toolCalls: [{ id: "finish", name: "finish", input: { notes: null } }] };
+      },
+      appendToolResults() {},
+      async complete() {
+        return { text: "Unreachable", toolCalls: [] };
+      },
+    }),
+  });
+  try {
+    await agent.send("Add a tree");
+    assert.equal(
+      agent.current().messages.at(-1)?.text,
+      "The agent stopped before changing anything. Ask again, or describe the change differently.",
+    );
+  } finally {
+    session.dispose();
+  }
+});
+
 test("partial approval validates the selected candidate's handover", async () => {
   const { session } = fixture();
   await session.submit({

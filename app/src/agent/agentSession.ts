@@ -17,6 +17,7 @@ import {
 } from "../../../src/agent/agentState.ts";
 import {
   ASK_TOOLS,
+  finishAfterFailures,
   validateAgentHandover,
   buildSound,
   type SoundTrackInput,
@@ -609,6 +610,7 @@ Answer the player's question using evidence from inspection when needed. For hin
         }
         let handedOver = false;
         const results: { toolCallId: string; result: AgentToolResult }[] = [];
+        const failed: string[] = [];
         for (const tc of turn.toolCalls) {
           await this.task.checkpoint(false);
           this.onEvent("request", `[Remix] ${tc.name}`, { tool: tc.name, args: tc.input });
@@ -617,6 +619,7 @@ Answer the player's question using evidence from inspection when needed. For hin
           const toolStart = performance.now();
           const candidate = forkAgentState(staged);
           let res: AgentToolResult;
+          const waiting = tc.name === "finish" ? finishAfterFailures(failed) : undefined;
           if (handedOver) {
             // Terminal barrier: the call is recorded with an explicit
             // rejection — never silently dropped — but does not execute.
@@ -625,6 +628,8 @@ Answer the player's question using evidence from inspection when needed. For hin
               error:
                 "Not executed: this turn ended at a successful finish. Ask for this change in the next Remix request.",
             };
+          } else if (waiting) {
+            res = { success: false, error: waiting };
           } else {
             res = watch.record(
               tc.name,
@@ -636,6 +641,7 @@ Answer the player's question using evidence from inspection when needed. For hin
               }),
             );
           }
+          if (!res.success) failed.push(tc.name);
           if (res.success) {
             Object.assign(staged, candidate);
             if (tc.name === "finish") handedOver = true;
@@ -1140,6 +1146,7 @@ Answer the player's question using evidence from inspection when needed. For hin
       await this.task.checkpoint(false);
       if (turn.toolCalls.length > 0) {
         const results: { toolCallId: string; result: ReturnType<typeof executeAgentTool> }[] = [];
+        const failed: string[] = [];
         for (const tc of turn.toolCalls) {
           await this.task.checkpoint(false);
           this.onEvent("request", `[Genesis] ${tc.name}`, { tool: tc.name, args: tc.input });
@@ -1148,15 +1155,19 @@ Answer the player's question using evidence from inspection when needed. For hin
           const toolStart = performance.now();
           // Terminal barrier: a successful finish ends the batch; later
           // calls get an explicit rejection result, never a silent drop.
+          const waiting = tc.name === "finish" ? finishAfterFailures(failed) : undefined;
           const res = this.state.genesisComplete
             ? {
                 success: false,
                 error:
                   "Not executed: this turn ended at a successful finish. Use an Ask or Remix request for further changes.",
               }
-            : await this.executeTool(this.state, tc.name, tc.input, {
-                allowedTools: genesisTools,
-              });
+            : waiting
+              ? { success: false, error: waiting }
+              : await this.executeTool(this.state, tc.name, tc.input, {
+                  allowedTools: genesisTools,
+                });
+          if (!res.success) failed.push(tc.name);
           this.pendingToolMs += performance.now() - toolStart;
           this.onEvent(
             res.success ? "response" : "error",
@@ -1358,6 +1369,7 @@ Answer the player's question using evidence from inspection when needed. For hin
           continue;
         }
         const results: { toolCallId: string; result: AgentToolResult }[] = [];
+        const failed: string[] = [];
         for (const tc of turn.toolCalls) {
           await this.task.checkpoint(false);
           this.onEvent("request", `[Room tool] ${tc.name}`, { tool: tc.name, args: tc.input });
@@ -1366,6 +1378,7 @@ Answer the player's question using evidence from inspection when needed. For hin
           const toolStart = performance.now();
           const candidate = forkAgentState(staged);
           let result: AgentToolResult;
+          const waiting = tc.name === "finish" ? finishAfterFailures(failed) : undefined;
           try {
             if (completed) {
               result = {
@@ -1373,6 +1386,8 @@ Answer the player's question using evidence from inspection when needed. For hin
                 error:
                   "Not executed: this turn ended at a successful finish. The room is already committed.",
               };
+            } else if (waiting) {
+              result = { success: false, error: waiting };
             } else if (tc.name === "finish") {
               if (
                 staged.container.getResource("logic", room) &&
@@ -1415,6 +1430,7 @@ Answer the player's question using evidence from inspection when needed. For hin
           } catch (error) {
             result = { success: false, error: String(error) };
           }
+          if (!result.success) failed.push(tc.name);
           this.onEvent(
             result.success ? "response" : "error",
             `[Room tool] ${tc.name} -> ${result.success ? "ok" : result.error}`,
