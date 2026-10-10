@@ -263,6 +263,13 @@ live owners, and acknowledges only exact observed entries. Browsers without
 `navigator.locks` open projects read-only with Download. Conditional IndexedDB
 commits fence project lifetimes and generations.
 
+Installed games store only their conversation. Each page journals its newest
+unacknowledged chats in browser storage before the IndexedDB write, under a key it
+owns through the same Web Lock, and removes the journal when the write commits.
+Opening the conversation again merges journals whose pages have closed: a chat one
+side changed takes that side, a longer continuation wins, and diverged chats are
+both kept. Conversation saves stay separate from play progress and resource commits.
+
 Draft saved confirms pending editor drafts are stored; Saved confirms project
 document storage, independently of play progress. Checkpoint preparation checks stored documents and returns not ready
 during saving or admission. Each acknowledgement requests a fresh checkpoint;

@@ -1,5 +1,24 @@
 import { installIndexedDbFixture } from "./indexedDbFixture.ts";
+import { installWebLocksFixture } from "./webLocksFixture.ts";
 const records = installIndexedDbFixture();
+installWebLocksFixture();
+const journal = new Map<string, string>();
+Object.defineProperty(globalThis, "localStorage", {
+  configurable: true,
+  value: {
+    get length() {
+      return journal.size;
+    },
+    key: (index: number) => [...journal.keys()][index] ?? null,
+    getItem: (key: string) => journal.get(key) ?? null,
+    setItem: (key: string, value: string) => {
+      journal.set(key, value);
+    },
+    removeItem: (key: string) => {
+      journal.delete(key);
+    },
+  } as Storage,
+});
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createInstalledConversation } from "../src/agent/installedConversation.ts";
@@ -186,5 +205,165 @@ test("installed inspection keeps the running explicit interpreter profile", asyn
     assert.equal(owner.agent.current().messages[0]!.request!.profileId, "2.001");
   } finally {
     owner.dispose();
+  }
+});
+
+function answering(text: string) {
+  return () => ({
+    setAvailableTools() {},
+    async sendUserMessage() {
+      return { text, toolCalls: [] };
+    },
+    appendToolResults() {},
+    async complete() {
+      return { toolCalls: [] };
+    },
+    getTranscript() {
+      return [];
+    },
+  });
+}
+function refuseConversationWrites(locator: string, before?: () => void): () => void {
+  const set = records.set;
+  records.set = function (key, value) {
+    if (key === `conversation/${locator}`) {
+      before?.();
+      throw new Error("Storage refused");
+    }
+    return set.call(this, key, value);
+  };
+  return () => {
+    records.set = set;
+  };
+}
+/** Recovery copies in browser storage that name this game's conversation. */
+const pending = (locator: string) =>
+  [...journal.keys()].filter((key) => key.includes(locator)).length;
+const lastText = (owner: { agent: { current(): { messages: { text: string }[] } } }) =>
+  owner.agent.current().messages.at(-1)?.text;
+
+test("an answer whose conversation write was refused is saved when the game opens again", async () => {
+  const options = fixture("installed-refused-close");
+  const owner = await createInstalledConversation({
+    ...options,
+    conversation: answering("Kept after refusal."),
+  });
+  await owner.agent.retryChatSave();
+  const restore = refuseConversationWrites(options.locator);
+  try {
+    await owner.agent.submit({ instruction: "Explain", mode: "play" });
+    assert.match(owner.agent.chatSaveError, /Retry save/);
+  } finally {
+    restore();
+    owner.dispose();
+  }
+  const reopened = await createInstalledConversation(options);
+  try {
+    assert.equal(lastText(reopened), "Kept after refusal.");
+    const stored = (await loadGameConversation(options.locator))!.chats!;
+    assert.equal(stored.chats[0]!.messages.at(-1)!.text, "Kept after refusal.");
+    assert.equal(pending(options.locator), 0, "a recovered answer leaves no pending copy");
+  } finally {
+    reopened.dispose();
+  }
+});
+
+test("an answer survives the page closing before its conversation write commits", async () => {
+  const options = fixture("installed-close-before-commit");
+  const owner = await createInstalledConversation({
+    ...options,
+    conversation: answering("Kept after closing."),
+  });
+  await owner.agent.retryChatSave();
+  // Browser storage as it stands when the tab dies during the IndexedDB commit.
+  let survived: Map<string, string> | undefined;
+  const restore = refuseConversationWrites(options.locator, () => {
+    survived ??= new Map(journal);
+  });
+  try {
+    await owner.agent.submit({ instruction: "Explain", mode: "play" });
+  } finally {
+    restore();
+    owner.dispose();
+  }
+  for (const key of [...journal.keys()]) if (!survived?.has(key)) journal.delete(key);
+  for (const [key, value] of survived ?? []) journal.set(key, value);
+  const reopened = await createInstalledConversation(options);
+  try {
+    assert.equal(lastText(reopened), "Kept after closing.");
+    assert.equal(pending(options.locator), 0);
+  } finally {
+    reopened.dispose();
+  }
+});
+
+test("a second page leaves a live page's unsaved answer to that page until it closes", async () => {
+  const options = fixture("installed-live-owner");
+  const owner = await createInstalledConversation({
+    ...options,
+    conversation: answering("Owned by the first page."),
+  });
+  await owner.agent.retryChatSave();
+  const restore = refuseConversationWrites(options.locator);
+  try {
+    await owner.agent.submit({ instruction: "Explain", mode: "play" });
+  } finally {
+    restore();
+  }
+  const copies = new Map(journal);
+  assert.equal(pending(options.locator), 1, "the unsaved answer has a recovery copy");
+  const second = await createInstalledConversation(options);
+  try {
+    assert.equal(second.agent.current().messages.length, 0);
+    assert.deepEqual(new Map(journal), copies, "a live page's copy is not taken");
+  } finally {
+    second.dispose();
+    owner.dispose();
+  }
+  const third = await createInstalledConversation(options);
+  try {
+    assert.equal(lastText(third), "Owned by the first page.");
+    assert.equal(pending(options.locator), 0);
+  } finally {
+    third.dispose();
+  }
+});
+
+test("a closed page's answer joins a conversation another page saved since", async () => {
+  const options = fixture("installed-merge");
+  const seed = await createInstalledConversation(options);
+  await seed.agent.retryChatSave();
+  seed.dispose();
+  const closing = await createInstalledConversation({
+    ...options,
+    conversation: answering("From the closed page."),
+  });
+  const staying = await createInstalledConversation({
+    ...options,
+    conversation: answering("From the open page."),
+  });
+  const restore = refuseConversationWrites(options.locator);
+  try {
+    await closing.agent.submit({ instruction: "First question", mode: "play" });
+  } finally {
+    restore();
+    closing.dispose();
+  }
+  await staying.agent.submit({ instruction: "Second question", mode: "play" });
+  assert.equal(staying.agent.chatSaveError, "");
+  staying.dispose();
+  const reopened = await createInstalledConversation(options);
+  try {
+    const texts = reopened.agent
+      .chats()
+      .map((chat) => chat.messages.map((message) => message.text));
+    assert.deepEqual(texts.map((messages) => messages.at(-1)).sort(), [
+      "From the closed page.",
+      "From the open page.",
+    ]);
+    assert.equal(lastText(reopened), "From the closed page.", "the closed page's chat is active");
+    assert.equal(pending(options.locator), 0);
+  } finally {
+    reopened.dispose();
   }
 });

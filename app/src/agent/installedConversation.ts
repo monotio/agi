@@ -10,6 +10,12 @@ import { requireProjectId } from "../../../src/gameIdentity.ts";
 import { inspectEditableProject } from "../project/projectWorkspaceSource.ts";
 import { compileWorkingProjectImage } from "../project/projectWorkingImage.ts";
 import { loadGameConversation, saveGameConversationUpdate } from "../project/gameStorage.ts";
+import {
+  conversationJournalKey,
+  conversationUpdateOf,
+  writeConversationJournal,
+} from "../project/conversationSaveJournal.ts";
+import { claimProjectSaveJournal } from "../project/projectSaveJournal.ts";
 import type { BootedGame } from "../project/gameTypes.ts";
 
 export type ConversationAgent = ReturnType<typeof createWorkspaceAgent>;
@@ -23,7 +29,21 @@ export async function createInstalledConversation(options: {
   readonly runtime: () => AgentRuntimeDeps;
   readonly conversation?: Parameters<typeof createWorkspaceAgent>[0]["conversation"];
 }) {
-  const stored = options.locator === null ? undefined : await loadGameConversation(options.locator);
+  // This page's unacknowledged chats, journaled under a key only it owns while open.
+  const journalKey =
+    options.locator === null || typeof localStorage === "undefined"
+      ? undefined
+      : conversationJournalKey(options.locator, crypto.randomUUID());
+  const ownership = journalKey === undefined ? undefined : claimProjectSaveJournal(journalKey);
+  let stored;
+  try {
+    stored = options.locator === null ? undefined : await loadGameConversation(options.locator);
+  } catch (error) {
+    ownership?.release();
+    throw error;
+  }
+  const journaling = (await ownership?.ready) === true;
+  let journaled = 0;
   let chats = migrateAgentChats(stored ?? {});
   let expectedChats = stored?.chats ?? null;
   const inspection = inspectEditableProject({
@@ -84,6 +104,13 @@ export async function createInstalledConversation(options: {
     saveChats(value) {
       const next = readAgentChats(value);
       chats = next;
+      const serial = ++journaled;
+      if (journaling)
+        try {
+          writeConversationJournal(localStorage, journalKey!, { base: expectedChats, chats: next });
+        } catch {
+          // The IndexedDB write below still runs; only crash recovery is lost.
+        }
       const save = tail
         .catch(() => {})
         .then(async () => {
@@ -91,20 +118,14 @@ export async function createInstalledConversation(options: {
             throw new Error(
               "This installed edition has no conversation storage. Download the conversation before leaving.",
             );
-          const active = next.chats.find((chat) => chat.id === next.active);
           await saveGameConversationUpdate(
             options.locator,
-            {
-              chats: next,
-              provider: active?.provider ?? "stub",
-              model: active?.model ?? "stub",
-              transcript: active?.transcript ?? [],
-              ...(active?.sessionId ? { sessionId: active.sessionId } : {}),
-              chat: active?.messages ?? [],
-            },
+            conversationUpdateOf(next),
             expectedChats,
           );
           expectedChats = next;
+          // A newer save keeps its own journal; its base resolves at recovery.
+          if (journaling && serial === journaled) localStorage.removeItem(journalKey!);
         });
       tail = save;
       return save;
@@ -127,6 +148,8 @@ export async function createInstalledConversation(options: {
     dispose() {
       closed = true;
       for (const observer of observers) observer();
+      // Writes still pending may finish here or in a later recovery; both merge to the same chats.
+      ownership?.release();
     },
   };
 }

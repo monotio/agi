@@ -14,6 +14,12 @@ Released notes are also available on [GitHub Releases](https://github.com/monoti
 
 - Development tools and CI actions are updated to their latest releases.
 
+### Fixed
+
+- Conversations in installed games keep their latest answer when the tab closes
+  before saving finishes. Answers from a closed tab join the conversation the next
+  time the game opens.
+
 ## [1.2.1] - 2026-10-10
 
 ### Changed
