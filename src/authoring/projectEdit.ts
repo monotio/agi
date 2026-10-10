@@ -257,9 +257,9 @@ export function prepareProjectEdit(input: {
         document: diagnostic.document,
         code: diagnostic.code,
         message: diagnostic.message,
-        // Sealing rooms checks every room exit, including existing ones.
-        severity:
-          preExisting && diagnostic.command !== "new.room" ? "warning" : diagnostic.severity,
+        // Damage the base already had, a room exit to nowhere included,
+        // stays listed and never blocks a change to something else.
+        severity: preExisting ? "warning" : diagnostic.severity,
         preExisting,
       });
     }

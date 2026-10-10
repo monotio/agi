@@ -24,7 +24,7 @@ import {
   readSoundDocumentSource,
   type SoundSourceBody,
 } from "../sound/source.ts";
-import type { ResourceKind } from "../types.ts";
+import { RESOURCE_KINDS, type ResourceKind } from "../types.ts";
 import type { BuildViewInput } from "../view/view.ts";
 import {
   createAuthoringState,
@@ -50,6 +50,7 @@ interface AgentDocumentChange {
   readonly content: DocumentContent | null;
 }
 
+type ReferenceFinding = ReturnType<typeof inspectProjectReferences>["diagnostics"][number];
 type AgentWorkspaceSnapshot = ReturnType<ProjectDraft["capture"]>;
 type AgentWorkspaceProposal = ReturnType<ProjectDraft["propose"]>;
 
@@ -58,6 +59,113 @@ export interface AgentCandidateDiagnostic {
   readonly key: string | null;
   readonly severity: "error" | "warning";
   readonly message: string;
+}
+
+/**
+ * A defect the captured game already had. Original releases ship directory
+ * entries that point past their volumes or into other records, logics that
+ * call absent logics, and bytecode the decoder cannot read (docs/testing.md,
+ * "Fixture notes"); the interpreter plays them because nothing loads those
+ * parts. Every defect carries forward unchanged and never refuses an edit of
+ * something else.
+ */
+export interface AgentWorkspaceDefect {
+  /** The document the defect belongs to. */
+  readonly key: string;
+  readonly cause: "unreadable" | "absent-target" | "unreadable-logic";
+  /** The diagnostic as the reader or reference inspection worded it. */
+  readonly message: string;
+}
+
+const NUMBER_WORDS = [
+  "zero",
+  "one",
+  "two",
+  "three",
+  "four",
+  "five",
+  "six",
+  "seven",
+  "eight",
+  "nine",
+];
+const KIND_NOUNS: Readonly<Record<string, [string, string]>> = {
+  logic: ["LOGIC", "LOGICs"],
+  picture: ["picture", "pictures"],
+  view: ["view", "views"],
+  sound: ["sound", "sounds"],
+  words: ["word list", "word lists"],
+  inventory: ["item list", "item lists"],
+};
+
+function countWord(count: number): string {
+  return NUMBER_WORDS[count] ?? String(count);
+}
+
+function listWords(items: readonly string[]): string {
+  if (items.length <= 1) return items.join("");
+  return `${items.slice(0, -1).join(", ")} and ${items.at(-1)}`;
+}
+
+function capitalize(text: string): string {
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+function documentName(key: string): string {
+  const resource = RESOURCE_KEY.exec(key);
+  return resource ? `${resource[1]!.toUpperCase()} ${resource[2]!}` : `the ${key} document`;
+}
+
+/**
+ * Plain sentences for the person, one per group of defects: what cannot be
+ * read or is missing, and that it stays as it is.
+ */
+export function describeWorkspaceDefects(defects: readonly AgentWorkspaceDefect[]): string[] {
+  const unreadable = new Map<string, string[]>();
+  const absent = new Map<string, string[]>();
+  const sentences: string[] = [];
+  for (const defect of defects) {
+    const resource = RESOURCE_KEY.exec(defect.key);
+    if (defect.cause === "unreadable") {
+      const kind = resource ? resource[1]! : defect.key;
+      const list = unreadable.get(kind) ?? [];
+      if (resource) list.push(resource[2]!);
+      unreadable.set(kind, list);
+    } else if (defect.cause === "absent-target") {
+      const target = /(LOGIC|PICTURE|VIEW|SOUND|Word group|Inventory item) (\d+)/.exec(
+        defect.message,
+      );
+      const name = target ? `${target[1]} ${target[2]}` : "a part";
+      const list = absent.get(name) ?? [];
+      if (!list.includes(documentName(defect.key))) list.push(documentName(defect.key));
+      absent.set(name, list);
+    } else if (resource) {
+      sentences.push(
+        `${documentName(defect.key)} has code this editor cannot read, so it stays as it is.`,
+      );
+    } else {
+      const noun = KIND_NOUNS[defect.key]?.[0] ?? `${defect.key} document`;
+      sentences.push(`The ${noun} in this game cannot be read, so it stays as it is.`);
+    }
+  }
+  for (const [kind, numbers] of unreadable) {
+    const nouns = KIND_NOUNS[kind] ?? [kind, kind];
+    if (numbers.length === 0) {
+      sentences.push(`The ${nouns[0]} in this game cannot be read, so it stays as it is.`);
+      continue;
+    }
+    const plural = numbers.length > 1;
+    sentences.push(
+      `${capitalize(countWord(numbers.length))} ${plural ? nouns[1] : nouns[0]} in this game (${listWords(numbers)}) cannot be read, so ${plural ? "they stay" : "it stays"} as ${plural ? "they are" : "it is"}.`,
+    );
+  }
+  for (const [name, documents] of absent) {
+    const plural = documents.length > 1;
+    sentences.push(
+      `${listWords(documents)} ${plural ? "refer" : "refers"} to ${name}, which this game does not have. That stays as it is.`,
+    );
+  }
+  return [...new Set(sentences)];
 }
 
 /** A refused candidate operation retains document-scoped diagnostics. */
@@ -83,6 +191,8 @@ export interface AgentWorkspace {
   readonly compilable: boolean;
   /** Findings from compiling the captured document set. */
   readonly diagnostics: readonly AgentCandidateDiagnostic[];
+  /** Defects the captured game already had; they carry forward unchanged. */
+  readonly defects: readonly AgentWorkspaceDefect[];
   /** Owned copies of the complete captured document set. */
   documents(): Readonly<Record<string, DocumentContent>>;
   /**
@@ -303,6 +413,33 @@ export function captureAgentWorkspace(input: {
   const files: Record<string, Uint8Array> = Object.create(null);
   for (const [name, bytes] of Object.entries(input.files)) files[name] = new Uint8Array(bytes);
 
+  // Indexed slots the base image cannot read. They have no document, no
+  // claim can name them, and packing keeps their entry and bytes exactly.
+  const baseUnreadable = new Map<string, string>();
+  {
+    const baseContainer = openContainer(new Map(Object.entries(files)), { profile });
+    for (const kind of RESOURCE_KINDS)
+      for (let num = 0; num < 256; num++) {
+        try {
+          baseContainer.getResource(kind, num);
+        } catch (error) {
+          baseUnreadable.set(
+            `${kind}:${num}`,
+            error instanceof Error ? error.message : String(error),
+          );
+        }
+      }
+  }
+  const defects: AgentWorkspaceDefect[] = [];
+  for (const [key, message] of baseUnreadable) defects.push({ key, cause: "unreadable", message });
+
+  // Reference errors the base already has, counted by document, code,
+  // command and message as the edit admission does: byte offsets move with
+  // harmless edits, while an additional broken use is new damage.
+  const baseFindings = new Map<string, number>();
+  const findingMarker = (finding: ReferenceFinding): string =>
+    JSON.stringify([finding.document, finding.code, finding.command, finding.message]);
+
   const diagnostics: AgentCandidateDiagnostic[] = [];
   let compiled: ProjectDocumentsCompile | undefined;
   try {
@@ -318,6 +455,18 @@ export function captureAgentWorkspace(input: {
       allowMissingRooms,
     }).diagnostics) {
       diagnostics.push(diagnostic(finding.document, finding.message, finding.severity));
+      if (finding.severity !== "error") continue;
+      const marker = findingMarker(finding);
+      baseFindings.set(marker, (baseFindings.get(marker) ?? 0) + 1);
+      if (finding.code === "unreadable-document" && baseUnreadable.has(finding.document)) continue;
+      defects.push({
+        key: finding.document,
+        cause:
+          finding.code === "incomplete-logic" || finding.code === "unreadable-document"
+            ? "unreadable-logic"
+            : "absent-target",
+        message: finding.message,
+      });
     }
   } catch (error) {
     compiled = undefined;
@@ -329,32 +478,49 @@ export function captureAgentWorkspace(input: {
     );
   }
 
-  /** Compile a complete overlaid document set, then refuse reference errors. */
+  /**
+   * Compile a complete overlaid document set, then refuse reference errors
+   * the change introduces. Errors the base already had carry forward.
+   */
   const validateDocuments = (docs: Record<string, DocumentContent>): void => {
     let image: ProjectDocumentsCompile;
     try {
       image = compileProjectDocuments({ files, profileId, documents: docs });
     } catch (error) {
-      throw new AgentCandidateError("The candidate document set does not compile.", [
-        diagnostic(
-          error instanceof ProjectDocumentCompileError ? error.key : null,
-          error instanceof Error ? error.message : String(error),
-        ),
-      ]);
+      throw new AgentCandidateError(
+        "The change does not build. Fix the part named below, then try again.",
+        [
+          diagnostic(
+            error instanceof ProjectDocumentCompileError ? error.key : null,
+            error instanceof Error ? error.message : String(error),
+          ),
+        ],
+      );
     }
     const bindings = readBindingsDocument(
       typeof docs["bindings"] === "string" ? docs["bindings"] : "{}",
     );
+    const remaining = new Map(baseFindings);
     const problems = inspectProjectReferences({
       container: openContainer(image.files(), { profile }),
       profile,
       bindings,
       allowMissingRooms,
     })
-      .diagnostics.filter((finding) => finding.severity === "error")
+      .diagnostics.filter((finding) => {
+        if (finding.severity !== "error") return false;
+        const marker = findingMarker(finding);
+        const count = remaining.get(marker) ?? 0;
+        if (count === 0) return true;
+        remaining.set(marker, count - 1);
+        return false;
+      })
       .map((finding) => diagnostic(finding.document, finding.message, finding.severity));
     if (problems.length > 0)
-      throw new AgentCandidateError("The candidate documents leave dangling references.", problems);
+      throw new AgentCandidateError(
+        "The change refers to a part this game does not have. Add that part or remove the reference, then try again.",
+        problems,
+      );
   };
 
   const propose = (
@@ -379,7 +545,7 @@ export function captureAgentWorkspace(input: {
   const openToolState = (): AgentToolCandidate => {
     if (!compiled)
       throw new AgentCandidateError(
-        "Whole-game tools need a compilable draft image; the captured documents do not compile.",
+        "The game does not build right now, so its parts cannot be changed. Fix the part named below, then try again.",
         diagnostics.filter((finding) => finding.severity === "error"),
       );
 
@@ -549,7 +715,7 @@ export function captureAgentWorkspace(input: {
       }
       if (problems.length > 0)
         throw new AgentCandidateError(
-          "The tool candidate is not a coherent project image.",
+          "The change left the game's names, world details or music settings invalid. Correct the part named below, then try again.",
           problems,
         );
 
@@ -583,6 +749,10 @@ export function captureAgentWorkspace(input: {
 
       for (const finding of read.diagnostics) {
         const claim = claims[finding.key];
+        // A slot the base could not read either has no claim and no
+        // document; it carries forward. A slot that became unreadable, or a
+        // claim that does not reproduce its bytes, refuses.
+        if (claim === undefined && baseUnreadable.has(finding.key)) continue;
         if (
           claim === undefined ||
           read.documents[finding.key] === undefined ||
@@ -592,7 +762,7 @@ export function captureAgentWorkspace(input: {
       }
       if (problems.length > 0)
         throw new AgentCandidateError(
-          "Candidate source claims do not reproduce the candidate's native bytes.",
+          "The new text for a part does not match the data it describes. Write the part named below again.",
           problems,
         );
 
@@ -713,8 +883,17 @@ export function captureAgentWorkspace(input: {
       }
 
       // Tests: an opaque tests document has no staged representation; a staged
-      // TESTS.JSON over opaque content refuses rather than shadow it.
-      const stagedTests = stagedFiles.get(GAME_TESTS_FILE);
+      // TESTS.JSON over opaque content refuses rather than shadow it. A
+      // TESTS.JSON the native file set carried in unchanged is not a change.
+      let stagedTests = stagedFiles.get(GAME_TESTS_FILE);
+      const imageTests = imageFiles.get(GAME_TESTS_FILE);
+      if (
+        stagedTests !== undefined &&
+        testsBytes === undefined &&
+        imageTests !== undefined &&
+        sameBytes(stagedTests, imageTests)
+      )
+        stagedTests = undefined;
       const baseTests = documents["tests"];
       const baseTestsBytes =
         baseTests === undefined
@@ -736,7 +915,7 @@ export function captureAgentWorkspace(input: {
 
       if (problems.length > 0)
         throw new AgentCandidateError(
-          "The tool candidate could not be read back honestly.",
+          "The change could not be checked against the game's data. Make the change again.",
           problems,
         );
 
@@ -769,6 +948,7 @@ export function captureAgentWorkspace(input: {
     profileId,
     compilable: compiled !== undefined,
     diagnostics: Object.freeze(diagnostics),
+    defects: Object.freeze(defects),
     documents: () => Object.freeze(copyDocumentMap(documents)),
     propose,
     openToolState,
