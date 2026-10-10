@@ -47,6 +47,7 @@ import "monaco-editor/editor/contrib/wordPartOperations/browser/wordPartOperatio
 import "monaco-editor/editor/standalone/browser/referenceSearch/standaloneReferenceSearch.js";
 import "monaco-editor/editor/contrib/rename/browser/rename.js";
 import "monaco-editor/editor/contrib/codeAction/browser/codeActionContributions.js";
+import "./monacoCodeActions.ts";
 import "monaco-editor/editor/contrib/semanticTokens/browser/documentSemanticTokens.js";
 import "monaco-editor/editor/standalone/browser/quickAccess/standaloneGotoSymbolQuickAccess.js";
 import EditorWorker from "monaco-editor/editor/editor.worker?worker";
