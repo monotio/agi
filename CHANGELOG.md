@@ -3,7 +3,13 @@
 Changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Released notes are also available on [GitHub Releases](https://github.com/monotio/agi/releases).
 
-## [1.2.1] - Unreleased
+## [1.2.2] - Unreleased
+
+### Changed
+
+- Development tools and CI actions are updated to their latest releases.
+
+## [1.2.1] - 2026-10-10
 
 ### Changed
 
@@ -136,7 +142,8 @@ See the [1.1.0 release notes](https://github.com/monotio/agi/releases/tag/v1.1.0
 
 See the [1.0.0 release notes](https://github.com/monotio/agi/releases/tag/v1.0.0).
 
+[1.2.2]: https://github.com/monotio/agi/compare/v1.2.1...HEAD
+[1.2.1]: https://github.com/monotio/agi/releases/tag/v1.2.1
 [1.2.0]: https://github.com/monotio/agi/releases/tag/v1.2.0
-[1.2.1]: https://github.com/monotio/agi/compare/v1.2.0...HEAD
 [1.1.0]: https://github.com/monotio/agi/releases/tag/v1.1.0
 [1.0.0]: https://github.com/monotio/agi/releases/tag/v1.0.0
