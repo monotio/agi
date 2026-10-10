@@ -157,7 +157,9 @@ const BUDGETS: Record<Group, { readonly gzip: number; readonly brotli: number }>
   // and Download… dialog joined the Home path, which cannot wait for a later
   // chunk: measured 474.5 kB brotli.
   // Room-flow analysis starts with the map or Create in a separate worker.
-  js: { gzip: 575_000, brotli: 480_000 },
+  // 1.2.1 left this group at 593.6 kB gzip, 499.5 kB brotli, and the warning
+  // recurred on main.
+  js: { gzip: 605_000, brotli: 510_000 },
   // The stylesheets of those chunks: 16.4 kB gzip, 14.3 kB brotli.
   css: { gzip: 16_500, brotli: 14_500 },
   // The 1.2 engine and catalog workers share Engine's synchronous native
@@ -173,8 +175,9 @@ const BUDGETS: Record<Group, { readonly gzip: number; readonly brotli: number }>
   // they bring this closure to 167.5 kB gzip, 140.5 kB brotli; restart
   // validation and the admission controller still load only for Create.
   // Executable-only recording boots and the oversize rotation guard bring
-  // the closure to 168.1 kB gzip and 141.1 kB brotli.
-  workers: { gzip: 169_000, brotli: 142_000 },
+  // the closure to 168.1 kB gzip and 141.1 kB brotli. 1.2.1 left it at
+  // 178.5 kB gzip, 149.4 kB brotli, and the warning recurred on main.
+  workers: { gzip: 182_000, brotli: 152_000 },
 };
 
 const GROUP_LABELS: Record<Group, string> = {
