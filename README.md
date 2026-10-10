@@ -1,55 +1,45 @@
 # AGI IS HERE
 
-AGI is here, and it runs in your browser. It understands commands like LOOK AT
-CASTLE, it draws in sixteen colours, and if you ask, it will put an alligator
-in the moat while you are standing next to it.
+AGI is here, and it runs in your browser. It understands commands like LOOK AT CASTLE, it draws in
+sixteen colours, and if you ask, it will put an alligator in the moat while you are standing next to
+it.
 
 This AGI is Sierra's
-[Adventure Game Interpreter](https://en.wikipedia.org/wiki/Adventure_Game_Interpreter),
-the engine behind King's Quest, Space Quest and Leisure Suit Larry, rebuilt
-from scratch, with manual editors and an optional AI co-author. Play the classics
-from your own copies, create a game in Create, or describe a new
-adventure and play it while an agent builds the world around you. With an agent
-connected, ask for changes mid-game: give the guard a different personality, add
-a puzzle, or turn the courtyard into a swamp. Everything you make is a real AGI
-game that you can inspect, download and play again.
+[Adventure Game Interpreter](https://en.wikipedia.org/wiki/Adventure_Game_Interpreter), the engine
+behind King's Quest, Space Quest and Leisure Suit Larry, rebuilt from scratch. Play the classics
+from your own copies, build a game by hand, or describe an adventure and play it while an AI agent
+builds the world around you. Everything you make is a real AGI game that you can inspect, download
+and play again.
 
 ![The same Knight's Trial brief drawn by five models, from Claude Opus 5.5 to GPT-6 Luna, with what each cost](docs/media/genesis-castles.png)
 
-_One brief, five models. Each castle is a real AGI picture drawn in vector
-commands, with a working moat, a hero and a game behind it, for between three
-cents and two dollars. From the [Genesis benchmark](evals/benchmarks/genesis/1.0.0/README.md)._
+_One brief, five models. Each castle is a real AGI picture drawn in vector commands, with a working
+moat, a hero and a game behind it, for between three cents and two dollars. From the
+[Genesis benchmark](evals/benchmarks/genesis/1.0.0/README.md)._
 
 ## Try it
 
-Open [agi.monotio.com](https://agi.monotio.com/) and choose **Play the tutorial**.
-**Adventure Department** is a three-room tutorial about how these games are made:
-you repair a picture, wake up an actor and sort out a clerk's Depth. It is
-ready to play in your browser.
+Open [agi.monotio.com](https://agi.monotio.com/) and choose **Play the tutorial**. **Adventure
+Department** is a three-room tutorial about how these games are made: you repair a picture, wake up
+an actor and sort out a clerk's Depth.
 
 ![Adventure Department in Play with the CRT display](docs/media/play-crt-1.2.png)
 
-- **Play your own Sierra games.** **Add game** takes a game folder, a ZIP, or its disk images.
-  Add all disks of a game together. PC sector and TeleDisk images, Amiga ADF,
-  and Apple IIgs ProDOS PO and 2MG images are supported.
-  The files stay in your browser's storage. The app
-  recognises the edition, picks the matching interpreter and checks that the
-  game opens.
-- **Watch walkthrough.** Verified releases come with a recorded completion
-  that replays on the real interpreter, keystroke by keystroke, on the game's
-  own clock. Pause it, scrub the timeline, or **Take control** whenever you
-  like.
-- **Rewind.** Every session records itself, so you can go back to any earlier
-  moment and carry on from there.
-- **Get help.** **Help** is a short guide to playing, creating and managing your
-  games, on the home screen and in a running game's Help menu. Each topic can
-  open the control it describes.
+- **Play your own Sierra games.** **Add game** takes a game folder, a ZIP or its disk images; add
+  all disks of a game together. The files stay in your browser, and the app picks the matching
+  interpreter for the edition.
+- **Watch a walkthrough.** Verified releases replay a recorded completion on the real interpreter.
+  Pause it, scrub the timeline, or **Take control**.
+- **Rewind.** Every session records itself, so you can return to any earlier moment and carry on
+  from there.
+- **Get help.** **Help** on the home screen and in a running game explains playing, creating and
+  managing games.
 
 ## The games it plays
 
-These editions are verified in this interpreter. The PC editions are checked
-with recorded walkthroughs; the Amiga and Apple IIgs editions boot into their
-first room under their own interpreters.
+These editions are verified in this interpreter. The PC editions are checked with recorded
+walkthroughs; the Amiga and Apple IIgs editions boot into their first room under their own
+interpreters.
 
 | Game                       | PC (DOS) | Amiga | Apple IIgs | Recorded walkthrough |
 | -------------------------- | :------: | :---: | :--------: | -------------------- |
@@ -69,202 +59,26 @@ first room under their own interpreters.
 | Manhunter 2: San Francisco |   Yes    |  Yes  |            | Full game            |
 | Sierra AGI demo pack 4     |   Yes    |       |            |                      |
 
-A few things worth knowing:
+Sound follows the machine: emulated Paula on the Amiga, Ensoniq wavetable on the IIgs, and the Tandy
+chip or PC speaker on a PC. **Settings → Advanced… → Sound chip** picks the PC one. The picture
+fills a 4:3 frame like a monitor of the day; **Settings → Original 4:3** switches to square pixels.
+Mouse clicks walk the hero on the Amiga and IIgs, as they did on the originals. Text uses this
+project's own 8 × 8 font, which covers English and the box drawing Sierra's games print. Fan-made
+games run too. [Testing compatibility](docs/testing.md#testing-compatibility) lists the exact
+editions, disk-image formats and builds.
 
-- **Walkthroughs** are recorded on the PC editions and tied to the exact release
-  they were captured on. The
-  [KQ1 completion proof](docs/testing.md#kq1-completion-proof) shows how one is
-  made and checked.
-- **Sound** follows the machine. Amiga editions play through emulated Paula,
-  the IIgs edition through its own Ensoniq wavetable instruments read from the
-  game's files, and PC editions through the Tandy sound chip or the PC speaker,
-  under **Settings → Advanced… → Sound chip**. The
-  [media gallery](docs/media/README.md#sound-on-each-platform) shows one of the
-  tutorial's SOUNDs on each machine.
-- **Mouse** clicks walk the hero on the Amiga and IIgs editions, as they did on
-  the originals.
-- **The picture** fills a 4:3 frame, the way a monitor of the day stretched the
-  320 × 200 screen. **Settings → Original 4:3** turns that off for square
-  pixels.
-- **Text** uses this project's own 8 × 8 font in the original character grid. It
-  covers English text and the box drawing the Sierra games print; other
-  characters show blank.
-- **Fan-made games** run too. If the app cannot tell which interpreter a game
-  needs, it asks. [Testing](docs/testing.md#testing-compatibility) lists the
-  exact editions and builds.
-
-Bring your own copies of commercial games; they stay in your browser.
-Explore over a hundred free AGI games made by fans since the late nineties, collected
-on the
-[AGI Wiki's fan release list](https://agiwiki.sierrahelp.com/index.php/Fan_AGI_Release_List)
-and in the
+Bring your own copies of commercial games. Fans have also made over a hundred free AGI games since
+the late nineties. Find them on the
+[AGI Wiki's fan release list](https://agiwiki.sierrahelp.com/index.php/Fan_AGI_Release_List) and the
 [SCI Programming community's game list](https://sciprogramming.com/fangames.php?eng=agi&cat=Complete&sort=downloads).
 
-## Make your own adventure
+## Make your own game
 
-**Make a new game** on the home screen opens four choices. **Starter** opens
-in a sunny clearing with an animated hero, menus, saving and game-over handling.
-**Boilerplate** supplies the shared boot, menus, saving and game-over code for
-your own rooms and artwork. **Blank** opens an empty workspace. Choose
-**Start building** to open your project in Create; **Add a room** can supply its
-first room. Every part of these starting games is editable.
-
-To edit a saved game, open its library card’s **Game actions → Create**.
-The workspace keeps the game running on the stage. PICTURE opens its own canvas;
-opening another room’s PICTURE, LOGIC or VIEW opens its editor. **Play** enters
-the room using its selected Launch. Unused art opens with **Make it a room**.
-Editors sit beside the stage or below it with **Stacked**. Phones switch between
-**Edit** and **Game**. **Update and restart** applies drafts together in one Undo step and re-enters the open room.
-LOGIC has code completion,
-hover documentation, definition navigation and a Problems panel. Resource names
-open their editors; flags and variables show where they are set and checked.
-**Game state** in the parts list shows these names with Rename. Edits save
-automatically; **Draft saved** confirms pending edits are stored in this browser,
-and **Saved** confirms the updated project. A source error
-keeps the game on its last working build. **Undo** and
-**Redo** step across edits to every part, and **Saved** opens **History**.
-Games from the shared catalog need a personal copy before editing.
-
-**Create with AI** offers themed briefs or your own hero, setting and trouble.
-Connect an OpenAI or Anthropic API key and choose **Create with AI** to build
-the opening from editable Boilerplate.
-
-| Template                                                | Your predicament                                                     |
-| ------------------------------------------------------- | -------------------------------------------------------------------- |
-| [Knight's Trial](games/knights-trial/SKILL.md)          | Find three impossible treasures before the kingdom runs out of time. |
-| [Badge of Millhaven](games/badge-of-millhaven/SKILL.md) | A rookie cop discovers that procedure is easier to follow on paper.  |
-| [Mop Jockey](games/mop-jockey/SKILL.md)                 | The station needs a hero. It has sent the cleaner.                   |
-| [Polyester Nights](games/polyester-nights/SKILL.md)     | A middle-aged lounge lizard tries his luck for one more night.       |
-
-The agent plans the world and builds the opening room: artwork, characters and
-game logic. When you walk into a room that is still unbuilt, play pauses
-while the agent writes it:
-
-![Typing EAST pauses Play while the agent writes the next room, then the hero walks in](docs/media/clip-room-generation.gif)
-
-_The agent's reply in this clip is a recorded one that writes the tutorial's own
-Sprite Lab picture; checking, compiling and entering the room are the app's own._
-
-**AI makes new rooms when the hero walks into one** controls this. It starts on
-for Create with AI and off for imported games and local templates. Change it in
-**Details…** from Home's Game actions or Create's game menu. Along the way you can:
-
-- open **World map** to rename rooms, edit their
-  briefs and pin notes the agent reads when it builds that part of the world;
-- use **Agent** in Play for hints and questions that leave the game untouched,
-  or open **Agent** (⌘I) over any Create editor to ask questions or change resources
-  together; the same conversation follows you between modes;
-- preview pictures, animation frames, sounds and source beside the conversation,
-  then apply a coordinated change as one History
-  commit, or turn on Auto-approve for the current game session;
-- start task chats, resume earlier chats, and edit the game's Notes to give every
-  chat its style and rules; private project backups keep the chats;
-- attach reference images for rooms and actors: the agent gets a
-  thumbnail of each and looks closer at the parts it needs;
-- preview the game's sounds as WAV clips.
-
-Everything the agent writes is a standard AGI resource: logic, vector pictures,
-animated actors, vocabulary, inventory and sound. The heroes above walk because
-the agent drew each frame of each direction, then compiled them into the same
-kind of view file Sierra's artists made:
-
-![The heroes of the Knight's Trial openings walking right and towards the viewer](docs/media/genesis-heroes.png)
-
-An AGI room is also more than its picture. Behind it the game keeps a second,
-invisible layer: how far away each part of the scene is, and where the hero may
-and may not walk. The agent paints that layer too, so the knight walks around
-the notice board and the chest, stops at the water's edge and crosses by the
-drawbridge:
-
-![A castle gate as the player sees it, beside the walkable ground, barriers and horizon the agent painted into it](docs/media/genesis-depth.png)
-
-Play questions save conversation history alongside the game. Saving a conversation
-does not edit game resources. If that save fails, the answer stays visible and
-**Retry save** retries storage without another AI request. Result previews stay
-available in earlier messages; older results show their captured version.
-
-The agent checks its own work with rendered previews, compiler messages and
-playtests of its own. It can still get art, puzzles or writing wrong, so play
-it, and ask for revisions when something is off.
-
-**Your key and provider.** The app talks to your provider directly
-from the browser. Your key is saved in browser storage and sent only to the
-provider you choose, along with the game content each request needs. Requests
-are billed to your account; each task starts with a $5 budget that
-you can change. The app shows actual spending as your provider reports usage, for example
-**$0.14 / $5 spent**. One budget covers agent requests and generated images.
-The in-flight request finishes before the agent pauses after crossing the budget,
-so spending can exceed it. **Continue** adds another task budget; **Stop** ends
-the task and keeps your work in this tab.
-For models with unverified prices, check your provider's usage page.
-Long conversations compact their request context while keeping the
-full audit transcript. The provider's prompt cache reuses prior context at its
-lower cache-read price. What
-the agent writes comes from your provider's model. Review the story, puzzles and artwork before
-sharing the game, especially with children. [Security](SECURITY.md) covers storage and data flow, and
-[adventure briefs](games/README.md) covers writing your own templates.
-
-## Edit every room by hand
-
-A running game has two modes, switched in the top bar. **Play** is the game as
-its players see it, with the rewind timeline. **Create** shows the parts list on
-the left and the same running game on the stage. Open a PICTURE to draw
-with the PICTURE editor’s tools, a LOGIC to edit its instructions, or a VIEW to edit its
-loops and cels. WORDS groups words by meaning, tests sentences with the game’s parser and
-keeps a local list of missed playtest commands. OBJECTS has a table editor; SOUND has a step
-grid, tracker, presets and playback, and imports MIDI and VGM. **Focus** gives an editor the
-workspace while the game keeps running. Toggle **Focus** again, or press Escape twice, to return to your chosen arrangement.
-Create works best on a larger screen; games play on phones too.
-
-**Trace an image** blends a dropped, pasted or chosen image over a PICTURE at
-adjustable opacity. **Behind art** places it beneath the drawing marks. Opacity and
-placement follow Undo and History. **Make cels from an image** opens a zoomable sheet
-with tight boxes around the figures. Found frames are linked: resizing an edge changes
-their shared size. Click the link chip to adjust one frame separately. Drag the prepared
-cel thumbnails into order and choose the destination loop. One Size control sets the
-height and keeps the figure's proportions. Find frames again asks before replacing
-edited boxes; click the selected frame's dimensions to edit exact numbers. Try the
-animation on the running hero, then **Add cels** adds the frames and image in one
-History step. **Saved** confirms browser storage.
-**Generate** uses your OpenAI key to draw from your words in Sierra EGA style.
-Details holds the model, quality and size. One budget covers agent requests and images. These images autosave with History and travel in private
-project downloads. Public game exports carry the resulting AGI resources.
-
-Editor changes save as drafts in the background. Dots mark parts waiting for
-**Update and restart**, which applies all changed parts together, adds one Undo
-step, and runs the open room’s entry LOGIC. The game keeps running your last
-update while you edit. The action menu selects **Carry over**, **From my game**, **From the beginning**,
-or a saved room Launch. **Launch options → New launch…** stores a named starting
-setup for the room: hero position, flags, variables and inventory. Launch metadata
-saves without applying drafts. The top-bar action shows an icon; its tooltip names
-**Update and restart**, **Restart** or **Play** for the selected room.
-**Update and keep playing** preserves the game’s moment;
-a waiting message finishes before its changed LOGIC runs. Create keeps the moment you left Play. **From my game**, Back and returning to Play
-restore that moment on your updated files. Create uses temporary progress and save slots.
-With two tabs open, the newest tab plays; **Take back** returns control to the older tab. **Discard changes…** returns parts to
-that last update. **Draft saved** confirms browser storage for pending edits; their dots remain until Update.
-
-![The action menu lists Carry over, From my game, From the beginning and the room's Launches above the Launch editor](docs/media/launch-menu-1.2.png)
-
-_A Launch starts its room with chosen rows: where the hero came from, flags,
-variables, item locations and the same random numbers each time. Restart runs
-it again, so a death can be tuned over and over._
-
-In Create, **⌘P** (Ctrl+P) opens the game’s parts and **⇧⌘P**
-(Ctrl+Shift+P) opens the command palette. Type **>** in quick open to find
-commands. **⌘B** toggles the parts list, **⌘I** opens the agent, and **⌘Enter**
-updates and restarts the open room (use Ctrl in place of ⌘ elsewhere). **⇧⌘Enter** runs the same action. **F6** moves between
-visible focus zones from the editor; **Shift+F6** also leaves the game;
-**Ctrl+backtick** focuses the game. The game takes
-keys while its zone has focus. **Escape** closes the chooser and returns focus. **⌘K Z** toggles Focus; press
-**Escape** twice to return. Focus is remembered for each editor type.
-**⌘J** toggles the Problems tab. The debugger has Variables, Watch, Call stack
-and Breakpoints. The top action runs the selected room and Launch; **F5** runs the same
-action, or continues while paused. Runs pause at your breakpoints. **Disable breakpoints**
-in the Breakpoints panel or Launch menu lets them pass; both settings are saved per project. With the game focused, **F5** saves and **F6** belongs to the game.
-**F9** or a LOGIC gutter click toggles a breakpoint; **F10**, **F11**
-and **Shift+F11** step over, into and out. **Shift+F5** stops debugging and leaves
-the game running. Stopped runs show their exact running source; **Update and restart** starts a fresh room entry. **Help → Keyboard shortcuts** lists the registered commands and keys.
+**Make a new game** offers four starts. **Starter** is a sunny clearing with a hero. **Boilerplate**
+has the menus, saving and game-over code for your own rooms. **Blank** is empty, and **Create with
+AI** asks an agent to begin. The game opens in **Create**. It keeps running on the stage while you
+edit its pictures, characters, code, words and sounds beside it. Edits save as you go, **Update and
+restart** puts them in the game, and **Undo** works across every part.
 
 <p align="center">
   <a href="docs/media/workspace-picture-1.2.png"><img src="docs/media/workspace-picture-1.2.png" width="49%" alt="Create workspace with the parts list, running Starter game and PICTURE editor"></a>
@@ -273,169 +87,87 @@ the game running. Stopped runs show their exact running source; **Update and res
   <a href="docs/media/view-editor-1.2.png"><img src="docs/media/view-editor-1.2.png" width="49%" alt="VIEW editor with loops and cels prepared from an original project image"></a>
 </p>
 
-_Left to right, top to bottom: PICTURE, LOGIC with Problems, Agent review and
-VIEW with cels from an image. The [media gallery](docs/media/README.md) also
-shows WORDS, SOUND, Launches, the agent drawer, History, short clips and SOUND
-spectrograms._
+_PICTURE, LOGIC with Problems, Agent review, and VIEW with cels from an image. The
+[media gallery](docs/media/README.md) shows more._
 
-![Drawing a white fence across the Starter meadow with the Line tool, then Done](docs/media/clip-picture-line.gif)
+- [Build your first game](docs/first-game.md) walks through a first edit in each editor.
+- [The Create workspace](docs/create.md) covers every editor, Launches, the debugger and the
+  keyboard shortcuts.
 
-- **PICTURE editor** shows a room's picture in Sierra's two layers: Visual for
-  what the player sees, and Priority for what stands in front plus the walls,
-  water, triggers and gates that steer the hero. The items list names what the
-  picture draws, and "insert here" on an item draws new shapes before it.
-  Strokes stay drafts on the picture canvas until **Update and restart**.
-  **Views** blends in the figures the room
-  places, as the game draws them. Drag a figure with a plain-number position to
-  draft its LOGIC placement; a computed placement drags as a preview, with
-  Reset and Copy position, and Set in opens the lines that place it.
-- **Editing** works on items: click one to select it, or drag a box to select
-  the items wholly inside it; drag the selection, or its points with the Point
-  tool, nudge it with the arrow keys (a move stops at the picture's edge),
-  change its colour, depth or draw order, duplicate or delete it.
-  Alt+click, or Alt+Enter from the keyboard, adds a point to a selected line.
-  A box, Shift+click, a group row or Shift+Alt+arrows select several
-  items, which then move, copy and delete together as one step, so an imported
-  bush's outline and fill stay together; Group (⌘G) names neighbours as one
-  item without changing a byte, and Ungroup (⇧⌘G) splits it again.
-  The tool rail draws lines, rectangles, polygons, fills and brush strokes at
-  the selected point in the draw order, and a stand-in shows whether a
-  character would stand in front of the scene or behind it.
-- Completed gestures save as drafts. **Update and restart** applies artwork and placements
-  together and starts the open room from its entrance.
-  Each lens locks painting on the other planes until you unlock them, while
-  a whole item moves with all its planes. **Undo** steps back across parts.
-- **LOGIC** uses code intelligence, completion and diagnostics. Typing starts saving
-  the source; **Draft saved** confirms browser storage. Errors leave the last working build running. **+ Add** guides
-  **Add a room**, **Place hero** with Start here or drag, a drawn **Door**,
-  **Answer a sentence**, and **Play a sound when…**.
-- **SOUND** opens beside the game. Draw the three voices and Drums on the **Grid**,
-  or type notes, tick lengths and hex volumes in the **Tracker**. **Choose preset**
-  previews recipes and adds a new SOUND. Set tempo and snap, and play a private audition
-  with **Space**. Import MIDI type 0/1
-  or SN76489 VGM 1.50/1.51 after reviewing the conversion summary; export type 1 MIDI.
-  Drop music onto the editor or game to import it. **Details** exposes native ticks,
-  divisors and attenuation. Musical views retain exact native values until edited.
-  MIDI exports use the nearest musical pitch. Edits save to History and play next
-  time the game uses the sound.
-- **Agent** opens from the top bar or **⌘I**. Tell it what to change across
-  the game, then use the workspace's shared History and Undo.
-- **VIEW editor** edits a view's loops and cels beside the running game.
-  Draw with the pixel tools, and reorder, duplicate and flip cels on the
-  timeline. The previews play each loop. Edit both keeps mirrored loops
-  together; editing one gives it its own cels.
-- **Explainers** sit beside resource headings and editor terms. Hover, focus
-  or click a **?** for its help line; Escape closes it. Editor explainers
-  also link to their Help topic.
+## Build with AI
+
+Connect an OpenAI or Anthropic API key and the agent becomes a co-author. **Create with AI** plans a
+world from a themed brief or your own idea and builds the opening room. When you walk into a room
+that does not exist yet, play pauses while the agent writes it.
+
+![Typing EAST pauses Play while the agent writes the next room, then the hero walks in](docs/media/clip-room-generation.gif)
+
+In Play the agent gives hints and answers questions. In Create it changes any part of the game with
+you, shows previews of each change, and applies them as one History step. Requests go from your
+browser straight to your provider and are billed to your account; each task has a budget you can
+change. [Building with AI](docs/ai.md) covers templates, reviews, budgets and privacy.
 
 ## Save and share
 
-Games, saves and history live in your browser. The game's own Save and Restore
-use the authentic AGI save format, with twelve named slots per game, and the
-app saves as you play, so **Resume** picks up where you left off.
-Upgrading from 1.1 loads existing progress automatically, including save slots
-and the visited-room map. An earlier position tied to older game files stays
-available; **Start the latest version** opens the newer files.
+Games, saves and history live in your browser. The game's own Save and Restore use the authentic AGI
+save format. The app also saves as you play, so **Resume** picks up where you left off.
 
 | Settings → This game → **Download…** | What you get                                                                                                                                                                                                                       |
 | ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Project file**                     | A ZIP of the project with available conversation, images, source descriptions, world notes, tests, map, history, saved games and autosave. A backup reports limitations, including omitted pending edits and unavailable progress. |
 | **Playable game**                    | A ZIP of the playable resources and public metadata: description, author, license and remix provenance.                                                                                                                            |
 
-Either ZIP opens again with **Add game**, in any browser. A game without a
-declared license keeps an unknown license in its exports; the MIT license covers
-this repository's own code and assets.
+Either ZIP opens again with **Add game**, in any browser.
 
 ## Thirty years later
 
-Around 1996, **Lance Ewing, Peter Kelly, Martin Tillenius** and I worked on
-**MEKA**, an early fan-made AGI interpreter. I was **Joakim Möller** then. We
-traded discoveries about how Sierra's adventures worked.
+Around 1996, **Lance Ewing, Peter Kelly, Martin Tillenius** and I worked on **MEKA**, an early
+fan-made AGI interpreter. I was **Joakim Möller** then. We traded discoveries about how Sierra's
+adventures worked.
 
 On 3 September 2026, Greg Brockman closed an OpenAI briefing with
-[“Welcome to the AGI era.”](https://www.axios.com/2026/09/03/openai-astra-gpt-6-agi-brockman)
-I took him at his word. With OpenAI's
-[GPT-6 Astra](https://developers.openai.com/api/docs/models/gpt-6-astra) in
-Codex, I went back to AGI to rebuild the engine, and to let an agent change the
-game while I was playing it. Now I can ask for an alligator in the moat, and the
-agent rewrites the game's own bytecode to put it there. Thirty years on, that is
-still a very cool thing to be able to do.
+[“Welcome to the AGI era.”](https://www.axios.com/2026/09/03/openai-astra-gpt-6-agi-brockman) I took
+him at his word. With OpenAI's
+[GPT-6 Astra](https://developers.openai.com/api/docs/models/gpt-6-astra) in Codex, I went back to
+AGI to rebuild the engine, and to let an agent change the game while I was playing it. Now I can ask
+for an alligator in the moat, and the agent rewrites the game's own bytecode to put it there. Thirty
+years on, that is still a very cool thing to be able to do.
 
-**Peter Kelly's [agi-re behavioral specification](https://peterkelly.github.io/agi-re/spec/)
-is the foundation of this independent implementation.** It documents the
-formats, observable behavior and interpreter versions, and is published under
+**Peter Kelly's [agi-re behavioral specification](https://peterkelly.github.io/agi-re/spec/) is the
+foundation of this independent implementation.** It documents the formats, observable behavior and
+interpreter versions, and is published under
 [CC0](https://github.com/peterkelly/agi-re/blob/main/LICENSE). Thank you, Peter.
 
 ## As close to the originals as we could get
 
-Every Sierra AGI game shipped with its own build of the interpreter, and the
-builds do not quite agree. On a PC, a wandering guard whose countdown runs out
-walks 256 more steps before he turns; on an Amiga he turns every 7 to 51
-steps. Details like that decide whether a puzzle is fair, so the engine keeps
-them.
+Every Sierra AGI game shipped with its own build of the interpreter, and the builds do not quite
+agree. On a PC, a wandering guard whose countdown runs out walks 256 more steps before he turns; on
+an Amiga he turns every 7 to 51 steps. Details like that decide whether a puzzle is fair, so the
+engine keeps them.
 
-It starts from Peter Kelly's CC0
-[agi-re specification](https://peterkelly.github.io/agi-re/spec/), a clean-room
-description of how AGI behaves. Where a game needs more than the specification
-says, or where builds disagree, the original interpreter's machine code was read
-and often run in isolation with controlled inputs, on PC builds from 2.089 to
-3.002.149 and on the Amiga and Apple IIgs interpreters. The random-number
-generator alone was executed from ten original executables for all 65,536 of
-its states. Each finding is written down with its evidence and held in place by
-a regression test, and full-game walkthroughs of thirteen games replay on the
-engine keystroke by keystroke. [Interpreter compatibility](docs/fidelity.md)
-tells the whole story, from that random-number generator to the Amiga sound
-driver.
+Sometimes a game needs more than the specification says, or builds disagree. Then the original
+interpreters' machine code was read, and often run with controlled inputs. That covers PC builds
+2.089 to 3.002.149, the Amiga and the Apple IIgs. Each finding is written down with its evidence and
+held in place by a test. Full-game walkthroughs of thirteen games replay keystroke by keystroke.
+[Interpreter compatibility](docs/fidelity.md) tells the whole story.
 
-Under the hood, the engine is a TypeScript AGI interpreter with no framework
-and no runtime dependencies. It reads AGI v2 and v3 game files, including the
-Amiga and Apple IIgs layouts, and picks each build's behaviour through
-interpreter profiles. Games made in the app are standard AGI 2.936 bytecode
-with no custom opcodes. The engine runs in a Web Worker; the Vue shell adds a
-GPU-rendered CRT display and an in-game command line, while game text stays on
-the original 40 × 25 character screen.
+The engine is a TypeScript AGI interpreter with no runtime dependencies. It reads AGI v2 and v3
+games, including the Amiga and Apple IIgs layouts, and runs in a Web Worker. Games made in the app
+are standard AGI 2.936 bytecode with no custom opcodes.
 
 ## How it's built
 
-Coding agents build this project, alongside the agent inside it, and the
-repository checks the work of both.
+Coding agents build this project, alongside the agent inside it, and the repository checks the work
+of both. [AGENTS.md](AGENTS.md) is the working agreement every contributor follows, person or agent.
+The in-app agent can only call the tools on its session's [allowlist](src/agent/tools.ts), and the
+assembler and resource checks validate everything it writes. A model mistake that recurs becomes a
+[stored eval case](evals/fixtures/bad-cases/write-picture-source-y168.json) that replays offline on
+every check.
 
-- **A written agreement.** [AGENTS.md](AGENTS.md) holds the conventions,
-  boundaries and method every contributor follows, person or agent: evals
-  before features, and a check nobody has seen fail counts as a comment.
-- **Authority in code.** The in-app agent can only call the tools on its
-  session's [allowlist](src/agent/tools.ts), and what it writes still has to
-  get past the assembler, the resource checks and the editors’ pixel-level
-  validators.
-- **Mistakes become evals.** A model error that recurs is stored as a bad case,
-  [like this one](evals/fixtures/bad-cases/write-picture-source-y168.json),
-  and replayed offline on every check.
-- **One gate.** `npm run check` runs the typecheckers, ESLint,
-  [ast-grep rules](.ast-grep/rules), knip,
-  [dependency rules](.dependency-cruiser.mjs), a design-token ratchet, a
-  [contrast test](app/test/token-contrast.test.ts), the engine and app tests,
-  and the stored evals. [CI](.github/workflows/ci.yml) adds Playwright in
-  Chromium and WebKit.
-- **Budgets.** The startup path, from Home to a game's first frame, has a
-  [bundle budget](scripts/check-bundle-budget.ts) that also keeps editors and
-  the AI stack off it, and [interaction budgets](app/e2e/perf-budgets.spec.ts)
-  bound boot long tasks and editor frame and input times.
-- **Tests that are tested.** [Mutation testing](stryker.config.mjs), run on
-  demand, checks that the picture and editor kernels’ tests catch deliberate
-  bugs.
-- **Paid runs by consent.** An eval runner calls a provider only with both
-  `--live` and `--budget-usd` on the command line, and `npm run eval:cache`
-  checks offline that every request keeps the one before it as its prefix, so
-  the prompt cache keeps working.
-- **Measured models.** The [Genesis benchmark](evals/benchmarks/genesis/1.0.0/README.md)
-  gives five models the same briefs and publishes every run, its cost and the
-  game it made.
-
-[How it fits together](CONTRIBUTING.md#how-it-fits-together) maps the code.
-The [LOGIC language server](docs/editor-setup.md) is the same one the LOGIC
-editor uses. Point it at a downloaded project or an AGI game folder and any LSP
-editor gets diagnostics, completion, navigation and rename across the whole game,
-colouring and quick fixes.
+`npm run check` is the gate: typecheckers, linters, structural rules, the engine and app tests and
+the stored evals. CI adds Playwright in Chromium and WebKit. [Contributing](CONTRIBUTING.md) maps
+the code and explains each check. The [LOGIC language server](docs/editor-setup.md) gives any LSP
+editor the same code intelligence as the LOGIC editor.
 
 ## Run it yourself
 
@@ -446,25 +178,17 @@ npm ci
 npm run dev
 ```
 
-Open `http://localhost:5199/`. The site needs a connection to load; it is not
-an installable offline app yet. Exported games play offline in any compatible
-interpreter.
-
-The [documentation index](docs/README.md) groups tutorials, how-to guides,
-references and explanations. Start with [building a game](docs/first-game.md),
-[editor setup for the language server](docs/editor-setup.md),
-[self-hosting](docs/hosting.md) or [contributing](CONTRIBUTING.md).
-For local provider setup, see [AGI_DEV_KEYS](CONTRIBUTING.md#development).
+Open `http://localhost:5199/`. The site needs a connection to load; exported games play offline in
+any compatible interpreter. The [documentation index](docs/README.md) lists the guides, including
+[self-hosting](docs/hosting.md).
 
 ## License
 
-Created by Joakim Riedel and published by [Monotio](https://monotio.com). The
-engine, authoring tools, browser shell and original project assets, including
-the Adventure Department tutorial, use the [MIT license](LICENSE).
-The bundled UI fonts use the [SIL Open Font License 1.1](app/public/fonts/NOTICE.txt),
-with attribution in [NOTICE](NOTICE); they retain that licence in builds.
-Dependencies and imported games keep their own licenses; no commercial game
-assets are part of this repository. The icons are a hand-picked
-[Lucide](https://lucide.dev) set ([app/src/ui/icons.ts](app/src/ui/icons.ts)),
-with [ISC and Feather MIT notices](app/public/licenses/lucide.txt) included in
-the build.
+Created by Joakim Riedel and published by [Monotio](https://monotio.com). The engine, authoring
+tools, browser shell and original project assets, including the Adventure Department tutorial, use
+the [MIT license](LICENSE). The bundled UI fonts use the
+[SIL Open Font License 1.1](app/public/fonts/NOTICE.txt), with attribution in [NOTICE](NOTICE). The
+icons are a hand-picked [Lucide](https://lucide.dev) set under
+[ISC and Feather MIT notices](app/public/licenses/lucide.txt). Dependencies and imported games keep
+their own licenses, and no commercial game assets are part of this repository. A game without a
+declared license keeps an unknown license in its exports.

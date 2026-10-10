@@ -8,6 +8,11 @@ Choose a guide for the task you want to do.
 - [Play Adventure Department](../README.md#try-it), the bundled tutorial.
 - [Build your first game](first-game.md), starting with Starter.
 
+## Guides
+
+- [The Create workspace](create.md): editors, Launches, debugging and keys.
+- [Building with AI](ai.md): providers, budgets, Create with AI and the agent.
+
 ## How-to
 
 - [Set up a LOGIC language server](editor-setup.md).
@@ -21,7 +26,7 @@ Choose a guide for the task you want to do.
 ## Reference
 
 - [LOGIC language and commands](logic-language.md).
-- [Keyboard shortcuts](../README.md#edit-every-room-by-hand); **Help → Keyboard
+- [Keyboard shortcuts](create.md#keyboard-shortcuts); **Help → Keyboard
   shortcuts** in the app lists the registered keys.
 - [File formats and versioning](../CONTRIBUTING.md#how-it-fits-together), including
   the [release contract](../AGENTS.md#release-contract).

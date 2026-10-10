@@ -1,260 +1,211 @@
 # AGENTS.md — working agreements
 
-Read this before making changes. Explicit instructions in the current conversation
-take precedence. When a rule conflicts with an authorized task, correct the rule and
-its checks instead of inventing an approval step. Keep rules tied to a concrete risk.
+This is the shared agreement for everyone who changes this repository, people and coding agents
+alike. Instructions in the current conversation take precedence. Each rule guards a concrete risk;
+when a rule gets in the way of an authorized task, fix the rule and the check that enforces it.
 
-## What this is
+## The project
 
-AGI IS HERE is an authentic Sierra AGI interpreter in TypeScript, wrapped by a
-harness in which an agent authors and live-patches real AGI resources while you
-play. Engine behavior is independently implemented using Peter Kelly's CC0
-agi-re specification (https://peterkelly.github.io/agi-re/spec/) and behavioral
-evidence from original Sierra interpreter binaries. Read the common contract
-and selected profile's variants before implementing an opcode. For exact or
-uncertain authenticity behavior, inspect/disassemble the original interpreter
-in contributor-supplied `games/*` fixtures; record build, binary hash, addresses and conclusions
-in `docs/fidelity.md`. Distinguish interpreter machine code from game LOGIC
-bytecode and facts from inference. Do not substitute another interpreter's
-implementation or self-replay agreement for original-behavior evidence.
-MIT, by Monotio.
-README.md is the public front door; CONTRIBUTING.md covers development and
-contributions, docs/testing.md fixtures and compatibility checks,
-docs/hosting.md hosting and releases, and docs/fidelity.md interpreter behavior.
+AGI IS HERE is an independent TypeScript implementation of Sierra's AGI interpreter, wrapped in a
+browser workspace where people and an in-app agent author and live-patch real AGI resources while
+the game runs. Engine behavior comes from Peter Kelly's CC0
+[agi-re specification](https://peterkelly.github.io/agi-re/spec/) and from evidence gathered from
+original Sierra interpreter binaries. MIT, by Monotio.
+
+Read further when the task needs it:
+
+- [CONTRIBUTING.md](CONTRIBUTING.md): code layout, architecture and every check.
+- [docs/testing.md](docs/testing.md): game fixtures, walkthroughs and browser suites, including the
+  Linux WebKit container.
+- [docs/fidelity.md](docs/fidelity.md): interpreter findings and how to probe an original
+  interpreter.
+- [docs/hosting.md](docs/hosting.md): deployment, release branches and hotfixes.
+- [docs/agent-lanes.md](docs/agent-lanes.md): parallel agent work in worktrees.
 
 ## Commands
 
-Node 22.22+. The root package (engine, tests, scripts) and `app/` workspace
-(Vue shell) share one install and lockfile. `evals/` holds the evaluation runners
-and stored bad cases; its separate optional install adds promptfoo for live
-comparisons and keeps its larger native dependency tree out of the app install.
+Node 22.22 or newer. The root package (engine, tests, scripts) and the `app/` workspace (Vue shell)
+share one install. `evals/` has its own optional install for live model comparisons.
 
 ```bash
 npm ci                                        # install root and app workspace
-npm run dev                                   # Vite dev server on http://localhost:5199
-npm run check                                 # the gate: dep check, typecheck (root + app), lint, ast-grep, knip, dep-cruiser, token ratchet, prettier, engine + app tests, eval replay
-npm test && npm run test:app                  # node:test under --experimental-strip-types
+npm run dev                                   # dev server on http://localhost:5199
+npm run check                                 # the gate: types, lint, structure, engine + app tests, eval replay
 node --test --experimental-strip-types test/<file>.test.ts   # one engine test file
+npm run test:app                              # app unit tests
 npm run test:e2e                              # Playwright on its own `vite --mode test` server
+npm --prefix app run e2e -- e2e/<file>.spec.ts               # one browser spec
+npm --prefix app run e2e:webkit-desktop                      # desktop scenarios tagged @webkit-desktop
 npm --prefix app run e2e:perf                 # timing budgets, alone on one worker
-npm --prefix app run e2e -- e2e/<file>.spec.ts               # one spec
-npm --prefix app run e2e:webkit-desktop                      # desktop Studio scenarios tagged @webkit-desktop, in WebKit
-npm run lint:ast                              # ast-grep structural rules and suppression check (part of check)
-npm run eval:replay                           # stored bad cases, offline
+npm --prefix app run build && npm run check:bundle           # build and bundle boundaries
 ```
 
-## Optional game fixtures
+## Done
 
-- Contributors can enable compatibility tests by placing their own game files
-  in any subfolder under `games/` (e.g. `games/kq1/`, `games/kings-quest-1/`, or
-  fan-made games); see docs/testing.md. Fixtures are resolved strictly by content
-  hash (`WORDS.TOK` SHA-256), not folder names. Fixture folders are excluded from
-  version control and production builds.
-- Fixture-dependent tests use `test/fixtures.ts` to report missing inputs and
-  setup instructions as explicit skips.
-- The public repo and build hold only original project code and assets plus
-  dependencies under their own licenses. No commercial game assets; never imply
-  exported third-party assets are MIT. Do not copy implementation code from other
-  interpreters. AGI opcode names are functional vocabulary and fine to use.
+A change is done when its affected tests and `npm run check` pass. Run them, fix failures your
+change caused and rerun without asking. Also build and run `npm run check:bundle` when runtime
+imports move, and run the affected Playwright specs when browser behavior changes.
+Documentation-only changes need formatting and the link check in `test/docs.test.ts`. CI-only
+follow-ups to a green gate need the CI helper tests, workflow validation and formatting.
+Browser-test-only edits need the affected browser runs, app typecheck, lint and formatting; earlier
+green results for unchanged unit suites still count.
 
-## Release contract
+Debug on your own machine: CI runs cost money. Reproduce Linux WebKit and fonts with the container
+in docs/testing.md. Push only a fully gated head, and read CI failures with
+`gh run view <id> --log-failed`. A failure on unchanged code is a finding to fix or report, not a
+reason to rerun until green. Browser suites run once with zero retries; repeat a run only as an
+explicit diagnostic.
 
-Version 1.0 is the first public archive baseline. After it, released saves and
-exports stay readable. Readers reject unknown versions without rewriting bytes. Add migrations
-only for released formats and keep their original fixtures.
+Ask before pushing, opening or merging pull requests, tagging, deleting shared branches, spending on
+paid model or image APIs, or acting outside the repository.
 
-- The released archives in `app/test/formats/` are never regenerated;
-  `app/test/archive-formats.test.ts` must keep reading them.
-- Extend a released format in place: new optional fields keep its version, and
-  readers accept files without them. Bump the version only when older files
-  cannot express the change by omission (a changed meaning, a removed or
-  restructured field, or a change to the engine replay state that tapes and
-  recorded tests carry), with one migration from the released version.
-- Stored identities stay fixed: the resource revision (pinned in
-  `app/test/game-library.test.ts`) and profile ids (pinned in
-  `test/profile.test.ts`). Hashes and canonical serializations order by code
-  point, never by locale.
-
-Release candidates use `rc/X.Y-rc.N` pull requests into `release/X.Y`, with both
-package versions set to `X.Y.0-rc.N`. Each candidate branches from `release/X.Y`, and
-fixes found after one merges go into the next. Squash-merge a candidate only after CI
-passes and the owner accepts it. After the final candidate's release QA, bump both
-versions to `X.Y.0` and open `release/X.Y` into `main`, which deploys. Tag and publish
-the release only after deployment verification (docs/hosting.md, "Release branches").
-
-Patch hotfixes branch from the latest `main`, with both package versions set to
-`X.Y.Z`. Their pull requests target `main`; merge an accepted hotfix into any open
-`release/X.Y` afterward. The same checks and deployment verification precede the
-release tag and publication.
-
-Local release plans stay uncommitted and must not be referenced by committed
-code, comments or documentation.
+Before a release candidate is accepted, answer every automated review thread against the code. Then
+review the whole change once for failure paths, a second tab, and closing before a write commits;
+reviews of one push at a time miss properties of the whole system.
 
 ## Authenticity
 
-- Real formats and bytecode: v2 split and v3 combined directories, "Avis Durgan"
-  message encryption, picture vector streams, view loops and cels. Authored games
-  are plain AGI 2.936 bytecode with no custom opcodes. The engine's single escape
-  hatch is the optional `prepareRoom` host hook, which lets the agent write a
-  missing room during `new.room` when the project's room-generation setting is on.
-  It defaults on for Create with AI and off for imported, fixture and local template
-  games. The creator can change it in Home or Create game Details.
-- Authoring may change existing rooms and shared logics/resources to evolve a
-  story; the triggering room is not an edit-scope boundary. Validate and commit
-  the complete change transactionally, including affected references and
-  vocabulary/inventory bindings, against the intended resource revision. Keep
-  existing IDs while referenced; coordinated rewrites must update all affected
-  references. Apply changes at a safe continuation boundary. Preserve real AGI
-  formats and interpreter behavior; repack superseded resources transactionally.
-- The supplied base template is editable boilerplate, not a protected runtime
-  layer. The agent may use, extend or replace its boot, menus, death handling,
-  sounds and state conventions. Validate coordinated changes and their behavior;
-  do not reserve template ownership in tools or schemas.
-- Keep local original interpreter binaries and bulk disassembly outside public
-  builds and archives. Publish behavioral findings and independently authored
-  tests, with explicit skips for tests requiring privately held binaries.
-- Fidelity: every opcode exercised by a fixture needs the specified observable
-  behavior, selected per interpreter profile (`src/runtime/profile.ts`). A no-op is
-  valid only where the spec says so. `test/games.test.ts` checks dispatch coverage;
-  semantics need their own assertions.
-- Interpreter findings go in `docs/fidelity.md`; code comments cite the entry
-  rather than repeating offsets and build lists.
+- Games use real AGI formats and bytecode: v2 split and v3 combined directories, "Avis Durgan"
+  message encryption, picture vector streams, view loops and cels. Authored games are plain AGI
+  2.936 bytecode with no custom opcodes.
+- The engine's one escape hatch is the optional `prepareRoom` host hook. It lets the agent write a
+  missing room during `new.room` when the project's room-generation setting is on. The setting
+  defaults on for Create with AI and off for imported, fixture and template games.
+- Each interpreter profile (`src/runtime/profile.ts`) selects observable behavior. Before
+  implementing an opcode, read the specification's common contract and the selected profile's
+  variants. A no-op is valid only where the specification says so. `test/games.test.ts` checks
+  dispatch coverage; each opcode's semantics needs its own assertions.
+- Where the specification is silent or builds disagree, the original interpreter in a contributor's
+  local `games/*` fixtures is the reference. Record each finding in `docs/fidelity.md` with build,
+  binary hash, addresses and conclusion, and keep facts apart from inference. Code comments cite the
+  entry rather than repeating offsets. Another interpreter's implementation, or agreement with our
+  own replay, is not evidence of original behavior.
+- Authoring may change any room or shared resource to evolve a story. Validate and commit the
+  complete change transactionally against the intended resource revision, including references and
+  vocabulary and inventory bindings. Keep IDs that are still referenced, and apply changes at a safe
+  continuation boundary.
+- The base template is ordinary editable boilerplate. The agent may use, extend or replace its boot,
+  menus, death handling, sounds and state conventions.
 
-## Public provenance
+## Release contract
 
-- Publish game/build identities, hashes, addresses, controlled inputs and behavioral
-  findings. Keep personal computer details, personal paths, collection inventories,
-  investigation dates and private planning material out of tracked files, commit
-  messages, issues and pull requests. Use portable fixture placeholders in examples.
-- Preserve public attribution, historical software release dates and synthetic test
-  data; these are distinct from an investigator's personal provenance.
+Version 1.0 is the first public archive baseline. Released saves and exports stay readable, and
+readers reject unknown versions without rewriting bytes.
+
+- `app/test/archive-formats.test.ts` must keep reading the released archives in `app/test/formats/`;
+  never regenerate them.
+- Extend a released format with new optional fields at the same version, so older files still parse.
+  Bump the version only when older files cannot express the change by omission: a changed meaning, a
+  removed or restructured field, or a change to the engine replay state that tapes and recorded
+  tests carry. Add one migration from the released version and keep its original fixture.
+- Stored identities stay fixed: the resource revision (pinned in `app/test/game-library.test.ts`)
+  and profile ids (pinned in `test/profile.test.ts`). Hashes and canonical serializations order by
+  code point, never by locale.
+
+Release candidates, hotfixes and tagging follow
+[Release branches](docs/hosting.md#release-branches). Local release plans stay uncommitted, and
+committed files never refer to them.
 
 ## Architecture rules
 
-- `src/` (engine and authoring tools) has zero runtime dependencies and runs in the
-  browser, a Web Worker and Node. No `node:*` or browser globals there; platform
-  access is injected, and ESLint enforces the boundary. `app/` imports `src/`,
-  never the reverse.
-- No runtime import cycles in `src/` or `app/src/`; `.dependency-cruiser.mjs` pins
-  the few older ones as warnings, and a new cycle fails `npm run lint:deps`.
-- The app uses the interfaces it ships: the LOGIC editor runs on the same
-  language-server core as `agi-language-server`. A new integration surface (protocol,
-  format or engine API) carries the app's own feature rather than a private twin.
-- Studio editor code (`src/studio/`, `app/src/studio/`) stays off the Play boot path: the
-  shell loads it through dynamic `import()`, and `npm run check:bundle` fails a
-  build that pulls it in.
-- The browser app is BYOK and requires no server. Optional local developer tools
-  may expose stdio protocols; Node and protocol SDK dependencies stay in
-  `scripts/`, outside `src/` and the browser graph. Playwright runs Vite in `test`
-  mode with the deterministic stub provider; browser tests never call paid providers.
-- Host interactions that cannot answer synchronously (authoring, prompts, key
-  waits, save/restore) suspend the interpreter as a resumable continuation: the
-  worker posts a `hostRequest` message and resumes the parked interaction when
-  the matching `hostAnswer` arrives, so application commands keep being served
-  while the game waits. Pause is a message too — there is no shared memory and
-  no cross-origin-isolation requirement.
-- Game text is engine-owned: a 40×25 cell surface composited on the GPU. Never
-  render it as DOM or CSS.
+- `src/` (engine and authoring tools) has zero runtime dependencies and runs in the browser, a Web
+  Worker and Node, so it uses no `node:*` modules or browser globals; platform access is injected.
+  `app/` imports `src/`, never the reverse. ESLint and dependency-cruiser enforce both.
+- No new runtime import cycles in `src/` or `app/src/`; `npm run lint:deps` fails on one.
+- The app uses the interfaces it ships. The LOGIC editor runs on the same language-server core as
+  `agi-language-server`, and a new protocol, format or engine API carries the app's own feature
+  rather than a private twin.
+- Studio editor code (`src/studio/`, `app/src/studio/`) stays off the Play boot path through dynamic
+  `import()`; `npm run check:bundle` fails a build that pulls it in.
+- The browser app is bring-your-own-key and needs no server. Node and protocol SDK dependencies stay
+  in `scripts/`. Playwright uses the deterministic stub provider and never calls a paid one.
+- Host interactions that cannot answer synchronously (authoring, prompts, key waits, save and
+  restore) park the interpreter as a resumable continuation. The worker posts `hostRequest`, keeps
+  serving application commands, and resumes on the matching `hostAnswer`. Pause is a message too;
+  there is no shared memory.
+- Code that replaces the worker's engine moves every per-engine piece with it: edit admission,
+  debugger session and recorder, on every replacement path.
+- Game text is engine-owned: a 40×25 cell surface composited on the GPU, never DOM or CSS.
 
 ## Code conventions
 
-- Vue uses current idioms: reactive props destructure, `useTemplateRef`,
-  `onWatcherCleanup` and same-name `v-bind`; the `vue-*` ast-grep rules enforce them.
-- TypeScript strict with `noUncheckedIndexedAccess` and `exactOptionalPropertyTypes`;
-  ESM with explicit `.ts` import specifiers.
-- Tests and scripts run under Node strip-types, so nothing they import may use
-  enums, namespaces or constructor parameter properties. `erasableSyntaxOnly`,
-  ESLint and `.ast-grep/rules/` enforce this.
-- Static string-keyed tables are `Record`; `Map` and `Set` only for dynamic or
-  non-string keys. No one-expression wrapper functions unless the name is a public
-  contract.
-- Renderer and bytecode expectations are hand-computed, never snapshot-then-trust.
-- Name editor features with vendor-neutral terms: code intelligence, completion,
-  signature help and hover documentation. Avoid branded feature names in our
-  code, UI and documentation.
-- UI copy says plainly what a thing is or does. Headings and labels name it in one
-  or two calm words; body text is brief and positive. The `plain-copy-*` ast-grep
-  rules flag definitions by negation and dash asides.
-  Describe capabilities directly; omit unnecessary reassurance about engines,
-  keys or excluded alternatives. Error notices name the cause and next action.
-  Keep actual constraints and irreversible consequences explicit.
-  Tips and hints say something the screen does not already show; never restate
-  universal controls such as tools or Undo.
-- Dismiss-only overlays and panels use a top-right × with aria-label "Close" and Esc;
-  popovers also close on outside click. Editor tabs use ×. Modes end with Done;
-  choices offer Cancel plus the named action. Buttons never display bare "Close".
-- Never guess or promise what an AI request will cost before it runs: no price on a
-  button, no estimate before sending. Show the budget with Stop and pause near it.
-  Actual spend may be shown after the fact, from provider-reported usage or
-  measured benchmarks, labelled as spent.
+TypeScript is strict ESM with explicit `.ts` import specifiers. Tests and scripts run under Node
+strip-types, so nothing they import uses enums, namespaces or constructor parameter properties.
+ESLint and `.ast-grep/rules/` enforce these and the current Vue idioms; their messages explain each
+rule.
 
-## Method
+Use `Record` for static string-keyed tables, and `Map` or `Set` only for dynamic or non-string keys.
+A one-expression wrapper function needs a public contract to justify its name. Name editor features
+with vendor-neutral terms: code intelligence, completion, signature help, hover documentation.
 
-- Evals before features: a recurring failure becomes a stored bad case in
-  `evals/fixtures/bad-cases/`, replayed by `npm run eval:replay`, not a note.
-- A check nobody has seen fail is a comment: watch every new test or eval fail
-  once, then pass.
-- Assert cheapest first: exact structure, bytes or pixels, then content, then an
-  LLM judge whose failures get read.
-- Green tests prove only their declared contract. Browser behavior needs a scripted
-  run against the real app: screenshots for visual changes, request and download
-  assertions for transport changes. Stub-provider success says nothing about model
-  quality, cost or player enjoyment.
-- Worker behavior gets the cheapest meaningful regression test: a
-  `app/test/worker-*.test.ts` unit test driving the module with fake ports and a
-  real `Engine`, plus a Playwright spec only for the user-visible behavior. Do not
-  write a test that mirrors the implementation or duplicates another assertion.
-- A recurring defect becomes an eslint or ast-grep rule or a permanent test; then
-  delete the reminder.
-- Budgets are a heads-up, not a tripwire. A bundle size over its budget warns; only
-  10% beyond it fails. Timing budgets keep about three times the worst measured run.
-  Raise a budget when its warning recurs, never by the size of one change.
-- Harness integrity is tested offline. Model and prompt changes are validated
-  against stored bad cases within authorized spend, with paid-run limits reported.
-  Correction rounds are a ceiling, not a target.
-- Authority lives in code: tools are deny-by-default, the assembler and container
-  are the validators of last resort, destructive actions are previewed.
-- Save, sync and recovery guarantees need tests on their failure paths: a rejected
-  write, a second page on the same storage, and closing before the write commits. A
-  test that waits for Saved proves only success; state the narrower guarantee when a
-  path is untested.
-- Code that replaces the worker's engine moves every per-engine piece with it (edit
-  admission, debugger session, recorder) on every replacement path.
-- Explain a proposal in plain words (problem, who it serves, origin, cost and benefit)
-  before showing a mockup or asking for a scope decision. Limits on agents (rounds,
-  reads, tokens) follow evidence about the task, never round numbers.
-- Run affected tests and `npm run check` before integrating application, engine,
-  dependency or unit-test changes; also build and check bundle boundaries when runtime
-  imports move. Documentation-only changes need formatting and consistency checks.
-  For CI-only follow-ups after a green integration gate, run the CI helper tests,
-  workflow validation and formatting instead of repeating unchanged game suites.
-  Browser-test-only edits need the affected browser runs, app typecheck, lint and
-  formatting; retain prior green results for unchanged engine and app unit suites.
-  PR browser suites run once with zero retries; repeat only to investigate a
-  specific failure, with an explicit diagnostic run. Debug on
-  your own machine, never through CI: CI runs cost money. Reproduce Linux WebKit and
-  fonts with the container in docs/testing.md. Push only a fully gated integration
-  head; CI on that push is the final Linux verdict, read with
-  `gh run view <id> --log-failed`. A failure on unchanged code is a finding to fix or
-  report, never a reason to rerun until green. Doc-only
-  changes need consistency and formatting checks only. Keep README.md and
-  CONTRIBUTING.md consistent with shipped behavior; no gratuitous markdown files.
-- Before a candidate is accepted, answer every automated review thread against the
-  code, then review the whole change once for failure paths, a second tab and closing
-  before commit; reviews of one push at a time miss properties of the whole system.
+## UI copy
 
-## Working with others
+The audience includes children building their first game, so copy is plain and calm.
 
-- Parallel agent lanes: see [docs/agent-lanes.md](docs/agent-lanes.md).
-- Shared tree: never `git stash`, `git reset`, or `git checkout`/`restore` on
-  paths. Re-read before editing, exact-string edits only, never rewrite a shared
-  file wholesale. Agree file ownership before parallel edits.
-- Delegation: explicit file scope per contributor, a fresh agent for unrelated
-  work, review delegated output and run the relevant checks before integrating.
-  Do not require a particular agent vendor or model.
-- A delegated task works in its own worktree and branch, runs selective gates locally
-  (affected tests, touched-file typecheck, lint and format; the integrator alone runs
-  the full gate), commits without pushing, and opens its report with at most 150
-  words: verdict, commits, gates, open questions. The integrator merges the reviewed
-  local branch, runs the full gate on the combined head, and then deletes the lane's
-  worktree and branch.
+- Headings and labels name a thing in one or two words. Body text says what a thing is or does,
+  briefly and positively. The `plain-copy-*` ast-grep rules flag definitions by negation and dash
+  asides.
+- Error notices name the cause and the next action. State real constraints and irreversible
+  consequences; leave out reassurance and tips that repeat what the screen shows.
+- Dismiss-only overlays and panels close with a top-right × labelled "Close" and with Esc; popovers
+  also close on an outside click. Editor tabs close with ×. Modes end with Done; choices offer
+  Cancel plus the named action. No button reads a bare "Close".
+- Never estimate what an AI request will cost before it runs. Show the budget with Stop, pause near
+  it, and label provider-reported usage as spent.
+
+## Tests and evals
+
+- A check nobody has seen fail is only a comment: watch each new test or eval fail once, then pass.
+- Assert the cheapest exact thing first: structure, bytes or pixels, then content, then an LLM judge
+  whose failures get read. Renderer and bytecode expectations are hand-computed, never
+  snapshot-then-trust.
+- Worker behavior gets an `app/test/worker-*.test.ts` unit test driving the module with fake ports
+  and a real `Engine`, and a Playwright spec only for the user-visible part. Skip tests that mirror
+  the implementation or repeat another assertion.
+- Save, sync and recovery guarantees need tests on their failure paths: a rejected write, a second
+  page on the same storage, and closing before the write commits. A test that waits for Saved proves
+  success only, so state the narrower guarantee when a failure path is untested.
+- Browser behavior needs a scripted run against the real app: screenshots for visual changes,
+  request and download assertions for transport changes. A stub-provider pass says nothing about
+  model quality, cost or player enjoyment.
+- A recurring model failure becomes a stored bad case in `evals/fixtures/bad-cases/`, replayed by
+  `npm run eval:replay`. A recurring code defect becomes a lint or ast-grep rule or a permanent
+  test.
+- Budgets are a heads-up: a bundle over budget warns and fails only 10% beyond it, and timing
+  budgets keep about three times the worst measured run. Raise a budget when its warning recurs, not
+  by the size of one change.
+- In-app agent authority lives in code: tools are deny-by-default, the assembler and container
+  validate last, and destructive actions are previewed. Validate model and prompt changes against
+  the stored bad cases within the authorized spend, and report paid-run limits. Limits on agents
+  (rounds, reads, tokens) follow evidence about the task.
+
+## Game fixtures and provenance
+
+Contributors enable compatibility tests by placing their own game files in any folder under
+`games/`; fixtures resolve by the SHA-256 of `WORDS.TOK`, not by folder name, and `test/fixtures.ts`
+turns missing inputs into explicit skips. Fixture folders stay out of git and production builds.
+
+The public repository holds only original code and assets plus dependencies under their own
+licenses: no commercial game assets, no code copied from other interpreters, and no implication that
+exported third-party assets are MIT. AGI opcode names are fine. Original interpreter binaries and
+bulk disassembly stay local.
+
+Publish identities, hashes, addresses, controlled inputs and behavioral findings. Keep personal
+computer details, personal paths, collection inventories, investigation dates and private plans out
+of tracked files, commit messages, issues and pull requests, and use portable fixture placeholders
+in examples. Public attribution, historical release dates and synthetic test data stay.
+
+## Working together
+
+- The working tree may be shared, so preserve other people's changes: no `git stash`, `git reset`,
+  or path-level `checkout` or `restore`. Re-read a file before editing it, make exact-string edits,
+  and agree file ownership before parallel work.
+- A delegated task gets an explicit file scope, its own worktree and branch, and commits without
+  pushing. Its report opens with at most 150 words: verdict, commits, gates and open questions. The
+  integrator reviews the diff, runs the full gate on the combined head and removes the worktree and
+  branch. Any agent vendor or model may take a lane.
+  [docs/agent-lanes.md](docs/agent-lanes.md) has the full lane procedure.
+- Before showing a mockup or asking for a scope decision, explain the proposal in plain words: the
+  problem, who it serves, where it came from, its cost and its benefit.
+- Keep README.md and CONTRIBUTING.md consistent with shipped behavior. Add a Markdown file only for
+  a reader the existing documents do not serve.

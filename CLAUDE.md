@@ -2,25 +2,21 @@
 
 ## Claude Code
 
-AGENTS.md is the shared source of truth for every coding agent; edit it there and
-keep this file to Claude-specific notes. The gates (`npm run check`, the
-Playwright suites) take minutes: run them in the background and quote the failing
-step in your report.
+AGENTS.md is the shared agreement for every coding agent. Change rules there, and keep this file
+to notes about working in Claude Code.
 
-- Background commands stop after two hours: start delegated runs and long suites
-  detached, save the PID, then wait with `while kill -0 "$pid"` or on an exact
-  completion marker, never on text in their output. Do not wait with
-  `while pgrep -f <pattern>`: the waiting shell's own command line contains the
-  pattern, so the loop can match itself and never end.
-- Working knowledge that another machine or agent needs (rules, traps, owner
-  decisions about the product) goes in AGENTS.md or this file, not in local agent
-  memory, which stays on one machine.
-- zsh treats `$name:r` and similar as modifiers; write `${name}:refs/...`. Confirm each
-  `git push` succeeded before deleting a ref. macOS has no `timeout`.
-- Write prose files (briefs, notes) with the file tool or a quoted heredoc (`<<'EOF'`): in an
-  unquoted heredoc, backticks around a command run it.
-- Report status only when it changes and define a term the first time it appears. Let
-  a subagent read long reports and return a short verdict.
-- Screenshots for evidence come from headless Playwright; use the browser extension
-  for interactive QA only, and not while the owner is typing on the same machine. Never
-  run test browsers headed on a shared workstation; they take focus.
+- `npm run check` and the Playwright suites take minutes. Run them in the background and quote
+  the failing step when you report.
+- Background commands stop after two hours. Start long suites and delegated runs detached, save
+  the PID, and wait with `while kill -0 "$pid"` or on an exact completion marker. A
+  `pgrep -f <pattern>` loop can match its own command line and never end.
+- Knowledge another machine or agent needs (rules, traps, the owner's product decisions) goes in
+  AGENTS.md or this file; local agent memory stays on one machine.
+- On macOS with zsh, `$name:r` and similar are modifiers, so write `${name}:refs/...`, and there
+  is no `timeout`. Confirm each `git push` succeeded before deleting a ref.
+- Write prose files with the file tool or a quoted heredoc (`<<'EOF'`); an unquoted heredoc runs
+  backticked commands.
+- Post a short update when something changes: a gate result, a decision, a blocker. Define a term
+  the first time it appears, and let a subagent read long reports and return a short verdict.
+- Evidence screenshots come from headless Playwright. Use the browser extension for interactive QA
+  only, and not while the owner is typing on the same machine: a headed browser takes focus.
