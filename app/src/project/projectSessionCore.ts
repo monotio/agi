@@ -979,6 +979,26 @@ function createSession(
         captureSave(model.capture());
       });
     },
+    /**
+     * Change the project's reference art beside its documents, so the write
+     * carries this session's generation. References stay outside History;
+     * the journal keeps them as capture metadata. Null from `mutate` aborts.
+     */
+    saveReferences(
+      mutate: (
+        current: NonNullable<CachedGameData["references"]>,
+      ) => NonNullable<CachedGameData["references"]> | null,
+    ) {
+      return schedule(async () => {
+        if (!current() || writeBlock !== undefined)
+          throw new Error("Project session was closed for writes.");
+        const next = mutate(data.references ?? []);
+        if (next === null) return null;
+        data.references = next;
+        captureSave(model.capture());
+        return next;
+      });
+    },
     get lifetime() {
       return expected.lifetime;
     },

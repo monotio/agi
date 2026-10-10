@@ -1898,26 +1898,49 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
   }
 
   /**
-   * Mutate the stored reference list atomically: the callback runs inside the
-   * serialized write against the freshest read, so a concurrent attachment,
-   * removal or stage-clear in another surface or tab cannot be lost.
+   * Mutate the stored reference list atomically. An open project session owns
+   * the record, so the change rides its save queue and generation; a rejected
+   * save takes the change back out before refusing. Without a session the
+   * callback runs inside the serialized write against the freshest read, so a
+   * concurrent attachment, removal or stage-clear in another surface or tab
+   * cannot be lost.
    */
   async function writeReferences(
     game: BootedGame,
     mutate: (current: StoredReference[]) => StoredReference[] | null,
   ): Promise<void> {
+    let previous: StoredReference[] = [];
     let applied: StoredReference[] | undefined;
     let overflow = false;
-    const saved = await updateAuthoredReferences(game.projectId!, (current) => {
+    const limited = (current: StoredReference[]) => {
       const next = mutate(current);
       if (next === null) return null;
       if (next.length > REFERENCE_COUNT_LIMIT) {
         overflow = true;
         return null;
       }
+      previous = current;
       applied = next;
       return next;
-    });
+    };
+    const project = options.getProjectSession?.();
+    let saved: boolean;
+    if (project) {
+      saved = (await project.saveReferences(limited)) !== null;
+      if (saved) {
+        try {
+          await project.flush();
+        } catch (error) {
+          if (project.saveStatus().state === "conflict") throw error;
+          const before = previous;
+          const after = applied!;
+          await project
+            .saveReferences((current) => revertReferences(current, before, after))
+            .catch(() => null);
+          saved = false;
+        }
+      }
+    } else saved = await updateAuthoredReferences(game.projectId!, limited);
     if (overflow)
       throw new Error(
         `This project already has ${REFERENCE_COUNT_LIMIT} references. Remove one before attaching another.`,
@@ -1927,6 +1950,21 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
         "Browser storage could not save the reference. Try again before closing this dialog.",
       );
     if (game.authoredGame) game.authoredGame = { ...game.authoredGame, references: applied };
+  }
+
+  /** `current` without what one reference write changed from `before` to `after`. */
+  function revertReferences(
+    current: StoredReference[],
+    before: readonly StoredReference[],
+    after: readonly StoredReference[],
+  ): StoredReference[] {
+    const has = (list: readonly StoredReference[], id: string) => list.some((r) => r.id === id);
+    const reverted = current.filter((r) => has(before, r.id) || !has(after, r.id));
+    before.forEach((reference, index) => {
+      if (!has(after, reference.id) && !has(reverted, reference.id))
+        reverted.splice(Math.min(index, reverted.length), 0, reference);
+    });
+    return reverted;
   }
 
   async function referencesWithCapacity(): Promise<StoredReference[]> {

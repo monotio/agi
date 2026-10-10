@@ -33,6 +33,7 @@ import {
   readHistoryLifetime,
   updateAuthoredGameFiles,
   updateGameConversation,
+  updateAuthoredReferences,
   commitProject,
 } from "../src/project/gameStorage.ts";
 import { createContainer, openContainer } from "../../src/container/container.ts";
@@ -768,6 +769,12 @@ function installLocalStorageMock(t: { after: (fn: () => void) => void }): Map<st
   Object.defineProperty(globalThis, "localStorage", {
     configurable: true,
     value: {
+      get length() {
+        return values.size;
+      },
+      key(index: number): string | null {
+        return [...values.keys()][index] ?? null;
+      },
       getItem(key: string): string | null {
         return values.get(key) ?? null;
       },
@@ -1259,6 +1266,162 @@ test("reference capacity refuses room and character attachments without discardi
   assert.equal((await controller.listReferences())[15]?.brief, "image 15");
   controller.resetSession();
   await clearCachedGame(projectId);
+});
+
+/** A stored project, its open session and a controller that attaches art to it. */
+async function openReferenceProject(
+  t: { after: (fn: () => void) => void },
+  name: string,
+  write?: Parameters<typeof openProjectSession>[0]["write"],
+) {
+  const projectId = testProjectId(name);
+  // Registered before the storage mock, so cleanup runs while it is installed.
+  t.after(() => clearCachedGame(projectId));
+  installLocalStorageMock(t);
+  const files = createTestFiles();
+  await saveAuthoredGame(projectId, {
+    title: "Art",
+    provider: "stub",
+    model: "offline-stub",
+    files,
+    words: [],
+  });
+  const game: BootedGame = {
+    installed: false,
+    projectId,
+    title: "Art",
+    revision: await gameRevision(files),
+    files,
+    words: [],
+    authoredGame: (await loadAuthoredGame(projectId))!,
+  };
+  const project = openProjectSession({
+    data: game.authoredGame!,
+    lifetime: (await readHistoryLifetime(projectId))!,
+    admission: {
+      runToken: `${name}-run`,
+      admit: async () => ({
+        status: "committed",
+        expected: null,
+        current: null,
+        patchGeneration: 1,
+      }),
+    },
+    ...(write ? { write } : {}),
+  });
+  t.after(() => project.dispose());
+  assert.equal(await project.ready, true);
+  const controller = useAuthoringController({
+    state: {
+      phase: "running",
+      powerUp: createMockPowerUp(),
+      agentTask: null,
+      agentLog: [],
+      profile: "2.936",
+      worldTick: 0,
+      planDurableRev: "",
+    },
+    getWorker: () => null,
+    getProjectSession: () => project,
+    query: async <T>() => null as T,
+    logAgent: () => {},
+    readFrames: async () => [],
+    pauseEngine: () => {},
+    resumeEngine: () => {},
+    getBootedGame: () => game,
+    setBootedGame: () => {},
+    flushAutosave: async () => {},
+    getAutosaveWrite: async () => true,
+    clearAutosave: () => {},
+    awaitPatched: ackPatch,
+  });
+  return { projectId, project, controller };
+}
+
+const referenceImage = {
+  width: 1,
+  height: 1,
+  rgba: Uint8Array.of(1, 2, 3, 255),
+  bytes: Uint8Array.of(1),
+  mime: "image/png" as const,
+};
+
+test("reference attachments save through the open project session and keep its later edits writable", async (t) => {
+  const { readProjectSaveRecoveries } = await import("../src/project/projectSaveJournal.ts");
+  const { projectId, project, controller } = await openReferenceProject(t, "reference-session");
+  const commits = project.history.capture().commits.length;
+  const kept = await controller.attachRoomReference(referenceImage, 1, "harbour");
+  const dropped = await controller.attachRoomReference(referenceImage, 2, "forest");
+  await controller.detachReference(dropped.id);
+  assert.equal(project.history.capture().commits.length, commits, "art stays out of History");
+  // A project edit after the attachments still saves: the session owns the record.
+  await project.submit({
+    proposal: project.model.propose(project.model.capture(), "Note", [
+      { key: "notes", content: "after the art" },
+    ]),
+    origin: "logic",
+    label: "Note",
+    author: "creator",
+  });
+  await project.flush();
+  await project.undo();
+  await project.flush();
+  assert.equal(project.saveStatus().state, "saved");
+  assert.equal(project.model.capture().read("notes"), undefined);
+  assert.deepEqual(readProjectSaveRecoveries(localStorage, projectId), []);
+  const stored = (await loadAuthoredGame(projectId))!;
+  assert.deepEqual(
+    stored.references?.map((reference) => reference.id),
+    [kept.id],
+  );
+  assert.deepEqual(
+    (await controller.listReferences()).map((reference) => reference.id),
+    [kept.id],
+  );
+});
+
+test("a rejected reference save takes the attachment back out before Retry", async (t) => {
+  let reject = false;
+  const { projectId, project, controller } = await openReferenceProject(
+    t,
+    "reference-rejected",
+    async (request) => {
+      if (reject) throw new Error("QuotaExceededError");
+      return (await commitProject(request)).receipt;
+    },
+  );
+  const kept = await controller.attachRoomReference(referenceImage, 1, "harbour");
+  reject = true;
+  await assert.rejects(
+    controller.attachRoomReference(referenceImage, 2, "forest"),
+    /Browser storage could not save the reference\. Try again/,
+  );
+  await assert.rejects(controller.detachReference(kept.id), /could not save the reference/);
+  assert.equal(project.saveStatus().state, "failed");
+  reject = false;
+  await project.retry();
+  assert.equal(project.saveStatus().state, "saved");
+  assert.deepEqual(
+    (await loadAuthoredGame(projectId))!.references?.map((reference) => reference.id),
+    [kept.id],
+  );
+  const again = await controller.attachRoomReference(referenceImage, 2, "forest");
+  assert.deepEqual(
+    (await controller.listReferences()).map((reference) => reference.id),
+    [kept.id, again.id],
+  );
+});
+
+test("a reference attached after another tab saved the project refuses like other edits", async (t) => {
+  const { projectId, project, controller } = await openReferenceProject(t, "reference-other-tab");
+  // Another tab's attachment moves the stored generation past this session.
+  assert.equal(await updateAuthoredReferences(projectId, []), true);
+  await assert.rejects(
+    controller.attachRoomReference(referenceImage, 1, "harbour"),
+    /Changed in another tab/,
+  );
+  assert.equal(project.saveStatus().state, "conflict");
+  assert.deepEqual((await loadAuthoredGame(projectId))!.references, []);
 });
 
 /** A decoded upload without DOM: 64x12, magenta key, one figure per cell. */
