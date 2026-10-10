@@ -16,7 +16,7 @@ for (const [width, height] of [
 ] as const) {
   test.describe("Workspace viewport " + width, () => {
     test.use({ hasTouch: width === 390 });
-    test(`workspace tips and agent at ${width} @webkit-desktop`, async ({ page, browserName }) => {
+    test(`workspace tips and agent at ${width} @webkit-desktop`, async ({ page }) => {
       await page.setViewportSize({ width, height });
       await isolateStorage(page);
       await page.goto("/");
@@ -43,13 +43,11 @@ for (const [width, height] of [
       await expect(page.getByTestId("workspace-logic-editor").locator(".view-lines")).toContainText(
         "draw.pic",
       );
-      const workspaceShot = await page.screenshot({
+      await page.screenshot({
         scale: "css",
         path: test.info().outputPath(`workspace-${width}.png`),
         animations: "disabled",
       });
-      if (process.env["CI"] && browserName === "webkit" && width === 390)
-        console.log("PHONE_WORKSPACE_SHOT:" + workspaceShot.toString("base64"));
       await page.getByTestId("workspace-agent").click();
       await expect(page.getByTestId("workspace-agent-panel")).toBeVisible();
       await page.screenshot({
