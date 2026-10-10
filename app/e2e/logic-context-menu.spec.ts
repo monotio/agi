@@ -306,6 +306,40 @@ test("completion resumes inside a word and accepts its existing suffix @webkit-d
     .toBe("set.horizon");
 });
 
+test("completion resumes while the previous list is still showing @webkit-desktop", async ({
+  page,
+}) => {
+  await isolateStorage(page);
+  await page.goto("/#create-adventure");
+  await page.getByTestId("local-create-kind-starter").click();
+  await page.getByRole("button", { name: "Start building", exact: true }).click();
+  await waitForRoom(page, 1);
+  await page.getByTestId("part-room:1:logic").click();
+  await expect(page.getByTestId("workspace-logic-editor")).toBeVisible();
+  await page.evaluate(async () => {
+    const { monaco } = await import("/src/studio/logic/monacoLanguage.ts");
+    const editor = monaco.editor
+      .getEditors()
+      .find((editor) => editor.getDomNode()?.offsetParent)! as monacoEditor.IStandaloneCodeEditor;
+    editor.updateOptions({ wordBasedSuggestions: "off" });
+    editor.getModel()!.setValue("");
+    editor.focus();
+  });
+  await page.keyboard.type("s");
+  const list = page.locator(".suggest-widget").first();
+  await expect(list.locator(".label-name").first()).toBeVisible();
+  // The list for "s" stays on screen while Monaco asks again for "se". Typing
+  // "t" supersedes that held request, and the resumed request must still run.
+  await holdNextCompletion(page);
+  await page.keyboard.type("e");
+  await page.waitForFunction(
+    () =>
+      (window as unknown as { __completionControl: CompletionControl }).__completionControl.held,
+  );
+  await page.keyboard.type("t");
+  await expect(list.locator(".label-name").filter({ hasText: /^set\.horizon$/ })).toBeVisible();
+});
+
 for (const key of ["Escape", "Home"]) {
   test(`superseded completion stays dismissed after ${key} @webkit-desktop`, async ({ page }) => {
     await isolateStorage(page);
