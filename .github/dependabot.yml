@@ -18,3 +18,7 @@ updates:
       # a TypeScript major only together with a typescript-eslint that supports it.
       - dependency-name: typescript
         update-types: ["version-update:semver-major"]
+      # vue-tsc 3.3.12 types every non-reactive `let` read in a template as `never`
+      # (vuejs/language-tools#6237); stay on 3.3.11 until a fixed release.
+      - dependency-name: vue-tsc
+        versions: ["3.3.12"]
