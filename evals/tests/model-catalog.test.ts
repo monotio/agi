@@ -43,7 +43,7 @@ test("GPT-6.1 Sol is the distinct default id beside the original Sol", () => {
   assert.deepEqual(capability.price, {
     input: 2,
     output: 10,
-    longContext: true,
+    longContext: { above: 272000, inputFactor: 2, outputFactor: 1.5 },
     cacheRead: 0.1,
   });
   // The original Sol keeps its optional-none capability and stays selectable.
@@ -209,5 +209,23 @@ test("the cost calculator prices GPT-6.1 Sol at its listed rates", () => {
       cacheWriteInput: 0,
     })?.toFixed(4),
     "1.3500",
+  );
+});
+
+test("Claude Haiku 5.5 bills prompts over 100K tokens at five times its base rates", () => {
+  const usage = { output: 10_000, cachedInput: 0, cacheWriteInput: 0 };
+  // At 100K: $0.10/M input and $0.50/M output.
+  assert.equal(requestCost("claude-haiku-5-5", { ...usage, input: 100_000 })?.toFixed(4), "0.0150");
+  // Past 100K: $0.50/M input and $2.50/M output.
+  assert.equal(requestCost("claude-haiku-5-5", { ...usage, input: 150_000 })?.toFixed(4), "0.1000");
+  // Cache reads stay at 10% of the long-context input rate.
+  assert.equal(
+    requestCost("claude-haiku-5-5", {
+      input: 150_000,
+      output: 0,
+      cachedInput: 150_000,
+      cacheWriteInput: 0,
+    })?.toFixed(4),
+    "0.0075",
   );
 });

@@ -5,6 +5,11 @@ Released notes are also available on [GitHub Releases](https://github.com/monoti
 
 ## [1.2.2] - Unreleased
 
+### Added
+
+- Claude Haiku 5.5 is available in AI settings. Spent amounts use its higher
+  rate card for prompts over 100K tokens.
+
 ### Changed
 
 - Development tools and CI actions are updated to their latest releases.

@@ -171,6 +171,36 @@ for (const provider of ["openai", "anthropic"] as const) {
   });
 }
 
+test("Claude Haiku 5.5 requests leave out the server-side fallback it does not have", async (t) => {
+  const bodies: Record<string, unknown>[] = [];
+  const headers: Headers[] = [];
+  t.mock.method(globalThis, "fetch", async (_url: unknown, init?: RequestInit) => {
+    bodies.push(JSON.parse(String(init?.body)));
+    headers.push(new Headers(init?.headers));
+    return new Response(
+      providerSse("anthropic", {
+        id: "one",
+        type: "message",
+        role: "assistant",
+        stop_reason: "end_turn",
+        content: [{ type: "text", text: "Working." }],
+        usage: { input_tokens: 10, output_tokens: 5 },
+      }),
+      { headers: { "content-type": "text/event-stream" } },
+    );
+  });
+  const conversation = createAnthropicConversation({
+    provider: "anthropic",
+    model: "claude-haiku-5-5",
+    apiKey: "placeholder",
+  });
+  await conversation.sendUserMessage("Inspect the room.");
+  assert.equal(bodies[0]?.["model"], "claude-haiku-5-5");
+  assert.equal("fallbacks" in (bodies[0] ?? {}), false);
+  assert.doesNotMatch(headers[0]?.get("anthropic-beta") ?? "", /server-side-fallback/);
+  assert.match(headers[0]?.get("anthropic-beta") ?? "", /compact-2026-01-12/);
+});
+
 test("a final Anthropic refusal ends the active task with a distinct cause", async (t) => {
   t.mock.method(
     globalThis,

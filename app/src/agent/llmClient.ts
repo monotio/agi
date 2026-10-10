@@ -424,6 +424,10 @@ export function createAnthropicConversation(
     ) => {
       const startedAt = performance.now();
       requestSignal = signal;
+      const anthropicCapability = modelCapability(
+        config.model || DEFAULT_MODELS.anthropic,
+        "anthropic",
+      );
       // Official SDK accumulation preserves thinking signatures and complete tool inputs.
       // https://platform.claude.com/docs/en/build-with-claude/streaming
       const stream = (await getClient()).beta.messages.stream(
@@ -441,29 +445,25 @@ export function createAnthropicConversation(
           },
           max_tokens: maxTokens,
           betas: [
-            "server-side-fallback-2026-07-01",
+            ...(anthropicCapability.serverFallback ? ["server-side-fallback-2026-07-01"] : []),
             "compact-2026-01-12",
             "thinking-display-updates-2026-08-18",
           ],
-          fallbacks: "default",
+          ...(anthropicCapability.serverFallback ? { fallbacks: "default" as const } : {}),
           context_management: {
             edits: [
               {
                 type: "compact_20260112",
                 trigger: {
                   type: "input_tokens",
-                  value: Math.floor(
-                    modelCapability(config.model || DEFAULT_MODELS.anthropic, "anthropic")
-                      .maxInputTokens * 0.75,
-                  ),
+                  value: Math.floor(anthropicCapability.maxInputTokens * 0.75),
                 },
               },
             ],
           },
           // The notes Opus 5.5 and Sonnet 5.5 write between tool calls arrive as thinking
           // blocks, empty without a display; the agent panel shows them.
-          ...(modelCapability(config.model || DEFAULT_MODELS.anthropic, "anthropic")
-            .summarizedThinking
+          ...(anthropicCapability.summarizedThinking
             ? { thinking: { type: "adaptive" as const, display: "updates" as const } }
             : {}),
           system: [

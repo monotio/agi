@@ -79,7 +79,7 @@
     }
   },
   "devDependencies": {
-    "@ast-grep/cli": "^0.50.0",
+    "@ast-grep/cli": "0.50.0",
     "@eslint/js": "^10.0.1",
     "@stryker-mutator/core": "^10.0.0",
     "@types/node": "^26.6.5",
@@ -95,5 +95,8 @@
     "vscode-languageserver": "10.1.2",
     "vscode-languageserver-protocol": "3.18.4",
     "vue-eslint-parser": "^10.4.1"
+  },
+  "allowScripts": {
+    "@ast-grep/cli@0.50.0": true
   }
 }
