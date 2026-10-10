@@ -139,6 +139,19 @@ export function claimProjectSaveJournal(key: string): { ready: Promise<boolean>;
   };
 }
 
+/** Run `recover` only while no page, this one included, owns the journal `key`. */
+export async function withUnownedJournal(
+  key: string,
+  recover: () => Promise<void> | void,
+): Promise<void> {
+  const locks = typeof navigator === "undefined" ? undefined : navigator.locks;
+  if (!locks) return;
+  await releasing.get(key);
+  await locks.request(key, { ifAvailable: true }, async (lock) => {
+    if (lock && !live.has(key)) await recover();
+  });
+}
+
 export function projectSaveJournalKey(project: ProjectId, owner: string): string {
   return `${PREFIX}${project}.${owner}`;
 }
@@ -292,10 +305,7 @@ export function resumeProjectSaveJournals(
           entries = current.filter((candidate) => observed.has(entryIdentity(candidate)));
         }
       };
-      await releasing.get(key);
-      await locks.request(key, { ifAvailable: true }, async (lock) => {
-        if (lock && !live.has(key)) await recover();
-      });
+      await withUnownedJournal(key, recover);
     }
   })().finally(() => recovering.delete(project));
   recovering.set(project, run);

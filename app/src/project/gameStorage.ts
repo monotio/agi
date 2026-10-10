@@ -29,6 +29,12 @@ import {
 } from "../../../src/agent/chats.ts";
 import { encodeJournalValue, type ProjectJournalCapture } from "./projectJournalCapture.ts";
 import { clearProjectSaveJournals, resumeProjectSaveJournals } from "./projectSaveJournal.ts";
+import {
+  conversationUpdateOf,
+  mergeConversationChats,
+  resumeConversationJournals,
+  type ConversationJournalEntry,
+} from "./conversationSaveJournal.ts";
 import { historyBlobKeys, type StoredProjectHistory } from "./projectHistoryStorageHeader.ts";
 import {
   readProjectWorkspace,
@@ -164,24 +170,44 @@ export async function saveGameConversationUpdate(
   expectedChats?: AgentChats | null,
 ): Promise<void> {
   const key = `conversation/${storageKey}`;
-  const { chat, ...conversation } = update;
   await putVersionedRecord(key, CONVERSATION_RECORD, (stored: GameConversation | undefined) => {
     if (
       expectedChats !== undefined &&
       JSON.stringify(stored?.chats ?? null) !== JSON.stringify(expectedChats)
     )
       throw new Error("This conversation changed in another tab. Reopen the game to continue.");
-    return {
-      ...conversation,
-      ...(update.chats
-        ? { chats: readAgentChats(update.chats) }
-        : stored?.chats
-          ? { chats: stored.chats }
-          : {}),
-      authoringState: { ...stored?.authoringState, chat },
-      projectId: key,
-    };
+    return conversationRecord(key, stored, update);
   });
+}
+
+function conversationRecord(
+  key: string,
+  stored: GameConversation | undefined,
+  update: ConversationUpdate,
+): GameConversation & { projectId: string } {
+  const { chat, ...conversation } = update;
+  return {
+    ...conversation,
+    ...(update.chats
+      ? { chats: readAgentChats(update.chats) }
+      : stored?.chats
+        ? { chats: stored.chats }
+        : {}),
+    authoringState: { ...stored?.authoringState, chat },
+    projectId: key,
+  };
+}
+
+/** Merge a closed page's journaled chats into the stored conversation. */
+function recoverGameConversation(storageKey: string, entry: ConversationJournalEntry) {
+  const key = `conversation/${storageKey}`;
+  return putVersionedRecord(key, CONVERSATION_RECORD, (stored: GameConversation | undefined) =>
+    conversationRecord(
+      key,
+      stored,
+      conversationUpdateOf(mergeConversationChats(stored?.chats ?? null, entry.base, entry.chats)),
+    ),
+  );
 }
 
 /** A write refused because the stored authoring content is not the one it was made from. */
@@ -195,6 +221,13 @@ export class StaleAuthoringError extends Error {
 export async function loadGameConversation(
   storageKey: string,
 ): Promise<GameConversation | undefined> {
+  const recovery =
+    typeof localStorage === "undefined"
+      ? undefined
+      : resumeConversationJournals(localStorage, storageKey, (entry) =>
+          recoverGameConversation(storageKey, entry),
+        );
+  if (recovery !== undefined) await recovery;
   const stored = await bodyTransaction<(GameConversation & Record<string, unknown>) | undefined>(
     "readonly",
     (store) => store.get(`conversation/${storageKey}`),
