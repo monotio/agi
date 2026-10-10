@@ -131,10 +131,10 @@ checked pull request. There is no back-merge into a release branch. Verify
 deployment before tagging `vX.Y.Z` and publishing its release notes. The next
 minor release, `release/X.(Y+1)`, is cut from `main` when it starts.
 
-To roll back, ship a forward 1.2.x deploy, or redeploy an earlier 1.2.x
-artifact. Never redeploy 1.1: version 1.1 code cannot open the 1.2 browser
-database (schema 2). Re-running CI rebuilds the same commit, so never re-run an
-older release job to roll back.
+To roll back, merge a fix or a revert into `main`; it deploys forward through
+the same checks. Never deploy code older than the browser data it will meet:
+version 1.1 cannot open the browser database that 1.2 created. Re-running CI
+rebuilds the same commit, so never re-run an older release job to roll back.
 
 Verify build identity and asset hashes against a downloaded CI artifact with:
 
