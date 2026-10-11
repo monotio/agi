@@ -13,7 +13,9 @@ interface ProjectProbe {
   query: WorkerQueryFn;
 }
 
-test("Create re-enters the current room with a loaded VIEW's new loop count", async ({ page }) => {
+test("Create re-enters the current room at once for a loaded VIEW's new loop count", async ({
+  page,
+}) => {
   await isolateStorage(page);
   await page.goto("/");
   const cel = { width: 8, height: 8, pixels: new Array<number>(64).fill(14) };
@@ -88,17 +90,10 @@ test("Create re-enters the current room with a loaded VIEW's new loop count", as
       origin: "view",
       author: "creator",
     });
-    if (result.status !== "restartRequired") throw new Error(result.status);
+    if (result.status !== "committed") throw new Error(result.status);
     return session.runToken;
   }, cel);
-  await expect(page.getByTestId("project-restart-notice")).toContainText(
-    "This change needs a fresh start of the room.",
-  );
-  await expect
-    .poll(() => page.evaluate(() => window.__AGI_FRAME__?.()?.visual[100 * 160 + 40]))
-    .toBe(14);
-  await reviewShot(page, "project-reentry-offer");
-  await page.getByRole("button", { name: "Re-enter room", exact: true }).click();
+  // The running room cannot take the new layout in place, so it enters the room with it.
   await expect(page.getByTestId("project-restart-notice")).toHaveCount(0);
   await expect
     .poll(() => page.evaluate(() => window.__AGI_FRAME__?.()?.visual[100 * 160 + 40]))
