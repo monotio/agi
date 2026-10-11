@@ -11,13 +11,15 @@ Released notes are also available on [GitHub Releases](https://github.com/monoti
   room uses, the room starts fresh so its entry code runs the new version. Since
   1.2.1 Agent changes waited until the hero left the room.
 - Returning to Play starts its room fresh when Create changed what that room
-  uses, and says so. Play no longer comes back silently paused after the Agent
-  was open.
+  uses, and says so. Play, Back, From my game and Restart follow the pause the
+  page shows instead of one captured when Create opened.
 - An applied change to another room offers Show Room N, which takes the hero
   there.
 - The Agent tells players to switch to Create to apply a change, the mode's name
   in the workspace.
 - The SOUND and Launches editors no longer repeat their tab's name as a heading.
+- An installed older release of a catalog game is named by its release, such as
+  "Adventure Department 1.0", and keeps its own card beside the current one.
 
 ## [1.2.2] - 2026-10-10
 

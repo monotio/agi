@@ -13,6 +13,11 @@ import {
   waitForRoom,
 } from "./engineProbe.ts";
 
+/**
+ * A checkpoint at a still boundary. The raw pause bypasses the page, so it is
+ * released again unless the page holds a pause of its own: the page and the
+ * game must agree on whether it runs.
+ */
 async function checkpoint(page: Page): Promise<number[]> {
   return page.evaluate(async () => {
     const project = (
@@ -20,6 +25,8 @@ async function checkpoint(page: Page): Promise<number[]> {
     ).__AGI_PROJECT__;
     project.getWorker().postMessage({ type: "pause", paused: true });
     const image = await project.query("checkpoint");
+    if (!window.__AGI_STATE__?.paused)
+      project.getWorker().postMessage({ type: "pause", paused: false });
     if (!image) throw new Error("The game needs a checkpoint.");
     return [...image];
   });
@@ -351,6 +358,10 @@ test("newest tab takes Play, rejects the old writer, and Take back survives clos
   await expect(other).toBeVisible();
   await expect(other).toContainText("This game is open in another tab.");
   await expect(notice).toBeHidden();
+  // Hold the game still the way a player does, so the page shows the pause the
+  // checkpoints below rely on.
+  await page.getByTestId("btn-transport-pause").click();
+  await expect.poll(async () => (await textHook(page)).paused).toBe(true);
   await checkpoint(page);
   // Establish the paused cycle's cadence before changing its image.
   expect(await flushCheckpoint(page)).toBe(true);

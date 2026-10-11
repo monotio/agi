@@ -239,4 +239,6 @@ export function replaceRun(ctx: WorkerContext, kind: ReplacementKind, prepared: 
   ctx.fns.applyTraceChannel();
   ctx.fns.captureStateDiffs();
   if (scheduling && !ctx.replay.replay) ctx.fns.startTimers();
+  // The page mirrors the real pause; a replacement may set it without a pause message.
+  ctx.ports.control({ type: "paused", paused: run.cycle.paused, cycle: run.cycle.cycleCount });
 }

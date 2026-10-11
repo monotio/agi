@@ -258,7 +258,7 @@ export function returnToPlay(ctx: WorkerContext, restart = false): { restartedRo
       project: ctx.boot.project,
       rng: prepared.rng,
       activate: prepared.activate,
-      paused: false,
+      paused: ctx.run.cycle.paused,
       progress: { mode: "play" },
       scratchSlots: {},
     });

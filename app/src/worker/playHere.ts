@@ -40,7 +40,8 @@ export function createPlayHere(ctx: WorkerContext) {
       try {
         adoptResumePoint(ctx, progress.returnPoint, {
           currentFiles: true,
-          paused: progress.returnPoint.clock?.paused ?? false,
+          // The page owns the pause; the captured moment's pause is not restored.
+          paused: ctx.run.cycle.paused,
           cycle: progress.cycle,
           tick: progress.tick,
           ...(msg.launch?.debug ? { debug: true } : {}),

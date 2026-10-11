@@ -13,10 +13,46 @@ export async function keepDetectedProfile(page: Page): Promise<void> {
   });
 }
 
+/**
+ * After every test the page's pause matches the interpreter's: a game that is
+ * frozen while the bar shows it running, or the reverse, fails the test that
+ * left it so. The pause may still be in flight, so the check polls briefly.
+ */
+async function expectPauseAgreement(page: Page): Promise<void> {
+  if (page.isClosed()) return;
+  const read = () =>
+    page
+      .evaluate(() => {
+        const state = window.__AGI_STATE__;
+        const engine = window.__AGI_TEXT__;
+        return state?.phase === "running" && engine
+          ? { page: state.paused, engine: engine.paused }
+          : null;
+      })
+      .catch(() => null);
+  await expect
+    .poll(
+      async () => {
+        const seen = await read();
+        return seen === null || seen.page === seen.engine ? "agree" : JSON.stringify(seen);
+      },
+      { message: "the page shows the interpreter's real pause state", timeout: 3_000 },
+    )
+    .toBe("agree");
+}
+
 export const test = base.extend<{
   keepDetectedProfile: void;
   cpuThrottle: void;
+  pauseAgreement: void;
 }>({
+  pauseAgreement: [
+    async ({ page }, use) => {
+      await use();
+      await expectPauseAgreement(page);
+    },
+    { auto: true },
+  ],
   cpuThrottle: [
     async ({ page, browserName }, use) => {
       const rate = Number(process.env["AGI_E2E_CPU_RATE"] ?? 1);

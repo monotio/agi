@@ -308,6 +308,10 @@ ordinary Playwright workers per job. Performance budgets and the CPU-throttled
 storage benchmark run alone on one worker; production tests also keep one
 worker. Retries stay at zero so every failure is visible.
 
+Every browser test ends with a check from `app/e2e/test.ts`: the pause the page
+shows must match the interpreter's real pause. A game that is frozen while the
+bar says it runs fails the test that left it so.
+
 The Chromium suite is split into ten spec groups using measured durations in
 `scripts/ci/durations.json`; the storage benchmark runs separately on one worker.
 Tagged WebKit desktop tests use four groups and `scripts/ci/webkit-durations.json`.
