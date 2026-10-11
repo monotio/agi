@@ -131,6 +131,11 @@ checked pull request. There is no back-merge into a release branch. Verify
 deployment before tagging `vX.Y.Z` and publishing its release notes. The next
 minor release, `release/X.(Y+1)`, is cut from `main` when it starts.
 
+The pull request that sets a release version also dates its `CHANGELOG.md`
+entry with the day it opens: `## [X.Y.Z] - YYYY-MM-DD`, never `Unreleased`. If
+it merges on a later day, update the date in the same pull request before
+merging, so `main` never ships an undated entry.
+
 To roll back, merge a fix or a revert into `main`; it deploys forward through
 the same checks. Never deploy code older than the browser data it will meet:
 version 1.1 cannot open the browser database that 1.2 created. Re-running CI

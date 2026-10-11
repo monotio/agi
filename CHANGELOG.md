@@ -3,7 +3,7 @@
 Changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Released notes are also available on [GitHub Releases](https://github.com/monotio/agi/releases).
 
-## [1.2.3] - Unreleased
+## [1.2.3] - 2026-10-11
 
 ### Fixed
 
