@@ -3,7 +3,23 @@
 Changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Released notes are also available on [GitHub Releases](https://github.com/monotio/agi/releases).
 
-## [1.2.2] - Unreleased
+## [1.2.3] - Unreleased
+
+### Fixed
+
+- A change applied in Create shows at once. When it touches what the current
+  room uses, the room starts fresh so its entry code runs the new version. Since
+  1.2.1 Agent changes waited until the hero left the room.
+- Returning to Play starts its room fresh when Create changed what that room
+  uses, and says so. Play no longer comes back silently paused after the Agent
+  was open.
+- An applied change to another room offers Show Room N, which takes the hero
+  there.
+- The Agent tells players to switch to Create to apply a change, the mode's name
+  in the workspace.
+- The SOUND and Launches editors no longer repeat their tab's name as a heading.
+
+## [1.2.2] - 2026-10-10
 
 ### Added
 
