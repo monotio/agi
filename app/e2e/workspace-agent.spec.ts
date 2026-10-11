@@ -628,3 +628,37 @@ test("a review whose preview code cannot load still offers Approve", async ({ pa
     .poll(async () => (await documents(page))["logic:1"])
     .toContain('said("look", "sign")');
 });
+
+test("an approved change shows at once in Create and again when Play resumes", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await start(page);
+  const panel = page.getByTestId("workspace-agent-panel");
+  await panel.getByRole("button", { name: "Close", exact: true }).click();
+  await page.getByRole("radio", { name: "Play", exact: true }).click();
+  const input = page.getByTestId("input-line");
+  await input.focus();
+  if ((await textHook(page)).modal) {
+    await input.press("Enter");
+    await expect.poll(async () => (await textHook(page)).modal).toBeNull();
+  }
+  // Room 1's entry code places the hero at (80, 140); walk away from it, then stop.
+  await page.keyboard.press("ArrowRight");
+  await expect.poll(async () => (await textHook(page)).egoX).toBeGreaterThan(95);
+  await page.keyboard.press("ArrowRight");
+  await openWorkspaceAgent(page);
+  await page.getByTestId("agent-message").fill("Add a welcome sign that answers look at sign");
+  await page.getByRole("button", { name: "Send", exact: true }).click();
+  await expect(page.getByTestId("agent-review")).toBeVisible();
+  await page.getByTestId("agent-approve").click();
+  await expect(page.getByTestId("agent-review")).toHaveCount(0);
+  // The change to Room 1's LOGIC re-runs its entry code in Create.
+  await expect.poll(async () => (await textHook(page)).egoX).toBe(80);
+  await page.getByRole("radio", { name: "Play", exact: true }).click();
+  // Play resumes the walked-away moment, then re-enters Room 1 for the change.
+  await expect(page.getByTestId("return-note")).toHaveText(
+    "Room 1 started fresh with your changes.",
+  );
+  await expect.poll(async () => (await textHook(page)).egoX).toBe(80);
+  await expect.poll(async () => (await textHook(page)).paused).toBe(false);
+  await page.screenshot({ path: test.info().outputPath("play-resumes-with-change-1440.png") });
+});
