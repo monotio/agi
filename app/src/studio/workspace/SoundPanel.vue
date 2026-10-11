@@ -247,28 +247,22 @@ onBeforeUnmount(() => {
   unsubscribe();
   void preview.close();
 });
+const soundLabel = computed(() =>
+  numberedLabel("sound", Number(props.documentKey.split(":")[1]), labels.value, "row"),
+);
 </script>
 <template>
   <div
     class="workspace-sound"
+    role="region"
+    :aria-label="soundLabel"
     data-testid="workspace-sound"
     @keydown="keys"
     @dragover.prevent
     @drop="drop"
   >
     <header class="sound-heading">
-      <div>
-        <h2>
-          <UiExplain
-            term="sound-editor"
-            :name="VOCABULARY.sound.label"
-            :says="VOCABULARY.sound.help"
-            >{{
-              numberedLabel("sound", Number(documentKey.split(":")[1]), labels, "row")
-            }}</UiExplain
-          >
-        </h2>
-      </div>
+      <UiExplain term="sound-editor" :name="VOCABULARY.sound.label" :says="VOCABULARY.sound.help" />
       <div class="sound-transport">
         <button
           type="button"
@@ -618,17 +612,13 @@ p {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-4);
+  align-items: center;
   justify-content: space-between;
 }
 .sound-transport,
 .sound-note-actions {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-2);
-}
-.sound-heading > div:first-child {
-  display: flex;
   align-items: center;
   gap: var(--space-2);
 }

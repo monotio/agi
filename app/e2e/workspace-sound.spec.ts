@@ -131,7 +131,9 @@ test("sound presets, note keyboard edits and guided cue creation share the works
     .getByRole("button", { name: "Add a sound", exact: true })
     .click();
   const panel = page.getByTestId("workspace-sound").filter({ visible: true });
-  await expect(panel.getByRole("heading", { name: "SOUND 2", exact: true })).toBeVisible();
+  await expect(page.getByRole("region", { name: "SOUND 2", exact: true })).toBeVisible();
+  // The tab already names the sound; the editor does not repeat it as a heading.
+  await expect(panel.getByRole("heading", { name: "SOUND 2" })).toHaveCount(0);
   await panel.getByRole("button", { name: "Tracker", exact: true }).click();
   await expect(panel.locator("[data-note-id]")).toHaveCount(3);
   await panel.getByRole("button", { name: "Choose preset", exact: true }).click();
@@ -139,7 +141,9 @@ test("sound presets, note keyboard edits and guided cue creation share the works
   await expect(picker).toBeVisible();
   await picker.getByRole("button", { name: "Play Danger", exact: true }).click();
   await picker.getByRole("button", { name: "Danger", exact: true }).click();
-  await expect(panel.getByRole("heading", { name: "SOUND 3", exact: true })).toBeVisible();
+  await expect(page.getByRole("region", { name: "SOUND 3", exact: true })).toBeVisible();
+  // The tab already names the sound; the editor does not repeat it as a heading.
+  await expect(panel.getByRole("heading", { name: "SOUND 3" })).toHaveCount(0);
   await panel.getByRole("button", { name: "Tracker", exact: true }).click();
   await expect(panel.locator("[data-note-id]")).toHaveCount(4);
   const note = panel.getByLabel("Voice 1, tick 34, note", { exact: true });
