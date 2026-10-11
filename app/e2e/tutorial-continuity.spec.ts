@@ -1,4 +1,6 @@
+import type { Locator, Page } from "@playwright/test";
 import { expect, test } from "./test.ts";
+import { fixtureSkip } from "../../test/fixtures.ts";
 import {
   isolateStorage,
   observe,
@@ -17,11 +19,35 @@ import { seedTutorial10, seedTutorial11, TUTORIAL_1_0, TUTORIAL_1_1 } from "./tu
  * is an ordinary saved-game card titled with its release, "Adventure
  * Department 1.0". A remix of the 1.0 copy keeps its own card. The 1.0 copy
  * is seeded from the released 1.0 Project download (tutorialRelease.ts).
+ *
+ * The rule: old tutorial progress and older releases stay their own separate
+ * entries, never folded into or mixed with the current tutorial, and each is
+ * named by its release so players can tell them apart. "Adventure Department"
+ * alone is always the Tutorial card. A contributor's own installed fixtures
+ * (local-game-card-*) follow the same rule but are this machine's games, so
+ * every check here scopes to the Tutorial card and the cards it seeded.
  */
 test.use({ viewport: { width: 1440, height: 900 } });
 
 const REMIX = "remix-of-tutorial-1-0";
 const OLDER_TITLE = "Adventure Department 1.0";
+const CURRENT_TITLE = "Adventure Department";
+
+/** The Tutorial and saved-game cards whose title is exactly `title`. */
+function shelfCardsTitled(page: Page, title: string): Locator {
+  const exact = new RegExp(`^${title.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`);
+  return page
+    .getByTestId("saved-game-gallery")
+    .locator('[data-testid="catalog-adventure-department"], [data-testid^="saved-game-card-"]')
+    .filter({ has: page.locator(".game-card__title", { hasText: exact }) });
+}
+
+/** "Adventure Department" alone names the Tutorial card. */
+async function expectOnlyTheTutorialIsCurrent(page: Page): Promise<void> {
+  const current = shelfCardsTitled(page, CURRENT_TITLE);
+  await expect(current).toHaveCount(1);
+  await expect(current).toHaveAttribute("data-testid", "catalog-adventure-department");
+}
 
 test("a stored 1.0 tutorial is its own saved-game card that resumes the 1.0 copy", async ({
   page,
@@ -31,7 +57,6 @@ test("a stored 1.0 tutorial is its own saved-game card that resumes the 1.0 copy
   await seedTutorial10(page, REMIX);
   await page.reload();
 
-  const gallery = page.getByTestId("saved-game-gallery");
   const tutorial = page.getByTestId("catalog-adventure-department");
   await expect(tutorial).toBeVisible();
   await expect(tutorial.getByTestId("catalog-play-adventure-department")).toHaveText("Play");
@@ -55,7 +80,7 @@ test("a stored 1.0 tutorial is its own saved-game card that resumes the 1.0 copy
     ).toBeVisible();
     await expect(card.locator(".game-card__monogram")).toBeVisible();
   }
-  await expect(gallery.getByText("Adventure Department", { exact: true })).toHaveCount(1);
+  await expectOnlyTheTutorialIsCurrent(page);
   await page.screenshot({ path: test.info().outputPath("home-older-release.png") });
 
   // The Tutorial card is the current release; its ⋯ menu carries no 1.0 items.
@@ -170,10 +195,7 @@ test("a 1.0 copy without an autosave still reads as played, and an imported 1.0 
     "Added another copy of Adventure Department to your library, with its saved progress, map and history.",
   );
   await expect(savedGameCard(page, OLDER_TITLE)).toHaveCount(2);
-  // "Adventure Department" alone is the Tutorial card, the current release.
-  await expect(
-    page.getByTestId("saved-game-gallery").getByText("Adventure Department", { exact: true }),
-  ).toHaveCount(1);
+  await expectOnlyTheTutorialIsCurrent(page);
 });
 
 test("a 1.1 player's copy and progress stay readable while the 1.2 tutorial starts fresh", async ({
@@ -206,4 +228,23 @@ test("a 1.1 player's copy and progress stay readable while the 1.2 tutorial star
   expect(
     await page.evaluate((key) => localStorage.getItem(key), `monotio_agi.autosave.${TUTORIAL_1_1}`),
   ).toBe(autosave);
+});
+
+// A contributor's installed copy of the released 1.0 tutorial (resolved by its
+// bytes, whatever its folder is called) follows the same rule on the shelf.
+const missing10 = fixtureSkip("adventure-department-1.0");
+test("an installed 1.0 release is its own card named by its release", async ({ page }) => {
+  test.skip(Boolean(missing10), missing10 || "");
+  await isolateStorage(page);
+  await page.goto("/");
+  const installed = page
+    .getByTestId("saved-game-gallery")
+    .locator('[data-testid^="local-game-card-"]')
+    .filter({ has: page.locator(".game-card__title", { hasText: /^Adventure Department 1\.0$/ }) });
+  await expect(installed).toHaveCount(1);
+  await expect(installed.getByRole("button", { name: /^(Play|Resume)$/ })).toBeVisible();
+  // The Tutorial card stays the current release, and no saved-game card
+  // claims the installed copy.
+  await expectOnlyTheTutorialIsCurrent(page);
+  await expect(savedGameCard(page, OLDER_TITLE)).toHaveCount(0);
 });

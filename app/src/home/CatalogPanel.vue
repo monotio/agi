@@ -14,7 +14,7 @@ import GameCard from "./GameCard.vue";
 import StartFresh from "./StartFresh.vue";
 import { catalogProjectId, useProjectRecovery } from "./projectRecovery.ts";
 import { catalogDetails, showDetails } from "./cardDetails.ts";
-import { isInstalledCatalogCopy } from "./shelfIdentity.ts";
+import { installedShelfTitle, isInstalledCatalogCopy } from "./shelfIdentity.ts";
 import { formatRelativeTime } from "./relativeTime.ts";
 import { useNow } from "./useNow.ts";
 import { computed } from "vue";
@@ -30,6 +30,7 @@ const { resumeAudio, startOver } = useEngineApi();
 const { llmConfig } = useAiSettings();
 const {
   featuredCatalog,
+  catalogEntries,
   localGames,
   localAutosave,
   installedProgress,
@@ -52,6 +53,11 @@ const shelfLocalGames = computed(() =>
   localGames.value.filter((game) => !isInstalledCatalogCopy(game, featuredCatalog)),
 );
 
+/** An installed older release is named by its release, like a stored copy. */
+function localTitle(game: InstalledGameDescriptor): string {
+  return installedShelfTitle(game, catalogEntries.value);
+}
+
 function localMeta(game: InstalledGameDescriptor): string {
   const autosave = localAutosave(game);
   if (autosave)
@@ -61,7 +67,7 @@ function localMeta(game: InstalledGameDescriptor): string {
 
 function localDetails(game: InstalledGameDescriptor): void {
   showDetails({
-    title: game.title,
+    title: localTitle(game),
     rows: [
       ["By", game.author ?? ""],
       ["Folder", game.folder ?? ""],
@@ -91,7 +97,7 @@ function localImage(game: InstalledGameDescriptor) {
   return autosave?.preview
     ? {
         src: autosave.preview,
-        alt: `${game.title}, current progress in room ${autosave.room}`,
+        alt: `${localTitle(game)}, current progress in room ${autosave.room}`,
         kind: "progress" as const,
       }
     : undefined;
@@ -106,7 +112,7 @@ function catalogImage(entry: GameCatalogEntry) {
   <GameCard
     v-for="game in shelfLocalGames"
     :key="`local-${game.hash}`"
-    :title="game.title"
+    :title="localTitle(game)"
     :monogram="(game.alias || game.hash).slice(0, 8).toUpperCase()"
     :image="localImage(game)"
     :meta="localMeta(game)"
