@@ -50,7 +50,11 @@ export function createAutosave(ctx: WorkerContext) {
       });
       return false;
     }
-    if (!image) return false;
+    if (!image) {
+      // A re-entered room has no boundary until its entry pass runs.
+      if (force && ctx.run.engine.roomEntryPending) ctx.run.autosave.checkpointDue = true;
+      return false;
+    }
     const files = Object.fromEntries(ctx.run.engine.containerFiles);
     if (ctx.boot.authoredWords) files["WORDS.TOK"] = ctx.boot.authoredWords;
     const msg: Extract<WorkerPresentation, { type: "autosave" }> = {
@@ -94,6 +98,7 @@ export function createAutosave(ctx: WorkerContext) {
     ctx.ports.presentation(msg);
     ctx.run.autosave.lastAutosaveCycle = ctx.run.cycle.cycleCount;
     ctx.run.autosave.lastAutosaveAt = ctx.ports.now();
+    ctx.run.autosave.checkpointDue = false;
     // The autosave cadence is the history anchor cadence — same boundary.
     ctx.fns.historyAnchor("autosave");
     return true;

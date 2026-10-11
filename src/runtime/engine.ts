@@ -7732,6 +7732,11 @@ export class Engine {
     };
   }
 
+  /** A host re-entry set the room up; its entry pass runs on the next cycle. */
+  get roomEntryPending(): boolean {
+    return this.hostRoomEntryPending;
+  }
+
   /**
    * Host-driven room re-entry, for live patching: after the harness patches
    * the current room's logic/picture/view it re-enters the room so the new

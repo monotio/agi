@@ -172,7 +172,7 @@ test("leaving Create restores the Play print continuation and RNG", (t) => {
   assert.equal(ctx.run.engine!.modalKind, "print");
 });
 
-test("a paused Play moment stays paused after Create runs and returns", (t) => {
+test("a paused Play moment stays paused after Create while the page holds its pause", (t) => {
   const { ctx } = workerHarness(game());
   t.after(() => ctx.fns.stopTimers());
   ctx.fns.tickEngine();
@@ -180,7 +180,7 @@ test("a paused Play moment stays paused after Create runs and returns", (t) => {
   const image = ctx.run.engine!.recordingImage();
   enter(ctx);
   ctx.fns.onPlayHere({ type: "playHere", id: 2, room: 2, x: 0, y: 0, launch: {} });
-  onWorkerMessage(ctx, { type: "pause", paused: false });
+  // The page owns the pause; app/test/worker-room-show.test.ts covers its release.
   onWorkerMessage(ctx, { type: "projectPlay" });
   assert.equal(ctx.run.cycle.paused, true);
   ctx.fns.stepHostTick(ctx.ports.now() + 2_000);

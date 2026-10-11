@@ -356,7 +356,7 @@ test("restart recompiles current documents before replacing the run; invalid sou
   }
 });
 
-test("session offers room re-entry for a loaded VIEW layout, keeps its token and global state, and records executable candidate files", async () => {
+test("a loaded VIEW layout change re-enters the room at once, keeps its token and global state, and records executable candidate files", async () => {
   const cel = { width: 2, height: 2, pixels: [14, 14, 14, 14] };
   const f = await fixture("reenter-view", {
     "logic:0":
@@ -372,9 +372,7 @@ test("session offers room re-entry for a loaded VIEW layout, keeps its token and
       "view:0",
       JSON.stringify({ loops: [{ cels: [{ ...cel, pixels: [4, 4, 4, 4] }] }, { cels: [cel] }] }),
     );
-    assert.equal(result.status, "restartRequired");
-    assert.equal(f.session.capture().pendingRestart?.action, "reenter");
-    assert.equal((await f.session.reenterRoom())?.status, "committed");
+    assert.equal(result.status, "committed");
     assert.equal(f.ctx.run.engine, old);
     assert.equal(f.session.runToken, token);
     assert.equal(f.session.pendingRestart, null);
@@ -410,9 +408,8 @@ test("session offers room re-entry for a loaded VIEW layout, keeps its token and
     );
     await f.session.flush();
     assert.equal(f.session.history.capture().commits.length, 2);
-    assert.equal((await f.session.undo())?.status, "restartRequired");
-    assert.equal(f.session.capture().pendingRestart?.action, "reenter");
-    assert.equal((await f.session.reenterRoom())?.status, "committed");
+    assert.equal((await f.session.undo())?.status, "committed");
+    assert.equal(f.session.pendingRestart, null);
     old.tick();
     assert.equal(old.getPresentation().visual[100 * 160 + 40], 14);
   } finally {
@@ -457,6 +454,9 @@ test("Create keeps progress temporary and Play autosave leaves the saved pending
     await f.session.flush();
     assert.equal(f.ctx.fns.autosave(true), false, "Create progress stays temporary");
     onWorkerMessage(f.ctx, { type: "projectPlay" });
+    // Play's room uses the changed PICTURE, so it re-entered; its entry pass runs first.
+    assert.equal(f.ctx.fns.autosave(true), false);
+    f.tick();
     assert.equal(f.ctx.fns.autosave(true), true);
     const progress = f.presentations.findLast((m) => m.type === "autosave");
     assert.ok(progress?.type === "autosave");

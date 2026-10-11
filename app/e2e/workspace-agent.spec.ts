@@ -644,7 +644,16 @@ test("an approved change shows at once in Create and again when Play resumes", a
   // Room 1's entry code places the hero at (80, 140); walk away from it, then stop.
   await page.keyboard.press("ArrowRight");
   await expect.poll(async () => (await textHook(page)).egoX).toBeGreaterThan(95);
-  await page.keyboard.press("ArrowRight");
+  // Entering a room keeps the hero's walking direction, so the hero must stand still.
+  await expect
+    .poll(async () => {
+      const before = (await textHook(page)).egoX;
+      await page.waitForTimeout(250);
+      if ((await textHook(page)).egoX === before) return true;
+      await page.keyboard.press("ArrowRight");
+      return false;
+    })
+    .toBe(true);
   await openWorkspaceAgent(page);
   await page.getByTestId("agent-message").fill("Add a welcome sign that answers look at sign");
   await page.getByRole("button", { name: "Send", exact: true }).click();

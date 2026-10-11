@@ -209,6 +209,8 @@ interface AutosaveState {
   lastAutosaveAt: number;
   lastAutosaveCycle: number;
   lastPatchGeneration: number;
+  /** A forced checkpoint met a room entry still to run; the next cycle takes it. */
+  checkpointDue: boolean;
 }
 
 /** worker/presentation.ts — the frame sameness cache. */

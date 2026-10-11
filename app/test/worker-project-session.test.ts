@@ -132,9 +132,12 @@ test("one MAIN run admits PICTURE, LOGIC, WORDS and Undo; autosave reopens exact
     });
   assert.equal((await edit("picture:0", "vis 4\nfill 1,1\nend\n", "picture")).status, "committed");
   assert.equal(engine.getPictureSurface().visual[161], 4);
+  // The picture on screen changed, so the room re-entered; its entry pass runs first.
+  assert.ok(!presentation.some((message) => message.type === "autosave"));
+  tick();
   assert.ok(
     presentation.some((message) => message.type === "autosave"),
-    "an admitted native edit takes a checkpoint before the next periodic save",
+    "an admitted native edit takes a checkpoint at the first boundary, before the next periodic save",
   );
   assert.equal(
     (await edit("logic:0", source.replace("Old room", "New room"), "logic")).status,

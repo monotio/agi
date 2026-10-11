@@ -47,6 +47,7 @@ export function newRunSession(now: number): RunSession {
       lastAutosaveAt: 0,
       lastAutosaveCycle: -1,
       lastPatchGeneration: 0,
+      checkpointDue: false,
     },
     presentation: {
       recentRing: new FrameRing(100),

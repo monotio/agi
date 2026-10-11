@@ -245,6 +245,7 @@ export function createCycle(ctx: WorkerContext) {
     // since the previous poll plus whether its cycle poll fired — the tape
     // records the scheduler's output, never the wall clock itself.
     ctx.fns.historyClockObs(cycleFired);
+    if (ctx.run.autosave.checkpointDue) ctx.fns.autosave(true);
     if (now - ctx.run.cycle.lastCycleReportAt >= CYCLE_REPORT_MS) {
       ctx.run.cycle.lastCycleReportAt = now;
       const scalars = ctx.run.engine.readState();

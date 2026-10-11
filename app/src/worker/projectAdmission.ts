@@ -827,15 +827,21 @@ export function createProjectAdmission(ctx: WorkerContext, options: ProjectAdmis
       );
       return;
     }
-    // An applied change shows at once: a change to what the room has in use
-    // re-runs its entry code. A parked print or key wait re-enters too.
-    const roomReentry =
+    let roomReentry =
       msg.mode === "reenter" ||
       (msg.mode === undefined &&
         !launchMetadataOnly &&
         ctx.run.projectAdmission === lane &&
-        ((engine.continuationPending && (engine.modalKind === "print" || engine.awaitingKey)) ||
-          roomResourcesChanged(engine, engine.containerFiles, candidate.files)));
+        engine.continuationPending &&
+        (engine.modalKind === "print" || engine.awaitingKey));
+    // An applied change shows at once: when it touches what the room has in
+    // use, the room re-enters after the swap, journaled in the same segment.
+    const showChange =
+      !roomReentry &&
+      msg.mode === undefined &&
+      !launchMetadataOnly &&
+      ctx.run.projectAdmission === lane &&
+      roomResourcesChanged(engine, engine.containerFiles, candidate.files);
     const commit = () =>
       roomReentry
         ? engine.commitRoomReentry(plan, () => {
@@ -850,7 +856,18 @@ export function createProjectAdmission(ctx: WorkerContext, options: ProjectAdmis
             sourceAuthorityChanged: sourceAuthorityChanged && !adoptingRoom && !launchMetadataOnly,
             messageWaiting: msg.mode === "keep",
           });
-    const result = options.commitAtBoundary ? options.commitAtBoundary(commit) : commit();
+    let result = options.commitAtBoundary ? options.commitAtBoundary(commit) : commit();
+    // A change the running room cannot take in place (a loaded VIEW's new
+    // layout) enters the room with it instead of waiting for Re-enter room.
+    if (showChange && result.status === "restartRequired" && result.roomReentry === true) {
+      roomReentry = true;
+      plan = engine.prepareRoomReentry(
+        candidate.profile === undefined
+          ? { files: candidate.files }
+          : { files: candidate.files, profile: candidate.profile },
+      );
+      result = options.commitAtBoundary ? options.commitAtBoundary(commit) : commit();
+    }
 
     if (result.status === "deferred") {
       // A busy boundary is a terminal, honest answer: nothing is queued,
@@ -926,6 +943,8 @@ export function createProjectAdmission(ctx: WorkerContext, options: ProjectAdmis
       ctx.fns.historyResume();
       ctx.fns.postFrame(true);
     }
+    if (installed && showChange && !roomReentry && result.status === "committed")
+      ctx.fns.onReenter({ type: "reenter" });
     // A reload needs progress for these admitted bytes, even when the last
     // periodic checkpoint belongs to the image before the edit.
     if (ctx.run.projectAdmission === lane && result.status === "committed") ctx.fns.autosave(true);
