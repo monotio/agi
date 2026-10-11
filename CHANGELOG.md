@@ -11,8 +11,12 @@ Released notes are also available on [GitHub Releases](https://github.com/monoti
   room uses, the room starts fresh so its entry code runs the new version. Since
   1.2.1 Agent changes waited until the hero left the room.
 - Returning to Play starts its room fresh when Create changed what that room
-  uses, and says so. Play, Back, From my game and Restart follow the pause the
-  page shows instead of one captured when Create opened.
+  uses, and says so. Play, Back, From my game, Restart, a project restart and
+  Take control follow the pause the page shows.
+- Play saves its progress as soon as the edited game has drawn, and periodic
+  saves continue when a busy browser runs the game's timer late.
+- A test recording that sees an applied change restart the room is marked
+  changed.
 - An applied change to another room offers Show Room N, which takes the hero
   there.
 - The Agent tells players to switch to Create to apply a change, the mode's name

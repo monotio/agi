@@ -14,31 +14,52 @@ export async function keepDetectedProfile(page: Page): Promise<void> {
 }
 
 /**
- * After every test the page's pause matches the interpreter's: a game that is
+ * After every test the page's pause matches the worker's: a game that is
  * frozen while the bar shows it running, or the reverse, fails the test that
- * left it so. The pause may still be in flight, so the check polls briefly.
+ * left it so. The worker answers a state query after every earlier command,
+ * so its reply is the pause the game really runs under; a pause still in
+ * flight settles within the poll.
  */
+async function pauseDisagreement(page: Page): Promise<string | null> {
+  if (page.isClosed()) return null;
+  let seen = "";
+  try {
+    await expect
+      .poll(
+        async () => {
+          seen = await page.evaluate(async () => {
+            const state = window.__AGI_STATE__;
+            if (state?.phase !== "running") return "agree";
+            const before = state.paused;
+            const project = (
+              window as unknown as {
+                __AGI_PROJECT__?: {
+                  query(type: "state"): Promise<{ runtime?: { paused: boolean } } | null>;
+                };
+              }
+            ).__AGI_PROJECT__;
+            if (!project) return "the running game has no project hook";
+            const worker = (await project.query("state"))?.runtime;
+            if (!worker) return "the running game has no worker state";
+            if (state.paused !== before) return "the page's pause changed during the query";
+            return worker.paused === before
+              ? "agree"
+              : `page ${before ? "paused" : "running"}, game ${worker.paused ? "paused" : "running"}`;
+          });
+          return seen;
+        },
+        { timeout: 3_000 },
+      )
+      .toBe("agree");
+    return null;
+  } catch {
+    return seen || "the page did not answer the pause check";
+  }
+}
+
 async function expectPauseAgreement(page: Page): Promise<void> {
-  if (page.isClosed()) return;
-  const read = () =>
-    page
-      .evaluate(() => {
-        const state = window.__AGI_STATE__;
-        const engine = window.__AGI_TEXT__;
-        return state?.phase === "running" && engine
-          ? { page: state.paused, engine: engine.paused }
-          : null;
-      })
-      .catch(() => null);
-  await expect
-    .poll(
-      async () => {
-        const seen = await read();
-        return seen === null || seen.page === seen.engine ? "agree" : JSON.stringify(seen);
-      },
-      { message: "the page shows the interpreter's real pause state", timeout: 3_000 },
-    )
-    .toBe("agree");
+  const problem = await pauseDisagreement(page);
+  expect(problem, "the page shows the game's real pause").toBeNull();
 }
 
 export const test = base.extend<{
@@ -47,8 +68,29 @@ export const test = base.extend<{
   pauseAgreement: void;
 }>({
   pauseAgreement: [
-    async ({ page }, use) => {
-      await use();
+    async ({ page, browser }, use) => {
+      // Pages a test opens in its own browser contexts are checked as the test
+      // closes them, and reported after the test so an earlier failure stays first.
+      const problems: string[] = [];
+      const newContext = browser.newContext.bind(browser);
+      browser.newContext = async (...args: Parameters<typeof newContext>) => {
+        const context = await newContext(...args);
+        const close = context.close.bind(context);
+        context.close = async (...closeArgs: Parameters<typeof close>) => {
+          for (const opened of context.pages()) {
+            const problem = await pauseDisagreement(opened);
+            if (problem) problems.push(`${opened.url()}: ${problem}`);
+          }
+          return close(...closeArgs);
+        };
+        return context;
+      };
+      try {
+        await use();
+      } finally {
+        browser.newContext = newContext;
+      }
+      expect(problems, "pages the test opened show the game's real pause").toEqual([]);
       await expectPauseAgreement(page);
     },
     { auto: true },

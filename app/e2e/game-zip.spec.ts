@@ -187,14 +187,24 @@ test("a friend opens an exported world in a fresh browser without a key @webkit-
     await expect(friend.getByTestId("agent-review")).toBeVisible();
     await friend.getByTestId("agent-approve").click();
     await expect(friend.getByTestId("agent-review")).toHaveCount(0);
-    await friend.getByTestId("input-line").fill("look");
-    await friend.getByTestId("input-line").press("Enter");
+    // The applied change shows at once: the room starts again with its new entry message.
+    await expect.poll(async () => (await textHook(friend)).modal).toBe("print");
     await expect
       .poll(async () => (await textHook(friend)).rows.join(" "))
       .toContain("Remixed room one.");
     expect(remixRequests).toHaveLength(2);
     await friend.screenshot({ path: test.info().outputPath("shared-zip-remixed.png") });
-    await friend.keyboard.press("Enter");
+    const command = friend.getByTestId("input-line");
+    await command.press("Enter");
+    await expect.poll(async () => (await textHook(friend)).modal).toBeNull();
+    // A typed command answers from the remixed room too.
+    await command.fill("look");
+    await command.press("Enter");
+    await expect.poll(async () => (await textHook(friend)).modal).toBe("print");
+    await expect
+      .poll(async () => (await textHook(friend)).rows.join(" "))
+      .toContain("Remixed room one.");
+    await command.press("Enter");
     await expect.poll(async () => (await textHook(friend)).modal).toBeNull();
     const remixDownloading = friend.waitForEvent("download");
     await downloadFromSettings(friend);
