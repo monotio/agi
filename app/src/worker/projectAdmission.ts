@@ -21,6 +21,7 @@ import { PROFILES, type ProfileId } from "../../../src/runtime/profile.ts";
 import { validateCompleteImage } from "../../../src/runtime/projectImageValidation.ts";
 import { prepareProjectRestart } from "../../../src/runtime/projectRestart.ts";
 import { enterCreateRun } from "./resumePoint.ts";
+import { roomResourcesChanged } from "./roomChange.ts";
 import { installProjectRestart } from "./projectRestart.ts";
 import { detachedHost } from "./runSession.ts";
 import { prepareRoomLaunch, runRoomLaunch, type PreparedRoomLaunch } from "./roomLaunch.ts";
@@ -826,13 +827,15 @@ export function createProjectAdmission(ctx: WorkerContext, options: ProjectAdmis
       );
       return;
     }
+    // An applied change shows at once: a change to what the room has in use
+    // re-runs its entry code. A parked print or key wait re-enters too.
     const roomReentry =
       msg.mode === "reenter" ||
       (msg.mode === undefined &&
         !launchMetadataOnly &&
         ctx.run.projectAdmission === lane &&
-        engine.continuationPending &&
-        (engine.modalKind === "print" || engine.awaitingKey));
+        ((engine.continuationPending && (engine.modalKind === "print" || engine.awaitingKey)) ||
+          roomResourcesChanged(engine, engine.containerFiles, candidate.files)));
     const commit = () =>
       roomReentry
         ? engine.commitRoomReentry(plan, () => {

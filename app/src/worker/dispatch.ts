@@ -636,8 +636,9 @@ export function onWorkerMessage(ctx: WorkerContext, msg: WorkerInbound): void {
     if (msg.type === "projectPlay") {
       ctx.previewVisitSerial++;
       try {
-        returnToPlay(ctx, msg.restart);
-        if (msg.id !== undefined) control({ type: "projectPlayed", id: msg.id, ok: true });
+        const played = returnToPlay(ctx, msg.restart);
+        if (msg.id !== undefined)
+          control({ type: "projectPlayed", id: msg.id, ok: true, ...played });
       } catch (cause) {
         const reason = cause instanceof Error ? cause.message : String(cause);
         if (msg.id === undefined) throw cause;

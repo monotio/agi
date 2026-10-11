@@ -16,6 +16,7 @@ import { detachedHost, replaceRun, type PreparedRun } from "./runSession.ts";
 import { newRunSession } from "./runState.ts";
 import { configureSessionTiming } from "./session.ts";
 import { createHistory } from "./history.ts";
+import { roomResourcesChanged } from "./roomChange.ts";
 import type { WorkerContext } from "./context.ts";
 
 /** A Create boot owns its return point before any callback can execute the candidate. */
@@ -237,9 +238,14 @@ export function adoptResumePoint(
   ctx.fns.postFrame(true);
 }
 
-export function returnToPlay(ctx: WorkerContext, restart = false): void {
+/**
+ * Play continues from the moment Create captured, on the current files. A
+ * change to what that room has in use re-enters it, so Play shows the change;
+ * the result names the room that started fresh.
+ */
+export function returnToPlay(ctx: WorkerContext, restart = false): { restartedRoom?: number } {
   const progress = ctx.run.progress;
-  if (progress.mode === "play") return;
+  if (progress.mode === "play") return {};
   if (ctx.replay.replay || ctx.view.drive)
     throw new Error("Play needs the live game. Leave the replay or history view first.");
   if (restart) {
@@ -258,12 +264,15 @@ export function returnToPlay(ctx: WorkerContext, restart = false): void {
     });
     runRoomLaunch(ctx, prepared);
     ctx.fns.autosave(true);
-    return;
+    return {};
   }
+  // The pause holds belong to the page, not to the captured moment: Create
+  // keeps them current, and the page never hears of a restored pause.
+  const paused = ctx.run.cycle.paused;
   try {
     adoptResumePoint(ctx, progress.returnPoint, {
       currentFiles: true,
-      paused: progress.returnPoint.clock?.paused ?? false,
+      paused,
       cycle: progress.cycle,
       tick: progress.tick,
       returnToPlay: true,
@@ -274,6 +283,13 @@ export function returnToPlay(ctx: WorkerContext, restart = false): void {
       { cause },
     );
   }
+  const engine = ctx.run.engine!;
+  const captured = new Map(
+    Object.entries(progress.returnPoint.files).map(([name, data]) => [name, base64ToBytes(data)]),
+  );
+  const restarted = roomResourcesChanged(engine, captured, engine.containerFiles);
+  if (restarted) ctx.fns.onReenter({ type: "reenter" });
   ctx.previewVisitSerial++;
   ctx.fns.autosave(true);
+  return restarted ? { restartedRoom: engine.vars[0]! } : {};
 }

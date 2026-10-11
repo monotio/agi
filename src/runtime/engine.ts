@@ -7719,6 +7719,20 @@ export class Engine {
   }
 
   /**
+   * What the current room has in use: its own LOGIC and every loaded LOGIC,
+   * PICTURE and VIEW, plus the picture last drawn. Entry code has already run
+   * on these, so a change to one shows only once the room is entered again.
+   */
+  roomResources(): { logic: number[]; picture: number[]; view: number[] } {
+    const sorted = (nums: Iterable<number>) => [...new Set(nums)].sort((a, b) => a - b);
+    return {
+      logic: sorted([this.vars[V_ROOM]!, ...this.logics.keys()]),
+      picture: sorted([this.lastPicture, ...this.pictures]),
+      view: sorted(this.views.keys()),
+    };
+  }
+
+  /**
    * Host-driven room re-entry, for live patching: after the harness patches
    * the current room's logic/picture/view it re-enters the room so the new
    * resources take effect, exactly as `new.room(v0)` from bytecode would.

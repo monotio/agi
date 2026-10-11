@@ -745,6 +745,10 @@ function close() {
     if (!creating.value) bridge.focusGameInput();
   });
 }
+function showRoom(room: number): void {
+  const show = editor.showRoom.value;
+  if (show) void action(() => show(room));
+}
 function useCommand(command: string): void {
   close();
   bridge.fillGameInput(command);
@@ -961,6 +965,8 @@ onBeforeUnmount(() => {
           <AgentResult
             v-if="message.result"
             :result="message.result"
+            :show-rooms="creating && editor.showRoom.value !== undefined"
+            @room="showRoom"
             @command="useCommand"
             @resource="openResult(message, $event)"
             @review="openResult(message)"

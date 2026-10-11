@@ -791,6 +791,14 @@ watch(
               <span>This game is open in another tab.</span>
               <UiButton size="sm" @click="engine.takePlayBack()">Take back</UiButton>
             </UiToast>
+            <UiToast
+              v-if="state.returnNote && !creating"
+              dismissible
+              data-testid="return-note"
+              @dismiss="state.returnNote = ''"
+            >
+              {{ state.returnNote }}
+            </UiToast>
             <UiToast v-if="state.returnProblem" tone="warn" data-testid="return-notice">
               <span>{{ state.returnProblem }}</span>
               <UiButton size="sm" @click="restartPlay">Restart</UiButton>

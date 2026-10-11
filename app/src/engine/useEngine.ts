@@ -12,6 +12,7 @@ import { base64ToBytes } from "../project/bytes.ts";
 import type { ProfileId } from "../../../src/runtime/profile.ts";
 import type { AgentHandler, LlmRequest } from "../agent/hostRequests.ts";
 import {
+  computed,
   effectScope,
   getCurrentScope,
   onScopeDispose,
@@ -174,6 +175,7 @@ export function useEngine(
     gameEnded: null,
     otherTab: false,
     returnProblem: "",
+    returnNote: "",
     entryProblem: "",
     conversationTransitioning: false,
     staleTab: false,
@@ -1254,7 +1256,10 @@ export function useEngine(
     change: number,
   ): Promise<boolean> {
     const prior = projectMode;
-    if (mode === "create") state.entryProblem = "";
+    if (mode === "create") {
+      state.entryProblem = "";
+      state.returnNote = "";
+    }
     if (mode === "play" && state.phase === "running") {
       const reply = await link.query("projectPlay", restart ? { restart: true } : {});
       if (change !== projectModeChange) return false;
@@ -1262,6 +1267,10 @@ export function useEngine(
         state.returnProblem = reply.reason ?? "Your game needs a restart.";
         return false;
       }
+      state.returnNote =
+        reply.restartedRoom === undefined
+          ? ""
+          : `Room ${reply.restartedRoom} started fresh with your changes.`;
     }
     if (mode === "play") state.returnProblem = "";
     projectMode = mode;
@@ -1463,6 +1472,8 @@ export function useEngine(
   }
 
   return {
+    /** The room the running game is in, from the worker's cycle heartbeat. */
+    currentRoom: computed(() => hook.room),
     playerSentences,
     loadPlayerSentences,
     resolvePlayerSentence(entry: PlayerSentence) {

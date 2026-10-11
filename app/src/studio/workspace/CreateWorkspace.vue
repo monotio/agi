@@ -937,6 +937,14 @@ editor.selectLaunch.value = async (id) => {
   const room = editor.actionRoom.value;
   if (room !== undefined) await selectRoomLaunch(room, id);
 };
+editor.showRoom.value = async (room) => {
+  await flushWorkspace();
+  const picture = groups.value
+    .flatMap((group) => group.entries)
+    .find((row) => row.room === room && row.key.startsWith("picture:"));
+  if (picture) openPart(picture.key);
+  await runSelectedLaunch({ room, beginning: false, fromMyGame: false });
+};
 let launchSerial = 0;
 async function runSelectedLaunch(entry?: {
   room: number;
@@ -2372,6 +2380,7 @@ onBeforeUnmount(() => {
   offDrafts?.();
   editor.update.value = undefined;
   editor.selectLaunch.value = undefined;
+  editor.showRoom.value = undefined;
   editor.discardDrafts.value = undefined;
   editor.changeCount.value = 0;
   phoneQuery.removeEventListener("change", phoneLayout);

@@ -861,6 +861,8 @@ export type WorkerControl =
       id: number;
       ok: boolean;
       reason?: string;
+      /** The room Play re-entered because a change touched what it had in use. */
+      restartedRoom?: number;
     }
   | {
       type: "projectCreated";
