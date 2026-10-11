@@ -17,7 +17,7 @@ export function installProjectRestart(
       : null,
     project: ctx.boot.project,
     rng: { word: 1, policy: { kind: "external" } },
-    paused: false,
+    paused: ctx.livePause,
     ...state,
   });
 }

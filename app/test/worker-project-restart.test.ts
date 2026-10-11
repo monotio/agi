@@ -418,6 +418,115 @@ test("a loaded VIEW layout change re-enters the room at once, keeps its token an
   }
 });
 
+test("quick edits in a row all land while the room's restart is still to run", async () => {
+  // Undo and Redo send edits faster than the game runs a cycle; each one must
+  // reach the running game, or Play resumes on an older version of the project.
+  const cel = { width: 2, height: 2, pixels: [14, 14, 14, 14] };
+  const f = await fixture("reenter-quick", {
+    "logic:0":
+      "if (isset(f5)) { load.pic(0); draw.pic(0); show.pic(); load.view(0); animate.obj(o0); set.view(o0,0); position(o0,40,100); draw(o0); stop.motion(o0); } return;",
+    "view:0": JSON.stringify({ loops: [{ cels: [cel] }] }),
+  });
+  try {
+    assert.equal((await f.edit("picture:0", "vis 4\nfill 1,1\nend\n")).status, "committed");
+    assert.equal(
+      (
+        await f.edit(
+          "view:0",
+          JSON.stringify({ loops: [{ cels: [{ ...cel, pixels: [2, 2, 2, 2] }] }] }),
+        )
+      ).status,
+      "committed",
+    );
+    assert.equal((await f.edit("picture:0", "vis 5\nfill 1,1\nend\n")).status, "committed");
+    f.tick();
+    f.tick();
+    const visual = f.ctx.run.engine!.getPresentation().visual;
+    assert.equal(visual[100 * 160 + 40], 2, "the hero shows the last VIEW edit");
+    assert.equal(visual[50 * 160 + 100], 5, "the room shows the last PICTURE edit");
+  } finally {
+    f.session.dispose();
+    f.ctx.fns.stopTimers();
+  }
+});
+
+test("an edit to a VIEW stamped into the picture and then unloaded shows at once", async () => {
+  const cel = { width: 2, height: 2, pixels: [14, 14, 14, 14] };
+  const f = await fixture("reenter-stamped", {
+    "logic:0":
+      "if (isset(f5)) { load.pic(0); draw.pic(0); load.view(1); add.to.pic(1,0,0,40,100,4,0); discard.view(1); show.pic(); } return;",
+    "view:1": JSON.stringify({ loops: [{ cels: [cel] }] }),
+  });
+  try {
+    assert.equal(f.ctx.run.engine!.getPresentation().visual[100 * 160 + 40], 14);
+    const result = await f.edit(
+      "view:1",
+      JSON.stringify({ loops: [{ cels: [{ ...cel, pixels: [4, 4, 4, 4] }] }] }),
+    );
+    assert.equal(result.status, "committed");
+    assert.equal(f.session.pendingRestart, null);
+    f.tick();
+    f.tick();
+    assert.equal(f.ctx.run.engine!.getPresentation().visual[100 * 160 + 40], 4);
+  } finally {
+    f.session.dispose();
+    f.ctx.fns.stopTimers();
+  }
+});
+
+test("Play shows an edit to a VIEW its room stamped into the picture", async () => {
+  const cel = { width: 2, height: 2, pixels: [14, 14, 14, 14] };
+  const f = await fixture("play-stamped", {
+    "logic:0":
+      "if (isset(f5)) { load.pic(0); draw.pic(0); load.view(0); add.to.pic(0,0,0,40,100,4,0); discard.view(0); show.pic(); } return;",
+    "view:0": JSON.stringify({ loops: [{ cels: [cel] }] }),
+  });
+  try {
+    onWorkerMessage(f.ctx, { type: "projectCreate", id: 900 });
+    const result = await f.edit(
+      "view:0",
+      JSON.stringify({ loops: [{ cels: [{ ...cel, pixels: [4, 4, 4, 4] }] }] }),
+    );
+    assert.equal(result.status, "committed");
+    onWorkerMessage(f.ctx, { type: "projectPlay", id: 901 });
+    const reply = f.messages.findLast((m) => m.type === "projectPlayed");
+    assert.ok(reply?.type === "projectPlayed" && reply.ok, JSON.stringify(reply));
+    assert.equal(reply.restartedRoom, 0);
+    f.tick();
+    f.tick();
+    assert.equal(f.ctx.run.engine!.getPresentation().visual[100 * 160 + 40], 4);
+  } finally {
+    f.session.dispose();
+    f.ctx.fns.stopTimers();
+  }
+});
+
+test("a test recording that sees the room restart for a VIEW layout change is marked changed", async () => {
+  // The recording cannot replay a change to the game's resources, so it must
+  // not offer itself as a clean test.
+  const cel = { width: 2, height: 2, pixels: [14, 14, 14, 14] };
+  const f = await fixture("reenter-recording", {
+    "logic:0":
+      "if (isset(f5)) { load.pic(0); draw.pic(0); show.pic(); load.view(0); animate.obj(o0); set.view(o0,0); position(o0,40,100); draw(o0); stop.motion(o0); } return;",
+    "view:0": JSON.stringify({ loops: [{ cels: [cel] }] }),
+  });
+  try {
+    onWorkerMessage(f.ctx, { type: "startRecording", id: 900 });
+    const result = await f.edit(
+      "view:0",
+      JSON.stringify({ loops: [{ cels: [{ ...cel, pixels: [4, 4, 4, 4] }] }, { cels: [cel] }] }),
+    );
+    assert.equal(result.status, "committed");
+    assert.equal(
+      f.ctx.run.recording.recording?.tainted,
+      "Game resources changed during recording.",
+    );
+  } finally {
+    f.session.dispose();
+    f.ctx.fns.stopTimers();
+  }
+});
+
 test("the session keeps the pending notice and running token until replacement acknowledgement", async () => {
   const f = await fixture("restart-ack-fence");
   let held: ReturnType<typeof f.holdAck> | undefined;

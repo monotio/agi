@@ -209,7 +209,7 @@ interface AutosaveState {
   lastAutosaveAt: number;
   lastAutosaveCycle: number;
   lastPatchGeneration: number;
-  /** A forced checkpoint met a room entry still to run; the next cycle takes it. */
+  /** A forced checkpoint the boundary refused; each host poll retries it. */
   checkpointDue: boolean;
 }
 
@@ -628,6 +628,11 @@ export interface WorkerContext {
   view: HistoryViewState;
   /** Choosing Play invalidates visits still waiting for their module. */
   previewVisitSerial: number;
+  /**
+   * The page's last pause message. Every live run follows it across
+   * replacements; a replay keeps its recorded pause in its own run.
+   */
+  livePause: boolean;
   projectLoader: {
     loading: Promise<void> | null;
     installed: boolean;
@@ -724,6 +729,7 @@ export function createWorkerContext(ports: WorkerPorts): WorkerContext {
       timer: null,
     },
     previewVisitSerial: 0,
+    livePause: false,
     projectLoader: { loading: null, installed: false, queue: [] },
     debuggerLoader: newDebuggerLoaderState(),
     fns: {} as WorkerFns,

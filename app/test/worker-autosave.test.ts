@@ -124,6 +124,35 @@ test("a replacement waits for the autosave interval on the host clock", (t) => {
   assert.equal(presentation.filter((m) => m.type === "autosave").length, 2);
 });
 
+test("a forced checkpoint refused before the first picture is taken once the room has drawn", (t) => {
+  // Play after Create asks for a checkpoint at once; a game that has not drawn
+  // yet still owes it, rather than leaving the edit unsaved until the next interval.
+  const { ctx, presentation } = workerHarness(drawnGame());
+  t.after(() => ctx.fns.stopTimers());
+  let now = 1000;
+  ctx.ports.now = () => now;
+  onWorkerMessage(ctx, { type: "boot", files: Object.fromEntries(drawnGame().files), words: [] });
+  ctx.fns.stopTimers();
+  assert.equal(ctx.fns.autosave(true), false, "nothing has drawn yet");
+  for (now = 1020; now < 2000; now += 20) ctx.fns.hostTick();
+  assert.equal(presentation.filter((m) => m.type === "autosave").length, 1);
+});
+
+test("periodic checkpoints continue when every host poll arrives a heartbeat apart", (t) => {
+  // A busy browser can deliver the poll timer late; the cycle report must not
+  // take every poll and starve the checkpoint.
+  const { ctx, presentation } = workerHarness(drawnGame());
+  t.after(() => ctx.fns.stopTimers());
+  let now = 1000;
+  ctx.ports.now = () => now;
+  onWorkerMessage(ctx, { type: "boot", files: Object.fromEntries(drawnGame().files), words: [] });
+  ctx.fns.stopTimers();
+  ctx.fns.tickEngine();
+  ctx.fns.finishCycle();
+  for (now = 1250; now <= 16000; now += 250) ctx.fns.hostTick();
+  assert.ok(presentation.filter((m) => m.type === "autosave").length >= 2);
+});
+
 test("autosave(false) skips when the cycle has not advanced", () => {
   const { ctx, presentation } = workerHarness(drawnGame());
   ctx.fns.tickEngine();

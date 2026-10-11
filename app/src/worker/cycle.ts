@@ -245,7 +245,6 @@ export function createCycle(ctx: WorkerContext) {
     // since the previous poll plus whether its cycle poll fired — the tape
     // records the scheduler's output, never the wall clock itself.
     ctx.fns.historyClockObs(cycleFired);
-    if (ctx.run.autosave.checkpointDue) ctx.fns.autosave(true);
     if (now - ctx.run.cycle.lastCycleReportAt >= CYCLE_REPORT_MS) {
       ctx.run.cycle.lastCycleReportAt = now;
       const scalars = ctx.run.engine.readState();
@@ -257,7 +256,11 @@ export function createCycle(ctx: WorkerContext) {
         egoY: scalars.egoY,
         delay: ctx.run.engine.vars[10]!,
       });
-    } else if (now - ctx.run.autosave.lastAutosaveAt >= ctx.run.autosave.autosaveIntervalMs)
+    }
+    // Checkpoints never wait on the report: a late poll timer would otherwise
+    // starve them. An owed checkpoint takes the poll's one capture attempt.
+    if (ctx.run.autosave.checkpointDue) ctx.fns.autosave(true);
+    else if (now - ctx.run.autosave.lastAutosaveAt >= ctx.run.autosave.autosaveIntervalMs)
       ctx.fns.autosave(false);
   }
 
@@ -285,7 +288,8 @@ export function createCycle(ctx: WorkerContext) {
   }
 
   function onPause(msg: Inbound<"pause">): void {
-    ctx.run.cycle.paused = msg.paused === true;
+    ctx.livePause = msg.paused === true;
+    ctx.run.cycle.paused = ctx.livePause;
     // An adopted session carries its recorded clock across the parked
     // interval: restoring it at adopt time would lose the accumulators to
     // the first parked poll, so it lands now — once, on release.

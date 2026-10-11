@@ -1322,7 +1322,10 @@ export class Engine {
     const stampedViewChange = changes.find(
       (change) => change.kind === "view" && composition.stampedViews.includes(change.num),
     );
+    // A host room entry still to run draws the room from the installed bytes,
+    // so the screen it replaces needs no rebuilding.
     if (
+      !this.hostRoomEntryPending &&
       !composition.complete &&
       changes.some((change) => change.kind === "picture" || change.kind === "view")
     ) {
@@ -7720,7 +7723,8 @@ export class Engine {
 
   /**
    * What the current room has in use: its own LOGIC and every loaded LOGIC,
-   * PICTURE and VIEW, plus the picture last drawn. Entry code has already run
+   * PICTURE and VIEW, plus the picture last drawn and the VIEWs stamped into
+   * it. Entry code has already run
    * on these, so a change to one shows only once the room is entered again.
    */
   roomResources(): { logic: number[]; picture: number[]; view: number[] } {
@@ -7728,7 +7732,11 @@ export class Engine {
     return {
       logic: sorted([this.vars[V_ROOM]!, ...this.logics.keys()]),
       picture: sorted([this.lastPicture, ...this.pictures]),
-      view: sorted(this.views.keys()),
+      // A VIEW stamped into the picture stays on screen after it is discarded.
+      view: sorted([
+        ...this.views.keys(),
+        ...analyzePictureComposition(this.hostReplay, this.hostReplayOverflow).stampedViews,
+      ]),
     };
   }
 

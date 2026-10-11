@@ -527,7 +527,7 @@ test("Update and launch uses the new LOGIC 0 with carried state, pause holds and
   await ctx.projectLoader.loading;
   ctx.fns.stopTimers();
   ctx.fns.tickEngine();
-  ctx.run.cycle.paused = true;
+  onWorkerMessage(ctx, { type: "pause", paused: true });
   ctx.run.rng.word = 4321;
   onWorkerMessage(ctx, {
     type: "previewUpdate",

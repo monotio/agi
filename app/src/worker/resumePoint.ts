@@ -258,7 +258,7 @@ export function returnToPlay(ctx: WorkerContext, restart = false): { restartedRo
       project: ctx.boot.project,
       rng: prepared.rng,
       activate: prepared.activate,
-      paused: ctx.run.cycle.paused,
+      paused: ctx.livePause,
       progress: { mode: "play" },
       scratchSlots: {},
     });
@@ -266,9 +266,9 @@ export function returnToPlay(ctx: WorkerContext, restart = false): { restartedRo
     ctx.fns.autosave(true);
     return {};
   }
-  // The pause holds belong to the page, not to the captured moment: Create
-  // keeps them current, and the page never hears of a restored pause.
-  const paused = ctx.run.cycle.paused;
+  // The pause holds belong to the page, not to the captured moment, and the
+  // page never hears of a restored pause.
+  const paused = ctx.livePause;
   try {
     adoptResumePoint(ctx, progress.returnPoint, {
       currentFiles: true,
@@ -287,7 +287,10 @@ export function returnToPlay(ctx: WorkerContext, restart = false): { restartedRo
   const captured = new Map(
     Object.entries(progress.returnPoint.files).map(([name, data]) => [name, base64ToBytes(data)]),
   );
-  const restarted = roomResourcesChanged(engine, captured, engine.containerFiles);
+  // A cold return point boots the edited files from the start: no room ran yet.
+  const restarted =
+    progress.returnPoint.image !== undefined &&
+    roomResourcesChanged(engine, captured, engine.containerFiles);
   if (restarted) ctx.fns.onReenter({ type: "reenter" });
   ctx.previewVisitSerial++;
   ctx.fns.autosave(true);

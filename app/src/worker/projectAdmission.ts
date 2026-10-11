@@ -740,7 +740,7 @@ export function createProjectAdmission(ctx: WorkerContext, options: ProjectAdmis
           ...(launch
             ? {
                 rng: launch.rng,
-                paused: ctx.run.cycle.paused,
+                paused: ctx.livePause,
                 activate: launch.activate,
                 debug: launch.debug,
                 ...(launch.debugSession ? { debugSession: launch.debugSession } : {}),
@@ -836,15 +836,23 @@ export function createProjectAdmission(ctx: WorkerContext, options: ProjectAdmis
         (engine.modalKind === "print" || engine.awaitingKey));
     // An applied change shows at once: when it touches what the room has in
     // use, the room re-enters after the swap, journaled in the same segment.
-    const showChange =
+    // An entry already waiting to run picks up the new bytes by itself.
+    const liveApply =
       !roomReentry &&
       msg.mode === undefined &&
       !launchMetadataOnly &&
-      ctx.run.projectAdmission === lane &&
+      ctx.run.projectAdmission === lane;
+    const showChange =
+      liveApply &&
+      !engine.roomEntryPending &&
       roomResourcesChanged(engine, engine.containerFiles, candidate.files);
     const commit = () =>
       roomReentry
         ? engine.commitRoomReentry(plan, () => {
+            // A test recording cannot replay the new resources or the entry.
+            const recording = ctx.run.recording.recording;
+            if (recording && recording.tainted === null)
+              recording.tainted = "Game resources changed during recording.";
             ctx.fns.historyEnd("resume");
             ctx.fns.setKeyWaiting(false);
             ctx.fns.abandonHostRequest();
@@ -858,8 +866,9 @@ export function createProjectAdmission(ctx: WorkerContext, options: ProjectAdmis
           });
     let result = options.commitAtBoundary ? options.commitAtBoundary(commit) : commit();
     // A change the running room cannot take in place (a loaded VIEW's new
-    // layout) enters the room with it instead of waiting for Re-enter room.
-    if (showChange && result.status === "restartRequired" && result.roomReentry === true) {
+    // layout, a VIEW stamped into the picture) enters the room with it
+    // instead of waiting for Re-enter room.
+    if (liveApply && result.status === "restartRequired" && result.roomReentry === true) {
       roomReentry = true;
       plan = engine.prepareRoomReentry(
         candidate.profile === undefined

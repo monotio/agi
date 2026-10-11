@@ -16,8 +16,12 @@ import type { WorkerControl, PreviewUpdateCandidateMessage } from "../src/worker
 const ROOM = (version: number) => `if(isset(f5)){increment(v83);assignn(v81,${version});}return;`;
 const LOGIC_0 = "if(equaln(v0,0)){new.room(1);}call.v(v0);return;";
 
-function candidate(room = ROOM(1), other = "return;"): PreviewUpdateCandidateMessage {
-  const documents = { "logic:0": LOGIC_0, "logic:1": room, "logic:2": other, world: "{}" };
+function candidate(
+  room = ROOM(1),
+  other = "return;",
+  logic0 = LOGIC_0,
+): PreviewUpdateCandidateMessage {
+  const documents = { "logic:0": logic0, "logic:1": room, "logic:2": other, world: "{}" };
   const compiled = compileProjectDocuments({
     files: Object.fromEntries(createContainer().files),
     documents,
@@ -26,7 +30,7 @@ function candidate(room = ROOM(1), other = "return;"): PreviewUpdateCandidateMes
   return {
     files: Object.fromEntries(compiled.files()),
     profile: "2.936",
-    sources: { "0": LOGIC_0, "1": room, "2": other },
+    sources: { "0": logic0, "1": room, "2": other },
     sourceBindings: {},
     buildId: compiled.build.identity.buildId,
     revision: compiled.build.identity.revision,
@@ -36,8 +40,8 @@ function candidate(room = ROOM(1), other = "return;"): PreviewUpdateCandidateMes
   };
 }
 
-/** A game played into room 1, then opened in Create. */
-async function created(t: TestContext, paused = false) {
+/** A game played into room 1, then opened in Create; a cold one opens before it runs. */
+async function created(t: TestContext, paused = false, cold = false) {
   const control: WorkerControl[] = [];
   const ctx = createWorkerContext({
     control: (msg) => control.push(msg),
@@ -46,18 +50,28 @@ async function created(t: TestContext, paused = false) {
   });
   ctx.host = createEngineHost(ctx);
   t.after(() => ctx.fns.stopTimers());
-  onWorkerMessage(ctx, { type: "boot", files: candidate().files, words: [], profile: "2.936" });
+  const first = candidate();
+  onWorkerMessage(ctx, {
+    type: "boot",
+    files: first.files,
+    words: [],
+    profile: "2.936",
+    ...(cold ? { projectMode: "create" as const, projectDocuments: first.documents } : {}),
+  });
   await ctx.projectLoader.loading;
   ctx.fns.stopTimers();
-  ctx.run.engine!.tick();
-  ctx.run.engine!.tick();
-  assert.deepEqual([ctx.run.engine!.vars[0], ctx.run.engine!.vars[83]], [1, 1]);
-  if (paused) onWorkerMessage(ctx, { type: "pause", paused: true });
-  onWorkerMessage(ctx, { type: "projectCreate", id: 1 });
-  await ctx.projectLoader.loading;
-  const grant = control.at(-1);
-  assert.ok(grant?.type === "projectCreated" && grant.grant, JSON.stringify(grant));
-  const update = (next: PreviewUpdateCandidateMessage, id: number) => {
+  if (!cold) {
+    ctx.run.engine!.tick();
+    ctx.run.engine!.tick();
+    assert.deepEqual([ctx.run.engine!.vars[0], ctx.run.engine!.vars[83]], [1, 1]);
+    if (paused) onWorkerMessage(ctx, { type: "pause", paused: true });
+    onWorkerMessage(ctx, { type: "projectCreate", id: 1 });
+    await ctx.projectLoader.loading;
+    const grant = control.at(-1);
+    assert.ok(grant?.type === "projectCreated" && grant.grant, JSON.stringify(grant));
+  }
+  assert.equal(ctx.run.progress.mode, "create");
+  const update = (next: PreviewUpdateCandidateMessage, id: number, mode?: "restart") => {
     const lane = ctx.run.projectAdmission!;
     onWorkerMessage(ctx, {
       type: "previewUpdate",
@@ -65,6 +79,7 @@ async function created(t: TestContext, paused = false) {
       runToken: lane.runToken,
       expected: projectAdmissionIdentity(ctx, lane)!,
       candidate: next,
+      ...(mode ? { mode } : {}),
     });
     const result = control.findLast((m) => m.type === "previewUpdateResult");
     assert.ok(result?.type === "previewUpdateResult" && result.status === "committed");
@@ -113,5 +128,27 @@ test("Play follows the page's pause, not the pause captured when Create opened",
   const { ctx, play } = await created(t, true);
   onWorkerMessage(ctx, { type: "pause", paused: false });
   play();
+  assert.equal(ctx.run.cycle.paused, false);
+});
+
+test("Play from a Create opened before the game ran starts the edited game without a restart note", async (t) => {
+  const { ctx, update, play } = await created(t, false, true);
+  update(candidate(ROOM(1), "return;", `assignn(v84,1);${LOGIC_0}`), 2);
+  const reply = play();
+  assert.equal(reply.restartedRoom, undefined);
+  assert.equal(ctx.run.engine!.vars[84], 1);
+});
+
+test("a project restart and Take control keep a pause the page still holds", async (t) => {
+  const { ctx, update } = await created(t);
+  onWorkerMessage(ctx, { type: "pause", paused: true });
+  const engine = ctx.run.engine;
+  update(candidate(ROOM(2)), 2, "restart");
+  assert.notEqual(ctx.run.engine, engine, "the restart replaced the run");
+  assert.equal(ctx.run.cycle.paused, true);
+  onWorkerMessage(ctx, { type: "resetReplay", seed: 1 });
+  onWorkerMessage(ctx, { type: "exitReplay" });
+  assert.equal(ctx.run.cycle.paused, true);
+  onWorkerMessage(ctx, { type: "pause", paused: false });
   assert.equal(ctx.run.cycle.paused, false);
 });

@@ -132,7 +132,7 @@ export function launchRoom(ctx: WorkerContext, msg: Inbound<"playHere">): string
   ctx.fns.autosave(true);
   installProjectRestart(ctx, prepared.engine, prepared.beginning ? "beginning" : "launch", {
     rng: prepared.rng,
-    paused: ctx.run.cycle.paused,
+    paused: ctx.livePause,
     activate: prepared.activate,
     debug: prepared.debug,
     ...(prepared.debugSession ? { debugSession: prepared.debugSession } : {}),
