@@ -938,7 +938,22 @@ editor.selectLaunch.value = async (id) => {
   if (room !== undefined) await selectRoomLaunch(room, id);
 };
 editor.showRoom.value = async (room) => {
+  // Show answers the Create it was clicked in: leaving Create, even for a
+  // moment, a newer launch, or another run taking the game while the save
+  // finishes cancels it before it moves anything.
+  const serial = launchSerial;
+  const owner = engine.getProjectSession();
+  const runToken = owner?.runToken;
   await flushWorkspace();
+  if (
+    retired ||
+    !props.creating ||
+    serial !== launchSerial ||
+    engine.getProjectSession() !== owner ||
+    owner?.closed === true ||
+    owner?.runToken !== runToken
+  )
+    return;
   const picture = groups.value
     .flatMap((group) => group.entries)
     .find((row) => row.room === room && row.key.startsWith("picture:"));
@@ -3174,7 +3189,8 @@ onBeforeUnmount(() => {
 }
 .workspace-game-bar__where {
   display: flex;
-  flex: 1;
+  /* Back sits beside the room name, clear of a drawer over the bar's far end. */
+  flex: 0 1 auto;
   align-items: center;
   gap: var(--space-2);
   min-width: 0;

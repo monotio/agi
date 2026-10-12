@@ -1,6 +1,7 @@
 import { providerReply } from "../../test/provider-stream.ts";
 import { test, expect } from "./test.ts";
 import {
+  addWorkspaceAction,
   openStoredWorkspace,
   openWorkspaceLogic,
   replaceWorkspaceDocument,
@@ -10,6 +11,7 @@ import {
   textHook,
   configureAi,
   workspaceUpdated,
+  observe,
   openWorkspaceAgent,
   openWorkspacePicture,
 } from "./engineProbe.ts";
@@ -671,3 +673,120 @@ test("an approved change shows at once in Create and again when Play resumes", a
   await expect.poll(async () => (await textHook(page)).paused).toBe(false);
   await page.screenshot({ path: test.info().outputPath("play-resumes-with-change-1440.png") });
 });
+
+/** A new Room 2, then one approved Agent turn that writes its LOGIC: the result offers Show. */
+async function changeRoomTwo(page: Page): Promise<void> {
+  let requests = 0;
+  await page.route("**/api/openai/v1/responses", async (route) => {
+    requests++;
+    await route.fulfill(
+      providerReply("openai", {
+        id: `room-two-${requests}`,
+        status: "completed",
+        output:
+          requests === 1
+            ? [
+                {
+                  type: "function_call",
+                  call_id: "write",
+                  name: "write_logic",
+                  arguments: JSON.stringify({
+                    room: 2,
+                    source: 'if (said("look")) { print("Room two."); } return;',
+                  }),
+                },
+                {
+                  type: "function_call",
+                  call_id: "finish",
+                  name: "finish",
+                  arguments: '{"notes":null}',
+                },
+              ]
+            : [],
+      }),
+    );
+  });
+  await start(page, "openai", false);
+  await addWorkspaceAction(page, "Add a room", { "Room name": "Grove" }, "world");
+  await expect.poll(async () => (await documents(page))["logic:2"]).toBeDefined();
+  // Play reaches the Meadow; Create opens on that moment, so Back has one to return to.
+  await page.getByTestId("workspace-agent-panel").getByTestId("agent-panel-close").click();
+  await page.getByRole("radio", { name: "Play", exact: true }).click();
+  await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  await page.getByRole("radio", { name: "Create", exact: true }).click();
+  await expect(page).toHaveURL(/#create\//);
+  await openWorkspaceAgent(page);
+  await page.getByTestId("agent-message").fill("Give room two a look answer");
+  await page.getByRole("button", { name: "Send", exact: true }).click();
+  await expect(page.getByTestId("agent-review")).toBeVisible();
+  await page.getByTestId("agent-approve").click();
+  await expect(page.getByTestId("agent-review")).toHaveCount(0);
+  await expect(page.getByTestId("agent-show-room")).toHaveText("Show Grove");
+}
+
+/** Hold the project's next save until `releaseSave` runs in the page. */
+async function holdSave(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const session = (
+      window as unknown as {
+        __AGI_PROJECT__: { getSession(): { flush(): Promise<unknown> } };
+      }
+    ).__AGI_PROJECT__.getSession();
+    const flush = session.flush.bind(session);
+    const held = Promise.withResolvers<void>();
+    session.flush = async () => {
+      Object.assign(window, { saveHeld: true });
+      await held.promise;
+      return flush();
+    };
+    Object.assign(window, {
+      releaseSave: () => {
+        session.flush = flush;
+        held.resolve();
+      },
+    });
+  });
+}
+
+async function releaseSave(page: Page): Promise<void> {
+  await page.evaluate(() => (window as unknown as { releaseSave(): void }).releaseSave());
+}
+
+test("Show Room takes the hero to a changed room, and Back returns", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await changeRoomTwo(page);
+  const before = await textHook(page);
+  expect(before.room).toBe(1);
+  await page.getByTestId("agent-show-room").click();
+  await expect.poll(async () => (await textHook(page)).room).toBe(2);
+  await page.screenshot({ path: test.info().outputPath("show-room-1440.png") });
+  await page.getByRole("button", { name: "Back to Meadow", exact: true }).click();
+  await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  expect((await textHook(page)).egoX).toBe(before.egoX);
+});
+
+// A Show clicked in Create answers that Create only: leaving it while the save
+// finishes cancels the visit, so Play stays where the player was.
+for (const back of [false, true]) {
+  test(`a Show Room still saving when Play opens${back ? " and Create returns" : ""} goes nowhere`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await changeRoomTwo(page);
+    await holdSave(page);
+    await page.getByTestId("agent-show-room").click();
+    await expect
+      .poll(() => page.evaluate(() => (window as unknown as { saveHeld?: boolean }).saveHeld))
+      .toBe(true);
+    await page.getByRole("radio", { name: "Play", exact: true }).click();
+    await expect(page).toHaveURL(/#play\//);
+    if (back) {
+      await page.getByRole("radio", { name: "Create", exact: true }).click();
+      await expect(page).toHaveURL(/#create\//);
+    }
+    await releaseSave(page);
+    await observe(page);
+    expect((await textHook(page)).room).toBe(1);
+    await expect(page.getByRole("button", { name: "Back to Meadow", exact: true })).toHaveCount(0);
+  });
+}
