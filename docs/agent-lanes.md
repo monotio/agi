@@ -46,6 +46,10 @@ Write one brief per lane. Explain the problem, who the change serves, its origin
 and the expected cost and benefit before asking for a scope decision or mockup.
 List the owned files and concrete acceptance checks. Keep agent vendors and
 models optional; choose tools according to the task and contributor's setup.
+Match the model to the work: the strongest available model for UI design,
+engine and worker changes and hard diagnosis; a mid-tier model for
+well-specified fixes, tests and documentation; a fast, inexpensive model for
+exploration, sweeps and reading long logs.
 
 Copy this template into the private briefs folder:
 
@@ -171,7 +175,12 @@ and verification evidence determine whether the task succeeded.
 ## Orchestrate
 
 The orchestrator chooses task boundaries, assigns ownership, tracks dependencies
-and keeps briefs consistent. It reads each report and the actual diff, examines
+and keeps briefs consistent. It stays thin: planning, briefs, diff review,
+integration and the final gate. Every step it takes carries its whole context,
+so implementation, sweeping edits and long logs belong to lanes and subagents.
+For deep or cross-cutting changes, an independent reviewer reads the plan before
+any lane starts; finding a design problem in a plan costs far less than finding
+it in a pushed branch. It reads each report and the actual diff, examines
 test assertions and gate evidence, and resolves conflicts and cross-lane effects.
 A green report requires review before integration.
 
@@ -180,7 +189,11 @@ integration branch, resolve conflicts, and run the affected checks and the full
 gate (`npm run check`, build and bundle, the full browser suite) against the
 combined result; this is the only place the full gate runs locally. Run no more
 lanes at once than the machine can test without slowing them down; on a laptop
-that is about four. After merging several lanes, also run the
+that is about four. Run the full gate once per combined head, with its stages in
+parallel and the perf suite alone afterwards. Repeat each lane's new or changed
+browser specs ten times while that full suite runs: races that pass alone fail
+under CI load. Collect every review finding before pushing; each push reruns the
+whole CI matrix. After merging several lanes, also run the
 complete browser suite, including Linux WebKit through the container, on the
 combined head before pushing; CI on that push is the final Linux verdict: lanes that pass on
 their own can collide, and the specs each lane touched will not show it. Review the whole change for failure paths,

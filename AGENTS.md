@@ -56,6 +56,13 @@ in docs/testing.md. Push only a fully gated head, and read CI failures with
 reason to rerun until green. Browser suites run once with zero retries; repeat a run only as an
 explicit diagnostic.
 
+Spend each gate where it decides something. While iterating, run the tests for what you touched.
+Run `npm run check` and the full browser suites once per head you intend to push or merge, with
+the stages in parallel and the perf suite alone afterwards. A new or changed browser spec must also
+pass ten repeats (`--repeat-each=10`) while the full suite runs beside it: a race that passes alone
+fails under CI load. Gather every review finding (automated threads, outside reviews, the
+whole-change review) before pushing, because each push reruns the whole CI matrix.
+
 Ask before pushing, opening or merging pull requests, tagging, deleting shared branches, spending on
 paid model or image APIs, or acting outside the repository.
 
@@ -145,6 +152,8 @@ The audience includes children building their first game, so copy is plain and c
 - Headings and labels name a thing in one or two words. Body text says what a thing is or does,
   briefly and positively. The `plain-copy-*` ast-grep rules flag definitions by negation and dash
   asides.
+- Say a thing once. A label, caption or action repeated on every item of a list belongs in the
+  list's header, on hover, or on the selected item.
 - Error notices name the cause and the next action. State real constraints and irreversible
   consequences; leave out reassurance and tips that repeat what the screen shows.
 - Dismiss-only overlays and panels close with a top-right × labelled "Close" and with Esc; popovers
@@ -209,6 +218,17 @@ in examples. Public attribution, historical release dates and synthetic test dat
   integrator reviews the diff, runs the full gate on the combined head and removes the worktree and
   branch. Any agent vendor or model may take a lane.
   [docs/agent-lanes.md](docs/agent-lanes.md) has the full lane procedure.
+- The orchestrator stays thin: it plans, writes briefs, reviews diffs, integrates and runs the
+  final gate. Implementation, sweeping edits and long logs go to lanes and subagents, which return
+  a short verdict.
+- Default to what a first-time player expects, and make the full fix. Ask the owner only about a
+  genuine product trade-off that the code and the player's expectations cannot settle. There is
+  no time pressure unless the owner says so.
+- Review the design before writing code for deep or cross-cutting changes (engine, worker, saves,
+  shared UX): an independent reviewer reads the plan first, then reviews the whole change once
+  before the pull request.
+- Reproduce a QA finding in the environment its reader uses (same server, stored data and AI
+  settings) and attach a screenshot before reporting it.
 - Before showing a mockup or asking for a scope decision, explain the proposal in plain words: the
   problem, who it serves, where it came from, its cost and its benefit.
 - Keep README.md and CONTRIBUTING.md consistent with shipped behavior. Add a Markdown file only for
