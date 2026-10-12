@@ -57,11 +57,6 @@ async function pauseDisagreement(page: Page): Promise<string | null> {
   }
 }
 
-async function expectPauseAgreement(page: Page): Promise<void> {
-  const problem = await pauseDisagreement(page);
-  expect(problem, "the page shows the game's real pause").toBeNull();
-}
-
 export const test = base.extend<{
   keepDetectedProfile: void;
   keepDetectedProfileOption: boolean;
@@ -73,11 +68,11 @@ export const test = base.extend<{
   keepDetectedProfileOption: [true, { scope: "test", option: true }],
   pauseAgreement: [
     async ({ page, browser }, use) => {
-      // Every page is checked once, just before it closes, while its worker can
-      // still answer. Problems are reported after the test so an earlier failure
-      // stays first. The fixture page is checked at the end, not here.
+      // Every page, the fixture page included, is checked once: just before it
+      // closes, while its worker can still answer, or at the end of the test.
+      // Problems are reported after the test so an earlier failure stays first.
       const problems: string[] = [];
-      const checked = new WeakSet<Page>([page]);
+      const checked = new WeakSet<Page>();
       const check = async (opened: Page) => {
         if (checked.has(opened)) return;
         checked.add(opened);
@@ -113,8 +108,7 @@ export const test = base.extend<{
         browser.newContext = newContext;
       }
       for (const opened of page.context().pages()) await check(opened);
-      expect(problems, "pages the test opened show the game's real pause").toEqual([]);
-      await expectPauseAgreement(page);
+      expect(problems, "every page shows the game's real pause").toEqual([]);
     },
     { auto: true },
   ],
