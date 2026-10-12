@@ -793,7 +793,9 @@ watch(
             </UiToast>
             <UiToast
               v-if="state.returnNote && !creating"
+              :key="state.returnNote"
               dismissible
+              timed
               data-testid="return-note"
               @dismiss="state.returnNote = ''"
             >

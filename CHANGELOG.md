@@ -15,6 +15,11 @@ Released notes are also available on [GitHub Releases](https://github.com/monoti
   Take control follow the pause the page shows.
 - Play saves its progress as soon as the edited game has drawn, and periodic
   saves continue when a busy browser runs the game's timer late.
+- An Agent panel opened in Create and kept open into Play pauses the game, as
+  opening it in Play does. Play no longer runs on while ignoring the keyboard,
+  and returning to Create lets the game run beside the panel again.
+- The "Saved as your own copy" and "started fresh" notices close by themselves
+  after a few seconds, and stay up while the pointer rests on them.
 - A test recording that sees an applied change restart the room is marked
   changed.
 - An applied change to another room offers Show Room N, which takes the hero

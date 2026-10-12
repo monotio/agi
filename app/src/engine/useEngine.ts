@@ -281,7 +281,7 @@ export function useEngine(
     observationListeners,
     onBehindStorage: tellBehindStorage,
   });
-  const { pauseEngine, resumeEngine, resetPauseOwners } = createPauseHolds({
+  const { pauseEngine, resumeEngine, resetPauseOwners, pauseOwners } = createPauseHolds({
     post: (paused) =>
       link.getWorker()?.postMessage({ type: "pause", paused } satisfies WorkerInbound),
     audio: { setPaused: (paused) => audio?.setPaused(paused) },
@@ -1012,6 +1012,17 @@ export function useEngine(
     }
   }
 
+  /**
+   * An open Agent pauses Play, never Create, however it opened: a panel carried
+   * into Play pauses the game as opening it there does, and Create's game runs
+   * beside it so applied changes show.
+   */
+  function holdAgentPause(): void {
+    const held = pauseOwners().includes("powerUp");
+    if (projectMode === "play" && state.powerUp.open && !held) pauseEngine("powerUp");
+    else if (projectMode === "create" && held) resumeEngine("powerUp");
+  }
+
   let powerUpVisibilityGeneration = 0;
   const openPowerUp: ReturnType<typeof useAuthoringController>["openPowerUp"] = async (...args) => {
     const generation = ++powerUpVisibilityGeneration;
@@ -1043,6 +1054,8 @@ export function useEngine(
     powerUpVisibilityGeneration++;
     state.powerUp.open = false;
     authoringController?.closePowerUp();
+    // A hold taken before the authoring controller loaded ends here.
+    if (pauseOwners().includes("powerUp")) resumeEngine("powerUp");
   }
   const submitPowerUp: ReturnType<typeof useAuthoringController>["submitPowerUp"] = async (
     ...args
@@ -1274,6 +1287,7 @@ export function useEngine(
     }
     if (mode === "play") state.returnProblem = "";
     projectMode = mode;
+    holdAgentPause();
     loadTried();
     link.getWorker()?.postMessage({
       type: "observeSentences",
@@ -1312,6 +1326,7 @@ export function useEngine(
               : STALE_SAVE_MESSAGE
             : "Could not open Create. Reload and try again.";
         projectMode = prior;
+        holdAgentPause();
       }
       return false;
     }
@@ -1409,6 +1424,7 @@ export function useEngine(
           return false;
         if (!reply.grant) {
           projectMode = prior;
+          holdAgentPause();
           state.entryProblem = reply.reason ?? "Open this game in Create to edit it.";
           state.status = state.entryProblem;
           return false;
