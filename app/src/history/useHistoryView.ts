@@ -90,6 +90,8 @@ export interface HistoryViewDeps {
    */
   readonly adoptSession: (game: BootedGame, boot: HistoryBoot, snapshot: unknown) => Promise<void>;
   readonly logAgent: LogAgentFn;
+  /** Close the Agent, which releases the pause it holds over Play. */
+  readonly closeAgent: () => void;
 }
 
 /** The recorded extent of a segment — end, last event, mark, or sync mark. */
@@ -1566,6 +1568,17 @@ export function useHistoryView(deps: HistoryViewDeps) {
           aria: "Resume",
           disabled: false,
           run: resumeLive,
+        };
+      // An open Agent holds Play; Resume closes it and plays on.
+      if (deps.state.powerUp.open && deps.state.paused)
+        return {
+          testid: "btn-transport-resume",
+          icon: "play" as const,
+          label: "Resume",
+          title: "Close the Agent and play on (Space)",
+          aria: "Resume",
+          disabled: false,
+          run: deps.closeAgent,
         };
       return {
         testid: "btn-transport-pause",

@@ -1242,6 +1242,7 @@ export function useEngine(
         getSession: () => authoringController?.getSession() ?? null,
         adoptSession: adoptHistorySession,
         logAgent,
+        closeAgent: closePowerUp,
       });
       link.deps.handleHistoryView = historyView.applyReport;
       roomMap.value =

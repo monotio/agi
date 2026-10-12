@@ -740,11 +740,16 @@ function reject(): void {
 function close() {
   engine.closePowerUp();
   emit("close");
-  void nextTick().then(() => {
-    editor.returnFromAgent.value?.();
-    if (!creating.value) bridge.focusGameInput();
-  });
+  void nextTick().then(() => editor.returnFromAgent.value?.());
 }
+// However the Agent closes in Play (its ×, the bar's Resume, a finished map
+// build), the game takes the keyboard back.
+watch(
+  () => engine.state.powerUp.open,
+  (open, wasOpen) => {
+    if (wasOpen && !open && !creating.value) void nextTick().then(() => bridge.focusGameInput());
+  },
+);
 function showRoom(room: number): void {
   const show = editor.showRoom.value;
   if (show) void action(() => show(room));

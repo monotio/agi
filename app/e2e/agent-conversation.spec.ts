@@ -510,7 +510,11 @@ test("an open Agent pauses Play, never Create, until it closes", async ({ page }
   await expect.poll(async () => (await textHook(page)).paused).toBe(false);
   await page.getByRole("radio", { name: "Play", exact: true }).click();
   await expect.poll(async () => (await textHook(page)).paused).toBe(true);
-  await panel.getByTestId("agent-panel-close").click();
+  // The bar says what the game is doing: Resume closes the Agent and plays on.
+  const resume = page.getByTestId("btn-transport-resume");
+  await expect(resume).toHaveAccessibleName("Resume");
+  await resume.click();
+  await expect(panel).toBeHidden();
   await expect.poll(async () => (await textHook(page)).paused).toBe(false);
   await waitForGameInput(page);
 });
