@@ -21,7 +21,9 @@ Released notes are also available on [GitHub Releases](https://github.com/monoti
   saves continue when a busy browser runs the game's timer late.
 - An Agent panel opened in Create and kept open into Play pauses the game, as
   opening it in Play does. Play no longer runs on while ignoring the keyboard,
-  and returning to Create lets the game run beside the panel again.
+  and returning to Create lets the game run beside the panel again. While the
+  Agent holds Play, the play bar offers Resume, which closes the Agent and plays
+  on; however the Agent closes, the game takes the keyboard back.
 - A room that starts fresh for a change does so even while the game is paused,
   so the change shows and Play's progress is saved; then the game waits.
 - In Create, the Agent sits beside the game and the editor instead of over
@@ -33,6 +35,11 @@ Released notes are also available on [GitHub Releases](https://github.com/monoti
   changed.
 - An applied change to another room offers Show Room N, which takes the hero
   there.
+- An Agent change to an imported game's LOGIC shows only the lines it changed,
+  instead of the whole file as new. In a VIEW review a cel opens itself in the
+  editor, and suggested commands, checkpoint names and figure rows use one
+  named icon or the item itself instead of a text button repeated per item.
+- A restart notice says in plain words why a picture change needs one.
 - The Agent tells players to switch to Create to apply a change, the mode's name
   in the workspace.
 - The SOUND and Launches editors no longer repeat their tab's name as a heading.
