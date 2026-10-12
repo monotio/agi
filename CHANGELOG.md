@@ -14,7 +14,9 @@ Released notes are also available on [GitHub Releases](https://github.com/monoti
   for a restart.
 - Returning to Play starts its room fresh when Create changed what that room
   uses, and says so. Play, Back, From my game, Restart, a project restart and
-  Take control follow the pause the page shows.
+  Take control follow the pause the page shows. This also works when the room's
+  picture can no longer be rebuilt, such as a VIEW stamped into it losing the
+  frame it showed: Play keeps your progress instead of asking for a restart.
 - Play saves its progress as soon as the edited game has drawn, and periodic
   saves continue when a busy browser runs the game's timer late.
 - An Agent panel opened in Create and kept open into Play pauses the game, as

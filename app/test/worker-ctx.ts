@@ -3,6 +3,7 @@
  * messages, wired to a real Engine built from createContainer() plus
  * assembleLogic (the test/host-wait.test.ts pattern).
  */
+import assert from "node:assert/strict";
 import { Engine } from "../../src/runtime/engine.ts";
 import { createContainer } from "../../src/container/container.ts";
 import type { GameContainer } from "../../src/types.ts";
@@ -21,7 +22,7 @@ import {
   type HistoryDrive,
   type HistoryReplayOptions,
 } from "../src/worker/historyDrive.ts";
-import type { HistorySegment } from "../../src/agent/history.ts";
+import type { HistoryBatch, HistorySegment } from "../../src/agent/history.ts";
 import type { WorkerControl, WorkerPresentation } from "../src/worker/workerProtocol.ts";
 
 export interface WorkerHarness {
@@ -71,4 +72,41 @@ export function replayHistorySegment(
   const drive = openHistoryDrive(segment, createWorkerContext, options);
   while (!drive.halted) drive.step();
   return drive;
+}
+
+/**
+ * Fold the posted historyBatch traffic into per-segment records, deduped by
+ * batch number — the resend path reposts un-acked batches and the host
+ * filters the duplicates the same way.
+ */
+export function collectSegments(control: WorkerControl[]): HistorySegment[] {
+  const segments = new Map<string, HistorySegment>();
+  const seen = new Set<string>();
+  for (const message of control) {
+    if (message.type !== "historyBatch") continue;
+    const batch: HistoryBatch = message.batch;
+    const key = `${batch.segment}:${batch.batch}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    let segment = segments.get(batch.segment);
+    if (segment === undefined) {
+      assert.ok(batch.boot !== undefined, `segment ${batch.segment} opens with a boot batch`);
+      segment = {
+        id: batch.segment,
+        boot: batch.boot,
+        anchors: [],
+        events: [],
+        marks: [],
+        sync: [],
+      };
+      segments.set(batch.segment, segment);
+    }
+    segment.events.push(...batch.events);
+    segment.marks.push(...batch.marks);
+    segment.sync.push(...batch.sync);
+    if (batch.clock !== undefined) (segment.clock ??= []).push(...batch.clock);
+    if (batch.anchor !== undefined) segment.anchors.push(batch.anchor);
+    if (batch.end !== undefined) segment.end = batch.end;
+  }
+  return [...segments.values()];
 }

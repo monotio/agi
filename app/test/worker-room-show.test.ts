@@ -9,7 +9,13 @@ import { createContainer } from "../../src/container/container.ts";
 import { projectDocumentId } from "../../src/authoring/projectContent.ts";
 import { writeProjectWorkspace } from "../../src/authoring/projectWorkspace.ts";
 import { sha256Hex } from "../../src/crypto.ts";
-import type { WorkerControl, PreviewUpdateCandidateMessage } from "../src/worker/workerProtocol.ts";
+import { historySyncDigest } from "../../src/agent/history.ts";
+import { collectSegments, replayHistorySegment } from "./worker-ctx.ts";
+import type {
+  WorkerControl,
+  WorkerPresentation,
+  PreviewUpdateCandidateMessage,
+} from "../src/worker/workerProtocol.ts";
 
 // Room 1 counts its entries in v83 and marks its entry code's version in v81.
 // LOGIC 2 is never loaded.
@@ -20,8 +26,15 @@ function candidate(
   room = ROOM(1),
   other = "return;",
   logic0 = LOGIC_0,
+  extra: Record<string, string> = {},
 ): PreviewUpdateCandidateMessage {
-  const documents = { "logic:0": logic0, "logic:1": room, "logic:2": other, world: "{}" };
+  const documents = {
+    "logic:0": logic0,
+    "logic:1": room,
+    "logic:2": other,
+    world: "{}",
+    ...extra,
+  };
   const compiled = compileProjectDocuments({
     files: Object.fromEntries(createContainer().files),
     documents,
@@ -41,16 +54,21 @@ function candidate(
 }
 
 /** A game played into room 1, then opened in Create; a cold one opens before it runs. */
-async function created(t: TestContext, paused = false, cold = false) {
+async function created(t: TestContext, paused = false, cold = false, first = candidate()) {
   const control: WorkerControl[] = [];
+  const presentations: WorkerPresentation[] = [];
   const ctx = createWorkerContext({
-    control: (msg) => control.push(msg),
-    presentation: () => {},
+    control: (msg) => {
+      control.push(msg);
+      // The page acknowledges each timeline batch so recording keeps flowing.
+      if (msg.type === "historyBatch")
+        onWorkerMessage(ctx, { type: "historyAck", epoch: msg.epoch, batch: msg.batch.batch });
+    },
+    presentation: (msg) => presentations.push(msg),
     now: () => 0,
   });
   ctx.host = createEngineHost(ctx);
   t.after(() => ctx.fns.stopTimers());
-  const first = candidate();
   onWorkerMessage(ctx, {
     type: "boot",
     files: first.files,
@@ -92,7 +110,7 @@ async function created(t: TestContext, paused = false, cold = false) {
     ctx.run.engine!.tick();
     return reply;
   };
-  return { ctx, update, play };
+  return { ctx, control, presentations, update, play };
 }
 
 test("an applied change to the room's LOGIC re-runs its entry code at once", async (t) => {
@@ -151,4 +169,55 @@ test("a project restart and Take control keep a pause the page still holds", asy
   assert.equal(ctx.run.cycle.paused, true);
   onWorkerMessage(ctx, { type: "pause", paused: false });
   assert.equal(ctx.run.cycle.paused, false);
+});
+
+// Room 1 draws PICTURE 1 and stamps a frame of VIEW 0 into it. A change that
+// gives VIEW 0 fewer frames and stamps frame 0 instead cannot replay the old
+// picture, so Play starts the room fresh from the moment it left, keeping its
+// progress, rather than asking for a restart from the beginning.
+const STAMPING = (version: number, cel: number) =>
+  `if(isset(f5)){increment(v83);assignn(v81,${version});assignn(v10,1);load.pic(v10);draw.pic(v10);discard.pic(v10);load.view(0);add.to.pic(0,0,${cel},40,100,4,0);show.pic();}return;`;
+const frame = (color: number) => ({ width: 2, height: 2, pixels: [color, color, color, color] });
+const STAMP_PIXEL = 100 * 160 + 40;
+
+test("Play starts its room fresh when a stamped VIEW lost the frame it showed", async (t) => {
+  const art = (cels: ReturnType<typeof frame>[]) => ({
+    "picture:1": "vis 1\nfill 1,1\nend\n",
+    "view:0": JSON.stringify({ loops: [{ cels }] }),
+  });
+  const first = candidate(STAMPING(1, 2), "return;", LOGIC_0, art([frame(3), frame(4), frame(7)]));
+  const { ctx, control, presentations, update, play } = await created(t, false, false, first);
+  // The captured moment: room 1 entered once, frame 2 stamped.
+  const next = candidate(STAMPING(2, 0), "return;", LOGIC_0, art([frame(5)]));
+  update(next, 2);
+  assert.equal(ctx.run.engine!.getPresentation().visual[STAMP_PIXEL], 5, "Create shows the edit");
+  const mark = control.length;
+  const reply = play();
+  assert.equal(reply.restartedRoom, 1);
+  ctx.run.engine!.tick();
+  const engine = ctx.run.engine!;
+  assert.equal(ctx.run.progress.mode, "play");
+  assert.deepEqual(
+    [engine.vars[0], engine.vars[81], engine.vars[83]],
+    [1, 2, 2],
+    "the room ran its new entry code once more, from the captured progress",
+  );
+  assert.equal(engine.getPresentation().visual[STAMP_PIXEL], 5);
+  assert.equal(ctx.run.cycle.paused, false);
+  assert.equal(ctx.fns.autosave(true), true);
+  const saved = presentations.findLast((m) => m.type === "autosave");
+  assert.ok(saved?.type === "autosave");
+  assert.equal(saved.revision, next.revision, "Play saves the edited game");
+  // The timeline replays it: the moment on the captured files, then the entry
+  // on the edited ones, to the same state the player sees.
+  onWorkerMessage(ctx, { type: "flush", id: 20 });
+  const segments = collectSegments(control.slice(mark));
+  assert.ok(segments.length >= 2, "the entry opened a segment of its own");
+  for (const segment of segments) {
+    const replayed = replayHistorySegment(segment);
+    assert.equal(replayed.error, null);
+    assert.equal(replayed.diverged, null);
+    if (segment === segments.at(-1))
+      assert.equal(historySyncDigest(replayed.ctx.run.engine!), historySyncDigest(engine));
+  }
 });
