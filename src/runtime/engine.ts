@@ -7732,20 +7732,19 @@ export class Engine {
 
   /**
    * What the current room has in use: its own LOGIC and every loaded LOGIC,
-   * PICTURE and VIEW, plus the picture last drawn and the VIEWs stamped into
-   * it. Entry code has already run
+   * PICTURE and VIEW, plus the pictures drawn into the screen and the VIEWs
+   * stamped into it. Entry code has already run
    * on these, so a change to one shows only once the room is entered again.
    */
   roomResources(): { logic: number[]; picture: number[]; view: number[] } {
     const sorted = (nums: Iterable<number>) => [...new Set(nums)].sort((a, b) => a - b);
+    const composition = analyzePictureComposition(this.hostReplay, this.hostReplayOverflow);
     return {
       logic: sorted([this.vars[V_ROOM]!, ...this.logics.keys()]),
-      picture: sorted([this.lastPicture, ...this.pictures]),
+      // A picture drawn or overlaid on screen stays there after it is discarded.
+      picture: sorted([this.lastPicture, ...this.pictures, ...composition.ops.map((op) => op.num)]),
       // A VIEW stamped into the picture stays on screen after it is discarded.
-      view: sorted([
-        ...this.views.keys(),
-        ...analyzePictureComposition(this.hostReplay, this.hostReplayOverflow).stampedViews,
-      ]),
+      view: sorted([...this.views.keys(), ...composition.stampedViews]),
     };
   }
 

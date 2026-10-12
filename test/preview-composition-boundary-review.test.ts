@@ -189,3 +189,15 @@ return;
   assert.equal(engine.getFrame().visual[10 * 160 + 10], 3);
   assert.equal(engine.getFrame().visual[0], 15);
 });
+
+test("roomResources names pictures discarded after they were drawn or overlaid", () => {
+  const engine = makeEngine(`
+if (!isset(f200)) {
+  set(f200);
+  assignn(v10, 1); load.pic(v10); draw.pic(v10); discard.pic(v10);
+  assignn(v10, 3); load.pic(v10); overlay.pic(v10); discard.pic(v10); show.pic();
+}
+return;
+`);
+  assert.deepEqual(engine.roomResources().picture, [1, 3]);
+});
