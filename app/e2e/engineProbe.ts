@@ -129,9 +129,23 @@ export interface Probe {
 /**
  * Read the pixels and the counters in a single evaluate, so a hash can never
  * be attributed to a frame that had not been drawn when it was sampled.
+ *
+ * The app counts a frame when its message arrives and paints the probe canvas
+ * in an animation-frame callback, so on a starved compositor the canvas can
+ * hold an older frame, unchanged, for longer than `settled` watches it.
+ * Callbacks run in registration order: once one of ours has run, every paint
+ * queued before it has landed. A frame that arrives during the wait queues
+ * its paint behind ours, so the wait repeats until the count holds still.
  */
 export async function probe(page: Page): Promise<Probe> {
-  return page.evaluate(() => {
+  return page.evaluate(async () => {
+    const counted = () => window.__AGI_TEXT__?.frame ?? 0;
+    for (let frame = counted(), turns = 0; turns < 8; turns++) {
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      const now = counted();
+      if (now === frame) break;
+      frame = now;
+    }
     const c = document.querySelector<HTMLCanvasElement>("[data-testid='game-canvas']")!;
     const ctx = c.getContext("2d")!;
     const all = ctx.getImageData(0, 0, 320, 200).data;

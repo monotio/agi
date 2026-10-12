@@ -383,7 +383,8 @@ export function useWorkerLink(options: WorkerLinkOptions) {
         // field is authoritative for dismissal.
         if (msg.modal !== "showObj") state.showObjView = null;
         onFrame(latestFrame);
-        // Counted after the frame is drawn, so tests can poll for painted pixels.
+        // Counted once the frame is presented; the probe canvas is painted on
+        // the next animation frame, so a pixel probe waits for one of its own.
         hook.frame++;
         publishHook();
       },
