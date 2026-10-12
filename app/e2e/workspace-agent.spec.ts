@@ -677,6 +677,9 @@ test("an approved change shows at once in Create and again when Play resumes", a
   await expect(page.getByTestId("return-note")).toHaveText(
     "Room 1 started fresh with your changes.",
   );
+  // The Agent is still open, so Play waits paused; closing it plays on.
+  await expect.poll(async () => (await textHook(page)).paused).toBe(true);
+  await page.getByTestId("workspace-agent-panel").getByTestId("agent-panel-close").click();
   await expect.poll(async () => (await textHook(page)).egoX).toBe(80);
   await expect.poll(async () => (await textHook(page)).paused).toBe(false);
   await page.screenshot({ path: test.info().outputPath("play-resumes-with-change-1440.png") });
