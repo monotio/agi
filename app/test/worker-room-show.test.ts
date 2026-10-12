@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { test, type TestContext } from "node:test";
 import { createWorkerContext } from "../src/worker/context.ts";
 import { createEngineHost } from "../src/worker/host.ts";
+import { createDebugController } from "../src/worker/debugController.ts";
+import { installDebugController } from "../src/worker/debugLoader.ts";
 import { onWorkerMessage } from "../src/worker/dispatch.ts";
 import { projectAdmissionIdentity } from "../src/worker/projectAdmission.ts";
 import { compileProjectDocuments } from "../../src/authoring/projectDocuments.ts";
@@ -208,11 +210,11 @@ test("Play starts its room fresh when a stamped VIEW lost the frame it showed", 
   const saved = presentations.findLast((m) => m.type === "autosave");
   assert.ok(saved?.type === "autosave");
   assert.equal(saved.revision, next.revision, "Play saves the edited game");
-  // The timeline replays it: the moment on the captured files, then the entry
-  // on the edited ones, to the same state the player sees.
+  // The timeline replays it from the room entered on the edited files to the
+  // same state the player sees.
   onWorkerMessage(ctx, { type: "flush", id: 20 });
   const segments = collectSegments(control.slice(mark));
-  assert.ok(segments.length >= 2, "the entry opened a segment of its own");
+  assert.ok(segments.length >= 1, "Play recorded its resumed segment");
   for (const segment of segments) {
     const replayed = replayHistorySegment(segment);
     assert.equal(replayed.error, null);
@@ -255,4 +257,99 @@ test("Play's room entry runs and is saved under a pause that lands right after i
   assert.equal(replayed.error, null);
   assert.equal(replayed.diverged, null);
   assert.equal(historySyncDigest(replayed.ctx.run.engine!), historySyncDigest(engine));
+});
+
+// After Play starts its room fresh on the edited files, the next Create visit
+// edits that same project: admission, sources and boot files all describe the
+// installed image, so the page's next edit, sent against it, lands.
+test("the next Create edit lands after Play started a stamped room fresh", async (t) => {
+  const art = (cels: ReturnType<typeof frame>[]) => ({
+    "picture:1": "vis 1\nfill 1,1\nend\n",
+    "view:0": JSON.stringify({ loops: [{ cels }] }),
+  });
+  const first = candidate(STAMPING(1, 2), "return;", LOGIC_0, art([frame(3), frame(4), frame(7)]));
+  const { ctx, control, update, play } = await created(t, false, false, first);
+  const next = candidate(STAMPING(2, 0), "return;", LOGIC_0, art([frame(5)]));
+  update(next, 2);
+  assert.equal(play().restartedRoom, 1);
+  onWorkerMessage(ctx, { type: "projectCreate", id: 30 });
+  await ctx.projectLoader.loading;
+  const lane = ctx.run.projectAdmission!;
+  assert.equal(lane.buildId, next.buildId);
+  assert.equal(lane.documentId, next.documentId);
+  assert.equal(lane.sources["1"], next.sources["1"]);
+  assert.deepEqual(
+    Object.fromEntries(ctx.boot.currentBootFiles!),
+    next.files,
+    "boot files are the edited image",
+  );
+  const third = candidate(STAMPING(2, 0), "assignn(v82,1);return;", LOGIC_0, art([frame(5)]));
+  onWorkerMessage(ctx, {
+    type: "previewUpdate",
+    id: 31,
+    runToken: lane.runToken,
+    expected: {
+      ...projectAdmissionIdentity(ctx, lane)!,
+      buildId: next.buildId,
+      documentId: next.documentId!,
+    },
+    candidate: third,
+  });
+  const result = control.findLast((m) => m.type === "previewUpdateResult");
+  assert.ok(result?.type === "previewUpdateResult");
+  assert.equal(result.status, "committed", JSON.stringify(result));
+});
+
+// An attached debugger rebinds to the run Play adopts. The room entry commits
+// on the detached candidate first, so the debugger's arming cannot defer it
+// after Create's run is already gone.
+test("Play starts a stamped room fresh with the debugger attached", async (t) => {
+  const art = (cels: ReturnType<typeof frame>[]) => ({
+    "picture:1": "vis 1\nfill 1,1\nend\n",
+    "view:0": JSON.stringify({ loops: [{ cels }] }),
+  });
+  // Unchanged code chooses frame 0 once flag 210 is set; the captured picture shows frame 2.
+  const room =
+    "if(isset(f5)){increment(v83);assignn(v10,1);load.pic(v10);draw.pic(v10);discard.pic(v10);load.view(0);if(isset(f210)){add.to.pic(0,0,0,40,100,4,0);}else{add.to.pic(0,0,2,40,100,4,0);}show.pic();}return;";
+  const first = candidate(room, "return;", LOGIC_0, art([frame(3), frame(4), frame(7)]));
+  const control: WorkerControl[] = [];
+  const ctx = createWorkerContext({
+    control: (msg) => control.push(msg),
+    presentation: () => {},
+    now: () => 0,
+  });
+  ctx.host = createEngineHost(ctx);
+  // The debugger's controller loads lazily in the app; here it installs up front.
+  installDebugController(ctx, createDebugController(ctx));
+  t.after(() => ctx.fns.stopTimers());
+  onWorkerMessage(ctx, { type: "boot", files: first.files, words: [], profile: "2.936" });
+  await ctx.projectLoader.loading;
+  ctx.fns.stopTimers();
+  ctx.run.engine!.tick();
+  ctx.run.engine!.tick();
+  assert.equal(ctx.run.engine!.getPresentation().visual[STAMP_PIXEL], 7);
+  onWorkerMessage(ctx, { type: "debugWrite", id: 2, flags: [[210, 1]] });
+  onWorkerMessage(ctx, { type: "projectCreate", id: 3 });
+  await ctx.projectLoader.loading;
+  const next = candidate(room, "return;", LOGIC_0, art([frame(5)]));
+  const lane = ctx.run.projectAdmission!;
+  onWorkerMessage(ctx, {
+    type: "previewUpdate",
+    id: 4,
+    runToken: lane.runToken,
+    expected: projectAdmissionIdentity(ctx, lane)!,
+    candidate: next,
+  });
+  const applied = control.findLast((m) => m.type === "previewUpdateResult");
+  assert.ok(applied?.type === "previewUpdateResult" && applied.status === "committed");
+  ctx.run.engine!.tick();
+  assert.equal(ctx.run.engine!.getPresentation().visual[STAMP_PIXEL], 5, "Create shows frame 0");
+  onWorkerMessage(ctx, { type: "debugAttach", id: 5, sources: next.sources });
+  assert.equal(ctx.run.engine!.executionControlActive, true);
+  onWorkerMessage(ctx, { type: "projectPlay", id: 6 });
+  const reply = control.findLast((m) => m.type === "projectPlayed");
+  assert.ok(reply?.type === "projectPlayed" && reply.ok, JSON.stringify(reply));
+  assert.equal(reply.restartedRoom, 1);
+  assert.equal(ctx.run.progress.mode, "play");
+  assert.deepEqual(Object.fromEntries(ctx.run.engine!.containerFiles), next.files);
 });

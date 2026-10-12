@@ -19,14 +19,6 @@ import { createHistory } from "./history.ts";
 import { roomResourcesChanged } from "./roomChange.ts";
 import type { WorkerContext } from "./context.ts";
 
-const SILENT_HOST = {
-  print() {},
-  displayAt() {},
-  statusLine() {},
-  takeInputLine: () => null,
-  takeKeys: () => [],
-};
-
 /** A Create boot owns its return point before any callback can execute the candidate. */
 export function prepareCreateProgress(
   ctx: WorkerContext,
@@ -120,8 +112,8 @@ export function adoptResumePoint(
   )
     throw new Error("The interpreter profile changed.");
   const dictionary = options.currentFiles
-    ? files.get("WORDS.TOK")
-      ? stageDictionary(files.get("WORDS.TOK")!)
+    ? live.get("WORDS.TOK")
+      ? stageDictionary(live.get("WORDS.TOK")!)
       : new Map<string, number>()
     : new Map(boot.dictionary);
   const facade = detachedHost(ctx, boot.soundDevice);
@@ -208,22 +200,15 @@ export function adoptResumePoint(
     if (historyFingerprint(semantic).hash !== boot.fingerprint.hash)
       throw new Error("The saved moment could not be reproduced.");
   }
-  let entryPlan: ReturnType<Engine["prepareRoomReentry"]> | null = null;
   if (options.freshEntry) {
     if (!roomResourcesChanged(candidate, recordedFiles, live))
       throw new Error("The room's own parts did not change.");
-    // A silent copy proves the entry commits before the live run is replaced.
-    const trial = new Engine(
-      openContainer(files, profile ? { profile } : {}),
-      SILENT_HOST,
-      new Map(dictionary),
-      { ...(profile ? { profile } : {}), amigaRegion: boot.amigaRegion ?? "ntsc" },
-    );
-    restoreOnto(trial);
-    const tried = trial.commitRoomReentry(trial.prepareRoomReentry({ files: live }));
-    if (tried.status !== "committed")
-      throw new Error(tried.reason ?? "The room could not start fresh.");
-    entryPlan = candidate.prepareRoomReentry({ files: live });
+    // The detached candidate takes the current files and owes its room entry
+    // before anything is replaced: a refusal leaves Create as it was, and the
+    // admission, boot files and debugger below all bind to the final image.
+    const entered = candidate.commitRoomReentry(candidate.prepareRoomReentry({ files: live }));
+    if (entered.status !== "committed")
+      throw new Error(entered.reason ?? "The room could not start fresh.");
   }
   const project = options.currentFiles ? ctx.boot.project : boot.project;
   const admission = ctx.projectLoader.prepareReplacement?.(candidate, project) ?? null;
@@ -270,20 +255,9 @@ export function adoptResumePoint(
   });
   ctx.history.resumedFrom = options.from ?? null;
   ctx.fns.setKeyWaiting(candidate.awaitingKey);
-  ctx.fns.historyResume();
-  ctx.fns.postFrame(true);
-  if (entryPlan === null) return;
-  // The resumed segment ends on the captured files; the entry on the current
-  // ones opens the next, as an applied change that enters the room does.
-  const entered = candidate.commitRoomReentry(entryPlan, () => {
-    ctx.fns.historyEnd("resume");
-    ctx.fns.setKeyWaiting(false);
-    ctx.fns.abandonHostRequest();
-    ctx.fns.markReenter();
-  });
-  if (entered.status !== "committed")
-    throw new Error(entered.reason ?? "The room could not start fresh.");
-  ctx.fns.noteTransition();
+  // The owed entry is the room's next transition; the resumed segment boots
+  // once that entry has drawn the room on the current files.
+  if (options.freshEntry) ctx.fns.markReenter();
   ctx.fns.historyResume();
   ctx.fns.postFrame(true);
 }
