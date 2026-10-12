@@ -336,8 +336,7 @@ test("unfinished captured LOGIC stays readable beside a valid captured view @web
   await result.getByRole("button", { name: "Back to chat", exact: true }).click();
   await buttons.nth(1).click();
   await expect(result.getByTestId("agent-view-review").locator("details")).toHaveCount(4);
-  // A cel that opens its editor is a labelled button around a decorative image.
-  await expect(result.getByTestId("agent-view-review").locator("img").first()).toHaveAttribute(
+  await expect(result.getByTestId("agent-view-review").getByRole("img").first()).toHaveAttribute(
     "src",
     /^data:image\/png;base64,/,
   );

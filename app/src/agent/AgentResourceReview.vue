@@ -220,7 +220,7 @@ const removed = computed(() =>
                   $emit('open', { resource: view.resource, loop: loop.index, cel: cel.index })
                 "
               >
-                <img :src="cel.url" alt="" />
+                <img :src="cel.url" :alt="`${view.label}, loop ${loop.index}, cel ${cel.index}`" />
               </button>
               <img
                 v-else
