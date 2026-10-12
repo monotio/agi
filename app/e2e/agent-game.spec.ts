@@ -221,6 +221,8 @@ test("in-game ZIP exports the live game after a patch and reload", async ({ page
   expect(gameJson.roomGeneration, "the export marks the world as still growing").toBe(true);
   expect(Object.keys(files)).not.toContain("PROJECT.JSON");
   expect(Object.keys(files)).not.toContain("transcript.json");
+  // An open Agent pauses Play; the player closes it to play on and save.
+  await page.getByTestId("workspace-agent-panel").getByTestId("agent-panel-close").click();
   await savePlayProgress(page);
   await page.reload();
   // The live patch travels with the autosave, so the reload resumes the
