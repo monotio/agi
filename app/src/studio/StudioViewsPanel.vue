@@ -3,6 +3,7 @@ import { numberedLabel } from "../../../src/logic/numberedLabels.ts";
 import { useProjectLabels } from "../shell/useProjectLabels.ts";
 import ActionMenu from "../ui/ActionMenu.vue";
 import UiButton from "../ui/UiButton.vue";
+import UiIconButton from "../ui/UiIconButton.vue";
 import UiPanel from "../ui/UiPanel.vue";
 import UiSelect from "../ui/UiSelect.vue";
 import type {
@@ -105,26 +106,26 @@ function pick(figure: RoomPlacement, key: string): void {
             </option>
           </UiSelect>
           <template v-if="!fixed(figure)">
-            <UiButton
+            <UiIconButton
               v-if="previews[figure.object]"
+              icon="restart"
               size="sm"
-              variant="ghost"
+              :label="`Reset ${numberedLabel('object', figure.object, labels, 'option')}`"
               :disabled="readOnly"
               :title="readOnly ? 'The room is read-only right now.' : undefined"
               data-testid="view-reset"
               @click="emit('reset', figure)"
-              >Reset</UiButton
-            >
-            <UiButton
+            />
+            <UiIconButton
               v-if="spotOf(figure).x !== null && spotOf(figure).y !== null"
+              icon="copy"
               size="sm"
-              variant="ghost"
+              :label="`Copy the position of ${numberedLabel('object', figure.object, labels, 'option')}`"
               :disabled="readOnly"
               :title="readOnly ? 'The room is read-only right now.' : undefined"
               data-testid="view-copy"
               @click="emit('copy', figure, spotOf(figure).x!, spotOf(figure).y!)"
-              >Copy position</UiButton
-            >
+            />
           </template>
           <UiButton
             v-if="figure.lines.length === 1"

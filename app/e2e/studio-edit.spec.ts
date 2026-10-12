@@ -488,4 +488,8 @@ test("the copy and fresh-room notices close by themselves", async ({ page }) => 
   await expect(returnNote).toBeVisible();
   await page.mouse.move(0, 0);
   await expect(returnNote).toHaveCount(0, { timeout: 5_000 });
+  // The update note reported that Create visit; the next one starts without it.
+  await page.getByRole("radio", { name: "Create", exact: true }).click();
+  await expect(page).toHaveURL(/#create\//);
+  await expect(page.getByTestId("workspace-updated")).toHaveCount(0);
 });

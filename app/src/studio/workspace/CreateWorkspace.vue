@@ -1016,7 +1016,11 @@ watch(
   },
 );
 watch([editor.selected, roomHint, () => props.creating], () => {
-  if (!props.creating) returnRoom.value = visitingRoom.value = undefined;
+  if (props.creating) return;
+  returnRoom.value = visitingRoom.value = undefined;
+  // "Updated · … restarted" reports this visit's update; Play ends the visit.
+  editor.updateResult.value = "";
+  editor.updatedParts.value = 0;
 });
 
 let returningRemovedRoom = false;
@@ -3097,25 +3101,23 @@ onBeforeUnmount(() => {
         >
           <span class="workspace-history__name">{{ name }}</span>
           <div class="workspace-history__actions">
-            <UiButton
+            <UiIconButton
+              icon="pencil"
               size="sm"
-              variant="ghost"
               :disabled="editingPaused || editor.busy.value"
-              :aria-label="`Rename ${name}`"
+              :label="`Rename ${name}`"
               @click="
                 editingName = name;
                 versionName = name;
               "
-              >Rename</UiButton
-            >
-            <UiButton
+            />
+            <UiIconButton
+              icon="x"
               size="sm"
-              variant="ghost"
               :disabled="editingPaused || editor.busy.value"
-              :aria-label="`Clear ${name}`"
+              :label="`Clear ${name}`"
               @click="clearName(name)"
-              >Clear</UiButton
-            >
+            />
           </div>
         </div>
         <span

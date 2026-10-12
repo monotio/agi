@@ -27,11 +27,17 @@ const elsewhere = computed(() => {
 <template>
   <div class="agent-result" data-testid="agent-result">
     <ul v-if="result.kind === 'commands'" class="agent-result__commands">
+      <!-- The command itself types into the game; no button per command. -->
       <li v-for="command in result.commands" :key="command">
-        <code>{{ command }}</code>
-        <UiButton size="sm" variant="ghost" @click="$emit('command', command)"
-          >Use command</UiButton
+        <button
+          type="button"
+          class="agent-result__command"
+          :aria-label="`Type ${command} into the game`"
+          :title="`Type ${command} into the game`"
+          @click="$emit('command', command)"
         >
+          <code>{{ command }}</code>
+        </button>
       </li>
     </ul>
     <table v-else-if="result.kind === 'table'">
@@ -96,8 +102,21 @@ const elsewhere = computed(() => {
 .agent-result__commands li {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: var(--space-3);
+}
+.agent-result__command {
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.agent-result__command:hover,
+.agent-result__command:focus-visible {
+  border-color: var(--focus);
+  outline: none;
 }
 .agent-result table {
   width: 100%;
